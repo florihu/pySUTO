@@ -10,13 +10,22 @@ import numpy as np
 import pandas as pd
 import polars as pl
 import seaborn as sns
+import sys
 
+# Add the parent directory to the path
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
+# Now use an absolute import
+from util import clean_cols
+from Data_feed import Data_feed
 
-class BACI_FEED:
+class Baci(Data_feed):
     """
     This class is used to read the BACI data and convert it into a standardized format.
+    this is a sub class of the DATA_FEED class thereore it inherits all the functions of the DATA_FEED class
+    
     """
+
     def __init__(self):
         """
         This function initializes the class and sets the path to the BACI data.
@@ -30,40 +39,38 @@ class BACI_FEED:
             'v': 'Flow',
             'q': 'Quantity',
         }
+        super().__init__()
+
+
 
     def baci_read(self):
         """
         This function reads the BACI data and converts it into a standardized format.
-        see https://www.cepii.fr/DATA_DOWNLOAD/baci/doc/DescriptionBACI.html for more information on the BACI data
         """
         path = r'data\input\raw\BACI_HS92_V202501'
+        country_path = r'data\input\raw\BACI_HS92_V202501\country_codes_V202501.csv'
 
-        # get the list of files in the directory
-        files = os.listdir(path)
-        # filter for files that start with 'BACI'
-        files = [f for f in files if f.startswith('BACI')]
-        # read the files concat along axis = 0 with polars
+        files = [f for f in os.listdir(path) if f.startswith('BACI')]
         df = pl.concat([pl.read_csv(os.path.join(path, f)) for f in files], how='vertical')
-
-        # rename the columns
         df = df.rename(self.baci_rename)
 
-        # get the concentration data from Soulier 2018
-        soul = self.soulier_concentration_read()
-
-        soul = soul.reset_index()
-
-        soul = pl.from_dataframe(soul)
-
+        # Merge with Soulier concentration data
+        soul = pl.from_pandas(self.soulier_concentration_read().reset_index())
         df = df.filter(pl.col('HS92_Code').is_in(soul['HS92_Code'].to_list()))
-       
-        #merge df with soul we only need ks that are in the soulier dat
         df = df.join(soul, on='HS92_Code', how='left')
 
-        logging.info(f'BACI data read from {path} and merged with Soulier 2018 data')
+        # Merge with country names
+        country_name = pl.read_csv(country_path)
+        country_name = clean_cols(country_name)  # assumes this normalizes column names
+
+        # merge to df
+        df = df.join(country_name, left_on='Region_from', right_on='Country_code', how='left')
+        df = df.rename({'Country_name': 'Region_from_name'})
+
+        df = df.join(country_name, left_on='Region_to', right_on='Country_code', how='left')
+        
 
         return df
-    
 
     def soulier_concentration_read(self):
 
@@ -103,5 +110,5 @@ class BACI_FEED:
 
 
 if __name__ == "__main__":
-    baci = BACI_FEED()
+    baci = Baci()
     baci.baci_read()

@@ -9,4 +9,4 @@ Creating spatially explicit input output tables for copper supply chain
 * No spaces in variabes _
 * Uncertainty management
 * ID per produced dataset.
-* 
+* Classes large first letter: System; Functions small (soulier etc. )
