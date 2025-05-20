@@ -65,10 +65,19 @@ class Baci(Data_feed):
 
         # merge to df
         df = df.join(country_name, left_on='Region_from', right_on='Country_code', how='left')
-        df = df.rename({'Country_name': 'Region_from_name'})
-
-        df = df.join(country_name, left_on='Region_to', right_on='Country_code', how='left')
         
+
+        df = df.join(country_name, left_on='Region_to', right_on='Country_code', how='left', suffix='_to')
+        
+        # rename columns consistently
+        df = df.rename({'Country_name': 'Region_from_name', 
+                        'Country_name_to': 'Region_to_name',
+
+                        'Country_iso2': 'Region_from_iso2',
+                        'Country_iso2_to': 'Region_to_iso2',
+
+                        'Country_iso3': 'Region_from_iso3',
+                        'Country_iso3_to': 'Region_to_iso3',})
 
         return df
 
