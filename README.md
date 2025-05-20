@@ -10,3 +10,26 @@ Creating spatially explicit input output tables for copper supply chain
 * Uncertainty management
 * ID per produced dataset.
 * Classes large first letter: System; Functions small (soulier etc. )
+
+
+# Folder structure
+
+* data
+    * input
+        * base classification file   
+        * raw (raw data, uncertainty source2base classification files)
+    * output (data output)
+
+* figs
+    * explo
+    * results
+
+* model (core model scripts)
+    * explo
+    * results
+    * ....
+
+* orga
+    * manuscript präsis etc. 
+
+

@@ -15,7 +15,7 @@ class Data_feed(System):
         """
         self.name = name
         self.type = type_
-        assert self.type_ in ['flow', 'yield', 'concentration', 'stock', None], f"Type {self.type_} not recognized"
+        #assert self.type_ in ['flow', 'yield', 'concentration', 'stock', None], f"Type {self.type_} not recognized"
 
         super().__init__()
 

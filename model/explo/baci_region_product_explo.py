@@ -10,13 +10,13 @@ sns.set(style="white")
 
 # Dynamically find the parent "code" directory
 current_file = Path(__file__).resolve()
-code_dir = current_file.parents[2]  # go up from explo -> analysis -> code
+code_dir = current_file.parents[3]  # go up from explo -> analysis -> code
 
 # Add 'code/model' to sys.path
 sys.path.append(str(code_dir / 'model'))
 
 from Baci import Baci
-
+from util import save_fig
 baci = Baci()
 
 
@@ -146,7 +146,7 @@ def region_net_trade():
     plt.xticks(rotation=45)
     plt.yticks(fontsize=8)
     plt.tight_layout()
-    plt.savefig(f'Net_flow_biggest_50_regions.pdf', dpi=300, bbox_inches='tight')
+    save_fig('Net_flow_biggest_100_regions', dpi=300, format='pdf')
     plt.show()
 
     return None
