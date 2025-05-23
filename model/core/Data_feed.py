@@ -5,7 +5,10 @@ import pandas as pd
 import polars as pl
 
 from System import System
-class Data_feed(System):
+
+
+
+class DataFeed(System):
     """
     This class is used to read the data and convert it into a standardized format.
     """

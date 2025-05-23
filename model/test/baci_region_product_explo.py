@@ -10,10 +10,10 @@ sns.set(style="white")
 
 # Dynamically find the parent "code" directory
 current_file = Path(__file__).resolve()
-code_dir = current_file.parents[3]  # go up from explo -> analysis -> code
+code_dir = current_file.parents[1]  # go up from explo -> model
 
-# Add 'code/model' to sys.path
-sys.path.append(str(code_dir / 'model'))
+# # Add 'code/model' to sys.path
+sys.path.append(str(code_dir / 'core'))
 
 from Baci import Baci
 from util import save_fig

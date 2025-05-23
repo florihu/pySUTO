@@ -72,10 +72,21 @@ def get_path(name):
     return None
 
 def save_fig(name, dpi=600, format='pdf'):
+
+    '''
+    save fig to the fig folder.. distinguish between figs from explo scripts and results scripts
+    '''
+
     base_folder = 'fig'
     # Get the calling script’s filename
     calling_script = inspect.stack()[1].filename
     script_name = os.path.basename(calling_script).replace('.py', '')
+
+    # if script in explo folder save in fig/explo else in fig/results
+    if 'test' in calling_script:
+        base_folder = os.path.join(base_folder, 'explo')
+    elif 'results' in calling_script:
+        base_folder = os.path.join(base_folder, 'results')
 
 
     path = os.path.join(base_folder, script_name)

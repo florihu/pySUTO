@@ -19,7 +19,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 from util import clean_cols
 from Data_feed import Data_feed
 
-class Baci(Data_feed):
+class Baci(DataFeed):
     """
     This class is used to read the BACI data and convert it into a standardized format.
     this is a sub class of the DATA_FEED class thereore it inherits all the functions of the DATA_FEED class
@@ -30,7 +30,7 @@ class Baci(Data_feed):
         """
         This function initializes the class and sets the path to the BACI data.
         """
-
+        super().__init__()
         self.baci_rename = {
             't': 'Year',
             'k': 'HS92_Code',
@@ -39,7 +39,7 @@ class Baci(Data_feed):
             'v': 'Flow',
             'q': 'Quantity',
         }
-        super().__init__()
+        
 
 
 

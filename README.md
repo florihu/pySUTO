@@ -1,4 +1,4 @@
-# SEPIOTs
+# GPIOC
 Creating spatially explicit input output tables for copper supply chain
 
 
@@ -19,7 +19,6 @@ Creating spatially explicit input output tables for copper supply chain
         * base classification file   
         * raw (raw data, uncertainty source2base classification files)
     * output (data output)
-
 * figs
     * explo
     * results
