@@ -71,13 +71,13 @@ def get_path(name):
     # If not found, return None
     return None
 
-def save_fig(name, dpi=600, format='pdf'):
+def save_fig(name, dpi=600, format='pdf', bbox_inches='tight'):
 
     '''
     save fig to the fig folder.. distinguish between figs from explo scripts and results scripts
     '''
 
-    base_folder = 'fig'
+    base_folder = 'figs'
     # Get the calling script’s filename
     calling_script = inspect.stack()[1].filename
     script_name = os.path.basename(calling_script).replace('.py', '')
@@ -98,7 +98,8 @@ def save_fig(name, dpi=600, format='pdf'):
     # add format to file_path
     file_path = file_path + '.' + format
 
-    plt.savefig(file_path, dpi=dpi, format=format)
+    plt.savefig(file_path, dpi=dpi, format=format, bbox_inches=bbox_inches)
+      # Close the figure to free up memory
 
     return None
 

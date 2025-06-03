@@ -17,7 +17,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 # Now use an absolute import
 from util import clean_cols
-from Data_feed import Data_feed
+from Data_feed import DataFeed
 
 class Baci(DataFeed):
     """
@@ -26,11 +26,13 @@ class Baci(DataFeed):
     
     """
 
-    def __init__(self):
+    def __init__(self, name: str = 'baci', type_: str = 'flow'):
         """
         This function initializes the class and sets the path to the BACI data.
         """
-        super().__init__()
+        super().__init__(name=name, type_=type_)
+
+
         self.baci_rename = {
             't': 'Year',
             'k': 'HS92_Code',
@@ -40,7 +42,6 @@ class Baci(DataFeed):
             'q': 'Quantity',
         }
         
-
 
 
     def baci_read(self):
@@ -69,6 +70,11 @@ class Baci(DataFeed):
 
         df = df.join(country_name, left_on='Region_to', right_on='Country_code', how='left', suffix='_to')
         
+
+        df = df.with_columns(
+        (pl.col('Quantity') * pl.col('Conc')).alias('Copper_flow')
+        )
+
         # rename columns consistently
         df = df.rename({'Country_name': 'Region_from_name', 
                         'Country_name_to': 'Region_to_name',
@@ -120,4 +126,4 @@ class Baci(DataFeed):
 
 if __name__ == "__main__":
     baci = Baci()
-    baci.baci_read()
+    
