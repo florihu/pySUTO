@@ -62,14 +62,16 @@ def get_path(name):
     - str or None: the full path to the file or folder if found, otherwise None.
     '''
     # Set the root directory to the directory where this script is located
-    root_directory = Path(__file__).resolve().parent
+    root_directory = 'data/input/raw'
+    # Convert the root directory to a Path object for easier manipulation
+    root_directory = Path(root_directory)
     
     # Use rglob to recursively search for files and directories with the given name
     for path in root_directory.rglob(name):
         return str(path)  # Return the first match as a string
     
-    # If not found, return None
-    return None
+    # If not found assertion error
+    raise AssertionError(f"File or folder '{name}' not found in '{root_directory}'.")
 
 def save_fig(name, dpi=600, format='pdf', bbox_inches='tight'):
 
