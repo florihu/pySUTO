@@ -367,16 +367,13 @@ def icsg_2005():
     # fill value NaN with 0
     df['Value'] = df['Value'].fillna(0)
 
+    
+
 
     return df
 
 
 def main():
-
-    p = r'data\input\proc'
-    name = 'ICSG_data.csv'
-
-    path = os.path.join(p, name)
 
     if not os.path.exists(p):
         os.makedirs(p)
@@ -392,9 +389,27 @@ def main():
     # Concatenate all dataframes
     df = pd.concat([df_2023, df_2014, df_2005], ignore_index=True)
 
+    # get the unique values in the region, flow and year column store it to a xlsx file #unique per column
+    unique_values = {
+        'Region': df['Region'].unique(),
+        'Flow': df['Flow'].unique(),
+        'Year': df['Year'].unique(),
+        'Process': df['Process'].unique(),
+    }
+
+    unique_df = pd.DataFrame(dict([(k, pd.Series(v)) for k, v in unique_values.items()]))
+
     # Save to a CSV file
     
     #df.to_csv(output_path, index=False)
+
+    # to xlsx
+    path = 'data\input'
+
+    out_p = os.path.join(path, name)
+
+    unique_df.to_excel(f'{out_p}_base.xlsx', index=False)
+
     
     print(f"Data collected and saved to {output_path}")
 
