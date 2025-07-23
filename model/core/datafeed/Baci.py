@@ -36,8 +36,8 @@ class Baci(DataFeed):
         self.baci_rename = {
             't': 'Year',
             'k': 'HS92_Code',
-            'i': 'Region_from',
-            'j': 'Region_to',
+            'i': 'Region_origin',
+            'j': 'Region_destination',
             'v': 'Flow',
             'q': 'Quantity',
         }

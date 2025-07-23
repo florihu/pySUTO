@@ -10,6 +10,7 @@ Creating spatially explicit input output tables for copper supply chain
 * Uncertainty management
 * ID per produced dataset.
 * Classes large first letter: System; Functions small (soulier etc. )
+* NULL indicates the absence of a value that would be theoretically applicable.
 
 
 # Folder structure

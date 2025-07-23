@@ -215,6 +215,9 @@ def icsg_2014():
 
     df = pd.concat(collect, ignore_index=True)
 
+    # drop year 2013
+    df = df[df['Year'] != 2013]
+
     # fill value NaN with 0
     df['Value'] = df['Value'].fillna(0)
 
@@ -374,11 +377,7 @@ def icsg_2005():
 
 
 def main():
-
-    if not os.path.exists(p):
-        os.makedirs(p)
-
-    # Collect data from different years
+     # Collect data from different years
     df_2023 = icsg_2023()
     df_2014 = icsg_2014()
     df_2005 = icsg_2005()
@@ -389,30 +388,82 @@ def main():
     # Concatenate all dataframes
     df = pd.concat([df_2023, df_2014, df_2005], ignore_index=True)
 
-    # get the unique values in the region, flow and year column store it to a xlsx file #unique per column
-    unique_values = {
-        'Region': df['Region'].unique(),
-        'Flow': df['Flow'].unique(),
-        'Year': df['Year'].unique(),
-        'Process': df['Process'].unique(),
-    }
 
-    unique_df = pd.DataFrame(dict([(k, pd.Series(v)) for k, v in unique_values.items()]))
+    # remove all spaces at the end of the region column
+    df['Region'] = df['Region'].str.strip()
 
-    # Save to a CSV file
+
+    # from : to
+    reg_rename =  {
+    'Belgium-': 'Belgium-Luxembourg',
+    'Belgium- Luxembourg': 'Belgium-Luxembourg',
+
+    'Congo Rep.': 'Congo',
+    'Congo DR': 'Congo, D.R.', 
+
+    'Philippppines': 'Philippines',
+
+    'United': 'United States',
+
+
+
+      }
+
+    df.replace({'Region': reg_rename}, inplace=True)
+
     
-    #df.to_csv(output_path, index=False)
-
-    # to xlsx
-    path = 'data\input'
-
-    out_p = os.path.join(path, name)
-
-    unique_df.to_excel(f'{out_p}_base.xlsx', index=False)
-
     
-    print(f"Data collected and saved to {output_path}")
+    return df
+
+def data_feed_friendly():
+
+    df = main()
+
+    df['Scenario'] = 'Ex_post'
+    
+    
+
+    supply = df[df['Supply_Use'] == 'Supply'].copy()
+    use = df[df['Supply_Use'] == 'Use'].copy()
+
+    rename_supply = {'Flow': 'Sector_destination',
+                        'Region': 'Region_origin',
+                        'Process': 'Sector_origin',}
+
+
+    supply['Entity_destination'] = 'Flow'
+    supply['Entity_origin'] = 'Process'
+    supply['Layer'] = 'Copper_mass'
+    supply['Region_destination'] = 'NULL'
+ 
+
+    # rename supply columns
+    supply.rename(columns=rename_supply, inplace=True)
+
+
+
+    rename_use = {'Flow': 'Sector_destination',
+                        'Region': 'Region_destination',
+                        'Process': 'Sector_origin'}
+
+    use['Entity_destination'] = 'Process'
+    use['Entity_origin'] = 'Flow'
+    use['Layer'] = 'Copper_mass'
+    supply['Region_origin'] = 'NULL'
+
+    # rename use columns
+    use.rename(columns=rename_use, inplace=True)
+
+
+
+    path = r'data\processed\ie'
+    
+
+    # save supply and use dataframes to csv files
+    supply.to_csv(os.path.join(path, 'ICSG_supply.csv'), index=False)
+    use.to_csv(os.path.join(path, 'ICSG_use.csv'), index=False)
+
 
 if __name__ == "__main__":
-    main()
+    data_feed_friendly()
     
