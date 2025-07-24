@@ -21,7 +21,7 @@ class DataFeed:
         self.s2b_table = None
         self.logger = logging.getLogger(__name__)
 
-        self._load_meta()
+        #self._load_meta()
 
     def _load_meta(self):
         """

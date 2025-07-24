@@ -12,12 +12,12 @@ import polars as pl
 import seaborn as sns
 import sys
 
-# Add the parent directory to the path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
 
 # Now use an absolute import
-from util import clean_cols
-from Data_feed import DataFeed
+from model.util import clean_cols
+from model.core.datafeed.DataFeed import DataFeed
 
 class Baci(DataFeed):
     """
@@ -30,7 +30,7 @@ class Baci(DataFeed):
         """
         This function initializes the class and sets the path to the BACI data.
         """
-        super().__init__(name=name, type_=type_)
+        super().__init__(name=name)
 
 
         self.baci_rename = {
@@ -65,10 +65,10 @@ class Baci(DataFeed):
         country_name = clean_cols(country_name)  # assumes this normalizes column names
 
         # merge to df
-        df = df.join(country_name, left_on='Region_from', right_on='Country_code', how='left')
+        df = df.join(country_name, left_on='Region_origin', right_on='Country_code', how='left')
         
 
-        df = df.join(country_name, left_on='Region_to', right_on='Country_code', how='left', suffix='_to')
+        df = df.join(country_name, left_on='Region_destination', right_on='Country_code', how='left', suffix='_to')
         
 
         df = df.with_columns(
@@ -86,6 +86,19 @@ class Baci(DataFeed):
                         'Country_iso3_to': 'Region_to_iso3',})
 
         return df
+
+
+    def baci_to_base(self):
+
+        df = self.baci_read()
+
+        # filter Year 1995
+        df = df.filter(pl.col('Year') == 1995)
+
+        
+
+
+        return None
 
     def soulier_concentration_read(self):
 
@@ -126,4 +139,5 @@ class Baci(DataFeed):
 
 if __name__ == "__main__":
     baci = Baci()
+    baci.baci_to_base()
     
