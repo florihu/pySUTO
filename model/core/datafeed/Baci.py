@@ -16,8 +16,9 @@ import sys
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
 
 # Now use an absolute import
-from model.util import clean_cols
+from model.util import clean_cols, read_concordance_table
 from model.core.datafeed.DataFeed import DataFeed
+
 
 class Baci(DataFeed):
     """
@@ -95,9 +96,6 @@ class Baci(DataFeed):
         # filter Year 1995
         df = df.filter(pl.col('Year') == 1995)
 
-        
-
-
         return None
 
     def soulier_concentration_read(self):
@@ -137,7 +135,45 @@ class Baci(DataFeed):
         return df
 
 
-if __name__ == "__main__":
-    baci = Baci()
-    baci.baci_to_base()
-    
+
+def general_data_to_base(conc_path, data_path):
+
+    'This function builds from concordance tables a concordance matrix and multiplies it with the data to be converted to the base classification.'
+
+    # Define dimension names
+    dimensions = [
+            'Year', 'Layer', 'Scenario',
+            'Region_origin', 'Sector_origin', 'Entity_origin',
+            'Region_destination', 'Sector_destination', 'Entity_destination'
+        ]
+    # the concordance is stored in an exchel for every dimension e.g. Region i have a Source_name and Base_name column ... from this the concordance matrix is built
+    return None
+
+def read_base_table(self):
+        """
+        Reads the base table for the initial estimate.
+        """
+        # Assuming the base table is stored in a CSV file
+
+        path = r'data\input\conc\base.xlsx'
+        sheet_name = ['Year', 'Layer', 'Scenario', 'Region', 'Sector', 'Entity']
+        relevant_cols = ['ID', 'Name']
+        
+        # read all the sheets in the excel file and return a dict with sheed name an df with the cols ID and Name
+        base_table = pd.read_excel(path, sheet_name=sheet_name, usecols=relevant_cols)
+
+        base = {}
+        for sheet in base_table.keys():
+            base[sheet] = base_table[sheet].set_index('ID')['Name'].to_dict()
+
+        return 
+
+
+
+
+
+if __name__ == '__main__':
+    # Example usage
+    path = r'data\input\conc\baci.xlsx'
+
+    concordance = read_concordance_table(path)

@@ -10,6 +10,8 @@ import itertools
 from plotnine import ggplot, geom_point, facet_wrap, facet_grid, aes, labs, save_as_pdf_pages
 import geopandas as gpd
 
+
+
 def clean_cols(df):
 
     '''
@@ -120,7 +122,6 @@ def save_fig_plotnine(plot, name, w=8, h=6, dpi=600, format='png'):
     plot.save(file_path, format = format, width=w, height=h, dpi=dpi)
 
 
-
 def df_to_latex(df, filename, multicolumn=False, longtable=False):
     base_folder = 'tab'
 
@@ -212,6 +213,46 @@ def df_to_excel(filename, df, sheet_name):
     with pd.ExcelWriter(file_path, engine='openpyxl', mode=mode, if_sheet_exists=sheet_option) as writer:
         df.to_excel(writer, sheet_name=sheet_name, index=True)
 
+def read_concordance_table(path: str):
+    """
+    Reads a concordance table from an Excel file.
+    The file should have a sheet for each dimension with 'Source_name' and 'Base_name' columns.
+    """
 
+    # Read also base classification and check if there are Base_names that do not correspond to the base
+    base_path = r'data\input\conc\base.xlsx'
+    base_df = pd.read_excel(base_path, sheet_name=None)
+
+    # Assign data type
+
+    type_dict = {'Year': int, 'Valuation': str, 'Region': str, 'Sector': str, 'Entity': str}
+
+    assert path.endswith('.xlsx'), f"Expected an .xlsx file, got: {path}"
+    concordance = pd.read_excel(path, sheet_name=None)
+
+    for sheet, df in concordance.items():
+        base = base_df[sheet]
+
+        df = df[['Source_name', 'Base_name']].copy()
+
+        # assert source name and base name columns exist
+        assert 'Source_name' in df.columns, f"'Source_name' column not found in sheet '{sheet}'"
+        assert 'Base_name' in df.columns, f"'Base_name' column not found in sheet '{sheet}'"
+
+        # Convert the columns to the correct data types
+        df['Source_name'] = df['Source_name'].astype(type_dict.get(sheet, str))
+        df['Base_name'] = df['Base_name'].astype(type_dict.get(sheet, str))
+
+        base['Name'] = base['Name'].astype(type_dict.get(sheet, str))
+
+        # Check if there is a Base_name that does not correspond to base Names
+        missing_base_names = set(df['Base_name']) - set(base['Name']) # compare to sets if it is not empty error
+        if missing_base_names:
+            raise ValueError(f"Base names {missing_base_names} in sheet '{sheet}' do not correspond to base names in the base classification.")
+
+        concordance[sheet] = df
+
+        
+    return concordance
 
 

@@ -11,7 +11,7 @@ from DataFeed import DataFeed
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 
-from util import get_path
+from util import get_path, read_concordance_table
 
 
 def icsg_2023():
@@ -464,6 +464,57 @@ def data_feed_friendly():
     use.to_csv(os.path.join(path, 'ICSG_use.csv'), index=False)
 
 
+
+def transform_to_base_supply():
+    supply_path = r'data\processed\data_feed\ICSG_supply.csv'
+    conc_path = r'data\input\conc\icsg.xlsx'
+
+    supply = pd.read_csv(supply_path)
+
+    filter_supply = ['Concentrates', 'Mine SX-EW', 'SX-EW']
+    # Filter supply to only relevant columns
+    supply = supply[supply['Sector_origin'].isin(filter_supply)]
+
+    # Example concordance loader -> {key: df(Source, Base)}
+    rename = read_concordance_table(conc_path)
+    
+
+    keys = set(rename.keys())
+    col_keys = {
+            col: key
+            for col in supply.columns
+            for key in keys
+            if key in col
+        }
+
+    for col, key in col_keys.items():
+        conc = rename[key].copy()
+        conc.columns = ["Source", "Base"]
+
+        # --- Precompute weights ---
+        # If one source maps to multiple bases -> equal split (disaggregation)
+        weights = conc.groupby("Source")["Base"].transform("count")
+        conc["Weight"] = 1 / weights
+
+        # Merge supply with concordance
+        merged = supply.merge(conc, left_on=col, right_on="Source", how="left")
+
+        # Apply weights to numeric columns
+        num_cols = merged.select_dtypes(include="number").columns.difference([col])
+        for c in num_cols:
+            merged[c] = merged[c] * merged["Weight"]
+
+        # Aggregate to base categories (handles both 1:1 and 1:s)
+        grouped = (
+            merged.groupby("Base", as_index=False)[num_cols.tolist()].sum()
+        )
+
+        # Replace/attach to supply
+        supply = grouped
+
+    return supply
+
+# Tranform the data feed into 
 if __name__ == "__main__":
-    data_feed_friendly()
+    transform_to_base_supply()
     
