@@ -376,7 +376,7 @@ def icsg_2005():
     return df
 
 
-def main():
+def read_icsg_all_years(out_path = r'data\processed\data_feed' ):
      # Collect data from different years
     df_2023 = icsg_2023()
     df_2014 = icsg_2014()
@@ -405,63 +405,335 @@ def main():
 
     'United': 'United States',
 
+    }
 
-
-      }
+    flow_rename = {'Copper ': 'Copper', 
+    'SX-EW': 'Refinery SXEW',
+    'Concentrates': 'Mine Concentrates',
+    'Smelter Primary': 'Smelting Primary'}
 
     df.replace({'Region': reg_rename}, inplace=True)
 
-    
+    df.replace({'Flow': flow_rename}, inplace=True)
+
+    process_rename = {'Smelter': 'Smelting'}
+    df.replace({'Process': process_rename}, inplace=True)
+
+
+    # For Flows ['Primary', 'Secondary'] combine with the Process name of the row
+    df['Flow'] = df.apply(
+        lambda x: f"{x['Process']} {x['Flow']}" if x['Flow'] in ['Primary', 'Secondary', 'Low-grade', 'Electrowon'] else x['Flow'],
+        axis=1
+    )
+
+    df = df[~df['Flow'].isin(['Smelting Electrowon'])]
+
+    flow_rename_2 = {'Refining Electrowon': 'Cathode_SXEW'}
+
+    df.replace({'Flow': flow_rename_2}, inplace=True)
+
+    # save df to csv
+
+    df.to_csv(os.path.join(out_path, 'ICSG_clean_v1.csv'), index=False)
     
     return df
 
-def data_feed_friendly():
 
-    df = main()
+def calc_missing_flows(tc_path = r'data\input\raw\TCs.xlsx',
+                            df_path = r'data\processed\data_feed\ICSG_clean_v1.csv'):
 
-    df['Scenario'] = 'Ex_post'
+    tc = pd.read_excel(tc_path)
+    df = pd.read_csv(df_path)
+
+    not_needed_flows = ['Wire Rod', 'Copper', 'Cu Alloy']
+    year = 1995
+
+    df = df[df['Year'] == year]
+    df = df[~df['Flow'].isin(not_needed_flows)]
+
+
+    # PYRO
+    # calculate waste rock - ore
+    df_ore = df[df['Flow'] == 'Mine Concentrates'].copy()
+    df_ore['Flow'] = 'Ore'
+    df_ore['Value'] = df_ore['Value'] / tc.loc[tc['Process'] == 'Milling_Crushing_Floatation', 'Value'].iloc[0]
+    df_ore['Supply_Use'] = 'Use'
+    df_ore['Process'] = 'Milling_Crushing_Floatation'
     
     
 
-    supply = df[df['Supply_Use'] == 'Supply'].copy()
-    use = df[df['Supply_Use'] == 'Use'].copy()
-
-    rename_supply = {'Flow': 'Sector_destination',
-                        'Region': 'Region_origin',
-                        'Process': 'Sector_origin',}
-
-
-    supply['Entity_destination'] = 'Flow'
-    supply['Entity_origin'] = 'Process'
-    supply['Layer'] = 'Copper_mass'
-    supply['Region_destination'] = 'NULL'
- 
-
-    # rename supply columns
-    supply.rename(columns=rename_supply, inplace=True)
+    df_tailings = df_ore.copy()
+    df_tailings['Flow'] = 'Tailings'
+    df_tailings['Value'] = df_tailings['Value'] * (1-tc.loc[tc['Process'] == 'Milling_Crushing_Floatation', 'Value'].iloc[0])
+    df_tailings['Supply_Use'] = 'Supply'
+    df_tailings['Process'] = 'Milling_Crushing_Floatation'
 
 
 
-    rename_use = {'Flow': 'Sector_destination',
-                        'Region': 'Region_destination',
-                        'Process': 'Sector_origin'}
-
-    use['Entity_destination'] = 'Process'
-    use['Entity_origin'] = 'Flow'
-    use['Layer'] = 'Copper_mass'
-    supply['Region_origin'] = 'NULL'
-
-    # rename use columns
-    use.rename(columns=rename_use, inplace=True)
+    df_waste_rock = df_ore.copy()
+    df_waste_rock['Flow'] = 'Waste Rock'
+    df_waste_rock['Value'] = df_waste_rock['Value'] * tc.loc[tc['Process'] == 'Mining', 'Value'].iloc[0]
+    df_waste_rock['Supply_Use'] = 'Supply'
+    df_waste_rock['Process'] = 'Mining'
 
 
+    df_crude_ore = df_ore.copy()
+    df_crude_ore['Flow'] = 'Crude Ore'
+    df_crude_ore['Value'] = df_crude_ore['Value'] + df_waste_rock['Value']
+    df_crude_ore['Supply_Use'] = 'Use'
+    df_crude_ore['Process'] = 'Mining'
 
-    path = r'data\processed\ie'
+
+    # HYDRO
+    df_ore_2 = df[df['Flow'] == 'Mine SXEW'].copy()
+    df_ore_2['Flow'] = 'Ore'
+    df_ore_2['Value'] = df_ore_2['Value'] / tc.loc[tc['Process'] == 'Leaching', 'Value'].iloc[0]
+    df_ore_2['Supply_Use'] = 'Use'
+    df_ore_2['Process'] = 'Leaching'
+
+    df_tailings_2 = df_ore_2.copy()
+    df_tailings_2['Flow'] = 'Tailings'
+    df_tailings_2['Value'] = df_tailings_2['Value'] * (1-tc.loc[tc['Process'] == 'Leaching', 'Value'].iloc[0])
+    df_tailings_2['Supply_Use'] = 'Supply'
+    df_tailings_2['Process'] = 'Leaching'
+
+
+
+    df_waste_rock_2 = df_ore_2.copy()
+    df_waste_rock_2['Flow'] = 'Waste Rock'
+    df_waste_rock_2['Value'] = df_waste_rock_2['Value'] * tc.loc[tc['Process'] == 'Mining', 'Value'].iloc[0]
+    df_waste_rock_2['Supply_Use'] = 'Supply'
+    df_waste_rock_2['Process'] = 'Mining'
+
+
+
+    df_crude_ore_2 = df_ore_2.copy()
+    df_crude_ore_2['Flow'] = 'Crude Ore'
+    df_crude_ore_2['Supply_Use'] = 'Use'
+    df_crude_ore_2['Value'] = df_crude_ore_2['Value'] + df_waste_rock_2['Value']
+    df_crude_ore_2['Process'] = 'Mining'
+
+
+    df_smelting_primary = df[df['Flow'].isin(['Smelting Primary', 'Smelting Low-grade'])].copy()
+    df_smelting_primary['Flow'] = 'Concentrates'
+    # gropby concentrates and sum up -> we do not differentiate between low grade and concentrates
+    df_smelting_primary = df_smelting_primary.groupby(['Region', 'Year', 'Flow', 'Process', 'Supply_Use', 'Unit']).sum().reset_index()
+    df_smelting_primary['Value'] = df_smelting_primary['Value'] / tc.loc[tc['Process'] == 'Smelting', 'Value'].iloc[0]
+    df_smelting_primary['Process'] = 'Smelting'
+    df_smelting_primary['Supply_Use'] = 'Use'
+
+
+    df_scrap_class_3 = df[df['Flow'] == 'Smelting Secondary'].copy()
+    df_scrap_class_3['Flow'] = 'Scrap_class_3'
+    df_scrap_class_3['Value'] = df_scrap_class_3['Value'] / tc.loc[tc['Process'] == 'Smelting', 'Value'].iloc[0]
+    df_scrap_class_3['Process'] = 'Smelting'
+    df_scrap_class_3['Supply_Use'] = 'Use'
+
+
+    df_slag = df[df['Flow'].isin(['Smelting Primary', 'Smelting Low-grade', 'Smelting Secodary'])].copy()
+    df_slag['Flow'] = 'Slag'
+    df_slag = df_slag.groupby(['Region', 'Year', 'Flow', 'Process', 'Supply_Use', 'Unit']).sum().reset_index()
+    df_slag['Value'] = df_slag['Value'] * (1/tc.loc[tc['Process'] == 'Smelting', 'Value'].iloc[0]-1)
+    df_slag['Process'] = 'Smelting'
+    df_slag['Supply_Use'] = 'Supply'
+
+    df_matte = df[df['Flow'].isin(['Smelting Primary', 'Smelting Low-grade', 'Smelting Secondary'])].copy()
+    df_matte['Flow'] = 'Matte'
+    df_matte = df_matte.groupby(['Region', 'Year', 'Flow', 'Process', 'Supply_Use', 'Unit']).sum().reset_index()
+    df_matte['Supply_Use'] = 'Supply'
     
 
-    # save supply and use dataframes to csv files
-    supply.to_csv(os.path.join(path, 'ICSG_supply.csv'), index=False)
-    use.to_csv(os.path.join(path, 'ICSG_use.csv'), index=False)
+    df_anode = df_matte.copy()
+    df_anode['Flow'] = 'Anode'
+    df_anode['Value'] = df_anode['Value'] * tc.loc[tc['Process'] == 'Converting_fire_refining', 'Value'].iloc[0]
+    df_anode['Process'] = 'Converting_fire_refining'
+    df_anode['Supply_Use'] = 'Supply'
+
+    df_slag_2 = df_matte.copy()
+    df_slag_2['Flow'] = 'Slag'
+    df_slag_2['Value'] = df_slag_2['Value'] * (1 - tc.loc[tc['Process'] == 'Converting_fire_refining', 'Value'].iloc[0])
+    df_slag_2['Process'] = 'Converting_fire_refining'
+    df_slag_2['Supply_Use'] = 'Supply'
+
+
+    df_cathode_pyro = df[df['Flow'].isin(['Refining Primary', 'Refining Secondary'])].copy()
+    df_cathode_pyro['Flow'] = 'Cathode_pyro'
+    df_cathode_pyro = df_cathode_pyro.groupby(['Region', 'Year', 'Flow', 'Process', 'Supply_Use', 'Unit']).sum().reset_index()
+    df_cathode_pyro['Process'] = 'Converting_fire_refining'
+    df_cathode_pyro['Supply_Use'] = 'Supply'
+
+
+    df_anode_2 = df[df['Flow'] == 'Refining Primary'].copy()
+    df_anode_2['Flow'] = 'Anode'
+    df_anode_2['Value'] = df_anode_2['Value'] / tc.loc[tc['Process'] == 'Converting_fire_refining', 'Value'].iloc[0]
+    df_anode_2['Process'] = 'Converting_fire_refining'
+    df_anode_2['Supply_Use'] = 'Use'
+
+    df_scrap_class_2 = df[df['Flow'] == 'Refining Secondary'].copy()
+    df_scrap_class_2['Flow'] = 'Scrap_class_2'
+    df_scrap_class_2['Value'] = df_scrap_class_2['Value'] / tc.loc[tc['Process'] == 'Converting_fire_refining', 'Value'].iloc[0]
+    df_scrap_class_2['Process'] = 'Converting_fire_refining'
+    df_scrap_class_2['Supply_Use'] = 'Use'
+
+
+    df_cathode_hydro = df[df['Flow'] == 'Cathode_SXEW'].copy()
+    df_cathode_hydro['Flow'] = 'Cathode_hydro'
+    df_cathode_hydro['Process'] = 'Solvent_extraction_electrowinning'
+    df_cathode_hydro['Supply_Use'] = 'Supply'
+
+    df_preg_leach = df[df['Flow'] == 'Mine SXEW'].copy()
+    df_preg_leach['Flow'] = 'Pregnant_leach_solution'
+    df_preg_leach['Process'] = 'Leaching'
+    df_preg_leach['Supply_Use'] = 'Use'
+    
+
+    df_preg_leach_2 = df[df['Flow'] == 'Cathode_SXEW'].copy()
+    df_preg_leach_2['Flow'] = 'Pregnant_leach_solution'
+    df_preg_leach_2['Process'] = 'Solvent_extraction_electrowinning'
+    df_preg_leach_2['Supply_Use'] = 'Use'
+
+
+    df_cathode = df[df['Flow'].isin(['Cathode'])].copy()
+    df_cathode['Flow'] = 'Cathode'
+    df_cathode['Process'] = 'Cathode_collect'
+    df_cathode['Supply_Use'] = 'Supply'
+
+    # concat crude ore and waste rock
+    df_mine = pd.concat([df_crude_ore, df_waste_rock, df_crude_ore_2, df_waste_rock_2], ignore_index=True)
+
+    df_mine['Process'] = 'Mining'
+
+    # groupby flow and sum
+    df_mine = df_mine.groupby(['Region', 'Year', 'Flow', 'Process', 'Supply_Use', 'Unit']).sum().reset_index()
+
+
+    # Concatenate all dataframes
+    df_missing_flows = pd.concat([
+        df_mine, df_ore, df_ore_2,
+        df_tailings, df_smelting_primary, df_scrap_class_3,
+        df_slag, df_matte, df_anode, df_slag_2, df_cathode_pyro,
+        df_anode_2, df_scrap_class_2, df_cathode_hydro,
+        df_preg_leach, df_preg_leach_2, df_cathode
+    ], ignore_index=True)
+    
+    # filter out zeros
+    df_missing_flows = df_missing_flows[df_missing_flows['Value'] != 0]
+
+    # assert no negative values
+    assert (df_missing_flows['Value'] >= 0).all(), "Negative values found in missing flows"
+
+    ren = {'Waste Rock': 'Waste_rock',
+        'Concentrates': 'Concentrate',
+        'Crude Ore': 'Crude_ore'}
+
+    df_missing_flows.replace({'Flow': ren}, inplace=True)
+
+
+
+    return df_missing_flows
+
+def sectorial_lookup_table():
+    structure_path = r'data\input\structure.xlsx'
+    structure = pd.read_excel(structure_path, sheet_name=None)
+
+    # Example: work with the "Supply" sheet
+    supply = structure['Supply']
+
+    # First column = Flow
+    supply = supply.rename(columns={supply.columns[0]: "Process"})
+
+    # Melt matrix into long format: Flow, Process, Value
+    supply_long = supply.melt(
+        id_vars=["Process"],          # keep flows fixed
+        var_name="Flow",        # column headers become "Process"
+        value_name="Value"         # cell values
+    )
+    supply_long['Supply_Use'] = 'Supply'
+    
+    use = structure['Use']
+    use = use.rename(columns={use.columns[0]: "Flow"})
+    use_long = use.melt(
+        id_vars=["Flow"],          # keep flows fixed
+        var_name="Process",        # column headers become "Process"
+        value_name="Value"         # cell values
+    )
+
+    use_long['Supply_Use'] = 'Use'
+
+    # sort columns
+    supply_long = supply_long[['Flow', 'Process', 'Supply_Use', 'Value']]
+    use_long = use_long[['Flow', 'Process', 'Supply_Use', 'Value']]
+
+    # concat
+    structure_long = pd.concat([supply_long, use_long], ignore_index=True)
+
+    return structure_long
+
+def flow_process_check(df, structure):
+    '''
+    check function if all flows and process instances of df are in structure
+    '''
+    
+    # are there flows in df that aare not in structure?
+    df_flows = df['Flow'].unique()
+    struct_flows = structure['Flow'].unique()
+    missing_flows = set(df_flows) - set(struct_flows)
+    assert len(missing_flows) == 0, f"Flows in df not in structure: {missing_flows}"
+
+    # are there process in df that aare not in structure?
+    df_processes = df['Process'].unique()
+    struct_processes = structure['Process'].unique()
+    missing_processes = set(df_processes) - set(struct_processes)
+    assert len(missing_processes) == 0, f"Processes in df not in structure: {missing_processes}"
+
+
+
+def calculate_domestic_flows():
+    df = calc_missing_flows()
+    structure = sectorial_lookup_table()
+    flow_process_check(df, structure)
+
+    structure_path = r'data\input\structure.xlsx'
+
+    trade_look = pd.read_excel(structure_path, sheet_name='Trade')
+
+    trade_look = trade_look[trade_look.Value ==1]
+
+    structure = structure[structure['Value'] == 1]
+
+
+    # for every flow in trade_look Flow check what process it belongs to in the structure. If the process is not included in df then copy the existing slice and
+    # change the process set all the values to the same value for supply == use .. change supply_use to 'Use' and vice versa
+
+    collect = []
+
+    for _, row in trade_look.iterrows():
+        flow = row['Flow']
+        
+        df_flow = df[df['Flow'] == flow]
+        processes = df_flow['Process'].unique()
+
+        assert 2>= len(processes) > 0, f"More than two or none processes found for flow {flow}"
+
+        # get the processes from the structure
+        struct_processes = structure[structure['Flow'] == flow]['Process'].unique()
+        missing_processes = set(struct_processes) - set(processes)
+        for process in missing_processes:
+
+            df_flow_rev = df_flow.copy()
+            df_flow_rev['Process'] = process
+            df_flow_rev['Supply_Use'] = df_flow_rev['Supply_Use'].apply(lambda x: 'Use' if x == 'Supply' else 'Supply')
+            collect.append(df_flow_rev)
+    
+    df_missing = pd.concat(collect, ignore_index=True)
+
+    df_final = pd.concat([df, df_missing], ignore_index=True)
+
+    return df_final
+
+            
+
+
 
 
 
@@ -471,7 +743,10 @@ def transform_to_base_supply():
 
     supply = pd.read_csv(supply_path)
 
-    filter_supply = ['Concentrates', 'Mine SX-EW', 'SX-EW']
+    filter_supply = ['Concentrates', 'Mine SX-EW', 'Smelter Primary', 'Refinery SX-EW',
+       'Refinery Primary', 'Cathode', 'SX-EW',
+       'Primary', 'Secondary', 'Electrowon', 'Cathode_SXEW', 'Low-grade',
+       'Wire Rod']
     # Filter supply to only relevant columns
     supply = supply[supply['Sector_origin'].isin(filter_supply)]
 
@@ -516,5 +791,5 @@ def transform_to_base_supply():
 
 # Tranform the data feed into 
 if __name__ == "__main__":
-    transform_to_base_supply()
+    calculate_domestic_flows()
     
