@@ -447,6 +447,9 @@ def calc_missing_flows(tc_path = r'data\input\raw\TCs.xlsx',
     df = pd.read_csv(df_path)
     conc = pd.read_excel(conc_path)
 
+    reg_rename =  {'Korean Rep. ': 'Korea Rep.'}
+    df.replace({'Region': reg_rename}, inplace=True)
+
     not_needed_flows = ['Wire Rod', 'Copper', 'Cu Alloy']
     year = 1995
 
@@ -684,7 +687,6 @@ def flow_process_check(df, structure):
     assert len(missing_processes) == 0, f"Processes in df not in structure: {missing_processes}"
 
 
-
 def calculate_domestic_flows():
     df = calc_missing_flows()
     structure = sectorial_lookup_table()
@@ -739,59 +741,52 @@ def calculate_domestic_flows():
 
         
 
-def transform_to_base_supply():
-    supply_path = r'data\processed\data_feed\ICSG_supply.csv'
-    conc_path = r'data\input\conc\icsg.xlsx'
-
-    supply = pd.read_csv(supply_path)
-
-    filter_supply = ['Concentrates', 'Mine SX-EW', 'Smelter Primary', 'Refinery SX-EW',
-       'Refinery Primary', 'Cathode', 'SX-EW',
-       'Primary', 'Secondary', 'Electrowon', 'Cathode_SXEW', 'Low-grade',
-       'Wire Rod']
-    # Filter supply to only relevant columns
-    supply = supply[supply['Sector_origin'].isin(filter_supply)]
-
-    # Example concordance loader -> {key: df(Source, Base)}
-    rename = read_concordance_table(conc_path)
+def transform_to_region_base(base_path=r'data\input\conc\icsg.xlsx'):
+    """
+    Transform df regions to conc_map regions.
     
+    Rules:
+    - 1:1 mapping: region in df maps directly to region in conc_map → keep value as is.
+    - 1:n mapping: one region in df maps to multiple in conc_map → split value equally.
+    - n:1 mapping: multiple regions in df map to one in conc_map → sum the values.
+    """
+    
+    # Step 1: Load your flows df and the concordance table
+    df = calculate_domestic_flows()
+    conc_map = pd.read_excel(base_path, sheet_name='Region')
 
-    keys = set(rename.keys())
-    col_keys = {
-            col: key
-            for col in supply.columns
-            for key in keys
-            if key in col
-        }
+    # Step 2: Merge df with mapping
+    merged = df.merge(conc_map, left_on='Region', right_on='Source_name', how='left')
 
-    for col, key in col_keys.items():
-        conc = rename[key].copy()
-        conc.columns = ["Source", "Base"]
+    # Step 3: Compute mapping counts per Source_name
+    counts = conc_map.groupby('Source_name')['Base_name'].count().reset_index()
+    counts.rename(columns={'Base_name': 'map_count'}, inplace=True)
 
-        # --- Precompute weights ---
-        # If one source maps to multiple bases -> equal split (disaggregation)
-        weights = conc.groupby("Source")["Base"].transform("count")
-        conc["Weight"] = 1 / weights
+    # Merge counts into merged df
+    merged = merged.merge(counts, on='Source_name', how='left')
 
-        # Merge supply with concordance
-        merged = supply.merge(conc, left_on=col, right_on="Source", how="left")
+    # Step 4: Handle 1:n mapping → distribute equally
+    merged['Value_adj'] = merged['Value'] / merged['map_count']
 
-        # Apply weights to numeric columns
-        num_cols = merged.select_dtypes(include="number").columns.difference([col])
-        for c in num_cols:
-            merged[c] = merged[c] * merged["Weight"]
+    # Step 5: Aggregate to final conc_region
+    result = (
+        merged
+        .groupby(['Base_name', 'Year', 'Flow', 'Process', 'Supply_Use', 'Unit'], as_index=False)
+        .agg({'Value_adj': 'sum'})
+    )
 
-        # Aggregate to base categories (handles both 1:1 and 1:s)
-        grouped = (
-            merged.groupby("Base", as_index=False)[num_cols.tolist()].sum()
-        )
+    result.rename(columns={'Value_adj': 'Value',
+    'Base_name': 'Region'}, inplace=True)
 
-        # Replace/attach to supply
-        supply = grouped
+
+    
+    return result
+
+
 
     return supply
 
 # Tranform the data feed into 
 if __name__ == "__main__":
-    calculate_domestic_flows()
+    transform_to_region_base()
     
