@@ -3,7 +3,7 @@ import os
 import pandas as pd
 import numpy as np
 
-from DataFeed import DataFeed
+from DataFeed import sectorial_lookup_table
 
 
 
@@ -12,6 +12,8 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')
 
 
 from util import get_path, read_concordance_table
+
+
 
 
 def icsg_2023():
@@ -778,7 +780,7 @@ def transform_to_region_base(base_path=r'data\input\conc\icsg.xlsx'):
     result.rename(columns={'Value_adj': 'Value',
     'Base_name': 'Region'}, inplace=True)
 
-
+    # /todo rename: cathode hydro pyro etc. 
     
     return result
 
