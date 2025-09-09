@@ -50,7 +50,7 @@ from pathlib import Path
 #         self.s2b_table = pd.read_excel(path, sheet_name=None)
 #         self.logger.info(f"s2b concordance table loaded from '{path}'.")
 
-def sectorial_lookup_table():
+def lookup():
     structure_path = r'data\input\structure.xlsx'
     structure = pd.read_excel(structure_path, sheet_name=None)
 
@@ -85,4 +85,18 @@ def sectorial_lookup_table():
     # concat
     structure_long = pd.concat([supply_long, use_long], ignore_index=True)
 
-    return structure_long
+    trade = structure['Trade']
+
+    entity = structure['Sector2Entity']
+    ent_ent = structure['Entity2Entity']
+
+    collect = {'Structure': structure_long,
+               'Trade': trade,
+               'Entity': entity,
+               'Entity_entity': ent_ent
+               }
+
+    return collect
+
+if __name__ == '__main__':
+    lookup()

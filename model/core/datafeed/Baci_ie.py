@@ -12,7 +12,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 
 # Now use an absolute import
 from model.util import clean_cols, read_concordance_table
-from model.core.datafeed.DataFeed import sectorial_lookup_table
+from model.core.datafeed.DataFeed import lookup
 
 baci_rename = {
             't': 'Year',
@@ -194,11 +194,11 @@ def sector_region_to_base():
 
 def baci_to_supply_use():
     baci = sector_region_to_base()
-    lookup = sectorial_lookup_table()
+    lookup_struc = lookup()['Structure']
 
-    lookup = lookup[lookup['Value'] == 1]
+    lookup_struc = lookup_struc[lookup_struc['Value'] == 1]
 
-    supply_look = lookup[lookup['Supply_Use'] == 'Supply'][['Process', 'Flow']]
+    supply_look = lookup_struc[lookup_struc['Supply_Use'] == 'Supply'][['Process', 'Flow']]
 
     baci_supply = baci.merge(supply_look, left_on='Sector', right_on='Flow', how='left')
     baci_supply = baci_supply[~baci_supply['Process'].isna()]
@@ -207,7 +207,7 @@ def baci_to_supply_use():
     baci_supply = baci_supply.rename(columns={'Sector':'Sector_destination', 'Process': 'Sector_origin'})
 
 
-    use_look = lookup[lookup['Supply_Use'] == 'Use'][['Process', 'Flow']]
+    use_look = lookup_struc[lookup_struc['Supply_Use'] == 'Use'][['Process', 'Flow']]
     baci_use = baci.merge(use_look, left_on='Sector', right_on='Flow', how='left')
     baci_use = baci_use[~baci_use['Process'].isna()]
     baci_use = baci_use.drop(columns=['Flow'])

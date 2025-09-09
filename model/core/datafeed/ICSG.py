@@ -442,7 +442,7 @@ def read_icsg_all_years(out_path = r'data\processed\data_feed' ):
 
 
 def calc_missing_flows(tc_path = r'data\input\raw\TCs.xlsx',
-                            df_path = r'data\processed\data_feed\ICSG_clean_v1.csv',
+                            df_path = r'data\processed\data_feed\ie\ICSG_clean_v1.csv',
                             conc_path = r'data\input\raw\Conc.xlsx'):
 
     tc = pd.read_excel(tc_path)
@@ -464,30 +464,35 @@ def calc_missing_flows(tc_path = r'data\input\raw\TCs.xlsx',
     df_ore = df[df['Flow'] == 'Mine Concentrates'].copy()
     df_ore['Flow'] = 'Ore'
     df_ore['Value'] = df_ore['Value'] / tc.loc[tc['Process'] == 'Milling_Crushing_Floatation', 'Value'].iloc[0]
-
-    # in mass unit
     df_ore['Value'] = df_ore['Value'] / conc.loc[conc['Flow'] == 'Ore', 'Value'].iloc[0]
-
     df_ore['Supply_Use'] = 'Use'
     df_ore['Process'] = 'Milling_Crushing_Floatation'
+
+    # Concentrates
+    df_conc = df[df['Flow'] == 'Mine Concentrates'].copy()
+    df_conc['Flow'] = 'Concentrates'
+    df_conc['Value'] = df_conc['Value'] / conc.loc[conc['Flow'] == 'Concentrate', 'Value'].iloc[0]
+    df_conc['Supply_Use'] = 'Supply'
+    df_conc['Process'] = 'Mining'
   
     
-
-    df_tailings = df_ore.copy()
+    # Tailings
+    df_tailings = df[df['Flow'] == 'Mine Concentrates'].copy()
     df_tailings['Flow'] = 'Tailings'
-    df_tailings['Value'] = df_tailings['Value'] * (1-tc.loc[tc['Process'] == 'Milling_Crushing_Floatation', 'Value'].iloc[0])
+    df_tailings['Value'] = df_tailings['Value'] * (1/tc.loc[tc['Process'] == 'Milling_Crushing_Floatation', 'Value'].iloc[0]-1)
+    df_tailings['Value'] = df_tailings['Value'] / conc.loc[conc['Flow'] == 'Tailings', 'Value'].iloc[0]
     df_tailings['Supply_Use'] = 'Supply'
     df_tailings['Process'] = 'Milling_Crushing_Floatation'
 
 
-
+    #Waste rock
     df_waste_rock = df_ore.copy()
     df_waste_rock['Flow'] = 'Waste Rock'
     df_waste_rock['Value'] = df_waste_rock['Value'] * tc.loc[tc['Process'] == 'Mining', 'Value'].iloc[0]
     df_waste_rock['Supply_Use'] = 'Supply'
     df_waste_rock['Process'] = 'Mining'
 
-
+    # Crude ore
     df_crude_ore = df_ore.copy()
     df_crude_ore['Flow'] = 'Crude Ore'
     df_crude_ore['Value'] = df_crude_ore['Value'] + df_waste_rock['Value']
@@ -496,28 +501,38 @@ def calc_missing_flows(tc_path = r'data\input\raw\TCs.xlsx',
 
 
     # HYDRO
-
+    #Refined_copper_hydro
     df_cathode_hydro = df[df['Flow'] == 'Cathode_SXEW'].copy()
-    df_cathode_hydro['Flow'] = 'Cathode_hydro'
+    df_cathode_hydro['Flow'] = 'Refined_copper_hydro'
     df_cathode_hydro['Process'] = 'SXEW'
     df_cathode_hydro['Supply_Use'] = 'Supply'
-    df_cathode_hydro['Value'] = df_cathode_hydro['Value'] / conc.loc[conc['Flow'] == 'Cathode_hydro', 'Value'].iloc[0]
-    
+    df_cathode_hydro['Value'] = df_cathode_hydro['Value'] / conc.loc[conc['Flow'] == 'Refined_copper_hydro', 'Value'].iloc[0]
 
-    df_ore_2 = df_cathode_hydro.copy()
+    # Tailings
+    df_tailings_2 = df[df['Flow'] == 'Cathode_SXEW'].copy()
+    df_tailings_2['Flow'] = 'Tailings'
+    df_tailings_2['Value'] = df_tailings_2['Value'] * (1/tc.loc[tc['Process'] == 'SXEW', 'Value'].iloc[0]-1)
+    df_tailings_2['Value'] = df_tailings_2['Value'] / conc.loc[conc['Flow'] == 'Tailings', 'Value'].iloc[0]
+    df_tailings_2['Supply_Use'] = 'Supply'
+    df_tailings_2['Process'] = 'SXEW'
+
+    
+    # Ore
+    df_ore_2 = df[df['Flow'] == 'Cathode_SXEW'].copy()
     df_ore_2['Flow'] = 'Ore'
     df_ore_2['Value'] = df_ore_2['Value'] / tc.loc[tc['Process'] == 'SXEW', 'Value'].iloc[0]
+    df_ore_2['Value'] = df_ore_2['Value'] / conc.loc[conc['Flow'] == 'Ore', 'Value'].iloc[0]
     df_ore_2['Supply_Use'] = 'Use'
     df_ore_2['Process'] = 'SXEW'
 
-
+    #Waste rock
     df_waste_rock_2 = df_ore_2.copy()
     df_waste_rock_2['Flow'] = 'Waste Rock'
     df_waste_rock_2['Value'] = df_waste_rock_2['Value'] * tc.loc[tc['Process'] == 'Mining', 'Value'].iloc[0]
     df_waste_rock_2['Supply_Use'] = 'Supply'
     df_waste_rock_2['Process'] = 'Mining'
 
-
+    # Crude ore
     df_crude_ore_2 = df_ore_2.copy()
     df_crude_ore_2['Flow'] = 'Crude Ore'
     df_crude_ore_2['Supply_Use'] = 'Use'
@@ -550,15 +565,16 @@ def calc_missing_flows(tc_path = r'data\input\raw\TCs.xlsx',
     df_matte['Supply_Use'] = 'Supply'
 
     # calculate slag via difference slag = concentrates + scrap - matte
-    df_slag = df_matte.copy()
+    df_slag = df[df['Flow'].isin(['Smelting Primary', 'Smelting Low-grade', 'Smelting Secondary'])].copy()
     df_slag['Flow'] = 'Slag'
+    df_slag = df_slag.groupby(['Region', 'Year', 'Flow', 'Process', 'Supply_Use', 'Unit']).sum().reset_index()
     df_slag['Value'] = df_slag['Value'] * (1/tc.loc[tc['Process'] == 'Smelting', 'Value'].iloc[0]-1)
-    df_slag['Process'] = 'Smelting'
+    df_slag['Value'] = df_slag['Value'] / conc.loc[conc['Flow'] == 'Slag', 'Value'].iloc[0]
     df_slag['Supply_Use'] = 'Supply'
 
     
 
-    df_anode = df_matte.copy()
+    df_anode = df[df['Flow'].isin(['Smelting Primary', 'Smelting Low-grade', 'Smelting Secondary'])].copy()
     df_anode['Flow'] = 'Anode'
     df_anode['Value'] = df_anode['Value'] * tc.loc[tc['Process'] == 'Converting_fire_refining', 'Value'].iloc[0]
     df_anode['Value'] = df_anode['Value'] / conc.loc[conc['Flow'] == 'Anode', 'Value'].iloc[0]
@@ -566,18 +582,19 @@ def calc_missing_flows(tc_path = r'data\input\raw\TCs.xlsx',
     df_anode['Supply_Use'] = 'Supply'
 
     # calculate slag via difference slag = anode - matte
-    df_slag_2 = df_anode.copy()
+    df_slag_2 = df[df['Flow'].isin(['Smelting Primary', 'Smelting Low-grade', 'Smelting Secondary'])].copy()
     df_slag_2['Flow'] = 'Slag'
-    df_slag_2['Value'] = df_slag_2['Value'] * (1 - tc.loc[tc['Process'] == 'Converting_fire_refining', 'Value'].iloc[0])
+    df_slag_2['Value'] = df_slag_2['Value'] * (1-tc.loc[tc['Process'] == 'Converting_fire_refining', 'Value'].iloc[0])
+    df_slag_2['Value'] = df_slag_2['Value'] / conc.loc[conc['Flow'] == 'Slag', 'Value'].iloc[0]
     df_slag_2['Process'] = 'Converting_fire_refining'
     df_slag_2['Supply_Use'] = 'Supply'
 
 
 
     df_cathode_pyro = df[df['Flow'].isin(['Refining Primary', 'Refining Secondary'])].copy()
-    df_cathode_pyro['Flow'] = 'Cathode_pyro'
+    df_cathode_pyro['Flow'] = 'Refined_copper_pyro'
     df_cathode_pyro = df_cathode_pyro.groupby(['Region', 'Year', 'Flow', 'Process', 'Supply_Use', 'Unit']).sum().reset_index()
-    df_cathode_pyro['Value'] = df_cathode_pyro['Value'] * conc.loc[conc['Flow'] == 'Cathode_pyro', 'Value'].iloc[0]
+    df_cathode_pyro['Value'] = df_cathode_pyro['Value'] * conc.loc[conc['Flow'] == 'Refined_copper_hydro', 'Value'].iloc[0]
     df_cathode_pyro['Process'] = 'Electrolytic_refining'
     df_cathode_pyro['Supply_Use'] = 'Supply'
 
@@ -597,8 +614,8 @@ def calc_missing_flows(tc_path = r'data\input\raw\TCs.xlsx',
 
 
     df_cathode = df[df['Flow'].isin(['Cathode'])].copy()
-    df_cathode['Flow'] = 'Cathode'
-    df_cathode['Process'] = 'Cathode_collect'
+    df_cathode['Flow'] = 'Refined_copper'
+    df_cathode['Process'] = 'Refined_copper_ag'
     df_cathode['Supply_Use'] = 'Supply'
 
     # concat crude ore and waste rock
@@ -609,14 +626,16 @@ def calc_missing_flows(tc_path = r'data\input\raw\TCs.xlsx',
     # groupby flow and sum
     df_mine = df_mine.groupby(['Region', 'Year', 'Flow', 'Process', 'Supply_Use', 'Unit']).sum().reset_index()
 
+    df_tot_scrap = pd.concat([df_scrap_class_2, df_scrap_class_3], ignore_index=True)
+    df_tot_scrap['Flow'] = 'Total_scrap'
+    df_tot_scrap = df_tot_scrap.groupby(['Region', 'Year', 'Flow', 'Process', 'Supply_Use', 'Unit']).sum().reset_index()
+    df_tot_scrap['Process'] = 'Scrap'
+    df_tot_scrap['Supply_Use'] = 'Use'
 
     # Concatenate all dataframes
-    df_missing_flows = pd.concat([
-        df_mine, df_ore, df_ore_2,
-        df_tailings, df_smelting_primary, df_scrap_class_3,
-        df_slag, df_matte, df_anode, df_slag_2, df_cathode_pyro,
-        df_anode_2, df_scrap_class_2, df_cathode_hydro, df_cathode
-    ], ignore_index=True)
+    df_missing_flows = pd.concat([df_mine, df_ore, df_conc, df_tailings, df_cathode_hydro, df_tailings_2,
+                                df_ore_2, df_smelting_primary, df_scrap_class_3, df_matte, df_slag, df_anode,
+                                df_slag_2, df_cathode_pyro, df_anode_2, df_scrap_class_2, df_cathode, df_tot_scrap], ignore_index=True)
     
     # filter out zeros
     df_missing_flows = df_missing_flows[df_missing_flows['Value'] != 0]
@@ -780,13 +799,16 @@ def transform_to_region_base(base_path=r'data\input\conc\icsg.xlsx'):
     result.rename(columns={'Value_adj': 'Value',
     'Base_name': 'Region'}, inplace=True)
 
-    # /todo rename: cathode hydro pyro etc. 
+    # /todo rename: cathode hydro pyro etc. there seems to be also an error especially for SXEW are duplicated values etc.
+
+    #save to csv
+    out_path = r'data\processed\data_feed\ie\icsg_ie_v1.csv'
+    result.to_csv(out_path, index=False)
     
     return result
 
 
 
-    return supply
 
 # Tranform the data feed into 
 if __name__ == "__main__":
