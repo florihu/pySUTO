@@ -194,40 +194,63 @@ def sector_region_to_base():
 
 def baci_to_supply_use():
     baci = sector_region_to_base()
+
+    total_supply = baci.groupby(['Region_origin', 'Sector'])['Quantity'].sum().reset_index()
+
+    total_supply.rename(columns={'Quantity': 'Value'}, inplace=True)
+
     lookup_struc = lookup()['Structure']
 
     lookup_struc = lookup_struc[lookup_struc['Value'] == 1]
 
     supply_look = lookup_struc[lookup_struc['Supply_Use'] == 'Supply'][['Process', 'Flow']]
 
-    baci_supply = baci.merge(supply_look, left_on='Sector', right_on='Flow', how='left')
-    baci_supply = baci_supply[~baci_supply['Process'].isna()]
-    baci_supply = baci_supply.drop(columns=['Flow'])
-
-    baci_supply = baci_supply.rename(columns={'Sector':'Sector_destination', 'Process': 'Sector_origin'})
-
+    # merge with supply_look
+    sup_merge = total_supply.merge(supply_look, left_on='Sector', right_on='Flow', how='left')
+    sup_merge = sup_merge[~sup_merge['Process'].isna()]
+    sup_merge = sup_merge.drop(columns=['Flow'])
+    sup_merge.rename(columns={'Sector': 'Sector_destination', 'Process': 'Sector_origin'}, inplace=True)
+    sup_merge['Region_destination'] = sup_merge['Region_origin']
+    # todo: Final demand removed -> belongs to use
 
     use_look = lookup_struc[lookup_struc['Supply_Use'] == 'Use'][['Process', 'Flow']]
     baci_use = baci.merge(use_look, left_on='Sector', right_on='Flow', how='left')
     baci_use = baci_use[~baci_use['Process'].isna()]
-    baci_use = baci_use.drop(columns=['Flow'])
-    baci_use = baci_use.rename(columns={'Sector':'Sector_origin', 'Process': 'Sector_destination'})
+    baci_use = baci_use.drop(columns=['Flow', 'Monetary_value', 'Year'])
+    baci_use = baci_use.rename(columns={'Sector':'Sector_origin', 'Process': 'Sector_destination', 'Quantity': 'Value'})
+
+    final_demand = baci_use[baci_use['Sector_destination'] == 'Final_demand']
+
+    baci_use = baci_use[baci_use['Sector_destination'] != 'Final_demand']
 
     # establish col order
-    col_order = ['Year', 'Region_origin', 'Sector_origin', 'Region_destination', 'Sector_destination', 'Quantity', 'Monetary_value']
+    col_order = ['Region_origin', 'Sector_origin', 'Region_destination', 'Sector_destination', 'Value']
 
-    # sort columns and combine both
-    baci_supply = baci_supply[col_order]
-    baci_use = baci_use[col_order]
-    baci_final = pd.concat([baci_supply, baci_use], ignore_index=True)
+    supply = sup_merge[col_order]
+    use = baci_use[col_order]
+    final_demand = final_demand[col_order]
+
+    supply = add_entity(supply)
+    use = add_entity(use)
+    final_demand = add_entity(final_demand)
+
+    # save to datafeed folder_name 
+    folder_name = r'data\processed\datafeed\baci'
+
+    # get timestamp
+    timestamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
+
+    supply.to_csv(os.path.join(folder_name, f'S_withoutdomestic_baci_{timestamp}.csv'), index=False)
+    use.to_csv(os.path.join(folder_name, f'U_withoutdomestic_baci_{timestamp}.csv'), index=False)
+    final_demand.to_csv(os.path.join(folder_name, f'Y_baci_{timestamp}.csv'), index=False)
 
 
-    return baci_final
+    return None
 
 
-def add_entity():
-    df = baci_to_supply_use()
-    secent = pd.read_excel(r'data\input\structure.xlsx', sheet_name='Sector2Entity')[['Sector_name', 'Entity']]
+def add_entity(df):
+    
+    secent = lookup()['Sector2Entity']
 
     df = df.merge(secent, left_on='Sector_origin', right_on='Sector_name', how='left', validate='m:1')
     #rename entity to Entity_origin
@@ -236,21 +259,9 @@ def add_entity():
     df = df.rename(columns={'Entity': 'Entity_destination'})
 
     df = df.drop(columns=['Sector_name_x', 'Sector_name_y'])
+    c_order = ['Region_origin',  'Sector_origin', 'Entity_origin', 'Region_destination', 'Sector_destination',  'Entity_destination', 'Value']
 
-    # drop cols year, Monetary_value
-    df = df.drop(columns=['Monetary_value', 'Year'])
-
-    # order cols first origin, then destination
-    col_order = ['Region_origin',  'Sector_origin', 'Entity_origin', 'Region_destination',  'Sector_destination', 'Entity_destination', 'Quantity']
-    df = df[col_order]
-
-    #rename quantity to Value
-    df = df.rename(columns={'Quantity': 'Value'})
-
-
-    df.to_csv(r'data\processed\data_feed\baci_ie_v1.csv', index=False)
-
-    return None
+    return df[c_order]
 
 if __name__ == "__main__":
-    add_entity()
+    baci_to_supply_use()

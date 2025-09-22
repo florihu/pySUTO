@@ -394,5 +394,5 @@ def plot_ie_density(IE, index_tuples):
 
 
 if __name__ == "__main__":
-    ie, index_tuples = merge_data_to_index_pd()
+    calc_domestic_trade_flows()
     

@@ -88,12 +88,12 @@ def lookup():
     trade = structure['Trade']
 
     entity = structure['Sector2Entity']
-    ent_ent = structure['Entity2Entity']
+    ent_ent = structure['Accounting']
 
     collect = {'Structure': structure_long,
                'Trade': trade,
-               'Entity': entity,
-               'Entity_entity': ent_ent
+               'Sector2Entity': entity,
+               'Accounting': ent_ent
                }
 
     return collect
