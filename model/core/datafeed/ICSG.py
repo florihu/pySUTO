@@ -3,7 +3,7 @@ import os
 import pandas as pd
 import numpy as np
 
-from DataFeed import sectorial_lookup_table
+from DataFeed import lookup
 
 
 
@@ -11,7 +11,7 @@ from DataFeed import sectorial_lookup_table
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 
-from util import get_path, read_concordance_table
+from util import get_path, folder_name_check
 
 
 
@@ -378,7 +378,7 @@ def icsg_2005():
     return df
 
 
-def read_icsg_all_years(out_path = r'data\processed\data_feed' ):
+def read_icsg_all_years(out_path = r'data\proc\data_feed' ):
      # Collect data from different years
     df_2023 = icsg_2023()
     df_2014 = icsg_2014()
@@ -442,7 +442,7 @@ def read_icsg_all_years(out_path = r'data\processed\data_feed' ):
 
 
 def calc_missing_flows(tc_path = r'data\input\raw\TCs.xlsx',
-                            df_path = r'data\processed\data_feed\ie\ICSG_clean_v1.csv',
+                            df_path = r'data\proc\data_feed\ie\ICSG_clean_v1.csv',
                             conc_path = r'data\input\raw\Conc.xlsx'):
 
     tc = pd.read_excel(tc_path)
@@ -653,42 +653,42 @@ def calc_missing_flows(tc_path = r'data\input\raw\TCs.xlsx',
 
     return df_missing_flows
 
-def sectorial_lookup_table():
-    structure_path = r'data\input\structure.xlsx'
-    structure = pd.read_excel(structure_path, sheet_name=None)
+# def sectorial_lookup_table():
+#     structure_path = r'data\input\structure.xlsx'
+#     structure = pd.read_excel(structure_path, sheet_name=None)
 
-    # Example: work with the "Supply" sheet
-    supply = structure['Supply']
+#     # Example: work with the "Supply" sheet
+#     supply = structure['Supply']
 
-    # First column = Flow
-    supply = supply.rename(columns={supply.columns[0]: "Process"})
+#     # First column = Flow
+#     supply = supply.rename(columns={supply.columns[0]: "Process"})
 
-    # Melt matrix into long format: Flow, Process, Value
-    supply_long = supply.melt(
-        id_vars=["Process"],          # keep flows fixed
-        var_name="Flow",        # column headers become "Process"
-        value_name="Value"         # cell values
-    )
-    supply_long['Supply_Use'] = 'Supply'
+#     # Melt matrix into long format: Flow, Process, Value
+#     supply_long = supply.melt(
+#         id_vars=["Process"],          # keep flows fixed
+#         var_name="Flow",        # column headers become "Process"
+#         value_name="Value"         # cell values
+#     )
+#     supply_long['Supply_Use'] = 'Supply'
     
-    use = structure['Use']
-    use = use.rename(columns={use.columns[0]: "Flow"})
-    use_long = use.melt(
-        id_vars=["Flow"],          # keep flows fixed
-        var_name="Process",        # column headers become "Process"
-        value_name="Value"         # cell values
-    )
+#     use = structure['Use']
+#     use = use.rename(columns={use.columns[0]: "Flow"})
+#     use_long = use.melt(
+#         id_vars=["Flow"],          # keep flows fixed
+#         var_name="Process",        # column headers become "Process"
+#         value_name="Value"         # cell values
+#     )
 
-    use_long['Supply_Use'] = 'Use'
+#     use_long['Supply_Use'] = 'Use'
 
-    # sort columns
-    supply_long = supply_long[['Flow', 'Process', 'Supply_Use', 'Value']]
-    use_long = use_long[['Flow', 'Process', 'Supply_Use', 'Value']]
+#     # sort columns
+#     supply_long = supply_long[['Flow', 'Process', 'Supply_Use', 'Value']]
+#     use_long = use_long[['Flow', 'Process', 'Supply_Use', 'Value']]
 
-    # concat
-    structure_long = pd.concat([supply_long, use_long], ignore_index=True)
+#     # concat
+#     structure_long = pd.concat([supply_long, use_long], ignore_index=True)
 
-    return structure_long
+#     return structure_long
 
 def flow_process_check(df, structure):
     '''
@@ -710,15 +710,13 @@ def flow_process_check(df, structure):
 
 def calculate_domestic_flows():
     df = calc_missing_flows()
-    structure = sectorial_lookup_table()
+    look = lookup()
+
+    structure = look['Structure']
+    trade = look['Trade']
+
     flow_process_check(df, structure)
-
-    structure_path = r'data\input\structure.xlsx'
-
-    trade_look = pd.read_excel(structure_path, sheet_name='Trade')
-
-    trade_look = trade_look[trade_look.Value ==0]
-
+    trade_look = trade[trade['Value'] == 1]
     structure = structure[structure['Value'] == 1]
 
 
@@ -799,12 +797,47 @@ def transform_to_region_base(base_path=r'data\input\conc\icsg.xlsx'):
     result.rename(columns={'Value_adj': 'Value',
     'Base_name': 'Region'}, inplace=True)
 
-    # /todo rename: cathode hydro pyro etc. there seems to be also an error especially for SXEW are duplicated values etc.
+    result['Value'] = result.Value.round(3)
 
-    #save to csv
-    out_path = r'data\processed\data_feed\ie\icsg_ie_v1.csv'
-    result.to_csv(out_path, index=False)
+
+    # split into accounting entities
+    time_stamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
+
+    use = result[result['Supply_Use'] == 'Use'].copy()
+    supply = result[result['Supply_Use'] == 'Supply'].copy()
+
+    o_flows = ['Total_scrap']
+    e_flows = ['Crude_ore']
     
+    p_flows = ['Waste_rock', 'Tailings', 'Slag']
+    y_flows = ['Refined_copper']
+
+    o = use[use['Flow'].isin(o_flows)]
+    e = use[use['Flow'].isin(e_flows)]
+    y = use[use['Flow'].isin(y_flows)]
+    p = supply [supply['Flow'].isin(p_flows)]
+    
+
+
+    use = use[~use['Flow'].isin(o_flows + e_flows + y_flows)]
+    supply = supply[~supply['Flow'].isin(p_flows + y_flows)]
+
+    folder_name = r"data/proc/icsg"
+
+    os.makedirs(folder_name, exist_ok=True)
+
+    use.to_csv(os.path.join(folder_name, f'U_prod_icsg_{time_stamp}.csv'), index=False)
+    supply.to_csv(os.path.join(folder_name, f'S_prod_icsg_{time_stamp}.csv'), index=False)
+    o.to_csv(os.path.join(folder_name, f'O_prod_icsg_{time_stamp}.csv'), index=False)
+    e.to_csv(os.path.join(folder_name, f'E_prod_icsg_{time_stamp}.csv'), index=False)
+    p.to_csv(os.path.join(folder_name, f'P_prod_icsg_{time_stamp}.csv'), index=False)
+    y.to_csv(os.path.join(folder_name, f'Y_prod_icsg_{time_stamp}.csv'), index=False)
+
+
+
+
+
+
     return result
 
 

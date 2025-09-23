@@ -17,20 +17,32 @@ from model.core.datafeed.DataFeed import lookup
 
 def calc_domestic_trade_flows(noise_zero =10**-6):
 
-    baci_path = r'data\processed\data_feed\ie\baci_ie_v1.csv'
-    icsg_path = r'data\processed\data_feed\ie\icsg_ie_v1.csv'
+    """
+    Calculate domestic trade flows by adjusting supply and use values from ICSG data
+    with import and export data from BACI dataset.
+    
+    """
+    # --- Load data ---
+    folder_name = r'data/proc/datafeed'
+
+    u_baci_path = r'baci\U_withoutdomestic_baci_20250923_083406.csv'
+    u_icsg_path = r'icsg\U_prod_icsg_20250923_093733.csv'
+
+    baci_path = os.path.join(folder_name, u_baci_path)
+    icsg_path = os.path.join(folder_name, u_icsg_path)
+
 
     baci = pd.read_csv(baci_path)
     icsg = pd.read_csv(icsg_path)
 
     # Calculate imports from baci
     imports = (
-        baci.groupby(["Region_destination", "Sector_destination", 'Entity_destination'])["Value"]
+        baci.groupby(["Region_destination", "Sector_origin", 'Entity_origin'])["Value"]
         .sum()
         .reset_index()
         .rename(columns={
             "Region_destination": "Region",
-            "Sector_destination": "Flow",
+            "Sector_origin": "Flow",
             "Entity_destination": "Entity",
             "Value": "Imports"
         })
@@ -38,32 +50,30 @@ def calc_domestic_trade_flows(noise_zero =10**-6):
 
     # exports baci
     exports = (
-        baci.groupby(["Region_origin", "Sector_origin", 'Entity_origin'])["Value"]
+        baci.groupby(["Region_origin", "Sector_origin"])["Value"]
         .sum()
         .reset_index()
         .rename(columns={
             "Region_origin": "Region",
             "Sector_origin": "Flow",
-            "Entity_origin": "Entity",
             "Value": "Exports"
         })
     )
 
+    # total use per region and flows
+
     icsg_grouped = (
-        icsg.groupby(["Region", "Flow", "Supply_Use"])["Value"]
+        icsg.groupby(["Region", "Flow"])["Value"]
         .sum()
         .reset_index()
-        .pivot(index=["Region",  "Flow"], columns="Supply_Use", values="Value")
-        .reset_index()
     )
 
-    merged = (
-        icsg_grouped
-        .merge(imports[['Region', 'Flow', 'Imports']], on=["Region", "Flow"], how="left")
-        .merge(exports[['Region', 'Flow', 'Exports']], on=["Region", "Flow"], how="left")
-    )
+    icsg_grouped.rename(columns={"Value": "Total_use"}, inplace=True)
 
-    merged = merged.fillna(0)
+    # merged = icsg_grouped.merge(imports[['Region', 'Flow', 'Imports']], on=["Region", "Flow"], how="left")
+    # merge imports and exports
+    merged = icsg_grouped.merge(imports[['Region', 'Flow', 'Imports']], on=["Region", "Flow"], how="left")
+    merged = merged.merge(exports[['Region', 'Flow', 'Exports']], on=["Region", "Flow"], how="left")
 
     lookups = lookup()
 
@@ -71,36 +81,27 @@ def calc_domestic_trade_flows(noise_zero =10**-6):
 
     trade_flows = trade_lookup[trade_lookup['Value'] == 1]['Flow'].unique()
     merged = merged[merged['Flow'].isin(trade_flows)]
+    merged['Imports'] = merged.Imports.fillna(0)
+    merged['Exports'] = merged.Exports.fillna(0)
 
-    # Calculate domestic supply flows
-    supply = merged[merged['Supply'] > 0].copy()
-    supply['Domestic_Supply'] = supply['Supply'] - supply['Exports']
+    # Calculate domestic use
+    merged['Domestic_Use'] = merged['Total_use'] - merged['Imports'] + merged['Exports']
 
-    # substite negative domestic supply with .1
-    supply['Domestic_Supply'] = np.where(supply['Domestic_Supply'] < 0, noise_zero, supply['Domestic_Supply'])
-
-    # Calculate domestic use flows
-    use = merged[merged['Use'] > 0].copy()
-    use['Domestic_Use'] = use['Use'] - use['Imports']
-    use = use[['Region', 'Flow', 'Domestic_Use']]
-
-    use['Domestic_Use'] = np.where(use['Domestic_Use'] < 0, noise_zero, use['Domestic_Use'])
+    merged.loc[merged['Domestic_Use'] < noise_zero, 'Domestic_Use'] = 0
+    
 
     # get structure lookup
     structure = lookups['Structure']
     structure = structure[structure['Value'] == 1]
     
-
     # --- Get things into supply use logic ---
 
-    select_cols = ['Region_origin', 'Sector_origin', 'Region_destination', 'Sector_destination', 'Value']
+    
 
     # merge domestic use with structure filtere use
-    use = use.merge(structure[structure['Supply_Use'] == 'Use'][['Flow', 'Process']], on='Flow', how='left')
+    use = merged.merge(structure[structure['Supply_Use'] == 'Use'][['Flow', 'Process']], on='Flow', how='left')
 
-    # merge domestic supply with structure filtere supply
-    supply = supply.merge(structure[structure['Supply_Use'] == 'Supply'][['Flow', 'Process']], on='Flow', how='left')
-
+   
     use_col_rename = { 'Region': 'Region_origin',
                      'Flow': 'Sector_origin',
                      'Process': 'Sector_destination',
@@ -109,59 +110,89 @@ def calc_domestic_trade_flows(noise_zero =10**-6):
     use = use.rename(columns=use_col_rename)
 
     use['Region_destination'] = use['Region_origin']
-    use = use[select_cols]
+
+    sec_to_ent = lookups['Sector2Entity']
+
+    use = use.merge(sec_to_ent, left_on='Sector_origin', right_on='Sector_name', how='left')
+    use = use.rename(columns={'Entity': 'Entity_origin'})
+    use = use.merge(sec_to_ent, left_on='Sector_destination', right_on='Sector_name', how='left')
+    use = use.rename(columns={'Entity': 'Entity_destination'})
+    use = use.drop(columns=['Sector_name_x', 'Sector_name_y'])
+
+    col_order = ['Region_origin',  'Sector_origin', 'Entity_origin', 'Region_destination',  'Sector_destination', 'Entity_destination', 'Value']
+    use = use[col_order]
+
+    # filter out zero values
+    use = use[use['Value'] > 0]
 
 
-    use_supply = use.merge(structure[structure['Supply_Use'] == 'Supply'][['Flow', 'Process']], left_on='Sector_origin', right_on='Flow', how='left')
-    
-    use_supply.drop(columns=['Flow', 'Sector_destination'], inplace=True)
+    folder = 'data/proc/datafeed/dom_calc'
+    os.makedirs(folder, exist_ok=True)
+    timestamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
 
-    use_supply = use_supply.rename(columns={'Process': 'Sector_origin', 
-                                          'Sector_origin': 'Sector_destination'})
-
-    use_supply = use_supply[select_cols]
-
-
-
-    supply_col_rename = { 'Region': 'Region_destination',
-                        'Flow': 'Sector_destination',
-                        'Process': 'Sector_origin',
-                        'Domestic_Supply': 'Value'} 
-    supply = supply.rename(columns=supply_col_rename)
-    supply['Region_origin'] = supply['Region_destination']
-    supply = supply[select_cols]
-
-    supply_use = supply.merge(structure[structure['Supply_Use'] == 'Use'][['Flow', 'Process']], left_on='Sector_destination', right_on='Flow', how='left')
-
-    supply_use = supply_use[supply_use['Process'].notna()]
-
-    supply_use.drop(columns=['Flow', 'Sector_origin'], inplace=True)
-    supply_use = supply_use.rename(columns={'Process': 'Sector_destination', 
-                                          'Sector_destination': 'Sector_origin'})
-    supply_use = supply_use[select_cols]
-
-    domestic_flows = pd.concat([use, supply, use_supply, supply_use], ignore_index=True)
-
-
-    # add entity
-    secent = lookups['Entity'][['Sector_name', 'Entity']]
-    domestic_flows = domestic_flows.merge(secent, left_on='Sector_origin', right_on='Sector_name', how='left')
-    domestic_flows = domestic_flows.rename(columns={'Entity': 'Entity_origin'})
-    domestic_flows = domestic_flows.merge(secent, left_on='Sector_destination', right_on='Sector_name', how='left')
-    domestic_flows = domestic_flows.rename(columns={'Entity': 'Entity_destination'})
-    domestic_flows = domestic_flows.drop(columns=['Sector_name_x', 'Sector_name_y'])
-    final_col_order = ['Region_origin',  'Sector_origin', 'Entity_origin', 'Region_destination',  'Sector_destination', 'Entity_destination', 'Value']
-    domestic_flows = domestic_flows[final_col_order]
-
-
-    #save to csv
-    out_path = r'data\processed\data_feed\ie\domestic_trade_v1.csv'
-    domestic_flows.to_csv(out_path, index=False)
+    out_path = os.path.join(folder, f'U_domestic_{timestamp}.csv')
+    use.to_csv(out_path, index=False)
 
     return None
+
+
+# todo : We need to do the domestic final demand calc as well for final demand... can also be traded.
+
+def icsg_to_supply_use():
+
+    use_paths = ['E_prod_icsg_20250923_093733.csv', 
+             'O_prod_icsg_20250923_093733.csv'
+             
+             ]
+    supply_paths = ['P_prod_icsg_20250923_093733.csv',
+             'S_prod_icsg_20250923_093733.csv']
+    
+    look = lookup()
+
+    structure = look['Structure']
+    structure = structure[structure['Value'] == 1]
+    entity = look['sector2Entity']
     
 
-def dom_to_sup_use():
+    for u in use_paths:
+        use_path = os.path.join(r'data\processed\data_feed\ie', u)
+        use = pd.read_csv(use_path)
+
+        use = use.merge(structure[structure['Supply_Use'] == 'Use'][['Flow', 'Process']], on='Flow', how='left')
+
+        use_rename = {'Region': 'Region_origin',
+                     'Flow': 'Sector_origin',
+                     'Process': 'Sector_destination',
+                     'Value': 'Value'}
+
+        use = use.rename(columns=use_rename)
+        use['Region_destination'] = use['Region_origin']
+
+        sec_to_ent = lookups['Sector2Entity']
+
+        use = use.merge(sec_to_ent, left_on='Sector_origin', right_on='Sector_name', how='left')
+        use = use.rename(columns={'Entity': 'Entity_origin'})
+        use = use.merge(sec_to_ent, left_on='Sector_destination', right_on='Sector_name', how='left')
+        use = use.rename(columns={'Entity': 'Entity_destination'})
+        use = use.drop(columns=['Sector_name_x', 'Sector_name_y'])
+
+        col_order = ['Region_origin',  'Sector_origin', 'Entity_origin', 'Region_destination',  'Sector_destination', 'Entity_destination', 'Value']
+        use = use[col_order]
+
+        out_path = os.path.join(r'data\processed\data_feed\ie', f'use_{u}')
+        use.to_csv(out_path, index=False)
+
+
+    
+
+
+
+
+
+
+    return None
+
+#def dom_to_sup_use():
     columns = ['Region_origin', 'Sector_origin', 'Region_destination', 'Sector_destination', 'Value']
 
     icsg_path = r'data\processed\data_feed\ie\icsg_ie_v1.csv'
