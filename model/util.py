@@ -10,7 +10,7 @@ import itertools
 from plotnine import ggplot, geom_point, facet_wrap, facet_grid, aes, labs, save_as_pdf_pages
 import geopandas as gpd
 
-
+import logging
 
 def clean_cols(df):
 
@@ -256,3 +256,23 @@ def read_concordance_table(path: str):
     return concordance
 
 
+def folder_name_check(folder, name):
+
+    """
+    Check if folder exists if not build it. 
+    Return the path to the folder with the name appended.
+    Parameters:
+    - folder: str, the name of the folder.
+    - name: str, the name to append to the folder path.
+    Returns:
+    - str: the path to the folder with the name appended.
+
+    """
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+        logging.info(f'Folder {folder} created.')
+    
+    path = os.path.join(folder, name)
+
+
+    return path

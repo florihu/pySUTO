@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
 
 # Now use an absolute import
-from model.util import clean_cols, read_concordance_table
+from model.util import clean_cols, read_concordance_table, folder_name_check
 from model.core.datafeed.DataFeed import lookup
 
 baci_rename = {
@@ -105,7 +105,106 @@ def investigate_for_outlier():
     return None
 
 
+# def sector_region_to_base():
+#     conc_path = r'data\input\conc\baci.xlsx'
+#     sector_conc = pd.read_excel(conc_path, sheet_name='Sector')
+#     region_conc = pd.read_excel(conc_path, sheet_name='Region')
+
+#     df = imputation_baci()
+
+#     # ---- SECTOR PART ----
+#     df = df.merge(sector_conc, left_on='HS92_Code', right_on='Source_id', how='left')
+
+#     weights = (
+#         sector_conc.groupby('Source_id')
+#         .size().reset_index(name='n_source')
+#     )
+#     weights['weight'] = 1 / weights['n_source']
+
+#     df = df.merge(weights[['Source_id', 'weight']], on='Source_id', how='left')
+
+#     df['Weighted_Quantity'] = df['Quantity'] * df['weight']
+#     df['Weighted_Monetary_value'] = df['Monetary_value'] * df['weight']
+
+#     df = df.groupby(
+#         ['Year', 'Region_origin', 'Region_destination', 'Base_name'],
+#         as_index=False
+#     )[['Weighted_Quantity', 'Weighted_Monetary_value']].sum()
+
+#     # ---- REGION PART ----
+#     # Merge origin concordance
+#     df = df.merge(region_conc.rename(
+#         columns={'Source_id': 'Region_origin', 'Base_name': 'Region_origin_base'}),
+#         on='Region_origin', how='left'
+#     )
+
+#     # Merge destination concordance
+#     df = df.merge(region_conc.rename(
+#         columns={'Source_id': 'Region_destination', 'Base_name': 'Region_destination_base'}),
+#         on='Region_destination', how='left'
+#     )
+
+#     # ---- REGION WEIGHTS ----
+#     region_weights = (
+#         region_conc.groupby('Source_id')
+#         .size().reset_index(name='n_source')
+#     )
+#     region_weights['weight_region'] = 1 / region_weights['n_source']
+
+#     # Merge weights for origin
+#     df = df.merge(
+#         region_weights.rename(columns={
+#             'Source_id': 'Region_origin',
+#             'weight_region': 'weight_origin'
+#         }),
+#         on='Region_origin', how='left'
+#     )
+
+#     # Merge weights for destination
+#     df = df.merge(
+#         region_weights.rename(columns={
+#             'Source_id': 'Region_destination',
+#             'weight_region': 'weight_destination'
+#         }),
+#         on='Region_destination', how='left'
+#     )
+#     # Calculate combined weight
+#     df['Combined_weight'] = df['weight_origin'] * df['weight_destination']
+#     # Apply combined weight to the weighted quantities and monetary values
+#     df['Final_Weighted_Quantity'] = df['Weighted_Quantity'] * df['Combined_weight']
+#     df['Final_Weighted_Monetary_value'] = df['Weighted_Monetary_value'] * df['Combined_weight']
+#     # Final aggregation
+#     df = df.groupby(
+#         ['Year', 'Region_origin_base', 'Region_destination_base', 'Base_name'],
+#         as_index=False
+#     )[['Final_Weighted_Quantity', 'Final_Weighted_Monetary_value']].sum()
+#     # Rename columns to final names
+#     df = df.rename(columns={
+#         'Region_origin_base': 'Region_origin',
+#         'Region_destination_base': 'Region_destination',
+#         'Base_name': 'Sector',
+#         'Final_Weighted_Quantity': 'Quantity',
+#         'Final_Weighted_Monetary_value': 'Monetary_value'
+#     })
+
+#     df['Quantity'] = (df['Quantity'].astype(float)  / 10**3).round(3) # in kt
+
+#     return df
+
 def sector_region_to_base():
+    """
+    This function aggregates the BACI data to base sectors and regions using a weighted approach.
+    It first merges the BACI data with sector and region concordance tables, then applies weights to account for
+    many-to-one mappings, and finally aggregates the data to the base level.
+    
+    Returns
+    -------
+    pd.DataFrame
+        A DataFrame containing the aggregated trade data with columns for Year, Region_origin, Region_destination,
+        Sector, Quantity (in kt), and Monetary_value.
+    
+    """
+
     conc_path = r'data\input\conc\baci.xlsx'
     sector_conc = pd.read_excel(conc_path, sheet_name='Sector')
     region_conc = pd.read_excel(conc_path, sheet_name='Region')
@@ -115,6 +214,7 @@ def sector_region_to_base():
     # ---- SECTOR PART ----
     df = df.merge(sector_conc, left_on='HS92_Code', right_on='Source_id', how='left')
 
+    # sector weights
     weights = (
         sector_conc.groupby('Source_id')
         .size().reset_index(name='n_source')
@@ -144,6 +244,9 @@ def sector_region_to_base():
         on='Region_destination', how='left'
     )
 
+    # --- REMOVE DOMESTIC FLOWS CREATED BY COLLAPSE ---
+    df = df[df['Region_origin_base'] != df['Region_destination_base']]
+
     # ---- REGION WEIGHTS ----
     region_weights = (
         region_conc.groupby('Source_id')
@@ -168,16 +271,20 @@ def sector_region_to_base():
         }),
         on='Region_destination', how='left'
     )
+
     # Calculate combined weight
     df['Combined_weight'] = df['weight_origin'] * df['weight_destination']
-    # Apply combined weight to the weighted quantities and monetary values
+
+    # Apply combined weight to weighted quantities and monetary values
     df['Final_Weighted_Quantity'] = df['Weighted_Quantity'] * df['Combined_weight']
     df['Final_Weighted_Monetary_value'] = df['Weighted_Monetary_value'] * df['Combined_weight']
+
     # Final aggregation
     df = df.groupby(
         ['Year', 'Region_origin_base', 'Region_destination_base', 'Base_name'],
         as_index=False
     )[['Final_Weighted_Quantity', 'Final_Weighted_Monetary_value']].sum()
+
     # Rename columns to final names
     df = df.rename(columns={
         'Region_origin_base': 'Region_origin',
@@ -187,7 +294,8 @@ def sector_region_to_base():
         'Final_Weighted_Monetary_value': 'Monetary_value'
     })
 
-    df['Quantity'] = (df['Quantity'].astype(float)  / 10**3).round(3) # in kt
+    # Convert quantity to kt
+    df['Quantity'] = (df['Quantity'].astype(float)  / 10**3).round(3)
 
     return df
 
@@ -240,9 +348,10 @@ def baci_to_supply_use():
     # get timestamp
     timestamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
 
-    supply.to_csv(os.path.join(folder_name, f'S_withoutdomestic_baci_{timestamp}.csv'), index=False)
-    use.to_csv(os.path.join(folder_name, f'U_withoutdomestic_baci_{timestamp}.csv'), index=False)
-    final_demand.to_csv(os.path.join(folder_name, f'Y_baci_{timestamp}.csv'), index=False)
+    supply.to_csv( folder_name_check(folder_name, f'S_withoutdomestic_baci_{timestamp}.csv'), index=False)
+    use.to_csv(folder_name_check(folder_name, f'U_withoutdomestic_baci_{timestamp}.csv'), index=False)
+    final_demand.to_csv(folder_name_check(folder_name, f'Y_baci_{timestamp}.csv'), index=False)
+
 
 
     return None
