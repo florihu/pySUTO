@@ -3,15 +3,12 @@ import os
 import pandas as pd
 import numpy as np
 
-from DataFeed import lookup
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
+from model.core.datafeed import lookup
 
 
+from model.util import get_path, folder_name_check
 
-# Add the core directory to the system path
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
-
-
-from util import get_path, folder_name_check
 
 
 
@@ -759,7 +756,6 @@ def calculate_domestic_flows():
     return df_final
 
         
-
 def transform_to_region_base(base_path=r'data\input\conc\icsg.xlsx'):
     """
     Transform df regions to conc_map regions.
@@ -834,13 +830,55 @@ def transform_to_region_base(base_path=r'data\input\conc\icsg.xlsx'):
     y.to_csv(os.path.join(folder_name, f'Y_prod_icsg_{time_stamp}.csv'), index=False)
 
 
-
-
-
-
     return result
 
 
+
+def icsg_to_supply_use():
+
+    use_paths = ['E_prod_icsg_20250923_093733.csv', 
+             'O_prod_icsg_20250923_093733.csv'
+             
+             ]
+    supply_paths = ['P_prod_icsg_20250923_093733.csv',
+             'S_prod_icsg_20250923_093733.csv']
+    
+    look = lookup()
+
+    structure = look['Structure']
+    structure = structure[structure['Value'] == 1]
+    entity = look['sector2Entity']
+    
+
+    for u in use_paths:
+        use_path = os.path.join(r'data\processed\data_feed\ie', u)
+        use = pd.read_csv(use_path)
+
+        use = use.merge(structure[structure['Supply_Use'] == 'Use'][['Flow', 'Process']], on='Flow', how='left')
+
+        use_rename = {'Region': 'Region_origin',
+                     'Flow': 'Sector_origin',
+                     'Process': 'Sector_destination',
+                     'Value': 'Value'}
+
+        use = use.rename(columns=use_rename)
+        use['Region_destination'] = use['Region_origin']
+
+        sec_to_ent = lookup['Sector2Entity']
+
+        use = use.merge(sec_to_ent, left_on='Sector_origin', right_on='Sector_name', how='left')
+        use = use.rename(columns={'Entity': 'Entity_origin'})
+        use = use.merge(sec_to_ent, left_on='Sector_destination', right_on='Sector_name', how='left')
+        use = use.rename(columns={'Entity': 'Entity_destination'})
+        use = use.drop(columns=['Sector_name_x', 'Sector_name_y'])
+
+        col_order = ['Region_origin',  'Sector_origin', 'Entity_origin', 'Region_destination',  'Sector_destination', 'Entity_destination', 'Value']
+        use = use[col_order]
+
+        out_path = os.path.join(r'data\processed\data_feed\ie', f'use_{u}')
+        use.to_csv(out_path, index=False)
+
+    return None
 
 
 # Tranform the data feed into 
