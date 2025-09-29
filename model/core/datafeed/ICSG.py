@@ -4,7 +4,7 @@ import pandas as pd
 import numpy as np
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
-from model.core.datafeed import lookup
+from model.core.datafeed.DataFeed import lookup
 
 
 from model.util import get_path, folder_name_check
@@ -834,54 +834,92 @@ def transform_to_region_base(base_path=r'data\input\conc\icsg.xlsx'):
 
 
 
-def icsg_to_supply_use():
 
-    use_paths = ['E_prod_icsg_20250923_093733.csv', 
-             'O_prod_icsg_20250923_093733.csv'
-             
-             ]
-    supply_paths = ['P_prod_icsg_20250923_093733.csv',
-             'S_prod_icsg_20250923_093733.csv']
+
+def conv_u_logic(
+        origin = r'data\proc\datafeed\icsg',
+        dest_folder = r'data\proc\datafeed\icsg\region_totals',
+        name = 'U'
+    ):
+
+    upaths = ['Y_prod_icsg_20250923_093733.csv', 'U_prod_icsg_20250923_093733.csv',
+              'O_prod_icsg_20250923_093733.csv', 'E_prod_icsg_20250923_093733.csv']
+    l = lookup()
+    ent = l['Sector2Entity']
+    dims = [
+             'Sector_origin', 'Entity_origin',
+            'Region_destination', 'Sector_destination', 'Entity_destination', 'Value'
+        ]
     
-    look = lookup()
-
-    structure = look['Structure']
-    structure = structure[structure['Value'] == 1]
-    entity = look['sector2Entity']
     
 
-    for u in use_paths:
-        use_path = os.path.join(r'data\processed\data_feed\ie', u)
-        use = pd.read_csv(use_path)
+    u = pd.read_csv(os.path.join(origin, upaths[0]))
+    y = pd.read_csv(os.path.join(origin, upaths[1]))
+    o = pd.read_csv(os.path.join(origin, upaths[2]))
+    e = pd.read_csv(os.path.join(origin, upaths[3]))
+    use_tot = pd.concat([u, y, o, e], ignore_index=True)
 
-        use = use.merge(structure[structure['Supply_Use'] == 'Use'][['Flow', 'Process']], on='Flow', how='left')
+    use_tot.rename(columns={'Region': 'Region_destination', 
+                        'Flow': 'Sector_origin',
+                        'Process': 'Sector_destination',
+                       }, inplace=True)
+    use_tot.drop(columns=['Unit', 'Year', 'Supply_Use'], inplace=True)
 
-        use_rename = {'Region': 'Region_origin',
-                     'Flow': 'Sector_origin',
-                     'Process': 'Sector_destination',
-                     'Value': 'Value'}
+    
 
-        use = use.rename(columns=use_rename)
-        use['Region_destination'] = use['Region_origin']
+    use_tot = use_tot.merge(ent, left_on='Sector_origin', right_on='Sector_name', how='left')
+    use_tot = use_tot.rename(columns={'Entity': 'Entity_origin'})
+    use_tot = use_tot.merge(ent, left_on='Sector_destination', right_on='Sector_name', how='left')
+    use_tot = use_tot.rename(columns={'Entity': 'Entity_destination'})
+    use_tot = use_tot[dims]
 
-        sec_to_ent = lookup['Sector2Entity']
+    time_stamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
+    dest = os.path.join(dest_folder, f'{name}_{time_stamp}.csv')
 
-        use = use.merge(sec_to_ent, left_on='Sector_origin', right_on='Sector_name', how='left')
-        use = use.rename(columns={'Entity': 'Entity_origin'})
-        use = use.merge(sec_to_ent, left_on='Sector_destination', right_on='Sector_name', how='left')
-        use = use.rename(columns={'Entity': 'Entity_destination'})
-        use = use.drop(columns=['Sector_name_x', 'Sector_name_y'])
-
-        col_order = ['Region_origin',  'Sector_origin', 'Entity_origin', 'Region_destination',  'Sector_destination', 'Entity_destination', 'Value']
-        use = use[col_order]
-
-        out_path = os.path.join(r'data\processed\data_feed\ie', f'use_{u}')
-        use.to_csv(out_path, index=False)
+    os.makedirs(dest_folder, exist_ok=True)
+    use_tot.to_csv(dest, index=False)
 
     return None
 
 
+def conv_s_logic(origin = r'data\proc\datafeed\icsg',
+        dest_folder = r'data\proc\datafeed\icsg\region_totals',
+        name = 'S'):
+     
+    spaths = ['S_prod_icsg_20250923_093733.csv', 'P_prod_icsg_20250923_093733.csv',]
+    l = lookup()
+    ent = l['Sector2Entity']
+    dims = [
+             'Region_origin', 'Sector_origin', 'Entity_origin',
+            'Sector_destination', 'Entity_destination', 'Value'
+        ]
+    
+
+    s = pd.read_csv(os.path.join(origin, spaths[0]))
+    p = pd.read_csv(os.path.join(origin, spaths[1]))
+    supply_tot = pd.concat([s, p], ignore_index=True)
+    supply_tot.rename(columns={'Region': 'Region_origin', 
+                        'Flow': 'Sector_destination',
+                        'Process': 'Sector_origin',}, inplace=True)
+    
+    supply_tot.drop(columns=['Unit', 'Year', 'Supply_Use'], inplace=True)
+
+    supply_tot = supply_tot.merge(ent, left_on='Sector_origin', right_on='Sector_name', how='left')
+    supply_tot = supply_tot.rename(columns={'Entity': 'Entity_origin'})
+    supply_tot = supply_tot.merge(ent, left_on='Sector_destination', right_on='Sector_name', how='left')
+    supply_tot = supply_tot.rename(columns={'Entity': 'Entity_destination'})
+    supply_tot = supply_tot[dims]
+
+
+    time_stamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
+    dest = os.path.join(dest_folder, f'{name}_{time_stamp}.csv')
+    os.makedirs(dest_folder, exist_ok=True)
+    supply_tot.to_csv(dest, index=False)
+
+
+    return None
+
 # Tranform the data feed into 
 if __name__ == "__main__":
-    transform_to_region_base()
+    conv_s_logic()
     
