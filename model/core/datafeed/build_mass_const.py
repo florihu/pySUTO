@@ -9,6 +9,7 @@ import re
 from datetime import datetime
 from itertools import product
 from typing import Iterable, Tuple, List, Optional
+import sys
 
 
 import matplotlib.pyplot as plt
@@ -18,7 +19,8 @@ import seaborn as sns
 from scipy import sparse
 from tqdm import tqdm
 
-
+sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
+from model.core.datafeed.util import get_latest_index
 
 def build_mass_balance_constraints_from_index(
     index_path,
@@ -155,43 +157,7 @@ def build_mass_balance_constraints_from_index(
 
 
 
-def _parse_timestamp_from_name(fname: str) -> Optional[datetime]:
-    m = _TS_RE.search(fname)
-    if not m:
-        return None
-    ts_text = m.group(1)
-    try:
-        return datetime.strptime(ts_text, "%Y%m%d_%H%M%S")
-    except ValueError:
-        return None
 
-def get_latest_index(folder: str) -> str:
-    """
-    Return the path to the latest parquet file in `folder`.
-    Priority for deciding "latest":
-      1) timestamp parsed from filename using pattern YYYYMMDD_HHMMSS
-      2) file modification time (fallback)
-    Raises FileNotFoundError when no .parquet files exist.
-    """
-    if not os.path.isdir(folder):
-        raise FileNotFoundError(f"Folder not found: {folder}")
-
-    files = [f for f in os.listdir(folder) if f.lower().endswith('.parquet')]
-    if not files:
-        raise FileNotFoundError(f"No parquet files found in {folder}")
-
-    candidates = []
-    for f in files:
-        full = os.path.join(folder, f)
-        ts = _parse_timestamp_from_name(f)
-        if ts is None:
-            # fallback to file modification time
-            ts = datetime.fromtimestamp(os.path.getmtime(full))
-        candidates.append((ts, full))
-
-    # pick the newest timestamp
-    latest_path = max(candidates, key=lambda x: x[0])[1]
-    return latest_path
 
 
 def plot_G():

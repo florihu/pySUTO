@@ -13,7 +13,7 @@ sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '.
 
 # Now use an absolute import
 from model.util import clean_cols, read_concordance_table
-from model.core.datafeed.DataFeed import lookup
+from model.core.datafeed.util import lookup
 
 def calc_domestic_trade_flows(noise_zero =10**-6):
 

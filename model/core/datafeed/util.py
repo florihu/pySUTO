@@ -7,6 +7,13 @@ import logging
 import os
 
 from pathlib import Path
+from datetime import datetime
+from typing import Optional
+import re
+import sys
+
+
+_TS_RE = re.compile(r'(\d{8}_\d{6})')
 
 
 
@@ -97,6 +104,45 @@ def lookup():
                }
 
     return collect
+
+
+def _parse_timestamp_from_name(fname: str) -> Optional[datetime]:
+    m = _TS_RE.search(fname)
+    if not m:
+        return None
+    ts_text = m.group(1)
+    try:
+        return datetime.strptime(ts_text, "%Y%m%d_%H%M%S")
+    except ValueError:
+        return None
+
+def get_latest_index(folder: str) -> str:
+    """
+    Return the path to the latest parquet file in `folder`.
+    Priority for deciding "latest":
+      1) timestamp parsed from filename using pattern YYYYMMDD_HHMMSS
+      2) file modification time (fallback)
+    Raises FileNotFoundError when no .parquet files exist.
+    """
+    if not os.path.isdir(folder):
+        raise FileNotFoundError(f"Folder not found: {folder}")
+
+    files = [f for f in os.listdir(folder) if f.lower().endswith('.parquet')]
+    if not files:
+        raise FileNotFoundError(f"No parquet files found in {folder}")
+
+    candidates = []
+    for f in files:
+        full = os.path.join(folder, f)
+        ts = _parse_timestamp_from_name(f)
+        if ts is None:
+            # fallback to file modification time
+            ts = datetime.fromtimestamp(os.path.getmtime(full))
+        candidates.append((ts, full))
+
+    # pick the newest timestamp
+    latest_path = max(candidates, key=lambda x: x[0])[1]
+    return latest_path
 
 if __name__ == '__main__':
     lookup()

@@ -4,12 +4,10 @@ import pandas as pd
 import numpy as np
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
-from model.core.datafeed.DataFeed import lookup
+from model.core.datafeed.util import lookup
 
 
 from model.util import get_path, folder_name_check
-
-
 
 
 
@@ -834,12 +832,10 @@ def transform_to_region_base(base_path=r'data\input\conc\icsg.xlsx'):
 
 
 
-
-
 def conv_u_logic(
         origin = r'data\proc\datafeed\icsg',
-        dest_folder = r'data\proc\datafeed\icsg\region_totals',
-        name = 'U'
+        dest_folder_tot = r'data\proc\datafeed\icsg\region_totals',
+        name_tot = 'U'
     ):
 
     upaths = ['Y_prod_icsg_20250923_093733.csv', 'U_prod_icsg_20250923_093733.csv',
@@ -852,7 +848,6 @@ def conv_u_logic(
         ]
     
     
-
     u = pd.read_csv(os.path.join(origin, upaths[0]))
     y = pd.read_csv(os.path.join(origin, upaths[1]))
     o = pd.read_csv(os.path.join(origin, upaths[2]))
@@ -873,13 +868,76 @@ def conv_u_logic(
     use_tot = use_tot.rename(columns={'Entity': 'Entity_destination'})
     use_tot = use_tot[dims]
 
-    time_stamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
-    dest = os.path.join(dest_folder, f'{name}_{time_stamp}.csv')
 
-    os.makedirs(dest_folder, exist_ok=True)
+    time_stamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
+    dest = os.path.join(dest_folder_tot, f'{name_tot}_{time_stamp}.csv')
+
+    os.makedirs(dest_folder_tot, exist_ok=True)
     use_tot.to_csv(dest, index=False)
 
     return None
+
+
+def prep_Uboundary_to_ie(
+        origin = r'data\proc\datafeed\icsg',
+        dest_folder = r'data\proc\datafeed\dom_calc',
+    ):
+
+    upaths = ['O_prod_icsg_20250923_093733.csv', 'E_prod_icsg_20250923_093733.csv']
+
+    l = lookup()
+    ent = l['Sector2Entity']
+    dims = ['Region_origin',
+             'Sector_origin', 'Entity_origin',
+            'Region_destination', 'Sector_destination', 'Entity_destination', 'Value'
+        ]
+    
+    
+    
+    o = pd.read_csv(os.path.join(origin, upaths[0]))
+    e = pd.read_csv(os.path.join(origin, upaths[1]))
+    
+
+    o.rename(columns={'Region': 'Region_destination', 
+                        'Flow': 'Sector_origin',
+                        'Process': 'Sector_destination',
+                       }, inplace=True)
+    e.rename(columns={'Region': 'Region_destination', 
+                        'Flow': 'Sector_origin',
+                        'Process': 'Sector_destination',
+                       }, inplace=True)
+
+    
+    
+    o = merge_entity_to_df(o, ent)
+    e = merge_entity_to_df(e, ent)
+    o['Region_origin'] = o['Region_destination']
+    e['Region_origin'] = e['Region_destination']
+    o = o[dims]
+    e = e[dims]
+    
+
+    time_stamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
+
+    os.makedirs(dest_folder, exist_ok=True)
+
+    dest_o = os.path.join(dest_folder, f'O_{time_stamp}.csv')
+    dest_e = os.path.join(dest_folder, f'E_{time_stamp}.csv')
+
+    o.to_csv(dest_o, index=False)
+    e.to_csv(dest_e, index=False)
+
+
+    return None
+
+
+
+def merge_entity_to_df(df, ent):
+        df = df.merge(ent, left_on='Sector_origin', right_on='Sector_name', how='left')
+        df = df.rename(columns={'Entity': 'Entity_origin'})
+        df = df.merge(ent, left_on='Sector_destination', right_on='Sector_name', how='left')
+        df = df.rename(columns={'Entity': 'Entity_destination'})
+        return df
 
 
 def conv_s_logic(origin = r'data\proc\datafeed\icsg',
@@ -919,7 +977,63 @@ def conv_s_logic(origin = r'data\proc\datafeed\icsg',
 
     return None
 
+
+def prep_Sboundary_to_ie(
+        origin = r'data\proc\datafeed\icsg',
+        dest_folder = r'data\proc\datafeed\dom_calc',
+    ):
+
+    upaths = ['P_prod_icsg_20250923_093733.csv']
+
+    l = lookup()
+    ent = l['Sector2Entity']
+    dims = ['Region_origin',
+             'Sector_origin', 'Entity_origin',
+            'Region_destination', 'Sector_destination', 'Entity_destination', 'Value'
+        ]
+    
+    
+    
+    p = pd.read_csv(os.path.join(origin, upaths[0]))
+    
+
+    p.rename(columns={'Region': 'Region_origin', 
+                        'Flow': 'Sector_destination',
+                        'Process': 'Sector_origin',
+                       }, inplace=True)
+    
+    p = merge_entity_to_df(p, ent)
+    p['Region_destination'] = p['Region_origin']
+    
+    
+    p = p[dims]
+
+    time_stamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
+
+    os.makedirs(dest_folder, exist_ok=True)
+
+    dest_p = os.path.join(dest_folder, f'P_{time_stamp}.csv')
+    
+
+    p.to_csv(dest_p, index=False)
+
+
+    return None
+
+
+
+
+
+
+
+
+
+
+
+
+
 # Tranform the data feed into 
 if __name__ == "__main__":
-    conv_s_logic()
+    prep_Sboundary_to_ie()
+    prep_Uboundary_to_ie()
     

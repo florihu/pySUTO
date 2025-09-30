@@ -1,69 +1,72 @@
 import os
 import sys
+
+
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
-from model.core.datafeed import lookup, build_index
+from model.core.datafeed.util import lookup, get_latest_index
 
 
 
-def merge_data_to_index_pd():
-    baci_path = r'data\processed\data_feed\ie\baci_ie_v1.csv'
-    dom_path = r'data\processed\data_feed\ie\domestic_ie_v1.csv'
-    dom_trade_path = r'data\processed\data_feed\ie\domestic_trade_v1.csv'
+def merge_data_to_index_pd(
+        d_paths = ['S_withoutdomestic_baci_20250923_083406.csv', 'U_withoutdomestic_baci_20250923_083406.csv', 'Y_baci_20250923_083406.csv',
+               'U_domestic_20250925_105625.csv', 'Y_domestic_20250925_105625.csv', 'E_20250930_095848.csv', 'O_20250930_095848.csv', 'P_20250930_095848.csv'],
+    
+        d_folders = ['baci', 'baci', 'baci',
+                    'dom_calc', 'dom_calc', 'dom_calc', 'dom_calc', 'dom_calc'],
+
+        index_folder = r'data\proc\index',
+        out_name = 'ie',
+        out_folder = r'data\processed\ie'
+
+        ):
+    
 
     col_order = [
         'Region_origin', 'Sector_origin', 'Entity_origin',
         'Region_destination', 'Sector_destination', 'Entity_destination', 'Value'
     ]
 
-    # --- Load flows (only needed columns)
-    baci = pd.read_csv(baci_path, usecols=col_order)
-    dom = pd.read_csv(dom_path, usecols=col_order)
-    dom_trade = pd.read_csv(dom_trade_path, usecols=col_order)
+    collect = [pd.read_csv(os.path.join(r'data\proc\datafeed', folder, path))[col_order] for folder, path in zip(d_folders, d_paths)]
 
-    # Combine & deduplicate
-    combined = pd.concat([baci, dom, dom_trade], ignore_index=True)
-    combined = combined.drop_duplicates(subset=col_order[:-1])
+    combined = pd.concat(collect, ignore_index=True)
 
-    # --- Build the index space
-    index = build_index()   # returns a DataFrame with all possible combinations
-    index_tuples = list(map(tuple, index[col_order[:-1]].to_numpy()))
+    # --- Load index ---
+    index_path = get_latest_index(index_folder)
+    index_df = pd.read_parquet(index_path)
 
-    # --- Map flows to integer positions
-    # assign an integer ID to each unique tuple
-    index_map = {key: i for i, key in enumerate(index_tuples)}
-
-    # --- Initialize IE matrix as NumPy array
-    IE = np.zeros(len(index_tuples), dtype=np.float64)
-
-    # --- Fill IE matrix using dictionary lookups
-    for row in combined.itertuples(index=False):
-        key = tuple(getattr(row, c) for c in col_order[:-1])
-        if key in index_map:   # should always be true if mapping is consistent
-            IE[index_map[key]] = row.Value
-
-    # IE is now a dense NumPy vector aligned with index_tuples
-    density = np.count_nonzero(IE) / IE.size
-    print(f"IE matrix density: {density:.6f} ({np.count_nonzero(IE)} non-zeros out of {IE.size})")
+    # --- Merge with index ---
+    merged = pd.merge(index_df, combined,
+                      on=['Region_origin', 'Sector_origin', 'Entity_origin',
+                          'Region_destination', 'Sector_destination', 'Entity_destination'],
+                      how='left', validate='one_to_one')
     
-    # acompare with pandas
-    df = pd.DataFrame({'Value': IE}, index=pd.MultiIndex.from_tuples(index_tuples, names=col_order[:-1]))
-    print(f"Pandas DataFrame RAM size: {df.memory_usage(deep=True).sum() / (1024**2):.2f} MB")
+    merged['Value'] = merged['Value'].fillna(0)
 
-    # confirm that index order matches IE order
-    assert all(t1 == t2 for t1, t2 in zip(df.index.to_list(), index_tuples)), "Index mismatch!"
+    ie = merged['Value'].to_numpy(dtype=np.float64)
 
-    # save results but only store values not index
+    # --- print some analytics ---
+    print(f"IE density: {np.count_nonzero(ie)} non-zero entries out of {ie.size} total ({np.count_nonzero(ie)/ie.size:.4%})")
+
+    # --- sanity check ---
+    assert ie.shape[0] == index_df.shape[0], "Mismatch in IE array length and index length"
+    assert np.all(ie >= 0), "Negative values found in IE array"
+
     
-    # store df as parquet
-    df.to_parquet(r'data\processed\data_feed\ie\ie_matrix.parquet', compression='snappy')
 
-   
-    return IE, index_tuples
+    # --- Save IE array ---
+    time_stamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+    os.makedirs(out_folder, exist_ok=True)
+    out_path = os.path.join(out_folder, f"{out_name}_{time_stamp}")
+    np.save(out_path, ie)
+    
+
+    return None
 
 
 
@@ -119,4 +122,5 @@ def plot_ie_density(IE, index_tuples):
 
 
 if __name__ == "__main__":
-    None
+    merge_data_to_index_pd()
+
