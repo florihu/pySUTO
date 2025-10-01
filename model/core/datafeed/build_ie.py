@@ -22,7 +22,7 @@ def merge_data_to_index_pd(
 
         index_folder = r'data\proc\index',
         out_name = 'ie',
-        out_folder = r'data\processed\ie'
+        out_folder = r'data\proc\ie'
 
         ):
     
@@ -123,4 +123,3 @@ def plot_ie_density(IE, index_tuples):
 
 if __name__ == "__main__":
     merge_data_to_index_pd()
-

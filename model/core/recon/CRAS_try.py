@@ -224,7 +224,7 @@ def kras_cras(
             prev_max_rel = max_rel
             
 
-    a_final = a.reshape((m, n))
+    a_star = a
 
     diagnostics = {
         "converged": converged,
@@ -236,7 +236,7 @@ def kras_cras(
         'final_sigma_c': sigma_c
     }
 
-    return a_final, c, diagnostics
+    return a_star, c, diagnostics
 
 
 if __name__ == "__main__":
@@ -269,12 +269,35 @@ if __name__ == "__main__":
 
     # build G matrix constrain row and column sums plus field a2,2 to 1
     G= [[1, 1, 0, 0],  # row 1 sum
-        [0, 0, 1, 1],  # row 2 sum
-        [1, 0, 1, 0],  # col 1 sum
+        #[0, 0, 1, 1],  # row 2 sum
+        #[1, 0, 1, 0],  # col 1 sum
         [0, 1, 0, 1],  # col 2 sum
-        [0, 0, 0, 1]]  # a2,2 = 1
+       # [0, 0, 0, 1],   # a2,2 = 1
+        # add mass balance constraints
+        [ 0, -1, 1, 0],  # a1,1 - a1,2 = 0
+        [0, 1, -1, 0]   # a2,1 - a2,2 = 0
+        ]
+    
+    c = [1,  3, 0, 0]
+    sigma = [0.02 * np.maximum(np.abs(c_i), 1.0) for c_i in c]
+    G = np.array(G)
+        
 
 
+    # intiate cras
+    a_star, c_star, diag = kras_cras(
+        a,
+        G,
+        c,
+        sigma,
+        alpha=0.8,
+        tol=1e-4,
+        delta=1e-8,
+        max_iter=10000,
+        structural_zero_mask=None,
+        tiny=1e-12,
+        verbose=True
+    )
     
 
     def plot_max_rel_resid_per_alpha(alphas= [0.01, 0.1, 0.5, 1.0]):
