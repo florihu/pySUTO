@@ -2,6 +2,7 @@ import sys
 import os
 import pandas as pd
 import numpy as np
+import logging
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
 from model.core.datafeed.util import lookup
@@ -9,6 +10,8 @@ from model.core.datafeed.util import lookup
 
 from model.util import get_path, folder_name_check
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
 def icsg_2023():
@@ -468,7 +471,7 @@ def calc_missing_flows(tc_path = r'data\input\raw\TCs.xlsx',
     df_conc['Flow'] = 'Concentrates'
     df_conc['Value'] = df_conc['Value'] / conc.loc[conc['Flow'] == 'Concentrate', 'Value'].iloc[0]
     df_conc['Supply_Use'] = 'Supply'
-    df_conc['Process'] = 'Mining'
+    df_conc['Process'] = 'Milling_Crushing_Floatation'
   
     
     # Tailings
@@ -702,6 +705,10 @@ def flow_process_check(df, structure):
     missing_processes = set(df_processes) - set(struct_processes)
     assert len(missing_processes) == 0, f"Processes in df not in structure: {missing_processes}"
 
+    # every flow process combination exists only once per region
+    duplicates = df.duplicated(subset=['Region', 'Year', 'Flow', 'Process', 'Supply_Use'], keep=False)
+    assert not duplicates.any(), f"Duplicate flow-process combinations found in df"
+
 
 def calculate_domestic_flows():
     df = calc_missing_flows()
@@ -711,12 +718,13 @@ def calculate_domestic_flows():
     trade = look['Trade']
 
     flow_process_check(df, structure)
-    trade_look = trade[trade['Value'] == 1]
+    trade_look = trade[trade['Value'] == 0]
     structure = structure[structure['Value'] == 1]
 
 
     # for every flow in trade_look Flow check what process it belongs to in the structure. If the process is not included in df then copy the existing slice and
     # change the process set all the values to the same value for supply == use .. change supply_use to 'Use' and vice versa
+    # this stuff is only possible for domestics flows
 
     collect = []
 
@@ -727,10 +735,7 @@ def calculate_domestic_flows():
         processes = df_flow['Process'].unique()
 
         assert 2>= len(processes) > 0, f"More than two or none processes found for flow {flow}"
-        
-        # only if there is one process we need to add the missing one
-        if len(processes) == 2:
-            continue
+              
 
         # get the processes from the structure
         struct_processes = structure[structure['Flow'] == flow]['Process'].unique()
@@ -1034,6 +1039,5 @@ def prep_Sboundary_to_ie(
 
 # Tranform the data feed into 
 if __name__ == "__main__":
-    prep_Sboundary_to_ie()
-    prep_Uboundary_to_ie()
+    icsg_2005()
     
