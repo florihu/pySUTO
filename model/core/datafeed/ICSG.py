@@ -376,90 +376,138 @@ def icsg_2005():
     return df
 
 
-def read_icsg_all_years(out_path = r'data\proc\data_feed' ):
-     # Collect data from different years
+import os
+import pandas as pd
+import logging
+
+logger = logging.getLogger(__name__)
+
+def read_icsg_all_years(out_path=r'data/proc/datafeed/icsg', 
+                        conc_path=r'data/input/conc/icsg.xlsx'):
+
+    # --- Collect data from different years ---
     df_2023 = icsg_2023()
     df_2014 = icsg_2014()
     df_2005 = icsg_2005()
 
-    # assert the columns are identical
-    assert set(df_2023.columns) == set(df_2014.columns) == set(df_2005.columns), "DataFrames have different columns"
+    # --- Load base concordances ---
+    conc = pd.read_excel(conc_path, sheet_name=None)
+    conc_sec = conc['Sector_int']
+    conc_reg = conc['Region']
 
-    # Concatenate all dataframes
+    # --- Assert column consistency ---
+    assert set(df_2023.columns) == set(df_2014.columns) == set(df_2005.columns), \
+        "DataFrames have different columns"
+
+    # --- Combine all data ---
     df = pd.concat([df_2023, df_2014, df_2005], ignore_index=True)
-
-
-    # remove all spaces at the end of the region column
     df['Region'] = df['Region'].str.strip()
 
-
-    # from : to
-    reg_rename =  {
-    'Belgium-': 'Belgium-Luxembourg',
-    'Belgium- Luxembourg': 'Belgium-Luxembourg',
-
-    'Congo Rep.': 'Congo',
-    'Congo DR': 'Congo, D.R.', 
-
-    'Philippppines': 'Philippines',
-
-    'United': 'United States',
-
+    # --- Region renaming ---
+    reg_rename = {
+        'Azerbeijan': 'Azerbaijan',
+        'North Macedonia': 'Macedonia',
+        'Belgium-': 'Belgium-Luxembourg',
+        'Belgium- Luxembourg': 'Belgium-Luxembourg',
+        'kyrgyzstan': 'Kyrgyzstan',
+        'Congo Rep.': 'Congo',
+        'Congo DR': 'Congo, D.R.', 
+        'Philippppines': 'Philippines',
+        'United': 'United States',
+        'Zambia  ': 'Zambia',
     }
-
-    flow_rename = {'Copper ': 'Copper', 
-    'SX-EW': 'Refinery SXEW',
-    'Concentrates': 'Mine Concentrates',
-    'Smelter Primary': 'Smelting Primary'}
 
     df.replace({'Region': reg_rename}, inplace=True)
 
-    df.replace({'Flow': flow_rename}, inplace=True)
+    # --- Check for unknown regions ---
+    missing_regions = set(df['Region'].unique()) - set(conc_reg['Source_name'].unique())
+    if missing_regions:
+        logger.warning(f"Regions in ICSG data not found in base classification: {missing_regions}")
 
-    process_rename = {'Smelter': 'Smelting'}
-    df.replace({'Process': process_rename}, inplace=True)
+    # --- Build flow-process mapping ---
+    cdict = {
+        (flow_root, process_root): (flow_base, process_base)
+        for flow_root, process_root, flow_base, process_base in zip(
+            conc_sec['Flow_root'],
+            conc_sec['Process_root'],
+            conc_sec['Flow_base'],
+            conc_sec['Process_base']
+        )
+    }
 
+    # --- Detect missing mappings before applying ---
+    df_pairs = set(df[['Flow', 'Process']].itertuples(index=False, name=None))
+    mapping_keys = set(cdict.keys())
+    missing_pairs = df_pairs - mapping_keys
 
-    # For Flows ['Primary', 'Secondary'] combine with the Process name of the row
-    df['Flow'] = df.apply(
-        lambda x: f"{x['Process']} {x['Flow']}" if x['Flow'] in ['Primary', 'Secondary', 'Low-grade', 'Electrowon'] else x['Flow'],
-        axis=1
+    if missing_pairs:
+        missing_preview = list(missing_pairs)[:10]
+        raise ValueError(
+            f"The following (Flow, Process) combinations are not in the renaming dictionary: "
+            f"{missing_preview}{' ...' if len(missing_pairs) > 10 else ''}"
+        )
+
+    # --- Replace (Flow, Process) pairs efficiently ---
+    mapped = df[['Flow', 'Process']].apply(
+        lambda x: cdict.get((x['Flow'], x['Process'])),
+        axis=1,
+        result_type='expand'
     )
 
-    df = df[~df['Flow'].isin(['Smelting Electrowon'])]
+    df[['Flow', 'Process']] = mapped
 
-    flow_rename_2 = {'Refining Electrowon': 'Cathode_SXEW'}
+    # --- Save output ---
+    stamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
+    os.makedirs(out_path, exist_ok=True)
+    out_file = os.path.join(out_path, f'ICSG_raw_clean_{stamp}.csv')
+    df.to_csv(out_file, index=False)
 
-    df.replace({'Flow': flow_rename_2}, inplace=True)
+    # --- Final consistency check ---
+    check_consistency(df)
+    logger.info(f"ICSG data saved to {out_file}")
 
-    # save df to csv
-
-    df.to_csv(os.path.join(out_path, 'ICSG_clean_v1.csv'), index=False)
-    
     return df
 
 
+def check_consistency(df):
+    '''
+    A pair Region, Flow, Process should be unique for each year
+    '''
+    duplicates = df[df.duplicated(subset=['Region', 'Flow', 'Process', 'Year'], keep=False)]
+    if not duplicates.empty:
+        logger.warning(f"Duplicate entries found for the same Region, Flow, Process, Year combination:\n{duplicates}")
+
+
+    # there are no nan allowed in Region, Flow, Process and value
+    if df[['Region', 'Flow', 'Process', 'Value']].isnull().any().any():
+        logger.warning("NaN values found in Region, Flow, Process, or Value columns")
+    if (df['Value'] < 0).any():
+        logger.warning("Negative values found in Value column")
+
 def calc_missing_flows(tc_path = r'data\input\raw\TCs.xlsx',
-                            df_path = r'data\proc\data_feed\ie\ICSG_clean_v1.csv',
+                            df_path = r'data\proc\datafeed\icsg\ICSG_raw_clean_20251007_115132.csv',
                             conc_path = r'data\input\raw\Conc.xlsx'):
 
     tc = pd.read_excel(tc_path)
     df = pd.read_csv(df_path)
     conc = pd.read_excel(conc_path)
 
-    reg_rename =  {'Korean Rep. ': 'Korea Rep.'}
-    df.replace({'Region': reg_rename}, inplace=True)
 
-    not_needed_flows = ['Wire Rod', 'Copper', 'Cu Alloy']
+    not_needed_flows = ['Wire_rod', 'Copper', 'Copper_alloy']
     year = 1995
 
     df = df[df['Year'] == year]
     df = df[~df['Flow'].isin(not_needed_flows)]
 
+    # drop year col
+    df = df.drop(columns=['Year'])
+
+
+    df = df.groupby(['Region', 'Flow', 'Process', 'Supply_Use', 'Unit'], as_index=False)['Value'].sum()
 
     # PYRO
     # calculate waste rock - ore
-    df_ore = df[df['Flow'] == 'Mine Concentrates'].copy()
+    df_ore = df[df['Flow'] == 'Concentrates'].copy()
     df_ore['Flow'] = 'Ore'
     df_ore['Value'] = df_ore['Value'] / tc.loc[tc['Process'] == 'Milling_Crushing_Floatation', 'Value'].iloc[0]
     df_ore['Value'] = df_ore['Value'] / conc.loc[conc['Flow'] == 'Ore', 'Value'].iloc[0]
@@ -467,7 +515,7 @@ def calc_missing_flows(tc_path = r'data\input\raw\TCs.xlsx',
     df_ore['Process'] = 'Milling_Crushing_Floatation'
 
     # Concentrates
-    df_conc = df[df['Flow'] == 'Mine Concentrates'].copy()
+    df_conc = df[df['Flow'] == 'Concentrates'].copy()
     df_conc['Flow'] = 'Concentrates'
     df_conc['Value'] = df_conc['Value'] / conc.loc[conc['Flow'] == 'Concentrate', 'Value'].iloc[0]
     df_conc['Supply_Use'] = 'Supply'
@@ -475,7 +523,7 @@ def calc_missing_flows(tc_path = r'data\input\raw\TCs.xlsx',
   
     
     # Tailings
-    df_tailings = df[df['Flow'] == 'Mine Concentrates'].copy()
+    df_tailings = df[df['Flow'] == 'Concentrates'].copy()
     df_tailings['Flow'] = 'Tailings'
     df_tailings['Value'] = df_tailings['Value'] * (1/tc.loc[tc['Process'] == 'Milling_Crushing_Floatation', 'Value'].iloc[0]-1)
     df_tailings['Value'] = df_tailings['Value'] / conc.loc[conc['Flow'] == 'Tailings', 'Value'].iloc[0]
@@ -500,14 +548,14 @@ def calc_missing_flows(tc_path = r'data\input\raw\TCs.xlsx',
 
     # HYDRO
     #Refined_copper_hydro
-    df_cathode_hydro = df[df['Flow'] == 'Cathode_SXEW'].copy()
+    df_cathode_hydro = df[(df['Flow'] == 'Refined_primary') & (df['Process'] == 'SXEW')].copy()
     df_cathode_hydro['Flow'] = 'Refined_copper_hydro'
     df_cathode_hydro['Process'] = 'SXEW'
     df_cathode_hydro['Supply_Use'] = 'Supply'
     df_cathode_hydro['Value'] = df_cathode_hydro['Value'] / conc.loc[conc['Flow'] == 'Refined_copper_hydro', 'Value'].iloc[0]
 
     # Tailings
-    df_tailings_2 = df[df['Flow'] == 'Cathode_SXEW'].copy()
+    df_tailings_2 = df[(df['Flow'] == 'Refined_primary') & (df['Process'] == 'SXEW')].copy()
     df_tailings_2['Flow'] = 'Tailings'
     df_tailings_2['Value'] = df_tailings_2['Value'] * (1/tc.loc[tc['Process'] == 'SXEW', 'Value'].iloc[0]-1)
     df_tailings_2['Value'] = df_tailings_2['Value'] / conc.loc[conc['Flow'] == 'Tailings', 'Value'].iloc[0]
@@ -516,7 +564,7 @@ def calc_missing_flows(tc_path = r'data\input\raw\TCs.xlsx',
 
     
     # Ore
-    df_ore_2 = df[df['Flow'] == 'Cathode_SXEW'].copy()
+    df_ore_2 = df[(df['Flow'] == 'Refined_primary') & (df['Process'] == 'SXEW')].copy()
     df_ore_2['Flow'] = 'Ore'
     df_ore_2['Value'] = df_ore_2['Value'] / tc.loc[tc['Process'] == 'SXEW', 'Value'].iloc[0]
     df_ore_2['Value'] = df_ore_2['Value'] / conc.loc[conc['Flow'] == 'Ore', 'Value'].iloc[0]
@@ -538,17 +586,17 @@ def calc_missing_flows(tc_path = r'data\input\raw\TCs.xlsx',
     df_crude_ore_2['Process'] = 'Mining'
 
 
-    df_smelting_primary = df[df['Flow'].isin(['Smelting Primary', 'Smelting Low-grade'])].copy()
+    df_smelting_primary = df[df['Flow'].isin(['Smelting_primary']) & (df['Process'] == 'Smelting')].copy()
     df_smelting_primary['Flow'] = 'Concentrates'
     # gropby concentrates and sum up -> we do not differentiate between low grade and concentrates
-    df_smelting_primary = df_smelting_primary.groupby(['Region', 'Year', 'Flow', 'Process', 'Supply_Use', 'Unit']).sum().reset_index()
+    df_smelting_primary = df_smelting_primary.groupby(['Region', 'Flow', 'Process', 'Supply_Use', 'Unit']).sum().reset_index()
     df_smelting_primary['Value'] = df_smelting_primary['Value'] / tc.loc[tc['Process'] == 'Smelting', 'Value'].iloc[0]
     df_smelting_primary['Value'] = df_smelting_primary['Value'] / conc.loc[conc['Flow'] == 'Concentrate', 'Value'].iloc[0]
     df_smelting_primary['Process'] = 'Smelting'
     df_smelting_primary['Supply_Use'] = 'Use'
 
 
-    df_scrap_class_3 = df[df['Flow'] == 'Smelting Secondary'].copy()
+    df_scrap_class_3 = df[df['Flow'].isin(['Scrap']) & (df['Process'] == 'Smelting')].copy()
     df_scrap_class_3['Flow'] = 'Scrap_class_3'
     df_scrap_class_3['Value'] = df_scrap_class_3['Value'] / tc.loc[tc['Process'] == 'Smelting', 'Value'].iloc[0]
     df_scrap_class_3['Value'] = df_scrap_class_3['Value'] / conc.loc[conc['Flow'] == 'Scrap_class_3', 'Value'].iloc[0]
@@ -556,23 +604,23 @@ def calc_missing_flows(tc_path = r'data\input\raw\TCs.xlsx',
     df_scrap_class_3['Supply_Use'] = 'Use'
 
 
-    df_matte = df[df['Flow'].isin(['Smelting Primary', 'Smelting Low-grade', 'Smelting Secondary'])].copy()
+    df_matte = df[(df['Flow'].isin(['Scrap', 'Smelting_primary'])) & (df['Process'] == 'Smelting')].copy()
     df_matte['Flow'] = 'Matte'
-    df_matte = df_matte.groupby(['Region', 'Year', 'Flow', 'Process', 'Supply_Use', 'Unit']).sum().reset_index()
+    df_matte = df_matte.groupby(['Region', 'Flow', 'Process', 'Supply_Use', 'Unit']).sum().reset_index()
     df_matte['Value'] = df_matte['Value'] / conc.loc[conc['Flow'] == 'Matte', 'Value'].iloc[0]
     df_matte['Supply_Use'] = 'Supply'
 
     # calculate slag via difference slag = concentrates + scrap - matte
-    df_slag = df[df['Flow'].isin(['Smelting Primary', 'Smelting Low-grade', 'Smelting Secondary'])].copy()
+    df_slag = df[(df['Flow'].isin(['Scrap', 'Smelting_primary'])) & (df['Process'] == 'Smelting')].copy()
     df_slag['Flow'] = 'Slag'
-    df_slag = df_slag.groupby(['Region', 'Year', 'Flow', 'Process', 'Supply_Use', 'Unit']).sum().reset_index()
+    df_slag = df_slag.groupby(['Region', 'Flow', 'Process', 'Supply_Use', 'Unit']).sum().reset_index()
     df_slag['Value'] = df_slag['Value'] * (1/tc.loc[tc['Process'] == 'Smelting', 'Value'].iloc[0]-1)
     df_slag['Value'] = df_slag['Value'] / conc.loc[conc['Flow'] == 'Slag', 'Value'].iloc[0]
     df_slag['Supply_Use'] = 'Supply'
 
     
 
-    df_anode = df[df['Flow'].isin(['Smelting Primary', 'Smelting Low-grade', 'Smelting Secondary'])].copy()
+    df_anode = df[(df['Flow'].isin(['Scrap', 'Smelting_primary'])) & (df['Process'] == 'Smelting')].copy()
     df_anode['Flow'] = 'Anode'
     df_anode['Value'] = df_anode['Value'] * tc.loc[tc['Process'] == 'Converting_fire_refining', 'Value'].iloc[0]
     df_anode['Value'] = df_anode['Value'] / conc.loc[conc['Flow'] == 'Anode', 'Value'].iloc[0]
@@ -580,7 +628,7 @@ def calc_missing_flows(tc_path = r'data\input\raw\TCs.xlsx',
     df_anode['Supply_Use'] = 'Supply'
 
     # calculate slag via difference slag = anode - matte
-    df_slag_2 = df[df['Flow'].isin(['Smelting Primary', 'Smelting Low-grade', 'Smelting Secondary'])].copy()
+    df_slag_2 = df[(df['Flow'].isin(['Scrap', 'Smelting_primary'])) & (df['Process'] == 'Smelting')].copy()
     df_slag_2['Flow'] = 'Slag'
     df_slag_2['Value'] = df_slag_2['Value'] * (1-tc.loc[tc['Process'] == 'Converting_fire_refining', 'Value'].iloc[0])
     df_slag_2['Value'] = df_slag_2['Value'] / conc.loc[conc['Flow'] == 'Slag', 'Value'].iloc[0]
@@ -589,22 +637,22 @@ def calc_missing_flows(tc_path = r'data\input\raw\TCs.xlsx',
 
 
 
-    df_cathode_pyro = df[df['Flow'].isin(['Refining Primary', 'Refining Secondary'])].copy()
+    df_cathode_pyro = df[(df['Flow'].isin(['Scrap', 'Refined_primary'])) & (df['Process'] == 'Refining')].copy()
     df_cathode_pyro['Flow'] = 'Refined_copper_pyro'
-    df_cathode_pyro = df_cathode_pyro.groupby(['Region', 'Year', 'Flow', 'Process', 'Supply_Use', 'Unit']).sum().reset_index()
-    df_cathode_pyro['Value'] = df_cathode_pyro['Value'] * conc.loc[conc['Flow'] == 'Refined_copper_hydro', 'Value'].iloc[0]
+    df_cathode_pyro = df_cathode_pyro.groupby(['Region',  'Flow', 'Process', 'Supply_Use', 'Unit']).sum().reset_index()
+    df_cathode_pyro['Value'] = df_cathode_pyro['Value'] * conc.loc[conc['Flow'] == 'Refined_copper_pyro', 'Value'].iloc[0]
     df_cathode_pyro['Process'] = 'Electrolytic_refining'
     df_cathode_pyro['Supply_Use'] = 'Supply'
 
 
-    df_anode_2 = df[df['Flow'] == 'Refining Primary'].copy()
+    df_anode_2 = df[(df['Flow'].isin(['Refined_primary'])) & (df['Process'] == 'Refining')].copy()
     df_anode_2['Flow'] = 'Anode'
     df_anode_2['Value'] = df_anode_2['Value'] / conc.loc[conc['Flow'] == 'Anode', 'Value'].iloc[0]
     df_anode_2['Process'] = 'Electrolytic_refining'
     df_anode_2['Supply_Use'] = 'Use'
 
     
-    df_scrap_class_2 = df[df['Flow'] == 'Refining Secondary'].copy()
+    df_scrap_class_2 = df[(df['Flow'].isin(['Scrap'])) & (df['Process'] == 'Refining')].copy()
     df_scrap_class_2['Flow'] = 'Scrap_class_2'
     df_scrap_class_2['Value'] = df_scrap_class_2['Value'] / conc.loc[conc['Flow'] == 'Scrap_class_2', 'Value'].iloc[0]
     df_scrap_class_2['Process'] = 'Electrolytic_refining'
@@ -621,74 +669,54 @@ def calc_missing_flows(tc_path = r'data\input\raw\TCs.xlsx',
 
     df_mine['Process'] = 'Mining'
 
-    # groupby flow and sum
-    df_mine = df_mine.groupby(['Region', 'Year', 'Flow', 'Process', 'Supply_Use', 'Unit']).sum().reset_index()
+    # # total scrap = scrap class 2 + scrap class 3
+    df_mine = df_mine.groupby(['Region', 'Flow', 'Process', 'Supply_Use', 'Unit']).sum().reset_index()
+    
+    # df_tot_scrap = pd.concat([df_scrap_class_2, df_scrap_class_3], ignore_index=True)
+    # df_tot_scrap['Flow'] = 'Total_scrap'
+    # df_tot_scrap['Process'] = 'Scrap'
+    # df_tot_scrap['Supply_Use'] = 'Use'
+    # df_tot_scrap = df_tot_scrap.groupby(['Region', 'Flow', 'Process', 'Supply_Use', 'Unit']).sum().reset_index()
+    
 
-    df_tot_scrap = pd.concat([df_scrap_class_2, df_scrap_class_3], ignore_index=True)
-    df_tot_scrap['Flow'] = 'Total_scrap'
-    df_tot_scrap = df_tot_scrap.groupby(['Region', 'Year', 'Flow', 'Process', 'Supply_Use', 'Unit']).sum().reset_index()
-    df_tot_scrap['Process'] = 'Scrap'
-    df_tot_scrap['Supply_Use'] = 'Use'
+    df_list = [df_mine, df_ore, df_conc, df_tailings, df_cathode_hydro, df_tailings_2,
+                                df_ore_2, df_smelting_primary, df_scrap_class_3, df_matte, df_slag, df_anode,
+                                df_slag_2, df_cathode_pyro, df_anode_2, df_scrap_class_2, df_cathode]
+    
+    # give an error if one of the dfs is empty
+    for i, d in enumerate(df_list):
+        if d.empty:
+            raise ValueError(f"DataFrame at index {i} is empty.")
 
     # Concatenate all dataframes
-    df_missing_flows = pd.concat([df_mine, df_ore, df_conc, df_tailings, df_cathode_hydro, df_tailings_2,
-                                df_ore_2, df_smelting_primary, df_scrap_class_3, df_matte, df_slag, df_anode,
-                                df_slag_2, df_cathode_pyro, df_anode_2, df_scrap_class_2, df_cathode, df_tot_scrap], ignore_index=True)
+    df_missing_flows = pd.concat(df_list, ignore_index=True)
     
     # filter out zeros
     df_missing_flows = df_missing_flows[df_missing_flows['Value'] != 0]
 
-    # assert no negative values
-    assert (df_missing_flows['Value'] >= 0).all(), "Negative values found in missing flows"
+    # sum up the values for the same Region, Flow, Process, Supply_Use, Unit combinations
+    # sum for the anode2 and anode1 regarding sec and prim input
+    df_missing_flows = df_missing_flows.groupby(['Region', 'Flow', 'Process', 'Supply_Use', 'Unit'], as_index=False)['Value'].sum()
 
-    ren = {'Waste Rock': 'Waste_rock',
+    # rename things: {'Crude Ore', 'Concentrates', 'Waste Rock'}
+    rename_dict = {
+        'Crude Ore': 'Crude_ore',
         'Concentrates': 'Concentrate',
-        'Crude Ore': 'Crude_ore'}
+        'Waste Rock': 'Waste_rock',
+        }
+    df_missing_flows['Flow'] = df_missing_flows['Flow'].replace(rename_dict)
 
-    df_missing_flows.replace({'Flow': ren}, inplace=True)
 
-
+    # consistency check
+    struc = lookup()['Structure']
+    consistency_check(df_missing_flows, struc)
 
     return df_missing_flows
 
-# def sectorial_lookup_table():
-#     structure_path = r'data\input\structure.xlsx'
-#     structure = pd.read_excel(structure_path, sheet_name=None)
 
-#     # Example: work with the "Supply" sheet
-#     supply = structure['Supply']
 
-#     # First column = Flow
-#     supply = supply.rename(columns={supply.columns[0]: "Process"})
+def consistency_check(df, structure):
 
-#     # Melt matrix into long format: Flow, Process, Value
-#     supply_long = supply.melt(
-#         id_vars=["Process"],          # keep flows fixed
-#         var_name="Flow",        # column headers become "Process"
-#         value_name="Value"         # cell values
-#     )
-#     supply_long['Supply_Use'] = 'Supply'
-    
-#     use = structure['Use']
-#     use = use.rename(columns={use.columns[0]: "Flow"})
-#     use_long = use.melt(
-#         id_vars=["Flow"],          # keep flows fixed
-#         var_name="Process",        # column headers become "Process"
-#         value_name="Value"         # cell values
-#     )
-
-#     use_long['Supply_Use'] = 'Use'
-
-#     # sort columns
-#     supply_long = supply_long[['Flow', 'Process', 'Supply_Use', 'Value']]
-#     use_long = use_long[['Flow', 'Process', 'Supply_Use', 'Value']]
-
-#     # concat
-#     structure_long = pd.concat([supply_long, use_long], ignore_index=True)
-
-#     return structure_long
-
-def flow_process_check(df, structure):
     '''
     check function if all flows and process instances of df are in structure
     '''
@@ -706,18 +734,22 @@ def flow_process_check(df, structure):
     assert len(missing_processes) == 0, f"Processes in df not in structure: {missing_processes}"
 
     # every flow process combination exists only once per region
-    duplicates = df.duplicated(subset=['Region', 'Year', 'Flow', 'Process', 'Supply_Use'], keep=False)
+    duplicates = df.duplicated(subset=['Region',  'Flow', 'Process', 'Supply_Use'], keep=False)
     assert not duplicates.any(), f"Duplicate flow-process combinations found in df"
+
+    # no negative values
+    assert (df['Value'] >= 0).all(), "Negative values found in missing flows"
 
 
 def calculate_domestic_flows():
+    'In this function we calculate the domestic flows that ultimately result from mass balance'
     df = calc_missing_flows()
     look = lookup()
+    
 
     structure = look['Structure']
     trade = look['Trade']
 
-    flow_process_check(df, structure)
     trade_look = trade[trade['Value'] == 0]
     structure = structure[structure['Value'] == 1]
 
@@ -734,16 +766,19 @@ def calculate_domestic_flows():
         df_flow = df[df['Flow'] == flow]
         processes = df_flow['Process'].unique()
 
-        assert 2>= len(processes) > 0, f"More than two or none processes found for flow {flow}"
-              
+        if len(processes) == 0:
+            logger.warning(f"No processes found for flow {flow} in df - skipping bec there is no data")
+            continue
+
+        assert 2>= len(processes), f"More than two processes found for flow {flow}"
 
         # get the processes from the structure
         struct_processes = structure[structure['Flow'] == flow]['Process'].unique()
         missing_processes = set(struct_processes) - set(processes)
 
         if len(missing_processes) == 0:
+            logger.info(f"No missing processes for flow {flow}")
             continue
-
 
         for process in missing_processes:
 
@@ -756,9 +791,22 @@ def calculate_domestic_flows():
 
     df_final = pd.concat([df, df_missing], ignore_index=True)
 
+    # group and sum up
+    df_final = df_final.groupby(['Region', 'Flow', 'Process', 'Supply_Use', 'Unit'], as_index=False)['Value'].sum()
+
     return df_final
 
-        
+
+def region_consistency_check(df, conc_map):
+    '''
+    Check if all regions in df are in conc_map
+    '''
+    df_regions = df['Region'].unique()
+    conc_regions = conc_map['Source_name'].unique()
+    missing_regions = set(df_regions) - set(conc_regions)
+    assert len(missing_regions) == 0, f"Regions in df not in conc_map: {missing_regions}"
+
+
 def transform_to_region_base(base_path=r'data\input\conc\icsg.xlsx'):
     """
     Transform df regions to conc_map regions.
@@ -772,6 +820,9 @@ def transform_to_region_base(base_path=r'data\input\conc\icsg.xlsx'):
     # Step 1: Load your flows df and the concordance table
     df = calculate_domestic_flows()
     conc_map = pd.read_excel(base_path, sheet_name='Region')
+
+    # region consistency check
+    region_consistency_check(df, conc_map)
 
     # Step 2: Merge df with mapping
     merged = df.merge(conc_map, left_on='Region', right_on='Source_name', how='left')
@@ -789,7 +840,7 @@ def transform_to_region_base(base_path=r'data\input\conc\icsg.xlsx'):
     # Step 5: Aggregate to final conc_region
     result = (
         merged
-        .groupby(['Base_name', 'Year', 'Flow', 'Process', 'Supply_Use', 'Unit'], as_index=False)
+        .groupby(['Base_name', 'Flow', 'Process', 'Supply_Use', 'Unit'], as_index=False)
         .agg({'Value_adj': 'sum'})
     )
 
@@ -797,7 +848,6 @@ def transform_to_region_base(base_path=r'data\input\conc\icsg.xlsx'):
     'Base_name': 'Region'}, inplace=True)
 
     result['Value'] = result.Value.round(3)
-
 
     # split into accounting entities
     time_stamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
@@ -817,11 +867,10 @@ def transform_to_region_base(base_path=r'data\input\conc\icsg.xlsx'):
     p = supply [supply['Flow'].isin(p_flows)]
     
 
-
     use = use[~use['Flow'].isin(o_flows + e_flows + y_flows)]
     supply = supply[~supply['Flow'].isin(p_flows + y_flows)]
 
-    folder_name = r"data/proc/icsg"
+    folder_name = r"data/proc/datafeed/icsg"
 
     os.makedirs(folder_name, exist_ok=True)
 
@@ -833,18 +882,29 @@ def transform_to_region_base(base_path=r'data\input\conc\icsg.xlsx'):
     y.to_csv(os.path.join(folder_name, f'Y_prod_icsg_{time_stamp}.csv'), index=False)
 
 
-    return result
+    logger.info(f"Transformed data saved to {folder_name}")
 
 
 
-def conv_u_logic(
+
+
+
+####################################################################################################
+
+# functions to create region totals for supply and use entities
+
+####################################################################################################
+
+
+
+def use_region_totals(
         origin = r'data\proc\datafeed\icsg',
         dest_folder_tot = r'data\proc\datafeed\icsg\region_totals',
         name_tot = 'U'
     ):
 
-    upaths = ['Y_prod_icsg_20250923_093733.csv', 'U_prod_icsg_20250923_093733.csv',
-              'O_prod_icsg_20250923_093733.csv', 'E_prod_icsg_20250923_093733.csv']
+    upaths = ['Y_prod_icsg_20251015_103115.csv', 'U_prod_icsg_20251015_103115.csv',
+              'O_prod_icsg_20251015_103115.csv', 'E_prod_icsg_20251015_103115.csv']
     l = lookup()
     ent = l['Sector2Entity']
     dims = [
@@ -863,9 +923,7 @@ def conv_u_logic(
                         'Flow': 'Sector_origin',
                         'Process': 'Sector_destination',
                        }, inplace=True)
-    use_tot.drop(columns=['Unit', 'Year', 'Supply_Use'], inplace=True)
-
-    
+    use_tot.drop(columns=['Unit',  'Supply_Use'], inplace=True)
 
     use_tot = use_tot.merge(ent, left_on='Sector_origin', right_on='Sector_name', how='left')
     use_tot = use_tot.rename(columns={'Entity': 'Entity_origin'})
@@ -879,16 +937,61 @@ def conv_u_logic(
 
     os.makedirs(dest_folder_tot, exist_ok=True)
     use_tot.to_csv(dest, index=False)
+    logger.info(f"Use region totals saved to {dest}")
 
     return None
 
 
-def prep_Uboundary_to_ie(
+def supply_region_totals(origin = r'data\proc\datafeed\icsg',
+        dest_folder = r'data\proc\datafeed\icsg\region_totals',
+        name = 'S'):
+     
+    spaths = ['S_prod_icsg_20251015_103115.csv', 'P_prod_icsg_20251015_103115.csv',]
+    l = lookup()
+    ent = l['Sector2Entity']
+    dims = [
+             'Region_origin', 'Sector_origin', 'Entity_origin',
+            'Sector_destination', 'Entity_destination', 'Value'
+        ]
+    
+    s = pd.read_csv(os.path.join(origin, spaths[0]))
+    p = pd.read_csv(os.path.join(origin, spaths[1]))
+    supply_tot = pd.concat([s, p], ignore_index=True)
+    supply_tot.rename(columns={'Region': 'Region_origin', 
+                        'Flow': 'Sector_destination',
+                        'Process': 'Sector_origin',}, inplace=True)
+    
+    supply_tot.drop(columns=['Unit', 'Supply_Use'], inplace=True)
+
+    supply_tot = supply_tot.merge(ent, left_on='Sector_origin', right_on='Sector_name', how='left')
+    supply_tot = supply_tot.rename(columns={'Entity': 'Entity_origin'})
+    supply_tot = supply_tot.merge(ent, left_on='Sector_destination', right_on='Sector_name', how='left')
+    supply_tot = supply_tot.rename(columns={'Entity': 'Entity_destination'})
+    supply_tot = supply_tot[dims]
+
+
+    time_stamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
+    dest = os.path.join(dest_folder, f'{name}_{time_stamp}.csv')
+    os.makedirs(dest_folder, exist_ok=True)
+    supply_tot.to_csv(dest, index=False)
+
+    logger.info(f"Supply region totals saved to {dest}")
+
+    return None
+
+
+####################################################################################################
+
+# functions to prepare the boundary input and output in inital estimate format
+
+####################################################################################################
+
+def use_to_ie(
         origin = r'data\proc\datafeed\icsg',
         dest_folder = r'data\proc\datafeed\dom_calc',
     ):
 
-    upaths = ['O_prod_icsg_20250923_093733.csv', 'E_prod_icsg_20250923_093733.csv']
+    upaths = ['O_prod_icsg_20251015_103115.csv', 'E_prod_icsg_20251015_103115.csv']
 
     l = lookup()
     ent = l['Sector2Entity']
@@ -913,7 +1016,6 @@ def prep_Uboundary_to_ie(
                        }, inplace=True)
 
     
-    
     o = merge_entity_to_df(o, ent)
     e = merge_entity_to_df(e, ent)
     o['Region_origin'] = o['Region_destination']
@@ -932,7 +1034,7 @@ def prep_Uboundary_to_ie(
     o.to_csv(dest_o, index=False)
     e.to_csv(dest_e, index=False)
 
-
+    logger.info(f"Use region totals saved to {dest_o} and {dest_e}")
     return None
 
 
@@ -945,50 +1047,12 @@ def merge_entity_to_df(df, ent):
         return df
 
 
-def conv_s_logic(origin = r'data\proc\datafeed\icsg',
-        dest_folder = r'data\proc\datafeed\icsg\region_totals',
-        name = 'S'):
-     
-    spaths = ['S_prod_icsg_20250923_093733.csv', 'P_prod_icsg_20250923_093733.csv',]
-    l = lookup()
-    ent = l['Sector2Entity']
-    dims = [
-             'Region_origin', 'Sector_origin', 'Entity_origin',
-            'Sector_destination', 'Entity_destination', 'Value'
-        ]
-    
-
-    s = pd.read_csv(os.path.join(origin, spaths[0]))
-    p = pd.read_csv(os.path.join(origin, spaths[1]))
-    supply_tot = pd.concat([s, p], ignore_index=True)
-    supply_tot.rename(columns={'Region': 'Region_origin', 
-                        'Flow': 'Sector_destination',
-                        'Process': 'Sector_origin',}, inplace=True)
-    
-    supply_tot.drop(columns=['Unit', 'Year', 'Supply_Use'], inplace=True)
-
-    supply_tot = supply_tot.merge(ent, left_on='Sector_origin', right_on='Sector_name', how='left')
-    supply_tot = supply_tot.rename(columns={'Entity': 'Entity_origin'})
-    supply_tot = supply_tot.merge(ent, left_on='Sector_destination', right_on='Sector_name', how='left')
-    supply_tot = supply_tot.rename(columns={'Entity': 'Entity_destination'})
-    supply_tot = supply_tot[dims]
-
-
-    time_stamp = pd.Timestamp.now().strftime('%Y%m%d_%H%M%S')
-    dest = os.path.join(dest_folder, f'{name}_{time_stamp}.csv')
-    os.makedirs(dest_folder, exist_ok=True)
-    supply_tot.to_csv(dest, index=False)
-
-
-    return None
-
-
-def prep_Sboundary_to_ie(
+def supply_to_ie(
         origin = r'data\proc\datafeed\icsg',
         dest_folder = r'data\proc\datafeed\dom_calc',
     ):
 
-    upaths = ['P_prod_icsg_20250923_093733.csv']
+    upaths = ['P_prod_icsg_20251015_103115.csv']
 
     l = lookup()
     ent = l['Sector2Entity']
@@ -996,8 +1060,6 @@ def prep_Sboundary_to_ie(
              'Sector_origin', 'Entity_origin',
             'Region_destination', 'Sector_destination', 'Entity_destination', 'Value'
         ]
-    
-    
     
     p = pd.read_csv(os.path.join(origin, upaths[0]))
     
@@ -1022,22 +1084,13 @@ def prep_Sboundary_to_ie(
 
     p.to_csv(dest_p, index=False)
 
+    logger.info(f"Supply region totals saved to {dest_p}")
+
 
     return None
 
 
-
-
-
-
-
-
-
-
-
-
-
 # Tranform the data feed into 
 if __name__ == "__main__":
-    icsg_2005()
-    
+    use_to_ie()
+    supply_to_ie()
