@@ -27,7 +27,44 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def build_regtot_const(index_path, s_path, type_):
+def consistency_check_index(data, index, logger):
+    """
+    Check that all origin/destination values in `data` are present in the corresponding
+    origin/destination columns of `index` for Sectors, Regions, and Entities.
+
+    Parameters
+    ----------
+    data : pandas.DataFrame
+        The main dataset containing origin/destination columns (e.g., 'Sector_origin', 'Sector_destination').
+    index : pandas.DataFrame
+        The reference index containing valid origin/destination pairs.
+    
+    Logs
+    ----
+    Issues warnings (via `logger.warning`) if `data` contains origin/destination entries
+    not present in `index`.
+    """
+    def check_consistency(prefix):
+        """Helper to check origin/destination consistency for a given prefix."""
+        cols = [f"{prefix}_origin", f"{prefix}_destination"]
+        if not all(c in index.columns for c in cols):
+            return  # skip if index lacks required columns
+        
+        valid = set(pd.unique(pd.concat([index[cols[0]], index[cols[1]]])))
+        for col in cols:
+            if col in data.columns:
+                missing = set(data[col].unique()) - valid
+                if missing:
+                    logger.warning(f"Missing {prefix.lower()}s in index for column {col}: {missing}")
+
+    for prefix in ["Sector", "Region", "Entity"]:
+        check_consistency(prefix)
+
+
+
+
+
+def build_regtot_const(index_path, s_path, type_, sanity_check=True):
 
     '''
     Steps
@@ -41,12 +78,14 @@ def build_regtot_const(index_path, s_path, type_):
     keys_df = pd.read_parquet(index_path).reset_index(drop=True)
 
     s_df = pd.read_csv(s_path)
+
+    consistency_check_index(s_df, keys_df, logger)
+
+    
     n_tots = s_df.shape[0]
     n_vars = keys_df.shape[0]
 
     # --- Step 2: Build G, c, c_idx, c_sigma
-
-    
     G_data, G_row, G_col = [], [], []
 
     # for each row in s_df, find matching rows in keys_df
@@ -104,7 +143,7 @@ def build_regtot_const(index_path, s_path, type_):
 
 if __name__ == "__main__":
     index_path = get_latest_index(r'data\proc\index')
-    s_path  = r'data\proc\datafeed\icsg\region_totals\S_20250929_134742.csv'
+    s_path  = r'data\proc\datafeed\icsg\region_totals\S_20251020_102243.csv'
     u_path  = r'data\proc\datafeed\icsg\region_totals\U_20250929_134330.csv'
     build_regtot_const(index_path, s_path, type_='supply_region_totals')
 

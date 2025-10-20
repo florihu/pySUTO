@@ -868,7 +868,7 @@ def transform_to_region_base(base_path=r'data\input\conc\icsg.xlsx'):
     
 
     use = use[~use['Flow'].isin(o_flows + e_flows + y_flows)]
-    supply = supply[~supply['Flow'].isin(p_flows + y_flows)]
+    supply = supply[~supply['Flow'].isin(p_flows)]
 
     folder_name = r"data/proc/datafeed/icsg"
 
@@ -946,7 +946,7 @@ def supply_region_totals(origin = r'data\proc\datafeed\icsg',
         dest_folder = r'data\proc\datafeed\icsg\region_totals',
         name = 'S'):
      
-    spaths = ['S_prod_icsg_20251015_103115.csv', 'P_prod_icsg_20251015_103115.csv',]
+    spaths = ['S_prod_icsg_20251020_101950.csv', 'P_prod_icsg_20251020_101950.csv',]
     l = lookup()
     ent = l['Sector2Entity']
     dims = [
@@ -1092,5 +1092,4 @@ def supply_to_ie(
 
 # Tranform the data feed into 
 if __name__ == "__main__":
-    use_to_ie()
-    supply_to_ie()
+    supply_region_totals()
