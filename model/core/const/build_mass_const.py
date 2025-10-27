@@ -25,12 +25,12 @@ from model.core.datafeed.util import get_latest_index
 def build_mass_balance_constraints_from_index(
     index_path,
     mb_rel_ent=("Flow", "Process"),
-    out_folder="data/proc/const/mb",
+    out_folder="data/proc/const",
     out_name_G="G_mass_balance",
     out_name_c="c_mass_balance",
     out_name_c_sigma="c_sigma_mass_balance",
-    out_name_c_idx="c_mass_balance_idx",
-    const_type="mass_balance",
+    out_name_c_idx="c_idx_mass_balance",
+    const_type="Mass_balance",
     sanity_check=True,
 ):
     """
@@ -124,6 +124,13 @@ def build_mass_balance_constraints_from_index(
     # --- Step 5: Constraint tolerance
     c_sigma = np.ones(n_constraints, dtype=np.float32) * 1e-3  # 1 t tolerance
 
+    # make a 1 line idx for the constraint maps
+    c_idx = np.array(
+        [f"{const_type}_{reg}_{sec}" for reg, sec in reg_sec_comb],
+        dtype=object
+    )
+    
+
     # --- Step 6: Save
     os.makedirs(out_folder, exist_ok=True)
     time_stamp = pd.Timestamp.now().strftime("%Y%m%d_%H%M%S")
@@ -131,7 +138,7 @@ def build_mass_balance_constraints_from_index(
     sparse.save_npz(os.path.join(out_folder, out_name_G + f'_{time_stamp}.npz'), G)
     np.save(os.path.join(out_folder, out_name_c + f'_{time_stamp}.npy'), c)
     np.save(os.path.join(out_folder, out_name_c_sigma + f'_{time_stamp}.npy'), c_sigma)
-    np.save(os.path.join(out_folder, out_name_c_idx + f'_{time_stamp}.npy'), constraint_idx_map)
+    np.save(os.path.join(out_folder, out_name_c_idx + f'_{time_stamp}.npy'), c_idx)
 
     logger.info(f"Mass balance constraints saved to '{out_folder}'")
 

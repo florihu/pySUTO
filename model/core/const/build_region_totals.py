@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 import seaborn as sns
-import sparse
+import sparse as sp
 from tqdm import tqdm
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
@@ -64,87 +64,160 @@ def consistency_check_index(data, index, logger):
 
 
 
-def build_regtot_const(index_path, s_path, type_, sanity_check=True):
+import os
+import numpy as np
+import pandas as pd
+from datetime import datetime
+import sparse as sp
+import logging
 
-    '''
-    Steps
-    1. merge s on index.
-    2. build G from merged., build c, c_idx, c_sigma
-        2.1 G: rows constraint and cols variables (index)
-    3. sanity check
-    '''
+logger = logging.getLogger(__name__)
 
-    # --- Step 1: Merge s on index
+def build_regtot_const(index_path, s_path, sup_use, sanity_check=True):
+    """
+    Efficient builder for region totals constraints (supply or use).
+    Returns dict with: 'G' (COO), 'c' (np.ndarray), 'meta' (dict)
+    """
+
+    # --- Step 1: Load
     keys_df = pd.read_parquet(index_path).reset_index(drop=True)
-
     s_df = pd.read_csv(s_path)
-
     consistency_check_index(s_df, keys_df, logger)
 
-    
-    n_tots = s_df.shape[0]
-    n_vars = keys_df.shape[0]
+    type_ = f"{sup_use}_region_totals"
+    n_tots, n_vars = len(s_df), len(keys_df)
 
-    # --- Step 2: Build G, c, c_idx, c_sigma
-    G_data, G_row, G_col = [], [], []
+    # --- Step 2: Build composite join key
+    s_df_r = s_df.reset_index().rename(columns={'index': 'row_index'})
+    keys_idx = keys_df.reset_index().rename(columns={'index': 'var_index'})
 
-    # for each row in s_df, find matching rows in keys_df
-    c_list, c_idx_list = [], []
-
-    for _, s_row in tqdm(s_df.iterrows(), total=s_df.shape[0], desc="Building constraints"):
-        region = s_row['Region_origin']
-        sector_origin = s_row['Sector_origin']
-        sector_dest = s_row['Sector_destination']
-        value = s_row['Value']
-
-        # find matching rows in keys_df
-        mask = (
-            (keys_df['Region_origin'] == region) &
-            (keys_df['Sector_origin'] == sector_origin) &
-            (keys_df['Sector_destination'] == sector_dest)
+    if sup_use == 'supply':
+        s_df_r['merge_key'] = (
+            s_df_r['Region_origin'].astype(str) + '|' +
+            s_df_r['Sector_origin'].astype(str) + '|' +
+            s_df_r['Sector_destination'].astype(str)
         )
-        matched_indices = keys_df.index[mask].tolist()
-        if not matched_indices:
-            logger.warning(f"No matches found for constraint ({type_}, {region}, {sector_origin}, {sector_dest})")
-            continue
-        # Add to G
-        row_idx = len(c_list)
+        keys_idx['merge_key'] = (
+            keys_idx['Region_origin'].astype(str) + '|' +
+            keys_idx['Sector_origin'].astype(str) + '|' +
+            keys_idx['Sector_destination'].astype(str)
+        )
+    elif sup_use == 'use':
+        s_df_r['merge_key'] = (
+            s_df_r['Region_destination'].astype(str) + '|' +
+            s_df_r['Sector_origin'].astype(str) + '|' +
+            s_df_r['Sector_destination'].astype(str)
+        )
+        keys_idx['merge_key'] = (
+            keys_idx['Region_destination'].astype(str) + '|' +
+            keys_idx['Sector_origin'].astype(str) + '|' +
+            keys_idx['Sector_destination'].astype(str)
+        )
+    else:
+        raise ValueError("sup_use must be 'supply' or 'use'")
 
-        for col_idx in matched_indices:
-            G_data.append(1.0)
-            G_row.append(row_idx)
-            G_col.append(col_idx)
+    # --- Step 3: Merge (vectorized join)
+    merged = s_df_r.merge(
+        keys_idx[['merge_key', 'var_index']],
+        on='merge_key',
+        how='left',
+        indicator=True
+    )
 
-        c_list.append(value)
-        c_idx_list.append((type_, region, sector_origin, sector_dest))
+    # Warn about missing matches
+    missing = merged[merged['_merge'] != 'both']
+    if not missing.empty:
+        logger.warning(
+            f"{len(missing)} constraints had no matches in keys_df "
+            f"and will produce zero rows in G and zeros in c."
+        )
+        # print some examples
+        logger.warning(f"Examples of missing matches:\n{missing[['Region_origin', 'Region_destination', 'Sector_origin', 'Sector_destination', 'Value']].head()}")
 
-    # Convert to numpy arrays
-    G_data = np.array(G_data, dtype=np.int64)
-    G_row = np.array(G_row, dtype=np.int64)
-    G_col = np.array(G_col, dtype=np.int64)
-
-    # Build sparse COO matrix
-    G = sparse.COO((G_data, (G_row, G_col)), shape=(n_tots, n_vars))
-    c = np.zeros(n_tots, dtype=np.int64)
-
-    density = G.nnz / (n_tots * n_vars) * 100
-    logger.info(f"Sparse matrix G built with shape {G.shape} and density {density:.6e}%")
-    G_mem_MB = (G.data.nbytes + G.coords.nbytes) / (1024**2)
-    logger.info(f"Sparse matrix G memory size: {G_mem_MB:.2f} MB")
+    logger.info('No issues detected during merge.')
 
 
-    if sanity_check: 
-         # G must have the same index order as Keys_df
-        assert G.shape[1] == keys_df.shape[0], "Mismatch in G columns and index length"
-    
-       
+    matched = merged[merged['_merge'] == 'both']
+
+    # --- Step 4: Build COO correctly (coords first, data second)
+    if len(matched) == 0:
+        coords = np.zeros((2, 0), dtype=int)
+        data = np.zeros(0, dtype=np.int8)
+    else:
+        row = matched['row_index'].to_numpy(dtype=int)
+        col = matched['var_index'].to_numpy(dtype=int)
+        coords = np.vstack((row, col))
+        data = np.ones(len(row), dtype=np.int8)
+
+    G = sp.COO(coords, data, shape=(n_tots, n_vars))
+
+    # Build full-length c vector
+    c = np.zeros(n_tots, dtype=float)
+    if not matched.empty:
+        c[matched['row_index'].to_numpy(dtype=int)] = matched['Value'].to_numpy(dtype=float)
+
+
+    c_sigma = c *.02  # 2% tolerance
+
+        # Select columns based on mode
+    if sup_use == 'supply':
+        region_col, sector_col = 'Region_origin', 'Sector_origin'
+    elif sup_use == 'use':
+        region_col, sector_col = 'Region_destination', 'Sector_destination'
+    else:
+        raise ValueError(f"Invalid sup_use: {sup_use}")
+
+    # Build c_index DataFrame
+    c_index = s_df_r[[region_col, sector_col]].copy()
+    c_index['type'] = type_
+
+    # Build identifier directly as a Series
+    c_idx = c_index['type'] + '_' + c_index[region_col] + '_' + c_index[sector_col]
+    # to numpy
+    c_idx = c_idx.to_numpy()
+
+
+    # --- Step 5: Sanity checks
+    if sanity_check:
+        assert G.shape == (n_tots, n_vars), "Matrix shape mismatch"
+        assert len(c) == n_tots, "Constraint vector length mismatch"
+
+    # --- Step 6: Logging & save
+    density = (G.nnz / (n_tots * n_vars)) * 100 if n_tots * n_vars else 0
+    mem_MB = (G.data.nbytes + G.coords.nbytes) / (1024**2) if G.nnz > 0 else 0
+    nnz = G.nnz
+
+    logger.info(f"G built: shape={G.shape}, density={density:.6e}%, mem={mem_MB:.2f} MB, nnz={nnz}")
+
+    out_folder = os.path.join("data", "proc", "const")
+    os.makedirs(out_folder, exist_ok=True)
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    out_path_G = os.path.join(out_folder, f"G_{type_}_{timestamp}.npz")
+    out_path_c = os.path.join(out_folder, f"c_{type_}_{timestamp}.npy")
+    out_path_csigma = os.path.join(out_folder, f"c_sigma_{type_}_{timestamp}.npy")
+    out_c_idx = os.path.join(out_folder, f"c_idx_{type_}_{timestamp}.npy")    
+
+
+    sp.save_npz(out_path_G, G)
+    np.save(out_path_c, c)
+    np.save(out_path_csigma, c_sigma)
+    np.save(out_c_idx, c_idx)
+
+
+    logger.info(f"G saved to {out_path_G}, c saved to {out_path_c}, c_sigma saved to {out_path_csigma}, c_idx saved to {out_c_idx}")
+
+
     return None
+
 
 
 if __name__ == "__main__":
     index_path = get_latest_index(r'data\proc\index')
     s_path  = r'data\proc\datafeed\icsg\region_totals\S_20251020_102243.csv'
-    u_path  = r'data\proc\datafeed\icsg\region_totals\U_20250929_134330.csv'
-    build_regtot_const(index_path, s_path, type_='supply_region_totals')
+    u_path  = r'data\proc\datafeed\icsg\region_totals\U_20251015_110046.csv'
+     
+    
+    build_regtot_const(index_path, u_path, sup_use='use', sanity_check=True)
 
     

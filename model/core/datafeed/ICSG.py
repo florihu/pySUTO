@@ -991,7 +991,7 @@ def use_to_ie(
         dest_folder = r'data\proc\datafeed\dom_calc',
     ):
 
-    upaths = ['O_prod_icsg_20251015_103115.csv', 'E_prod_icsg_20251015_103115.csv']
+    upaths = ['O_prod_icsg_20251020_101950.csv', 'E_prod_icsg_20251020_101950.csv']
 
     l = lookup()
     ent = l['Sector2Entity']
@@ -1052,7 +1052,7 @@ def supply_to_ie(
         dest_folder = r'data\proc\datafeed\dom_calc',
     ):
 
-    upaths = ['P_prod_icsg_20251015_103115.csv']
+    upaths = ['P_prod_icsg_20251020_101950.csv']
 
     l = lookup()
     ent = l['Sector2Entity']
@@ -1092,4 +1092,5 @@ def supply_to_ie(
 
 # Tranform the data feed into 
 if __name__ == "__main__":
-    supply_region_totals()
+    supply_to_ie()
+    

@@ -15,7 +15,7 @@ from model.core.datafeed.util import lookup, get_latest_index
 
 def merge_data_to_index_pd(
         d_paths = ['S_withoutdomestic_baci_20250923_083406.csv', 'U_withoutdomestic_baci_20250923_083406.csv', 'Y_baci_20250923_083406.csv',
-               'U_domestic_20250925_105625.csv', 'Y_domestic_20250925_105625.csv', 'E_20250930_095848.csv', 'O_20250930_095848.csv', 'P_20250930_095848.csv'],
+               'U_domestic_20251020_134454.csv', 'Y_domestic_20251020_134454.csv', 'E_20251021_091741.csv', 'O_20251021_091741.csv', 'P_20251021_091828.csv'],
     
         d_folders = ['baci', 'baci', 'baci',
                     'dom_calc', 'dom_calc', 'dom_calc', 'dom_calc', 'dom_calc'],
