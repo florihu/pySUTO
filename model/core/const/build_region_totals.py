@@ -218,6 +218,6 @@ if __name__ == "__main__":
     u_path  = r'data\proc\datafeed\icsg\region_totals\U_20251015_110046.csv'
      
     
-    build_regtot_const(index_path, u_path, sup_use='use', sanity_check=True)
+    build_regtot_const(index_path, s_path, sup_use='supply', sanity_check=True)
 
     

@@ -31,7 +31,9 @@ def build_mass_balance_constraints_from_index(
     out_name_c_sigma="c_sigma_mass_balance",
     out_name_c_idx="c_idx_mass_balance",
     const_type="Mass_balance",
+    unc_p = os.path.join("data", "input", "raw", "Unc.xlsx"),
     sanity_check=True,
+    tol=1e-6
 ):
     """
     Build sparse mass balance constraint matrix G and vector c from an index using pydata/sparse.
@@ -45,6 +47,10 @@ def build_mass_balance_constraints_from_index(
 
     # --- Step 1: Load index and enforce continuous integer index
     keys_df = pd.read_parquet(index_path).reset_index(drop=True)
+    unc = pd.read_excel(unc_p)
+    unc_dic = dict(zip(unc['Name'], unc['Value']))
+
+
     n_vars = keys_df.shape[0]
 
     # --- Step 2: Relevant sectors & regions
@@ -59,6 +65,9 @@ def build_mass_balance_constraints_from_index(
 
     logger.info(f"Number of variables: {n_vars}")
     logger.info(f"Constraints to build: {n_constraints}")
+
+    # --- Step 5: Constraint tolerance
+    c_sigma = np.zeros(n_constraints, dtype=np.float32)
 
     # --- Step 3: Build sparse matrix G and vector c
     reg_sec_comb = list(product(regions, sectors))
@@ -82,6 +91,11 @@ def build_mass_balance_constraints_from_index(
             G_data.extend([1] * len(use_vars))
             G_row.extend([constr_idx] * len(use_vars))
             G_col.extend(use_vars)
+        
+        if sec not in unc_dic.keys():
+            raise ValueError(f"Uncertainty for sector '{sec}' not found in Unc.xlsx")
+        
+        c_sigma[constr_idx] = unc_dic[sec]
 
     # Convert to numpy arrays
     G_data = np.array(G_data, dtype=np.int32)
@@ -90,7 +104,7 @@ def build_mass_balance_constraints_from_index(
 
     # Build sparse COO matrix
     G = sparse.COO((G_data, (G_row, G_col)), shape=(n_constraints, n_vars))
-    c = np.zeros(n_constraints, dtype=np.int32)
+    c = np.ones(n_constraints, dtype=np.float32) * tol
 
     density = G.nnz / (n_constraints * n_vars) * 100
     logger.info(f"Sparse matrix G built with shape {G.shape} and density {density:.6e}%")
@@ -121,12 +135,11 @@ def build_mass_balance_constraints_from_index(
         })
         logger.info(f"Constraint variable counts:\n{example_df}")
 
-    # --- Step 5: Constraint tolerance
-    c_sigma = np.ones(n_constraints, dtype=np.float32) * 1e-3  # 1 t tolerance
+    
 
     # make a 1 line idx for the constraint maps
     c_idx = np.array(
-        [f"{const_type}_{reg}_{sec}" for reg, sec in reg_sec_comb],
+        [f"{const_type}|{reg}_{sec}" for reg, sec in reg_sec_comb],
         dtype=object
     )
     

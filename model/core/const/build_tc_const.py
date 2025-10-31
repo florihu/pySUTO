@@ -98,6 +98,10 @@ def init_G_mat_efficiency_fast(sanity: bool = True, type_: str = 'material_effic
     index_path = get_latest_index(r'data/proc/index')
     index = pd.read_parquet(index_path).reset_index(drop=True)
     tcs = transform_value_mat_eff()
+    unc_p = os.path.join("data", "input", "raw", "Unc.xlsx")
+
+    unc = pd.read_excel(unc_p)
+    unc_dic = dict(zip(unc['Name'], unc['Value']))
 
     unique_regions = index['Region_origin'].unique()
 
@@ -122,6 +126,7 @@ def init_G_mat_efficiency_fast(sanity: bool = True, type_: str = 'material_effic
     rows, cols, vals, idx = [], [], [], []
     i = 0
 
+    c_sigma_list = []
     # Iterate over TC rows (not over entire index anymore)
     for _, row in tcs.iterrows():
         f_in, f_out, proc, val = row['Flow_input'], row['Flow_output'], row['Process'], row['Transformed_value']
@@ -151,14 +156,20 @@ def init_G_mat_efficiency_fast(sanity: bool = True, type_: str = 'material_effic
                 vals.extend([val] * n_out)
 
             idx.append((type_, f_out, f_in, region))
+
+            assert proc in unc_dic.keys(), f"Uncertainty not found for process: {proc}"
+            
+            c_sigma_list.append(unc_dic.get(proc))
+
             i += 1
 
     # Build sparse matrix
     G = sp.COO((vals, (rows, cols)), shape=(i, len(index)))
 
     c = np.zeros(i, dtype=np.float64)
-    c_sigma = c + 1e-1
-    idx_str = np.array([f"{t}_{fo}_{fi}_{r}" for (t, fo, fi,  r) in idx], dtype=object)
+    c_sigma = np.array(c_sigma_list, dtype=np.float64)
+    
+    idx_str = np.array([f"{t}|{fo}_{fi}_{r}" for (t, fo, fi,  r) in idx], dtype=object)
 
     assert len(idx_str) == G.shape[0], "Index length does not match number of rows in G"
 

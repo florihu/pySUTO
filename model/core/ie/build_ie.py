@@ -22,7 +22,8 @@ def merge_data_to_index_pd(
 
         index_folder = r'data\proc\index',
         out_name = 'ie',
-        out_folder = r'data\proc\ie'
+        out_folder = r'data\proc\ie',
+        tol = 1e-3
 
         ):
     
@@ -46,7 +47,7 @@ def merge_data_to_index_pd(
                           'Region_destination', 'Sector_destination', 'Entity_destination'],
                       how='left', validate='one_to_one')
     
-    merged['Value'] = merged['Value'].fillna(0)
+    merged['Value'] = merged['Value'].fillna(tol)
 
     ie = merged['Value'].to_numpy(dtype=np.float64)
 
