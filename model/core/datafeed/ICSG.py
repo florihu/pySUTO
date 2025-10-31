@@ -72,7 +72,7 @@ def icsg_2023():
         df = df[~df['Flow'].str.contains('Total|Not', na=False)]
 
         # exclude flows that contain , or .
-        df = df[~df['Flow'].str.contains(',|\.', na=False)]
+        df = df[~df['Flow'].str.contains(r',|\.', na=False)]
 
         # forward fill region nan
         df['Region'] = df['Region'].fillna(method='bfill')
@@ -164,7 +164,7 @@ def icsg_2014():
         df = df[~df['Flow'].str.contains('Total|Not', na=False)]
 
         # exclude flows that contain , or .
-        df = df[~df['Flow'].str.contains(',|\.', na=False)]
+        df = df[~df['Flow'].str.contains(r',|\.', na=False)]
 
         # forward fill region nan
         df['Region'] = df['Region'].fillna(method='bfill')
@@ -306,7 +306,7 @@ def icsg_2005():
         df = df[~df['Flow'].str.contains('Total|Not', na=False)]
 
         # exclude flows that contain , or .
-        df = df[~df['Flow'].str.contains(',|\.', na=False)]
+        df = df[~df['Flow'].str.contains(r',|\.', na=False)]
 
         # forward fill region nan
         df['Region'] = df['Region'].fillna(method='bfill')

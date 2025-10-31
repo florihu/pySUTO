@@ -26,9 +26,12 @@ problem = ProblemData(
     vars_map={0: "a1", 1: "a2", 2: "a3"},
     c_to_var=None
 )
-optimizer = KRASCRASOptimizer(problem, max_iter=1000, tol=1e-5, verbose=True, out_name='kras_cras_output')
+optimizer = KRASCRASOptimizer(problem, max_iter=1000, tol=1e-8, verbose=True)
 
 result = optimizer.solve()
+
+result.dump('test_run')
+
 result.plot_convergence(logy=True, name='kras_cras_convergence.png')
 result.plot_a_init_final(name='kras_cras_a_init_final.png')
 result.plot_c_init_final(name='kras_cras_c_init_final.png')

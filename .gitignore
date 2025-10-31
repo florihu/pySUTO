@@ -2,4 +2,4 @@
 /orga
 /figs
 /.venv
-/model/__pycache__
+**/__pycache__/

@@ -20,12 +20,18 @@ class Diagnostics:
         self.final_residuals = kwargs.get("final_residuals", np.array([]))
         self.final_rel_resid = kwargs.get("final_rel_resid", np.array([]))
         self.logger = kwargs.get("logger", None)
-        self.name = kwargs.get("out_name", os.getcwd())
+        self.name = kwargs.get("out_name", 'res')
         
 
         self.output_path = r'data/proc/opt'
         self.fig_path = r'figs\explo'
         
+    def update(self, **kwargs):
+        """Update diagnostic attributes dynamically."""
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+        if hasattr(self, "logger") and self.logger:
+            self.logger.debug(f"Updated diagnostics with: {list(kwargs.keys())}")
 
     # --- Standard analysis functions ---
 
@@ -64,6 +70,8 @@ class Diagnostics:
         df["iteration"] = np.arange(1, len(df) + 1)
         return df
     
+
+
     def plot_a_init_final(self, name='a_comparison.png'):
         """Plot initial vs final variable scatterplot."""
         plt.figure(figsize=(6, 6))
@@ -80,6 +88,7 @@ class Diagnostics:
         # store fig
         plt.savefig(f'{self.fig_path}/{name}', dpi=300)
         
+
 
     def plot_c_init_final(self, name='c_comparison.png'):
         """Plot initial vs final constraint scatterplot."""
@@ -98,11 +107,11 @@ class Diagnostics:
         plt.savefig(f'{self.fig_path}/{name}', dpi=300)
         
 
-    def to_json(self, fold_name='res'):
+    def dump(self, fold_name='res'):
         """Save diagnostics to JSON and arrays to .npy files."""
         path = os.path.join(self.output_path, fold_name)
         os.makedirs(path, exist_ok=True)
-
+        
         # store main arrays
         for attr in ['a_init', 'a_final', 'c_init', 'c_final']:
             np.save(os.path.join(path, f'{attr}.npy'), getattr(self, attr))
