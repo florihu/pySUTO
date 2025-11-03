@@ -32,6 +32,4 @@ result = optimizer.solve()
 
 result.dump('test_run')
 
-result.plot_convergence(logy=True, name='kras_cras_convergence.png')
-result.plot_a_init_final(name='kras_cras_a_init_final.png')
-result.plot_c_init_final(name='kras_cras_c_init_final.png')
+result.plot_a_diff_histogram(name = 'a_diff_histogram.png', abs = True)

@@ -239,6 +239,7 @@ class KRASCRASOptimizer(BaseOptimizer):
             "history": history,
             "final_residuals": residuals,
             "final_rel_resid": rel_resid,
+            "idx_map_c": problem.c_idx_map,
         }
 
         self.res = Diagnostics(**diagnostics, logger=self.logger)
