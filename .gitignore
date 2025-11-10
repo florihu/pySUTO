@@ -1,5 +1,18 @@
-/data
-/orga
-/figs
-/.venv
+# Python cache files
 **/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+env/
+venv/
+
+# Data folders
+data/
+orga/
+figs/
+
+# VSCode settings (optional)
+.vscode/

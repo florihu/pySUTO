@@ -3,6 +3,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import json
 import os
+import logging
+from pathlib import Path
+from scipy.stats import gaussian_kde
 
 
 class Diagnostics:
@@ -23,8 +26,8 @@ class Diagnostics:
         "logger": None,
         "out_name": 'res',
         "idx_map_c": {},
-        "output_path": r'data/proc/opt',
-        "fig_path": r'figs\explo',
+        "output_path": Path('data', 'proc', 'opt'),
+        "fig_path": Path('figs', 'explo'),
         }
 
 
@@ -101,6 +104,7 @@ class Diagnostics:
         plt.legend(fontsize='small', ncol=2)
         plt.tight_layout()
 
+        self.fig_path.mkdir(parents=True, exist_ok=True)
         plt.savefig(f'{self.fig_path}/{name}', dpi=300)
         
 
@@ -111,25 +115,41 @@ class Diagnostics:
         return df
     
 
+    def plot_a_init_final(self, name='a_comparison.png', xlog=False, ylog=False):
+        """Plot initial vs final variable scatterplot with optional contour lines."""
+        x = np.array(self.a_init)
+        y = np.array(self.a_final)
 
-    def plot_a_init_final(self, name='a_comparison.png'):
-        """Plot initial vs final variable scatterplot."""
         plt.figure(figsize=(6, 6))
-        plt.scatter(self.a_init, self.a_final, s=20, c='black')
+
+        # --- Base scatter plot ---
+        plt.scatter(x, y, s=10, c='gray', alpha=0.5, label='Variables')
+
+        # --- Diagonal reference line ---
         max_val = max(np.max(self.a_init), np.max(self.a_final))
-        plt.plot([0, max_val], [0, max_val], 'r--', label='y=x', alpha=0.5)
+        plt.plot([0, max_val], [0, max_val], 'r--', label='y=x', alpha=0.7)
+
+        # --- Axis scaling and labels ---
+        if xlog:
+            plt.xscale("log")
+        if ylog:
+            plt.yscale("log")
+
         plt.xlabel("Initial variable values")
         plt.ylabel("Final variable values")
-        plt.title("Initial vs Final Variable Values")
+        plt.title("Initial vs Final Variable Values (Rocket Plot)")
         plt.legend()
         plt.grid(True, which="both", linestyle="--", linewidth=0.5, alpha=0.5)
         plt.tight_layout()
-        plt.show()
-        # store fig
+
+        # --- Save figure ---
+        Path(self.fig_path).mkdir(parents=True, exist_ok=True)
         plt.savefig(f'{self.fig_path}/{name}', dpi=300)
+        plt.show()
 
 
-    def plot_a_diff_histogram(self, abs = False,  name='a_diff_histogram.png'):
+
+    def plot_a_diff_histogram(self, abs = False,  name='a_diff_histogram.png', xlog=False, ylog=True):
         """Plot histogram of differences between initial and final variable values."""
 
         if abs:
@@ -139,6 +159,10 @@ class Diagnostics:
 
         plt.figure(figsize=(8, 5))
         plt.hist(diffs, bins=30, color='blue', alpha=0.3, edgecolor='black')
+        if xlog:
+            plt.xscale("log")
+        if ylog:
+            plt.yscale("log")
         plt.xlabel("Difference (Final - Initial)")
         plt.ylabel("Frequency")
         plt.title("Histogram of Variable Value Differences")
@@ -146,16 +170,21 @@ class Diagnostics:
         plt.tight_layout()
         plt.show()
         # store fig
+        self.fig_path.mkdir(parents=True, exist_ok=True)
         plt.savefig(f'{self.fig_path}/{name}', dpi=300)
         
 
 
-    def plot_c_init_final(self, name='c_comparison.png'):
+    def plot_c_init_final(self, name='c_comparison.png', xlog=False, ylog=False):
         """Plot initial vs final constraint scatterplot."""
         plt.figure(figsize=(6, 6))
         plt.scatter(self.c_init, self.c_final, c='black',  s=20)
         max_val = max(np.max(self.c_init), np.max(self.c_final))
         plt.plot([0, max_val], [0, max_val], 'r--', label='y=x', alpha=0.5)
+        if xlog:
+            plt.xscale("log")
+        if ylog:
+            plt.yscale("log")
         plt.xlabel("Initial constraint values")
         plt.ylabel("Final constraint values")
         plt.title("Initial vs Final Constraint Values")
@@ -164,52 +193,115 @@ class Diagnostics:
         plt.tight_layout()
         plt.show()
         # store fig
+        self.fig_path.mkdir(parents=True, exist_ok=True)
+        plt.savefig(f'{self.fig_path}/{name}', dpi=300)
+
+    def plot_c_diff_histogram(self, abs = False, name='c_diff_histogram.png', xlog=False, ylog=True):
+        """Plot histogram of differences between initial and final constraint values."""
+        if abs:
+            diffs = np.abs(self.c_final - self.c_init)
+        else:
+            diffs = self.c_final - self.c_init
+
+        plt.figure(figsize=(8, 5))
+        plt.hist(diffs, bins=30, color='green', alpha=0.3, edgecolor='black')
+        if xlog:
+            plt.xscale("log")
+        if ylog:
+            plt.yscale("log")
+        plt.xlabel("Difference (Final - Initial)")
+        plt.ylabel("Frequency")
+        plt.title("Histogram of Constraint Value Differences")
+        plt.grid(True, which="both", linestyle="--", linewidth=0.5, alpha=0.5)
+        plt.tight_layout()
+        plt.show()
+        # store fig
+        self.fig_path.mkdir(parents=True, exist_ok=True)
         plt.savefig(f'{self.fig_path}/{name}', dpi=300)
         
 
     def dump(self, fold_name='res'):
+        """Save diagnostics (arrays + metadata)."""
+        path = Path(self.output_path) / fold_name
+        path.mkdir(parents=True, exist_ok=True)
 
-        """Save diagnostics to JSON and arrays to .npy files."""
-        path = os.path.join(self.output_path, fold_name)
-        os.makedirs(path, exist_ok=True)
-        
-        # store main arrays
+        data_manifest = {}
+
+        # Automatically handle known array attributes
         for attr in ['a_init', 'a_final', 'c_init', 'c_final']:
-            np.save(os.path.join(path, f'{attr}.npy'), getattr(self, attr))
+            np.save(path / f"{attr}.npy", getattr(self, attr))
+            data_manifest[attr] = f"{attr}.npy"
 
-        # store history arrays and keep filenames for metadata
+        # Save history arrays
+        for key, arr in self.history.items():
+            np.save(path / f"history_{key}.npy", np.array(arr))
+            data_manifest[f"history.{key}"] = f"history_{key}.npy"
 
-        per_row = ['residuals', 'rel_resid'] # nested arrays
-        per_it = ['max_rel_resid', 'mean_rel_resid', 'alpha', 'iteration'] # single value per iteration
+        # Save final arrays
+        np.save(path / "final_residuals.npy", self.final_residuals)
+        np.save(path / "final_rel_resid.npy", self.final_rel_resid)
+        data_manifest["final_residuals"] = "final_residuals.npy"
+        data_manifest["final_rel_resid"] = "final_rel_resid.npy"
 
-
-        # store the nested arrays keys of history as 2d arrays and th eper it as 1d array
-        for key in per_row:
-            if key in self.history:
-                arr_2d = np.array(self.history[key])
-                np.save(os.path.join(path, f'history_{key}.npy'), arr_2d)
-        for key in per_it:
-            if key in self.history:
-                arr_1d = np.array(self.history[key])
-                np.save(os.path.join(path, f'history_{key}.npy'), arr_1d)
-
-        
-
-        # store other large arrays separately
-        np.save(os.path.join(path, 'final_residuals.npy'), self.final_residuals)
-        np.save(os.path.join(path, 'final_rel_resid.npy'), self.final_rel_resid)
-
-        # store metadata
+        # Write metadata (manifest + meta info)
         meta = {
+            "manifest": data_manifest,
             "converged": self.converged,
             "params": self.params,
             "iterations": self.iterations,
-            "final_residuals": self.final_residuals.tolist(),
-            "final_rel_resid": self.final_rel_resid.tolist(),
         }
 
-        # write metadata JSON
-        with open(os.path.join(path, 'meta.json'), 'w') as f:
+        with open(path / "meta.json", "w") as f:
             json.dump(meta, f, indent=4)
 
         self.logger.info(f"Diagnostics saved to {path}")
+
+    def hist(self, name, a_x_log = True):
+        #  facet plot of c and a both in init and final 2x2
+        fig, axs = plt.subplots(2, 2, figsize=(12, 10))
+        axs[0, 0].hist(self.c_init, bins=100, color='blue', alpha=0.5, edgecolor='black')
+        axs[0, 0].set_title('Initial Constraint Values')
+        axs[0, 1].hist(self.c_final, bins=100, color='green', alpha=0.5, edgecolor='black')
+        axs[0, 1].set_title('Final Constraint Values')
+        axs[1, 0].hist(self.a_init, bins=100, color='orange', alpha=0.5, edgecolor='black')
+        axs[1, 0].set_title('Initial Variable Values')
+        axs[1, 1].hist(self.a_final, bins=100, color='red', alpha=0.5, edgecolor='black')
+        axs[1, 1].set_title('Final Variable Values')
+        for ax in axs.flat:
+            ax.grid(True, which="both", linestyle="--", linewidth=0.5, alpha=0.5)
+
+        if a_x_log:
+            axs[1, 0].set_xscale("log")
+            axs[1, 1].set_xscale("log")
+        plt.tight_layout()
+        self.fig_path.mkdir(parents=True, exist_ok=True)
+        plt.savefig(f'{self.fig_path}/{name}', dpi=300)
+
+
+
+
+    @classmethod
+    def load(cls, path):
+        """Load diagnostics from a folder and reconstruct object."""
+        path = Path(path)
+        with open(path / "meta.json") as f:
+            meta = json.load(f)
+
+        obj = cls(output_path=path.parent)
+        manifest = meta["manifest"]
+
+        # Restore arrays
+        for key, filename in manifest.items():
+            arr = np.load(path / filename, allow_pickle=True)
+            if key.startswith("history."):
+                hist_key = key.split(".", 1)[1]
+                obj.history[hist_key] = arr
+            else:
+                setattr(obj, key, arr)
+
+        # Restore metadata
+        obj.converged = meta["converged"]
+        obj.params = meta["params"]
+        obj.iterations = meta["iterations"]
+
+        return obj
