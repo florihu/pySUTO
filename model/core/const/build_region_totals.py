@@ -12,14 +12,15 @@ from typing import Iterable, Tuple, List, Optional
 import sys
 
 
+
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import seaborn as sns
+
 import sparse as sp
 from tqdm import tqdm
+from pathlib import Path
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
 from model.core.datafeed.util import get_latest_index
 
 
@@ -63,15 +64,6 @@ def consistency_check_index(data, index, logger):
 
 
 
-
-import os
-import numpy as np
-import pandas as pd
-from datetime import datetime
-import sparse as sp
-import logging
-
-logger = logging.getLogger(__name__)
 
 def build_regtot_const(index_path, s_path, sup_use, sanity_check=True):
     """
@@ -212,12 +204,77 @@ def build_regtot_const(index_path, s_path, sup_use, sanity_check=True):
 
 
 
+def build_implicit_mass_balance(index_p, s_p):
+    """
+    Build the implicit mass balance constraint matrix (G) with two rows per s:
+    - flow perspective
+    - process perspective (tech + boundary)
+    """
+
+    # --- Read input ---
+    index = pd.read_parquet(index_p).reset_index(drop=True)
+    s = pd.read_csv(s_p).reset_index(drop=True)
+
+    n_s = len(s)
+    s['_s_pos'] = np.arange(n_s)
+    index['_idx_pos'] = np.arange(len(index))
+    c_vals = []
+
+    row_coords = []
+    col_coords = []
+    data_vals = []
+
+    # --- FLOW PERSPECTIVE (first n_s rows) ---
+    s_flow = s[(s.Entity_origin != 'SB') & (s.Entity_destination != 'SB')].copy()  # exclude boundary flows
+    index_flow = index[(index.Entity_origin != 'SB' ) & (index.Entity_destination != 'SB')].copy()
+
+
+    flow_merge = s_flow.merge(
+        index_flow,
+        left_on=['Sector_destination', 'Region_origin'],
+        right_on=['Sector_origin', 'Region_origin'],
+        suffixes=('_s', '_idx')
+    )
+
+    row_coords.extend(flow_merge['_s_pos'].to_list())  # rows 0..n_s-1
+    col_coords.extend(flow_merge['_idx_pos'].to_list())
+    data_vals.extend([1] * len(flow_merge))
+
+
+
+    # --- PROCESS PERSPECTIVE (second n_s rows) ---
+    proc = index.merge(
+        s,
+        left_on=['Sector_destination', 'Region_origin'],
+        right_on=['Sector_origin', 'Region_origin'],
+        suffixes=('_idx', 's')
+    )
+
+    proc_help = s.merge(
+        index,
+        left_on=['Sector_destination', 'Region_origin'],
+        right_on=['Sector_origin', 'Region_origin'],
+        suffixes=('_s', '_idx')
+    )
+
+
+
+    # --- Build sparse matrix ---
+    shape = (2 * n_s, len(index))  # <-- two rows per s
+    G = sp.COO(coords=[row_coords, col_coords], data=data_vals, shape=shape)
+
+    # RHS vector: duplicate s['Value'] for flow and process rows
+    c_vals = np.concatenate([s['Value'].to_numpy(), s['Value'].to_numpy()])
+
+    return G, c_vals
+
+
+
+
 if __name__ == "__main__":
-    index_path = get_latest_index(r'data\proc\index')
-    s_path  = r'data\proc\datafeed\icsg\region_totals\S_20251020_102243.csv'
-    u_path  = r'data\proc\datafeed\icsg\region_totals\U_20251015_110046.csv'
-     
-    
-    build_regtot_const(index_path, s_path, sup_use='supply', sanity_check=True)
+    index_path = get_latest_index('data/proc/index')
+    s_path  = r'data/proc/datafeed/icsg/region_totals/S_20251020_102243.csv'
+    #u_path  = r'data\proc\datafeed\icsg\region_totals\U_20251015_110046.csv'
+    build_implicit_mass_balance(index_path, s_path)
 
     
