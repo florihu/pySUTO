@@ -1,0 +1,5 @@
+name: pysuto_mine_to_refine
+version: 0.1.0
+description: prototype for pysuto
+scope: mine_to_refine
+temporal: (1990, 2022)
