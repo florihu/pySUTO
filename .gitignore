@@ -13,6 +13,9 @@ venv/
 data/
 orga/
 figs/
+test/
+res/
+
 
 # VSCode settings (optional)
 .vscode/
