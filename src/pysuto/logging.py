@@ -1,6 +1,7 @@
 # src/logger.py
 import logging
 import sys
+import os
 
 def get_logger(name="system"):
     logger = logging.getLogger(name)
@@ -16,7 +17,9 @@ def get_logger(name="system"):
         logger.addHandler(ch)
 
         # Optional: file handler
-        fh = logging.FileHandler("logs/system.log")
+        os.makedirs("logs", exist_ok=True)  # Ensure logs directory exists
+        path = os.path.join("logs", f"{name}.log")
+        fh = logging.FileHandler(path)
         fh.setFormatter(formatter)
         logger.addHandler(fh)
 

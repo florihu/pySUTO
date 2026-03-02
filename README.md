@@ -9,6 +9,7 @@
 * res: output of optimization (id_system_run)
 * scripts: scripts executed for enabling system run
 * src: Here is the generalizable system logic
+    * pysuto: the package
 * tests: functionallity tests
 
 

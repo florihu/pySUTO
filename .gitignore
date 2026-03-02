@@ -3,6 +3,8 @@
 *.pyc
 *.pyo
 *.pyd
+*.egg-info/
+*.toml
 
 # Virtual environment
 .venv/
@@ -15,6 +17,7 @@ orga/
 figs/
 test/
 res/
+logs/
 
 
 # VSCode settings (optional)

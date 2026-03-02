@@ -5,7 +5,7 @@ import scipy.sparse as sp
 import pickle
 import os
 
-import logging
+from pysuto.logging import get_logger
 
 
 class AccountingStructure:
@@ -13,7 +13,7 @@ class AccountingStructure:
         self.rules = rules or []
         self.id = id or "accounting_structure"
         self.storage_dir = kwargs.get('storage_dir', r'data/proc/acc')
-        self.logger = logging.getLogger(self.__class__.__name__)
+        self.logger = get_logger(self.__class__.__name__)
 
         # Initialize nodes
         if kwargs.get('init_from_file', False):
@@ -21,7 +21,7 @@ class AccountingStructure:
             self.syst_desc_from_file(kwargs['root_file_path'])
            
         else:
-            assert root is not None
+            assert root is not None, "Root definition must be provided if not initializing from file"
             self.root_nodes = root['nodes'].copy()
             self.time_range = root['time_range']
             self.valuation = root['valuation']
@@ -151,9 +151,10 @@ class AccountingStructure:
     # ---------------------------
     # Save/Load methods
     # ---------------------------
-    def save(self):
-        os.makedirs(self.storage_dir, exist_ok=True)
+    def save(self, **kwargs):
+
         path = os.path.join(self.storage_dir, self.id)
+        os.makedirs(path, exist_ok=True)
         # Save sparse matrix
         sp.save_npz(os.path.join(path, "A.npz"), self.A)
         # Save DataFrames and dicts
@@ -172,9 +173,17 @@ class AccountingStructure:
         self.logger.info(f"Structure saved to {path}")
 
     @classmethod
-    def load(cls, path):
+    def load(cls, id, **kwargs):
         # Create empty instance
         obj = cls.__new__(cls)
+
+        obj.id = id
+        obj.storage_dir = kwargs.get('storage_dir', r'data/proc/acc')
+        
+        # assert id is a valid directory in storage_dir
+        assert os.path.isdir(os.path.join(obj.storage_dir, id)), f"Directory {id} not found in storage_dir"
+
+        path = os.path.join(obj.storage_dir, id)
         obj.A = sp.load_npz(os.path.join(path, "A.npz"))
         obj.edge_index = pd.read_csv(os.path.join(path, "edge_index.csv"))
         obj.edge_index_all = pd.read_csv(os.path.join(path, "edge_index_all.csv"))
@@ -236,8 +245,8 @@ if __name__ == "__main__":
     # -------------------------
     # Save and load structure
     # -------------------------
-    structure.save("test_structure/")
-    structure_loaded = AccountingStructure.load("test_structure/")
+    structure.save()
+    structure_loaded = AccountingStructure.load(id=acc_id)
 
     print("Loaded nodes:", structure_loaded.root_nodes)
     print("Loaded admissible edges:", len(structure_loaded.edge_index))
