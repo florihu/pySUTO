@@ -485,7 +485,7 @@ def clean_exchange_stocks(df_raw):
 
     return df_clean
 
-def clean_copper_price_table(df_raw):
+def clean_copper_price_table(df_raw, id=None):
     df = df_raw.copy()
 
     # --- 1. Promote first row as header and clean ---
@@ -499,6 +499,15 @@ def clean_copper_price_table(df_raw):
     df.columns = header
     df = df.iloc[1:].reset_index(drop=True)
 
+    # Drop empty / unnamed columns created by merged cells in source tables
+    keep_cols = [
+        c for c in df.columns
+        if str(c).strip()
+        and str(c).strip().lower() != "nan"
+        and not str(c).strip().lower().startswith("unnamed")
+    ]
+    df = df.loc[:, keep_cols]
+
     # Rename first column as Year_raw
     df = df.rename(columns={df.columns[0]: "Year_raw"})
 
@@ -509,6 +518,7 @@ def clean_copper_price_table(df_raw):
         np.nan
     )
     df["Type"] = df["Type"].ffill()
+    df["Type"] = df["Type"].fillna("ANNUAL AVERAGES")
 
     # --- 3. Keep only numeric years ---
     df["Year"] = pd.to_numeric(df["Year_raw"], errors="coerce")
@@ -531,8 +541,9 @@ def clean_copper_price_table(df_raw):
         df_long["Value"]
         .astype(str)
         .str.replace(",", "", regex=False)
-        .astype(float)
     )
+    df_long["Value"] = pd.to_numeric(df_long["Value"], errors="coerce")
+    df_long = df_long[df_long["Value"].notna()]
 
     # --- 6. Clean Exchange column and split into Exchange_type + Unit ---
     df_long["Exchange"] = (
@@ -554,10 +565,15 @@ def clean_copper_price_table(df_raw):
 
     df_long["Unit"] = df_long["Unit"].str.strip()
 
+    # Some tables may still include unnamed exchange columns with no metadata
+    if id is not None:
+        df_long = df_long[df_long["Exchange_type"].notna() & df_long["Unit"].notna()]
+
     # --- 7. Clean Type names ---
     df_long["Value_type"] = (
         df_long["Type"]
         .str.replace("ANNUAL ", "", regex=False)
+        .str.replace("AVERAGES", "AVERAGE", regex=False)
         .str.title()
     )
     # drop original Type column
