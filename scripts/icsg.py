@@ -91,7 +91,7 @@ def icsg_2023():
 
     return relevant_flows
 
-def icsg_2014():
+def icsg_2014(id=2014):
 
     file_name = r'ICSG 2014 Statistical Yearbook.xlsx'
     path = get_path(file_name)
@@ -119,10 +119,10 @@ def icsg_2014():
 
     rename_dict = {
         'COUNTRY': 'Region',
-        'Source': 'Flow',
-        'Feed': 'Flow',
-        'Semis': 'Flow',
-        'Semis-': 'Flow',
+        'Source': 'Type',
+        'Feed': 'Type',
+        'Semis': 'Type',
+        'Semis-': 'Type',
     }
 
     fcol = []
@@ -142,25 +142,18 @@ def icsg_2014():
 
         df_init = pd.read_excel(path, sheet_name=sheet, header=header)
 
-
-        if sheet in ['Semi_use_1', 'Semi_use_2', 'SXEW']:
-            df_init['Flow'] = 'Cathode'
-        elif sheet in ['Smelting_2', 'Semi_supply_1', 'Semi_supply_2']:
-            #drop second column
-            df_init = df_init.drop(df_init.columns[1], axis=1)
-
         if dtype == 'Flow':
             flow = clean_flows(df_init, sheet, process, flow_type, rename_dict)            
             fcol.append(flow)
         elif dtype == 'Prices' :
-            df_price = clean_copper_price_table(df_init)
+            df_price = clean_copper_price_table(df_init, id=id)
             pcol.append(df_price)
         elif dtype == 'Stock' and process == 'PMC':
             stock = clean_pmc_stocks(df_init)
             checks_stocks(stock)
             scol.append(stock)
         elif dtype == 'Stock' and process == 'Exchange':
-            stock = clean_exchange_stocks(df_init)
+            stock = clean_exchange_stocks(df_init, id=id)
             checks_stocks(stock)
             scol.append(stock)
         else:
@@ -383,15 +376,21 @@ def checks_stocks(df):
     
     pass
 
-def clean_exchange_stocks(df_raw):
+def clean_exchange_stocks(df_raw, id, start =2):
 
     df = df_raw.copy()
+
+    if id == 2014:
+        # drop first row and reset index
+        df = df.iloc[1:].reset_index(drop=True)
+        start = 1
+  
 
     # --------------------------------------------------
     # 1️⃣ Set correct header (row 1)
     # --------------------------------------------------
-    df.columns = df.iloc[1]
-    df = df.iloc[2:].reset_index(drop=True)
+    #df.columns = df.iloc[1]
+    df = df.iloc[start:].reset_index(drop=True)
 
     df = df.rename(columns={df.columns[0]: "Location"})
 
@@ -485,7 +484,7 @@ def clean_exchange_stocks(df_raw):
 
     return df_clean
 
-def clean_copper_price_table(df_raw):
+def clean_copper_price_table(df_raw, id):
     df = df_raw.copy()
 
     # --- 1. Promote first row as header and clean ---
@@ -499,6 +498,16 @@ def clean_copper_price_table(df_raw):
     df.columns = header
     df = df.iloc[1:].reset_index(drop=True)
 
+    # Drop empty / unnamed columns created by merged cells in source tables
+    keep_cols = [
+        c for c in df.columns
+        if str(c).strip()
+        and str(c).strip().lower() != "nan"
+        and not str(c).strip().lower().startswith("unnamed")
+    ]
+    df = df.loc[:, keep_cols]
+
+
     # Rename first column as Year_raw
     df = df.rename(columns={df.columns[0]: "Year_raw"})
 
@@ -509,6 +518,8 @@ def clean_copper_price_table(df_raw):
         np.nan
     )
     df["Type"] = df["Type"].ffill()
+    df["Type"] = df["Type"].fillna("ANNUAL AVERAGES")
+
 
     # --- 3. Keep only numeric years ---
     df["Year"] = pd.to_numeric(df["Year_raw"], errors="coerce")
@@ -531,8 +542,11 @@ def clean_copper_price_table(df_raw):
         df_long["Value"]
         .astype(str)
         .str.replace(",", "", regex=False)
-        .astype(float)
     )
+    df_long["Value"] = pd.to_numeric(df_long["Value"], errors="coerce")
+    df_long = df_long[df_long["Value"].notna()]
+
+
 
     # --- 6. Clean Exchange column and split into Exchange_type + Unit ---
     df_long["Exchange"] = (
@@ -554,12 +568,19 @@ def clean_copper_price_table(df_raw):
 
     df_long["Unit"] = df_long["Unit"].str.strip()
 
+    # Some tables may still include unnamed exchange columns with no metadata
+    if id is not None:
+        df_long = df_long[df_long["Exchange_type"].notna() & df_long["Unit"].notna()]
+
+
     # --- 7. Clean Type names ---
     df_long["Value_type"] = (
         df_long["Type"]
         .str.replace("ANNUAL ", "", regex=False)
+        .str.replace("AVERAGES", "AVERAGE", regex=False)
         .str.title()
     )
+
     # drop original Type column
     df_long = df_long.drop(columns=["Type"])
 
@@ -812,6 +833,11 @@ def clean_flows(df_init, sheet, process, flow_type, rename_dict):
     # remove leading and trailing spaces in Region and Type
     df['Region'] = df['Region'].str.strip()
     df['Type'] = df['Type'].str.strip()
+
+    rr = {'Philippppines': 'Philippines', 'Belgium-': 'Belgium-Luxembourg'}
+
+    df['Region'] = df['Region'].replace(rr)
+
 
     return df
 
