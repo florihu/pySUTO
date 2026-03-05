@@ -12,29 +12,42 @@ from pysuto.logging import get_logger
 logger = get_logger(__name__)
 out_folder = r'data/proc/datafeed/icsg_clean'
 
-def icsg_2023():
+def icsg_loader(file_name = r'ICSG 2023 Statistical Yearbook.xlsx', id=2023):
 
-    file_name = r'ICSG_Yearbooks\ICSG 2023 Statistical Yearbook.xlsx'
+    '''
+    This loader is valid for released Excel files starting from 2023
+    '''
     path = get_path(file_name)
-    
 
     # Define the list as [Process, Supply/Use]
     sheet_dict = {
         '3.Mine': ['Mining', 'Supply'],
-        '4.Sml': ['Smelting', 'Use'],
-        '5.Ref': ['Refining', 'Use'],
-        '6.SXEW': ['Refining_SXEW', 'Use'],
+        '4.Sml': ['Smelting', 'Supply'],
+        '5.Ref': ['Refining', 'Supply'],
+        '6.SXEW': ['SXEW', 'Supply'],
         '7.Usage': ['Semi', 'Use'],
         '10.Semis': ['Semi', 'Supply'],
-    }
-    rename_dict = {
-        'COUNTRY': 'Region',
-        'Source': 'Flow',
-        'Feed': 'Flow',
-        'Semis': 'Flow',
+       # '9.Price': ('Price', None, None), 
+       # '8.Stock': ('Stock', None, None),
     }
 
-    collect = []
+    rename_dict = {
+        'COUNTRY': 'Region',
+        'Source': 'Type',
+        'Feed': 'Type',
+        'Semis': 'Type',
+    }
+
+    
+
+    stck = pd.read_excel(path, sheet_name='8.Stock', header=2)
+    stckcl = clean_stock(stck)
+
+    p = pd.read_excel(path, sheet_name='9.Price')
+    pc = clean_prices_struc(p)
+
+
+    fcol = []
 
     for sheet, name in sheet_dict.items():
 
@@ -43,53 +56,178 @@ def icsg_2023():
 
         df_init = pd.read_excel(path, sheet_name=sheet, header=2)
 
-
-        if process == 'Refining_SXEW':
-            df_init['Flow'] = 'Cathode'
-        elif (process == 'Semi') and (flow_type == 'Use'):
-            df_init['Flow'] = 'Cathode'
-
-        # find row that contains 'Source:' in first column
-        source_row = df_init[df_init.iloc[:, 0].str.contains('Source:', na=False)].index[0]
-
-        if name =='Semi_use':
-            # delete row that contains EUROPEAN UNION + UK 6/ in the first column
-            df_init = df_init[~df_init.iloc[:, 0].str.contains('EUROPEAN UNION + UK 6/', na=False)]
-
-        # remove all rows after this row
-        df = df_init.iloc[1:source_row, :]
-        df.rename(columns=rename_dict, inplace=True)
-
-        # Exclude Regions that contain : T, TOTALS, 'WORLD', 'Other', 'OthOtheersrs', 'EUROPEAN', 'EU', 'By'
-        df = df[~df['Region'].str.contains('T|TOTALS|WORLD|Other|OthOtheersrs|EUROPEAN|EU|By', na=False)]
-
-        df =df[~df.Region.isna()]
-
-        # find all relevant data points in the Flow column that include 'Total' and 'Not'
-
-        df = df[~df['Flow'].str.contains('Total|Not', na=False)]
-
-        # exclude flows that contain , or .
-        df = df[~df['Flow'].str.contains(r',|\.', na=False)]
-
-        # forward fill region nan
-        df['Region'] = df['Region'].fillna(method='bfill')
-
-        df = df.melt(id_vars=['Region', 'Flow'], var_name='Year', value_name='Value')
-        df['Process'] = process
-        df['Unit'] = 'kt'
-        df['Year'] = df['Year'].astype(int)
-        df['Value'] = df['Value'].astype(float)
-        df['Supply_Use'] = flow_type
-        collect.append(df)
+        df = load_flows_struc(df_init, sheet, process, flow_type, rename_dict, name=sheet)
+        
+        fcol.append(df)
     
 
-    df = pd.concat(collect, ignore_index=True)
+    flows = pd.concat(fcol, ignore_index=True)
+
+
+    #save
+    os.makedirs(out_folder, exist_ok=True)
+    flow_path = os.path.join(out_folder, f'icsg_{id}_flows.csv')
+    stock_path = os.path.join(out_folder, f'icsg_{id}_stocks.csv')
+    price_path = os.path.join(out_folder, f'icsg_{id}_prices.csv')
+    flows.to_csv(flow_path, index=False)
+    stckcl.to_csv(stock_path, index=False)
+    pc.to_csv(price_path, index=False)
+
+
+    
+
+
+
+
+def clean_prices_struc(df_raw):
+
+    df = df_raw.copy()
+
+    # real exchange column names
+    exchange_cols = df.iloc[1, 2:5].tolist()
+
+    df = df.iloc[:, :5]
+    df.columns = ["section", "year"] + exchange_cols
+
+    current_section = None
+    rows = []
+
+    value_map = {
+        "ANNUAL AVERAGES": "Average",
+        "ANNUAL HIGHS": "High",
+        "ANNUAL LOWS": "Low"
+    }
+
+    for _, r in df.iterrows():
+
+        if r["section"] in value_map:
+            current_section = value_map[r["section"]]
+            continue
+
+        if pd.notna(r["year"]) and current_section:
+            year = int(r["year"])
+
+            for exch in exchange_cols:
+                price = r[exch]
+
+                if pd.notna(price):
+                    rows.append({
+                        "Year": year,
+                        "Exchange_type": exch,
+                        "Value_type": current_section,
+                        "Value": float(price)
+                    })
+    df  = pd.DataFrame(rows)
+
+    return df
+
+
+
+def clean_stock(df_raw):
+
+    df = df_raw.copy()
+
+    #Lets start with stock type = Exchange
+    # includ in th thr row SHFE thats the first part
+    
+    shfeidx = df[df.iloc[:, 0].str.contains('SHFE', na=False)].index[0]
+    lmeidx = df[df.iloc[:, 0].str.contains('LME', na=False)].index[0]
+    ex = df.iloc[lmeidx+1:shfeidx+1, :-1].copy()
+    #rename first column in type_help
+    ex = ex.rename(columns={ex.columns[0]: 'Type'})
+    ex['Region'] = ex['Type'].str.strip()
+    ex['Region'].replace({'COMEX': 'United States', 'SHFE': 'China'}, inplace=True)
+    ex['Stock_type'] = 'Exchanges'
+    #in type col replace all country names with lme
+    ex['Type'] = ex['Type'].where(ex['Type'].str.contains(r'COMEX|SHFE', na=False), other='LME')
+    
+    # long ex with it cols type region
+    ex_long = ex.melt(id_vars=['Type', 'Region', 'Stock_type'], var_name='Year', value_name='Value')
+    ex_long['Unit'] = 'kt'
+    ex_long['Year'] = ex_long['Year'].astype(int)
+    ex_long['Value'] = ex_long['Value'].astype(float)
+    #------------------------------------------------------------
+
+    #PMC
+
+    #-------------------------------------------------------------
+
+    # the second is from shfe (not included) to REFINED STOCK SUMMARY
+    refidx = df[df.iloc[:, 0].str.contains('REFINED STOCK SUMMARY', na=False)].index[0]
+    pmc = df.iloc[shfeidx+2:refidx, :-1].copy()
+    #rename first col to type
+    pmc = pmc.rename(columns={pmc.columns[0]: 'Type'})
+    # recover pattern region (type) in type col and put it in region col
+    pmc['Region'] = pmc['Type'].str.split(' ').str[0].str.strip()
+    # type is everything that is in brackets ()
+    pmc['Type'] = pmc['Type'].str.extract(r'\((.*?)\)', expand=False).str.strip()
+
+    # replace nan, 'only total data since 2021'  with total
+    pmc['Type'] = pmc['Type'].replace({np.nan: 'Total', 'only total data since 2021': 'Total'})
+    # tall letters for all type instaces
+    pmc['Type'] = pmc['Type'].str.title()
+    pmc['Stock_type'] = 'PMC'    
+
+    #melt id cols type region stock type
+    pmc_long = pmc.melt(id_vars=['Type', 'Region', 'Stock_type'], var_name='Year', value_name='Value')
+    pmc_long['Unit'] = 'kt'
+    pmc_long['Year'] = pmc_long['Year'].astype(int)
+    pmc_long['Value'] = pmc_long['Value'].astype(float)
+
+     #concat ex and pmc
+    df = pd.concat([ex_long, pmc_long], ignore_index=True)
+
+    return df
+
+def load_flows_struc(df_init, sheet, process, flow_type, rename_dict, name):
+    if process == 'SXEW':
+            df_init['Type'] = 'Cathode'
+    elif (process == 'Semi') and (flow_type == 'Use'):
+        df_init['Type'] = 'Cathode'
+
+    # find row that contains 'Source:' in first column
+    source_row = df_init[df_init.iloc[:, 0].str.contains('Source:', na=False)].index[0]
+
+    if name =='Semi_use':
+        # delete row that contains EUROPEAN UNION + UK 6/ in the first column
+        df_init = df_init[~df_init.iloc[:, 0].str.contains('EUROPEAN UNION + UK 6/', na=False)]
+
+    # remove all rows after this row
+    df = df_init.iloc[1:source_row, :]
+    df.rename(columns=rename_dict, inplace=True)
+
+    # Exclude Regions that contain : T, TOTALS, 'WORLD', 'Other', 'OthOtheersrs', 'EUROPEAN', 'EU', 'By'
+    df = df[~df['Region'].str.contains('T|TOTALS|WORLD|Other|OthOtheersrs|EUROPEAN|EU|By', na=False)]
+
+    df =df[~df.Region.isna()]
 
     # find all relevant data points in the Flow column that include 'Total' and 'Not'
-    relevant_flows = df[~df['Flow'].str.contains('Total|Not', na=False)]
 
-    return relevant_flows
+    df = df[~df['Type'].str.contains('Total|Not', na=False)]
+
+    # exclude flows that contain , or .
+    #df = df[~df['Type'].str.contains(r',|\.', na=False)]
+
+    # forward fill region nan
+    df['Region'] = df['Region'].fillna(method='bfill')
+
+    df = df.melt(id_vars=['Region', 'Type'], var_name='Year', value_name='Value')
+    df['Process'] = process
+    df['Unit'] = 'kt'
+    df['Year'] = df['Year'].astype(int)
+    df['Value'] = df['Value'].astype(float)
+    df['Supply_Use'] = flow_type
+
+    # remove leading and trailing spaces in Region and Type
+    df['Region'] = df['Region'].str.strip()
+    df['Type'] = df['Type'].str.strip()
+    # filter 0 vals
+    df = df[df['Value'] != 0].reset_index(drop=True)
+
+    return df
+
+
+
 
 def icsg_2014(id=2014):
 
@@ -160,9 +298,6 @@ def icsg_2014(id=2014):
             raise ValueError(f"Unknown data type {dtype} in sheet {sheet}")
 
 
-
-    
-
     df_flow = pd.concat(fcol, ignore_index=True)
     df_stock = pd.concat(scol, ignore_index=True) if scol else pd.DataFrame()
     df_price = pd.concat(pcol, ignore_index=True) if pcol else pd.DataFrame()
@@ -177,72 +312,6 @@ def icsg_2014(id=2014):
 
 
     pass
-
-
-
-      # # find row that contains 'Source:' or 'ICSG' in first column
-        # source_row = df_init[df_init.iloc[:, 0].str.contains('Source|ICSG', na=False)].index[0]      
-
-        # df = df_init.iloc[1:source_row, :].copy()  # remove all rows after this row
-        # df.rename(columns=rename_dict, inplace=True)
-
-        # # Exclude Regions that contain : T, TOTALS, 'WORLD', 'Other', 'OthOtheersrs', 'EUROPEAN', 'EU', 'By'
-        # df = df[~df['Region'].str.contains('T|TOTALS|WORLD|Other|OthOtheersrs|EUROPEAN|EU|By', na=False)]
-
-        # df =df[~df.Region.isna()]
-
-        # # find all relevant data points in the Flow column that include 'Total' and 'Not'
-
-        # df = df[~df['Flow'].str.contains('Total|Not', na=False)]
-
-        # # exclude flows that contain , or .
-        # df = df[~df['Flow'].str.contains(r',|\.', na=False)]
-
-        # # forward fill region nan
-        # df['Region'] = df['Region'].fillna(method='bfill')
-
-        # # remove "n/" from region with n any integer number"
-        # df['Region'] = df['Region'].str.replace(r'(\d+/)+\s*', '', regex=True)
-
-
-        # rename_flow_dict = {
-        #     'SSecondary': 'Secondary',
-        #     'Primaryy': 'Primary'}
-
-        # df['Flow'] = df['Flow'].replace(rename_flow_dict)
-
-        # df = df.melt(id_vars=['Region', 'Flow'], var_name='Year', value_name='Value')
-
-        # # Values that contain multiple dots >1 replace with 0
-        # df['Value'] = df['Value'].astype(str).apply(lambda x: '0' if x.count('.') > 1 else x)
-
-        # # Step 1: Split Flow and Value by newline
-        # df['Flow'] = df['Flow'].astype(str).str.split('\n')
-        # df['Value'] = df['Value'].astype(str).str.split('\n')
-
-        # # Step 2: Pad 'Value' list with NaNs to match length of 'Flow'
-        # def pad_value_list(val_list, target_len):
-        #     if isinstance(val_list, list):
-        #         return val_list + [np.nan] * (target_len - len(val_list))
-        #     return [np.nan] * target_len
-
-        # df['Value'] = df.apply(lambda row: pad_value_list(row['Value'], len(row['Flow'])), axis=1)
-
-        # # Step 3: Explode both Flow and Value
-        # df = df.explode(['Flow', 'Value'], ignore_index=True)
-
-        # # Step 4: Clean and convert Value
-        # df['Value'] = df['Value'].replace('', np.nan)
-        # df['Value'] = df['Value'].str.replace(',', '', regex=False)
-        # df['Value'] = pd.to_numeric(df['Value'], errors='coerce')
-        # df['Year'] = df['Year'].astype(int)
-
-        # df['Process'] = process
-
-        # df['Supply_Use'] = flow_type
-        # df['Unit'] = 'kt'
-
-        # collect.append(df)
 
 def icsg_2005():
 
@@ -484,60 +553,82 @@ def clean_exchange_stocks(df_raw, id, start =2):
 
     return df_clean
 
-def clean_copper_price_table(df_raw, id):
+def clean_copper_price_table(df_raw, id=None):
+
     df = df_raw.copy()
 
-    # --- 1. Promote first row as header and clean ---
-    header = (
+    # ----------------------------
+    # 1. Build correct column names
+    # ----------------------------
+
+    original_cols = df.columns
+    sub_header = (
         df.iloc[0]
         .astype(str)
-        .str.replace(r'_x000d_', ' ', regex=True)
-        .str.replace('\n', ' ', regex=False)
+        .str.replace(r"_x000d_", " ", regex=True)
+        .str.replace("\n", " ", regex=False)
         .str.strip()
     )
-    df.columns = header
+
+    new_cols = []
+
+    for col, sub in zip(original_cols, sub_header):
+
+        col_clean = str(col).strip()
+
+        # First column = year column
+        if col_clean.lower().startswith("unnamed"):
+            new_cols.append("Year_raw")
+            continue
+
+        # Remove Excel duplicate suffix (.1, .2 etc.)
+        exchange = col_clean.split(".")[0]
+
+        # Combine exchange + contract info
+        if sub and sub.lower() != "nan":
+            new_cols.append(f"{exchange} {sub}")
+        else:
+            new_cols.append(exchange)
+
+    df.columns = new_cols
     df = df.iloc[1:].reset_index(drop=True)
 
-    # Drop empty / unnamed columns created by merged cells in source tables
-    keep_cols = [
-        c for c in df.columns
-        if str(c).strip()
-        and str(c).strip().lower() != "nan"
-        and not str(c).strip().lower().startswith("unnamed")
-    ]
-    df = df.loc[:, keep_cols]
+    # ----------------------------
+    # 2. Identify Type blocks
+    # ----------------------------
 
-
-    # Rename first column as Year_raw
-    df = df.rename(columns={df.columns[0]: "Year_raw"})
-
-    # --- 2. Identify Type blocks (Averages / Highs / Lows) ---
     df["Type"] = np.where(
-        df["Year_raw"].str.contains("ANNUAL", na=False),
+        df["Year_raw"].astype(str).str.contains("ANNUAL", na=False),
         df["Year_raw"],
         np.nan
     )
-    df["Type"] = df["Type"].ffill()
-    df["Type"] = df["Type"].fillna("ANNUAL AVERAGES")
+    df["Type"] = df["Type"].ffill().fillna("ANNUAL AVERAGES")
 
+    # ----------------------------
+    # 3. Keep numeric years
+    # ----------------------------
 
-    # --- 3. Keep only numeric years ---
     df["Year"] = pd.to_numeric(df["Year_raw"], errors="coerce")
     df = df[df["Year"].notna()]
     df["Year"] = df["Year"].astype(int)
 
-    # --- 4. Melt exchanges to long format ---
+    # ----------------------------
+    # 4. Melt
+    # ----------------------------
+
     value_cols = [c for c in df.columns if c not in ["Year_raw", "Year", "Type"]]
 
     df_long = df.melt(
         id_vars=["Year", "Type"],
         value_vars=value_cols,
-        var_name="Exchange",
+        var_name="Exchange_full",
         value_name="Value"
     )
-    df_long = df_long[df_long["Value"].notna()]
 
-    # --- 5. Clean Value column (remove commas, convert to float) ---
+    # ----------------------------
+    # 5. Clean values
+    # ----------------------------
+
     df_long["Value"] = (
         df_long["Value"]
         .astype(str)
@@ -546,34 +637,38 @@ def clean_copper_price_table(df_raw, id):
     df_long["Value"] = pd.to_numeric(df_long["Value"], errors="coerce")
     df_long = df_long[df_long["Value"].notna()]
 
+    # ----------------------------
+    # 6. Extract Exchange_type + Unit (robust version)
+    # ----------------------------
 
-
-    # --- 6. Clean Exchange column and split into Exchange_type + Unit ---
-    df_long["Exchange"] = (
-        df_long["Exchange"]
-        .astype(str)
-        .str.replace(r"_x000d_", " ", regex=True)
-        .str.replace("\n", " ", regex=False)
+    df_long["Exchange_full"] = (
+        df_long["Exchange_full"]
+        .str.replace(r"\s+", " ", regex=True)
         .str.strip()
     )
 
-    df_long[["Exchange_type", "Unit"]] = (
-        df_long["Exchange"]
-        .str.extract(r"^(.*?)(\s+\$.*|\s+\w+\/\w.*)$")
+    # Explicit unit patterns (robust, no leakage)
+    unit_pattern = r"(\$/metric tonne|Cents/pound|Yuan/\s*metric tonne|US\$/\s*metric tonne)"
+
+    df_long["Unit"] = df_long["Exchange_full"].str.extract(unit_pattern, expand=False)
+
+    # Exchange_type = everything before the unit
+    df_long["Exchange_type"] = (
+        df_long["Exchange_full"]
+        .str.replace(unit_pattern, "", regex=True)
+        .str.strip()
     )
-    df_long["Exchange_type"] = df_long["Exchange_type"].str.strip()
-    
-    # eliminate double spaces in exchange type string
-    df_long["Exchange_type"] = df_long["Exchange_type"].str.replace(r"\s+", " ", regex=True)
 
-    df_long["Unit"] = df_long["Unit"].str.strip()
+    # Clean trailing commas from Cash,
+    df_long["Exchange_type"] = df_long["Exchange_type"].str.replace(r",$", "", regex=True)
 
-    # Some tables may still include unnamed exchange columns with no metadata
-    if id is not None:
-        df_long = df_long[df_long["Exchange_type"].notna() & df_long["Unit"].notna()]
+    # Drop leakage rows
+    df_long = df_long[df_long["Exchange_type"].notna() & df_long["Unit"].notna()]
 
+    # ----------------------------
+    # 7. Clean Value_type
+    # ----------------------------
 
-    # --- 7. Clean Type names ---
     df_long["Value_type"] = (
         df_long["Type"]
         .str.replace("ANNUAL ", "", regex=False)
@@ -581,15 +676,22 @@ def clean_copper_price_table(df_raw, id):
         .str.title()
     )
 
-    # drop original Type column
-    df_long = df_long.drop(columns=["Type"])
+    # ----------------------------
+    # 8. Final selection
+    # ----------------------------
 
-    # --- 8. Drop intermediate column and sort ---
-    df_long = df_long.drop(columns=["Exchange"])
-    df_long = df_long.sort_values(["Year", "Exchange_type", "Value_type"]).reset_index(drop=True)
+    df_long = df_long[[
+        "Year",
+        "Value",
+        "Exchange_type",
+        "Unit",
+        "Value_type"
+    ]]
 
+    df_long = df_long.sort_values(
+        ["Year", "Exchange_type", "Value_type"]
+    ).reset_index(drop=True)
 
-    df_long = df_long[df_long['Value'].notna() & (df_long['Value'] != 0)].reset_index(drop=True)
     return df_long
 
 def clean_pmc_stocks(df_raw):
@@ -716,7 +818,6 @@ def clean_pmc_stocks(df_raw):
     df_clean.loc[(df_clean['Region'] == 'U.S.') & (df_clean['Type'] == 'Producers') & (df_clean['Value'] == 1212.99), 'Value'] = 12.9
 
     return df_clean
-
 
 def clean_flows(df_init, sheet, process, flow_type, rename_dict):
 
@@ -1569,5 +1670,6 @@ def clean_flows(df_init, sheet, process, flow_type, rename_dict):
 
 # Tranform the data feed into 
 if __name__ == "__main__":
-    icsg_2014()
+    p = 'ICSG 2025 Statistical Yearbook.xlsx'
+    icsg_loader(file_name=p, id=2025)
     
