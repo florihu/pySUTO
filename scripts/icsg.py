@@ -14,186 +14,6 @@ out_folder = r'data/proc/datafeed/icsg_clean'
 
 
 
-GLOBAL_INDICATOR_SERIES = [
-    'World Mine Production',
-    'World Mine Capacity',
-    'Mine Capacity Utilization (%)',
-    'Primary Refined Production',
-    'Secondary Refined Production',
-    'Refined Production (Secondary+Primary)',
-    'World Refinery Capacity',
-    'Refineries Capacity Utilization (%)',
-    'Secondary Refined as % in Total Refined Prod.',
-]
-
-
-def _norm_text(value):
-    return re.sub(r'[^a-z0-9]+', '', str(value).lower())
-
-
-def _to_numeric(value):
-    if pd.isna(value):
-        return np.nan
-    text = str(value).strip().replace(',', '')
-    text = text.replace('%', '')
-    return pd.to_numeric(text, errors='coerce')
-
-
-def _indicator_aliases():
-    return {
-        'World Mine Production': {
-            'worldmineproduction',
-        },
-        'World Mine Capacity': {
-            'worldminecapacity',
-        },
-        'Mine Capacity Utilization (%)': {
-            'minecapacityutilization',
-            'minecapacityutilisation',
-        },
-        'Primary Refined Production': {
-            'primaryrefinedproduction',
-        },
-        'Secondary Refined Production': {
-            'secondaryrefinedproduction',
-        },
-        'Refined Production (Secondary+Primary)': {
-            'refinedproductionsecondaryprimary',
-            'refinedproductionprimarysecondary',
-            'refinedproduction',
-        },
-        'World Refinery Capacity': {
-            'worldrefinerycapacity',
-            'worldrefiningcapacity',
-        },
-        'Refineries Capacity Utilization (%)': {
-            'refineriescapacityutilization',
-            'refinerycapacityutilization',
-            'refineriescapacityutilisation',
-        },
-        'Secondary Refined as % in Total Refined Prod.': {
-            'secondaryrefinedasintotalrefinedprod',
-            'secondaryrefinedasinrefinedproduction',
-            'secondaryrefinedastotalrefinedproduction',
-        },
-    }
-
-
-def extract_icsg_global_series(
-    sheet_name,
-    file_years=(2005, 2014, 2023, 2025),
-    file_name_map=None,
-    output_name='icsg_global_indicators.csv',
-):
-    """
-    Extract world-level ICSG indicator time series from one sheet across multiple yearbooks.
-
-    Parameters
-    ----------
-    sheet_name : str | dict
-        Either one sheet name used for every yearbook or a dict {year: sheet_name}.
-    file_years : tuple[int]
-        ICSG yearbook editions to read.
-    file_name_map : dict[int, str] | None
-        Optional mapping of year to raw workbook file name.
-    output_name : str
-        CSV file name written to ``out_folder``.
-    """
-
-    if file_name_map is None:
-        file_name_map = {
-            2005: 'ICSG 2005 Statisctial Yearbook.xlsx',
-            2014: 'ICSG 2014 Statistical Yearbook.xlsx',
-            2023: 'ICSG 2023 Statistical Yearbook.xlsx',
-            2025: 'ICSG 2025 Statistical Yearbook.xlsx',
-        }
-
-    aliases = _indicator_aliases()
-    collect = []
-
-    for year in file_years:
-        file_name = file_name_map[year]
-        file_path = get_path(file_name)
-        selected_sheet = sheet_name[year] if isinstance(sheet_name, dict) else sheet_name
-
-        df_raw = pd.read_excel(file_path, sheet_name=selected_sheet, header=None)
-
-        year_row_idx = None
-        year_cols = {}
-
-        for idx in range(min(25, len(df_raw))):
-            row = df_raw.iloc[idx]
-            tmp = {}
-            for col_idx, val in row.items():
-                if pd.isna(val):
-                    continue
-                # Convert everything to float first
-                try:
-                    fval = float(str(val).strip().replace(',', '').replace('%',''))
-                except ValueError:
-                    continue
-
-                # Consider it a year if it's between 1900 and 2100
-                if 1900 <= fval <= 2100:
-                    tmp[col_idx] = int(fval)  # store as integer year
-
-            if len(tmp) > len(year_cols):
-                year_cols = tmp
-                year_row_idx = idx
-
-        if not year_cols:
-            raise ValueError(f'Could not identify year columns in {file_name} / {selected_sheet}')
-
-        data_part = df_raw.iloc[(year_row_idx + 1):, :]
-
-        for series in GLOBAL_INDICATOR_SERIES:
-            alias_set = aliases[series]
-            matched_idx = None
-
-            for ridx, row in data_part.iterrows():
-                probe_cells = row.iloc[:4].dropna().astype(str)
-                probe_norm = [_norm_text(cell) for cell in probe_cells]
-
-                if any(
-                    (text in alias_set)
-                    or any(text.startswith(alias) for alias in alias_set)
-                    or any(alias in text for alias in alias_set)
-                    for text in probe_norm
-                ):
-                    matched_idx = ridx
-                    break
-
-            if matched_idx is None:
-                logger.warning(
-                    'Series "%s" not found in %s / %s',
-                    series,
-                    file_name,
-                    selected_sheet,
-                )
-                continue
-
-            row = data_part.loc[matched_idx]
-            for col_idx, obs_year in year_cols.items():
-                value = _to_numeric(row.iloc[col_idx])
-                if pd.isna(value):
-                    continue
-                collect.append({
-                    'Source_yearbook': year,
-                    'Sheet': selected_sheet,
-                    'Series': series,
-                    'Year': obs_year,
-                    'Value': float(value),
-                })
-
-    out = pd.DataFrame(collect)
-    out = out.sort_values(['Series', 'Year', 'Source_yearbook']).reset_index(drop=True)
-
-    os.makedirs(out_folder, exist_ok=True)
-    out_path = os.path.join(out_folder, output_name)
-    out.to_csv(out_path, index=False)
-    logger.info('Saved global ICSG indicator series to %s', out_path)
-
-    return out
 
 
 
@@ -228,6 +48,7 @@ def icsg_loader(file_name = r'ICSG 2023 Statistical Yearbook.xlsx', id=2023):
 
     stck = pd.read_excel(path, sheet_name='8.Stock', header=2)
     stckcl = clean_stock(stck)
+    
 
     p = pd.read_excel(path, sheet_name='9.Price')
     pc = clean_prices_struc(p)
@@ -314,7 +135,9 @@ def clean_stock(df_raw):
     
     shfeidx = df[df.iloc[:, 0].str.contains('SHFE', na=False)].index[0]
     lmeidx = df[df.iloc[:, 0].str.contains('LME', na=False)].index[0]
-    ex = df.iloc[lmeidx+1:shfeidx+1, :-1].copy()
+
+
+    ex = df.iloc[lmeidx+1:shfeidx+1, :].copy()
     #rename first column in type_help
     ex = ex.rename(columns={ex.columns[0]: 'Type'})
     ex['Region'] = ex['Type'].str.strip()
@@ -336,7 +159,7 @@ def clean_stock(df_raw):
 
     # the second is from shfe (not included) to REFINED STOCK SUMMARY
     refidx = df[df.iloc[:, 0].str.contains('REFINED STOCK SUMMARY', na=False)].index[0]
-    pmc = df.iloc[shfeidx+2:refidx, :-1].copy()
+    pmc = df.iloc[shfeidx+2:refidx, :].copy()
     #rename first col to type
     pmc = pmc.rename(columns={pmc.columns[0]: 'Type'})
     # recover pattern region (type) in type col and put it in region col
@@ -358,6 +181,10 @@ def clean_stock(df_raw):
 
      #concat ex and pmc
     df = pd.concat([ex_long, pmc_long], ignore_index=True)
+    
+    #rename region United with United Kingdom
+    df['Region'] = df['Region'].replace({'United': 'United Kingdom'})
+
 
     return df
 
@@ -369,6 +196,10 @@ def load_flows_struc(df_init, sheet, process, flow_type, rename_dict, name):
 
     # find row that contains 'Source:' in first column
     source_row = df_init[df_init.iloc[:, 0].str.contains('Source:', na=False)].index[0]
+
+    # if there is a column containint Unamed drop it
+    col_idx = df_init.columns.str.contains('Unnamed', na=False)
+    df_init = df_init.loc[:, ~col_idx]
 
     if name =='Semi_use':
         # delete row that contains EUROPEAN UNION + UK 6/ in the first column
@@ -411,91 +242,8 @@ def load_flows_struc(df_init, sheet, process, flow_type, rename_dict, name):
 
 
 
-def icsg_2014(id=2014):
 
-    file_name = r'ICSG 2014 Statistical Yearbook.xlsx'
-    path = get_path(file_name)
-    
-
-    # Define the list as [Process, Supply/Use]
-    sheet_dict = {
-        'Sheet28': ('Stock', 'PMC', None),
-        'sheet83': ('Stock', 'Exchange', None),
-        'Sheet29': ('Prices', None, None),
-        'Mining_1': ('Flow', 'Mining', 'Supply'),
-        'Mining_2': ('Flow', 'Mining', 'Supply'),
-        'Smelting_1': ('Flow', 'Smelting', 'Supply'),
-        'Smelting_2': ('Flow', 'Smelting', 'Supply'),
-        'Refining_1': ('Flow', 'Refining', 'Supply'),
-        'Refining_2': ('Flow', 'Refining', 'Supply'),
-        'Refining_3': ('Flow', 'Refining', 'Supply'),
-        'SXEW': ('Flow', 'SXEW', 'Supply'),
-        'Semi_use_1': ('Flow', 'Semi', 'Use'),
-        'Semi_use_2': ('Flow', 'Semi', 'Use'),
-        'Semi_supply_1': ('Flow', 'Semi', 'Supply'),
-        'Semi_supply_2': ('Flow', 'Semi', 'Supply'),
-        
-    }
-
-    rename_dict = {
-        'COUNTRY': 'Region',
-        'Source': 'Type',
-        'Feed': 'Type',
-        'Semis': 'Type',
-        'Semis-': 'Type',
-    }
-
-    fcol = []
-    scol = []
-    pcol = []
-
-    for sheet, name in sheet_dict.items():
-        dtype = name[0]
-        process = name[1]
-        flow_type = name[2]
-        
-
-        if sheet == 'SXEW':
-            header = 3  # skip the first row for SXEW
-        else:
-            header = 2
-
-        df_init = pd.read_excel(path, sheet_name=sheet, header=header)
-
-        if dtype == 'Flow':
-            flow = clean_flows(df_init, sheet, process, flow_type, rename_dict)            
-            fcol.append(flow)
-        elif dtype == 'Prices' :
-            df_price = clean_copper_price_table(df_init, id=id)
-            pcol.append(df_price)
-        elif dtype == 'Stock' and process == 'PMC':
-            stock = clean_pmc_stocks(df_init)
-            checks_stocks(stock)
-            scol.append(stock)
-        elif dtype == 'Stock' and process == 'Exchange':
-            stock = clean_exchange_stocks(df_init, id=id)
-            checks_stocks(stock)
-            scol.append(stock)
-        else:
-            raise ValueError(f"Unknown data type {dtype} in sheet {sheet}")
-
-
-    df_flow = pd.concat(fcol, ignore_index=True)
-    df_stock = pd.concat(scol, ignore_index=True) if scol else pd.DataFrame()
-    df_price = pd.concat(pcol, ignore_index=True) if pcol else pd.DataFrame()
-
-    os.makedirs(out_folder, exist_ok=True)
-    flow_path = os.path.join(out_folder, 'icsg_2014_flows.csv')
-    stock_path = os.path.join(out_folder, 'icsg_2014_stocks.csv')
-    price_path = os.path.join(out_folder, 'icsg_2014_prices.csv')
-    df_flow.to_csv(flow_path, index=False)
-    df_stock.to_csv(stock_path, index=False)
-    df_price.to_csv(price_path, index=False)
-
-
-    pass
-
-def icsg_2005():
+def icsg_2005(id=2005):
 
     file_name = "ICSG 2005 Statisctial Yearbook.xlsx"
     path = get_path(file_name)
@@ -570,7 +318,9 @@ def icsg_2005():
             stock_collect .append(stock)
 
         elif data_type == 'Stock' and process == 'Exchange':
-            stock = clean_exchange_stocks(df_init)
+            stock = clean_exchange_stocks(df_init, id=id)
+            checks_stocks(stock)
+            stock_collect.append(stock)
         else:
             raise ValueError(f"Unknown data type {data_type} in sheet {sheet}")
     
@@ -627,39 +377,45 @@ def checks_stocks(df):
     
     pass
 
-def clean_exchange_stocks(df_raw, id, start =2):
+def clean_exchange_stocks(df_raw, id, start =3):
 
     df = df_raw.copy()
 
-    if id == 2014:
-        # drop first row and reset index
-        df = df.iloc[1:].reset_index(drop=True)
-        start = 1
+    col = df.iloc[1, :].to_list()
+    df.columns = col
+
+    df = df.iloc[start:, :].reset_index(drop=True)
+
   
 
     # --------------------------------------------------
     # 1️⃣ Set correct header (row 1)
     # --------------------------------------------------
     #df.columns = df.iloc[1]
-    df = df.iloc[start:].reset_index(drop=True)
+    
 
-    df = df.rename(columns={df.columns[0]: "Location"})
+    df = df.rename(columns={df.columns[0]: "Region"})
 
     # --------------------------------------------------
     # 2️⃣ Identify exchange blocks
     # --------------------------------------------------
-    current_exchange = None
+
+    current_exchange = "LME"   # default (everything before COMEX)
     exchange_list = []
 
-    for val in df["Location"]:
+    for val in df["Region"]:
+
         val_str = str(val).strip().upper()
 
-        if val_str == "LONDON METAL EXCHANGE":
-            current_exchange = "LME"
-        elif val_str == "COMEX":
+        if val_str == "COMEX":
             current_exchange = "COMEX"
-        elif val_str == "SHFE":
+            exchange_list.append(current_exchange)
+            continue
+
+        if val_str == "SHFE":
             current_exchange = "SHFE"
+            exchange_list.append(current_exchange)
+            continue
 
         exchange_list.append(current_exchange)
 
@@ -669,7 +425,7 @@ def clean_exchange_stocks(df_raw, id, start =2):
     # 3️⃣ Remove header and total rows
     # --------------------------------------------------
     df = df[
-        ~df["Location"].str.contains(
+        ~df["Region"].str.contains(
             r"LONDON METAL EXCHANGE|TOTAL|Total",
             case=False,
             na=False
@@ -685,7 +441,7 @@ def clean_exchange_stocks(df_raw, id, start =2):
     # 5️⃣ Melt to long format
     # --------------------------------------------------
     df_long = df.melt(
-        id_vars=["Location", "Exchange_type"],
+        id_vars=["Region", "Exchange_type"],
         value_vars=year_cols,
         var_name="Year",
         value_name="Value"
@@ -697,7 +453,7 @@ def clean_exchange_stocks(df_raw, id, start =2):
     df_long["Value"] = (
         df_long["Value"]
         .astype(str)
-        .str.replace(",", "", regex=False)
+        .str.replace(",", ".", regex=False)   # comma → decimal
     )
 
     df_long["Value"] = pd.to_numeric(df_long["Value"], errors="coerce")
@@ -706,7 +462,7 @@ def clean_exchange_stocks(df_raw, id, start =2):
     # --------------------------------------------------
     # 7️⃣ Assign correct Region for COMEX / SHFE
     # --------------------------------------------------
-    df_long["Region"] = df_long["Location"].str.strip()
+    df_long["Region"] = df_long["Region"].str.strip()
 
     df_long.loc[df_long["Exchange_type"] == "COMEX", "Region"] = "United States"
     df_long.loc[df_long["Exchange_type"] == "SHFE", "Region"] = "China"
@@ -732,124 +488,101 @@ def clean_exchange_stocks(df_raw, id, start =2):
 
     # filter NaN and 0
     df_clean = df_clean[df_clean['Value'].notna() & (df_clean['Value'] != 0)].reset_index(drop=True)
-
     return df_clean
 
-def clean_copper_price_table(df_raw, id=None):
+def clean_copper_price_table(df_raw, id):
 
     df = df_raw.copy()
 
-    # ----------------------------
-    # 1. Build correct column names
-    # ----------------------------
+    # -------------------------------------------------
+    # 1. Force proper column names
+    # -------------------------------------------------
 
-    original_cols = df.columns
-    sub_header = (
-        df.iloc[0]
-        .astype(str)
-        .str.replace(r"_x000d_", " ", regex=True)
-        .str.replace("\n", " ", regex=False)
-        .str.strip()
-    )
+    # First column = year/period column
+    df = df.rename(columns={df.columns[0]: "Year_raw"})
 
-    new_cols = []
+    # Rename remaining columns generically
+    value_cols = []
+    for i, col in enumerate(df.columns[1:], start=1):
+        new_name = f"Price_{i}"
+        df = df.rename(columns={col: new_name})
+        value_cols.append(new_name)
 
-    for col, sub in zip(original_cols, sub_header):
+    # Ensure Year_raw is a Series
+    if isinstance(df["Year_raw"], pd.DataFrame):
+        df["Year_raw"] = df["Year_raw"].iloc[:, 0]
 
-        col_clean = str(col).strip()
+    df["Year_raw"] = df["Year_raw"].astype(str).str.strip()
 
-        # First column = year column
-        if col_clean.lower().startswith("unnamed"):
-            new_cols.append("Year_raw")
-            continue
-
-        # Remove Excel duplicate suffix (.1, .2 etc.)
-        exchange = col_clean.split(".")[0]
-
-        # Combine exchange + contract info
-        if sub and sub.lower() != "nan":
-            new_cols.append(f"{exchange} {sub}")
-        else:
-            new_cols.append(exchange)
-
-    df.columns = new_cols
-    df = df.iloc[1:].reset_index(drop=True)
-
-    # ----------------------------
-    # 2. Identify Type blocks
-    # ----------------------------
+    # -------------------------------------------------
+    # 2. Identify Annual blocks
+    # -------------------------------------------------
 
     df["Type"] = np.where(
-        df["Year_raw"].astype(str).str.contains("ANNUAL", na=False),
+        df["Year_raw"].str.contains("ANNUAL", case=False, na=False),
         df["Year_raw"],
         np.nan
     )
-    df["Type"] = df["Type"].ffill().fillna("ANNUAL AVERAGES")
 
-    # ----------------------------
-    # 3. Keep numeric years
-    # ----------------------------
+    df["Type"] = df["Type"].ffill()
+
+    # -------------------------------------------------
+    # 3. Extract numeric years
+    # -------------------------------------------------
 
     df["Year"] = pd.to_numeric(df["Year_raw"], errors="coerce")
+
     df = df[df["Year"].notna()]
     df["Year"] = df["Year"].astype(int)
 
-    # ----------------------------
-    # 4. Melt
-    # ----------------------------
-
-    value_cols = [c for c in df.columns if c not in ["Year_raw", "Year", "Type"]]
+    # -------------------------------------------------
+    # 4. Melt to long
+    # -------------------------------------------------
 
     df_long = df.melt(
         id_vars=["Year", "Type"],
         value_vars=value_cols,
-        var_name="Exchange_full",
+        var_name="Column",
         value_name="Value"
     )
 
-    # ----------------------------
-    # 5. Clean values
-    # ----------------------------
+    # -------------------------------------------------
+    # 5. Clean numeric values
+    # -------------------------------------------------
 
     df_long["Value"] = (
         df_long["Value"]
         .astype(str)
         .str.replace(",", "", regex=False)
     )
+
     df_long["Value"] = pd.to_numeric(df_long["Value"], errors="coerce")
+
     df_long = df_long[df_long["Value"].notna()]
 
-    # ----------------------------
-    # 6. Extract Exchange_type + Unit (robust version)
-    # ----------------------------
+    # -------------------------------------------------
+    # 6. Map columns to exchanges
+    # -------------------------------------------------
 
-    df_long["Exchange_full"] = (
-        df_long["Exchange_full"]
-        .str.replace(r"\s+", " ", regex=True)
-        .str.strip()
+    exchange_map = {
+        "Price_1": ("LME Cash", "$/metric tonne"),
+        "Price_2": ("LME Cash", "Cents/pound"),
+        "Price_3": ("COMEX", "$/metric tonne"),
+        "Price_4": ("COMEX", "Cents/pound"),
+        "Price_5": ("US Producer", "Cents/pound")
+    }
+
+    df_long["Exchange_type"] = df_long["Column"].map(
+        lambda x: exchange_map.get(x, ("Unknown", None))[0]
     )
 
-    # Explicit unit patterns (robust, no leakage)
-    unit_pattern = r"(\$/metric tonne|Cents/pound|Yuan/\s*metric tonne|US\$/\s*metric tonne)"
-
-    df_long["Unit"] = df_long["Exchange_full"].str.extract(unit_pattern, expand=False)
-
-    # Exchange_type = everything before the unit
-    df_long["Exchange_type"] = (
-        df_long["Exchange_full"]
-        .str.replace(unit_pattern, "", regex=True)
-        .str.strip()
+    df_long["Unit"] = df_long["Column"].map(
+        lambda x: exchange_map.get(x, ("Unknown", None))[1]
     )
 
-    # Clean trailing commas from Cash,
-    df_long["Exchange_type"] = df_long["Exchange_type"].str.replace(r",$", "", regex=True)
-
-    # Drop leakage rows
-    df_long = df_long[df_long["Exchange_type"].notna() & df_long["Unit"].notna()]
-
-    # ----------------------------
-    # 7. Clean Value_type
-    # ----------------------------
+    # -------------------------------------------------
+    # 7. Clean value type
+    # -------------------------------------------------
 
     df_long["Value_type"] = (
         df_long["Type"]
@@ -858,23 +591,22 @@ def clean_copper_price_table(df_raw, id=None):
         .str.title()
     )
 
-    # ----------------------------
-    # 8. Final selection
-    # ----------------------------
+    # -------------------------------------------------
+    # 8. Final output
+    # -------------------------------------------------
 
-    df_long = df_long[[
-        "Year",
-        "Value",
-        "Exchange_type",
-        "Unit",
-        "Value_type"
-    ]]
+    df_long = df_long[
+        ["Year", "Value", "Exchange_type", "Unit", "Value_type"]
+    ]
 
     df_long = df_long.sort_values(
         ["Year", "Exchange_type", "Value_type"]
     ).reset_index(drop=True)
 
     return df_long
+
+
+
 
 def clean_pmc_stocks(df_raw):
     df = df_raw.copy()
@@ -1850,13 +1582,282 @@ def clean_flows(df_init, sheet, process, flow_type, rename_dict):
 #     return None
 
 
-# Tranform the data feed into 
-if __name__ == "__main__":
+# Tranform the data feed into
 
-    sheet_name = {
-            2005: 'Table 9',
-            2014: 'Sheet9',
-            2023: '1.Trend',
-            2025: '1.Trend',
-        }
-    extract_icsg_global_series(sheet_name=sheet_name)
+
+def collect_icsg(ys= [2005, 2014, 2023, 2025], 
+                 
+                 of = r'data/proc/datafeed/icsg_clean',):
+    ps = []
+    ss = []
+    fs = []
+    orfod = r'data/proc/datafeed/icsg_clean'
+
+    for y in ys:
+        ppp = f'icsg_{y}_prices.csv'
+        ppp_path = os.path.join(orfod, ppp)
+        p = pd.read_csv(ppp_path)
+        p['Year_loaded_from_file'] = y
+        ps.append(p)
+
+
+        fp = f'icsg_{y}_flows.csv'
+        fp_path = os.path.join(orfod, fp)
+        f = pd.read_csv(fp_path)
+        f['Year_loaded_from_file'] = y
+        fs.append(f)
+
+        sp = f'icsg_{y}_stocks.csv'
+        sp_path = os.path.join(orfod, sp)
+        s = pd.read_csv(sp_path)
+        s['Year_loaded_from_file'] = y
+        ss.append(s)
+    
+
+    s = pd.concat(ss, ignore_index=True)
+    f = pd.concat(fs, ignore_index=True)
+    p = pd.concat(ps, ignore_index=True)
+
+
+    #----------------------s, f pretty -------------------------
+
+
+    # fix regions all s, f
+    s, f = creg(s, f)
+
+    # fix types for s, f
+    s, f = type_ren(s, f)
+
+    # year and Year loaded form file is int , value is float
+    s['Year'] = s['Year'].astype(int)
+    f['Year'] = f['Year'].astype(int)
+    s['Year_loaded_from_file'] = s['Year_loaded_from_file'].astype(int)
+    f['Year_loaded_from_file'] = f['Year_loaded_from_file'].astype(int)
+
+    s['Value'] = s['Value'].astype(float)
+    f['Value'] = f['Value'].astype(float)
+
+    # for f and s take always the instance with the latest year loaded from file if there are duplicates in region, type, process, year
+    
+    s_key = [c for c in s.columns if c != 'Year_loaded_from_file']
+    f_key = [c for c in f.columns if c != 'Year_loaded_from_file']
+
+    s = (
+        s.sort_values('Year_loaded_from_file')
+        .drop_duplicates(subset=s_key, keep='last')
+        .reset_index(drop=True)
+    )
+
+    f = (
+        f.sort_values('Year_loaded_from_file')
+        .drop_duplicates(subset=f_key, keep='last')
+        .reset_index(drop=True)
+    )
+
+    # ----------------------p pretty ---------------------------
+    p = pcl(p)
+
+
+    # store stuf
+    spa = os.path.join(of, 'icsg_stocks.csv')
+    fpa = os.path.join(of, 'icsg_flows.csv')
+    ppa = os.path.join(of, 'icsg_prices.csv')
+    s.to_csv(spa, index=False)
+    f.to_csv(fpa, index=False)
+    p.to_csv(ppa, index=False)
+
+
+
+    pass
+    
+#stored as (Flow, Process)
+# already stored in SXEW internal fuck up by ICSG
+SKIP_PAIRS = [('SX-EW', 'Mining'),
+              ('Mine SX-EW', 'Mining'),
+              ('SX-EW', 'Refining'),
+              ('Refinery SX-EW', 'Refining'),
+              ('Electrowon', 'Refining')
+              ]
+#indexed flow old, process old: flow new
+REN_TYPE ={('Low-grade', 'Smelting'):'Primary',
+           ('Smelter Primary', 'Smelting'): 'Primary',
+           ('Smelter Second.', 'Smelting'): 'Secondary',
+
+           ('Refinery Second.','Refining'): 'Secondary',
+           ('Refinery Primary', 'Refining'): 'Primary',
+           ('Cu Alloy', 'Semi'): 'Copper Alloy'
+        
+             }
+
+
+def type_ren(s, f):
+
+    print(s['Type'].unique())
+
+    # clean s only
+    s = s[s['Type'].notna()]
+
+    # print unique combinations in f
+    print(f[['Type', 'Process']].drop_duplicates())
+
+    # ---- skip unwanted pairs ONLY in f ----
+    skip_set = set(SKIP_PAIRS)
+    mask = ~pd.Series(list(zip(f['Type'], f['Process']))).isin(skip_set)
+    f = f[mask].copy()
+
+    # ---- rename flows ONLY in f ----
+    key = list(zip(f['Type'], f['Process']))
+    f['Type'] = [REN_TYPE.get(k, t) for k, t in zip(key, f['Type'])]
+
+    return s, f
+    
+
+
+
+REG_REN = {
+    # United States
+    "U.S.": "United States",
+    "United": "United States",
+
+    # Korea variants
+    "Korean": "South Korea",
+    "Korean Rep.": "South Korea",
+    "Korean rep.": "South Korea",
+    "North Korea": "North Korea",
+
+    # Congo variants
+    "Congo": "Congo Rep.",
+    "Congo Rep.": "Congo Rep.",
+    "Congo DR": "Congo, D.R.",
+    "Congo, D.R.": "Congo, D.R.",
+
+    # Czech
+    "Czech Rep.": "Czech Rep.",
+
+    # Dominican Republic
+    "Dominican Rep.": "Dominican Rep.",
+
+    # Russia
+    "Russian Fed.": "Russia",
+
+    # Serbia / Montenegro
+    "Serbia & Montenegro": "Serbia and Montenegro",
+
+    # Macedonia naming
+    "Macedonia": "North Macedonia",
+
+    # Belgium-Luxembourg variants
+    "Belgium- Luxembourg": "Belgium-Luxembourg",
+    "Belgium-Luxembourg": "Belgium-Luxembourg",
+
+    # Case issues
+    "kyrgyzstan": "Kyrgyzstan",
+
+    # Ambiguous / incomplete
+    "South": None,       # probably incomplete entry
+    "Others": None,      # not a country
+
+    # optional normalization
+    "Scandinavia": "Scandinavia"
+}
+
+
+def creg(s, f):
+
+    # example dfs
+    dfs = [s, f]
+
+    # combine, get unique, sort
+    regions = sorted(
+        pd.concat([df["Region"] for df in dfs]).unique()
+    )
+
+    print(regions)
+
+    
+    #renaem s, f
+    s['Region'] = s['Region'].replace(REG_REN)
+    f['Region'] = f['Region'].replace(REG_REN)
+    # drop rows with None in Region
+    s = s.dropna(subset=['Region'])
+    f = f.dropna(subset=['Region'])
+
+
+    return s, f
+
+
+
+
+PRICE_RENAME = {
+# COMEX prices
+"COMEX HG, 1st Pos.": "COMEX_1st",
+"COMEX 1M Settlement": "COMEX_1M",
+
+# LME prices
+"LME Grade A, Cash": "LME_Cash",
+"LME Settlement": "LME_Settlement",
+"LME 3M Offer": "LME_3M",
+
+# U.S. producer prices
+"U.S. Producer Price": "US_Prod",
+"U Producer Price": "US_Prod",
+
+# Shanghai Futures Exchange
+"SHFE Cash": "SHFE_Cash"
+}
+
+UNIT_MAP = {
+    "LME Grade A, Cash": "$/metric tonne",
+    "LME Settlement": "$/metric tonne",
+    "LME 3M Offer": "$/metric tonne",
+    "COMEX HG, 1st Pos.": "cents/pound",
+    "COMEX 1M Settlement": "cents/pound"
+}
+
+UNIT_RENAME = {
+    # LME / USD per metric tonne
+    "$/metric tonne": "USD/t",
+    "US$/ metric tonne": "USD/t",
+    
+    # COMEX copper / cents per pound
+    "Cents/pound": "cents/lb",
+    "cents/pound": "cents/lb",
+
+    # Shanghai / Yuan per metric tonne
+    "Yuan/ metric tonne": "CNY/t"
+}
+
+
+def pcl(p):
+    """
+    Standardize price dataframe:
+    - Rename Exchange_type -> Type using PRICE_RENAME
+    - Fill missing Unit values using UNIT_MAP
+    """
+
+    # 1️⃣ Standardize the Type column
+    p['Type'] = p['Exchange_type'].replace(PRICE_RENAME)
+
+    # 2️⃣ Fill missing units only where Unit is NaN
+    mask_missing = p['Unit'].isna()
+    p.loc[mask_missing, 'Unit'] = p.loc[mask_missing, 'Exchange_type'].map(UNIT_MAP)
+
+    # drop exchange type
+    p = p.drop(columns=['Exchange_type'])
+    #order cols prooper
+    cols_order = ['Type', 'Year', 'Value', 'Value_type', 'Unit']
+    p = p[cols_order]
+
+    # ren uit
+    p['Unit'] = p['Unit'].replace(UNIT_RENAME)
+
+    return p
+
+
+
+
+
+if __name__ == "__main__":
+    icsg_2014()
+  #file_name = r'ICSG 2025 Statistical Yearbook.xlsx'
+  #icsg_loader(file_name, id = 2025)
