@@ -1633,6 +1633,7 @@ def collect_icsg(ys= [2005, 2014, 2023, 2025],
     f['Year'] = f['Year'].astype(int)
     s['Year_loaded_from_file'] = s['Year_loaded_from_file'].astype(int)
     f['Year_loaded_from_file'] = f['Year_loaded_from_file'].astype(int)
+    p['Year_loaded_from_file'] = p['Year_loaded_from_file'].astype(int)
 
     s['Value'] = s['Value'].astype(float)
     f['Value'] = f['Value'].astype(float)
@@ -1656,6 +1657,14 @@ def collect_icsg(ys= [2005, 2014, 2023, 2025],
 
     # ----------------------p pretty ---------------------------
     p = pcl(p)
+
+
+    p_key = [c for c in p.columns if c != 'Year_loaded_from_file']
+    p = (
+        p.sort_values('Year_loaded_from_file')
+        .drop_duplicates(subset=p_key, keep='last')
+        .reset_index(drop=True)
+    )
 
 
     # store stuf
@@ -1691,26 +1700,26 @@ REN_TYPE ={('Low-grade', 'Smelting'):'Primary',
 
 
 def type_ren(s, f):
-
     print(s['Type'].unique())
-
     # clean s only
-    s = s[s['Type'].notna()]
-
+    s = s[s['Type'].notna()].reset_index(drop=True)
+    
     # print unique combinations in f
     print(f[['Type', 'Process']].drop_duplicates())
-
+    
+    f = f.reset_index(drop=True)  # ensure aligned 0-based index before masking
+    
     # ---- skip unwanted pairs ONLY in f ----
     skip_set = set(SKIP_PAIRS)
     mask = ~pd.Series(list(zip(f['Type'], f['Process']))).isin(skip_set)
-    f = f[mask].copy()
-
+    f = f[mask].reset_index(drop=True)
+    
     # ---- rename flows ONLY in f ----
     key = list(zip(f['Type'], f['Process']))
     f['Type'] = [REN_TYPE.get(k, t) for k, t in zip(key, f['Type'])]
-
-    return s, f
     
+    return s, f
+
 
 
 
@@ -1845,7 +1854,7 @@ def pcl(p):
     # drop exchange type
     p = p.drop(columns=['Exchange_type'])
     #order cols prooper
-    cols_order = ['Type', 'Year', 'Value', 'Value_type', 'Unit']
+    cols_order = ['Type', 'Year', 'Value', 'Value_type', 'Unit', 'Year_loaded_from_file']
     p = p[cols_order]
 
     # ren uit
@@ -1858,6 +1867,6 @@ def pcl(p):
 
 
 if __name__ == "__main__":
-    icsg_2014()
+    collect_icsg()
   #file_name = r'ICSG 2025 Statistical Yearbook.xlsx'
   #icsg_loader(file_name, id = 2025)

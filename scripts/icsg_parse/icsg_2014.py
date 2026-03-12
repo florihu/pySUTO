@@ -72,16 +72,16 @@ def clean_flows(df_init, sheet, process, flow_type, rename_dict):
             na=False
         )
     ]
+    # remove rows where Type is a stray numeric value (e.g. world totals bleed-over)
+    df = df[~df['Type'].astype(str).str.match(r'^\s*[\d,\.]+\s*$')]
 
-    # -------------------------------------------------
+    # filter out total
+    
+   # -------------------------------------------------
     # fill region
     # -------------------------------------------------
     df['Region'] = df['Region'].replace('', np.nan)
-    df['Region'] = df['Region'].bfill()
-
-    # remove footnotes like "1/" "2/" etc
-    df['Region'] = df['Region'].str.replace(r'\d+/\s*', '', regex=True)
-    df = df[df.Region.notna()]
+    df.Region = df.Region.bfill()
 
     # -------------------------------------------------
     # flow renaming
@@ -95,7 +95,8 @@ def clean_flows(df_init, sheet, process, flow_type, rename_dict):
         'Electrowon\nPrimary Secondary': 'Electrowon\nPrimary\nSecondary',
         'Electrowon Primary\nSecondary': 'Electrowon\nPrimary\nSecondary',
         'Electrowon_x000d_\nPrimary Secondary': 'Electrowon\nPrimary\nSecondary',
-        'Electrowon Primary_x000d_\nSecondary': 'Electrowon\nPrimary\nSecondary'
+        'Electrowon Primary_x000d_\nSecondary': 'Electrowon\nPrimary\nSecondary',
+        'Totall': 'Total',
     }
 
     df['Type'] = df['Type'].replace(rename_flow_dict)
@@ -167,7 +168,10 @@ def clean_flows(df_init, sheet, process, flow_type, rename_dict):
 
     rr = {
         'Philippppines': 'Philippines',
-        'Belgium-': 'Belgium-Luxembourg'
+        'Belgium-': 'Belgium-Luxembourg', 
+        'Taiwan (China)': 'Taiwan',
+        'Taipei, China': 'Taiwan',
+        'OthOtheersrs': 'Others',
     }
 
     df['Region'] = df['Region'].replace(rr)
@@ -419,6 +423,7 @@ def clean_copper_price_table(df_raw, id):
 
     df = df_raw.copy()
 
+
     # -------------------------------------------------
     # 1. Force proper column names
     # -------------------------------------------------
@@ -490,11 +495,13 @@ def clean_copper_price_table(df_raw, id):
     # -------------------------------------------------
 
     exchange_map = {
-        "Price_1": ("LME Cash", "$/metric tonne"),
-        "Price_2": ("LME Cash", "Cents/pound"),
-        "Price_3": ("COMEX", "$/metric tonne"),
-        "Price_4": ("COMEX", "Cents/pound"),
-        "Price_5": ("US Producer", "Cents/pound")
+    "Price_1": ("LME Cash",    "$/metric tonne"),
+    "Price_2": ("LME Cash",    "Cents/pound"),
+    "Price_3": ("COMEX",       "$/metric tonne"),
+    "Price_4": ("COMEX",       "Cents/pound"),
+    "Price_5": ("US Producer", "Cents/pound"),
+    "Price_6": ("SHFE",        "Yuan/metric tonne"),
+    "Price_7": ("SHFE",        "$/metric tonne"),
     }
 
     df_long["Exchange_type"] = df_long["Column"].map(
@@ -508,14 +515,15 @@ def clean_copper_price_table(df_raw, id):
     # -------------------------------------------------
     # 7. Clean value type
     # -------------------------------------------------
-
     df_long["Value_type"] = (
         df_long["Type"]
-        .str.replace("ANNUAL ", "", regex=False)
-        .str.replace("AVERAGES", "AVERAGE", regex=False)
-        .str.title()
+            .str.replace("ANNUAL ", "", regex=False)
+            .str.replace("AVERAGES", "AVERAGE", regex=False)
+            .str.title()
     )
 
+    # SHFE (and any exchange with no HIGHS/LOWS block) defaults to Average
+    df_long["Value_type"] = df_long["Value_type"].fillna("Average")
     # -------------------------------------------------
     # 8. Final output
     # -------------------------------------------------
