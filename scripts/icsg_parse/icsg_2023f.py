@@ -13,8 +13,46 @@ logger = get_logger(__name__)
 out_folder = r'data/proc/datafeed/icsg_clean'
 
 
-
-
+REGION_RENAME = {
+        # typos
+        'Philippppines':    'Philippines',
+        'OthOtheersrs':     'Others',
+        'kyrgyzstan':       'Kyrgyzstan',
+        # footnote suffixes
+        'Germany 1/':       'Germany',
+        'Zambia 2/':        'Zambia',
+        'Zambia 3/':        'Zambia',
+        'Congo, D.R.  1/':  'Congo, D.R.',
+        'Chile 1/':         'Chile',
+        'China 3/ 9/':      'China',
+        'United States 1/': 'United States',
+        'Others 6/':        'Others',
+        'Benelux 3/':        'Benelu',
+        # name consolidation
+        'U.S.':             'United States',
+        'Russian Fed.':     'Russia',
+        'Czech Rep.':       'Czech Republic',
+        'Dominican Rep.':   'Dominican Republic',
+        'Korean Rep.':      'South Korea',
+        'Korean rep.':      'South Korea',
+        'Korean':           'South Korea',
+        # Belgium variants
+        'Belgium-':             'Belgium-Luxembourg',
+        'Belgium- Luxembourg':  'Belgium-Luxembourg',
+        # Taiwan
+        'Taiwan (China)':   'Taiwan',
+        'Taipei, China':    'Taiwan',
+        # Congo
+        'Congo DR':         'Congo, D.R.',
+        'Congo Rep.':       'Congo',
+        # Serbia
+        'Serbia & Montenegro': 'Serbia',
+        # Macedonia
+        'Macedonia':        'North Macedonia',
+        # ambiguous truncations -> drop
+        'South':            None,
+        'United':           None,
+    }
 
 
 
@@ -137,7 +175,7 @@ def clean_stock(df_raw):
     lmeidx = df[df.iloc[:, 0].str.contains('LME', na=False)].index[0]
 
 
-    ex = df.iloc[lmeidx+1:shfeidx+1, :].copy()
+    ex = df.iloc[lmeidx+1:shfeidx+1, :-1].copy()
     #rename first column in type_help
     ex = ex.rename(columns={ex.columns[0]: 'Type'})
     ex['Region'] = ex['Type'].str.strip()
@@ -159,7 +197,7 @@ def clean_stock(df_raw):
 
     # the second is from shfe (not included) to REFINED STOCK SUMMARY
     refidx = df[df.iloc[:, 0].str.contains('REFINED STOCK SUMMARY', na=False)].index[0]
-    pmc = df.iloc[shfeidx+2:refidx, :].copy()
+    pmc = df.iloc[shfeidx+2:refidx, :-1].copy()
     #rename first col to type
     pmc = pmc.rename(columns={pmc.columns[0]: 'Type'})
     # recover pattern region (type) in type col and put it in region col
@@ -189,670 +227,81 @@ def clean_stock(df_raw):
     return df
 
 def load_flows_struc(df_init, sheet, process, flow_type, rename_dict, name):
+
+    df = df_init.copy()
+
+    # ── 1. process-level type overrides ──────────────────────────────────────
     if process == 'SXEW':
-            df_init['Type'] = 'Cathode'
+        df['Type'] = 'Cathode'
     elif (process == 'Semi') and (flow_type == 'Use'):
-        df_init['Type'] = 'Cathode'
+        df['Type'] = 'Cathode'
 
-    # find row that contains 'Source:' in first column
-    source_row = df_init[df_init.iloc[:, 0].str.contains('Source:', na=False)].index[0]
+    # ── 2. find source row ───────────────────────────────────────────────────
+    source_rows = df[df.iloc[:, 0].astype(str).str.contains('Source:', na=False)]
+    if not source_rows.empty:
+        source_row = source_rows.index[0]
+    else:
+        source_row = len(df)
 
-    # if there is a column containint Unamed drop it
-    col_idx = df_init.columns.str.contains('Unnamed', na=False)
-    df_init = df_init.loc[:, ~col_idx]
+    # ── 3. drop unnamed columns ──────────────────────────────────────────────
+    df = df.loc[:, ~df.columns.astype(str).str.contains('Unnamed', na=False)]
 
-    if name =='Semi_use':
-        # delete row that contains EUROPEAN UNION + UK 6/ in the first column
-        df_init = df_init[~df_init.iloc[:, 0].str.contains('EUROPEAN UNION + UK 6/', na=False)]
+    # ── 4. special sheet cleaning ────────────────────────────────────────────
+    if name == 'Semi_use':
+        df = df[~df.iloc[:, 0].astype(str).str.contains('EUROPEAN UNION \+ UK 6/', na=False)]
 
-    # remove all rows after this row
-    df = df_init.iloc[1:source_row, :]
-    df.rename(columns=rename_dict, inplace=True)
+    # ── 5. remove header/footer rows ─────────────────────────────────────────
+    df = df.iloc[1:source_row, :].copy()
 
-    # Exclude Regions that contain : T, TOTALS, 'WORLD', 'Other', 'OthOtheersrs', 'EUROPEAN', 'EU', 'By'
-    df = df[~df['Region'].str.contains('T|TOTALS|WORLD|Other|OthOtheersrs|EUROPEAN|EU|By', na=False)]
+    # ── 6. rename columns ────────────────────────────────────────────────────
+    df = df.rename(columns=rename_dict)
 
-    df =df[~df.Region.isna()]
+    # ── 7. drop aggregated regions ───────────────────────────────────────────
+    AGG_PATTERN = r'\b(TOTALS?|WORLD|Other|OthOtheersrs|EUROPEAN|EU|By)\b'
+    df = df[~df['Region'].astype(str).str.contains(AGG_PATTERN, case=False, na=False)]
 
-    # find all relevant data points in the Flow column that include 'Total' and 'Not'
+    # ── 8. remove missing regions ────────────────────────────────────────────
+    df = df[df['Region'].notna()]
 
-    df = df[~df['Type'].str.contains('Total|Not', na=False)]
+    # ── 9. remove 'Not' rows but keep Total (handled later) ───────────────────
+    df = df[~df['Type'].astype(str).str.contains('Not', na=False)]
 
-    # exclude flows that contain , or .
-    #df = df[~df['Type'].str.contains(r',|\.', na=False)]
+    # ── 10. forward-fill merged regions ──────────────────────────────────────
+    df['Region'] = df['Region'].replace('', np.nan).bfill()
 
-    # forward fill region nan
-    df['Region'] = df['Region'].fillna(method='bfill')
-
+    # ── 11. reshape to long format ───────────────────────────────────────────
     df = df.melt(id_vars=['Region', 'Type'], var_name='Year', value_name='Value')
+
+    # ── 12. attach metadata ──────────────────────────────────────────────────
     df['Process'] = process
     df['Unit'] = 'kt'
-    df['Year'] = df['Year'].astype(int)
-    df['Value'] = df['Value'].astype(float)
     df['Supply_Use'] = flow_type
 
-    # remove leading and trailing spaces in Region and Type
-    df['Region'] = df['Region'].str.strip()
-    df['Type'] = df['Type'].str.strip()
-    # filter 0 vals
-    df = df[df['Value'] != 0].reset_index(drop=True)
-
-    return df
-
-
-
-
-
-def icsg_2005(id=2005):
-
-    file_name = "ICSG 2005 Statisctial Yearbook.xlsx"
-    path = get_path(file_name)
-    
-
-    # Define the list as [Data_type, Process, Supply/Use]
-    sheet_dict = {
-        'Table 25': ('Stock', 'PMC', None),
-        'sheet80': ('Stock', 'Exchange', None),
-        'Table 26': ('Price', None, None),
-        'Mining_1': ('Flow', 'Mining', 'Supply'),
-        'Mining_2': ('Flow', 'Mining', 'Supply'),
-        'Smelting_1': ('Flow', 'Smelting', 'Supply'),
-        'Smelting_2': ('Flow', 'Smelting', 'Supply'),
-        'Refining_1': ('Flow', 'Refining', 'Supply'),
-        'Refining_2': ('Flow', 'Refining', 'Supply'),
-        'Refining_3': ('Flow', 'Refining', 'Supply'),
-        'SXEW': ('Flow', 'SXEW', 'Supply'),
-        'Semi_use_1': ('Flow', 'Semi', 'Use'),
-        'Semi_use_2': ('Flow', 'Semi', 'Use'),
-        'Semi_supply_1': ('Flow', 'Semi', 'Supply'),
-        'Semi_supply_2': ('Flow', 'Semi', 'Supply'),
-        }
-
-
-    rename_dict = {
-        'COUNTRY': 'Region',
-        'Source': 'Type',
-        'Feed': 'Type',
-        'Semis': 'Type',
-        'Semis-': 'Type',
-        'Source\n1/': 'Type',
-        'Feed Type': 'Type',
-        'Feed Source  1/': 'Type',
-        'Semis- Type': 'Type',
-        
-    }
-
-    flow_collect = []
-    stock_collect = []
-    price_collect = []
-
-    for sheet, name in sheet_dict.items():
-
-        logger.debug(f"Processing sheet: {sheet} with data type: {name[0]}, process: {name[1]}, flow type: {name[2]}")
-        
-        data_type = name[0]
-        process = name[1]
-        flow_type = name[2]
-
-
-        if sheet == 'SXEW':
-            header = 1  # skip the first row for SXEW
-        else:
-            header = 0
-
-        df_init = pd.read_excel(path, sheet_name=sheet, header=header)
-       
-        if data_type =='Flow':
-            flow = clean_flows(df_init, sheet, process, flow_type, rename_dict)            
-            flow_collect.append(flow)
-
-
-        elif data_type == 'Price' :
-            df_price = clean_copper_price_table(df_init)
-            price_collect.append(df_price)
-       
-        elif data_type == 'Stock'and process == 'PMC':
-
-            stock = clean_pmc_stocks(df_init)
-            checks_stocks(stock)
-            stock_collect .append(stock)
-
-        elif data_type == 'Stock' and process == 'Exchange':
-            stock = clean_exchange_stocks(df_init, id=id)
-            checks_stocks(stock)
-            stock_collect.append(stock)
-        else:
-            raise ValueError(f"Unknown data type {data_type} in sheet {sheet}")
-    
-
-    df_flow = pd.concat(flow_collect, ignore_index=True)
-    df_stock = pd.concat(stock_collect, ignore_index=True) if stock_collect else pd.DataFrame()
-    df_price = pd.concat(price_collect, ignore_index=True) if price_collect else pd.DataFrame()
-
-    os.makedirs(out_folder, exist_ok=True)
-    flow_path = os.path.join(out_folder, 'icsg_2005_flows.csv')
-    stock_path = os.path.join(out_folder, 'icsg_2005_stocks.csv')
-    price_path = os.path.join(out_folder, 'icsg_2005_prices.csv')
-    df_flow.to_csv(flow_path, index=False)
-    df_stock.to_csv(stock_path, index=False)
-    df_price.to_csv(price_path, index=False)
-
-    return df_flow, df_stock, df_price
-
-def check_flows(df):
-
-    # per Region, Type Year Process is only one value
-    duplicates = df[df.duplicated(subset=['Region', 'Type', 'Year', 'Process'], keep=False)]
-    if not duplicates.empty:
-        logger.warning(f"Duplicate entries found for the same Region, Type, Year, Process combination:\n{duplicates}")
-    # there are NaN anywhere
-    if df.isnull().any().any():
-        logger.warning("NaN values found in the DataFrame")
-
-    # Year col is int and there are no negative values in Value column
-    if not pd.api.types.is_integer_dtype(df['Year']):
-        logger.warning("Year column is not of integer type")
-    if (df['Value'] < 0).any():
-        logger.warning("Negative values found in Value column")
-
-
-    pass
-
-def checks_stocks(df):
-    #1 there is per Type Region Stock_type Year a unique value
-    duplicates = df[df.duplicated(subset=['Type', 'Region', 'Stock_type', 'Year'], keep=False)]
-    if not duplicates.empty:
-        logger.warning(f"Duplicate entries found for the same Type, Region, Stock_type, Year combination:\n{duplicates}")
-        pass
-
-    # there are NaN anywhere
-    if df.isnull().any().any():
-        logger.warning("NaN values found in the DataFrame")
-    # Year col is int and there are no negative values in Value column
-    if not pd.api.types.is_integer_dtype(df['Year']):
-        logger.warning("Year column is not of integer type")
-
-    if (df['Value'] < 0).any():
-        logger.warning("Negative values found in Value column")
-    
-    pass
-
-def clean_exchange_stocks(df_raw, id, start =3):
-
-    df = df_raw.copy()
-
-    col = df.iloc[1, :].to_list()
-    df.columns = col
-
-    df = df.iloc[start:, :].reset_index(drop=True)
-
-  
-
-    # --------------------------------------------------
-    # 1️⃣ Set correct header (row 1)
-    # --------------------------------------------------
-    #df.columns = df.iloc[1]
-    
-
-    df = df.rename(columns={df.columns[0]: "Region"})
-
-    # --------------------------------------------------
-    # 2️⃣ Identify exchange blocks
-    # --------------------------------------------------
-
-    current_exchange = "LME"   # default (everything before COMEX)
-    exchange_list = []
-
-    for val in df["Region"]:
-
-        val_str = str(val).strip().upper()
-
-        if val_str == "COMEX":
-            current_exchange = "COMEX"
-            exchange_list.append(current_exchange)
-            continue
-
-        if val_str == "SHFE":
-            current_exchange = "SHFE"
-            exchange_list.append(current_exchange)
-            continue
-
-        exchange_list.append(current_exchange)
-
-    df["Exchange_type"] = exchange_list
-
-    # --------------------------------------------------
-    # 3️⃣ Remove header and total rows
-    # --------------------------------------------------
-    df = df[
-        ~df["Region"].str.contains(
-            r"LONDON METAL EXCHANGE|TOTAL|Total",
-            case=False,
-            na=False
-        )
-    ]
-
-    # --------------------------------------------------
-    # 4️⃣ Identify year columns
-    # --------------------------------------------------
-    year_cols = [c for c in df.columns if re.match(r"^\d{4}$", str(c))]
-
-    # --------------------------------------------------
-    # 5️⃣ Melt to long format
-    # --------------------------------------------------
-    df_long = df.melt(
-        id_vars=["Region", "Exchange_type"],
-        value_vars=year_cols,
-        var_name="Year",
-        value_name="Value"
-    )
-
-    # --------------------------------------------------
-    # 6️⃣ Clean numeric values
-    # --------------------------------------------------
-    df_long["Value"] = (
-        df_long["Value"]
-        .astype(str)
-        .str.replace(",", ".", regex=False)   # comma → decimal
-    )
-
-    df_long["Value"] = pd.to_numeric(df_long["Value"], errors="coerce")
-    df_long = df_long.dropna(subset=["Value"])
-
-    # --------------------------------------------------
-    # 7️⃣ Assign correct Region for COMEX / SHFE
-    # --------------------------------------------------
-    df_long["Region"] = df_long["Region"].str.strip()
-
-    df_long.loc[df_long["Exchange_type"] == "COMEX", "Region"] = "United States"
-    df_long.loc[df_long["Exchange_type"] == "SHFE", "Region"] = "China"
-
-    # --------------------------------------------------
-    # 8️⃣ Build final clean table
-    # --------------------------------------------------
-    df_clean = pd.DataFrame({
-        "Stock_type": "exchanges",
-        "Exchange_type": df_long["Exchange_type"],
-        "Region": df_long["Region"],
-        "Year": pd.to_numeric(df_long["Year"], errors="coerce"),
-        "Value": df_long["Value"],
-        "Unit": "kt"
-    })
-
-    df_clean = df_clean.reset_index(drop=True)
-
-    # stock_type upper letter
-    df_clean["Stock_type"] = df_clean["Stock_type"].str.title()
-    #rename exchange type col in type
-    df_clean = df_clean.rename(columns={"Exchange_type": "Type"})
-
-    # filter NaN and 0
-    df_clean = df_clean[df_clean['Value'].notna() & (df_clean['Value'] != 0)].reset_index(drop=True)
-    return df_clean
-
-def clean_copper_price_table(df_raw, id):
-
-    df = df_raw.copy()
-
-    # -------------------------------------------------
-    # 1. Force proper column names
-    # -------------------------------------------------
-
-    # First column = year/period column
-    df = df.rename(columns={df.columns[0]: "Year_raw"})
-
-    # Rename remaining columns generically
-    value_cols = []
-    for i, col in enumerate(df.columns[1:], start=1):
-        new_name = f"Price_{i}"
-        df = df.rename(columns={col: new_name})
-        value_cols.append(new_name)
-
-    # Ensure Year_raw is a Series
-    if isinstance(df["Year_raw"], pd.DataFrame):
-        df["Year_raw"] = df["Year_raw"].iloc[:, 0]
-
-    df["Year_raw"] = df["Year_raw"].astype(str).str.strip()
-
-    # -------------------------------------------------
-    # 2. Identify Annual blocks
-    # -------------------------------------------------
-
-    df["Type"] = np.where(
-        df["Year_raw"].str.contains("ANNUAL", case=False, na=False),
-        df["Year_raw"],
-        np.nan
-    )
-
-    df["Type"] = df["Type"].ffill()
-
-    # -------------------------------------------------
-    # 3. Extract numeric years
-    # -------------------------------------------------
-
-    df["Year"] = pd.to_numeric(df["Year_raw"], errors="coerce")
-
-    df = df[df["Year"].notna()]
-    df["Year"] = df["Year"].astype(int)
-
-    # -------------------------------------------------
-    # 4. Melt to long
-    # -------------------------------------------------
-
-    df_long = df.melt(
-        id_vars=["Year", "Type"],
-        value_vars=value_cols,
-        var_name="Column",
-        value_name="Value"
-    )
-
-    # -------------------------------------------------
-    # 5. Clean numeric values
-    # -------------------------------------------------
-
-    df_long["Value"] = (
-        df_long["Value"]
-        .astype(str)
-        .str.replace(",", "", regex=False)
-    )
-
-    df_long["Value"] = pd.to_numeric(df_long["Value"], errors="coerce")
-
-    df_long = df_long[df_long["Value"].notna()]
-
-    # -------------------------------------------------
-    # 6. Map columns to exchanges
-    # -------------------------------------------------
-
-    exchange_map = {
-        "Price_1": ("LME Cash", "$/metric tonne"),
-        "Price_2": ("LME Cash", "Cents/pound"),
-        "Price_3": ("COMEX", "$/metric tonne"),
-        "Price_4": ("COMEX", "Cents/pound"),
-        "Price_5": ("US Producer", "Cents/pound")
-    }
-
-    df_long["Exchange_type"] = df_long["Column"].map(
-        lambda x: exchange_map.get(x, ("Unknown", None))[0]
-    )
-
-    df_long["Unit"] = df_long["Column"].map(
-        lambda x: exchange_map.get(x, ("Unknown", None))[1]
-    )
-
-    # -------------------------------------------------
-    # 7. Clean value type
-    # -------------------------------------------------
-
-    df_long["Value_type"] = (
-        df_long["Type"]
-        .str.replace("ANNUAL ", "", regex=False)
-        .str.replace("AVERAGES", "AVERAGE", regex=False)
-        .str.title()
-    )
-
-    # -------------------------------------------------
-    # 8. Final output
-    # -------------------------------------------------
-
-    df_long = df_long[
-        ["Year", "Value", "Exchange_type", "Unit", "Value_type"]
-    ]
-
-    df_long = df_long.sort_values(
-        ["Year", "Exchange_type", "Value_type"]
-    ).reset_index(drop=True)
-
-    return df_long
-
-
-
-
-def clean_pmc_stocks(df_raw):
-    df = df_raw.copy()
-
-    # --- 1. Promote first row as header and clean ---
-    header = (
-        df.iloc[0]
-        .astype(str)
-        .str.replace(r'_x000d_', ' ', regex=True)
-        .str.replace('\n', ' ', regex=False)
-        .str.strip()
-    )
-    df.columns = header
-
-    # identify last row with 'TOTAL COUNTRY STOCKS'
-    total_row = df[df[df.columns[0]].str.contains('TOTAL COUNTRY STOCKS', na=False)].index
-
-    # if found, keep only rows before this row
-    if not total_row.empty:
-        df = df.iloc[1:total_row[0], :].reset_index(drop=True)
-    
-    # --- 2. Keep only rows with meaningful first column ---
-    df = df[df[df.columns[0]].notna()]
-
-    # --- 3. Identify year columns ---
-    year_cols = [
-        c for c in df.columns
-        if str(c).replace('.', '', 1).isdigit()
-        and 1900 <= int(float(c)) <= 2100
-    ]
-
-    # --- 4. Melt to long format ---
-    df_long = df.melt(
-        id_vars=[df.columns[0]],
-        value_vars=year_cols,
-        var_name='Year',
-        value_name='Value'
-    )
-    df_long = df_long[df_long['Value'].notna()]
-
-    # --- 5. Explode multi-value rows ---
-    def explode_row(row):
-        # Split multiple entries in first column
-        parts = str(row[df.columns[0]]).split('_x000d_\n')
-        # Split multiple values in Value column
-        values = str(row['Value']).replace(',', '').split('_x000d_\n')
-        # If numbers don't match parts, pad with NaN
-        if len(values) < len(parts):
-            values += [np.nan] * (len(parts) - len(values))
-        elif len(values) > len(parts):
-            # Sometimes the last part is "total", ignore it
-            values = values[:len(parts)]
-        # Create exploded rows
-        exploded = []
-        for p, v in zip(parts, values):
-            exploded.append({'STOCK_TYPE_AND_COUNTRY': p.strip(), 'Year': row['Year'], 'Value': float(v)})
-        return exploded
-
-    exploded_rows = []
-    for _, r in df_long.iterrows():
-        exploded_rows.extend(explode_row(r))
-
-    df_exp = pd.DataFrame(exploded_rows)
-
-    # --- 6. Parse Region and Stock_type ---
-    def parse_stock_region(x):
-        # Skip totals or summary
-        if re.search(r'total|summary|sources', x, re.IGNORECASE):
-            return pd.Series([np.nan, np.nan])
-        match = re.match(r'(.*?)[ ]*\((.*?)\)', x)
-        if match:
-            region = match.group(1).strip()
-            stype = match.group(2).strip().lower()
-            return pd.Series([region, stype])
-        else:
-            return pd.Series([x.strip(), np.nan])
-
-    df_exp[['Region','Stock_type']] = df_exp['STOCK_TYPE_AND_COUNTRY'].apply(parse_stock_region)
-
-    # --- 7. Drop rows with NaN Region or Value ---
-    df_exp = df_exp.dropna(subset=['Region','Value'])
-
-    # --- 8. Map known exchanges ---
-    exchange_map = {'COMEX':'United States','SHFE':'China','LONDON METAL EXCHANGE':'Multiple','TOTAL EXCHANGES':'Multiple'}
-    df_exp['Region'] = df_exp['Region'].replace(exchange_map)
-
-    # --- 9. Fill unknown Stock_type if possible ---
-    df_exp['Stock_type'] = df_exp['Stock_type'].fillna('unknown')
-
-    # --- 10. Add Unit ---
-    df_exp['Unit'] = 'kt'
-
-    # --- 11. Keep only final columns ---
-    df_clean = df_exp[['Stock_type','Region','Year','Value','Unit']]
-    df_clean['Year'] = pd.to_numeric(df_clean['Year'], errors='coerce')
-    df_clean = df_clean.dropna(subset=['Year']).reset_index(drop=True)
-    
-
-    # replace unknown with total and make the first letter in Stock_type large
-    df_clean['Stock_type'] = df_clean['Stock_type'].replace('unknown', 'Total')
-    df_clean['Stock_type'] = df_clean['Stock_type'].str.title()
-    df_clean['Region'] = df_clean['Region'].replace({'Others  2/': 'Others'}) 
-
-    # rename stock stype to type
-    df_clean = df_clean.rename(columns={'Stock_type': 'Type'})
-    df_clean['Stock_type'] = 'PMC'
-
-    # clean Type col
-    tr ={'P(Prorodduucceersrs':'Producers'}
-
-    rr = {'UU.SS.':'U.S.'}
-
-    df_clean['Type'] = df_clean['Type'].replace(tr)
-    df_clean['Region'] = df_clean['Region'].replace(rr)
-
-    df_clean = df_clean[df_clean['Value'].notna() & (df_clean['Value'] != 0)].reset_index(drop=True)
-
-
-    #make year an int col
-    df_clean['Year'] = df_clean['Year'].astype(int)
-
-    # if the value for U.S. producers is 1212.99 then change it to 12.9
-    df_clean.loc[(df_clean['Region'] == 'U.S.') & (df_clean['Type'] == 'Producers') & (df_clean['Value'] == 1212.99), 'Value'] = 12.9
-
-    return df_clean
-
-def clean_flows(df_init, sheet, process, flow_type, rename_dict):
-
-    if sheet in ['Semi_use_1', 'Semi_use_2']:
-        df_init['Type'] = 'Cathode'
-    elif sheet == 'SXEW':
-        df_init['Type'] = 'Cathode'
-    
-    df_init.columns = df_init.columns.astype(str)
-    df_init = df_init.loc[:, ~df_init.columns.str.contains('^Unnamed')]
-
-
-    # find row that contains 'Source:' or 'ICSG' in first column
-    source_row = df_init[df_init.iloc[:, 0].str.contains('Source|ICSG', na=False)].index[0]      
-
-    df = df_init.iloc[:source_row, :].copy()  # remove all rows after this row
-    cols_old = df.columns
-    #split with _ keep first
-    cols_new = cols_old.str.split('_').str[0]
-    #rename1
-    rename_dict_dynamic = dict(zip(cols_old, cols_new))
-    df.rename(columns=rename_dict_dynamic, inplace=True)
-
-    df.rename(columns=rename_dict, inplace=True)
-
-
-    # Exclude Regions that contain : T, TOTALS, 'WORLD', 'Other', 'OthOtheersrs', 'EUROPEAN', 'EU', 'By'
-    df = df[~df['Region'].str.contains('T|TOTALS|WORLD|Other|OthOtheersrs|EUROPEAN|EU|By', na=False)]
-
-    df =df[~df.Region.isna()]
-
-    # find all relevant data points in the Flow column that include 'Total' and 'Not'
-
-    df = df[~df['Type'].str.contains('Total|Not', na=False)]
-
-    # exclude flows that contain , or .
-    df = df[~df['Type'].str.contains(r',|\.', na=False)]
-
-    # forward fill region nan
-    df['Region'] = df['Region'].fillna(method='bfill')
-
-    # remove "n/" from region with n any integer number"
-    df['Region'] = df['Region'].str.replace(r'(\d+/)+\s*', '', regex=True)
-
-
-    rename_flow_dict = {
-        'SSecondary': 'Secondary',
-        'Primaryy': 'Primary',
-        'Primary Secondary': 'Primary\nSecondary',
-        'Electrowon Primary': 'Electrowon\nPrimary',
-        'Electrowon Primary Secondary': 'Electrowon\nPrimary\nSecondary',
-        'Electrowon\nPrimary Secondary': 'Electrowon\nPrimary\nSecondary',
-        'Electrowon Primary\nSecondary': 'Electrowon\nPrimary\nSecondary',
-        'Electrowon_x000d_\nPrimary Secondary': 'Electrowon\nPrimary\nSecondary',
-        'Electrowon Primary_x000d_\nSecondary': 'Electrowon\nPrimary\nSecondary',}
-
-    df['Type'] = df['Type'].replace(rename_flow_dict)
-
-    if process in ['Mining', 'Smelting', 'Refining']:
-        df['Type'] = df['Type'].replace({'Electrowon': 'SX-EW'})
-
-    df = df.melt(id_vars=['Region', 'Type'], var_name='Year', value_name='Value')
-
-    # Values that contain multiple dots >1 replace with 0
-    #df['Value'] = df['Value'].astype(str).apply(lambda x: '0' if x.count('.') > 1 else x)
-    df_split = df.copy()
-    # Step 1: Split Flow and Value by newline
-    df_split['Type'] = df_split['Type'].astype(str).str.split(r'_x000d_\n|\n')
-    df_split['Value'] = df_split['Value'].astype(str).str.split(r'_x000d_\n|\n')
-
-    # Step 2: Pad 'Value' list with NaNs to match length of 'Flow'
-    def pad_value_list(val_list, target_len):
-        if isinstance(val_list, list):
-            return val_list + [np.nan] * (target_len - len(val_list))
-        return [np.nan] * target_len
-
-
-    df_split['Value'] = df_split.apply(lambda row: pad_value_list(row['Value'], len(row['Type'])), axis=1)
-
-    # Step 3: Explode both Flow and Value
-    df_split = df_split.explode(['Type', 'Value'], ignore_index=True)
-
-    df = df_split
-    # Step 4: Clean and convert Value
-    df['Value'] = df['Value'].replace('', np.nan)
-    df['Value'] = df['Value'].str.replace(',', '', regex=False)
+    # ── 13. clean year/value types ───────────────────────────────────────────
+    df['Year'] = pd.to_numeric(df['Year'], errors='coerce')
     df['Value'] = pd.to_numeric(df['Value'], errors='coerce')
 
-
-    # ValueError: invalid literal for int() with base 10: '2004\np/ - replace with 2004
-    df['Year'] = df['Year'].astype(str).str.split('\n').str[0]
-
-    df['Year'] = df['Year'].astype(int)
-
-    df['Process'] = process
-
-    df['Supply_Use'] = flow_type
-    df['Unit'] = 'kt'
-
-    logger.debug(f"""Unique Regions in {sheet}:
-        {df['Region'].unique()}
-
-        Unique Types in {sheet}:
-        {df['Type'].unique()}
-
-        Unique Years in {sheet}:
-        {df['Year'].unique()}
-        """)
-    
-
-    # filter NaN and 0
-    df = df[df['Value'].notna() & (df['Value'] != 0)].reset_index(drop=True)
-
-    # remove leading and trailing spaces in Region and Type
+    # ── 14. clean whitespace ─────────────────────────────────────────────────
     df['Region'] = df['Region'].str.strip()
-    df['Type'] = df['Type'].str.strip()
+    df['Type'] = df['Type'].astype(str).str.strip()
 
-    rr = {'Philippppines': 'Philippines', 'Belgium-': 'Belgium-Luxembourg'}
+    # ── 15. remove missing or zero values ─────────────────────────────────────
+    df = df[df['Value'].notna() & (df['Value'] != 0)]
 
-    df['Region'] = df['Region'].replace(rr)
+    # ── 16. conditional removal of Total rows ─────────────────────────────────
+    total_mask = df['Type'].str.contains(r'\bTotal\b', case=False, na=False)
 
+    has_specific_value = (
+        (~total_mask) & df['Value'].notna() & (df['Value'] != 0)
+    ).groupby([df['Region'], df['Year']]).transform('any')
+
+    df = df[~(total_mask & has_specific_value)]
+
+    # –– 17. region renaming with validation ──────────────────────────────────────
+    df['Region'] = df['Region'].replace(REGION_RENAME)
+
+    # ── 17. final reset ──────────────────────────────────────────────────────
+    df = df.reset_index(drop=True)
 
     return df
 
@@ -1585,288 +1034,15 @@ def clean_flows(df_init, sheet, process, flow_type, rename_dict):
 # Tranform the data feed into
 
 
-def collect_icsg(ys= [2005, 2014, 2023, 2025], 
-                 
-                 of = r'data/proc/datafeed/icsg_clean',):
-    ps = []
-    ss = []
-    fs = []
-    orfod = r'data/proc/datafeed/icsg_clean'
 
-    for y in ys:
-        ppp = f'icsg_{y}_prices.csv'
-        ppp_path = os.path.join(orfod, ppp)
-        p = pd.read_csv(ppp_path)
-        p['Year_loaded_from_file'] = y
-        ps.append(p)
-
-
-        fp = f'icsg_{y}_flows.csv'
-        fp_path = os.path.join(orfod, fp)
-        f = pd.read_csv(fp_path)
-        f['Year_loaded_from_file'] = y
-        fs.append(f)
-
-        sp = f'icsg_{y}_stocks.csv'
-        sp_path = os.path.join(orfod, sp)
-        s = pd.read_csv(sp_path)
-        s['Year_loaded_from_file'] = y
-        ss.append(s)
-    
-
-    s = pd.concat(ss, ignore_index=True)
-    f = pd.concat(fs, ignore_index=True)
-    p = pd.concat(ps, ignore_index=True)
-
-
-    #----------------------s, f pretty -------------------------
-
-
-    # fix regions all s, f
-    s, f = creg(s, f)
-
-    # fix types for s, f
-    s, f = type_ren(s, f)
-
-    # year and Year loaded form file is int , value is float
-    s['Year'] = s['Year'].astype(int)
-    f['Year'] = f['Year'].astype(int)
-    s['Year_loaded_from_file'] = s['Year_loaded_from_file'].astype(int)
-    f['Year_loaded_from_file'] = f['Year_loaded_from_file'].astype(int)
-    p['Year_loaded_from_file'] = p['Year_loaded_from_file'].astype(int)
-
-    s['Value'] = s['Value'].astype(float)
-    f['Value'] = f['Value'].astype(float)
-
-    # for f and s take always the instance with the latest year loaded from file if there are duplicates in region, type, process, year
-    
-    s_key = [c for c in s.columns if c != 'Year_loaded_from_file']
-    f_key = [c for c in f.columns if c != 'Year_loaded_from_file']
-
-    s = (
-        s.sort_values('Year_loaded_from_file')
-        .drop_duplicates(subset=s_key, keep='last')
-        .reset_index(drop=True)
-    )
-
-    f = (
-        f.sort_values('Year_loaded_from_file')
-        .drop_duplicates(subset=f_key, keep='last')
-        .reset_index(drop=True)
-    )
-
-    # ----------------------p pretty ---------------------------
-    p = pcl(p)
-
-
-    p_key = [c for c in p.columns if c != 'Year_loaded_from_file']
-    p = (
-        p.sort_values('Year_loaded_from_file')
-        .drop_duplicates(subset=p_key, keep='last')
-        .reset_index(drop=True)
-    )
-
-
-    # store stuf
-    spa = os.path.join(of, 'icsg_stocks.csv')
-    fpa = os.path.join(of, 'icsg_flows.csv')
-    ppa = os.path.join(of, 'icsg_prices.csv')
-    s.to_csv(spa, index=False)
-    f.to_csv(fpa, index=False)
-    p.to_csv(ppa, index=False)
-
-
-
-    pass
-    
-#stored as (Flow, Process)
-# already stored in SXEW internal fuck up by ICSG
-SKIP_PAIRS = [('SX-EW', 'Mining'),
-              ('Mine SX-EW', 'Mining'),
-              ('SX-EW', 'Refining'),
-              ('Refinery SX-EW', 'Refining'),
-              ('Electrowon', 'Refining')
-              ]
-#indexed flow old, process old: flow new
-REN_TYPE ={('Low-grade', 'Smelting'):'Primary',
-           ('Smelter Primary', 'Smelting'): 'Primary',
-           ('Smelter Second.', 'Smelting'): 'Secondary',
-
-           ('Refinery Second.','Refining'): 'Secondary',
-           ('Refinery Primary', 'Refining'): 'Primary',
-           ('Cu Alloy', 'Semi'): 'Copper Alloy'
-        
-             }
-
-
-def type_ren(s, f):
-    print(s['Type'].unique())
-    # clean s only
-    s = s[s['Type'].notna()].reset_index(drop=True)
-    
-    # print unique combinations in f
-    print(f[['Type', 'Process']].drop_duplicates())
-    
-    f = f.reset_index(drop=True)  # ensure aligned 0-based index before masking
-    
-    # ---- skip unwanted pairs ONLY in f ----
-    skip_set = set(SKIP_PAIRS)
-    mask = ~pd.Series(list(zip(f['Type'], f['Process']))).isin(skip_set)
-    f = f[mask].reset_index(drop=True)
-    
-    # ---- rename flows ONLY in f ----
-    key = list(zip(f['Type'], f['Process']))
-    f['Type'] = [REN_TYPE.get(k, t) for k, t in zip(key, f['Type'])]
-    
-    return s, f
-
-
-
-
-REG_REN = {
-    # United States
-    "U.S.": "United States",
-    "United": "United States",
-
-    # Korea variants
-    "Korean": "South Korea",
-    "Korean Rep.": "South Korea",
-    "Korean rep.": "South Korea",
-    "North Korea": "North Korea",
-
-    # Congo variants
-    "Congo": "Congo Rep.",
-    "Congo Rep.": "Congo Rep.",
-    "Congo DR": "Congo, D.R.",
-    "Congo, D.R.": "Congo, D.R.",
-
-    # Czech
-    "Czech Rep.": "Czech Rep.",
-
-    # Dominican Republic
-    "Dominican Rep.": "Dominican Rep.",
-
-    # Russia
-    "Russian Fed.": "Russia",
-
-    # Serbia / Montenegro
-    "Serbia & Montenegro": "Serbia and Montenegro",
-
-    # Macedonia naming
-    "Macedonia": "North Macedonia",
-
-    # Belgium-Luxembourg variants
-    "Belgium- Luxembourg": "Belgium-Luxembourg",
-    "Belgium-Luxembourg": "Belgium-Luxembourg",
-
-    # Case issues
-    "kyrgyzstan": "Kyrgyzstan",
-
-    # Ambiguous / incomplete
-    "South": None,       # probably incomplete entry
-    "Others": None,      # not a country
-
-    # optional normalization
-    "Scandinavia": "Scandinavia"
-}
-
-
-def creg(s, f):
-
-    # example dfs
-    dfs = [s, f]
-
-    # combine, get unique, sort
-    regions = sorted(
-        pd.concat([df["Region"] for df in dfs]).unique()
-    )
-
-    print(regions)
-
-    
-    #renaem s, f
-    s['Region'] = s['Region'].replace(REG_REN)
-    f['Region'] = f['Region'].replace(REG_REN)
-    # drop rows with None in Region
-    s = s.dropna(subset=['Region'])
-    f = f.dropna(subset=['Region'])
-
-
-    return s, f
-
-
-
-
-PRICE_RENAME = {
-# COMEX prices
-"COMEX HG, 1st Pos.": "COMEX_1st",
-"COMEX 1M Settlement": "COMEX_1M",
-
-# LME prices
-"LME Grade A, Cash": "LME_Cash",
-"LME Settlement": "LME_Settlement",
-"LME 3M Offer": "LME_3M",
-
-# U.S. producer prices
-"U.S. Producer Price": "US_Prod",
-"U Producer Price": "US_Prod",
-
-# Shanghai Futures Exchange
-"SHFE Cash": "SHFE_Cash"
-}
-
-UNIT_MAP = {
-    "LME Grade A, Cash": "$/metric tonne",
-    "LME Settlement": "$/metric tonne",
-    "LME 3M Offer": "$/metric tonne",
-    "COMEX HG, 1st Pos.": "cents/pound",
-    "COMEX 1M Settlement": "cents/pound"
-}
-
-UNIT_RENAME = {
-    # LME / USD per metric tonne
-    "$/metric tonne": "USD/t",
-    "US$/ metric tonne": "USD/t",
-    
-    # COMEX copper / cents per pound
-    "Cents/pound": "cents/lb",
-    "cents/pound": "cents/lb",
-
-    # Shanghai / Yuan per metric tonne
-    "Yuan/ metric tonne": "CNY/t"
-}
-
-
-def pcl(p):
-    """
-    Standardize price dataframe:
-    - Rename Exchange_type -> Type using PRICE_RENAME
-    - Fill missing Unit values using UNIT_MAP
-    """
-
-    # 1️⃣ Standardize the Type column
-    p['Type'] = p['Exchange_type'].replace(PRICE_RENAME)
-
-    # 2️⃣ Fill missing units only where Unit is NaN
-    mask_missing = p['Unit'].isna()
-    p.loc[mask_missing, 'Unit'] = p.loc[mask_missing, 'Exchange_type'].map(UNIT_MAP)
-
-    # drop exchange type
-    p = p.drop(columns=['Exchange_type'])
-    #order cols prooper
-    cols_order = ['Type', 'Year', 'Value', 'Value_type', 'Unit', 'Year_loaded_from_file']
-    p = p[cols_order]
-
-    # ren uit
-    p['Unit'] = p['Unit'].replace(UNIT_RENAME)
-
-    return p
 
 
 
 
 
 if __name__ == "__main__":
-    collect_icsg()
-  #file_name = r'ICSG 2025 Statistical Yearbook.xlsx'
-  #icsg_loader(file_name, id = 2025)
+
+  file_name = r'ICSG 2025 Statistical Yearbook.xlsx'
+  icsg_loader(file_name, id = 2025)
+  file_name = r'ICSG 2023 Statistical Yearbook.xlsx'
+  icsg_loader(file_name, id = 2023)

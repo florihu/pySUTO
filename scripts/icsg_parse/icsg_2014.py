@@ -14,172 +14,178 @@ out_folder = r'data/proc/datafeed/icsg_clean'
 
 
 def clean_flows(df_init, sheet, process, flow_type, rename_dict):
+    """
+    Parse and clean a raw ICSG flows sheet into a tidy long-format DataFrame.
 
-    df_init = df_init.copy()
+    Parameters
+    ----------
+    df_init     : raw DataFrame from Excel sheet
+    sheet       : sheet name (e.g. 'Semi_use_1', 'SXEW')
+    process     : e.g. 'Mining', 'Smelting', 'Refining'
+    flow_type   : 'Supply' or 'Use'
+    rename_dict : column rename dict passed in from caller
+    """
 
-    if sheet in ['Semi_use_1', 'Semi_use_2']:
-        df_init['Type'] = 'Cathode'
-    elif sheet == 'SXEW':
-        df_init['Type'] = 'Cathode'
+    df = df_init.copy()
 
-    df_init.columns = df_init.columns.astype(str)
-    df_init = df_init.loc[:, ~df_init.columns.str.contains('^Unnamed')]
+    # ── 1. sheet-level type overrides ─────────────────────────────────────────
+    if sheet in ['Semi_use_1', 'Semi_use_2', 'SXEW']:
+        df['Type'] = 'Cathode'
 
-    # -------------------------------------------------
-    # find row that contains Source
-    # -------------------------------------------------
-    source_rows = df_init[df_init.iloc[:,0].astype(str).str.contains('Source|ICSG', na=False)]
+    # ── 2. strip unnamed columns ──────────────────────────────────────────────
+    df.columns = df.columns.astype(str)
+    df = df.loc[:, ~df.columns.str.contains('^Unnamed')]
 
+    # ── 3. truncate at source / footer row ────────────────────────────────────
+    source_rows = df[df.iloc[:, 0].astype(str).str.contains('Source|ICSG', na=False)]
     if not source_rows.empty:
-        source_row = source_rows.index[0]
-        df = df_init.iloc[:source_row].copy()
-    else:
-        df = df_init.copy()
+        df = df.iloc[:source_rows.index[0]].copy()
 
-    # -------------------------------------------------
-    # clean column names
-    # -------------------------------------------------
+    # ── 4. clean column names ─────────────────────────────────────────────────
+    # strip trailing _YYYY suffixes introduced by openpyxl on duplicate headers
     cols_old = df.columns
     cols_new = cols_old.str.split('_').str[0]
+    df = df.rename(columns=dict(zip(cols_old, cols_new)))
+    df = df.rename(columns=rename_dict)
 
-    rename_dict_dynamic = dict(zip(cols_old, cols_new))
-    df.rename(columns=rename_dict_dynamic, inplace=True)
+    # ── 5. drop aggregated / regional total rows ──────────────────────────────
+    AGG_PATTERN = r'\b(TOTALS?|WORLD|Other|EUROPEAN|EU|By|Totall)\b'
+    df = df[~df['Region'].astype(str).str.contains(AGG_PATTERN, case=False, na=False)]
 
-    df.rename(columns=rename_dict, inplace=True)
+    # ── 6. forward-fill region (merged cells) ─────────────────────────────────
+    df['Region'] = df['Region'].replace('', np.nan).bfill()
 
-    # -------------------------------------------------
-    # remove aggregated regions
-    # -------------------------------------------------
-    exclude_pattern = r'\b(TOTALS?|WORLD|Other|EUROPEAN|EU|By|TOTALS)\b'
-
-    df = df[
-        ~df['Region'].astype(str).str.contains(
-            exclude_pattern,
-            case=False,
-            na=False
-        )
-    ]
-
-    #df = df[df['Region'].notna()]
-
-    # -------------------------------------------------
-    # remove unwanted flow labels
-    # -------------------------------------------------
-    df = df[
-        ~df['Type'].astype(str).str.contains(
-            r'\b(Total|Not)\b',
-            case=False,
-            na=False
-        )
-    ]
-    # remove rows where Type is a stray numeric value (e.g. world totals bleed-over)
-    df = df[~df['Type'].astype(str).str.match(r'^\s*[\d,\.]+\s*$')]
-
-    # filter out total
-    
-   # -------------------------------------------------
-    # fill region
-    # -------------------------------------------------
-    df['Region'] = df['Region'].replace('', np.nan)
-    df.Region = df.Region.bfill()
-
-    # -------------------------------------------------
-    # flow renaming
-    # -------------------------------------------------
-    rename_flow_dict = {
-        'SSecondary': 'Secondary',
-        'Primaryy': 'Primary',
-        'Primary Secondary': 'Primary\nSecondary',
-        'Electrowon Primary': 'Electrowon\nPrimary',
-        'Electrowon Primary Secondary': 'Electrowon\nPrimary\nSecondary',
-        'Electrowon\nPrimary Secondary': 'Electrowon\nPrimary\nSecondary',
-        'Electrowon Primary\nSecondary': 'Electrowon\nPrimary\nSecondary',
+    # ── 7. normalise Type labels ──────────────────────────────────────────────
+    FLOW_RENAME = {
+        'SSecondary':                           'Secondary',
+        'Primaryy':                             'Primary',
+        'Primary Secondary':                    'Primary\nSecondary',
+        'Electrowon Primary':                   'Electrowon\nPrimary',
+        'Electrowon Primary Secondary':         'Electrowon\nPrimary\nSecondary',
+        'Electrowon\nPrimary Secondary':        'Electrowon\nPrimary\nSecondary',
+        'Electrowon Primary\nSecondary':        'Electrowon\nPrimary\nSecondary',
         'Electrowon_x000d_\nPrimary Secondary': 'Electrowon\nPrimary\nSecondary',
         'Electrowon Primary_x000d_\nSecondary': 'Electrowon\nPrimary\nSecondary',
-        'Totall': 'Total',
+        'Totall':                               'Total',
     }
+    df['Type'] = df['Type'].replace(FLOW_RENAME)
 
-    df['Type'] = df['Type'].replace(rename_flow_dict)
-
-    if process in ['Mining','Smelting','Refining']:
+    if process in ['Mining', 'Smelting', 'Refining']:
         df['Type'] = df['Type'].replace({'Electrowon': 'SX-EW'})
 
-    # -------------------------------------------------
-    # reshape
-    # -------------------------------------------------
-    df = df.melt(
-        id_vars=['Region','Type'],
-        var_name='Year',
-        value_name='Value'
-    )
+    # ── 8. hard-remove rows that are never useful ─────────────────────────────
+    # 'Not' labels and stray numeric values bleed in from world-total rows
+    df = df[~df['Type'].astype(str).str.contains(r'\bNot\b', case=False, na=False)]
+    df = df[~df['Type'].astype(str).str.match(r'^\s*[\d,\.]+\s*$')]
 
-    # -------------------------------------------------
-    # split multiline flows
-    # -------------------------------------------------
-    df_split = df.copy()
+    # ── 9. melt to long format ────────────────────────────────────────────────
+    df = df.melt(id_vars=['Region', 'Type'], var_name='Year', value_name='Value')
 
-    df_split['Type'] = df_split['Type'].astype(str).str.split(r'_x000d_\n|\n')
-    df_split['Value'] = df_split['Value'].astype(str).str.split(r'_x000d_\n|\n')
+    # ── 10. explode multi-line Type / Value cells ─────────────────────────────
+    # some cells encode two types separated by \n or _x000d_\n
+    SPLIT_RE = r'_x000d_\n|\n'
 
-    def pad_value_list(val_list, target_len):
-        if isinstance(val_list, list):
-            return val_list + [np.nan]*(target_len-len(val_list))
-        return [np.nan]*target_len
+    df['Type']  = df['Type'].astype(str).str.split(SPLIT_RE)
+    df['Value'] = df['Value'].astype(str).str.split(SPLIT_RE)
 
-    df_split['Value'] = df_split.apply(
-        lambda row: pad_value_list(row['Value'], len(row['Type'])),
+    # pad Value lists to match Type list length so explode stays aligned
+    df['Value'] = df.apply(
+        lambda r: r['Value'] + [np.nan] * (len(r['Type']) - len(r['Value'])),
         axis=1
     )
+    df = df.explode(['Type', 'Value'], ignore_index=True)
 
-    df_split = df_split.explode(['Type','Value'], ignore_index=True)
+    # ── 11. clean values ──────────────────────────────────────────────────────
+    df['Value'] = (
+        df['Value']
+        .replace('', np.nan)
+        .astype(str)
+        .str.replace(',', '', regex=False)
+        .pipe(pd.to_numeric, errors='coerce')
+    )
 
-    df = df_split
+    # ── 12. clean year ────────────────────────────────────────────────────────
+    df['Year'] = (
+        df['Year'].astype(str)
+        .str.split('\n').str[0]
+        .pipe(pd.to_numeric, errors='coerce')
+    )
 
-    # -------------------------------------------------
-    # clean values
-    # -------------------------------------------------
-    df['Value'] = df['Value'].replace('', np.nan)
-    df['Value'] = df['Value'].str.replace(',', '', regex=False)
-    df['Value'] = pd.to_numeric(df['Value'], errors='coerce')
+    # ── 13. strip whitespace ──────────────────────────────────────────────────
+    df['Region'] = df['Region'].str.strip()
+    df['Type']   = df['Type'].str.strip()
 
-    # -------------------------------------------------
-    # clean year
-    # -------------------------------------------------
-    df['Year'] = df['Year'].astype(str).str.split('\n').str[0]
-    df['Year'] = pd.to_numeric(df['Year'], errors='coerce')
+    # ── 14. drop Total rows if another type WITH a value exists ──────────────────
 
-    # -------------------------------------------------
-    # metadata
-    # -------------------------------------------------
-    df['Process'] = process
-    df['Supply_Use'] = flow_type
-    df['Unit'] = 'kt'
+    total_mask = df['Type'].str.contains(r'\bTotal\b', case=False, na=False)
 
-    # -------------------------------------------------
-    # remove empty values
-    # -------------------------------------------------
+    has_specific_value = (
+        (~total_mask) & df['Value'].notna() & (df['Value'] != 0)
+    ).groupby([df['Region'], df['Year']]).transform('any')
+
+    df = df[~(total_mask & has_specific_value)].reset_index(drop=True)
+
+    # ── 15. rename regions ────────────────────────────────────────────────────
+    REGION_RENAME = {
+        # typos
+        'Philippppines':    'Philippines',
+        'OthOtheersrs':     'Others',
+        'kyrgyzstan':       'Kyrgyzstan',
+        # footnote suffixes
+        'Germany 1/':       'Germany',
+        'Zambia 2/':        'Zambia',
+        'Zambia 3/':        'Zambia',
+        'Congo, D.R.  1/':  'Congo, D.R.',
+        'Chile 1/':         'Chile',
+        'China 3/ 9/':      'China',
+        'United States 1/': 'United States',
+        'Others 6/':        'Others',
+        'Benelux 3/':        'Benelu',
+        # name consolidation
+        'U.S.':             'United States',
+        'Russian Fed.':     'Russia',
+        'Czech Rep.':       'Czech Republic',
+        'Dominican Rep.':   'Dominican Republic',
+        'Korean Rep.':      'South Korea',
+        'Korean rep.':      'South Korea',
+        'Korean':           'South Korea',
+        # Belgium variants
+        'Belgium-':             'Belgium-Luxembourg',
+        'Belgium- Luxembourg':  'Belgium-Luxembourg',
+        # Taiwan
+        'Taiwan (China)':   'Taiwan',
+        'Taipei, China':    'Taiwan',
+        # Congo
+        'Congo DR':         'Congo, D.R.',
+        'Congo Rep.':       'Congo',
+        # Serbia
+        'Serbia & Montenegro': 'Serbia',
+        # Macedonia
+        'Macedonia':        'North Macedonia',
+        # ambiguous truncations -> drop
+        'South':            None,
+        'United':           None,
+    }
+    df['Region'] = df['Region'].replace(REGION_RENAME)
+
+    # ── 16. drop nulls and zeros ──────────────────────────────────────────────
+    df = df[df['Region'].notna()]
     df = df[df['Value'].notna() & (df['Value'] != 0)]
 
-    # -------------------------------------------------
-    # string cleaning
-    # -------------------------------------------------
-    df['Region'] = df['Region'].str.strip()
-    df['Type'] = df['Type'].str.strip()
+    # ── 17. attach metadata ───────────────────────────────────────────────────
+    df['Process']    = process
+    df['Supply_Use'] = flow_type
+    df['Unit']       = 'kt'
 
-    rr = {
-        'Philippppines': 'Philippines',
-        'Belgium-': 'Belgium-Luxembourg', 
-        'Taiwan (China)': 'Taiwan',
-        'Taipei, China': 'Taiwan',
-        'OthOtheersrs': 'Others',
-    }
-
-    df['Region'] = df['Region'].replace(rr)
-
-    df = df.reset_index(drop=True)
+    # ── 18. sanity check ──────────────────────────────────────────────────────
+    if df['Value'].max() > 100_000:
+        logger.warning(
+            f"Max value {df['Value'].max():,.0f} kt looks suspiciously high "
+            f"— possible parsing error in sheet '{sheet}'."
+        )
+    df.reset_index(drop=True)
 
     return df
-
 
 
 def main(id=2014):
@@ -190,6 +196,8 @@ def main(id=2014):
 
     # Define the list as [Process, Supply/Use]
     sheet_dict = {
+        'Semi_supply_1': ('Flow', 'Semi', 'Supply'),
+        'Semi_supply_2': ('Flow', 'Semi', 'Supply'),
         
         'Mining_1': ('Flow', 'Mining', 'Supply'),
         'Mining_2': ('Flow', 'Mining', 'Supply'),
@@ -201,8 +209,7 @@ def main(id=2014):
         'SXEW': ('Flow', 'SXEW', 'Supply'),
         'Semi_use_1': ('Flow', 'Semi', 'Use'),
         'Semi_use_2': ('Flow', 'Semi', 'Use'),
-        'Semi_supply_1': ('Flow', 'Semi', 'Supply'),
-        'Semi_supply_2': ('Flow', 'Semi', 'Supply'),
+        
         'Sheet28': ('Stock', 'PMC', None),
         'sheet83': ('Stock', 'Exchange', None),
         'Sheet29': ('Prices', None, None),

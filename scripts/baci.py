@@ -15,9 +15,7 @@ import sys
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
 
-# Now use an absolute import
-from src.util import clean_cols, read_concordance_table
-from src.core.datafeed.DataFeed import DataFeed
+
 
 
 class Baci(DataFeed):

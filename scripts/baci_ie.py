@@ -2,17 +2,13 @@ import os
 import logging
 import numpy as np
 import pandas as pd
-import polars as pl
+#import polars as pl
 import seaborn as sns
 import sys
 import matplotlib.pyplot as plt
 
 
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
 
-# Now use an absolute import
-from src.util import clean_cols, read_concordance_table, folder_name_check
-from src.core.datafeed.DataFeed import lookup
 
 baci_rename = {
             't': 'Year',
