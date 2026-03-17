@@ -3,196 +3,335 @@ import numpy as np
 import sparse  # pip install sparse
 import pickle
 from typing import Optional
+import os
+import numpy as np
+import pandas as pd
+import sparse
+from typing import Optional
 
-class ConcordanceTableOptimized:
+from pysuto.logging import get_logger
+
+l = get_logger("ConcordanceTable")
+
+
+class ConcordanceTable:
     """
-    Concordance Table that maps source nodes to root nodes in an AccountingStructure,
-    and builds a multi-dimensional sparse weight tensor including time & valuation.
+    Edge-based concordance tensor:
+
+    W[src_edge, time, valuation, root_edge]
+
+    Uses AccountingStructure for:
+    - node validation
+    - edge validation
+    - edge indexing
     """
 
     def __init__(self,
                  tab: pd.DataFrame,
                  acc_struct,
                  prop_shares: Optional[pd.DataFrame] = None,
-                 id: str = "concordance_table"):
-        """
-        Parameters
-        ----------
-        tab : pd.DataFrame
-            Concordance table. Must contain columns:
-            ['data_sector_from','data_entity_from','data_region_from','data_time','data_valuation',
-             'root_sector_from','root_entity_from','root_region_from','root_time','root_valuation',
-             'weight_value','weight_mode']
-        acc_struct : AccountingStructure
-            The system's accounting structure defining all root nodes.
-        prop_shares : pd.DataFrame, optional
-            Table of shares for manufacturing_shares mode. Columns: ['Region_from','Region_to','Share']
-        id : str
-            Identifier for this concordance table.
-        """
+                 id: str = "ct_test"):
+
         self.id = id
         self.tab = tab.copy()
         self.acc_struct = acc_struct
         self.prop_shares = prop_shares
 
-        # Validate the concordance table
+        # Define columns
+        self.src_cols = [
+            'src_sector_from','src_entity_from','src_region_from',
+            'src_sector_to','src_entity_to','src_region_to',
+            'src_time','src_valuation'
+        ]
+
+        self.root_cols = [
+            'root_sector_from','root_entity_from','root_region_from',
+            'root_sector_to','root_entity_to','root_region_to',
+            'root_time','root_valuation'
+        ]
+
+        #output dir
+        self.odir = "data/proc/conc"
+
+        # Pipeline
         self._validate_table()
-
-        # Impute weights according to weight_mode
         self._impute_weights()
-
-        # Validate that weights sum to 1 per source node
         self._validate_weight_sums()
-
-        # Build multi-dimensional sparse tensor
+        self._build_indices()
         self._build_weight_tensor()
 
-    # ---------------------------
-    # Step 1: Validation
-    # ---------------------------
+    # =====================================================
+    # VALIDATION
+    # =====================================================
     def _validate_table(self):
-        # Required columns
-        required_cols = [
-            'data_sector_from','data_entity_from','data_region_from','data_time','data_valuation',
-            'root_sector_from','root_entity_from','root_region_from','root_time','root_valuation',
-            'weight_value','weight_mode'
-        ]
+
+        required_cols = self.src_cols + self.root_cols + ['weight_value','weight_mode']
+
         missing = [c for c in required_cols if c not in self.tab.columns]
         if missing:
-            raise ValueError(f"Missing columns in concordance table: {missing}")
+            raise ValueError(f"Missing columns: {missing}")
 
-        # Validate root nodes exist in accounting structure
-        root_nodes = self.acc_struct.root_nodes
-        # Check root entities
-        missing_entities = set(self.tab['root_entity_from']).difference(set(root_nodes['entity']))
-        if missing_entities:
-            raise ValueError(f"Root entities not found in accounting structure: {missing_entities}")
-
-        # Validate weight_mode values
+        # ---- Validate weight modes ----
         valid_modes = {"user", "uniform", "manufacturing_shares"}
         invalid_modes = set(self.tab['weight_mode'].unique()) - valid_modes
         if invalid_modes:
-            raise ValueError(f"Invalid weight_mode(s) found: {invalid_modes}")
+            raise ValueError(f"Invalid weight_mode(s): {invalid_modes}")
 
-    # ---------------------------
-    # Step 2: Impute Weights
-    # ---------------------------
+        # ---- Validate root nodes + edges ----
+        missing_nodes = []
+        missing_edges = []
+
+        edge_df = self.acc_struct.edge_index
+
+        for _, r in self.tab.iterrows():
+
+            root_from = (
+                r['root_sector_from'],
+                r['root_entity_from'],
+                r['root_region_from'],
+                r['root_time'],
+                r['root_valuation']
+            )
+
+            root_to = (
+                r['root_sector_to'],
+                r['root_entity_to'],
+                r['root_region_to'],
+                r['root_time'],
+                r['root_valuation']
+            )
+
+            if root_from not in self.acc_struct.node_to_id:
+                missing_nodes.append(("from", root_from))
+                continue
+
+            if root_to not in self.acc_struct.node_to_id:
+                missing_nodes.append(("to", root_to))
+                continue
+
+            from_id = self.acc_struct.node_to_id[root_from]
+            to_id   = self.acc_struct.node_to_id[root_to]
+
+            exists = (
+                (edge_df['from_id'] == from_id) &
+                (edge_df['to_id'] == to_id)
+            ).any()
+
+            if not exists:
+                missing_edges.append((root_from, root_to))
+
+        if missing_nodes:
+            raise ValueError(f"Invalid root nodes:\n{missing_nodes}")
+
+        if missing_edges:
+            raise ValueError(f"Invalid root edges (not admissible):\n{missing_edges}")
+
+    # =====================================================
+    # WEIGHT IMPUTATION
+    # =====================================================
     def _impute_weights(self):
-        src_cols = ['data_sector_from','data_entity_from','data_region_from','data_time','data_valuation']
 
-        # ----- Uniform mode -----
+        # ----- Uniform -----
         mask_uniform = self.tab['weight_mode'] == 'uniform'
         if mask_uniform.any():
-            grp_counts = self.tab[mask_uniform].groupby(src_cols).size().rename('n_targets')
-            self.tab = self.tab.merge(grp_counts.reset_index(), how='left', on=src_cols)
-            self.tab.loc[mask_uniform, 'weight_value'] = 1.0 / self.tab.loc[mask_uniform, 'n_targets']
-            self.tab.drop(columns=['n_targets'], inplace=True)
+            grp = self.tab[mask_uniform].groupby(self.src_cols).size().rename('n')
+            self.tab = self.tab.merge(grp.reset_index(), on=self.src_cols, how='left')
+            self.tab.loc[mask_uniform, 'weight_value'] = 1.0 / self.tab.loc[mask_uniform, 'n']
+            self.tab.drop(columns=['n'], inplace=True)
 
-        # ----- Manufacturing shares mode -----
+        # ----- Manufacturing shares -----
         mask_manu = self.tab['weight_mode'] == 'manufacturing_shares'
         if mask_manu.any():
+
             if self.prop_shares is None:
-                raise ValueError("prop_shares must be provided for manufacturing_shares mode")
+                raise ValueError("prop_shares required for manufacturing_shares")
+
             ps = self.prop_shares.rename(columns={
-                'Region_from': 'data_region_from',
+                'Region_from': 'src_region_from',
                 'Region_to': 'root_region_from',
                 'Share': 'prop_share'
             })
-            self.tab = self.tab.merge(ps[['data_region_from','root_region_from','prop_share']],
-                                      on=['data_region_from','root_region_from'], how='left')
 
-            # Normalize per source node
-            total_share = self.tab.groupby(src_cols)['prop_share'].transform('sum')
-            self.tab.loc[mask_manu, 'weight_value'] = self.tab.loc[mask_manu, 'prop_share']/total_share
+            self.tab = self.tab.merge(
+                ps[['src_region_from','root_region_from','prop_share']],
+                on=['src_region_from','root_region_from'],
+                how='left'
+            )
+
+            total = self.tab.groupby(self.src_cols)['prop_share'].transform('sum')
+            self.tab.loc[mask_manu, 'weight_value'] = self.tab.loc[mask_manu, 'prop_share'] / total
+
             self.tab.drop(columns=['prop_share'], inplace=True)
 
-        # ----- User mode -----
+        # ----- User -----
         mask_user = self.tab['weight_mode'] == 'user'
         if mask_user.any():
             if self.tab.loc[mask_user, 'weight_value'].isnull().any():
-                raise ValueError("User mode weights must be provided and non-null")
+                raise ValueError("User weights must be provided")
 
-    # ---------------------------
-    # Step 3: Validate weight sums
-    # ---------------------------
+    # =====================================================
+    # VALIDATE SUMS
+    # =====================================================
     def _validate_weight_sums(self, rtol=1e-6, atol=1e-9):
-        src_cols = ['data_sector_from','data_entity_from','data_region_from','data_time','data_valuation']
-        sums = self.tab.groupby(src_cols)['weight_value'].sum()
-        bad = sums[~np.isclose(sums,1.0,rtol=rtol,atol=atol)]
+
+        sums = self.tab.groupby(self.src_cols)['weight_value'].sum()
+        bad = sums[~np.isclose(sums, 1.0, rtol=rtol, atol=atol)]
+
         if not bad.empty:
-            raise ValueError(f"Weights do not sum to 1 for sources:\n{bad}")
+            raise ValueError(f"Weights do not sum to 1:\n{bad}")
 
-    # ---------------------------
-    # Step 4: Build multi-dimensional sparse tensor
-    # ---------------------------
+    # =====================================================
+    # BUILD INDICES
+    # =====================================================
+    def _build_indices(self):
+
+        self.time_vals = sorted(self.tab['src_time'].unique())
+        self.val_vals  = sorted(self.tab['src_valuation'].unique())
+
+        self.time_index = {v:i for i,v in enumerate(self.time_vals)}
+        self.val_index  = {v:i for i,v in enumerate(self.val_vals)}
+
+    # =====================================================
+    # EDGE LOOKUP
+    # =====================================================
+    def _get_edge_id(self, from_tuple, to_tuple):
+
+        from_id = self.acc_struct.node_to_id[from_tuple]
+        to_id   = self.acc_struct.node_to_id[to_tuple]
+
+        edge = self.acc_struct.edge_index[
+            (self.acc_struct.edge_index['from_id'] == from_id) &
+            (self.acc_struct.edge_index['to_id'] == to_id)
+        ]
+
+        if edge.empty:
+            raise ValueError(f"Edge not found: {from_tuple} → {to_tuple}")
+
+        return int(edge.iloc[0]['edge_id'])
+
+    # =====================================================
+    # BUILD TENSOR
+    # =====================================================
     def _build_weight_tensor(self):
-        src_labels = ['data_sector_from','data_entity_from','data_region_from','data_time','data_valuation']
-        root_labels = ['root_sector_from','root_entity_from','root_region_from','root_time','root_valuation']
 
-        # Build unique value lists for each axis
-        src_unique = [self.tab[c].unique() for c in src_labels]
-        root_unique = [self.acc_struct.root_nodes[c.replace('root_','')].unique() for c in root_labels]
-
-        # Build label -> index mappings
-        self.src_index = {c: {v:i for i,v in enumerate(vals)} for c,vals in zip(src_labels, src_unique)}
-        self.root_index = {c: {v:i for i,v in enumerate(vals)} for c,vals in zip(root_labels, root_unique)}
-
-        # Initialize coordinates and data
-        coords = [[] for _ in range(len(src_labels)+len(root_labels))]
+        coords = [[], [], [], []]
         data = []
 
-        for _, row in self.tab.iterrows():
-            for i, c in enumerate(src_labels):
-                coords[i].append(self.src_index[c][row[c]])
-            for j, c in enumerate(root_labels):
-                coords[len(src_labels)+j].append(self.root_index[c][row[c]])
-            data.append(float(row['weight_value']))
+        for _, r in self.tab.iterrows():
 
-        shape = [len(u) for u in src_unique + root_unique]
-        self.weight_tensor = sparse.COO(np.array(coords), np.array(data), shape=shape)
+            # SRC edge
+            src_from = (
+                r['src_sector_from'],
+                r['src_entity_from'],
+                r['src_region_from'],
+                r['src_time'],
+                r['src_valuation']
+            )
 
-    # ---------------------------
-    # Step 5: Save / Load tensor
-    # ---------------------------
-    def store_tensor(self, path):
-        """Store sparse tensor to file using pickle"""
-        with open(path,'wb') as f:
+            src_to = (
+                r['src_sector_to'],
+                r['src_entity_to'],
+                r['src_region_to'],
+                r['src_time'],
+                r['src_valuation']
+            )
+
+            src_edge = self._get_edge_id(src_from, src_to)
+
+            # ROOT edge
+            root_from = (
+                r['root_sector_from'],
+                r['root_entity_from'],
+                r['root_region_from'],
+                r['root_time'],
+                r['root_valuation']
+            )
+
+            root_to = (
+                r['root_sector_to'],
+                r['root_entity_to'],
+                r['root_region_to'],
+                r['root_time'],
+                r['root_valuation']
+            )
+
+            root_edge = self._get_edge_id(root_from, root_to)
+
+            coords[0].append(src_edge)
+            coords[1].append(self.time_index[r['src_time']])
+            coords[2].append(self.val_index[r['src_valuation']])
+            coords[3].append(root_edge)
+
+            data.append(float(r['weight_value']))
+
+        shape = (
+            len(self.acc_struct.edge_index),
+            len(self.time_vals),
+            len(self.val_vals),
+            len(self.acc_struct.edge_index)
+        )
+
+        self.weight_tensor = sparse.COO(coords, data, shape=shape)
+
+    # =====================================================
+    # APPLY
+    # =====================================================
+    def apply(self, F_src):
+        """
+        Transform source flow matrix → root flow tensor
+
+        Returns:
+        (time, valuation, root_edge)
+        """
+
+        v_src = self.acc_struct.compress(F_src)  # edge vector
+
+        result = sparse.tensordot(
+            self.weight_tensor,
+            v_src,
+            axes=([0], [0])
+        )
+
+        return result  # shape: (time, valuation, root_edge)
+    
+    # =====================================================
+    # Store and Load
+    # =====================================================
+    def save(self, **kwargs):
+        os.makedirs(self.odir, exist_ok=True)
+
+        if 'id' in kwargs:
+            self.id = kwargs['id']
+
+        if 'path' in kwargs:
+            path = kwargs['path']
+        else:
+            path = os.path.join(self.odir, f"{self.id}.pkl")
+
+        with open(path, "wb") as f:
             pickle.dump({
-                'tensor': self.weight_tensor,
-                'src_index': self.src_index,
-                'root_index': self.root_index
+                "id": self.id,
+                "tab": self.tab,
+                "weight_tensor": self.weight_tensor
             }, f)
+        l.info(f"ConcordanceTable saved to {path}")
 
-    @staticmethod
-    def load_tensor(path):
-        """Load sparse tensor from file"""
-        with open(path,'rb') as f:
-            d = pickle.load(f)
-        obj = ConcordanceTableOptimized.__new__(ConcordanceTableOptimized)
-        obj.weight_tensor = d['tensor']
-        obj.src_index = d['src_index']
-        obj.root_index = d['root_index']
+
+    @classmethod
+    def load(cls, id, acc):
+        path = os.path.join("data/proc/conc", f"{id}.pkl")
+        with open(path, "rb") as f:
+            data = pickle.load(f)
+        obj = cls.__new__(cls)
+        obj.id = data['id']
+        obj.tab = data['tab']
+        obj.weight_tensor = data['weight_tensor']
+        obj.acc_struct = acc
+        l.info(f"ConcordanceTable loaded from {path}")
         return obj
 
-    # ---------------------------
-    # Step 6: Slice tensor for computation
-    # ---------------------------
-    def get_dense_slice(self,
-                        time_idx=None,
-                        valuation_idx=None):
-        """
-        Returns a dense numpy slice of the weight tensor
-        for specific time and valuation indices.
-        If None, uses all indices along that axis.
-        """
-        s = []
-        for axis, c in enumerate(['data_sector_from','data_entity_from','data_region_from','data_time','data_valuation']):
-            if c == 'data_time' and time_idx is not None:
-                s.append(time_idx)
-            elif c == 'data_valuation' and valuation_idx is not None:
-                s.append(valuation_idx)
-            else:
-                s.append(slice(None))
-        for _ in range(5):  # root axes
-            s.append(slice(None))
-        return self.weight_tensor[tuple(s)].todense()
+
+    
+    
+
+

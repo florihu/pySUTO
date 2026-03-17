@@ -18,6 +18,7 @@ figs/
 test/
 res/
 logs/
+scripts/obs
 
 
 # VSCode settings (optional)
