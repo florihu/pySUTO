@@ -1,6 +1,5 @@
 import pandas as pd
 import numpy as np
-import sparse  # pip install sparse
 import pickle
 from typing import Optional
 import os
@@ -11,10 +10,10 @@ from typing import Optional
 
 from pysuto.logging import get_logger
 
-l = get_logger("ConcordanceTable")
+l = get_logger("WeightMatrix")
 
 
-class ConcordanceTable:
+class WeightMatrix:
     """
     Edge-based concordance matrix:
 
@@ -185,6 +184,7 @@ class ConcordanceTable:
 
         self.weight_matrix = sparse.COO(coords, data, shape=shape)
 
+    
     # =====================================================
     # APPLY
     # =====================================================
@@ -196,6 +196,132 @@ class ConcordanceTable:
         vector over root_edge
         """
         return self.weight_matrix.T @ F_src
+    
+
+    # =====================================================
+    # FACTORY: BUILD FROM RAW DATA
+    # =====================================================
+    @classmethod
+    def from_raw(cls,
+                raw_df: pd.DataFrame,
+                acc_struct,
+                correspondence_df: Optional[pd.DataFrame] = None,
+                var_map_df: Optional[pd.DataFrame] = None,
+                id: str = "ct_from_raw"):
+        """
+        Create WeightMatrix directly from raw data + correspondence tables
+        """
+
+        # -----------------------------
+        # DEFAULT COLUMN MAPPING
+        # -----------------------------
+        raw_to_src_map = {
+            "Process": "src_sector_from",
+            "Type": "src_entity_from",
+            "Region": "src_region_from",
+            "Year": "src_time",
+            "Unit": "src_valuation"
+        }
+
+        df = raw_df.copy()
+
+        # -----------------------------
+        # MAP RAW → SRC
+        # -----------------------------
+        for raw_col, src_col in raw_to_src_map.items():
+            if raw_col in df.columns:
+                df[src_col] = df[raw_col]
+            else:
+                df[src_col] = np.nan
+
+        # Default "to" side (can be refined later)
+        df["src_sector_to"] = "Market"
+        df["src_entity_to"] = "X"
+        df["src_region_to"] = df["src_region_from"]
+
+        # -----------------------------
+        # VARIABLE / VALUATION MAPPING
+        # -----------------------------
+        if var_map_df is not None:
+            val_map = dict(zip(var_map_df['raw_val'], var_map_df['root_valuation']))
+            df["src_valuation"] = df["src_valuation"].map(val_map).fillna(df["src_valuation"])
+
+        # -----------------------------
+        # CORRESPONDENCE (SRC → ROOT)
+        # -----------------------------
+        if correspondence_df is not None:
+
+            # sector mapping
+            if {"src_sector", "root_sector"}.issubset(correspondence_df.columns):
+                sec_map = dict(zip(correspondence_df["src_sector"], correspondence_df["root_sector"]))
+                df["root_sector_from"] = df["src_sector_from"].map(sec_map).fillna(df["src_sector_from"])
+                df["root_sector_to"]   = df["src_sector_to"].map(sec_map).fillna(df["src_sector_to"])
+            else:
+                df["root_sector_from"] = df["src_sector_from"]
+                df["root_sector_to"]   = df["src_sector_to"]
+
+            # region mapping
+            if {"src_region", "root_region"}.issubset(correspondence_df.columns):
+                reg_map = dict(zip(correspondence_df["src_region"], correspondence_df["root_region"]))
+                df["root_region_from"] = df["src_region_from"].map(reg_map).fillna(df["src_region_from"])
+                df["root_region_to"]   = df["src_region_to"].map(reg_map).fillna(df["src_region_to"])
+            else:
+                df["root_region_from"] = df["src_region_from"]
+                df["root_region_to"]   = df["src_region_to"]
+
+            # entity (1:1 assumption)
+            df["root_entity_from"] = df["src_entity_from"]
+            df["root_entity_to"]   = df["src_entity_to"]
+
+        else:
+            # identity fallback
+            df["root_sector_from"] = df["src_sector_from"]
+            df["root_sector_to"]   = df["src_sector_to"]
+            df["root_region_from"] = df["src_region_from"]
+            df["root_region_to"]   = df["src_region_to"]
+            df["root_entity_from"] = df["src_entity_from"]
+            df["root_entity_to"]   = df["src_entity_to"]
+
+        # -----------------------------
+        # TIME & VALUATION
+        # -----------------------------
+        df["root_time"] = df["src_time"]
+        df["root_valuation"] = df["src_valuation"]
+
+        # -----------------------------
+        # BUILD TAB
+        # -----------------------------
+        tab = pd.DataFrame({
+            # SRC
+            "src_sector_from": df["src_sector_from"],
+            "src_entity_from": df["src_entity_from"],
+            "src_region_from": df["src_region_from"],
+            "src_sector_to":   df["src_sector_to"],
+            "src_entity_to":   df["src_entity_to"],
+            "src_region_to":   df["src_region_to"],
+            "src_time":        df["src_time"],
+            "src_valuation":   df["src_valuation"],
+
+            # ROOT
+            "root_sector_from": df["root_sector_from"],
+            "root_entity_from": df["root_entity_from"],
+            "root_region_from": df["root_region_from"],
+            "root_sector_to":   df["root_sector_to"],
+            "root_entity_to":   df["root_entity_to"],
+            "root_region_to":   df["root_region_to"],
+            "root_time":        df["root_time"],
+            "root_valuation":   df["root_valuation"],
+
+            # weights
+            "weight_value": np.nan,
+            "weight_mode": "uniform"
+        })
+
+        # -----------------------------
+        # RETURN INSTANCE
+        # -----------------------------
+        return cls(tab=tab, acc_struct=acc_struct, id=id)
+        
 
     # =====================================================
     # SAVE / LOAD
