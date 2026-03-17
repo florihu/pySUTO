@@ -16,14 +16,12 @@ l = get_logger("ConcordanceTable")
 
 class ConcordanceTable:
     """
-    Edge-based concordance tensor:
+    Edge-based concordance matrix:
 
-    W[src_edge, time, valuation, root_edge]
+    W[src_edge, root_edge]
 
-    Uses AccountingStructure for:
-    - node validation
-    - edge validation
-    - edge indexing
+    - src_edge: external classification
+    - root_edge: AccountingStructure edge space
     """
 
     def __init__(self,
@@ -36,8 +34,8 @@ class ConcordanceTable:
         self.tab = tab.copy()
         self.acc_struct = acc_struct
         self.prop_shares = prop_shares
+        self.acc_used = acc_struct.id
 
-        # Define columns
         self.src_cols = [
             'src_sector_from','src_entity_from','src_region_from',
             'src_sector_to','src_entity_to','src_region_to',
@@ -50,15 +48,14 @@ class ConcordanceTable:
             'root_time','root_valuation'
         ]
 
-        #output dir
         self.odir = "data/proc/conc"
 
         # Pipeline
         self._validate_table()
         self._impute_weights()
         self._validate_weight_sums()
-        self._build_indices()
-        self._build_weight_tensor()
+        self._build_src_index()
+        self._build_weight_matrix()
 
     # =====================================================
     # VALIDATION
@@ -66,72 +63,45 @@ class ConcordanceTable:
     def _validate_table(self):
 
         required_cols = self.src_cols + self.root_cols + ['weight_value','weight_mode']
-
         missing = [c for c in required_cols if c not in self.tab.columns]
         if missing:
             raise ValueError(f"Missing columns: {missing}")
 
-        # ---- Validate weight modes ----
         valid_modes = {"user", "uniform", "manufacturing_shares"}
         invalid_modes = set(self.tab['weight_mode'].unique()) - valid_modes
         if invalid_modes:
             raise ValueError(f"Invalid weight_mode(s): {invalid_modes}")
 
-        # ---- Validate root nodes + edges ----
-        missing_nodes = []
-        missing_edges = []
-
+        # Validate root edges only
         edge_df = self.acc_struct.edge_index
 
         for _, r in self.tab.iterrows():
-
-            root_from = (
-                r['root_sector_from'],
-                r['root_entity_from'],
-                r['root_region_from'],
-                r['root_time'],
-                r['root_valuation']
-            )
-
-            root_to = (
-                r['root_sector_to'],
-                r['root_entity_to'],
-                r['root_region_to'],
-                r['root_time'],
-                r['root_valuation']
-            )
+            root_from = (r['root_sector_from'], r['root_entity_from'], r['root_region_from'])
+            root_to   = (r['root_sector_to'],   r['root_entity_to'],   r['root_region_to'])
 
             if root_from not in self.acc_struct.node_to_id:
-                missing_nodes.append(("from", root_from))
-                continue
-
+                raise ValueError(f"Invalid root node: {root_from}")
             if root_to not in self.acc_struct.node_to_id:
-                missing_nodes.append(("to", root_to))
-                continue
+                raise ValueError(f"Invalid root node: {root_to}")
 
             from_id = self.acc_struct.node_to_id[root_from]
             to_id   = self.acc_struct.node_to_id[root_to]
 
             exists = (
                 (edge_df['from_id'] == from_id) &
-                (edge_df['to_id'] == to_id)
+                (edge_df['to_id'] == to_id) &
+                (edge_df['time'] == r['root_time']) &
+                (edge_df['valuation'] == r['root_valuation'])
             ).any()
 
             if not exists:
-                missing_edges.append((root_from, root_to))
-
-        if missing_nodes:
-            raise ValueError(f"Invalid root nodes:\n{missing_nodes}")
-
-        if missing_edges:
-            raise ValueError(f"Invalid root edges (not admissible):\n{missing_edges}")
+                raise ValueError(f"Invalid root edge: {root_from} → {root_to}")
 
     # =====================================================
     # WEIGHT IMPUTATION
     # =====================================================
     def _impute_weights(self):
 
-        # ----- Uniform -----
         mask_uniform = self.tab['weight_mode'] == 'uniform'
         if mask_uniform.any():
             grp = self.tab[mask_uniform].groupby(self.src_cols).size().rename('n')
@@ -139,31 +109,6 @@ class ConcordanceTable:
             self.tab.loc[mask_uniform, 'weight_value'] = 1.0 / self.tab.loc[mask_uniform, 'n']
             self.tab.drop(columns=['n'], inplace=True)
 
-        # ----- Manufacturing shares -----
-        mask_manu = self.tab['weight_mode'] == 'manufacturing_shares'
-        if mask_manu.any():
-
-            if self.prop_shares is None:
-                raise ValueError("prop_shares required for manufacturing_shares")
-
-            ps = self.prop_shares.rename(columns={
-                'Region_from': 'src_region_from',
-                'Region_to': 'root_region_from',
-                'Share': 'prop_share'
-            })
-
-            self.tab = self.tab.merge(
-                ps[['src_region_from','root_region_from','prop_share']],
-                on=['src_region_from','root_region_from'],
-                how='left'
-            )
-
-            total = self.tab.groupby(self.src_cols)['prop_share'].transform('sum')
-            self.tab.loc[mask_manu, 'weight_value'] = self.tab.loc[mask_manu, 'prop_share'] / total
-
-            self.tab.drop(columns=['prop_share'], inplace=True)
-
-        # ----- User -----
         mask_user = self.tab['weight_mode'] == 'user'
         if mask_user.any():
             if self.tab.loc[mask_user, 'weight_value'].isnull().any():
@@ -172,166 +117,112 @@ class ConcordanceTable:
     # =====================================================
     # VALIDATE SUMS
     # =====================================================
-    def _validate_weight_sums(self, rtol=1e-6, atol=1e-9):
-
+    def _validate_weight_sums(self):
         sums = self.tab.groupby(self.src_cols)['weight_value'].sum()
-        bad = sums[~np.isclose(sums, 1.0, rtol=rtol, atol=atol)]
-
-        if not bad.empty:
-            raise ValueError(f"Weights do not sum to 1:\n{bad}")
+        if not np.allclose(sums.values, 1.0):
+            raise ValueError(f"Weights do not sum to 1:\n{sums}")
 
     # =====================================================
-    # BUILD INDICES
+    # SOURCE EDGE INDEX (NEW)
     # =====================================================
-    def _build_indices(self):
+    def _build_src_index(self):
 
-        self.time_vals = sorted(self.tab['src_time'].unique())
-        self.val_vals  = sorted(self.tab['src_valuation'].unique())
+        self.src_edges = (
+            self.tab[self.src_cols]
+            .drop_duplicates()
+            .reset_index(drop=True)
+        )
 
-        self.time_index = {v:i for i,v in enumerate(self.time_vals)}
-        self.val_index  = {v:i for i,v in enumerate(self.val_vals)}
+        self.src_edge_to_id = {
+            tuple(row): i for i, row in self.src_edges.iterrows()
+        }
+
+        self.n_src_edges = len(self.src_edges)
+        self.n_root_edges = len(self.acc_struct.edge_index)
 
     # =====================================================
-    # EDGE LOOKUP
+    # ROOT EDGE LOOKUP
     # =====================================================
-    def _get_edge_id(self, from_tuple, to_tuple):
+    def _get_root_edge_id(self, r):
+
+        from_tuple = (r['root_sector_from'], r['root_entity_from'], r['root_region_from'])
+        to_tuple   = (r['root_sector_to'],   r['root_entity_to'],   r['root_region_to'])
 
         from_id = self.acc_struct.node_to_id[from_tuple]
         to_id   = self.acc_struct.node_to_id[to_tuple]
 
         edge = self.acc_struct.edge_index[
             (self.acc_struct.edge_index['from_id'] == from_id) &
-            (self.acc_struct.edge_index['to_id'] == to_id)
+            (self.acc_struct.edge_index['to_id'] == to_id) &
+            (self.acc_struct.edge_index['time'] == r['root_time']) &
+            (self.acc_struct.edge_index['valuation'] == r['root_valuation'])
         ]
-
-        if edge.empty:
-            raise ValueError(f"Edge not found: {from_tuple} → {to_tuple}")
 
         return int(edge.iloc[0]['edge_id'])
 
     # =====================================================
-    # BUILD TENSOR
+    # BUILD MATRIX
     # =====================================================
-    def _build_weight_tensor(self):
+    def _build_weight_matrix(self):
 
-        coords = [[], [], [], []]
+        coords = [[], []]
         data = []
 
         for _, r in self.tab.iterrows():
 
             # SRC edge
-            src_from = (
-                r['src_sector_from'],
-                r['src_entity_from'],
-                r['src_region_from'],
-                r['src_time'],
-                r['src_valuation']
-            )
-
-            src_to = (
-                r['src_sector_to'],
-                r['src_entity_to'],
-                r['src_region_to'],
-                r['src_time'],
-                r['src_valuation']
-            )
-
-            src_edge = self._get_edge_id(src_from, src_to)
+            src_key = tuple(r[c] for c in self.src_cols)
+            src_id = self.src_edge_to_id[src_key]
 
             # ROOT edge
-            root_from = (
-                r['root_sector_from'],
-                r['root_entity_from'],
-                r['root_region_from'],
-                r['root_time'],
-                r['root_valuation']
-            )
+            root_id = self._get_root_edge_id(r)
 
-            root_to = (
-                r['root_sector_to'],
-                r['root_entity_to'],
-                r['root_region_to'],
-                r['root_time'],
-                r['root_valuation']
-            )
-
-            root_edge = self._get_edge_id(root_from, root_to)
-
-            coords[0].append(src_edge)
-            coords[1].append(self.time_index[r['src_time']])
-            coords[2].append(self.val_index[r['src_valuation']])
-            coords[3].append(root_edge)
-
+            coords[0].append(src_id)
+            coords[1].append(root_id)
             data.append(float(r['weight_value']))
 
-        shape = (
-            len(self.acc_struct.edge_index),
-            len(self.time_vals),
-            len(self.val_vals),
-            len(self.acc_struct.edge_index)
-        )
+        shape = (self.n_src_edges, self.n_root_edges)
 
-        self.weight_tensor = sparse.COO(coords, data, shape=shape)
+        self.weight_matrix = sparse.COO(coords, data, shape=shape)
 
     # =====================================================
     # APPLY
     # =====================================================
     def apply(self, F_src):
         """
-        Transform source flow matrix → root flow tensor
+        F_src: vector over src_edge
 
         Returns:
-        (time, valuation, root_edge)
+        vector over root_edge
         """
+        return self.weight_matrix.T @ F_src
 
-        v_src = self.acc_struct.compress(F_src)  # edge vector
-
-        result = sparse.tensordot(
-            self.weight_tensor,
-            v_src,
-            axes=([0], [0])
-        )
-
-        return result  # shape: (time, valuation, root_edge)
-    
     # =====================================================
-    # Store and Load
+    # SAVE / LOAD
     # =====================================================
     def save(self, **kwargs):
         os.makedirs(self.odir, exist_ok=True)
-
-        if 'id' in kwargs:
-            self.id = kwargs['id']
-
-        if 'path' in kwargs:
-            path = kwargs['path']
-        else:
-            path = os.path.join(self.odir, f"{self.id}.pkl")
-
+        path = kwargs.get('path', os.path.join(self.odir, f"{self.id}.pkl"))
         with open(path, "wb") as f:
             pickle.dump({
                 "id": self.id,
+                "acc_id": self.acc_used,
                 "tab": self.tab,
-                "weight_tensor": self.weight_tensor
+                "weight_matrix": self.weight_matrix,
+                "src_edges": self.src_edges
             }, f)
-        l.info(f"ConcordanceTable saved to {path}")
-
 
     @classmethod
     def load(cls, id, acc):
         path = os.path.join("data/proc/conc", f"{id}.pkl")
         with open(path, "rb") as f:
             data = pickle.load(f)
+
         obj = cls.__new__(cls)
         obj.id = data['id']
         obj.tab = data['tab']
-        obj.weight_tensor = data['weight_tensor']
+        obj.acc_used = data['acc_id']
+        obj.weight_matrix = data['weight_matrix']
+        obj.src_edges = data['src_edges']
         obj.acc_struct = acc
-        l.info(f"ConcordanceTable loaded from {path}")
         return obj
-
-
-    
-    
-
-
