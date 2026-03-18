@@ -84,7 +84,7 @@ def test_from_raw_aux_mapping(mock_acc_struct):
 
     # --------------------------------------------------
     # FULL CORRESPONDENCE (sectors + regions -> root)
-    # --------------------------------------------------
+    # ---------------------------------------------------
     correspondence_df = pd.DataFrame({
         "src_sector": ["Mining", "Extraction", "Smelting", "Market"],
         "root_sector": ["Mining", "Mining", "Smelting", "Market"],
