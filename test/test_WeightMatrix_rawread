@@ -1,0 +1,199 @@
+import pytest
+import pandas as pd
+import numpy as np
+
+from pysuto.weight.WeightMatrix import WeightMatrix
+
+
+class MockAccountingStructure:
+    """
+    Expanded mock to include sectors Mining, Smelting, Extraction and Market
+    across regions A, B, C and edges in both directions as needed for tests.
+    """
+    def __init__(self):
+        self.id = "mock_acc"
+
+        sectors = ["Mining", "Smelting", "Extraction", "Market"]
+        # map sector -> representative entity code
+        ent_map = {"Mining": "P", "Smelting": "F", "Extraction": "P", "Market": "X"}
+        regions = ["A", "B", "C"]
+
+        nodes = []
+        for s in sectors:
+            for r in regions:
+                nodes.append((s, ent_map[s], r))
+
+        self.node_to_id = {node: i for i, node in enumerate(nodes)}
+
+        # Build edges:
+        # - for each (sector != Market) create sector -> Market (time 0 and 1 / valuations)
+        # - also create Market -> sector edges so "use" mappings are covered
+        edge_rows = []
+        eid = 0
+        for s in ["Mining", "Smelting", "Extraction"]:
+            for r in regions:
+                from_node = (s, ent_map[s], r)
+                to_node = ("Market", ent_map["Market"], r)
+
+                # two time slices and two valuations to be safe
+                edge_rows.append({
+                    "edge_id": eid, "from_id": self.node_to_id[from_node],
+                    "to_id": self.node_to_id[to_node], "time": 0, "valuation": "mass"
+                })
+                eid += 1
+                edge_rows.append({
+                    "edge_id": eid, "from_id": self.node_to_id[from_node],
+                    "to_id": self.node_to_id[to_node], "time": 1, "valuation": "copper_c"
+                })
+                eid += 1
+
+                # also Market -> sector edges (reverse direction)
+                edge_rows.append({
+                    "edge_id": eid, "from_id": self.node_to_id[to_node],
+                    "to_id": self.node_to_id[from_node], "time": 0, "valuation": "mass"
+                })
+                eid += 1
+                edge_rows.append({
+                    "edge_id": eid, "from_id": self.node_to_id[to_node],
+                    "to_id": self.node_to_id[from_node], "time": 1, "valuation": "copper_c"
+                })
+                eid += 1
+
+        self.edge_index = pd.DataFrame(edge_rows)
+
+
+@pytest.fixture
+def mock_acc_struct():
+    return MockAccountingStructure()
+
+
+def test_from_raw_aux_mapping(mock_acc_struct):
+    acc = mock_acc_struct
+
+    # --------------------------------------------------
+    # RAW DATA with helper column 'Supply_Use'
+    # --------------------------------------------------
+    raw_df = pd.DataFrame({
+        "Process": ["Mining", "Extraction", "Smelting", "Extraction"],
+        "Type":    ["P",      "P",        "F",       "P"],
+        "Region":  ["A",      "C",        "B",       "C"],
+        "Year":    [0,        0,          1,         0],
+        "Unit":    ["kg",     "kg",       "ton",     "kg"],
+        "Supply_Use": ["Supply", "Supply", "Use", "Use"]
+    })
+
+    # --------------------------------------------------
+    # FULL CORRESPONDENCE (sectors + regions -> root)
+    # --------------------------------------------------
+    correspondence_df = pd.DataFrame({
+        "src_sector": ["Mining", "Extraction", "Smelting", "Market"],
+        "root_sector": ["Mining", "Mining", "Smelting", "Market"],
+
+        "src_region": ["A", "B", "C"],
+        "root_region": ["A", "B", "A"]
+    })
+
+    # --------------------------------------------------
+    # VAR MAP (dict form) with tuple keys (raw_col, aux_val) -> target src_col
+    # This maps raw columns differently depending on Supply vs Use.
+    # --------------------------------------------------
+    var_map_df = {
+        # Supply: raw -> src "from" columns
+        ("Process", "Supply"): "src_sector_from",
+        ("Type",    "Supply"): "src_entity_from",
+        ("Region",  "Supply"): "src_region_from",
+
+        # Use: raw -> src "to" columns (flip roles)
+        ("Process", "Use"): "src_sector_to",
+        ("Type",    "Use"): "src_entity_to",
+        ("Region",  "Use"): "src_region_to",
+
+        # always map Year and Unit to these src columns
+        "Year": "src_time",
+        "Unit": "src_valuation",
+
+        # also value mapping for valuations (Unit -> root valuation)
+        # store under reserved key "value_map"
+        "value_map": {"kg": "mass", "ton": "copper_c"}
+    }
+
+    # --------------------------------------------------
+    # BUILD using aux_cols='Supply_Use'
+    # --------------------------------------------------
+    wm = WeightMatrix.from_raw(
+        raw_df=raw_df,
+        acc_struct=acc,
+        correspondence_df=correspondence_df,
+        var_map_df=var_map_df,
+        aux_cols="Supply_Use"
+    )
+
+    # --------------------------------------------------
+    # ASSERT: matrix built
+    # --------------------------------------------------
+    assert wm.weight_matrix is not None
+
+    # --------------------------------------------------
+    # ASSERT: column-level mapping worked for Supply rows
+    # For rows where Supply_Use == 'Supply' we expect:
+    #  - src_sector_from = Process
+    #  - src_entity_from = Type
+    #  - src_region_from = Region
+    # --------------------------------------------------
+    supply_rows = wm.tab[wm.tab["src_time"] == 0][wm.tab["src_valuation"] == "mass"]
+    # be more explicit: filter by Supply_Use = Supply from original raw_df mapping
+    # find indices in raw_df
+    supply_idx = raw_df.index[raw_df["Supply_Use"] == "Supply"]
+    for i in supply_idx:
+        src_sector_from_val = wm.tab.loc[i, "src_sector_from"]
+        src_entity_from_val = wm.tab.loc[i, "src_entity_from"]
+        src_region_from_val = wm.tab.loc[i, "src_region_from"]
+        assert src_sector_from_val == raw_df.loc[i, "Process"]
+        assert src_entity_from_val == raw_df.loc[i, "Type"]
+        assert src_region_from_val == raw_df.loc[i, "Region"]
+
+    # --------------------------------------------------
+    # ASSERT: column-level mapping worked for Use rows
+    # For rows where Supply_Use == 'Use' we expect:
+    #  - src_sector_to = Process
+    #  - src_entity_to = Type
+    #  - src_region_to = Region
+    # --------------------------------------------------
+    use_idx = raw_df.index[raw_df["Supply_Use"] == "Use"]
+    for i in use_idx:
+        assert wm.tab.loc[i, "src_sector_to"] == raw_df.loc[i, "Process"]
+        assert wm.tab.loc[i, "src_entity_to"] == raw_df.loc[i, "Type"]
+        assert wm.tab.loc[i, "src_region_to"] == raw_df.loc[i, "Region"]
+
+    # --------------------------------------------------
+    # ASSERT: valuation mapping applied (Unit -> root_valuation)
+    # --------------------------------------------------
+    assert set(wm.tab["root_valuation"].unique()) == {"mass", "copper_c"}
+
+    # --------------------------------------------------
+    # ASSERT: correspondence mapping applied (Extraction->Mining, C->A)
+    # --------------------------------------------------
+    # rows with Process == 'Extraction' should have root_sector_from or root_sector_to ==
+    # 'Mining' depending on supply/use mapping
+    for i in supply_idx:
+        # supply: extraction -> should map to Mining (root_sector_from)
+        assert wm.tab.loc[i, "root_sector_from"] == "Mining"
+        # region C should map to A via correspondence
+        assert wm.tab.loc[i, "root_region_from"] == "A"
+
+    for i in use_idx:
+        # use rows where mapping placed Process into 'to' side, check root_sector_to
+        assert wm.tab.loc[i, "root_sector_to"] in {"Mining", "Smelting"}
+        # region mapping also applied on 'to' side
+        assert wm.tab.loc[i, "root_region_to"] in {"A", "B"}
+
+    # --------------------------------------------------
+    # ASSERT: weights sum to 1 per src edge
+    # --------------------------------------------------
+    sums = wm.tab.groupby(wm.src_cols)["weight_value"].sum().values
+    assert np.allclose(sums, 1.0)
+
+    # --------------------------------------------------
+    # ASSERT: matrix has non-zero entries
+    # --------------------------------------------------
+    assert len(wm.weight_matrix.data) > 0

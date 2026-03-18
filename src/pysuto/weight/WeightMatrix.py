@@ -207,13 +207,23 @@ class WeightMatrix:
                 acc_struct,
                 correspondence_df: Optional[pd.DataFrame] = None,
                 var_map_df: Optional[pd.DataFrame] = None,
+                aux_cols: Optional[str] = None,
                 id: str = "ct_from_raw"):
         """
-        Create WeightMatrix directly from raw data + correspondence tables
-        """
+        Create WeightMatrix directly from raw data + correspondence tables.
 
+        New features:
+        - aux_cols: optional column in raw_df that differentiates how raw columns
+            are mapped to src columns (e.g. 'Supply_Use' with values 'Supply'|'Use').
+        - var_map_df can contain:
+            * column mapping instructions: dict with keys (raw_col, aux_val) -> src_col
+                or DataFrame with columns ['raw_var','aux_val','src_var'] or
+                DataFrame with ['raw_var','src_var'] (global map).
+            * valuation value mapping: DataFrame with ['raw_val','root_valuation']
+                or dict accessible via key 'value_map'.
+        """
         # -----------------------------
-        # DEFAULT COLUMN MAPPING
+        # DEFAULT RAW -> SRC column mapping (fallback)
         # -----------------------------
         raw_to_src_map = {
             "Process": "src_sector_from",
@@ -226,31 +236,98 @@ class WeightMatrix:
         df = raw_df.copy()
 
         # -----------------------------
-        # MAP RAW → SRC
+        # Build mapping tables from var_map_df
         # -----------------------------
-        for raw_col, src_col in raw_to_src_map.items():
-            if raw_col in df.columns:
-                df[src_col] = df[raw_col]
-            else:
-                df[src_col] = np.nan
+        # col_map: (raw_col, aux_val) -> src_col  OR raw_col -> src_col
+        col_map = {}
+        # val_map: raw_val (Unit) -> root_valuation
+        val_map = {}
 
-        # Default "to" side (can be refined later)
-        df["src_sector_to"] = "Market"
-        df["src_entity_to"] = "X"
-        df["src_region_to"] = df["src_region_from"]
-
-        # -----------------------------
-        # VARIABLE / VALUATION MAPPING
-        # -----------------------------
         if var_map_df is not None:
-            val_map = dict(zip(var_map_df['raw_val'], var_map_df['root_valuation']))
+            # dict form (user provided)
+            if isinstance(var_map_df, dict):
+                # tuple keys -> column mapping
+                for k, v in var_map_df.items():
+                    if isinstance(k, tuple):
+                        col_map[k] = v
+                    elif isinstance(k, str):
+                        # simple raw_col -> src_col mapping
+                        col_map[k] = v
+                # optional value map under a reserved key
+                if "value_map" in var_map_df and isinstance(var_map_df["value_map"], dict):
+                    val_map = var_map_df["value_map"]
+
+            # DataFrame form
+            elif isinstance(var_map_df, pd.DataFrame):
+                cols = set(var_map_df.columns)
+                # column mapping with aux_val
+                if {"raw_var", "aux_val", "src_var"}.issubset(cols):
+                    for _, r in var_map_df.iterrows():
+                        col_map[(r["raw_var"], r["aux_val"])] = r["src_var"]
+                # column mapping without aux_val (global)
+                if {"raw_var", "src_var"}.issubset(cols) and "aux_val" not in cols:
+                    for _, r in var_map_df.iterrows():
+                        col_map[r["raw_var"]] = r["src_var"]
+                # value mapping for valuations
+                if {"raw_val", "root_valuation"}.issubset(cols):
+                    val_map = dict(zip(var_map_df["raw_val"], var_map_df["root_valuation"]))
+
+        # -----------------------------
+        # MAP RAW → SRC (column-level mapping, row-wise if aux_cols provided)
+        # -----------------------------
+        # initialize canonical src columns to NaN (so we guarantee their existence)
+        canonical_src_cols = [
+            "src_sector_from", "src_entity_from", "src_region_from",
+            "src_sector_to",   "src_entity_to",   "src_region_to",
+            "src_time", "src_valuation"
+        ]
+        for c in canonical_src_cols:
+            df[c] = np.nan
+
+        # For each raw column, determine for each row which src column it should fill,
+        # based on (raw_col, aux_val) mapping, otherwise raw_col->src fallback mapping.
+        for raw_col in raw_to_src_map.keys():
+            if raw_col not in df.columns:
+                continue
+
+            # pick target src column per-row
+            if aux_cols is not None and aux_cols in df.columns:
+                # compute vector of target column names
+                targets = df.apply(
+                    lambda row: col_map.get((raw_col, row[aux_cols]),
+                                            col_map.get(raw_col, raw_to_src_map[raw_col])),
+                    axis=1
+                )
+            else:
+                # no aux column: global mapping or default
+                target_col_global = col_map.get(raw_col, raw_to_src_map[raw_col])
+                targets = pd.Series([target_col_global] * len(df), index=df.index)
+
+            # assign raw values into the chosen target columns
+            for tgt in targets.unique():
+                # ensure tgt is one of canonical_src_cols; if not, still assign (keeps flexible)
+                df.loc[targets == tgt, tgt] = df.loc[targets == tgt, raw_col]
+
+        # -----------------------------
+        # Default "to" side for any remaining missing values (same logic as before)
+        # -----------------------------
+        # If src_sector_to wasn't filled by mapping, set to "Market"
+        df["src_sector_to"] = df["src_sector_to"].fillna("Market")
+        df["src_entity_to"] = df["src_entity_to"].fillna("X")
+        # If src_region_to is still NaN, default to src_region_from
+        df["src_region_to"] = df["src_region_to"].fillna(df["src_region_from"])
+
+        # -----------------------------
+        # VARIABLE / VALUATION VALUE MAPPING (Unit -> root_valuation)
+        # -----------------------------
+        # src_valuation currently holds the raw 'Unit' value (unless remapped above)
+        if val_map:
             df["src_valuation"] = df["src_valuation"].map(val_map).fillna(df["src_valuation"])
 
         # -----------------------------
-        # CORRESPONDENCE (SRC → ROOT)
+        # CORRESPONDENCE (SRC → ROOT) — identical to previous implementation
         # -----------------------------
         if correspondence_df is not None:
-
             # sector mapping
             if {"src_sector", "root_sector"}.issubset(correspondence_df.columns):
                 sec_map = dict(zip(correspondence_df["src_sector"], correspondence_df["root_sector"]))
@@ -272,7 +349,6 @@ class WeightMatrix:
             # entity (1:1 assumption)
             df["root_entity_from"] = df["src_entity_from"]
             df["root_entity_to"]   = df["src_entity_to"]
-
         else:
             # identity fallback
             df["root_sector_from"] = df["src_sector_from"]
@@ -283,7 +359,7 @@ class WeightMatrix:
             df["root_entity_to"]   = df["src_entity_to"]
 
         # -----------------------------
-        # TIME & VALUATION
+        # TIME & VALUATION (propagate)
         # -----------------------------
         df["root_time"] = df["src_time"]
         df["root_valuation"] = df["src_valuation"]
