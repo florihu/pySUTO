@@ -7,6 +7,7 @@ import numpy as np
 import pandas as pd
 import sparse
 from typing import Optional
+import warnings
 
 from pysuto.logging import get_logger
 
@@ -198,9 +199,6 @@ class WeightMatrix:
         return self.weight_matrix.T @ F_src
     
 
-    # =====================================================
-    # FACTORY: BUILD FROM RAW DATA
-    # =====================================================
     @classmethod
     def from_raw(cls,
                 raw_df: pd.DataFrame,
@@ -211,87 +209,48 @@ class WeightMatrix:
                 valuation_map_df: pd.DataFrame,
                 var_map_df: pd.DataFrame,
                 aux_col: Optional[str] = None,
+                allow_unmatched_edges: bool = True,
                 id: str = "ct_from_raw"):
-        """
-        Create WeightMatrix from raw data.
 
-        Workflow:
-        1) Map raw columns -> src columns using var_map_df (aux_col may alter per-row mapping).
-        2) Map src sector/region/time/valuation -> root equivalents using provided maps.
-        3) Expand acc_struct.edge_index with node attributes (from/to sector/entity/region).
-        4) **Edge-driven** merge: for each aux category (Supply/Use) merge EDGES -> mapped rows
-            so that a supply row (which specifies 'from' side) expands to all matching 'to' sides.
-        5) Fail if any original raw row had zero matched edges (diagnostics included).
-        6) Fill any remaining src/root indexing columns from matched edge attributes so that
-            no indexing column is NaN.
-        7) Build final tab and return WeightMatrix instance.
 
-        Notes:
-        - sector_map_df, region_map_df, time_map_df, valuation_map_df and var_map_df are required.
-        - var_map_df must contain columns: raw_var, src_var, and optionally aux_col (the name of the
-        aux column value to switch mapping).
-        """
+        # --------------------------------------------------
+        # 0) Copy raw data & preserve original index
+        # --------------------------------------------------
+        # This keeps a pointer to the original row for diagnostics
+        df = raw_df.copy().reset_index(drop=False).rename(columns={"index": "_raw_idx"})
 
-        # Defensive copy
-        df = raw_df.copy()
-
-        # 1) Initialize canonical SRC columns (guarantee existence)
-        canonical_src_cols = [
+        # --------------------------------------------------
+        # 1) Initialize SRC columns
+        # --------------------------------------------------
+        # Guarantee these exist for raw→src mapping
+        src_cols = [
             "src_sector_from", "src_entity_from", "src_region_from",
             "src_sector_to",   "src_entity_to",   "src_region_to",
             "src_time", "src_valuation"
         ]
-        for c in canonical_src_cols:
-            df[c] = np.nan
+        for c in src_cols:
+            df[c] = pd.Series([pd.NA] * len(df), dtype="object")
 
-        # 2) Build col_map from var_map_df
-        #    var_map_df rows expected: raw_var, src_var, (optional) aux_col
-        #    Create mapping: (raw_var, aux_val) -> src_var  and raw_var -> src_var (global)
-        col_map = {}
+        # --------------------------------------------------
+        # 2) RAW → SRC mapping (vectorized, aux-aware)
+        # --------------------------------------------------
+        # Map each raw variable to the corresponding src column, conditional on auxiliary category
         for _, r in var_map_df.iterrows():
             raw_var = r["raw_var"]
             src_var = r["src_var"]
-            # if var_map_df used the literal column name 'aux_col' to denote the aux category value,
-            # read it from that column (user-provided DF should use that column name)
-            aux_val = r.get(aux_col) if aux_col in r.index else None
-            if aux_val is not None and not (pd.isna(aux_val)):
-                col_map[(raw_var, aux_val)] = src_var
+            aux_val = r[aux_col] if (aux_col and aux_col in r.index) else None
+
+            if aux_val is not None and not pd.isna(aux_val):
+                mask = df[aux_col] == aux_val
             else:
-                col_map[raw_var] = src_var
+                mask = pd.Series(True, index=df.index)
 
-        # 3) Map raw -> src (per-row if aux_col is provided)
-        #    For each raw column determine target src column (may differ by aux_val).
-        #    Assign the raw value into the chosen src column.
-        for raw_col in raw_df.columns:
-            if aux_col and aux_col in df.columns:
-                targets = df.apply(
-                    lambda row: col_map.get((raw_col, row[aux_col]),
-                                            col_map.get(raw_col, raw_col)),
-                    axis=1
-                )
-            else:
-                targets = pd.Series([col_map.get(raw_col, raw_col)] * len(df), index=df.index)
+            df.loc[mask, src_var] = df.loc[mask, raw_var].astype("object")
 
-            for tgt in targets.unique():
-                if tgt in canonical_src_cols:
-                    df.loc[targets == tgt, tgt] = df.loc[targets == tgt, raw_col]
-
-        # 4) Map source -> root for time & valuation & sector & region
-        #    Use the provided mapping dataframes to translate src values into root values.
-        t_map = dict(zip(time_map_df["src_time"], time_map_df["root_time"]))
-        v_map = dict(zip(valuation_map_df["src_valuation"], valuation_map_df["root_valuation"]))
-        sec_map = dict(zip(sector_map_df["src_sector"], sector_map_df["root_sector"]))
-        reg_map = dict(zip(region_map_df["src_region"], region_map_df["root_region"]))
-
-        df["root_time"] = df["src_time"].map(t_map)
-        df["root_valuation"] = df["src_valuation"].map(v_map)
-
-        df["root_sector_from"] = df["src_sector_from"].map(sec_map)
-        df["root_sector_to"]   = df["src_sector_to"].map(sec_map)
-        df["root_region_from"] = df["src_region_from"].map(reg_map)
-        df["root_region_to"]   = df["src_region_to"].map(reg_map)
-
-        # 5) Prepare expanded edges (edge rows with node attributes)
+        # --------------------------------------------------
+        # 3) Build expanded edge structure
+        # --------------------------------------------------
+        # Each accounting node has sector/entity/region; edges are joined with node attributes
         node_rows = [
             {"node_id": nid, "sector": t[0], "entity": t[1], "region": t[2]}
             for t, nid in acc_struct.node_to_id.items()
@@ -299,121 +258,181 @@ class WeightMatrix:
         node_df = pd.DataFrame(node_rows)
 
         from_nodes = node_df.rename(columns={
-            "node_id": "from_id", "sector": "from_sector", "entity": "from_entity", "region": "from_region"
+            "node_id": "from_id", "sector": "from_sector",
+            "entity": "from_entity", "region": "from_region"
         })
         to_nodes = node_df.rename(columns={
-            "node_id": "to_id", "sector": "to_sector", "entity": "to_entity", "region": "to_region"
+            "node_id": "to_id", "sector": "to_sector",
+            "entity": "to_entity", "region": "to_region"
         })
 
-        edges_expanded = (
+        edges = (
             acc_struct.edge_index
             .merge(from_nodes, on="from_id", how="left")
             .merge(to_nodes, on="to_id", how="left")
         )
 
-        # 6) Edge-driven merge (edges -> df) depending on auxiliary side
-        #    We're merging EDGES onto the mapped rows so that a Supply row which defines
-        #    only the 'from' side will expand across all matching 'to' sides in the edges.
-        merged_list = []
+        # --------------------------------------------------
+        # 4) Prepare mapping tables (multi-mapping safe)
+        # --------------------------------------------------
+        def prep_map(df_map, src_col, root_col):
+            return df_map[[src_col, root_col]].drop_duplicates()
 
-        # preserve original row indices for diagnostics
-        df["_raw_idx"] = df.index
+        sec_map = prep_map(sector_map_df, "src_sector", "root_sector")
+        reg_map = prep_map(region_map_df, "src_region", "root_region")
+        t_map   = prep_map(time_map_df, "src_time", "root_time")
+        v_map   = prep_map(valuation_map_df, "src_valuation", "root_valuation")
 
-        # Helper to perform an inner join of edges -> sub_df on the chosen side columns
-        def _merge_edges_to_rows(edges, rows, side):
-            """
-            edges: edges_expanded
-            rows: subset of df (contains _raw_idx)
-            side: "from" or "to" - decides which edge columns to match
-            returns merged_sub (edges columns + rows columns) via inner join
-            """
+        # --------------------------------------------------
+        # 5) Process Supply / Use separately
+        # --------------------------------------------------
+        merged_parts = []
+        work_parts = []
+
+        def process_side(df_part, side):
+            df_work = df_part.copy()
+
+            # Map sector & region per side
             if side == "from":
-                left_on = ["from_sector", "from_region", "time", "valuation"]
-                right_on = ["root_sector_from", "root_region_from", "root_time", "root_valuation"]
+                df_work = df_work.merge(
+                    sec_map.rename(columns={"src_sector": "src_sector_from",
+                                            "root_sector": "root_sector_from"}),
+                    on="src_sector_from", how="left"
+                )
+                df_work = df_work.merge(
+                    reg_map.rename(columns={"src_region": "src_region_from",
+                                            "root_region": "root_region_from"}),
+                    on="src_region_from", how="left"
+                )
+                edge_keys = ["from_sector", "from_region", "time", "valuation"]
+                df_keys   = ["root_sector_from", "root_region_from", "root_time", "root_valuation"]
+
+            else:  # USE side
+                df_work = df_work.merge(
+                    sec_map.rename(columns={"src_sector": "src_sector_to",
+                                            "root_sector": "root_sector_to"}),
+                    on="src_sector_to", how="left"
+                )
+                df_work = df_work.merge(
+                    reg_map.rename(columns={"src_region": "src_region_to",
+                                            "root_region": "root_region_to"}),
+                    on="src_region_to", how="left"
+                )
+                edge_keys = ["to_sector", "to_region", "time", "valuation"]
+                df_keys   = ["root_sector_to", "root_region_to", "root_time", "root_valuation"]
+
+            # Merge time & valuation root
+            df_work = df_work.merge(t_map, on="src_time", how="left")
+            df_work = df_work.merge(v_map, on="src_valuation", how="left")
+
+            # Fail fast if any root mapping missing (mapping issue)
+            if df_work[df_keys].isna().any().any():
+                raise ValueError(f"Missing src→root mapping in {side}-side rows")
+
+            # --------------------------------------------------
+            # 5b) PRE-FILTER infeasible rows
+            # --------------------------------------------------
+            # Keep only rows that have at least one edge candidate
+            # (prevents large inner merges that will always produce zero matches)
+            if side == "from":
+                edge_match_cols = ["from_sector", "from_region"]
+                root_cols = ["root_sector_from", "root_region_from"]
             else:
-                left_on = ["to_sector", "to_region", "time", "valuation"]
-                right_on = ["root_sector_to", "root_region_to", "root_time", "root_valuation"]
+                edge_match_cols = ["to_sector", "to_region"]
+                root_cols = ["root_sector_to", "root_region_to"]
 
-            # edges on left, rows on right: this expands rows by matching edges
-            merged_sub = edges.merge(rows, left_on=left_on, right_on=right_on, how="inner", suffixes=("_edge", ""))
-            return merged_sub
+            # quick existence check
+            feasible_mask = df_work[root_cols[0]].isin(edges[edge_match_cols[0]]) & \
+                            df_work[root_cols[1]].isin(edges[edge_match_cols[1]])
 
-        if aux_col is None:
-            # no auxiliary: default to matching on 'from' side (i.e., treat as Supply)
-            merged_sub = _merge_edges_to_rows(edges_expanded, df, side="from")
-            merged_list.append(merged_sub)
-        else:
-            # iterate over unique auxiliary values present in the mapped DataFrame
-            for aux_val in df[aux_col].dropna().unique():
-                sub_df = df[df[aux_col] == aux_val]
-                if str(aux_val).lower() == "supply":
-                    merged_sub = _merge_edges_to_rows(edges_expanded, sub_df, side="from")
-                elif str(aux_val).lower() == "use":
-                    merged_sub = _merge_edges_to_rows(edges_expanded, sub_df, side="to")
-                else:
-                    raise ValueError(f"Unknown auxiliary value '{aux_val}' in column '{aux_col}'")
-                merged_list.append(merged_sub)
+            df_work_filtered = df_work[feasible_mask]
+            infeasible_rows = df_work[~feasible_mask]["_raw_idx"].tolist()
 
-        # concat results (each merged_sub contains edge attributes and original mapped columns)
-        if len(merged_list) == 0:
-            # no merged subsets -> nothing matched
-            raise ValueError("No auxiliary groups produced merges; check var_map_df / aux_col logic.")
-        merged = pd.concat(merged_list, axis=0, ignore_index=True)
+            # log warning for pre-filtered rows
+            if infeasible_rows:
+                msg = (
+                    f"{len(infeasible_rows)} rows cannot possibly match any accounting edge "
+                    f"(pre-filtered). Examples: {infeasible_rows[:5]}"
+                )
+                warnings.warn(msg)
 
-        # 7) Detect unmapped original rows
-        #    If any original raw row index (_raw_idx) is missing from merged, it means
-        #    that particular input row didn't match any accounting edge → fail.
-        all_raw_idxs = set(df["_raw_idx"].unique().tolist())
-        matched_raw_idxs = set(merged["_raw_idx"].unique().tolist())
-        unmatched_raw_idxs = sorted(list(all_raw_idxs - matched_raw_idxs))
-        if unmatched_raw_idxs:
-            # include diagnostics: show original mapping columns for the offending inputs
-            diag_cols = [aux_col] if aux_col is not None else []
-            diag_cols += [
-                "src_sector_from", "src_region_from", "src_sector_to", "src_region_to",
-                "root_sector_from", "root_region_from", "root_sector_to", "root_region_to",
-                "root_time", "root_valuation"
-            ]
-            diagnostics = df.loc[unmatched_raw_idxs, diag_cols].to_dict(orient="index")
-            raise ValueError(
-                f"Some mapped source rows did not match any root edge. Original raw row indices: {unmatched_raw_idxs}\n"
-                f"Example diagnostics: {list(diagnostics.items())[:5]}"
+            # --------------------------------------------------
+            # 6) Merge with edges (only feasible rows)
+            # --------------------------------------------------
+            merged = edges.merge(
+                df_work_filtered,
+                left_on=edge_keys,
+                right_on=df_keys,
+                how="inner",
+                suffixes=("_edge", "")
             )
 
-        # 8) Populate root/from-to attributes from matched edges where necessary
-        #    After merging edges->rows, edges provide 'from_*' and 'to_*' columns.
-        #    Ensure both root_from and root_to columns are filled (take from edge if missing),
-        #    then ensure src_* side columns are filled (use edge attributes if user mapping left them empty).
-        merged["root_sector_from"] = merged["root_sector_from"].fillna(merged["from_sector"])
-        merged["root_region_from"] = merged["root_region_from"].fillna(merged["from_region"])
-        merged["root_sector_to"]   = merged["root_sector_to"].fillna(merged["to_sector"])
-        merged["root_region_to"]   = merged["root_region_to"].fillna(merged["to_region"])
+            return merged, df_work_filtered, infeasible_rows
 
-        # Fill src-side columns where they were left NaN by mapping rules:
-        # - For supply rows (which were matched on 'from'), src_sector_to/src_region_to are often NaN:
-        #   fill them from the matched edge's to_sector/to_region so the source edge is complete.
+        # run both sides
+        unmatched_edge = []
+
+        if aux_col:
+            for val in df[aux_col].dropna().unique():
+                if str(val).lower() == "supply":
+                    m, w, unf = process_side(df[df[aux_col] == val], "from")
+                elif str(val).lower() == "use":
+                    m, w, unf = process_side(df[df[aux_col] == val], "to")
+                else:
+                    raise ValueError(f"Unknown {aux_col}: {val}")
+
+                merged_parts.append(m)
+                work_parts.append(w)
+                unmatched_edge.extend(unf)
+        else:
+            m, w, unf = process_side(df, "from")
+            merged_parts.append(m)
+            work_parts.append(w)
+            unmatched_edge.extend(unf)
+
+        merged = pd.concat(merged_parts, ignore_index=True)
+        df_work_all = pd.concat(work_parts, ignore_index=False)
+
+        # --------------------------------------------------
+        # 7) Final unmatched detection
+        # --------------------------------------------------
+        all_raw = set(df["_raw_idx"])
+        matched = set(merged["_raw_idx"])
+        unmatched = sorted(list(all_raw - matched - set(unmatched_edge)))
+
+        if unmatched:
+            msg = (
+                f"{len(unmatched)} rows did not match any edge after merging. "
+                f"Examples: {unmatched[:5]}"
+            )
+            if allow_unmatched_edges:
+                warnings.warn(msg)
+            else:
+                raise ValueError(msg)
+
+        # --------------------------------------------------
+        # 8) Populate all remaining fields from edges
+        # --------------------------------------------------
         merged["src_sector_from"] = merged["src_sector_from"].fillna(merged["from_sector"])
         merged["src_region_from"] = merged["src_region_from"].fillna(merged["from_region"])
         merged["src_sector_to"]   = merged["src_sector_to"].fillna(merged["to_sector"])
         merged["src_region_to"]   = merged["src_region_to"].fillna(merged["to_region"])
 
-        # 9) Populate entities: entities come from the matched nodes on the edge.
+        merged["root_sector_from"] = merged["from_sector"]
+        merged["root_region_from"] = merged["from_region"]
+        merged["root_sector_to"]   = merged["to_sector"]
+        merged["root_region_to"]   = merged["to_region"]
+
         merged["root_entity_from"] = merged["from_entity"]
         merged["root_entity_to"]   = merged["to_entity"]
 
-        # Source entities are implied 1:1 from root entities
         merged["src_entity_from"] = merged["root_entity_from"]
         merged["src_entity_to"]   = merged["root_entity_to"]
 
-        # Also ensure time & valuation are present (they were used for matching so they should be present)
-        merged["root_time"] = merged["root_time"].fillna(merged["time"])
-        merged["root_valuation"] = merged["root_valuation"].fillna(merged["valuation"])
-        merged["src_time"] = merged["src_time"].fillna(merged["root_time"])
-        merged["src_valuation"] = merged["src_valuation"].fillna(merged["root_valuation"])
-
-        # 10) Build final tab DataFrame (one row per matched root edge)
+        # --------------------------------------------------
+        # 9) Build final WeightMatrix table
+        # --------------------------------------------------
         tab = pd.DataFrame({
-            # SRC
             "src_sector_from": merged["src_sector_from"],
             "src_entity_from": merged["src_entity_from"],
             "src_region_from": merged["src_region_from"],
@@ -423,7 +442,6 @@ class WeightMatrix:
             "src_time":        merged["src_time"],
             "src_valuation":   merged["src_valuation"],
 
-            # ROOT
             "root_sector_from": merged["root_sector_from"],
             "root_entity_from": merged["root_entity_from"],
             "root_region_from": merged["root_region_from"],
@@ -433,37 +451,18 @@ class WeightMatrix:
             "root_time":        merged["root_time"],
             "root_valuation":   merged["root_valuation"],
 
-            # weights
             "weight_value": np.nan,
-            "weight_mode": "uniform"
+            "weight_mode": "uniform",
+            # include edge id
+            "edge_id": merged["edge_id"]
         }).reset_index(drop=True)
 
-        # 11) Final safety check: no NaNs in indexing columns (fail with diagnostics if any)
-        index_cols = [
-            "src_sector_from", "src_entity_from", "src_region_from",
-            "src_sector_to", "src_entity_to", "src_region_to",
-            "src_time", "src_valuation",
-            "root_sector_from", "root_entity_from", "root_region_from",
-            "root_sector_to", "root_entity_to", "root_region_to",
-            "root_time", "root_valuation"
-        ]
-
-        nan_mask = tab[index_cols].isna()
-        if nan_mask.any().any():
-            cols_with_nan = nan_mask.any()[nan_mask.any()].index.tolist()
-            nan_counts = tab[cols_with_nan].isna().sum().to_dict()
-            # Provide sample rows with NaNs for debugging
-            sample_problem_rows = tab[tab[cols_with_nan].isna().any(axis=1)].head(10).to_dict(orient="records")
-            raise ValueError(
-                f"NaNs detected in WeightMatrix indexing columns! Columns: {cols_with_nan}\n"
-                f"Counts: {nan_counts}\n"
-                f"Sample problematic rows: {sample_problem_rows}"
-            )
-
-        # 12) Return instance: the rest of the WeightMatrix pipeline handles weights and building sparse matrix
-        return cls(tab=tab, acc_struct=acc_struct, id=id)
-
-
+        # --------------------------------------------------
+        # 10) Return instance + diagnostics for unmatched edges
+        # --------------------------------------------------
+        instance = cls(tab=tab, acc_struct=acc_struct, id=id)
+        instance.unmatched_raw_rows = unmatched_edge  # rows pre-filtered as impossible
+        return instance
 
     # =====================================================
     # SAVE / LOAD
