@@ -202,20 +202,6 @@ def extract_icsg_global_series(
 
 
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 # Tranform the data feed into 
 if __name__ == "__main__":
 
