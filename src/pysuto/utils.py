@@ -10,47 +10,15 @@ import re
 import numpy as np
 import matplotlib.pyplot as plt
 import datetime
+import json
+import warnings
+from datetime import date, datetime
+
+from typing import Dict, List, Optional, Any
+ 
 
 _TS_RE = re.compile(r'(\d{8}_\d{6})')
 
-def clean_cols(df):
-
-    '''
-    This function takes a polares df converts the cols into upper case and rest small
-    spaces are replaced with underscores
-
-    '''
-
-    # assert that df is a polars dataframe
-    assert isinstance(df, pl.DataFrame), 'df is not a polars dataframe'
-    # convert the columns to first letter to upper case and replace spaces with underscores
-    df.columns = [col.title().replace(' ', '_') for col in df.columns]
-    # besides the first letter all letters are lower case
-    df.columns = [col[0].upper() + col[1:].lower() for col in df.columns]
-    # remove any leading or trailing spaces
-    df.columns = [col.strip() for col in df.columns]
-    # remove any leading or trailing underscores
-    df.columns = [col.strip('_') for col in df.columns]
-    # remove any leading or trailing dashes
-    df.columns = [col.strip('-') for col in df.columns]
-    # remove any leading or trailing dots
-    df.columns = [col.strip('.') for col in df.columns]
-    # remove any leading or trailing commas
-    df.columns = [col.strip(',') for col in df.columns]
-    # remove any leading or trailing semicolons
-    df.columns = [col.strip(';') for col in df.columns]
-    # remove any leading or trailing colons
-    df.columns = [col.strip(':') for col in df.columns]
-    # remove any leading or trailing slashes
-    df.columns = [col.strip('/') for col in df.columns]
-    # remove any leading or trailing backslashes
-    df.columns = [col.strip('\\') for col in df.columns]
-    # remove any leading or trailing pipes
-    df.columns = [col.strip('|') for col in df.columns]
-    # remove any leading or trailing question marks
-    df.columns = [col.strip('?') for col in df.columns]
-
-    return df
 
 def get_path(name):
     '''
@@ -176,16 +144,7 @@ def get_path(name):
 #     '''
 #     base_folder = r'data\int'
 #     # Get the calling script’s filename
-#     calling_script = inspect.stack()[1].filename
-#     script_name = os.path.basename(calling_script).replace('.py', '')
-
-#     path = os.path.join(base_folder, script_name)
-#     if not os.path.exists(path):
-#         os.makedirs(path)
-
-#     file_path = os.path.join(path, name + '.csv')
-
-#     data.to_csv(file_path)
+#      data.to_csv(file_path)
 
 #     return None
 
@@ -212,7 +171,16 @@ def get_path(name):
 
 #     with pd.ExcelWriter(file_path, engine='openpyxl', mode=mode, if_sheet_exists=sheet_option) as writer:
 #         df.to_excel(writer, sheet_name=sheet_name, index=True)
+calling_script = inspect.stack()[1].filename
+#     script_name = os.path.basename(calling_script).replace('.py', '')
 
+#     path = os.path.join(base_folder, script_name)
+#     if not os.path.exists(path):
+#         os.makedirs(path)
+
+#     file_path = os.path.join(path, name + '.csv')
+
+#     
 def read_concordance_table(path: str):
     """
     Reads a concordance table from an Excel file.
@@ -369,6 +337,29 @@ def _parse_timestamp_from_name(fname: str):
         return None
 
 
+
+class _NpEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        return super().default(obj)
+ 
+ 
+def _json_dump(obj: Any, path: str) -> None:
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(obj, f, indent=2, cls=_NpEncoder)
+ 
+ 
+def _json_load(path: str) -> Any:
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
 
 if __name__ == '__main__':
     lookup()

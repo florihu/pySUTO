@@ -4,7 +4,7 @@ import pandas as pd
 import sparse
 import os
 
-from pysuto.AccountingStructure import AccountingStructure
+from pysuto.acc import AccountingStructure
 
 
 # =============================================================================

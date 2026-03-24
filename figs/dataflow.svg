@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="860" viewBox="0 0 860 260" style="background:#ffffff;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif">
+<defs>
+  <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+    <path d="M2 1L8 5L2 9" fill="none" stroke="#6b7280" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+  </marker>
+</defs>
+
+<!-- Stage 1 -->
+<rect x="30"  y="48" width="148" height="56" rx="28" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.2"/>
+<text x="104"  y="72" font-size="13" font-weight="600" fill="#1e3a8a" text-anchor="middle">Stage 1</text>
+<text x="104"  y="89" font-size="11" fill="#1d4ed8" text-anchor="middle">N × FeedPipeline</text>
+
+<!-- Registry -->
+<rect x="30" y="144" width="148" height="56" rx="28" fill="#fff1f2" stroke="#fb7185" stroke-width="1.2"/>
+<text x="104" y="168" font-size="13" font-weight="600" fill="#9f1239" text-anchor="middle">Registry</text>
+<text x="104" y="185" font-size="11" fill="#be123c" text-anchor="middle">feeds + results</text>
+
+<!-- Stage 2 -->
+<rect x="296" y="48" width="148" height="56" rx="28" fill="#f5f3ff" stroke="#8b5cf6" stroke-width="1.2"/>
+<text x="370" y="72" font-size="13" font-weight="600" fill="#5b21b6" text-anchor="middle">Stage 2</text>
+<text x="370" y="89" font-size="11" fill="#7c3aed" text-anchor="middle">FeedCollector + Imputer</text>
+
+<!-- AggResult -->
+<rect x="296" y="144" width="148" height="56" rx="28" fill="#f0fdfa" stroke="#14b8a6" stroke-width="1.2"/>
+<text x="370" y="168" font-size="13" font-weight="600" fill="#134e4a" text-anchor="middle">AggregationResult</text>
+<text x="370" y="185" font-size="11" fill="#0f766e" text-anchor="middle">F_agg,  σ_agg</text>
+
+<!-- Stage 3 -->
+<rect x="562" y="48" width="148" height="56" rx="28" fill="#eff6ff" stroke="#3b82f6" stroke-width="1.2"/>
+<text x="636" y="72" font-size="13" font-weight="600" fill="#1e3a8a" text-anchor="middle">Stage 3</text>
+<text x="636" y="89" font-size="11" fill="#1d4ed8" text-anchor="middle">OptimPipeline</text>
+
+<!-- OptimRun -->
+<rect x="562" y="144" width="148" height="56" rx="28" fill="#fff1f2" stroke="#fb7185" stroke-width="1.2"/>
+<text x="636" y="168" font-size="13" font-weight="600" fill="#9f1239" text-anchor="middle">OptimRun</text>
+<text x="636" y="185" font-size="11" fill="#be123c" text-anchor="middle">T × OptimResult</text>
+
+<!-- vertical arrows -->
+<line x1="104" y1="104" x2="104" y2="142" stroke="#9ca3af" stroke-width="1.2" marker-end="url(#arr)" fill="none"/>
+<line x1="370" y1="104" x2="370" y2="142" stroke="#9ca3af" stroke-width="1.2" marker-end="url(#arr)" fill="none"/>
+<line x1="636" y1="104" x2="636" y2="142" stroke="#9ca3af" stroke-width="1.2" marker-end="url(#arr)" fill="none"/>
+
+<!-- registry → stage 2 arc -->
+<path d="M178 172 Q237 172 237 76 L294 76" fill="none" stroke="#9ca3af" stroke-width="1.2" marker-end="url(#arr)"/>
+<text x="238" y="136" font-size="10" fill="#6b7280" text-anchor="middle">feed_ids</text>
+<text x="238" y="150" font-size="10" fill="#6b7280" text-anchor="middle">F_root, σ_root</text>
+
+<!-- agg → stage 3 arc -->
+<path d="M444 172 Q503 172 503 76 L560 76" fill="none" stroke="#9ca3af" stroke-width="1.2" marker-end="url(#arr)"/>
+<text x="503" y="136" font-size="10" fill="#6b7280" text-anchor="middle">F_agg, σ_agg</text>
+<text x="503" y="150" font-size="10" fill="#6b7280" text-anchor="middle">G, c</text>
+
+<!-- warm-start loop -->
+<path d="M710 144 Q756 128 756 220 Q756 244 636 244 L636 202" fill="none" stroke="#9ca3af" stroke-width="1.2" stroke-dasharray="5 4" marker-end="url(#arr)"/>
+<text x="720" y="238" font-size="10" fill="#9ca3af">warm-start t → t+1</text>
+</svg>

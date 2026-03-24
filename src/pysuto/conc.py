@@ -3,45 +3,15 @@ from __future__ import annotations
 import os
 import pickle
 import warnings
-from abc import ABC, abstractmethod
 from typing import Optional
 
 import numpy as np
 import pandas as pd
 import sparse
-import scipy.sparse as sp
 
 
-# =============================================================================
-# BASE CLASS
-# =============================================================================
 
-class DataFeed(ABC):
-    """
-    Abstract base for all concordance/weight objects.
-
-    Owns:
-      - id         : unique string identifier
-      - odir       : output directory for persistence
-      - acc_struct : shared AccountingStructure reference
-    """
-
-    def __init__(self, id: str, acc_struct, odir: str = "data/proc/conc"):
-        self.id = id
-        self.odir = odir
-        self.acc_struct = acc_struct
-        self.acc_used = acc_struct.id
-
-    # ------------------------------------------------------------------
-    # Subclasses must implement persistence
-    # ------------------------------------------------------------------
-    @abstractmethod
-    def save(self, **kwargs): ...
-
-    @classmethod
-    @abstractmethod
-    def load(cls, id: str, acc_struct, **kwargs): ...
-
+from pysuto.feed import DataFeed
 
 # =============================================================================
 # CONCORDANCE TABLE

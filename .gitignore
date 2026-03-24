@@ -14,7 +14,8 @@ venv/
 # Data folders
 data/
 orga/
-figs/
+figs/ex/
+figs/mn/
 #test/
 res/
 logs/
