@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from types import SimpleNamespace
 
-from pysuto.DataFeed import ConcordanceTable, WeightMatrix
+from pysuto.conc import ConcordanceTable, WeightMatrix
 
 
 # =============================================================================

@@ -525,11 +525,10 @@ class WeightMatrix(DataFeed):
             data.append(float(r['weight_value']))
 
         self.weight_matrix = sparse.COO(
-            coords, data,
+            np.array(coords, dtype=np.int64), data,
             shape=(ct.n_src_edges, ct.n_root_edges)
         )
-
-    # ------------------------------------------------------------------ #
+            # ------------------------------------------------------------------ #
     # Apply                                                                #
     # ------------------------------------------------------------------ #
 
