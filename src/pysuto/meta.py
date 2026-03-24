@@ -8,7 +8,7 @@ from typing import Dict, List, Optional, Any
 import numpy as np
 import pandas as pd
 
-from pysuto.utils import _EnPEncoder
+from pysuto.utils import _EnPEncoder, _NpEncoder
 
 
 @dataclass

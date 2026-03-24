@@ -333,7 +333,7 @@ pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
-**Core dependencies:** `numpy`, `pandas`, `scipy`, `sparse`, `openpyxl`
+**Core dependencies:** `numpy`, `pandas`, `scipy`, `sparse`,
 
 **Optional:** `matplotlib` for diagnostic plots of uncertainty distributions
 

@@ -13,6 +13,9 @@ import datetime
 import json
 import warnings
 from datetime import date, datetime
+import enum
+import dataclasses
+import math
 
 from typing import Dict, List, Optional, Any
  
@@ -360,6 +363,90 @@ def _json_dump(obj: Any, path: str) -> None:
 def _json_load(path: str) -> Any:
     with open(path, encoding="utf-8") as f:
         return json.load(f)
+
+
+class _EnPEncoder(json.JSONEncoder):
+    """
+    JSON encoder that handles numpy, pandas, pathlib, datetime,
+    dataclasses and enum types without external dependencies beyond
+    numpy and pandas (both already required by pysuto).
+    """
+ 
+    def default(self, obj: Any) -> Any:  # noqa: C901  (complexity OK here)
+        # ── numpy ────────────────────────────────────────────────────────
+        try:
+            import numpy as np
+ 
+            # Scalars
+            if isinstance(obj, np.integer):
+                return int(obj)
+            if isinstance(obj, np.floating):
+                v = float(obj)
+                # JSON has no NaN / ±Infinity
+                return None if not math.isfinite(v) else v
+            if isinstance(obj, np.bool_):
+                return bool(obj)
+            if isinstance(obj, np.complexfloating):
+                return {"real": float(obj.real), "imag": float(obj.imag)}
+ 
+            # Arrays
+            if isinstance(obj, np.ndarray):
+                # Replace NaN / inf inside the array so the list is clean
+                if np.issubdtype(obj.dtype, np.floating):
+                    clean = np.where(np.isfinite(obj), obj, None)
+                    return clean.tolist()
+                return obj.tolist()
+ 
+        except ImportError:
+            pass
+ 
+        # ── pandas ───────────────────────────────────────────────────────
+        try:
+            import pandas as pd
+ 
+            if obj is pd.NA or obj is pd.NaT:
+                return None
+            if isinstance(obj, pd.Timestamp):
+                return obj.isoformat()
+            # Scalar NA types  (pd.NAType etc.)
+            if hasattr(pd, "isna") and pd.isna(obj):   # type: ignore[arg-type]
+                return None
+ 
+        except (ImportError, TypeError, ValueError):
+            pass
+ 
+        # ── stdlib ───────────────────────────────────────────────────────
+        if isinstance(obj, Path):
+            return str(obj)
+ 
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+ 
+        if isinstance(obj, date):
+            return obj.isoformat()
+ 
+        if isinstance(obj, enum.Enum):
+            return obj.value
+ 
+        if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+            return dataclasses.asdict(obj)
+ 
+        # ── custom fallback ──────────────────────────────────────────────
+        if hasattr(obj, "to_dict") and callable(obj.to_dict):
+            return obj.to_dict()
+ 
+        # Last resort: str() never raises, preserves round-trip readability
+        return str(obj)
+
+
+
+
+
+
+
+
+
+
 
 if __name__ == '__main__':
     lookup()
