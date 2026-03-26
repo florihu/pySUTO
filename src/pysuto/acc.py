@@ -5,36 +5,73 @@ AccountingStructure — defines the admissible node/edge space for a
 physical accounting system, plus per-edge lower/upper bounds used by
 the linear optimiser.
 
+Root loading
+------------
+The root classification is read from an ODS/Excel file with four sheets:
+
+    Sector_Entity : columns  Sector_name, Entity_name
+    Region        : column   Region_name
+    Valuation     : column   Valuation_name
+    Time          : column   Time_name
+
+Rule loading
+------------
+Admissibility rules are read from an ODS/Excel file with four sheets:
+
+    Supply     : rows = from-Process/SB sectors, cols = to-Flow/SB sectors
+                 A cell value of 1 means the (from→to) sector pair is a
+                 valid *supply* edge (Process→Flow/SB).
+
+    Use        : rows = from-Flow/SB sectors, cols = to-Process sectors
+                 A cell value of 1 means the (from→to) sector pair is a
+                 valid *use* edge (Flow/SB→Process).
+
+    Trade      : columns Flow, Traded
+                 A row with Traded==1 flags that flow as internationally
+                 tradable.  Non-listed or NaN flows are non-tradable.
+
+    Accounting : columns Entity_from, Entity_to, Same_reg
+                 Same_reg==1  → the edge is only admissible between nodes
+                                in the SAME region.
+                 Same_reg==NaN→ cross-region edges are also admissible.
+
+Combined admissibility logic
+----------------------------
+An edge (ni → nj, time t, valuation v) is admissible iff:
+
+1. The (sector_from, sector_to) pair appears in Supply OR Use with value 1.
+2. The entity-pair (entity_from, entity_to) is listed in Accounting.
+3. If the Accounting row for that entity-pair has Same_reg == 1:
+       region_from == region_to   (same-region only)
+   Else if the edge is in the Use direction AND the from-sector is a
+   tradable flow:
+       any region pair is admissible
+   Else (Supply direction or non-tradable Use):
+       region_from == region_to
+
+In plain English:
+  • Supply edges (Process→Flow/SB) are ALWAYS same-region.
+  • Use edges where the flow is tradable CAN be cross-region.
+  • Use edges where the flow is non-tradable are same-region.
+  • SB→Process edges follow the Accounting Same_reg flag.
+
 Bounds design
 -------------
-Default bounds:  l_i = 0,  u_i = +∞  (all flows are non-negative)
+Default bounds:  l_i = 0,  u_i = 1e9  (all flows are non-negative)
 
-Exceptions are stored in an Excel file with one row per exception rule.
+Exceptions are stored in an ODS/Excel file (sheet "Sheet1" or "bounds").
 A rule matches by (sector_from, sector_to, valuation); region and time
-are optional filters.  Unspecified filter columns are treated as "all".
+are optional filters.  Unspecified filter columns (*) match everything.
 
-The resulting bound vectors l and u (length = n_edges) are built once
-during __init__ and stored as numpy arrays aligned to edge_index order.
-ConstraintBuilder can then access acc.l and acc.u directly.
-
-Excel format  (sheet name: "bounds",  columns):
-    sector_from   : str   — matches from-node sector   ("*" = any)
-    sector_to     : str   — matches to-node sector     ("*" = any)
-    valuation     : str   — matches edge valuation      ("*" = any)
-    region_from   : str   — optional, ("*" = any)
-    region_to     : str   — optional, ("*" = any)
-    time          : str   — optional, ("*" = any)
-    lower         : float — new lower bound  (default overridden for matched edges)
-    upper         : float — new upper bound  (default overridden for matched edges)
-
-Rows are applied top-to-bottom; later rows override earlier ones for
-the same edge.  This lets you set a broad exception then refine it.
-
-Example rows
-------------
-sector_from  sector_to  valuation   lower   upper
-PSC          *          *           -1e9    1e9     # stock can be negative
-WA           WA         mass        0       0       # self-loops forbidden
+Excel/ODS format  columns:
+    Sector_from / sector_from : str
+    Sector_to   / sector_to   : str
+    Valuation   / valuation   : str
+    Region_from / region_from : str   (optional)
+    Region_to   / region_to   : str   (optional)
+    Time        / time        : str   (optional)
+    Lower / lower             : float
+    Upper / upper             : float
 """
 
 from __future__ import annotations
@@ -49,15 +86,214 @@ import pandas as pd
 import sparse
 
 try:
-    from .logging import get_logger          # package import
+    from .logging import get_logger
 except ImportError:
-    import logging                           # fallback for standalone use
+    import logging
     def get_logger(name):
         return logging.getLogger(name)
 
 
-# ── sentinel for "no bound" ──────────────────────────────────────────────────
+# =============================================================================
+# Zero-dependency ODS reader  (stdlib only: zipfile + xml.etree)
+# =============================================================================
+
+def _read_ods(path: str, sheet_name=None) -> pd.DataFrame:
+    """
+    Read one sheet from an ODS file using only Python stdlib.
+    No odfpy / openpyxl required.
+
+    Parameters
+    ----------
+    path       : path to the .ods file
+    sheet_name : sheet name string, or None for the first sheet
+
+    Returns
+    -------
+    pd.DataFrame with string/None values (header row becomes column names).
+    Numeric strings are left as str; callers cast with pd.to_numeric where needed.
+    """
+    import zipfile
+    import xml.etree.ElementTree as ET
+
+    _NS = {
+        'table' : 'urn:oasis:names:tc:opendocument:xmlns:table:1.0',
+        'text'  : 'urn:oasis:names:tc:opendocument:xmlns:text:1.0',
+        'office': 'urn:oasis:names:tc:opendocument:xmlns:office:1.0',
+    }
+    _T = 'urn:oasis:names:tc:opendocument:xmlns:table:1.0'
+
+    with zipfile.ZipFile(path) as zf:
+        root = ET.fromstring(zf.read('content.xml'))
+
+    spreadsheet = root.find('.//office:spreadsheet', _NS)
+    tables      = spreadsheet.findall('table:table', _NS)
+    sheet_map   = {t.attrib.get(f'{{{_T}}}name'): t for t in tables}
+
+    if sheet_name is None:
+        table = tables[0]
+    elif sheet_name in sheet_map:
+        table = sheet_map[sheet_name]
+    else:
+        raise KeyError(
+            f"Sheet '{sheet_name}' not found in '{path}'. "
+            f"Available: {list(sheet_map.keys())}"
+        )
+
+    rows_out = []
+    for row_el in table.findall('table:table-row', _NS):
+        cells = []
+        for cell in row_el.findall('table:table-cell', _NS):
+            repeat  = int(cell.attrib.get(f'{{{_T}}}number-columns-repeated', 1))
+            val_el  = cell.find('text:p', _NS)
+            val     = val_el.text if val_el is not None else None
+            cells.extend([val] * repeat)
+        # strip trailing empty cells
+        while cells and cells[-1] is None:
+            cells.pop()
+        if any(c is not None for c in cells):
+            rows_out.append(cells)
+
+    if not rows_out:
+        return pd.DataFrame()
+
+    maxlen   = max(len(r) for r in rows_out)
+    rows_out = [r + [None] * (maxlen - len(r)) for r in rows_out]
+    df       = pd.DataFrame(rows_out[1:], columns=rows_out[0])
+    return df
+
+
+def _ods_sheet_names(path: str) -> list:
+    """Return the list of sheet names in an ODS file (stdlib only)."""
+    import zipfile
+    import xml.etree.ElementTree as ET
+    _T = 'urn:oasis:names:tc:opendocument:xmlns:table:1.0'
+    with zipfile.ZipFile(path) as zf:
+        root = ET.fromstring(zf.read('content.xml'))
+    ss     = root.find('.//{urn:oasis:names:tc:opendocument:xmlns:office:1.0}spreadsheet')
+    tables = ss.findall(f'{{{_T}}}table')
+    return [t.attrib.get(f'{{{_T}}}name') for t in tables]
+
+
 _INF = np.inf
+DEFAULT_UPPER_BOUND: float = 1e9   # practical large value (not +inf) as default upper
+
+
+# =============================================================================
+# RuleSet  — parsed admissibility rules from the rules ODS file
+# =============================================================================
+
+class RuleSet:
+    """
+    Parsed representation of the four rules sheets.
+
+    Attributes
+    ----------
+    supply_pairs : set of (sector_from, sector_to)
+        Valid Process/SB → Flow/SB sector pairs.
+    use_pairs : set of (sector_from, sector_to)
+        Valid Flow/SB → Process sector pairs.
+    tradable_flows : set of str
+        Sector names that are internationally tradable.
+    accounting : dict mapping (entity_from, entity_to) → same_region (bool)
+        Whether the entity-pair requires same-region placement.
+    all_pairs : set of (sector_from, sector_to)
+        Union of supply_pairs and use_pairs.
+    """
+
+    def __init__(self, rules_file_path: str):
+        if not os.path.exists(rules_file_path):
+            raise FileNotFoundError(f"Rules file not found: '{rules_file_path}'")
+
+        self.supply_pairs   = self._parse_supply(rules_file_path)
+        self.use_pairs      = self._parse_use(rules_file_path)
+        self.tradable_flows = self._parse_trade(rules_file_path)
+        self.accounting     = self._parse_accounting(rules_file_path)
+        self.all_pairs      = self.supply_pairs | self.use_pairs
+
+    # ------------------------------------------------------------------
+
+    def _parse_supply(self, path: str) -> set:
+        df = _read_ods(path, "Supply")
+        row_col = df.columns[0]          # first column = from-sector
+        pairs = set()
+        for _, row in df.iterrows():
+            sector_from = str(row[row_col]).strip()
+            for col in df.columns[1:]:
+                if pd.notna(row[col]) and str(row[col]).strip() == "1":
+                    pairs.add((sector_from, str(col).strip()))
+        return pairs
+
+    def _parse_use(self, path: str) -> set:
+        df = _read_ods(path, "Use")
+        row_col = df.columns[0]          # first column = from-sector (Flow/SB)
+        pairs = set()
+        for _, row in df.iterrows():
+            sector_from = str(row[row_col]).strip()
+            for col in df.columns[1:]:
+                if pd.notna(row[col]) and str(row[col]).strip() == "1":
+                    pairs.add((sector_from, str(col).strip()))
+        return pairs
+
+    def _parse_trade(self, path: str) -> set:
+        df = _read_ods(path, "Trade")
+        df.columns = [c.strip().lower() for c in df.columns]
+        # normalise column names to lowercase
+        tradable = set()
+        for _, row in df.iterrows():
+            if pd.notna(row.get("traded")) and str(row.get("traded","")).strip() == "1":
+                tradable.add(str(row["flow"]).strip())
+        return tradable
+
+    def _parse_accounting(self, path: str) -> dict:
+        df = _read_ods(path, "Accounting")
+        df.columns = [c.strip() for c in df.columns]
+        mapping = {}
+        for _, row in df.iterrows():
+            ef = str(row["Entity_from"]).strip()
+            et = str(row["Entity_to"]).strip()
+            same = pd.notna(row.get("Same_reg")) and str(row["Same_reg"]).strip() == "1"
+            mapping[(ef, et)] = same
+        return mapping
+
+    # ------------------------------------------------------------------
+
+    def is_sector_pair_admissible(self, sector_from: str, sector_to: str) -> bool:
+        return (sector_from, sector_to) in self.all_pairs
+
+    def requires_same_region(
+        self,
+        sector_from:  str,
+        sector_to:    str,
+        entity_from:  str,
+        entity_to:    str,
+    ) -> bool:
+        """
+        Returns True if this edge must be same-region.
+
+        Logic:
+          1. If the entity-pair Accounting row explicitly says Same_reg=1 → True.
+          2. If this is a Use edge (Flow/SB → Process) AND the from-sector
+             is a tradable flow → False (cross-region OK).
+          3. Otherwise → True (same-region by default).
+        """
+        acc_same = self.accounting.get((entity_from, entity_to), True)
+        if acc_same:
+            return True
+
+        # Accounting allows cross-region: only true for tradable-flow Use edges
+        in_use = (sector_from, sector_to) in self.use_pairs
+        if in_use and sector_from in self.tradable_flows:
+            return False
+
+        return True  # supply edges and non-tradable use edges stay same-region
+
+    def summary(self) -> str:
+        return (
+            f"RuleSet: {len(self.supply_pairs)} supply pairs, "
+            f"{len(self.use_pairs)} use pairs, "
+            f"{len(self.tradable_flows)} tradable flows, "
+            f"{len(self.accounting)} accounting entity-pair rules"
+        )
 
 
 # =============================================================================
@@ -73,25 +309,18 @@ class EdgeBounds:
     l : np.ndarray, shape (n_edges,)
         Lower bounds.  Default 0 unless overridden.
     u : np.ndarray, shape (n_edges,)
-        Upper bounds.  Default +inf unless overridden.
+        Upper bounds.  Default DEFAULT_UPPER_BOUND unless overridden.
     n_exceptions : int
         Number of edges whose bounds differ from the default.
     """
 
     DEFAULT_LOWER: float = 0.0
-    DEFAULT_UPPER: float = _INF
+    DEFAULT_UPPER: float = DEFAULT_UPPER_BOUND
 
     def __init__(self,
                  edge_index:  pd.DataFrame,
                  node_index:  pd.DataFrame,
                  bounds_df:   Optional[pd.DataFrame] = None):
-        """
-        Parameters
-        ----------
-        edge_index : DataFrame with columns edge_id, from_id, to_id, time, valuation
-        node_index : DataFrame indexed by node_id with columns sector, entity, region
-        bounds_df  : parsed bounds Excel sheet (None → all-default bounds)
-        """
         self.n_edges = len(edge_index)
         self.l = np.full(self.n_edges, self.DEFAULT_LOWER, dtype=float)
         self.u = np.full(self.n_edges, self.DEFAULT_UPPER, dtype=float)
@@ -99,30 +328,25 @@ class EdgeBounds:
         if bounds_df is not None and len(bounds_df) > 0:
             self._apply_rules(edge_index, node_index, bounds_df)
 
-        # count exceptions (edges that differ from both defaults)
         non_default = (self.l != self.DEFAULT_LOWER) | (self.u != self.DEFAULT_UPPER)
         self.n_exceptions = int(non_default.sum())
 
     # ------------------------------------------------------------------
-    # Rule application
-    # ------------------------------------------------------------------
+
+    def _normalise_columns(self, df: pd.DataFrame) -> pd.DataFrame:
+        """Normalise column names to lowercase snake_case for robustness."""
+        df = df.copy()
+        df.columns = [c.strip().lower() for c in df.columns]
+        return df
 
     def _apply_rules(self,
                      edge_index: pd.DataFrame,
                      node_index: pd.DataFrame,
                      bounds_df:  pd.DataFrame) -> None:
-        """
-        Apply each bounds rule row in order.  Later rows override earlier
-        ones for the same edge (allows broad rule + narrow refinement).
-        """
-        # Build a fast lookup: edge_id → (sector_from, sector_to,
-        #                                  region_from, region_to,
-        #                                  time, valuation)
+        bounds_df = self._normalise_columns(bounds_df)
+
         ni = node_index.loc[edge_index["from_id"].values]
         nj = node_index.loc[edge_index["to_id"].values]
-
-        # Align to integer positions (edge_index may not be 0-based)
-        pos = np.arange(self.n_edges)
 
         sf = ni["sector"].values
         rf = ni["region"].values
@@ -135,7 +359,7 @@ class EdgeBounds:
         missing = required_cols - set(bounds_df.columns)
         if missing:
             raise ValueError(
-                f"Bounds Excel sheet is missing required columns: {missing}\n"
+                f"Bounds file is missing required columns: {missing}\n"
                 f"Required: sector_from, sector_to, valuation, lower, upper\n"
                 f"Optional: region_from, region_to, time"
             )
@@ -145,32 +369,28 @@ class EdgeBounds:
 
             def _match(arr, val):
                 v = str(val).strip()
-                return np.ones(self.n_edges, dtype=bool) if v in ("*", "", "nan") \
-                       else arr == v
+                return (np.ones(self.n_edges, dtype=bool)
+                        if v in ("*", "", "nan") else arr == v)
 
             mask &= _match(sf, rule["sector_from"])
             mask &= _match(st, rule["sector_to"])
             mask &= _match(vl, rule["valuation"])
 
-            if "region_from" in rule.index:
+            if "region_from" in bounds_df.columns:
                 mask &= _match(rf, rule["region_from"])
-            if "region_to" in rule.index:
+            if "region_to" in bounds_df.columns:
                 mask &= _match(rt, rule["region_to"])
-            if "time" in rule.index:
+            if "time" in bounds_df.columns:
                 mask &= _match(tm, rule["time"])
 
-            n_matched = mask.sum()
-            if n_matched == 0:
-                continue          # rule matched nothing — not an error,
-                                  # but worth logging at caller level
+            if mask.sum() == 0:
+                continue
 
-            if pd.notna(rule["lower"]):
+            if pd.notna(rule["lower"]) and str(rule["lower"]).strip() not in ("", "nan"):
                 self.l[mask] = float(rule["lower"])
-            if pd.notna(rule["upper"]):
+            if pd.notna(rule["upper"]) and str(rule["upper"]).strip() not in ("", "nan"):
                 self.u[mask] = float(rule["upper"])
 
-    # ------------------------------------------------------------------
-    # Validation helper (used by ConstraintBuilder)
     # ------------------------------------------------------------------
 
     def validate(self,
@@ -178,55 +398,35 @@ class EdgeBounds:
                  edge_index: pd.DataFrame,
                  raise_on_violation: bool = True,
                  ) -> pd.DataFrame:
-        """
-        Check that all values in F satisfy l ≤ F ≤ u.
-
-        Parameters
-        ----------
-        F : np.ndarray, shape (n_edges,)
-        edge_index : the matching edge_index DataFrame (for diagnostics)
-        raise_on_violation : if True, raise ValueError on any violation
-
-        Returns
-        -------
-        DataFrame of violated edges (empty if all OK).
-        Columns: edge_id, from_id, to_id, time, valuation, lower, value, upper
-        """
-        lo_viol = F < self.l
-        hi_viol = F > self.u
+        lo_viol  = F < self.l
+        hi_viol  = F > self.u
         any_viol = lo_viol | hi_viol
-
         if not any_viol.any():
             return pd.DataFrame()
 
         viol_idx = np.where(any_viol)[0]
-        report = edge_index.iloc[viol_idx].copy()
-        report["lower"] = self.l[viol_idx]
-        report["value"] = F[viol_idx]
-        report["upper"] = self.u[viol_idx]
+        report   = edge_index.iloc[viol_idx].copy()
+        report["lower"]     = self.l[viol_idx]
+        report["value"]     = F[viol_idx]
+        report["upper"]     = self.u[viol_idx]
         report["violation"] = np.where(
             lo_viol[viol_idx], "below_lower",
             np.where(hi_viol[viol_idx], "above_upper", "")
         )
-
         if raise_on_violation:
-            _cols = ['edge_id', 'from_id', 'to_id', 'time', 'valuation',
-                     'lower', 'value', 'upper', 'violation']
+            _cols = ["edge_id", "from_id", "to_id", "time", "valuation",
+                     "lower", "value", "upper", "violation"]
             raise ValueError(
                 f"{len(viol_idx)} edge(s) violate bounds.\n"
                 f"{report[_cols].to_string(index=False)}"
             )
         return report
 
-    # ------------------------------------------------------------------
-    # Convenience
-    # ------------------------------------------------------------------
-
     def as_dict(self) -> dict:
         return {"l": self.l, "u": self.u}
 
     def summary(self) -> str:
-        neg_lower   = (self.l < 0).sum()
+        neg_lower    = (self.l < 0).sum()
         finite_upper = np.isfinite(self.u).sum()
         return (
             f"EdgeBounds: {self.n_edges} edges | "
@@ -237,56 +437,114 @@ class EdgeBounds:
 
 
 # =============================================================================
-# AccountingStructure  (extended)
+# AccountingStructure
 # =============================================================================
 
 class AccountingStructure:
     """
-    Defines the admissible node/edge space for a physical accounting system,
+    Defines the admissible node/edge space for a physical accounting system
     and holds per-edge lower/upper bounds for the linear optimiser.
 
-    New parameters
-    --------------
-    bounds_file_path : str, optional
-        Path to an Excel file (see module docstring for column spec).
-        If None, all edges receive default bounds (l=0, u=+inf).
+    Initialisation modes
+    --------------------
+    A) From ODS/Excel files (recommended)::
 
-    New attributes
-    --------------
-    bounds : EdgeBounds
-        Per-edge bound vectors  .l  and  .u  aligned to edge_index.
+        acc = AccountingStructure(
+            id             = "copper",
+            root_file_path = "data/root.ods",
+            rules_file_path= "data/rules.ods",
+            bounds_file_path= "data/bounds.ods",  # optional
+            storage_dir    = "data/proc/acc",      # optional
+        )
+
+    B) From Python objects (original API, kept for backwards-compat)::
+
+        acc = AccountingStructure(
+            id    = "copper",
+            root  = {"nodes": <DataFrame>, "time_range": [...], "valuation": [...]},
+            rules = [<callable>, ...],
+        )
+
+    C) From a previously saved directory::
+
+        acc = AccountingStructure.load("copper", storage_dir="data/proc/acc")
+
+    Parameters
+    ----------
+    id                : str
+        Unique identifier for this structure.
+    root_file_path    : str, optional
+        Path to the root ODS file (sheets: Sector_Entity, Region, Valuation, Time).
+    rules_file_path   : str, optional
+        Path to the rules ODS file (sheets: Supply, Use, Trade, Accounting).
+    bounds_file_path  : str, optional
+        Path to the bounds ODS file.
+    root              : dict, optional
+        Python dict with keys "nodes" (DataFrame), "time_range", "valuation".
+        Used only when root_file_path is not provided.
+    rules             : list of callable, optional
+        Legacy callable rules.  Used only when rules_file_path is not provided.
+    storage_dir       : str
+        Directory for saving/loading the structure (default: "data/proc/acc").
     """
 
     def __init__(self, id, root=None, rules=None, **kwargs):
-        self.rules       = rules or []
         self.id          = id or "accounting_structure"
-        self.storage_dir = kwargs.get('storage_dir', r'data/proc/acc')
+        self.storage_dir = kwargs.get("storage_dir", r"data/proc/acc")
         self.logger      = get_logger(self.__class__.__name__)
 
-        if kwargs.get('init_from_file', False):
-            assert 'root_file_path' in kwargs
-            self.syst_desc_from_file(kwargs['root_file_path'])
+        # ── 1. Root (node universe, time, valuation) ─────────────────
+        root_file = kwargs.get("root_file_path", None)
+        if root_file is not None:
+            self._load_root_from_file(root_file)
+        elif kwargs.get("init_from_file", False):
+            assert "root_file_path" in kwargs
+            self.syst_desc_from_file(kwargs["root_file_path"])
         else:
             assert root is not None, \
-                "Root definition must be provided if not initializing from file"
-            self.root_nodes = root['nodes'].copy()
-            self.time_range = list(dict.fromkeys(root['time_range']))
-            self.valuation  = list(dict.fromkeys(root['valuation']))
+                "Provide root_file_path= OR root= dict."
+            self.root_nodes = root["nodes"].copy()
+            self.time_range = list(dict.fromkeys(root["time_range"]))
+            self.valuation  = list(dict.fromkeys(root["valuation"]))
 
-        self._classify_rules()
+        # ── 2. Rules ──────────────────────────────────────────────────
+        rules_file = kwargs.get("rules_file_path", None)
+        if rules_file is not None:
+            self.ruleset = RuleSet(rules_file)
+            self.logger.info(self.ruleset.summary())
+            self.rules       = []          # legacy list stays empty
+            self._node_rules = []
+            self._edge_rules = []
+        else:
+            self.ruleset = None
+            self.rules   = rules or []
+            self._classify_rules()
+
+        # ── 3. Build indices and tensors ──────────────────────────────
         self._build_node_index()
         self._build_dim_indices()
+
+        # Count theoretical edges BEFORE applying rules
+        n_theoretical = (
+            self.n_nodes * self.n_nodes
+            * len(self.time_range)
+            * len(self.valuation)
+        )
+
         self.A_nodes        = self._build_node_mask()
         self.A              = self._build_tensor()
         self.edge_index     = self._build_edge_index()
         self.edge_index_all = self._build_edge_index(admissible_only=False)
         self.n_edges_all    = len(self.edge_index_all)
 
-        # ── NEW: bounds ──────────────────────────────────────────────
-        bounds_path = kwargs.get('bounds_file_path', None)
-        self.bounds = self._load_bounds(bounds_path)
+        # Report edge reduction
+        n_after_node_rules = int(self.A_nodes.nnz) * len(self.time_range) * len(self.valuation)
+        self._report_reduction(n_theoretical, n_after_node_rules, self.n_edges)
+
+        # ── 4. Bounds ─────────────────────────────────────────────────
+        bounds_path  = kwargs.get("bounds_file_path", None)
+        self.bounds  = self._load_bounds(bounds_path)
         self.logger.info(self.bounds.summary())
-        # ─────────────────────────────────────────────────────────────
 
         self.logger.info(
             f"AccountingStructure '{self.id}' initialised: "
@@ -295,27 +553,107 @@ class AccountingStructure:
         )
 
     # ------------------------------------------------------------------
-    # Bounds loading  (NEW)
+    # Root from ODS  (NEW)
+    # ------------------------------------------------------------------
+
+    def _load_root_from_file(self, path: str) -> None:
+        """
+        Read root definition from the four-sheet ODS file.
+
+        Sheets
+        ------
+        Sector_Entity : Sector_name, Entity_name  (one row per sector)
+        Region        : Region_name
+        Valuation     : Valuation_name
+        Time          : Time_name
+        """
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"Root file not found: '{path}'")
+        self.logger.info(f"Loading root from: {path}")
+
+        se  = _read_ods(path, "Sector_Entity")
+        reg = _read_ods(path, "Region")
+        val = _read_ods(path, "Valuation")
+        tim = _read_ods(path, "Time")
+
+        # Build all (sector, entity, region) triples
+        records = []
+        for _, row in se.iterrows():
+            sector = str(row["Sector_name"]).strip()
+            entity = str(row["Entity_name"]).strip()
+            for _, rrow in reg.iterrows():
+                region = str(rrow["Region_name"]).strip()
+                records.append((sector, entity, region))
+
+        self.root_nodes = pd.DataFrame(records, columns=["sector", "entity", "region"])
+        self.time_range = [str(t) for t in tim["Time_name"].tolist()]
+        self.valuation  = [str(v) for v in val["Valuation_name"].tolist()]
+
+        self.logger.info(
+            f"  Root: {len(se)} sectors × {len(reg)} regions = "
+            f"{len(self.root_nodes)} node definitions | "
+            f"{len(self.time_range)} time points | "
+            f"{len(self.valuation)} valuations"
+        )
+
+    # ------------------------------------------------------------------
+    # Edge-reduction report  (NEW)
+    # ------------------------------------------------------------------
+
+    def _report_reduction(
+        self,
+        n_theoretical:     int,
+        n_after_node_rules: int,
+        n_admissible:       int,
+    ) -> None:
+        def pct(a, b):
+            return f"{100*a/b:.1f}%" if b else "N/A"
+
+        lines = [
+            "",
+            "┌─────────────────────────────────────────────────────────┐",
+            "│              Edge-space reduction report                │",
+            "├─────────────────────────────────────────────────────────┤",
+            f"│  Theoretical (all node-pairs × T × V) : {n_theoretical:>12,d}  │",
+            f"│  After node-pair rules                : {n_after_node_rules:>12,d}  │"
+            f"  ({pct(n_after_node_rules, n_theoretical)} of theoretical)",
+            f"│  After all rules (admissible)         : {n_admissible:>12,d}  │"
+            f"  ({pct(n_admissible, n_theoretical)} of theoretical)",
+            f"│  Reduction from node-pair to final    : "
+            f"{n_after_node_rules - n_admissible:>12,d}  │"
+            f"  ({pct(n_after_node_rules - n_admissible, n_after_node_rules)} additional removal)",
+            "└─────────────────────────────────────────────────────────┘",
+        ]
+        report = "\n".join(lines)
+        self.logger.info(report)
+        print(report)   # also print to stdout for immediate visibility
+
+    # ------------------------------------------------------------------
+    # Bounds loading  (extended to handle ODS + column-name variants)
     # ------------------------------------------------------------------
 
     def _load_bounds(self, path: Optional[str]) -> EdgeBounds:
-        """
-        Load exception bounds from Excel and build EdgeBounds.
-        If path is None or file is absent, returns all-default bounds.
-        """
         bounds_df = None
         if path is not None:
             if not os.path.exists(path):
                 self.logger.warning(
-                    f"Bounds file not found: '{path}'. Using default bounds (l=0, u=+inf)."
+                    f"Bounds file not found: '{path}'. "
+                    f"Using default bounds (l=0, u={DEFAULT_UPPER_BOUND:.0e})."
                 )
             else:
                 self.logger.info(f"Loading edge bounds from: {path}")
-                bounds_df = pd.read_excel(path, sheet_name="bounds")
-                self.logger.info(
-                    f"  Loaded {len(bounds_df)} bound exception rule(s)."
-                )
-                self._log_unmatched_rules(bounds_df)
+                # Try sheet name "bounds" first, fall back to first sheet
+                try:
+                    sheets    = _ods_sheet_names(path)
+                    sheet     = "bounds" if "bounds" in sheets else sheets[0]
+                    bounds_df = _read_ods(path, sheet)
+                    self.logger.info(
+                        f"  Loaded {len(bounds_df)} bound rule(s) "
+                        f"from sheet '{sheet}'."
+                    )
+                except Exception as e:
+                    self.logger.warning(f"Could not read bounds file: {e}")
+                    bounds_df = None
 
         return EdgeBounds(
             edge_index=self.edge_index,
@@ -323,25 +661,12 @@ class AccountingStructure:
             bounds_df=bounds_df,
         )
 
-    def _log_unmatched_rules(self, bounds_df: pd.DataFrame) -> None:
-        """Warn if a rule's sector_from/sector_to never appear in node_index."""
-        known_sectors = set(self.node_index["sector"].unique())
-        for i, row in bounds_df.iterrows():
-            for col in ("sector_from", "sector_to"):
-                v = str(row.get(col, "*")).strip()
-                if v not in ("*", "", "nan") and v not in known_sectors:
-                    self.logger.warning(
-                        f"Bounds rule row {i}: '{col}={v}' "
-                        f"does not match any node sector. Rule may be a no-op."
-                    )
-
     def reload_bounds(self, path: str) -> None:
-        """
-        Hot-reload the bounds from a (new) Excel file without
-        rebuilding the full structure.
-        """
+        """Hot-reload bounds from a new file without rebuilding the structure."""
         self.logger.info(f"Reloading edge bounds from: {path}")
-        bounds_df = pd.read_excel(path, sheet_name="bounds")
+        sheets    = _ods_sheet_names(path)
+        sheet     = "bounds" if "bounds" in sheets else sheets[0]
+        bounds_df = _read_ods(path, sheet)
         self.bounds = EdgeBounds(
             edge_index=self.edge_index,
             node_index=self.node_index,
@@ -350,21 +675,64 @@ class AccountingStructure:
         self.logger.info(self.bounds.summary())
 
     # ------------------------------------------------------------------
-    # Convenience accessor for ConstraintBuilder
+    # Convenience properties for ConstraintBuilder
     # ------------------------------------------------------------------
 
     @property
     def l(self) -> np.ndarray:
-        """Lower bound vector, shape (n_edges,)."""
         return self.bounds.l
 
     @property
     def u(self) -> np.ndarray:
-        """Upper bound vector, shape (n_edges,)."""
         return self.bounds.u
 
     # ------------------------------------------------------------------
-    # Rule classification  (unchanged)
+    # Admissibility  —  RuleSet path
+    # ------------------------------------------------------------------
+
+    def _node_pair_admissible_ruleset(self, ni_dict: dict, nj_dict: dict) -> bool:
+        """Check admissibility using the parsed RuleSet (ODS rules)."""
+        sf = ni_dict["sector"]
+        st = nj_dict["sector"]
+
+        # Must appear in supply or use sector-pair table
+        if not self.ruleset.is_sector_pair_admissible(sf, st):
+            return False
+
+        # Must appear in accounting entity-pair table
+        ef = ni_dict["entity"]
+        et = nj_dict["entity"]
+        if (ef, et) not in self.ruleset.accounting:
+            return False
+
+        return True
+
+    def _edge_admissible_ruleset(
+        self,
+        ni_dict: dict,
+        nj_dict: dict,
+        time,
+        valuation,
+    ) -> bool:
+        """Full edge admissibility using RuleSet (includes region logic)."""
+        if not self._node_pair_admissible_ruleset(ni_dict, nj_dict):
+            return False
+
+        sf = ni_dict["sector"]
+        st = nj_dict["sector"]
+        ef = ni_dict["entity"]
+        et = nj_dict["entity"]
+        rf = ni_dict["region"]
+        rt = nj_dict["region"]
+
+        same_req = self.ruleset.requires_same_region(sf, st, ef, et)
+        if same_req and rf != rt:
+            return False
+
+        return True
+
+    # ------------------------------------------------------------------
+    # Admissibility  —  legacy callable path  (unchanged)
     # ------------------------------------------------------------------
 
     def _classify_rules(self):
@@ -382,13 +750,17 @@ class AccountingStructure:
             )
             (self._edge_rules if n_args > 2 else self._node_rules).append(rule)
 
-    def _node_pair_admissible(self, ni_dict, nj_dict) -> bool:
+    def _node_pair_admissible(self, ni_dict: dict, nj_dict: dict) -> bool:
+        if self.ruleset is not None:
+            return self._node_pair_admissible_ruleset(ni_dict, nj_dict)
         for rule in self._node_rules:
             if not rule(ni_dict, nj_dict):
                 return False
         return True
 
     def _edge_admissible(self, ni_dict, nj_dict, time, valuation) -> bool:
+        if self.ruleset is not None:
+            return self._edge_admissible_ruleset(ni_dict, nj_dict, time, valuation)
         if not self._node_pair_admissible(ni_dict, nj_dict):
             return False
         for rule in self._edge_rules:
@@ -397,27 +769,27 @@ class AccountingStructure:
         return True
 
     # ------------------------------------------------------------------
-    # Excel initialisation  (unchanged)
+    # Legacy Excel initialisation  (unchanged)
     # ------------------------------------------------------------------
 
     def syst_desc_from_file(self, path):
         self.logger.info(f"Initialising structure from file: {path}")
         file = pd.read_excel(path)
-        assert {'sector_entity', 'region', 'time_range', 'valuation'}.issubset(
+        assert {"sector_entity", "region", "time_range", "valuation"}.issubset(
             file.columns
         ), "Excel file must contain: sector_entity, region, time_range, valuation"
 
-        sector_entity = file['sector_entity'].str.split('_', expand=True)
-        sector_entity.columns = ['sector', 'entity']
-        region = file['region'].unique()
+        sector_entity = file["sector_entity"].str.split("_", expand=True)
+        sector_entity.columns = ["sector", "entity"]
+        region = file["region"].unique()
         self.root_nodes = pd.DataFrame(
             [(s, e, r)
-             for s, e in zip(sector_entity['sector'], sector_entity['entity'])
+             for s, e in zip(sector_entity["sector"], sector_entity["entity"])
              for r in region],
-            columns=['sector', 'entity', 'region']
+            columns=["sector", "entity", "region"],
         )
-        self.time_range = list(dict.fromkeys(file['time_range'].tolist()))
-        self.valuation  = list(dict.fromkeys(file['valuation'].tolist()))
+        self.time_range = list(dict.fromkeys(file["time_range"].tolist()))
+        self.valuation  = list(dict.fromkeys(file["valuation"].tolist()))
 
     # ------------------------------------------------------------------
     # Node index  (unchanged)
@@ -428,7 +800,7 @@ class AccountingStructure:
         self.id_to_node = {}
         node_id = 0
         for _, node in self.root_nodes.iterrows():
-            key = (node['sector'], node['entity'], node['region'])
+            key = (node["sector"], node["entity"], node["region"])
             if key not in self.node_to_id:
                 self.node_to_id[key] = node_id
                 self.id_to_node[node_id] = key
@@ -438,7 +810,7 @@ class AccountingStructure:
         self.n_timeps = len(self.time_range)
         self.n_valtns = len(self.valuation)
         self.node_index = pd.DataFrame.from_dict(
-            self.id_to_node, orient='index', columns=['sector', 'entity', 'region']
+            self.id_to_node, orient="index", columns=["sector", "entity", "region"]
         )
         self.logger.info(f"Total nodes: {self.n_nodes}")
 
@@ -447,7 +819,7 @@ class AccountingStructure:
         self.val_to_idx  = {v: i for i, v in enumerate(self.valuation)}
 
     # ------------------------------------------------------------------
-    # Node-only mask  (unchanged)
+    # Node-only admissibility mask  (unchanged)
     # ------------------------------------------------------------------
 
     def _build_node_mask(self) -> sparse.COO:
@@ -456,12 +828,11 @@ class AccountingStructure:
         keys = list(self.id_to_node.values())
 
         for i, ni in enumerate(keys):
-            ni_dict = dict(zip(['sector', 'entity', 'region'], ni))
+            ni_dict = dict(zip(["sector", "entity", "region"], ni))
             for j, nj in enumerate(keys):
-                nj_dict = dict(zip(['sector', 'entity', 'region'], nj))
+                nj_dict = dict(zip(["sector", "entity", "region"], nj))
                 if self._node_pair_admissible(ni_dict, nj_dict):
-                    c0.append(i)
-                    c1.append(j)
+                    c0.append(i); c1.append(j)
 
         data = np.ones(len(c0), dtype=np.int8)
         return sparse.COO(
@@ -480,20 +851,18 @@ class AccountingStructure:
         keys = list(self.id_to_node.values())
 
         for i, ni in enumerate(keys):
-            ni_dict = dict(zip(['sector', 'entity', 'region'], ni))
+            ni_dict = dict(zip(["sector", "entity", "region"], ni))
             for j, nj in enumerate(keys):
-                nj_dict = dict(zip(['sector', 'entity', 'region'], nj))
+                nj_dict = dict(zip(["sector", "entity", "region"], nj))
 
                 if not self._node_pair_admissible(ni_dict, nj_dict):
                     continue
 
                 for t_idx, t in enumerate(self.time_range):
                     for v_idx, v in enumerate(self.valuation):
-                        if self._edge_rules and not self._edge_admissible(
-                            ni_dict, nj_dict, t, v
-                        ):
+                        if not self._edge_admissible(ni_dict, nj_dict, t, v):
                             continue
-                        c0.append(i);   c1.append(j)
+                        c0.append(i);     c1.append(j)
                         c2.append(t_idx); c3.append(v_idx)
 
         data = np.ones(len(c0), dtype=np.int8)
@@ -513,18 +882,19 @@ class AccountingStructure:
         keys    = list(self.id_to_node.values())
 
         for i, ni in enumerate(keys):
-            ni_dict = dict(zip(['sector', 'entity', 'region'], ni))
+            ni_dict = dict(zip(["sector", "entity", "region"], ni))
             for j, nj in enumerate(keys):
-                nj_dict = dict(zip(['sector', 'entity', 'region'], nj))
+                nj_dict = dict(zip(["sector", "entity", "region"], nj))
 
                 if admissible_only and not self._node_pair_admissible(ni_dict, nj_dict):
                     continue
 
                 for t in self.time_range:
                     for v in self.valuation:
-                        if admissible_only and self._edge_rules:
-                            if not self._edge_admissible(ni_dict, nj_dict, t, v):
-                                continue
+                        if admissible_only and not self._edge_admissible(
+                            ni_dict, nj_dict, t, v
+                        ):
+                            continue
                         rows.append(i);     cols.append(j)
                         times.append(t);    vals.append(v)
                         edge_ids.append(edge_id)
@@ -570,10 +940,10 @@ class AccountingStructure:
     def decode_edge(self, edge_id: int):
         row = self.edge_index.iloc[edge_id]
         return (
-            self.decode_node(int(row['from_id'])),
-            self.decode_node(int(row['to_id'])),
-            row['time'],
-            row['valuation'],
+            self.decode_node(int(row["from_id"])),
+            self.decode_node(int(row["to_id"])),
+            row["time"],
+            row["valuation"],
         )
 
     # ------------------------------------------------------------------
@@ -592,10 +962,8 @@ class AccountingStructure:
         self.node_index.to_csv(    os.path.join(path, "node_index.csv"),     index=False)
         self.root_nodes.to_csv(    os.path.join(path, "root_nodes.csv"),     index=False)
 
-        # ── NEW: persist bounds vectors ──────────────────────────────
         np.save(os.path.join(path, "bounds_l.npy"), self.bounds.l)
         np.save(os.path.join(path, "bounds_u.npy"), self.bounds.u)
-        # ─────────────────────────────────────────────────────────────
 
         meta = {
             "time_range": self.time_range,
@@ -611,17 +979,20 @@ class AccountingStructure:
     def load(cls, id, **kwargs):
         obj             = cls.__new__(cls)
         obj.id          = id
-        obj.storage_dir = kwargs.get('storage_dir', r'data/proc/acc')
+        obj.storage_dir = kwargs.get("storage_dir", r"data/proc/acc")
         path            = os.path.join(obj.storage_dir, id)
-        assert os.path.isdir(path), f"Directory '{id}' not found in {obj.storage_dir}"
+        assert os.path.isdir(path), \
+            f"Directory '{id}' not found in {obj.storage_dir}"
 
-        obj.A         = sparse.load_npz(os.path.join(path, "A.npz"))
-        obj.A_nodes   = sparse.load_npz(os.path.join(path, "A_nodes.npz"))
+        obj.A        = sparse.load_npz(os.path.join(path, "A.npz"))
+        obj.A_nodes  = sparse.load_npz(os.path.join(path, "A_nodes.npz"))
 
-        obj.edge_index      = pd.read_csv(os.path.join(path, "edge_index.csv"))
-        obj.edge_index_all  = pd.read_csv(os.path.join(path, "edge_index_all.csv"))
-        obj.root_nodes      = pd.read_csv(os.path.join(path, "root_nodes.csv"))
-        obj.node_index      = pd.read_csv(os.path.join(path, "node_index.csv"))
+        obj.edge_index     = pd.read_csv(os.path.join(path, "edge_index.csv"))
+        obj.edge_index_all = pd.read_csv(os.path.join(path, "edge_index_all.csv"))
+        obj.root_nodes     = pd.read_csv(os.path.join(path, "root_nodes.csv"))
+        obj.node_index     = pd.read_csv(
+            os.path.join(path, "node_index.csv"), index_col=0
+        )
 
         with open(os.path.join(path, "metadata.pkl"), "rb") as f:
             meta = pickle.load(f)
@@ -640,9 +1011,9 @@ class AccountingStructure:
         obj.rules       = []
         obj._node_rules = []
         obj._edge_rules = []
+        obj.ruleset     = None
         obj.logger      = get_logger(cls.__name__)
 
-        # ── NEW: restore bounds (prefer saved .npy, fall back to default) ──
         l_path = os.path.join(path, "bounds_l.npy")
         u_path = os.path.join(path, "bounds_u.npy")
         bounds = EdgeBounds.__new__(EdgeBounds)
@@ -652,10 +1023,11 @@ class AccountingStructure:
             bounds.u = np.load(u_path)
         else:
             bounds.l = np.zeros(obj.n_edges,  dtype=float)
-            bounds.u = np.full(obj.n_edges, _INF, dtype=float)
-        non_default = (bounds.l != EdgeBounds.DEFAULT_LOWER) | \
-                      (bounds.u != EdgeBounds.DEFAULT_UPPER)
+            bounds.u = np.full(obj.n_edges, DEFAULT_UPPER_BOUND, dtype=float)
+        non_default = (
+            (bounds.l != EdgeBounds.DEFAULT_LOWER) |
+            (bounds.u != EdgeBounds.DEFAULT_UPPER)
+        )
         bounds.n_exceptions = int(non_default.sum())
         obj.bounds = bounds
-        # ──────────────────────────────────────────────────────────────
         return obj
