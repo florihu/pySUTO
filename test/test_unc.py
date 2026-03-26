@@ -3,14 +3,14 @@ test_unc.py
 ===========
 Unit tests for pysuto.unc:
   - PedigreeScores  (construction, validation, individual CVs, total CV)
-  - PropagationResult  (dataclass contract)
+  - PropagationResult  (dataclass contract)d
   - UncertaintyMixin  (apply_with_uncertainty, set_pedigree*, set_F_src)
 
 All numerical assertions use independently computed ground-truth values
 derived directly from Laner et al. (2016) Equations 1–3 and Gaussian
 error propagation.
 
-Ground-truth reference values (computed analytically, B = 1.105):
+Ground-truth reference values (computed analytically, B = 1.105):%
   cv_rel(1)  = 0.75 * exp(1.105*1)  / 100  = 0.022644183...
   cv_rel(2)  = 0.75 * exp(1.105*2)  / 100  = 0.068367873...
   cv_rel(3)  = 0.75 * exp(1.105*3)  / 100  = 0.206417955...
