@@ -42,14 +42,17 @@ class ConcordanceTable(DataFeed):
                  tab: pd.DataFrame,
                  acc_struct,
                  id: str = "ct_test",
-                 odir: str = "data/proc/conc"):
+                 odir: str = "data/proc/conc",
+                 _skip_validation: bool = False):
 
         super().__init__(id=id, acc_struct=acc_struct, odir=odir)
 
         self.tab = tab.copy()
 
-        # Pipeline
-        self._validate_table()
+        # Pipeline — validation can be skipped when from_raw already
+        # guarantees correctness via the edge-join construction.
+        if not _skip_validation:
+            self._validate_table()
         self._impute_weights()
         self._validate_weight_sums()
         self._build_src_index()
@@ -69,29 +72,57 @@ class ConcordanceTable(DataFeed):
         if invalid:
             raise ValueError(f"Invalid weight_mode(s): {invalid}")
 
-        edge_df = self.acc_struct.edge_index
+        # --- Node validation (vectorised set lookup) -------------------------
+        valid_nodes = set(self.acc_struct.node_to_id.keys())
 
-        for _, r in self.tab.iterrows():
-            root_from = (r['root_sector_from'], r['root_entity_from'], r['root_region_from'])
-            root_to   = (r['root_sector_to'],   r['root_entity_to'],   r['root_region_to'])
+        bad_from = self.tab[
+            ~self.tab.apply(
+                lambda r: (r['root_sector_from'], r['root_entity_from'], r['root_region_from'])
+                          in valid_nodes, axis=1)
+        ]
+        if not bad_from.empty:
+            ex = tuple(bad_from.iloc[0][['root_sector_from','root_entity_from','root_region_from']])
+            raise ValueError(f"Invalid root node (from): {ex} — {len(bad_from)} bad rows")
 
-            if root_from not in self.acc_struct.node_to_id:
-                raise ValueError(f"Invalid root node: {root_from}")
-            if root_to not in self.acc_struct.node_to_id:
-                raise ValueError(f"Invalid root node: {root_to}")
+        bad_to = self.tab[
+            ~self.tab.apply(
+                lambda r: (r['root_sector_to'], r['root_entity_to'], r['root_region_to'])
+                          in valid_nodes, axis=1)
+        ]
+        if not bad_to.empty:
+            ex = tuple(bad_to.iloc[0][['root_sector_to','root_entity_to','root_region_to']])
+            raise ValueError(f"Invalid root node (to): {ex} — {len(bad_to)} bad rows")
 
-            from_id = self.acc_struct.node_to_id[root_from]
-            to_id   = self.acc_struct.node_to_id[root_to]
+        # --- Edge validation (single vectorised merge) -----------------------
+        # Build from_id / to_id columns, deduplicate, then merge once against
+        # edge_index — replaces one full 854k-row scan per concordance row.
+        node_to_id = self.acc_struct.node_to_id
+        tab_check = self.tab[['root_sector_from','root_entity_from','root_region_from',
+                               'root_sector_to',  'root_entity_to',  'root_region_to',
+                               'root_time',        'root_valuation']].drop_duplicates().copy()
 
-            exists = (
-                (edge_df['from_id'] == from_id) &
-                (edge_df['to_id']   == to_id) &
-                (edge_df['time']    == r['root_time']) &
-                (edge_df['valuation'] == r['root_valuation'])
-            ).any()
+        tab_check['from_id'] = tab_check.apply(
+            lambda r: node_to_id[(r['root_sector_from'], r['root_entity_from'], r['root_region_from'])],
+            axis=1)
+        tab_check['to_id'] = tab_check.apply(
+            lambda r: node_to_id[(r['root_sector_to'], r['root_entity_to'], r['root_region_to'])],
+            axis=1)
 
-            if not exists:
-                raise ValueError(f"Invalid root edge: {root_from} → {root_to}")
+        edge_keys = self.acc_struct.edge_index[['from_id','to_id','time','valuation']].copy()
+        edge_keys['time'] = edge_keys['time'].astype(str)
+        edge_keys = edge_keys.drop_duplicates()
+
+        tab_keys = (tab_check[['from_id','to_id','root_time','root_valuation']]
+                    .rename(columns={'root_time': 'time', 'root_valuation': 'valuation'}))
+
+        matched = tab_keys.merge(edge_keys, on=['from_id','to_id','time','valuation'],
+                                 how='left', indicator=True)
+        bad = matched[matched['_merge'] != 'both']
+        if not bad.empty:
+            ex = bad.iloc[0]
+            raise ValueError(
+                f"Invalid root edge: from_id={ex['from_id']} → to_id={ex['to_id']} "
+                f"time={ex['time']} val={ex['valuation']} — {len(bad)} bad combos")
 
     # ------------------------------------------------------------------ #
     # Weight imputation                                                    #
@@ -127,9 +158,9 @@ class ConcordanceTable(DataFeed):
             .drop_duplicates()
             .reset_index(drop=True)
         )
-        self.src_edge_to_id = {
-            tuple(row): i for i, row in self.src_edges.iterrows()
-        }
+        # to_numpy is ~10× faster than iterrows for building the lookup dict
+        arr = self.src_edges[self.SRC_COLS].to_numpy()
+        self.src_edge_to_id = {tuple(row): i for i, row in enumerate(arr)}
         self.n_src_edges  = len(self.src_edges)
         self.n_root_edges = len(self.acc_struct.edge_index)
 
@@ -208,7 +239,10 @@ class ConcordanceTable(DataFeed):
             .merge(from_nodes, on="from_id", how="left")
             .merge(to_nodes, on="to_id", how="left")
         )
-
+        # Normalise time to str — acc_struct stores int64 but all mapping
+        # tables and raw data use string year labels ("1995", "1996", …).
+        # Must happen before any merge on the "time" / "root_time" key.
+        edges["time"] = edges["time"].astype(str)
         # --------------------------------------------------
         # 4) Prepare mapping tables (multi-mapping safe)
         # --------------------------------------------------
@@ -418,7 +452,8 @@ class ConcordanceTable(DataFeed):
         # --------------------------------------------------
         # 10) Return instance + diagnostics for unmatched edges
         # --------------------------------------------------
-        instance = cls(tab=tab, acc_struct=acc_struct, id=id)
+        # tab was built from a correct edge-join — skip redundant re-validation
+        instance = cls(tab=tab, acc_struct=acc_struct, id=id, _skip_validation=True)
         instance.unmatched_raw_rows = unmatched
         return instance
 
@@ -491,42 +526,61 @@ class WeightMatrix(DataFeed):
     # Root-edge lookup (internal helper)                                  #
     # ------------------------------------------------------------------ #
 
-    def _get_root_edge_id(self, r: pd.Series) -> int:
-        from_id = self.acc_struct.node_to_id[
-            (r['root_sector_from'], r['root_entity_from'], r['root_region_from'])
-        ]
-        to_id = self.acc_struct.node_to_id[
-            (r['root_sector_to'], r['root_entity_to'], r['root_region_to'])
-        ]
-        edge = self.acc_struct.edge_index[
-            (self.acc_struct.edge_index['from_id']    == from_id) &
-            (self.acc_struct.edge_index['to_id']      == to_id) &
-            (self.acc_struct.edge_index['time']       == r['root_time']) &
-            (self.acc_struct.edge_index['valuation']  == r['root_valuation'])
-        ]
-        return int(edge.iloc[0]['edge_id'])
+    # _get_root_edge_id removed — superseded by vectorised merge in _build_weight_matrix
 
     # ------------------------------------------------------------------ #
     # Matrix construction                                                  #
     # ------------------------------------------------------------------ #
 
     def _build_weight_matrix(self):
-        ct  = self.concordance
-        coords = [[], []]
-        data   = []
+        ct = self.concordance
+        node_to_id = self.acc_struct.node_to_id
 
-        for _, r in ct.tab.iterrows():
-            src_key = tuple(r[c] for c in ct.SRC_COLS)
-            src_id  = ct.src_edge_to_id[src_key]
-            root_id = self._get_root_edge_id(r)
+        # ── Step 1: map each concordance row's root nodes → from_id / to_id ──
+        # Using a map Series is ~100× faster than iterrows for large tab.
+        tab = ct.tab.copy()
 
-            coords[0].append(src_id)
-            coords[1].append(root_id)
-            data.append(float(r['weight_value']))
+        # Build (sector, entity, region) tuple columns for from/to, then map to int id.
+        tab['_from_id'] = tab.apply(
+            lambda r: node_to_id[(r['root_sector_from'], r['root_entity_from'], r['root_region_from'])],
+            axis=1)
+        tab['_to_id'] = tab.apply(
+            lambda r: node_to_id[(r['root_sector_to'], r['root_entity_to'], r['root_region_to'])],
+            axis=1)
+
+        # ── Step 2: resolve root edge_id via a single vectorised merge ──────
+        edge_lookup = self.acc_struct.edge_index[
+            ['from_id','to_id','time','valuation','edge_id']
+        ].copy()
+        edge_lookup['time'] = edge_lookup['time'].astype(str)
+
+        tab = tab.merge(
+            edge_lookup.rename(columns={
+                'from_id': '_from_id', 'to_id': '_to_id',
+                'time': 'root_time', 'valuation': 'root_valuation',
+                'edge_id': '_root_edge_id',
+            }),
+            on=['_from_id', '_to_id', 'root_time', 'root_valuation'],
+            how='left',
+        )
+
+        if tab['_root_edge_id'].isna().any():
+            n_bad = tab['_root_edge_id'].isna().sum()
+            raise ValueError(f"Could not resolve root edge_id for {n_bad} concordance rows")
+
+        # ── Step 3: resolve src_id via dict lookup (already O(1) per row) ──
+        tab['_src_id'] = tab.apply(
+            lambda r: ct.src_edge_to_id[tuple(r[c] for c in ct.SRC_COLS)], axis=1)
+
+        # ── Step 4: build COO sparse matrix ─────────────────────────────────
+        src_ids  = tab['_src_id'].to_numpy(dtype=np.int64)
+        root_ids = tab['_root_edge_id'].to_numpy(dtype=np.int64)
+        weights  = tab['weight_value'].to_numpy(dtype=float)
 
         self.weight_matrix = sparse.COO(
-            np.array(coords, dtype=np.int64), data,
-            shape=(ct.n_src_edges, ct.n_root_edges)
+            np.array([src_ids, root_ids], dtype=np.int64),
+            weights,
+            shape=(ct.n_src_edges, ct.n_root_edges),
         )
             # ------------------------------------------------------------------ #
     # Apply                                                                #

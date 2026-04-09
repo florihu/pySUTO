@@ -70,8 +70,8 @@ CONC_FILE = os.path.join(_FEED_VDIR, "conc.xlsx")
 META_FILE = os.path.join(_FEED_VDIR, "meta.xlsx")
 
 ACC_DIR      = os.path.join("data", "proc", "acc")
-REGISTRY_DIR = os.path.join("data", "proc", "registry")
-DIAG_DIR     = os.path.join("data", "proc", "diagnostics")
+REGISTRY_DIR = os.path.join("data", "proc", "feed", "registry")
+DIAG_DIR     = os.path.join("data", "proc", "feed", "diagnostics")
 
 # ---------------------------------------------------------------------------
 
