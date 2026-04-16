@@ -174,6 +174,23 @@ def _ods_sheet_names(path: str) -> list:
     return [t.attrib.get(f'{{{_T}}}name') for t in tables]
 
 
+def _read_bounds_file(path: str) -> pd.DataFrame:
+    """Read a bounds spreadsheet from an ODS or XLSX file."""
+    ext = os.path.splitext(path)[1].lower()
+    if ext in ('.xlsx', '.xls'):
+        xl = pd.ExcelFile(path)
+        sheet = "bounds" if "bounds" in xl.sheet_names else xl.sheet_names[0]
+        df = xl.parse(sheet)
+        for col in ("lower", "upper"):
+            if col in df.columns:
+                df[col] = pd.to_numeric(df[col], errors="coerce")
+        return df
+    else:
+        sheets = _ods_sheet_names(path)
+        sheet = "bounds" if "bounds" in sheets else sheets[0]
+        return _read_ods(path, sheet)
+
+
 _INF = np.inf
 DEFAULT_UPPER_BOUND: float = 1e9   # practical large value (not +inf) as default upper
 
@@ -644,12 +661,9 @@ class AccountingStructure:
                 self.logger.info(f"Loading edge bounds from: {path}")
                 # Try sheet name "bounds" first, fall back to first sheet
                 try:
-                    sheets    = _ods_sheet_names(path)
-                    sheet     = "bounds" if "bounds" in sheets else sheets[0]
-                    bounds_df = _read_ods(path, sheet)
+                    bounds_df = _read_bounds_file(path)
                     self.logger.info(
-                        f"  Loaded {len(bounds_df)} bound rule(s) "
-                        f"from sheet '{sheet}'."
+                        f"  Loaded {len(bounds_df)} bound rule(s)."
                     )
                 except Exception as e:
                     self.logger.warning(f"Could not read bounds file: {e}")
@@ -664,9 +678,7 @@ class AccountingStructure:
     def reload_bounds(self, path: str) -> None:
         """Hot-reload bounds from a new file without rebuilding the structure."""
         self.logger.info(f"Reloading edge bounds from: {path}")
-        sheets    = _ods_sheet_names(path)
-        sheet     = "bounds" if "bounds" in sheets else sheets[0]
-        bounds_df = _read_ods(path, sheet)
+        bounds_df = _read_bounds_file(path)
         self.bounds = EdgeBounds(
             edge_index=self.edge_index,
             node_index=self.node_index,
@@ -991,7 +1003,7 @@ class AccountingStructure:
         obj.edge_index_all = pd.read_csv(os.path.join(path, "edge_index_all.csv"))
         obj.root_nodes     = pd.read_csv(os.path.join(path, "root_nodes.csv"))
         obj.node_index     = pd.read_csv(
-            os.path.join(path, "node_index.csv"), index_col=0
+            os.path.join(path, "node_index.csv")
         )
 
         with open(os.path.join(path, "metadata.pkl"), "rb") as f:

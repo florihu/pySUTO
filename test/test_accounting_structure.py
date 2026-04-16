@@ -775,7 +775,7 @@ class TestEdgeBoundsDefaults:
         assert np.all(acc_no_bounds.bounds.l == 0.0)
  
     def test_default_upper_is_inf(self, acc_no_bounds):
-        assert np.all(np.isinf(acc_no_bounds.bounds.u))
+        assert np.all(acc_no_bounds.bounds.u == 1e9)
  
     def test_default_upper_is_positive_inf(self, acc_no_bounds):
         assert np.all(acc_no_bounds.bounds.u > 0)
@@ -837,7 +837,7 @@ class TestEdgeBoundsRuleMatching:
         eb, acc = self._make_bounds(root_bounds, bounds_df_psc)
         psc_ids = set(nid for (s, e, r), nid in acc.node_to_id.items() if s == "PSC")
         non_psc_mask = ~acc.edge_index["from_id"].isin(psc_ids).values
-        assert np.all(np.isinf(eb.u[non_psc_mask]))
+        assert np.all(eb.u[non_psc_mask] == 1e9)
  
     def test_wildcard_sector_to_matches_all_destinations(self, root_bounds, bounds_df_psc):
         """sector_to='*' must apply regardless of destination sector."""
@@ -911,7 +911,7 @@ class TestEdgeBoundsRuleMatching:
             (ei["valuation"] == "copper_c")
         ]
         assert len(bb) > 0
-        assert np.all(np.isinf(eb.u[bb.index]))
+        assert np.all(eb.u[bb.index] == 1e9)
  
     def test_n_exceptions_counts_only_non_default(self, root_bounds, bounds_df_psc):
         eb, acc = self._make_bounds(root_bounds, bounds_df_psc)
@@ -935,7 +935,7 @@ class TestEdgeBoundsRuleMatching:
             bounds_df=bounds_df,
         )
         assert np.all(eb.l == 0.0)
-        assert np.all(np.isinf(eb.u))
+        assert np.all(eb.u == 1e9)
         assert eb.n_exceptions == 0
  
     def test_blank_lower_leaves_existing_lower_unchanged(self, root_bounds):
@@ -978,9 +978,9 @@ class TestEdgeBoundsRuleMatching:
             ),
         )
         assert np.all(eb.l == 0.0)
-        assert np.all(np.isinf(eb.u))
- 
- 
+        assert np.all(eb.u == 1e9)
+
+
 # =============================================================================
 # 13. EDGEBOUNDS — VALIDATE
 # =============================================================================
@@ -1168,12 +1168,12 @@ class TestEdgeBoundsAccIntegration:
             bounds_file_path="/definitely/does/not/exist/bounds.xlsx"
         )
         assert np.all(acc.l == 0.0)
-        assert np.all(np.isinf(acc.u))
- 
+        assert np.all(acc.u == 1e9)
+
     def test_no_bounds_file_kwarg_gives_defaults(self, root_bounds):
         acc = AccountingStructure(id="t", root=root_bounds)
         assert np.all(acc.l == 0.0)
-        assert np.all(np.isinf(acc.u))
+        assert np.all(acc.u == 1e9)
  
  
 # =============================================================================
@@ -1228,7 +1228,7 @@ class TestEdgeBoundsPersistence:
         os.remove(tmp_path / "legacy_test" / "bounds_u.npy")
         loaded = AccountingStructure.load("legacy_test", storage_dir=str(tmp_path))
         assert np.all(loaded.l == 0.0)
-        assert np.all(np.isinf(loaded.u))
+        assert np.all(loaded.u == 1e9)
  
     def test_npy_files_exist_after_save(self, tmp_path, root_bounds):
         acc = AccountingStructure(
@@ -1409,11 +1409,11 @@ class TestEdgeBoundsInvariants:
         ]
         assert np.all(eb.u[t2020_mining.index] == 100.0)
  
-        # t=2021, Mining-from: upper must be default (+inf)
+        # t=2021, Mining-from: upper must be default (1e9)
         t2021_mining = ei[
             ei["from_id"].isin(mining_ids) & (ei["time"] == 2021)
         ]
-        assert np.all(np.isinf(eb.u[t2021_mining.index]))
+        assert np.all(eb.u[t2021_mining.index] == 1e9)
  
  
 if __name__ == "__main__":
