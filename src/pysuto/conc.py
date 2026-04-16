@@ -252,6 +252,7 @@ class ConcordanceTable(DataFeed):
         sec_map = prep_map(sector_map_df, "src_sector", "root_sector")
         reg_map = prep_map(region_map_df, "src_region", "root_region")
         t_map   = prep_map(time_map_df, "src_time", "root_time")
+        t_map["root_time"] = t_map["root_time"].astype(str)
         v_map   = prep_map(valuation_map_df, "src_valuation", "root_valuation")
 
         # --------------------------------------------------
