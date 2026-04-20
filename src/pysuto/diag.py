@@ -266,6 +266,12 @@ class FeedDiagnostics:
 
     def _panel_matched_by_process(self, ax) -> None:
         import matplotlib.ticker as mticker
+        if "Process" not in self.raw_df.columns:
+            ax.text(0.5, 0.5, "No 'Process' column\nin raw data",
+                    ha="center", va="center", transform=ax.transAxes, color="gray")
+            ax.set_title("Matched value by process (kt)", fontweight="bold")
+            ax.axis("off")
+            return
         pv = (
             self.raw_df.loc[self._matched_mask]
             .groupby("Process")["Value"].sum()

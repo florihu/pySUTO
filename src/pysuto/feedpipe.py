@@ -30,6 +30,9 @@ from pysuto.meta import DataFeedMetadata
 from pysuto.conc import ConcordanceTable, WeightMatrix
 from pysuto.unc import UncertaintyMixin, PropagationResult
 from pysuto.registry import DataFeedRegistry
+from pysuto.logging import get_logger
+
+_log = get_logger("pysuto.feedpipe")
 
 
 # ===========================================================================
@@ -43,7 +46,11 @@ def step_A_read_metadata(excel_path: str) -> DataFeedMetadata:
     Returns a DataFeedMetadata with all identification, pedigree,
     and provenance fields populated.
     """
-    return DataFeedMetadata.from_excel(excel_path)
+    _log.info("A  reading metadata: %s", excel_path)
+    meta = DataFeedMetadata.from_excel(excel_path)
+    _log.info("   feed_name=%s  iedc_type=%s  version=%s",
+              meta.feed_name, meta.iedc_type, meta.version)
+    return meta
 
 
 # ===========================================================================
@@ -73,6 +80,7 @@ def step_B_build_concordance(
 
     Returns a validated ConcordanceTable ready for weight-matrix assembly.
     """
+    _log.info("B  building concordance  feed='%s'  raw_rows=%d", feed_id, len(raw_df))
     ct = ConcordanceTable.from_raw(
         raw_df                = raw_df,
         acc_struct            = acc_struct,
@@ -85,6 +93,11 @@ def step_B_build_concordance(
         allow_unmatched_edges = allow_unmatched_edges,
         id                    = feed_id,
     )
+    unmatched = getattr(ct, "unmatched_raw_rows", [])
+    _log.info("   src_edges=%d  root_edges=%d  conc_rows=%d  unmatched=%d",
+              ct.n_src_edges, ct.n_root_edges, len(ct.tab), len(unmatched))
+    if unmatched:
+        _log.warning("   %d raw rows could not be matched to a root edge", len(unmatched))
     return ct
 
 
@@ -100,7 +113,9 @@ def step_C_build_weight_matrix(ct: ConcordanceTable) -> WeightMatrix:
     Returns a WeightMatrix whose .apply() and .apply_with_uncertainty()
     methods are ready.
     """
+    _log.info("C  building weight matrix")
     wm = WeightMatrix(concordance=ct, id=ct.id)
+    _log.info("   shape=%s  nnz=%d", wm.weight_matrix.shape, wm.weight_matrix.nnz)
     return wm
 
 
@@ -128,10 +143,17 @@ def step_D_apply_and_propagate(
     -------
     PropagationResult with F_root, sigma_root, cv_root, cv_src.
     """
+    _log.info("D  propagating uncertainty  F_src_nnz=%d  F_src_sum=%.1f kt",
+              int(np.count_nonzero(F_src)), float(F_src.sum()))
     pg = metadata.to_pedigree_scores()
     wm.set_pedigree(pg)
     wm.set_F_src(F_src)
-    return wm.apply_with_uncertainty()
+    result = wm.apply_with_uncertainty()
+    _log.info("   cv_src=%.2f%%  F_root_sum=%.1f kt  mean_cv_root=%.2f%%",
+              result.cv_src * 100,
+              float(result.F_root.sum()),
+              float(np.nanmean(result.cv_root)) * 100)
+    return result
 
 
 # ===========================================================================
@@ -156,8 +178,10 @@ def register_feed(
             <feed_id>.pkl          ← weight matrix + concordance (pickle)
             result.npz             ← F_root, sigma_root, cv_root, cv_src
     """
+    _log.info("E  registering feed '%s'", metadata.feed_name)
     registry.register(wm, metadata, result=result, overwrite=overwrite)
     registry.save()
+    _log.info("   registry saved → %s", registry.odir)
 
 
 # ===========================================================================

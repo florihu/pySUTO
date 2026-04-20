@@ -39,6 +39,11 @@ import sys
 
 import pandas as pd
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
+from pysuto.logging import get_logger
+
+logger = get_logger(__name__)
+
 # ---------------------------------------------------------------------------
 # CONFIGURATION
 # ---------------------------------------------------------------------------
@@ -58,9 +63,11 @@ def main() -> None:
         if f.startswith("BACI") and f.endswith(".csv")
     )
     if not files:
-        sys.exit(f"No BACI CSV files found in {BACI_RAW_DIR!r}")
+        logger.error("No BACI CSV files found in %r", BACI_RAW_DIR)
+        sys.exit(1)
 
-    print(f"Found {len(files)} BACI files — filtering for HS codes: {sorted(HS_CODES)}")
+    logger.info("Found %d BACI files — filtering for HS codes: %s",
+                len(files), sorted(HS_CODES))
 
     chunks = []
     for fname in files:
@@ -70,10 +77,11 @@ def main() -> None:
         df = df[df["q"].notna() & (df["q"] > 0)]
         if not df.empty:
             chunks.append(df)
-        print(f"  {fname}: {len(df):,} rows kept")
+        logger.info("  %s: %d rows kept", fname, len(df))
 
     if not chunks:
-        sys.exit("No rows matched the HS code filter.")
+        logger.error("No rows matched the HS code filter.")
+        sys.exit(1)
 
     raw = pd.concat(chunks, ignore_index=True)
 
@@ -99,10 +107,10 @@ def main() -> None:
     os.makedirs(os.path.dirname(OUT_PATH), exist_ok=True)
     agg.to_csv(OUT_PATH, index=False)
 
-    print(f"\nWrote {len(agg):,} rows → {OUT_PATH}")
-    print(f"  Years:    {agg['Year'].min()} – {agg['Year'].max()}")
-    print(f"  Sectors:  {sorted(agg['Sector'].unique())}")
-    print(f"  Total kt: {agg['Value'].sum():,.1f}")
+    logger.info("Wrote %d rows → %s", len(agg), OUT_PATH)
+    logger.info("  years:    %d – %d", agg["Year"].min(), agg["Year"].max())
+    logger.info("  sectors:  %s", sorted(agg["Sector"].unique()))
+    logger.info("  total kt: %.1f", agg["Value"].sum())
 
 
 if __name__ == "__main__":

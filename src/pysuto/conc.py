@@ -281,17 +281,23 @@ class ConcordanceTable(DataFeed):
                 on="src_region_from", how="left"
             )
 
-            # to-side
-            df_work = df_work.merge(
-                sec_map.rename(columns={"src_sector": "src_sector_to",
-                                        "root_sector": "root_sector_to"}),
-                on="src_sector_to", how="left"
-            )
-            df_work = df_work.merge(
-                reg_map.rename(columns={"src_region": "src_region_to",
-                                        "root_region": "root_region_to"}),
-                on="src_region_to", how="left"
-            )
+            # to-side (skip merge when column is entirely absent/NaN — dtype mismatch guard)
+            if df_work["src_sector_to"].notna().any():
+                df_work = df_work.merge(
+                    sec_map.rename(columns={"src_sector": "src_sector_to",
+                                            "root_sector": "root_sector_to"}),
+                    on="src_sector_to", how="left"
+                )
+            else:
+                df_work["root_sector_to"] = np.nan
+            if df_work["src_region_to"].notna().any():
+                df_work = df_work.merge(
+                    reg_map.rename(columns={"src_region": "src_region_to",
+                                            "root_region": "root_region_to"}),
+                    on="src_region_to", how="left"
+                )
+            else:
+                df_work["root_region_to"] = np.nan
 
             # time & valuation
             df_work = df_work.merge(t_map, on="src_time",      how="left")

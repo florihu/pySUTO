@@ -1025,6 +1025,7 @@ class AccountingStructure:
         obj._edge_rules = []
         obj.ruleset     = None
         obj.logger      = get_logger(cls.__name__)
+        obj.logger.info("Loading AccountingStructure '%s' from %s", id, path)
 
         l_path = os.path.join(path, "bounds_l.npy")
         u_path = os.path.join(path, "bounds_u.npy")
@@ -1042,4 +1043,11 @@ class AccountingStructure:
         )
         bounds.n_exceptions = int(non_default.sum())
         obj.bounds = bounds
+
+        obj.logger.info(
+            "   nodes=%d  edges=%d  time=%s–%s  valuations=%s  bound_exceptions=%d",
+            obj.n_nodes, obj.n_edges,
+            obj.time_range[0], obj.time_range[-1],
+            obj.valuation, bounds.n_exceptions,
+        )
         return obj
