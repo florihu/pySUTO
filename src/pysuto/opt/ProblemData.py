@@ -1,7 +1,7 @@
 # optimization/data.py
 import numpy as np
 import pandas as pd
-import sparse
+import scipy.sparse as sp
 import logging
 
 class ProblemData:
@@ -20,7 +20,7 @@ class ProblemData:
     @classmethod
     def from_files(cls, paths):
         """Load a problem instance from file paths (e.g., from init_problem)."""
-        G = sparse.load_npz(paths["G"])
+        G = sp.load_npz(paths["G"])
         c = np.load(paths["c"])
         sigma = np.load(paths["sigma"])
         a0 = np.load(paths["a0"])

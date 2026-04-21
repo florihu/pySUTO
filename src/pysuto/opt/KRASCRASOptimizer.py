@@ -5,7 +5,7 @@ from joblib import Parallel, delayed
 import numpy as np
 import logging
 from tqdm import tqdm
-import sparse
+import scipy.sparse as sp
 
 
 import sys
@@ -288,7 +288,7 @@ class KRASCRASOptimizer(BaseOptimizer):
 
 if __name__ == "__main__":
     
-    G = sparse.random(shape=(100, 500), density=0.01, format='coo', random_state=42)
+    G = sp.random(100, 500, density=0.01, format='coo', random_state=42)
     c = np.random.rand(100)
     sigma = 0.1 * np.ones(100)
     a0 = np.random.rand(500)

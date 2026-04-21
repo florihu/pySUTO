@@ -1,6 +1,6 @@
 import numpy as np
-import sparse  # PyData sparse
-from sparse import COO
+import scipy.sparse as sp
+from scipy.sparse import coo_matrix as COO
 from tqdm import tqdm
 import pandas as pd
 from joblib import Parallel, delayed
@@ -772,7 +772,7 @@ def init_problem():
     
 
     # --- Load data ---
-    G = sparse.load_npz(G_path)  # load sparse matrix
+    G = sp.load_npz(G_path)  # load sparse matrix
     c = np.load(c_path)     # load constraint targets
     c_sigma = np.load(c_sigma_path)  # load constraint tolerances
     a0 = np.load(a0_path)     # load initial guessc

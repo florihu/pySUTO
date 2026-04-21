@@ -166,7 +166,7 @@ class FeedDiagnostics:
 
         self._panel_row_coverage(axes[0, 0])
         self._panel_unmatched_reason(axes[0, 1])
-        self._panel_matched_by_process(axes[0, 2])
+        self._panel_matched_by_sector(axes[0, 2])
         self._panel_fsrc_distribution(axes[1, 0])
         self._panel_cvroot_distribution(axes[1, 1])
         self._panel_year_coverage(axes[1, 2])
@@ -264,33 +264,29 @@ class FeedDiagnostics:
         ax.set_xlabel("# rows")
         ax.grid(axis="x", alpha=0.3)
 
-    def _panel_matched_by_process(self, ax) -> None:
+    def _panel_matched_by_sector(self, ax) -> None:
         import matplotlib.ticker as mticker
-        if "Process" not in self.raw_df.columns:
-            ax.text(0.5, 0.5, "No 'Process' column\nin raw data",
-                    ha="center", va="center", transform=ax.transAxes, color="gray")
-            ax.set_title("Matched value by process (kt)", fontweight="bold")
-            ax.axis("off")
-            return
-        pv = (
-            self.raw_df.loc[self._matched_mask]
-            .groupby("Process")["Value"].sum()
-            .sort_values()
+        # derive flow sector from concordance table (raw_id → src_sector_from)
+        sector_of = (
+            self.ct.tab[['raw_id', 'src_sector_from']]
+            .drop_duplicates('raw_id')
+            .set_index('raw_id')['src_sector_from']
         )
+        matched = self.raw_df.loc[self._matched_mask].copy()
+        matched['_sector'] = matched.index.map(sector_of)
+        pv = matched.groupby('_sector')['Value'].sum().sort_values()
         ax.barh(pv.index, pv.values, color=_C["blue"], edgecolor="white")
-        ax.set_title("Matched value by process (kt)", fontweight="bold")
+        ax.set_title("Matched value by flow sector (kt)", fontweight="bold")
         ax.set_xlabel("kt")
-        ax.xaxis.set_major_formatter(
-            mticker.FuncFormatter(lambda x, _: f"{x:,.0f}")
-        )
+        ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
         ax.grid(axis="x", alpha=0.3)
 
     def _panel_fsrc_distribution(self, ax) -> None:
-        nz = self.F_src[self.F_src != 0]
+        nz = self.F_src[self.F_src > 0]
         if len(nz):
-            ax.hist(nz, bins=40, color=_C["purple"], edgecolor="white", linewidth=0.5)
-        ax.set_title("F_src distribution (kt, non-zero)", fontweight="bold")
-        ax.set_xlabel("kt")
+            ax.hist(np.log10(nz), bins=40, color=_C["purple"], edgecolor="white", linewidth=0.5)
+        ax.set_title("F_src distribution (log₁₀ kt, non-zero)", fontweight="bold")
+        ax.set_xlabel("log₁₀(kt)")
         ax.set_ylabel("# src edges")
         ax.grid(axis="y", alpha=0.3)
 
@@ -298,9 +294,9 @@ class FeedDiagnostics:
         cv_pct = self.result.cv_root * 100
         valid  = cv_pct[np.isfinite(cv_pct) & (cv_pct > 0)]
         if len(valid):
-            ax.hist(valid, bins=30, color=_C["red"], edgecolor="white", linewidth=0.5)
-        ax.set_title("CV_root distribution (%)", fontweight="bold")
-        ax.set_xlabel("CV (%)")
+            ax.hist(np.log10(valid), bins=30, color=_C["red"], edgecolor="white", linewidth=0.5)
+        ax.set_title("CV_root distribution (log₁₀ %)", fontweight="bold")
+        ax.set_xlabel("log₁₀(CV %)")
         ax.set_ylabel("# root edges")
         ax.grid(axis="y", alpha=0.3)
 

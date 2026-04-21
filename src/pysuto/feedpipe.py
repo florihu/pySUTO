@@ -68,6 +68,7 @@ def step_B_build_concordance(
     feed_id:          str,
     aux_col:          Optional[str] = None,
     allow_unmatched_edges: bool = True,
+    user_weights_df:  Optional[pd.DataFrame] = None,
 ) -> ConcordanceTable:
     """
     Build the src→root edge mapping (ConcordanceTable) from raw data.
@@ -77,10 +78,16 @@ def step_B_build_concordance(
     allow_unmatched_edges : passed through to ConcordanceTable.from_raw so
         that rows that cannot be matched to a root edge are collected in
         ct.unmatched_raw_rows rather than raising an exception.
+    user_weights_df : optional DataFrame with columns [root_sector_from,
+        root_sector_to, weight].  Rows matching (root_sector_from,
+        root_sector_to) override the default equal-split weight.  Other rows
+        keep the uniform default (weight=1, normalised per src_edge group).
 
     Returns a validated ConcordanceTable ready for weight-matrix assembly.
     """
     _log.info("B  building concordance  feed='%s'  raw_rows=%d", feed_id, len(raw_df))
+    if user_weights_df is not None and not user_weights_df.empty:
+        _log.info("   user_weights: %d entries", len(user_weights_df))
     ct = ConcordanceTable.from_raw(
         raw_df                = raw_df,
         acc_struct            = acc_struct,
@@ -92,6 +99,7 @@ def step_B_build_concordance(
         aux_col               = aux_col,
         allow_unmatched_edges = allow_unmatched_edges,
         id                    = feed_id,
+        user_weights_df       = user_weights_df,
     )
     unmatched = getattr(ct, "unmatched_raw_rows", [])
     _log.info("   src_edges=%d  root_edges=%d  conc_rows=%d  unmatched=%d",

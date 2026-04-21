@@ -227,7 +227,11 @@ def build_weight_matrix(ct: ConcordanceTable) -> WeightMatrix:
 
 def build_F_src(raw_df: pd.DataFrame, ct: ConcordanceTable) -> np.ndarray:
     """Aggregate raw values to the src-edge level aligned to ct.src_edges."""
-    merged = ct.tab.merge(
+    src_raw = (
+        ct.tab[["raw_id"] + list(ConcordanceTable.SRC_COLS)]
+        .drop_duplicates(subset=list(ConcordanceTable.SRC_COLS))
+    )
+    merged = src_raw.merge(
         raw_df.reset_index().rename(columns={"index": "_raw_idx"}),
         left_on="raw_id", right_on="_raw_idx", how="left",
     )

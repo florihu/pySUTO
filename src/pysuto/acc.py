@@ -83,7 +83,7 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-import sparse
+import scipy.sparse as sp
 
 try:
     from .logging import get_logger
@@ -457,6 +457,36 @@ class EdgeBounds:
 # AccountingStructure
 # =============================================================================
 
+
+class _SparseCOO4D:
+    """Minimal 4-D sparse COO tensor (scipy.sparse is 2-D only)."""
+
+    def __init__(self, data: np.ndarray, coords: np.ndarray, shape: tuple):
+        self.data   = data
+        self.coords = coords  # shape (4, nnz)
+        self.shape  = shape
+
+    @property
+    def nnz(self) -> int:
+        return len(self.data)
+
+    def todense(self) -> np.ndarray:
+        arr = np.zeros(self.shape, dtype=self.data.dtype)
+        arr[tuple(self.coords)] = self.data
+        return arr
+
+    def save_npz(self, path: str) -> None:
+        np.savez(path, data=self.data, coords=self.coords,
+                 shape=np.array(self.shape, dtype=np.int64))
+
+    @classmethod
+    def load_npz(cls, path: str) -> "_SparseCOO4D":
+        npz = np.load(path)
+        return cls(npz["data"], npz["coords"], tuple(npz["shape"].tolist()))
+
+
+# =============================================================================
+
 class AccountingStructure:
     """
     Defines the admissible node/edge space for a physical accounting system
@@ -566,7 +596,7 @@ class AccountingStructure:
         self.logger.info(
             f"AccountingStructure '{self.id}' initialised: "
             f"{self.n_nodes} nodes, {self.n_edges} admissible edges, "
-            f"A shape={self.A.shape}, nnz={self.A.nnz}"
+            f"A shape={self.A.shape}, nnz={len(self.A.data)}"
         )
 
     # ------------------------------------------------------------------
@@ -834,7 +864,7 @@ class AccountingStructure:
     # Node-only admissibility mask  (unchanged)
     # ------------------------------------------------------------------
 
-    def _build_node_mask(self) -> sparse.COO:
+    def _build_node_mask(self) -> sp.csr_matrix:
         self.logger.info("Building 2-D node admissibility mask...")
         c0, c1 = [], []
         keys = list(self.id_to_node.values())
@@ -847,9 +877,8 @@ class AccountingStructure:
                     c0.append(i); c1.append(j)
 
         data = np.ones(len(c0), dtype=np.int8)
-        return sparse.COO(
-            coords=np.array([c0, c1], dtype=np.int64),
-            data=data,
+        return sp.csr_matrix(
+            (data, (np.array(c0, dtype=np.int64), np.array(c1, dtype=np.int64))),
             shape=(self.n_nodes, self.n_nodes),
         )
 
@@ -857,7 +886,7 @@ class AccountingStructure:
     # Full 4-D admissibility tensor  (unchanged)
     # ------------------------------------------------------------------
 
-    def _build_tensor(self) -> sparse.COO:
+    def _build_tensor(self) -> "_SparseCOO4D":
         self.logger.info("Building 4-D admissibility tensor...")
         c0, c1, c2, c3 = [], [], [], []
         keys = list(self.id_to_node.values())
@@ -878,11 +907,8 @@ class AccountingStructure:
                         c2.append(t_idx); c3.append(v_idx)
 
         data = np.ones(len(c0), dtype=np.int8)
-        return sparse.COO(
-            coords=np.array([c0, c1, c2, c3], dtype=np.int64),
-            data=data,
-            shape=(self.n_nodes, self.n_nodes, self.n_timeps, self.n_valtns),
-        )
+        shape = (self.n_nodes, self.n_nodes, self.n_timeps, self.n_valtns)
+        return _SparseCOO4D(data, np.array([c0, c1, c2, c3], dtype=np.int64), shape)
 
     # ------------------------------------------------------------------
     # Edge index DataFrame  (unchanged)
@@ -927,8 +953,8 @@ class AccountingStructure:
     # ------------------------------------------------------------------
 
     def compress(self, F) -> np.ndarray:
-        if isinstance(F, sparse.SparseArray):
-            F = F.todense()
+        if sp.issparse(F):
+            F = F.toarray()
         ei     = self.edge_index
         t_idxs = ei["time"].map(self.time_to_idx).values.astype(int)
         v_idxs = ei["valuation"].map(self.val_to_idx).values.astype(int)
@@ -966,8 +992,8 @@ class AccountingStructure:
         path = os.path.join(self.storage_dir, self.id)
         os.makedirs(path, exist_ok=True)
 
-        sparse.save_npz(os.path.join(path, "A.npz"),       self.A)
-        sparse.save_npz(os.path.join(path, "A_nodes.npz"), self.A_nodes)
+        self.A.save_npz(os.path.join(path, "A.npz"))
+        sp.save_npz(os.path.join(path, "A_nodes.npz"), self.A_nodes)
 
         self.edge_index.to_csv(    os.path.join(path, "edge_index.csv"),     index=False)
         self.edge_index_all.to_csv(os.path.join(path, "edge_index_all.csv"), index=False)
@@ -996,8 +1022,8 @@ class AccountingStructure:
         assert os.path.isdir(path), \
             f"Directory '{id}' not found in {obj.storage_dir}"
 
-        obj.A        = sparse.load_npz(os.path.join(path, "A.npz"))
-        obj.A_nodes  = sparse.load_npz(os.path.join(path, "A_nodes.npz"))
+        obj.A        = _SparseCOO4D.load_npz(os.path.join(path, "A.npz"))
+        obj.A_nodes  = sp.load_npz(os.path.join(path, "A_nodes.npz"))
 
         obj.edge_index     = pd.read_csv(os.path.join(path, "edge_index.csv"))
         obj.edge_index_all = pd.read_csv(os.path.join(path, "edge_index_all.csv"))

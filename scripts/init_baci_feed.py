@@ -69,9 +69,10 @@ ACC_ID  = "copper"
 _INPUT_ROOT  = os.path.join("data", "input", "feed")
 _FEED_VDIR   = os.path.join(_INPUT_ROOT, FEED_ID, f"v{VERSION}")
 
-RAW_DATA  = os.path.join(_FEED_VDIR, "values.csv")
-CONC_FILE = os.path.join(_FEED_VDIR, "conc.xlsx")
-META_FILE = os.path.join(_FEED_VDIR, "meta.xlsx")
+RAW_DATA     = os.path.join(_FEED_VDIR, "values.csv")
+CONC_FILE    = os.path.join(_FEED_VDIR, "conc.xlsx")
+META_FILE    = os.path.join(_FEED_VDIR, "meta.xlsx")
+WEIGHTS_FILE = os.path.join(_FEED_VDIR, "weights.csv")   # optional user weight table
 
 ACC_DIR      = os.path.join("data", "proc", "acc")
 REGISTRY_DIR = os.path.join("data", "proc", "feed", "registry")
@@ -187,10 +188,21 @@ def load_meta_sidecar() -> DataFeedMetadata:
 # C  BUILD CONCORDANCE TABLE + WEIGHT MATRIX  (delegates to feedpipe)
 # ===========================================================================
 
+def load_user_weights() -> pd.DataFrame | None:
+    """Load optional user weight table; returns None if file absent."""
+    if not os.path.isfile(WEIGHTS_FILE):
+        logger.info("   weights file not found — using equal allocation")
+        return None
+    wdf = pd.read_csv(WEIGHTS_FILE)
+    logger.info("   weights file : %s  (%d entries)", WEIGHTS_FILE, len(wdf))
+    return wdf
+
+
 def build_concordance(
     raw_df: pd.DataFrame,
     tables: dict,
     acc: AccountingStructure,
+    user_weights: pd.DataFrame | None = None,
 ) -> ConcordanceTable:
     logger.info("=" * 60)
     logger.info("C  Building ConcordanceTable")
@@ -210,6 +222,7 @@ def build_concordance(
             feed_id               = FEED_ID,
             aux_col               = None,  # BACI has explicit from/to cols — no discriminator
             allow_unmatched_edges = True,
+            user_weights_df       = user_weights,
         )
 
     for w in caught:
@@ -229,7 +242,11 @@ def build_weight_matrix(ct: ConcordanceTable) -> WeightMatrix:
 
 def build_F_src(raw_df: pd.DataFrame, ct: ConcordanceTable) -> np.ndarray:
     """Aggregate raw values to the src-edge level aligned to ct.src_edges."""
-    merged = ct.tab.merge(
+    src_raw = (
+        ct.tab[["raw_id"] + list(ConcordanceTable.SRC_COLS)]
+        .drop_duplicates(subset=list(ConcordanceTable.SRC_COLS))
+    )
+    merged = src_raw.merge(
         raw_df.reset_index().rename(columns={"index": "_raw_idx"}),
         left_on="raw_id", right_on="_raw_idx", how="left",
     )
@@ -349,16 +366,17 @@ def main() -> None:
     logger.info("   raw data     : %s", RAW_DATA)
     logger.info("   concordance  : %s", CONC_FILE)
     logger.info("   meta sidecar : %s", META_FILE)
-    raw_df = load_raw_data()
-    tables = load_concordance_tables()
-    meta   = load_meta_sidecar()
+    raw_df       = load_raw_data()
+    tables       = load_concordance_tables()
+    meta         = load_meta_sidecar()
+    user_weights = load_user_weights()
     logger.info("   rows loaded  : %d", len(raw_df))
     logger.info("   sector map   : %d entries", len(tables["sector_map"]))
     logger.info("   region map   : %d entries", len(tables["region_map"]))
     logger.info("   time map     : %d entries", len(tables["time_map"]))
 
     # C — concordance + weight matrix
-    ct = build_concordance(raw_df, tables, acc)
+    ct = build_concordance(raw_df, tables, acc, user_weights)
     wm = build_weight_matrix(ct)
 
     # D — source flow vector + uncertainty propagation

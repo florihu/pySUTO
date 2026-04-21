@@ -7,7 +7,7 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-import sparse
+import scipy.sparse as sp
 
 
 
@@ -129,19 +129,19 @@ class ConcordanceTable(DataFeed):
     # ------------------------------------------------------------------ #
 
     def _impute_weights(self):
-        mask_uniform = self.tab['weight_mode'] == 'uniform'
-        if mask_uniform.any():
-            grp = self.tab[mask_uniform].groupby(self.SRC_COLS).size().rename('n')
-            self.tab = self.tab.merge(grp.reset_index(), on=self.SRC_COLS, how='left')
-            self.tab.loc[mask_uniform, 'weight_value'] = (
-                1.0 / self.tab.loc[mask_uniform, 'n']
-            )
-            self.tab.drop(columns=['n'], inplace=True)
-
+        # Validate user weights are populated
         mask_user = self.tab['weight_mode'] == 'user'
-        if mask_user.any():
-            if self.tab.loc[mask_user, 'weight_value'].isnull().any():
-                raise ValueError("User weights must be provided")
+        if mask_user.any() and self.tab.loc[mask_user, 'weight_value'].isnull().any():
+            raise ValueError("weight_mode='user' rows must have weight_value set")
+
+        # Uniform rows contribute equally (weight 1.0) before normalization.
+        # Normalizing the whole group by its sum handles three cases uniformly:
+        #   B  all-uniform  : all get 1/N
+        #   A  all-user     : user values divided by their total
+        #   C  mixed        : user values + 1.0 per uniform row, then normalized
+        self.tab.loc[self.tab['weight_mode'] == 'uniform', 'weight_value'] = 1.0
+        grp_sum = self.tab.groupby(self.SRC_COLS)['weight_value'].transform('sum')
+        self.tab['weight_value'] = self.tab['weight_value'] / grp_sum
 
     def _validate_weight_sums(self):
         sums = self.tab.groupby(self.SRC_COLS)['weight_value'].sum()
@@ -178,7 +178,8 @@ class ConcordanceTable(DataFeed):
                 var_map_df: pd.DataFrame,
                 aux_col: Optional[str] = None,
                 allow_unmatched_edges: bool = True,
-                id: str = "ct_from_raw"):
+                id: str = "ct_from_raw",
+                user_weights_df: Optional[pd.DataFrame] = None):
 
 
         # --------------------------------------------------
@@ -421,8 +422,8 @@ class ConcordanceTable(DataFeed):
         # the opposite endpoint (e.g. Supply rows don't classify the to-side)
         merged["src_sector_from"] = merged["src_sector_from"].fillna(merged["from_sector"])
         merged["src_region_from"] = merged["src_region_from"].fillna(merged["from_region"])
-        merged["src_sector_to"]   = merged["src_sector_to"].fillna(merged["to_sector"])
-        merged["src_region_to"]   = merged["src_region_to"].fillna(merged["to_region"])
+        merged["src_sector_to"]   = merged["src_sector_to"].fillna("<any>")
+        merged["src_region_to"]   = merged["src_region_to"].fillna("<any>")
 
         merged["src_entity_from"] = merged["root_entity_from"]
         merged["src_entity_to"]   = merged["root_entity_to"]
@@ -459,6 +460,25 @@ class ConcordanceTable(DataFeed):
         # --------------------------------------------------
         # 10) Return instance + diagnostics for unmatched edges
         # --------------------------------------------------
+        # --------------------------------------------------
+        # 9b) Apply user-specified weights (optional)
+        # --------------------------------------------------
+        # user_weights_df columns: src_sector_from, root_sector_to, weight
+        # Rows matching (src_sector_from, root_sector_to) get weight_mode='user'
+        # and the supplied raw weight. _impute_weights() normalises all weights
+        # per src_edge group, treating uniform rows as weight=1 before normalising.
+        if user_weights_df is not None and not user_weights_df.empty:
+            tab = tab.merge(
+                user_weights_df[['root_sector_from', 'root_sector_to', 'weight']]
+                .rename(columns={'weight': '_uw'}),
+                on=['root_sector_from', 'root_sector_to'],
+                how='left',
+            )
+            mask = tab['_uw'].notna()
+            tab.loc[mask, 'weight_value'] = tab.loc[mask, '_uw']
+            tab.loc[mask, 'weight_mode']  = 'user'
+            tab.drop(columns=['_uw'], inplace=True)
+
         # tab was built from a correct edge-join — skip redundant re-validation
         instance = cls(tab=tab, acc_struct=acc_struct, id=id, _skip_validation=True)
         instance.unmatched_raw_rows = unmatched
@@ -584,11 +604,10 @@ class WeightMatrix(DataFeed):
         root_ids = tab['_root_edge_id'].to_numpy(dtype=np.int64)
         weights  = tab['weight_value'].to_numpy(dtype=float)
 
-        self.weight_matrix = sparse.COO(
-            np.array([src_ids, root_ids], dtype=np.int64),
-            weights,
+        self.weight_matrix = sp.coo_matrix(
+            (weights, (src_ids, root_ids)),
             shape=(ct.n_src_edges, ct.n_root_edges),
-        )
+        ).tocsr()
             # ------------------------------------------------------------------ #
     # Apply                                                                #
     # ------------------------------------------------------------------ #

@@ -1,6 +1,6 @@
 import numpy as np
 import logging
-from sparse import COO
+import scipy.sparse as sp
 
 
 
@@ -9,13 +9,13 @@ def check_g_degenerate(G):
     """
     Check if any rows of G are all zeros (degenerate constraints).
     """
-    if not isinstance(G, COO):
-        G = G.tocoo() if hasattr(G, "tocoo") else G
+    if not sp.isspmatrix_coo(G):
+        G = G.tocoo() if sp.issparse(G) else sp.coo_matrix(G)
 
     NC, N = G.shape
     row_sums = np.zeros((NC,), dtype=float)
     for k in range(G.data.shape[0]):
-        i = int(G.coords[0][k])
+        i = int(G.row[k])
         v = float(G.data[k])
         row_sums[i] += abs(v)
 

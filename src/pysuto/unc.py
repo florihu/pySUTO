@@ -294,24 +294,17 @@ class UncertaintyMixin:
  
         # --- point estimate -------------------------------------------
         #   W is (N_src × N_root); W^T @ F_src → shape (N_root,)
-        W = self.weight_matrix   # sparse COO
-        F_root = (W.T @ F_src).todense() if hasattr(W.T @ F_src, "todense") \
-                 else np.asarray(W.T @ F_src)
- 
+        W = self.weight_matrix   # scipy.sparse CSR (N_src × N_root)
+        F_root = np.asarray(W.T @ F_src).ravel()
+
         # --- variance propagation  ------------------------------------
         #   σ²_j = CV² · Σ_i  W_ij² · F_i²
-        #
-        #   Implemented as:  W^T @ (F_src² element-wise)
-        #   then multiply by CV² and take sqrt.
-        #
-        #   For sparse W we exploit:
-        #       (W ⊙ W)^T @ F_src² = W^T @ F_src²   when using W²
         F_src_sq = F_src ** 2
- 
-        # W² (elementwise) then transpose-multiply
-        import sparse as sp_mod
-        W_dense_sq = (W * W)           # elementwise square, stays sparse
-        var_root = cv_tot**2 * np.asarray((W_dense_sq.T @ F_src_sq))
+
+        # Element-wise W² then transpose-multiply
+        W2 = W.copy()
+        W2.data **= 2
+        var_root = cv_tot**2 * np.asarray(W2.T @ F_src_sq).ravel()
         sigma_root = np.sqrt(np.maximum(var_root, 0.0))   # guard fp noise
  
         # --- CV per root edge -----------------------------------------
