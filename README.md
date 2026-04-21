@@ -48,12 +48,100 @@ Runs once per data source. Reads metadata (including pedigree quality scores) fr
 **Inputs:** raw flow data, classification mapping tables, Excel metadata file  
 **Outputs per feed:** weight matrix `W`, root flow vector `F_root`, standard deviation `σ_root`, metadata sidecar
 
-### Stage 2 — Aggregation and imputation
+### Stage 2 — Collection, aggregation, and imputation
 
-Runs once across a selected set of registered feeds. `FeedCollector` loads `F_root` and `σ_root` for each selected feed from the registry and aligns them onto the common edge index. `AggregationMath` stacks the feed observations into a data matrix **F** and computes the inverse-variance weighted mean using a normalised weight matrix **Ω**, yielding `f_agg` as a single matrix–vector product. `ImputationEngine` then fills missing edges (root edges not covered by any feed) using parametric relations or time-series methods, logging every fill.
+Runs once across a selected set of registered feeds. Three sub-steps:
+
+#### 2a — Collection (`FeedCollector`)
+
+`FeedCollector` selects feeds from the registry by feed ID (or by specific feed instance) and aligns each feed's `F_root` and `σ_root` onto the common edge index. Feeds that do not cover a given root edge contribute NaN at that position. The result is a pair of stacked matrices:
+
+- **F** ∈ ℝ^(N_f × N_r) — raw per-feed observations, NaN where not covered
+- **Σ** ∈ ℝ^(N_f × N_r) — per-feed standard deviations, NaN where not covered
+
+Selection is by feed ID string (latest registered version is used by default). A specific version or instance can be selected by passing a `(feed_id, version)` tuple.
+
+#### 2b — Aggregation (`AggregationMath`)
+
+`AggregationMath` builds the normalised inverse-variance weight matrix **Ω** and computes:
+
+```
+f_agg[j] = Σ_k  Ω[k,j] · F[k,j]      (inverse-variance weighted mean)
+σ_agg[j] = 1 / sqrt(Σ_k  1/σ[k,j]²)  (combined uncertainty, always ≤ min σ_k)
+```
+
+Both operations are vectorised as a single matrix product over all root edges simultaneously (see [Mathematical foundations](#mathematical-foundations)). **Ω** itself is a complete provenance record: column j gives the fractional contribution of every feed to root edge j.
+
+Edges covered by no feed remain NaN in `f_agg` and are passed to the imputation step.
+
+#### 2c — Imputation pipeline (`ImputationEngine`)
+
+`ImputationEngine` manages an ordered pipeline of imputers. Each imputer receives the current state `(f_agg, σ_agg, missing_mask)`, attempts to fill remaining NaN entries, propagates uncertainty through its fill formula, and appends to the shared `ImputationLog`. Multiple imputers chain: the second imputer only sees edges still NaN after the first, and so on.
+
+**Built-in imputers (registered in order):**
+
+| Imputer | Method | Uncertainty |
+|---|---|---|
+| `ParametricImputer` | Linear combination of other root edges | Gaussian: `σ²_j = Σ_i α_i² σ²_i + (ε · f_j)²` |
+| `TimeImputer` | Window-based temporal interpolation / extrapolation | Weighted Gaussian: `σ²_j = Σ_i w_i² σ²_i · γ(gap)` |
+
+Additional imputers can be created by subclassing `BaseImputer` and implementing a single `impute()` method.
+
+##### ParametricImputer
+
+Fills NaN edges using user-defined linear relations between root edges. Each `ParametricRelation` specifies:
+
+- **target** — a predicate over `edge_index` that identifies which edges to fill (e.g. all `Cathode → FU` edges regardless of region and time)
+- **sources** — list of root edge IDs (or predicates) whose values drive the fill
+- **coefficients** — the linear weights α_i (sum need not equal 1)
+- **epsilon** — optional relative residual uncertainty (fraction of `f_j`), added in quadrature to propagated σ to account for the approximation in the relation
+
+Example: fill scrap-return edges as a fraction of primary production edges:
+
+```python
+ParametricRelation(
+    description="Scrap return ≈ 0.12 × primary production (same region, same time)",
+    target=lambda ei: (ei.sector_from == "SR") & (ei.sector_to == "FU"),
+    sources=lambda ei: (ei.sector_from == "Cathode") & (ei.sector_to == "FU"),
+    coefficients=[0.12],
+    epsilon=0.25,   # 25% residual uncertainty on the relation itself
+)
+```
+
+The imputer iterates over matching (target, source) pairs resolved to the same region and time. Filled values are logged with source edges, coefficients, and propagated σ.
+
+##### TimeImputer
+
+Fills NaN edges by temporal interpolation or extrapolation using a configurable sliding window. Parameters:
+
+- **window** — number of time periods to look back and forward (symmetric by default; `window_before` / `window_after` can differ)
+- **method** — `"linear"` (weighted linear interpolation, weights ∝ 1/gap), `"locf"` (last-observation-carried-forward), `"nocb"` (next-observation-carried-backward), `"mean"` (unweighted average within window)
+- **min_obs** — minimum number of non-NaN observations required within the window to attempt a fill (default 1)
+- **gap_inflation** — σ multiplier per time-step gap; accounts for the fact that extrapolation uncertainty grows with the size of the gap (default 1.0 = no inflation; `sqrt(gap)` is a common choice)
+
+For linear interpolation between two observations at gap g: the interpolated value at fractional position t is `f_t = (1-t)·f_a + t·f_b`, and the propagated uncertainty is `σ²_t = (1-t)²·σ²_a + t²·σ²_b`. Edge-specific `gap_inflation` is applied multiplicatively to σ_t.
+
+##### ImputationLog
+
+Every fill is recorded in the `ImputationLog`, a per-edge provenance table with columns:
+
+| Column | Type | Description |
+|---|---|---|
+| `edge_id` | int | Root edge index |
+| `step` | int | Pipeline step index (0 = first registered imputer) |
+| `method` | str | `"parametric"`, `"time_linear"`, `"locf"`, etc. |
+| `source_edges` | list[int] | Edge IDs used as inputs |
+| `coefficients` | list[float] | Weights applied to source values |
+| `f_before` | float | NaN (edge was missing before fill) |
+| `f_after` | float | Filled value |
+| `sigma_before` | float | NaN (edge was missing before fill) |
+| `sigma_after` | float | Propagated σ |
+| `description` | str | Human-readable description from the relation or method |
+
+The log is attached to `AggregationResult` and persisted alongside it. Combined with **Ω** from the aggregation step, this gives a complete per-data-point audit trail: for every root edge, you know exactly which feeds contributed (and with what weight) or which imputation rule filled it and from which sources.
 
 **Inputs:** feed IDs, registry  
-**Outputs:** `AggregationResult` with `f_agg [N_r]`, `σ_agg [N_r]`, weight matrix **Ω**, imputation log
+**Outputs:** `AggregationResult` with `f_agg [N_r]`, `σ_agg [N_r]`, weight matrix **Ω**, `ImputationLog`
 
 ### Stage 3 — Linear optimisation
 
@@ -69,7 +157,7 @@ Runs as a loop over T timesteps. `ConstraintBuilder` assembles the constraint ma
 
 ![File structure overview](figs/file_structure.svg)
 
-### Existing modules
+### Stage 1 modules
 
 | File | Classes | Responsibility |
 |---|---|---|
@@ -83,13 +171,18 @@ Runs as a loop over T timesteps. `ConstraintBuilder` assembles the constraint ma
 | `utils.py` | `_NpEncoder`, io helpers | JSON serialisation, numpy-safe dump/load |
 | `logging.py` | — | Structured run logging |
 
-### New modules
+### Stage 2 modules
 
 | File | Classes | Responsibility |
 |---|---|---|
-| `collector.py` | `FeedCollector`, `AggregationResult` | Load and align selected feeds; stack into **F** and **Σ** matrices; delegate to `agg.py` |
-| `agg.py` | `AggregationMath` | Build weight matrix **Ω**; compute `f_agg = 1ᵀ(Ω ⊙ F)` and `σ_agg` |
-| `impute.py` | `ImputationEngine`, `ParametricImputer`, `TimeSeriesImputer` | Fill missing edges; log every imputation |
+| `collector.py` | `FeedCollector`, `AggregationResult` | Select and load feeds; align F and Σ matrices onto common edge index |
+| `agg.py` | `AggregationMath` | Build **Ω**; compute `f_agg = 1ᵀ(Ω ⊙ F)` and `σ_agg`; coverage mask |
+| `impute.py` | `ImputationEngine`, `BaseImputer`, `ParametricImputer`, `TimeImputer`, `ParametricRelation`, `ImputationLog` | Ordered imputation pipeline; per-edge provenance logging; uncertainty propagation per fill |
+
+### Stage 3 modules
+
+| File | Classes | Responsibility |
+|---|---|---|
 | `constraints.py` | `ConstraintBuilder` | Assemble G and c from supply–use balances and parametric relations |
 | `optim.py` | `LinearOptimiser`, `OptimResult` | σ-weighted equality-constrained least squares; warm-start |
 | `optunc.py` | `OptUncertainty` | KKT sensitivity-based uncertainty propagation for constrained optimum |
@@ -131,7 +224,7 @@ $$\boldsymbol{\sigma}_\mathrm{root} = \mathrm{CV}_\mathrm{tot} \cdot \sqrt{(\mat
 
 In scipy.sparse code, $\mathbf{W} \odot \mathbf{W}$ is formed by squaring the `.data` array of a copy of the CSR matrix (no densification). The diversification property guarantees $\mathrm{CV}_\mathrm{root} \leq \mathrm{CV}_\mathrm{src}$ for every root edge.
 
-### Stage 2 — Aggregation across N_f feeds as a matrix product
+### Stage 2a — Aggregation across N_f feeds
 
 After Stage 1, each feed k has produced a root-edge observation vector **f**_k ∈ ℝ^(N_r) and a standard deviation vector **σ**_k ∈ ℝ^(N_r). Entries are NaN for root edges not covered by feed k.
 
@@ -177,6 +270,44 @@ $\sigma_\mathrm{agg}[j] \leq \min_k \sigma_k[j]$: combining feeds never increase
 
 The matrix $\boldsymbol{\Omega}$ is a full provenance record: row $k$ gives feed $k$'s fractional contribution to every root edge.
 
+### Stage 2b — Imputation uncertainty propagation
+
+The imputation pipeline propagates uncertainty through each fill using first-order Gaussian error propagation. The key invariant: every filled edge has a well-defined $\sigma_\mathrm{agg}[j]$ after each imputation step, enabling downstream stages to treat imputed and observed edges uniformly.
+
+#### Parametric imputation
+
+A relation fills target edge $j$ as a linear combination of source edges $\{i_1, \dots, i_m\}$:
+
+$$f_j = \sum_{l=1}^{m} \alpha_l \cdot f_{i_l}$$
+
+Gaussian propagation (assuming independence between sources):
+
+$$\sigma^2_j = \sum_{l=1}^{m} \alpha_l^2 \cdot \sigma^2_{i_l} + \bigl(\varepsilon \cdot f_j\bigr)^2$$
+
+The second term ($\varepsilon$ = `epsilon`, a user-supplied fraction) encodes the structural uncertainty in the relation itself — the fact that the parametric formula is an approximation. It inflates $\sigma_j$ even when source uncertainties are small.
+
+#### Time imputation — linear interpolation
+
+Between two observations $(f_a, \sigma_a)$ at time $t_a$ and $(f_b, \sigma_b)$ at time $t_b$, with a gap of $g = t_b - t_a$ time periods, the interpolated value at position $t_a + s \cdot \Delta t$ (fractional position $\lambda = s/g \in [0,1]$) is:
+
+$$f_j = (1-\lambda)\,f_a + \lambda\,f_b$$
+
+$$\sigma^2_j = (1-\lambda)^2\,\sigma^2_a + \lambda^2\,\sigma^2_b$$
+
+A **gap inflation** factor $\gamma(g)$ is then applied to account for model uncertainty growing with gap size. The default is $\gamma(g) = \gamma_0^g$ (multiplicative per period), where $\gamma_0 = $ `gap_inflation` (default 1.0 = no inflation).
+
+#### Time imputation — extrapolation (LOCF / NOCB)
+
+Last-observation-carried-forward at gap $g$:
+
+$$f_j = f_a, \qquad \sigma_j = \sigma_a \cdot \gamma_0^g$$
+
+The gap inflation grows $\sigma$ exponentially with the extrapolation distance, reflecting increasing uncertainty the further the estimate is from the last observation.
+
+#### Pipeline chaining
+
+Steps are applied in registration order. After step $s$, let $\mathcal{M}_s$ denote the set of still-missing edges. Step $s+1$ only touches $\mathcal{M}_s$; it reads the current $(f, \sigma)$ values of already-filled edges (including those filled by earlier steps) as valid inputs. This means a `ParametricImputer` registered after a `TimeImputer` can use time-filled values as sources.
+
 ### Stage 3 — Constrained optimisation objective
 
 Minimise the $\sigma$-weighted distance from the aggregated estimate subject to physical balance constraints:
@@ -208,7 +339,7 @@ where $\boldsymbol{\Sigma}_c = \mathrm{diag}(\boldsymbol{\sigma}_\mathrm{agg}^2)
 ```python
 # ── Stage 1: one feed pipeline run per data source ─────────────────────────
 
-registry = DataFeedRegistry(odir="data/proc/feeds")
+registry = DataFeedRegistry(odir="data/proc/feed/registry")
 registry.load_index()
 
 for feed_id, excel_path, raw_df, F_src in feed_configs:
@@ -229,18 +360,45 @@ for feed_id, excel_path, raw_df, F_src in feed_configs:
     )
     # registry.json, metadata.json, <feed_id>.pkl, result.npz written automatically
 
-# ── Stage 2: aggregate selected feeds ───────────────────────────────────────
+# ── Stage 2a: select and align feeds ───────────────────────────────────────
 
 collector = FeedCollector(registry=registry, acc_struct=acc)
-collector.select(feed_ids=["icsg", "bgs", "usgs"])
 
-# Stacks into F [N_f × N_r] and V [N_f × N_r], builds Ω, computes f_agg
-agg_result = collector.aggregate()          # f_agg, σ_agg, Ω
+# Select by ID — latest registered version used automatically
+collector.select(["baci", "crude_ore"])
+
+# Or select a specific version:
+# collector.select([("baci", 1), "crude_ore"])
+
+agg_result = collector.aggregate()
+# agg_result.f_agg    [N_r]       inverse-variance weighted mean
+# agg_result.sigma_agg[N_r]       combined uncertainty
+# agg_result.Omega    [N_f × N_r] provenance weight matrix
+# agg_result.coverage [N_r] bool  True where at least one feed has data
+
+# ── Stage 2b: imputation pipeline ──────────────────────────────────────────
+
+# Define parametric relations
+scrap_return = ParametricRelation(
+    description="Scrap return ≈ 12 % of cathode→FU flow (same region, same time)",
+    target=lambda ei: (ei.sector_from == "SR") & (ei.sector_to == "FU"),
+    sources=lambda ei: (ei.sector_from == "Cathode") & (ei.sector_to == "FU"),
+    coefficients=[0.12],
+    epsilon=0.25,
+)
 
 engine = ImputationEngine(acc_struct=acc)
-engine.register(ParametricImputer(relations=acc.parametric_relations))
-engine.register(TimeSeriesImputer(method="linear"))
-agg_result = engine.run(agg_result)         # fill NaN edges, log every fill
+engine.register(ParametricImputer(relations=[scrap_return]))
+engine.register(TimeImputer(window=5, method="linear", gap_inflation=1.05))
+
+agg_result = engine.run(agg_result)
+# agg_result.f_agg updated in-place for imputed edges
+# agg_result.imputation_log: complete per-edge fill record
+
+# Inspect provenance for a specific edge:
+log = agg_result.imputation_log
+print(log.for_edge(edge_id=42))
+# → method="parametric", source_edges=[1305], coefficients=[0.12], sigma_after=0.031
 
 # ── Stage 3: optimise over T timesteps ──────────────────────────────────────
 
@@ -284,29 +442,16 @@ pysuto/
 ├── utils.py               _NpEncoder · io helpers
 ├── logging.py             structured run logging
 │
-├── collector.py           FeedCollector · AggregationResult  ── Stage 2
-├── agg.py                 AggregationMath  (F matrix · Ω matrix · f_agg product)
-├── impute.py              ImputationEngine · ParametricImputer · TimeSeriesImputer
+├── collector.py           FeedCollector · AggregationResult             ─┐
+├── agg.py                 AggregationMath  (Ω · f_agg · σ_agg)          │ Stage 2
+├── impute.py              ImputationEngine · BaseImputer                 │
+│                          ParametricImputer · TimeImputer                │
+│                          ParametricRelation · ImputationLog            ─┘
 │
-├── constraints.py         ConstraintBuilder  ── Stage 3
-├── optim.py               LinearOptimiser · OptimResult
-├── optunc.py              OptUncertainty
-└── optpipe.py             OptimPipeline · OptimRun
-
-init_icsg_feed.py          Driver script for the ICSG copper feed (calls feedpipe)
-
-tests/
-├── conftest.py            shared fixtures: mock acc, W_dense, F_src, metadata
-├── test_pedigree.py
-├── test_concordance.py
-├── test_weightmatrix.py
-├── test_aggregation.py
-├── test_imputation.py
-├── test_constraints.py
-├── test_optimiser.py
-├── test_optunc.py
-├── test_registry.py
-└── test_workflow.py       integration test: full three-stage run
+├── constraints.py         ConstraintBuilder                             ─┐
+├── optim.py               LinearOptimiser · OptimResult                  │ Stage 3
+├── optunc.py              OptUncertainty                                  │
+└── optpipe.py             OptimPipeline · OptimRun                      ─┘
 ```
 
 **Import direction is strictly one-way:**
@@ -332,8 +477,9 @@ Each layer has a dedicated unit test file that can be run in isolation using the
 | `test_pedigree.py` | CV formulas, score validation, invariant CV_root ≤ CV_src | none — pure numpy |
 | `test_concordance.py` | Weight imputation, sum-to-one, src index, CSR shape | `mock_acc_struct` |
 | `test_weightmatrix.py` | W construction, apply(), scipy.sparse round-trip pickle | `mock_acc_struct`, `W_dense` |
-| `test_aggregation.py` | Ω construction, `f_agg = 1ᵀ(Ω⊙F)`, σ_agg, NaN coverage | `F_src`, `sigma_src` |
-| `test_imputation.py` | Parametric fill, LOCF, imputation log | `agg_result_partial` |
+| `test_collector.py` | Feed alignment, NaN coverage mask, Ω column sums to 1 | `mock_registry`, `mock_acc` |
+| `test_aggregation.py` | Ω construction, `f_agg = 1ᵀ(Ω⊙F)`, σ_agg ≤ min σ_k, NaN coverage | `F_src`, `sigma_src` |
+| `test_imputation.py` | ParametricImputer fill, TimeImputer linear/locf, log completeness, σ propagation, pipeline chaining | `agg_result_partial` |
 | `test_constraints.py` | G assembly, supply=use rows, parametric rows | `mock_acc_struct` |
 | `test_optimiser.py` | Feasibility, residuals near zero, warm-start delta | `G`, `c`, `F_agg` |
 | `test_optunc.py` | σ_opt ≤ σ_agg invariant, Jacobian shape | `G`, `Sigma_diag` |
@@ -356,7 +502,7 @@ pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
-**Core dependencies:** `numpy`, `pandas`, `scipy`, `sparse`
+**Core dependencies:** `numpy`, `pandas`, `scipy`
 
 **Optional:** `matplotlib` for diagnostic plots of feed uncertainty distributions
 
