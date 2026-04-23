@@ -78,25 +78,71 @@ Edges covered by no feed remain NaN in `f_agg` and are passed to the imputation 
 
 `ImputationEngine` manages an ordered pipeline of imputers. Each imputer receives the current state `(f_agg, σ_agg, missing_mask)`, attempts to fill remaining NaN entries, propagates uncertainty through its fill formula, and appends to the shared `ImputationLog`. Multiple imputers chain: the second imputer only sees edges still NaN after the first, and so on.
 
+#### Parameter types and the edge-pair schema
+
+All parametric imputation rests on a bidirectional linear constraint between two edges, called **edge A** and **edge B**:
+
+```
+f_b = coeff × f_a    (when A is observed and B is missing)
+f_a = f_b / coeff    (when B is observed and A is missing)
+```
+
+The imputer resolves which direction applies at runtime from the missing mask. Both edges are identified by the 8-dimensional accounting-structure selector — all values are root-system coordinates (names from the Sector_Entity, Region, Valuation, and Time sheets):
+
+```
+(sector_from, entity_from, region_from,
+ sector_to,   entity_to,   region_to,
+ time, valuation)
+```
+
+A-selector fields accept a specific value or `*` (wildcard, matches any admissible value). B-selector fields additionally accept `same` (binds to the value resolved for the corresponding A field in each matched edge pair).
+
+Two named types standardise the most common patterns (Pauliuk et al. 2019):
+
+**Concentration** (data category 3 — intensive object property): links the same `(from_id, to_id, time)` pair across two valuations. All B fields are `same` except `b_valuation`. Because a commodity sector (e.g. `Concentrate/Flow`) appears in both supply edges (as from-node) and use edges (as to-node), two rows are needed — one with the sector in `a_sector_from`, one in `a_sector_to` — sharing the same value and uncertainty.
+
+**Efficiency** (data category 4 — intensive process property / yield factor): links a USE edge (input into a process) to a SUPPLY edge (output from the same process). The process node appears as `(a_sector_to, a_entity_to)` in the USE edge and as `(b_sector_from, b_entity_from)` in the SUPPLY edge. Region and time are `same`. If `a_region_from = *`, the same efficiency applies globally.
+
+**Uncertainty** is specified in one of three modes:
+
+| Mode | Fields | σ |
+|---|---|---|
+| `sd` | `value_sd` | used directly |
+| `min_max` | `value_min`, `value_max` | (max − min) / 4 |
+| `pedigree` | five Laner et al. scores 1–4 (`reliability`, `completeness`, `temporal_correlation`, `geographical_correlation`, `other_correlation`) | `PedigreeScores(...).total_cv() × value_nominal` |
+
+The `epsilon` field adds relative model uncertainty in quadrature: σ²_j += (ε · f_j)². Physical bounds `bound_lower` / `bound_upper` clip filled values.
+
+The parameter CSV template with full column reference and example rows for all types is in `data/input/params/params_template.csv`.
+
 **Built-in imputers (registered in order):**
 
 | Imputer | Method | Uncertainty |
 |---|---|---|
-| `ParametricImputer` | Linear combination of other root edges | Gaussian: `σ²_j = Σ_i α_i² σ²_i + (ε · f_j)²` |
+| `ParametricImputer` | Bidirectional edge-pair constraints; CSV loading or lambda relations | Gaussian: `σ²_j = coeff² · σ²_i + (ε · f_j)²` |
+| `FormulaImputer` | Directed multi-source balance equations; region/time-correlated source selection; physical clip | Gaussian: `σ²_j = Σ coeff_i²·σ²_i + (ε·f_j)²`; pre-clip σ retained on clipped fills |
 | `TimeImputer` | Window-based temporal interpolation / extrapolation | Weighted Gaussian: `σ²_j = Σ_i w_i² σ²_i · γ(gap)` |
 
 Additional imputers can be created by subclassing `BaseImputer` and implementing a single `impute()` method.
 
 ##### ParametricImputer
 
-Fills NaN edges using user-defined linear relations between root edges. Each `ParametricRelation` specifies:
+Resolves parameter definitions into bidirectional edge-pair constraints and fills missing edges. Two instantiation modes are supported:
 
-- **target** — a predicate over `edge_index` that identifies which edges to fill (e.g. all `Cathode → FU` edges regardless of region and time)
-- **sources** — list of root edge IDs (or predicates) whose values drive the fill
-- **coefficients** — the linear weights α_i (sum need not equal 1)
-- **epsilon** — optional relative residual uncertainty (fraction of `f_j`), added in quadrature to propagated σ to account for the approximation in the relation
+**Load from CSV** (recommended for concentration and efficiency parameters):
 
-Example: fill scrap-return edges as a fraction of primary production edges:
+```python
+imputer = ParametricImputer.from_csv(
+    "data/input/params/copper_params.csv",
+    acc_struct=acc,
+)
+```
+
+The loader resolves each row's A- and B-selector fields against `acc_struct.edge_index`, expands wildcards and `same` bindings into concrete `(edge_a_id, edge_b_id, coeff, σ)` quadruples, and converts uncertainty to σ:
+- `min_max`: σ = (max − min) / 4
+- `pedigree`: σ = `PedigreeScores(...).total_cv() × value_nominal`
+
+**Lambda relations** (for custom or cross-type relations not covered by the CSV schema):
 
 ```python
 ParametricRelation(
@@ -104,11 +150,120 @@ ParametricRelation(
     target=lambda ei: (ei.sector_from == "SR") & (ei.sector_to == "FU"),
     sources=lambda ei: (ei.sector_from == "Cathode") & (ei.sector_to == "FU"),
     coefficients=[0.12],
-    epsilon=0.25,   # 25% residual uncertainty on the relation itself
+    epsilon=0.25,
 )
 ```
 
-The imputer iterates over matching (target, source) pairs resolved to the same region and time. Filled values are logged with source edges, coefficients, and propagated σ.
+Each `ParametricRelation` specifies:
+- **target** — a predicate over `edge_index` identifying which edges to fill
+- **sources** — list of root edge IDs (or predicates) whose values drive the fill
+- **coefficients** — the linear weights α_i (sum need not equal 1)
+- **epsilon** — optional relative residual uncertainty (fraction of `f_j`), added in quadrature
+
+Uncertainty propagation (both modes): σ²_j = Σ_i α_i² σ²_i + (ε · f_j)²
+
+All fills are logged to `ImputationLog` with the `param_id` from the CSV row (None for lambda relations).
+
+##### FormulaImputer
+
+Fills missing edges using **directed multi-source balance equations**. Where `ParametricImputer` handles pairwise bidirectional constraints, `FormulaImputer` handles cases where a target edge is computed from several source edges with region-correlated selection, wildcard summation, and a physical clip.
+
+Three building blocks:
+
+**`ParamRef`** — references a value from a loaded params CSV:
+
+```python
+ParamRef(param_id="conc_ore_supply", transform="inverse")
+# resolves to 1 / value_nominal of the named parameter at runtime
+```
+
+`transform="identity"` (default) uses the value directly; `transform="inverse"` takes its reciprocal. Useful when a supply edge is in CC valuation and must be converted to Mass via a concentration parameter before the balance is applied.
+
+**`SourceTerm`** — one additive term in the formula:
+
+```python
+SourceTerm(
+    selector=lambda ei: ...,          # predicate over edge_index → bool mask
+    coefficient=1.0,                   # float or ParamRef; negative = subtraction
+    region_binding="from_matches_target_from",  # see below
+    time_binding=True,                 # if True: source.time must equal target.time
+    aggregate="sum",                   # "single" (expect one match) or "sum" (sum all)
+)
+```
+
+`region_binding` constrains which region the source edge must be in relative to the matched target edge:
+
+| Value | Constraint |
+|---|---|
+| `"none"` | no region constraint |
+| `"from_matches_target_from"` | `source.from_region == target.from_region` |
+| `"from_matches_target_to"` | `source.from_region == target.to_region` |
+| `"to_matches_target_from"` | `source.to_region == target.from_region` |
+| `"to_matches_target_to"` | `source.to_region == target.to_region` |
+
+**`FormulaRelation`** — directed multi-source balance equation:
+
+```python
+FormulaRelation(
+    description="...",
+    target=lambda ei: ...,    # predicate identifying the target edges to fill
+    terms=[...],              # list[SourceTerm]; f_target = Σ coeff_i × f_source_i
+    clip_lower=0.0,           # physical lower bound (None = no clip)
+    clip_upper=None,          # physical upper bound
+    epsilon=0.0,              # relative model uncertainty added in quadrature
+)
+```
+
+**Domestic use example** — for every region and every traded intermediate flow, domestic use = total supply minus all exports, clipped at zero:
+
+```python
+domestic_matte = FormulaRelation(
+    description="Domestic Matte use: Smelting output minus exports, clipped at zero",
+    target=lambda ei: (
+        (ei.sector_from == "Matte") & (ei.entity_from == "Flow") &
+        (ei.sector_to   == "CFR")   & (ei.entity_to   == "Process") &
+        (ei.valuation   == "Mass")
+    ),
+    terms=[
+        # Total Matte produced by Smelting in the same region
+        SourceTerm(
+            selector=lambda ei: (
+                (ei.sector_from == "Smelting") & (ei.entity_from == "Process") &
+                (ei.sector_to   == "Matte")    & (ei.entity_to   == "Flow") &
+                (ei.valuation   == "Mass")
+            ),
+            coefficient=1.0,
+            region_binding="to_matches_target_from",  # supply's to_region == target's from_region
+            aggregate="single",
+        ),
+        # All Matte exports from the same region (summed over all destinations)
+        SourceTerm(
+            selector=lambda ei: (
+                (ei.sector_from == "Matte") & (ei.entity_from == "Flow") &
+                (ei.entity_to   == "Flow")  &   # Flow→Flow = cross-region trade edge
+                (ei.valuation   == "Mass")
+            ),
+            coefficient=-1.0,
+            region_binding="from_matches_target_from",  # export origin == target's from_region
+            aggregate="sum",
+        ),
+    ],
+    clip_lower=0.0,
+    epsilon=0.05,
+)
+
+engine.register(FormulaImputer(relations=[domestic_matte]))
+```
+
+The same pattern generalises to any tradable intermediate flow (Concentrate, CSXEW, etc.) by swapping sector names.
+
+**Uncertainty propagation:** for a linear formula with terms `(coeff_i, f_i, σ_i)`:
+
+```
+σ²_target = Σ_i  coeff_i² × σ²_i  +  (ε × f_target)²
+```
+
+If the pre-clip value is negative and the result is clipped to `clip_lower`, the fill is logged with `method="formula_clipped"` and `sigma_after` carries the pre-clip σ as a conservative uncertainty estimate.
 
 ##### TimeImputer
 
@@ -129,7 +284,7 @@ Every fill is recorded in the `ImputationLog`, a per-edge provenance table with 
 |---|---|---|
 | `edge_id` | int | Root edge index |
 | `step` | int | Pipeline step index (0 = first registered imputer) |
-| `method` | str | `"parametric"`, `"time_linear"`, `"locf"`, etc. |
+| `method` | str | `"parametric"`, `"formula"`, `"formula_clipped"` (clipped to bound), `"time_linear"`, `"locf"`, etc. |
 | `source_edges` | list[int] | Edge IDs used as inputs |
 | `coefficients` | list[float] | Weights applied to source values |
 | `f_before` | float | NaN (edge was missing before fill) |
@@ -137,6 +292,7 @@ Every fill is recorded in the `ImputationLog`, a per-edge provenance table with 
 | `sigma_before` | float | NaN (edge was missing before fill) |
 | `sigma_after` | float | Propagated σ |
 | `description` | str | Human-readable description from the relation or method |
+| `param_id` | str \| None | Key from the parameter CSV row; None for lambda-based relations |
 
 The log is attached to `AggregationResult` and persisted alongside it. Combined with **Ω** from the aggregation step, this gives a complete per-data-point audit trail: for every root edge, you know exactly which feeds contributed (and with what weight) or which imputation rule filled it and from which sources.
 
@@ -177,7 +333,7 @@ Runs as a loop over T timesteps. `ConstraintBuilder` assembles the constraint ma
 |---|---|---|
 | `collector.py` | `FeedCollector`, `AggregationResult` | Select and load feeds; align F and Σ matrices onto common edge index |
 | `agg.py` | `AggregationMath` | Build **Ω**; compute `f_agg = 1ᵀ(Ω ⊙ F)` and `σ_agg`; coverage mask |
-| `impute.py` | `ImputationEngine`, `BaseImputer`, `ParametricImputer`, `TimeImputer`, `ParametricRelation`, `ImputationLog` | Ordered imputation pipeline; per-edge provenance logging; uncertainty propagation per fill |
+| `impute.py` | `ImputationEngine`, `BaseImputer`, `ParametricImputer`, `FormulaImputer`, `TimeImputer`, `ParametricRelation`, `FormulaRelation`, `SourceTerm`, `ParamRef`, `ImputationLog` | Ordered imputation pipeline; per-edge provenance logging; uncertainty propagation per fill |
 
 ### Stage 3 modules
 
@@ -388,7 +544,20 @@ scrap_return = ParametricRelation(
 )
 
 engine = ImputationEngine(acc_struct=acc)
+
+# Concentration and efficiency parameters from CSV
+engine.register(ParametricImputer.from_csv(
+    "data/input/params/copper_conc_params.csv", acc_struct=acc))
+engine.register(ParametricImputer.from_csv(
+    "data/input/params/copper_efficiency_params.csv", acc_struct=acc))
+
+# Lambda-based custom relation
 engine.register(ParametricImputer(relations=[scrap_return]))
+
+# Balance equations for domestic use of traded flows
+engine.register(FormulaImputer(relations=[domestic_matte]))
+
+# Temporal gap fill as last resort
 engine.register(TimeImputer(window=5, method="linear", gap_inflation=1.05))
 
 agg_result = engine.run(agg_result)
@@ -445,8 +614,10 @@ pysuto/
 ├── collector.py           FeedCollector · AggregationResult             ─┐
 ├── agg.py                 AggregationMath  (Ω · f_agg · σ_agg)          │ Stage 2
 ├── impute.py              ImputationEngine · BaseImputer                 │
-│                          ParametricImputer · TimeImputer                │
-│                          ParametricRelation · ImputationLog            ─┘
+│                          ParametricImputer · FormulaImputer             │
+│                          TimeImputer                                     │
+│                          ParametricRelation · FormulaRelation            │
+│                          SourceTerm · ParamRef · ImputationLog         ─┘
 │
 ├── constraints.py         ConstraintBuilder                             ─┐
 ├── optim.py               LinearOptimiser · OptimResult                  │ Stage 3
