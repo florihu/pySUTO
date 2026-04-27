@@ -57,6 +57,7 @@ from pysuto.impute   import (
     TimeImputer,
 )
 from pysuto.logging  import get_logger, add_run_handler
+from pysuto.diag     import ImpDiagnostic
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -87,7 +88,7 @@ registry.load_index()
 # ---------------------------------------------------------------------------
 
 logger.info("B  Collecting feeds: baci, crude_ore, icsg")
-collector  = FeedCollector(registry=registry, acc_struct=acc)
+collector  = FeedCollector(registry=registry, acc_struct=acc, min_flow_kt=0.001)
 agg_result = collector.select(["baci", "crude_ore", "icsg"]).aggregate()
 logger.info(
     "B  Aggregation done: %d covered / %d total edges",
@@ -346,5 +347,14 @@ logger.info(
 
 logger.info("D  Saving AggregationResult to %s", OUTPUT_DIR)
 agg_result.save(OUTPUT_DIR)
+
+# ---------------------------------------------------------------------------
+# E  Diagnostics
+# ---------------------------------------------------------------------------
+
+logger.info("E  Running imputation diagnostics")
+diag = ImpDiagnostic(agg_result, acc_struct=acc, label=IMP_ID)
+diag.plot(odir=os.path.join(OUTPUT_DIR, "diag"), show=False)
+diag.summary()
 
 logger.info("=== collect_aggregate_impute DONE ===")

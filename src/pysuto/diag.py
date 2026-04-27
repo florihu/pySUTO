@@ -3,17 +3,17 @@ diag.py
 =======
 Diagnostic visualisation classes for all three pipeline stages.
 
-    A  FeedDiagnostics      — Stage 1: feed reading, concordance coverage,
-                              F_src distribution, CV propagation
-    B  ImputationDiagnostics — Stage 2: aggregation coverage pre/post
-                              imputation, fill counts by method, value deltas
-    C  OptimDiagnostics     — Stage 3: optimisation residuals, σ_opt vs σ_agg,
-                              convergence across timesteps
+    A  FeedDiagnostics  — Stage 1: feed reading, concordance coverage,
+                          F_src distribution, CV propagation
+    B  ImpDiagnostic    — Stage 2: per-step F_root/σ distributions (log scale),
+                          coverage and fill-count evolution, TimeImputer timeseries
+    C  OptimDiagnostics — Stage 3: optimisation residuals, σ_opt vs σ_agg,
+                          convergence across timesteps
 
 Design conventions
 ------------------
 - Each class is constructed with its data; nothing is computed at import time.
-- `.plot(odir=..., show=False)` writes a PNG and returns the figure path.
+- `.plot(odir=..., show=False)` writes PNG(s) and returns a list of paths.
 - `.summary()` prints a text block to stdout and returns it as a string.
 - All classes can be used standalone or called from pipeline steps.
 - Matplotlib is imported lazily inside methods so the module can be imported
@@ -23,7 +23,7 @@ Design conventions
 
 Usage
 -----
-    from pysuto.diag import FeedDiagnostics, ImputationDiagnostics, OptimDiagnostics
+    from pysuto.diag import FeedDiagnostics, ImpDiagnostic, OptimDiagnostics
 
     # Stage 1 — after run_feed_pipeline or init_icsg_feed
     diag_a = FeedDiagnostics(
@@ -40,13 +40,13 @@ Usage
     diag_a.summary()
 
     # Stage 2 — after FeedCollector.aggregate() + ImputationEngine.run()
-    diag_b = ImputationDiagnostics(
-        agg_pre  = agg_result_before_imputation,
-        agg_post = agg_result_after_imputation,
-        acc_struct = acc,
-    )
-    diag_b.plot(odir="data/proc/diagnostics")
+    diag_b = ImpDiagnostic(agg_result, acc_struct=acc, label="copper")
+    diag_b.plot(odir="data/proc/diagnostics", show=False)
     diag_b.summary()
+
+    # Load from disk for post-hoc analysis
+    diag_b = ImpDiagnostic.from_saved("data/proc/agg", acc_struct=acc)
+    diag_b.plot(show=True)
 
     # Stage 3 — after OptimPipeline.run()
     diag_c = OptimDiagnostics(run=optim_run)
@@ -324,50 +324,53 @@ class FeedDiagnostics:
 
 
 # ===========================================================================
-# B  ImputationDiagnostics — Stage 2
+# B  ImpDiagnostic — Stage 2
 # ===========================================================================
 
-class ImputationDiagnostics:
+class ImpDiagnostic:
     """
-    Diagnostic figure comparing aggregation state before and after imputation.
+    Per-step imputation diagnostics for Stage 2 of the pySUTO pipeline.
 
-    Panels
-    ------
-    [0,0]  Coverage heatmap (pre)  — which feeds cover which edge classes
-    [0,1]  Coverage heatmap (post) — same view after imputation fills NaNs
-    [1,0]  Fill count by method    — how many edges each imputer filled
-    [1,1]  Imputed value distribution — histogram of imputed f_agg values
-    [1,2]  σ_agg: pre vs post      — scatter showing uncertainty change
+    Produces two figures:
+
+    Figure 1 — 2×2 panel  (<label>_imputation_steps.png)
+        [0,0]  F_root distribution per step (log scale, overlapping histograms)
+        [0,1]  Coverage count per step (# finite edges at each pipeline step)
+        [1,0]  Sigma distribution per step (log scale, overlapping histograms)
+        [1,1]  Count of edges imputed per step
+
+    Figure 2 — timeseries  (<label>_imputation_timeseries.png)
+        Up to 6 panels showing time-series of TimeImputer-filled flows,
+        distinguishing raw (feed-covered) from imputed points.
+        Only produced when acc_struct is provided.
 
     Parameters
     ----------
-    agg_pre   : AggregationResult before ImputationEngine.run()
-                Must have .f_agg [N_r], .sigma_agg [N_r], .Omega [N_f × N_r]
-    agg_post  : AggregationResult after ImputationEngine.run()
-                Additionally must have .imputation_log — list of dicts with
-                keys: edge_id, method, value, sigma
-    acc_struct: AccountingStructure — used for edge labels (optional; pass
-                None to fall back to integer indices)
-    label     : optional run label for figure titles
+    agg_result : AggregationResult
+        Result after ImputationEngine.run(). Must have .imputation_log set.
+    acc_struct : optional
+        AccountingStructure — required for Figure 2 (timeseries). If None,
+        Figure 2 is skipped.
+    label : str
+        Optional label for figure titles and output filenames.
     """
 
-    def __init__(
-        self,
-        agg_pre,
-        agg_post,
-        acc_struct=None,
-        label: str = "",
-    ) -> None:
-        self.agg_pre    = agg_pre
-        self.agg_post   = agg_post
+    _TIME_METHODS = {"time_linear", "time_mean", "locf", "nocb"}
+    _PALETTE      = ["navy", "blue", "green", "orange", "purple", "red"]
+
+    def __init__(self, agg_result, acc_struct=None, label: str = "") -> None:
+        self.agg_result = agg_result
         self.acc_struct = acc_struct
         self.label      = label
+        self._log_df    = agg_result.imputation_log.as_dataframe()
+        self._snapshots = self._build_snapshots()
 
-        # Derived
-        self._imputed_mask = (
-            np.isnan(agg_pre.f_agg) & np.isfinite(agg_post.f_agg)
-        )
-        self._imp_log: list[dict] = getattr(agg_post, "imputation_log", [])
+    @classmethod
+    def from_saved(cls, output_dir, acc_struct=None, label: str = "") -> "ImpDiagnostic":
+        """Load AggregationResult from disk and construct ImpDiagnostic."""
+        from pysuto.agg import AggregationResult
+        agg = AggregationResult.load(output_dir)
+        return cls(agg, acc_struct=acc_struct, label=label)
 
     # ------------------------------------------------------------------
     # Public interface
@@ -375,72 +378,62 @@ class ImputationDiagnostics:
 
     def plot(
         self,
-        odir: str = "data/proc/diagnostics",
-        show: bool = False,
+        odir: str | None = None,
+        show: bool = True,
         dpi:  int  = 150,
-    ) -> str:
+    ) -> list[str]:
+        """Produce and optionally save both diagnostic figures."""
         import matplotlib.pyplot as plt
 
-        fig, axes = plt.subplots(2, 3, figsize=(18, 10))
-        suffix = f" — {self.label}" if self.label else ""
-        fig.suptitle(
-            f"Imputation diagnostics{suffix}",
-            fontsize=14, fontweight="bold",
-        )
-
-        self._panel_coverage_pre(axes[0, 0])
-        self._panel_coverage_post(axes[0, 1])
-        self._panel_fill_count_by_method(axes[0, 2])
-        self._panel_imputed_value_dist(axes[1, 0])
-        self._panel_sigma_pre_post(axes[1, 1])
-        self._panel_feed_weight_dist(axes[1, 2])
-
-        plt.tight_layout()
-
         tag   = self.label.replace(" ", "_") or "imputation"
-        path  = os.path.join(odir, f"{tag}_imputation.png")
-        _savefig(fig, path, dpi=dpi)
+        paths = []
+
+        fig1 = self._fig1_steps()
+        if odir is not None:
+            p = _savefig(fig1, os.path.join(odir, f"{tag}_imputation_steps.png"), dpi=dpi)
+            paths.append(p)
+            print(f"   Imputation step diagnostics → {p}  ✓")
         if show:
             plt.show()
-        plt.close(fig)
-        print(f"   Imputation diagnostics → {path}  ✓")
-        return path
+        plt.close(fig1)
+
+        if self.acc_struct is not None:
+            fig2 = self._fig2_timeseries()
+            if fig2 is not None:
+                if odir is not None:
+                    p = _savefig(fig2, os.path.join(odir, f"{tag}_imputation_timeseries.png"), dpi=dpi)
+                    paths.append(p)
+                    print(f"   Imputation timeseries    → {p}  ✓")
+                if show:
+                    plt.show()
+                plt.close(fig2)
+
+        return paths
 
     def summary(self) -> str:
-        """Print and return a text summary block."""
-        pre, post   = self.agg_pre, self.agg_post
-        n_edges     = len(pre.f_agg)
-        n_covered   = int(np.isfinite(pre.f_agg).sum())
-        n_imputed   = int(self._imputed_mask.sum())
-        n_missing   = n_edges - n_covered - n_imputed
-
-        # Fill counts by method
-        method_counts: dict[str, int] = {}
-        for rec in self._imp_log:
-            m = rec.get("method", "unknown")
-            method_counts[m] = method_counts.get(m, 0) + 1
+        """Print and return a text summary of the imputation pipeline."""
+        log_df  = self._log_df
+        agg     = self.agg_result
+        n_edges = len(agg.f_agg)
+        n_final = int(np.isfinite(agg.f_agg).sum())
+        n_imp   = len(log_df)
+        n_miss  = n_edges - n_final
 
         lines = [
             f"{'─'*60}",
             f"  IMPUTATION DIAGNOSTICS{' — ' + self.label if self.label else ''}",
             f"{'─'*60}",
-            f"  Root edges total  : {n_edges:>8,}",
-            f"  Covered by feeds  : {n_covered:>8,}  ({n_covered / n_edges * 100:.1f} %)",
-            f"  Filled by imputer : {n_imputed:>8,}  ({n_imputed / n_edges * 100:.1f} %)",
-            f"  Still missing     : {n_missing:>8,}  ({n_missing / n_edges * 100:.1f} %)",
+            f"  Root edges total       : {n_edges:>8,}",
+            f"  Covered after pipeline : {n_final:>8,}  ({n_final/n_edges*100:.1f} %)",
+            f"  Filled by imputers     : {n_imp:>8,}  ({n_imp/n_edges*100:.1f} %)",
+            f"  Still missing          : {n_miss:>8,}  ({n_miss/n_edges*100:.1f} %)",
         ]
 
-        if method_counts:
-            lines.append(f"\n  Fill counts by method:")
-            for method, cnt in sorted(method_counts.items(), key=lambda x: -x[1]):
-                lines.append(f"    {method:<30} {cnt:>6,}")
-
-        if n_imputed:
-            imp_vals = post.f_agg[self._imputed_mask]
-            lines += [
-                f"\n  Imputed value range : {imp_vals.min():>10,.1f} – {imp_vals.max():,.1f} kt",
-                f"  Imputed value mean  : {imp_vals.mean():>10,.1f} kt",
-            ]
+        if not log_df.empty:
+            lines.append(f"\n  Fills per step:")
+            for step, grp in log_df.groupby("step"):
+                dom = grp["method"].value_counts().index[0]
+                lines.append(f"    step {step}  {dom:<22}  {len(grp):>6,} fills")
 
         lines.append(f"{'─'*60}")
         text = "\n".join(lines)
@@ -448,129 +441,229 @@ class ImputationDiagnostics:
         return text
 
     # ------------------------------------------------------------------
-    # Private panel renderers
+    # Snapshot reconstruction
     # ------------------------------------------------------------------
 
-    def _panel_coverage_pre(self, ax) -> None:
-        self._coverage_panel(ax, self.agg_pre, title="Coverage — pre-imputation")
+    def _build_snapshots(self) -> list[tuple[str, np.ndarray, np.ndarray]]:
+        """Reconstruct per-step (f, sigma) arrays from ImputationLog."""
+        log_df = self._log_df
+        if log_df.empty:
+            f = self.agg_result.f_agg
+            s = self.agg_result.sigma_agg
+            return [("pre", f.copy(), s.copy())]
 
-    def _panel_coverage_post(self, ax) -> None:
-        self._coverage_panel(ax, self.agg_post, title="Coverage — post-imputation")
+        imputed_ids = log_df["edge_id"].values
 
-    def _coverage_panel(self, ax, agg, title: str) -> None:
-        """
-        Bar chart: covered / imputed / missing edge counts.
-        If Omega is available, also shows the mean number of feeds per edge.
-        """
-        n_edges   = len(agg.f_agg)
-        n_covered = int(np.isfinite(agg.f_agg).sum())
-        n_missing = n_edges - n_covered
+        f0 = self.agg_result.f_agg.copy()
+        s0 = self.agg_result.sigma_agg.copy()
+        f0[imputed_ids] = np.nan
+        s0[imputed_ids] = np.nan
 
-        bars = ax.bar(
-            ["Covered", "Missing"],
-            [n_covered, n_missing],
-            color=[_C["green"], _C["grey"]],
-            edgecolor="white",
+        snapshots = [("pre", f0.copy(), s0.copy())]
+        f_curr = f0.copy()
+        s_curr = s0.copy()
+
+        for step in sorted(log_df["step"].unique()):
+            mask   = log_df["step"] == step
+            ids    = log_df.loc[mask, "edge_id"].values
+            f_curr[ids] = log_df.loc[mask, "f_after"].values
+            s_curr[ids] = log_df.loc[mask, "sigma_after"].values
+            dom    = log_df.loc[mask, "method"].value_counts().index[0]
+            snapshots.append((f"step {step} ({dom})", f_curr.copy(), s_curr.copy()))
+
+        return snapshots
+
+    # ------------------------------------------------------------------
+    # Figure 1 — 2×2 step panels
+    # ------------------------------------------------------------------
+
+    def _fig1_steps(self):
+        import matplotlib.pyplot as plt
+
+        fig, axes = plt.subplots(2, 2, figsize=(14, 9))
+        suffix = f" — {self.label}" if self.label else ""
+        fig.suptitle(
+            f"Imputation pipeline — per-step diagnostics{suffix}",
+            fontsize=13, fontweight="bold",
         )
-        for bar, cnt in zip(bars, [n_covered, n_missing]):
-            pct = cnt / n_edges * 100
-            ax.text(
-                bar.get_x() + bar.get_width() / 2,
-                bar.get_height() + n_edges * 0.01,
-                f"{cnt:,}\n({pct:.1f} %)",
-                ha="center", va="bottom", fontsize=9,
-            )
-        ax.set_title(title, fontweight="bold")
-        ax.set_ylabel("# root edges")
-        ax.set_ylim(0, n_edges * 1.2)
+        self._panel_f_dist(axes[0, 0])
+        self._panel_coverage(axes[0, 1])
+        self._panel_sigma_dist(axes[1, 0])
+        self._panel_imputed_count(axes[1, 1])
+        plt.tight_layout()
+        return fig
+
+    def _panel_f_dist(self, ax) -> None:
+        colors = [_C[k] for k in self._PALETTE]
+        for i, (lbl, f, _) in enumerate(self._snapshots):
+            vals = f[np.isfinite(f) & (f > 0)]
+            if not len(vals):
+                continue
+            ax.hist(np.log10(vals), bins=60, alpha=0.45,
+                    color=colors[i % len(colors)], label=lbl,
+                    density=True, histtype="stepfilled", edgecolor="none")
+        ax.set_title("F_root distribution per step", fontweight="bold")
+        ax.set_xlabel("log₁₀(f)  [log kt]")
+        ax.set_ylabel("density")
+        ax.legend(fontsize=7, framealpha=0.6)
         ax.grid(axis="y", alpha=0.3)
 
-    def _panel_fill_count_by_method(self, ax) -> None:
-        if not self._imp_log:
-            ax.text(0.5, 0.5, "No imputation log available",
-                    ha="center", va="center", transform=ax.transAxes, fontsize=10)
-            ax.set_title("Fill count by method", fontweight="bold")
+    def _panel_coverage(self, ax) -> None:
+        colors  = [_C[k] for k in self._PALETTE]
+        labels  = [s[0] for s in self._snapshots]
+        counts  = [int(np.isfinite(s[1]).sum()) for s in self._snapshots]
+        n_total = len(self._snapshots[0][1])
+
+        bars = ax.barh(
+            labels, counts,
+            color=[colors[i % len(colors)] for i in range(len(labels))],
+            edgecolor="white",
+        )
+        for bar, cnt in zip(bars, counts):
+            ax.text(
+                cnt + n_total * 0.005,
+                bar.get_y() + bar.get_height() / 2,
+                f"{cnt:,}  ({cnt/n_total*100:.1f} %)",
+                va="center", fontsize=8,
+            )
+        ax.set_title("Coverage per step (# finite edges)", fontweight="bold")
+        ax.set_xlabel("# root edges")
+        ax.set_xlim(0, n_total * 1.28)
+        ax.grid(axis="x", alpha=0.3)
+
+    def _panel_sigma_dist(self, ax) -> None:
+        colors = [_C[k] for k in self._PALETTE]
+        for i, (lbl, _, s) in enumerate(self._snapshots):
+            vals = s[np.isfinite(s) & (s > 0)]
+            if not len(vals):
+                continue
+            ax.hist(np.log10(vals), bins=60, alpha=0.45,
+                    color=colors[i % len(colors)], label=lbl,
+                    density=True, histtype="stepfilled", edgecolor="none")
+        ax.set_title("σ distribution per step", fontweight="bold")
+        ax.set_xlabel("log₁₀(σ)  [log kt]")
+        ax.set_ylabel("density")
+        ax.legend(fontsize=7, framealpha=0.6)
+        ax.grid(axis="y", alpha=0.3)
+
+    def _panel_imputed_count(self, ax) -> None:
+        log_df = self._log_df
+        if log_df.empty:
+            ax.text(0.5, 0.5, "No fills recorded",
+                    ha="center", va="center", transform=ax.transAxes)
+            ax.set_title("Fills per step", fontweight="bold")
             return
 
-        method_counts: dict[str, int] = {}
-        for rec in self._imp_log:
-            m = rec.get("method", "unknown")
-            method_counts[m] = method_counts.get(m, 0) + 1
+        step_counts = log_df.groupby("step").size()
+        steps  = [str(s) for s in step_counts.index]
+        counts = step_counts.values
+        colors = [_C[k] for k in self._PALETTE]
 
-        methods = list(method_counts.keys())
-        counts  = [method_counts[m] for m in methods]
-        colors  = [_C["blue"], _C["purple"], _C["orange"], _C["navy"]][:len(methods)]
-
-        ax.bar(methods, counts, color=colors, edgecolor="white")
-        ax.set_title("Fill count by method", fontweight="bold")
+        bars = ax.bar(
+            steps, counts,
+            color=[colors[i % len(colors)] for i in range(len(steps))],
+            edgecolor="white",
+        )
+        for bar, cnt in zip(bars, counts):
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_height() + counts.max() * 0.01,
+                f"{cnt:,}", ha="center", va="bottom", fontsize=8,
+            )
+        ax.set_title("Edges imputed per step", fontweight="bold")
+        ax.set_xlabel("pipeline step")
         ax.set_ylabel("# edges filled")
         ax.grid(axis="y", alpha=0.3)
 
-    def _panel_imputed_value_dist(self, ax) -> None:
-        imp_vals = self.agg_post.f_agg[self._imputed_mask]
-        if len(imp_vals):
-            ax.hist(imp_vals, bins=30, color=_C["orange"],
-                    edgecolor="white", linewidth=0.5)
-        ax.set_title("Imputed f_agg distribution (kt)", fontweight="bold")
-        ax.set_xlabel("kt")
-        ax.set_ylabel("# edges")
-        ax.grid(axis="y", alpha=0.3)
+    # ------------------------------------------------------------------
+    # Figure 2 — timeseries (requires acc_struct)
+    # ------------------------------------------------------------------
 
-    def _panel_sigma_pre_post(self, ax) -> None:
-        """
-        Scatter: σ_agg before vs after imputation for covered edges.
-        Points that changed lie off the diagonal; imputed edges highlighted.
-        """
-        pre_sigma  = self.agg_pre.sigma_agg
-        post_sigma = self.agg_post.sigma_agg
-        both_finite = np.isfinite(pre_sigma) & np.isfinite(post_sigma)
+    def _fig2_timeseries(self):
+        import matplotlib.pyplot as plt
 
-        if both_finite.any():
-            ax.scatter(
-                pre_sigma[both_finite], post_sigma[both_finite],
-                s=4, alpha=0.4, color=_C["blue"], label="feed-covered",
+        acc     = self.acc_struct
+        log_df  = self._log_df
+        time_df = log_df[log_df["method"].isin(self._TIME_METHODS)].copy()
+        if time_df.empty:
+            return None
+
+        ei      = acc.edge_index.set_index("edge_id")
+        time_df = time_df.join(ei[["from_id", "to_id", "time", "valuation"]], on="edge_id")
+
+        # Top-6 groups by mean |f_after|
+        group_keys = ["from_id", "to_id", "valuation"]
+        grp_mean   = (
+            time_df.groupby(group_keys)["f_after"]
+            .apply(lambda x: np.abs(x).mean())
+            .sort_values(ascending=False)
+        )
+        top_groups = grp_mean.head(6).index.tolist()
+        if not top_groups:
+            return None
+
+        n     = len(top_groups)
+        ncols = min(3, n)
+        nrows = (n + ncols - 1) // ncols
+        fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 4 * nrows), squeeze=False)
+        suffix = f" — {self.label}" if self.label else ""
+        fig.suptitle(f"TimeImputer timeseries{suffix}", fontsize=13, fontweight="bold")
+
+        try:
+            time_order = {t: float(t) for t in acc.time_range}
+        except (ValueError, TypeError):
+            time_order = {t: i for i, t in enumerate(acc.time_range)}
+
+        agg_f        = self.agg_result.f_agg
+        imputed_set  = set(log_df["edge_id"].values)
+        time_imp_set = set(time_df["edge_id"].values)
+
+        for panel_idx, key in enumerate(top_groups):
+            ax = axes[panel_idx // ncols][panel_idx % ncols]
+            from_id, to_id, valuation = key
+
+            group_edges = ei[
+                (ei["from_id"] == from_id) &
+                (ei["to_id"]   == to_id)   &
+                (ei["valuation"] == valuation)
+            ]
+
+            raw_t, raw_f, imp_t, imp_f = [], [], [], []
+            for eid, row in group_edges.iterrows():
+                f_val = agg_f[eid]
+                if not np.isfinite(f_val):
+                    continue
+                t_num = time_order.get(str(row["time"]), 0)
+                if eid in time_imp_set:
+                    imp_t.append(t_num)
+                    imp_f.append(f_val)
+                elif eid not in imputed_set:
+                    raw_t.append(t_num)
+                    raw_f.append(f_val)
+
+            if raw_t:
+                ax.scatter(raw_t, raw_f, s=30, color=_C["grey"],
+                           label="raw", zorder=3, alpha=0.85)
+            if imp_t:
+                ax.scatter(imp_t, imp_f, s=50, marker="x", color=_C["orange"],
+                           label="imputed", zorder=4, linewidths=1.8)
+
+            n_from = acc.decode_node(int(from_id))
+            n_to   = acc.decode_node(int(to_id))
+            ax.set_title(
+                f"{n_from[0]}/{n_from[2]} → {n_to[0]}/{n_to[2]}  [{valuation}]",
+                fontsize=8, fontweight="bold",
             )
-        # Imputed edges — sigma changed from NaN to finite
-        imp_post = post_sigma[self._imputed_mask]
-        if len(imp_post):
-            ax.scatter(
-                np.zeros(len(imp_post)), imp_post,
-                s=10, alpha=0.6, color=_C["orange"], label="imputed",
-            )
+            ax.set_xlabel("time")
+            ax.set_ylabel("f (kt)")
+            ax.legend(fontsize=7)
+            ax.grid(alpha=0.3)
 
-        lo = min(pre_sigma[both_finite].min() if both_finite.any() else 0, 0)
-        hi = post_sigma[np.isfinite(post_sigma)].max() if np.isfinite(post_sigma).any() else 1
-        ax.plot([lo, hi], [lo, hi], "k--", lw=0.8, alpha=0.5, label="no change")
-        ax.set_title("σ_agg: pre vs post imputation (kt)", fontweight="bold")
-        ax.set_xlabel("σ_agg pre (kt)")
-        ax.set_ylabel("σ_agg post (kt)")
-        ax.legend(fontsize=8)
-        ax.grid(alpha=0.3)
+        for idx in range(n, nrows * ncols):
+            axes[idx // ncols][idx % ncols].set_visible(False)
 
-    def _panel_feed_weight_dist(self, ax) -> None:
-        """
-        Histogram of max feed weight per root edge from Ω.
-        Shows how concentrated vs distributed the coverage is.
-        """
-        Omega = getattr(self.agg_pre, "Omega", None)
-        if Omega is None or Omega.shape[0] == 0:
-            ax.text(0.5, 0.5, "Ω not available",
-                    ha="center", va="center", transform=ax.transAxes, fontsize=10)
-            ax.set_title("Max feed weight per edge", fontweight="bold")
-            return
-
-        max_w = np.nanmax(Omega, axis=0)
-        max_w = max_w[np.isfinite(max_w)]
-        if len(max_w):
-            ax.hist(max_w, bins=20, color=_C["purple"],
-                    edgecolor="white", linewidth=0.5)
-        ax.axvline(1.0, color=_C["red"], lw=1, ls="--",
-                   label="single-feed monopoly")
-        ax.set_title("Max Ω weight per root edge", fontweight="bold")
-        ax.set_xlabel("max Ω[k, j]")
-        ax.set_ylabel("# root edges")
-        ax.legend(fontsize=8)
-        ax.grid(axis="y", alpha=0.3)
+        plt.tight_layout()
+        return fig
 
 
 # ===========================================================================

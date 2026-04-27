@@ -54,10 +54,11 @@ class FeedCollector:
     acc_struct : AccountingStructure whose edge_index defines the N_r axis
     """
 
-    def __init__(self, registry: DataFeedRegistry, acc_struct) -> None:
-        self._registry   = registry
-        self._acc_struct = acc_struct
-        self._feed_ids:  List[str] = []
+    def __init__(self, registry: DataFeedRegistry, acc_struct, min_flow_kt: float = 0.0) -> None:
+        self._registry    = registry
+        self._acc_struct  = acc_struct
+        self._feed_ids:   List[str] = []
+        self._min_flow_kt = min_flow_kt
 
     # ------------------------------------------------------------------
     # Selection
@@ -124,7 +125,15 @@ class FeedCollector:
             sigma_k = res["sigma_root"].astype(float)
 
             # sigma_root = 0 → no source edge contributed → not covered
-            covered          = sigma_k > 0
+            covered = sigma_k > 0
+            if self._min_flow_kt > 0:
+                below = covered & (np.abs(f_k) < self._min_flow_kt)
+                covered &= ~below
+                if below.any():
+                    logger.info(
+                        "'%s': suppressed %d near-zero edges (|f| < %.4g kt)",
+                        fid, int(below.sum()), self._min_flow_kt,
+                    )
             F[k, covered]     = f_k[covered]
             Sigma[k, covered] = sigma_k[covered]
 

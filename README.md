@@ -305,6 +305,23 @@ The log is attached to `AggregationResult` and persisted alongside it. Combined 
 **Inputs:** feed IDs, registry  
 **Outputs:** `AggregationResult` with `f_agg [N_r]`, `σ_agg [N_r]`, weight matrix **Ω**, `ImputationLog`
 
+#### Diagnostics (`ImpDiagnostic`)
+
+After `engine.run()`, pass the result to `ImpDiagnostic` to produce two diagnostic figures:
+
+- **Figure 1** (2×2 grid): per-step distribution of F_root and σ (log scale, overlapping histograms); coverage count and imputed-edge count bar charts at each pipeline step
+- **Figure 2** (timeseries, requires `acc_struct`): up to 6 flow time-series selected from TimeImputer fills (highest-volume), with raw feed-covered points and imputed points distinguished
+
+```python
+diag = ImpDiagnostic(agg_result, acc_struct=acc, label="copper")
+diag.plot(odir="data/proc/imp/copper/diag", show=False)
+diag.summary()
+
+# Load from disk for post-hoc analysis
+diag = ImpDiagnostic.from_saved("data/proc/imp/copper", acc_struct=acc)
+diag.plot(show=True)
+```
+
 ### Stage 3 — Linear optimisation
 
 Runs as a loop over T timesteps. `ConstraintBuilder` assembles the constraint matrix `G` and right-hand-side vector `c` from the accounting structure (supply = use balances) plus user-defined parametric relations. `LinearOptimiser` solves the σ-weighted least-squares problem with equality constraints. Each timestep is warm-started from the previous solution. `OptUncertainty` propagates input uncertainty into the optimised solution via the KKT sensitivity Jacobian. All results are collected into an `OptimRun` and persisted.
@@ -340,6 +357,7 @@ Runs as a loop over T timesteps. `ConstraintBuilder` assembles the constraint ma
 | `collector.py` | `FeedCollector`, `AggregationResult` | Select and load feeds; align F and Σ matrices onto common edge index |
 | `agg.py` | `AggregationMath` | Build **Ω**; compute `f_agg = 1ᵀ(Ω ⊙ F)` and `σ_agg`; coverage mask |
 | `impute.py` | `ImputationEngine`, `BaseImputer`, `ParametricImputer`, `FormulaImputer`, `TimeImputer`, `ParametricRelation`, `FormulaRelation`, `SourceTerm`, `ParamRef`, `ImputationLog` | Ordered imputation pipeline; per-edge provenance logging; uncertainty propagation per fill |
+| `diag.py` | `ImpDiagnostic` | Per-step diagnostic plots for the imputation pipeline (see below) |
 
 ### Stage 3 modules
 
