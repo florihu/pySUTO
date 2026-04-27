@@ -21,6 +21,7 @@ res/
 logs/
 scripts/obs
 .claude/
+.agents/
 
 # VSCode settings (optional)
 .vscode/
