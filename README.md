@@ -78,6 +78,8 @@ Edges covered by no feed remain NaN in `f_agg` and are passed to the imputation 
 
 `ImputationEngine` manages an ordered pipeline of imputers. Each imputer receives the current state `(f_agg, σ_agg, missing_mask)`, attempts to fill remaining NaN entries, propagates uncertainty through its fill formula, and appends to the shared `ImputationLog`. Multiple imputers chain: the second imputer only sees edges still NaN after the first, and so on.
 
+When an imputer is registered via `register()`, `ImputationEngine` calls its `prepare(acc_struct)` method (if present), moving expensive one-time setup — such as building the shared edge-lookup index or pre-computing target/source masks — to registration time rather than the first `impute()` call. Imputers that lack `prepare()` are unaffected.
+
 #### Parameter types and the edge-pair schema
 
 All parametric imputation rests on a bidirectional linear constraint between two edges, called **edge A** and **edge B**:
@@ -201,6 +203,8 @@ SourceTerm(
 | `"to_matches_target_from"` | `source.to_region == target.from_region` |
 | `"to_matches_target_to"` | `source.to_region == target.to_region` |
 
+**`prepare(acc_struct)`** — pre-builds the shared edge-lookup index and pre-computes target and source masks for all relations in this imputer. Called automatically by `ImputationEngine.register()`; can also be called explicitly before standalone use.
+
 **`FormulaRelation`** — directed multi-source balance equation:
 
 ```python
@@ -264,6 +268,8 @@ The same pattern generalises to any tradable intermediate flow (Concentrate, CSX
 ```
 
 If the pre-clip value is negative and the result is clipped to `clip_lower`, the fill is logged with `method="formula_clipped"` and `sigma_after` carries the pre-clip σ as a conservative uncertainty estimate.
+
+For `aggregate="sum"` terms, zero matching source edges is treated as a contribution of 0 (not a failure). This handles the common case where a country has no exports for a given flow in a given year.
 
 ##### TimeImputer
 
@@ -466,29 +472,47 @@ Steps are applied in registration order. After step $s$, let $\mathcal{M}_s$ den
 
 ### Stage 3 — Constrained optimisation objective
 
-Minimise the $\sigma$-weighted distance from the aggregated estimate subject to physical balance constraints:
+#### The (P\*) problem
 
-$$\min_{\mathbf{f}} \; (\mathbf{f} - \mathbf{f}_\mathrm{agg})^\top \boldsymbol{\Sigma}_\mathrm{agg}^{-1} (\mathbf{f} - \mathbf{f}_\mathrm{agg}) \qquad \text{subject to} \quad \mathbf{G}\mathbf{f} = \mathbf{c}$$
+$$\min_{\mathbf{a},\,\boldsymbol{\varepsilon}} \quad (\mathbf{a} - \mathbf{a}_0)^\top \Sigma_a^{-1} (\mathbf{a} - \mathbf{a}_0) \;+\; \boldsymbol{\varepsilon}^\top \Sigma_c^{-1} \boldsymbol{\varepsilon}$$
 
-where $\boldsymbol{\Sigma}_\mathrm{agg} = \mathrm{diag}(\boldsymbol{\sigma}_\mathrm{agg}^2)$, $\mathbf{G}$ encodes supply–use balances and parametric efficiency constraints, and $\mathbf{c}$ holds the corresponding totals.
+$$\text{s.t.} \quad \mathbf{G}\,\mathbf{a} - \boldsymbol{\varepsilon} = \mathbf{c}, \qquad \mathbf{l} \leq \mathbf{a} \leq \mathbf{u}$$
 
-### Optimised uncertainty via KKT sensitivity
+| Symbol | Meaning in pySUTO |
+|---|---|
+| $\mathbf{a}$ | Vector of all flow values (854,460 edges for copper) |
+| $\mathbf{a}_0$ | Aggregated prior from Stage 2 (inverse-variance weighted mean) |
+| $\Sigma_a$ | Diagonal matrix of pedigree-derived flow variances |
+| $\boldsymbol{\varepsilon}$ | Slack on balance/constraint equations |
+| $\Sigma_c$ | Diagonal matrix of constraint uncertainties |
+| $\mathbf{G}$ | Constraint matrix — encodes all linear equations on $\mathbf{a}$ |
+| $\mathbf{c}$ | Right-hand side of constraints |
+| $\mathbf{l}, \mathbf{u}$ | Physical lower/upper bounds (e.g. $l_i = 0$ for non-negative flows) |
 
-The closed-form optimum for equality-constrained WLS:
+#### In Solver format
 
-$$\mathbf{f}_\mathrm{opt} = \mathbf{f}_\mathrm{agg} + \boldsymbol{\Sigma}_\mathrm{agg}\mathbf{G}^\top \!\left(\mathbf{G}\boldsymbol{\Sigma}_\mathrm{agg}\mathbf{G}^\top\right)^{-1} (\mathbf{c} - \mathbf{G}\mathbf{f}_\mathrm{agg})$$
+##### Clarabel's problem format
 
-Jacobian of $\mathbf{f}_\mathrm{opt}$ with respect to $\mathbf{c}$:
+Clarabel solves:
 
-$$\mathbf{J} = \frac{\partial \mathbf{f}_\mathrm{opt}}{\partial \mathbf{c}} = \boldsymbol{\Sigma}_\mathrm{agg}\mathbf{G}^\top \!\left(\mathbf{G}\boldsymbol{\Sigma}_\mathrm{agg}\mathbf{G}^\top\right)^{-1}$$
+$$\min_x \quad \tfrac{1}{2} x^\top P x + q^\top x \qquad \text{s.t.} \quad Ax + s = b, \quad s \in \mathcal{K}$$
 
-Propagated uncertainty on the optimised solution:
+where $\mathcal{K} = \mathcal{K}_1 \times \mathcal{K}_2 \times \cdots$ is a product of cones.
 
-$$\boldsymbol{\Sigma}_\mathrm{opt} = \mathbf{J}\,\boldsymbol{\Sigma}_c\,\mathbf{J}^\top, \qquad \boldsymbol{\sigma}_\mathrm{opt} = \sqrt{\mathrm{diag}(\boldsymbol{\Sigma}_\mathrm{opt})}$$
+Stack the decision variable:
 
-where $\boldsymbol{\Sigma}_c = \mathrm{diag}(\boldsymbol{\sigma}_\mathrm{agg}^2)$ is the uncertainty in the constraint right-hand sides inherited from the aggregation step.
+$$x = \begin{bmatrix} \mathbf{a} \\ \boldsymbol{\varepsilon} \end{bmatrix} \in \mathbb{R}^{n_a + n_c}$$
 
----
+Objective in Clarabel's $\tfrac{1}{2}x^\top P x + q^\top x$ form (note the factor $\tfrac{1}{2}$,
+so $P$ absorbs a factor of 2):
+
+$$P = 2\begin{bmatrix} \Sigma_a^{-1} & 0 \\ 0 & \Sigma_c^{-1} \end{bmatrix} \quad \text{(upper triangle only, CSC format)}$$
+
+$$q = \begin{bmatrix} -2\,\Sigma_a^{-1}\mathbf{a}_0 \\ \mathbf{0} \end{bmatrix}$$
+
+$$ A=[G - I] $$
+
+$$ b = c $$
 
 ## Workflow
 

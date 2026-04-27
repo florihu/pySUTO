@@ -34,9 +34,10 @@ from datetime import datetime
 ACC_ID       = "copper"
 ACC_DIR      = os.path.join("data", "proc", "acc")
 REGISTRY_DIR = os.path.join("data", "proc", "feed", "registry")
-OUTPUT_DIR   = os.path.join("data", "proc")
-PARAMS_DIR   = os.path.join("data", "input", "params")
 
+IMP_ID      = "copper_agg_imp_v0"  # for logging and param references           # for logging and param references 
+OUTPUT_DIR   = os.path.join("data", "proc", "imp", IMP_ID)  # where to save the final AggregationResult (must not exist yet)
+PARAMS_DIR   = os.path.join("data", "input", "params")  # where to find CSVs for ParametricImputer
 # ---------------------------------------------------------------------------
 # Imports
 # ---------------------------------------------------------------------------
