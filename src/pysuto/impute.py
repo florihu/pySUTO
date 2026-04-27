@@ -276,6 +276,32 @@ class ImputationEngine:
             entries = imputer.impute(f, sigma, missing, step, self._acc_struct)
             log.extend(entries)
 
+            # Post-step bounds enforcement: warn and clip any newly-filled out-of-bounds values
+            newly_filled = np.where(missing & ~np.isnan(f))[0]
+            if newly_filled.size > 0:
+                bl = self._acc_struct.bounds.l[newly_filled]
+                bu = self._acc_struct.bounds.u[newly_filled]
+                fv = f[newly_filled]
+                clip_needed = (fv < bl) | (fv > bu)
+                if clip_needed.any():
+                    _, _, id_to_tuple, _, _, _ = _get_edge_cache(self._acc_struct)
+                    for e_id in newly_filled[clip_needed]:
+                        lo  = float(self._acc_struct.bounds.l[e_id])
+                        hi  = float(self._acc_struct.bounds.u[e_id])
+                        val = float(f[e_id])
+                        clipped_val = float(np.clip(val, lo, hi))
+                        tup = id_to_tuple[int(e_id)]
+                        warnings.warn(
+                            f"step {step} ({type(imputer).__name__}): "
+                            f"edge {e_id} ({tup[0]}[{tup[2]}]→{tup[3]}[{tup[5]}], "
+                            f"t={tup[6]}, {tup[7]}): "
+                            f"imputed {val:.4g} clipped to {clipped_val:.4g} "
+                            f"(bounds [{lo:.4g}, {hi:.4g}])",
+                            UserWarning,
+                            stacklevel=2,
+                        )
+                        f[e_id] = clipped_val
+
             n_missing_after = int(np.isnan(f).sum())
             n_filled = n_missing_before - n_missing_after
             cov_after = (n_total - n_missing_after) / n_total
@@ -841,13 +867,15 @@ class FormulaImputer(BaseImputer):
 
                 var_val += (rel.epsilon * f_val) ** 2
 
-                # Clip
+                # Clip to acc.bounds (authoritative; FormulaRelation.clip_lower/clip_upper ignored)
                 clipped = False
-                if rel.clip_lower is not None and f_val < rel.clip_lower:
-                    f_val   = rel.clip_lower
+                lo = float(acc_struct.bounds.l[int(t_id)])
+                hi = float(acc_struct.bounds.u[int(t_id)])
+                if f_val < lo:
+                    f_val   = lo
                     clipped = True
-                if rel.clip_upper is not None and f_val > rel.clip_upper:
-                    f_val   = rel.clip_upper
+                if f_val > hi:
+                    f_val   = hi
                     clipped = True
 
                 s_val = float(np.sqrt(var_val))
