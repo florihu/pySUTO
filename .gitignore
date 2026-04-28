@@ -23,6 +23,7 @@ scripts/obs
 .claude/
 .agents/
 plans/
+context/
 
 # VSCode settings (optional)
 .vscode/
