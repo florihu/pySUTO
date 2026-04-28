@@ -61,7 +61,8 @@ class AggregationResult:
     Sigma:    np.ndarray
     feed_ids: List[str]
     coverage: np.ndarray
-    imputation_log: Optional[object] = field(default=None)
+    imputation_log:      Optional[object] = field(default=None)
+    imputation_metadata: Optional[object] = field(default=None)
 
     def save(self, output_dir) -> None:
         from pathlib import Path
@@ -81,6 +82,10 @@ class AggregationResult:
         if self.imputation_log is not None:
             self.imputation_log.as_dataframe().to_csv(
                 path / "imputation_log.csv", index=False
+            )
+        if self.imputation_metadata is not None:
+            self.imputation_metadata.as_dataframe().to_csv(
+                path / "imputation_metadata.csv", index=False
             )
         logger.info("AggregationResult saved to %s", path)
 

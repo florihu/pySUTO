@@ -322,11 +322,63 @@ diag = ImpDiagnostic.from_saved("data/proc/imp/copper", acc_struct=acc)
 diag.plot(show=True)
 ```
 
-### Stage 3 — Linear optimisation
+### Stage 3 — Constraint building and linear optimisation
 
-Runs as a loop over T timesteps. `ConstraintBuilder` assembles the constraint matrix `G` and right-hand-side vector `c` from the accounting structure (supply = use balances) plus user-defined parametric relations. `LinearOptimiser` solves the σ-weighted least-squares problem with equality constraints. Each timestep is warm-started from the previous solution. `OptUncertainty` propagates input uncertainty into the optimised solution via the KKT sensitivity Jacobian. All results are collected into an `OptimRun` and persisted.
+Stage 3 has two sequential sub-steps.
 
-**Inputs:** `AggregationResult`, accounting structure, parametric relations  
+#### 3a — Constraint building (`ConstraintEngine`)
+
+`ConstraintEngine` follows the same plugin pattern as `ImputationEngine`: register `BaseConstraintBuilder` subclasses in order, then call `run()`. The engine calls `build_static()` on every registered builder once to assemble the time-invariant constraint matrix **G**, then calls `build_dynamic()` per timestep to produce `c(t)` and `σ_c(t)`. Results are persisted in a `ConstraintRunRegistry` at `data/proc/const/`.
+
+**Five built-in builders** (registered in any order):
+
+| Builder | Constraint | Cone | σ_c |
+|---|---|---|---|
+| `MassBalanceBuilder` | Hard: Σ incoming_edges − Σ outgoing_edges = 0 per (Flow\|Process) node × time | Zero | 0 |
+| `SumConstraintBuilder` | Soft: Σ coeff_i · a_i = c_k + ε_k (from `acc_struct` topology or CSV) | Free | `fraction_of_flow` or `sd` |
+| `RatioConstraintBuilder` | Soft: a_i − r · a_j = ε_k (from params CSV) | Free | from params CSV unc_type |
+| `RatioBoundBuilder` | Hard: a_i − r_u · a_j ≤ 0 and −a_i + r_l · a_j ≤ 0 (from params CSV) | Non-neg | 0 |
+| `FlowBoundsBuilder` | Hard: l_i ≤ a_i ≤ u_i (from `acc_struct.bounds`) | Non-neg | 0 |
+
+`MassBalanceBuilder` derives balance rows automatically from four boolean edge masks that `AccountingStructure` computes at construction time (`supply_edge_mask`, `use_edge_mask`, `tradable_edge_mask`, `sb_edge_mask`). SB nodes are open-boundary endpoints and are excluded from balance rows.
+
+**Sum constraint CSV** (long format — one row per term; `constraint_id` groups terms):
+
+| Column | Description |
+|---|---|
+| `constraint_id` | Groups all terms of one constraint |
+| `description` | Human-readable label (first row of each group) |
+| `sector_from`, `entity_from`, `region_from` | Edge from-node selector (`*` = wildcard) |
+| `sector_to`, `entity_to`, `region_to` | Edge to-node selector |
+| `time`, `valuation` | Optional selectors (`*` = all time periods / all valuations) |
+| `coefficient` | Float; sign encodes direction (+1 supply, −1 waste output) |
+| `c_k` | RHS target value (default 0 — balance equation) |
+| `sigma_ck_mode` | `sd` (absolute) / `fraction_of_flow` (fraction of node flow magnitude) |
+| `sigma_ck_value` | Absolute σ_c (mode = `sd`) |
+| `sigma_ck_fraction` | Fraction of node flow magnitude from `f_agg` (mode = `fraction_of_flow`) |
+
+Ratio and bound constraints reuse the existing params CSV schema from `ParametricImputer` (`value_nominal`, `unc_type`, `bound_lower`, `bound_upper`).
+
+`ConstraintRun` output structure:
+```
+data/proc/const/{run_id}/
+├── registry.json        ← acc_id, agg_id, timestamp
+├── G.npz                ← sparse (M × E), time-invariant
+├── row_meta.parquet     ← constraint_id, type, is_hard, cone_type per row
+├── a0.npy               ← f_agg at t=0 (prior for optimiser)
+├── sigma_a.npy          ← sigma_agg
+├── u.npy / l.npy        ← flow bounds from acc_struct
+└── timesteps/t_{year}.npz  ← c(t), sigma_c(t)
+```
+
+**Inputs:** `AggregationResult`, accounting structure, optional CSV files  
+**Outputs:** `ConstraintRun` with **G** [M×E], **c(t)** [M], **σ_c(t)** [M], **u** [E], **l** [E], `row_meta`
+
+#### 3b — Linear optimisation (`LinearOptimiser`)
+
+`LinearOptimiser` solves the σ-weighted least-squares problem with equality and inequality constraints. Each timestep is warm-started from the previous solution (`a_0(t) = a*(t−1)` for `t > 0`; the constraint engine stores `a_0` only for `t = 0`). `OptUncertainty` propagates input uncertainty into the optimised solution via the KKT sensitivity Jacobian. All results are collected into an `OptimRun` and persisted.
+
+**Inputs:** `ConstraintRun`, `AggregationResult`  
 **Outputs per timestep:** `OptimResult` with `F_opt [E]`, `σ_opt [E]`, residuals, solver status  
 **Outputs per run:** `OptimRun` with full provenance trace
 
@@ -340,7 +392,7 @@ Runs as a loop over T timesteps. `ConstraintBuilder` assembles the constraint ma
 
 | File | Classes | Responsibility |
 |---|---|---|
-| `acc.py` | `AccountingStructure` | Node/edge index, supply–use topology, parametric relations; uses `scipy.sparse` COO/CSR |
+| `acc.py` | `AccountingStructure` | Node/edge index, supply–use topology, per-edge bounds; structural edge masks (`supply_edge_mask`, `use_edge_mask`, `sb_edge_mask`, `tradable_edge_mask`) used by `ConstraintEngine`; uses `scipy.sparse` COO/CSR |
 | `conc.py` | `ConcordanceTable`, `WeightMatrix` | src→root edge mapping, sparse W matrix (scipy.sparse CSR) |
 | `feed.py` | `DataFeed` (ABC) | Base class; owns `weight_matrix` (CSR), pedigree, `F_src`, persistence |
 | `feedpipe.py` | step functions, `run_feed_pipeline` | Orchestrates steps A→D for a single feed; delegates to `DataFeedRegistry` |
@@ -363,7 +415,7 @@ Runs as a loop over T timesteps. `ConstraintBuilder` assembles the constraint ma
 
 | File | Classes | Responsibility |
 |---|---|---|
-| `constraints.py` | `ConstraintBuilder` | Assemble G and c from supply–use balances and parametric relations |
+| `constraints.py` | `ConstraintEngine`, `BaseConstraintBuilder`, `MassBalanceBuilder`, `SumConstraintBuilder`, `RatioConstraintBuilder`, `RatioBoundBuilder`, `FlowBoundsBuilder`, `ConstraintBlock`, `ConstraintRun`, `ConstraintRunRegistry` | Plugin constraint pipeline; builds **G** (once), **c(t)**, **σ_c(t)**; persists to JSON registry |
 | `optim.py` | `LinearOptimiser`, `OptimResult` | σ-weighted equality-constrained least squares; warm-start |
 | `optunc.py` | `OptUncertainty` | KKT sensitivity-based uncertainty propagation for constrained optimum |
 | `optpipe.py` | `OptimPipeline`, `OptimRun` | T-step loop with warm-start; collect and persist results |
@@ -488,7 +540,89 @@ The gap inflation grows $\sigma$ exponentially with the extrapolation distance, 
 
 Steps are applied in registration order. After step $s$, let $\mathcal{M}_s$ denote the set of still-missing edges. Step $s+1$ only touches $\mathcal{M}_s$; it reads the current $(f, \sigma)$ values of already-filled edges (including those filled by earlier steps) as valid inputs. This means a `ParametricImputer` registered after a `TimeImputer` can use time-filled values as sources.
 
-### Stage 3 — Constrained optimisation objective
+### Stage 3a — Constraint types
+
+All five constraint types produce rows in the joint constraint matrix **G** ∈ ℝ^(M×E) with associated right-hand side **c** ∈ ℝ^M and per-row uncertainty **σ_c** ∈ ℝ^M.
+
+#### Summary
+
+| # | Type | Form | Cone | σ_c |
+|---|---|---|---|---|
+| 1 | Hard mass balance | Σ incoming_i − Σ outgoing_i = 0 | Zero | 0 |
+| 2 | Soft sum | Σ coeff_i · a_i = c_k + ε_k | Free | user-specified |
+| 3 | Soft ratio | a_i − r · a_j = ε_k | Free | from params CSV |
+| 4 | Hard ratio bound | a_i − r_u · a_j ≤ 0 and −a_i + r_l · a_j ≤ 0 | Non-neg | 0 |
+| 5 | Hard flow bound | a_i ≤ u_i and −a_i ≤ −l_i | Non-neg | 0 |
+
+#### Type 1 — Hard mass balance (zero cone)
+
+For every (Flow | Process) node $n$ at every timestep $t$ that has at least one incoming and one outgoing admissible edge:
+
+$$\sum_{e \,:\, \mathrm{to}(e)=n,\, t(e)=t} a_e \;-\; \sum_{e \,:\, \mathrm{from}(e)=n,\, t(e)=t} a_e \;=\; 0$$
+
+One **G** row per balanced (node, time) pair. SB nodes are open-boundary sinks/sources and are excluded. σ_c = 0 for all mass-balance rows.
+
+#### Type 2 — Soft sum constraint (free cone)
+
+A user-defined linear combination of edges with target value $c_k$ and slack $\varepsilon_k$:
+
+$$\sum_{i \in S} \alpha_i \cdot a_i \;=\; c_k + \varepsilon_k, \qquad \varepsilon_k \sim \mathcal{N}(0,\, \sigma_{c,k}^2)$$
+
+where $S$ is the set of matched edges (from CSV selectors or auto-derived from `acc_struct`) and $\alpha_i$ are the signed coefficients (+1 for supply, −1 for waste).
+
+**σ_c modes:**
+- `sd`: $\sigma_{c,k}$ supplied directly
+- `fraction_of_flow`: $\sigma_{c,k} = \phi \cdot \left|\sum_{i \in S,\, \alpha_i>0} f_\mathrm{agg}[i]\right|$ — scales with the magnitude of the supply-side flows at each timestep
+
+#### Type 3 — Soft ratio constraint (free cone)
+
+Links two edges $i$ (target) and $j$ (source) through a scalar coefficient $r$:
+
+$$a_i - r \cdot a_j \;=\; \varepsilon_k, \qquad \varepsilon_k \sim \mathcal{N}(0,\, \sigma_{c,k}^2)$$
+
+$r$ is the `value_nominal` from the params CSV. $\sigma_{c,k}$ is derived from the same three uncertainty modes as `ParametricImputer`:
+
+| Mode | $\sigma_{c,k}$ |
+|---|---|
+| `sd` | `value_sd` directly |
+| `min_max` | `(value_max − value_min) / 4` |
+| `pedigree` | `PedigreeScores(...).total_cv() × value_nominal` |
+
+Same params CSV as `ParametricImputer.from_csv()` — one file serves both imputation and constraint building.
+
+#### Type 4 — Hard ratio bound (non-neg cone)
+
+For each param row with finite `bound_lower` $r_l$ or `bound_upper` $r_u$, two inequality rows:
+
+$$a_i - r_u \cdot a_j \leq 0 \qquad \text{(upper bound)}$$
+
+$$-a_i + r_l \cdot a_j \leq 0 \qquad \text{(lower bound)}$$
+
+Both rows have $\sigma_c = 0$ and `cone_type = "nonneg"`.
+
+#### Type 5 — Hard flow bound (non-neg cone)
+
+For each edge with non-default bounds (from `acc_struct.bounds`):
+
+$$a_i \leq u_i \;\Rightarrow\; a_i - u_i \leq 0$$
+
+$$a_i \geq l_i \;\Rightarrow\; -a_i + l_i \leq 0$$
+
+Default bounds ($l_i = 0$, $u_i = 10^9$) produce no G rows. Only exceptions in the bounds spreadsheet generate rows.
+
+#### Clarabel transformation
+
+`ConstraintEngine.run()` produces solver-neutral outputs. A thin transform script maps them to Clarabel's cone format. Partition **G** and **c** by `cone_type`:
+
+$$\mathbf{G} = \begin{bmatrix} \mathbf{G}_\text{free} \\ \mathbf{G}_\text{zero} \\ \mathbf{G}_\text{nonneg} \end{bmatrix}, \qquad \mathbf{c} = \begin{bmatrix} \mathbf{c}_\text{free} \\ \mathbf{c}_\text{zero} \\ \mathbf{c}_\text{nonneg} \end{bmatrix}$$
+
+The Clarabel constraint matrix and RHS are then:
+
+$$A = \begin{bmatrix} \mathbf{G}_\text{free} & -\mathbf{I}_\text{free} \\ \mathbf{G}_\text{zero} & \mathbf{0} \\ \mathbf{G}_\text{nonneg} & \mathbf{0} \end{bmatrix}, \qquad b = \begin{bmatrix} \mathbf{c}_\text{free} \\ \mathbf{c}_\text{zero} \\ \mathbf{c}_\text{nonneg} \end{bmatrix}$$
+
+Cone order: `NonnegativeConeT(n_free)` for the slack rows, `ZeroConeT(n_zero)` for hard balance rows, `NonnegativeConeT(n_nonneg)` for bound rows. **P** and **q** follow the existing (P\*) formulation below.
+
+### Stage 3b — Constrained optimisation objective
 
 #### The (P\*) problem
 
@@ -611,27 +745,58 @@ log = agg_result.imputation_log
 print(log.for_edge(edge_id=42))
 # → method="parametric", source_edges=[1305], coefficients=[0.12], sigma_after=0.031
 
-# ── Stage 3: optimise over T timesteps ──────────────────────────────────────
+# ── Stage 3a: build constraint matrix ───────────────────────────────────────
 
-cb  = ConstraintBuilder(acc_struct=acc,
-                        parametric_relations=acc.parametric_relations)
+const_engine = ConstraintEngine(acc_struct=acc)
+
+# Hard mass balance: Σ incoming − Σ outgoing = 0 per (Flow|Process) node × time
+const_engine.register(MassBalanceBuilder())
+
+# Soft useful-supply balance auto-derived from acc_struct topology
+# (excludes SB/waste edges; σ_c = 5 % of node flow magnitude)
+const_engine.register(SumConstraintBuilder.from_acc_struct(acc, sigma_fraction=0.05))
+
+# Custom sum constraint from CSV (long format, one row per term)
+const_engine.register(SumConstraintBuilder.from_csv(
+    "data/input/params/sum_constraints.csv", acc_struct=acc))
+
+# Soft ratio constraints + hard ratio bounds from the same params CSV
+# (reuses the ParametricImputer schema: value_nominal, unc_type, bound_lower, bound_upper)
+const_engine.register(RatioConstraintBuilder.from_csv(
+    "data/input/params/copper_params.csv", acc_struct=acc))
+const_engine.register(RatioBoundBuilder.from_csv(
+    "data/input/params/copper_params.csv", acc_struct=acc))
+
+# Hard flow bounds from acc_struct.bounds (only non-default edges produce rows)
+const_engine.register(FlowBoundsBuilder())
+
+constraint_run = const_engine.run(
+    agg_result=agg_result,
+    timesteps=[str(t) for t in range(2010, 2024)],
+    agg_id="copper_agg_v0",
+)
+# constraint_run.G          sparse (M × E), time-invariant
+# constraint_run.row_meta   DataFrame — constraint_id, type, is_hard, cone_type per row
+# constraint_run.a0         f_agg at t=0 (prior for optimiser)
+# constraint_run.timestep_data["2010"] → {"c": ..., "sigma_c": ...}
+# persisted automatically to data/proc/const/
+
+# ── Stage 3b: optimise over T timesteps ─────────────────────────────────────
+
 opt = LinearOptimiser(acc_struct=acc)
 unc = OptUncertainty()
 
 pipeline = OptimPipeline(
     acc_struct=acc,
-    registry=registry,
-    constraint_builder=cb,
+    constraint_run=constraint_run,
     optimiser=opt,
     unc=unc,
 )
 
-run = pipeline.run(
-    agg_result=agg_result,
-    timesteps=list(range(2010, 2024)),
-)
+run = pipeline.run(timesteps=list(range(2010, 2024)))
 
 # run.results[t] → OptimResult with F_opt, σ_opt, residuals, solver_status
+# Warm start: a_0(t) = F_opt(t−1) for t > 0; constraint_run.a0 used for t = 0
 # run is persisted automatically to the registry
 ```
 
@@ -661,8 +826,13 @@ pysuto/
 │                          ParametricRelation · FormulaRelation            │
 │                          SourceTerm · ParamRef · ImputationLog         ─┘
 │
-├── constraints.py         ConstraintBuilder                             ─┐
-├── optim.py               LinearOptimiser · OptimResult                  │ Stage 3
+├── constraints.py         ConstraintEngine · BaseConstraintBuilder       ─┐
+│                          MassBalanceBuilder · SumConstraintBuilder       │
+│                          RatioConstraintBuilder · RatioBoundBuilder      │ Stage 3
+│                          FlowBoundsBuilder                               │
+│                          ConstraintBlock · ConstraintRun                 │
+│                          ConstraintRunRegistry                           │
+├── optim.py               LinearOptimiser · OptimResult                  │
 ├── optunc.py              OptUncertainty                                  │
 └── optpipe.py             OptimPipeline · OptimRun                      ─┘
 ```
@@ -693,7 +863,7 @@ Each layer has a dedicated unit test file that can be run in isolation using the
 | `test_collector.py` | Feed alignment, NaN coverage mask, Ω column sums to 1 | `mock_registry`, `mock_acc` |
 | `test_aggregation.py` | Ω construction, `f_agg = 1ᵀ(Ω⊙F)`, σ_agg ≤ min σ_k, NaN coverage | `F_src`, `sigma_src` |
 | `test_imputation.py` | ParametricImputer fill, TimeImputer linear/locf, log completeness, σ propagation, pipeline chaining | `agg_result_partial` |
-| `test_constraints.py` | G assembly, supply=use rows, parametric rows | `mock_acc_struct` |
+| `test_constraints.py` | MassBalance rows (balanced nodes, SB exclusion, cone type), SumConstraint (acc_struct auto-derive, CSV load, σ_c scaling), RatioConstraint (G structure, all unc modes), RatioBound (two rows per param, inequality direction), FlowBounds (non-default edges), ConstraintEngine (shapes, G time-invariance, row_meta), ConstraintRunRegistry round-trip | `toy_acc` (5-node inline fixture) |
 | `test_optimiser.py` | Feasibility, residuals near zero, warm-start delta | `G`, `c`, `F_agg` |
 | `test_optunc.py` | σ_opt ≤ σ_agg invariant, Jacobian shape | `G`, `Sigma_diag` |
 | `test_registry.py` | Round-trip save/load, summary_df, overwrite guard | temp directory |

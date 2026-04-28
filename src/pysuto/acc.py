@@ -593,6 +593,9 @@ class AccountingStructure:
         self.bounds  = self._load_bounds(bounds_path)
         self.logger.info(self.bounds.summary())
 
+        # ── 5. Structural edge masks (for ConstraintEngine) ───────────
+        self._build_edge_masks()
+
         self.logger.info(
             f"AccountingStructure '{self.id}' initialised: "
             f"{self.n_nodes} nodes, {self.n_edges} admissible edges, "
@@ -715,6 +718,52 @@ class AccountingStructure:
             bounds_df=bounds_df,
         )
         self.logger.info(self.bounds.summary())
+
+    # ------------------------------------------------------------------
+    # Structural edge masks  (used by ConstraintEngine)
+    # ------------------------------------------------------------------
+
+    def _build_edge_masks(self) -> None:
+        """
+        Compute boolean masks over edge_index for structural constraint building.
+
+        All masks have shape (n_edges,) and are aligned to self.edge_index.
+
+        supply_edge_mask   — (sector_from, sector_to) in ruleset.supply_pairs
+        use_edge_mask      — (sector_from, sector_to) in ruleset.use_pairs
+        tradable_edge_mask — sector_from in ruleset.tradable_flows
+        sb_edge_mask       — entity_to == "SB" (system-boundary endpoint)
+
+        When ruleset is None (legacy callable-rules mode), supply/use/tradable
+        masks fall back to checking entity_from/entity_to directly:
+          supply: entity_from in {Process} → entity_to in {Flow, SB}
+          use:    entity_from in {Flow, SB} → entity_to in {Process}
+        """
+        ei = self.edge_index
+        ni = self.node_index.loc[ei["from_id"].values]
+        nj = self.node_index.loc[ei["to_id"].values]
+        sf = ni["sector"].values
+        ef = ni["entity"].values
+        st = nj["sector"].values
+        et = nj["entity"].values
+
+        if self.ruleset is not None:
+            sp_set  = self.ruleset.supply_pairs
+            up_set  = self.ruleset.use_pairs
+            tr_set  = self.ruleset.tradable_flows
+            self.supply_edge_mask   = np.array(
+                [(s, d) in sp_set for s, d in zip(sf, st)], dtype=bool)
+            self.use_edge_mask      = np.array(
+                [(s, d) in up_set for s, d in zip(sf, st)], dtype=bool)
+            self.tradable_edge_mask = np.array(
+                [s in tr_set for s in sf], dtype=bool)
+        else:
+            # Fallback: derive from entity types only
+            self.supply_edge_mask   = np.isin(ef, ["Process"]) & np.isin(et, ["Flow", "SB"])
+            self.use_edge_mask      = np.isin(ef, ["Flow", "SB"]) & np.isin(et, ["Process"])
+            self.tradable_edge_mask = np.zeros(len(ei), dtype=bool)
+
+        self.sb_edge_mask = (et == "SB")
 
     # ------------------------------------------------------------------
     # Convenience properties for ConstraintBuilder
@@ -1076,4 +1125,5 @@ class AccountingStructure:
             obj.time_range[0], obj.time_range[-1],
             obj.valuation, bounds.n_exceptions,
         )
+        obj._build_edge_masks()
         return obj

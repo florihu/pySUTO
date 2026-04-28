@@ -88,7 +88,7 @@ registry.load_index()
 # ---------------------------------------------------------------------------
 
 logger.info("B  Collecting feeds: baci, crude_ore, icsg")
-collector  = FeedCollector(registry=registry, acc_struct=acc, min_flow_kt=0.001)
+collector  = FeedCollector(registry=registry, acc_struct=acc, min_flow_kt=0.01)
 agg_result = collector.select(["baci", "crude_ore", "icsg"]).aggregate()
 logger.info(
     "B  Aggregation done: %d covered / %d total edges",

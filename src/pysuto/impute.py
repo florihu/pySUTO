@@ -22,9 +22,11 @@ TimeImputer             Temporal interpolation / extrapolation per edge series.
 
 from __future__ import annotations
 
+import time
 import warnings
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
+from datetime import datetime
 from io import StringIO
 from typing import Callable, Literal, Optional, Union
 
@@ -212,6 +214,35 @@ class ImputationLog:
 
 
 # ---------------------------------------------------------------------------
+# ImputationMetadata
+# ---------------------------------------------------------------------------
+
+class ImputationMetadata:
+    """Run-level summary: one record per imputer step."""
+
+    _COLS = [
+        "run_timestamp", "step", "imputer_type", "input_paths",
+        "elapsed_seconds", "edges_filled",
+        "edges_missing_after", "pct_additionally_filled",
+    ]
+
+    def __init__(self) -> None:
+        self._records: list[dict] = []
+
+    def append(self, record: dict) -> None:
+        self._records.append(record)
+
+    def as_dataframe(self) -> pd.DataFrame:
+        return pd.DataFrame(self._records, columns=self._COLS)
+
+    def __len__(self) -> int:
+        return len(self._records)
+
+    def __repr__(self) -> str:
+        return f"ImputationMetadata({len(self._records)} steps)"
+
+
+# ---------------------------------------------------------------------------
 # BaseImputer
 # ---------------------------------------------------------------------------
 
@@ -235,6 +266,10 @@ class BaseImputer(ABC):
         acc_struct,
     ) -> list[dict]:
         ...
+
+    @property
+    def source_paths(self) -> list[str]:
+        return []
 
 
 # ---------------------------------------------------------------------------
@@ -263,6 +298,8 @@ class ImputationEngine:
         f     = agg_result.f_agg.copy()
         sigma = agg_result.sigma_agg.copy()
         log   = ImputationLog()
+        meta  = ImputationMetadata()
+        run_ts = datetime.now().isoformat(timespec="seconds")
 
         n_total = len(f)
         for step, imputer in enumerate(self._imputers):
@@ -273,7 +310,9 @@ class ImputationEngine:
                 break
             cov_before = (n_total - n_missing_before) / n_total
 
+            t0 = time.perf_counter()
             entries = imputer.impute(f, sigma, missing, step, self._acc_struct)
+            elapsed = time.perf_counter() - t0
             log.extend(entries)
 
             # Post-step bounds enforcement: warn and clip any newly-filled out-of-bounds values
@@ -310,10 +349,21 @@ class ImputationEngine:
                 step, type(imputer).__name__, n_filled,
                 100 * cov_before, 100 * cov_after, 100 * (cov_after - cov_before),
             )
+            meta.append({
+                "run_timestamp": run_ts,
+                "step": step,
+                "imputer_type": type(imputer).__name__,
+                "input_paths": "; ".join(imputer.source_paths),
+                "elapsed_seconds": round(elapsed, 4),
+                "edges_filled": n_filled,
+                "edges_missing_after": n_missing_after,
+                "pct_additionally_filled": round(100 * n_filled / n_total, 2),
+            })
 
-        agg_result.f_agg          = f
-        agg_result.sigma_agg      = sigma
-        agg_result.imputation_log = log
+        agg_result.f_agg               = f
+        agg_result.sigma_agg           = sigma
+        agg_result.imputation_log      = log
+        agg_result.imputation_metadata = meta
         return agg_result
 
 
@@ -457,11 +507,17 @@ class ParametricImputer(BaseImputer):
         self,
         relations: Optional[list[ParametricRelation]] = None,
         _csv_pairs: Optional[list] = None,
+        _source_path: Optional[str] = None,
     ) -> None:
         self._relations  = relations or []
         # Each tuple: (a_id, b_id, coeff, sigma_param, epsilon, bl, bu, param_id, desc)
         self._csv_pairs  = _csv_pairs or []
+        self._source_path: Optional[str] = _source_path
         self._ei_exp:    Optional[pd.DataFrame] = None  # lazy cache for lambda relations
+
+    @property
+    def source_paths(self) -> list[str]:
+        return [self._source_path] if self._source_path else []
 
     @classmethod
     def from_csv(cls, path: str, acc_struct) -> "ParametricImputer":
@@ -551,7 +607,7 @@ class ParametricImputer(BaseImputer):
 
         pairs = [v[0] for v in best.values()]
         logger.info("from_csv: loaded %d bidirectional pairs from %s", len(pairs), path)
-        return cls(_csv_pairs=pairs)
+        return cls(_csv_pairs=pairs, _source_path=str(path))
 
     def impute(
         self,
