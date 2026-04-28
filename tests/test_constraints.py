@@ -648,3 +648,7 @@ class TestConstraintRunRegistry:
         reg = ConstraintRunRegistry(storage_dir=str(tmp_path / "const"))
         with pytest.raises(KeyError):
             reg.load("nonexistent_run")
+
+
+if __name__ == "__main__":
+    pytest.main([__file__])
