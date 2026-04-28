@@ -643,6 +643,20 @@ $$\text{s.t.} \quad \mathbf{G}\,\mathbf{a} - \boldsymbol{\varepsilon} = \mathbf{
 
 #### In Solver format
 
+
+#### Clarabel transformation
+
+`ConstraintEngine.run()` produces solver-neutral outputs. A thin transform script maps them to Clarabel's cone format. Partition **G** and **c** by `cone_type`:
+
+$$\mathbf{G} = \begin{bmatrix} \mathbf{G}_\text{free} \\ \mathbf{G}_\text{zero} \\ \mathbf{G}_\text{nonneg} \end{bmatrix}, \qquad \mathbf{c} = \begin{bmatrix} \mathbf{c}_\text{free} \\ \mathbf{c}_\text{zero} \\ \mathbf{c}_\text{nonneg} \end{bmatrix}$$
+
+The Clarabel constraint matrix and RHS are then:
+
+$$A = \begin{bmatrix} \mathbf{G}_\text{free} & -\mathbf{I}_\text{free} \\ \mathbf{G}_\text{zero} & \mathbf{0} \\ \mathbf{G}_\text{nonneg} & \mathbf{0} \end{bmatrix}, \qquad b = \begin{bmatrix} \mathbf{c}_\text{free} \\ \mathbf{c}_\text{zero} \\ \mathbf{c}_\text{nonneg} \end{bmatrix}$$
+
+Cone order: `NonnegativeConeT(n_free)` for the slack rows, `ZeroConeT(n_zero)` for hard balance rows, `NonnegativeConeT(n_nonneg)` for bound rows. **P** and **q** follow the existing (P\*) formulation below.
+
+
 ##### Clarabel's problem format
 
 Clarabel solves:

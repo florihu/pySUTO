@@ -322,6 +322,115 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         return cls(specs, sigma_fraction=sigma_fraction)
 
     # ------------------------------------------------------------------
+    # Factory: entity/entity_sub-routed sum constraints
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def from_acc_struct_subentity(
+        cls,
+        acc_struct,
+        entity_filter: set,
+        *,
+        rhs_in_entity: set = frozenset(),
+        rhs_out_entity: set = frozenset(),
+        rhs_out_entity_sub: set = frozenset(),
+        lhs_neg_out_entity_sub: set = frozenset(),
+        sigma_mode: str = "gaussian",
+        sigma_fraction: float = 0.05,
+    ) -> "SumConstraintBuilder":
+        """
+        Generate one soft sum constraint per (node, time) pair for nodes whose
+        entity is in ``entity_filter``.
+
+        Each incident edge is assigned a role based on the entity / entity_sub of
+        the *other* node.  Unmatched edges default to LHS +1.
+
+        Parameters
+        ----------
+        rhs_in_entity        : incoming edge other-node entity  → RHS (_rhs_ids)
+        rhs_out_entity       : outgoing edge other-node entity  → RHS (_rhs_ids)
+        rhs_out_entity_sub   : outgoing edge other-node entity_sub → RHS (_rhs_ids)
+        lhs_neg_out_entity_sub : outgoing edge other-node entity_sub → LHS −1
+        sigma_mode           : "gaussian" (Gaussian propagation from _rhs_ids sigma_agg)
+                               or "fraction_of_flow"
+        sigma_fraction       : used only when sigma_mode="fraction_of_flow"
+        """
+        ei    = acc_struct.edge_index
+        ni    = acc_struct.node_index
+        t_arr = ei["time"].values
+        times = acc_struct.time_range
+
+        # Pre-build lookup arrays for the other-node's entity and entity_sub
+        from_entity     = ni.loc[ei["from_id"].values, "entity"].values
+        from_entity_sub = ni.loc[ei["from_id"].values, "entity_sub"].values
+        to_entity       = ni.loc[ei["to_id"].values,   "entity"].values
+        to_entity_sub   = ni.loc[ei["to_id"].values,   "entity_sub"].values
+        eids            = ei["edge_id"].values
+        from_ids        = ei["from_id"].values
+        to_ids          = ei["to_id"].values
+
+        specs = []
+        for time in times:
+            t_mask = t_arr == str(time)
+
+            # Nodes of the right entity type that appear in this timestep
+            node_ids = sorted(set(
+                ni.index[ni["entity"].isin(entity_filter)].tolist()
+            ) & (
+                set(from_ids[t_mask]) | set(to_ids[t_mask])
+            ))
+
+            for nid in node_ids:
+                lhs_pos, lhs_neg, rhs_ids = [], [], []
+
+                # Incoming edges: to_id == nid; other node is from_id
+                in_mask = t_mask & (to_ids == nid)
+                for eid, other_entity, other_sub in zip(
+                    eids[in_mask], from_entity[in_mask], from_entity_sub[in_mask]
+                ):
+                    if other_entity in rhs_in_entity:
+                        rhs_ids.append(eid)
+                    else:
+                        lhs_pos.append(eid)
+
+                # Outgoing edges: from_id == nid; other node is to_id
+                out_mask = t_mask & (from_ids == nid)
+                for eid, other_entity, other_sub in zip(
+                    eids[out_mask], to_entity[out_mask], to_entity_sub[out_mask]
+                ):
+                    other_sub_str = str(other_sub) if other_sub is not None and str(other_sub) != "nan" else None
+                    if other_entity in rhs_out_entity or other_sub_str in rhs_out_entity_sub:
+                        rhs_ids.append(eid)
+                    elif other_sub_str in lhs_neg_out_entity_sub:
+                        lhs_neg.append(eid)
+                    else:
+                        lhs_pos.append(eid)
+
+                lhs_edges = lhs_pos + lhs_neg
+                if not lhs_edges or not rhs_ids:
+                    continue
+
+                all_ids   = lhs_pos + lhs_neg
+                all_coeff = [1.0] * len(lhs_pos) + [-1.0] * len(lhs_neg)
+
+                spec: dict = {
+                    "constraint_id":   f"sub_entity_node{nid}_t{time}",
+                    "description":     f"Subentity sum node {nid} t={time}",
+                    "edge_ids":        all_ids,
+                    "coefficients":    all_coeff,
+                    "c_k":             0.0,
+                    "sigma_ck_mode":   sigma_mode,
+                    "sigma_ck_value":  0.0,
+                    "sigma_ck_fraction": sigma_fraction,
+                    "_rhs_ids":        rhs_ids,
+                }
+                if sigma_mode == "fraction_of_flow":
+                    spec["_supply_ids"] = rhs_ids
+                specs.append(spec)
+
+        return cls(specs, sigma_fraction=sigma_fraction)
+
+    # ------------------------------------------------------------------
     # Factory: load from CSV
     # ------------------------------------------------------------------
 
@@ -445,6 +554,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                 sigma_c[i] = spec["sigma_ck_value"]
             elif mode == "pedigree":
                 sigma_c[i] = spec["sigma_ck_value"]  # pre-computed at load time
+            # "fraction_of_flow" and "gaussian" are both dynamic — leave as 0.0 placeholder
 
         return ConstraintBlock(
             G_rows   = G,
@@ -454,23 +564,30 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         )
 
     def build_dynamic(self, acc_struct, f_agg, sigma_agg, t) -> ConstraintBlock:
-        # Only needed for fraction_of_flow mode — update sigma_c using current f_agg
         has_fraction = any(s["sigma_ck_mode"] == "fraction_of_flow" for s in self._specs)
-        if not has_fraction:
+        has_gaussian = any(s["sigma_ck_mode"] == "gaussian" for s in self._specs)
+        if not has_fraction and not has_gaussian:
             return _empty_block(acc_struct.n_edges)
 
-        static = self.build_static(acc_struct)
+        static  = self.build_static(acc_struct)
+        c_out   = static.c.copy()
         sigma_c = static.sigma_c.copy()
 
         for i, spec in enumerate(self._specs):
-            if spec["sigma_ck_mode"] == "fraction_of_flow":
+            mode = spec["sigma_ck_mode"]
+            if mode == "fraction_of_flow":
                 sup_ids = spec.get("_supply_ids", spec["edge_ids"])
                 total   = float(np.nansum(np.abs(f_agg[sup_ids]))) if len(sup_ids) else 0.0
                 sigma_c[i] = spec["sigma_ck_fraction"] * total
+            elif mode == "gaussian":
+                rhs = spec.get("_rhs_ids", [])
+                if rhs:
+                    c_out[i]   = float(np.nansum(f_agg[rhs]))
+                    sigma_c[i] = float(np.sqrt(np.nansum(sigma_agg[rhs] ** 2)))
 
         return ConstraintBlock(
             G_rows   = static.G_rows,
-            c        = static.c,
+            c        = c_out,
             sigma_c  = sigma_c,
             row_meta = static.row_meta,
         )

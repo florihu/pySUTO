@@ -626,16 +626,29 @@ class AccountingStructure:
         val = _read_ods(path, "Valuation")
         tim = _read_ods(path, "Time")
 
+        # Build entity_sub lookup from optional Entity_name_1 column
+        if "Entity_name_1" in se.columns:
+            sub_map = {
+                (str(row["Sector_name"]).strip(), str(row["Entity_name"]).strip()):
+                str(row["Entity_name_1"]).strip() if pd.notna(row["Entity_name_1"]) else None
+                for _, row in se.iterrows()
+            }
+        else:
+            sub_map = {}
+
         # Build all (sector, entity, region) triples
         records = []
         for _, row in se.iterrows():
             sector = str(row["Sector_name"]).strip()
             entity = str(row["Entity_name"]).strip()
+            entity_sub = sub_map.get((sector, entity), None)
             for _, rrow in reg.iterrows():
                 region = str(rrow["Region_name"]).strip()
-                records.append((sector, entity, region))
+                records.append((sector, entity, region, entity_sub))
 
-        self.root_nodes = pd.DataFrame(records, columns=["sector", "entity", "region"])
+        self.root_nodes = pd.DataFrame(
+            records, columns=["sector", "entity", "region", "entity_sub"]
+        )
         self.time_range = [str(t) for t in tim["Time_name"].tolist()]
         self.valuation  = [str(v) for v in val["Valuation_name"].tolist()]
 
@@ -889,12 +902,16 @@ class AccountingStructure:
     def _build_node_index(self):
         self.node_to_id = {}
         self.id_to_node = {}
+        entity_sub_by_id = {}
+        has_sub = "entity_sub" in self.root_nodes.columns
         node_id = 0
         for _, node in self.root_nodes.iterrows():
             key = (node["sector"], node["entity"], node["region"])
             if key not in self.node_to_id:
                 self.node_to_id[key] = node_id
                 self.id_to_node[node_id] = key
+                if has_sub:
+                    entity_sub_by_id[node_id] = node["entity_sub"]
                 node_id += 1
 
         self.n_nodes  = node_id
@@ -903,6 +920,10 @@ class AccountingStructure:
         self.node_index = pd.DataFrame.from_dict(
             self.id_to_node, orient="index", columns=["sector", "entity", "region"]
         )
+        if has_sub:
+            self.node_index["entity_sub"] = pd.Series(entity_sub_by_id)
+        else:
+            self.node_index["entity_sub"] = None
         self.logger.info(f"Total nodes: {self.n_nodes}")
 
     def _build_dim_indices(self):
@@ -1077,9 +1098,9 @@ class AccountingStructure:
         obj.edge_index     = pd.read_csv(os.path.join(path, "edge_index.csv"))
         obj.edge_index_all = pd.read_csv(os.path.join(path, "edge_index_all.csv"))
         obj.root_nodes     = pd.read_csv(os.path.join(path, "root_nodes.csv"))
-        obj.node_index     = pd.read_csv(
-            os.path.join(path, "node_index.csv")
-        )
+        obj.node_index     = pd.read_csv(os.path.join(path, "node_index.csv"))
+        if "entity_sub" not in obj.node_index.columns:
+            obj.node_index["entity_sub"] = None
 
         with open(os.path.join(path, "metadata.pkl"), "rb") as f:
             meta = pickle.load(f)
