@@ -503,21 +503,21 @@ class TestFlowBoundsBuilder:
         assert toy_acc.bounds.u.shape == (toy_acc.n_edges,)
         assert toy_acc.bounds.l.shape == (toy_acc.n_edges,)
 
-    def test_flow_bounds_non_default_edges(self, toy_acc):
-        """Only edges with non-default bounds produce G rows."""
+    def test_flow_bounds_no_g_rows(self, toy_acc):
+        """FlowBoundsBuilder produces no G rows; bounds live in ConstraintRun.u/.l."""
         from pysuto.constraints import FlowBoundsBuilder
         block = FlowBoundsBuilder().build_static(toy_acc)
-        # toy_acc has edge 0 with upper=100 → expect 1 G row (only upper, lower is default)
-        assert block.G_rows.shape[0] == 1, \
-            f"Expected 1 row for edge 0 upper bound; got {block.G_rows.shape[0]}"
+        assert block.G_rows.shape[0] == 0, \
+            f"Expected 0 G rows (bounds stored separately); got {block.G_rows.shape[0]}"
 
-    def test_flow_bounds_cone_type(self, toy_acc):
-        """Flow bound rows have cone_type='nonneg' and is_hard=True."""
-        from pysuto.constraints import FlowBoundsBuilder
-        block = FlowBoundsBuilder().build_static(toy_acc)
-        if block.G_rows.shape[0] > 0:
-            assert (block.row_meta["cone_type"] == "nonneg").all()
-            assert block.row_meta["is_hard"].all()
+    def test_flow_bounds_carried_in_run(self, toy_acc, toy_agg_result):
+        """ConstraintEngine.run() carries non-default bounds in cr.u / cr.l."""
+        from pysuto.constraints import ConstraintEngine, FlowBoundsBuilder
+        engine = ConstraintEngine(toy_acc, storage_dir="/tmp/test_fbb_run")
+        engine.register(FlowBoundsBuilder())
+        run = engine.run(toy_agg_result, timesteps=["2020"], persist=False)
+        # toy_acc has edge 0 with upper=100
+        assert run.u[0] == pytest.approx(100.0)
 
 
 # ---------------------------------------------------------------------------
@@ -583,17 +583,43 @@ class TestConstraintEngine:
     def test_engine_multiple_builders(self, toy_acc, toy_agg_result):
         """Multiple registered builders produce correct total row count."""
         from pysuto.constraints import (
-            ConstraintEngine, MassBalanceBuilder, FlowBoundsBuilder,
+            ConstraintEngine, MassBalanceBuilder, RatioBoundBuilder,
         )
+        import csv, os
+        csv_path = "/tmp/test_multi_bound.csv"
+        with open(csv_path, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=[
+                "param_id",
+                "a_sector_from", "a_entity_from", "a_region_from",
+                "a_sector_to",   "a_entity_to",   "a_region_to",
+                "a_time",        "a_valuation",
+                "b_sector_from", "b_entity_from", "b_region_from",
+                "b_sector_to",   "b_entity_to",   "b_region_to",
+                "b_time",        "b_valuation",
+                "value_nominal", "unc_type", "value_sd",
+                "value_min", "value_max", "bound_lower", "bound_upper",
+            ])
+            w.writeheader()
+            w.writerow({
+                "param_id": "mb",
+                "a_sector_from": "Mining", "a_entity_from": "Process", "a_region_from": "A",
+                "a_sector_to":   "Ore",    "a_entity_to":   "Flow",    "a_region_to":   "A",
+                "a_time": "2020", "a_valuation": "Mass",
+                "b_sector_from": "Ore",    "b_entity_from": "Flow",    "b_region_from": "A",
+                "b_sector_to":   "Mining", "b_entity_to":   "Process", "b_region_to":   "A",
+                "b_time": "same", "b_valuation": "same",
+                "value_nominal": "1.0", "unc_type": "sd", "value_sd": "0.1",
+                "value_min": "", "value_max": "", "bound_lower": "0.5", "bound_upper": "2.0",
+            })
+
         engine = ConstraintEngine(toy_acc, storage_dir="/tmp/test_const_multi")
         engine.register(MassBalanceBuilder())
-        engine.register(FlowBoundsBuilder())
+        engine.register(RatioBoundBuilder.from_csv(csv_path, toy_acc))
         run = engine.run(toy_agg_result, timesteps=["2020"], persist=False)
 
-        # MassBalance rows + FlowBound rows
         assert run.G.shape[0] > 0
         assert "mass_balance" in run.row_meta["type"].values
-        assert "flow_bound"   in run.row_meta["type"].values
+        assert "ratio_bound"  in run.row_meta["type"].values
 
 
 # ---------------------------------------------------------------------------

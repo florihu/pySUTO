@@ -67,27 +67,35 @@ from pysuto.constraints import (
     RatioBoundBuilder,
     FlowBoundsBuilder,
 )
+from pysuto.logging import get_logger, add_run_handler
+
+_log = get_logger("init_copper_constraints")
 
 
 def main() -> None:
-    # ── A. Load inputs ────────────────────────────────────────────────────
-    print(f"Loading AccountingStructure '{ACC_ID}' from {ACC_DIR} …")
-    acc = AccountingStructure.load(ACC_ID, storage_dir=ACC_DIR)
-    print(f"  nodes={acc.n_nodes}  edges={acc.n_edges}  time={acc.time_range[0]}–{acc.time_range[-1]}")
+    from datetime import datetime
+    add_run_handler(f"logs/init_copper_constraints_{datetime.now():%Y%m%d_%H%M%S}.log")
 
-    print(f"Loading AggregationResult from {AGG_DIR} …")
+    # ── A. Load inputs ────────────────────────────────────────────────────
+    _log.info("Loading AccountingStructure '%s' from %s", ACC_ID, ACC_DIR)
+    acc = AccountingStructure.load(ACC_ID, storage_dir=ACC_DIR)
+    _log.info("  nodes=%d  edges=%d  time=%s–%s",
+              acc.n_nodes, acc.n_edges, acc.time_range[0], acc.time_range[-1])
+
+    _log.info("Loading AggregationResult from %s", AGG_DIR)
     agg_result = AggregationResult.load(AGG_DIR)
-    print(f"  f_agg shape={agg_result.f_agg.shape}  coverage={agg_result.coverage.sum()} edges")
+    _log.info("  f_agg shape=%s  coverage=%d edges",
+              agg_result.f_agg.shape, agg_result.coverage.sum())
 
     # ── B. Assemble constraint engine ─────────────────────────────────────
     engine = ConstraintEngine(acc_struct=acc, storage_dir=OUTPUT_DIR)
 
     # 1. Hard mass balance
+    _log.info("Registering MassBalanceBuilder")
     engine.register(MassBalanceBuilder())
 
     # 2. Soft sum — Process nodes
-    #    Inputs on LHS (+1), SEM/Nature waste outputs on LHS (−1),
-    #    useful supply (Flow + FD) is the observed RHS c_k
+    _log.info("Registering SumConstraintBuilder — Process nodes")
     engine.register(SumConstraintBuilder.from_acc_struct_subentity(
         acc,
         entity_filter={"Process"},
@@ -97,8 +105,7 @@ def main() -> None:
     ))
 
     # 3. Soft sum — Flow nodes
-    #    Process→Flow supply is the observed RHS c_k;
-    #    all demand (Flow→Process use + Flow→FD SB) on LHS (+1)
+    _log.info("Registering SumConstraintBuilder — Flow nodes")
     engine.register(SumConstraintBuilder.from_acc_struct_subentity(
         acc,
         entity_filter={"Flow"},
@@ -106,22 +113,27 @@ def main() -> None:
     ))
 
     # 4–5. Soft ratio constraints
+    _log.info("Registering RatioConstraintBuilder — concentration")
     engine.register(RatioConstraintBuilder.from_csv(
         os.path.join(PARAMS_DIR, "copper_conc_params.csv"), acc_struct=acc))
+    _log.info("Registering RatioConstraintBuilder — efficiency")
     engine.register(RatioConstraintBuilder.from_csv(
         os.path.join(PARAMS_DIR, "copper_efficiency_params.csv"), acc_struct=acc))
 
     # 6–7. Hard ratio bounds
+    _log.info("Registering RatioBoundBuilder — concentration")
     engine.register(RatioBoundBuilder.from_csv(
         os.path.join(PARAMS_DIR, "copper_conc_params.csv"), acc_struct=acc))
+    _log.info("Registering RatioBoundBuilder — efficiency")
     engine.register(RatioBoundBuilder.from_csv(
         os.path.join(PARAMS_DIR, "copper_efficiency_params.csv"), acc_struct=acc))
 
     # 8. Hard flow bounds from acc_struct
+    _log.info("Registering FlowBoundsBuilder")
     engine.register(FlowBoundsBuilder())
 
     # ── C. Run and persist ────────────────────────────────────────────────
-    print(f"Running ConstraintEngine over {len(acc.time_range)} timesteps …")
+    _log.info("Running ConstraintEngine over %d timesteps", len(acc.time_range))
     constraint_run = engine.run(
         agg_result=agg_result,
         timesteps=[str(t) for t in acc.time_range],
@@ -130,12 +142,12 @@ def main() -> None:
     )
 
     # ── D. Summary ────────────────────────────────────────────────────────
-    print(f"\nConstraintRun saved: {constraint_run.run_id}")
-    print(f"G shape: {constraint_run.G.shape}  (rows × edges)")
-    print("\nConstraint type breakdown:")
-    print(constraint_run.row_meta["type"].value_counts().to_string())
-    print("\nCone type breakdown:")
-    print(constraint_run.row_meta["cone_type"].value_counts().to_string())
+    _log.info("ConstraintRun saved: %s", constraint_run.run_id)
+    _log.info("G shape: %s  (rows × edges)", constraint_run.G.shape)
+    _log.info("Constraint type breakdown:\n%s",
+              constraint_run.row_meta["type"].value_counts().to_string())
+    _log.info("Cone type breakdown:\n%s",
+              constraint_run.row_meta["cone_type"].value_counts().to_string())
 
 
 if __name__ == "__main__":

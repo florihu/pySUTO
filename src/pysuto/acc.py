@@ -1097,6 +1097,9 @@ class AccountingStructure:
 
         obj.edge_index     = pd.read_csv(os.path.join(path, "edge_index.csv"))
         obj.edge_index_all = pd.read_csv(os.path.join(path, "edge_index_all.csv"))
+        # Ensure time column is string — pandas infers year integers from CSV
+        obj.edge_index["time"]     = obj.edge_index["time"].astype(str)
+        obj.edge_index_all["time"] = obj.edge_index_all["time"].astype(str)
         obj.root_nodes     = pd.read_csv(os.path.join(path, "root_nodes.csv"))
         obj.node_index     = pd.read_csv(os.path.join(path, "node_index.csv"))
         if "entity_sub" not in obj.node_index.columns:

@@ -44,6 +44,8 @@ from .impute import (
     _WILDCARD,
     _A_FIELDS,
     _B_FIELDS,
+    _get_edge_cache,
+    _A_PRODUCT_THRESHOLD,
 )
 
 try:
@@ -214,6 +216,7 @@ class MassBalanceBuilder(BaseConstraintBuilder):
             (vals_list, (rows_list, cols_list)),
             shape=(row_id, n_edges),
         )
+        _log.info("MassBalanceBuilder.build_static: %d rows", row_id)
         return ConstraintBlock(
             G_rows   = G,
             c        = np.array(c_list),
@@ -428,6 +431,10 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                     spec["_supply_ids"] = rhs_ids
                 specs.append(spec)
 
+        _log.info(
+            "SumConstraintBuilder.from_acc_struct_subentity: %d specs (entity_filter=%s)",
+            len(specs), sorted(entity_filter),
+        )
         return cls(specs, sigma_fraction=sigma_fraction)
 
     # ------------------------------------------------------------------
@@ -543,6 +550,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
 
         M = len(self._specs)
         G = sp.csr_matrix((vals_list, (rows_list, cols_list)), shape=(M, n_edges))
+        _log.info("SumConstraintBuilder.build_static: %d rows", M)
 
         # For non-dynamic sigma modes, fill sigma_c here
         sigma_c = np.zeros(M)
@@ -556,12 +564,14 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                 sigma_c[i] = spec["sigma_ck_value"]  # pre-computed at load time
             # "fraction_of_flow" and "gaussian" are both dynamic — leave as 0.0 placeholder
 
-        return ConstraintBlock(
+        block = ConstraintBlock(
             G_rows   = G,
             c        = c,
             sigma_c  = sigma_c,
             row_meta = pd.DataFrame(meta_list),
         )
+        self._cached_static = block
+        return block
 
     def build_dynamic(self, acc_struct, f_agg, sigma_agg, t) -> ConstraintBlock:
         has_fraction = any(s["sigma_ck_mode"] == "fraction_of_flow" for s in self._specs)
@@ -569,7 +579,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         if not has_fraction and not has_gaussian:
             return _empty_block(acc_struct.n_edges)
 
-        static  = self.build_static(acc_struct)
+        static  = getattr(self, "_cached_static", None) or self.build_static(acc_struct)
         c_out   = static.c.copy()
         sigma_c = static.sigma_c.copy()
 
@@ -618,13 +628,11 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
         Load from params CSV (same schema as ParametricImputer.from_csv).
         Resolves A→B edge pairs and computes sigma_c from unc_type column.
         """
-        df = pd.read_csv(path, dtype=str).fillna("*")
-        ei_exp      = _expand_edge_index(acc_struct.edge_index, acc_struct.node_index)
-        edge_lookup = _build_edge_lookup(ei_exp)
-        field_vals  = {
-            col: sorted(str(v) for v in ei_exp[col].unique())
-            for col in [c for _, c, _ in _A_FIELDS]
-        }
+        df = pd.read_csv(path, sep=None, engine="python", dtype=str).fillna("*")
+        ei_exp, edge_lookup, id_to_tuple, field_vals, mask_cache, edge_ids_arr = (
+            _get_edge_cache(acc_struct)
+        )
+        n = len(ei_exp)
 
         pairs = []
         for _, row in df.iterrows():
@@ -638,12 +646,41 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
 
             param_id = str(row.get("param_id", "")).strip() or None
 
-            for a_tuple in _enumerate_a_edges(row, field_vals):
-                b_ids = _resolve_b_ids(row, a_tuple, edge_lookup, field_vals)
-                a_eid = edge_lookup.get(a_tuple)
-                if a_eid is None:
-                    continue
-                for b_eid in b_ids:
+            prod_size = 1
+            for col_key, ei_col, _ in _A_FIELDS:
+                v = str(row.get(col_key, "*")).strip()
+                if v in _WILDCARD or v == "same":
+                    prod_size *= len(field_vals[ei_col])
+                    if prod_size > _A_PRODUCT_THRESHOLD:
+                        break
+
+            if prod_size <= _A_PRODUCT_THRESHOLD:
+                a_iter = [
+                    (a_id, a_tuple)
+                    for a_tuple in _enumerate_a_edges(row, field_vals)
+                    if (a_id := edge_lookup.get(a_tuple)) is not None
+                ]
+            else:
+                a_mask_np = np.ones(n, dtype=bool)
+                for col_key, ei_col, counterpart in _A_FIELDS:
+                    val = str(row.get(col_key, "*")).strip()
+                    if val in _WILDCARD:
+                        continue
+                    if val == "same" and counterpart is not None:
+                        m = mask_cache.get(("__same__", ei_col, counterpart))
+                    else:
+                        m = mask_cache.get((ei_col, val))
+                    if m is None:
+                        a_mask_np = np.zeros(n, dtype=bool)
+                        break
+                    a_mask_np &= m
+                a_iter = [
+                    (int(aid), id_to_tuple[int(aid)])
+                    for aid in edge_ids_arr[a_mask_np]
+                ]
+
+            for a_eid, a_tuple in a_iter:
+                for b_eid in _resolve_b_ids(row, a_tuple, edge_lookup, field_vals):
                     pairs.append({
                         "constraint_id": param_id or f"ratio_{a_eid}_{b_eid}",
                         "edge_i":  b_eid,
@@ -652,6 +689,7 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
                         "sigma_c": sigma,
                     })
 
+        _log.info("RatioConstraintBuilder: %d pairs from %s", len(pairs), os.path.basename(path))
         return cls(pairs)
 
     @property
@@ -679,6 +717,7 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
             })
 
         G = sp.csr_matrix((vals_list, (rows_list, cols_list)), shape=(M, n_edges))
+        _log.info("RatioConstraintBuilder.build_static: %d rows", M)
         return ConstraintBlock(
             G_rows   = G,
             c        = np.zeros(M),
@@ -705,13 +744,11 @@ class RatioBoundBuilder(BaseConstraintBuilder):
 
     @classmethod
     def from_csv(cls, path: str, acc_struct) -> "RatioBoundBuilder":
-        df = pd.read_csv(path, dtype=str).fillna("*")
-        ei_exp      = _expand_edge_index(acc_struct.edge_index, acc_struct.node_index)
-        edge_lookup = _build_edge_lookup(ei_exp)
-        field_vals  = {
-            col: sorted(str(v) for v in ei_exp[col].unique())
-            for col in [c for _, c, _ in _A_FIELDS]
-        }
+        df = pd.read_csv(path, sep=None, engine="python", dtype=str).fillna("*")
+        ei_exp, edge_lookup, id_to_tuple, field_vals, mask_cache, edge_ids_arr = (
+            _get_edge_cache(acc_struct)
+        )
+        n = len(ei_exp)
 
         bound_rows = []
         for _, row in df.iterrows():
@@ -723,12 +760,41 @@ class RatioBoundBuilder(BaseConstraintBuilder):
 
             param_id = str(row.get("param_id", "")).strip() or None
 
-            for a_tuple in _enumerate_a_edges(row, field_vals):
-                b_ids = _resolve_b_ids(row, a_tuple, edge_lookup, field_vals)
-                a_eid = edge_lookup.get(a_tuple)
-                if a_eid is None:
-                    continue
-                for b_eid in b_ids:
+            prod_size = 1
+            for col_key, ei_col, _ in _A_FIELDS:
+                v = str(row.get(col_key, "*")).strip()
+                if v in _WILDCARD or v == "same":
+                    prod_size *= len(field_vals[ei_col])
+                    if prod_size > _A_PRODUCT_THRESHOLD:
+                        break
+
+            if prod_size <= _A_PRODUCT_THRESHOLD:
+                a_iter = [
+                    (a_id, a_tuple)
+                    for a_tuple in _enumerate_a_edges(row, field_vals)
+                    if (a_id := edge_lookup.get(a_tuple)) is not None
+                ]
+            else:
+                a_mask_np = np.ones(n, dtype=bool)
+                for col_key, ei_col, counterpart in _A_FIELDS:
+                    val = str(row.get(col_key, "*")).strip()
+                    if val in _WILDCARD:
+                        continue
+                    if val == "same" and counterpart is not None:
+                        m = mask_cache.get(("__same__", ei_col, counterpart))
+                    else:
+                        m = mask_cache.get((ei_col, val))
+                    if m is None:
+                        a_mask_np = np.zeros(n, dtype=bool)
+                        break
+                    a_mask_np &= m
+                a_iter = [
+                    (int(aid), id_to_tuple[int(aid)])
+                    for aid in edge_ids_arr[a_mask_np]
+                ]
+
+            for a_eid, a_tuple in a_iter:
+                for b_eid in _resolve_b_ids(row, a_tuple, edge_lookup, field_vals):
                     bound_rows.append({
                         "param_id": param_id or f"bound_{a_eid}_{b_eid}",
                         "edge_i":   b_eid,
@@ -738,6 +804,7 @@ class RatioBoundBuilder(BaseConstraintBuilder):
                         "bu":       bu,
                     })
 
+        _log.info("RatioBoundBuilder: %d bound rows from %s", len(bound_rows), os.path.basename(path))
         return cls(bound_rows)
 
     @property
@@ -785,6 +852,7 @@ class RatioBoundBuilder(BaseConstraintBuilder):
             return _empty_block(n_edges)
 
         G = sp.csr_matrix((vals_list, (rows_list, cols_list)), shape=(row_id, n_edges))
+        _log.info("RatioBoundBuilder.build_static: %d rows", row_id)
         return ConstraintBlock(
             G_rows   = G,
             c        = np.zeros(row_id),
@@ -799,63 +867,23 @@ class RatioBoundBuilder(BaseConstraintBuilder):
 
 class FlowBoundsBuilder(BaseConstraintBuilder):
     """
-    Hard non-neg-cone flow bound constraints from acc_struct.bounds.
+    Flow bounds from acc_struct — stored as ConstraintRun.u / .l, NOT as G rows.
 
-    For each edge with non-default bounds:
-      Upper: a_i ≤ u_i  →  G row: +1 at edge_i,  c = u_i
-      Lower: a_i ≥ l_i  →  G row: −1 at edge_i,  c = −l_i
-
-    Produces u and l arrays (passed through to ConstraintRun).
+    ConstraintEngine.run() copies acc_struct.bounds.u and .l directly into the
+    ConstraintRun fields.  Registering this builder is a no-op for G; it exists
+    as a documentation marker that bounds are part of the problem formulation.
     """
 
     def build_static(self, acc_struct) -> ConstraintBlock:
-        bounds  = acc_struct.bounds
-        l, u    = bounds.l, bounds.u
-        n_edges = acc_struct.n_edges
-
-        default_l = bounds.DEFAULT_LOWER
-        default_u = bounds.DEFAULT_UPPER
-
-        non_default = (l != default_l) | (u != default_u)
-        edge_ids    = np.where(non_default)[0]
-
-        if len(edge_ids) == 0:
-            return _empty_block(n_edges)
-
-        rows_list, cols_list, vals_list = [], [], []
-        c_list, meta_list = [], []
-        row_id = 0
-
-        for eid in edge_ids:
-            if u[eid] != default_u:
-                rows_list.append(row_id); cols_list.append(eid); vals_list.append(1.0)
-                c_list.append(u[eid])
-                meta_list.append({
-                    "constraint_id": f"flow_bound_{eid}_upper",
-                    "type":          "flow_bound",
-                    "is_hard":       True,
-                    "cone_type":     "nonneg",
-                })
-                row_id += 1
-
-            if l[eid] != default_l:
-                rows_list.append(row_id); cols_list.append(eid); vals_list.append(-1.0)
-                c_list.append(-l[eid])
-                meta_list.append({
-                    "constraint_id": f"flow_bound_{eid}_lower",
-                    "type":          "flow_bound",
-                    "is_hard":       True,
-                    "cone_type":     "nonneg",
-                })
-                row_id += 1
-
-        G = sp.csr_matrix((vals_list, (rows_list, cols_list)), shape=(row_id, n_edges))
-        return ConstraintBlock(
-            G_rows   = G,
-            c        = np.array(c_list),
-            sigma_c  = np.zeros(row_id),
-            row_meta = pd.DataFrame(meta_list),
+        non_default = (
+            (acc_struct.bounds.l != acc_struct.bounds.DEFAULT_LOWER) |
+            (acc_struct.bounds.u != acc_struct.bounds.DEFAULT_UPPER)
         )
+        _log.info(
+            "FlowBoundsBuilder: %d edges with non-default bounds → stored in u/l, not G",
+            int(non_default.sum()),
+        )
+        return _empty_block(acc_struct.n_edges)
 
 
 # =============================================================================
@@ -1035,6 +1063,72 @@ class ConstraintEngine:
     def register(self, builder: BaseConstraintBuilder) -> None:
         self._builders.append(builder)
 
+    def _check(self, cr: ConstraintRun) -> None:
+        """Consistency checks on a completed ConstraintRun. Called automatically in run()."""
+        acc = self.acc_struct
+        rm  = cr.row_meta
+        ok  = True
+
+        # 1. G column count matches n_edges
+        if cr.G.shape[1] != acc.n_edges:
+            _log.error("CHECK FAIL: G.shape[1]=%d != n_edges=%d", cr.G.shape[1], acc.n_edges)
+            ok = False
+        else:
+            _log.info("CHECK OK: G.shape = (%d rows, %d edges)", cr.G.shape[0], cr.G.shape[1])
+
+        # 2. G column references all in bounds
+        if cr.G.nnz > 0:
+            max_col = int(cr.G.indices.max())
+            if max_col >= acc.n_edges:
+                _log.error("CHECK FAIL: G references edge %d >= n_edges %d", max_col, acc.n_edges)
+                ok = False
+
+        # 3. Constraint type breakdown
+        type_counts = rm["type"].value_counts() if len(rm) > 0 else pd.Series(dtype=int)
+        _log.info("Constraint type breakdown:\n%s",
+                  type_counts.to_string() if len(type_counts) else "  (empty)")
+
+        # 4. Expected mass_balance row count: one per (balanced_node × time)
+        ei, ni = acc.edge_index, acc.node_index
+        t_arr  = ei["time"].values
+        expected_mb = 0
+        for time in acc.time_range:
+            t_mask = (t_arr == str(time))
+            nodes_in  = set(ei.loc[t_mask, "to_id"].values)
+            nodes_out = set(ei.loc[t_mask, "from_id"].values)
+            for nid in nodes_in & nodes_out:
+                if str(ni.loc[nid, "entity"]) in {"Flow", "Process"}:
+                    expected_mb += 1
+        actual_mb = int(type_counts.get("mass_balance", 0))
+        if actual_mb == expected_mb:
+            _log.info("CHECK OK: mass_balance rows = %d (matches expected)", actual_mb)
+        else:
+            _log.warning(
+                "CHECK WARN: mass_balance rows = %d, expected %d from topology",
+                actual_mb, expected_mb,
+            )
+            ok = False
+
+        # 5. Hard constraints must have sigma_c == 0 (check first timestep)
+        hard_mask = rm["is_hard"].values if len(rm) > 0 else np.array([], dtype=bool)
+        if np.any(hard_mask) and cr.timestep_data:
+            first_t = next(iter(cr.timestep_data))
+            if np.any(cr.timestep_data[first_t]["sigma_c"][hard_mask] != 0.0):
+                _log.warning("CHECK WARN: hard constraint rows have non-zero sigma_c at t=%s", first_t)
+                ok = False
+            else:
+                _log.info("CHECK OK: hard constraint sigma_c = 0 (t=%s)", first_t)
+
+        # 6. u >= l for all edges
+        bad_bounds = int(np.sum(cr.u < cr.l))
+        if bad_bounds:
+            _log.warning("CHECK WARN: %d edges have u < l", bad_bounds)
+            ok = False
+        else:
+            _log.info("CHECK OK: u >= l for all %d edges", acc.n_edges)
+
+        _log.info("Constraint check %s", "PASSED" if ok else "FAILED (see warnings above)")
+
     def run(
         self,
         agg_result,
@@ -1110,6 +1204,8 @@ class ConstraintEngine:
             agg_id        = agg_id,
             created_at    = datetime.utcnow().isoformat(),
         )
+
+        self._check(cr)
 
         if persist:
             self._registry.register(cr)
