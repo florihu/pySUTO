@@ -124,8 +124,8 @@ class ClarabelSolver:
         self,
         const_dir: str = "data/proc/const",
         sigma_a_floor_abs:      float = 1e-8,
-        sigma_a_floor_rel:      float = 1e-6,
-        sigma_a_ceiling_factor: float = 1e6,
+        sigma_a_floor_rel:      float = 1e-5,
+        sigma_a_ceiling_factor: float = 1e5,
         sigma_c_floor:          float = 1e-9,
         tol_feas:               float = 1e-8,
         tol_gap_abs:            float = 1e-8,
@@ -615,7 +615,7 @@ class ClarabelSolver:
         self,
         run_id:     str,
         results:    dict[str, OptimResult],
-        output_dir: str = "data/proc/optim",
+        output_dir: str = "data/proc/opt",
         const_run_id: Optional[str] = None,
     ) -> str:
         """
