@@ -1136,6 +1136,7 @@ class ConstraintEngine:
         agg_id:    str = "",
         run_id:    Optional[str] = None,
         persist:   bool = True,
+        diag_plot: bool = False,
     ) -> ConstraintRun:
         """
         Build G once, then assemble c(t) / sigma_c(t) for each timestep.
@@ -1147,6 +1148,8 @@ class ConstraintEngine:
         agg_id      : provenance identifier for the agg_result
         run_id      : explicit run ID; auto-generated if None
         persist     : if True, save to registry
+        diag_plot   : if True, generate and save ConstDiagnostic figures to
+                      {storage_dir}/{run_id}/diag/ after the run
         """
         acc        = self.acc_struct
         n_edges    = acc.n_edges
@@ -1209,5 +1212,10 @@ class ConstraintEngine:
 
         if persist:
             self._registry.register(cr)
+
+        if diag_plot:
+            from .diag import ConstDiagnostic
+            odir = os.path.join(self._registry.storage_dir, cr.run_id, "diag")
+            ConstDiagnostic(cr, label=cr.run_id).plot(odir=odir)
 
         return cr
