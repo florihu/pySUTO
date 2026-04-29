@@ -25,7 +25,6 @@ Public API
 from __future__ import annotations
 
 import json
-import logging
 import os
 import time
 from dataclasses import dataclass, asdict
@@ -39,13 +38,29 @@ import scipy.sparse as sp
 import clarabel
 
 from .constraints import ConstraintRun, ConstraintRunRegistry
+from .logging import get_logger
 
-logger = logging.getLogger("pysuto.solver")
+logger = get_logger("pysuto.solver")
 
 
 # =============================================================================
 # OptimResult
 # =============================================================================
+
+# Structured dtype for per-iteration convergence trace.
+# Columns mirror Clarabel's verbose console output.
+ITER_DTYPE = np.dtype([
+    ("iter",        np.int32),
+    ("cost_primal", np.float64),
+    ("cost_dual",   np.float64),
+    ("gap_abs",     np.float64),
+    ("res_primal",  np.float64),
+    ("res_dual",    np.float64),
+    ("ktratio",     np.float64),
+    ("mu",          np.float64),
+    ("step_length", np.float64),
+])
+
 
 @dataclass
 class OptimResult:
@@ -59,6 +74,8 @@ class OptimResult:
     iterations:    int
     solve_time_s:  float
     solver_status: str             # str(clarabel SolverStatus enum)
+    convergence:   dict            # final get_info() snapshot (JSON-safe scalars)
+    iter_history:  Optional[np.ndarray] = None  # structured array of ITER_DTYPE
 
 
 # =============================================================================
@@ -115,6 +132,7 @@ class ClarabelSolver:
         tol_gap_rel:            float = 1e-8,
         max_iter:               int   = 200,
         verbose_first_solve:    bool  = True,
+        capture_iter_history:   bool  = True,
     ) -> None:
         self.const_dir              = const_dir
         self.sigma_a_floor_abs      = sigma_a_floor_abs
@@ -126,6 +144,7 @@ class ClarabelSolver:
         self.tol_gap_rel            = tol_gap_rel
         self.max_iter               = max_iter
         self.verbose_first_solve    = verbose_first_solve
+        self.capture_iter_history   = capture_iter_history
 
         self._registry = ConstraintRunRegistry(const_dir)
 
@@ -317,6 +336,31 @@ class ClarabelSolver:
         c_t = run.timestep_data[t_label]["c"]
         return np.asarray(c_t, dtype=float)[perm]
 
+    @staticmethod
+    def _info_to_dict(info) -> dict:
+        """Flatten Clarabel's ``DefaultInfo`` into JSON-safe scalars."""
+        ls = getattr(info, "linsolver", None)
+        return {
+            "cost_primal":     float(info.cost_primal),
+            "cost_dual":       float(info.cost_dual),
+            "gap_abs":         float(info.gap_abs),
+            "gap_rel":         float(info.gap_rel),
+            "res_primal":      float(info.res_primal),
+            "res_dual":        float(info.res_dual),
+            "res_primal_inf":  float(info.res_primal_inf),
+            "res_dual_inf":    float(info.res_dual_inf),
+            "ktratio":         float(info.ktratio),
+            "mu":              float(info.mu),
+            "sigma":            float(info.sigma),
+            "step_length":     float(info.step_length),
+            "iterations":      int(info.iterations),
+            "solve_time":      float(info.solve_time),
+            "status":          str(info.status),
+            "linsolver_name":  str(getattr(ls, "name",   "")) if ls is not None else "",
+            "linsolver_nnzA":  int(getattr(ls, "nnzA",   0))  if ls is not None else 0,
+            "linsolver_nnzL":  int(getattr(ls, "nnzL",   0))  if ls is not None else 0,
+        }
+
     # ------------------------------------------------------------------
     # Feasibility pre-check
     # ------------------------------------------------------------------
@@ -423,11 +467,17 @@ class ClarabelSolver:
         self,
         run_id:    str,
         timesteps: Optional[list] = None,
+        feasibility_check_first_only: bool = True,
     ) -> dict[str, OptimResult]:
         """
         Solve every requested timestep. Performs the feasibility pre-check
-        on every timestep first; halts before solving any if any timestep
-        is infeasible.
+        before solving; halts if any checked timestep is infeasible.
+
+        Parameters
+        ----------
+        feasibility_check_first_only:
+            If True (default), only the first timestep is checked — fast.
+            If False, all timesteps are checked before any solve begins.
         """
         run = self.load_run(run_id)
 
@@ -439,11 +489,16 @@ class ClarabelSolver:
             if missing:
                 raise KeyError(f"timesteps not in run: {sorted(missing)}")
 
-        # Pre-check ALL timesteps before solving any
-        logger.info("Feasibility pre-check on %d timesteps…", len(ts_labels))
-        for t in ts_labels:
+        # Feasibility pre-check
+        check_labels = ts_labels[:1] if feasibility_check_first_only else ts_labels
+        logger.info(
+            "Feasibility pre-check on %d/%d timesteps%s…",
+            len(check_labels), len(ts_labels),
+            " (first only)" if feasibility_check_first_only else "",
+        )
+        for t in check_labels:
             self.feasibility_check(run, t)
-        logger.info("Feasibility pre-check passed for all %d timesteps.", len(ts_labels))
+        logger.info("Feasibility pre-check passed.")
 
         # Build skeleton once (P, A, cones are time-invariant)
         skel    = self._problem_skeleton(run)
@@ -473,9 +528,31 @@ class ClarabelSolver:
             else:
                 solver.update(q=q, b=b)
 
+            hist: list[tuple] = []
+            if self.capture_iter_history:
+                def _cb(info, _hist=hist):
+                    _hist.append((
+                        int(info.iterations),
+                        float(info.cost_primal), float(info.cost_dual),
+                        float(info.gap_abs),
+                        float(info.res_primal), float(info.res_dual),
+                        float(info.ktratio),    float(info.mu),
+                        float(info.step_length),
+                    ))
+                    return False
+                solver.set_termination_callback(_cb)
+
             sol     = solver.solve()
             elapsed = time.perf_counter() - t0
             status  = str(sol.status)
+
+            if self.capture_iter_history:
+                solver.unset_termination_callback()
+
+            convergence  = self._info_to_dict(solver.get_info())
+            iter_history = (
+                np.array(hist, dtype=ITER_DTYPE) if hist else None
+            )
 
             if status not in _OK_STATUSES:
                 raise RuntimeError(
@@ -506,11 +583,15 @@ class ClarabelSolver:
                 iterations    = int(sol.iterations),
                 solve_time_s  = elapsed,
                 solver_status = status,
+                convergence   = convergence,
+                iter_history  = iter_history,
             )
 
             logger.info(
-                "t=%s  status=%s  iters=%d  obj=%.4e  time=%.2fs",
-                t, status, sol.iterations, sol.obj_val, elapsed,
+                "t=%s  status=%s  iters=%d  obj=%.4e  gap=%.2e  dres=%.2e  step=%.2f  time=%.2fs",
+                t, status, sol.iterations, sol.obj_val,
+                convergence["gap_abs"], convergence["res_dual"],
+                convergence["step_length"], elapsed,
             )
 
             # Warm-start prior for next timestep: a_0(t+1) ← a*(t)
@@ -554,13 +635,15 @@ class ClarabelSolver:
         os.makedirs(ts_dir, exist_ok=True)
 
         for t, res in results.items():
-            np.savez(
-                os.path.join(ts_dir, f"t_{t}.npz"),
-                F_opt     = res.F_opt,
-                eps_opt   = res.eps_opt,
-                c_star    = res.c_star,
-                residuals = res.residuals,
-            )
+            arrays = {
+                "F_opt":     res.F_opt,
+                "eps_opt":   res.eps_opt,
+                "c_star":    res.c_star,
+                "residuals": res.residuals,
+            }
+            if res.iter_history is not None:
+                arrays["iter_history"] = res.iter_history
+            np.savez(os.path.join(ts_dir, f"t_{t}.npz"), **arrays)
 
         index = {
             "optim_run_id": optim_run_id,
@@ -573,6 +656,7 @@ class ClarabelSolver:
                     "iterations":    res.iterations,
                     "solve_time_s":  res.solve_time_s,
                     "solver_status": res.solver_status,
+                    "convergence":   res.convergence,
                 }
                 for t, res in results.items()
             },

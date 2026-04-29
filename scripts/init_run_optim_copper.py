@@ -26,10 +26,11 @@ from datetime import datetime
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
 
-CONST_RUN_ID = "const_copper_20260428_120511_f14228c3"
+CONST_RUN_ID = "const_copper_20260429_070511_db39a7d4"
 CONST_DIR    = os.path.join("data", "proc", "const")
-OUTPUT_DIR   = os.path.join("data", "proc", "optim")
+OUTPUT_DIR   = os.path.join("data", "proc", "opt")
 TIMESTEPS    = None          # None → all timesteps in the run
+FEASIBILITY_CHECK_FIRST_ONLY = True  # True → check only first timestep (fast); False → check all
 
 # ---------------------------------------------------------------------------
 # END USER CONFIGURATION
@@ -54,7 +55,11 @@ def main() -> None:
     solver = ClarabelSolver(const_dir=CONST_DIR)
 
     _log.info("Solving ConstraintRun '%s'", CONST_RUN_ID)
-    results = solver.solve_all(CONST_RUN_ID, timesteps=TIMESTEPS)
+    results = solver.solve_all(
+        CONST_RUN_ID,
+        timesteps=TIMESTEPS,
+        feasibility_check_first_only=FEASIBILITY_CHECK_FIRST_ONLY,
+    )
 
     optim_run_id = solver.persist(
         run_id        = CONST_RUN_ID,
