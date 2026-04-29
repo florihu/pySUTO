@@ -55,6 +55,7 @@ from pysuto.impute   import (
     SourceTerm,
     ParamRef,
     TimeImputer,
+    FlatPriorImputer,
 )
 from pysuto.logging  import get_logger, add_run_handler
 from pysuto.diag     import ImpDiagnostic
@@ -333,6 +334,10 @@ engine.register(TimeImputer(
     gap_inflation=1.05,
     interpolate_only=True,
 ))
+
+# Step 5: final fallback — flat prior (f=0, large σ) for any residual NaN.
+# Required precondition for ConstraintEngine; without it Stage 3 halts.
+engine.register(FlatPriorImputer())
 
 logger.info("C  Running imputation engine")
 agg_result = engine.run(agg_result)

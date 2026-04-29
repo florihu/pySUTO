@@ -1156,6 +1156,20 @@ class ConstraintEngine:
         f_agg      = agg_result.f_agg
         sigma_agg  = agg_result.sigma_agg
 
+        # ── 0. NaN precondition ───────────────────────────────────────
+        # The downstream solver (Stage 3b) requires a fully-defined prior.
+        # Register pysuto.impute.FlatPriorImputer last in the imputation
+        # pipeline (or halt upstream) to satisfy this contract.
+        if np.isnan(f_agg).any() or np.isnan(sigma_agg).any():
+            n_nan_f = int(np.isnan(f_agg).sum())
+            n_nan_s = int(np.isnan(sigma_agg).sum())
+            raise ValueError(
+                f"agg_result contains NaN (f_agg: {n_nan_f}, sigma_agg: {n_nan_s}). "
+                f"Register FlatPriorImputer last in the imputation pipeline "
+                f"(or halt upstream) to ensure a fully-defined prior before "
+                f"constraint building."
+            )
+
         # ── 1. Build static G (time-invariant) ────────────────────────
         static_blocks = [b.build_static(acc) for b in self._builders]
         static_full   = _concat_blocks(static_blocks, n_edges)
@@ -1186,6 +1200,26 @@ class ConstraintEngine:
                 row_offset += bM
 
             timestep_data[t_label] = {"c": c_t, "sigma_c": sigma_c_t}
+
+        # ── 2b. σ_c floor for free-cone (soft) rows ───────────────────
+        # Prevents misconfigured zero-σ soft rows from blowing up Σ_c^{-1}
+        # in the downstream Clarabel transform. Hard rows (zero, nonneg)
+        # keep σ_c = 0 — the transform never reads them.
+        SIGMA_C_FLOOR = 1e-9
+        free_mask = (row_meta["cone_type"].to_numpy() == "free")
+        if free_mask.any():
+            n_clipped = 0
+            for t_label, td in timestep_data.items():
+                sc = td["sigma_c"]
+                clipped = (sc[free_mask] < SIGMA_C_FLOOR)
+                n_clipped += int(clipped.sum())
+                sc[free_mask] = np.maximum(sc[free_mask], SIGMA_C_FLOOR)
+                td["sigma_c"] = sc
+            if n_clipped:
+                _log.info(
+                    "Soft σ_c floor (%.0e) applied to %d (row, timestep) entries",
+                    SIGMA_C_FLOOR, n_clipped,
+                )
 
         # ── 3. Assemble ConstraintRun ──────────────────────────────────
         if run_id is None:

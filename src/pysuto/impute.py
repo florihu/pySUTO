@@ -18,6 +18,8 @@ FormulaRelation         Directed multi-source balance equation.
 FormulaImputer          Fills missing edges via FormulaRelation balance equations.
 
 TimeImputer             Temporal interpolation / extrapolation per edge series.
+
+FlatPriorImputer        Final-fallback: flat prior (f=0, large σ) for residual NaN.
 """
 
 from __future__ import annotations
@@ -1134,6 +1136,64 @@ class TimeImputer(BaseImputer):
         f_val: float, s_val: float,
     ) -> dict:
         return _log(e_id, step, method, src, coeffs, f_val, s_val, "", None)
+
+
+# ---------------------------------------------------------------------------
+# FlatPriorImputer
+# ---------------------------------------------------------------------------
+
+class FlatPriorImputer(BaseImputer):
+    """
+    Final-fallback imputer: fills any residual-NaN edges with a non-informative
+    flat prior — f = 0, σ = sigma_floor.
+
+    Register LAST in the pipeline. Without this (or an equivalent halt),
+    ConstraintEngine.run() will refuse a NaN-bearing agg_result.
+
+    sigma_floor strategy
+    --------------------
+    - default (sigma_floor=None): floor = sigma_floor_factor × max(finite σ)
+      seen so far in the array, computed at impute() time. This adapts to
+      the actual scale of the data while keeping Σ_a^{-1} conditioning
+      bounded for downstream Clarabel solves.
+    - explicit scalar: pass sigma_floor=1e10 (or similar) for a fixed value.
+    """
+
+    def __init__(
+        self,
+        sigma_floor: float | None = None,
+        sigma_floor_factor: float = 1e6,
+    ) -> None:
+        self.sigma_floor = sigma_floor
+        self.sigma_floor_factor = sigma_floor_factor
+
+    def impute(
+        self,
+        f: np.ndarray,
+        sigma: np.ndarray,
+        missing: np.ndarray,
+        step: int,
+        acc_struct,
+    ) -> list[dict]:
+        idx = np.where(missing)[0]
+        if idx.size == 0:
+            return []
+
+        floor = self.sigma_floor
+        if floor is None:
+            finite = sigma[np.isfinite(sigma)]
+            base = float(finite.max()) if finite.size else 1.0
+            floor = self.sigma_floor_factor * base
+
+        f[idx]     = 0.0
+        sigma[idx] = floor
+
+        desc = "no data, no imputer matched: flat prior"
+        return [
+            _log(int(j), step, "flat_prior", [], [],
+                 0.0, float(floor), desc, None)
+            for j in idx
+        ]
 
 
 # ---------------------------------------------------------------------------

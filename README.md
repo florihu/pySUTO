@@ -610,17 +610,13 @@ $$a_i \geq l_i \;\Rightarrow\; -a_i + l_i \leq 0$$
 
 Default bounds ($l_i = 0$, $u_i = 10^9$) produce no G rows. Only exceptions in the bounds spreadsheet generate rows.
 
-#### Clarabel transformation
+
 
 `ConstraintEngine.run()` produces solver-neutral outputs. A thin transform script maps them to Clarabel's cone format. Partition **G** and **c** by `cone_type`:
 
 $$\mathbf{G} = \begin{bmatrix} \mathbf{G}_\text{free} \\ \mathbf{G}_\text{zero} \\ \mathbf{G}_\text{nonneg} \end{bmatrix}, \qquad \mathbf{c} = \begin{bmatrix} \mathbf{c}_\text{free} \\ \mathbf{c}_\text{zero} \\ \mathbf{c}_\text{nonneg} \end{bmatrix}$$
 
-The Clarabel constraint matrix and RHS are then:
 
-$$A = \begin{bmatrix} \mathbf{G}_\text{free} & -\mathbf{I}_\text{free} \\ \mathbf{G}_\text{zero} & \mathbf{0} \\ \mathbf{G}_\text{nonneg} & \mathbf{0} \end{bmatrix}, \qquad b = \begin{bmatrix} \mathbf{c}_\text{free} \\ \mathbf{c}_\text{zero} \\ \mathbf{c}_\text{nonneg} \end{bmatrix}$$
-
-Cone order: `NonnegativeConeT(n_free)` for the slack rows, `ZeroConeT(n_zero)` for hard balance rows, `NonnegativeConeT(n_nonneg)` for bound rows. **P** and **q** follow the existing (P\*) formulation below.
 
 ### Stage 3b — Constrained optimisation objective
 
@@ -641,23 +637,11 @@ $$\text{s.t.} \quad \mathbf{G}\,\mathbf{a} - \boldsymbol{\varepsilon} = \mathbf{
 | $\mathbf{c}$ | Right-hand side of constraints |
 | $\mathbf{l}, \mathbf{u}$ | Physical lower/upper bounds (e.g. $l_i = 0$ for non-negative flows) |
 
-#### In Solver format
+#### Solver
 
 
-#### Clarabel transformation
+##### Clarable
 
-`ConstraintEngine.run()` produces solver-neutral outputs. A thin transform script maps them to Clarabel's cone format. Partition **G** and **c** by `cone_type`:
-
-$$\mathbf{G} = \begin{bmatrix} \mathbf{G}_\text{free} \\ \mathbf{G}_\text{zero} \\ \mathbf{G}_\text{nonneg} \end{bmatrix}, \qquad \mathbf{c} = \begin{bmatrix} \mathbf{c}_\text{free} \\ \mathbf{c}_\text{zero} \\ \mathbf{c}_\text{nonneg} \end{bmatrix}$$
-
-The Clarabel constraint matrix and RHS are then:
-
-$$A = \begin{bmatrix} \mathbf{G}_\text{free} & -\mathbf{I}_\text{free} \\ \mathbf{G}_\text{zero} & \mathbf{0} \\ \mathbf{G}_\text{nonneg} & \mathbf{0} \end{bmatrix}, \qquad b = \begin{bmatrix} \mathbf{c}_\text{free} \\ \mathbf{c}_\text{zero} \\ \mathbf{c}_\text{nonneg} \end{bmatrix}$$
-
-Cone order: `NonnegativeConeT(n_free)` for the slack rows, `ZeroConeT(n_zero)` for hard balance rows, `NonnegativeConeT(n_nonneg)` for bound rows. **P** and **q** follow the existing (P\*) formulation below.
-
-
-##### Clarabel's problem format
 
 Clarabel solves:
 
@@ -676,7 +660,11 @@ $$P = 2\begin{bmatrix} \Sigma_a^{-1} & 0 \\ 0 & \Sigma_c^{-1} \end{bmatrix} \qua
 
 $$q = \begin{bmatrix} -2\,\Sigma_a^{-1}\mathbf{a}_0 \\ \mathbf{0} \end{bmatrix}$$
 
-$$ A=[G - I] $$
+The Clarabel constraint matrix and RHS are then:
+
+$$A = \begin{bmatrix} \mathbf{G}_\text{free} & -\mathbf{I}_\text{free} \\ \mathbf{G}_\text{zero} & \mathbf{0} \\ \mathbf{G}_\text{nonneg} & \mathbf{0} \end{bmatrix}, \qquad b = \begin{bmatrix} \mathbf{c}_\text{free} \\ \mathbf{c}_\text{zero} \\ \mathbf{c}_\text{nonneg} \end{bmatrix}$$
+
+Cone order: `ZeroConeT(n_free)` for the soft-equality residual rows (slack ε is a free decision variable inside `x`; the row residual `Gx - ε = c` is itself an exact equality), `ZeroConeT(n_zero)` for hard balance rows, `NonnegativeConeT(n_nonneg)` for bound rows. **P** and **q** follow the existing (P\*) formulation below.
 
 $$ b = c $$
 

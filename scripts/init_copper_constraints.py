@@ -139,6 +139,7 @@ def main() -> None:
         timesteps=[str(t) for t in acc.time_range],
         agg_id=AGG_ID,
         persist=True,
+        diag_plot=True
     )
 
     # ── D. Summary ────────────────────────────────────────────────────────
