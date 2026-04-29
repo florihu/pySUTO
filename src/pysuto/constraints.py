@@ -15,8 +15,8 @@ RatioConstraintBuilder Soft free:     a_i − r · a_j = ε           (from para
 RatioBoundBuilder     Hard non-neg:   a_i − r_u·a_j ≤ 0           (from same params CSV)
 FlowBoundsBuilder     Hard non-neg:   l ≤ a ≤ u                    (from acc_struct.bounds)
 
-ConstraintBlock output is solver-neutral.  A thin transform script maps cone_type
-values ("zero", "nonneg", "free") to Clarabel's cone objects.
+
+
 """
 
 from __future__ import annotations
