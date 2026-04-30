@@ -63,48 +63,9 @@ class AggregationResult:
     coverage: np.ndarray
     imputation_log:      Optional[object] = field(default=None)
     imputation_metadata: Optional[object] = field(default=None)
-
-    def save(self, output_dir) -> None:
-        from pathlib import Path
-        import pandas as pd
-        path = Path(output_dir)
-        path.mkdir(parents=True, exist_ok=True)
-        np.savez(
-            path / "agg_result.npz",
-            f_agg=self.f_agg,
-            sigma_agg=self.sigma_agg,
-            Omega=self.Omega,
-            F=self.F,
-            Sigma=self.Sigma,
-            coverage=self.coverage,
-            feed_ids=np.array(self.feed_ids, dtype=object),
-        )
-        if self.imputation_log is not None:
-            self.imputation_log.as_dataframe().to_csv(
-                path / "imputation_log.csv", index=False
-            )
-        if self.imputation_metadata is not None:
-            self.imputation_metadata.as_dataframe().to_csv(
-                path / "imputation_metadata.csv", index=False
-            )
-        logger.info("AggregationResult saved to %s", path)
-
-    @classmethod
-    def load(cls, output_dir) -> "AggregationResult":
-        from pathlib import Path
-        path = Path(output_dir)
-        data = np.load(path / "agg_result.npz", allow_pickle=True)
-        result = cls(
-            f_agg=data["f_agg"],
-            sigma_agg=data["sigma_agg"],
-            Omega=data["Omega"],
-            F=data["F"],
-            Sigma=data["Sigma"],
-            feed_ids=list(data["feed_ids"]),
-            coverage=data["coverage"].astype(bool),
-        )
-        logger.info("AggregationResult loaded from %s", path)
-        return result
+    # Provenance: set by ImputationRunRegistry.register() so downstream stages
+    # (ConstraintEngine) can record the upstream imputation run.
+    _imp_run_id:         Optional[str]    = field(default=None)
 
     @property
     def n_feeds(self) -> int:

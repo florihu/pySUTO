@@ -35,8 +35,8 @@ ACC_ID       = "copper"
 ACC_DIR      = os.path.join("data", "proc", "acc")
 REGISTRY_DIR = os.path.join("data", "proc", "feed", "registry")
 
-IMP_ID      = "copper_agg_imp_v0"  # for logging and param references           # for logging and param references 
-OUTPUT_DIR   = os.path.join("data", "proc", "imp", IMP_ID)  # where to save the final AggregationResult (must not exist yet)
+IMP_LABEL    = "copper_agg_imp_v0"   # human-readable label folded into auto run_id
+IMP_DIR      = os.path.join("data", "proc", "imp")  # ImputationRunRegistry storage dir
 PARAMS_DIR   = os.path.join("data", "input", "params")  # where to find CSVs for ParametricImputer
 # ---------------------------------------------------------------------------
 # Imports
@@ -45,7 +45,7 @@ PARAMS_DIR   = os.path.join("data", "input", "params")  # where to find CSVs for
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from pysuto.acc      import AccountingStructure
-from pysuto.registry import DataFeedRegistry
+from pysuto.registry import DataFeedRegistry, ImputationRunRegistry
 from pysuto.collector import FeedCollector
 from pysuto.impute   import (
     ImputationEngine,
@@ -347,19 +347,28 @@ logger.info(
 )
 
 # ---------------------------------------------------------------------------
-# D  Save
+# D  Register run with ImputationRunRegistry
 # ---------------------------------------------------------------------------
 
-logger.info("D  Saving AggregationResult to %s", OUTPUT_DIR)
-agg_result.save(OUTPUT_DIR)
+logger.info("D  Registering imputation run in %s", IMP_DIR)
+imp_registry = ImputationRunRegistry(storage_dir=IMP_DIR)
+run_id = imp_registry.register(
+    agg_result,
+    label    = IMP_LABEL,
+    feeds    = collector.selected,
+    imputers = engine.imputers,
+    acc_id   = acc.id,
+)
+run_dir = os.path.join(IMP_DIR, run_id)
+logger.info("D  Registered run_id=%s → %s", run_id, run_dir)
 
 # ---------------------------------------------------------------------------
 # E  Diagnostics
 # ---------------------------------------------------------------------------
 
 logger.info("E  Running imputation diagnostics")
-diag = ImpDiagnostic(agg_result, acc_struct=acc, label=IMP_ID)
-diag.plot(odir=os.path.join(OUTPUT_DIR, "diag"), show=False)
+diag = ImpDiagnostic(agg_result, acc_struct=acc, label=run_id)
+diag.plot(odir=os.path.join(run_dir, "diag"), show=False)
 diag.summary()
 
 logger.info("=== collect_aggregate_impute DONE ===")

@@ -86,6 +86,20 @@ def _float_or(val, default: float) -> float:
     return float(s) if s and s not in ("nan", "None", "") else default
 
 
+def _apply_cv_cap(sigma_val: float, f_val: float, cv_cap: float) -> tuple[float, bool]:
+    """
+    Cap σ at cv_cap × |f|. Returns (sigma_capped, was_capped).
+
+    cv_cap <= 0 disables the cap. f == 0 disables the cap (no scale to cap to).
+    """
+    if cv_cap <= 0.0 or f_val == 0.0 or not np.isfinite(sigma_val) or not np.isfinite(f_val):
+        return sigma_val, False
+    cap = cv_cap * abs(f_val)
+    if sigma_val > cap:
+        return cap, True
+    return sigma_val, False
+
+
 def _time_sort_key(t):
     try:
         return (0, int(t))
@@ -273,6 +287,25 @@ class BaseImputer(ABC):
     def source_paths(self) -> list[str]:
         return []
 
+    def config(self) -> dict:
+        """
+        Return a JSON-serialisable snapshot of this imputer's configuration.
+
+        Default impl: every public attribute (no leading underscore) whose
+        value is JSON-able. Subclasses can override for richer detail.
+        """
+        import json as _json
+        out: dict = {}
+        for k, v in self.__dict__.items():
+            if k.startswith("_"):
+                continue
+            try:
+                _json.dumps(v)
+                out[k] = v
+            except (TypeError, ValueError):
+                out[k] = repr(v)
+        return out
+
 
 # ---------------------------------------------------------------------------
 # ImputationEngine
@@ -290,6 +323,11 @@ class ImputationEngine:
     def __init__(self, acc_struct) -> None:
         self._acc_struct = acc_struct
         self._imputers: list[BaseImputer] = []
+
+    @property
+    def imputers(self) -> list[BaseImputer]:
+        """Read-only view of registered imputers (in registration order)."""
+        return list(self._imputers)
 
     def register(self, imputer: BaseImputer) -> None:
         if hasattr(imputer, "prepare"):
@@ -510,19 +548,30 @@ class ParametricImputer(BaseImputer):
         relations: Optional[list[ParametricRelation]] = None,
         _csv_pairs: Optional[list] = None,
         _source_path: Optional[str] = None,
+        cv_cap: float = 100.0,
     ) -> None:
         self._relations  = relations or []
         # Each tuple: (a_id, b_id, coeff, sigma_param, epsilon, bl, bu, param_id, desc)
         self._csv_pairs  = _csv_pairs or []
         self._source_path: Optional[str] = _source_path
         self._ei_exp:    Optional[pd.DataFrame] = None  # lazy cache for lambda relations
+        self.cv_cap     = float(cv_cap)
 
     @property
     def source_paths(self) -> list[str]:
         return [self._source_path] if self._source_path else []
 
+    def config(self) -> dict:
+        return {
+            "cv_cap":         self.cv_cap,
+            "source_path":    self._source_path,
+            "n_csv_pairs":    len(self._csv_pairs),
+            "n_relations":    len(self._relations),
+            "relations_desc": [r.description for r in self._relations],
+        }
+
     @classmethod
-    def from_csv(cls, path: str, acc_struct) -> "ParametricImputer":
+    def from_csv(cls, path: str, acc_struct, cv_cap: float = 100.0) -> "ParametricImputer":
         """
         Load a params-template CSV (semicolon-delimited) and precompute
         (edge_a_id, edge_b_id) pairs for bidirectional imputation.
@@ -609,7 +658,7 @@ class ParametricImputer(BaseImputer):
 
         pairs = [v[0] for v in best.values()]
         logger.info("from_csv: loaded %d bidirectional pairs from %s", len(pairs), path)
-        return cls(_csv_pairs=pairs, _source_path=str(path))
+        return cls(_csv_pairs=pairs, _source_path=str(path), cv_cap=cv_cap)
 
     def impute(
         self,
@@ -620,6 +669,7 @@ class ParametricImputer(BaseImputer):
         acc_struct,
     ) -> list[dict]:
         entries: list[dict] = []
+        cv_cap  = self.cv_cap
 
         # ── CSV pairs (bidirectional) ──────────────────────────────────
         for a_id, b_id, coeff, sig_p, epsilon, bl, bu, param_id, desc in self._csv_pairs:
@@ -630,20 +680,28 @@ class ParametricImputer(BaseImputer):
                 f_raw = coeff * f[a_id]
                 f_b   = float(np.clip(f_raw, bl, bu))
                 s_b   = float(np.sqrt(coeff**2 * sigma[a_id]**2 + sig_p**2 + (epsilon * f_b)**2))
+                s_b, capped = _apply_cv_cap(s_b, f_b, cv_cap)
                 f[b_id]     = f_b
                 sigma[b_id] = s_b
-                entries.append(_log(b_id, step, "parametric", [a_id], [coeff],
-                                    f_b, s_b, desc, param_id))
+                entries.append(_log(
+                    b_id, step,
+                    "parametric_capped" if capped else "parametric",
+                    [a_id], [coeff], f_b, s_b, desc, param_id,
+                ))
 
             elif a_nan and not b_nan:
                 inv = 1.0 / coeff
                 f_raw = inv * f[b_id]
                 f_a   = float(np.clip(f_raw, bl, bu))
                 s_a   = float(np.sqrt(inv**2 * sigma[b_id]**2 + sig_p**2 + (epsilon * f_a)**2))
+                s_a, capped = _apply_cv_cap(s_a, f_a, cv_cap)
                 f[a_id]     = f_a
                 sigma[a_id] = s_a
-                entries.append(_log(a_id, step, "parametric", [b_id], [inv],
-                                    f_a, s_a, desc, param_id))
+                entries.append(_log(
+                    a_id, step,
+                    "parametric_capped" if capped else "parametric",
+                    [b_id], [inv], f_a, s_a, desc, param_id,
+                ))
 
         # ── Lambda relations (directed: target ← sources) ─────────────
         if self._relations:
@@ -693,11 +751,13 @@ class ParametricImputer(BaseImputer):
                     var = sum(c**2 * sigma[s]**2 for c, s in zip(coeffs, s_ids))
                     var += (rel.epsilon * f_t) ** 2
                     s_t = float(np.sqrt(var))
+                    s_t, capped = _apply_cv_cap(s_t, f_t, cv_cap)
 
                     f[t_id]     = f_t
                     sigma[t_id] = s_t
                     entries.append(_log(
-                        t_id, step, "parametric",
+                        t_id, step,
+                        "parametric_capped" if capped else "parametric",
                         list(s_ids), coeffs, f_t, s_t,
                         rel.description, rel.param_id,
                     ))
@@ -785,6 +845,7 @@ class FormulaImputer(BaseImputer):
         relations: list[FormulaRelation],
         params_csv: Optional[str] = None,
         params: Optional[dict[str, float]] = None,
+        cv_cap: float = 100.0,
     ) -> None:
         self._relations = relations
         self._params: dict[str, float] = dict(params or {})
@@ -798,6 +859,20 @@ class FormulaImputer(BaseImputer):
         self._ei_rt:      Optional[np.ndarray]   = None
         self._ei_time:    Optional[np.ndarray]   = None
         self._precomp:    Optional[list]         = None
+        self.cv_cap        = float(cv_cap)
+        self._params_csv_path: Optional[str] = str(params_csv) if params_csv else None
+
+    @property
+    def source_paths(self) -> list[str]:
+        return [self._params_csv_path] if self._params_csv_path else []
+
+    def config(self) -> dict:
+        return {
+            "cv_cap":          self.cv_cap,
+            "params_csv":      self._params_csv_path,
+            "n_relations":     len(self._relations),
+            "relations_desc":  [r.description for r in self._relations],
+        }
 
     def prepare(self, acc_struct) -> None:
         ei_exp, _, _, _, mask_cache, _ = _get_edge_cache(acc_struct)
@@ -937,11 +1012,19 @@ class FormulaImputer(BaseImputer):
                     clipped = True
 
                 s_val = float(np.sqrt(var_val))
+                s_val, capped = _apply_cv_cap(s_val, f_val, self.cv_cap)
                 f[t_id]     = f_val
                 sigma[t_id] = s_val
+                if clipped and capped:
+                    method = "formula_clipped_capped"
+                elif clipped:
+                    method = "formula_clipped"
+                elif capped:
+                    method = "formula_capped"
+                else:
+                    method = "formula"
                 entries.append(_log(
-                    t_id, step,
-                    "formula_clipped" if clipped else "formula",
+                    t_id, step, method,
                     src_ids, src_coeffs, f_val, s_val,
                     rel.description, None,
                 ))
@@ -1152,17 +1235,22 @@ class FlatPriorImputer(BaseImputer):
 
     sigma_floor strategy
     --------------------
-    - default (sigma_floor=None): floor = sigma_floor_factor × max(finite σ)
-      seen so far in the array, computed at impute() time. This adapts to
-      the actual scale of the data while keeping Σ_a^{-1} conditioning
-      bounded for downstream Clarabel solves.
-    - explicit scalar: pass sigma_floor=1e10 (or similar) for a fixed value.
+    - default (sigma_floor=None): floor = sigma_floor_factor × max(|f_finite|).
+      The floor is anchored to the largest observed flow magnitude, NOT to
+      max σ. This decouples the flat-prior σ from upstream σ contamination
+      (e.g. a single parametric outlier with σ ≫ |f| no longer pulls the
+      flat-prior floor up by orders of magnitude).
+    - explicit scalar: pass sigma_floor=1e7 (or similar) for a fixed value.
+
+    Default sigma_floor_factor=100 means: missing edges get σ equal to 100×
+    the largest observed flow. Large enough to be non-informative, small
+    enough to keep Σ_a^{-1} well-conditioned for downstream Clarabel solves.
     """
 
     def __init__(
         self,
         sigma_floor: float | None = None,
-        sigma_floor_factor: float = 1e6,
+        sigma_floor_factor: float = 100.0,
     ) -> None:
         self.sigma_floor = sigma_floor
         self.sigma_floor_factor = sigma_floor_factor
@@ -1181,8 +1269,10 @@ class FlatPriorImputer(BaseImputer):
 
         floor = self.sigma_floor
         if floor is None:
-            finite = sigma[np.isfinite(sigma)]
-            base = float(finite.max()) if finite.size else 1.0
+            finite = f[np.isfinite(f)]
+            base = float(np.abs(finite).max()) if finite.size else 1.0
+            if base == 0.0:
+                base = 1.0
             floor = self.sigma_floor_factor * base
 
         f[idx]     = 0.0

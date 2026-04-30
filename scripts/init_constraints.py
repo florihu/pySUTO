@@ -37,10 +37,13 @@ import sys
 
 ACC_ID     = "copper"
 ACC_DIR    = os.path.join("data", "proc", "acc")
-AGG_DIR    = os.path.join("data", "proc", "imp", "copper_agg_imp_v0")
+IMP_DIR    = os.path.join("data", "proc", "imp")
+# Set IMP_RUN_ID to the run_id printed by init_collect_aggregate_impute.py
+# (e.g. "imp_copper_agg_imp_v0_20260430_101455_a1b2c3d4"). If left as None,
+# the latest registered imputation run is used.
+IMP_RUN_ID: str | None = None
 PARAMS_DIR = os.path.join("data", "input", "params")
 OUTPUT_DIR = os.path.join("data", "proc", "const")
-AGG_ID     = "copper_agg_imp_v0"
 
 # SB entity_sub values whose outgoing edges are subtracted from the Process
 # node LHS (waste to nature / socio-economic system boundary)
@@ -58,7 +61,7 @@ FD_SUBS = {"FD"}
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from pysuto.acc import AccountingStructure
-from pysuto.agg import AggregationResult
+from pysuto.registry import ImputationRunRegistry
 from pysuto.constraints import (
     ConstraintEngine,
     MassBalanceBuilder,
@@ -82,10 +85,23 @@ def main() -> None:
     _log.info("  nodes=%d  edges=%d  time=%s–%s",
               acc.n_nodes, acc.n_edges, acc.time_range[0], acc.time_range[-1])
 
-    _log.info("Loading AggregationResult from %s", AGG_DIR)
-    agg_result = AggregationResult.load(AGG_DIR)
-    _log.info("  f_agg shape=%s  coverage=%d edges",
-              agg_result.f_agg.shape, agg_result.coverage.sum())
+    _log.info("Loading imputation run from %s", IMP_DIR)
+    imp_registry = ImputationRunRegistry(storage_dir=IMP_DIR)
+    if IMP_RUN_ID is not None:
+        run_id = IMP_RUN_ID
+    else:
+        if not len(imp_registry):
+            raise RuntimeError(
+                f"No imputation runs found in {IMP_DIR}. "
+                "Run init_collect_aggregate_impute.py first."
+            )
+        # Pick the most recently created entry
+        run_id = max(imp_registry.ids(),
+                     key=lambda r: imp_registry[r]["created_at"])
+        _log.info("  IMP_RUN_ID not set — using latest run_id=%s", run_id)
+    agg_result = imp_registry.load(run_id)
+    _log.info("  f_agg shape=%s  coverage=%d edges  imp_run_id=%s",
+              agg_result.f_agg.shape, agg_result.coverage.sum(), run_id)
 
     # ── B. Assemble constraint engine ─────────────────────────────────────
     engine = ConstraintEngine(acc_struct=acc, storage_dir=OUTPUT_DIR)
@@ -134,10 +150,10 @@ def main() -> None:
 
     # ── C. Run and persist ────────────────────────────────────────────────
     _log.info("Running ConstraintEngine over %d timesteps", len(acc.time_range))
+    # agg_id auto-derived from agg_result._imp_run_id (set by ImputationRunRegistry).
     constraint_run = engine.run(
         agg_result=agg_result,
         timesteps=[str(t) for t in acc.time_range],
-        agg_id=AGG_ID,
         persist=True,
         diag_plot=True
     )

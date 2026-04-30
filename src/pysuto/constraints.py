@@ -1145,12 +1145,17 @@ class ConstraintEngine:
         ----------
         agg_result  : AggregationResult with f_agg and sigma_agg
         timesteps   : ordered list of time labels (strings or ints)
-        agg_id      : provenance identifier for the agg_result
+        agg_id      : provenance identifier for the agg_result. If empty and
+                      ``agg_result._imp_run_id`` is set (i.e. the result came
+                      out of ImputationRunRegistry.register/load), that run_id
+                      is used automatically.
         run_id      : explicit run ID; auto-generated if None
         persist     : if True, save to registry
         diag_plot   : if True, generate and save ConstDiagnostic figures to
                       {storage_dir}/{run_id}/diag/ after the run
         """
+        if not agg_id:
+            agg_id = getattr(agg_result, "_imp_run_id", None) or ""
         acc        = self.acc_struct
         n_edges    = acc.n_edges
         f_agg      = agg_result.f_agg

@@ -59,6 +59,9 @@ class FeedCollector:
         self._acc_struct  = acc_struct
         self._feed_ids:   List[str] = []
         self._min_flow_kt = min_flow_kt
+        # Resolved (feed_id, version, registry_path) triples; populated by select().
+        # Read by ImputationRunRegistry.register() to snapshot feed provenance.
+        self.selected: List[dict] = []
 
     # ------------------------------------------------------------------
     # Selection
@@ -84,18 +87,33 @@ class FeedCollector:
         KeyError  if a feed_id is not present in the registry
         """
         resolved: List[str] = []
+        triples:  List[dict] = []
         for item in feed_ids:
             if isinstance(item, tuple):
-                fid = item[0]
+                fid     = item[0]
+                version = item[1] if len(item) > 1 else None
             else:
-                fid = item
+                fid     = item
+                version = None
             if fid not in self._registry:
                 raise KeyError(
                     f"Feed '{fid}' not found in registry. "
                     f"Available: {self._registry.ids()}"
                 )
             resolved.append(fid)
+            # registry_path lookup is best-effort: tests pass a duck-typed
+            # mock without __getitem__ / .odir.
+            try:
+                registry_path = self._registry[fid].odir
+            except (TypeError, AttributeError, KeyError):
+                registry_path = None
+            triples.append({
+                "feed_id":       fid,
+                "version":       version,
+                "registry_path": registry_path,
+            })
         self._feed_ids = resolved
+        self.selected  = triples
         logger.info("selected %d feed(s): %s", len(resolved), resolved)
         return self
 
