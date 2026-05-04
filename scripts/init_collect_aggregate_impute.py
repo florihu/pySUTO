@@ -38,6 +38,16 @@ REGISTRY_DIR = os.path.join("data", "proc", "feed", "registry")
 IMP_LABEL    = "copper_agg_imp_v0"   # human-readable label folded into auto run_id
 IMP_DIR      = os.path.join("data", "proc", "imp")  # ImputationRunRegistry storage dir
 PARAMS_DIR   = os.path.join("data", "input", "params")  # where to find CSVs for ParametricImputer
+
+# Power-mean exponent for σ propagation (Stage 1, Stage 2a, all imputers).
+# p ∈ [1.1, 1.5]; p=2.0 recovers Gaussian quadrature. See README.
+P_PROP       = 1.3
+# ParametricImputer α-regularization (s(α) = |α|/(|α|^q + α_min^q)^(1/q)).
+# Caps σ amplification for large |α| and damps very small |α|. See README.
+Q_REG        = 3.0
+ALPHA_MIN_REG = 0.05
+# Default CV for FlatPrior edges that match no listed mask (supply/use/...)
+FLAT_DEFAULT_CV = 0.3
 # ---------------------------------------------------------------------------
 # Imports
 # ---------------------------------------------------------------------------
@@ -88,9 +98,9 @@ registry.load_index()
 # B  Collect and aggregate
 # ---------------------------------------------------------------------------
 
-logger.info("B  Collecting feeds: baci, crude_ore, icsg")
+logger.info("B  Collecting feeds: baci, crude_ore, icsg (p=%.2f)", P_PROP)
 collector  = FeedCollector(registry=registry, acc_struct=acc, min_flow_kt=0.01)
-agg_result = collector.select(["baci", "crude_ore", "icsg"]).aggregate()
+agg_result = collector.select(["baci", "crude_ore", "icsg"]).aggregate(p=P_PROP)
 logger.info(
     "B  Aggregation done: %d covered / %d total edges",
     agg_result.n_covered, agg_result.n_edges,
@@ -301,16 +311,19 @@ engine = ImputationEngine(acc_struct=acc)
 # Step 0: ore-grade (specific, time-varying) — priority via specificity dedup
 engine.register(ParametricImputer.from_csv(
     os.path.join(PARAMS_DIR, "ore_grade_params.csv"), acc,
+    p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG,
 ))
 
 # Step 1: global concentration params (fills gaps left by ore_grade)
 engine.register(ParametricImputer.from_csv(
     os.path.join(PARAMS_DIR, "copper_conc_params.csv"), acc,
+    p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG,
 ))
 
 # Step 2: efficiency params
 engine.register(ParametricImputer.from_csv(
     os.path.join(PARAMS_DIR, "copper_efficiency_params.csv"), acc,
+    p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG,
 ))
 
 # Step 3: domestic use balance for traded flows
@@ -324,6 +337,7 @@ engine.register(FormulaImputer(
         cathode_mesc_domestic,
     ],
     params_csv=os.path.join(PARAMS_DIR, "copper_conc_params.csv"),
+    p=P_PROP,
 ))
 
 # Step 4: temporal interpolation, no extrapolation
@@ -333,11 +347,17 @@ engine.register(TimeImputer(
     min_obs=2,
     gap_inflation=1.05,
     interpolate_only=True,
+    p=P_PROP,
 ))
 
-# Step 5: final fallback — flat prior (f=0, large σ) for any residual NaN.
+# Step 5: final fallback — flat prior sized by mask CV × group scale.
 # Required precondition for ConstraintEngine; without it Stage 3 halts.
-engine.register(FlatPriorImputer())
+engine.register(FlatPriorImputer.from_csv(
+    os.path.join(PARAMS_DIR, "flat_prior_cv.csv"),
+    acc_struct=acc,
+    default_cv=FLAT_DEFAULT_CV,
+    p=P_PROP,
+))
 
 logger.info("C  Running imputation engine")
 agg_result = engine.run(agg_result)

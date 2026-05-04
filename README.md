@@ -121,9 +121,14 @@ The parameter CSV template with full column reference and example rows for all t
 
 | Imputer | Method | Uncertainty |
 |---|---|---|
-| `ParametricImputer` | Bidirectional edge-pair constraints; CSV loading or lambda relations | Gaussian: `σ²_j = coeff² · σ²_i + (ε · f_j)²` |
-| `FormulaImputer` | Directed multi-source balance equations; region/time-correlated source selection; physical clip | Gaussian: `σ²_j = Σ coeff_i²·σ²_i + (ε·f_j)²`; pre-clip σ retained on clipped fills |
-| `TimeImputer` | Window-based temporal interpolation / extrapolation | Weighted Gaussian: `σ²_j = Σ_i w_i² σ²_i · γ(gap)` |
+| `ParametricImputer` | Bidirectional edge-pair constraints; CSV loading or lambda relations | Lp + regularized sensitivity: `σ_j = ( |s(coeff)·σ_i|^p + |σ_param|^p + |ε·f_j|^p )^(1/p)` |
+| `FormulaImputer` | Directed multi-source balance equations; region/time-correlated source selection; physical clip | Lp: `σ_j = ( Σ_i |coeff_i·σ_i|^p + |ε·f_j|^p )^(1/p)`; pre-clip σ retained on clipped fills |
+| `TimeImputer` | Window-based temporal interpolation / extrapolation | Lp: `σ_j = ( Σ_i |w_i·σ_i|^p )^(1/p) · γ(gap)` |
+| `FlatPriorImputer` | Final fallback — `f=0`, `σ = CV[mask] · scale[group]` (CV by accounting mask, scale = group-mean of \|f_agg\|) | `σ = CV·scale` (no Lp combine; one source) |
+
+The exponent `p ∈ [1.1, 1.5]` (default `1.3`) is a single global power-mean parameter — see [Power-mean uncertainty propagation](#power-mean-uncertainty-propagation). Setting `p=2` recovers Gaussian quadrature.
+
+`s(α) = |α| / (|α|^q + α_min^q)^(1/q)` is the regularized sensitivity used in `ParametricImputer` only — see [Regularized sensitivity (ParametricImputer)](#regularized-sensitivity-parametricimputer).
 
 Additional imputers can be created by subclassing `BaseImputer` and implementing a single `impute()` method.
 
@@ -162,7 +167,11 @@ Each `ParametricRelation` specifies:
 - **coefficients** — the linear weights α_i (sum need not equal 1)
 - **epsilon** — optional relative residual uncertainty (fraction of `f_j`), added in quadrature
 
-Uncertainty propagation (both modes): σ²_j = Σ_i α_i² σ²_i + (ε · f_j)²
+Uncertainty propagation (both modes):
+
+`σ_j = ( Σ_i |s(α_i)·σ_i|^p + |σ_param|^p + |ε·f_j|^p )^(1/p)`
+
+where `s(α) = |α| / (|α|^q + α_min^q)^(1/q)` is the regularized sensitivity (defaults `q=3`, `α_min=0.05`). It caps coefficient amplification of σ for `|α| >> α_min` (so `s → 1` and `α·σ_src` is no longer free to grow without bound) and floors propagation for `|α| << α_min` (so very small α don't produce unrealistically tight σ). The fill itself uses bare α: `f_j = α · f_i + …`. Regularization applies to σ propagation only — physical balance equations are not perturbed. See [Regularized sensitivity (ParametricImputer)](#regularized-sensitivity-parametricimputer).
 
 All fills are logged to `ImputationLog` with the `param_id` from the CSV row (None for lambda relations).
 
@@ -264,7 +273,7 @@ The same pattern generalises to any tradable intermediate flow (Concentrate, CSX
 **Uncertainty propagation:** for a linear formula with terms `(coeff_i, f_i, σ_i)`:
 
 ```
-σ²_target = Σ_i  coeff_i² × σ²_i  +  (ε × f_target)²
+σ_target = ( Σ_i |coeff_i · σ_i|^p + |ε · f_target|^p )^(1/p)
 ```
 
 If the pre-clip value is negative and the result is clipped to `clip_lower`, the fill is logged with `method="formula_clipped"` and `sigma_after` carries the pre-clip σ as a conservative uncertainty estimate.
@@ -280,7 +289,33 @@ Fills NaN edges by temporal interpolation or extrapolation using a configurable 
 - **min_obs** — minimum number of non-NaN observations required within the window to attempt a fill (default 1)
 - **gap_inflation** — σ multiplier per time-step gap; accounts for the fact that extrapolation uncertainty grows with the size of the gap (default 1.0 = no inflation; `sqrt(gap)` is a common choice)
 
-For linear interpolation between two observations at gap g: the interpolated value at fractional position t is `f_t = (1-t)·f_a + t·f_b`, and the propagated uncertainty is `σ²_t = (1-t)²·σ²_a + t²·σ²_b`. Edge-specific `gap_inflation` is applied multiplicatively to σ_t.
+For linear interpolation between two observations at gap g: the interpolated value at fractional position t is `f_t = (1-t)·f_a + t·f_b`, and the propagated uncertainty is `σ_t = ( |(1-t)·σ_a|^p + |t·σ_b|^p )^(1/p) · γ(gap)` where `γ(gap) = gap_inflation^gap`.
+
+##### FlatPriorImputer
+
+Final-fallback imputer. Register **last** in the pipeline; every residual NaN edge is filled with a flat prior:
+
+```
+f_j  = 0
+σ_j  = CV[mask(j)] · scale(j)
+```
+
+- `mask(j)` is the **first matching** mask name (priority by row order in the CV CSV / dict). Supported masks: `supply`, `use`, `tradable`, `sb` — drawn directly from `AccountingStructure.{supply,use,tradable,sb}_edge_mask`. Edges that match no listed mask fall through to `default_cv` (a required constructor kwarg).
+- `scale(j) = mean(|f_agg[i]|)` over edges `i` sharing the same `(sector_from, entity_from, region_from, valuation)` group as `j` and finite `f_agg[i]` at the moment FlatPrior runs (i.e. after every earlier imputer has filled what it can).
+- An empty group (no finite `f_agg` shares the key) yields `scale = 0` → `σ_j = 0`. This is the intended behavior when the region/sector has no flow data at all.
+
+The CV table lives in [data/input/params/flat_prior_cv.csv](data/input/params/flat_prior_cv.csv) (columns `mask_name,cv,description`; row order = priority). The seed file ships with two rows: `supply,0.001` (well-covered by feeds) and `use,0.3` (sparsely covered).
+
+```python
+engine.register(FlatPriorImputer.from_csv(
+    "data/input/params/flat_prior_cv.csv",
+    acc_struct=acc,
+    default_cv=0.3,
+    p=1.3,
+))
+```
+
+Or programmatically: `FlatPriorImputer(cv_by_mask={"supply": 0.001, "use": 0.3}, default_cv=0.3, acc_struct=acc)`.
 
 ##### ImputationLog
 
@@ -442,19 +477,36 @@ Sensitivity parameter $a_i$: not sensitive $= 0.375$, medium sensitive $= 0.75$,
 
 $$\mathrm{CV}_\mathrm{tot} = \sqrt{\mathrm{CV}_\mathrm{rel}^2 + \mathrm{CV}_\mathrm{comp}^2 + \mathrm{CV}_\mathrm{temp}^2 + \mathrm{CV}_\mathrm{geo}^2 + \mathrm{CV}_\mathrm{other}^2}$$
 
+### Power-mean uncertainty propagation
+
+All Stage 1 / Stage 2a / Stage 2b σ propagation steps share a single global power-mean (Lp) combiner with exponent $p \in [1.1, 1.5]$, default $p = 1.3$. For a list of contributions $\{x_i\}$:
+
+$$\mathrm{Lp}(\{x_i\};\, p) \;=\; \left(\sum_i |x_i|^p\right)^{1/p}.$$
+
+`p = 2` recovers the legacy Gaussian-quadrature formulas exactly. Smaller `p` weights large terms relatively less, which suppresses σ inflation in fan-in regimes where the per-source independence assumption (one dataset-level CV applied across many edges) is structurally violated. The exponent is a constructor kwarg on every consumer (`UncertaintyMixin.apply_with_uncertainty`, `AggregationMath.run`, every `BaseImputer`); init scripts pass the same value to all of them.
+
+### Regularized sensitivity (ParametricImputer)
+
+`ParametricImputer` σ propagation passes coefficients through a bounded sensitivity function before the Lp combine:
+
+$$s(\alpha;\, q,\,\alpha_{\min}) \;=\; \frac{|\alpha|}{\bigl(|\alpha|^q + \alpha_{\min}^q\bigr)^{1/q}}.$$
+
+Defaults: $q = 3$, $\alpha_{\min} = 0.05$. Behaviour:
+- $|\alpha| \gg \alpha_{\min}$: $s(\alpha) \to 1$. Coefficient amplification of σ is capped — the term `s(α)·σ_src` cannot grow beyond `σ_src` regardless of how large α is. This suppresses σ-bloat in the inverse direction of small-coefficient relations (e.g. $1/\text{ore-grade} \approx 100$).
+- $|\alpha| \ll \alpha_{\min}$: $s(\alpha) \to |\alpha|/\alpha_{\min}$. Very small coefficients no longer produce unrealistically tight propagated σ — there is a relative floor of $1/\alpha_{\min}$ on the effective sensitivity.
+- $|\alpha| = \alpha_{\min}$: $s = 2^{-1/q}$. Larger $q$ gives a sharper knee; $q \to \infty$ recovers a hard clip at 1, $q \to 0$ recovers bare $|\alpha|$.
+
+The fill formula $f_j = \sum_l \alpha_l f_{i_l}$ uses bare α — physical balance equations are not perturbed. Regularization applies to σ propagation only. Other imputers (`FormulaImputer`, `TimeImputer`) keep bare-coefficient Lp combines because their coefficients (formula weights, time-fractions) are bounded by construction.
+
 ### Stage 1 — Concordance error propagation
 
-The weight matrix $\mathbf{W} \in \mathbb{R}^{N_\mathrm{src} \times N_\mathrm{root}}$ maps source edges to root edges, assembled as a `scipy.sparse.csr_matrix`. For a dataset with uniform $\mathrm{CV}_\mathrm{tot}$ across all source edges:
-
-$$\boldsymbol{\Sigma}_\mathrm{src} = \mathrm{CV}_\mathrm{tot}^2 \cdot \mathrm{diag}(\mathbf{f}_\mathrm{src}^2)$$
+The weight matrix $\mathbf{W} \in \mathbb{R}^{N_\mathrm{src} \times N_\mathrm{root}}$ maps source edges to root edges, assembled as a `scipy.sparse.csr_matrix`. With dataset-level CV and Lp propagation:
 
 $$\mathbf{f}_\mathrm{root} = \mathbf{W}^\top \mathbf{f}_\mathrm{src}$$
 
-$$\boldsymbol{\Sigma}_\mathrm{root} = \mathbf{W}^\top \boldsymbol{\Sigma}_\mathrm{src}\, \mathbf{W} = \mathrm{CV}_\mathrm{tot}^2 \cdot \mathbf{W}^\top \mathrm{diag}(\mathbf{f}_\mathrm{src}^2)\, \mathbf{W}$$
+$$\boldsymbol{\sigma}_\mathrm{root}[j] \;=\; \mathrm{CV}_\mathrm{tot} \cdot \left( \sum_i |W_{ij}\, f_{\mathrm{src},i}|^p \right)^{1/p}.$$
 
-$$\boldsymbol{\sigma}_\mathrm{root} = \mathrm{CV}_\mathrm{tot} \cdot \sqrt{(\mathbf{W} \odot \mathbf{W})^\top \mathbf{f}_\mathrm{src}^2} \qquad \text{(element-wise } \mathbf{W}^2\text{)}$$
-
-In scipy.sparse code, $\mathbf{W} \odot \mathbf{W}$ is formed by squaring the `.data` array of a copy of the CSR matrix (no densification). The diversification property guarantees $\mathrm{CV}_\mathrm{root} \leq \mathrm{CV}_\mathrm{src}$ for every root edge.
+In scipy.sparse code, $|\mathbf{W}|^{p}$ is formed by raising the `.data` array of a copy of the CSR matrix to the power $p$ (no densification). For $p \in (1, 2]$ the diversification property still holds: $\mathrm{CV}_\mathrm{root} \leq \mathrm{CV}_\mathrm{src}$ for every root edge with normalized $W$ rows.
 
 ### Stage 2a — Aggregation across N_f feeds
 
@@ -488,11 +540,13 @@ For each root edge $j$ this reduces to $f_\mathrm{agg}[j] = \sum_k \Omega_{kj} \
 
 In numpy: `f_agg = np.nansum(Omega * F, axis=0)` (equivalent to the matrix product when NaN entries in $\boldsymbol{\Omega}$ are replaced with 0 before summing).
 
-**Aggregated uncertainty**
+**Aggregated uncertainty (Lp / power-mean)**
 
-$$\sigma_\mathrm{agg}[j] = \frac{1}{\displaystyle\sqrt{\sum_k P_{kj}}} = \frac{1}{\displaystyle\sqrt{\sum_k 1/\sigma_k^2[j]}}$$
+The point estimate uses inverse-variance (BLUE) weights, but σ is combined via the Lp norm of the inverse-variance-weighted per-feed contributions:
 
-$\sigma_\mathrm{agg}[j] \leq \min_k \sigma_k[j]$: combining feeds never increases uncertainty.
+$$\sigma_\mathrm{agg}[j] \;=\; \left( \sum_k |\Omega_{kj}\, \sigma_k[j]|^p \right)^{1/p}.$$
+
+For single-cover edges ($\Omega_{kj} = 1$ for one $k$) this equals the covering feed's σ unchanged. At $p = 2$ it reduces to $1/\sqrt{\sum_k 1/\sigma_k^2[j]}$ — the legacy combined-uncertainty formula. For $p \in [1, 2]$, $\sigma_\mathrm{agg}[j] \leq \max_k \sigma_k[j]$ always holds; the strict $\sigma_\mathrm{agg} \leq \min_k \sigma_k$ invariant is exact at $p = 2$ and held tightly for $p \approx 1.3$ in practice.
 
 **NaN handling (coverage)**
 
@@ -504,7 +558,7 @@ The matrix $\boldsymbol{\Omega}$ is a full provenance record: row $k$ gives feed
 
 ### Stage 2b — Imputation uncertainty propagation
 
-The imputation pipeline propagates uncertainty through each fill using first-order Gaussian error propagation. The key invariant: every filled edge has a well-defined $\sigma_\mathrm{agg}[j]$ after each imputation step, enabling downstream stages to treat imputed and observed edges uniformly.
+Each imputation step propagates uncertainty through the fill via the same Lp combiner used in Stages 1 and 2a. The key invariant: every filled edge has a well-defined $\sigma_\mathrm{agg}[j]$ after each step, enabling downstream stages to treat imputed and observed edges uniformly.
 
 #### Parametric imputation
 
@@ -512,11 +566,13 @@ A relation fills target edge $j$ as a linear combination of source edges $\{i_1,
 
 $$f_j = \sum_{l=1}^{m} \alpha_l \cdot f_{i_l}$$
 
-Gaussian propagation (assuming independence between sources):
+Lp propagation across sources, the per-relation parameter σ, and the structural-uncertainty term:
 
-$$\sigma^2_j = \sum_{l=1}^{m} \alpha_l^2 \cdot \sigma^2_{i_l} + \bigl(\varepsilon \cdot f_j\bigr)^2$$
+$$\sigma_j \;=\; \left( \sum_{l=1}^{m} |s(\alpha_l) \cdot \sigma_{i_l}|^p \;+\; |\sigma_\mathrm{param}|^p \;+\; |\varepsilon \cdot f_j|^p \right)^{1/p}$$
 
-The second term ($\varepsilon$ = `epsilon`, a user-supplied fraction) encodes the structural uncertainty in the relation itself — the fact that the parametric formula is an approximation. It inflates $\sigma_j$ even when source uncertainties are small.
+where $s(\alpha) = |\alpha| / (|\alpha|^q + \alpha_{\min}^q)^{1/q}$ is the regularized sensitivity (defaults $q=3$, $\alpha_{\min}=0.05$). It saturates at 1 for $|\alpha| \gg \alpha_{\min}$ (capping coefficient amplification of σ) and approaches $|\alpha|/\alpha_{\min}$ for $|\alpha| \ll \alpha_{\min}$ (flooring small-α propagation). The fill formula above uses bare $\alpha_l$ — regularization applies to σ propagation only. See [Regularized sensitivity (ParametricImputer)](#regularized-sensitivity-parametricimputer).
+
+The $\varepsilon$ term ($\varepsilon$ = `epsilon`, a user-supplied fraction) encodes the structural uncertainty in the relation itself — the fact that the parametric formula is an approximation. The $\sigma_\mathrm{param}$ term is the parameter-row σ from the CSV (`sd`, `min_max`, or `pedigree` mode) and is omitted (treated as 0) for lambda-based relations. Both inflate $\sigma_j$ even when source uncertainties are small.
 
 #### Time imputation — linear interpolation
 
@@ -524,9 +580,9 @@ Between two observations $(f_a, \sigma_a)$ at time $t_a$ and $(f_b, \sigma_b)$ a
 
 $$f_j = (1-\lambda)\,f_a + \lambda\,f_b$$
 
-$$\sigma^2_j = (1-\lambda)^2\,\sigma^2_a + \lambda^2\,\sigma^2_b$$
+$$\sigma_j \;=\; \bigl( |(1-\lambda)\,\sigma_a|^p + |\lambda\,\sigma_b|^p \bigr)^{1/p} \cdot \gamma_0^{\,g}$$
 
-A **gap inflation** factor $\gamma(g)$ is then applied to account for model uncertainty growing with gap size. The default is $\gamma(g) = \gamma_0^g$ (multiplicative per period), where $\gamma_0 = $ `gap_inflation` (default 1.0 = no inflation).
+The multiplicative **gap inflation** factor $\gamma_0^{\,g}$ accounts for model uncertainty growing with gap size; $\gamma_0 = $ `gap_inflation` (default 1.0 = no inflation).
 
 #### Time imputation — extrapolation (LOCF / NOCB)
 
@@ -704,9 +760,15 @@ collector.select(["baci", "crude_ore"])
 # Or select a specific version:
 # collector.select([("baci", 1), "crude_ore"])
 
-agg_result = collector.aggregate()
+# Power-mean exponent shared across Stage 1, 2a, and every imputer.
+P_PROP = 1.3
+# ParametricImputer α-regularization (caps σ amplification for large |α|, floors small |α|).
+Q_REG = 3.0
+ALPHA_MIN_REG = 0.05
+
+agg_result = collector.aggregate(p=P_PROP)
 # agg_result.f_agg    [N_r]       inverse-variance weighted mean
-# agg_result.sigma_agg[N_r]       combined uncertainty
+# agg_result.sigma_agg[N_r]       combined uncertainty (Lp norm of Ω·σ)
 # agg_result.Omega    [N_f × N_r] provenance weight matrix
 # agg_result.coverage [N_r] bool  True where at least one feed has data
 
@@ -725,18 +787,29 @@ engine = ImputationEngine(acc_struct=acc)
 
 # Concentration and efficiency parameters from CSV
 engine.register(ParametricImputer.from_csv(
-    "data/input/params/copper_conc_params.csv", acc_struct=acc))
+    "data/input/params/copper_conc_params.csv", acc_struct=acc,
+    p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG))
 engine.register(ParametricImputer.from_csv(
-    "data/input/params/copper_efficiency_params.csv", acc_struct=acc))
+    "data/input/params/copper_efficiency_params.csv", acc_struct=acc,
+    p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG))
 
 # Lambda-based custom relation
-engine.register(ParametricImputer(relations=[scrap_return]))
+engine.register(ParametricImputer(
+    relations=[scrap_return], p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG))
 
 # Balance equations for domestic use of traded flows
-engine.register(FormulaImputer(relations=[domestic_matte]))
+engine.register(FormulaImputer(relations=[domestic_matte], p=P_PROP))
 
-# Temporal gap fill as last resort
-engine.register(TimeImputer(window=5, method="linear", gap_inflation=1.05))
+# Temporal gap fill
+engine.register(TimeImputer(window=5, method="linear", gap_inflation=1.05, p=P_PROP))
+
+# Final fallback — flat prior sized by mask CV × group scale (register LAST)
+engine.register(FlatPriorImputer.from_csv(
+    "data/input/params/flat_prior_cv.csv",
+    acc_struct=acc,
+    default_cv=0.3,
+    p=P_PROP,
+))
 
 agg_result = engine.run(agg_result)
 # agg_result.f_agg updated in-place for imputed edges

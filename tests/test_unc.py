@@ -79,6 +79,12 @@ class _MockFeed(UncertaintyMixin):
         self.weight_matrix = W
 
 
+def _expected_sigma_root_lp(W: np.ndarray, F: np.ndarray, cv: float, p: float) -> np.ndarray:
+    """Reference implementation of σ_root = CV · ( Σ_i (|W_ij|·|f_i|)^p )^(1/p)."""
+    Wp = np.abs(W) ** p
+    return cv * np.power(np.maximum(Wp.T @ (np.abs(F) ** p), 0.0), 1.0 / p)
+
+
 # =============================================================================
 # FIXTURES
 # =============================================================================
@@ -660,29 +666,47 @@ class TestApplySigma:
         result = feed_4x3.apply_with_uncertainty(F_src_4)
         assert np.all(result.sigma_root >= 0.0)
 
-    def test_sigma_root_concrete_values(self, feed_4x3, all_ones_pedigree, F_src_4):
+    def test_sigma_root_default_p_matches_lp_formula(
+        self, feed_4x3, all_ones_pedigree, F_src_4, W_4x3
+    ):
+        """Default p=1.3 → σ_root = CV · ( Σ |W·f|^p )^(1/p)."""
         feed_4x3.set_pedigree(all_ones_pedigree)
         result = feed_4x3.apply_with_uncertainty(F_src_4)
-        expected = np.array([3.20237114, 4.11825427, 1.26807428])
-        np.testing.assert_allclose(result.sigma_root, expected, rtol=1e-6)
+        expected = _expected_sigma_root_lp(W_4x3, F_src_4, all_ones_pedigree.total_cv(), p=1.3)
+        np.testing.assert_allclose(result.sigma_root, expected, rtol=1e-8)
 
-    def test_sigma_root_formula(self, feed_4x3, all_ones_pedigree, F_src_4, W_4x3):
-        """sigma_root = cv_tot * sqrt( (W⊙W)^T @ F_src^2 )."""
+    def test_sigma_root_p2_recovers_quadrature(
+        self, feed_4x3, all_ones_pedigree, F_src_4, W_4x3
+    ):
+        """p=2 must reproduce the original Gaussian-quadrature values."""
         feed_4x3.set_pedigree(all_ones_pedigree)
-        result = feed_4x3.apply_with_uncertainty(F_src_4)
-        cv = all_ones_pedigree.total_cv()
-        expected_var = cv**2 * ((W_4x3**2).T @ F_src_4**2)
-        expected_sigma = np.sqrt(expected_var)
-        np.testing.assert_allclose(result.sigma_root, expected_sigma, rtol=RTOL)
+        result = feed_4x3.apply_with_uncertainty(F_src_4, p=2.0)
+        expected_l2 = np.sqrt(all_ones_pedigree.total_cv()**2
+                              * ((W_4x3**2).T @ F_src_4**2))
+        np.testing.assert_allclose(result.sigma_root, expected_l2, rtol=RTOL)
+        # And matches the legacy hardcoded values
+        legacy = np.array([3.20237114, 4.11825427, 1.26807428])
+        np.testing.assert_allclose(result.sigma_root, legacy, rtol=1e-6)
+
+    @pytest.mark.parametrize("p", [1.1, 1.3, 1.5, 2.0])
+    def test_sigma_root_formula_param_p(
+        self, feed_4x3, all_ones_pedigree, F_src_4, W_4x3, p
+    ):
+        """σ_root matches the Lp reference for any supported p."""
+        feed_4x3.set_pedigree(all_ones_pedigree)
+        result = feed_4x3.apply_with_uncertainty(F_src_4, p=p)
+        expected = _expected_sigma_root_lp(W_4x3, F_src_4, all_ones_pedigree.total_cv(), p=p)
+        np.testing.assert_allclose(result.sigma_root, expected, rtol=1e-8)
 
     def test_cv_root_shape(self, feed_4x3, all_ones_pedigree, F_src_4):
         feed_4x3.set_pedigree(all_ones_pedigree)
         result = feed_4x3.apply_with_uncertainty(F_src_4)
         assert result.cv_root.shape == (3,)
 
-    def test_cv_root_concrete_values(self, feed_4x3, all_ones_pedigree, F_src_4):
+    def test_cv_root_p2_legacy_values(self, feed_4x3, all_ones_pedigree, F_src_4):
+        """p=2 round-trip: legacy L2 cv_root values."""
         feed_4x3.set_pedigree(all_ones_pedigree)
-        result = feed_4x3.apply_with_uncertainty(F_src_4)
+        result = feed_4x3.apply_with_uncertainty(F_src_4, p=2.0)
         expected = np.array([0.01601186, 0.01503013, 0.02264418])
         np.testing.assert_allclose(result.cv_root, expected, rtol=1e-5)
 
@@ -764,16 +788,17 @@ class TestDiversificationInvariant:
         np.testing.assert_allclose(result.cv_root, cv_expected, rtol=RTOL)
 
     def test_invariant_many_sources_reduces_cv(self, all_ones_pedigree):
-        """N equal-weight sources: cv_root = cv_src / sqrt(N)."""
+        """N equal-weight sources, equal F: cv_root = cv_src · N^(1/p - 1) (default p=1.3)."""
         N = 4
         W = np.full((N, 1), 1.0 / N)
         F = np.ones(N) * 100.0
         feed = _MockFeed(W)
         feed.set_pedigree(all_ones_pedigree)
-        result = feed.apply_with_uncertainty(F)
-        cv_expected = all_ones_pedigree.total_cv() / np.sqrt(N)
+        p = 1.3
+        result = feed.apply_with_uncertainty(F, p=p)
+        cv_expected = all_ones_pedigree.total_cv() * N ** (1.0 / p - 1.0)
         np.testing.assert_allclose(result.cv_root[0], cv_expected, rtol=RTOL)
-        assert result.cv_root[0] < all_ones_pedigree.total_cv()
+        assert result.cv_root[0] < all_ones_pedigree.total_cv()  # diversification
 
     def test_invariant_holds_for_heterogeneous_F_src(self, all_ones_pedigree):
         W = np.array([

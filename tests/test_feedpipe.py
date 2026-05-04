@@ -77,14 +77,16 @@ class _MockWeightMatrix(UncertaintyMixin):
         with open(path, "wb") as fh:
             pickle.dump({"id": self.id, "W": self.weight_matrix}, fh)
 
-    def apply_with_uncertainty(self, F_src=None, pedigree=None):
+    def apply_with_uncertainty(self, F_src=None, pedigree=None, p: float = 1.3):
         F_src = np.asarray(F_src if F_src is not None else self.F_src, dtype=float)
         pg    = pedigree or self.pedigree
         cv    = pg.total_cv()
         W     = self.weight_matrix
-        F_root   = W.T @ F_src
-        var_root = cv ** 2 * ((W ** 2).T @ F_src ** 2)
-        sigma    = np.sqrt(np.maximum(var_root, 0.0))
+        F_root  = W.T @ F_src
+        # Lp σ propagation: σ_root[j] = CV · ( Σ_i (|W_ij|·|f_i|)^p )^(1/p)
+        Wp      = np.abs(W) ** p
+        sum_p   = Wp.T @ (np.abs(F_src) ** p)
+        sigma   = cv * np.power(np.maximum(sum_p, 0.0), 1.0 / p)
         with np.errstate(invalid="ignore", divide="ignore"):
             cv_root = np.where(F_root != 0.0, sigma / np.abs(F_root), np.nan)
         return PropagationResult(

@@ -11,13 +11,14 @@ Mathematical summary (see README § Stage 2a)
 --------------------------------------------
     P[k, j]     = 1 / sigma[k, j]²        (precision; 0 where not covered)
     Omega[k, j] = P[k, j] / sum_k P[k, j] (normalised weight; 0 where not covered)
-    f_agg[j]    = sum_k  Omega[k, j] * F[k, j]
-    sigma_agg[j]= 1 / sqrt(sum_k P[k, j])
+    f_agg[j]    = sum_k  Omega[k, j] * F[k, j]                     (BLUE estimator)
+    sigma_agg[j]= ( sum_k |Omega[k, j] · sigma[k, j]|^p )^(1/p)    (Lp / power-mean)
 
 Invariants
 ----------
   • Every covered column of Omega sums to 1.
-  • sigma_agg[j] ≤ min_k sigma[k, j]  (combining feeds never increases uncertainty).
+  • For p ∈ (1, 2]: sigma_agg[j] ≤ min_k sigma[k, j] (single-cover passthrough);
+    when feeds overlap, σ_agg ≤ Lp({Ω·σ}) ≤ max_k σ_k.
   • Uncovered edges (no feed contributes): f_agg = NaN, sigma_agg = NaN.
 """
 
@@ -99,22 +100,25 @@ class AggregationMath:
         F:        np.ndarray,
         Sigma:    np.ndarray,
         feed_ids: List[str],
+        p:        float = 1.3,
     ) -> AggregationResult:
         """
-        Compute inverse-variance weighted aggregation.
+        Compute inverse-variance weighted aggregation with Lp σ propagation.
 
         Parameters
         ----------
         F        : [N_f × N_r]  observations; NaN where feed does not cover edge
         Sigma    : [N_f × N_r]  standard deviations; NaN where feed does not cover
         feed_ids : length-N_f list of feed ID strings
+        p        : power-mean exponent for σ_agg (default 1.3). p=2 recovers
+                   Gaussian quadrature σ_agg = 1/sqrt(Σ 1/σ_k²).
 
         Returns
         -------
         AggregationResult
         """
         N_f, N_r = F.shape
-        logger.info("aggregating %d feed(s) over %d root edges", N_f, N_r)
+        logger.info("aggregating %d feed(s) over %d root edges (p=%.2f)", N_f, N_r, p)
         for k, fid in enumerate(feed_ids):
             n_cov = int(np.isfinite(Sigma[k]).sum())
             logger.debug("  feed '%s': %d / %d edges covered", fid, n_cov, N_r)
@@ -136,9 +140,17 @@ class AggregationMath:
         f_agg    = np.sum(Omega * F_filled, axis=0)
         f_agg    = np.where(coverage, f_agg, np.nan)
 
-        # sigma_agg = 1 / sqrt(P_sum); NaN where uncovered
+        # σ_agg[j] = ( Σ_k |Ω_kj · σ_k[j]|^p )^(1/p); NaN where uncovered.
+        # Mask out feed/edge pairs that are not covered (NaN σ → contribute 0).
+        Sigma_safe = np.where(np.isfinite(Sigma), Sigma, 0.0)
+        terms = np.abs(Omega * Sigma_safe) ** p          # [N_f × N_r]
+        sum_p = terms.sum(axis=0)                         # [N_r]
         with np.errstate(divide="ignore", invalid="ignore"):
-            sigma_agg = np.where(coverage, 1.0 / np.sqrt(P_sum), np.nan)
+            sigma_agg = np.where(
+                coverage,
+                np.power(np.maximum(sum_p, 0.0), 1.0 / p),
+                np.nan,
+            )
 
         n_covered = int(coverage.sum())
         logger.info(

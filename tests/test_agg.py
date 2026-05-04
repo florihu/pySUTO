@@ -23,12 +23,19 @@ from pysuto.agg import AggregationMath, AggregationResult
 # Helpers
 # ---------------------------------------------------------------------------
 
-def _run(F, Sigma, feed_ids=None):
+def _run(F, Sigma, feed_ids=None, p: float = 1.3):
     F     = np.asarray(F, dtype=float)
     Sigma = np.asarray(Sigma, dtype=float)
     if feed_ids is None:
         feed_ids = [f"feed_{k}" for k in range(F.shape[0])]
-    return AggregationMath.run(F, Sigma, feed_ids)
+    return AggregationMath.run(F, Sigma, feed_ids, p=p)
+
+
+def _lp_sigma_agg(Omega: np.ndarray, Sigma: np.ndarray, p: float) -> np.ndarray:
+    """Reference: σ_agg[j] = ( Σ_k |Ω_kj σ_kj|^p )^(1/p), ignoring NaN σ."""
+    S = np.where(np.isfinite(Sigma), Sigma, 0.0)
+    sums = (np.abs(Omega * S) ** p).sum(axis=0)
+    return np.power(np.maximum(sums, 0.0), 1.0 / p)
 
 
 # ===========================================================================
@@ -83,13 +90,22 @@ class TestAggregationMath:
         col_sums = res.Omega.sum(axis=0)
         np.testing.assert_allclose(col_sums[res.coverage], 1.0, atol=1e-12)
 
-    def test_sigma_agg_leq_min_per_feed_sigma(self):
-        """Combining feeds never increases uncertainty."""
+    def test_sigma_agg_bounded_by_max_per_feed_sigma(self):
+        """Lp invariant: σ_agg ≤ max_k σ_k (Lp norm of weighted σ never exceeds the largest)."""
         F     = np.array([[10.0, 20.0],
                           [12.0, 22.0]])
         Sigma = np.array([[3.0, 4.0],
                           [5.0, 6.0]])
         res   = _run(F, Sigma)
+
+        max_sigma = np.maximum(Sigma[0], Sigma[1])
+        assert np.all(res.sigma_agg <= max_sigma + 1e-12)
+
+    def test_sigma_agg_p2_recovers_min_invariant(self):
+        """At p=2 the legacy 'σ_agg ≤ min_k σ_k' invariant must hold exactly."""
+        F     = np.array([[10.0, 20.0], [12.0, 22.0]])
+        Sigma = np.array([[3.0, 4.0],   [5.0, 6.0]])
+        res   = _run(F, Sigma, p=2.0)
 
         min_sigma = np.minimum(Sigma[0], Sigma[1])
         assert np.all(res.sigma_agg <= min_sigma + 1e-12)
@@ -116,29 +132,24 @@ class TestAggregationMath:
         assert np.isnan(res.sigma_agg[0])
         assert not res.coverage[0]
 
-    def test_full_numerical_example(self):
+    def test_full_numerical_example_p2(self):
         """
-        2 feeds × 3 edges, hand-calculated:
+        Hand-calculated reference at p=2 (legacy quadrature):
 
         Feed 0: F=[10, 20, NaN], Sigma=[2, 4, NaN]
         Feed 1: F=[12, NaN, 30], Sigma=[3, NaN, 5]
 
-        Edge 0 (both covered):
-            P = [1/4, 1/9]  →  P_sum = 13/36
-            Omega = [9/13, 4/13]
-            f_agg = 138/13,  sigma_agg = 6/sqrt(13)
-
-        Edge 1 (feed 0 only):
-            f_agg = 20,  sigma_agg = 4
-
-        Edge 2 (feed 1 only):
-            f_agg = 30,  sigma_agg = 5
+        f_agg / Omega: unchanged from inverse-variance BLUE.
+        Edge 0: P=[1/4, 1/9] → Omega=[9/13, 4/13]; f_agg = 138/13;
+                σ_agg(p=2) = 1/sqrt(P_sum) = 6/sqrt(13)
+        Edge 1 (feed 0 only): f_agg=20, σ_agg=4
+        Edge 2 (feed 1 only): f_agg=30, σ_agg=5
         """
         F     = np.array([[10.0, 20.0, np.nan],
                           [12.0, np.nan, 30.0]])
         Sigma = np.array([[2.0,  4.0,  np.nan],
                           [3.0,  np.nan, 5.0]])
-        res   = _run(F, Sigma, ["a", "b"])
+        res   = _run(F, Sigma, ["a", "b"], p=2.0)
 
         expected_f     = np.array([138 / 13, 20.0, 30.0])
         expected_sigma = np.array([6 / np.sqrt(13), 4.0, 5.0])
@@ -150,6 +161,28 @@ class TestAggregationMath:
         np.testing.assert_allclose(res.Omega,     expected_omega, atol=1e-12)
         np.testing.assert_array_equal(res.coverage, [True, True, True])
         assert res.feed_ids == ["a", "b"]
+
+    @pytest.mark.parametrize("p", [1.1, 1.3, 1.5, 2.0])
+    def test_sigma_agg_matches_lp_reference(self, p):
+        """σ_agg matches the Lp reference formula across the supported p range."""
+        F     = np.array([[10.0, 20.0, np.nan],
+                          [12.0, np.nan, 30.0]])
+        Sigma = np.array([[2.0,  4.0,  np.nan],
+                          [3.0,  np.nan, 5.0]])
+        res = _run(F, Sigma, p=p)
+        expected = _lp_sigma_agg(res.Omega, Sigma, p)
+        # Where uncovered, both should be NaN. Where covered, equal.
+        np.testing.assert_allclose(res.sigma_agg[res.coverage],
+                                   expected[res.coverage], rtol=1e-10)
+        assert np.all(np.isnan(res.sigma_agg[~res.coverage]))
+
+    def test_single_feed_passthrough_under_lp(self):
+        """When only one feed covers an edge, σ_agg = that feed's σ for any p."""
+        F = np.array([[10.0, np.nan]])
+        Sigma = np.array([[2.0, np.nan]])
+        for p in [1.1, 1.3, 1.5, 2.0]:
+            res = _run(F, Sigma, p=p)
+            assert res.sigma_agg[0] == pytest.approx(2.0)
 
 
 # ===========================================================================

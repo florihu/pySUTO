@@ -233,43 +233,38 @@ class UncertaintyMixin:
         self,
         F_src: Optional[np.ndarray] = None,
         pedigree: Optional[PedigreeScores] = None,
+        p: float = 1.3,
     ) -> PropagationResult:
         r"""
         Map F_src through the weight matrix and propagate uncertainty.
- 
+
         Point estimate
         --------------
             F_root = W^T @ F_src
- 
-        Error propagation (Gaussian, linear map)
+
+        Error propagation (power-mean / Lp norm)
         ----------------------------------------
-        The dataset-level pedigree gives a single CV_tot that applies
-        uniformly to all source edges:
- 
-            Σ_src = CV_tot² · diag(F_src²)
- 
-        The covariance of the root vector is:
- 
-            Σ_root = W^T · Σ_src · W
-                   = CV_tot² · W^T · diag(F_src²) · W
- 
-        The variance of root edge j is the j-th diagonal:
- 
-            Var(F_j^root) = CV_tot² · Σ_i  W_ij² · F_i²
- 
-        and the standard deviation vector is:
- 
-            σ_root = CV_tot · sqrt( W^T · (F_src ⊙ F_src) )
- 
-        where ⊙ is elementwise multiplication and sqrt is elementwise.
- 
+        Each source edge contributes σ_i = CV_tot · |f_i| to its root.
+        The per-root standard deviation is the Lp norm of those
+        contributions, weighted by W:
+
+            σ_root[j] = CV_tot · ( Σ_i |W_ij · f_i|^p )^(1/p)
+
+        With p = 2 this reduces to Gaussian quadrature
+        (σ_root = CV_tot · sqrt(Σ_i W_ij² f_i²)). The pySUTO range is
+        p ∈ [1.1, 1.5]; default p = 1.3, which suppresses σ inflation in
+        fan-in regimes where the per-source independence assumption is
+        structurally violated by the single dataset-level CV.
+
         Parameters
         ----------
         F_src : array-like, shape (N_src,), optional
-            Source flow vector.  Falls back to self.F_src if not given.
+            Source flow vector. Falls back to self.F_src if not given.
         pedigree : PedigreeScores, optional
             Override the instance-level pedigree for this call.
- 
+        p : float, default 1.3
+            Power-mean exponent (Lp norm). p=2 recovers quadrature.
+
         Returns
         -------
         PropagationResult
@@ -282,35 +277,39 @@ class UncertaintyMixin:
                 )
             F_src = self.F_src
         F_src = np.asarray(F_src, dtype=float)
- 
+
         pg = pedigree if pedigree is not None else getattr(self, "pedigree", None)
         if pg is None:
             raise ValueError(
                 "No PedigreeScores attached.  Call set_pedigree() first "
                 "or pass pedigree= directly."
             )
- 
+
         cv_tot = pg.total_cv()
- 
+
         # --- point estimate -------------------------------------------
         #   W is (N_src × N_root); W^T @ F_src → shape (N_root,)
         W = self.weight_matrix   # scipy.sparse CSR (N_src × N_root)
         F_root = np.asarray(W.T @ F_src).ravel()
 
-        # --- variance propagation  ------------------------------------
-        #   σ²_j = CV² · Σ_i  W_ij² · F_i²
-        F_src_sq = F_src ** 2
+        # --- σ propagation via Lp norm -------------------------------
+        #   σ_root[j] = CV · ( Σ_i (|W_ij| · |f_i|)^p )^(1/p)
+        F_src_abs_p = np.abs(F_src) ** p
 
-        # Element-wise W² then transpose-multiply
-        W2 = W.copy()
-        W2.data **= 2
-        var_root = cv_tot**2 * np.asarray(W2.T @ F_src_sq).ravel()
-        sigma_root = np.sqrt(np.maximum(var_root, 0.0))   # guard fp noise
- 
+        Wp = W.copy()
+        if hasattr(Wp, "data") and getattr(Wp.data, "ndim", None) == 1:
+            # scipy.sparse CSR/CSC: act on the .data array (no densification)
+            Wp.data = np.abs(Wp.data) ** p
+        else:
+            # dense ndarray fallback (used by tests)
+            Wp = np.abs(np.asarray(Wp)) ** p
+        sum_p = np.asarray(Wp.T @ F_src_abs_p).ravel()
+        sigma_root = cv_tot * np.power(np.maximum(sum_p, 0.0), 1.0 / p)
+
         # --- CV per root edge -----------------------------------------
         with np.errstate(invalid="ignore", divide="ignore"):
             cv_root = np.where(F_root != 0.0, sigma_root / np.abs(F_root), np.nan)
- 
+
         return PropagationResult(
             F_root=F_root,
             sigma_root=sigma_root,

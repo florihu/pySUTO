@@ -183,9 +183,14 @@ class FeedCollector:
     # Aggregation
     # ------------------------------------------------------------------
 
-    def aggregate(self) -> AggregationResult:
+    def aggregate(self, p: float = 1.3) -> AggregationResult:
         """
-        Align selected feeds and compute inverse-variance aggregation.
+        Align selected feeds and compute inverse-variance aggregation with
+        Lp σ propagation.
+
+        Parameters
+        ----------
+        p : power-mean exponent for σ_agg (default 1.3).
 
         Returns
         -------
@@ -198,6 +203,6 @@ class FeedCollector:
         if not self._lookup_keys:
             raise RuntimeError("No feeds selected. Call select() first.")
 
-        logger.info("starting aggregation for feeds: %s", self._feed_ids)
+        logger.info("starting aggregation for feeds: %s (p=%.2f)", self._feed_ids, p)
         F, Sigma = self._load_arrays()
-        return AggregationMath.run(F, Sigma, self._feed_ids)
+        return AggregationMath.run(F, Sigma, self._feed_ids, p=p)

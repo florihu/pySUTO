@@ -90,14 +90,50 @@ def _apply_cv_cap(sigma_val: float, f_val: float, cv_cap: float) -> tuple[float,
     """
     Cap σ at cv_cap × |f|. Returns (sigma_capped, was_capped).
 
-    cv_cap <= 0 disables the cap. f == 0 disables the cap (no scale to cap to).
+    cv_cap <= 0 or cv_cap == inf disables the cap. f == 0 disables the cap.
     """
-    if cv_cap <= 0.0 or f_val == 0.0 or not np.isfinite(sigma_val) or not np.isfinite(f_val):
+    if (cv_cap <= 0.0 or not np.isfinite(cv_cap)
+            or f_val == 0.0 or not np.isfinite(sigma_val) or not np.isfinite(f_val)):
         return sigma_val, False
     cap = cv_cap * abs(f_val)
     if sigma_val > cap:
         return cap, True
     return sigma_val, False
+
+
+def _lp_combine(values, p: float) -> float:
+    """
+    Power-mean (Lp) combiner: ( Σ |x_i|^p )^(1/p).
+
+    With p=2 this matches Gaussian quadrature. With p<2 large terms are
+    weighted relatively less, suppressing σ inflation when source σ values
+    have correlated structure. The pySUTO range is p ∈ [1.1, 1.5];
+    default p = 1.3.
+    """
+    arr = np.asarray(values, dtype=float)
+    if arr.size == 0:
+        return 0.0
+    s = float(np.sum(np.abs(arr) ** p))
+    if s <= 0.0:
+        return 0.0
+    return s ** (1.0 / p)
+
+
+def _reg_sensitivity(coeff: float, q: float, alpha_min: float) -> float:
+    """
+    Bounded effective sensitivity used in ParametricImputer σ propagation.
+
+        s(α) = |α| / (|α|^q + α_min^q)^(1/q)
+
+    Asymptotes to 1 for |α| >> α_min (caps coefficient amplification of σ),
+    and to |α|/α_min for |α| << α_min (linearly damps very small coefficients).
+    q controls the knee sharpness (q=3 is a moderate default).
+    """
+    a = abs(float(coeff))
+    am = abs(float(alpha_min))
+    if a == 0.0 and am == 0.0:
+        return 0.0
+    return a / (a ** q + am ** q) ** (1.0 / q)
 
 
 def _time_sort_key(t):
@@ -548,7 +584,10 @@ class ParametricImputer(BaseImputer):
         relations: Optional[list[ParametricRelation]] = None,
         _csv_pairs: Optional[list] = None,
         _source_path: Optional[str] = None,
-        cv_cap: float = 100.0,
+        cv_cap: float = float("inf"),
+        p: float = 1.3,
+        q: float = 3.0,
+        alpha_min: float = 0.05,
     ) -> None:
         self._relations  = relations or []
         # Each tuple: (a_id, b_id, coeff, sigma_param, epsilon, bl, bu, param_id, desc)
@@ -556,6 +595,9 @@ class ParametricImputer(BaseImputer):
         self._source_path: Optional[str] = _source_path
         self._ei_exp:    Optional[pd.DataFrame] = None  # lazy cache for lambda relations
         self.cv_cap     = float(cv_cap)
+        self.p          = float(p)
+        self.q          = float(q)
+        self.alpha_min  = float(alpha_min)
 
     @property
     def source_paths(self) -> list[str]:
@@ -564,6 +606,9 @@ class ParametricImputer(BaseImputer):
     def config(self) -> dict:
         return {
             "cv_cap":         self.cv_cap,
+            "p":              self.p,
+            "q":              self.q,
+            "alpha_min":      self.alpha_min,
             "source_path":    self._source_path,
             "n_csv_pairs":    len(self._csv_pairs),
             "n_relations":    len(self._relations),
@@ -571,7 +616,15 @@ class ParametricImputer(BaseImputer):
         }
 
     @classmethod
-    def from_csv(cls, path: str, acc_struct, cv_cap: float = 100.0) -> "ParametricImputer":
+    def from_csv(
+        cls,
+        path: str,
+        acc_struct,
+        cv_cap: float = float("inf"),
+        p: float = 1.3,
+        q: float = 3.0,
+        alpha_min: float = 0.05,
+    ) -> "ParametricImputer":
         """
         Load a params-template CSV (semicolon-delimited) and precompute
         (edge_a_id, edge_b_id) pairs for bidirectional imputation.
@@ -658,7 +711,14 @@ class ParametricImputer(BaseImputer):
 
         pairs = [v[0] for v in best.values()]
         logger.info("from_csv: loaded %d bidirectional pairs from %s", len(pairs), path)
-        return cls(_csv_pairs=pairs, _source_path=str(path), cv_cap=cv_cap)
+        return cls(
+            _csv_pairs=pairs,
+            _source_path=str(path),
+            cv_cap=cv_cap,
+            p=p,
+            q=q,
+            alpha_min=alpha_min,
+        )
 
     def impute(
         self,
@@ -670,6 +730,9 @@ class ParametricImputer(BaseImputer):
     ) -> list[dict]:
         entries: list[dict] = []
         cv_cap  = self.cv_cap
+        p       = self.p
+        q       = self.q
+        am      = self.alpha_min
 
         # ── CSV pairs (bidirectional) ──────────────────────────────────
         for a_id, b_id, coeff, sig_p, epsilon, bl, bu, param_id, desc in self._csv_pairs:
@@ -679,7 +742,11 @@ class ParametricImputer(BaseImputer):
             if not a_nan and b_nan:
                 f_raw = coeff * f[a_id]
                 f_b   = float(np.clip(f_raw, bl, bu))
-                s_b   = float(np.sqrt(coeff**2 * sigma[a_id]**2 + sig_p**2 + (epsilon * f_b)**2))
+                # σ_b = ( |s(coeff)·σ_a|^p + |σ_param|^p + |ε·f_b|^p )^(1/p)
+                s_coeff = _reg_sensitivity(coeff, q, am)
+                s_b   = _lp_combine(
+                    [s_coeff * sigma[a_id], sig_p, epsilon * f_b], p,
+                )
                 s_b, capped = _apply_cv_cap(s_b, f_b, cv_cap)
                 f[b_id]     = f_b
                 sigma[b_id] = s_b
@@ -693,7 +760,10 @@ class ParametricImputer(BaseImputer):
                 inv = 1.0 / coeff
                 f_raw = inv * f[b_id]
                 f_a   = float(np.clip(f_raw, bl, bu))
-                s_a   = float(np.sqrt(inv**2 * sigma[b_id]**2 + sig_p**2 + (epsilon * f_a)**2))
+                s_inv = _reg_sensitivity(inv, q, am)
+                s_a   = _lp_combine(
+                    [s_inv * sigma[b_id], sig_p, epsilon * f_a], p,
+                )
                 s_a, capped = _apply_cv_cap(s_a, f_a, cv_cap)
                 f[a_id]     = f_a
                 sigma[a_id] = s_a
@@ -748,9 +818,13 @@ class ParametricImputer(BaseImputer):
                         continue
 
                     f_t = float(sum(c * f[s] for c, s in zip(coeffs, s_ids)))
-                    var = sum(c**2 * sigma[s]**2 for c, s in zip(coeffs, s_ids))
-                    var += (rel.epsilon * f_t) ** 2
-                    s_t = float(np.sqrt(var))
+                    # σ_t = ( Σ_l |s(α_l)·σ_l|^p + |ε·f_t|^p )^(1/p)
+                    terms = [
+                        _reg_sensitivity(c, q, am) * sigma[s]
+                        for c, s in zip(coeffs, s_ids)
+                    ]
+                    terms.append(rel.epsilon * f_t)
+                    s_t = _lp_combine(terms, p)
                     s_t, capped = _apply_cv_cap(s_t, f_t, cv_cap)
 
                     f[t_id]     = f_t
@@ -845,7 +919,8 @@ class FormulaImputer(BaseImputer):
         relations: list[FormulaRelation],
         params_csv: Optional[str] = None,
         params: Optional[dict[str, float]] = None,
-        cv_cap: float = 100.0,
+        cv_cap: float = float("inf"),
+        p: float = 1.3,
     ) -> None:
         self._relations = relations
         self._params: dict[str, float] = dict(params or {})
@@ -860,6 +935,7 @@ class FormulaImputer(BaseImputer):
         self._ei_time:    Optional[np.ndarray]   = None
         self._precomp:    Optional[list]         = None
         self.cv_cap        = float(cv_cap)
+        self.p             = float(p)
         self._params_csv_path: Optional[str] = str(params_csv) if params_csv else None
 
     @property
@@ -869,6 +945,7 @@ class FormulaImputer(BaseImputer):
     def config(self) -> dict:
         return {
             "cv_cap":          self.cv_cap,
+            "p":               self.p,
             "params_csv":      self._params_csv_path,
             "n_relations":     len(self._relations),
             "relations_desc":  [r.description for r in self._relations],
@@ -953,7 +1030,7 @@ class FormulaImputer(BaseImputer):
                 t_time = str(ei_time_np[_pos])
 
                 f_val       = 0.0
-                var_val     = 0.0
+                lp_terms:   list[float] = []
                 src_ids:    list[int]   = []
                 src_coeffs: list[float] = []
                 ok = True
@@ -991,14 +1068,14 @@ class FormulaImputer(BaseImputer):
 
                     for s in s_ids:
                         f_val   += coeff * f[s]
-                        var_val += coeff**2 * sigma[s]**2
+                        lp_terms.append(coeff * sigma[s])
                         src_ids.append(int(s))
                         src_coeffs.append(coeff)
 
                 if not ok:
                     continue
 
-                var_val += (rel.epsilon * f_val) ** 2
+                lp_terms.append(rel.epsilon * f_val)
 
                 # Clip to acc.bounds (authoritative; FormulaRelation.clip_lower/clip_upper ignored)
                 clipped = False
@@ -1011,7 +1088,7 @@ class FormulaImputer(BaseImputer):
                     f_val   = hi
                     clipped = True
 
-                s_val = float(np.sqrt(var_val))
+                s_val = _lp_combine(lp_terms, self.p)
                 s_val, capped = _apply_cv_cap(s_val, f_val, self.cv_cap)
                 f[t_id]     = f_val
                 sigma[t_id] = s_val
@@ -1068,6 +1145,7 @@ class TimeImputer(BaseImputer):
         window_before: Optional[int] = None,
         window_after:  Optional[int] = None,
         interpolate_only: bool = False,
+        p: float = 1.3,
     ) -> None:
         self.window           = window
         self.method           = method
@@ -1076,6 +1154,7 @@ class TimeImputer(BaseImputer):
         self.wb               = window_before if window_before is not None else window
         self.wa               = window_after  if window_after  is not None else window
         self.interpolate_only = interpolate_only
+        self.p                = float(p)
 
     def impute(
         self,
@@ -1172,8 +1251,8 @@ class TimeImputer(BaseImputer):
             n     = len(candidates)
             w     = 1.0 / n
             f_val = float(sum(w * f[eid] for _, eid in candidates))
-            var   = sum(w**2 * sigma[eid]**2 for _, eid in candidates)
-            s_val = float(np.sqrt(var))
+            # σ_mean = ( Σ_i |w·σ_i|^p )^(1/p)
+            s_val = _lp_combine([w * sigma[eid] for _, eid in candidates], self.p)
             src   = [eid for _, eid in candidates]
             wts   = [w] * n
             meth  = "time_mean"
@@ -1185,8 +1264,10 @@ class TimeImputer(BaseImputer):
                 gap  = t_b - t_a
                 lam  = (t_target - t_a) / gap
                 f_val = float((1 - lam) * f[a_id] + lam * f[b_id])
-                var   = (1 - lam)**2 * sigma[a_id]**2 + lam**2 * sigma[b_id]**2
-                s_val = float(np.sqrt(var)) * (self.gap_inflation ** gap)
+                # σ_linear = ( |(1-λ)·σ_a|^p + |λ·σ_b|^p )^(1/p) · γ_0^gap
+                s_val = _lp_combine(
+                    [(1 - lam) * sigma[a_id], lam * sigma[b_id]], self.p,
+                ) * (self.gap_inflation ** gap)
                 src, wts, meth = [a_id, b_id], [1 - lam, lam], "time_linear"
             elif self.interpolate_only:
                 return None
@@ -1227,33 +1308,137 @@ class TimeImputer(BaseImputer):
 
 class FlatPriorImputer(BaseImputer):
     """
-    Final-fallback imputer: fills any residual-NaN edges with a non-informative
-    flat prior — f = 0, σ = sigma_floor.
+    Final-fallback imputer: fills any residual-NaN edges with a flat prior
+    sized by accounting-mask CV × group scale.
 
-    Register LAST in the pipeline. Without this (or an equivalent halt),
+        f_j     = 0
+        σ_j     = CV[mask(j)] · scale(j)
+
+    where mask(j) is the first matching mask in `cv_by_mask` (priority by
+    insertion order, with `default_cv` as the universal fallback), and
+    scale(j) = mean(|f_agg[i]|) over edges i sharing the same
+    (sector_from, entity_from, region_from, valuation) as j with finite
+    f_agg[i] at FlatPrior runtime. Empty group → σ_j = 0.
+
+    Register LAST in the pipeline; without this (or an equivalent halt)
     ConstraintEngine.run() will refuse a NaN-bearing agg_result.
-
-    sigma_floor strategy
-    --------------------
-    - default (sigma_floor=None): floor = sigma_floor_factor × max(|f_finite|).
-      The floor is anchored to the largest observed flow magnitude, NOT to
-      max σ. This decouples the flat-prior σ from upstream σ contamination
-      (e.g. a single parametric outlier with σ ≫ |f| no longer pulls the
-      flat-prior floor up by orders of magnitude).
-    - explicit scalar: pass sigma_floor=1e7 (or similar) for a fixed value.
-
-    Default sigma_floor_factor=100 means: missing edges get σ equal to 100×
-    the largest observed flow. Large enough to be non-informative, small
-    enough to keep Σ_a^{-1} well-conditioned for downstream Clarabel solves.
     """
+
+    _SUPPORTED_MASKS = ("supply", "use", "tradable", "sb")
 
     def __init__(
         self,
-        sigma_floor: float | None = None,
-        sigma_floor_factor: float = 100.0,
+        cv_by_mask: dict[str, float],
+        default_cv: float,
+        acc_struct,
+        p: float = 1.3,
     ) -> None:
-        self.sigma_floor = sigma_floor
-        self.sigma_floor_factor = sigma_floor_factor
+        # Preserve insertion order: first-matching mask wins.
+        self.cv_by_mask: dict[str, float] = dict(cv_by_mask)
+        self.default_cv = float(default_cv)
+        self.p = float(p)
+        self._source_path: Optional[str] = None
+
+        for name in self.cv_by_mask:
+            if name not in self._SUPPORTED_MASKS:
+                raise ValueError(
+                    f"Unknown mask name {name!r}; supported: {self._SUPPORTED_MASKS}"
+                )
+
+        # Pre-resolve mask name → bool ndarray (length n_edges) once.
+        self._masks: list[tuple[str, np.ndarray]] = []
+        for name in self.cv_by_mask:  # insertion order
+            attr = f"{name}_edge_mask"
+            mask = getattr(acc_struct, attr, None)
+            if mask is None:
+                raise AttributeError(
+                    f"acc_struct has no attribute '{attr}' for mask '{name}'"
+                )
+            self._masks.append((name, np.asarray(mask, dtype=bool)))
+
+        self._n_edges = int(acc_struct.n_edges)
+
+        # Pre-compute group keys per edge:
+        # (sector_from, entity_from, region_from, valuation) → integer group id
+        ei_exp = _expand_edge_index(acc_struct.edge_index, acc_struct.node_index)
+        if len(ei_exp) != self._n_edges:
+            raise ValueError(
+                f"acc_struct.n_edges={self._n_edges} mismatches edge_index length={len(ei_exp)}"
+            )
+        keys = list(zip(
+            ei_exp["sector_from"].astype(str).to_numpy(),
+            ei_exp["entity_from"].astype(str).to_numpy(),
+            ei_exp["region_from"].astype(str).to_numpy(),
+            ei_exp["valuation"].astype(str).to_numpy(),
+        ))
+        self._group_id = np.empty(self._n_edges, dtype=np.int64)
+        seen: dict = {}
+        for i, k in enumerate(keys):
+            g = seen.get(k)
+            if g is None:
+                g = len(seen)
+                seen[k] = g
+            self._group_id[i] = g
+        self._n_groups = len(seen)
+
+    @classmethod
+    def from_csv(
+        cls,
+        path: str,
+        acc_struct,
+        default_cv: float,
+        p: float = 1.3,
+    ) -> "FlatPriorImputer":
+        """
+        Load a CV-by-mask CSV (comma-delimited) with columns
+        ``mask_name,cv,description``. Row order encodes priority.
+        """
+        df = pd.read_csv(path, comment="#")
+        df = df.dropna(subset=["mask_name", "cv"])
+        cv_by_mask: dict[str, float] = {}
+        for _, row in df.iterrows():
+            name = str(row["mask_name"]).strip()
+            if not name:
+                continue
+            cv_by_mask[name] = float(row["cv"])
+        inst = cls(cv_by_mask=cv_by_mask, default_cv=default_cv, acc_struct=acc_struct, p=p)
+        inst._source_path = str(path)
+        return inst
+
+    @property
+    def source_paths(self) -> list[str]:
+        return [self._source_path] if self._source_path else []
+
+    def config(self) -> dict:
+        return {
+            "cv_by_mask":  dict(self.cv_by_mask),
+            "default_cv":  self.default_cv,
+            "p":           self.p,
+            "source_path": self._source_path,
+        }
+
+    def _resolve_cv(self) -> np.ndarray:
+        """Per-edge CV vector via first-match-wins over ordered masks."""
+        cv = np.full(self._n_edges, self.default_cv, dtype=float)
+        # Track which edges already received a CV; first match wins.
+        assigned = np.zeros(self._n_edges, dtype=bool)
+        for name, mask in self._masks:
+            new = mask & ~assigned
+            cv[new] = self.cv_by_mask[name]
+            assigned |= new
+        return cv
+
+    def _resolve_scale(self, f: np.ndarray) -> np.ndarray:
+        """Per-edge group scale = mean(|f_agg[i]|) over the (sector_from, entity_from, region_from, valuation) group."""
+        finite_mask = np.isfinite(f)
+        abs_f       = np.where(finite_mask, np.abs(f), 0.0)
+
+        sums   = np.bincount(self._group_id, weights=abs_f, minlength=self._n_groups)
+        counts = np.bincount(self._group_id, weights=finite_mask.astype(float),
+                             minlength=self._n_groups)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            group_mean = np.where(counts > 0, sums / counts, 0.0)
+        return group_mean[self._group_id]
 
     def impute(
         self,
@@ -1267,21 +1452,17 @@ class FlatPriorImputer(BaseImputer):
         if idx.size == 0:
             return []
 
-        floor = self.sigma_floor
-        if floor is None:
-            finite = f[np.isfinite(f)]
-            base = float(np.abs(finite).max()) if finite.size else 1.0
-            if base == 0.0:
-                base = 1.0
-            floor = self.sigma_floor_factor * base
+        cv_per_edge    = self._resolve_cv()
+        scale_per_edge = self._resolve_scale(f)
+        sigma_target   = cv_per_edge * scale_per_edge
 
         f[idx]     = 0.0
-        sigma[idx] = floor
+        sigma[idx] = sigma_target[idx]
 
-        desc = "no data, no imputer matched: flat prior"
+        desc = "no data, no imputer matched: flat prior (cv·scale)"
         return [
             _log(int(j), step, "flat_prior", [], [],
-                 0.0, float(floor), desc, None)
+                 0.0, float(sigma_target[j]), desc, None)
             for j in idx
         ]
 

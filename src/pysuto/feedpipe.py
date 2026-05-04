@@ -135,17 +135,17 @@ def step_D_apply_and_propagate(
     wm:       WeightMatrix,
     F_src:    np.ndarray,
     metadata: DataFeedMetadata,
+    p:        float = 1.3,
 ) -> PropagationResult:
     """
     1.  Derive PedigreeScores from metadata and attach to the weight matrix.
     2.  Store F_src on the weight matrix.
-    3.  Run the combined apply + Gaussian error propagation (scipy.sparse).
+    3.  Run the combined apply + Lp uncertainty propagation (scipy.sparse).
 
-    Propagation formula (Gaussian, first-order):
-        F_root  = W.T @ F_src
-        var_root = cv² * (W² .T @ F_src²)      element-wise W²
-        σ_root  = sqrt(var_root)
-        cv_root = σ_root / |F_root|
+    Propagation formula (power-mean / Lp norm):
+        F_root      = W.T @ F_src
+        σ_root[j]   = CV · ( Σ_i (|W_ij| · |f_i|)^p )^(1/p)
+        cv_root     = σ_root / |F_root|
 
     Returns
     -------
@@ -156,7 +156,7 @@ def step_D_apply_and_propagate(
     pg = metadata.to_pedigree_scores()
     wm.set_pedigree(pg)
     wm.set_F_src(F_src)
-    result = wm.apply_with_uncertainty()
+    result = wm.apply_with_uncertainty(p=p)
     _log.info("   cv_src=%.2f%%  F_root_sum=%.1f kt  mean_cv_root=%.2f%%",
               result.cv_src * 100,
               float(result.F_root.sum()),
@@ -210,6 +210,7 @@ def run_feed_pipeline(
     allow_unmatched_edges: bool = True,
     diag_plot:        bool = True,
     conc_file:        Optional[str] = None,
+    p:                float = 1.3,
 ) -> tuple[WeightMatrix, DataFeedMetadata, PropagationResult, "object"]:
     """
     Execute steps A → D, register the run and (optionally) render the
@@ -227,7 +228,7 @@ def run_feed_pipeline(
                  feed_id=fid, aux_col=aux_col,
                  allow_unmatched_edges=allow_unmatched_edges)
     wm     = step_C_build_weight_matrix(ct)
-    result = step_D_apply_and_propagate(wm, F_src, meta)
+    result = step_D_apply_and_propagate(wm, F_src, meta, p=p)
     entry  = register_feed(wm, meta, result, registry, F_src=F_src)
 
     if diag_plot:
@@ -282,15 +283,9 @@ if __name__ == "__main__":
             self,
             F_src: Optional[np.ndarray] = None,
             pedigree=None,
+            p: float = 1.3,
         ) -> PropagationResult:
-            """
-            Gaussian error propagation with scipy.sparse:
-
-                F_root   = W.T  @  F_src          (dense result via CSR)
-                var_root = cv²  *  W².T  @  F_src²
-                σ_root   = sqrt(var_root)
-                cv_root  = σ_root / |F_root|
-            """
+            """Lp uncertainty propagation with scipy.sparse."""
             F   = np.asarray(
                 F_src if F_src is not None else self.F_src,
                 dtype=float,
@@ -303,12 +298,10 @@ if __name__ == "__main__":
             # F_root = W.T @ F_src  →  dense (n_root,)
             F_root: np.ndarray = np.asarray(W.T @ F).ravel()
 
-            # Element-wise W² (efficient: just square the stored data array)
-            W2 = W.copy()
-            W2.data **= 2
-
-            var_root: np.ndarray = cv**2 * np.asarray(W2.T @ F**2).ravel()
-            sigma: np.ndarray    = np.sqrt(np.maximum(var_root, 0.0))
+            Wp = W.copy()
+            Wp.data = np.abs(Wp.data) ** p
+            sum_p: np.ndarray = np.asarray(Wp.T @ (np.abs(F) ** p)).ravel()
+            sigma: np.ndarray = cv * np.power(np.maximum(sum_p, 0.0), 1.0 / p)
 
             with np.errstate(invalid="ignore", divide="ignore"):
                 cv_root = np.where(
