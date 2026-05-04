@@ -173,23 +173,21 @@ def register_feed(
     metadata:  DataFeedMetadata,
     result:    PropagationResult,
     registry:  DataFeedRegistry,
-    overwrite: bool = False,
-) -> None:
+    F_src:     Optional[np.ndarray] = None,
+):
     """
-    Persist the weight matrix, metadata sidecar, and result arrays,
-    then flush the registry index to disk.
+    Persist the weight matrix, metadata sidecar, result arrays and the
+    source flow vector under a freshly minted ``feed_run_id``, then
+    flush the registry index to disk.
 
-    File layout created under registry.odir:
-        registry.json
-        <feed_id>/
-            metadata.json          ← human-readable, filled by fill_computed()
-            <feed_id>.pkl          ← weight matrix + concordance (pickle)
-            result.npz             ← F_root, sigma_root, cv_root, cv_src
+    Returns the registry entry (with ``.odir`` and ``.feed_run_id``).
     """
     _log.info("E  registering feed '%s'", metadata.feed_name)
-    registry.register(wm, metadata, result=result, overwrite=overwrite)
+    entry = registry.register(wm, metadata, result=result, F_src=F_src)
     registry.save()
-    _log.info("   registry saved → %s", registry.odir)
+    _log.info("   feed_run_id   → %s", entry.feed_run_id)
+    _log.info("   run dir       → %s", entry.odir)
+    return entry
 
 
 # ===========================================================================
@@ -210,23 +208,15 @@ def run_feed_pipeline(
     feed_id:          Optional[str] = None,
     aux_col:          Optional[str] = None,
     allow_unmatched_edges: bool = True,
-    overwrite:        bool = False,
-) -> tuple[WeightMatrix, DataFeedMetadata, PropagationResult]:
+    diag_plot:        bool = True,
+    conc_file:        Optional[str] = None,
+) -> tuple[WeightMatrix, DataFeedMetadata, PropagationResult, "object"]:
     """
-    Execute steps A → D and register, returning (wm, metadata, result).
+    Execute steps A → D, register the run and (optionally) render the
+    feed diagnostic figure into the per-run ``diag/`` directory.
 
-    Parameters
-    ----------
-    excel_path            : path to the per-dataset Excel metadata file
-    raw_df                : raw source data (flows)
-    acc_struct            : AccountingStructure instance
-    *_map_df              : concordance mapping tables
-    F_src                 : source flow vector aligned to concordance src edges
-    registry              : DataFeedRegistry to register into
-    feed_id               : override; defaults to metadata.feed_name
-    aux_col               : optional supply/use discriminator column name
-    allow_unmatched_edges : collect unmatched rows instead of raising
-    overwrite             : allow replacing an existing registry entry
+    Returns ``(wm, metadata, result, entry)`` where ``entry.feed_run_id``
+    and ``entry.odir`` identify the freshly registered run.
     """
     meta   = step_A_read_metadata(excel_path)
     fid    = feed_id or meta.feed_name or "unnamed_feed"
@@ -238,8 +228,23 @@ def run_feed_pipeline(
                  allow_unmatched_edges=allow_unmatched_edges)
     wm     = step_C_build_weight_matrix(ct)
     result = step_D_apply_and_propagate(wm, F_src, meta)
-    register_feed(wm, meta, result, registry, overwrite=overwrite)
-    return wm, meta, result
+    entry  = register_feed(wm, meta, result, registry, F_src=F_src)
+
+    if diag_plot:
+        from pysuto.diag import FeedDiagnostics
+        diag = FeedDiagnostics(
+            feed_run_id = entry.feed_run_id,
+            feed_id     = fid,
+            acc_id      = entry.acc_id,
+            raw_df      = raw_df,
+            ct          = ct,
+            F_src       = F_src,
+            result      = result,
+            conc_file   = conc_file,
+        )
+        diag.plot(odir=os.path.join(entry.odir, "diag"))
+
+    return wm, meta, result, entry
 
 
 # ===========================================================================

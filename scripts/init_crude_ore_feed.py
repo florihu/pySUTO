@@ -75,7 +75,6 @@ META_FILE = os.path.join(_FEED_VDIR, "meta.xlsx")
 
 ACC_DIR      = os.path.join("data", "proc", "acc")
 REGISTRY_DIR = os.path.join("data", "proc", "feed", "registry")
-DIAG_DIR     = os.path.join("data", "proc", "feed", "diagnostics")
 
 # ---------------------------------------------------------------------------
 # LOGGING  — one timestamped file per run, plus console
@@ -267,7 +266,7 @@ def persist_and_register(
     F_src:  np.ndarray,
     result,
     meta:   DataFeedMetadata,
-) -> None:
+):
     logger.info("=" * 60)
     logger.info("E  Registering feed")
 
@@ -275,18 +274,11 @@ def persist_and_register(
     registry.load_index()
     wm.odir = REGISTRY_DIR
 
-    register_feed(wm, meta, result, registry, overwrite=True)
+    entry = register_feed(wm, meta, result, registry, F_src=F_src)
 
-    feed_dir = os.path.join(REGISTRY_DIR, FEED_ID)
-    np.save(os.path.join(feed_dir, "F_src.npy"), F_src)
-    ct.save(path=os.path.join(feed_dir, "concordance.pkl"))
-
-    logger.info("   registry.json    ✓")
-    logger.info("   metadata.json    ✓")
-    logger.info("   %s.pkl           ✓", FEED_ID)
-    logger.info("   result.npz       ✓")
-    logger.info("   F_src.npy        ✓")
-    logger.info("   concordance.pkl  ✓")
+    logger.info("   feed_run_id      %s", entry.feed_run_id)
+    logger.info("   run dir          %s", entry.odir)
+    return entry
 
 
 # ===========================================================================
@@ -298,25 +290,25 @@ def diagnostics(
     ct:     ConcordanceTable,
     F_src:  np.ndarray,
     result,
+    entry,
 ) -> None:
     logger.info("=" * 60)
     logger.info("F  Generating diagnostics")
 
     diag = FeedDiagnostics(
-        feed_id   = FEED_ID,
-        version   = VERSION,
-        acc_id    = ACC_ID,
-        raw_df    = raw_df,
-        ct        = ct,
-        F_src     = F_src,
-        result    = result,
-        conc_file = CONC_FILE,
+        feed_run_id = entry.feed_run_id,
+        feed_id     = FEED_ID,
+        acc_id      = ACC_ID,
+        raw_df      = raw_df,
+        ct          = ct,
+        F_src       = F_src,
+        result      = result,
+        conc_file   = CONC_FILE,
     )
-    diag.plot(odir=DIAG_DIR)
+    diag.plot(odir=os.path.join(entry.odir, "diag"))
     diag.summary()
 
-    logger.info("   written to: %s/", REGISTRY_DIR)
-    logger.info("               %s/", DIAG_DIR)
+    logger.info("   written to: %s/", entry.odir)
     logger.info("   run log   : %s", _RUN_LOG)
 
 
@@ -368,10 +360,10 @@ def main() -> None:
     result = propagate(wm, F_src, meta)
 
     # E — register + persist
-    persist_and_register(ct, wm, F_src, result, meta)
+    entry = persist_and_register(ct, wm, F_src, result, meta)
 
     # F — diagnostics
-    diagnostics(raw_df, ct, F_src, result)
+    diagnostics(raw_df, ct, F_src, result, entry)
 
     logger.info("=" * 60)
     logger.info("Done.")

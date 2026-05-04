@@ -363,28 +363,17 @@ class TestDataFeedRegistry:
         np.testing.assert_allclose(r2["F_root"],     result.F_root,     rtol=1e-12)
         np.testing.assert_allclose(r2["sigma_root"], result.sigma_root, rtol=1e-12)
 
-    def test_overwrite_flag_false_raises_on_duplicate(self, tmp_path):
-        self._run_and_register(str(tmp_path))
-        registry2 = DataFeedRegistry(odir=str(tmp_path))
-        registry2.load_index()
-        meta = _make_metadata(feed_name="test_feed")
-        wm   = _MockWeightMatrix(W_STD, "test_feed")
-        wm.set_pedigree(meta.to_pedigree_scores())
-        wm.set_F_src(F_SRC_STD)
-        result = wm.apply_with_uncertainty()
-        with pytest.raises(Exception):
-            registry2.register(wm, meta, result=result, overwrite=False)
-
-    def test_overwrite_flag_true_replaces_entry(self, tmp_path):
-        registry, _, _, _ = self._run_and_register(str(tmp_path))
+    def test_re_registering_same_feed_id_creates_new_run(self, tmp_path):
+        registry, e1, _, _ = self._run_and_register(str(tmp_path))
         meta2 = _make_metadata(feed_name="test_feed", reliability=2)
         wm2   = _MockWeightMatrix(W_STD, "test_feed")
         wm2.set_pedigree(meta2.to_pedigree_scores())
         wm2.set_F_src(F_SRC_STD)
         result2 = wm2.apply_with_uncertainty()
-        # Should not raise
-        registry.register(wm2, meta2, result=result2, overwrite=True)
+        e2 = registry.register(wm2, meta2, result=result2)
         registry.save()
+        assert e1.feed_run_id != e2.feed_run_id
+        assert len(registry) == 2
 
     def test_multiple_feeds_in_registry(self, tmp_path):
         registry = DataFeedRegistry(odir=str(tmp_path))

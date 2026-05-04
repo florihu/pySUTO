@@ -118,9 +118,9 @@ class FeedDiagnostics:
 
     Parameters
     ----------
-    feed_id   : identifier string for titles and filenames
-    version   : version integer or string
-    acc_id    : accounting structure id for titles
+    feed_run_id : full run identifier used for titles and filenames.
+    feed_id   : short feed identifier (e.g. "baci").
+    acc_id    : accounting structure id for titles.
     raw_df    : raw input DataFrame (must have columns Value, Year, Process, Region)
     ct        : ConcordanceTable (must have .unmatched_raw_rows, .n_src_edges,
                 .n_root_edges)
@@ -133,23 +133,23 @@ class FeedDiagnostics:
 
     def __init__(
         self,
-        feed_id:   str,
-        version:   Any,
-        acc_id:    str,
-        raw_df:    pd.DataFrame,
+        feed_run_id: str,
+        feed_id:     str,
+        acc_id:      str,
+        raw_df:      pd.DataFrame,
         ct,
-        F_src:     np.ndarray,
+        F_src:       np.ndarray,
         result,
-        conc_file: Optional[str] = None,
+        conc_file:   Optional[str] = None,
     ) -> None:
-        self.feed_id   = feed_id
-        self.version   = version
-        self.acc_id    = acc_id
-        self.raw_df    = raw_df
-        self.ct        = ct
-        self.F_src     = F_src
-        self.result    = result
-        self.conc_file = conc_file
+        self.feed_run_id = feed_run_id
+        self.feed_id     = feed_id
+        self.acc_id      = acc_id
+        self.raw_df      = raw_df
+        self.ct          = ct
+        self.F_src       = F_src
+        self.result      = result
+        self.conc_file   = conc_file
 
         self._unmatched_idx = set(getattr(ct, "unmatched_raw_rows", []))
         self._matched_mask  = ~raw_df.index.isin(self._unmatched_idx)
@@ -174,7 +174,7 @@ class FeedDiagnostics:
 
         fig, axes = plt.subplots(2, 3, figsize=(16, 10))
         fig.suptitle(
-            f"Feed diagnostics — {self.feed_id}  v{self.version}  (acc: {self.acc_id})",
+            f"Feed diagnostics — {self.feed_run_id}  (acc: {self.acc_id})",
             fontsize=14, fontweight="bold",
         )
 
@@ -187,7 +187,7 @@ class FeedDiagnostics:
 
         plt.tight_layout()
 
-        path = os.path.join(odir, f"{self.feed_id}_v{self.version}_feed.png")
+        path = os.path.join(odir, f"{self.feed_run_id}_feed.png")
         _savefig(fig, path, dpi=dpi)
         if show:
             plt.show()
@@ -206,7 +206,7 @@ class FeedDiagnostics:
 
         lines = [
             f"{'─'*60}",
-            f"  FEED DIAGNOSTICS — {self.feed_id}  v{self.version}  (acc: {self.acc_id})",
+            f"  FEED DIAGNOSTICS — {self.feed_run_id}  (acc: {self.acc_id})",
             f"{'─'*60}",
             f"  Raw rows total  : {total:>8,}",
             f"  Rows matched    : {matched_n:>8,}  ({matched_n / total * 100:.1f} %)",
@@ -308,9 +308,9 @@ class FeedDiagnostics:
         cv_pct = self.result.cv_root * 100
         valid  = cv_pct[np.isfinite(cv_pct) & (cv_pct > 0)]
         if len(valid):
-            ax.hist(np.log10(valid), bins=30, color=_C["red"], edgecolor="white", linewidth=0.5)
-        ax.set_title("CV_root distribution (log₁₀ %)", fontweight="bold")
-        ax.set_xlabel("log₁₀(CV %)")
+            ax.hist(valid, bins=30, color=_C["red"], edgecolor="white", linewidth=0.5)
+        ax.set_title("CV_root distribution (%)", fontweight="bold")
+        ax.set_xlabel("CV (%)")
         ax.set_ylabel("# root edges")
         ax.grid(axis="y", alpha=0.3)
 
@@ -358,6 +358,9 @@ class ImpDiagnostic:
         "covered" baseline box (Stage 2a observed σ before any imputation).
         Outliers shown as red dots. n=… annotation above each box.
 
+    Figure 2b — CV-by-method boxplot  (<label>_imputation_cv_box.png)
+        Mirror of fig 2 with linear y-axis and CV (σ/|f|) instead of σ.
+
     Figure 3 — timeseries  (<label>_imputation_timeseries.png)
         Up to 6 panels showing time-series of TimeImputer-filled flows,
         distinguishing raw (feed-covered) from imputed points.
@@ -375,7 +378,22 @@ class ImpDiagnostic:
     """
 
     _TIME_METHODS = {"time_linear", "time_mean", "locf", "nocb"}
-    _PALETTE      = ["navy", "blue", "green", "orange", "purple", "red"]
+
+    # method label → palette key used by both boxplots and step coloring.
+    _METHOD_COLORS = {
+        "covered":                "grey",
+        "parametric":             "blue",
+        "parametric_capped":      "red",
+        "formula":                "green",
+        "formula_clipped":        "orange",
+        "formula_capped":         "red",
+        "formula_clipped_capped": "red",
+        "time_linear":            "purple",
+        "time_mean":              "purple",
+        "locf":                   "navy",
+        "nocb":                   "navy",
+        "flat_prior":             "red",
+    }
 
     def __init__(self, agg_result, acc_struct=None, label: str = "") -> None:
         self.agg_result = agg_result
@@ -383,6 +401,10 @@ class ImpDiagnostic:
         self.label      = label
         self._log_df    = agg_result.imputation_log.as_dataframe()
         self._snapshots = self._build_snapshots()
+        # Single source of truth: snapshot label → matplotlib color.  All
+        # panels (fig 1 a..d, both boxplots) read from this map so step N
+        # always renders in the same colour everywhere.
+        self._step_color = self._build_step_color_map()
 
     @classmethod
     def from_saved(
@@ -437,6 +459,17 @@ class ImpDiagnostic:
             if show:
                 plt.show()
             plt.close(fig2)
+
+        # Figure 2b — CV-by-method boxplot (1×1, parallel to σ box)
+        fig_cv = self._fig_cv_box()
+        if fig_cv is not None:
+            if odir is not None:
+                p = _savefig(fig_cv, os.path.join(odir, f"{tag}_imputation_cv_box.png"), dpi=dpi)
+                paths.append(p)
+                print(f"   Imputation CV boxplot      → {p}  ✓")
+            if show:
+                plt.show()
+            plt.close(fig_cv)
 
         # Figure 3 — TimeImputer timeseries (n×3, optional)
         if self.acc_struct is not None:
@@ -515,6 +548,30 @@ class ImpDiagnostic:
 
         return snapshots
 
+    def _step_dominant_method(self, step: int) -> str:
+        """Most-common method label across all fills for one pipeline step."""
+        if self._log_df.empty:
+            return "covered"
+        sub = self._log_df[self._log_df["step"] == step]
+        if sub.empty:
+            return "covered"
+        return str(sub["method"].value_counts().index[0])
+
+    def _build_step_color_map(self) -> dict[str, str]:
+        """
+        Map snapshot labels to matplotlib colors via each step's dominant
+        method. The "pre" snapshot is grey; everything else inherits from
+        ``_METHOD_COLORS``.
+        """
+        mapping: dict[str, str] = {}
+        for label, _, _ in self._snapshots:
+            if label == "pre":
+                mapping[label] = _C["grey"]
+                continue
+            method = label.split("(", 1)[1].rstrip(")") if "(" in label else label
+            mapping[label] = _C[self._METHOD_COLORS.get(method, "grey")]
+        return mapping
+
     # ------------------------------------------------------------------
     # Figure 1 — 2×2 step panels
     # ------------------------------------------------------------------
@@ -536,13 +593,12 @@ class ImpDiagnostic:
         return fig
 
     def _panel_f_dist(self, ax) -> None:
-        colors = [_C[k] for k in self._PALETTE]
-        for i, (lbl, f, _) in enumerate(self._snapshots):
+        for lbl, f, _ in self._snapshots:
             vals = f[np.isfinite(f) & (f > 0)]
             if not len(vals):
                 continue
             ax.hist(np.log10(vals), bins=60, alpha=0.45,
-                    color=colors[i % len(colors)], label=lbl,
+                    color=self._step_color[lbl], label=lbl,
                     density=True, histtype="stepfilled", edgecolor="none")
         ax.set_title("F_root distribution per step", fontweight="bold")
         ax.set_xlabel("log₁₀(f)  [log kt]")
@@ -551,14 +607,13 @@ class ImpDiagnostic:
         ax.grid(axis="y", alpha=0.3)
 
     def _panel_coverage(self, ax) -> None:
-        colors  = [_C[k] for k in self._PALETTE]
         labels  = [s[0] for s in self._snapshots]
         counts  = [int(np.isfinite(s[1]).sum()) for s in self._snapshots]
         n_total = len(self._snapshots[0][1])
 
         bars = ax.barh(
             labels, counts,
-            color=[colors[i % len(colors)] for i in range(len(labels))],
+            color=[self._step_color[lbl] for lbl in labels],
             edgecolor="white",
         )
         for bar, cnt in zip(bars, counts):
@@ -575,26 +630,21 @@ class ImpDiagnostic:
 
     def _panel_cv_dist(self, ax) -> None:
         """
-        Per-step CV (= σ / |f|) histogram on log₁₀ scale.
-
-        Replaces the old σ-histogram panel: σ is ∝ |f| through Stage 1
-        propagation, so a σ histogram is a translated copy of the F
-        histogram and adds no information. CV strips out the magnitude
-        coupling and exposes whether a step actually inflates relative
-        uncertainty.
+        Per-step CV (= σ / |f|) histogram on a linear axis. CV strips out
+        the magnitude coupling and exposes whether a step actually inflates
+        relative uncertainty.
         """
-        colors = [_C[k] for k in self._PALETTE]
-        for i, (lbl, fv, sv) in enumerate(self._snapshots):
+        for lbl, fv, sv in self._snapshots:
             with np.errstate(divide="ignore", invalid="ignore"):
                 cv = np.where(np.abs(fv) > 0, sv / np.abs(fv), np.nan)
             vals = cv[np.isfinite(cv) & (cv > 0)]
             if not len(vals):
                 continue
-            ax.hist(np.log10(vals), bins=60, alpha=0.45,
-                    color=colors[i % len(colors)], label=lbl,
+            ax.hist(vals, bins=60, alpha=0.45,
+                    color=self._step_color[lbl], label=lbl,
                     density=True, histtype="stepfilled", edgecolor="none")
         ax.set_title("CV (σ/|f|) distribution per step", fontweight="bold")
-        ax.set_xlabel("log₁₀(CV)")
+        ax.set_xlabel("CV")
         ax.set_ylabel("density")
         ax.legend(fontsize=7, framealpha=0.6)
         ax.grid(axis="y", alpha=0.3)
@@ -608,13 +658,16 @@ class ImpDiagnostic:
             return
 
         step_counts = log_df.groupby("step").size()
-        steps  = [str(s) for s in step_counts.index]
+        steps  = [int(s) for s in step_counts.index]
+        labels = [f"step {s} ({self._step_dominant_method(s)})" for s in steps]
         counts = step_counts.values
-        colors = [_C[k] for k in self._PALETTE]
+        # Read from the shared step→color map; identical to the other
+        # panels, so step N renders in the same colour everywhere.
+        colors = [self._step_color.get(lbl, _C["grey"]) for lbl in labels]
 
         bars = ax.bar(
-            steps, counts,
-            color=[colors[i % len(colors)] for i in range(len(steps))],
+            [str(s) for s in steps], counts,
+            color=colors,
             edgecolor="white",
         )
         for bar, cnt in zip(bars, counts):
@@ -631,22 +684,6 @@ class ImpDiagnostic:
     # ------------------------------------------------------------------
     # Figure 2 — σ-by-method log boxplot
     # ------------------------------------------------------------------
-
-    # method label → palette key (kept consistent with step palette via reuse)
-    _METHOD_COLORS = {
-        "covered":                "grey",
-        "parametric":             "blue",
-        "parametric_capped":      "red",
-        "formula":                "green",
-        "formula_clipped":        "orange",
-        "formula_capped":         "red",
-        "formula_clipped_capped": "red",
-        "time_linear":            "purple",
-        "time_mean":              "purple",
-        "locf":                   "navy",
-        "nocb":                   "navy",
-        "flat_prior":             "red",
-    }
 
     def _fig2_sigma_box(self):
         """
@@ -716,6 +753,89 @@ class ImpDiagnostic:
                     ha="center", va="bottom", fontsize=8)
 
         ax.set_ylabel("log₁₀(σ)  [log kt]")
+        ax.set_xlabel("method")
+        ax.tick_params(axis="x", labelrotation=25)
+        ax.grid(axis="y", alpha=0.3)
+
+        plt.tight_layout()
+        return fig
+
+    # ------------------------------------------------------------------
+    # Figure 2b — CV-by-method boxplot (linear, parallel to σ box)
+    # ------------------------------------------------------------------
+
+    def _fig_cv_box(self):
+        """
+        Single-panel CV boxplot grouped by `method` from the imputation log,
+        with a leftmost "covered" baseline box (Stage 2a observed CV before
+        any imputation). Linear y-axis.
+        """
+        import matplotlib.pyplot as plt
+
+        log_df = self._log_df
+        groups: list[tuple[str, np.ndarray]] = []
+
+        # 1. Covered baseline = Stage-2a observed CV (pre-snapshot before fills).
+        if self._snapshots:
+            _, f_pre, s_pre = self._snapshots[0]
+            with np.errstate(divide="ignore", invalid="ignore"):
+                cv_pre = np.where(np.abs(f_pre) > 0, s_pre / np.abs(f_pre), np.nan)
+            covered = cv_pre[np.isfinite(cv_pre) & (cv_pre > 0)]
+            if len(covered):
+                groups.append(("covered", covered))
+
+        # 2. One box per method in the log.
+        if not log_df.empty:
+            for method, sub in log_df.groupby("method", sort=False):
+                f_vals = pd.to_numeric(sub["f_after"], errors="coerce").to_numpy()
+                s_vals = pd.to_numeric(sub["sigma_after"], errors="coerce").to_numpy()
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    cv = np.where(np.abs(f_vals) > 0, s_vals / np.abs(f_vals), np.nan)
+                cv = cv[np.isfinite(cv) & (cv > 0)]
+                if len(cv):
+                    groups.append((str(method), cv))
+
+        if not groups:
+            return None
+
+        fig, ax = plt.subplots(figsize=(max(8, 1.4 * len(groups)), 6))
+        suffix = f" — {self.label}" if self.label else ""
+        fig.suptitle(
+            f"CV by imputer method{suffix}",
+            fontsize=13, fontweight="bold",
+        )
+
+        labels  = [g[0] for g in groups]
+        data    = [g[1] for g in groups]
+        ns      = [len(g[1]) for g in groups]
+        colors  = [
+            _C[self._METHOD_COLORS.get(lbl, "grey")]
+            for lbl in labels
+        ]
+
+        bp = ax.boxplot(
+            data,
+            labels=labels,
+            patch_artist=True,
+            showfliers=True,
+            flierprops=dict(
+                marker="o", markersize=2.5,
+                markerfacecolor=_C["red"], markeredgecolor=_C["red"],
+                alpha=0.5,
+            ),
+            medianprops=dict(color="black", linewidth=1.2),
+        )
+        for patch, color in zip(bp["boxes"], colors):
+            patch.set_facecolor(color)
+            patch.set_alpha(0.55)
+            patch.set_edgecolor("black")
+
+        ymax = max(d.max() for d in data)
+        for i, n in enumerate(ns):
+            ax.text(i + 1, ymax * 1.02, f"n={n:,}",
+                    ha="center", va="bottom", fontsize=8)
+
+        ax.set_ylabel("CV (σ/|f|)")
         ax.set_xlabel("method")
         ax.tick_params(axis="x", labelrotation=25)
         ax.grid(axis="y", alpha=0.3)

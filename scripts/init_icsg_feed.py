@@ -71,7 +71,6 @@ META_FILE = os.path.join(_FEED_VDIR, "meta.xlsx")
 
 ACC_DIR      = os.path.join("data", "proc", "acc")
 REGISTRY_DIR = os.path.join("data", "proc", "feed", "registry")
-DIAG_DIR     = os.path.join("data", "proc", "feed", "diagnostics")
 
 # ---------------------------------------------------------------------------
 
@@ -283,43 +282,19 @@ def persist_and_register(
     F_src:  np.ndarray,
     result,
     meta:   DataFeedMetadata,
-) -> None:
-    """
-    Persist all artefacts via DataFeedRegistry, then save the index.
-
-    The registry writes:
-        <REGISTRY_DIR>/
-            registry.json
-            icsg/
-                metadata.json    ← DataFeedMetadata (filled by fill_computed)
-                icsg.pkl         ← WeightMatrix pickle
-                result.npz       ← F_root, sigma_root, cv_root, cv_src
-
-    Additionally save F_src.npy alongside result.npz for completeness.
-    """
+):
     print(f"\n{'='*60}")
     print("E  Registering feed")
 
     registry = DataFeedRegistry(odir=REGISTRY_DIR)
     registry.load_index()
-
-    # odir on the feed objects must be set so feed.save() writes to the
-    # correct versioned subfolder inside the registry.
     wm.odir = REGISTRY_DIR
 
-    register_feed(wm, meta, result, registry, overwrite=True)
+    entry = register_feed(wm, meta, result, registry, F_src=F_src)
 
-    # Also persist F_src and concordance alongside the registry artefacts
-    feed_dir = os.path.join(REGISTRY_DIR, FEED_ID)
-    np.save(os.path.join(feed_dir, "F_src.npy"), F_src)
-    ct.save(path=os.path.join(feed_dir, "concordance.pkl"))
-
-    print(f"   registry.json    ✓")
-    print(f"   metadata.json    ✓")
-    print(f"   {FEED_ID}.pkl        ✓")
-    print(f"   result.npz       ✓")
-    print(f"   F_src.npy        ✓")
-    print(f"   concordance.pkl  ✓")
+    print(f"   feed_run_id      {entry.feed_run_id}")
+    print(f"   run dir          {entry.odir}")
+    return entry
 
 
 # ===========================================================================
@@ -331,26 +306,25 @@ def diagnostics(
     ct:     ConcordanceTable,
     F_src:  np.ndarray,
     result,
+    entry,
 ) -> None:
     print(f"\n{'='*60}")
     print("F  Generating diagnostics")
 
     diag = FeedDiagnostics(
-        feed_id   = FEED_ID,
-        version   = VERSION,
-        acc_id    = ACC_ID,
-        raw_df    = raw_df,
-        ct        = ct,
-        F_src     = F_src,
-        result    = result,
-        conc_file = CONC_FILE,
+        feed_run_id = entry.feed_run_id,
+        feed_id     = FEED_ID,
+        acc_id      = ACC_ID,
+        raw_df      = raw_df,
+        ct          = ct,
+        F_src       = F_src,
+        result      = result,
+        conc_file   = CONC_FILE,
     )
-    diag.plot(odir=DIAG_DIR)
+    diag.plot(odir=os.path.join(entry.odir, "diag"))
     diag.summary()
 
-    print(f"\n  Written to:")
-    print(f"    {REGISTRY_DIR}/")
-    print(f"    {DIAG_DIR}/")
+    print(f"\n  Written to: {entry.odir}/")
 
 
 # ===========================================================================
@@ -396,10 +370,10 @@ def main() -> None:
     result = propagate(wm, F_src, meta)
 
     # E — register + persist (via DataFeedRegistry / feedpipe)
-    persist_and_register(ct, wm, F_src, result, meta)
+    entry = persist_and_register(ct, wm, F_src, result, meta)
 
     # F — diagnostics
-    diagnostics(raw_df, ct, F_src, result)
+    diagnostics(raw_df, ct, F_src, result, entry)
 
 
 if __name__ == "__main__":

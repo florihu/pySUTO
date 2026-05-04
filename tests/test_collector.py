@@ -103,8 +103,9 @@ class TestFeedCollectorSelect:
         with pytest.raises(KeyError, match="not found"):
             collector.select(["no_such_feed"])
 
-    def test_select_with_version_tuple_resolves_to_feed_id(self, collector):
-        collector.select([("feed_a", 1)])
+    def test_select_with_run_id_tuple_resolves_to_feed_id(self, collector):
+        # When the run-id is None (no pinning) the bare feed_id is used.
+        collector.select([("feed_a", None)])
         assert collector._feed_ids == ["feed_a"]
 
     def test_select_returns_self_for_chaining(self, collector):
@@ -112,7 +113,7 @@ class TestFeedCollectorSelect:
         assert result is collector
 
     def test_select_mixed_str_and_tuple(self, collector):
-        collector.select([("feed_a", 2), "feed_b"])
+        collector.select([("feed_a", None), "feed_b"])
         assert collector._feed_ids == ["feed_a", "feed_b"]
 
 

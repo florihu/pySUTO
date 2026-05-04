@@ -9,8 +9,10 @@ FeedCollector  –  selects feeds from a DataFeedRegistry and aligns their
 Usage
 -----
     collector = FeedCollector(registry=registry, acc_struct=acc)
-    collector.select(["baci", "crude_ore"])          # by ID (latest version)
-    collector.select([("baci", 1), "crude_ore"])     # or specific version tuple
+    collector.select(["baci", "crude_ore"])           # by feed_id (latest run)
+    collector.select([("baci", "feed_baci_..._abcd"), # pin a specific run
+                      "crude_ore"])
+    collector.select(["feed_baci_20260430_..._abcd"])  # bare run-id also OK
 
     agg_result = collector.aggregate()
     # agg_result.f_agg    [N_r]       inverse-variance weighted mean
@@ -57,9 +59,13 @@ class FeedCollector:
     def __init__(self, registry: DataFeedRegistry, acc_struct, min_flow_kt: float = 0.0) -> None:
         self._registry    = registry
         self._acc_struct  = acc_struct
-        self._feed_ids:   List[str] = []
+        # Resolution keys passed to registry.load_result(); each is either
+        # a bare feed_run_id or a feed_id (latest run wins).
+        self._lookup_keys: List[str] = []
+        # Display-friendly per-feed labels for log/aggregation provenance.
+        self._feed_ids:    List[str] = []
         self._min_flow_kt = min_flow_kt
-        # Resolved (feed_id, version, registry_path) triples; populated by select().
+        # Resolved provenance triples, populated by select().
         # Read by ImputationRunRegistry.register() to snapshot feed provenance.
         self.selected: List[dict] = []
 
@@ -72,49 +78,60 @@ class FeedCollector:
         feed_ids: List[Union[str, tuple]],
     ) -> "FeedCollector":
         """
-        Specify which feeds to collect.
+        Specify which feed runs to collect.
 
         Each entry is either:
-          * a feed_id string  → latest registered version is used
-          * a (feed_id, version) tuple  → version field is recorded but the
-            registry currently stores one entry per ID; future versioning
-            will use this to disambiguate.
+          * a ``feed_id`` string                → latest registered run wins
+          * a bare ``feed_run_id`` string       → that exact run is loaded
+          * a ``(feed_id, feed_run_id)`` tuple  → pinned run for *feed_id*
 
         Returns self so calls can be chained.
 
         Raises
         ------
-        KeyError  if a feed_id is not present in the registry
+        KeyError  if no matching entry exists in the registry.
         """
-        resolved: List[str] = []
+        lookup_keys: List[str] = []
+        feed_ids_resolved: List[str] = []
         triples:  List[dict] = []
         for item in feed_ids:
             if isinstance(item, tuple):
-                fid     = item[0]
-                version = item[1] if len(item) > 1 else None
+                fid    = item[0]
+                pinned = item[1] if len(item) > 1 else None
+                key    = pinned if pinned is not None else fid
             else:
-                fid     = item
-                version = None
-            if fid not in self._registry:
+                fid    = item
+                pinned = None
+                key    = item
+            if key not in self._registry:
+                known = (self._registry.feed_ids()
+                         if hasattr(self._registry, "feed_ids")
+                         else self._registry.ids())
                 raise KeyError(
-                    f"Feed '{fid}' not found in registry. "
-                    f"Available: {self._registry.ids()}"
+                    f"Feed key '{key}' not found in registry. "
+                    f"Known feed_ids: {known}"
                 )
-            resolved.append(fid)
-            # registry_path lookup is best-effort: tests pass a duck-typed
-            # mock without __getitem__ / .odir.
             try:
-                registry_path = self._registry[fid].odir
+                entry         = self._registry[key]
+                registry_path = entry.odir
+                feed_run_id   = entry.feed_run_id
+                feed_id_lab   = entry.feed_id
             except (TypeError, AttributeError, KeyError):
+                # Duck-typed mocks in tests (no entry object); fall back.
                 registry_path = None
+                feed_run_id   = pinned
+                feed_id_lab   = fid
+            lookup_keys.append(key)
+            feed_ids_resolved.append(feed_id_lab)
             triples.append({
-                "feed_id":       fid,
-                "version":       version,
+                "feed_id":       feed_id_lab,
+                "feed_run_id":   feed_run_id,
                 "registry_path": registry_path,
             })
-        self._feed_ids = resolved
-        self.selected  = triples
-        logger.info("selected %d feed(s): %s", len(resolved), resolved)
+        self._lookup_keys = lookup_keys
+        self._feed_ids    = feed_ids_resolved
+        self.selected     = triples
+        logger.info("selected %d feed(s): %s", len(lookup_keys), feed_ids_resolved)
         return self
 
     # ------------------------------------------------------------------
@@ -132,13 +149,13 @@ class FeedCollector:
         Sigma : [N_f × N_r]  float64, NaN = not covered
         """
         N_r = len(self._acc_struct.edge_index)
-        N_f = len(self._feed_ids)
+        N_f = len(self._lookup_keys)
 
         F     = np.full((N_f, N_r), np.nan, dtype=float)
         Sigma = np.full((N_f, N_r), np.nan, dtype=float)
 
-        for k, fid in enumerate(self._feed_ids):
-            res     = self._registry.load_result(fid)
+        for k, (key, fid) in enumerate(zip(self._lookup_keys, self._feed_ids)):
+            res     = self._registry.load_result(key)
             f_k     = res["F_root"].astype(float)
             sigma_k = res["sigma_root"].astype(float)
 
@@ -178,7 +195,7 @@ class FeedCollector:
         ------
         RuntimeError  if select() has not been called
         """
-        if not self._feed_ids:
+        if not self._lookup_keys:
             raise RuntimeError("No feeds selected. Call select() first.")
 
         logger.info("starting aggregation for feeds: %s", self._feed_ids)

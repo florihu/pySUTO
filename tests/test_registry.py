@@ -447,11 +447,12 @@ class TestRegistryEntry:
     @pytest.fixture
     def entry(self):
         return _RegistryEntry(
+            feed_run_id="feed_icsg_20260101_000000_abcdef01",
             feed_id="icsg",
             feed_class="WeightMatrix",
             acc_id="acc_test",
-            odir="/data/proc/feeds/icsg",
-            metadata_path="/data/proc/feeds/icsg/metadata.json",
+            odir="/data/proc/feeds/feed_icsg_20260101_000000_abcdef01",
+            metadata_path="/data/proc/feeds/feed_icsg_20260101_000000_abcdef01/metadata.json",
             created_at="2025-06-11T12:00:00Z",
         )
 
@@ -461,7 +462,7 @@ class TestRegistryEntry:
     def test_to_dict_keys(self, entry):
         d = entry.to_dict()
         assert set(d.keys()) == {
-            "feed_id", "feed_class", "acc_id", "odir",
+            "feed_run_id", "feed_id", "feed_class", "acc_id", "odir",
             "metadata_path", "created_at",
         }
 
@@ -530,54 +531,50 @@ class TestRegistryRegister:
         entry = registry.register(feed, metadata, result=result)
         assert entry.created_at.endswith("Z")
 
-    def test_entry_odir_is_subdir(self, registry, feed, metadata, result):
+    def test_entry_odir_is_run_subdir(self, registry, feed, metadata, result):
         entry = registry.register(feed, metadata, result=result)
-        assert entry.odir == os.path.join(registry.odir, "icsg")
+        assert entry.odir == os.path.join(registry.odir, entry.feed_run_id)
+        assert entry.feed_run_id.startswith("feed_icsg_")
 
     def test_metadata_json_written(self, registry, feed, metadata, result):
-        registry.register(feed, metadata, result=result)
-        meta_path = os.path.join(registry.odir, "icsg", "metadata.json")
-        assert os.path.isfile(meta_path)
+        entry = registry.register(feed, metadata, result=result)
+        assert os.path.isfile(os.path.join(entry.odir, "metadata.json"))
 
     def test_metadata_json_contains_feed_name(self, registry, feed, metadata, result):
-        registry.register(feed, metadata, result=result)
-        path = os.path.join(registry.odir, "icsg", "metadata.json")
-        d = _json_load(path)
+        entry = registry.register(feed, metadata, result=result)
+        d = _json_load(os.path.join(entry.odir, "metadata.json"))
         assert d["feed_name"] == "icsg"
 
     def test_metadata_json_contains_cv_total(self, registry, feed, metadata, result):
-        registry.register(feed, metadata, result=result)
-        path = os.path.join(registry.odir, "icsg", "metadata.json")
-        d = _json_load(path)
+        entry = registry.register(feed, metadata, result=result)
+        d = _json_load(os.path.join(entry.odir, "metadata.json"))
         assert d["cv_total"] == pytest.approx(result.cv_src)
 
     def test_pickle_written(self, registry, feed, metadata, result):
-        registry.register(feed, metadata, result=result)
-        pkl_path = os.path.join(registry.odir, "icsg", "icsg.pkl")
-        assert os.path.isfile(pkl_path)
+        entry = registry.register(feed, metadata, result=result)
+        assert os.path.isfile(os.path.join(entry.odir, "feed.pkl"))
 
     def test_feed_save_called_with_correct_path(self, registry, feed, metadata, result):
-        registry.register(feed, metadata, result=result)
-        expected = os.path.join(registry.odir, "icsg", "icsg.pkl")
+        entry = registry.register(feed, metadata, result=result)
+        expected = os.path.join(entry.odir, "feed.pkl")
         assert expected in feed.save_calls
 
     def test_result_npz_written(self, registry, feed, metadata, result):
-        registry.register(feed, metadata, result=result)
-        npz = os.path.join(registry.odir, "icsg", "result.npz")
-        assert os.path.isfile(npz)
+        entry = registry.register(feed, metadata, result=result)
+        assert os.path.isfile(os.path.join(entry.odir, "result.npz"))
 
     def test_no_result_no_npz(self, registry, feed, metadata):
-        registry.register(feed, metadata, result=None)
-        npz = os.path.join(registry.odir, "icsg", "result.npz")
-        assert not os.path.isfile(npz)
+        entry = registry.register(feed, metadata, result=None)
+        assert not os.path.isfile(os.path.join(entry.odir, "result.npz"))
 
     def test_no_result_no_fill_computed(self, registry, feed, metadata):
         registry.register(feed, metadata, result=None)
         assert metadata.cv_total is None
 
     def test_feed_added_to_index(self, registry, feed, metadata, result):
-        registry.register(feed, metadata, result=result)
-        assert "icsg" in registry
+        entry = registry.register(feed, metadata, result=result)
+        assert entry.feed_run_id in registry
+        assert "icsg" in registry  # feed_id resolves via latest
 
     def test_len_increases(self, registry, feed, feed2, metadata, metadata2, result):
         registry.register(feed, metadata, result=result)
@@ -585,28 +582,29 @@ class TestRegistryRegister:
         registry.register(feed2, metadata2, result=result)
         assert len(registry) == 2
 
-    def test_duplicate_raises_without_overwrite(self, registry, feed, metadata, result):
-        registry.register(feed, metadata, result=result)
-        with pytest.raises(ValueError, match="already registered"):
-            registry.register(feed, metadata, result=result, overwrite=False)
+    def test_repeat_register_creates_new_run(self, registry, feed, metadata, result):
+        e1 = registry.register(feed, metadata, result=result)
+        # Sleep is unnecessary: the run-id has a uuid suffix that disambiguates
+        # within the same second.
+        e2 = registry.register(feed, metadata, result=result)
+        assert e1.feed_run_id != e2.feed_run_id
+        assert len(registry) == 2
 
-    def test_overwrite_true_replaces_entry(self, registry, feed, metadata, result):
-        registry.register(feed, metadata, result=result)
-        entry2 = registry.register(feed, metadata, result=result, overwrite=True)
-        assert registry["icsg"].created_at == entry2.created_at
-
-    def test_overwrite_does_not_grow_index(self, registry, feed, metadata, result):
-        registry.register(feed, metadata, result=result)
-        registry.register(feed, metadata, result=result, overwrite=True)
-        assert len(registry) == 1
+    def test_latest_by_feed_id_returns_newest(self, registry, feed, metadata, result):
+        e1 = registry.register(feed, metadata, result=result)
+        e2 = registry.register(feed, metadata, result=result)
+        latest = registry.latest_by_feed_id("icsg")
+        # newest is whichever has the lexicographically larger timestamp; both
+        # have identical timestamps but different uuids → fall back on insertion.
+        assert latest.feed_run_id in (e1.feed_run_id, e2.feed_run_id)
 
     def test_created_at_is_iso_parseable(self, registry, feed, metadata, result):
         entry = registry.register(feed, metadata, result=result)
         datetime.fromisoformat(entry.created_at.rstrip("Z"))
 
     def test_result_arrays_values(self, registry, feed, metadata, result):
-        registry.register(feed, metadata, result=result)
-        z = np.load(os.path.join(registry.odir, "icsg", "result.npz"))
+        entry = registry.register(feed, metadata, result=result)
+        z = np.load(os.path.join(entry.odir, "result.npz"))
         np.testing.assert_allclose(z["F_root"],     result.F_root)
         np.testing.assert_allclose(z["sigma_root"], result.sigma_root)
         np.testing.assert_allclose(z["cv_root"],    result.cv_root)
@@ -653,10 +651,11 @@ class TestRegistrySaveLoad:
         reg2.load_index()
         e1 = populated_registry["icsg"]
         e2 = reg2["icsg"]
-        assert e2.feed_id    == e1.feed_id
-        assert e2.feed_class == e1.feed_class
-        assert e2.acc_id     == e1.acc_id
-        assert e2.created_at == e1.created_at
+        assert e2.feed_id     == e1.feed_id
+        assert e2.feed_run_id == e1.feed_run_id
+        assert e2.feed_class  == e1.feed_class
+        assert e2.acc_id      == e1.acc_id
+        assert e2.created_at  == e1.created_at
 
     def test_multiple_feeds_round_trip(self, tmp_path, feed, feed2,
                                        metadata, metadata2, result):
@@ -682,7 +681,8 @@ class TestRegistrySaveLoad:
         path = os.path.join(populated_registry.odir, "registry.json")
         with open(path) as f:
             data = json.load(f)
-        assert "icsg" in data
+        # registry.json is keyed by feed_run_id; check via a feed_id lookup
+        assert any(e.get("feed_id") == "icsg" for e in data.values())
 
     def test_load_index_overwrites_in_memory(self, tmp_path, feed, feed2,
                                               metadata, metadata2, result):
@@ -830,12 +830,12 @@ class TestRegistryContainerProtocol:
     def test_ids_empty_on_fresh_registry(self, registry):
         assert registry.ids() == []
 
-    def test_iter_yields_feed_ids(self, tmp_path, feed, feed2,
-                                   metadata, metadata2, result):
+    def test_iter_yields_run_ids(self, tmp_path, feed, feed2,
+                                  metadata, metadata2, result):
         reg = DataFeedRegistry(odir=str(tmp_path))
-        reg.register(feed,  metadata,  result=result)
-        reg.register(feed2, metadata2, result=result)
-        assert set(reg) == {"icsg", "bgs"}
+        e1 = reg.register(feed,  metadata,  result=result)
+        e2 = reg.register(feed2, metadata2, result=result)
+        assert set(reg) == {e1.feed_run_id, e2.feed_run_id}
 
 
 # =============================================================================
@@ -848,10 +848,11 @@ class TestRegistrySummaryDf:
         df = populated_registry.summary_df()
         assert isinstance(df, pd.DataFrame)
 
-    def test_index_is_feed_id(self, populated_registry):
+    def test_index_is_feed_run_id(self, populated_registry):
         df = populated_registry.summary_df()
-        assert df.index.name == "feed_id"
-        assert "icsg" in df.index
+        assert df.index.name == "feed_run_id"
+        # at least one row whose feed_id column is "icsg"
+        assert (df["feed_id"] == "icsg").any()
 
     def test_has_one_row(self, populated_registry):
         df = populated_registry.summary_df()
@@ -864,15 +865,18 @@ class TestRegistrySummaryDf:
     def test_cv_total_percent_value(self, populated_registry, result):
         df = populated_registry.summary_df()
         expected = round(result.cv_src * 100, 3)
-        assert df.loc["icsg", "cv_total_%"] == pytest.approx(expected)
+        row = df[df["feed_id"] == "icsg"].iloc[0]
+        assert row["cv_total_%"] == pytest.approx(expected)
 
     def test_feed_name_column(self, populated_registry):
         df = populated_registry.summary_df()
-        assert df.loc["icsg", "feed_name"] == "icsg"
+        row = df[df["feed_id"] == "icsg"].iloc[0]
+        assert row["feed_name"] == "icsg"
 
     def test_person_column(self, populated_registry):
         df = populated_registry.summary_df()
-        assert df.loc["icsg", "person"] == "Florian_Huber"
+        row = df[df["feed_id"] == "icsg"].iloc[0]
+        assert row["person"] == "Florian_Huber"
 
     def test_multiple_feeds_multiple_rows(self, tmp_path, feed, feed2,
                                           metadata, metadata2, result):
@@ -881,7 +885,7 @@ class TestRegistrySummaryDf:
         reg.register(feed2, metadata2, result=result)
         df = reg.summary_df()
         assert len(df) == 2
-        assert set(df.index) == {"icsg", "bgs"}
+        assert set(df["feed_id"]) == {"icsg", "bgs"}
 
     def test_empty_registry_returns_empty_df(self, registry):
         df = registry.summary_df()
@@ -891,11 +895,13 @@ class TestRegistrySummaryDf:
         reg = DataFeedRegistry(odir=str(tmp_path))
         reg.register(feed, metadata, result=None)
         df = reg.summary_df()
-        assert df.loc["icsg", "cv_total_%"] is None
+        row = df[df["feed_id"] == "icsg"].iloc[0]
+        assert row["cv_total_%"] is None
 
     def test_corrupt_metadata_emits_warning(self, populated_registry):
         """If metadata.json is corrupt, summary_df warns but does not raise."""
-        meta_path = os.path.join(populated_registry.odir, "icsg", "metadata.json")
+        entry = populated_registry["icsg"]
+        meta_path = os.path.join(entry.odir, "metadata.json")
         with open(meta_path, "w") as f:
             f.write("NOT VALID JSON {{{{")
         with pytest.warns(UserWarning):

@@ -14,11 +14,13 @@ _NpEncoder        –  JSON encoder that handles numpy scalars and ndarrays.
 File layout on disk
 -------------------
 <odir>/
-    registry.json              ← flat index, one entry per feed
-    <feed_id>/
-        metadata.json          ← DataFeedMetadata (human-readable)
-        <feed_id>.pkl          ← WeightMatrix / ConcordanceTable pickle
-        result.npz             ← F_root, sigma_root, cv_root, cv_src arrays
+    registry.json                       ← flat index, one entry per feed run
+    feed_<feed_id>_<ts>_<hash>/
+        metadata.json                   ← DataFeedMetadata (human-readable)
+        feed.pkl                        ← WeightMatrix + concordance pickle
+        result.npz                      ← F_root, sigma_root, cv_root, cv_src
+        F_src.npy                       ← source flow vector
+        diag/<feed_run_id>_feed.png     ← per-feed diagnostic figure
 
 Import contract
 ---------------
@@ -84,12 +86,13 @@ def _json_load(path: str) -> Any:
 
 @dataclass
 class _RegistryEntry:
-    """One row in ``registry.json``."""
+    """One row in ``registry.json`` (one per feed run)."""
 
+    feed_run_id:   str   # feed_<feed_id>_<YYYYMMDD_HHMMSS>_<shorthash>
     feed_id:       str
     feed_class:    str   # e.g. "WeightMatrix"
     acc_id:        str   # AccountingStructure id used to build this feed
-    odir:          str   # directory that holds this feed's files
+    odir:          str   # directory that holds this feed run's files
     metadata_path: str   # absolute path to metadata.json
     created_at:    str   # UTC ISO-8601 timestamp
 
@@ -108,28 +111,28 @@ class _RegistryEntry:
 
 class DataFeedRegistry:
     """
-    Persistent catalogue of all registered DataFeed instances.
+    Persistent catalogue of feed runs.
 
-    The registry owns one index file (``registry.json``) and a
-    sub-directory per feed containing::
+    Each call to ``register()`` produces a new ``feed_run_id`` of the form
+    ``feed_<feed_id>_<YYYYMMDD_HHMMSS>_<shorthash>`` and writes a
+    self-contained run directory.
 
-        <feed_id>/
-            metadata.json    – DataFeedMetadata (human-readable JSON)
-            <feed_id>.pkl    – feed object (pickle, written by feed.save())
-            result.npz       – F_root, sigma_root, cv_root, cv_src arrays
+    Directory layout::
 
-    Typical workflow::
+        <odir>/
+            registry.json
+            feed_<feed_id>_<ts>_<hash>/
+                metadata.json
+                feed.pkl
+                result.npz
+                F_src.npy
+                diag/<feed_run_id>_feed.png
 
-        registry = DataFeedRegistry(odir="data/proc/feeds")
-        registry.load_index()          # load existing index (no-op if absent)
-
-        entry = registry.register(wm, metadata, result=prop_result)
-        registry.save()                # flush index to disk
-
-        # later session:
-        registry.load_index()
-        meta   = registry.load_metadata("icsg")
-        arrays = registry.load_result("icsg")
+    Selection helpers
+    -----------------
+    Lookups accept either a ``feed_run_id`` (exact run) or a ``feed_id``
+    (latest run wins).  See ``resolve()``, ``latest_by_feed_id()``,
+    ``entries_for()``.
 
     Parameters
     ----------
@@ -174,59 +177,47 @@ class DataFeedRegistry:
         feed: Any,
         metadata: DataFeedMetadata,
         result: Any = None,
-        overwrite: bool = False,
+        F_src: Optional[np.ndarray] = None,
     ) -> _RegistryEntry:
         """
-        Persist a feed and create its registry entry.
+        Persist a feed run and create its registry entry.
 
-        Steps (in order)
-        ----------------
-        1. Raise ``ValueError`` if ``feed.id`` is already registered
-           and ``overwrite=False``.
-        2. Call ``metadata.fill_computed(result)`` if result is not None.
-        3. Write ``metadata.json`` sidecar.
-        4. Call ``feed.save(path=<pkl_path>)`` to write the pickle.
-        5. Write ``result.npz`` if result is not None.
-        6. Create and store the ``_RegistryEntry`` in the in-memory index.
-
-        Note: ``save()`` is **not** called automatically — flush the index
-        explicitly with ``registry.save()`` after registering.
+        Mints a fresh ``feed_run_id`` on every call; previous runs of the
+        same ``feed_id`` are kept side by side.  ``save()`` is **not**
+        called automatically — flush with ``registry.save()`` afterwards.
 
         Parameters
         ----------
         feed      : object with ``.id``, ``.acc_used``, ``.save(path=...)``
         metadata  : DataFeedMetadata instance
-        result    : optional PropagationResult (provides F_root, sigma_root,
+        result    : optional PropagationResult (F_root, sigma_root,
                     cv_root, cv_src)
-        overwrite : if True, silently replace an existing entry
+        F_src     : optional source flow vector to persist alongside the run.
 
         Returns
         -------
         _RegistryEntry
         """
-        fid = feed.id
-        if fid in self._index and not overwrite:
-            raise ValueError(
-                f"Feed '{fid}' is already registered. "
-                "Pass overwrite=True to replace it."
-            )
+        import uuid
 
-        feed_odir = os.path.join(self.odir, fid)
+        fid       = feed.id
+        ts_compact = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+        short      = uuid.uuid4().hex[:8]
+        feed_run_id = f"feed_{fid}_{ts_compact}_{short}"
+
+        feed_odir = os.path.join(self.odir, feed_run_id)
         Path(feed_odir).mkdir(parents=True, exist_ok=True)
+        Path(os.path.join(feed_odir, "diag")).mkdir(parents=True, exist_ok=True)
 
-        # 2. fill computed fields
         if result is not None:
             metadata.fill_computed(result)
 
-        # 3. metadata sidecar
         meta_path = os.path.join(feed_odir, "metadata.json")
         _json_dump(metadata.to_dict(), meta_path)
 
-        # 4. feed pickle
-        pkl_path = os.path.join(feed_odir, f"{fid}.pkl")
+        pkl_path = os.path.join(feed_odir, "feed.pkl")
         feed.save(path=pkl_path)
 
-        # 5. result arrays
         if result is not None:
             np.savez(
                 os.path.join(feed_odir, "result.npz"),
@@ -236,8 +227,12 @@ class DataFeedRegistry:
                 cv_src     = np.array([result.cv_src]),
             )
 
-        # 6. index entry
+        if F_src is not None:
+            np.save(os.path.join(feed_odir, "F_src.npy"),
+                    np.asarray(F_src, dtype=float))
+
         entry = _RegistryEntry(
+            feed_run_id   = feed_run_id,
             feed_id       = fid,
             feed_class    = type(feed).__name__,
             acc_id        = feed.acc_used,
@@ -245,18 +240,45 @@ class DataFeedRegistry:
             metadata_path = meta_path,
             created_at    = datetime.utcnow().isoformat(timespec="seconds") + "Z",
         )
-        self._index[fid] = entry
+        self._index[feed_run_id] = entry
         return entry
 
     # ------------------------------------------------------------------
     # Lookup / container protocol
     # ------------------------------------------------------------------
 
-    def __getitem__(self, feed_id: str) -> _RegistryEntry:
-        return self._index[feed_id]
+    def resolve(self, key: str) -> _RegistryEntry:
+        """
+        Resolve *key* (either ``feed_run_id`` or ``feed_id``) to an entry.
 
-    def __contains__(self, feed_id: str) -> bool:
-        return feed_id in self._index
+        Exact ``feed_run_id`` matches win; otherwise the most recently
+        registered run for *key* (treated as ``feed_id``) is returned.
+        """
+        if key in self._index:
+            return self._index[key]
+        return self.latest_by_feed_id(key)
+
+    def latest_by_feed_id(self, feed_id: str) -> _RegistryEntry:
+        """Return the latest registered entry for *feed_id* (raises KeyError)."""
+        runs = [e for e in self._index.values() if e.feed_id == feed_id]
+        if not runs:
+            raise KeyError(f"No registered run for feed_id '{feed_id}'")
+        runs.sort(key=lambda e: e.created_at)
+        return runs[-1]
+
+    def entries_for(self, feed_id: str) -> List[_RegistryEntry]:
+        """Return all entries with the given ``feed_id`` (created-asc)."""
+        runs = [e for e in self._index.values() if e.feed_id == feed_id]
+        runs.sort(key=lambda e: e.created_at)
+        return runs
+
+    def __getitem__(self, key: str) -> _RegistryEntry:
+        return self.resolve(key)
+
+    def __contains__(self, key: str) -> bool:
+        if key in self._index:
+            return True
+        return any(e.feed_id == key for e in self._index.values())
 
     def __len__(self) -> int:
         return len(self._index)
@@ -264,49 +286,58 @@ class DataFeedRegistry:
     def __iter__(self):
         return iter(self._index)
 
-    def ids(self) -> List[str]:
-        """Return a list of all registered feed IDs."""
+    def run_ids(self) -> List[str]:
+        """Return a list of all registered feed_run_ids."""
         return list(self._index.keys())
+
+    def feed_ids(self) -> List[str]:
+        """Return the unique feed_ids present in the registry."""
+        return sorted({e.feed_id for e in self._index.values()})
+
+    def ids(self) -> List[str]:
+        """Backwards-compatible alias of feed_ids()."""
+        return self.feed_ids()
 
     # ------------------------------------------------------------------
     # Lazy loaders
     # ------------------------------------------------------------------
 
-    def load_metadata(self, feed_id: str) -> DataFeedMetadata:
-        """Load and return the DataFeedMetadata for *feed_id*."""
-        entry = self[feed_id]
+    def load_metadata(self, key: str) -> DataFeedMetadata:
+        """Load and return the DataFeedMetadata for *key* (run-id or feed-id)."""
+        entry = self.resolve(key)
         return DataFeedMetadata.from_dict(_json_load(entry.metadata_path))
 
-    def load_result(self, feed_id: str) -> Dict[str, np.ndarray]:
+    def load_result(self, key: str) -> Dict[str, np.ndarray]:
         """
-        Load the result arrays for *feed_id*.
+        Load the result arrays for *key* (run-id or feed-id).
 
         Returns
         -------
         dict with keys ``F_root``, ``sigma_root``, ``cv_root``, ``cv_src``
         """
-        npz_path = os.path.join(self._index[feed_id].odir, "result.npz")
+        entry = self.resolve(key)
+        npz_path = os.path.join(entry.odir, "result.npz")
         if not os.path.exists(npz_path):
             raise FileNotFoundError(
-                f"No result.npz found for feed '{feed_id}'. "
+                f"No result.npz found for feed run '{entry.feed_run_id}'. "
                 "Was a PropagationResult passed to register()?"
             )
         z = np.load(npz_path)
         return {k: z[k] for k in z.files}
 
-    def load_feed(self, feed_id: str, feed_cls: Any, acc_struct: Any) -> Any:
+    def load_feed(self, key: str, feed_cls: Any, acc_struct: Any) -> Any:
         """
         Reload a feed object from its pickle.
 
         Parameters
         ----------
-        feed_id    : registered feed ID
+        key        : ``feed_run_id`` or ``feed_id`` (latest run wins)
         feed_cls   : class with a ``.load(id, acc_struct, path=...)`` classmethod
         acc_struct : AccountingStructure instance to pass to feed_cls.load
         """
-        entry = self[feed_id]
-        pkl   = os.path.join(entry.odir, f"{feed_id}.pkl")
-        return feed_cls.load(feed_id, acc_struct, path=pkl)
+        entry = self.resolve(key)
+        pkl   = os.path.join(entry.odir, "feed.pkl")
+        return feed_cls.load(entry.feed_id, acc_struct, path=pkl)
 
     # ------------------------------------------------------------------
     # Summary
@@ -322,12 +353,12 @@ class DataFeedRegistry:
         """
 
         if not self._index:
-            return pd.DataFrame(columns=["feed_id"]).set_index("feed_id")
+            return pd.DataFrame(columns=["feed_run_id"]).set_index("feed_run_id")
         rows = []
-        for fid, entry in self._index.items():
+        for run_id, entry in self._index.items():
             row = entry.to_dict()
             try:
-                meta = self.load_metadata(fid)
+                meta = self.load_metadata(run_id)
                 row.update({
                     "feed_name":       meta.feed_name,
                     "iedc_type":       meta.iedc_type,
@@ -339,9 +370,9 @@ class DataFeedRegistry:
                     "dataset_link":    meta.dataset_link,
                 })
             except Exception as exc:
-                warnings.warn(f"Could not load metadata for '{fid}': {exc}")
+                warnings.warn(f"Could not load metadata for '{run_id}': {exc}")
             rows.append(row)
-        return pd.DataFrame(rows).set_index("feed_id")
+        return pd.DataFrame(rows).set_index("feed_run_id")
 
 
 # =============================================================================
@@ -408,7 +439,7 @@ class ImputationRunRegistry:
         agg_result : AggregationResult after ImputationEngine.run().
                      Must have .imputation_log set (raises otherwise).
         label      : human-readable label (folded into the run_id).
-        feeds      : list of dicts {"feed_id", "version", "registry_path"}
+        feeds      : list of dicts {"feed_id", "feed_run_id", "registry_path"}
                      as produced by FeedCollector.select().
         imputers   : list of BaseImputer instances (engine.imputers).
         acc_id     : AccountingStructure id.
