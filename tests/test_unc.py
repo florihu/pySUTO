@@ -898,5 +898,63 @@ class TestErrorHandling:
         assert isinstance(result, PropagationResult)
 
 
+# =============================================================================
+# 13. CV-INVARIANT FORMULA — sign-cancellation and bound guarantees
+# =============================================================================
+
+class TestCvInvariantPropagation:
+    """
+    The new CV-invariant propagation enforces CV_root[j] ≤ CV_src for every
+    root edge regardless of sign-cancellation in F_root, where the legacy
+    absolute-Lp formula could produce CV_root ≫ CV_src when source
+    contributions partially cancel.
+    """
+
+    def test_cv_root_bounded_by_cv_src_random(self, all_twos_pedigree):
+        rng = np.random.default_rng(42)
+        N_src, N_root = 20, 10
+        W = rng.normal(size=(N_src, N_root))
+        F = rng.normal(size=N_src) * 100.0
+        feed = _MockFeed(W)
+        feed.set_pedigree(all_twos_pedigree)
+        result = feed.apply_with_uncertainty(F)
+        finite = np.isfinite(result.cv_root)
+        assert finite.any()
+        assert np.all(result.cv_root[finite] <= result.cv_src + ATOL)
+
+    def test_sign_cancellation_no_bloat(self, all_ones_pedigree):
+        """W=[+1,−1], F=[10,9] → f_root=1, σ must satisfy CV_root ≤ CV_src."""
+        W = np.array([[1.0], [-1.0]])
+        F = np.array([10.0, 9.0])
+        feed = _MockFeed(W)
+        feed.set_pedigree(all_ones_pedigree)
+        result = feed.apply_with_uncertainty(F)
+        assert result.F_root[0] == pytest.approx(1.0)
+        assert result.cv_root[0] <= result.cv_src + ATOL
+        # σ = CV_root · |f_root| ≤ CV_src · 1.0
+        assert result.sigma_root[0] <= result.cv_src * 1.0 + ATOL
+
+    def test_zero_flow_zero_sigma_exact_cancellation(self, all_ones_pedigree):
+        """When sources cancel exactly: f_root=0 and σ_root=0 (no bloat)."""
+        W = np.array([[1.0], [-1.0]])
+        F = np.array([5.0, 5.0])
+        feed = _MockFeed(W)
+        feed.set_pedigree(all_ones_pedigree)
+        result = feed.apply_with_uncertainty(F)
+        assert result.F_root[0] == pytest.approx(0.0)
+        assert result.sigma_root[0] == pytest.approx(0.0)
+
+    def test_legacy_match_when_W_and_F_nonneg(
+        self, feed_4x3, all_ones_pedigree, F_src_4, W_4x3
+    ):
+        """For W ≥ 0 and F ≥ 0 the new formula reduces to legacy Lp."""
+        feed_4x3.set_pedigree(all_ones_pedigree)
+        result = feed_4x3.apply_with_uncertainty(F_src_4, p=1.3)
+        expected = _expected_sigma_root_lp(
+            W_4x3, F_src_4, all_ones_pedigree.total_cv(), p=1.3,
+        )
+        np.testing.assert_allclose(result.sigma_root, expected, rtol=1e-8)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

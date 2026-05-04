@@ -121,14 +121,14 @@ The parameter CSV template with full column reference and example rows for all t
 
 | Imputer | Method | Uncertainty |
 |---|---|---|
-| `ParametricImputer` | Bidirectional edge-pair constraints; CSV loading or lambda relations | Lp + regularized sensitivity: `σ_j = ( |s(coeff)·σ_i|^p + |σ_param|^p + |ε·f_j|^p )^(1/p)` |
+| `ParametricImputer` | Bidirectional edge-pair constraints; CSV loading or lambda relations | Lp combine; bare coeff in forward (A→B) and lambda; regularized `s(1/coeff)` only in backward (B→A): `σ_j = ( Σ \|coeff_i·σ_i\|^p + \|σ_param\|^p + \|ε·f_j\|^p )^(1/p)` |
 | `FormulaImputer` | Directed multi-source balance equations; region/time-correlated source selection; physical clip | Lp: `σ_j = ( Σ_i |coeff_i·σ_i|^p + |ε·f_j|^p )^(1/p)`; pre-clip σ retained on clipped fills |
 | `TimeImputer` | Window-based temporal interpolation / extrapolation | Lp: `σ_j = ( Σ_i |w_i·σ_i|^p )^(1/p) · γ(gap)` |
 | `FlatPriorImputer` | Final fallback — `f=0`, `σ = CV[mask] · scale[group]` (CV by accounting mask, scale = group-mean of \|f_agg\|) | `σ = CV·scale` (no Lp combine; one source) |
 
 The exponent `p ∈ [1.1, 1.5]` (default `1.3`) is a single global power-mean parameter — see [Power-mean uncertainty propagation](#power-mean-uncertainty-propagation). Setting `p=2` recovers Gaussian quadrature.
 
-`s(α) = |α| / (|α|^q + α_min^q)^(1/q)` is the regularized sensitivity used in `ParametricImputer` only — see [Regularized sensitivity (ParametricImputer)](#regularized-sensitivity-parametricimputer).
+`s(α) = |α| / (|α|^q + α_min^q)^(1/q)` is the regularized sensitivity used in the **backward branch only** of `ParametricImputer` (CSV B→A direction, where the multiplier is `1/coeff`). The forward branch (A→B) and lambda relations use bare α — see [Regularized sensitivity (ParametricImputer)](#regularized-sensitivity-parametricimputer).
 
 Additional imputers can be created by subclassing `BaseImputer` and implementing a single `impute()` method.
 
@@ -167,11 +167,11 @@ Each `ParametricRelation` specifies:
 - **coefficients** — the linear weights α_i (sum need not equal 1)
 - **epsilon** — optional relative residual uncertainty (fraction of `f_j`), added in quadrature
 
-Uncertainty propagation (both modes):
+Uncertainty propagation:
 
-`σ_j = ( Σ_i |s(α_i)·σ_i|^p + |σ_param|^p + |ε·f_j|^p )^(1/p)`
+`σ_j = ( Σ_i |α_i·σ_i|^p + |σ_param|^p + |ε·f_j|^p )^(1/p)`
 
-where `s(α) = |α| / (|α|^q + α_min^q)^(1/q)` is the regularized sensitivity (defaults `q=3`, `α_min=0.05`). It caps coefficient amplification of σ for `|α| >> α_min` (so `s → 1` and `α·σ_src` is no longer free to grow without bound) and floors propagation for `|α| << α_min` (so very small α don't produce unrealistically tight σ). The fill itself uses bare α: `f_j = α · f_i + …`. Regularization applies to σ propagation only — physical balance equations are not perturbed. See [Regularized sensitivity (ParametricImputer)](#regularized-sensitivity-parametricimputer).
+with the **forward CSV branch (A→B)** and **lambda relations** using bare α directly. The **backward CSV branch (B→A)** swaps `1/coeff` for the regularized sensitivity `s(1/coeff) = |1/coeff| / (|1/coeff|^q + α_min^q)^(1/q)` (defaults `q=3`, `α_min=0.05`) — this caps σ amplification when `1/coeff` is large (e.g. ore-grade inverse ≈ 100s) so that `s(1/coeff)·σ_src ≤ σ_src` rather than growing unbounded. The fill itself always uses bare α: `f_j = α · f_i + …`. Regularization applies to σ propagation in the backward direction only — physical balance equations are not perturbed. See [Regularized sensitivity (ParametricImputer)](#regularized-sensitivity-parametricimputer).
 
 All fills are logged to `ImputationLog` with the `param_id` from the CSV row (None for lambda relations).
 
@@ -340,21 +340,25 @@ The log is attached to `AggregationResult` and persisted alongside it. Combined 
 **Inputs:** feed IDs, registry  
 **Outputs:** `AggregationResult` with `f_agg [N_r]`, `σ_agg [N_r]`, weight matrix **Ω**, `ImputationLog`
 
-#### Diagnostics (`ImpDiagnostic`)
+#### Diagnostics (`AggDiagnostic`, `ImpDiagnostic`)
 
-After `engine.run()`, pass the result to `ImpDiagnostic` to produce two diagnostic figures:
+`AggDiagnostic` runs **immediately after `collector.aggregate()`** (and BEFORE imputation, snapshotting `f_agg` / `σ_agg` since the imputation engine mutates them in place). It writes one 2×2 figure that exposes whether the dominant CV-bloat is upstream or inside the imputers:
 
-- **Figure 1** (2×2 grid): per-step distribution of F_root and σ (log scale, overlapping histograms); coverage count and imputed-edge count bar charts at each pipeline step
-- **Figure 2** (timeseries, requires `acc_struct`): up to 6 flow time-series selected from TimeImputer fills (highest-volume), with raw feed-covered points and imputed points distinguished
+- **[0,0] log10 |f_agg|** — magnitude distribution of covered edges
+- **[0,1] log10 σ_agg** — uncertainty distribution
+- **[1,0] log10 CV** (`σ_agg/|f_agg|`) with reference lines at 0.1, 1, 10, 100
+- **[1,1] per-feed scatter** of `|f_root|` vs `σ_root` (one colour per feed) with diagonals at CV=1 and CV=10 — directly attributes any high-CV outliers to a Stage-1 feed
+
+`ImpDiagnostic` runs after `engine.run()` and produces the per-step trajectory figures (F_root and σ histograms, coverage and fill counts, σ- and CV-by-method boxplots, and a TimeImputer timeseries panel when `acc_struct` is provided).
 
 ```python
-diag = ImpDiagnostic(agg_result, acc_struct=acc, label="copper")
-diag.plot(odir="data/proc/imp/copper/diag", show=False)
-diag.summary()
+agg_diag = AggDiagnostic(agg_result, label="copper")
+agg_diag.summary()                                            # CV percentiles + top σ outliers
 
-# Load from disk for post-hoc analysis
-diag = ImpDiagnostic.from_saved("data/proc/imp/copper", acc_struct=acc)
-diag.plot(show=True)
+agg_result = engine.run(agg_result)                            # mutates f_agg / σ_agg in place
+
+agg_diag.plot(odir="data/proc/imp/copper/diag", show=False)    # writes copper_agg_distributions.png
+ImpDiagnostic(agg_result, acc_struct=acc, label="copper").plot(odir="data/proc/imp/copper/diag")
 ```
 
 ### Stage 3 — Constraint building and linear optimisation
@@ -444,7 +448,7 @@ data/proc/const/{run_id}/
 | `collector.py` | `FeedCollector`, `AggregationResult` | Select and load feeds; align F and Σ matrices onto common edge index |
 | `agg.py` | `AggregationMath` | Build **Ω**; compute `f_agg = 1ᵀ(Ω ⊙ F)` and `σ_agg`; coverage mask |
 | `impute.py` | `ImputationEngine`, `BaseImputer`, `ParametricImputer`, `FormulaImputer`, `TimeImputer`, `ParametricRelation`, `FormulaRelation`, `SourceTerm`, `ParamRef`, `ImputationLog` | Ordered imputation pipeline; per-edge provenance logging; uncertainty propagation per fill |
-| `diag.py` | `ImpDiagnostic` | Per-step diagnostic plots for the imputation pipeline (see below) |
+| `diag.py` | `AggDiagnostic`, `ImpDiagnostic` | Stage-2a aggregation distributions (`AggDiagnostic`) and Stage-2c per-step imputation trajectories (`ImpDiagnostic`) |
 
 ### Stage 3 modules
 
@@ -487,26 +491,32 @@ $$\mathrm{Lp}(\{x_i\};\, p) \;=\; \left(\sum_i |x_i|^p\right)^{1/p}.$$
 
 ### Regularized sensitivity (ParametricImputer)
 
-`ParametricImputer` σ propagation passes coefficients through a bounded sensitivity function before the Lp combine:
+The **backward CSV branch (B→A)** of `ParametricImputer` — and only that branch — passes the inverse multiplier $1/\alpha$ through a bounded sensitivity function before the Lp combine:
 
 $$s(\alpha;\, q,\,\alpha_{\min}) \;=\; \frac{|\alpha|}{\bigl(|\alpha|^q + \alpha_{\min}^q\bigr)^{1/q}}.$$
 
-Defaults: $q = 3$, $\alpha_{\min} = 0.05$. Behaviour:
-- $|\alpha| \gg \alpha_{\min}$: $s(\alpha) \to 1$. Coefficient amplification of σ is capped — the term `s(α)·σ_src` cannot grow beyond `σ_src` regardless of how large α is. This suppresses σ-bloat in the inverse direction of small-coefficient relations (e.g. $1/\text{ore-grade} \approx 100$).
-- $|\alpha| \ll \alpha_{\min}$: $s(\alpha) \to |\alpha|/\alpha_{\min}$. Very small coefficients no longer produce unrealistically tight propagated σ — there is a relative floor of $1/\alpha_{\min}$ on the effective sensitivity.
-- $|\alpha| = \alpha_{\min}$: $s = 2^{-1/q}$. Larger $q$ gives a sharper knee; $q \to \infty$ recovers a hard clip at 1, $q \to 0$ recovers bare $|\alpha|$.
+Defaults: $q = 3$, $\alpha_{\min} = 0.05$. Behaviour at the backward multiplier $\beta = 1/\alpha$:
+- $|\beta| \gg \alpha_{\min}$ (small original $\alpha$, e.g. ore-grade inverse): $s(\beta) \to 1$. The term $s(\beta)\cdot\sigma_b$ cannot grow beyond $\sigma_b$, capping the amplification that would otherwise occur from the bare $1/\alpha$ multiplier.
+- $|\beta| \ll \alpha_{\min}$: $s(\beta) \to |\beta|/\alpha_{\min}$ — a relative floor of $1/\alpha_{\min}$ on the effective sensitivity.
+- $|\beta| = \alpha_{\min}$: $s = 2^{-1/q}$. Larger $q$ gives a sharper knee; $q \to \infty$ recovers a hard clip at 1, $q \to 0$ recovers bare $|\beta|$.
 
-The fill formula $f_j = \sum_l \alpha_l f_{i_l}$ uses bare α — physical balance equations are not perturbed. Regularization applies to σ propagation only. Other imputers (`FormulaImputer`, `TimeImputer`) keep bare-coefficient Lp combines because their coefficients (formula weights, time-fractions) are bounded by construction.
+The **forward CSV branch (A→B)** and **lambda relations** use bare $\alpha$ in σ propagation — those directions correspond to author-chosen, naturally oriented coefficients (typically $|\alpha| \leq 1$) and don't suffer from inverse-direction amplification. The fill formula $f_j = \sum_l \alpha_l f_{i_l}$ always uses bare α — physical balance equations are not perturbed. Other imputers (`FormulaImputer`, `TimeImputer`) keep bare-coefficient Lp combines.
 
 ### Stage 1 — Concordance error propagation
 
-The weight matrix $\mathbf{W} \in \mathbb{R}^{N_\mathrm{src} \times N_\mathrm{root}}$ maps source edges to root edges, assembled as a `scipy.sparse.csr_matrix`. With dataset-level CV and Lp propagation:
+The weight matrix $\mathbf{W} \in \mathbb{R}^{N_\mathrm{src} \times N_\mathrm{root}}$ maps source edges to root edges, assembled as a `scipy.sparse.csr_matrix`. The point estimate is
 
-$$\mathbf{f}_\mathrm{root} = \mathbf{W}^\top \mathbf{f}_\mathrm{src}$$
+$$\mathbf{f}_\mathrm{root} = \mathbf{W}^\top \mathbf{f}_\mathrm{src}.$$
 
-$$\boldsymbol{\sigma}_\mathrm{root}[j] \;=\; \mathrm{CV}_\mathrm{tot} \cdot \left( \sum_i |W_{ij}\, f_{\mathrm{src},i}|^p \right)^{1/p}.$$
+Uncertainty is propagated in **CV-invariant** form. For each root edge $j$, define the normalized fan-in shares from the per-source absolute contributions
 
-In scipy.sparse code, $|\mathbf{W}|^{p}$ is formed by raising the `.data` array of a copy of the CSR matrix to the power $p$ (no densification). For $p \in (1, 2]$ the diversification property still holds: $\mathrm{CV}_\mathrm{root} \leq \mathrm{CV}_\mathrm{src}$ for every root edge with normalized $W$ rows.
+$$A_{ij} = \bigl|W_{ij}\, f_{\mathrm{src},i}\bigr|, \qquad \omega_{ij} = \frac{A_{ij}}{\sum_k A_{kj}} \quad\Bigl(\sum_i \omega_{ij} = 1\Bigr).$$
+
+Then
+
+$$\mathrm{CV}_\mathrm{root}[j] \;=\; \mathrm{CV}_\mathrm{src} \cdot \left(\sum_i \omega_{ij}^p\right)^{1/p}, \qquad \boldsymbol{\sigma}_\mathrm{root}[j] \;=\; \mathrm{CV}_\mathrm{root}[j] \cdot |\mathbf{f}_\mathrm{root}[j]|.$$
+
+For $p \geq 1$ the power-mean of normalized weights is at most 1, so the **diversification invariant** $\mathrm{CV}_\mathrm{root}[j] \leq \mathrm{CV}_\mathrm{src}$ holds for every root edge. For $\mathbf{W} \geq 0$ and $\mathbf{f}_\mathrm{src} \geq 0$ this matches the legacy formula $\mathrm{CV}_\mathrm{tot} \cdot (\sum_i |W_{ij} f_i|^p)^{1/p}$ exactly, but when sources partially **sign-cancel** in $\mathbf{f}_\mathrm{root}$ the new form keeps σ tied to the signed sum (so a near-zero $\mathbf{f}_\mathrm{root}$ produces a near-zero σ instead of an inflated absolute σ from the absolute Lp accumulation). Sparse implementation uses one Hadamard pass over the CSR `.data` array (no densification).
 
 ### Stage 2a — Aggregation across N_f feeds
 
@@ -568,9 +578,9 @@ $$f_j = \sum_{l=1}^{m} \alpha_l \cdot f_{i_l}$$
 
 Lp propagation across sources, the per-relation parameter σ, and the structural-uncertainty term:
 
-$$\sigma_j \;=\; \left( \sum_{l=1}^{m} |s(\alpha_l) \cdot \sigma_{i_l}|^p \;+\; |\sigma_\mathrm{param}|^p \;+\; |\varepsilon \cdot f_j|^p \right)^{1/p}$$
+$$\sigma_j \;=\; \left( \sum_{l=1}^{m} |\alpha_l \cdot \sigma_{i_l}|^p \;+\; |\sigma_\mathrm{param}|^p \;+\; |\varepsilon \cdot f_j|^p \right)^{1/p}$$
 
-where $s(\alpha) = |\alpha| / (|\alpha|^q + \alpha_{\min}^q)^{1/q}$ is the regularized sensitivity (defaults $q=3$, $\alpha_{\min}=0.05$). It saturates at 1 for $|\alpha| \gg \alpha_{\min}$ (capping coefficient amplification of σ) and approaches $|\alpha|/\alpha_{\min}$ for $|\alpha| \ll \alpha_{\min}$ (flooring small-α propagation). The fill formula above uses bare $\alpha_l$ — regularization applies to σ propagation only. See [Regularized sensitivity (ParametricImputer)](#regularized-sensitivity-parametricimputer).
+with bare coefficients $\alpha_l$ in the **forward CSV branch (A→B)** and **lambda relations**. The **backward CSV branch (B→A)** is the only place where the multiplier $1/\alpha$ is replaced by the regularized sensitivity $s(1/\alpha) = |1/\alpha| / (|1/\alpha|^q + \alpha_{\min}^q)^{1/q}$ (defaults $q=3$, $\alpha_{\min}=0.05$) — this caps σ amplification when $1/\alpha \gg 1$ (the ore-grade inverse case). The fill formula always uses bare $\alpha_l$. See [Regularized sensitivity (ParametricImputer)](#regularized-sensitivity-parametricimputer).
 
 The $\varepsilon$ term ($\varepsilon$ = `epsilon`, a user-supplied fraction) encodes the structural uncertainty in the relation itself — the fact that the parametric formula is an approximation. The $\sigma_\mathrm{param}$ term is the parameter-row σ from the CSV (`sd`, `min_max`, or `pedigree` mode) and is omitted (treated as 0) for lambda-based relations. Both inflate $\sigma_j$ even when source uncertainties are small.
 
@@ -772,6 +782,10 @@ agg_result = collector.aggregate(p=P_PROP)
 # agg_result.Omega    [N_f × N_r] provenance weight matrix
 # agg_result.coverage [N_r] bool  True where at least one feed has data
 
+# Snapshot post-aggregation distributions BEFORE imputation mutates them.
+agg_diag = AggDiagnostic(agg_result, label="copper")
+agg_diag.summary()
+
 # ── Stage 2b: imputation pipeline ──────────────────────────────────────────
 
 # Define parametric relations
@@ -814,6 +828,10 @@ engine.register(FlatPriorImputer.from_csv(
 agg_result = engine.run(agg_result)
 # agg_result.f_agg updated in-place for imputed edges
 # agg_result.imputation_log: complete per-edge fill record
+
+# Diagnostics: pre-imputation aggregation distributions + per-step imputation trajectories
+agg_diag.plot(odir="data/proc/imp/copper/diag", show=False)
+ImpDiagnostic(agg_result, acc_struct=acc, label="copper").plot(odir="data/proc/imp/copper/diag")
 
 # Inspect provenance for a specific edge:
 log = agg_result.imputation_log

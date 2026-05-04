@@ -242,19 +242,28 @@ class UncertaintyMixin:
         --------------
             F_root = W^T @ F_src
 
-        Error propagation (power-mean / Lp norm)
-        ----------------------------------------
-        Each source edge contributes σ_i = CV_tot · |f_i| to its root.
-        The per-root standard deviation is the Lp norm of those
-        contributions, weighted by W:
+        Error propagation (CV-invariant power-mean)
+        -------------------------------------------
+        For every root edge j, define normalized fan-in shares from the
+        absolute source contributions:
 
-            σ_root[j] = CV_tot · ( Σ_i |W_ij · f_i|^p )^(1/p)
+            ω_ij = |W_ij · f_i| / Σ_k |W_kj · f_k|       (Σ_i ω_ij = 1)
 
-        With p = 2 this reduces to Gaussian quadrature
-        (σ_root = CV_tot · sqrt(Σ_i W_ij² f_i²)). The pySUTO range is
-        p ∈ [1.1, 1.5]; default p = 1.3, which suppresses σ inflation in
-        fan-in regimes where the per-source independence assumption is
-        structurally violated by the single dataset-level CV.
+        Then propagate uncertainty as:
+
+            CV_root[j] = CV_tot · ( Σ_i ω_ij^p )^(1/p)
+            σ_root[j]  = CV_root[j] · |F_root[j]|
+
+        Properties:
+            - CV_root[j] ≤ CV_tot for every j (diversification holds for
+              p ≥ 1: power-mean of normalized weights is ≤ 1).
+            - σ_root scales linearly with |F_root[j]|, so sign cancellation
+              in F_root does not produce an inflated absolute σ.
+            - For W ≥ 0 and F ≥ 0 with rows summing to 1, this matches the
+              previous Lp formula σ = CV · (Σ |W·f|^p)^(1/p) exactly.
+
+        With p = 2 this is the inverse-variance / diversification form.
+        The pySUTO range is p ∈ [1.1, 1.5]; default p = 1.3.
 
         Parameters
         ----------
@@ -263,7 +272,8 @@ class UncertaintyMixin:
         pedigree : PedigreeScores, optional
             Override the instance-level pedigree for this call.
         p : float, default 1.3
-            Power-mean exponent (Lp norm). p=2 recovers quadrature.
+            Power-mean exponent. p ≥ 1 required for the diversification
+            invariant to hold.
 
         Returns
         -------
@@ -292,21 +302,42 @@ class UncertaintyMixin:
         W = self.weight_matrix   # scipy.sparse CSR (N_src × N_root)
         F_root = np.asarray(W.T @ F_src).ravel()
 
-        # --- σ propagation via Lp norm -------------------------------
-        #   σ_root[j] = CV · ( Σ_i (|W_ij| · |f_i|)^p )^(1/p)
-        F_src_abs_p = np.abs(F_src) ** p
-
-        Wp = W.copy()
-        if hasattr(Wp, "data") and getattr(Wp.data, "ndim", None) == 1:
-            # scipy.sparse CSR/CSC: act on the .data array (no densification)
-            Wp.data = np.abs(Wp.data) ** p
+        # --- CV-invariant σ propagation ------------------------------
+        # A_ij = |W_ij · f_i|  (entry-wise absolute-value contributions)
+        # S[j] = Σ_i A_ij      (column sum: total absolute fan-in at j)
+        # ω_ij = A_ij / S[j]   (normalized shares; column j sums to 1)
+        # CV_root[j] = CV_tot · ( Σ_i ω_ij^p )^(1/p)
+        # σ_root[j]  = CV_root[j] · |F_root[j]|
+        if hasattr(W, "data") and getattr(W.data, "ndim", None) == 1:
+            # scipy.sparse CSR/CSC path — operate on .data (no densification)
+            A = W.copy()
+            row_idx = A.tocoo(copy=False).row
+            A.data = np.abs(A.data * F_src[row_idx])
+            S = np.asarray(A.sum(axis=0)).ravel()       # length N_root
+            with np.errstate(divide="ignore", invalid="ignore"):
+                inv_S = np.where(S > 0.0, 1.0 / S, 0.0)
+            # ω_ij = A_ij / S[j]; multiply each column by inv_S[col]
+            Omega = A.copy()
+            col_idx = Omega.tocoo(copy=False).col
+            Omega.data = Omega.data * inv_S[col_idx]
+            # Σ ω_ij^p along axis=0
+            Omega_p = Omega.copy()
+            Omega_p.data = Omega_p.data ** p
+            sum_omega_p = np.asarray(Omega_p.sum(axis=0)).ravel()
         else:
-            # dense ndarray fallback (used by tests)
-            Wp = np.abs(np.asarray(Wp)) ** p
-        sum_p = np.asarray(Wp.T @ F_src_abs_p).ravel()
-        sigma_root = cv_tot * np.power(np.maximum(sum_p, 0.0), 1.0 / p)
+            # Dense ndarray fallback (used by tests with numpy W)
+            W_dense = np.asarray(W, dtype=float)
+            A = np.abs(W_dense * F_src[:, None])         # (N_src, N_root)
+            S = A.sum(axis=0)                            # (N_root,)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                Omega = np.where(S > 0.0, A / S[None, :], 0.0)
+            sum_omega_p = (Omega ** p).sum(axis=0)
 
-        # --- CV per root edge -----------------------------------------
+        cv_root_arr = cv_tot * np.power(np.maximum(sum_omega_p, 0.0), 1.0 / p)
+        cv_root_arr = np.where(np.asarray(sum_omega_p) > 0.0, cv_root_arr, 0.0)
+        sigma_root = cv_root_arr * np.abs(F_root)
+
+        # --- reported per-edge CV (sigma / |F|; NaN where F=0) -------
         with np.errstate(invalid="ignore", divide="ignore"):
             cv_root = np.where(F_root != 0.0, sigma_root / np.abs(F_root), np.nan)
 

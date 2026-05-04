@@ -590,7 +590,10 @@ class ParametricImputer(BaseImputer):
         alpha_min: float = 0.05,
     ) -> None:
         self._relations  = relations or []
-        # Each tuple: (a_id, b_id, coeff, sigma_param, epsilon, bl, bu, param_id, desc)
+        # Each tuple: (a_id, b_id, coeff, sigma_param, epsilon, param_id, desc)
+        # Note: per-row `bound_lower / bound_upper` from the CSV are *ratio bounds*
+        # (consumed by RatioBoundBuilder in constraints.py); they are NOT absolute
+        # caps on the filled target flow and are deliberately not read here.
         self._csv_pairs  = _csv_pairs or []
         self._source_path: Optional[str] = _source_path
         self._ei_exp:    Optional[pd.DataFrame] = None  # lazy cache for lambda relations
@@ -650,8 +653,8 @@ class ParametricImputer(BaseImputer):
                 logger.warning("param_id=%s: sigma error (%s) — skipped", row["param_id"], exc)
                 continue
             epsilon  = _float_or(row.get("epsilon"), 0.0)
-            bl       = _float_or(row.get("bound_lower"), 0.0)
-            bu       = _float_or(row.get("bound_upper"), np.inf)
+            # bound_lower / bound_upper are *ratio* bounds — consumed by
+            # RatioBoundBuilder for constraint building, not by this imputer.
             param_id = str(row["param_id"])
             desc     = str(row.get("description", ""))
             spec     = _specificity(row)
@@ -697,7 +700,7 @@ class ParametricImputer(BaseImputer):
                 n_a += 1
                 for b_id in _resolve_b_ids(row, a_tuple, edge_lookup, field_vals):
                     key  = (a_id, b_id)
-                    pair = (a_id, b_id, nominal, sigma_p, epsilon, bl, bu, param_id, desc)
+                    pair = (a_id, b_id, nominal, sigma_p, epsilon, param_id, desc)
                     if key not in best or spec > best[key][1]:
                         if key in best:
                             logger.debug(
@@ -735,17 +738,15 @@ class ParametricImputer(BaseImputer):
         am      = self.alpha_min
 
         # ── CSV pairs (bidirectional) ──────────────────────────────────
-        for a_id, b_id, coeff, sig_p, epsilon, bl, bu, param_id, desc in self._csv_pairs:
+        for a_id, b_id, coeff, sig_p, epsilon, param_id, desc in self._csv_pairs:
             a_nan = np.isnan(f[a_id])
             b_nan = np.isnan(f[b_id])
 
             if not a_nan and b_nan:
-                f_raw = coeff * f[a_id]
-                f_b   = float(np.clip(f_raw, bl, bu))
-                # σ_b = ( |s(coeff)·σ_a|^p + |σ_param|^p + |ε·f_b|^p )^(1/p)
-                s_coeff = _reg_sensitivity(coeff, q, am)
+                f_b = float(coeff * f[a_id])
+                # Forward (A→B): bare coefficient. σ_b = Lp(|coeff|·σ_a, σ_param, ε·f_b)
                 s_b   = _lp_combine(
-                    [s_coeff * sigma[a_id], sig_p, epsilon * f_b], p,
+                    [coeff * sigma[a_id], sig_p, epsilon * f_b], p,
                 )
                 s_b, capped = _apply_cv_cap(s_b, f_b, cv_cap)
                 f[b_id]     = f_b
@@ -758,8 +759,9 @@ class ParametricImputer(BaseImputer):
 
             elif a_nan and not b_nan:
                 inv = 1.0 / coeff
-                f_raw = inv * f[b_id]
-                f_a   = float(np.clip(f_raw, bl, bu))
+                f_a = float(inv * f[b_id])
+                # Backward (B→A): regularized sensitivity caps σ amplification
+                # when |inv| ≫ 1 (e.g. 1/ore_grade ≈ 100s).
                 s_inv = _reg_sensitivity(inv, q, am)
                 s_a   = _lp_combine(
                     [s_inv * sigma[b_id], sig_p, epsilon * f_a], p,
@@ -818,11 +820,9 @@ class ParametricImputer(BaseImputer):
                         continue
 
                     f_t = float(sum(c * f[s] for c, s in zip(coeffs, s_ids)))
-                    # σ_t = ( Σ_l |s(α_l)·σ_l|^p + |ε·f_t|^p )^(1/p)
-                    terms = [
-                        _reg_sensitivity(c, q, am) * sigma[s]
-                        for c, s in zip(coeffs, s_ids)
-                    ]
+                    # Lambda (target ← sources): bare coefficients (forward by definition)
+                    # σ_t = ( Σ_l |α_l·σ_l|^p + |ε·f_t|^p )^(1/p)
+                    terms = [c * sigma[s] for c, s in zip(coeffs, s_ids)]
                     terms.append(rel.epsilon * f_t)
                     s_t = _lp_combine(terms, p)
                     s_t, capped = _apply_cv_cap(s_t, f_t, cv_cap)

@@ -68,7 +68,7 @@ from pysuto.impute   import (
     FlatPriorImputer,
 )
 from pysuto.logging  import get_logger, add_run_handler
-from pysuto.diag     import ImpDiagnostic
+from pysuto.diag     import AggDiagnostic, ImpDiagnostic
 
 # ---------------------------------------------------------------------------
 # Logging
@@ -105,6 +105,11 @@ logger.info(
     "B  Aggregation done: %d covered / %d total edges",
     agg_result.n_covered, agg_result.n_edges,
 )
+
+# Snapshot post-aggregation distributions BEFORE imputation mutates them.
+# Plotting is deferred until run_dir is known (after registry.register()).
+agg_diag = AggDiagnostic(agg_result, label=IMP_LABEL)
+agg_diag.summary()
 
 # ---------------------------------------------------------------------------
 # C  Imputation pipeline
@@ -386,9 +391,11 @@ logger.info("D  Registered run_id=%s → %s", run_id, run_dir)
 # E  Diagnostics
 # ---------------------------------------------------------------------------
 
-logger.info("E  Running imputation diagnostics")
+logger.info("E  Running diagnostics")
+diag_dir = os.path.join(run_dir, "diag")
+agg_diag.plot(odir=diag_dir, show=False)
 diag = ImpDiagnostic(agg_result, acc_struct=acc, label=run_id)
-diag.plot(odir=os.path.join(run_dir, "diag"), show=False)
+diag.plot(odir=diag_dir, show=False)
 diag.summary()
 
 logger.info("=== collect_aggregate_impute DONE ===")

@@ -258,7 +258,7 @@ class TestImputationEngine:
 
         # CSV-based pair: edge 0 ↔ edge 2, coeff=0.5
         imputer = ParametricImputer(_csv_pairs=[
-            (0, 2, 0.5, 0.05, 0.0, 0.0, np.inf, "test", "desc")
+            (0, 2, 0.5, 0.05, 0.0, "test", "desc")
         ])
         engine = ImputationEngine(acc_struct=acc)
         engine.register(imputer)
@@ -273,9 +273,9 @@ class TestImputationEngine:
         ar = _agg_result(f, [1.0]+[np.nan]*9)
 
         # First imputer: edge 0 → edge 1 (f_1 = 2 * f_0 = 20)
-        imp1 = ParametricImputer(_csv_pairs=[(0, 1, 2.0, 0.1, 0.0, 0.0, np.inf, "p1", "")])
+        imp1 = ParametricImputer(_csv_pairs=[(0, 1, 2.0, 0.1, 0.0, "p1", "")])
         # Second imputer: edge 1 → edge 3 (f_3 = 3 * f_1 — edge 1 filled by imp1)
-        imp2 = ParametricImputer(_csv_pairs=[(1, 3, 3.0, 0.1, 0.0, 0.0, np.inf, "p2", "")])
+        imp2 = ParametricImputer(_csv_pairs=[(1, 3, 3.0, 0.1, 0.0, "p2", "")])
 
         engine = ImputationEngine(acc_struct=acc)
         engine.register(imp1)
@@ -311,37 +311,66 @@ class TestImputationEngine:
 class TestParametricImputerCSV:
 
     def test_fill_b_from_a(self, acc):
-        """A known, B missing → f_b = coeff × f_a; σ uses regularized sensitivity s(coeff)."""
+        """A known, B missing (forward) → f_b = coeff × f_a; σ uses bare coeff."""
         f     = np.full(10, np.nan)
         sigma = np.full(10, np.nan)
         f[0]  = 100.0;  sigma[0] = 5.0
         missing = np.isnan(f)
-        imp = ParametricImputer(_csv_pairs=[(0, 2, 0.3, 0.0, 0.0, 0.0, np.inf, "p", "d")])
+        imp = ParametricImputer(_csv_pairs=[(0, 2, 0.3, 0.0, 0.0, "p", "d")])
         imp.impute(f, sigma, missing, 0, acc)
         assert f[2] == pytest.approx(30.0)
-        # σ_b = s(0.3) · σ_a (other Lp terms are zero)
-        expected = _reg_sensitivity(0.3, imp.q, imp.alpha_min) * 5.0
-        assert sigma[2] == pytest.approx(expected)
+        # Forward branch uses bare coeff: σ_b = |coeff| · σ_a
+        assert sigma[2] == pytest.approx(0.3 * 5.0)
 
     def test_fill_a_from_b_inverse(self, acc):
-        """B known, A missing → f_a = f_b / coeff; σ uses s(1/coeff)."""
+        """B known, A missing (backward) → f_a = f_b / coeff; σ uses s(1/coeff)."""
         f     = np.full(10, np.nan)
         sigma = np.full(10, np.nan)
         f[2]  = 30.0;  sigma[2] = 1.5
         missing = np.isnan(f)
-        imp = ParametricImputer(_csv_pairs=[(0, 2, 0.3, 0.0, 0.0, 0.0, np.inf, "p", "d")])
+        imp = ParametricImputer(_csv_pairs=[(0, 2, 0.3, 0.0, 0.0, "p", "d")])
         imp.impute(f, sigma, missing, 0, acc)
         assert f[0] == pytest.approx(100.0)
+        # Backward branch is regularized: σ_a = s(1/coeff) · σ_b
         # 1/0.3 ≈ 3.33; with α_min=0.05, q=3 this saturates close to 1
         expected = _reg_sensitivity(1.0 / 0.3, imp.q, imp.alpha_min) * 1.5
         assert sigma[0] == pytest.approx(expected)
+
+    def test_forward_uses_bare_alpha_small_coeff(self, acc):
+        """Forward branch with very small α: σ propagation is NOT regularized."""
+        f     = np.full(10, np.nan);  f[0]     = 1.0
+        sigma = np.full(10, np.nan);  sigma[0] = 1.0
+        missing = np.isnan(f)
+        imp = ParametricImputer(
+            _csv_pairs=[(0, 2, 1e-3, 0.0, 0.0, "p", "d")],
+            q=3.0, alpha_min=0.05,
+        )
+        imp.impute(f, sigma, missing, 0, acc)
+        assert f[2] == pytest.approx(1e-3)
+        # Forward uses bare α: σ_b = α · σ_a = 1e-3 · 1 = 1e-3
+        # (regularized would give s(α) · σ_a ≈ (α/α_min) · σ_a = 0.02)
+        assert sigma[2] == pytest.approx(1e-3, rel=1e-6)
+
+    def test_forward_uses_bare_alpha_large_coeff(self, acc):
+        """Forward branch with large α: σ amplifies linearly (no cap)."""
+        f     = np.full(10, np.nan);  f[0]     = 1.0
+        sigma = np.full(10, np.nan);  sigma[0] = 1.0
+        missing = np.isnan(f)
+        imp = ParametricImputer(
+            _csv_pairs=[(0, 2, 100.0, 0.0, 0.0, "p", "d")],
+            q=3.0, alpha_min=0.05,
+        )
+        imp.impute(f, sigma, missing, 0, acc)
+        assert f[2] == pytest.approx(100.0)
+        # Forward uses bare α: σ_b = 100 · 1 = 100  (not capped)
+        assert sigma[2] == pytest.approx(100.0, rel=1e-6)
 
     def test_both_known_no_fill(self, acc):
         """Both A and B known → no fill, values unchanged."""
         f = np.array([10.0, 20.0] + [np.nan]*8)
         sigma = np.array([1.0, 2.0] + [np.nan]*8)
         missing = np.isnan(f)
-        imp = ParametricImputer(_csv_pairs=[(0, 1, 2.0, 0.0, 0.0, 0.0, np.inf, "p", "d")])
+        imp = ParametricImputer(_csv_pairs=[(0, 1, 2.0, 0.0, 0.0, "p", "d")])
         imp.impute(f, sigma, missing, 0, acc)
         assert f[0] == pytest.approx(10.0)
         assert f[1] == pytest.approx(20.0)
@@ -350,7 +379,7 @@ class TestParametricImputerCSV:
         f = np.full(10, np.nan)
         sigma = np.full(10, np.nan)
         missing = np.isnan(f)
-        imp = ParametricImputer(_csv_pairs=[(0, 2, 0.5, 0.0, 0.0, 0.0, np.inf, "p", "d")])
+        imp = ParametricImputer(_csv_pairs=[(0, 2, 0.5, 0.0, 0.0, "p", "d")])
         imp.impute(f, sigma, missing, 0, acc)
         assert np.isnan(f[0]) and np.isnan(f[2])
 
@@ -359,7 +388,7 @@ class TestParametricImputerCSV:
         f     = np.full(10, np.nan);  f[0]     = 10.0
         sigma = np.full(10, np.nan);  sigma[0] = 0.0
         missing = np.isnan(f)
-        imp = ParametricImputer(_csv_pairs=[(0, 2, 2.0, 3.0, 0.0, 0.0, np.inf, "p", "d")])
+        imp = ParametricImputer(_csv_pairs=[(0, 2, 2.0, 3.0, 0.0, "p", "d")])
         imp.impute(f, sigma, missing, 0, acc)
         # σ_b = sqrt(4*0 + 9) = 3
         assert sigma[2] == pytest.approx(3.0)
@@ -368,26 +397,28 @@ class TestParametricImputerCSV:
         f     = np.full(10, np.nan);  f[0]     = 10.0
         sigma = np.full(10, np.nan);  sigma[0] = 0.0
         missing = np.isnan(f)
-        imp = ParametricImputer(_csv_pairs=[(0, 2, 1.0, 0.0, 0.1, 0.0, np.inf, "p", "d")])
+        imp = ParametricImputer(_csv_pairs=[(0, 2, 1.0, 0.0, 0.1, "p", "d")])
         imp.impute(f, sigma, missing, 0, acc)
         # f_b = 10, sigma_b = sqrt(0 + (0.1*10)²) = 1.0
         assert f[2] == pytest.approx(10.0)
         assert sigma[2] == pytest.approx(1.0)
 
-    def test_bound_clips_filled_value(self, acc):
+    def test_csv_bounds_not_applied_in_imputer(self, acc):
+        """ParametricImputer ignores per-row CSV bounds (they are *ratio* bounds
+        consumed by RatioBoundBuilder, not absolute caps on the target flow)."""
         f     = np.full(10, np.nan);  f[0]     = 100.0
         sigma = np.full(10, np.nan);  sigma[0] = 1.0
         missing = np.isnan(f)
-        # coeff=2 would give 200, but bound_upper=50 clips to 50
-        imp = ParametricImputer(_csv_pairs=[(0, 2, 2.0, 0.0, 0.0, 0.0, 50.0, "p", "d")])
+        # coeff=2 → natural fill 200; the imputer no longer reads bound_upper.
+        imp = ParametricImputer(_csv_pairs=[(0, 2, 2.0, 0.0, 0.0, "p", "d")])
         imp.impute(f, sigma, missing, 0, acc)
-        assert f[2] == pytest.approx(50.0)
+        assert f[2] == pytest.approx(200.0)
 
     def test_log_entries_returned(self, acc):
         f     = np.full(10, np.nan);  f[0]     = 5.0
         sigma = np.full(10, np.nan);  sigma[0] = 0.5
         missing = np.isnan(f)
-        imp = ParametricImputer(_csv_pairs=[(0, 2, 1.0, 0.0, 0.0, 0.0, np.inf, "pid", "desc")])
+        imp = ParametricImputer(_csv_pairs=[(0, 2, 1.0, 0.0, 0.0, "pid", "desc")])
         entries = imp.impute(f, sigma, missing, 3, acc)
         assert len(entries) == 1
         e = entries[0]
@@ -397,37 +428,37 @@ class TestParametricImputerCSV:
         assert e["param_id"] == "pid"
         assert np.isnan(e["f_before"])
 
-    def test_alpha_regularization_caps_large_coeff(self, acc):
-        """α >> α_min: σ propagation is capped at the source σ (no amplification)."""
-        f     = np.full(10, np.nan);  f[0]     = 1.0
-        sigma = np.full(10, np.nan);  sigma[0] = 1.0
+    def test_backward_alpha_regularization_caps_large_inverse(self, acc):
+        """Backward branch with small coeff (1/coeff large): σ capped at σ_b."""
+        f     = np.full(10, np.nan);  f[2]     = 1.0
+        sigma = np.full(10, np.nan);  sigma[2] = 1.0
         missing = np.isnan(f)
+        # coeff = 0.01 → inv = 100 (large); s(100) ≈ 1, so σ_a is capped at σ_b.
         imp = ParametricImputer(
-            _csv_pairs=[(0, 2, 100.0, 0.0, 0.0, 0.0, np.inf, "p", "d")],
+            _csv_pairs=[(0, 2, 0.01, 0.0, 0.0, "p", "d")],
             q=3.0, alpha_min=0.05,
         )
         imp.impute(f, sigma, missing, 0, acc)
-        # f uses bare coeff: f_b = 100 * 1 = 100
-        assert f[2] == pytest.approx(100.0)
-        # σ uses s(α) ≈ 1, so σ_b ≈ σ_a = 1.0  (vs. 100 without regularization)
-        assert sigma[2] == pytest.approx(1.0, rel=1e-6)
+        # f uses bare inverse: f_a = (1/0.01) * 1 = 100
+        assert f[0] == pytest.approx(100.0)
+        # σ uses s(inv) ≈ 1, so σ_a ≈ σ_b = 1.0  (vs. 100 without regularization)
+        assert sigma[0] == pytest.approx(1.0, rel=1e-6)
 
-    def test_alpha_regularization_dampens_small_coeff(self, acc):
-        """α << α_min: σ propagation is damped well below the bare-α level."""
-        f     = np.full(10, np.nan);  f[0]     = 1.0
-        sigma = np.full(10, np.nan);  sigma[0] = 1.0
+    def test_backward_alpha_regularization_floor_for_small_inverse(self, acc):
+        """Backward branch with very large coeff (1/coeff small): σ floored, not bare α."""
+        f     = np.full(10, np.nan);  f[2]     = 1.0
+        sigma = np.full(10, np.nan);  sigma[2] = 1.0
         missing = np.isnan(f)
+        # coeff = 1000 → inv = 1e-3; s(1e-3) ≈ 1e-3 / α_min = 0.02
         imp = ParametricImputer(
-            _csv_pairs=[(0, 2, 0.001, 0.0, 0.0, 0.0, np.inf, "p", "d")],
+            _csv_pairs=[(0, 2, 1000.0, 0.0, 0.0, "p", "d")],
             q=3.0, alpha_min=0.05,
         )
         imp.impute(f, sigma, missing, 0, acc)
-        expected = _reg_sensitivity(0.001, 3.0, 0.05) * 1.0
-        assert sigma[2] == pytest.approx(expected)
-        # In the small-α limit s(α) ≈ |α|/α_min, so σ ≈ 0.001/0.05 = 0.02
-        assert sigma[2] == pytest.approx(0.001 / 0.05, rel=1e-3)
-        # And it is well below the saturation cap (which equals σ_src = 1.0)
-        assert sigma[2] < 1.0
+        expected = _reg_sensitivity(1e-3, 3.0, 0.05) * 1.0
+        assert sigma[0] == pytest.approx(expected)
+        assert sigma[0] == pytest.approx(1e-3 / 0.05, rel=1e-3)
+        assert sigma[0] < 1.0
 
 
 class TestParametricImputerFromCSV:
@@ -1061,10 +1092,11 @@ class TestImputationEngineBounds:
     def test_engine_clips_fill_exceeding_upper_bound(self, acc):
         """Engine clips a fill that exceeds acc.bounds.u after the imputer writes it."""
         acc.bounds.u[2] = 3.0   # tight upper bound on edge 2
-        # ParametricImputer pair has no own upper clip (np.inf); would give f[2] = 0.5*10 = 5.0
+        # ParametricImputer fills f[2] = 0.5*10 = 5.0 (CSV ratio bounds aren't applied here);
+        # the engine then clips to acc.bounds.u[2] = 3.0 post-step.
         f = [10.0] + [np.nan] * 9
         ar = _agg_result(f, [1.0] + [np.nan] * 9)
-        imputer = ParametricImputer(_csv_pairs=[(0, 2, 0.5, 0.0, 0.0, 0.0, np.inf, "p", "d")])
+        imputer = ParametricImputer(_csv_pairs=[(0, 2, 0.5, 0.0, 0.0, "p", "d")])
         engine = ImputationEngine(acc_struct=acc)
         engine.register(imputer)
         import warnings
@@ -1078,7 +1110,7 @@ class TestImputationEngineBounds:
         acc.bounds.u[2] = 3.0
         f = [10.0] + [np.nan] * 9
         ar = _agg_result(f, [1.0] + [np.nan] * 9)
-        imputer = ParametricImputer(_csv_pairs=[(0, 2, 0.5, 0.0, 0.0, 0.0, np.inf, "p", "d")])
+        imputer = ParametricImputer(_csv_pairs=[(0, 2, 0.5, 0.0, 0.0, "p", "d")])
         engine = ImputationEngine(acc_struct=acc)
         engine.register(imputer)
         with pytest.warns(UserWarning, match=r"clipped") as rec:
@@ -1091,7 +1123,7 @@ class TestImputationEngineBounds:
         # default bounds: l=0, u=1e9; f[2] = 0.5*10 = 5.0 — well within bounds
         f = [10.0] + [np.nan] * 9
         ar = _agg_result(f, [1.0] + [np.nan] * 9)
-        imputer = ParametricImputer(_csv_pairs=[(0, 2, 0.5, 0.0, 0.0, 0.0, np.inf, "p", "d")])
+        imputer = ParametricImputer(_csv_pairs=[(0, 2, 0.5, 0.0, 0.0, "p", "d")])
         engine = ImputationEngine(acc_struct=acc)
         engine.register(imputer)
         import warnings
@@ -1271,9 +1303,9 @@ class TestPipelineChaining:
         f  = [10.0] + [np.nan] * 9
         ar = _agg_result(f, [1.0] + [np.nan] * 9)
         # imp1 fills edge 1: f[1] = 2.0 * 10 = 20
-        imp1 = ParametricImputer(_csv_pairs=[(0, 1, 2.0, 0.0, 0.0, 0.0, np.inf, "p1", "")])
+        imp1 = ParametricImputer(_csv_pairs=[(0, 1, 2.0, 0.0, 0.0, "p1", "")])
         # imp2 would fill edge 1 with 99 * 10 = 990 if edge 1 were still missing
-        imp2 = ParametricImputer(_csv_pairs=[(0, 1, 99.0, 0.0, 0.0, 0.0, np.inf, "p2", "")])
+        imp2 = ParametricImputer(_csv_pairs=[(0, 1, 99.0, 0.0, 0.0, "p2", "")])
         engine = ImputationEngine(acc_struct=acc)
         engine.register(imp1)
         engine.register(imp2)
@@ -1288,9 +1320,9 @@ class TestPipelineChaining:
         f  = [10.0] + [np.nan] * 9
         ar = _agg_result(f, [1.0] + [np.nan] * 9)
         # imp1: f[1] = 2.0 * f[0] = 20
-        imp1 = ParametricImputer(_csv_pairs=[(0, 1, 2.0, 0.0, 0.0, 0.0, np.inf, "p1", "")])
+        imp1 = ParametricImputer(_csv_pairs=[(0, 1, 2.0, 0.0, 0.0, "p1", "")])
         # imp2: f[3] = 3.0 * f[1]; edge 1 was NaN initially, filled by imp1
-        imp2 = ParametricImputer(_csv_pairs=[(1, 3, 3.0, 0.0, 0.0, 0.0, np.inf, "p2", "")])
+        imp2 = ParametricImputer(_csv_pairs=[(1, 3, 3.0, 0.0, 0.0, "p2", "")])
         engine = ImputationEngine(acc_struct=acc)
         engine.register(imp1)
         engine.register(imp2)
