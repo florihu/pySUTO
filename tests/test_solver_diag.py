@@ -42,25 +42,28 @@ def toy_results(monkeypatch):
 
 class TestPlotPortfolio:
 
-    def test_all_13_pngs_produced(self, toy_results, tmp_path):
+    def test_all_pngs_produced(self, toy_results, tmp_path):
         from pysuto.diag import SolverDiag
         results, run = toy_results
         diag = SolverDiag(results, run, label="toy")
         paths = diag.plot(odir=str(tmp_path))
-        # 7 run-scope + 6 timestep-scope
-        assert len(paths) == 13
+        # 8 run-scope (SD-R-01..08) + 8 timestep-scope (SD-T-01..08)
+        assert len(paths) == 16
         for p in paths:
             assert os.path.exists(p)
             assert os.path.getsize(p) > 1_000  # > 1 KB → not an empty fig
 
-    def test_filenames_carry_label_and_plot_id(self, toy_results, tmp_path):
+    def test_filenames_carry_plot_id(self, toy_results, tmp_path):
         from pysuto.diag import SolverDiag
         results, run = toy_results
         SolverDiag(results, run, label="toy").plot(odir=str(tmp_path))
         names = {os.path.basename(p) for p in os.listdir(tmp_path)}
-        assert "toy_sd_r_01_solver_health.png" in names
-        assert "toy_sd_r_07_f_evolution.png" in names
-        assert "toy_sd_t_06_cstar_vs_c.png" in names
+        assert "sd_r_01_solver_health.png" in names
+        assert "sd_r_07_f_evolution.png" in names
+        assert "sd_r_08_time_hued.png" in names
+        assert "sd_t_06_cstar_vs_c.png" in names
+        assert "sd_t_07_rocket.png" in names
+        assert "sd_t_08_eps_heatmap.png" in names
 
 
 # ---------------------------------------------------------------------------
@@ -118,7 +121,7 @@ class TestFromOptId:
             const_dir  = str(const_dir),
         )
         paths = diag.plot()  # default odir = {opt_dir}/{opt_run_id}/diag
-        assert len(paths) == 13
+        assert len(paths) == 16
         for p in paths:
             assert os.path.exists(p)
         # Confirm the default odir is the run-local diag folder

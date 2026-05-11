@@ -83,7 +83,7 @@ def main() -> None:
     _log.info("OptimRun saved as '%s' under %s", optim_run_id, OUTPUT_DIR)
 
     # ------------------------------------------------------------------
-    # Solver diagnostics (Stage 3c) — 13-figure portfolio under {run}/diag
+    # Solver diagnostics (Stage 3c) — 15-figure portfolio under {run}/diag
     # ------------------------------------------------------------------
     diag = SolverDiag(results, solver.load_run(CONST_RUN_ID), label="copper")
     diag.summary()

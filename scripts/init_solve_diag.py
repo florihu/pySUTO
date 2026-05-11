@@ -1,11 +1,11 @@
 """
 init_solve_diag.py
 ==================
-Stage 3c driver: render the SolverDiag 13-figure portfolio for a persisted
+Stage 3c driver: render the SolverDiag 15-figure portfolio for a persisted
 optim run, loaded by opt_run_id.
 
 Figures land in ``{OUTPUT_DIR}/{OPT_RUN_ID}/diag/`` and follow the catalogue
-IDs ``SD-R-01..07`` (run-scope) and ``SD-T-01..06`` (per-timestep cross-section)
+IDs ``SD-R-01..08`` (run-scope) and ``SD-T-01..07`` (per-timestep cross-section)
 documented in README §Stage 3c.
 
 ═══════════════════════════════════════════════════════════
@@ -27,7 +27,7 @@ OPT_RUN_ID = "optim_const_copper_20260429_070511_db39a7d4_20260511_084052"
 OUTPUT_DIR = os.path.join("data", "proc", "opt")
 CONST_DIR  = os.path.join("data", "proc", "const")
 LABEL      = "copper"
-TIMESTEPS  = None   # None → (t_min, t_worst, t_max). Or pass a tuple, e.g. ("2010","2016","2023").
+TIMESTEPS  = (1995, 2010, 2024)   # None → (t_min, t_worst, t_max). Or pass a tuple, e.g. ("2010","2016","2023").
 
 # ---------------------------------------------------------------------------
 # END USER CONFIGURATION
