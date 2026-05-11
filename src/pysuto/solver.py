@@ -622,10 +622,11 @@ class ClarabelSolver:
         Persist results under ``{output_dir}/{run_id}/``.
 
         Layout:
-            {output_dir}/{optim_run_id}/
-            ├── registry.json
-            └── timesteps/
-                └── t_{label}.npz   (F_opt, eps_opt, c_star, residuals)
+            {output_dir}/
+            ├── registry.json                  ← master index across optim runs
+            └── {optim_run_id}/
+                └── timesteps/
+                    └── t_{label}.npz   (F_opt, eps_opt, c_star, residuals)
         """
         optim_run_id = (
             f"optim_{run_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
@@ -645,7 +646,7 @@ class ClarabelSolver:
                 arrays["iter_history"] = res.iter_history
             np.savez(os.path.join(ts_dir, f"t_{t}.npz"), **arrays)
 
-        index = {
+        entry = {
             "optim_run_id": optim_run_id,
             "const_run_id": const_run_id or run_id,
             "created_at":   datetime.utcnow().isoformat(),
@@ -661,8 +662,15 @@ class ClarabelSolver:
                 for t, res in results.items()
             },
         }
-        with open(os.path.join(run_dir, "registry.json"), "w") as fh:
-            json.dump(index, fh, indent=2)
+        registry_path = os.path.join(output_dir, "registry.json")
+        if os.path.exists(registry_path):
+            with open(registry_path) as fh:
+                registry = json.load(fh)
+        else:
+            registry = {}
+        registry[optim_run_id] = entry
+        with open(registry_path, "w") as fh:
+            json.dump(registry, fh, indent=2)
 
         logger.info("OptimRun '%s' persisted to %s", optim_run_id, run_dir)
         return optim_run_id

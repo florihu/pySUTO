@@ -448,7 +448,7 @@ data/proc/const/{run_id}/
 | `collector.py` | `FeedCollector`, `AggregationResult` | Select and load feeds; align F and Σ matrices onto common edge index |
 | `agg.py` | `AggregationMath` | Build **Ω**; compute `f_agg = 1ᵀ(Ω ⊙ F)` and `σ_agg`; coverage mask |
 | `impute.py` | `ImputationEngine`, `BaseImputer`, `ParametricImputer`, `FormulaImputer`, `TimeImputer`, `ParametricRelation`, `FormulaRelation`, `SourceTerm`, `ParamRef`, `ImputationLog` | Ordered imputation pipeline; per-edge provenance logging; uncertainty propagation per fill |
-| `diag.py` | `AggDiagnostic`, `ImpDiagnostic` | Stage-2a aggregation distributions (`AggDiagnostic`) and Stage-2c per-step imputation trajectories (`ImpDiagnostic`) |
+| `diag.py` | `AggDiagnostic`, `ImpDiagnostic` (Stage 2); `SolverDiag` (Stage 3c — listed here too because `diag.py` is a single cross-stage module) | Stage-2a aggregation distributions (`AggDiagnostic`), Stage-2c per-step imputation trajectories (`ImpDiagnostic`), and Stage-3c 13-figure solver portfolio (`SolverDiag`) |
 
 ### Stage 3 modules
 
@@ -458,6 +458,7 @@ data/proc/const/{run_id}/
 | `optim.py` | `LinearOptimiser`, `OptimResult` | σ-weighted equality-constrained least squares; warm-start |
 | `optunc.py` | `OptUncertainty` | KKT sensitivity-based uncertainty propagation for constrained optimum |
 | `optpipe.py` | `OptimPipeline`, `OptimRun` | T-step loop with warm-start; collect and persist results |
+| `diag.py` | `SolverDiag` (cross-stage; the same module also hosts `AggDiagnostic` / `ImpDiagnostic` for Stage 2) | Stage-3c 13-figure solver diagnostic portfolio (`SD-R-01..07` run-scope + `SD-T-01..06` per-timestep cross-sections); `from_opt_id` loader and `compare()` overlay across runs |
 
 ---
 
@@ -734,6 +735,56 @@ Cone order: `ZeroConeT(n_free)` for the soft-equality residual rows (slack ε is
 
 $$ b = c $$
 
+### Stage 3c — Solver diagnostics
+
+`SolverDiag` ([src/pysuto/diag.py](src/pysuto/diag.py)) renders a 13-figure portfolio that turns raw `OptimResult` arrays into actionable views of convergence behaviour, constraint satisfaction, and prior–posterior drift. It is triggered either directly with a live `results` dict + `ConstraintRun` (typically right after `solver.solve_all()`) or by `opt_run_id` against the persisted registry. Output PNGs land under `{output_dir}/{opt_run_id}/diag/`.
+
+```python
+from pysuto.diag import SolverDiag
+
+# (A) Direct from a finished solver
+diag = SolverDiag(results, constraint_run, label="copper")
+diag.summary()
+diag.plot()                                           # default odir resolves to {run_dir}/diag
+
+# (B) Reconstruct from a persisted run id
+diag = SolverDiag.from_opt_id("optim_<…>_20260511_…", output_dir="data/proc/opt")
+diag.plot()                                           # → data/proc/opt/<opt_run_id>/diag/
+
+# (C) Overlay multiple runs (run-scope plots only)
+SolverDiag.compare({"sf005": d1, "sf01": d2}, odir="data/proc/opt/compare")
+```
+
+#### Plot portfolio
+
+Two scopes:
+
+* **Scope 1 — run-scope** (`SD-R-NN`): x-axis is timestep, one line per run. The six hueable plots accept `SolverDiag.compare()` for overlay; `SD-R-07` is single-run only because per-edge semantics differ across runs.
+* **Scope 2 — per-timestep cross-section** (`SD-T-NN`): three columns (`t_min`, `t_worst`, `t_max`), every cell is a histogram so the columns are directly visually comparable. `t_worst = argmax_t ‖ε(t)‖₂` by default; pass `timesteps=(...)` to override.
+
+| ID | Title | Scope | Description | Interpretation |
+|---|---|---|---|---|
+| **SD-R-01** | Solver health | run | 4 stacked panels: objective, iterations, `solve_time_s`, final KKT `(res_primal, res_dual, gap_abs)` semilogy with tolerance band | Warm-start working ⇒ iterations and time drop after `t=0`; KKT spikes mark non-converged timesteps. Hueable. |
+| **SD-R-02** | Mass-balance leakage | run | `max\|residuals\|` and `‖residuals‖₂` over [Type-1](#type-1--hard-mass-balance-zero-cone) rows (semilogy) + solver tolerance band | Type-1 rows must sit at solver tolerance; persistent breaches localise to node-scaling pathology. Hueable. |
+| **SD-R-03** | Soft-slack stress | run | Panel A: `‖ε‖∞`, `‖ε‖₂`, median `\|ε\|` per timestep (semilogy). Panel B: fraction of soft rows with `\|ε_k\| > 3·σ_{c,k}`, split by [Type-2](#type-2--soft-sum-constraint-free-cone) / [Type-3](#type-3--soft-ratio-constraint-free-cone) | Sustained high panel-B fraction ⇒ soft constraints inconsistent with the data. Hueable (drops type-split when hued). |
+| **SD-R-04** | Hard-inequality activity | run | Panel A: count of active [Type-4](#type-4--hard-ratio-bound-non-neg-cone) ratio bounds. Panel B: count of edges at `l` / `u` (Type-5 flow bounds; computed from `F_opt` because flow bounds live in `u`/`l`, not in `G`) | A flow pegged at its bound for every `t` is a candidate for bound review. Hueable. |
+| **SD-R-05** | Prior–posterior distance | run | `‖a*(t) − a₀(t)‖` in L∞, L₂, weighted `(a−a₀)ᵀΣ_a⁻¹(a−a₀)` (semilogy). Prior is the warm-start path: `a₀(t>0) = a*(t−1)` | Spikes mark timesteps where data + constraints disagree most with the rolling prior. Hueable. |
+| **SD-R-06** | Warm-start delta | run | Consecutive `‖a*(t) − a*(t−1)‖` in L∞, L₂, and relative L₂ (semilogy) | Jitter here correlates with iteration spikes in SD-R-01: warm-start not amortising. Hueable. |
+| **SD-R-07** | `F*(t)` evolution | run | Panel A: symlog heatmap of `F_opt` for the top-200 most-variable edges. Panel B: line plot of the top-5 most-variable edges, labelled by edge id | Sharp jumps between adjacent `t` flag warm-start failure or genuine structural discontinuity. Not hueable. |
+| **SD-T-01** | Constraint-residual digest | timestep | 5 rows: (1) [Type-1](#type-1--hard-mass-balance-zero-cone) `Gx`; (2) [Type-2](#type-2--soft-sum-constraint-free-cone) ε; (3) [Type-3](#type-3--soft-ratio-constraint-free-cone) ε; (4) [Type-4](#type-4--hard-ratio-bound-non-neg-cone) slack; (5) [Type-5](#type-5--hard-flow-bound-non-neg-cone) slack `(u−F, F−l)`. Footer: `n / median / p95 / max` | One-page snapshot of where the solver succeeded vs. compromised, broken down by constraint type. |
+| **SD-T-02** | Soft-slack z-scores | timestep | 2 rows: (1) Type-2 `ε_k/σ_{c,k}`; (2) Type-3 `ε_k/σ_{c,k}` with reference lines at ±1, ±3 | Bars outside ±3 are constraints the solver couldn't honour within their stated σ_c. |
+| **SD-T-03** | Solution vs prior | timestep | 2–3 rows: (1) `(a*−a₀)/σ_a` z-score; (2) `(a*−a₀)/\|a₀\|` relative change; (3) **optional** `σ_opt/σ_a` ratio when `sigma_opt` is provided | Row-1 tails mark constraint-dominated edges; row 3 below 1 confirms `OptUncertainty` is tightening σ. |
+| **SD-T-04** | Per-type binding rate | timestep | 2 rows: (1) [Type-4](#type-4--hard-ratio-bound-non-neg-cone) expression `Gx − c` (symlog) with shading on the `≤0` slack side; (2) [Type-5](#type-5--hard-flow-bound-non-neg-cone) `F−u` and `l−F` distribution | Negative ⇒ slack, zero ⇒ active, positive ⇒ violation (should not happen if solver converged). |
+| **SD-T-05** | `\|a*\|` magnitude | timestep | 1 row: log₁₀\|a*\| histogram (shared bin edges across the three columns) with vertical p50 / p95 / p99 markers | Bulk shape change across columns signals structural regime change — flows shifting orders of magnitude. Complements SD-R-07's time evolution. |
+| **SD-T-06** | `c*` vs `c` | timestep | 2 rows for soft rows only: (1) `c* − c = ε` (symlog); (2) `(c* − c)/(\|c\|+δ)` relative residual with ±1 reference lines | Asymmetric tails ⇒ systematic bias on soft rows. A broad row-2 distribution ⇒ the solver is fighting data magnitude rather than noise level. |
+
+#### Layout conventions
+
+- Per-constraint-type colour palette is shared across every figure (`_TYPE_COLORS`): mass_balance = navy, sum_eq = blue, ratio_eq = purple, ratio_bound = orange, flow_bound = green.
+- Modern style: top/right spines hidden, `grid.alpha = 0.25`, `stepfilled` histograms at `alpha = 0.55`, dashed grey reference lines.
+- Filenames: `{label}_{plot_id_lower}_{slug}.png` (e.g. `copper_sd_r_01_solver_health.png`).
+- The `plot()` method returns a list of saved paths and prints `[ID] → [path]  ✓` to stdout for each figure, matching `AggDiagnostic` / `ImpDiagnostic`.
+
 ## Workflow
 
 ```python
@@ -927,7 +978,9 @@ pysuto/
 │                          ConstraintRunRegistry                           │
 ├── optim.py               LinearOptimiser · OptimResult                  │
 ├── optunc.py              OptUncertainty                                  │
-└── optpipe.py             OptimPipeline · OptimRun                      ─┘
+├── optpipe.py             OptimPipeline · OptimRun                       │
+└── diag.py                AggDiagnostic (Stage 2a) · ImpDiagnostic        │
+                           (Stage 2c) · SolverDiag (Stage 3c)             ─┘
 ```
 
 **Import direction is strictly one-way:**

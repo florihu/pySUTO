@@ -236,9 +236,11 @@ class TestPersist:
         )
         run_dir = tmp_path / out_id
 
-        # registry.json
-        with open(run_dir / "registry.json") as fh:
-            reg = json.load(fh)
+        # registry.json — master index at opt level, keyed by optim_run_id
+        with open(tmp_path / "registry.json") as fh:
+            registry = json.load(fh)
+        assert out_id in registry
+        reg = registry[out_id]
         assert reg["const_run_id"] == "toy_const"
         assert set(reg["timesteps"]) == {"2020", "2021"}
         for t in ("2020", "2021"):
