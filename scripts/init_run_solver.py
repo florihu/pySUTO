@@ -26,7 +26,7 @@ from datetime import datetime
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
 
-CONST_RUN_ID = "const_copper_20260504_125811_9478f497"
+CONST_RUN_ID = "const_copper_20260512_083803_30c16790"
 CONST_DIR    = os.path.join("data", "proc", "const")
 OUTPUT_DIR   = os.path.join("data", "proc", "opt")
 TIMESTEPS    = None          # None → all timesteps in the run

@@ -617,6 +617,7 @@ class ClarabelSolver:
         results:    dict[str, OptimResult],
         output_dir: str = "data/proc/opt",
         const_run_id: Optional[str] = None,
+        label:      str = "",
     ) -> str:
         """
         Persist results under ``{output_dir}/{run_id}/``.
@@ -650,6 +651,7 @@ class ClarabelSolver:
             "optim_run_id": optim_run_id,
             "const_run_id": const_run_id or run_id,
             "created_at":   datetime.utcnow().isoformat(),
+            "label":        label,
             "timesteps":    list(results.keys()),
             "per_timestep": {
                 t: {

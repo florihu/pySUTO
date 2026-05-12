@@ -918,6 +918,7 @@ class ConstraintRun:
     acc_id:         str
     agg_id:         str
     created_at:     str
+    label:          str = ""
 
 
 # =============================================================================
@@ -983,6 +984,7 @@ class ConstraintRunRegistry:
             "acc_id":     run.acc_id,
             "agg_id":     run.agg_id,
             "created_at": run.created_at,
+            "label":      run.label,
             "n_rows":     run.G.shape[0],
             "n_edges":    run.G.shape[1],
             "timesteps":  list(run.timestep_data.keys()),
@@ -1021,6 +1023,7 @@ class ConstraintRunRegistry:
             acc_id        = meta["acc_id"],
             agg_id        = meta["agg_id"],
             created_at    = meta["created_at"],
+            label         = meta.get("label", ""),
         )
 
     def summary_df(self) -> pd.DataFrame:
@@ -1135,6 +1138,7 @@ class ConstraintEngine:
         timesteps: list,
         agg_id:    str = "",
         run_id:    Optional[str] = None,
+        label:     str = "",
         persist:   bool = True,
         diag_plot: bool = False,
     ) -> ConstraintRun:
@@ -1245,6 +1249,7 @@ class ConstraintEngine:
             acc_id        = acc.id,
             agg_id        = agg_id,
             created_at    = datetime.utcnow().isoformat(),
+            label         = label,
         )
 
         self._check(cr)

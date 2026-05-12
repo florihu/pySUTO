@@ -4,10 +4,10 @@ test_solver_diag.py
 Smoke tests for :class:`pysuto.diag.SolverDiag`.
 
 The class is purely observational, so the tests focus on:
-  1. all 13 figures are produced from a live ``results`` dict + ConstraintRun
+  1. all 16 figures are produced from a live ``results`` dict + ConstraintRun
   2. ``from_opt_id`` round-trip reconstructs the same set of figures from disk
   3. ``summary()`` returns a non-empty string mentioning the worst-ε timestep
-  4. ``compare()`` only renders the 6 hueable plots and rejects unhueable IDs
+  4. ``compare()`` only renders the 5 hueable plots and rejects unhueable IDs
 """
 
 from __future__ import annotations
@@ -47,11 +47,12 @@ class TestPlotPortfolio:
         results, run = toy_results
         diag = SolverDiag(results, run, label="toy")
         paths = diag.plot(odir=str(tmp_path))
-        # 8 run-scope (SD-R-01..08) + 8 timestep-scope (SD-T-01..08)
-        assert len(paths) == 16
+        # 8 run-scope (SD-R-01..08) + 8 timestep-scope (SD-T-01..08) + 1 provenance .md
+        assert len(paths) == 17
         for p in paths:
             assert os.path.exists(p)
-            assert os.path.getsize(p) > 1_000  # > 1 KB → not an empty fig
+            if p.endswith(".png"):
+                assert os.path.getsize(p) > 1_000  # > 1 KB → not an empty fig
 
     def test_filenames_carry_plot_id(self, toy_results, tmp_path):
         from pysuto.diag import SolverDiag
@@ -59,11 +60,12 @@ class TestPlotPortfolio:
         SolverDiag(results, run, label="toy").plot(odir=str(tmp_path))
         names = {os.path.basename(p) for p in os.listdir(tmp_path)}
         assert "sd_r_01_solver_health.png" in names
-        assert "sd_r_07_f_evolution.png" in names
-        assert "sd_r_08_time_hued.png" in names
+        assert "sd_r_06_f_evolution.png" in names
+        assert "sd_r_07_time_hued.png" in names
         assert "sd_t_06_cstar_vs_c.png" in names
         assert "sd_t_07_rocket.png" in names
-        assert "sd_t_08_eps_heatmap.png" in names
+        assert "sd_t_08a_eps_heatmap_ratio.png" in names
+        assert "sd_t_08b_eps_heatmap_sum.png" in names
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +123,7 @@ class TestFromOptId:
             const_dir  = str(const_dir),
         )
         paths = diag.plot()  # default odir = {opt_dir}/{opt_run_id}/diag
-        assert len(paths) == 16
+        assert len(paths) == 17  # 16 PNGs + 1 provenance .md
         for p in paths:
             assert os.path.exists(p)
         # Confirm the default odir is the run-local diag folder
@@ -144,7 +146,7 @@ class TestCompare:
             {"a": d1, "b": d2},
             odir=str(tmp_path),
         )
-        assert len(paths) == 6  # SD-R-01..06
+        assert len(paths) == 5  # SD-R-01..05
         names = {os.path.basename(p) for p in paths}
         # No SD-R-07 in compare output
         assert not any("sd_r_07" in n for n in names)

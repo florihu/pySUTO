@@ -24,6 +24,7 @@ scripts/obs
 .agents/
 plans/
 context/
+REP/
 
 # VSCode settings (optional)
 .vscode/

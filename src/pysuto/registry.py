@@ -95,6 +95,7 @@ class _RegistryEntry:
     odir:          str   # directory that holds this feed run's files
     metadata_path: str   # absolute path to metadata.json
     created_at:    str   # UTC ISO-8601 timestamp
+    label:         str = ""  # human-readable label (from metadata.feed_name)
 
     def to_dict(self) -> dict:
         return dataclasses.asdict(self)
@@ -239,6 +240,7 @@ class DataFeedRegistry:
             odir          = feed_odir,
             metadata_path = meta_path,
             created_at    = datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            label         = getattr(metadata, "feed_name", "") or "",
         )
         self._index[feed_run_id] = entry
         return entry

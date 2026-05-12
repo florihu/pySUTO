@@ -463,7 +463,7 @@ class TestRegistryEntry:
         d = entry.to_dict()
         assert set(d.keys()) == {
             "feed_run_id", "feed_id", "feed_class", "acc_id", "odir",
-            "metadata_path", "created_at",
+            "metadata_path", "created_at", "label",
         }
 
     def test_to_dict_values(self, entry):
