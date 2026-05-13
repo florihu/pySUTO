@@ -947,12 +947,13 @@ class ConstraintRunRegistry:
                 └── t_{label}.npz
     """
 
-    def __init__(self, storage_dir: str = "data/proc/const"):
+    def __init__(self, storage_dir: str = "data/proc/const", label: str = "ConstraintRunRegistry"):
         self.storage_dir = storage_dir
         self._index: dict[str, dict] = {}
         self._index_path = os.path.join(storage_dir, "registry.json")
         os.makedirs(storage_dir, exist_ok=True)
         self._load_index()
+        self.label = label
 
     def _load_index(self):
         if os.path.exists(self._index_path):
@@ -984,12 +985,15 @@ class ConstraintRunRegistry:
 
         self._index[run.run_id] = {
             "acc_id":     run.acc_id,
+            "label":      run.label,
             "agg_id":     run.agg_id,
             "created_at": run.created_at,
             "label":      run.label,
             "n_rows":     run.G.shape[0],
             "n_edges":    run.G.shape[1],
             "timesteps":  list(run.timestep_data.keys()),
+            "p":          run._p,
+
         }
         self._save_index()
         _log.info("ConstraintRun '%s' registered (%d G rows)", run.run_id, run.G.shape[0])
