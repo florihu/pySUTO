@@ -24,7 +24,7 @@ A modular Python framework for constructing, reconciling, and propagating uncert
 Supply–use tables and material flow accounts are assembled from multiple data sources that differ in classification, temporal resolution, regional scope, and data quality. pySUTO addresses three interrelated problems:
 
 - **Heterogeneous classifications** — raw data uses different sector taxonomies, regional aggregations, and time resolutions. A concordance layer maps every source edge onto a common root accounting structure via a sparse weight matrix.
-- **Multi-source uncertainty** — each data source carries a pedigree quality score (Laner et al. 2016) that translates into a coefficient of variation. Uncertainty is propagated through every transformation step using Gaussian error propagation.
+- **Multi-source uncertainty** — each data source carries a pedigree quality score (Laner et al. 2016) that translates into a coefficient of variation. Uncertainty is propagated through every transformation step using Lp / power-mean error propagation.
 - **Physical consistency** — supply must equal use for every node and every material parameter efficiency must be respected. A linear optimiser with σ-weighted objective enforces these constraints while staying as close as possible to the aggregated data, with full uncertainty quantification on the optimised values.
 
 ---
@@ -381,6 +381,15 @@ Stage 3 has two sequential sub-steps.
 
 `MassBalanceBuilder` derives balance rows automatically from four boolean edge masks that `AccountingStructure` computes at construction time (`supply_edge_mask`, `use_edge_mask`, `tradable_edge_mask`, `sb_edge_mask`). SB nodes are open-boundary endpoints and are excluded from balance rows.
 
+**Prior regularization.** Before persisting the `ConstraintRun`, the engine applies an Lp regularization to both edge-level `σ_a` and free-cone row-level `σ_c` using the same combiner as the imputers:
+
+```
+σ_a'[i] = ( |σ_a[i]|^p + |CV_a_min · a_0[i]|^p + |σ_a_abs_floor|^p )^(1/p)
+σ_c'[k] = ( |σ_c[k]|^p + |CV_c_min · c[k] |^p + |σ_c_abs_floor|^p )^(1/p)   (free rows only)
+```
+
+Defaults: `CV_a_min = CV_c_min = 0.05`, `σ_a_abs_floor = 1e-6`, `σ_c_abs_floor = 1e-3`, `p = 1.3`. Hard rows (zero / nonneg cones) keep `σ_c = 0` unchanged. Setting any kwarg to 0 disables that component. The σ_a step runs before per-timestep `build_dynamic()`, so the regularized values also propagate into `p_mean`-mode σ_c via the rhs sum.
+
 **Sum constraint CSV** (long format — one row per term; `constraint_id` groups terms):
 
 | Column | Description |
@@ -392,7 +401,7 @@ Stage 3 has two sequential sub-steps.
 | `time`, `valuation` | Optional selectors (`*` = all time periods / all valuations) |
 | `coefficient` | Float; sign encodes direction (+1 supply, −1 waste output) |
 | `c_k` | RHS target value (default 0 — balance equation) |
-| `sigma_ck_mode` | `sd` (absolute) / `fraction_of_flow` (fraction of node flow magnitude) |
+| `sigma_ck_mode` | `sd` (absolute) / `fraction_of_flow` (fraction of node flow magnitude) / `p_mean` (Lp combine over `_rhs_ids` σ_agg) |
 | `sigma_ck_value` | Absolute σ_c (mode = `sd`) |
 | `sigma_ck_fraction` | Fraction of node flow magnitude from `f_agg` (mode = `fraction_of_flow`) |
 
@@ -435,7 +444,7 @@ data/proc/const/{run_id}/
 | `conc.py` | `ConcordanceTable`, `WeightMatrix` | src→root edge mapping, sparse W matrix (scipy.sparse CSR) |
 | `feed.py` | `DataFeed` (ABC) | Base class; owns `weight_matrix` (CSR), pedigree, `F_src`, persistence |
 | `feedpipe.py` | step functions, `run_feed_pipeline` | Orchestrates steps A→D for a single feed; delegates to `DataFeedRegistry` |
-| `unc.py` | `PedigreeScores`, `UncertaintyMixin`, `PropagationResult` | Laner et al. pedigree → CV; Gaussian error propagation through W (scipy.sparse) |
+| `unc.py` | `PedigreeScores`, `UncertaintyMixin`, `PropagationResult` | Laner et al. pedigree → CV; Lp / power-mean error propagation through W (scipy.sparse) |
 | `meta.py` | `DataFeedMetadata` | Parses Excel sidecar; stores identification, pedigree scores, provenance, computed outputs |
 | `registry.py` | `DataFeedRegistry`, `_RegistryEntry` | Persistent JSON index + per-feed metadata.json, pickle, result.npz |
 | `utils.py` | `_NpEncoder`, io helpers | JSON serialisation, numpy-safe dump/load |
@@ -640,6 +649,7 @@ where $S$ is the set of matched edges (from CSV selectors or auto-derived from `
 **σ_c modes:**
 - `sd`: $\sigma_{c,k}$ supplied directly
 - `fraction_of_flow`: $\sigma_{c,k} = \phi \cdot \left|\sum_{i \in S,\, \alpha_i>0} f_\mathrm{agg}[i]\right|$ — scales with the magnitude of the supply-side flows at each timestep
+- `p_mean`: $\sigma_{c,k} = \left( \sum_{i \in \mathrm{rhs}} |\sigma_\mathrm{agg}[i]|^p \right)^{1/p}$ — Lp / power-mean propagation over the rhs subset of source edges (`_rhs_ids`). Uses the global Lp exponent `p` (default 1.3) — *not* Gaussian quadrature. (Replaces the legacy `"gaussian"` label, which was misleading.)
 
 #### Type 3 — Soft ratio constraint (free cone)
 

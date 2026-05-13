@@ -115,6 +115,7 @@ def main(imp_run_id: str, label: str) -> None:
         acc,
         entity_filter={"Flow"},
         rhs_in_entity={"Process"},
+        sigma_mode="p_mean",
         p=P_PROP,
     ))
 

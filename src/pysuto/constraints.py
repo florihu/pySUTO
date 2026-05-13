@@ -41,12 +41,45 @@ from .impute import (
     _resolve_b_ids,
     _sigma_from_row,
     _float_or,
+    _lp_combine,
     _WILDCARD,
     _A_FIELDS,
     _B_FIELDS,
     _get_edge_cache,
     _A_PRODUCT_THRESHOLD,
 )
+
+
+def _lp_regularize(
+    sigma:     np.ndarray,
+    centre:    np.ndarray,
+    cv_min:    float,
+    abs_floor: float,
+    p:         float,
+) -> tuple[np.ndarray, int, int]:
+    """
+    Lp-combine σ with a CV floor (cv_min·|centre|) and an absolute floor,
+    matching the _lp_combine recipe used throughout impute.py:
+
+        σ' = ( |σ|^p + |cv_min·centre|^p + |abs_floor|^p )^(1/p)
+
+    Returns (σ', n_cv_lifted, n_abs_lifted) — counts of entries whose σ
+    was lifted ≥10% by each component (diagnostic only).
+    """
+    cv_term  = cv_min * np.abs(centre)
+    abs_term = abs_floor
+
+    sigma_new = (
+        np.abs(sigma)    ** p
+        + np.abs(cv_term)  ** p
+        + np.abs(abs_term) ** p
+    ) ** (1.0 / p)
+
+    # "lifted ≥10%" — floor term is at least 10% the size of the
+    # original σ (for σ=0, any positive floor counts).
+    n_cv  = int((10.0 * cv_term  >= np.abs(sigma)).sum() if cv_min    > 0 else 0)
+    n_abs = int((10.0 * abs_term >= np.abs(sigma)).sum() if abs_floor > 0 else 0)
+    return sigma_new, n_cv, n_abs
 
 try:
     from .logging import get_logger
@@ -339,7 +372,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         rhs_out_entity: set = frozenset(),
         rhs_out_entity_sub: set = frozenset(),
         lhs_neg_out_entity_sub: set = frozenset(),
-        sigma_mode: str = "gaussian",
+        sigma_mode: str = "p_mean",
         sigma_fraction: float = 0.05,
         p: float = 1.3,
     ) -> "SumConstraintBuilder":
@@ -356,7 +389,8 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         rhs_out_entity       : outgoing edge other-node entity  → RHS (_rhs_ids)
         rhs_out_entity_sub   : outgoing edge other-node entity_sub → RHS (_rhs_ids)
         lhs_neg_out_entity_sub : outgoing edge other-node entity_sub → LHS −1
-        sigma_mode           : "gaussian" (Gaussian propagation from _rhs_ids sigma_agg)
+        sigma_mode           : "p_mean" (Lp / power-mean propagation over
+                               _rhs_ids sigma_agg with exponent p)
                                or "fraction_of_flow"
         sigma_fraction       : used only when sigma_mode="fraction_of_flow"
         """
@@ -564,7 +598,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                 sigma_c[i] = spec["sigma_ck_value"]
             elif mode == "pedigree":
                 sigma_c[i] = spec["sigma_ck_value"]  # pre-computed at load time
-            # "fraction_of_flow" and "gaussian" are both dynamic — leave as 0.0 placeholder
+            # "fraction_of_flow" and "p_mean" are both dynamic — leave as 0.0 placeholder
 
         block = ConstraintBlock(
             G_rows   = G,
@@ -577,8 +611,8 @@ class SumConstraintBuilder(BaseConstraintBuilder):
 
     def build_dynamic(self, acc_struct, f_agg, sigma_agg, t) -> ConstraintBlock:
         has_fraction = any(s["sigma_ck_mode"] == "fraction_of_flow" for s in self._specs)
-        has_gaussian = any(s["sigma_ck_mode"] == "gaussian" for s in self._specs)
-        if not has_fraction and not has_gaussian:
+        has_p_mean = any(s["sigma_ck_mode"] == "p_mean" for s in self._specs)
+        if not has_fraction and not has_p_mean:
             return _empty_block(acc_struct.n_edges)
 
         static  = getattr(self, "_cached_static", None) or self.build_static(acc_struct)
@@ -591,7 +625,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                 sup_ids = spec.get("_supply_ids", spec["edge_ids"])
                 total   = float(np.nansum(np.abs(f_agg[sup_ids]))) if len(sup_ids) else 0.0
                 sigma_c[i] = spec["sigma_ck_fraction"] * total
-            elif mode == "gaussian":
+            elif mode == "p_mean":
                 rhs = spec.get("_rhs_ids", [])
                 if rhs:
                     c_out[i]   = float(np.nansum(f_agg[rhs]))
@@ -921,6 +955,7 @@ class ConstraintRun:
     agg_id:         str
     created_at:     str
     label:          str = ""
+    _p:             float = 1.3
 
 
 # =============================================================================
@@ -1064,10 +1099,24 @@ class ConstraintEngine:
     by overlaying dynamic blocks onto the static c / sigma_c.
     """
 
-    def __init__(self, acc_struct, storage_dir: str = "data/proc/const"):
+    def __init__(
+        self,
+        acc_struct,
+        storage_dir: str = "data/proc/const",
+        sigma_a_cv_min:    float = 0.05,
+        sigma_a_abs_floor: float = 1e-6,
+        sigma_c_cv_min:    float = 0.05,
+        sigma_c_abs_floor: float = 1e-3,
+        p: float = 1.3,
+    ):
         self.acc_struct  = acc_struct
         self._builders:  list[BaseConstraintBuilder] = []
         self._registry   = ConstraintRunRegistry(storage_dir)
+        self._sigma_a_cv_min    = float(sigma_a_cv_min)
+        self._sigma_a_abs_floor = float(sigma_a_abs_floor)
+        self._sigma_c_cv_min    = float(sigma_c_cv_min)
+        self._sigma_c_abs_floor = float(sigma_c_abs_floor)
+        self._p                 = float(p)
 
     def register(self, builder: BaseConstraintBuilder) -> None:
         self._builders.append(builder)
@@ -1185,6 +1234,22 @@ class ConstraintEngine:
                 f"constraint building."
             )
 
+        # ── 0b. σ_a prior Lp regularization ───────────────────────────
+        # Lifts unphysically tight σ on edges via the same Lp recipe used
+        # in impute.py. Operates on sigma_agg BEFORE build_dynamic, so the
+        # regularized σ also flows into p_mean-mode σ_c propagation.
+        if self._sigma_a_cv_min > 0 or self._sigma_a_abs_floor > 0:
+            sigma_agg, n_cv, n_abs = _lp_regularize(
+                sigma_agg, f_agg,
+                self._sigma_a_cv_min, self._sigma_a_abs_floor, self._p,
+            )
+            _log.info(
+                "σ_a Lp regularization (p=%.2f): %d edges CV-lifted "
+                "(CV_min=%.3f), %d edges abs-lifted (abs_floor=%.0e)",
+                self._p, n_cv, n_abs,
+                self._sigma_a_cv_min, self._sigma_a_abs_floor,
+            )
+
         # ── 1. Build static G (time-invariant) ────────────────────────
         static_blocks = [b.build_static(acc) for b in self._builders]
         static_full   = _concat_blocks(static_blocks, n_edges)
@@ -1216,25 +1281,33 @@ class ConstraintEngine:
 
             timestep_data[t_label] = {"c": c_t, "sigma_c": sigma_c_t}
 
-        # ── 2b. σ_c floor for free-cone (soft) rows ───────────────────
-        # Prevents misconfigured zero-σ soft rows from blowing up Σ_c^{-1}
-        # in the downstream Clarabel transform. Hard rows (zero, nonneg)
-        # keep σ_c = 0 — the transform never reads them.
-        SIGMA_C_FLOOR = 1e-9
+        # ── 2b. σ_c prior Lp regularization (free-cone rows only) ─────
+        # Lifts unphysically tight σ on soft constraint rows via the same
+        # Lp recipe used for σ_a. Hard rows (zero, nonneg) keep σ_c = 0 —
+        # the downstream Clarabel transform never reads them.
         free_mask = (row_meta["cone_type"].to_numpy() == "free")
-        if free_mask.any():
-            n_clipped = 0
+        if free_mask.any() and (
+            self._sigma_c_cv_min > 0 or self._sigma_c_abs_floor > 0
+        ):
+            n_cv_total, n_abs_total = 0, 0
             for t_label, td in timestep_data.items():
-                sc = td["sigma_c"]
-                clipped = (sc[free_mask] < SIGMA_C_FLOOR)
-                n_clipped += int(clipped.sum())
-                sc[free_mask] = np.maximum(sc[free_mask], SIGMA_C_FLOOR)
-                td["sigma_c"] = sc
-            if n_clipped:
-                _log.info(
-                    "Soft σ_c floor (%.0e) applied to %d (row, timestep) entries",
-                    SIGMA_C_FLOOR, n_clipped,
+                sc, c_arr = td["sigma_c"], td["c"]
+                sc_free, n_cv, n_abs = _lp_regularize(
+                    sc[free_mask], c_arr[free_mask],
+                    self._sigma_c_cv_min, self._sigma_c_abs_floor, self._p,
                 )
+                sc[free_mask] = sc_free
+                td["sigma_c"] = sc
+                n_cv_total  += n_cv
+                n_abs_total += n_abs
+            _log.info(
+                "σ_c Lp regularization (p=%.2f, %d free rows × %d timesteps): "
+                "%d (row, t) entries CV-lifted (CV_min=%.3f), %d abs-lifted "
+                "(abs_floor=%.0e)",
+                self._p, int(free_mask.sum()), len(timestep_data),
+                n_cv_total, n_abs_total,
+                self._sigma_c_cv_min, self._sigma_c_abs_floor,
+            )
 
         # ── 3. Assemble ConstraintRun ──────────────────────────────────
         if run_id is None:
@@ -1256,6 +1329,7 @@ class ConstraintEngine:
             agg_id        = agg_id,
             created_at    = datetime.utcnow().isoformat(),
             label         = label,
+            _p            = self._p,
         )
 
         self._check(cr)
