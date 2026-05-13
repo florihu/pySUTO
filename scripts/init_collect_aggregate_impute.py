@@ -23,6 +23,7 @@ USER CONFIGURATION  ←  only section you ever edit
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 from datetime import datetime
@@ -35,7 +36,6 @@ ACC_ID       = "copper"
 ACC_DIR      = os.path.join("data", "proc", "acc")
 REGISTRY_DIR = os.path.join("data", "proc", "feed", "registry")
 
-IMP_LABEL    = "copper_agg_imp_v0"   # human-readable label folded into auto run_id
 IMP_DIR      = os.path.join("data", "proc", "imp")  # ImputationRunRegistry storage dir
 PARAMS_DIR   = os.path.join("data", "input", "params")  # where to find CSVs for ParametricImputer
 
@@ -71,56 +71,8 @@ from pysuto.logging  import get_logger, add_run_handler
 from pysuto.diag     import AggDiagnostic, ImpDiagnostic
 
 # ---------------------------------------------------------------------------
-# Logging
+# FormulaRelations (module-level — no runtime state, safe to define here)
 # ---------------------------------------------------------------------------
-
-log_path = os.path.join(
-    "logs",
-    f"collect_aggregate_impute_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log",
-)
-os.makedirs("logs", exist_ok=True)
-add_run_handler(log_path)
-logger = get_logger("collect_aggregate_impute")
-logger.info("=== collect_aggregate_impute START ===")
-
-# ---------------------------------------------------------------------------
-# A  Load infrastructure
-# ---------------------------------------------------------------------------
-
-logger.info("A  Loading AccountingStructure '%s' from %s", ACC_ID, ACC_DIR)
-acc = AccountingStructure.load(id=ACC_ID, storage_dir=ACC_DIR)
-
-logger.info("A  Loading DataFeedRegistry from %s", REGISTRY_DIR)
-registry = DataFeedRegistry(odir=REGISTRY_DIR)
-registry.load_index()
-
-# ---------------------------------------------------------------------------
-# B  Collect and aggregate
-# ---------------------------------------------------------------------------
-
-logger.info("B  Collecting feeds: baci, crude_ore, icsg (p=%.2f)", P_PROP)
-collector  = FeedCollector(registry=registry, acc_struct=acc, min_flow_kt=0.01)
-agg_result = collector.select(["baci", "crude_ore", "icsg"]).aggregate(p=P_PROP)
-logger.info(
-    "B  Aggregation done: %d covered / %d total edges",
-    agg_result.n_covered, agg_result.n_edges,
-)
-
-# Snapshot post-aggregation distributions BEFORE imputation mutates them.
-# Plotting is deferred until run_dir is known (after registry.register()).
-agg_diag = AggDiagnostic(agg_result, label=IMP_LABEL)
-agg_diag.summary()
-
-# ---------------------------------------------------------------------------
-# C  Imputation pipeline
-# ---------------------------------------------------------------------------
-
-# ── Domestic use FormulaRelations for traded flows ──────────────────────────
-#
-# Formula: domestic_use_Mass = supply_CC × (1/concentration) − Σ(exports_Mass)
-#          clipped at zero.
-#
-# Cathode additionally subtracts the other two observed domestic use sinks.
 
 concentrate_domestic = FormulaRelation(
     description="Domestic Concentrate use: MF supply/conc - exports, clip 0",
@@ -218,10 +170,6 @@ anode_domestic = FormulaRelation(
     epsilon=0.05,
 )
 
-# Cathode: three sinks (FU, USC, MESC). Each formula subtracts the other two
-# observed domestic uses. If any source is NaN the formula skips and
-# TimeImputer handles those edges.
-
 def _cathode_supply_term():
     return SourceTerm(
         selector=lambda ei: (
@@ -308,94 +256,126 @@ cathode_mesc_domestic = FormulaRelation(
     epsilon=0.05,
 )
 
-# ── Assemble and run engine ──────────────────────────────────────────────────
 
-logger.info("C  Building imputation engine")
-engine = ImputationEngine(acc_struct=acc)
+def main(label: str, feed_run_ids: list[str]) -> None:
+    log_path = os.path.join(
+        "logs",
+        f"collect_aggregate_impute_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log",
+    )
+    os.makedirs("logs", exist_ok=True)
+    add_run_handler(log_path)
+    logger = get_logger("collect_aggregate_impute")
+    logger.info("=== collect_aggregate_impute START ===")
 
-# Step 0: ore-grade (specific, time-varying) — priority via specificity dedup
-engine.register(ParametricImputer.from_csv(
-    os.path.join(PARAMS_DIR, "ore_grade_params.csv"), acc,
-    p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG,
-))
+    # ── A  Load infrastructure ────────────────────────────────────────────────
+    logger.info("A  Loading AccountingStructure '%s' from %s", ACC_ID, ACC_DIR)
+    acc = AccountingStructure.load(id=ACC_ID, storage_dir=ACC_DIR)
 
-# Step 1: global concentration params (fills gaps left by ore_grade)
-engine.register(ParametricImputer.from_csv(
-    os.path.join(PARAMS_DIR, "copper_conc_params.csv"), acc,
-    p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG,
-))
+    logger.info("A  Loading DataFeedRegistry from %s", REGISTRY_DIR)
+    registry = DataFeedRegistry(odir=REGISTRY_DIR)
+    registry.load_index()
 
-# Step 2: efficiency params
-engine.register(ParametricImputer.from_csv(
-    os.path.join(PARAMS_DIR, "copper_efficiency_params.csv"), acc,
-    p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG,
-))
+    # ── B  Collect and aggregate ──────────────────────────────────────────────
+    logger.info("B  Collecting feeds: %s (p=%.2f)", feed_run_ids, P_PROP)
+    collector  = FeedCollector(registry=registry, acc_struct=acc, min_flow_kt=0.01)
+    agg_result = collector.select(feed_run_ids).aggregate(p=P_PROP)
+    logger.info(
+        "B  Aggregation done: %d covered / %d total edges",
+        agg_result.n_covered, agg_result.n_edges,
+    )
 
-# Step 3: domestic use balance for traded flows
-engine.register(FormulaImputer(
-    relations=[
-        concentrate_domestic,
-        matte_domestic,
-        anode_domestic,
-        cathode_fu_domestic,
-        cathode_usc_domestic,
-        cathode_mesc_domestic,
-    ],
-    params_csv=os.path.join(PARAMS_DIR, "copper_conc_params.csv"),
-    p=P_PROP,
-))
+    # Snapshot post-aggregation distributions BEFORE imputation mutates them.
+    agg_diag = AggDiagnostic(agg_result, label=label)
+    agg_diag.summary()
 
-# Step 4: temporal interpolation, no extrapolation
-engine.register(TimeImputer(
-    window=3,
-    method="linear",
-    min_obs=2,
-    gap_inflation=1.05,
-    interpolate_only=True,
-    p=P_PROP,
-))
+    # ── C  Imputation pipeline ────────────────────────────────────────────────
+    logger.info("C  Building imputation engine")
+    engine = ImputationEngine(acc_struct=acc)
 
-# Step 5: final fallback — flat prior sized by mask CV × group scale.
-# Required precondition for ConstraintEngine; without it Stage 3 halts.
-engine.register(FlatPriorImputer.from_csv(
-    os.path.join(PARAMS_DIR, "flat_prior_cv.csv"),
-    acc_struct=acc,
-    default_cv=FLAT_DEFAULT_CV,
-    p=P_PROP,
-))
+    # Step 0: ore-grade (specific, time-varying) — priority via specificity dedup
+    engine.register(ParametricImputer.from_csv(
+        os.path.join(PARAMS_DIR, "ore_grade_params.csv"), acc,
+        p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG,
+    ))
 
-logger.info("C  Running imputation engine")
-agg_result = engine.run(agg_result)
-logger.info(
-    "C  Imputation done: %d log entries",
-    len(agg_result.imputation_log),
-)
+    # Step 1: global concentration params (fills gaps left by ore_grade)
+    engine.register(ParametricImputer.from_csv(
+        os.path.join(PARAMS_DIR, "copper_conc_params.csv"), acc,
+        p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG,
+    ))
 
-# ---------------------------------------------------------------------------
-# D  Register run with ImputationRunRegistry
-# ---------------------------------------------------------------------------
+    # Step 2: efficiency params
+    engine.register(ParametricImputer.from_csv(
+        os.path.join(PARAMS_DIR, "copper_efficiency_params.csv"), acc,
+        p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG,
+    ))
 
-logger.info("D  Registering imputation run in %s", IMP_DIR)
-imp_registry = ImputationRunRegistry(storage_dir=IMP_DIR)
-run_id = imp_registry.register(
-    agg_result,
-    label    = IMP_LABEL,
-    feeds    = collector.selected,
-    imputers = engine.imputers,
-    acc_id   = acc.id,
-)
-run_dir = os.path.join(IMP_DIR, run_id)
-logger.info("D  Registered run_id=%s → %s", run_id, run_dir)
+    # Step 3: domestic use balance for traded flows
+    engine.register(FormulaImputer(
+        relations=[
+            concentrate_domestic,
+            matte_domestic,
+            anode_domestic,
+            cathode_fu_domestic,
+            cathode_usc_domestic,
+            cathode_mesc_domestic,
+        ],
+        params_csv=os.path.join(PARAMS_DIR, "copper_conc_params.csv"),
+        p=P_PROP,
+    ))
 
-# ---------------------------------------------------------------------------
-# E  Diagnostics
-# ---------------------------------------------------------------------------
+    # Step 4: temporal interpolation, no extrapolation
+    engine.register(TimeImputer(
+        window=3,
+        method="linear",
+        min_obs=2,
+        gap_inflation=1.05,
+        interpolate_only=True,
+        p=P_PROP,
+    ))
 
-logger.info("E  Running diagnostics")
-diag_dir = os.path.join(run_dir, "diag")
-agg_diag.plot(odir=diag_dir, show=False)
-diag = ImpDiagnostic(agg_result, acc_struct=acc, label=run_id)
-diag.plot(odir=diag_dir, show=False)
-diag.summary()
+    # Step 5: final fallback — flat prior sized by mask CV × group scale.
+    engine.register(FlatPriorImputer.from_csv(
+        os.path.join(PARAMS_DIR, "flat_prior_cv.csv"),
+        acc_struct=acc,
+        default_cv=FLAT_DEFAULT_CV,
+        p=P_PROP,
+    ))
 
-logger.info("=== collect_aggregate_impute DONE ===")
+    logger.info("C  Running imputation engine")
+    agg_result = engine.run(agg_result)
+    logger.info(
+        "C  Imputation done: %d log entries",
+        len(agg_result.imputation_log),
+    )
+
+    # ── D  Register run ───────────────────────────────────────────────────────
+    logger.info("D  Registering imputation run in %s", IMP_DIR)
+    imp_registry = ImputationRunRegistry(storage_dir=IMP_DIR)
+    run_id = imp_registry.register(
+        agg_result,
+        label    = label,
+        feeds    = collector.selected,
+        imputers = engine.imputers,
+        acc_id   = acc.id,
+    )
+    run_dir = os.path.join(IMP_DIR, run_id)
+    logger.info("D  Registered run_id=%s  label=%s → %s", run_id, label, run_dir)
+
+    # ── E  Diagnostics ────────────────────────────────────────────────────────
+    logger.info("E  Running diagnostics")
+    diag_dir = os.path.join(run_dir, "diag")
+    agg_diag.plot(odir=diag_dir, show=False)
+    diag = ImpDiagnostic(agg_result, acc_struct=acc, label=run_id)
+    diag.plot(odir=diag_dir, show=False)
+    diag.summary()
+
+    logger.info("=== collect_aggregate_impute DONE ===")
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Feed collection, aggregation, and imputation.")
+    parser.add_argument("label", help="Human-readable label folded into the imputation run_id")
+    parser.add_argument("feed_run_ids", nargs="+", help="Feed run IDs to collect (e.g. feed_baci_20260504_122237_f028190f)")
+    args = parser.parse_args()
+    main(args.label, args.feed_run_ids)

@@ -242,7 +242,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
     For modes "sd" and "pedigree" the sigma_c is static too.
     """
 
-    def __init__(self, specs: list[dict], sigma_fraction: float = 0.0):
+    def __init__(self, specs: list[dict], sigma_fraction: float = 0.0, p: float = 1.3):
         """
         specs : list of dicts, each with keys:
             constraint_id, description,
@@ -252,6 +252,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         """
         self._specs = specs
         self._sigma_fraction = sigma_fraction  # fallback
+        self._p = p
 
     # ------------------------------------------------------------------
     # Factory: auto-derive from acc_struct topology
@@ -340,6 +341,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         lhs_neg_out_entity_sub: set = frozenset(),
         sigma_mode: str = "gaussian",
         sigma_fraction: float = 0.05,
+        p: float = 1.3,
     ) -> "SumConstraintBuilder":
         """
         Generate one soft sum constraint per (node, time) pair for nodes whose
@@ -435,7 +437,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
             "SumConstraintBuilder.from_acc_struct_subentity: %d specs (entity_filter=%s)",
             len(specs), sorted(entity_filter),
         )
-        return cls(specs, sigma_fraction=sigma_fraction)
+        return cls(specs, sigma_fraction=sigma_fraction, p=p)
 
     # ------------------------------------------------------------------
     # Factory: load from CSV
@@ -593,7 +595,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                 rhs = spec.get("_rhs_ids", [])
                 if rhs:
                     c_out[i]   = float(np.nansum(f_agg[rhs]))
-                    sigma_c[i] = float(np.sqrt(np.nansum(sigma_agg[rhs] ** 2)))
+                    sigma_c[i] = float(np.nansum(sigma_agg[rhs] ** self._p) ** (1.0 / self._p))
 
         return ConstraintBlock(
             G_rows   = static.G_rows,

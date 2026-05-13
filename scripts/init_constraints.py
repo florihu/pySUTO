@@ -28,6 +28,7 @@ USER CONFIGURATION  ←  only section you ever edit
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 
@@ -38,12 +39,11 @@ import sys
 ACC_ID     = "copper"
 ACC_DIR    = os.path.join("data", "proc", "acc")
 IMP_DIR    = os.path.join("data", "proc", "imp")
-# Set IMP_RUN_ID to the run_id printed by init_collect_aggregate_impute.py
-# (e.g. "imp_copper_agg_imp_v0_20260430_101455_a1b2c3d4"). If left as None,
-# the latest registered imputation run is used.
-IMP_RUN_ID: str | None = None
 PARAMS_DIR = os.path.join("data", "input", "params")
 OUTPUT_DIR = os.path.join("data", "proc", "const")
+
+# Power-mean exponent — must match the value used in the imputation pipeline
+P_PROP = 1.3
 
 # SB entity_sub values whose outgoing edges are subtracted from the Process
 # node LHS (waste to nature / socio-economic system boundary)
@@ -75,7 +75,7 @@ from pysuto.logging import get_logger, add_run_handler
 _log = get_logger("init_copper_constraints")
 
 
-def main() -> None:
+def main(imp_run_id: str, label: str) -> None:
     from datetime import datetime
     add_run_handler(f"logs/init_copper_constraints_{datetime.now():%Y%m%d_%H%M%S}.log")
 
@@ -87,21 +87,9 @@ def main() -> None:
 
     _log.info("Loading imputation run from %s", IMP_DIR)
     imp_registry = ImputationRunRegistry(storage_dir=IMP_DIR)
-    if IMP_RUN_ID is not None:
-        run_id = IMP_RUN_ID
-    else:
-        if not len(imp_registry):
-            raise RuntimeError(
-                f"No imputation runs found in {IMP_DIR}. "
-                "Run init_collect_aggregate_impute.py first."
-            )
-        # Pick the most recently created entry
-        run_id = max(imp_registry.ids(),
-                     key=lambda r: imp_registry[r]["created_at"])
-        _log.info("  IMP_RUN_ID not set — using latest run_id=%s", run_id)
-    agg_result = imp_registry.load(run_id)
+    agg_result = imp_registry.load(imp_run_id)
     _log.info("  f_agg shape=%s  coverage=%d edges  imp_run_id=%s",
-              agg_result.f_agg.shape, agg_result.coverage.sum(), run_id)
+              agg_result.f_agg.shape, agg_result.coverage.sum(), imp_run_id)
 
     # ── B. Assemble constraint engine ─────────────────────────────────────
     engine = ConstraintEngine(acc_struct=acc, storage_dir=OUTPUT_DIR)
@@ -118,6 +106,7 @@ def main() -> None:
         rhs_out_entity={"Flow"},
         rhs_out_entity_sub=FD_SUBS,
         lhs_neg_out_entity_sub=SEM_NATURE_SUBS,
+        p=P_PROP,
     ))
 
     # 3. Soft sum — Flow nodes
@@ -126,6 +115,7 @@ def main() -> None:
         acc,
         entity_filter={"Flow"},
         rhs_in_entity={"Process"},
+        p=P_PROP,
     ))
 
     # 4–5. Soft ratio constraints
@@ -155,11 +145,12 @@ def main() -> None:
         agg_result=agg_result,
         timesteps=[str(t) for t in acc.time_range],
         persist=True,
-        diag_plot=True
+        diag_plot=True,
+        label=label,
     )
 
     # ── D. Summary ────────────────────────────────────────────────────────
-    _log.info("ConstraintRun saved: %s", constraint_run.run_id)
+    _log.info("ConstraintRun saved: %s  label=%s", constraint_run.run_id, label)
     _log.info("G shape: %s  (rows × edges)", constraint_run.G.shape)
     _log.info("Constraint type breakdown:\n%s",
               constraint_run.row_meta["type"].value_counts().to_string())
@@ -168,4 +159,8 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Build and persist constraint matrix.")
+    parser.add_argument("imp_run_id", help="Imputation run ID from init_collect_aggregate_impute.py")
+    parser.add_argument("label", help="Label for this constraint run")
+    args = parser.parse_args()
+    main(args.imp_run_id, args.label)
