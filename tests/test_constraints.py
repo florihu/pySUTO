@@ -195,6 +195,17 @@ class TestMassBalanceBuilder:
         block = MassBalanceBuilder().build_static(toy_acc)
         assert np.all(block.sigma_c == 0.0)
 
+    def test_mass_balance_row_meta_has_time(self, toy_acc):
+        """row_meta carries a `time` column matching the year baked
+        into `constraint_id`."""
+        from pysuto.constraints import MassBalanceBuilder
+        block = MassBalanceBuilder().build_static(toy_acc)
+        rm = block.row_meta
+        assert "time" in rm.columns
+        for cid, t in zip(rm["constraint_id"], rm["time"]):
+            assert str(cid).endswith(f"_t{t}"), \
+                f"constraint_id={cid!r} does not end with _t{t}"
+
 
 # ---------------------------------------------------------------------------
 # SumConstraintBuilder
@@ -213,9 +224,55 @@ class TestSumConstraintBuilder:
         assert np.all(G[:, 4] == 0.0), "Waste edge 4 should not appear in sum constraints"
         assert np.all(G[:, 9] == 0.0), "Waste edge 9 should not appear in sum constraints"
 
-    def test_sum_sigma_c_scales_with_magnitude(self, toy_acc):
-        """sigma_c from fraction_of_flow doubles when f_agg doubles."""
+    def test_sum_row_meta_has_time(self, toy_acc):
+        """SumConstraintBuilder row_meta has a `time` column matching
+        the year embedded in `constraint_id`."""
         from pysuto.constraints import SumConstraintBuilder
+        block = SumConstraintBuilder.from_acc_struct(
+            toy_acc, sigma_fraction=0.05,
+        ).build_static(toy_acc)
+        rm = block.row_meta
+        assert "time" in rm.columns
+        assert rm["time"].notna().all()
+        for cid, t in zip(rm["constraint_id"], rm["time"]):
+            assert str(cid).endswith(f"_t{t}")
+
+    def test_sum_sigma_c_varies_per_timestep(self, toy_acc):
+        """build_dynamic returns genuinely different σ_c per timestep:
+        rows whose spec time matches the call's t are computed normally
+        (`fraction_of_flow`); rows from other years are deactivated
+        (σ_c = SIGMA_C_INACTIVE)."""
+        from pysuto.constraints import SumConstraintBuilder, SIGMA_C_INACTIVE
+
+        f     = np.full(toy_acc.n_edges, 5.0)
+        sigma = np.full(toy_acc.n_edges, 1.0)
+
+        builder = SumConstraintBuilder.from_acc_struct(toy_acc, sigma_fraction=0.05)
+        times = list(toy_acc.time_range)
+        assert len(times) >= 2, "toy_acc needs ≥2 timesteps for this test"
+
+        b_t0 = builder.build_dynamic(toy_acc, f, sigma, times[0])
+        b_t1 = builder.build_dynamic(toy_acc, f, sigma, times[1])
+
+        # σ_c should differ across t (different rows active).
+        assert not np.allclose(b_t0.sigma_c, b_t1.sigma_c), \
+            "σ_c(t0) and σ_c(t1) should not be identical with per-year deactivation"
+
+        # Per-row: spec_time == t0 → active at t0, deactivated at t1.
+        rm = b_t0.row_meta
+        active_t0 = (rm["time"].astype(str) == str(times[0])).to_numpy()
+        active_t1 = (rm["time"].astype(str) == str(times[1])).to_numpy()
+        if active_t0.any():
+            assert np.allclose(b_t1.sigma_c[active_t0], SIGMA_C_INACTIVE)
+        if active_t1.any():
+            assert np.allclose(b_t0.sigma_c[active_t1], SIGMA_C_INACTIVE)
+
+    def test_sum_sigma_c_scales_with_magnitude(self, toy_acc):
+        """sigma_c from fraction_of_flow doubles when f_agg doubles, for
+        rows whose spec time matches the requested timestep. Rows whose
+        spec belongs to a different year are deactivated (σ_c =
+        SIGMA_C_INACTIVE) and therefore have ratio 1.0."""
+        from pysuto.constraints import SumConstraintBuilder, SIGMA_C_INACTIVE
 
         class _R:
             pass
@@ -232,11 +289,19 @@ class TestSumConstraintBuilder:
         b1 = builder.build_dynamic(toy_acc, r1.f_agg, r1.sigma_agg, "2020")
         b2 = builder.build_dynamic(toy_acc, r2.f_agg, r2.sigma_agg, "2020")
 
-        # sigma_c should approximately double
         assert b1.G_rows.shape[0] > 0, "Should have at least one dynamic row"
-        ratio = b2.sigma_c / np.where(b1.sigma_c > 0, b1.sigma_c, np.nan)
-        assert np.allclose(ratio[~np.isnan(ratio)], 2.0, rtol=0.01), \
-            "sigma_c should double when f_agg doubles"
+
+        active = b1.sigma_c < SIGMA_C_INACTIVE * 0.5
+        assert active.any(), "Expected at least one row active at t=2020"
+
+        ratio_active = b2.sigma_c[active] / b1.sigma_c[active]
+        assert np.allclose(ratio_active, 2.0, rtol=0.01), \
+            "σ_c on active rows should double when f_agg doubles"
+
+        # Deactivated rows (spec time != 2020) stay pinned at the sentinel.
+        if (~active).any():
+            assert np.allclose(b1.sigma_c[~active], SIGMA_C_INACTIVE)
+            assert np.allclose(b2.sigma_c[~active], SIGMA_C_INACTIVE)
 
     def test_sum_from_csv_three_terms(self, toy_acc, toy_agg_result, tmp_path):
         """CSV with 3 terms produces correct G row."""

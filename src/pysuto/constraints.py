@@ -50,6 +50,13 @@ from .impute import (
 )
 
 
+# σ_c sentinel used to deactivate a soft sum-constraint row in timesteps
+# whose year does not match the row's spec time. Effective when squared in
+# the objective: (1/σ_c)² = 1e-20, four orders below any realistic floor,
+# so the row's slack ε is essentially unpenalised → constraint inactive.
+SIGMA_C_INACTIVE: float = 1e10
+
+
 def _lp_regularize(
     sigma:     np.ndarray,
     centre:    np.ndarray,
@@ -239,6 +246,7 @@ class MassBalanceBuilder(BaseConstraintBuilder):
                     "type": "mass_balance",
                     "is_hard": True,
                     "cone_type": "zero",
+                    "time":      str(time),
                 })
                 row_id += 1
 
@@ -354,6 +362,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                     "sigma_ck_value":  0.0,
                     "sigma_ck_fraction": sigma_fraction,
                     "_supply_ids":     sup_ids,  # stored for sigma calc
+                    "time":            str(time),
                 })
 
         return cls(specs, sigma_fraction=sigma_fraction)
@@ -462,6 +471,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                     "sigma_ck_value":  0.0,
                     "sigma_ck_fraction": sigma_fraction,
                     "_rhs_ids":        rhs_ids,
+                    "time":            str(time),
                 }
                 if sigma_mode == "fraction_of_flow":
                     spec["_supply_ids"] = rhs_ids
@@ -546,6 +556,19 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                 _log.warning("SumConstraintBuilder: constraint '%s' matched no edges", cid)
                 continue
 
+            # Resolve spec time: if every CSV row in the group names the same
+            # single year (no wildcards), the constraint is year-locked to
+            # that year. Otherwise (mixed years, or any wildcard) it's
+            # treated as time-agnostic and stays active across all timesteps.
+            time_vals = (
+                grp["time"].astype(str).str.strip().unique().tolist()
+                if "time" in grp.columns else []
+            )
+            if len(time_vals) == 1 and time_vals[0] not in _WILDCARD:
+                spec_time = time_vals[0]
+            else:
+                spec_time = None
+
             specs.append({
                 "constraint_id":     str(cid),
                 "description":       desc,
@@ -556,6 +579,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                 "sigma_ck_value":    sv,
                 "sigma_ck_fraction": sf,
                 "_supply_ids":       [e for e, c in zip(all_ids, all_coeff) if c > 0],
+                "time":              spec_time,
             })
 
         return cls(specs)
@@ -582,6 +606,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                 "type":          "sum_eq",
                 "is_hard":       False,
                 "cone_type":     "free",
+                "time":          spec.get("time"),
             })
 
         M = len(self._specs)
@@ -610,16 +635,39 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         return block
 
     def build_dynamic(self, acc_struct, f_agg, sigma_agg, t) -> ConstraintBlock:
+        """
+        Assemble (c, σ_c) for this builder at timestep ``t``.
+
+        Rows whose spec has ``time != t`` are *deactivated* for this
+        timestep: ``c = 0`` and ``σ_c = SIGMA_C_INACTIVE`` so the row's
+        slack ε is essentially unpenalised in the objective. Rows with
+        ``spec["time"] is None`` (time-agnostic, e.g. hand-written CSV
+        constraints with wildcard time) stay active for every timestep.
+
+        This is what turns the per-timestep loop in
+        ``ConstraintEngine.run`` into real per-year solves — without it,
+        ``c(t)`` and ``σ_c(t)`` would be identical for every t.
+        """
         has_fraction = any(s["sigma_ck_mode"] == "fraction_of_flow" for s in self._specs)
-        has_p_mean = any(s["sigma_ck_mode"] == "p_mean" for s in self._specs)
-        if not has_fraction and not has_p_mean:
+        has_p_mean   = any(s["sigma_ck_mode"] == "p_mean" for s in self._specs)
+        any_per_year = any(s.get("time") is not None for s in self._specs)
+        if not (has_fraction or has_p_mean or any_per_year):
             return _empty_block(acc_struct.n_edges)
 
         static  = getattr(self, "_cached_static", None) or self.build_static(acc_struct)
         c_out   = static.c.copy()
         sigma_c = static.sigma_c.copy()
+        t_str   = str(t)
 
         for i, spec in enumerate(self._specs):
+            spec_time = spec.get("time")
+            active = (spec_time is None) or (str(spec_time) == t_str)
+
+            if not active:
+                c_out[i]   = 0.0
+                sigma_c[i] = SIGMA_C_INACTIVE
+                continue
+
             mode = spec["sigma_ck_mode"]
             if mode == "fraction_of_flow":
                 sup_ids = spec.get("_supply_ids", spec["edge_ids"])
@@ -740,6 +788,9 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
         M = len(self._pairs)
         rows_list, cols_list, vals_list = [], [], []
         meta_list = []
+        # Time per row is taken from edge_i (edge_i and edge_j share the
+        # same time by construction in _resolve_b_ids).
+        edge_time = acc_struct.edge_index["time"].astype(str).to_numpy()
 
         for row_id, p in enumerate(self._pairs):
             rows_list += [row_id, row_id]
@@ -750,6 +801,7 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
                 "type":          "ratio_eq",
                 "is_hard":       False,
                 "cone_type":     "free",
+                "time":          edge_time[p["edge_i"]],
             })
 
         G = sp.csr_matrix((vals_list, (rows_list, cols_list)), shape=(M, n_edges))
@@ -855,10 +907,12 @@ class RatioBoundBuilder(BaseConstraintBuilder):
         rows_list, cols_list, vals_list = [], [], []
         meta_list = []
         row_id = 0
+        edge_time = acc_struct.edge_index["time"].astype(str).to_numpy()
 
         for br in self._bound_rows:
             ei, ej = br["edge_i"], br["edge_j"]
             bu, bl = br["bu"], br["bl"]
+            t_row = edge_time[ei]
 
             if not np.isnan(bu):
                 rows_list += [row_id, row_id]
@@ -869,6 +923,7 @@ class RatioBoundBuilder(BaseConstraintBuilder):
                     "type":          "ratio_bound",
                     "is_hard":       True,
                     "cone_type":     "nonneg",
+                    "time":          t_row,
                 })
                 row_id += 1
 
@@ -881,6 +936,7 @@ class RatioBoundBuilder(BaseConstraintBuilder):
                     "type":          "ratio_bound",
                     "is_hard":       True,
                     "cone_type":     "nonneg",
+                    "time":          t_row,
                 })
                 row_id += 1
 
@@ -1238,6 +1294,14 @@ class ConstraintEngine:
         # Lifts unphysically tight σ on edges via the same Lp recipe used
         # in impute.py. Operates on sigma_agg BEFORE build_dynamic, so the
         # regularized σ also flows into p_mean-mode σ_c propagation.
+        #
+        # This ordering is deliberate (see REP 2026-05-13 §7 and the
+        # FlatPriorImputer docstring): the relative CV term
+        # `sigma_a_cv_min · |a₀|` is a *modeling* claim about how tightly
+        # we believe σ_a, not a numerical safeguard, so it should flow
+        # into σ_c. The absolute floor `sigma_a_abs_floor` is the safety
+        # net — once the FlatPrior 3-level scale cascade is in place it
+        # should essentially never fire on imputer-filled edges.
         if self._sigma_a_cv_min > 0 or self._sigma_a_abs_floor > 0:
             sigma_agg, n_cv, n_abs = _lp_regularize(
                 sigma_agg, f_agg,

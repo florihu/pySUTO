@@ -277,35 +277,24 @@ class ClarabelSolver:
         # P = 2 · diag([Σ_a^{-1}; Σ_c^{-1}_free]) — diagonal, CSC, upper-triangle
         inv_sa = 1.0 / (sigma_a ** 2)
 
-        # σ_c for free rows is invariant under timestep IF σ_c does not vary
-        # by timestep. Some builders (SumConstraintBuilder fraction_of_flow)
-        # produce σ_c that does vary per timestep — in that case the
-        # per-timestep b update would not be enough to keep P valid. We
-        # check this and raise a clear error if it occurs.
-        sc_free_per_t = []
-        for t_label, td in run.timestep_data.items():
-            sc_t = np.array(td["sigma_c"], dtype=float, copy=True)
-            # NaN → floor (treated as "no info on the constraint" → minimum
-            # weight; the σ_c floor is the smallest admissible value).
-            sc_t = np.where(np.isnan(sc_t), self.sigma_c_floor, sc_t)
-            sc_t = np.maximum(sc_t, self.sigma_c_floor)
-            sc_free_per_t.append(sc_t[perm[:n_free]])
-        sc_free_arr = np.stack(sc_free_per_t) if sc_free_per_t else np.zeros((0, n_free))
+        # σ_c on free rows may vary per timestep (e.g. SumConstraintBuilder
+        # deactivates rows of other years via SIGMA_C_INACTIVE, and
+        # fraction_of_flow scales σ_c with year-t flow magnitude). We no
+        # longer require σ_c on free rows to be time-invariant; instead
+        # the per-t Hessian is rebuilt in solve_all via Clarabel's
+        # update(P=…). The initial P uses t_first's σ_c so the solver can
+        # be instantiated once.
+        first_td = next(iter(run.timestep_data.values()), None)
+        if first_td is not None and n_free:
+            sc_first = np.array(first_td["sigma_c"], dtype=float, copy=True)
+            sc_first = np.where(np.isnan(sc_first), self.sigma_c_floor, sc_first)
+            sc_first = np.maximum(sc_first, self.sigma_c_floor)
+            sc_free_init = sc_first[perm[:n_free]]
+        else:
+            sc_free_init = np.zeros(n_free)
 
-        if sc_free_arr.shape[0] > 0 and not np.allclose(
-            sc_free_arr, sc_free_arr[0:1], rtol=0, atol=0
-        ):
-            raise NotImplementedError(
-                "ClarabelSolver currently assumes σ_c is time-invariant on "
-                "free-cone rows (so P can be built once and only b updated "
-                "across timesteps). Detected per-timestep variation in σ_c "
-                "for free rows — re-implement with full re-build per timestep."
-            )
-
-        sc_free = sc_free_arr[0] if sc_free_arr.shape[0] else np.zeros(n_free)
-        inv_scf = 1.0 / (sc_free ** 2) if n_free else np.zeros(0)
-
-        P_diag = 2.0 * np.concatenate([inv_sa, inv_scf])
+        inv_scf_init = 1.0 / (sc_free_init ** 2) if n_free else np.zeros(0)
+        P_diag = 2.0 * np.concatenate([inv_sa, inv_scf_init])
         P = sp.diags(P_diag, format="csc")
 
         cones: list = []
@@ -327,6 +316,25 @@ class ClarabelSolver:
             "inv_sa":     inv_sa,
             "a_0_init":   a_0,
         }
+
+    def _build_P_diag(self, inv_sa: np.ndarray, run: ConstraintRun,
+                      t_label: str, perm: np.ndarray, n_free: int) -> np.ndarray:
+        """
+        Per-timestep Hessian diagonal: ``2 · [Σ_a^{-1}; Σ_c(t)^{-1}_free]``.
+
+        ``Σ_a^{-1}`` is time-invariant (computed once and passed in).
+        ``Σ_c(t)^{-1}_free`` is recomputed from ``timestep_data[t]["sigma_c"]``
+        with NaN → floor; same conditioning used in ``_problem_skeleton``.
+        """
+        if n_free:
+            sc_t = np.array(run.timestep_data[t_label]["sigma_c"],
+                            dtype=float, copy=True)
+            sc_t = np.where(np.isnan(sc_t), self.sigma_c_floor, sc_t)
+            sc_t = np.maximum(sc_t, self.sigma_c_floor)
+            inv_scf = 1.0 / (sc_t[perm[:n_free]] ** 2)
+        else:
+            inv_scf = np.zeros(0)
+        return 2.0 * np.concatenate([inv_sa, inv_scf])
 
     def _build_q(self, inv_sa: np.ndarray, a_0: np.ndarray, n_free: int) -> np.ndarray:
         """q = [-2 Σ_a^{-1} a_0(t); 0]. Recomputed per timestep when warm-starting."""
@@ -519,14 +527,21 @@ class ClarabelSolver:
         for k, t in enumerate(ts_labels):
             b = self._build_b(run, t, perm)
             q = self._build_q(inv_sa, a_0_t, n_free)
+            # P now varies per timestep because σ_c on free rows can vary
+            # (e.g. SumConstraintBuilder deactivates non-t-year rows with
+            # σ_c = SIGMA_C_INACTIVE). The diagonal is rebuilt each iter;
+            # cone structure, n_free, n_a are time-invariant so reusing
+            # the Clarabel instance is fine.
+            P_diag = self._build_P_diag(inv_sa, run, t, perm, n_free)
+            P_t    = sp.diags(P_diag, format="csc")
 
             t0 = time.perf_counter()
             verbose = self.verbose_first_solve and k == 0
             if solver is None:
                 settings = self._settings(verbose=verbose)
-                solver   = clarabel.DefaultSolver(P, q, A, b, cones, settings)
+                solver   = clarabel.DefaultSolver(P_t, q, A, b, cones, settings)
             else:
-                solver.update(q=q, b=b)
+                solver.update(P=P_t, q=q, b=b)
 
             hist: list[tuple] = []
             if self.capture_iter_history:

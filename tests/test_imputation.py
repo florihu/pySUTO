@@ -1356,17 +1356,12 @@ class TestFlatPriorImputer:
         assert sigma[0] == pytest.approx(0.001 * 100.0)
 
     def test_use_uses_use_cv(self, acc):
-        """Edge 4 (Ore_A → Mining_A, use) → σ = 0.3 · group scale."""
+        """Edge 4 (Ore_A → Mining_A, use): narrow group empty → level-2 cascade kicks in."""
         f     = np.full(10, np.nan)
         sigma = np.full(10, np.nan)
         f[5]  = 200.0;  sigma[5] = 1.0
-        # group of edge 4 (sector_from=Ore, entity_from=Flow, region_from=A, Mass)
-        # only edge 4 in this group → empty group (no finite f) → σ = 0
-        # Make group of edge 5 hit: edge 5 group is (Ore, Flow, B, Mass) — only edge 5
-        # so scale for edge 4 = 0 (empty group).
-        # Add a sibling for edge 4: but only edge 4 has (Ore, Flow, A, Mass).
-        # Instead, test that edge 5 itself is in use mask but already finite — not a target.
-        # Use a different setup: imagine edge 4 had a sibling — none exists in this fixture.
+        # Level 1 (Ore, Flow, A, Mass) has only edge 4 (NaN) → empty.
+        # Level 2 (Ore, Mass) has edges 4 and 5 → edge 5 finite (=200) → mean = 200.
         missing = np.isnan(f)
         imp = FlatPriorImputer(
             cv_by_mask={"supply": 0.001, "use": 0.3},
@@ -1374,12 +1369,12 @@ class TestFlatPriorImputer:
             acc_struct=acc,
         )
         imp.impute(f, sigma, missing, 0, acc)
-        # Edge 4 group is empty (no finite f shares its (Ore,Flow,A,Mass) key) → σ=0
         assert f[4] == 0.0
-        assert sigma[4] == 0.0
+        assert sigma[4] == pytest.approx(0.3 * 200.0)
 
     def test_default_cv_for_unmasked_edges(self, acc):
-        """If a mask is omitted from cv_by_mask, edges in that mask fall through to default_cv."""
+        """If a mask is omitted from cv_by_mask, edges in that mask fall through to default_cv
+        (no density modulation), and the 3-level scale cascade still applies."""
         f     = np.full(10, np.nan)
         sigma = np.full(10, np.nan)
         f[8]  = 50.0;  sigma[8] = 1.0
@@ -1390,9 +1385,12 @@ class TestFlatPriorImputer:
             acc_struct=acc,
         )
         imp.impute(f, sigma, missing, 0, acc)
-        # edge 4 (use) has no rule → default_cv=0.7; group is empty → σ=0
-        assert sigma[4] == 0.0
-        # edge 0 (supply) has supply rule, group has edge 8 finite → σ = 0.001·50
+        # Edge 4 (use) has no rule → default_cv=0.7. Its narrow + broader (Ore, Mass) groups
+        # are both empty (only edge 5 is in (Ore, Mass) and it's NaN), so scale falls all the
+        # way to level 3: global median of finite, non-zero |f| = median([50]) = 50.
+        assert sigma[4] == pytest.approx(0.7 * 50.0)
+        # Edge 0 (supply, Mining→Ore Mass, region A) — narrow group (Mining, Process, A, Mass)
+        # has edges 0, 6, 8 — edge 8 finite (=50) → scale = 50 → σ = 0.001·50.
         assert sigma[0] == pytest.approx(0.001 * 50.0)
 
     def test_first_match_wins_with_overlapping_masks(self, acc):
@@ -1419,11 +1417,13 @@ class TestFlatPriorImputer:
         # edge 0's group includes edge 6 (finite) → scale=80, σ = 0.001·80 = 0.08
         assert sigma[0] == pytest.approx(0.001 * 80.0)
 
-    def test_empty_group_yields_sigma_zero(self, acc):
-        """When a group has no finite f, σ = CV·0 = 0."""
+    def test_all_groups_empty_falls_back_to_unit_scale(self, acc):
+        """When every level of the cascade is empty (no finite, non-zero |f| anywhere)
+        the global-median fallback degrades to scale = 1.0, so σ = CV per edge.
+        Previously this case produced σ = 0 (the pin-band bug from the May-13 copper REP)."""
         f     = np.full(10, np.nan)
         sigma = np.full(10, np.nan)
-        # Nothing finite anywhere
+        # Nothing finite anywhere → all three cascade levels return 0 → global_scale = 1.0
         missing = np.isnan(f)
         imp = FlatPriorImputer(
             cv_by_mask={"supply": 0.001, "use": 0.3},
@@ -1431,8 +1431,12 @@ class TestFlatPriorImputer:
             acc_struct=acc,
         )
         imp.impute(f, sigma, missing, 0, acc)
+        # f is still 0 for every filled edge.
         assert np.all(f == 0.0)
-        assert np.all(sigma == 0.0)
+        # σ = CV(mask) · 1.0 per edge; supply edges get 0.001, use edges get 0.3.
+        # (legacy single-CV form, no density modulation.)
+        expected = np.where(acc.supply_edge_mask, 0.001, 0.3)
+        assert np.allclose(sigma, expected)
 
     def test_log_entries_returned(self, acc):
         f     = np.full(10, np.nan)
@@ -1453,14 +1457,58 @@ class TestFlatPriorImputer:
             assert e["f_after"] == 0.0
 
     def test_from_csv_loads_cv_by_mask(self, acc, tmp_path):
+        """Legacy single-cv CSVs still load: scalar CV → (cv, cv) tuple (no density modulation)."""
         path = tmp_path / "fp.csv"
         path.write_text("mask_name,cv,description\nsupply,0.001,sup\nuse,0.3,us\n")
         imp = FlatPriorImputer.from_csv(
             str(path), acc_struct=acc, default_cv=0.5,
         )
-        assert imp.cv_by_mask == {"supply": 0.001, "use": 0.3}
+        assert imp.cv_by_mask == {"supply": (0.001, 0.001), "use": (0.3, 0.3)}
         assert imp.default_cv == 0.5
         assert imp.source_paths == [str(path)]
+
+    def test_from_csv_loads_cv_lo_hi(self, acc, tmp_path):
+        """New schema: mask_name, cv_lo, cv_hi, description."""
+        path = tmp_path / "fp.csv"
+        path.write_text(
+            "mask_name,cv_lo,cv_hi,description\n"
+            "supply,0.04,0.30,sup\n"
+            "use,0.20,0.60,us\n"
+        )
+        imp = FlatPriorImputer.from_csv(
+            str(path), acc_struct=acc, default_cv=0.5,
+        )
+        assert imp.cv_by_mask == {"supply": (0.04, 0.30), "use": (0.20, 0.60)}
+
+    def test_density_aware_cv_interpolation(self, acc):
+        """With (cv_lo, cv_hi) and a coverage array, CV interpolates by per-edge density
+        over (sector_from, region_from). Verified on an uncovered region vs a covered one."""
+        # All 10 edges; build a coverage array where region-A is fully covered (density=1
+        # → cv=cv_lo) and region-B is fully uncovered (density=0 → cv=cv_hi).
+        from_region = np.array(["A", "B", "A", "B", "A", "B", "A", "B", "A", "B"])
+        coverage = (from_region == "A")  # True for A, False for B
+
+        class _Agg:
+            pass
+        agg = _Agg(); agg.coverage = coverage
+
+        imp = FlatPriorImputer(
+            cv_by_mask={"supply": (0.04, 0.30), "use": (0.20, 0.60)},
+            default_cv=0.5,
+            acc_struct=acc,
+        )
+        imp.attach_agg_result(agg)
+        cv = imp._resolve_cv()
+        # Edges with region_from == A (covered) → cv_lo for their mask.
+        # Edges with region_from == B (uncovered) → cv_hi for their mask.
+        # Edge 4 is use (from=Ore_A) → density(Ore,A)=1 → cv = 0.20.
+        # Edge 5 is use (from=Ore_B) → density(Ore,B)=0 → cv = 0.60.
+        assert cv[4] == pytest.approx(0.20)
+        assert cv[5] == pytest.approx(0.60)
+        # Edge 0 is supply (from=Mining_A) → density(Mining,A)=1 → cv = 0.04.
+        # Edge 1 is supply (from=Mining_B) → density(Mining,B)=0 → cv = 0.30.
+        assert cv[0] == pytest.approx(0.04)
+        assert cv[1] == pytest.approx(0.30)
 
     def test_unknown_mask_name_raises(self, acc):
         with pytest.raises(ValueError, match="Unknown mask name"):

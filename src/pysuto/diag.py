@@ -1533,7 +1533,15 @@ class ConstDiagnostic:
         return eps0, c_t0, t0
 
     def _panel_c_by_year(self, ax) -> None:
+        """
+        |c| distribution per timestep, all years overlaid with a viridis
+        colour ramp (light → recent year). For n > 12 timesteps the per-year
+        legend is replaced by a colorbar so individual years remain
+        distinguishable; for n ≤ 12 the legend is shown directly.
+        """
         import matplotlib.pyplot as plt
+        from matplotlib.cm import ScalarMappable
+        from matplotlib.colors import Normalize
 
         cr         = self.cr
         soft_mask  = self._soft_mask()
@@ -1546,7 +1554,24 @@ class ConstDiagnostic:
 
         timesteps = list(cr.timestep_data.keys())
         n    = len(timesteps)
-        cmap = plt.cm.Blues
+        cmap = plt.cm.viridis
+
+        # Outlined steps (not filled) so every year remains visible — with 30+
+        # overlaid stepfilled histograms the latest year was drowning out the
+        # rest. Compute a common bin grid for fair comparison.
+        all_log_vals = []
+        for t_label in timesteps:
+            c = cr.timestep_data[t_label]["c"][soft_mask]
+            v = np.abs(c)
+            v = v[np.isfinite(v) & (v > 0)]
+            if len(v):
+                all_log_vals.append(np.log10(v))
+        if all_log_vals:
+            lo = float(min(a.min() for a in all_log_vals))
+            hi = float(max(a.max() for a in all_log_vals))
+            bins = np.linspace(lo, hi, 41)
+        else:
+            bins = 40
 
         for i, t_label in enumerate(timesteps):
             c    = cr.timestep_data[t_label]["c"][soft_mask]
@@ -1554,9 +1579,9 @@ class ConstDiagnostic:
             vals = vals[np.isfinite(vals) & (vals > 0)]
             if not len(vals):
                 continue
-            color = cmap(0.3 + 0.7 * i / max(n - 1, 1))
-            ax.hist(np.log10(vals), bins=40, alpha=0.5, color=color,
-                    histtype="stepfilled", edgecolor="none",
+            color = cmap(i / max(n - 1, 1))
+            ax.hist(np.log10(vals), bins=bins, color=color,
+                    histtype="step", linewidth=1.0,
                     label=t_label, density=True)
 
         ax.set_title("|c| distribution (soft constraints)", fontweight="bold")
@@ -1564,10 +1589,33 @@ class ConstDiagnostic:
         ax.set_ylabel("density")
         if n <= 12:
             ax.legend(fontsize=6, framealpha=0.6)
+        else:
+            # Numeric x-axis for the colorbar; falls back to integer indices
+            # when timestep labels are not parseable as numbers.
+            try:
+                t_numeric = [float(t) for t in timesteps]
+                cbar_lo, cbar_hi = float(min(t_numeric)), float(max(t_numeric))
+                cbar_label = "year"
+            except (TypeError, ValueError):
+                cbar_lo, cbar_hi = 0.0, float(n - 1)
+                cbar_label = "timestep index"
+            sm = ScalarMappable(norm=Normalize(vmin=cbar_lo, vmax=cbar_hi), cmap=cmap)
+            sm.set_array([])
+            cbar = ax.figure.colorbar(sm, ax=ax, pad=0.02, fraction=0.04, aspect=30)
+            cbar.set_label(cbar_label, fontsize=8)
+            cbar.ax.tick_params(labelsize=7)
         ax.grid(axis="y", alpha=0.3)
 
     def _panel_sigma_c_by_year(self, ax) -> None:
-        import matplotlib.pyplot as plt
+        """
+        σ_c distribution at the **first timestep only**.
+
+        Soft sum-constraint rows whose spec belongs to a different year
+        are deactivated for this t via ``σ_c = SIGMA_C_INACTIVE`` (≥ 1e10);
+        we exclude them so the histogram shows only this year's active
+        rows.
+        """
+        from .constraints import SIGMA_C_INACTIVE
 
         cr        = self.cr
         soft_mask = self._soft_mask()
@@ -1578,25 +1626,29 @@ class ConstDiagnostic:
             ax.set_title("σ_c distribution (soft constraints)", fontweight="bold")
             return
 
-        timesteps = list(cr.timestep_data.keys())
-        n    = len(timesteps)
-        cmap = plt.cm.Greens
+        if not cr.timestep_data:
+            ax.text(0.5, 0.5, "No timestep data", ha="center", va="center",
+                    transform=ax.transAxes)
+            ax.set_title("σ_c distribution (soft constraints)", fontweight="bold")
+            return
 
-        for i, t_label in enumerate(timesteps):
-            sc   = cr.timestep_data[t_label]["sigma_c"][soft_mask]
-            vals = sc[np.isfinite(sc) & (sc > 0)]
-            if not len(vals):
-                continue
-            color = cmap(0.3 + 0.7 * i / max(n - 1, 1))
-            ax.hist(np.log10(vals), bins=40, alpha=0.5, color=color,
-                    histtype="stepfilled", edgecolor="none",
-                    label=t_label, density=True)
+        t0   = next(iter(cr.timestep_data))
+        sc   = cr.timestep_data[t0]["sigma_c"][soft_mask]
+        # Drop deactivated sentinel entries (σ_c ≈ SIGMA_C_INACTIVE).
+        active = np.isfinite(sc) & (sc > 0) & (sc < SIGMA_C_INACTIVE * 0.5)
+        vals = sc[active]
 
-        ax.set_title("σ_c distribution (soft constraints)", fontweight="bold")
+        if not len(vals):
+            ax.text(0.5, 0.5, "All σ_c ≤ 0 or non-finite", ha="center",
+                    va="center", transform=ax.transAxes)
+        else:
+            ax.hist(np.log10(vals), bins=40, alpha=0.8, color=_C["green"],
+                    histtype="stepfilled", edgecolor="none", density=True)
+
+        ax.set_title(f"σ_c distribution (soft constraints)  (t={t0})",
+                     fontweight="bold")
         ax.set_xlabel("log₁₀(σ_c)")
         ax.set_ylabel("density")
-        if n <= 12:
-            ax.legend(fontsize=6, framealpha=0.6)
         ax.grid(axis="y", alpha=0.3)
 
     def _panel_eps0_dist(self, ax) -> None:

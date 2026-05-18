@@ -75,3 +75,7 @@ When you need project-specific context, see [README.md](README.md):
 - **End-to-end runnable example** → README §4 (Workflow)
 - **Module layout and one-way import direction** → README §5 (File structure)
 - **Test coverage map** → README §6 (Testing)
+
+
+### Other SPECS
+- Store Analysis of solver, const or imp runs in REP
