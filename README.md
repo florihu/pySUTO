@@ -307,6 +307,13 @@ agg_result = engine.run(agg_result)
 
 `AggDiagnostic` (post-aggregation, pre-imputation) and `ImpDiagnostic` (post-imputation per-step trajectories) live in [diag.py](src/pysuto/diag.py). Both expose `.summary()` and `.plot(odir=...)`. `AggDiagnostic` must be constructed *before* `engine.run(...)` because imputation mutates `f_agg`/`sigma_agg` in place.
 
+Both accept an optional `acc_struct=` argument so that diag panels can stratify per-edge quantities by year:
+
+- `AggDiagnostic(agg_result, acc_struct=acc).plot(odir=...)` emits an additional `agg_root_by_year.png` — two panels (log10|f_root|, log10 σ_root) with viridis-coloured step-outline histograms per timestep and a year colorbar. Pools over all feeds.
+- `ImpDiagnostic(agg_result, acc_struct=acc).plot(odir=...)` overlays the fully-observed year 1995's raw distribution as a black dashed reference curve on the F-root and CV panels of `imputation_steps.png` — the target shape that imputed steps should approximate. The CV panel uses a log10 axis with vertical reference lines at CV = 0.1, 1, 10, 100. The `imputation_timeseries.png` figure only renders an imputed × marker when the (from, to, valuation) series has ≥1 raw observation in [t-3, t-1] AND ≥1 raw observation in [t+1, t+3] — a defensive guard so non-bilateral fills (e.g. legacy locf/nocb) never appear.
+
+Diag output filenames are plain plot names (`imputation_steps.png`, `agg_distributions.png`, …); the run id is already encoded in the parent folder (`data/proc/imp/<run_id>/diag/`).
+
 ---
 
 ### Stage 3 — Constraint building
@@ -558,7 +565,7 @@ collector = FeedCollector(registry=registry, acc_struct=acc)
 collector.select(["baci", "crude_ore"])           # or [("baci", 1), ...] for a pinned version
 agg_result = collector.aggregate(p=P_PROP)
 
-agg_diag = AggDiagnostic(agg_result, label="copper")   # snapshot BEFORE imputation mutates
+agg_diag = AggDiagnostic(agg_result, acc_struct=acc, label="copper")   # snapshot BEFORE imputation mutates
 agg_diag.summary()
 
 scrap_return = ParametricRelation(

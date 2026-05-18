@@ -187,7 +187,7 @@ class FeedDiagnostics:
 
         plt.tight_layout()
 
-        path = os.path.join(odir, f"{self.feed_run_id}_feed.png")
+        path = os.path.join(odir, "feed.png")
         _savefig(fig, path, dpi=dpi)
         if show:
             plt.show()
@@ -377,7 +377,7 @@ class ImpDiagnostic:
         Optional label for figure titles and output filenames.
     """
 
-    _TIME_METHODS = {"time_linear", "time_mean", "locf", "nocb"}
+    _TIME_METHODS = {"time_linear", "time_mean"}
 
     # method label → palette key used by both boxplots and step coloring.
     _METHOD_COLORS = {
@@ -436,13 +436,12 @@ class ImpDiagnostic:
         """Produce and optionally save the three diagnostic figures."""
         import matplotlib.pyplot as plt
 
-        tag   = self.label.replace(" ", "_") or "imputation"
         paths = []
 
         # Figure 1 — per-step trajectories (2×2)
         fig1 = self._fig1_steps()
         if odir is not None:
-            p = _savefig(fig1, os.path.join(odir, f"{tag}_imputation_steps.png"), dpi=dpi)
+            p = _savefig(fig1, os.path.join(odir, "imputation_steps.png"), dpi=dpi)
             paths.append(p)
             print(f"   Imputation step diagnostics → {p}  ✓")
         if show:
@@ -453,7 +452,7 @@ class ImpDiagnostic:
         fig2 = self._fig2_sigma_box()
         if fig2 is not None:
             if odir is not None:
-                p = _savefig(fig2, os.path.join(odir, f"{tag}_imputation_sigma_box.png"), dpi=dpi)
+                p = _savefig(fig2, os.path.join(odir, "imputation_sigma_box.png"), dpi=dpi)
                 paths.append(p)
                 print(f"   Imputation σ boxplot       → {p}  ✓")
             if show:
@@ -464,7 +463,7 @@ class ImpDiagnostic:
         fig_cv = self._fig_cv_box()
         if fig_cv is not None:
             if odir is not None:
-                p = _savefig(fig_cv, os.path.join(odir, f"{tag}_imputation_cv_box.png"), dpi=dpi)
+                p = _savefig(fig_cv, os.path.join(odir, "imputation_cv_box.png"), dpi=dpi)
                 paths.append(p)
                 print(f"   Imputation CV boxplot      → {p}  ✓")
             if show:
@@ -476,7 +475,7 @@ class ImpDiagnostic:
             fig3 = self._fig3_timeseries()
             if fig3 is not None:
                 if odir is not None:
-                    p = _savefig(fig3, os.path.join(odir, f"{tag}_imputation_timeseries.png"), dpi=dpi)
+                    p = _savefig(fig3, os.path.join(odir, "imputation_timeseries.png"), dpi=dpi)
                     paths.append(p)
                     print(f"   Imputation timeseries      → {p}  ✓")
                 if show:
@@ -600,11 +599,44 @@ class ImpDiagnostic:
             ax.hist(np.log10(vals), bins=60, alpha=0.45,
                     color=self._step_color[lbl], label=lbl,
                     density=True, histtype="stepfilled", edgecolor="none")
+        self._overlay_year_reference(ax, what="f", year="1995")
         ax.set_title("F_root distribution per step", fontweight="bold")
         ax.set_xlabel("log₁₀(f)  [log kt]")
         ax.set_ylabel("density")
         ax.legend(fontsize=7, framealpha=0.6)
         ax.grid(axis="y", alpha=0.3)
+
+    def _overlay_year_reference(self, ax, what: str, year: str = "1995") -> None:
+        """Overlay a fully-observed year's raw distribution as a reference curve."""
+        if self.acc_struct is None:
+            return
+        ei = self.acc_struct.edge_index
+        mask_year = (ei["time"].astype(str) == year).to_numpy()
+        if not mask_year.any():
+            return
+        _, f_pre, s_pre = self._snapshots[0]
+        if what == "f":
+            vals = np.abs(f_pre[mask_year])
+            vals = vals[np.isfinite(vals) & (vals > 0)]
+            if not len(vals):
+                return
+            vals = np.log10(vals)
+        elif what == "cv":
+            with np.errstate(divide="ignore", invalid="ignore"):
+                cv = np.where(
+                    np.abs(f_pre[mask_year]) > 0,
+                    s_pre[mask_year] / np.abs(f_pre[mask_year]),
+                    np.nan,
+                )
+            cv = cv[np.isfinite(cv) & (cv > 0)]
+            if not len(cv):
+                return
+            vals = np.log10(cv)
+        else:
+            return
+        ax.hist(vals, bins=60, density=True, histtype="step",
+                color="black", linestyle="--", linewidth=1.4,
+                label=f"ref {year}")
 
     def _panel_coverage(self, ax) -> None:
         labels  = [s[0] for s in self._snapshots]
@@ -630,9 +662,9 @@ class ImpDiagnostic:
 
     def _panel_cv_dist(self, ax) -> None:
         """
-        Per-step CV (= σ / |f|) histogram on a linear axis. CV strips out
+        Per-step CV (= σ / |f|) histogram on a log10 axis. CV strips out
         the magnitude coupling and exposes whether a step actually inflates
-        relative uncertainty.
+        relative uncertainty. Reference lines at CV = 0.1, 1, 10, 100.
         """
         for lbl, fv, sv in self._snapshots:
             with np.errstate(divide="ignore", invalid="ignore"):
@@ -640,11 +672,14 @@ class ImpDiagnostic:
             vals = cv[np.isfinite(cv) & (cv > 0)]
             if not len(vals):
                 continue
-            ax.hist(vals, bins=60, alpha=0.45,
+            ax.hist(np.log10(vals), bins=60, alpha=0.45,
                     color=self._step_color[lbl], label=lbl,
                     density=True, histtype="stepfilled", edgecolor="none")
+        for ref in (0.1, 1.0, 10.0, 100.0):
+            ax.axvline(np.log10(ref), color=_C["red"], lw=0.7, ls="--", alpha=0.5)
+        self._overlay_year_reference(ax, what="cv", year="1995")
         ax.set_title("CV (σ/|f|) distribution per step", fontweight="bold")
-        ax.set_xlabel("CV")
+        ax.set_xlabel("log₁₀(CV)")
         ax.set_ylabel("density")
         ax.legend(fontsize=7, framealpha=0.6)
         ax.grid(axis="y", alpha=0.3)
@@ -670,12 +705,34 @@ class ImpDiagnostic:
             color=colors,
             edgecolor="white",
         )
-        for bar, cnt in zip(bars, counts):
+        # σ_after p50/p99 readout per step — keeps a σ summary visible
+        # even though the distribution panel above plots CV.
+        sigma_stats: dict[int, tuple[float, float]] = {}
+        for step in steps:
+            sub = log_df.loc[log_df["step"] == step, "sigma_after"]
+            vals = pd.to_numeric(sub, errors="coerce").to_numpy()
+            vals = vals[np.isfinite(vals) & (vals > 0)]
+            if vals.size:
+                sigma_stats[step] = (
+                    float(np.percentile(vals, 50)),
+                    float(np.percentile(vals, 99)),
+                )
+
+        for bar, cnt, step in zip(bars, counts, steps):
             ax.text(
                 bar.get_x() + bar.get_width() / 2,
                 bar.get_height() + counts.max() * 0.01,
                 f"{cnt:,}", ha="center", va="bottom", fontsize=8,
             )
+            stat = sigma_stats.get(step)
+            if stat is not None:
+                ax.text(
+                    bar.get_x() + bar.get_width() / 2,
+                    bar.get_height() * 0.5,
+                    f"σ p50={stat[0]:.2g}\np99={stat[1]:.2g}",
+                    ha="center", va="center", fontsize=7,
+                    color="white" if bar.get_height() > counts.max() * 0.15 else "black",
+                )
         ax.set_title("Edges imputed per step", fontweight="bold")
         ax.set_xlabel("pipeline step")
         ax.set_ylabel("# edges filled")
@@ -896,18 +953,31 @@ class ImpDiagnostic:
                 (ei["valuation"] == valuation)
             ]
 
-            raw_t, raw_f, imp_t, imp_f = [], [], [], []
+            # Pass 1: collect raw observations and candidate imputed entries.
+            raw_t_set: set[float] = set()
+            raw_t, raw_f = [], []
+            imp_candidates: list[tuple[float, float]] = []
             for eid, row in group_edges.iterrows():
                 f_val = agg_f[eid]
                 if not np.isfinite(f_val):
                     continue
                 t_num = time_order.get(str(row["time"]), 0)
                 if eid in time_imp_set:
-                    imp_t.append(t_num)
-                    imp_f.append(f_val)
+                    imp_candidates.append((t_num, f_val))
                 elif eid not in imputed_set:
+                    raw_t_set.add(t_num)
                     raw_t.append(t_num)
                     raw_f.append(f_val)
+
+            # Pass 2: only keep imputed points with ≥1 raw obs in [t-3,t-1]
+            # AND ≥1 raw obs in [t+1,t+3] — i.e. true bilateral gap fills.
+            imp_t, imp_f = [], []
+            for t_num, f_val in imp_candidates:
+                has_before = any((t_num - d) in raw_t_set for d in (1, 2, 3))
+                has_after  = any((t_num + d) in raw_t_set for d in (1, 2, 3))
+                if has_before and has_after:
+                    imp_t.append(t_num)
+                    imp_f.append(f_val)
 
             if raw_t:
                 ax.scatter(raw_t, raw_f, s=30, color=_C["grey"],
@@ -993,8 +1063,7 @@ class OptimDiagnostics:
 
         plt.tight_layout()
 
-        tag  = self.label.replace(" ", "_") or "optim"
-        path = os.path.join(odir, f"{tag}_optim.png")
+        path = os.path.join(odir, "optim.png")
         _savefig(fig, path, dpi=dpi)
         if show:
             plt.show()
@@ -1753,17 +1822,25 @@ class AggDiagnostic:
         Optional label for figure titles and output filenames.
     """
 
-    def __init__(self, agg_result, label: str = "") -> None:
+    def __init__(self, agg_result, acc_struct=None, label: str = "") -> None:
         # Snapshot the arrays we need at construction time, because
         # ImputationEngine.run() mutates agg_result.f_agg / sigma_agg in place.
         # The per-feed F / Sigma matrices are not mutated by imputation.
         self.label      = label
+        self.acc_struct = acc_struct
         self._f_agg     = np.array(agg_result.f_agg, dtype=float, copy=True)
         self._sigma_agg = np.array(agg_result.sigma_agg, dtype=float, copy=True)
         self._coverage  = np.array(agg_result.coverage, dtype=bool, copy=True)
         self._F         = np.array(agg_result.F, dtype=float, copy=True)
         self._Sigma     = np.array(agg_result.Sigma, dtype=float, copy=True)
         self._feed_ids  = list(agg_result.feed_ids)
+        # Per-edge time labels, when acc_struct is provided. Used to stratify
+        # the per-feed root distributions by year.
+        if acc_struct is not None:
+            ei = acc_struct.edge_index.sort_values("edge_id")
+            self._edge_times = ei["time"].astype(str).to_numpy()
+        else:
+            self._edge_times = None
 
     # ------------------------------------------------------------------
     # Public interface
@@ -1778,17 +1855,29 @@ class AggDiagnostic:
         """Produce and optionally save the aggregation diagnostic figure."""
         import matplotlib.pyplot as plt
 
-        tag   = self.label.replace(" ", "_") or "agg"
         paths: list[str] = []
 
         fig = self._fig_distributions()
         if odir is not None:
-            p = _savefig(fig, os.path.join(odir, f"{tag}_agg_distributions.png"), dpi=dpi)
+            p = _savefig(fig, os.path.join(odir, "agg_distributions.png"), dpi=dpi)
             paths.append(p)
             print(f"   Aggregation distributions   → {p}  ✓")
         if show:
             plt.show()
         plt.close(fig)
+
+        # New: per-timestep root distributions (viridis by year) when
+        # acc_struct is available so we can stratify edge columns by time.
+        if self._edge_times is not None:
+            fig_root = self._fig_root_by_year()
+            if fig_root is not None:
+                if odir is not None:
+                    p = _savefig(fig_root, os.path.join(odir, "agg_root_by_year.png"), dpi=dpi)
+                    paths.append(p)
+                    print(f"   Aggregation root-by-year    → {p}  ✓")
+                if show:
+                    plt.show()
+                plt.close(fig_root)
         return paths
 
     def summary(self) -> str:
@@ -1936,6 +2025,93 @@ class AggDiagnostic:
         ax.grid(alpha=0.3, which="both")
 
         fig.tight_layout(rect=[0, 0, 1, 0.96])
+        return fig
+
+    # ------------------------------------------------------------------
+    # Per-timestep f_root / σ_root distributions (viridis by year)
+    # ------------------------------------------------------------------
+
+    def _fig_root_by_year(self):
+        """Two-panel log10|f_root| and log10 σ_root histograms stratified by
+        edge time. Viridis colormap across years with a shared colorbar.
+        Pools over all feeds; requires ``self._edge_times``.
+        """
+        import matplotlib.pyplot as plt
+        from matplotlib.cm import ScalarMappable
+        from matplotlib.colors import Normalize
+
+        edge_times = self._edge_times
+        if edge_times is None:
+            return None
+
+        def _sort_key(t: str) -> tuple:
+            try:
+                return (0, int(t))
+            except (ValueError, TypeError):
+                return (1, str(t))
+        years_unique = sorted(set(edge_times.tolist()), key=_sort_key)
+        if not years_unique:
+            return None
+
+        # Numeric year axis for the colormap when years parse as floats; fall
+        # back to ordinal positions when they don't.
+        try:
+            year_vals = [float(y) for y in years_unique]
+        except (ValueError, TypeError):
+            year_vals = list(range(len(years_unique)))
+        norm = Normalize(vmin=min(year_vals), vmax=max(year_vals))
+        cmap = plt.get_cmap("viridis")
+
+        F_mat     = self._F
+        Sigma_mat = self._Sigma
+
+        # Shared bin edges from full data range so per-year curves are
+        # comparable.
+        finite_f = np.abs(F_mat[np.isfinite(F_mat) & (F_mat != 0)])
+        finite_s = Sigma_mat[np.isfinite(Sigma_mat) & (Sigma_mat > 0)]
+        if not finite_f.size or not finite_s.size:
+            return None
+        f_bins = np.linspace(np.log10(finite_f.min()), np.log10(finite_f.max()), 60)
+        s_bins = np.linspace(np.log10(finite_s.min()), np.log10(finite_s.max()), 60)
+
+        fig, axes = plt.subplots(1, 2, figsize=(13, 5))
+        title = f"Per-timestep root distributions — {self.label}" if self.label else "Per-timestep root distributions"
+        fig.suptitle(title, fontsize=13, fontweight="bold")
+
+        for year, yval in zip(years_unique, year_vals):
+            col_mask = (edge_times == year)
+            if not col_mask.any():
+                continue
+            color = cmap(norm(yval))
+
+            f_vals = np.abs(F_mat[:, col_mask]).ravel()
+            f_vals = f_vals[np.isfinite(f_vals) & (f_vals > 0)]
+            if f_vals.size:
+                axes[0].hist(np.log10(f_vals), bins=f_bins, histtype="step",
+                             color=color, linewidth=1.0, alpha=0.85)
+
+            s_vals = Sigma_mat[:, col_mask].ravel()
+            s_vals = s_vals[np.isfinite(s_vals) & (s_vals > 0)]
+            if s_vals.size:
+                axes[1].hist(np.log10(s_vals), bins=s_bins, histtype="step",
+                             color=color, linewidth=1.0, alpha=0.85)
+
+        axes[0].set_title("|f_root| per year", fontweight="bold")
+        axes[0].set_xlabel("log10 |f_root|")
+        axes[0].set_ylabel("count")
+        axes[0].grid(alpha=0.3)
+
+        axes[1].set_title("σ_root per year", fontweight="bold")
+        axes[1].set_xlabel("log10 σ_root")
+        axes[1].set_ylabel("count")
+        axes[1].grid(alpha=0.3)
+
+        sm = ScalarMappable(norm=norm, cmap=cmap)
+        sm.set_array([])
+        cbar = fig.colorbar(sm, ax=axes[1], pad=0.02)
+        cbar.set_label("year")
+
+        fig.tight_layout(rect=[0, 0, 1, 0.94])
         return fig
 
 
@@ -2276,7 +2452,6 @@ class SolverDiag:
         os.makedirs(odir, exist_ok=True)
 
         ts_triple = self._resolve_timesteps(timesteps)
-        tag = self.label.replace(" ", "_") or "solver"
 
         paths: list[str] = []
 
@@ -2357,8 +2532,7 @@ class SolverDiag:
         """Write {label}_provenance.md to *odir* and print a compact tree to stdout."""
         from datetime import datetime as _dt
 
-        tag       = self.label.replace(" ", "_") or "solver"
-        out_path  = os.path.join(odir, f"{tag}_provenance.md")
+        out_path  = os.path.join(odir, "provenance.md")
         now       = _dt.utcnow().isoformat(timespec="seconds") + "Z"
 
         cr = self._const_run

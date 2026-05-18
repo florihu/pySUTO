@@ -285,7 +285,7 @@ def main(label: str, feed_run_ids: list[str]) -> None:
     )
 
     # Snapshot post-aggregation distributions BEFORE imputation mutates them.
-    agg_diag = AggDiagnostic(agg_result, label=label)
+    agg_diag = AggDiagnostic(agg_result, acc_struct=acc, label=label)
     agg_diag.summary()
 
     # ── C  Imputation pipeline ────────────────────────────────────────────────
