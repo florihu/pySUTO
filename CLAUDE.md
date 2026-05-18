@@ -63,3 +63,15 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ---
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
+
+---
+
+## Project map (for LLM contributors)
+
+When you need project-specific context, see [README.md](README.md):
+
+- **Architecture and 4-stage pipeline** → README §2 (Stage 1 Datafeed, Stage 2 Aggregation & Imputation, Stage 3 Constraint building, Stage 4 Solver)
+- **Where each class lives** → README §3 (Module reference)
+- **End-to-end runnable example** → README §4 (Workflow)
+- **Module layout and one-way import direction** → README §5 (File structure)
+- **Test coverage map** → README §6 (Testing)
