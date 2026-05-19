@@ -1,0 +1,45 @@
+"""
+impute — Stage 2c imputation pipeline.
+
+Public surface (re-exported here so call sites can keep using
+``from pysuto.impute import X``):
+
+* :class:`BaseImputer`         — abstract base
+* :class:`ImputationEngine`    — orchestrator
+* :class:`ImputationLog`       — per-edge fill provenance table
+* :class:`ImputationMetadata`  — run-level per-step summary
+
+Imputers (run order is up to the engine's registration sequence):
+* :class:`ParametricImputer`   — CSV bidirectional pairs + λ directed relations
+* :class:`FormulaImputer`      — multi-source balance equations
+* :class:`TimeImputer`         — temporal interpolation / extrapolation
+* :class:`FlatPriorImputer`    — final fallback (f=0, large σ)
+
+Supporting dataclasses (used in :class:`ParametricImputer` /
+:class:`FormulaImputer` constructors):
+* :class:`ParametricRelation`, :class:`FormulaRelation`, :class:`ParamRef`,
+  :class:`SourceTerm`
+"""
+
+from .base       import BaseImputer
+from .engine     import ImputationEngine, ImputationLog, ImputationMetadata
+from .parametric import ParametricImputer, ParametricRelation, _reg_sensitivity
+from .formula    import FormulaImputer, FormulaRelation, ParamRef, SourceTerm
+from .time       import TimeImputer
+from .flat_prior import FlatPriorImputer
+
+__all__ = [
+    "BaseImputer",
+    "ImputationEngine",
+    "ImputationLog",
+    "ImputationMetadata",
+    "ParametricImputer",
+    "ParametricRelation",
+    "FormulaImputer",
+    "FormulaRelation",
+    "ParamRef",
+    "SourceTerm",
+    "TimeImputer",
+    "FlatPriorImputer",
+    "_reg_sensitivity",
+]
