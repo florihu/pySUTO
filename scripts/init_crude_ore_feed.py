@@ -59,22 +59,20 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 
 FEED_ID = "crude_ore"
-VERSION = 0
 ACC_ID  = "copper"
 
 # ---------------------------------------------------------------------------
-# FIXED PATHS  (match project folder structure; do not edit)
+# FIXED PATHS  (resolved at runtime via the input registry; do not edit)
 # ---------------------------------------------------------------------------
 
-_INPUT_ROOT  = os.path.join("data", "input", "feed")
-_FEED_VDIR   = os.path.join(_INPUT_ROOT, FEED_ID, f"v{VERSION}")
-
-RAW_DATA  = os.path.join(_FEED_VDIR, "values.csv")
-CONC_FILE = os.path.join(_FEED_VDIR, "conc.xlsx")
-META_FILE = os.path.join(_FEED_VDIR, "meta.xlsx")
-
+_INPUT_ROOT  = os.path.join("data", "input")
 ACC_DIR      = os.path.join("data", "proc", "acc")
 REGISTRY_DIR = os.path.join("data", "proc", "feed", "registry")
+
+# Filled in by main() once the input registry has been initialised.
+RAW_DATA: str  = ""
+CONC_FILE: str = ""
+META_FILE: str = ""
 
 # ---------------------------------------------------------------------------
 # LOGGING  — one timestamped file per run, plus console
@@ -85,7 +83,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from pysuto.logging import get_logger, add_run_handler
 
 _RUN_LOG = os.path.join(
-    "logs", f"{FEED_ID}_v{VERSION}_{datetime.now():%Y%m%d_%H%M%S}.log"
+    "logs", f"{FEED_ID}_{datetime.now():%Y%m%d_%H%M%S}.log"
 )
 add_run_handler(_RUN_LOG)
 logger = get_logger(__name__)
@@ -96,6 +94,7 @@ from pysuto.acc      import AccountingStructure
 from pysuto.meta     import DataFeedMetadata
 from pysuto.conc     import ConcordanceTable, WeightMatrix
 from pysuto.registry import DataFeedRegistry
+from pysuto.input_registry import InputRegistries
 from pysuto.feedpipe import (
     step_A_read_metadata,
     step_B_build_concordance,
@@ -266,6 +265,7 @@ def persist_and_register(
     F_src:  np.ndarray,
     result,
     meta:   DataFeedMetadata,
+    parents: dict,
 ):
     logger.info("=" * 60)
     logger.info("E  Registering feed")
@@ -274,10 +274,14 @@ def persist_and_register(
     registry.load_index()
     wm.odir = REGISTRY_DIR
 
-    entry = register_feed(wm, meta, result, registry, F_src=F_src)
+    entry = register_feed(
+        wm, meta, result, registry,
+        parents = parents,
+        F_src   = F_src,
+    )
 
-    logger.info("   feed_run_id      %s", entry.feed_run_id)
-    logger.info("   run dir          %s", entry.odir)
+    logger.info("   run_id           %s", entry.run_id)
+    logger.info("   run dir          %s", entry.run_dir)
     return entry
 
 
@@ -296,7 +300,7 @@ def diagnostics(
     logger.info("F  Generating diagnostics")
 
     diag = FeedDiagnostics(
-        feed_run_id = entry.feed_run_id,
+        feed_run_id = entry.run_id,
         feed_id     = FEED_ID,
         acc_id      = ACC_ID,
         raw_df      = raw_df,
@@ -305,10 +309,10 @@ def diagnostics(
         result      = result,
         conc_file   = CONC_FILE,
     )
-    diag.plot(odir=os.path.join(entry.odir, "diag"))
+    diag.plot(odir=os.path.join(entry.run_dir, "diag"))
     diag.summary()
 
-    logger.info("   written to: %s/", entry.odir)
+    logger.info("   written to: %s/", entry.run_dir)
     logger.info("   run log   : %s", _RUN_LOG)
 
 
@@ -328,11 +332,32 @@ def _check_file(path: str, label: str) -> None:
 # MAIN
 # ===========================================================================
 
+def _resolve_input_paths(inputs: InputRegistries) -> dict:
+    global RAW_DATA, CONC_FILE, META_FILE
+    feed_dir  = inputs.feed.resolve(FEED_ID)
+    RAW_DATA  = str(feed_dir / "values.csv")
+    CONC_FILE = str(feed_dir / "conc.xlsx")
+    META_FILE = str(feed_dir / "meta.xlsx")
+    return {
+        "acc":  inputs.acc.entry(ACC_ID),
+        "feed": inputs.feed.entry(FEED_ID),
+    }
+
+
 def main() -> None:
     logger.info("=" * 60)
-    logger.info("init_crude_ore_feed.py  —  feed=%s  version=%d  acc=%s",
-                FEED_ID, VERSION, ACC_ID)
+    logger.info("init_crude_ore_feed.py  —  feed=%s  acc=%s", FEED_ID, ACC_ID)
     logger.info("run log → %s", _RUN_LOG)
+
+    # 0 — input registries
+    inputs    = InputRegistries.initialize(root=_INPUT_ROOT)
+    input_ref = _resolve_input_paths(inputs)
+    logger.info("   input feed : %s v%d (code=%s)",
+                input_ref["feed"]["id"],
+                input_ref["feed"]["version"],
+                input_ref["feed"]["code"])
+    logger.info("   input acc  : %s v%d", input_ref["acc"]["id"],
+                input_ref["acc"]["version"])
 
     # A — accounting structure
     acc = load_acc_structure()
@@ -360,7 +385,8 @@ def main() -> None:
     result = propagate(wm, F_src, meta)
 
     # E — register + persist
-    entry = persist_and_register(ct, wm, F_src, result, meta)
+    parents = {"inputs": input_ref, "upstream": {}}
+    entry = persist_and_register(ct, wm, F_src, result, meta, parents=parents)
 
     # F — diagnostics
     diagnostics(raw_df, ct, F_src, result, entry)

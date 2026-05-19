@@ -1,23 +1,24 @@
 """
-run_optim_copper.py
-===================
-Stage 3b driver: solve the σ-weighted QP for the copper model using
-Clarabel, starting from a persisted ConstraintRun.
+init_run_solver.py
+==================
+Stage 4 driver: solve the σ-weighted QP using Clarabel, starting from a
+persisted ConstraintRun.
 
 Pipeline
 --------
 1  Load ClarabelSolver + ConstraintRun
-2  Feasibility pre-check across all timesteps (halts on infeasibility)
+2  Feasibility pre-check (defaults to first timestep only)
 3  Solve every timestep with warm-start prior  a_0(t) = a*(t-1)
-4  Persist OptimResults to data/proc/optim/
+4  Persist OptimResults to data/proc/opt/<opt_run_id>/
 
-═══════════════════════════════════════════════════════════
-USER CONFIGURATION  ←  only section you ever edit
-═══════════════════════════════════════════════════════════
+Usage::
+
+    python scripts/init_run_solver.py <const_run_id> [--label LABEL]
 """
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 from datetime import datetime
@@ -26,11 +27,10 @@ from datetime import datetime
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
 
-CONST_RUN_ID = "const_copper_20260513_091054_65b9133e"
-CONST_DIR    = os.path.join("data", "proc", "const")
-OUTPUT_DIR   = os.path.join("data", "proc", "opt")
-TIMESTEPS    = None          # None → all timesteps in the run
-FEASIBILITY_CHECK_FIRST_ONLY = True  # True → check only first timestep (fast); False → check all
+CONST_DIR  = os.path.join("data", "proc", "const")
+OUTPUT_DIR = os.path.join("data", "proc", "opt")
+TIMESTEPS  = None          # None → all timesteps in the run
+FEASIBILITY_CHECK_FIRST_ONLY = True
 
 # ---------------------------------------------------------------------------
 # END USER CONFIGURATION
@@ -42,34 +42,34 @@ from pysuto.solver  import ClarabelSolver
 from pysuto.diag    import SolverDiag
 from pysuto.logging import get_logger, add_run_handler
 
-_log = get_logger("run_optim_copper")
+_log = get_logger("init_run_solver")
 
 
-def main() -> None:
+def main(const_run_id: str, label: str = "") -> None:
     os.makedirs("logs", exist_ok=True)
     add_run_handler(
-        f"logs/run_optim_copper_{datetime.now():%Y%m%d_%H%M%S}.log"
+        f"logs/init_run_solver_{datetime.now():%Y%m%d_%H%M%S}.log"
     )
 
-    _log.info("=== run_optim_copper START ===")
+    _log.info("=== init_run_solver START ===")
     _log.info("Loading ClarabelSolver (const_dir=%s)", CONST_DIR)
     solver = ClarabelSolver(const_dir=CONST_DIR)
 
-    _log.info("Solving ConstraintRun '%s'", CONST_RUN_ID)
+    _log.info("Solving ConstraintRun '%s'", const_run_id)
     results = solver.solve_all(
-        CONST_RUN_ID,
-        timesteps=TIMESTEPS,
-        feasibility_check_first_only=FEASIBILITY_CHECK_FIRST_ONLY,
+        const_run_id,
+        timesteps                    = TIMESTEPS,
+        feasibility_check_first_only = FEASIBILITY_CHECK_FIRST_ONLY,
     )
 
     optim_run_id = solver.persist(
-        run_id        = CONST_RUN_ID,
-        results       = results,
-        output_dir    = OUTPUT_DIR,
-        const_run_id  = CONST_RUN_ID,
+        run_id       = const_run_id,
+        results      = results,
+        output_dir   = OUTPUT_DIR,
+        const_run_id = const_run_id,
+        label        = label,
     )
 
-    # Brief end-of-run summary
     total_iter   = sum(r.iterations   for r in results.values())
     total_time   = sum(r.solve_time_s for r in results.values())
     max_residual = max(
@@ -82,15 +82,23 @@ def main() -> None:
     )
     _log.info("OptimRun saved as '%s' under %s", optim_run_id, OUTPUT_DIR)
 
-    # ------------------------------------------------------------------
-    # Solver diagnostics (Stage 3c) — 15-figure portfolio under {run}/diag
-    # ------------------------------------------------------------------
-    diag = SolverDiag(results, solver.load_run(CONST_RUN_ID), label="copper")
+    diag = SolverDiag(results, solver.load_run(const_run_id),
+                      label=label or optim_run_id)
     diag.summary()
     diag.plot(odir=os.path.join(OUTPUT_DIR, optim_run_id, "diag"))
 
-    _log.info("=== run_optim_copper DONE ===")
+    _log.info("=== init_run_solver DONE ===")
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Solve persisted ConstraintRun.")
+    parser.add_argument(
+        "const_run_id",
+        help="ConstraintRun id from init_constraints.py (e.g. const_20260518_143120_c1d4e5f6)",
+    )
+    parser.add_argument(
+        "--label", default="",
+        help="Optional label for the optim run sidecar.",
+    )
+    args = parser.parse_args()
+    main(args.const_run_id, args.label)

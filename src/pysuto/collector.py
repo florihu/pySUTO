@@ -81,9 +81,9 @@ class FeedCollector:
         Specify which feed runs to collect.
 
         Each entry is either:
-          * a ``feed_id`` string                → latest registered run wins
-          * a bare ``feed_run_id`` string       → that exact run is loaded
-          * a ``(feed_id, feed_run_id)`` tuple  → pinned run for *feed_id*
+          * an input feed-id string             → latest registered run wins
+          * a bare ``run_id`` string            → that exact run is loaded
+          * an ``(input_feed_id, run_id)`` tuple → pinned run for *input_feed_id*
 
         Returns self so calls can be chained.
 
@@ -104,28 +104,40 @@ class FeedCollector:
                 pinned = None
                 key    = item
             if key not in self._registry:
-                known = (self._registry.feed_ids()
-                         if hasattr(self._registry, "feed_ids")
-                         else self._registry.ids())
+                if hasattr(self._registry, "input_feed_ids"):
+                    known = self._registry.input_feed_ids()
+                elif hasattr(self._registry, "run_ids"):
+                    known = self._registry.run_ids()
+                else:
+                    known = self._registry.ids()
                 raise KeyError(
                     f"Feed key '{key}' not found in registry. "
-                    f"Known feed_ids: {known}"
+                    f"Known input feed_ids: {known}"
                 )
             try:
-                entry         = self._registry[key]
-                registry_path = entry.odir
-                feed_run_id   = entry.feed_run_id
-                feed_id_lab   = entry.feed_id
+                entry         = self._registry.resolve(key)
+                registry_path = entry.run_dir
+                run_id        = entry.run_id
+                # Resolve the input-feed-id via the sidecar (since run-id
+                # no longer embeds it).
+                try:
+                    sidecar    = self._registry.load_sidecar(key)
+                    feed_id_lab = (sidecar.get("parents", {})
+                                          .get("inputs", {})
+                                          .get("feed", {})
+                                          .get("id")) or fid
+                except (FileNotFoundError, AttributeError, KeyError):
+                    feed_id_lab = fid
             except (TypeError, AttributeError, KeyError):
                 # Duck-typed mocks in tests (no entry object); fall back.
                 registry_path = None
-                feed_run_id   = pinned
+                run_id        = pinned
                 feed_id_lab   = fid
             lookup_keys.append(key)
             feed_ids_resolved.append(feed_id_lab)
             triples.append({
                 "feed_id":       feed_id_lab,
-                "feed_run_id":   feed_run_id,
+                "feed_run_id":   run_id,
                 "registry_path": registry_path,
             })
         self._lookup_keys = lookup_keys

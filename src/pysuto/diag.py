@@ -916,23 +916,16 @@ class ImpDiagnostic:
         ei      = acc.edge_index.set_index("edge_id")
         time_df = time_df.join(ei[["from_id", "to_id", "time", "valuation"]], on="edge_id")
 
-        # Top-6 groups by mean |f_after|
+        # Rank groups by mean |f_after|, then pick top-6 that have ≥1
+        # bilateral-valid imputed point (avoids showing empty panels).
         group_keys = ["from_id", "to_id", "valuation"]
         grp_mean   = (
             time_df.groupby(group_keys)["f_after"]
             .apply(lambda x: np.abs(x).mean())
             .sort_values(ascending=False)
         )
-        top_groups = grp_mean.head(6).index.tolist()
-        if not top_groups:
+        if grp_mean.empty:
             return None
-
-        n     = len(top_groups)
-        ncols = min(3, n)
-        nrows = (n + ncols - 1) // ncols
-        fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 4 * nrows), squeeze=False)
-        suffix = f" — {self.label}" if self.label else ""
-        fig.suptitle(f"TimeImputer timeseries{suffix}", fontsize=13, fontweight="bold")
 
         try:
             time_order = {t: float(t) for t in acc.time_range}
@@ -942,6 +935,47 @@ class ImpDiagnostic:
         agg_f        = self.agg_result.f_agg
         imputed_set  = set(log_df["edge_id"].values)
         time_imp_set = set(time_df["edge_id"].values)
+
+        def _has_valid_imputed(key):
+            from_id, to_id, valuation = key
+            grp = ei[
+                (ei["from_id"] == from_id) &
+                (ei["to_id"]   == to_id)   &
+                (ei["valuation"] == valuation)
+            ]
+            raw_ts: set[float] = set()
+            for eid, row in grp.iterrows():
+                f_val = agg_f[eid]
+                if np.isfinite(f_val) and eid not in imputed_set:
+                    raw_ts.add(time_order.get(str(row["time"]), 0))
+            for eid, row in grp.iterrows():
+                if eid not in time_imp_set:
+                    continue
+                f_val = agg_f[eid]
+                if not np.isfinite(f_val):
+                    continue
+                t_num = time_order.get(str(row["time"]), 0)
+                if (any((t_num - d) in raw_ts for d in (1, 2, 3)) and
+                        any((t_num + d) in raw_ts for d in (1, 2, 3))):
+                    return True
+            return False
+
+        top_groups = []
+        for key in grp_mean.index:
+            if _has_valid_imputed(key):
+                top_groups.append(key)
+                if len(top_groups) == 6:
+                    break
+
+        if not top_groups:
+            return None
+
+        n     = len(top_groups)
+        ncols = min(3, n)
+        nrows = (n + ncols - 1) // ncols
+        fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 4 * nrows), squeeze=False)
+        suffix = f" — {self.label}" if self.label else ""
+        fig.suptitle(f"TimeImputer timeseries{suffix}", fontsize=13, fontweight="bold")
 
         for panel_idx, key in enumerate(top_groups):
             ax = axes[panel_idx // ncols][panel_idx % ncols]
@@ -2263,15 +2297,25 @@ class SolverDiag:
             )
         entry = registry[opt_run_id]
 
-        # Reconstruct ConstraintRun
-        const_run = ConstraintRunRegistry(const_dir).load(entry["const_run_id"])
+        # Stage-4 sidecar carries parents + timesteps + per_timestep telemetry.
+        sidecar_path = os.path.join(output_dir, opt_run_id, "metadata.json")
+        with open(sidecar_path) as fh:
+            sidecar = json.load(fh)
+        const_run_id   = (sidecar.get("parents", {})
+                                  .get("upstream", {})
+                                  .get("const_run_id"))
+        summary        = sidecar.get("stage_summary", {})
+        timesteps      = summary.get("timesteps", [])
+        per_timestep   = summary.get("per_timestep", {})
 
-        # Reconstruct each OptimResult from the .npz + per_timestep entry
+        const_run = ConstraintRunRegistry(const_dir).load(const_run_id)
+
+        # Reconstruct each OptimResult from the .npz + sidecar per_timestep.
         ts_dir = os.path.join(output_dir, opt_run_id, "timesteps")
         results: dict[str, OptimResult] = {}
-        for t in entry["timesteps"]:
+        for t in timesteps:
             npz = np.load(os.path.join(ts_dir, f"t_{t}.npz"))
-            per = entry["per_timestep"][t]
+            per = per_timestep[t]
             results[t] = OptimResult(
                 timestep      = t,
                 F_opt         = npz["F_opt"],
@@ -2299,19 +2343,24 @@ class SolverDiag:
                 from pysuto.registry import ImputationRunRegistry, DataFeedRegistry
                 imp_reg = ImputationRunRegistry(imp_dir)
                 if agg_id in imp_reg._index:
-                    instance._imp_index_entry = imp_reg._index[agg_id]
-                    feed_ids = instance._imp_index_entry.get("feed_ids", [])
+                    imp_sidecar = imp_reg.load_sidecar(agg_id)
+                    instance._imp_index_entry = imp_sidecar
+                    feed_run_ids = (imp_sidecar.get("parents", {})
+                                                 .get("upstream", {})
+                                                 .get("feed_run_ids", []))
                     feed_reg = DataFeedRegistry(feed_dir)
                     feed_reg.load_index()
                     instance._feed_entries = []
-                    for fid in feed_ids:
+                    for fid in feed_run_ids:
                         try:
                             e = feed_reg.resolve(fid)
-                            instance._feed_entries.append(e.to_dict())
+                            instance._feed_entries.append(e.to_index_dict())
                         except KeyError:
                             instance._feed_entries.append({
-                                "feed_id": fid, "feed_run_id": "(not registered)",
-                                "label": "", "created_at": "—", "odir": "—",
+                                "run_id":     fid,
+                                "label":      "(not registered)",
+                                "created_at": "—",
+                                "stage":      "feed",
                             })
             except Exception:
                 pass  # best-effort; missing registries are silently skipped

@@ -38,6 +38,7 @@ import scipy.sparse as sp
 import clarabel
 
 from .constraints import ConstraintRun, ConstraintRunRegistry
+from .registry import BaseOutputRegistry, _RegistryEntry, build_sidecar, make_run_id
 from .logging import get_logger
 
 logger = get_logger("pysuto.solver")
@@ -635,22 +636,29 @@ class ClarabelSolver:
         label:      str = "",
     ) -> str:
         """
-        Persist results under ``{output_dir}/{run_id}/``.
+        Persist results under ``{output_dir}/{optim_run_id}/``.
 
-        Layout:
+        Layout::
+
             {output_dir}/
-            ├── registry.json                  ← master index across optim runs
-            └── {optim_run_id}/
+            ├── registry.json              ← 4-field harmonized index
+            └── opt_<ts>_<code>/
+                ├── metadata.json          ← harmonized sidecar
                 └── timesteps/
-                    └── t_{label}.npz   (F_opt, eps_opt, c_star, residuals)
+                    └── t_{label}.npz      (F_opt, eps_opt, c_star, residuals)
+
+        The first positional argument (``run_id``) is the *upstream*
+        ``const_run_id`` (kept for backwards-compatible call signature).
+        The newly minted *output* id is returned and starts with ``opt_``.
         """
-        optim_run_id = (
-            f"optim_{run_id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
-        )
+        const_id = const_run_id or run_id
+        optim_run_id = make_run_id("opt")
+
         run_dir = os.path.join(output_dir, optim_run_id)
         ts_dir  = os.path.join(run_dir, "timesteps")
         os.makedirs(ts_dir, exist_ok=True)
 
+        # ── 1. per-timestep arrays ────────────────────────────────────
         for t, res in results.items():
             arrays = {
                 "F_opt":     res.F_opt,
@@ -662,30 +670,50 @@ class ClarabelSolver:
                 arrays["iter_history"] = res.iter_history
             np.savez(os.path.join(ts_dir, f"t_{t}.npz"), **arrays)
 
-        entry = {
-            "optim_run_id": optim_run_id,
-            "const_run_id": const_run_id or run_id,
-            "created_at":   datetime.utcnow().isoformat(),
-            "label":        label,
-            "timesteps":    list(results.keys()),
-            "per_timestep": {
-                t: {
-                    "objective":     res.objective,
-                    "iterations":    res.iterations,
-                    "solve_time_s":  res.solve_time_s,
-                    "solver_status": res.solver_status,
-                    "convergence":   res.convergence,
-                }
-                for t, res in results.items()
-            },
+        # ── 2. sidecar metadata.json ──────────────────────────────────
+        created_at = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+        per_timestep = {
+            t: {
+                "objective":     res.objective,
+                "iterations":    res.iterations,
+                "solve_time_s":  res.solve_time_s,
+                "solver_status": res.solver_status,
+                "convergence":   res.convergence,
+            }
+            for t, res in results.items()
         }
+        sidecar = build_sidecar(
+            run_id     = optim_run_id,
+            stage      = "opt",
+            label      = label,
+            created_at = created_at,
+            parents    = {
+                "inputs":   {},
+                "upstream": {"const_run_id": const_id},
+            },
+            stage_config  = {},
+            stage_summary = {
+                "timesteps":    list(results.keys()),
+                "per_timestep": per_timestep,
+            },
+        )
+        with open(os.path.join(run_dir, "metadata.json"), "w") as fh:
+            json.dump(sidecar, fh, indent=2)
+
+        # ── 3. trimmed top-level index ────────────────────────────────
         registry_path = os.path.join(output_dir, "registry.json")
         if os.path.exists(registry_path):
             with open(registry_path) as fh:
                 registry = json.load(fh)
         else:
             registry = {}
-        registry[optim_run_id] = entry
+        registry[optim_run_id] = {
+            "run_id":     optim_run_id,
+            "stage":      "opt",
+            "label":      label,
+            "created_at": created_at,
+        }
+        os.makedirs(output_dir, exist_ok=True)
         with open(registry_path, "w") as fh:
             json.dump(registry, fh, indent=2)
 

@@ -33,7 +33,9 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
+from pathlib import Path
 
+from .registry import BaseOutputRegistry, build_sidecar, make_run_id
 from .impute import (
     _build_edge_lookup,
     _expand_edge_index,
@@ -1018,16 +1020,15 @@ class ConstraintRun:
 # ConstraintRunRegistry
 # =============================================================================
 
-class ConstraintRunRegistry:
-    """
-    Lightweight JSON registry for ConstraintRun objects.
+class ConstraintRunRegistry(BaseOutputRegistry):
+    """Stage-3 registry — one run = one persisted ``ConstraintRun``.
 
-    Mirrors DataFeedRegistry: save() writes files, load() reloads, summary_df() lists runs.
+    Per-run directory layout::
 
-    Directory layout:
-        {storage_dir}/
+        data/proc/const/
         ├── registry.json
-        └── {run_id}/
+        └── const_<ts>_<code>/
+            ├── metadata.json     ← harmonized sidecar (parents/config/summary)
             ├── G.npz
             ├── row_meta.parquet
             ├── a0.npy
@@ -1038,28 +1039,35 @@ class ConstraintRunRegistry:
                 └── t_{label}.npz
     """
 
-    def __init__(self, storage_dir: str = "data/proc/const", label: str = "ConstraintRunRegistry"):
-        self.storage_dir = storage_dir
-        self._index: dict[str, dict] = {}
-        self._index_path = os.path.join(storage_dir, "registry.json")
-        os.makedirs(storage_dir, exist_ok=True)
-        self._load_index()
+    STAGE = "const"
+
+    def __init__(
+        self,
+        storage_dir: str = "data/proc/const",
+        label: str = "ConstraintRunRegistry",
+    ):
+        super().__init__(storage_dir=storage_dir)
+        Path(storage_dir).mkdir(parents=True, exist_ok=True)
+        self.load_index()
         self.label = label
 
-    def _load_index(self):
-        if os.path.exists(self._index_path):
-            with open(self._index_path) as f:
-                self._index = json.load(f)
+    def register(
+        self,
+        run: ConstraintRun,
+        *,
+        parents:       Optional[dict] = None,
+        stage_config:  Optional[dict] = None,
+        stage_summary: Optional[dict] = None,
+    ) -> None:
+        """Persist *run* and append its 4-field entry to the index.
 
-    def _save_index(self):
-        with open(self._index_path, "w") as f:
-            json.dump(self._index, f, indent=2)
-
-    def register(self, run: ConstraintRun) -> None:
-        run_dir = os.path.join(self.storage_dir, run.run_id)
-        os.makedirs(run_dir, exist_ok=True)
+        ``parents`` defaults to ``{"inputs": {"acc": {"id": run.acc_id, ...}},
+        "upstream": {"imp_run_id": run.agg_id}}`` when omitted, so existing
+        call sites keep working while still emitting a harmonized sidecar.
+        """
+        run_dir = self._make_run_dir(run.run_id)
         ts_dir  = os.path.join(run_dir, "timesteps")
-        os.makedirs(ts_dir, exist_ok=True)
+        Path(ts_dir).mkdir(parents=True, exist_ok=True)
 
         sp.save_npz(os.path.join(run_dir, "G.npz"), run.G)
         run.row_meta.to_parquet(os.path.join(run_dir, "row_meta.parquet"), index=False)
@@ -1068,26 +1076,46 @@ class ConstraintRunRegistry:
         np.save(os.path.join(run_dir, "u.npy"),       run.u)
         np.save(os.path.join(run_dir, "l.npy"),       run.l)
 
-        for label, td in run.timestep_data.items():
+        for ts_label, td in run.timestep_data.items():
             np.savez(
-                os.path.join(ts_dir, f"t_{label}.npz"),
+                os.path.join(ts_dir, f"t_{ts_label}.npz"),
                 c=td["c"], sigma_c=td["sigma_c"],
             )
 
-        self._index[run.run_id] = {
-            "acc_id":     run.acc_id,
-            "label":      run.label,
-            "agg_id":     run.agg_id,
-            "created_at": run.created_at,
-            "label":      run.label,
-            "n_rows":     run.G.shape[0],
-            "n_edges":    run.G.shape[1],
-            "timesteps":  list(run.timestep_data.keys()),
-            "p":          run._p,
+        if parents is None:
+            parents = {
+                "inputs":   {"acc": {"id": run.acc_id}},
+                "upstream": {"imp_run_id": run.agg_id} if run.agg_id else {},
+            }
 
+        summary = (stage_summary or {}) | {
+            "n_rows":    int(run.G.shape[0]),
+            "n_edges":   int(run.G.shape[1]),
+            "timesteps": list(run.timestep_data.keys()),
         }
-        self._save_index()
-        _log.info("ConstraintRun '%s' registered (%d G rows)", run.run_id, run.G.shape[0])
+        config = (stage_config or {}) | {"p": run._p}
+
+        sidecar = build_sidecar(
+            run_id        = run.run_id,
+            stage         = self.STAGE,
+            label         = run.label,
+            created_at    = run.created_at,
+            parents       = parents,
+            stage_config  = config,
+            stage_summary = summary,
+        )
+        self._write_sidecar(run_dir, sidecar)
+
+        self._add_entry(
+            run_id     = run.run_id,
+            label      = run.label,
+            created_at = run.created_at,
+        )
+        self.save()
+        _log.info(
+            "ConstraintRun '%s' registered (%d G rows)",
+            run.run_id, run.G.shape[0],
+        )
 
     def load(self, run_id: str) -> ConstraintRun:
         if run_id not in self._index:
@@ -1102,11 +1130,17 @@ class ConstraintRunRegistry:
         u        = np.load(os.path.join(run_dir, "u.npy"))
         l        = np.load(os.path.join(run_dir, "l.npy"))
 
-        meta    = self._index[run_id]
-        ts_data = {}
-        for label in meta["timesteps"]:
-            npz = np.load(os.path.join(ts_dir, f"t_{label}.npz"))
-            ts_data[label] = {"c": npz["c"], "sigma_c": npz["sigma_c"]}
+        sidecar  = self._read_sidecar(run_id)
+        summary  = sidecar.get("stage_summary", {})
+        config   = sidecar.get("stage_config", {})
+        parents  = sidecar.get("parents", {})
+        acc_id   = (parents.get("inputs", {}).get("acc", {}).get("id")) or ""
+        agg_id   = (parents.get("upstream", {}).get("imp_run_id")) or ""
+
+        ts_data: dict[str, dict] = {}
+        for ts_label in summary.get("timesteps", []):
+            npz = np.load(os.path.join(ts_dir, f"t_{ts_label}.npz"))
+            ts_data[ts_label] = {"c": npz["c"], "sigma_c": npz["sigma_c"]}
 
         return ConstraintRun(
             G             = G,
@@ -1117,18 +1151,43 @@ class ConstraintRunRegistry:
             l             = l,
             timestep_data = ts_data,
             run_id        = run_id,
-            acc_id        = meta["acc_id"],
-            agg_id        = meta["agg_id"],
-            created_at    = meta["created_at"],
-            label         = meta.get("label", ""),
+            acc_id        = acc_id,
+            agg_id        = agg_id,
+            created_at    = sidecar.get("created_at", ""),
+            label         = sidecar.get("label", ""),
+            _p            = float(config.get("p", 1.3)),
         )
+
+    def load_sidecar(self, run_id: str) -> dict:
+        if run_id not in self._index:
+            raise KeyError(f"Run '{run_id}' not in registry")
+        return self._read_sidecar(run_id)
 
     def summary_df(self) -> pd.DataFrame:
         if not self._index:
             return pd.DataFrame()
-        return pd.DataFrame.from_dict(self._index, orient="index").reset_index(
-            names="run_id"
-        )
+        rows = []
+        for run_id, entry in self._index.items():
+            row = entry.to_index_dict()
+            try:
+                sc = self._read_sidecar(run_id)
+                row.update({
+                    "agg_id":     (sc.get("parents", {})
+                                       .get("upstream", {})
+                                       .get("imp_run_id", "")),
+                    "acc_id":     (sc.get("parents", {})
+                                       .get("inputs", {})
+                                       .get("acc", {})
+                                       .get("id", "")),
+                    "n_rows":     sc.get("stage_summary", {}).get("n_rows"),
+                    "n_edges":    sc.get("stage_summary", {}).get("n_edges"),
+                    "timesteps":  sc.get("stage_summary", {}).get("timesteps", []),
+                    "p":          sc.get("stage_config", {}).get("p"),
+                })
+            except Exception:
+                pass
+            rows.append(row)
+        return pd.DataFrame(rows)
 
 
 # =============================================================================
@@ -1252,6 +1311,7 @@ class ConstraintEngine:
         label:     str = "",
         persist:   bool = True,
         diag_plot: bool = False,
+        parents:   Optional[dict] = None,
     ) -> ConstraintRun:
         """
         Build G once, then assemble c(t) / sigma_c(t) for each timestep.
@@ -1375,10 +1435,7 @@ class ConstraintEngine:
 
         # ── 3. Assemble ConstraintRun ──────────────────────────────────
         if run_id is None:
-            run_id = (
-                f"const_{acc.id}_{datetime.utcnow().strftime('%Y%m%d_%H%M%S')}"
-                f"_{uuid.uuid4().hex[:8]}"
-            )
+            run_id = make_run_id("const")
 
         cr = ConstraintRun(
             G             = G_static,
@@ -1391,7 +1448,7 @@ class ConstraintEngine:
             run_id        = run_id,
             acc_id        = acc.id,
             agg_id        = agg_id,
-            created_at    = datetime.utcnow().isoformat(),
+            created_at    = datetime.utcnow().isoformat(timespec="seconds") + "Z",
             label         = label,
             _p            = self._p,
         )
@@ -1399,7 +1456,7 @@ class ConstraintEngine:
         self._check(cr)
 
         if persist:
-            self._registry.register(cr)
+            self._registry.register(cr, parents=parents)
 
         if diag_plot:
             from .diag import ConstDiagnostic

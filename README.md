@@ -507,7 +507,8 @@ optim_run_id = solver.persist(
 | [feedpipe.py](src/pysuto/feedpipe.py) | `run_feed_pipeline`, `step_A_read_metadata`/`_B_build_concordance`/`_C_build_weight_matrix`/`_D_apply_and_propagate`, `register_feed` | Stage 1 orchestration. |
 | [unc.py](src/pysuto/unc.py) | `PedigreeScores`, `UncertaintyMixin`, `PropagationResult` | Pedigree→CV (Laner et al.); Lp / power-mean propagation through `W`. |
 | [meta.py](src/pysuto/meta.py) | `DataFeedMetadata` | Parses the Excel sidecar. |
-| [registry.py](src/pysuto/registry.py) | `DataFeedRegistry`, `_RegistryEntry` | JSON index + per-feed metadata.json / pickle / result.npz. |
+| [registry.py](src/pysuto/registry.py) | `BaseOutputRegistry`, `DataFeedRegistry`, `ImputationRunRegistry`, `_RegistryEntry`, `make_run_id`, `build_sidecar` | Harmonized output registries (Stages 1 & 2); shared run-id pattern + sidecar schema. |
+| [input_registry.py](src/pysuto/input_registry.py) | `InputRegistry`, `InputRegistries` | Per-kind versioned snapshot store for `feed`, `acc`, `params` inputs; hardlink dedup; auto-bump on content-hash change. |
 | [utils.py](src/pysuto/utils.py) | `_NpEncoder`, io helpers | JSON serialisation, numpy-safe dump/load. |
 | [logging.py](src/pysuto/logging.py) | `get_logger` | Structured run logging. |
 | [collector.py](src/pysuto/collector.py) | `FeedCollector` | Select feeds, align onto common edge index, produce `AggregationResult`. |
@@ -527,6 +528,7 @@ from pysuto.acc import AccountingStructure
 from pysuto.collector import FeedCollector
 from pysuto.feedpipe import run_feed_pipeline
 from pysuto.registry import DataFeedRegistry
+from pysuto.input_registry import InputRegistries
 from pysuto.impute import (
     ImputationEngine, ParametricImputer, ParametricRelation,
     FormulaImputer, TimeImputer, FlatPriorImputer,
@@ -542,77 +544,114 @@ P_PROP        = 1.3        # global Lp exponent
 Q_REG         = 3.0        # ParametricImputer backward-branch knee sharpness
 ALPHA_MIN_REG = 0.05       # ParametricImputer inverse-multiplier floor
 
+# ── Stage 0: initialise the input registries (scan-and-bump) ─────────────
+# Walks data/input/{feed,acc,params}/<id>/current/ and bumps any id whose
+# load-bearing files have changed since the last registered version.
+inputs = InputRegistries.initialize(root="data/input")
+
 # ── Stage 1: one feed pipeline run per data source ────────────────────────
 registry = DataFeedRegistry(odir="data/proc/feed/registry")
 registry.load_index()
 
-for feed_id, excel_path, raw_df, F_src in feed_configs:
-    wm, meta, result = run_feed_pipeline(
-        excel_path=excel_path,
-        raw_df=raw_df,
-        acc_struct=acc,
-        sector_map_df=..., region_map_df=...,
-        time_map_df=..., valuation_map_df=..., var_map_df=...,
-        F_src=F_src,
-        registry=registry,
-        feed_id=feed_id,
-        aux_col="Supply_Use",
-        allow_unmatched_edges=True,
+for feed_id, raw_df, F_src in feed_configs:
+    feed_dir = inputs.feed.resolve(feed_id)        # path to <id>/v{latest}/
+    parents  = {
+        "inputs": {
+            "acc":  inputs.acc.entry("copper"),    # {id, version, date, code, label}
+            "feed": inputs.feed.entry(feed_id),
+        },
+        "upstream": {},
+    }
+    wm, meta, result, entry = run_feed_pipeline(
+        excel_path     = str(feed_dir / "meta.xlsx"),
+        raw_df         = raw_df,
+        acc_struct     = acc,
+        sector_map_df  = ..., region_map_df = ...,
+        time_map_df    = ..., valuation_map_df = ..., var_map_df = ...,
+        F_src          = F_src,
+        registry       = registry,
+        feed_id        = feed_id,
+        aux_col        = "Supply_Use",
+        allow_unmatched_edges = True,
+        parents        = parents,
     )
 
 # ── Stage 2: aggregation + imputation ─────────────────────────────────────
 collector = FeedCollector(registry=registry, acc_struct=acc)
-collector.select(["baci", "crude_ore"])           # or [("baci", 1), ...] for a pinned version
+collector.select(["baci", "crude_ore"])           # input feed-ids → latest run wins
 agg_result = collector.aggregate(p=P_PROP)
 
-agg_diag = AggDiagnostic(agg_result, acc_struct=acc, label="copper")   # snapshot BEFORE imputation mutates
+agg_diag = AggDiagnostic(agg_result, acc_struct=acc, label="copper")
 agg_diag.summary()
 
-scrap_return = ParametricRelation(
-    description="Scrap return ≈ 12% of cathode→FU flow",
-    target=lambda ei: (ei.sector_from == "SR") & (ei.sector_to == "FU"),
-    sources=lambda ei: (ei.sector_from == "Cathode") & (ei.sector_to == "FU"),
-    coefficients=[0.12], epsilon=0.25,
-)
-
+# Config-table-driven imputer registration: every binding resolves its
+# params.csv through the input registry, so the run's sidecar records the
+# exact (param_id, version) that fed each fill.
+IMP_BINDINGS = [
+    ("eff",        ParametricImputer, dict(p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG)),
+    ("ore_grade",  ParametricImputer, dict(p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG)),
+    ("conc",       ParametricImputer, dict(p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG)),
+    ("flat_prior", FlatPriorImputer,  dict(p=P_PROP, default_cv=0.3)),
+]
 engine = ImputationEngine(acc_struct=acc)
-engine.register(ParametricImputer.from_csv(
-    "data/input/params/copper_conc_params.csv", acc_struct=acc,
-    p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG))
-engine.register(ParametricImputer.from_csv(
-    "data/input/params/copper_efficiency_params.csv", acc_struct=acc,
-    p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG))
-engine.register(ParametricImputer(
-    relations=[scrap_return], p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG))
+param_refs = []
+for param_id, Builder, kwargs in IMP_BINDINGS:
+    csv_path = inputs.params.resolve(param_id) / "params.csv"
+    engine.register(Builder.from_csv(str(csv_path), acc_struct=acc, **kwargs))
+    param_refs.append(inputs.params.entry(param_id))
+
+# Optional: lambda-driven FormulaImputer (no params.csv).
 engine.register(FormulaImputer(relations=[domestic_matte], p=P_PROP))
 engine.register(TimeImputer(window=5, method="linear", gap_inflation=1.05, p=P_PROP))
-engine.register(FlatPriorImputer.from_csv(
-    "data/input/params/flat_prior_cv.csv", acc_struct=acc,
-    default_cv=0.3, p=P_PROP))
 
 agg_result = engine.run(agg_result)
-
 agg_diag.plot(odir="data/proc/imp/copper/diag", show=False)
 ImpDiagnostic(agg_result, acc_struct=acc, label="copper").plot(odir="data/proc/imp/copper/diag")
+
+from pysuto.registry import ImputationRunRegistry
+imp_registry = ImputationRunRegistry(storage_dir="data/proc/imp")
+imp_run_id = imp_registry.register(
+    agg_result,
+    label    = "copper baseline",
+    parents  = {
+        "inputs": {"acc": inputs.acc.entry("copper"), "params": param_refs},
+        "upstream": {"feed_run_ids": [s["feed_run_id"] for s in collector.selected]},
+    },
+    imputers = engine.imputers,
+)
 
 # ── Stage 3: build the constraint system ──────────────────────────────────
 const_engine = ConstraintEngine(acc_struct=acc, p=P_PROP)
 const_engine.register(MassBalanceBuilder())
 const_engine.register(SumConstraintBuilder.from_acc_struct(acc, sigma_fraction=0.05))
-const_engine.register(SumConstraintBuilder.from_csv(
-    "data/input/params/sum_constraints.csv", acc_struct=acc))
-const_engine.register(RatioConstraintBuilder.from_csv(
-    "data/input/params/copper_params.csv", acc_struct=acc))
-const_engine.register(RatioBoundBuilder.from_csv(
-    "data/input/params/copper_params.csv", acc_struct=acc))
+
+# Two builders consume the same param_id ("conc", "eff").
+CONST_BINDINGS = [
+    ("conc", RatioConstraintBuilder, {}),
+    ("eff",  RatioConstraintBuilder, {}),
+    ("conc", RatioBoundBuilder,      {}),
+    ("eff",  RatioBoundBuilder,      {}),
+]
+for param_id, Builder, kwargs in CONST_BINDINGS:
+    const_engine.register(Builder.from_csv(
+        str(inputs.params.resolve(param_id) / "params.csv"),
+        acc_struct=acc, **kwargs))
 const_engine.register(FlowBoundsBuilder())
 
 constraint_run = const_engine.run(
-    agg_result=agg_result,
-    timesteps=[str(t) for t in range(2010, 2024)],
-    agg_id="copper_agg_v0",
+    agg_result = agg_result,
+    timesteps  = [str(t) for t in range(2010, 2024)],
+    label      = "copper",
+    parents    = {
+        "inputs": {
+            "acc":    inputs.acc.entry("copper"),
+            "params": [inputs.params.entry("conc"), inputs.params.entry("eff")],
+        },
+        "upstream": {"imp_run_id": imp_run_id},
+    },
 )
-# Persists to data/proc/const/{run_id}/
+# Persists to data/proc/const/<const_run_id>/ where const_run_id is
+# const_<YYYYMMDD_HHMMSS>_<8-char-uuid>.
 
 # ── Stage 4: solve per timestep ───────────────────────────────────────────
 solver = ClarabelSolver(const_dir="data/proc/const")
@@ -632,6 +671,78 @@ optim_run_id = solver.persist(
 # results[t].residuals = G @ F_opt - c   (≈0 on hard rows, ≈ε on free rows)
 ```
 
+### Output run-id format
+
+All four stages mint run-ids using one harmonized pattern:
+
+```
+{stage}_{YYYYMMDD_HHMMSS}_{8-char-uuid4-hex}
+```
+
+`stage ∈ {feed, imp, const, opt}`.  No label, feed-id, acc-id, or parent
+run-id is embedded — the label lives only in the registry, and parent
+references live in the per-run sidecar `metadata.json`.
+
+### Per-run sidecar `metadata.json`
+
+Every run writes a self-contained sidecar at `<run_dir>/metadata.json`:
+
+```jsonc
+{
+  "run_id":     "imp_20260518_143055_b7e2f3a1",
+  "stage":      "imp",
+  "label":      "copper baseline",
+  "created_at": "2026-05-18T14:30:55Z",
+  "parents": {
+    "inputs": {                                     // input-registry refs
+      "acc":    {"id": "copper", "version": 2, "date": "...", "code": "...", "label": "..."},
+      "params": [{"id": "conc", "version": 2, ...}, ...]
+    },
+    "upstream": {                                   // upstream output runs
+      "feed_run_ids": ["feed_20260518_141055_aaaa1111", ...]
+    }
+  },
+  "stage_config":  { ... },
+  "stage_summary": { ... }
+}
+```
+
+The top-level `registry.json` per stage is a trimmed index:
+`{run_id, stage, label, created_at}` per entry.  Everything richer is in
+the sidecar.
+
+### Input registry (`data/input/`)
+
+Three kinds (`feed`, `acc`, `params`), each with its own per-kind
+`registry.json`:
+
+```
+data/input/<kind>/
+├── registry.json
+└── <id>/
+    ├── current/      ← live working copy; user edits here
+    ├── v1/           ← snapshot; unchanged files = hardlinks back
+    └── v2/
+```
+
+When `InputRegistries.initialize()` runs at the top of any init script,
+the registry hashes the *load-bearing* files in each `<id>/current/`
+and compares against the latest registered version.  If anything
+changed, `v_{N+1}/` is materialised — with **hardlinks** for files
+unchanged from the prior version, fresh copies for files that changed.
+
+Load-bearing files per kind:
+
+| Kind | Load-bearing files |
+|---|---|
+| `params/<id>/` | `params.csv` |
+| `acc/<id>/` | `root.ods`, `bounds.ods`, `rules.ods` |
+| `feed/<id>/` | per-feed declared list; default = "every file in `current/` not matching `*.bib` / `*.md`" |
+
+Downstream runs record `(id, version)` in their sidecar
+`parents.inputs.*` so any output run-id can be traced back to the exact
+input-bytes that produced it.
+
 ---
 
 ## File structure
@@ -646,7 +757,10 @@ pysuto/
 ├── feedpipe.py            step_A/B/C/D · run_feed_pipeline                ─┐
 ├── unc.py                 PedigreeScores · UncertaintyMixin                │ Stage 1
 ├── meta.py                DataFeedMetadata                                  │
-├── registry.py            DataFeedRegistry · _RegistryEntry                │
+├── registry.py            BaseOutputRegistry · DataFeedRegistry            │
+│                          ImputationRunRegistry · _RegistryEntry            │
+│                          make_run_id · build_sidecar                       │
+├── input_registry.py      InputRegistry · InputRegistries                  │  Stages 0–4
 ├── utils.py               _NpEncoder · io helpers                          │
 ├── logging.py             structured run logging                          ─┘
 │

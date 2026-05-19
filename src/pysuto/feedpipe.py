@@ -173,20 +173,37 @@ def register_feed(
     metadata:  DataFeedMetadata,
     result:    PropagationResult,
     registry:  DataFeedRegistry,
+    *,
+    parents:   dict,
     F_src:     Optional[np.ndarray] = None,
+    label:     Optional[str] = None,
+    stage_config:  Optional[dict] = None,
+    stage_summary: Optional[dict] = None,
 ):
     """
     Persist the weight matrix, metadata sidecar, result arrays and the
-    source flow vector under a freshly minted ``feed_run_id``, then
-    flush the registry index to disk.
+    source flow vector under a freshly minted ``run_id``, then flush
+    the registry index to disk.
 
-    Returns the registry entry (with ``.odir`` and ``.feed_run_id``).
+    ``parents`` follows the harmonized sidecar schema:
+    ``{"inputs": {"acc": {"id", "version"},
+                  "feed": {"id", "version"}}, "upstream": {}}``.
+
+    Returns the registry entry (with ``.run_dir`` and ``.run_id``).
     """
     _log.info("E  registering feed '%s'", metadata.feed_name)
-    entry = registry.register(wm, metadata, result=result, F_src=F_src)
+    entry = registry.register(
+        wm, metadata,
+        parents       = parents,
+        result        = result,
+        F_src         = F_src,
+        label         = label,
+        stage_config  = stage_config,
+        stage_summary = stage_summary,
+    )
     registry.save()
-    _log.info("   feed_run_id   → %s", entry.feed_run_id)
-    _log.info("   run dir       → %s", entry.odir)
+    _log.info("   run_id        → %s", entry.run_id)
+    _log.info("   run dir       → %s", entry.run_dir)
     return entry
 
 
@@ -205,19 +222,25 @@ def run_feed_pipeline(
     var_map_df:       pd.DataFrame,
     F_src:            np.ndarray,
     registry:         DataFeedRegistry,
+    *,
+    parents:          dict,
     feed_id:          Optional[str] = None,
     aux_col:          Optional[str] = None,
     allow_unmatched_edges: bool = True,
     diag_plot:        bool = True,
     conc_file:        Optional[str] = None,
     p:                float = 1.3,
+    label:            Optional[str] = None,
 ) -> tuple[WeightMatrix, DataFeedMetadata, PropagationResult, "object"]:
     """
     Execute steps A → D, register the run and (optionally) render the
     feed diagnostic figure into the per-run ``diag/`` directory.
 
-    Returns ``(wm, metadata, result, entry)`` where ``entry.feed_run_id``
-    and ``entry.odir`` identify the freshly registered run.
+    ``parents`` carries the harmonized parent block referencing the
+    ``acc`` + ``feed`` entries from the input registries.
+
+    Returns ``(wm, metadata, result, entry)`` where ``entry.run_id``
+    and ``entry.run_dir`` identify the freshly registered run.
     """
     meta   = step_A_read_metadata(excel_path)
     fid    = feed_id or meta.feed_name or "unnamed_feed"
@@ -229,21 +252,28 @@ def run_feed_pipeline(
                  allow_unmatched_edges=allow_unmatched_edges)
     wm     = step_C_build_weight_matrix(ct)
     result = step_D_apply_and_propagate(wm, F_src, meta, p=p)
-    entry  = register_feed(wm, meta, result, registry, F_src=F_src)
+    entry  = register_feed(
+        wm, meta, result, registry,
+        parents = parents,
+        F_src   = F_src,
+        label   = label,
+        stage_config = {"p": p, "allow_unmatched_edges": allow_unmatched_edges},
+    )
 
     if diag_plot:
         from pysuto.diag import FeedDiagnostics
+        acc_id_lab = (parents.get("inputs", {}).get("acc", {}).get("id") or "")
         diag = FeedDiagnostics(
-            feed_run_id = entry.feed_run_id,
+            feed_run_id = entry.run_id,
             feed_id     = fid,
-            acc_id      = entry.acc_id,
+            acc_id      = acc_id_lab,
             raw_df      = raw_df,
             ct          = ct,
             F_src       = F_src,
             result      = result,
             conc_file   = conc_file,
         )
-        diag.plot(odir=os.path.join(entry.odir, "diag"))
+        diag.plot(odir=os.path.join(entry.run_dir, "diag"))
 
     return wm, meta, result, entry
 

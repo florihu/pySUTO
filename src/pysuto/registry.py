@@ -1,37 +1,36 @@
 """
 registry.py
 ===========
-DataFeedMetadata  –  structured container for all per-feed metadata
-                     (identification, pedigree scores, provenance,
-                      and computed outputs).
+Harmonized output registries for Stage 1 (feed) and Stage 2 (imp).
 
-DataFeedRegistry  –  persistent catalogue of every DataFeed ever registered.
+All stage output registries share one run-id pattern and one sidecar
+schema, defined in :class:`BaseOutputRegistry`:
 
-_RegistryEntry    –  index record for one feed (stored in registry.json).
+* run-id literal format ``{stage}_{YYYYMMDD_HHMMSS}_{8-char-uuid4-hex}``
+  — no label / feed-id / acc-id / parent run-id embedded.
+* per-run sidecar ``metadata.json`` with ``parents.inputs`` (refs into
+  the input registries) and ``parents.upstream`` (refs into upstream
+  output registries), plus free-form ``stage_config`` / ``stage_summary``.
+* top-level ``registry.json`` index trimmed to four fields per entry::
 
-_NpEncoder        –  JSON encoder that handles numpy scalars and ndarrays.
+      {"run_id": "...", "stage": "feed", "label": "...", "created_at": "..."}
 
-File layout on disk
--------------------
-<odir>/
-    registry.json                       ← flat index, one entry per feed run
-    feed_<feed_id>_<ts>_<hash>/
-        metadata.json                   ← DataFeedMetadata (human-readable)
-        feed.pkl                        ← WeightMatrix + concordance pickle
-        result.npz                      ← F_root, sigma_root, cv_root, cv_src
-        F_src.npy                       ← source flow vector
-        diag/<feed_run_id>_feed.png     ← per-feed diagnostic figure
+Everything richer (parents, config, summary, stage-specific metadata)
+lives in the per-run sidecar.
 
-Import contract
----------------
-This module only imports from the standard library, numpy, and pandas.
-It does NOT import from pysuto.unc, pysuto.conc, or pysuto.feed so that
-it can be imported in isolation for testing or tooling without pulling in
-the full package dependency tree.  The only pysuto type that crosses the
-boundary is the duck-typed ``feed`` argument to ``DataFeedRegistry.register``
-(must have ``.id``, ``.acc_used``, ``.save(path=...)``) and the duck-typed
-``result`` argument (must have ``.F_root``, ``.sigma_root``, ``.cv_root``,
-``.cv_src``).
+File layout on disk (Stage 1 example)::
+
+    data/proc/feed/registry/
+    ├── registry.json                       ← trimmed index
+    └── feed_20260518_143022_a4f1c3d2/
+        ├── metadata.json                   ← sidecar
+        ├── feed.pkl                        ← Stage-1-specific
+        ├── result.npz                      ← Stage-1-specific
+        ├── F_src.npy                       ← Stage-1-specific
+        └── diag/<run_id>_feed.png          ← Stage-1-specific
+
+Stage 2 has the same shape, with ``agg_result.npz`` and
+``imputation_log.parquet`` instead of the Stage-1 artefacts.
 """
 
 from __future__ import annotations
@@ -39,18 +38,18 @@ from __future__ import annotations
 import dataclasses
 import json
 import os
-import pickle
+import uuid
 import warnings
-from dataclasses import dataclass
-from datetime import date, datetime
+from dataclasses import dataclass, field
+from datetime import date, datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
 
-
 from pysuto.meta import DataFeedMetadata
+
 
 # =============================================================================
 # JSON helpers
@@ -72,215 +71,202 @@ class _NpEncoder(json.JSONEncoder):
 
 
 def _json_dump(obj: Any, path: str) -> None:
-    """Write *obj* to *path* as indented JSON, creating parent dirs as needed."""
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(obj, f, indent=2, cls=_NpEncoder)
 
 
 def _json_load(path: str) -> Any:
-    """Load JSON from *path*."""
     with open(path, encoding="utf-8") as f:
         return json.load(f)
 
 
+def _now_iso() -> str:
+    """Current UTC time as ISO-8601 with trailing ``Z`` (seconds resolution)."""
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _ts_compact() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+
+
+def _short_code() -> str:
+    return uuid.uuid4().hex[:8]
+
+
+def make_run_id(stage: str) -> str:
+    """Mint a harmonized run-id ``{stage}_{ts}_{code}``."""
+    return f"{stage}_{_ts_compact()}_{_short_code()}"
+
+
+# =============================================================================
+# Trimmed index entry
+# =============================================================================
+
 @dataclass
 class _RegistryEntry:
-    """One row in ``registry.json`` (one per feed run)."""
+    """One row in the top-level ``registry.json`` (4 fields on disk).
 
-    feed_run_id:   str   # feed_<feed_id>_<YYYYMMDD_HHMMSS>_<shorthash>
-    feed_id:       str
-    feed_class:    str   # e.g. "WeightMatrix"
-    acc_id:        str   # AccountingStructure id used to build this feed
-    odir:          str   # directory that holds this feed run's files
-    metadata_path: str   # absolute path to metadata.json
-    created_at:    str   # UTC ISO-8601 timestamp
-    label:         str = ""  # human-readable label (from metadata.feed_name)
+    On load, :attr:`run_dir` is filled in from ``{storage_dir}/{run_id}``
+    as a convenience for callers — it is *not* persisted.
+    """
 
-    def to_dict(self) -> dict:
-        return dataclasses.asdict(self)
+    run_id:     str
+    stage:      str
+    label:      str
+    created_at: str
+    run_dir:    str = ""
+
+    INDEX_FIELDS = ("run_id", "stage", "label", "created_at")
+
+    def to_index_dict(self) -> dict:
+        return {k: getattr(self, k) for k in self.INDEX_FIELDS}
 
     @classmethod
-    def from_dict(cls, d: dict) -> "_RegistryEntry":
-        valid = {f.name for f in dataclasses.fields(cls)}
-        return cls(**{k: v for k, v in d.items() if k in valid})
+    def from_index_dict(cls, d: dict, *, storage_dir: str = "") -> "_RegistryEntry":
+        return cls(
+            run_id     = d["run_id"],
+            stage      = d["stage"],
+            label      = d.get("label", ""),
+            created_at = d["created_at"],
+            run_dir    = os.path.join(storage_dir, d["run_id"]) if storage_dir else "",
+        )
 
 
 # =============================================================================
-# DataFeedRegistry
+# Sidecar schema helpers
 # =============================================================================
 
-class DataFeedRegistry:
+def build_sidecar(
+    *,
+    run_id:        str,
+    stage:         str,
+    label:         str,
+    created_at:    str,
+    parents:       dict,
+    stage_config:  Optional[dict] = None,
+    stage_summary: Optional[dict] = None,
+    extra:         Optional[dict] = None,
+) -> dict:
+    """Assemble the per-run sidecar payload.
+
+    ``parents`` must follow the schema
+    ``{"inputs": {...}, "upstream": {...}}``; both sub-dicts may be empty.
+    ``extra`` lets stage-specific code stash additional fields (e.g.
+    ``feed_metadata`` for Stage 1, ``feeds`` array for Stage 2)."""
+    payload = {
+        "run_id":        run_id,
+        "stage":         stage,
+        "label":         label,
+        "created_at":    created_at,
+        "parents":       {
+            "inputs":   parents.get("inputs",   {}),
+            "upstream": parents.get("upstream", {}),
+        },
+        "stage_config":  stage_config  or {},
+        "stage_summary": stage_summary or {},
+    }
+    if extra:
+        payload.update(extra)
+    return payload
+
+
+# =============================================================================
+# BaseOutputRegistry
+# =============================================================================
+
+class BaseOutputRegistry:
+    """Shared scaffolding for the four output registries.
+
+    Owns:
+      * the harmonized run-id format (``{stage}_{ts}_{code}``),
+      * the trimmed top-level ``registry.json`` (4 fields per entry),
+      * the per-run ``metadata.json`` sidecar IO,
+      * the container protocol (``[]``, ``in``, ``len``, iter).
+
+    Concrete subclasses set :attr:`STAGE` and provide stage-specific
+    ``register()`` / ``load_*`` logic that calls
+    :meth:`_persist_run_dir` / :meth:`_write_sidecar` underneath.
     """
-    Persistent catalogue of feed runs.
 
-    Each call to ``register()`` produces a new ``feed_run_id`` of the form
-    ``feed_<feed_id>_<YYYYMMDD_HHMMSS>_<shorthash>`` and writes a
-    self-contained run directory.
-
-    Directory layout::
-
-        <odir>/
-            registry.json
-            feed_<feed_id>_<ts>_<hash>/
-                metadata.json
-                feed.pkl
-                result.npz
-                F_src.npy
-                diag/<feed_run_id>_feed.png
-
-    Selection helpers
-    -----------------
-    Lookups accept either a ``feed_run_id`` (exact run) or a ``feed_id``
-    (latest run wins).  See ``resolve()``, ``latest_by_feed_id()``,
-    ``entries_for()``.
-
-    Parameters
-    ----------
-    odir : str
-        Root directory for all registry files.
-    """
-
+    STAGE: str = ""
     REGISTRY_FILENAME = "registry.json"
+    SIDECAR_FILENAME  = "metadata.json"
 
-    def __init__(self, odir: str = "data/proc/feeds") -> None:
-        self.odir = odir
+    def __init__(self, storage_dir: str) -> None:
+        if not self.STAGE:
+            raise NotImplementedError(f"{type(self).__name__}.STAGE not set")
+        self.storage_dir = storage_dir
         self._index: Dict[str, _RegistryEntry] = {}
+        self._index_path = os.path.join(storage_dir, self.REGISTRY_FILENAME)
 
-    # ------------------------------------------------------------------
-    # Index persistence
-    # ------------------------------------------------------------------
+    # ── lifecycle ─────────────────────────────────────────────────────
 
     def load_index(self) -> None:
-        """
-        Load the registry index from ``<odir>/registry.json``.
+        """Load the trimmed index from ``{storage_dir}/registry.json``.
 
-        No-op if the file does not exist (fresh registry).
+        Missing file is a no-op (fresh registry).
         """
-        path = os.path.join(self.odir, self.REGISTRY_FILENAME)
-        if not os.path.exists(path):
+        if not os.path.exists(self._index_path):
+            self._index = {}
             return
-        raw = _json_load(path)
-        self._index = {k: _RegistryEntry.from_dict(v) for k, v in raw.items()}
+        raw = _json_load(self._index_path)
+        self._index = {
+            k: _RegistryEntry.from_index_dict(v, storage_dir=self.storage_dir)
+            for k, v in raw.items()
+        }
 
     def save(self) -> None:
-        """Flush the in-memory index to ``<odir>/registry.json``."""
-        Path(self.odir).mkdir(parents=True, exist_ok=True)
-        path = os.path.join(self.odir, self.REGISTRY_FILENAME)
-        _json_dump({k: v.to_dict() for k, v in self._index.items()}, path)
-
-    # ------------------------------------------------------------------
-    # Registration
-    # ------------------------------------------------------------------
-
-    def register(
-        self,
-        feed: Any,
-        metadata: DataFeedMetadata,
-        result: Any = None,
-        F_src: Optional[np.ndarray] = None,
-    ) -> _RegistryEntry:
-        """
-        Persist a feed run and create its registry entry.
-
-        Mints a fresh ``feed_run_id`` on every call; previous runs of the
-        same ``feed_id`` are kept side by side.  ``save()`` is **not**
-        called automatically — flush with ``registry.save()`` afterwards.
-
-        Parameters
-        ----------
-        feed      : object with ``.id``, ``.acc_used``, ``.save(path=...)``
-        metadata  : DataFeedMetadata instance
-        result    : optional PropagationResult (F_root, sigma_root,
-                    cv_root, cv_src)
-        F_src     : optional source flow vector to persist alongside the run.
-
-        Returns
-        -------
-        _RegistryEntry
-        """
-        import uuid
-
-        fid       = feed.id
-        ts_compact = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        short      = uuid.uuid4().hex[:8]
-        feed_run_id = f"feed_{fid}_{ts_compact}_{short}"
-
-        feed_odir = os.path.join(self.odir, feed_run_id)
-        Path(feed_odir).mkdir(parents=True, exist_ok=True)
-        Path(os.path.join(feed_odir, "diag")).mkdir(parents=True, exist_ok=True)
-
-        if result is not None:
-            metadata.fill_computed(result)
-
-        meta_path = os.path.join(feed_odir, "metadata.json")
-        _json_dump(metadata.to_dict(), meta_path)
-
-        pkl_path = os.path.join(feed_odir, "feed.pkl")
-        feed.save(path=pkl_path)
-
-        if result is not None:
-            np.savez(
-                os.path.join(feed_odir, "result.npz"),
-                F_root     = result.F_root,
-                sigma_root = result.sigma_root,
-                cv_root    = result.cv_root,
-                cv_src     = np.array([result.cv_src]),
-            )
-
-        if F_src is not None:
-            np.save(os.path.join(feed_odir, "F_src.npy"),
-                    np.asarray(F_src, dtype=float))
-
-        entry = _RegistryEntry(
-            feed_run_id   = feed_run_id,
-            feed_id       = fid,
-            feed_class    = type(feed).__name__,
-            acc_id        = feed.acc_used,
-            odir          = feed_odir,
-            metadata_path = meta_path,
-            created_at    = datetime.utcnow().isoformat(timespec="seconds") + "Z",
-            label         = getattr(metadata, "feed_name", "") or "",
+        """Flush the trimmed index to ``{storage_dir}/registry.json``."""
+        Path(self.storage_dir).mkdir(parents=True, exist_ok=True)
+        _json_dump(
+            {k: v.to_index_dict() for k, v in self._index.items()},
+            self._index_path,
         )
-        self._index[feed_run_id] = entry
+
+    # ── registration scaffolding ──────────────────────────────────────
+
+    def _new_run_id(self) -> str:
+        return make_run_id(self.STAGE)
+
+    def _make_run_dir(self, run_id: str) -> str:
+        run_dir = os.path.join(self.storage_dir, run_id)
+        Path(run_dir).mkdir(parents=True, exist_ok=True)
+        return run_dir
+
+    def _write_sidecar(self, run_dir: str, payload: dict) -> str:
+        path = os.path.join(run_dir, self.SIDECAR_FILENAME)
+        _json_dump(payload, path)
+        return path
+
+    def _read_sidecar(self, run_id: str) -> dict:
+        run_dir = os.path.join(self.storage_dir, run_id)
+        return _json_load(os.path.join(run_dir, self.SIDECAR_FILENAME))
+
+    def _add_entry(
+        self,
+        *,
+        run_id:     str,
+        label:      str,
+        created_at: str,
+    ) -> _RegistryEntry:
+        entry = _RegistryEntry(
+            run_id     = run_id,
+            stage      = self.STAGE,
+            label      = label,
+            created_at = created_at,
+            run_dir    = os.path.join(self.storage_dir, run_id),
+        )
+        self._index[run_id] = entry
         return entry
 
-    # ------------------------------------------------------------------
-    # Lookup / container protocol
-    # ------------------------------------------------------------------
+    # ── container protocol ────────────────────────────────────────────
 
-    def resolve(self, key: str) -> _RegistryEntry:
-        """
-        Resolve *key* (either ``feed_run_id`` or ``feed_id``) to an entry.
+    def __getitem__(self, run_id: str) -> _RegistryEntry:
+        return self._index[run_id]
 
-        Exact ``feed_run_id`` matches win; otherwise the most recently
-        registered run for *key* (treated as ``feed_id``) is returned.
-        """
-        if key in self._index:
-            return self._index[key]
-        return self.latest_by_feed_id(key)
-
-    def latest_by_feed_id(self, feed_id: str) -> _RegistryEntry:
-        """Return the latest registered entry for *feed_id* (raises KeyError)."""
-        runs = [e for e in self._index.values() if e.feed_id == feed_id]
-        if not runs:
-            raise KeyError(f"No registered run for feed_id '{feed_id}'")
-        runs.sort(key=lambda e: e.created_at)
-        return runs[-1]
-
-    def entries_for(self, feed_id: str) -> List[_RegistryEntry]:
-        """Return all entries with the given ``feed_id`` (created-asc)."""
-        runs = [e for e in self._index.values() if e.feed_id == feed_id]
-        runs.sort(key=lambda e: e.created_at)
-        return runs
-
-    def __getitem__(self, key: str) -> _RegistryEntry:
-        return self.resolve(key)
-
-    def __contains__(self, key: str) -> bool:
-        if key in self._index:
-            return True
-        return any(e.feed_id == key for e in self._index.values())
+    def __contains__(self, run_id: str) -> bool:
+        return run_id in self._index
 
     def __len__(self) -> int:
         return len(self._index)
@@ -289,79 +275,245 @@ class DataFeedRegistry:
         return iter(self._index)
 
     def run_ids(self) -> List[str]:
-        """Return a list of all registered feed_run_ids."""
         return list(self._index.keys())
 
-    def feed_ids(self) -> List[str]:
-        """Return the unique feed_ids present in the registry."""
-        return sorted({e.feed_id for e in self._index.values()})
+    def labels(self) -> List[str]:
+        return sorted({e.label for e in self._index.values() if e.label})
 
-    def ids(self) -> List[str]:
-        """Backwards-compatible alias of feed_ids()."""
-        return self.feed_ids()
+    def latest_by_label(self, label: str) -> _RegistryEntry:
+        runs = [e for e in self._index.values() if e.label == label]
+        if not runs:
+            raise KeyError(f"No registered run for label '{label}'")
+        runs.sort(key=lambda e: e.created_at)
+        return runs[-1]
 
-    # ------------------------------------------------------------------
-    # Lazy loaders
-    # ------------------------------------------------------------------
+
+# =============================================================================
+# DataFeedRegistry — Stage 1
+# =============================================================================
+
+class DataFeedRegistry(BaseOutputRegistry):
+    """Stage-1 registry.
+
+    Per-run directory layout::
+
+        data/proc/feed/registry/
+        ├── registry.json
+        └── feed_<ts>_<code>/
+            ├── metadata.json         ← harmonized sidecar (+ ``feed_metadata`` block)
+            ├── feed.pkl              ← WeightMatrix + concordance pickle
+            ├── result.npz            ← F_root, sigma_root, cv_root, cv_src
+            ├── F_src.npy             ← (optional) source flow vector
+            └── diag/<run_id>_feed.png
+
+    The sidecar's ``parents.inputs.feed.id`` carries the upstream
+    input-feed-id (e.g. ``"baci"``); :meth:`latest_by_input_feed_id`
+    follows that link to support feed-id lookups even though the
+    run-id no longer embeds the feed-id.
+    """
+
+    STAGE = "feed"
+
+    def __init__(self, odir: str = "data/proc/feed/registry") -> None:
+        super().__init__(storage_dir=odir)
+        self.odir = odir          # alias — keeps backwards-compatible kwarg name
+        self._input_feed_idx: dict[str, list[str]] = {}  # input_feed_id -> [run_ids]
+
+    # ── overridden lifecycle: rebuild reverse index ───────────────────
+
+    def load_index(self) -> None:
+        super().load_index()
+        self._rebuild_input_feed_index()
+
+    def _rebuild_input_feed_index(self) -> None:
+        self._input_feed_idx.clear()
+        for run_id, entry in self._index.items():
+            try:
+                sidecar = self._read_sidecar(run_id)
+            except (FileNotFoundError, json.JSONDecodeError):
+                continue
+            feed_ref = (sidecar.get("parents", {})
+                              .get("inputs", {})
+                              .get("feed"))
+            if not feed_ref:
+                continue
+            fid = feed_ref.get("id")
+            if not fid:
+                continue
+            self._input_feed_idx.setdefault(fid, []).append(run_id)
+        # Sort each bucket by created_at ascending so [-1] = latest.
+        for fid, run_ids in self._input_feed_idx.items():
+            run_ids.sort(key=lambda r: self._index[r].created_at)
+
+    # ── register ──────────────────────────────────────────────────────
+
+    def register(
+        self,
+        feed: Any,
+        metadata: DataFeedMetadata,
+        *,
+        parents:       dict,
+        result:        Any = None,
+        F_src:         Optional[np.ndarray] = None,
+        label:         Optional[str] = None,
+        stage_config:  Optional[dict] = None,
+        stage_summary: Optional[dict] = None,
+    ) -> _RegistryEntry:
+        """Persist a Stage-1 run and append it to the index.
+
+        Parameters
+        ----------
+        feed
+            Duck-typed object with ``.save(path=...)``.
+        metadata
+            ``DataFeedMetadata``; ``fill_computed(result)`` is invoked
+            if *result* is provided.
+        parents
+            Required.  Must look like
+            ``{"inputs": {"acc": {"id": ..., "version": ...},
+                          "feed": {"id": ..., "version": ...}},
+               "upstream": {}}``.
+        label
+            If omitted, falls back to ``metadata.feed_name``.
+        result, F_src, stage_config, stage_summary
+            All optional sidecar / artefact extras.
+
+        ``save()`` is not called automatically — flush after batch
+        registrations with :meth:`save`.
+        """
+        if "inputs" not in parents:
+            raise ValueError("parents must contain an 'inputs' block")
+
+        run_id     = self._new_run_id()
+        created_at = _now_iso()
+        if label is None:
+            label = getattr(metadata, "feed_name", "") or ""
+
+        run_dir = self._make_run_dir(run_id)
+        Path(os.path.join(run_dir, "diag")).mkdir(parents=True, exist_ok=True)
+
+        if result is not None:
+            metadata.fill_computed(result)
+
+        feed.save(path=os.path.join(run_dir, "feed.pkl"))
+
+        if result is not None:
+            np.savez(
+                os.path.join(run_dir, "result.npz"),
+                F_root     = result.F_root,
+                sigma_root = result.sigma_root,
+                cv_root    = result.cv_root,
+                cv_src     = np.array([result.cv_src]),
+            )
+
+        if F_src is not None:
+            np.save(os.path.join(run_dir, "F_src.npy"),
+                    np.asarray(F_src, dtype=float))
+
+        sidecar = build_sidecar(
+            run_id        = run_id,
+            stage         = self.STAGE,
+            label         = label,
+            created_at    = created_at,
+            parents       = parents,
+            stage_config  = stage_config,
+            stage_summary = stage_summary,
+            extra         = {"feed_metadata": metadata.to_dict()},
+        )
+        self._write_sidecar(run_dir, sidecar)
+
+        entry = self._add_entry(run_id=run_id, label=label, created_at=created_at)
+
+        feed_ref = parents.get("inputs", {}).get("feed")
+        if feed_ref and feed_ref.get("id"):
+            self._input_feed_idx.setdefault(feed_ref["id"], []).append(run_id)
+
+        return entry
+
+    # ── lookup ────────────────────────────────────────────────────────
+
+    def latest_by_input_feed_id(self, input_feed_id: str) -> _RegistryEntry:
+        """Return the most recently registered run whose
+        ``parents.inputs.feed.id`` equals *input_feed_id*."""
+        run_ids = self._input_feed_idx.get(input_feed_id, [])
+        if not run_ids:
+            raise KeyError(f"No registered run for input feed_id '{input_feed_id}'")
+        return self._index[run_ids[-1]]
+
+    def input_feed_ids(self) -> List[str]:
+        """Distinct input-feed-ids referenced by registered runs."""
+        return sorted(self._input_feed_idx.keys())
+
+    def __contains__(self, key: str) -> bool:
+        if key in self._index:
+            return True
+        return key in self._input_feed_idx
+
+    def resolve(self, key: str) -> _RegistryEntry:
+        """Resolve *key* (run-id, or input-feed-id → latest run)."""
+        if key in self._index:
+            return self._index[key]
+        return self.latest_by_input_feed_id(key)
+
+    # ── lazy loaders ──────────────────────────────────────────────────
 
     def load_metadata(self, key: str) -> DataFeedMetadata:
-        """Load and return the DataFeedMetadata for *key* (run-id or feed-id)."""
         entry = self.resolve(key)
-        return DataFeedMetadata.from_dict(_json_load(entry.metadata_path))
+        sidecar = self._read_sidecar(entry.run_id)
+        feed_meta_dict = sidecar.get("feed_metadata")
+        if feed_meta_dict is None:
+            raise KeyError(
+                f"sidecar for {entry.run_id} has no 'feed_metadata' block"
+            )
+        return DataFeedMetadata.from_dict(feed_meta_dict)
+
+    def load_sidecar(self, key: str) -> dict:
+        entry = self.resolve(key)
+        return self._read_sidecar(entry.run_id)
 
     def load_result(self, key: str) -> Dict[str, np.ndarray]:
-        """
-        Load the result arrays for *key* (run-id or feed-id).
-
-        Returns
-        -------
-        dict with keys ``F_root``, ``sigma_root``, ``cv_root``, ``cv_src``
-        """
         entry = self.resolve(key)
-        npz_path = os.path.join(entry.odir, "result.npz")
+        npz_path = os.path.join(entry.run_dir, "result.npz")
         if not os.path.exists(npz_path):
             raise FileNotFoundError(
-                f"No result.npz found for feed run '{entry.feed_run_id}'. "
+                f"No result.npz found for feed run '{entry.run_id}'. "
                 "Was a PropagationResult passed to register()?"
             )
         z = np.load(npz_path)
         return {k: z[k] for k in z.files}
 
     def load_feed(self, key: str, feed_cls: Any, acc_struct: Any) -> Any:
-        """
-        Reload a feed object from its pickle.
-
-        Parameters
-        ----------
-        key        : ``feed_run_id`` or ``feed_id`` (latest run wins)
-        feed_cls   : class with a ``.load(id, acc_struct, path=...)`` classmethod
-        acc_struct : AccountingStructure instance to pass to feed_cls.load
-        """
         entry = self.resolve(key)
-        pkl   = os.path.join(entry.odir, "feed.pkl")
-        return feed_cls.load(entry.feed_id, acc_struct, path=pkl)
+        pkl = os.path.join(entry.run_dir, "feed.pkl")
+        sidecar = self._read_sidecar(entry.run_id)
+        feed_id = (sidecar.get("parents", {})
+                          .get("inputs", {})
+                          .get("feed", {})
+                          .get("id"))
+        return feed_cls.load(feed_id, acc_struct, path=pkl)
 
-    # ------------------------------------------------------------------
-    # Summary
-    # ------------------------------------------------------------------
+    # ── summary ───────────────────────────────────────────────────────
 
     def summary_df(self) -> pd.DataFrame:
-        """
-        Return a DataFrame with one row per registered feed.
-
-        Columns come from the registry index plus selected metadata fields.
-        Feeds whose metadata cannot be loaded produce a row with NaN
-        metadata columns and emit a warning.
-        """
-
+        """One row per registered run, joining index + sidecar fields."""
         if not self._index:
-            return pd.DataFrame(columns=["feed_run_id"]).set_index("feed_run_id")
+            return pd.DataFrame(columns=["run_id"]).set_index("run_id")
+
         rows = []
         for run_id, entry in self._index.items():
-            row = entry.to_dict()
+            row: dict[str, Any] = entry.to_index_dict()
             try:
-                meta = self.load_metadata(run_id)
+                sidecar = self._read_sidecar(run_id)
+                meta = DataFeedMetadata.from_dict(sidecar.get("feed_metadata", {}))
                 row.update({
+                    "input_feed_id":   (sidecar.get("parents", {})
+                                                .get("inputs", {})
+                                                .get("feed", {})
+                                                .get("id")),
+                    "input_acc_id":    (sidecar.get("parents", {})
+                                                .get("inputs", {})
+                                                .get("acc", {})
+                                                .get("id")),
                     "feed_name":       meta.feed_name,
                     "iedc_type":       meta.iedc_type,
                     "cv_total_%":      round(meta.cv_total * 100, 3)
@@ -372,99 +524,81 @@ class DataFeedRegistry:
                     "dataset_link":    meta.dataset_link,
                 })
             except Exception as exc:
-                warnings.warn(f"Could not load metadata for '{run_id}': {exc}")
+                warnings.warn(f"Could not load sidecar for '{run_id}': {exc}")
             rows.append(row)
-        return pd.DataFrame(rows).set_index("feed_run_id")
+        return pd.DataFrame(rows).set_index("run_id")
 
 
 # =============================================================================
-# ImputationRunRegistry
+# ImputationRunRegistry — Stage 2
 # =============================================================================
 
-class ImputationRunRegistry:
-    """
-    Persistent registry for Stage 2 imputation runs.
+class ImputationRunRegistry(BaseOutputRegistry):
+    """Stage-2 registry.
 
-    Mirrors ConstraintRunRegistry: thin JSON index + per-run subdirectory
-    holding arrays, log, and a metadata sidecar.
+    Per-run directory layout::
 
-    Directory layout::
-
-        {storage_dir}/
+        data/proc/imp/
         ├── registry.json
-        └── {run_id}/
-            ├── metadata.json          ← run + step + feed + imputer-config detail
-            ├── agg_result.npz         ← arrays (f_agg, sigma_agg, Omega, F, Σ, coverage, feed_ids)
-            └── imputation_log.parquet ← per-edge fill log
-
-    Run-id format: ``imp_<label>_<YYYYMMDD_HHMMSS>_<shorthash>``.
+        └── imp_<ts>_<code>/
+            ├── metadata.json          ← harmonized sidecar
+            ├── agg_result.npz         ← f_agg, sigma_agg, Omega, F, Σ, coverage, feed_ids
+            └── imputation_log.parquet
     """
 
-    REGISTRY_FILENAME = "registry.json"
+    STAGE = "imp"
 
     def __init__(self, storage_dir: str = "data/proc/imp") -> None:
-        self.storage_dir = storage_dir
-        self._index: Dict[str, dict] = {}
-        os.makedirs(self.storage_dir, exist_ok=True)
-        self._index_path = os.path.join(self.storage_dir, self.REGISTRY_FILENAME)
-        self._load_index()
+        super().__init__(storage_dir=storage_dir)
+        Path(storage_dir).mkdir(parents=True, exist_ok=True)
+        self.load_index()
 
-    # ------------------------------------------------------------------
-    # Index persistence
-    # ------------------------------------------------------------------
-
-    def _load_index(self) -> None:
-        if os.path.exists(self._index_path):
-            self._index = _json_load(self._index_path)
-
-    def _save_index(self) -> None:
-        _json_dump(self._index, self._index_path)
-
-    # ------------------------------------------------------------------
-    # Registration
-    # ------------------------------------------------------------------
+    # ── register ──────────────────────────────────────────────────────
 
     def register(
         self,
         agg_result,
         *,
-        label: str,
-        feeds: List[dict],
-        imputers: List[Any],
-        acc_id: str,
+        label:         str,
+        parents:       dict,
+        imputers:      Optional[List[Any]] = None,
+        stage_config:  Optional[dict] = None,
+        stage_summary: Optional[dict] = None,
     ) -> str:
-        """
-        Persist one imputation run and return its run_id.
+        """Persist a Stage-2 imputation run and return its run-id.
 
         Parameters
         ----------
-        agg_result : AggregationResult after ImputationEngine.run().
-                     Must have .imputation_log set (raises otherwise).
-        label      : human-readable label (folded into the run_id).
-        feeds      : list of dicts {"feed_id", "feed_run_id", "registry_path"}
-                     as produced by FeedCollector.select().
-        imputers   : list of BaseImputer instances (engine.imputers).
-        acc_id     : AccountingStructure id.
-        """
-        import uuid
+        agg_result
+            AggregationResult after ``ImputationEngine.run()`` — must
+            carry an ``imputation_log``.
+        parents
+            Harmonized parents block.  Expects
+            ``parents.inputs = {"acc": {...}, "params": [...]}`` and
+            ``parents.upstream = {"feed_run_ids": [...]}``.
+        imputers
+            Optional list of imputer instances; their ``.config()`` and
+            the per-step metadata are folded into the sidecar.
 
+        Returns
+        -------
+        str
+            ``run_id``.  Also stamped onto ``agg_result._imp_run_id`` so
+            downstream constraint builds can auto-resolve the parent.
+        """
         if agg_result.imputation_log is None:
             raise ValueError(
                 "AggregationResult.imputation_log is None — register only "
-                "after ImputationEngine.run(). Stage 2a-only runs are not "
-                "supported by this registry."
+                "after ImputationEngine.run()."
             )
+        if "inputs" not in parents:
+            raise ValueError("parents must contain an 'inputs' block")
 
-        created_at = datetime.utcnow().isoformat(timespec="seconds") + "Z"
-        ts_compact = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
-        short      = uuid.uuid4().hex[:8]
-        safe_label = label.replace(" ", "_") if label else "run"
-        run_id     = f"imp_{safe_label}_{ts_compact}_{short}"
+        run_id     = self._new_run_id()
+        created_at = _now_iso()
+        run_dir    = self._make_run_dir(run_id)
 
-        run_dir = os.path.join(self.storage_dir, run_id)
-        Path(run_dir).mkdir(parents=True, exist_ok=True)
-
-        # 1. arrays -----------------------------------------------------
+        # 1. arrays
         np.savez(
             os.path.join(run_dir, "agg_result.npz"),
             f_agg     = agg_result.f_agg,
@@ -476,74 +610,64 @@ class ImputationRunRegistry:
             feed_ids  = np.array(agg_result.feed_ids, dtype=object),
         )
 
-        # 2. imputation log (parquet) -----------------------------------
+        # 2. imputation log
         log_df = agg_result.imputation_log.as_dataframe()
         log_df.to_parquet(
             os.path.join(run_dir, "imputation_log.parquet"),
             index=False,
         )
 
-        # 3. metadata sidecar ------------------------------------------
-        n_total    = int(agg_result.f_agg.shape[0])
-        n_imputed  = int(len(log_df))
-        n_after    = int(np.isfinite(agg_result.f_agg).sum())
-        coverage   = agg_result.coverage
-        n_before   = int(coverage.sum())
-
+        # 3. assemble per-imputer step records (matches old metadata.json shape)
         meta_records: list[dict] = []
         if agg_result.imputation_metadata is not None:
             meta_records = agg_result.imputation_metadata.as_dataframe().to_dict("records")
-        # Splice imputer config snapshots into matching step records.
-        for rec in meta_records:
-            step = int(rec.get("step", -1))
-            if 0 <= step < len(imputers):
-                imp = imputers[step]
-                rec["config"] = imp.config() if hasattr(imp, "config") else {}
+        if imputers:
+            for rec in meta_records:
+                step = int(rec.get("step", -1))
+                if 0 <= step < len(imputers):
+                    imp = imputers[step]
+                    rec["config"] = imp.config() if hasattr(imp, "config") else {}
 
-        metadata_obj = {
-            "run_id":     run_id,
-            "label":      label,
-            "acc_id":     acc_id,
-            "created_at": created_at,
-            "feeds":      feeds,
-            "imputers":   meta_records,
-            "totals": {
-                "n_total":          n_total,
-                "n_covered_before": n_before,
-                "n_covered_after":  n_after,
-                "n_imputed":        n_imputed,
-            },
+        # 4. summary numbers
+        n_total   = int(agg_result.f_agg.shape[0])
+        n_imputed = int(len(log_df))
+        n_after   = int(np.isfinite(agg_result.f_agg).sum())
+        n_before  = int(agg_result.coverage.sum())
+
+        summary = (stage_summary or {}) | {
+            "n_total":          n_total,
+            "n_covered_before": n_before,
+            "n_covered_after":  n_after,
+            "n_imputed":        n_imputed,
+            "n_steps":          len(meta_records),
         }
-        _json_dump(metadata_obj, os.path.join(run_dir, "metadata.json"))
 
-        # 4. update index ----------------------------------------------
-        self._index[run_id] = {
-            "run_id":     run_id,
-            "label":      label,
-            "acc_id":     acc_id,
-            "created_at": created_at,
-            "n_edges":    n_total,
-            "n_filled":   n_imputed,
-            "n_steps":    len(meta_records),
-            "feed_ids":   [f["feed_id"] for f in feeds],
-        }
-        self._save_index()
+        # 5. sidecar
+        sidecar = build_sidecar(
+            run_id        = run_id,
+            stage         = self.STAGE,
+            label         = label,
+            created_at    = created_at,
+            parents       = parents,
+            stage_config  = stage_config,
+            stage_summary = summary,
+            extra         = {"imputers": meta_records},
+        )
+        self._write_sidecar(run_dir, sidecar)
 
-        # 5. stamp run_id back onto the result for downstream provenance
+        # 6. index + save (imp registry auto-saves on register, like before)
+        self._add_entry(run_id=run_id, label=label, created_at=created_at)
+        self.save()
+
+        # 7. stamp run_id back for downstream provenance
         agg_result._imp_run_id = run_id
 
         return run_id
 
-    # ------------------------------------------------------------------
-    # Loading
-    # ------------------------------------------------------------------
+    # ── loaders ───────────────────────────────────────────────────────
 
     def load(self, run_id: str):
-        """
-        Reconstruct an AggregationResult (with imputation_log attached) from
-        disk. Returns the dataclass; metadata.json contents available via
-        load_metadata().
-        """
+        """Reconstruct an ``AggregationResult`` with attached log."""
         from pysuto.agg import AggregationResult
         from pysuto.impute import ImputationLog
 
@@ -572,26 +696,10 @@ class ImputationRunRegistry:
         result._imp_run_id    = run_id
         return result
 
-    def load_metadata(self, run_id: str) -> dict:
+    def load_sidecar(self, run_id: str) -> dict:
         if run_id not in self._index:
             raise KeyError(f"Imputation run '{run_id}' not in registry")
-        return _json_load(os.path.join(self.storage_dir, run_id, "metadata.json"))
-
-    # ------------------------------------------------------------------
-    # Container protocol & summary
-    # ------------------------------------------------------------------
-
-    def __getitem__(self, run_id: str) -> dict:
-        return self._index[run_id]
-
-    def __contains__(self, run_id: str) -> bool:
-        return run_id in self._index
-
-    def __len__(self) -> int:
-        return len(self._index)
-
-    def __iter__(self):
-        return iter(self._index)
+        return self._read_sidecar(run_id)
 
     def ids(self) -> List[str]:
         return list(self._index.keys())
@@ -599,4 +707,21 @@ class ImputationRunRegistry:
     def summary_df(self) -> pd.DataFrame:
         if not self._index:
             return pd.DataFrame()
-        return pd.DataFrame.from_dict(self._index, orient="index").reset_index(drop=True)
+        rows = []
+        for run_id, entry in self._index.items():
+            row = entry.to_index_dict()
+            try:
+                sidecar = self._read_sidecar(run_id)
+                summary = sidecar.get("stage_summary", {})
+                row.update({
+                    "n_total":          summary.get("n_total"),
+                    "n_imputed":        summary.get("n_imputed"),
+                    "n_covered_after":  summary.get("n_covered_after"),
+                    "feed_run_ids":     (sidecar.get("parents", {})
+                                                 .get("upstream", {})
+                                                 .get("feed_run_ids", [])),
+                })
+            except Exception as exc:
+                warnings.warn(f"Could not load sidecar for '{run_id}': {exc}")
+            rows.append(row)
+        return pd.DataFrame(rows)

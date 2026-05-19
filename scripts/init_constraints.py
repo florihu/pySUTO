@@ -36,11 +36,11 @@ import sys
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
 
-ACC_ID     = "copper"
-ACC_DIR    = os.path.join("data", "proc", "acc")
-IMP_DIR    = os.path.join("data", "proc", "imp")
-PARAMS_DIR = os.path.join("data", "input", "params")
-OUTPUT_DIR = os.path.join("data", "proc", "const")
+ACC_ID      = "copper"
+ACC_DIR     = os.path.join("data", "proc", "acc")
+IMP_DIR     = os.path.join("data", "proc", "imp")
+_INPUT_ROOT = os.path.join("data", "input")
+OUTPUT_DIR  = os.path.join("data", "proc", "const")
 
 # Power-mean exponent — must match the value used in the imputation pipeline
 P_PROP = 1.3
@@ -62,6 +62,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from pysuto.acc import AccountingStructure
 from pysuto.registry import ImputationRunRegistry
+from pysuto.input_registry import InputRegistries
 from pysuto.constraints import (
     ConstraintEngine,
     MassBalanceBuilder,
@@ -79,6 +80,12 @@ def main(imp_run_id: str, label: str) -> None:
     from datetime import datetime
     add_run_handler(f"logs/init_copper_constraints_{datetime.now():%Y%m%d_%H%M%S}.log")
 
+    # ── 0  Initialise input registries (scan-and-bump) ────────────────────
+    inputs    = InputRegistries.initialize(root=_INPUT_ROOT)
+    acc_entry = inputs.acc.entry(ACC_ID)
+    _log.info("0  Input acc: %s v%d (code=%s)",
+              acc_entry["id"], acc_entry["version"], acc_entry["code"])
+
     # ── A. Load inputs ────────────────────────────────────────────────────
     _log.info("Loading AccountingStructure '%s' from %s", ACC_ID, ACC_DIR)
     acc = AccountingStructure.load(ACC_ID, storage_dir=ACC_DIR)
@@ -90,6 +97,19 @@ def main(imp_run_id: str, label: str) -> None:
     agg_result = imp_registry.load(imp_run_id)
     _log.info("  f_agg shape=%s  coverage=%d edges  imp_run_id=%s",
               agg_result.f_agg.shape, agg_result.coverage.sum(), imp_run_id)
+
+    # ── A2. Cross-stage consistency: imp must reference same acc.id+version
+    imp_sidecar = imp_registry.load_sidecar(imp_run_id)
+    imp_acc_ref = (imp_sidecar.get("parents", {})
+                              .get("inputs", {})
+                              .get("acc"))
+    if imp_acc_ref and (imp_acc_ref.get("id"), imp_acc_ref.get("version")) \
+                       != (acc_entry["id"], acc_entry["version"]):
+        raise RuntimeError(
+            f"acc mismatch: imp run was built on "
+            f"acc {imp_acc_ref!r}, but this const run is using "
+            f"{acc_entry['id']} v{acc_entry['version']}."
+        )
 
     # ── B. Assemble constraint engine ─────────────────────────────────────
     engine = ConstraintEngine(acc_struct=acc, storage_dir=OUTPUT_DIR)
@@ -119,21 +139,27 @@ def main(imp_run_id: str, label: str) -> None:
         p=P_PROP,
     ))
 
-    # 4–5. Soft ratio constraints
-    _log.info("Registering RatioConstraintBuilder — concentration")
-    engine.register(RatioConstraintBuilder.from_csv(
-        os.path.join(PARAMS_DIR, "copper_conc_params.csv"), acc_struct=acc))
-    _log.info("Registering RatioConstraintBuilder — efficiency")
-    engine.register(RatioConstraintBuilder.from_csv(
-        os.path.join(PARAMS_DIR, "copper_efficiency_params.csv"), acc_struct=acc))
+    # 4–7. CSV-fed soft ratio + hard ratio-bound builders.
+    #      Two builders consume the same params_id (e.g. 'conc' → both
+    #      RatioConstraintBuilder and RatioBoundBuilder).
+    CONST_BINDINGS: list[tuple[str, type, dict]] = [
+        ("conc", RatioConstraintBuilder, {}),
+        ("eff",  RatioConstraintBuilder, {}),
+        ("conc", RatioBoundBuilder,      {}),
+        ("eff",  RatioBoundBuilder,      {}),
+    ]
 
-    # 6–7. Hard ratio bounds
-    _log.info("Registering RatioBoundBuilder — concentration")
-    engine.register(RatioBoundBuilder.from_csv(
-        os.path.join(PARAMS_DIR, "copper_conc_params.csv"), acc_struct=acc))
-    _log.info("Registering RatioBoundBuilder — efficiency")
-    engine.register(RatioBoundBuilder.from_csv(
-        os.path.join(PARAMS_DIR, "copper_efficiency_params.csv"), acc_struct=acc))
+    param_refs: list[dict] = []
+    seen_param_ids: set[str] = set()
+    for param_id, Builder, kwargs in CONST_BINDINGS:
+        csv_path = inputs.params.resolve(param_id) / "params.csv"
+        _log.info("Registering %s ← params/%s v%d",
+                  Builder.__name__, param_id,
+                  inputs.params.entry(param_id)["version"])
+        engine.register(Builder.from_csv(str(csv_path), acc_struct=acc, **kwargs))
+        if param_id not in seen_param_ids:
+            param_refs.append(inputs.params.entry(param_id))
+            seen_param_ids.add(param_id)
 
     # 8. Hard flow bounds from acc_struct
     _log.info("Registering FlowBoundsBuilder")
@@ -141,13 +167,20 @@ def main(imp_run_id: str, label: str) -> None:
 
     # ── C. Run and persist ────────────────────────────────────────────────
     _log.info("Running ConstraintEngine over %d timesteps", len(acc.time_range))
-    # agg_id auto-derived from agg_result._imp_run_id (set by ImputationRunRegistry).
+    parents = {
+        "inputs": {
+            "acc":    acc_entry,
+            "params": param_refs,
+        },
+        "upstream": {"imp_run_id": imp_run_id},
+    }
     constraint_run = engine.run(
-        agg_result=agg_result,
-        timesteps=[str(t) for t in acc.time_range],
-        persist=True,
-        diag_plot=True,
-        label=label,
+        agg_result = agg_result,
+        timesteps  = [str(t) for t in acc.time_range],
+        persist    = True,
+        diag_plot  = True,
+        label      = label,
+        parents    = parents,
     )
 
     # ── D. Summary ────────────────────────────────────────────────────────

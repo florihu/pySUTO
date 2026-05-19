@@ -36,8 +36,8 @@ ACC_ID       = "copper"
 ACC_DIR      = os.path.join("data", "proc", "acc")
 REGISTRY_DIR = os.path.join("data", "proc", "feed", "registry")
 
-IMP_DIR      = os.path.join("data", "proc", "imp")  # ImputationRunRegistry storage dir
-PARAMS_DIR   = os.path.join("data", "input", "params")  # where to find CSVs for ParametricImputer
+IMP_DIR      = os.path.join("data", "proc", "imp")          # ImputationRunRegistry storage dir
+_INPUT_ROOT  = os.path.join("data", "input")                # root of the input registries
 
 # Power-mean exponent for σ propagation (Stage 1, Stage 2a, all imputers).
 # p ∈ [1.1, 1.5]; p=2.0 recovers Gaussian quadrature. See README.
@@ -56,6 +56,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from pysuto.acc      import AccountingStructure
 from pysuto.registry import DataFeedRegistry, ImputationRunRegistry
+from pysuto.input_registry import InputRegistries
 from pysuto.collector import FeedCollector
 from pysuto.impute   import (
     ImputationEngine,
@@ -257,7 +258,7 @@ cathode_mesc_domestic = FormulaRelation(
 )
 
 
-def main(label: str, feed_run_ids: list[str]) -> None:
+def main(label: str, feed_keys: list[str]) -> None:
     log_path = os.path.join(
         "logs",
         f"collect_aggregate_impute_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log",
@@ -266,6 +267,12 @@ def main(label: str, feed_run_ids: list[str]) -> None:
     add_run_handler(log_path)
     logger = get_logger("collect_aggregate_impute")
     logger.info("=== collect_aggregate_impute START ===")
+
+    # ── 0  Initialise input registries (scan-and-bump) ────────────────────────
+    inputs = InputRegistries.initialize(root=_INPUT_ROOT)
+    acc_entry = inputs.acc.entry(ACC_ID)
+    logger.info("0  Input acc: %s v%d (code=%s)",
+                acc_entry["id"], acc_entry["version"], acc_entry["code"])
 
     # ── A  Load infrastructure ────────────────────────────────────────────────
     logger.info("A  Loading AccountingStructure '%s' from %s", ACC_ID, ACC_DIR)
@@ -276,13 +283,16 @@ def main(label: str, feed_run_ids: list[str]) -> None:
     registry.load_index()
 
     # ── B  Collect and aggregate ──────────────────────────────────────────────
-    logger.info("B  Collecting feeds: %s (p=%.2f)", feed_run_ids, P_PROP)
+    logger.info("B  Collecting feeds: %s (p=%.2f)", feed_keys, P_PROP)
     collector  = FeedCollector(registry=registry, acc_struct=acc, min_flow_kt=0.01)
-    agg_result = collector.select(feed_run_ids).aggregate(p=P_PROP)
+    agg_result = collector.select(feed_keys).aggregate(p=P_PROP)
     logger.info(
         "B  Aggregation done: %d covered / %d total edges",
         agg_result.n_covered, agg_result.n_edges,
     )
+
+    feed_run_ids = [s["feed_run_id"] for s in collector.selected if s["feed_run_id"]]
+    logger.info("B  Resolved feed_run_ids: %s", feed_run_ids)
 
     # Snapshot post-aggregation distributions BEFORE imputation mutates them.
     agg_diag = AggDiagnostic(agg_result, acc_struct=acc, label=label)
@@ -292,25 +302,25 @@ def main(label: str, feed_run_ids: list[str]) -> None:
     logger.info("C  Building imputation engine")
     engine = ImputationEngine(acc_struct=acc)
 
-    # Step 0: ore-grade (specific, time-varying) — priority via specificity dedup
-    engine.register(ParametricImputer.from_csv(
-        os.path.join(PARAMS_DIR, "ore_grade_params.csv"), acc,
-        p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG,
-    ))
+    # Config-table-driven imputer registration.  Each tuple is
+    #   (params_id, Builder, kwargs).  The params_id is resolved via the
+    #   input registry → data/input/params/<id>/v{latest}/params.csv.
+    IMP_BINDINGS: list[tuple[str, type, dict]] = [
+        ("eff",        ParametricImputer, dict(p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG)),
+        ("ore_grade",  ParametricImputer, dict(p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG)),
+        ("conc",       ParametricImputer, dict(p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG)),
+    ]
 
-    # Step 1: global concentration params (fills gaps left by ore_grade)
-    engine.register(ParametricImputer.from_csv(
-        os.path.join(PARAMS_DIR, "copper_conc_params.csv"), acc,
-        p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG,
-    ))
+    param_refs: list[dict] = []
+    for param_id, Builder, kwargs in IMP_BINDINGS:
+        csv_path = inputs.params.resolve(param_id) / "params.csv"
+        engine.register(Builder.from_csv(str(csv_path), acc, **kwargs))
+        param_refs.append(inputs.params.entry(param_id))
+        logger.info("C  registered %s (params=%s v%d)",
+                    Builder.__name__, param_id,
+                    inputs.params.entry(param_id)["version"])
 
-    # Step 2: efficiency params
-    engine.register(ParametricImputer.from_csv(
-        os.path.join(PARAMS_DIR, "copper_efficiency_params.csv"), acc,
-        p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG,
-    ))
-
-    # Step 3: domestic use balance for traded flows
+    # FormulaImputer is lambda-driven; it shares the `conc` params CSV.
     engine.register(FormulaImputer(
         relations=[
             concentrate_domestic,
@@ -320,44 +330,46 @@ def main(label: str, feed_run_ids: list[str]) -> None:
             cathode_usc_domestic,
             cathode_mesc_domestic,
         ],
-        params_csv=os.path.join(PARAMS_DIR, "copper_conc_params.csv"),
+        params_csv=str(inputs.params.resolve("conc") / "params.csv"),
         p=P_PROP,
     ))
 
-    # Step 4: temporal interpolation, no extrapolation
+    # Temporal interpolation, no extrapolation.
     engine.register(TimeImputer(
-        window=3,
-        method="linear",
-        min_obs=2,
-        gap_inflation=1.05,
-        interpolate_only=True,
-        p=P_PROP,
+        window=3, method="linear", min_obs=2,
+        gap_inflation=1.05, interpolate_only=True, p=P_PROP,
     ))
 
-    # Step 5: final fallback — flat prior sized by mask CV × group scale.
+    # Final fallback — flat prior sized by mask CV × group scale.
     engine.register(FlatPriorImputer.from_csv(
-        os.path.join(PARAMS_DIR, "flat_prior_cv.csv"),
+        str(inputs.params.resolve("flat_prior") / "params.csv"),
         acc_struct=acc,
         default_cv=FLAT_DEFAULT_CV,
         p=P_PROP,
     ))
+    param_refs.append(inputs.params.entry("flat_prior"))
 
     logger.info("C  Running imputation engine")
     agg_result = engine.run(agg_result)
-    logger.info(
-        "C  Imputation done: %d log entries",
-        len(agg_result.imputation_log),
-    )
+    logger.info("C  Imputation done: %d log entries", len(agg_result.imputation_log))
 
     # ── D  Register run ───────────────────────────────────────────────────────
     logger.info("D  Registering imputation run in %s", IMP_DIR)
     imp_registry = ImputationRunRegistry(storage_dir=IMP_DIR)
+    parents = {
+        "inputs": {
+            "acc":    acc_entry,
+            "params": param_refs,
+        },
+        "upstream": {"feed_run_ids": feed_run_ids},
+    }
     run_id = imp_registry.register(
         agg_result,
-        label    = label,
-        feeds    = collector.selected,
-        imputers = engine.imputers,
-        acc_id   = acc.id,
+        label        = label,
+        parents      = parents,
+        imputers     = engine.imputers,
+        stage_config = {"p": P_PROP, "q": Q_REG, "alpha_min": ALPHA_MIN_REG,
+                        "flat_default_cv": FLAT_DEFAULT_CV},
     )
     run_dir = os.path.join(IMP_DIR, run_id)
     logger.info("D  Registered run_id=%s  label=%s → %s", run_id, label, run_dir)
@@ -375,7 +387,10 @@ def main(label: str, feed_run_ids: list[str]) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Feed collection, aggregation, and imputation.")
-    parser.add_argument("label", help="Human-readable label folded into the imputation run_id")
-    parser.add_argument("feed_run_ids", nargs="+", help="Feed run IDs to collect (e.g. feed_baci_20260504_122237_f028190f)")
+    parser.add_argument("label", help="Human-readable label stored in the run's sidecar")
+    parser.add_argument(
+        "feed_keys", nargs="+",
+        help="Feed selectors: input-feed-id (latest run wins) or exact run_id",
+    )
     args = parser.parse_args()
-    main(args.label, args.feed_run_ids)
+    main(args.label, args.feed_keys)

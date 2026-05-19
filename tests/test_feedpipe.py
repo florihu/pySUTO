@@ -314,6 +314,16 @@ class TestPropagationResult:
 
 class TestDataFeedRegistry:
 
+    @staticmethod
+    def _parents(feed_id: str) -> dict:
+        return {
+            "inputs": {
+                "acc":  {"id": "acc_test", "version": 1},
+                "feed": {"id": feed_id,    "version": 1},
+            },
+            "upstream": {},
+        }
+
     def _run_and_register(self, tmpdir, feed_id="test_feed", meta_kwargs=None):
         meta_kwargs = meta_kwargs or {}
         meta   = _make_metadata(feed_name=feed_id, **meta_kwargs)
@@ -323,7 +333,9 @@ class TestDataFeedRegistry:
         result = wm.apply_with_uncertainty()
 
         registry = DataFeedRegistry(odir=tmpdir)
-        entry    = registry.register(wm, meta, result=result)
+        entry    = registry.register(
+            wm, meta, parents=self._parents(feed_id), result=result,
+        )
         registry.save()
         return registry, entry, meta, result
 
@@ -332,11 +344,14 @@ class TestDataFeedRegistry:
     def test_register_returns_entry(self, tmp_path):
         _, entry, _, _ = self._run_and_register(str(tmp_path))
         assert entry is not None
+        assert entry.run_id.startswith("feed_")
+        assert entry.stage == "feed"
 
-    def test_entry_to_dict_has_feed_id(self, tmp_path):
+    def test_entry_index_dict_has_four_fields(self, tmp_path):
         _, entry, _, _ = self._run_and_register(str(tmp_path))
-        d = entry.to_dict()
-        assert "test_feed" in str(d).lower() or "feed_name" in d or "id" in d
+        d = entry.to_index_dict()
+        assert set(d.keys()) == {"run_id", "stage", "label", "created_at"}
+        assert d["label"] == "test_feed"
 
     def test_registry_json_created(self, tmp_path):
         self._run_and_register(str(tmp_path))
@@ -346,7 +361,6 @@ class TestDataFeedRegistry:
         self._run_and_register(str(tmp_path))
         registry2 = DataFeedRegistry(odir=str(tmp_path))
         registry2.load_index()
-        # Should not raise and should contain at least one entry
         df = registry2.summary_df()
         assert len(df) >= 1
 
@@ -372,9 +386,11 @@ class TestDataFeedRegistry:
         wm2.set_pedigree(meta2.to_pedigree_scores())
         wm2.set_F_src(F_SRC_STD)
         result2 = wm2.apply_with_uncertainty()
-        e2 = registry.register(wm2, meta2, result=result2)
+        e2 = registry.register(
+            wm2, meta2, parents=self._parents("test_feed"), result=result2,
+        )
         registry.save()
-        assert e1.feed_run_id != e2.feed_run_id
+        assert e1.run_id != e2.run_id
         assert len(registry) == 2
 
     def test_multiple_feeds_in_registry(self, tmp_path):
@@ -385,7 +401,7 @@ class TestDataFeedRegistry:
             wm.set_pedigree(meta.to_pedigree_scores())
             wm.set_F_src(F_SRC_STD)
             result = wm.apply_with_uncertainty()
-            registry.register(wm, meta, result=result)
+            registry.register(wm, meta, parents=self._parents(fid), result=result)
         registry.save()
 
         registry2 = DataFeedRegistry(odir=str(tmp_path))

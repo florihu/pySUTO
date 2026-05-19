@@ -236,15 +236,24 @@ class TestPersist:
         )
         run_dir = tmp_path / out_id
 
-        # registry.json — master index at opt level, keyed by optim_run_id
+        # Harmonized output: opt_<ts>_<code>
+        assert out_id.startswith("opt_"), out_id
+
+        # Top-level registry.json — 4 fields per entry only.
         with open(tmp_path / "registry.json") as fh:
             registry = json.load(fh)
         assert out_id in registry
         reg = registry[out_id]
-        assert reg["const_run_id"] == "toy_const"
-        assert set(reg["timesteps"]) == {"2020", "2021"}
+        assert set(reg.keys()) == {"run_id", "stage", "label", "created_at"}
+        assert reg["stage"] == "opt"
+
+        # Sidecar carries parents.upstream.const_run_id + summary.timesteps + per_timestep.
+        with open(run_dir / "metadata.json") as fh:
+            sidecar = json.load(fh)
+        assert sidecar["parents"]["upstream"]["const_run_id"] == "toy_const"
+        assert set(sidecar["stage_summary"]["timesteps"]) == {"2020", "2021"}
         for t in ("2020", "2021"):
-            entry = reg["per_timestep"][t]
+            entry = sidecar["stage_summary"]["per_timestep"][t]
             assert entry["solver_status"] == "Solved"
             conv = entry["convergence"]
             assert conv["status"] == "Solved"
