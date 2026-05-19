@@ -112,7 +112,7 @@ For $p \geq 1$ the power-mean of normalized weights is at most 1, so the **diver
 - **`DataFeed`** ([feed.py](src/pysuto/feed.py)) — ABC owning a `weight_matrix`, pedigree scores, `F_src`, and persistence hooks.
 - **`PedigreeScores` / `UncertaintyMixin` / `PropagationResult`** ([unc.py](src/pysuto/unc.py)) — pedigree→CV computation and Lp / power-mean error propagation through `W`.
 - **`DataFeedMetadata`** ([meta.py](src/pysuto/meta.py)) — parses the Excel sidecar.
-- **`DataFeedRegistry`** ([registry.py](src/pysuto/registry.py)) — JSON index + per-feed metadata, pickle, and result.npz on disk.
+- **`DataFeedRegistry`** ([registry/feed.py](src/pysuto/registry/feed.py)) — JSON index + per-feed metadata, pickle, and result.npz on disk.
 - **`run_feed_pipeline` / `step_A..D`** ([feedpipe.py](src/pysuto/feedpipe.py)) — orchestrates the four-step pipeline (read metadata → build concordance → assemble W → apply + propagate).
 
 #### Key parameters
@@ -242,8 +242,8 @@ Only finite, non-zero values count at every level, so upstream-imputed zeros nev
 
 - **`FeedCollector`** ([collector.py](src/pysuto/collector.py)) — `.select([feed_id, ...])`, `.aggregate(p=…)`; aligns each feed onto the common edge index and returns an `AggregationResult`.
 - **`AggregationMath`** ([agg.py](src/pysuto/agg.py)) — vectorised $\Omega$, `f_agg`, `σ_agg` over the full `[N_f × N_r]` matrices.
-- **`ImputationEngine`** ([impute.py](src/pysuto/impute.py)) — orders an `.register()`-list of imputers; each imputer's `.prepare(acc_struct)` is called at registration so shared lookup structures only build once.
-- **`BaseImputer`** ([impute.py](src/pysuto/impute.py)) — ABC; subclass and implement `.impute(...)` to add a new fill method.
+- **`ImputationEngine`** ([impute/](src/pysuto/impute/)) — orders an `.register()`-list of imputers; each imputer's `.prepare(acc_struct)` is called at registration so shared lookup structures only build once.
+- **`BaseImputer`** ([impute/](src/pysuto/impute/)) — ABC; subclass and implement `.impute(...)` to add a new fill method.
 - **`ParametricImputer`** — bidirectional edge-pair constraints from a CSV (`.from_csv(...)`) or `ParametricRelation` lambdas; covers concentration (data category 3) and efficiency (data category 4) parameters.
 - **`FormulaImputer`** — directed multi-source balance equations with region/time-correlated source selection and a physical clip. Building blocks: `ParamRef`, `SourceTerm`, `FormulaRelation`.
 - **`TimeImputer`** — sliding-window temporal interpolation/extrapolation; `method ∈ {"linear","locf","nocb","mean"}`.
@@ -305,7 +305,7 @@ agg_result = engine.run(agg_result)
 
 #### Diagnostics
 
-`AggDiagnostic` (post-aggregation, pre-imputation) and `ImpDiagnostic` (post-imputation per-step trajectories) live in [diag.py](src/pysuto/diag.py). Both expose `.summary()` and `.plot(odir=...)`. `AggDiagnostic` must be constructed *before* `engine.run(...)` because imputation mutates `f_agg`/`sigma_agg` in place.
+`AggDiagnostic` (post-aggregation, pre-imputation) and `ImpDiagnostic` (post-imputation per-step trajectories) live in [diag/](src/pysuto/diag/). Both expose `.summary()` and `.plot(odir=...)`. `AggDiagnostic` must be constructed *before* `engine.run(...)` because imputation mutates `f_agg`/`sigma_agg` in place.
 
 Both accept an optional `acc_struct=` argument so that diag panels can stratify per-edge quantities by year:
 
@@ -359,7 +359,7 @@ Defaults: $\mathrm{CV}_a^\mathrm{min} = \mathrm{CV}_c^\mathrm{min} = 0.05$, $\si
 
 #### Classes
 
-- **`ConstraintEngine`** ([constraints.py](src/pysuto/constraints.py)) — `.register(builder)` then `.run(agg_result, timesteps=…)`; persists to a `ConstraintRunRegistry`.
+- **`ConstraintEngine`** ([constraints/](src/pysuto/constraints/)) — `.register(builder)` then `.run(agg_result, timesteps=…)`; persists to a `ConstraintRunRegistry`.
 - **`BaseConstraintBuilder`** — ABC; subclass and implement `build_static(...)` / `build_dynamic(...)`.
 - **`MassBalanceBuilder`** — type 1 (auto-derived from `acc_struct`).
 - **`SumConstraintBuilder`** — type 2; `.from_acc_struct(acc, sigma_fraction=…)` for auto-derived or `.from_csv(...)` for hand-written rows.
@@ -402,7 +402,7 @@ constraint_run = const_engine.run(
 )
 ```
 
-A `ConstDiagnostic` plot suite (in [diag.py](src/pysuto/diag.py)) can be triggered via `const_engine.run(..., diag_plot=True)`.
+A `ConstDiagnostic` plot suite (in [diag/](src/pysuto/diag/)) can be triggered via `const_engine.run(..., diag_plot=True)`.
 
 ---
 
@@ -459,7 +459,7 @@ Before solving, the hard subsystem (zero + nonneg cones + flow bounds) is solved
 - **`OptimResult`** ([solver.py](src/pysuto/solver.py)) — per-timestep dataclass: `F_opt`, `eps_opt`, `c_star`, `residuals`, `objective`, `iterations`, `solve_time_s`, `solver_status`, `convergence`, optional `iter_history`.
 - **`OptUncertainty`** ([optunc.py](src/pysuto/optunc.py)) — placeholder / stub for KKT-sensitivity uncertainty propagation `Σ_opt = J Σ_c Jᵀ`. The implementation is commented out pending re-integration; not currently called from the canonical workflow.
 
-Solver diagnostics live in [diag.py](src/pysuto/diag.py) (`SolverDiag`); see the module docstring for the full plot catalogue.
+Solver diagnostics live in [diag/](src/pysuto/diag/) (`SolverDiag`); see the module docstring for the full plot catalogue.
 
 #### Key parameters
 
@@ -507,17 +507,17 @@ optim_run_id = solver.persist(
 | [feedpipe.py](src/pysuto/feedpipe.py) | `run_feed_pipeline`, `step_A_read_metadata`/`_B_build_concordance`/`_C_build_weight_matrix`/`_D_apply_and_propagate`, `register_feed` | Stage 1 orchestration. |
 | [unc.py](src/pysuto/unc.py) | `PedigreeScores`, `UncertaintyMixin`, `PropagationResult` | Pedigree→CV (Laner et al.); Lp / power-mean propagation through `W`. |
 | [meta.py](src/pysuto/meta.py) | `DataFeedMetadata` | Parses the Excel sidecar. |
-| [registry.py](src/pysuto/registry.py) | `BaseOutputRegistry`, `DataFeedRegistry`, `ImputationRunRegistry`, `_RegistryEntry`, `make_run_id`, `build_sidecar` | Harmonized output registries (Stages 1 & 2); shared run-id pattern + sidecar schema. |
+| [registry/](src/pysuto/registry/) | `BaseOutputRegistry`, `DataFeedRegistry`, `ImputationRunRegistry`, `ConstraintRunRegistry`, `OptimRunRegistry`, `_RegistryEntry`, `make_run_id`, `build_sidecar` | Harmonized output registries (Stages 1–4); shared run-id pattern + sidecar schema. **Subpackage layout:** `base.py`, `feed.py`, `imputation.py`, `constraint.py`, `optim.py`, `_sidecar.py`. |
 | [input_registry.py](src/pysuto/input_registry.py) | `InputRegistry`, `InputRegistries` | Per-kind versioned snapshot store for `feed`, `acc`, `params` inputs; hardlink dedup; auto-bump on content-hash change. |
 | [utils.py](src/pysuto/utils.py) | `_NpEncoder`, io helpers | JSON serialisation, numpy-safe dump/load. |
 | [logging.py](src/pysuto/logging.py) | `get_logger` | Structured run logging. |
 | [collector.py](src/pysuto/collector.py) | `FeedCollector` | Select feeds, align onto common edge index, produce `AggregationResult`. |
 | [agg.py](src/pysuto/agg.py) | `AggregationMath`, `AggregationResult` | Build `Ω`, compute `f_agg`, `σ_agg`, coverage. |
-| [impute.py](src/pysuto/impute.py) | `ImputationEngine`, `BaseImputer`, `ParametricImputer`, `FormulaImputer`, `TimeImputer`, `FlatPriorImputer`, `ParametricRelation`, `FormulaRelation`, `SourceTerm`, `ParamRef`, `ImputationLog`, `ImputationMetadata` | Ordered imputation pipeline; per-edge provenance logging. |
-| [constraints.py](src/pysuto/constraints.py) | `ConstraintEngine`, `BaseConstraintBuilder`, `MassBalanceBuilder`, `SumConstraintBuilder`, `RatioConstraintBuilder`, `RatioBoundBuilder`, `FlowBoundsBuilder`, `ConstraintBlock`, `ConstraintRun`, `ConstraintRunRegistry` | Plugin constraint pipeline; persists to `data/proc/const/`. |
+| [impute/](src/pysuto/impute/) | `ImputationEngine`, `BaseImputer`, `ParametricImputer`, `FormulaImputer`, `TimeImputer`, `FlatPriorImputer`, `ParametricRelation`, `FormulaRelation`, `SourceTerm`, `ParamRef`, `ImputationLog`, `ImputationMetadata` | Ordered imputation pipeline; per-edge provenance logging. **Subpackage layout:** `engine.py`, `base.py`, `parametric.py`, `formula.py`, `time.py`, `flat_prior.py`. |
+| [constraints/](src/pysuto/constraints/) | `ConstraintEngine`, `BaseConstraintBuilder`, `MassBalanceBuilder`, `SumConstraintBuilder`, `RatioConstraintBuilder`, `RatioBoundBuilder`, `FlowBoundsBuilder`, `ConstraintBlock`, `ConstraintRun` | Plugin constraint pipeline; persists to `data/proc/const/` via `ConstraintRunRegistry` (lives in [registry/](src/pysuto/registry/)). **Subpackage layout:** `engine.py`, `base.py`, `mass_balance.py`, `sum.py`, `ratio.py`, `flow_bound.py`, `run.py`. |
 | [solver.py](src/pysuto/solver.py) | `ClarabelSolver`, `OptimResult` | σ-weighted QP via Clarabel; warm-start across timesteps. |
 | [optunc.py](src/pysuto/optunc.py) | `OptUncertainty` *(stub)* | KKT-sensitivity uncertainty propagation; currently commented out. |
-| [diag.py](src/pysuto/diag.py) | `FeedDiagnostics`, `AggDiagnostic`, `ImpDiagnostic`, `ConstDiagnostic`, `OptimDiagnostics`, `SolverDiag` | Cross-stage diagnostic plot suites. |
+| [diag/](src/pysuto/diag/) | `FeedDiagnostics`, `AggDiagnostic`, `ImpDiagnostic`, `ConstDiagnostic`, `OptimDiagnostics`, `SolverDiag` | Cross-stage diagnostic plot suites. **Subpackage layout:** `feed.py`, `agg.py`, `imp.py`, `const.py`, `optim.py`, `solver.py`, `_plot.py`. |
 
 ---
 
@@ -757,32 +757,46 @@ pysuto/
 ├── feedpipe.py            step_A/B/C/D · run_feed_pipeline                ─┐
 ├── unc.py                 PedigreeScores · UncertaintyMixin                │ Stage 1
 ├── meta.py                DataFeedMetadata                                  │
-├── registry.py            BaseOutputRegistry · DataFeedRegistry            │
-│                          ImputationRunRegistry · _RegistryEntry            │
-│                          make_run_id · build_sidecar                       │
+├── registry/              BaseOutputRegistry · DataFeedRegistry            │
+│   ├── base.py             ImputationRunRegistry · ConstraintRunRegistry    │
+│   ├── feed.py             OptimRunRegistry · _RegistryEntry                │
+│   ├── imputation.py       make_run_id · build_sidecar                      │
+│   ├── constraint.py                                                        │
+│   ├── optim.py                                                             │
+│   └── _sidecar.py                                                          │
 ├── input_registry.py      InputRegistry · InputRegistries                  │  Stages 0–4
 ├── utils.py               _NpEncoder · io helpers                          │
 ├── logging.py             structured run logging                          ─┘
 │
 ├── collector.py           FeedCollector                                   ─┐
 ├── agg.py                 AggregationMath · AggregationResult              │ Stage 2
-├── impute.py              ImputationEngine · BaseImputer                    │
-│                          ParametricImputer · FormulaImputer · TimeImputer  │
-│                          FlatPriorImputer · ParametricRelation             │
-│                          FormulaRelation · SourceTerm · ParamRef           │
-│                          ImputationLog · ImputationMetadata              ─┘
+├── impute/                ImputationEngine · BaseImputer                    │
+│   ├── engine.py           ParametricImputer · FormulaImputer · TimeImputer  │
+│   ├── base.py             FlatPriorImputer · ParametricRelation             │
+│   ├── parametric.py       FormulaRelation · SourceTerm · ParamRef           │
+│   ├── formula.py          ImputationLog · ImputationMetadata                │
+│   ├── time.py                                                               │
+│   └── flat_prior.py                                                       ─┘
 │
-├── constraints.py         ConstraintEngine · BaseConstraintBuilder        ─┐ Stage 3
-│                          MassBalanceBuilder · SumConstraintBuilder         │
-│                          RatioConstraintBuilder · RatioBoundBuilder        │
-│                          FlowBoundsBuilder                                  │
-│                          ConstraintBlock · ConstraintRun                    │
-│                          ConstraintRunRegistry                            ─┘
+├── constraints/           ConstraintEngine · BaseConstraintBuilder        ─┐ Stage 3
+│   ├── engine.py           MassBalanceBuilder · SumConstraintBuilder         │
+│   ├── base.py             RatioConstraintBuilder · RatioBoundBuilder        │
+│   ├── mass_balance.py     FlowBoundsBuilder                                 │
+│   ├── sum.py              ConstraintBlock · ConstraintRun                   │
+│   ├── ratio.py                                                              │
+│   ├── flow_bound.py                                                         │
+│   └── run.py                                                              ─┘
 │
 ├── solver.py              ClarabelSolver · OptimResult                    ─┐ Stage 4
 ├── optunc.py              OptUncertainty (stub)                            │
-└── diag.py                FeedDiagnostics · AggDiagnostic · ImpDiagnostic  │
-                           ConstDiagnostic · OptimDiagnostics · SolverDiag ─┘
+└── diag/                  FeedDiagnostics · AggDiagnostic · ImpDiagnostic  │
+    ├── feed.py             ConstDiagnostic · OptimDiagnostics · SolverDiag   │
+    ├── agg.py                                                                │
+    ├── imp.py                                                                │
+    ├── const.py                                                              │
+    ├── optim.py                                                              │
+    ├── solver.py                                                             │
+    └── _plot.py                                                            ─┘
 ```
 
 **Import direction is strictly one-way:**
@@ -833,7 +847,7 @@ pytest tests/ -v
 
 **Core dependencies (from `pyproject.toml`):** `numpy`, `pandas`, `scipy`, `pyarrow`, `clarabel`.
 
-**Implicit optional:** `matplotlib` — required only by [diag.py](src/pysuto/diag.py) for plotting; not listed in `pyproject.toml`.
+**Implicit optional:** `matplotlib` — required only by [diag/](src/pysuto/diag/) for plotting; not listed in `pyproject.toml`.
 
 ---
 
