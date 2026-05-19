@@ -96,7 +96,7 @@ class TestFromOptId:
     def test_roundtrip_recreates_portfolio(self, toy_results, tmp_path, monkeypatch):
         """Persist toy results, then reconstruct via from_opt_id and plot."""
         from pysuto.solver import ClarabelSolver
-        from pysuto.constraints import ConstraintRunRegistry
+        from pysuto.registry import ConstraintRunRegistry
         from pysuto.diag import SolverDiag
 
         results, run = toy_results

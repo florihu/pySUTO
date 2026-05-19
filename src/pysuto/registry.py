@@ -43,12 +43,17 @@ import warnings
 from dataclasses import dataclass, field
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
+import scipy.sparse as sp
 
 from pysuto.meta import DataFeedMetadata
+
+if TYPE_CHECKING:                              # break Stage-3/4 import cycles
+    from pysuto.constraints import ConstraintRun
+    from pysuto.solver       import OptimResult
 
 
 # =============================================================================
@@ -725,3 +730,312 @@ class ImputationRunRegistry(BaseOutputRegistry):
                 warnings.warn(f"Could not load sidecar for '{run_id}': {exc}")
             rows.append(row)
         return pd.DataFrame(rows)
+
+
+# =============================================================================
+# ConstraintRunRegistry — Stage 3
+# =============================================================================
+
+class ConstraintRunRegistry(BaseOutputRegistry):
+    """Stage-3 registry — one run = one persisted ``ConstraintRun``.
+
+    Per-run directory layout::
+
+        data/proc/const/
+        ├── registry.json
+        └── const_<ts>_<code>/
+            ├── metadata.json     ← harmonized sidecar (parents/config/summary)
+            ├── G.npz
+            ├── row_meta.parquet
+            ├── a0.npy
+            ├── sigma_a.npy
+            ├── u.npy
+            ├── l.npy
+            └── timesteps/
+                └── t_{label}.npz
+
+    Lives in :mod:`registry` (not :mod:`constraints`) so all four output
+    registries share one home; the cycle with ``ConstraintRun`` (defined in
+    :mod:`constraints`) is broken via ``TYPE_CHECKING`` + a lazy import
+    inside :meth:`load`.
+    """
+
+    STAGE = "const"
+
+    def __init__(
+        self,
+        storage_dir: str = "data/proc/const",
+        label: str = "ConstraintRunRegistry",
+    ):
+        super().__init__(storage_dir=storage_dir)
+        Path(storage_dir).mkdir(parents=True, exist_ok=True)
+        self.load_index()
+        self.label = label
+
+    def register(
+        self,
+        run: "ConstraintRun",
+        *,
+        parents:       Optional[dict] = None,
+        stage_config:  Optional[dict] = None,
+        stage_summary: Optional[dict] = None,
+    ) -> None:
+        """Persist *run* and append its 4-field entry to the index.
+
+        ``parents`` defaults to ``{"inputs": {"acc": {"id": run.acc_id, ...}},
+        "upstream": {"imp_run_id": run.agg_id}}`` when omitted, so existing
+        call sites keep working while still emitting a harmonized sidecar.
+        """
+        run_dir = self._make_run_dir(run.run_id)
+        ts_dir  = os.path.join(run_dir, "timesteps")
+        Path(ts_dir).mkdir(parents=True, exist_ok=True)
+
+        sp.save_npz(os.path.join(run_dir, "G.npz"), run.G)
+        run.row_meta.to_parquet(os.path.join(run_dir, "row_meta.parquet"), index=False)
+        np.save(os.path.join(run_dir, "a0.npy"),      run.a0)
+        np.save(os.path.join(run_dir, "sigma_a.npy"), run.sigma_a)
+        np.save(os.path.join(run_dir, "u.npy"),       run.u)
+        np.save(os.path.join(run_dir, "l.npy"),       run.l)
+
+        for ts_label, td in run.timestep_data.items():
+            np.savez(
+                os.path.join(ts_dir, f"t_{ts_label}.npz"),
+                c=td["c"], sigma_c=td["sigma_c"],
+            )
+
+        if parents is None:
+            parents = {
+                "inputs":   {"acc": {"id": run.acc_id}},
+                "upstream": {"imp_run_id": run.agg_id} if run.agg_id else {},
+            }
+
+        summary = (stage_summary or {}) | {
+            "n_rows":    int(run.G.shape[0]),
+            "n_edges":   int(run.G.shape[1]),
+            "timesteps": list(run.timestep_data.keys()),
+        }
+        config = (stage_config or {}) | {"p": run._p}
+
+        sidecar = build_sidecar(
+            run_id        = run.run_id,
+            stage         = self.STAGE,
+            label         = run.label,
+            created_at    = run.created_at,
+            parents       = parents,
+            stage_config  = config,
+            stage_summary = summary,
+        )
+        self._write_sidecar(run_dir, sidecar)
+
+        self._add_entry(
+            run_id     = run.run_id,
+            label      = run.label,
+            created_at = run.created_at,
+        )
+        self.save()
+
+    def load(self, run_id: str) -> "ConstraintRun":
+        from pysuto.constraints import ConstraintRun   # lazy: break cycle
+        if run_id not in self._index:
+            raise KeyError(f"Run '{run_id}' not in registry")
+        run_dir = os.path.join(self.storage_dir, run_id)
+        ts_dir  = os.path.join(run_dir, "timesteps")
+
+        G        = sp.load_npz(os.path.join(run_dir, "G.npz"))
+        row_meta = pd.read_parquet(os.path.join(run_dir, "row_meta.parquet"))
+        a0       = np.load(os.path.join(run_dir, "a0.npy"))
+        sigma_a  = np.load(os.path.join(run_dir, "sigma_a.npy"))
+        u        = np.load(os.path.join(run_dir, "u.npy"))
+        l        = np.load(os.path.join(run_dir, "l.npy"))
+
+        sidecar  = self._read_sidecar(run_id)
+        summary  = sidecar.get("stage_summary", {})
+        config   = sidecar.get("stage_config", {})
+        parents  = sidecar.get("parents", {})
+        acc_id   = (parents.get("inputs", {}).get("acc", {}).get("id")) or ""
+        agg_id   = (parents.get("upstream", {}).get("imp_run_id")) or ""
+
+        ts_data: dict[str, dict] = {}
+        for ts_label in summary.get("timesteps", []):
+            npz = np.load(os.path.join(ts_dir, f"t_{ts_label}.npz"))
+            ts_data[ts_label] = {"c": npz["c"], "sigma_c": npz["sigma_c"]}
+
+        return ConstraintRun(
+            G             = G,
+            row_meta      = row_meta,
+            a0            = a0,
+            sigma_a       = sigma_a,
+            u             = u,
+            l             = l,
+            timestep_data = ts_data,
+            run_id        = run_id,
+            acc_id        = acc_id,
+            agg_id        = agg_id,
+            created_at    = sidecar.get("created_at", ""),
+            label         = sidecar.get("label", ""),
+            _p            = float(config.get("p", 1.3)),
+        )
+
+    def load_sidecar(self, run_id: str) -> dict:
+        if run_id not in self._index:
+            raise KeyError(f"Run '{run_id}' not in registry")
+        return self._read_sidecar(run_id)
+
+    def summary_df(self) -> pd.DataFrame:
+        if not self._index:
+            return pd.DataFrame()
+        rows = []
+        for run_id, entry in self._index.items():
+            row = entry.to_index_dict()
+            try:
+                sc = self._read_sidecar(run_id)
+                row.update({
+                    "agg_id":     (sc.get("parents", {})
+                                       .get("upstream", {})
+                                       .get("imp_run_id", "")),
+                    "acc_id":     (sc.get("parents", {})
+                                       .get("inputs", {})
+                                       .get("acc", {})
+                                       .get("id", "")),
+                    "n_rows":     sc.get("stage_summary", {}).get("n_rows"),
+                    "n_edges":    sc.get("stage_summary", {}).get("n_edges"),
+                    "timesteps":  sc.get("stage_summary", {}).get("timesteps", []),
+                    "p":          sc.get("stage_config", {}).get("p"),
+                })
+            except Exception:
+                pass
+            rows.append(row)
+        return pd.DataFrame(rows)
+
+
+# =============================================================================
+# OptimRunRegistry — Stage 4
+# =============================================================================
+
+class OptimRunRegistry(BaseOutputRegistry):
+    """Stage-4 registry — one run = one persisted ``dict[ts, OptimResult]``.
+
+    Per-run directory layout::
+
+        data/proc/opt/
+        ├── registry.json
+        └── opt_<ts>_<code>/
+            ├── metadata.json          ← harmonized sidecar
+            └── timesteps/
+                └── t_{label}.npz      (F_opt, eps_opt, c_star, residuals)
+
+    Per-timestep diagnostics (objective, iterations, solver_status,
+    convergence) live in the sidecar's ``stage_summary.per_timestep``
+    so ``load_sidecar`` is enough to rebuild the dashboard without
+    touching the arrays.
+    """
+
+    STAGE = "opt"
+
+    def __init__(self, storage_dir: str = "data/proc/opt") -> None:
+        super().__init__(storage_dir=storage_dir)
+        Path(storage_dir).mkdir(parents=True, exist_ok=True)
+        self.load_index()
+
+    def register(
+        self,
+        results: "dict[str, OptimResult]",
+        *,
+        parents:       dict,
+        stage_config:  Optional[dict] = None,
+        stage_summary: Optional[dict] = None,
+        label:         str = "",
+    ) -> str:
+        """Mint run_id, write per-timestep .npz, write sidecar, update index.
+
+        ``parents`` should look like
+        ``{"inputs": {}, "upstream": {"const_run_id": "..."}}``.
+
+        ``stage_summary`` is merged with ``{timesteps, per_timestep}`` —
+        callers typically pass ``per_timestep`` themselves and let the
+        registry append the ordered ``timesteps`` list.
+        """
+        run_id     = self._new_run_id()
+        created_at = _now_iso()
+        run_dir    = self._make_run_dir(run_id)
+        ts_dir     = os.path.join(run_dir, "timesteps")
+        Path(ts_dir).mkdir(parents=True, exist_ok=True)
+
+        # ── 1. per-timestep arrays ────────────────────────────────────
+        for t, res in results.items():
+            arrays = {
+                "F_opt":     res.F_opt,
+                "eps_opt":   res.eps_opt,
+                "c_star":    res.c_star,
+                "residuals": res.residuals,
+            }
+            if res.iter_history is not None:
+                arrays["iter_history"] = res.iter_history
+            np.savez(os.path.join(ts_dir, f"t_{t}.npz"), **arrays)
+
+        # ── 2. summary (caller's per_timestep + ordered keys) ─────────
+        summary = (stage_summary or {}) | {"timesteps": list(results.keys())}
+        if "per_timestep" not in summary:
+            summary["per_timestep"] = {
+                t: {
+                    "objective":     res.objective,
+                    "iterations":    res.iterations,
+                    "solve_time_s":  res.solve_time_s,
+                    "solver_status": res.solver_status,
+                    "convergence":   res.convergence,
+                }
+                for t, res in results.items()
+            }
+
+        # ── 3. sidecar ────────────────────────────────────────────────
+        sidecar = build_sidecar(
+            run_id        = run_id,
+            stage         = self.STAGE,
+            label         = label,
+            created_at    = created_at,
+            parents       = parents,
+            stage_config  = stage_config,
+            stage_summary = summary,
+        )
+        self._write_sidecar(run_dir, sidecar)
+
+        # ── 4. index ──────────────────────────────────────────────────
+        self._add_entry(run_id=run_id, label=label, created_at=created_at)
+        self.save()
+        return run_id
+
+    def load(self, run_id: str) -> "dict[str, OptimResult]":
+        """Reconstruct ``{timestep: OptimResult}`` from .npz + sidecar."""
+        from pysuto.solver import OptimResult        # lazy: break cycle
+        if run_id not in self._index:
+            raise KeyError(f"Optim run '{run_id}' not in registry")
+
+        run_dir = os.path.join(self.storage_dir, run_id)
+        ts_dir  = os.path.join(run_dir, "timesteps")
+        sidecar = self._read_sidecar(run_id)
+        summary = sidecar.get("stage_summary", {})
+        per_ts  = summary.get("per_timestep", {})
+
+        results: Dict[str, "OptimResult"] = {}
+        for t in summary.get("timesteps", []):
+            npz = np.load(os.path.join(ts_dir, f"t_{t}.npz"))
+            per = per_ts.get(t, {})
+            results[t] = OptimResult(
+                timestep      = t,
+                F_opt         = npz["F_opt"],
+                eps_opt       = npz["eps_opt"],
+                c_star        = npz["c_star"],
+                residuals     = npz["residuals"],
+                objective     = float(per.get("objective", 0.0)),
+                iterations    = int(per.get("iterations", 0)),
+                solve_time_s  = float(per.get("solve_time_s", 0.0)),
+                solver_status = str(per.get("solver_status", "")),
+                convergence   = dict(per.get("convergence", {})),
+                iter_history  = npz["iter_history"] if "iter_history" in npz.files else None,
+            )
+        return results
+
+    def load_sidecar(self, run_id: str) -> dict:
+        if run_id not in self._index:
+            raise KeyError(f"Optim run '{run_id}' not in registry")
+        return self._read_sidecar(run_id)

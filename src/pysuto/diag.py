@@ -2279,63 +2279,30 @@ class SolverDiag:
         label:      str = "",
     ) -> "SolverDiag":
         """Reconstruct results + ConstraintRun from disk."""
-        import json
         # Local import to keep diag.py at the leaf of the import graph for
         # CI environments without the full Stage-3 stack installed.
-        from pysuto.solver import OptimResult, ITER_DTYPE
-        from pysuto.constraints import ConstraintRunRegistry
+        from pysuto.registry import ConstraintRunRegistry, OptimRunRegistry
 
-        reg_path = os.path.join(output_dir, "registry.json")
-        if not os.path.exists(reg_path):
-            raise FileNotFoundError(f"No registry at {reg_path}")
-        with open(reg_path) as fh:
-            registry = json.load(fh)
-        if opt_run_id not in registry:
+        opt_reg = OptimRunRegistry(output_dir)
+        if opt_run_id not in opt_reg._index:
             raise KeyError(
-                f"opt_run_id '{opt_run_id}' not in {reg_path}. "
-                f"Known: {sorted(registry.keys())}"
+                f"opt_run_id '{opt_run_id}' not in {opt_reg._index_path}. "
+                f"Known: {sorted(opt_reg.run_ids())}"
             )
-        entry = registry[opt_run_id]
-
-        # Stage-4 sidecar carries parents + timesteps + per_timestep telemetry.
-        sidecar_path = os.path.join(output_dir, opt_run_id, "metadata.json")
-        with open(sidecar_path) as fh:
-            sidecar = json.load(fh)
-        const_run_id   = (sidecar.get("parents", {})
-                                  .get("upstream", {})
-                                  .get("const_run_id"))
-        summary        = sidecar.get("stage_summary", {})
-        timesteps      = summary.get("timesteps", [])
-        per_timestep   = summary.get("per_timestep", {})
+        sidecar = opt_reg.load_sidecar(opt_run_id)
+        results = opt_reg.load(opt_run_id)
+        const_run_id = (sidecar.get("parents", {})
+                                .get("upstream", {})
+                                .get("const_run_id"))
 
         const_run = ConstraintRunRegistry(const_dir).load(const_run_id)
-
-        # Reconstruct each OptimResult from the .npz + sidecar per_timestep.
-        ts_dir = os.path.join(output_dir, opt_run_id, "timesteps")
-        results: dict[str, OptimResult] = {}
-        for t in timesteps:
-            npz = np.load(os.path.join(ts_dir, f"t_{t}.npz"))
-            per = per_timestep[t]
-            results[t] = OptimResult(
-                timestep      = t,
-                F_opt         = npz["F_opt"],
-                eps_opt       = npz["eps_opt"],
-                c_star        = npz["c_star"],
-                residuals     = npz["residuals"],
-                objective     = float(per["objective"]),
-                iterations    = int(per["iterations"]),
-                solve_time_s  = float(per["solve_time_s"]),
-                solver_status = str(per["solver_status"]),
-                convergence   = dict(per["convergence"]),
-                iter_history  = npz["iter_history"] if "iter_history" in npz.files else None,
-            )
 
         instance = cls(results, const_run, label=label or opt_run_id)
         instance._default_odir = os.path.join(output_dir, opt_run_id, "diag")
 
         # Populate provenance chain
         instance._opt_run_id = opt_run_id
-        instance._opt_entry  = entry
+        instance._opt_entry  = opt_reg[opt_run_id].to_index_dict()
 
         agg_id = const_run.agg_id
         if agg_id:

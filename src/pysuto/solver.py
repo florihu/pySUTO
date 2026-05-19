@@ -24,11 +24,9 @@ Public API
 """
 from __future__ import annotations
 
-import json
 import os
 import time
 from dataclasses import dataclass, asdict
-from datetime import datetime
 from typing import Optional
 
 import numpy as np
@@ -37,8 +35,8 @@ import scipy.sparse as sp
 
 import clarabel
 
-from .constraints import ConstraintRun, ConstraintRunRegistry
-from .registry import BaseOutputRegistry, _RegistryEntry, build_sidecar, make_run_id
+from .constraints import ConstraintRun
+from .registry import ConstraintRunRegistry, OptimRunRegistry
 from .logging import get_logger
 
 logger = get_logger("pysuto.solver")
@@ -124,6 +122,7 @@ class ClarabelSolver:
     def __init__(
         self,
         const_dir: str = "data/proc/const",
+        opt_dir:   str = "data/proc/opt",
         sigma_a_floor_abs:      float = 1e-8,
         sigma_a_floor_rel:      float = 1e-5,
         sigma_a_ceiling_factor: float = 1e5,
@@ -136,6 +135,7 @@ class ClarabelSolver:
         capture_iter_history:   bool  = True,
     ) -> None:
         self.const_dir              = const_dir
+        self.opt_dir                = opt_dir
         self.sigma_a_floor_abs      = sigma_a_floor_abs
         self.sigma_a_floor_rel      = sigma_a_floor_rel
         self.sigma_a_ceiling_factor = sigma_a_ceiling_factor
@@ -147,7 +147,8 @@ class ClarabelSolver:
         self.verbose_first_solve    = verbose_first_solve
         self.capture_iter_history   = capture_iter_history
 
-        self._registry = ConstraintRunRegistry(const_dir)
+        self._const_registry = ConstraintRunRegistry(const_dir)
+        self._opt_registry   = OptimRunRegistry(opt_dir)
 
     # ------------------------------------------------------------------
     # Loading
@@ -155,7 +156,7 @@ class ClarabelSolver:
 
     def load_run(self, run_id: str) -> ConstraintRun:
         logger.info("Loading ConstraintRun '%s' from %s", run_id, self.const_dir)
-        cr = self._registry.load(run_id)
+        cr = self._const_registry.load(run_id)
         logger.info(
             "  G shape=%s  edges=%d  timesteps=%d",
             cr.G.shape, cr.G.shape[1], len(cr.timestep_data),
@@ -631,91 +632,28 @@ class ClarabelSolver:
         self,
         run_id:     str,
         results:    dict[str, OptimResult],
-        output_dir: str = "data/proc/opt",
+        output_dir: Optional[str] = None,
         const_run_id: Optional[str] = None,
         label:      str = "",
     ) -> str:
-        """
-        Persist results under ``{output_dir}/{optim_run_id}/``.
-
-        Layout::
-
-            {output_dir}/
-            ├── registry.json              ← 4-field harmonized index
-            └── opt_<ts>_<code>/
-                ├── metadata.json          ← harmonized sidecar
-                └── timesteps/
-                    └── t_{label}.npz      (F_opt, eps_opt, c_star, residuals)
+        """Delegate to :class:`OptimRunRegistry`.
 
         The first positional argument (``run_id``) is the *upstream*
         ``const_run_id`` (kept for backwards-compatible call signature).
-        The newly minted *output* id is returned and starts with ``opt_``.
+        ``output_dir`` overrides the solver's own ``self._opt_registry``
+        target — useful for tests pinning to a tmpdir. The newly minted
+        *output* id is returned and starts with ``opt_``.
         """
         const_id = const_run_id or run_id
-        optim_run_id = make_run_id("opt")
-
-        run_dir = os.path.join(output_dir, optim_run_id)
-        ts_dir  = os.path.join(run_dir, "timesteps")
-        os.makedirs(ts_dir, exist_ok=True)
-
-        # ── 1. per-timestep arrays ────────────────────────────────────
-        for t, res in results.items():
-            arrays = {
-                "F_opt":     res.F_opt,
-                "eps_opt":   res.eps_opt,
-                "c_star":    res.c_star,
-                "residuals": res.residuals,
-            }
-            if res.iter_history is not None:
-                arrays["iter_history"] = res.iter_history
-            np.savez(os.path.join(ts_dir, f"t_{t}.npz"), **arrays)
-
-        # ── 2. sidecar metadata.json ──────────────────────────────────
-        created_at = datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
-        per_timestep = {
-            t: {
-                "objective":     res.objective,
-                "iterations":    res.iterations,
-                "solve_time_s":  res.solve_time_s,
-                "solver_status": res.solver_status,
-                "convergence":   res.convergence,
-            }
-            for t, res in results.items()
-        }
-        sidecar = build_sidecar(
-            run_id     = optim_run_id,
-            stage      = "opt",
-            label      = label,
-            created_at = created_at,
-            parents    = {
+        registry = OptimRunRegistry(output_dir) if output_dir else self._opt_registry
+        opt_run_id = registry.register(
+            results,
+            parents = {
                 "inputs":   {},
                 "upstream": {"const_run_id": const_id},
             },
-            stage_config  = {},
-            stage_summary = {
-                "timesteps":    list(results.keys()),
-                "per_timestep": per_timestep,
-            },
+            label = label,
         )
-        with open(os.path.join(run_dir, "metadata.json"), "w") as fh:
-            json.dump(sidecar, fh, indent=2)
-
-        # ── 3. trimmed top-level index ────────────────────────────────
-        registry_path = os.path.join(output_dir, "registry.json")
-        if os.path.exists(registry_path):
-            with open(registry_path) as fh:
-                registry = json.load(fh)
-        else:
-            registry = {}
-        registry[optim_run_id] = {
-            "run_id":     optim_run_id,
-            "stage":      "opt",
-            "label":      label,
-            "created_at": created_at,
-        }
-        os.makedirs(output_dir, exist_ok=True)
-        with open(registry_path, "w") as fh:
-            json.dump(registry, fh, indent=2)
-
-        logger.info("OptimRun '%s' persisted to %s", optim_run_id, run_dir)
-        return optim_run_id
+        logger.info("OptimRun '%s' persisted to %s",
+                    opt_run_id, registry.storage_dir)
+        return opt_run_id

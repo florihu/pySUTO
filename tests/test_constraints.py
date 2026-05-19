@@ -695,9 +695,8 @@ class TestConstraintRunRegistry:
 
     def test_registry_round_trip(self, toy_acc, toy_agg_result, tmp_path):
         """Save ConstraintRun; reload; G and row_meta match."""
-        from pysuto.constraints import (
-            ConstraintEngine, MassBalanceBuilder, ConstraintRunRegistry,
-        )
+        from pysuto.constraints import ConstraintEngine, MassBalanceBuilder
+        from pysuto.registry import ConstraintRunRegistry
         storage = str(tmp_path / "const")
         engine  = ConstraintEngine(toy_acc, storage_dir=storage)
         engine.register(MassBalanceBuilder())
@@ -719,9 +718,8 @@ class TestConstraintRunRegistry:
 
     def test_registry_summary_df(self, toy_acc, toy_agg_result, tmp_path):
         """summary_df() returns DataFrame with one row per registered run."""
-        from pysuto.constraints import (
-            ConstraintEngine, MassBalanceBuilder, ConstraintRunRegistry,
-        )
+        from pysuto.constraints import ConstraintEngine, MassBalanceBuilder
+        from pysuto.registry import ConstraintRunRegistry
         storage = str(tmp_path / "const2")
         for _ in range(2):
             engine = ConstraintEngine(toy_acc, storage_dir=storage)
@@ -735,7 +733,7 @@ class TestConstraintRunRegistry:
 
     def test_load_unknown_run_id_raises(self, tmp_path):
         """Loading a non-existent run_id raises KeyError."""
-        from pysuto.constraints import ConstraintRunRegistry
+        from pysuto.registry import ConstraintRunRegistry
         reg = ConstraintRunRegistry(storage_dir=str(tmp_path / "const"))
         with pytest.raises(KeyError):
             reg.load("nonexistent_run")

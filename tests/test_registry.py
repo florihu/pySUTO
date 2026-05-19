@@ -38,6 +38,8 @@ from pysuto.registry import (
     DataFeedMetadata,
     DataFeedRegistry,
     ImputationRunRegistry,
+    ConstraintRunRegistry,
+    OptimRunRegistry,
 )
 
 
@@ -731,6 +733,169 @@ class TestImputationRunRegistry:
     def test_load_missing_raises(self, imp_registry):
         with pytest.raises(KeyError):
             imp_registry.load("imp_nonexistent")
+
+
+# =============================================================================
+# Stage-3: ConstraintRunRegistry  (direct API; no ConstraintEngine fixtures)
+# =============================================================================
+
+
+def _toy_constraint_run(run_id: str = "const_20260519_000000_aaaa1111"):
+    """Hand-rolled ConstraintRun with the smallest possible payload."""
+    from pysuto.constraints import ConstraintRun
+    import scipy.sparse as sp
+    G = sp.csr_matrix(np.array([[1.0, -1.0], [0.0, 1.0]]))
+    row_meta = pd.DataFrame({
+        "constraint_id": ["c0", "c1"],
+        "type":          ["mass_balance", "ratio"],
+        "is_hard":       [True, False],
+        "cone_type":     ["zero", "free"],
+    })
+    return ConstraintRun(
+        G             = G,
+        row_meta      = row_meta,
+        a0            = np.array([10.0, 20.0]),
+        sigma_a       = np.array([1.0, 2.0]),
+        u             = np.array([1e9, 1e9]),
+        l             = np.array([0.0, 0.0]),
+        timestep_data = {"2020": {"c": np.array([0.0, 5.0]),
+                                  "sigma_c": np.array([1.0, 1.0])}},
+        run_id        = run_id,
+        acc_id        = "toy",
+        agg_id        = "imp_20260519_000000_bbbb2222",
+        created_at    = "2026-05-19T00:00:00Z",
+        label         = "toy-const",
+        _p            = 1.3,
+    )
+
+
+class TestConstraintRunRegistry:
+
+    @pytest.fixture
+    def const_registry(self, tmp_path):
+        return ConstraintRunRegistry(storage_dir=str(tmp_path / "const"))
+
+    def test_run_id_prefix(self, const_registry):
+        assert const_registry.STAGE == "const"
+
+    def test_round_trip(self, const_registry):
+        run = _toy_constraint_run()
+        const_registry.register(run)
+        reg2 = ConstraintRunRegistry(storage_dir=const_registry.storage_dir)
+        loaded = reg2.load(run.run_id)
+        np.testing.assert_allclose(loaded.a0,      run.a0)
+        np.testing.assert_allclose(loaded.sigma_a, run.sigma_a)
+        np.testing.assert_allclose(loaded.u,       run.u)
+        np.testing.assert_allclose(loaded.l,       run.l)
+        np.testing.assert_allclose(
+            loaded.timestep_data["2020"]["c"],
+            run.timestep_data["2020"]["c"],
+        )
+        assert loaded.acc_id == "toy"
+        assert loaded.agg_id == run.agg_id
+        assert loaded._p     == pytest.approx(1.3)
+
+    def test_index_has_only_four_fields(self, const_registry):
+        const_registry.register(_toy_constraint_run())
+        with open(os.path.join(const_registry.storage_dir, "registry.json")) as f:
+            payload = json.load(f)
+        for entry in payload.values():
+            assert set(entry.keys()) == {"run_id", "stage", "label", "created_at"}
+
+    def test_sidecar_parents_default(self, const_registry):
+        run = _toy_constraint_run()
+        const_registry.register(run)
+        sc = const_registry.load_sidecar(run.run_id)
+        assert sc["parents"]["inputs"]["acc"]["id"] == "toy"
+        assert sc["parents"]["upstream"]["imp_run_id"] == run.agg_id
+
+    def test_load_missing_raises(self, const_registry):
+        with pytest.raises(KeyError):
+            const_registry.load("const_nonexistent")
+
+
+# =============================================================================
+# Stage-4: OptimRunRegistry
+# =============================================================================
+
+
+def _toy_optim_results():
+    """Build a 2-timestep dict[str, OptimResult] with no iter_history."""
+    from pysuto.solver import OptimResult
+    out = {}
+    for t, obj in [("2020", 1.23), ("2021", 4.56)]:
+        out[t] = OptimResult(
+            timestep      = t,
+            F_opt         = np.array([1.0, 2.0]),
+            eps_opt       = np.array([0.0]),
+            c_star        = np.array([0.0, 5.0]),
+            residuals     = np.array([0.0, 0.0]),
+            objective     = obj,
+            iterations    = 5,
+            solve_time_s  = 0.01,
+            solver_status = "Solved",
+            convergence   = {"primal_residual": 1e-9},
+        )
+    return out
+
+
+class TestOptimRunRegistry:
+
+    @pytest.fixture
+    def opt_registry(self, tmp_path):
+        return OptimRunRegistry(storage_dir=str(tmp_path / "opt"))
+
+    def test_stage_constant(self, opt_registry):
+        assert opt_registry.STAGE == "opt"
+
+    def test_register_returns_opt_prefixed_id(self, opt_registry):
+        run_id = opt_registry.register(
+            _toy_optim_results(),
+            parents={"inputs": {}, "upstream": {"const_run_id": "const_x"}},
+        )
+        assert run_id.startswith("opt_")
+        assert _RUN_ID_RE.match(run_id)
+
+    def test_index_has_only_four_fields(self, opt_registry):
+        opt_registry.register(
+            _toy_optim_results(),
+            parents={"inputs": {}, "upstream": {"const_run_id": "const_x"}},
+            label="copper-2020-21",
+        )
+        with open(os.path.join(opt_registry.storage_dir, "registry.json")) as f:
+            payload = json.load(f)
+        for entry in payload.values():
+            assert set(entry.keys()) == {"run_id", "stage", "label", "created_at"}
+            assert entry["label"] == "copper-2020-21"
+
+    def test_sidecar_records_parents_and_summary(self, opt_registry):
+        run_id = opt_registry.register(
+            _toy_optim_results(),
+            parents={"inputs": {}, "upstream": {"const_run_id": "const_x"}},
+        )
+        sc = opt_registry.load_sidecar(run_id)
+        assert sc["parents"]["upstream"]["const_run_id"] == "const_x"
+        assert sc["stage_summary"]["timesteps"] == ["2020", "2021"]
+        assert sc["stage_summary"]["per_timestep"]["2020"]["objective"] == pytest.approx(1.23)
+        assert sc["stage_summary"]["per_timestep"]["2021"]["solver_status"] == "Solved"
+
+    def test_load_round_trip(self, opt_registry):
+        original = _toy_optim_results()
+        run_id = opt_registry.register(
+            original,
+            parents={"inputs": {}, "upstream": {"const_run_id": "const_x"}},
+        )
+        reg2 = OptimRunRegistry(storage_dir=opt_registry.storage_dir)
+        loaded = reg2.load(run_id)
+        assert set(loaded.keys()) == {"2020", "2021"}
+        np.testing.assert_allclose(loaded["2020"].F_opt, original["2020"].F_opt)
+        assert loaded["2020"].objective    == pytest.approx(1.23)
+        assert loaded["2021"].solver_status == "Solved"
+        assert loaded["2021"].iterations    == 5
+
+    def test_load_missing_raises(self, opt_registry):
+        with pytest.raises(KeyError):
+            opt_registry.load("opt_nonexistent")
 
 
 if __name__ == "__main__":
