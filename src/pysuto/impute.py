@@ -41,37 +41,15 @@ from .agg import AggregationResult
 from .logging import get_logger
 from .lp import lp_combine
 from .param_relation import (
-    A_FIELDS,
-    A_PRODUCT_THRESHOLD,
-    B_FIELDS,
-    WILDCARD,
+    ParamRelationResolver,
     expand_edge_index,
     float_or,
     get_edge_cache,
     sigma_from_row,
-    specificity,
-    _build_edge_lookup,
-    _enumerate_a_edges,
-    _resolve_b_ids,
 )
 from .unc import PedigreeScores
 
 logger = get_logger(__name__)
-
-# Backwards-compat private aliases for symbols that now live in
-# pysuto.lp / pysuto.param_relation. Retained while constraints.py still
-# imports the underscored names via `from .impute import _lp_combine, …`.
-# Removed in the final migration commit.
-_lp_combine          = lp_combine
-_expand_edge_index   = expand_edge_index
-_get_edge_cache      = get_edge_cache
-_sigma_from_row      = sigma_from_row
-_float_or            = float_or
-_specificity         = specificity
-_WILDCARD            = WILDCARD
-_A_FIELDS            = A_FIELDS
-_B_FIELDS            = B_FIELDS
-_A_PRODUCT_THRESHOLD = A_PRODUCT_THRESHOLD
 
 
 # ---------------------------------------------------------------------------
@@ -318,7 +296,7 @@ class ImputationEngine:
                 fv = f[newly_filled]
                 clip_needed = (fv < bl) | (fv > bu)
                 if clip_needed.any():
-                    _, _, id_to_tuple, _, _, _ = _get_edge_cache(self._acc_struct)
+                    _, _, id_to_tuple, _, _, _ = get_edge_cache(self._acc_struct)
                     for e_id in newly_filled[clip_needed]:
                         lo  = float(self._acc_struct.bounds.l[e_id])
                         hi  = float(self._acc_struct.bounds.u[e_id])
@@ -467,78 +445,41 @@ class ParametricImputer(BaseImputer):
         df = df.dropna(subset=["param_id"])
         df = df[~df["param_id"].str.startswith("#")]
 
-        ei_exp, edge_lookup, id_to_tuple, field_vals, mask_cache, edge_ids_arr = (
-            _get_edge_cache(acc_struct)
-        )
-        n = len(ei_exp)
+        resolver = ParamRelationResolver(acc_struct)
+
         # dict[(a_id, b_id)] → (pair_tuple, specificity)
+        # The resolver yields every (a, b) match; this imputer keeps only
+        # the most specific row per pair so a wildcard row never overrides
+        # a deliberately narrow one.
         best: dict[tuple, tuple] = {}
 
         for _, row in df.iterrows():
             nominal = float(row["value_nominal"])
             try:
-                sigma_p = _sigma_from_row(row, nominal)
+                sigma_p = sigma_from_row(row, nominal)
             except Exception as exc:
                 logger.warning("param_id=%s: sigma error (%s) — skipped", row["param_id"], exc)
                 continue
-            epsilon  = _float_or(row.get("epsilon"), 0.0)
+            epsilon  = float_or(row.get("epsilon"), 0.0)
             # bound_lower / bound_upper are *ratio* bounds — consumed by
             # RatioBoundBuilder for constraint building, not by this imputer.
             param_id = str(row["param_id"])
             desc     = str(row.get("description", ""))
-            spec     = _specificity(row)
-            n_a      = 0
+            n_pairs  = 0
 
-            # Estimate product size to decide enumeration strategy
-            prod_size = 1
-            for col_key, ei_col, _ in _A_FIELDS:
-                v = str(row.get(col_key, "*")).strip()
-                if v in _WILDCARD or v == "same":
-                    prod_size *= len(field_vals[ei_col])
-                    if prod_size > _A_PRODUCT_THRESHOLD:
-                        break
+            for rr in resolver.resolve_row(row):
+                n_pairs += 1
+                key  = (rr.a_edge_id, rr.b_edge_id)
+                pair = (rr.a_edge_id, rr.b_edge_id, nominal, sigma_p, epsilon, param_id, desc)
+                if key not in best or rr.specificity > best[key][1]:
+                    if key in best:
+                        logger.debug(
+                            "param_id=%s: replacing lower-specificity pair %s (spec %d→%d)",
+                            param_id, key, best[key][1], rr.specificity,
+                        )
+                    best[key] = (pair, rr.specificity)
 
-            if prod_size <= _A_PRODUCT_THRESHOLD:
-                # Small product: iterate combos via dict lookup
-                a_iter: list = [
-                    (a_id, a_tuple)
-                    for a_tuple in _enumerate_a_edges(row, field_vals)
-                    if (a_id := edge_lookup.get(a_tuple)) is not None
-                ]
-            else:
-                # Large product: numpy bitwise mask — O(n/64) per field
-                a_mask_np = np.ones(n, dtype=bool)
-                for col_key, ei_col, counterpart in _A_FIELDS:
-                    val = str(row.get(col_key, "*")).strip()
-                    if val in _WILDCARD:
-                        continue
-                    if val == "same" and counterpart is not None:
-                        m = mask_cache.get(("__same__", ei_col, counterpart))
-                    else:
-                        m = mask_cache.get((ei_col, val))
-                    if m is None:
-                        a_mask_np = np.zeros(n, dtype=bool)
-                        break
-                    a_mask_np &= m
-                a_iter = [
-                    (int(aid), id_to_tuple[int(aid)])
-                    for aid in edge_ids_arr[a_mask_np]
-                ]
-
-            for a_id, a_tuple in a_iter:
-                n_a += 1
-                for b_id in _resolve_b_ids(row, a_tuple, edge_lookup, field_vals):
-                    key  = (a_id, b_id)
-                    pair = (a_id, b_id, nominal, sigma_p, epsilon, param_id, desc)
-                    if key not in best or spec > best[key][1]:
-                        if key in best:
-                            logger.debug(
-                                "param_id=%s: replacing lower-specificity pair %s (spec %d→%d)",
-                                param_id, key, best[key][1], spec,
-                            )
-                        best[key] = (pair, spec)
-
-            if n_a == 0:
+            if n_pairs == 0:
                 logger.warning("param_id=%s: no A-edges matched", param_id)
 
         pairs = [v[0] for v in best.values()]
@@ -607,7 +548,7 @@ class ParametricImputer(BaseImputer):
         # ── Lambda relations (directed: target ← sources) ─────────────
         if self._relations:
             if self._ei_exp is None:
-                self._ei_exp = _expand_edge_index(acc_struct.edge_index, acc_struct.node_index)
+                self._ei_exp = expand_edge_index(acc_struct.edge_index, acc_struct.node_index)
             ei_exp = self._ei_exp
             for rel in self._relations:
                 t_mask = rel.target(ei_exp)
@@ -781,7 +722,7 @@ class FormulaImputer(BaseImputer):
         }
 
     def prepare(self, acc_struct) -> None:
-        ei_exp, _, _, _, mask_cache, _ = _get_edge_cache(acc_struct)
+        ei_exp, _, _, _, mask_cache, _ = get_edge_cache(acc_struct)
         eids_np = ei_exp["edge_id"].to_numpy(dtype=int)
         self._ei_exp     = ei_exp
         self._mask_cache = mask_cache
@@ -1248,7 +1189,7 @@ class FlatPriorImputer(BaseImputer):
         #   level 1: (sector_from, entity_from, region_from, valuation) — narrow scale group
         #   level 2: (sector_from, valuation)                           — broader scale fallback
         #   density: (sector_from, region_from)                         — coverage-density neighbourhood
-        ei_exp = _expand_edge_index(acc_struct.edge_index, acc_struct.node_index)
+        ei_exp = expand_edge_index(acc_struct.edge_index, acc_struct.node_index)
         if len(ei_exp) != self._n_edges:
             raise ValueError(
                 f"acc_struct.n_edges={self._n_edges} mismatches edge_index length={len(ei_exp)}"
