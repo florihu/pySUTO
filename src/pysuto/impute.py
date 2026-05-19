@@ -39,28 +39,44 @@ import pandas as pd
 
 from .agg import AggregationResult
 from .logging import get_logger
+from .lp import lp_combine
+from .param_relation import (
+    A_FIELDS,
+    A_PRODUCT_THRESHOLD,
+    B_FIELDS,
+    WILDCARD,
+    expand_edge_index,
+    float_or,
+    get_edge_cache,
+    sigma_from_row,
+    specificity,
+    _build_edge_lookup,
+    _enumerate_a_edges,
+    _resolve_b_ids,
+)
 from .unc import PedigreeScores
 
 logger = get_logger(__name__)
+
+# Backwards-compat private aliases for symbols that now live in
+# pysuto.lp / pysuto.param_relation. Retained while constraints.py still
+# imports the underscored names via `from .impute import _lp_combine, …`.
+# Removed in the final migration commit.
+_lp_combine          = lp_combine
+_expand_edge_index   = expand_edge_index
+_get_edge_cache      = get_edge_cache
+_sigma_from_row      = sigma_from_row
+_float_or            = float_or
+_specificity         = specificity
+_WILDCARD            = WILDCARD
+_A_FIELDS            = A_FIELDS
+_B_FIELDS            = B_FIELDS
+_A_PRODUCT_THRESHOLD = A_PRODUCT_THRESHOLD
 
 
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
-
-def _expand_edge_index(edge_index: pd.DataFrame, node_index: pd.DataFrame) -> pd.DataFrame:
-    """Return a copy of edge_index with decoded sector/entity/region columns added."""
-    ei = edge_index.copy().reset_index(drop=True)
-    from_vals = node_index.loc[ei["from_id"].values]
-    to_vals   = node_index.loc[ei["to_id"].values]
-    ei["sector_from"] = from_vals["sector"].values
-    ei["entity_from"] = from_vals["entity"].values
-    ei["region_from"] = from_vals["region"].values
-    ei["sector_to"]   = to_vals["sector"].values
-    ei["entity_to"]   = to_vals["entity"].values
-    ei["region_to"]   = to_vals["region"].values
-    return ei
-
 
 def _build_group_ids(keys: list[tuple]) -> tuple[np.ndarray, int]:
     """
@@ -81,30 +97,6 @@ def _build_group_ids(keys: list[tuple]) -> tuple[np.ndarray, int]:
     return group_id, len(seen)
 
 
-def _sigma_from_row(row: pd.Series, nominal: float) -> float:
-    """Derive σ from a params-CSV row according to unc_type."""
-    unc = str(row.get("unc_type", "")).strip()
-    if unc == "sd":
-        return float(row["value_sd"])
-    if unc == "min_max":
-        return (float(row["value_max"]) - float(row["value_min"])) / 4.0
-    if unc == "pedigree":
-        ps = PedigreeScores(
-            reliability=int(row["pedigree_reliability"]),
-            completeness=int(row["pedigree_completeness"]),
-            temporal_correlation=int(row["pedigree_temporal_correlation"]),
-            geographical_correlation=int(row["pedigree_geographical_correlation"]),
-            other_correlation=int(row["pedigree_other_correlation"]),
-        )
-        return ps.total_cv() * nominal
-    raise ValueError(f"Unknown unc_type: {unc!r}")
-
-
-def _float_or(val, default: float) -> float:
-    s = str(val).strip()
-    return float(s) if s and s not in ("nan", "None", "") else default
-
-
 def _apply_cv_cap(sigma_val: float, f_val: float, cv_cap: float) -> tuple[float, bool]:
     """
     Cap σ at cv_cap × |f|. Returns (sigma_capped, was_capped).
@@ -118,24 +110,6 @@ def _apply_cv_cap(sigma_val: float, f_val: float, cv_cap: float) -> tuple[float,
     if sigma_val > cap:
         return cap, True
     return sigma_val, False
-
-
-def _lp_combine(values, p: float) -> float:
-    """
-    Power-mean (Lp) combiner: ( Σ |x_i|^p )^(1/p).
-
-    With p=2 this matches Gaussian quadrature. With p<2 large terms are
-    weighted relatively less, suppressing σ inflation when source σ values
-    have correlated structure. The pySUTO range is p ∈ [1.1, 1.5];
-    default p = 1.3.
-    """
-    arr = np.asarray(values, dtype=float)
-    if arr.size == 0:
-        return 0.0
-    s = float(np.sum(np.abs(arr) ** p))
-    if s <= 0.0:
-        return 0.0
-    return s ** (1.0 / p)
 
 
 def _reg_sensitivity(coeff: float, q: float, alpha_min: float) -> float:
@@ -160,86 +134,6 @@ def _time_sort_key(t):
         return (0, int(t))
     except (ValueError, TypeError):
         return (1, str(t))
-
-
-_WILDCARD = {"*", "nan", "None", ""}
-
-# Keep legacy alias so _apply_a_mask / _apply_b_mask still work
-_A_WILDCARD = _WILDCARD
-
-_A_SPEC_KEYS = [
-    "a_sector_from", "a_entity_from", "a_region_from",
-    "a_sector_to",   "a_entity_to",   "a_region_to",
-    "a_time",        "a_valuation",
-]
-
-
-def _specificity(row: pd.Series) -> int:
-    """Count A-selector fields that are not wildcards (higher = more specific)."""
-    return sum(
-        str(row.get(k, "*")).strip() not in _WILDCARD
-        for k in _A_SPEC_KEYS
-    )
-
-
-# ---------------------------------------------------------------------------
-# Mask cache — pre-built boolean arrays for fast selector matching
-# ---------------------------------------------------------------------------
-
-_MASK_COLS = [
-    "sector_from", "entity_from", "region_from",
-    "sector_to",   "entity_to",   "region_to",
-    "time",        "valuation",
-]
-
-
-def _build_mask_cache(ei_exp: pd.DataFrame) -> dict:
-    """
-    Pre-compute one bool ndarray per (column, value) pair and per
-    "same-field" constraint, so mask application is O(n/64) bitwise AND
-    instead of O(n) string comparison per call.
-    """
-    cache: dict = {}
-    arrays: dict = {}
-    for col in _MASK_COLS:
-        arr = ei_exp[col].to_numpy(dtype=str)
-        arrays[col] = arr
-        for val in np.unique(arr):
-            cache[(col, val)] = arr == val
-    # "same" masks: ei_col == counterpart (used by A-selector "same" keyword)
-    for _, ei_col, counterpart in _A_FIELDS:
-        if counterpart is not None and ei_col in arrays and counterpart in arrays:
-            cache[("__same__", ei_col, counterpart)] = (
-                arrays[ei_col] == arrays[counterpart]
-            )
-    return cache
-
-
-# Module-level cache for the expanded edge index and derived lookup structures.
-# Keyed by id(acc_struct); valid for the lifetime of the acc_struct object.
-_ec_cache: dict = {}
-
-
-def _get_edge_cache(acc_struct) -> tuple:
-    """
-    Build once per acc_struct:
-      (ei_exp, edge_lookup, id_to_tuple, field_vals, mask_cache, edge_ids_arr)
-    Subsequent calls with the same acc_struct return the cached result.
-    """
-    key = id(acc_struct)
-    if key not in _ec_cache:
-        ei_exp       = _expand_edge_index(acc_struct.edge_index, acc_struct.node_index)
-        edge_lookup  = _build_edge_lookup(ei_exp)
-        id_to_tuple  = {eid: tup for tup, eid in edge_lookup.items()}
-        field_vals   = {col: sorted(str(v) for v in ei_exp[col].unique()) for col in _MASK_COLS}
-        mask_cache   = _build_mask_cache(ei_exp)
-        edge_ids_arr = ei_exp["edge_id"].to_numpy(dtype=int)
-        _ec_cache[key] = (ei_exp, edge_lookup, id_to_tuple, field_vals, mask_cache, edge_ids_arr)
-    return _ec_cache[key]
-
-
-_A_PRODUCT_THRESHOLD = 100_000
-
 
 
 # ---------------------------------------------------------------------------
@@ -502,96 +396,6 @@ class ParametricRelation:
 # ParametricImputer
 # ---------------------------------------------------------------------------
 
-# A-selector field → (ei_exp column, counterpart column for "same" constraint)
-_A_FIELDS = [
-    ("a_sector_from", "sector_from", "sector_to"),
-    ("a_entity_from", "entity_from", "entity_to"),
-    ("a_region_from", "region_from", "region_to"),
-    ("a_sector_to",   "sector_to",   "sector_from"),
-    ("a_entity_to",   "entity_to",   "entity_from"),
-    ("a_region_to",   "region_to",   "region_from"),
-    ("a_time",        "time",        None),
-    ("a_valuation",   "valuation",   None),
-]
-
-# B-selector field → (ei_exp column, corresponding A-edge column)
-_B_FIELDS = [
-    ("b_sector_from", "sector_from", "sector_from"),
-    ("b_entity_from", "entity_from", "entity_from"),
-    ("b_region_from", "region_from", "region_from"),
-    ("b_sector_to",   "sector_to",   "sector_to"),
-    ("b_entity_to",   "entity_to",   "entity_to"),
-    ("b_region_to",   "region_to",   "region_to"),
-    ("b_time",        "time",        "time"),
-    ("b_valuation",   "valuation",   "valuation"),
-]
-
-
-# Position of each ei_exp column in the 8-tuple (sector_from=0 … valuation=7)
-_A_EI_POS = {ec: i for i, (_, ec, _) in enumerate(_A_FIELDS)}
-
-
-def _build_edge_lookup(ei_exp: pd.DataFrame) -> dict:
-    """O(1) lookup: (sfrom,efrom,rfrom,sto,eto,rto,time,val) → edge_id."""
-    cols = ["sector_from", "entity_from", "region_from",
-            "sector_to",   "entity_to",   "region_to", "time", "valuation"]
-    arr  = ei_exp[cols].to_numpy(dtype=str)
-    eids = ei_exp["edge_id"].to_numpy(dtype=int)
-    return {tuple(arr[i]): int(eids[i]) for i in range(len(arr))}
-
-
-def _enumerate_a_edges(row: pd.Series, field_vals: dict):
-    """
-    Yield all 8-tuples that match the A-selector of a CSV row.
-    Fixed fields → single value; wildcard → all unique values; same → copy counterpart.
-    itertools.product runs only over non-same dimensions.
-    """
-    dims: list = []
-    same_to: dict = {}
-    for i, (col_key, ei_col, counterpart) in enumerate(_A_FIELDS):
-        v = str(row.get(col_key, "*")).strip()
-        if v in _WILDCARD:
-            dims.append(field_vals[ei_col])
-        elif v == "same" and counterpart is not None:
-            cpart_pos = next(j for j, (_, ec, _) in enumerate(_A_FIELDS) if ec == counterpart)
-            same_to[i] = cpart_pos
-            dims.append(None)
-        else:
-            dims.append((v,))
-    free_pos  = [i for i in range(8) if dims[i] is not None]
-    free_dims = [dims[i] for i in free_pos]
-    for combo in itertools.product(*free_dims):
-        t: list = [None] * 8
-        for idx, pos in enumerate(free_pos):
-            t[pos] = combo[idx]
-        for pos, cp in same_to.items():
-            t[pos] = t[cp]
-        if None not in t:
-            yield tuple(t)
-
-
-def _resolve_b_ids(row: pd.Series, a_tuple: tuple, edge_lookup: dict, field_vals: dict) -> list:
-    """
-    Enumerate all B-tuples matching the B-selector given a resolved A-edge tuple,
-    and return the corresponding edge_ids via O(1) dict lookup.
-    """
-    dims: list = []
-    for col_key, ei_col, a_col in _B_FIELDS:
-        v = str(row.get(col_key, "*")).strip()
-        if v in _WILDCARD:
-            dims.append(field_vals[ei_col])
-        elif v == "same":
-            dims.append((a_tuple[_A_EI_POS[a_col]],))
-        else:
-            dims.append((v,))
-    result = []
-    for combo in itertools.product(*dims):
-        eid = edge_lookup.get(combo)
-        if eid is not None:
-            result.append(eid)
-    return result
-
-
 class ParametricImputer(BaseImputer):
     """
     Two instantiation modes:
@@ -770,7 +574,7 @@ class ParametricImputer(BaseImputer):
             if not a_nan and b_nan:
                 f_b = float(coeff * f[a_id])
                 # Forward (A→B): bare coefficient. σ_b = Lp(|coeff|·σ_a, σ_param, ε·f_b)
-                s_b   = _lp_combine(
+                s_b   = lp_combine(
                     [coeff * sigma[a_id], sig_p, epsilon * f_b], p,
                 )
                 s_b, capped = _apply_cv_cap(s_b, f_b, cv_cap)
@@ -788,7 +592,7 @@ class ParametricImputer(BaseImputer):
                 # Backward (B→A): regularized sensitivity caps σ amplification
                 # when |inv| ≫ 1 (e.g. 1/ore_grade ≈ 100s).
                 s_inv = _reg_sensitivity(inv, q, am)
-                s_a   = _lp_combine(
+                s_a   = lp_combine(
                     [s_inv * sigma[b_id], sig_p, epsilon * f_a], p,
                 )
                 s_a, capped = _apply_cv_cap(s_a, f_a, cv_cap)
@@ -849,7 +653,7 @@ class ParametricImputer(BaseImputer):
                     # σ_t = ( Σ_l |α_l·σ_l|^p + |ε·f_t|^p )^(1/p)
                     terms = [c * sigma[s] for c, s in zip(coeffs, s_ids)]
                     terms.append(rel.epsilon * f_t)
-                    s_t = _lp_combine(terms, p)
+                    s_t = lp_combine(terms, p)
                     s_t, capped = _apply_cv_cap(s_t, f_t, cv_cap)
 
                     f[t_id]     = f_t
@@ -1113,7 +917,7 @@ class FormulaImputer(BaseImputer):
                     f_val   = hi
                     clipped = True
 
-                s_val = _lp_combine(lp_terms, self.p)
+                s_val = lp_combine(lp_terms, self.p)
                 s_val, capped = _apply_cv_cap(s_val, f_val, self.cv_cap)
                 f[t_id]     = f_val
                 sigma[t_id] = s_val
@@ -1277,7 +1081,7 @@ class TimeImputer(BaseImputer):
             w     = 1.0 / n
             f_val = float(sum(w * f[eid] for _, eid in candidates))
             # σ_mean = ( Σ_i |w·σ_i|^p )^(1/p)
-            s_val = _lp_combine([w * sigma[eid] for _, eid in candidates], self.p)
+            s_val = lp_combine([w * sigma[eid] for _, eid in candidates], self.p)
             src   = [eid for _, eid in candidates]
             wts   = [w] * n
             meth  = "time_mean"
@@ -1290,7 +1094,7 @@ class TimeImputer(BaseImputer):
                 lam  = (t_target - t_a) / gap
                 f_val = float((1 - lam) * f[a_id] + lam * f[b_id])
                 # σ_linear = ( |(1-λ)·σ_a|^p + |λ·σ_b|^p )^(1/p) · γ_0^gap
-                s_val = _lp_combine(
+                s_val = lp_combine(
                     [(1 - lam) * sigma[a_id], lam * sigma[b_id]], self.p,
                 ) * (self.gap_inflation ** gap)
                 src, wts, meth = [a_id, b_id], [1 - lam, lam], "time_linear"

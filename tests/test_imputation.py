@@ -33,34 +33,11 @@ from pysuto.impute import (
     FormulaImputer,
     TimeImputer,
     FlatPriorImputer,
-    _expand_edge_index,
-    _sigma_from_row,
-    _lp_combine,
     _reg_sensitivity,
 )
 
-
-# =============================================================================
-# Lp combiner — round-trip and edge cases
-# =============================================================================
-
-class TestLpCombine:
-    def test_p2_matches_quadrature(self):
-        assert _lp_combine([3.0, 4.0], p=2.0) == pytest.approx(5.0)
-
-    def test_p1_matches_l1(self):
-        assert _lp_combine([-2.0, 1.5, 0.5], p=1.0) == pytest.approx(4.0)
-
-    def test_smaller_p_inflates_equal_terms(self):
-        # ||1_n||_p = n^(1/p): smaller p → larger value
-        x = np.ones(10)
-        assert _lp_combine(x, p=1.3) > _lp_combine(x, p=2.0)
-
-    def test_empty_returns_zero(self):
-        assert _lp_combine([], p=1.3) == 0.0
-
-    def test_negative_uses_abs(self):
-        assert _lp_combine([-3.0, -4.0], p=2.0) == pytest.approx(5.0)
+# Lp combiner unit tests live in tests/test_lp.py.
+# sigma_from_row unit tests live in tests/test_param_relation.py.
 
 
 # =============================================================================
@@ -1051,36 +1028,7 @@ class TestTimeImputer:
         assert "time_linear" in methods
 
 
-# =============================================================================
-# 7. sigma_from_row helper
-# =============================================================================
-
-class TestSigmaFromRow:
-
-    def test_sd(self):
-        row = {"unc_type": "sd", "value_sd": "0.5"}
-        assert _sigma_from_row(pd.Series(row), 1.0) == pytest.approx(0.5)
-
-    def test_min_max(self):
-        row = {"unc_type": "min_max", "value_min": "0.2", "value_max": "0.6"}
-        # (0.6 - 0.2) / 4 = 0.1
-        assert _sigma_from_row(pd.Series(row), 0.4) == pytest.approx(0.1)
-
-    def test_pedigree_positive(self):
-        row = {
-            "unc_type": "pedigree",
-            "pedigree_reliability": "2",
-            "pedigree_completeness": "2",
-            "pedigree_temporal_correlation": "1",
-            "pedigree_geographical_correlation": "1",
-            "pedigree_other_correlation": "2",
-        }
-        sigma = _sigma_from_row(pd.Series(row), 1.0)
-        assert sigma > 0
-
-    def test_unknown_unc_type_raises(self):
-        with pytest.raises(ValueError):
-            _sigma_from_row(pd.Series({"unc_type": "unknown"}), 1.0)
+# sigma_from_row unit tests live in tests/test_param_relation.py.
 
 
 # =============================================================================
