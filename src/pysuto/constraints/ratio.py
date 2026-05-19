@@ -40,13 +40,31 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
         self._pairs = pairs
 
     @classmethod
-    def from_csv(cls, path: str, acc_struct) -> "RatioConstraintBuilder":
+    def from_csv(
+        cls,
+        path: str,
+        acc_struct,
+        mask: str | None = None,
+    ) -> "RatioConstraintBuilder":
         """
         Load from params CSV (same schema as ParametricImputer.from_csv).
         Resolves A→B edge pairs and computes sigma_c from unc_type column.
+
+        ``mask`` (optional): name of a mask in ``acc_struct.masks``. Pairs
+        where either edge falls outside the mask are dropped.
         """
         df = pd.read_csv(path, sep=None, engine="python", dtype=str).fillna("*")
         resolver = ParamRelationResolver(acc_struct)
+
+        if mask is not None:
+            if mask not in acc_struct.masks:
+                raise ValueError(
+                    f"RatioConstraintBuilder(mask={mask!r}): mask not in "
+                    f"acc_struct.masks. Available: {sorted(acc_struct.masks)}"
+                )
+            scope = acc_struct.masks[mask]
+        else:
+            scope = None
 
         pairs = []
         for _, row in df.iterrows():
@@ -61,6 +79,8 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
             param_id = str(row.get("param_id", "")).strip() or None
 
             for r in resolver.resolve_row(row):
+                if scope is not None and not (scope[r.a_edge_id] and scope[r.b_edge_id]):
+                    continue
                 pairs.append({
                     "constraint_id": param_id or f"ratio_{r.a_edge_id}_{r.b_edge_id}",
                     "edge_i":  r.b_edge_id,
@@ -127,9 +147,24 @@ class RatioBoundBuilder(BaseConstraintBuilder):
         self._bound_rows = bound_rows
 
     @classmethod
-    def from_csv(cls, path: str, acc_struct) -> "RatioBoundBuilder":
+    def from_csv(
+        cls,
+        path: str,
+        acc_struct,
+        mask: str | None = None,
+    ) -> "RatioBoundBuilder":
         df = pd.read_csv(path, sep=None, engine="python", dtype=str).fillna("*")
         resolver = ParamRelationResolver(acc_struct)
+
+        if mask is not None:
+            if mask not in acc_struct.masks:
+                raise ValueError(
+                    f"RatioBoundBuilder(mask={mask!r}): mask not in "
+                    f"acc_struct.masks. Available: {sorted(acc_struct.masks)}"
+                )
+            scope = acc_struct.masks[mask]
+        else:
+            scope = None
 
         bound_rows = []
         for _, row in df.iterrows():
@@ -142,6 +177,8 @@ class RatioBoundBuilder(BaseConstraintBuilder):
             param_id = str(row.get("param_id", "")).strip() or None
 
             for r in resolver.resolve_row(row):
+                if scope is not None and not (scope[r.a_edge_id] and scope[r.b_edge_id]):
+                    continue
                 bound_rows.append({
                     "param_id": param_id or f"bound_{r.a_edge_id}_{r.b_edge_id}",
                     "edge_i":   r.b_edge_id,

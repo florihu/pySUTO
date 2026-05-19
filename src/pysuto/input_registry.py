@@ -26,7 +26,9 @@ assumption-change auditing.
 Load-bearing files (changes trigger a version bump):
 
 * ``params/<id>/`` — ``params.csv``
-* ``acc/<id>/``    — ``root.ods``, ``bounds.ods``, ``rules.ods``
+* ``acc/<id>/``    — ``root.ods``, ``bounds.ods``, ``rules.ods``, ``masks.csv``
+                     (``masks.csv`` optional; absent file hashes to empty)
+* ``mask/<id>/``   — ``rules.csv`` (separate-kind mask overlay)
 * ``feed/<id>/``   — per-feed declared list, or default = "every file in
   ``current/`` whose suffix is not ``.bib`` / ``.md``".
 """
@@ -48,11 +50,12 @@ from pysuto.logging import get_logger
 _log = get_logger("input_registry")
 
 
-_KINDS = ("feed", "acc", "params")
+_KINDS = ("feed", "acc", "params", "mask")
 
 _DEFAULT_LOAD_BEARING: dict[str, tuple[str, ...]] = {
     "params": ("params.csv",),
-    "acc":    ("root.ods", "bounds.ods", "rules.ods"),
+    "acc":    ("root.ods", "bounds.ods", "rules.ods", "masks.csv"),
+    "mask":   ("rules.csv",),
     # "feed" handled in InputRegistry._load_bearing_files
 }
 
@@ -334,6 +337,7 @@ class InputRegistries:
     feed:   InputRegistry
     acc:    InputRegistry
     params: InputRegistry
+    mask:   InputRegistry
 
     @classmethod
     def initialize(
@@ -352,4 +356,6 @@ class InputRegistries:
                 label_overrides.get("acc"), pins.get("acc")),
             params=InputRegistry("params", root).initialize(
                 label_overrides.get("params"), pins.get("params")),
+            mask=InputRegistry("mask", root).initialize(
+                label_overrides.get("mask"), pins.get("mask")),
         )

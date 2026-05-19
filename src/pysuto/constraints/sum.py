@@ -53,6 +53,17 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         self._sigma_fraction = sigma_fraction  # fallback
         self._p = p
 
+    @staticmethod
+    def _resolve_scope_mask(acc_struct, mask_name: Optional[str]) -> np.ndarray:
+        if mask_name is None:
+            return np.ones(acc_struct.n_edges, dtype=bool)
+        if mask_name not in acc_struct.masks:
+            raise ValueError(
+                f"SumConstraintBuilder(mask={mask_name!r}): mask not in "
+                f"acc_struct.masks. Available: {sorted(acc_struct.masks)}"
+            )
+        return acc_struct.masks[mask_name]
+
     # ------------------------------------------------------------------
     # Factory: auto-derive from acc_struct topology
     # ------------------------------------------------------------------
@@ -63,6 +74,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         acc_struct,
         sigma_fraction: float = 0.05,
         entity_filter: Optional[set] = None,
+        mask: Optional[str] = None,
     ) -> "SumConstraintBuilder":
         """
         Auto-generate one soft sum constraint per (Flow|Process) balance node
@@ -70,21 +82,25 @@ class SumConstraintBuilder(BaseConstraintBuilder):
 
         entity_filter : set of entity strings to include (default: {Flow, Process})
         sigma_fraction: σ_c = sigma_fraction × |sum of supply flow magnitudes|
+        mask          : if set, only edges in ``acc_struct.masks[mask]`` are
+                        considered. Nodes with no remaining supply or no
+                        remaining use after filtering are skipped.
         """
         if entity_filter is None:
             entity_filter = {"Flow", "Process"}
 
         ei       = acc_struct.edge_index
         ni       = acc_struct.node_index
-        sf_mask  = acc_struct.supply_edge_mask
-        uf_mask  = acc_struct.use_edge_mask
-        sb_mask  = acc_struct.sb_edge_mask
+        sf_mask  = acc_struct.masks["supply"]
+        uf_mask  = acc_struct.masks["use"]
+        sb_mask  = acc_struct.masks["sb"]
         t_arr    = ei["time"].values
         times    = acc_struct.time_range
+        scope    = cls._resolve_scope_mask(acc_struct, mask)
 
         specs = []
         for time in times:
-            t_mask = (t_arr == str(time))
+            t_mask = (t_arr == str(time)) & scope
 
             supply_to_nodes = set(ei.loc[t_mask & sf_mask & ~sb_mask, "to_id"].values)
             use_from_nodes  = set(ei.loc[t_mask & uf_mask, "from_id"].values)
@@ -142,6 +158,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         sigma_mode: str = "p_mean",
         sigma_fraction: float = 0.05,
         p: float = 1.3,
+        mask: Optional[str] = None,
     ) -> "SumConstraintBuilder":
         """
         Generate one soft sum constraint per (node, time) pair for nodes whose
@@ -165,6 +182,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         ni    = acc_struct.node_index
         t_arr = ei["time"].values
         times = acc_struct.time_range
+        scope = cls._resolve_scope_mask(acc_struct, mask)
 
         # Pre-build lookup arrays for the other-node's entity and entity_sub
         from_entity     = ni.loc[ei["from_id"].values, "entity"].values
@@ -177,7 +195,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
 
         specs = []
         for time in times:
-            t_mask = t_arr == str(time)
+            t_mask = (t_arr == str(time)) & scope
 
             # Nodes of the right entity type that appear in this timestep
             node_ids = sorted(set(
@@ -246,9 +264,18 @@ class SumConstraintBuilder(BaseConstraintBuilder):
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_csv(cls, path: str, acc_struct) -> "SumConstraintBuilder":
+    def from_csv(
+        cls,
+        path: str,
+        acc_struct,
+        mask: Optional[str] = None,
+    ) -> "SumConstraintBuilder":
         """
         Load user-defined sum constraints from a long-format CSV.
+
+        ``mask`` (optional): name of a mask in ``acc_struct.masks``. Resolved
+        edges that fall outside the mask are dropped from each spec. A
+        constraint whose remaining edges are empty is skipped with a warning.
 
         Required columns:
             constraint_id, coefficient, c_k, sigma_ck_mode
@@ -267,6 +294,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
 
         df = pd.read_csv(path, dtype=str).fillna("*")
         resolver = ParamRelationResolver(acc_struct)
+        scope = cls._resolve_scope_mask(acc_struct, mask)
 
         # Map CSV selector columns to the 8 A-field keys the resolver expects.
         _col_map = {
@@ -296,6 +324,8 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                 coeff = float(row["coefficient"])
 
                 for eid in resolver.match_a_edges(a_row):
+                    if not scope[eid]:
+                        continue
                     all_ids.append(eid)
                     all_coeff.append(coeff)
 

@@ -211,6 +211,62 @@ def register_feed(
 # FULL PIPELINE (convenience wrapper)
 # ===========================================================================
 
+def _apply_edge_scope_mask(ct, acc_struct, mask_name: str) -> None:
+    """Filter ``ct.tab`` in-place to drop rows whose resolved root edge is not
+    in ``acc_struct.masks[mask_name]``. Missing mask is a logged warning.
+    """
+    if not mask_name:
+        return
+    masks = getattr(acc_struct, "masks", None) or {}
+    if mask_name not in masks:
+        _log.warning(
+            "edge_scope_mask=%r is not present in acc_struct.masks "
+            "(available: %s); skipping scope filter.",
+            mask_name, sorted(masks),
+        )
+        return
+
+    scope = masks[mask_name]
+    n_before = len(ct.tab)
+
+    # Resolve each tab row to its edge_id via (from_id, to_id, time, valuation).
+    tab = ct.tab
+    from_id = tab.apply(
+        lambda r: acc_struct.node_to_id[
+            (r["root_sector_from"], r["root_entity_from"], r["root_region_from"])
+        ], axis=1,
+    )
+    to_id = tab.apply(
+        lambda r: acc_struct.node_to_id[
+            (r["root_sector_to"], r["root_entity_to"], r["root_region_to"])
+        ], axis=1,
+    )
+    keys = pd.DataFrame({
+        "from_id":   from_id.values,
+        "to_id":     to_id.values,
+        "time":      tab["root_time"].astype(str).values,
+        "valuation": tab["root_valuation"].astype(str).values,
+    })
+
+    ei = acc_struct.edge_index[["from_id", "to_id", "time", "valuation", "edge_id"]].copy()
+    ei["time"]      = ei["time"].astype(str)
+    ei["valuation"] = ei["valuation"].astype(str)
+    joined = keys.merge(ei, on=["from_id", "to_id", "time", "valuation"], how="left")
+    edge_ids = joined["edge_id"].to_numpy()
+
+    in_scope = np.zeros(n_before, dtype=bool)
+    valid = ~pd.isna(edge_ids)
+    in_scope[valid] = scope[edge_ids[valid].astype(int)]
+
+    ct.tab = ct.tab.loc[in_scope].reset_index(drop=True)
+    n_after = len(ct.tab)
+    if n_after != n_before:
+        _log.info(
+            "edge_scope_mask=%r: kept %d / %d concordance rows (%d dropped)",
+            mask_name, n_after, n_before, n_before - n_after,
+        )
+
+
 def run_feed_pipeline(
     excel_path:       str,
     raw_df:           pd.DataFrame,
@@ -250,6 +306,7 @@ def run_feed_pipeline(
                  time_map_df, valuation_map_df, var_map_df,
                  feed_id=fid, aux_col=aux_col,
                  allow_unmatched_edges=allow_unmatched_edges)
+    _apply_edge_scope_mask(ct, acc_struct, meta.edge_scope_mask)
     wm     = step_C_build_weight_matrix(ct)
     result = step_D_apply_and_propagate(wm, F_src, meta, p=p)
     entry  = register_feed(

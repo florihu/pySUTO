@@ -30,6 +30,19 @@ class MassBalanceBuilder(BaseConstraintBuilder):
 
     _BALANCE_ENTITIES = {"Flow", "Process"}
 
+    def __init__(self, mask: str | None = None):
+        """
+        Parameters
+        ----------
+        mask : str | None
+            If set, restrict mass-balance summation to edges where
+            ``acc_struct.masks[mask] == True``. Nodes that no longer have at
+            least one incoming AND one outgoing in-scope edge are skipped.
+            Raises ``ValueError`` at build time if the mask is not present
+            in ``acc_struct.masks``.
+        """
+        self._mask_name = mask
+
     def build_static(self, acc_struct) -> ConstraintBlock:
         ei        = acc_struct.edge_index
         node_idx  = acc_struct.node_index
@@ -41,16 +54,27 @@ class MassBalanceBuilder(BaseConstraintBuilder):
         nj = node_idx.loc[ei["to_id"].values]
         ef_arr = ni["entity"].values
         et_arr = nj["entity"].values
-        sf_arr = acc_struct.supply_edge_mask
-        uf_arr = acc_struct.use_edge_mask
+        sf_arr = acc_struct.masks["supply"]
+        uf_arr = acc_struct.masks["use"]
         t_arr  = ei["time"].values
+
+        if self._mask_name is not None:
+            if self._mask_name not in acc_struct.masks:
+                raise ValueError(
+                    f"MassBalanceBuilder(mask={self._mask_name!r}): "
+                    f"mask not in acc_struct.masks. "
+                    f"Available: {sorted(acc_struct.masks)}"
+                )
+            scope_mask = acc_struct.masks[self._mask_name]
+        else:
+            scope_mask = np.ones(n_edges, dtype=bool)
 
         rows_list, cols_list, vals_list = [], [], []
         c_list, sigma_list, meta_list   = [], [], []
         row_id = 0
 
         for time in times:
-            t_mask = (t_arr == str(time))
+            t_mask = (t_arr == str(time)) & scope_mask
             # Any node that has at least one incoming AND one outgoing edge is balanced.
             # Incoming: edges where to_id == n  (supply edges for Flow nodes,
             #                                    use edges for Process nodes)

@@ -72,6 +72,15 @@ Excel/ODS format  columns:
     Time        / time        : str   (optional)
     Lower / lower             : float
     Upper / upper             : float
+
+Named masks
+-----------
+After ``__init__`` returns, ``self.masks`` is a ``dict[str, np.ndarray]`` of
+boolean masks of shape ``(n_edges,)``. Built-in entries: ``supply``, ``use``,
+``tradable``, ``sb``. User-defined masks can be added via an optional
+``masks.csv`` co-located with ``root.ods`` (see :mod:`pysuto.masks`), via
+``apply_mask_overlay(path)``, or programmatically via
+``register_mask(name, array_or_callable)``.
 """
 
 from __future__ import annotations
@@ -596,6 +605,14 @@ class AccountingStructure:
         # ── 5. Structural edge masks (for ConstraintEngine) ───────────
         self._build_edge_masks()
 
+        # ── 6. Optional acc-local user masks (data/input/acc/<id>/current/masks.csv) ──
+        masks_path = kwargs.get("masks_file_path", None)
+        if masks_path is None and root_file is not None:
+            cand = os.path.join(os.path.dirname(root_file), "masks.csv")
+            if os.path.exists(cand):
+                masks_path = cand
+        self._load_masks_file(masks_path)
+
         self.logger.info(
             f"AccountingStructure '{self.id}' initialised: "
             f"{self.n_nodes} nodes, {self.n_edges} admissible edges, "
@@ -738,19 +755,23 @@ class AccountingStructure:
 
     def _build_edge_masks(self) -> None:
         """
-        Compute boolean masks over edge_index for structural constraint building.
+        Populate ``self.masks`` with the built-in structural masks.
 
-        All masks have shape (n_edges,) and are aligned to self.edge_index.
+        All masks have shape ``(n_edges,)`` and are aligned to ``self.edge_index``.
+        Built-in names:
 
-        supply_edge_mask   — (sector_from, sector_to) in ruleset.supply_pairs
-        use_edge_mask      — (sector_from, sector_to) in ruleset.use_pairs
-        tradable_edge_mask — sector_from in ruleset.tradable_flows
-        sb_edge_mask       — entity_to == "SB" (system-boundary endpoint)
+          supply   — (sector_from, sector_to) in ruleset.supply_pairs
+          use      — (sector_from, sector_to) in ruleset.use_pairs
+          tradable — sector_from in ruleset.tradable_flows
+          sb       — entity_to == "SB" (system-boundary endpoint)
 
         When ruleset is None (legacy callable-rules mode), supply/use/tradable
         masks fall back to checking entity_from/entity_to directly:
           supply: entity_from in {Process} → entity_to in {Flow, SB}
           use:    entity_from in {Flow, SB} → entity_to in {Process}
+
+        User-defined masks are layered on top by ``_load_masks_file`` (acc-local)
+        and ``apply_mask_overlay`` (separate mask input kind).
         """
         ei = self.edge_index
         ni = self.node_index.loc[ei["from_id"].values]
@@ -764,19 +785,80 @@ class AccountingStructure:
             sp_set  = self.ruleset.supply_pairs
             up_set  = self.ruleset.use_pairs
             tr_set  = self.ruleset.tradable_flows
-            self.supply_edge_mask   = np.array(
-                [(s, d) in sp_set for s, d in zip(sf, st)], dtype=bool)
-            self.use_edge_mask      = np.array(
-                [(s, d) in up_set for s, d in zip(sf, st)], dtype=bool)
-            self.tradable_edge_mask = np.array(
-                [s in tr_set for s in sf], dtype=bool)
+            supply   = np.array([(s, d) in sp_set for s, d in zip(sf, st)], dtype=bool)
+            use      = np.array([(s, d) in up_set for s, d in zip(sf, st)], dtype=bool)
+            tradable = np.array([s in tr_set for s in sf], dtype=bool)
         else:
-            # Fallback: derive from entity types only
-            self.supply_edge_mask   = np.isin(ef, ["Process"]) & np.isin(et, ["Flow", "SB"])
-            self.use_edge_mask      = np.isin(ef, ["Flow", "SB"]) & np.isin(et, ["Process"])
-            self.tradable_edge_mask = np.zeros(len(ei), dtype=bool)
+            supply   = np.isin(ef, ["Process"]) & np.isin(et, ["Flow", "SB"])
+            use      = np.isin(ef, ["Flow", "SB"]) & np.isin(et, ["Process"])
+            tradable = np.zeros(len(ei), dtype=bool)
 
-        self.sb_edge_mask = (et == "SB")
+        sb = (et == "SB")
+
+        self.masks: dict[str, np.ndarray] = {
+            "supply":   supply,
+            "use":      use,
+            "tradable": tradable,
+            "sb":       sb,
+        }
+
+    # ------------------------------------------------------------------
+    # User-mask API
+    # ------------------------------------------------------------------
+
+    def register_mask(self, name: str, mask) -> None:
+        """Add or overwrite a named mask.
+
+        ``mask`` may be a boolean ``np.ndarray`` of shape ``(n_edges,)`` or a
+        callable receiving the expanded edge index (with ``sector_from``,
+        ``region_from``, etc. columns) and returning a boolean array.
+        """
+        from pysuto.masks import coerce_mask
+
+        arr = coerce_mask(name, mask, self.edge_index, self.node_index, self.n_edges)
+        if name in self.masks:
+            self.logger.warning("register_mask: overwriting existing mask %r", name)
+        self.masks[name] = arr
+        self.logger.info("register_mask: %r → %d / %d edges",
+                         name, int(arr.sum()), self.n_edges)
+
+    def apply_mask_overlay(self, csv_path: str) -> None:
+        """Load a masks CSV and merge it into ``self.masks``.
+
+        Existing entries with the same name are overwritten (separate-kind
+        overlay beats acc-local definitions). Used to apply a mask from the
+        separate ``mask`` input kind on top of acc-local masks.
+        """
+        from pysuto.masks import MaskRuleSet
+
+        if not os.path.exists(csv_path):
+            raise FileNotFoundError(f"Mask overlay file not found: {csv_path!r}")
+        resolved = MaskRuleSet.from_csv(csv_path).resolve(
+            self.edge_index, self.node_index
+        )
+        for name, arr in resolved.items():
+            if name in self.masks:
+                self.logger.info("apply_mask_overlay: overriding mask %r from %s",
+                                 name, csv_path)
+            self.masks[name] = arr
+
+    def _load_masks_file(self, path: Optional[str]) -> None:
+        """Load acc-local ``masks.csv`` if present and merge into ``self.masks``.
+
+        Called once at the end of ``__init__``. Missing file is a no-op.
+        """
+        if path is None or not os.path.exists(path):
+            return
+        from pysuto.masks import MaskRuleSet
+
+        self.logger.info("Loading user masks from: %s", path)
+        resolved = MaskRuleSet.from_csv(path).resolve(
+            self.edge_index, self.node_index
+        )
+        for name, arr in resolved.items():
+            if name in self.masks:
+                self.logger.warning("masks.csv: overriding built-in mask %r", name)
+            self.masks[name] = arr
 
     # ------------------------------------------------------------------
     # Convenience properties for ConstraintBuilder

@@ -92,10 +92,12 @@ def _make_toy_acc(with_bounds: bool = True):
     sb_ids      = {4, 9}
     all_eids    = np.arange(acc.n_edges)
 
-    acc.supply_edge_mask   = np.isin(all_eids, list(supply_ids))
-    acc.use_edge_mask      = np.isin(all_eids, list(use_ids))
-    acc.tradable_edge_mask = np.zeros(acc.n_edges, dtype=bool)
-    acc.sb_edge_mask       = np.isin(all_eids, list(sb_ids))
+    acc.masks = {
+        "supply":   np.isin(all_eids, list(supply_ids)),
+        "use":      np.isin(all_eids, list(use_ids)),
+        "tradable": np.zeros(acc.n_edges, dtype=bool),
+        "sb":       np.isin(all_eids, list(sb_ids)),
+    }
 
     # RuleSet placeholder (not needed for mask computation above)
     acc.ruleset = None

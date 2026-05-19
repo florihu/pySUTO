@@ -57,6 +57,12 @@ class DataFeedMetadata:
     date_of_assessment: str = ""
     person:             str = ""
     dataset_link:       str = ""
+
+    # --- Scope ---------------------------------------------------------
+    # Optional name of a mask in acc_struct.masks. When set, the feed
+    # pipeline drops concordance rows whose resolved root edge is outside
+    # this mask. Empty string ("") disables the filter.
+    edge_scope_mask:    str = ""
  
     # --- Computed (filled in by registry.register()) ------------------
     cv_total:             Optional[float] = None
@@ -122,6 +128,7 @@ class DataFeedMetadata:
             date_of_assessment = str(get("Date_of_assessment", "")),
             person             = str(get("Person",             "")),
             dataset_link       = str(get("Dataset_link",       "")),
+            edge_scope_mask    = str(get("Edge_scope_mask",    "") or "").strip(),
         )
  
     @classmethod

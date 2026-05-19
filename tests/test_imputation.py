@@ -128,14 +128,16 @@ class MockAcc:
         self.n_edges = 10
         # Edges 0..3, 6..9: Process→Flow → supply
         # Edges 4,5: Flow→Process → use
-        self.supply_edge_mask = np.array(
-            [True, True, True, True, False, False, True, True, True, True], dtype=bool,
-        )
-        self.use_edge_mask = np.array(
-            [False, False, False, False, True, True, False, False, False, False], dtype=bool,
-        )
-        self.tradable_edge_mask = np.zeros(10, dtype=bool)
-        self.sb_edge_mask       = np.zeros(10, dtype=bool)
+        self.masks = {
+            "supply": np.array(
+                [True, True, True, True, False, False, True, True, True, True], dtype=bool,
+            ),
+            "use": np.array(
+                [False, False, False, False, True, True, False, False, False, False], dtype=bool,
+            ),
+            "tradable": np.zeros(10, dtype=bool),
+            "sb":       np.zeros(10, dtype=bool),
+        }
 
 
 @pytest.fixture
@@ -1347,8 +1349,8 @@ class TestFlatPriorImputer:
         # custom ordering. With this fixture, edge 0 only matches supply (no overlap).
         # Validate via insertion order: same edge gets first listed mask's CV.
         # We synthesize overlap by setting use_mask[0]=True artificially (test-only).
-        acc.use_edge_mask = acc.use_edge_mask.copy()
-        acc.use_edge_mask[0] = True   # edge 0 now matches BOTH supply and use
+        acc.masks["use"] = acc.masks["use"].copy()
+        acc.masks["use"][0] = True   # edge 0 now matches BOTH supply and use
 
         f     = np.full(10, np.nan)
         sigma = np.full(10, np.nan)
@@ -1383,7 +1385,7 @@ class TestFlatPriorImputer:
         assert np.all(f == 0.0)
         # σ = CV(mask) · 1.0 per edge; supply edges get 0.001, use edges get 0.3.
         # (legacy single-CV form, no density modulation.)
-        expected = np.where(acc.supply_edge_mask, 0.001, 0.3)
+        expected = np.where(acc.masks["supply"], 0.001, 0.3)
         assert np.allclose(sigma, expected)
 
     def test_log_entries_returned(self, acc):
@@ -1459,7 +1461,7 @@ class TestFlatPriorImputer:
         assert cv[1] == pytest.approx(0.30)
 
     def test_unknown_mask_name_raises(self, acc):
-        with pytest.raises(ValueError, match="Unknown mask name"):
+        with pytest.raises(KeyError, match="bogus"):
             FlatPriorImputer(
                 cv_by_mask={"bogus": 0.1},
                 default_cv=0.5,
