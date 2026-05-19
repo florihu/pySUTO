@@ -36,19 +36,12 @@ import scipy.sparse as sp
 from pathlib import Path
 
 from .registry import ConstraintRunRegistry, build_sidecar, make_run_id
-from .impute import (
-    _build_edge_lookup,
-    _expand_edge_index,
-    _enumerate_a_edges,
-    _resolve_b_ids,
-    _sigma_from_row,
-    _float_or,
-    _lp_combine,
-    _WILDCARD,
-    _A_FIELDS,
-    _B_FIELDS,
-    _get_edge_cache,
-    _A_PRODUCT_THRESHOLD,
+from .lp import lp_combine
+from .param_relation import (
+    WILDCARD,
+    ParamRelationResolver,
+    float_or,
+    sigma_from_row,
 )
 
 
@@ -68,7 +61,7 @@ def _lp_regularize(
 ) -> tuple[np.ndarray, int, int]:
     """
     Lp-combine σ with a CV floor (cv_min·|centre|) and an absolute floor,
-    matching the _lp_combine recipe used throughout impute.py:
+    matching the lp_combine recipe from pysuto.lp:
 
         σ' = ( |σ|^p + |cv_min·centre|^p + |abs_floor|^p )^(1/p)
 
@@ -510,18 +503,9 @@ class SumConstraintBuilder(BaseConstraintBuilder):
             return default if s in ("", "nan", "None", "*") else float(s)
 
         df = pd.read_csv(path, dtype=str).fillna("*")
-        ei_exp      = _expand_edge_index(acc_struct.edge_index, acc_struct.node_index)
-        edge_lookup = _build_edge_lookup(ei_exp)
-        field_vals  = {
-            col: sorted(str(v) for v in ei_exp[col].unique())
-            for col in [
-                "sector_from", "entity_from", "region_from",
-                "sector_to",   "entity_to",   "region_to",
-                "time",        "valuation",
-            ]
-        }
+        resolver = ParamRelationResolver(acc_struct)
 
-        # Map CSV selector columns to the 8 A-field keys expected by _enumerate_a_edges
+        # Map CSV selector columns to the 8 A-field keys the resolver expects.
         _col_map = {
             "sector_from": "a_sector_from", "entity_from": "a_entity_from",
             "region_from": "a_region_from", "sector_to":   "a_sector_to",
@@ -541,18 +525,16 @@ class SumConstraintBuilder(BaseConstraintBuilder):
             sf   = _read_cell(grp.get("sigma_ck_fraction", pd.Series(["0"])).iloc[0], 0.0)
 
             for _, row in grp.iterrows():
-                # Build a pseudo-row with "a_*" keys for _enumerate_a_edges
-                a_row = {}
-                for src_col, dst_col in _col_map.items():
-                    a_row[dst_col] = str(row.get(src_col, "*")).strip()
-                a_row = pd.Series(a_row)
+                # Build a pseudo-row with "a_*" keys for the resolver.
+                a_row = pd.Series({
+                    dst: str(row.get(src, "*")).strip()
+                    for src, dst in _col_map.items()
+                })
                 coeff = float(row["coefficient"])
 
-                for a_tuple in _enumerate_a_edges(a_row, field_vals):
-                    eid = edge_lookup.get(a_tuple)
-                    if eid is not None:
-                        all_ids.append(eid)
-                        all_coeff.append(coeff)
+                for eid in resolver.match_a_edges(a_row):
+                    all_ids.append(eid)
+                    all_coeff.append(coeff)
 
             if not all_ids:
                 _log.warning("SumConstraintBuilder: constraint '%s' matched no edges", cid)
@@ -566,7 +548,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                 grp["time"].astype(str).str.strip().unique().tolist()
                 if "time" in grp.columns else []
             )
-            if len(time_vals) == 1 and time_vals[0] not in _WILDCARD:
+            if len(time_vals) == 1 and time_vals[0] not in WILDCARD:
                 spec_time = time_vals[0]
             else:
                 spec_time = None
@@ -715,65 +697,28 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
         Resolves A→B edge pairs and computes sigma_c from unc_type column.
         """
         df = pd.read_csv(path, sep=None, engine="python", dtype=str).fillna("*")
-        ei_exp, edge_lookup, id_to_tuple, field_vals, mask_cache, edge_ids_arr = (
-            _get_edge_cache(acc_struct)
-        )
-        n = len(ei_exp)
+        resolver = ParamRelationResolver(acc_struct)
 
         pairs = []
         for _, row in df.iterrows():
-            nominal = _float_or(row.get("value_nominal", "nan"), np.nan)
+            nominal = float_or(row.get("value_nominal", "nan"), np.nan)
             if np.isnan(nominal):
                 continue
             try:
-                sigma = _sigma_from_row(row, nominal)
+                sigma = sigma_from_row(row, nominal)
             except Exception:
                 sigma = 0.0
 
             param_id = str(row.get("param_id", "")).strip() or None
 
-            prod_size = 1
-            for col_key, ei_col, _ in _A_FIELDS:
-                v = str(row.get(col_key, "*")).strip()
-                if v in _WILDCARD or v == "same":
-                    prod_size *= len(field_vals[ei_col])
-                    if prod_size > _A_PRODUCT_THRESHOLD:
-                        break
-
-            if prod_size <= _A_PRODUCT_THRESHOLD:
-                a_iter = [
-                    (a_id, a_tuple)
-                    for a_tuple in _enumerate_a_edges(row, field_vals)
-                    if (a_id := edge_lookup.get(a_tuple)) is not None
-                ]
-            else:
-                a_mask_np = np.ones(n, dtype=bool)
-                for col_key, ei_col, counterpart in _A_FIELDS:
-                    val = str(row.get(col_key, "*")).strip()
-                    if val in _WILDCARD:
-                        continue
-                    if val == "same" and counterpart is not None:
-                        m = mask_cache.get(("__same__", ei_col, counterpart))
-                    else:
-                        m = mask_cache.get((ei_col, val))
-                    if m is None:
-                        a_mask_np = np.zeros(n, dtype=bool)
-                        break
-                    a_mask_np &= m
-                a_iter = [
-                    (int(aid), id_to_tuple[int(aid)])
-                    for aid in edge_ids_arr[a_mask_np]
-                ]
-
-            for a_eid, a_tuple in a_iter:
-                for b_eid in _resolve_b_ids(row, a_tuple, edge_lookup, field_vals):
-                    pairs.append({
-                        "constraint_id": param_id or f"ratio_{a_eid}_{b_eid}",
-                        "edge_i":  b_eid,
-                        "edge_j":  a_eid,
-                        "r":       nominal,
-                        "sigma_c": sigma,
-                    })
+            for r in resolver.resolve_row(row):
+                pairs.append({
+                    "constraint_id": param_id or f"ratio_{r.a_edge_id}_{r.b_edge_id}",
+                    "edge_i":  r.b_edge_id,
+                    "edge_j":  r.a_edge_id,
+                    "r":       nominal,
+                    "sigma_c": sigma,
+                })
 
         _log.info("RatioConstraintBuilder: %d pairs from %s", len(pairs), os.path.basename(path))
         return cls(pairs)
@@ -791,7 +736,7 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
         rows_list, cols_list, vals_list = [], [], []
         meta_list = []
         # Time per row is taken from edge_i (edge_i and edge_j share the
-        # same time by construction in _resolve_b_ids).
+        # same time by construction in the param_relation B-resolver).
         edge_time = acc_struct.edge_index["time"].astype(str).to_numpy()
 
         for row_id, p in enumerate(self._pairs):
@@ -835,64 +780,27 @@ class RatioBoundBuilder(BaseConstraintBuilder):
     @classmethod
     def from_csv(cls, path: str, acc_struct) -> "RatioBoundBuilder":
         df = pd.read_csv(path, sep=None, engine="python", dtype=str).fillna("*")
-        ei_exp, edge_lookup, id_to_tuple, field_vals, mask_cache, edge_ids_arr = (
-            _get_edge_cache(acc_struct)
-        )
-        n = len(ei_exp)
+        resolver = ParamRelationResolver(acc_struct)
 
         bound_rows = []
         for _, row in df.iterrows():
-            nominal = _float_or(row.get("value_nominal", "nan"), np.nan)
-            bl      = _float_or(row.get("bound_lower", "nan"), np.nan)
-            bu      = _float_or(row.get("bound_upper", "nan"), np.nan)
+            nominal = float_or(row.get("value_nominal", "nan"), np.nan)
+            bl      = float_or(row.get("bound_lower", "nan"), np.nan)
+            bu      = float_or(row.get("bound_upper", "nan"), np.nan)
             if np.isnan(bl) and np.isnan(bu):
                 continue
 
             param_id = str(row.get("param_id", "")).strip() or None
 
-            prod_size = 1
-            for col_key, ei_col, _ in _A_FIELDS:
-                v = str(row.get(col_key, "*")).strip()
-                if v in _WILDCARD or v == "same":
-                    prod_size *= len(field_vals[ei_col])
-                    if prod_size > _A_PRODUCT_THRESHOLD:
-                        break
-
-            if prod_size <= _A_PRODUCT_THRESHOLD:
-                a_iter = [
-                    (a_id, a_tuple)
-                    for a_tuple in _enumerate_a_edges(row, field_vals)
-                    if (a_id := edge_lookup.get(a_tuple)) is not None
-                ]
-            else:
-                a_mask_np = np.ones(n, dtype=bool)
-                for col_key, ei_col, counterpart in _A_FIELDS:
-                    val = str(row.get(col_key, "*")).strip()
-                    if val in _WILDCARD:
-                        continue
-                    if val == "same" and counterpart is not None:
-                        m = mask_cache.get(("__same__", ei_col, counterpart))
-                    else:
-                        m = mask_cache.get((ei_col, val))
-                    if m is None:
-                        a_mask_np = np.zeros(n, dtype=bool)
-                        break
-                    a_mask_np &= m
-                a_iter = [
-                    (int(aid), id_to_tuple[int(aid)])
-                    for aid in edge_ids_arr[a_mask_np]
-                ]
-
-            for a_eid, a_tuple in a_iter:
-                for b_eid in _resolve_b_ids(row, a_tuple, edge_lookup, field_vals):
-                    bound_rows.append({
-                        "param_id": param_id or f"bound_{a_eid}_{b_eid}",
-                        "edge_i":   b_eid,
-                        "edge_j":   a_eid,
-                        "nominal":  nominal if not np.isnan(nominal) else 1.0,
-                        "bl":       bl,
-                        "bu":       bu,
-                    })
+            for r in resolver.resolve_row(row):
+                bound_rows.append({
+                    "param_id": param_id or f"bound_{r.a_edge_id}_{r.b_edge_id}",
+                    "edge_i":   r.b_edge_id,
+                    "edge_j":   r.a_edge_id,
+                    "nominal":  nominal if not np.isnan(nominal) else 1.0,
+                    "bl":       bl,
+                    "bu":       bu,
+                })
 
         _log.info("RatioBoundBuilder: %d bound rows from %s", len(bound_rows), os.path.basename(path))
         return cls(bound_rows)

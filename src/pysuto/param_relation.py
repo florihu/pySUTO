@@ -282,15 +282,19 @@ class ParamRelationResolver:
     match. Does not derive σ. Does not dedup by specificity. Does not
     apply any skip-on-error policy. Adapters apply their own
     row-projection and policy.
+
+    For consumers that only need the A-side (e.g. SumConstraintBuilder,
+    which sums coefficients over an A-matched edge set without any
+    paired B edge), call `match_a_edges(row)` directly.
     """
 
     def __init__(self, acc_struct) -> None:
         self._cache = get_edge_cache(acc_struct)
 
-    def resolve_row(self, row: pd.Series) -> Iterator[ResolvedRelation]:
+    def _match_a(self, row: pd.Series) -> list:
+        """Return [(a_edge_id, a_tuple), …] for the row's A-selector."""
         ei_exp, edge_lookup, id_to_tuple, field_vals, mask_cache, edge_ids_arr = self._cache
-        n    = len(ei_exp)
-        spec = specificity(row)
+        n = len(ei_exp)
 
         # Estimate product size to choose enumeration strategy.
         prod_size = 1
@@ -302,31 +306,44 @@ class ParamRelationResolver:
                     break
 
         if prod_size <= A_PRODUCT_THRESHOLD:
-            a_iter: list = [
+            return [
                 (a_id, a_tuple)
                 for a_tuple in _enumerate_a_edges(row, field_vals)
                 if (a_id := edge_lookup.get(a_tuple)) is not None
             ]
-        else:
-            a_mask_np = np.ones(n, dtype=bool)
-            for col_key, ei_col, counterpart in A_FIELDS:
-                val = str(row.get(col_key, "*")).strip()
-                if val in WILDCARD:
-                    continue
-                if val == "same" and counterpart is not None:
-                    m = mask_cache.get(("__same__", ei_col, counterpart))
-                else:
-                    m = mask_cache.get((ei_col, val))
-                if m is None:
-                    a_mask_np = np.zeros(n, dtype=bool)
-                    break
-                a_mask_np &= m
-            a_iter = [
-                (int(aid), id_to_tuple[int(aid)])
-                for aid in edge_ids_arr[a_mask_np]
-            ]
 
-        for a_id, a_tuple in a_iter:
+        a_mask_np = np.ones(n, dtype=bool)
+        for col_key, ei_col, counterpart in A_FIELDS:
+            val = str(row.get(col_key, "*")).strip()
+            if val in WILDCARD:
+                continue
+            if val == "same" and counterpart is not None:
+                m = mask_cache.get(("__same__", ei_col, counterpart))
+            else:
+                m = mask_cache.get((ei_col, val))
+            if m is None:
+                a_mask_np = np.zeros(n, dtype=bool)
+                break
+            a_mask_np &= m
+        return [
+            (int(aid), id_to_tuple[int(aid)])
+            for aid in edge_ids_arr[a_mask_np]
+        ]
+
+    def match_a_edges(self, row: pd.Series) -> list[int]:
+        """
+        Return the list of A edge_ids matching this row's A-selector.
+
+        Used by adapters that only need A-side matching (no paired B edge),
+        e.g. SumConstraintBuilder summing coefficients over a matched set.
+        """
+        return [aid for aid, _ in self._match_a(row)]
+
+    def resolve_row(self, row: pd.Series) -> Iterator[ResolvedRelation]:
+        edge_lookup = self._cache[1]
+        field_vals  = self._cache[3]
+        spec = specificity(row)
+        for a_id, a_tuple in self._match_a(row):
             for b_id in _resolve_b_ids(row, a_tuple, edge_lookup, field_vals):
                 yield ResolvedRelation(
                     a_edge_id   = int(a_id),
