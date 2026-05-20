@@ -19,7 +19,12 @@ Constraint types (registered in order)
 5  Soft ratio — efficiency     — RatioConstraintBuilder (copper_efficiency_params.csv)
 6  Hard ratio bounds — conc    — RatioBoundBuilder (copper_conc_params.csv)
 7  Hard ratio bounds — eff     — RatioBoundBuilder (copper_efficiency_params.csv)
-8  Hard flow bounds           — FlowBoundsBuilder (from acc_struct.bounds)
+8  Net stock bounds           — RatioBoundBuilder (stock_bounds/params.csv);
+                                 each row carries `agg=true` so the builder
+                                 sums every matched a-side edge into one
+                                 G row and every matched b-side edge into
+                                 another, per (region, time, valuation).
+9  Hard flow bounds           — FlowBoundsBuilder (from acc_struct.bounds)
 
 ═══════════════════════════════════════════════════════════
 USER CONFIGURATION  ←  only section you ever edit
@@ -151,14 +156,18 @@ def main(imp_run_id: str, label: str) -> None:
         p=P_PROP,
     ))
 
-    # 4–7. CSV-fed soft ratio + hard ratio-bound builders.
+    # 4–8. CSV-fed soft ratio + hard ratio-bound builders.
     #      Two builders consume the same params_id (e.g. 'conc' → both
-    #      RatioConstraintBuilder and RatioBoundBuilder).
+    #      RatioConstraintBuilder and RatioBoundBuilder). stock_bounds joins
+    #      the list: its CSV carries `agg=true` so the builder sums all
+    #      matched a-side / b-side edges into one G row per
+    #      (region, time, valuation) bucket.
     CONST_BINDINGS: list[tuple[str, type, dict]] = [
-        ("conc", RatioConstraintBuilder, {}),
-        ("eff",  RatioConstraintBuilder, {}),
-        ("conc", RatioBoundBuilder,      {}),
-        ("eff",  RatioBoundBuilder,      {}),
+        ("conc",         RatioConstraintBuilder, {}),
+        ("eff",          RatioConstraintBuilder, {}),
+        ("conc",         RatioBoundBuilder,      {}),
+        ("eff",          RatioBoundBuilder,      {}),
+        ("stock_bounds", RatioBoundBuilder,      {}),
     ]
 
     param_refs: list[dict] = []
@@ -173,7 +182,7 @@ def main(imp_run_id: str, label: str) -> None:
             param_refs.append(inputs.params.entry(param_id))
             seen_param_ids.add(param_id)
 
-    # 8. Hard flow bounds from acc_struct
+    # 9. Hard flow bounds from acc_struct
     _log.info("Registering FlowBoundsBuilder")
     engine.register(FlowBoundsBuilder())
 

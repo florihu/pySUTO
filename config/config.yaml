@@ -12,6 +12,13 @@ propagation:
 imputers:
   flat_prior:
     default_cv: 0.3   # CV for edges matching no listed mask
+    cv_lo_supply: 0.04
+    cv_hi_supply: 0.3
+    cv_lo_use: 0.04
+    cv_hi_use: 0.3
+
+    row_inflation: 2
+
   time:
     window:           3
     min_obs:          2

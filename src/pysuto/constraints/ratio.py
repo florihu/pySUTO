@@ -17,11 +17,46 @@ import pandas as pd
 import scipy.sparse as sp
 
 from pysuto.logging import get_logger
-from pysuto.param_relation import ParamRelationResolver, float_or, sigma_from_row
+from pysuto.param_relation import (
+    A_FIELDS,
+    B_FIELDS,
+    WILDCARD,
+    ParamRelationResolver,
+    float_or,
+    get_edge_cache,
+    sigma_from_row,
+)
 
 from .base import BaseConstraintBuilder, ConstraintBlock, _empty_block
 
 _log = get_logger(__name__)
+
+
+_AGG_TRUE = {"true", "1", "yes", "y", "t"}
+
+
+def _is_agg(row) -> bool:
+    """True if the row's `agg` cell evaluates to a true-ish value."""
+    return str(row.get("agg", "")).strip().lower() in _AGG_TRUE
+
+
+def _match_side_edges(row, prefix: str, acc_struct) -> np.ndarray:
+    """Return edge_ids matching the ``{a_|b_}``-prefixed selectors on `row`.
+
+    Wildcards / "same" are treated as 'match any value' — `agg` rows do not
+    pair sides per-edge, so the cross-side "same" constraint has no meaning
+    here. Time and valuation are returned alongside the edge ids by callers
+    via ``acc_struct.edge_index`` for bucketing.
+    """
+    ei_exp, _el, _itt, _fv, _mc, edge_ids_arr = get_edge_cache(acc_struct)
+    fields = A_FIELDS if prefix == "a" else B_FIELDS
+    mask = np.ones(len(ei_exp), dtype=bool)
+    for col_key, ei_col, _ in fields:
+        val = str(row.get(col_key, "*")).strip()
+        if val in WILDCARD or val == "same":
+            continue
+        mask &= (ei_exp[ei_col].astype(str).to_numpy() == val)
+    return edge_ids_arr[mask]
 
 
 class RatioConstraintBuilder(BaseConstraintBuilder):
@@ -166,6 +201,10 @@ class RatioBoundBuilder(BaseConstraintBuilder):
         else:
             scope = None
 
+        ei_exp, _el, _itt, _fv, _mc, _eid = get_edge_cache(acc_struct)
+        t_all = ei_exp["time"].astype(str).to_numpy()
+        v_all = ei_exp["valuation"].astype(str).to_numpy()
+
         bound_rows = []
         for _, row in df.iterrows():
             nominal = float_or(row.get("value_nominal", "nan"), np.nan)
@@ -176,11 +215,49 @@ class RatioBoundBuilder(BaseConstraintBuilder):
 
             param_id = str(row.get("param_id", "")).strip() or None
 
+            if _is_agg(row):
+                a_edges = _match_side_edges(row, "a", acc_struct)
+                b_edges = _match_side_edges(row, "b", acc_struct)
+                if scope is not None:
+                    a_edges = a_edges[scope[a_edges]]
+                    b_edges = b_edges[scope[b_edges]]
+                if a_edges.size == 0 or b_edges.size == 0:
+                    _log.warning(
+                        "RatioBoundBuilder %s: agg row matched no edges (a=%d b=%d) — skipped",
+                        param_id, a_edges.size, b_edges.size,
+                    )
+                    continue
+                t_a, v_a = t_all[a_edges], v_all[a_edges]
+                t_b, v_b = t_all[b_edges], v_all[b_edges]
+                keys = sorted(set(zip(t_a, v_a)) & set(zip(t_b, v_b)))
+                if not keys:
+                    _log.warning(
+                        "RatioBoundBuilder %s: agg row had no overlapping (time, valuation) "
+                        "buckets between a (%d edges) and b (%d edges) — skipped",
+                        param_id, a_edges.size, b_edges.size,
+                    )
+                    continue
+                for t, v in keys:
+                    a_sub = a_edges[(t_a == t) & (v_a == v)]
+                    b_sub = b_edges[(t_b == t) & (v_b == v)]
+                    bound_rows.append({
+                        "param_id":    param_id or f"bound_agg_{t}_{v}",
+                        "agg":         True,
+                        "edge_i_list": b_sub.tolist(),
+                        "edge_j_list": a_sub.tolist(),
+                        "time":        t,
+                        "nominal":     nominal if not np.isnan(nominal) else 1.0,
+                        "bl":          bl,
+                        "bu":          bu,
+                    })
+                continue
+
             for r in resolver.resolve_row(row):
                 if scope is not None and not (scope[r.a_edge_id] and scope[r.b_edge_id]):
                     continue
                 bound_rows.append({
                     "param_id": param_id or f"bound_{r.a_edge_id}_{r.b_edge_id}",
+                    "agg":      False,
                     "edge_i":   r.b_edge_id,
                     "edge_j":   r.a_edge_id,
                     "nominal":  nominal if not np.isnan(nominal) else 1.0,
@@ -188,7 +265,10 @@ class RatioBoundBuilder(BaseConstraintBuilder):
                     "bu":       bu,
                 })
 
-        _log.info("RatioBoundBuilder: %d bound rows from %s", len(bound_rows), os.path.basename(path))
+        n_agg = sum(1 for br in bound_rows if br.get("agg"))
+        _log.info("RatioBoundBuilder: %d bound rows from %s (%d agg, %d per-pair)",
+                  len(bound_rows), os.path.basename(path),
+                  n_agg, len(bound_rows) - n_agg)
         return cls(bound_rows)
 
     @property
@@ -206,14 +286,21 @@ class RatioBoundBuilder(BaseConstraintBuilder):
         edge_time = acc_struct.edge_index["time"].astype(str).to_numpy()
 
         for br in self._bound_rows:
-            ei, ej = br["edge_i"], br["edge_j"]
+            if br.get("agg"):
+                ei_list = br["edge_i_list"]   # denominator edges (b)
+                ej_list = br["edge_j_list"]   # numerator edges (a)
+                t_row = br["time"]
+            else:
+                ei_list = [br["edge_i"]]
+                ej_list = [br["edge_j"]]
+                t_row = edge_time[br["edge_i"]]
             bu, bl = br["bu"], br["bl"]
-            t_row = edge_time[ei]
 
             if not np.isnan(bu):
-                rows_list += [row_id, row_id]
-                cols_list += [ei, ej]
-                vals_list += [1.0, -bu]
+                for ej in ej_list:
+                    rows_list.append(row_id); cols_list.append(ej); vals_list.append(1.0)
+                for ei in ei_list:
+                    rows_list.append(row_id); cols_list.append(ei); vals_list.append(-bu)
                 meta_list.append({
                     "constraint_id": f"{br['param_id']}_upper",
                     "type":          "ratio_bound",
@@ -224,9 +311,10 @@ class RatioBoundBuilder(BaseConstraintBuilder):
                 row_id += 1
 
             if not np.isnan(bl):
-                rows_list += [row_id, row_id]
-                cols_list += [ei, ej]
-                vals_list += [-1.0, bl]
+                for ej in ej_list:
+                    rows_list.append(row_id); cols_list.append(ej); vals_list.append(-1.0)
+                for ei in ei_list:
+                    rows_list.append(row_id); cols_list.append(ei); vals_list.append(bl)
                 meta_list.append({
                     "constraint_id": f"{br['param_id']}_lower",
                     "type":          "ratio_bound",

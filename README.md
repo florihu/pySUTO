@@ -343,7 +343,7 @@ Five built-in constraint types populate rows of `G`:
 
 **Type 3 (soft ratio).** $r$ is `value_nominal` from the params CSV; σ_c follows the three uncertainty modes (`sd`, `min_max`, `pedigree`) shared with `ParametricImputer`. The same CSV file thus serves both stages.
 
-**Type 4 / Type 5.** Hard inequalities, σ_c = 0.
+**Type 4 / Type 5.** Hard inequalities, σ_c = 0. When a ratio-bound row sets `agg=true`, `RatioBoundBuilder` sums every matched a-side edge into one G row and every matched b-side edge into another, scoped per `(time, valuation)` bucket — used for stock-change bounds where the relevant numerator and denominator are sums over source regions (see [data/input/params/stock_bounds/current/params.csv](data/input/params/stock_bounds/current/params.csv)).
 
 **Prior regularisation.** Before persisting the `ConstraintRun`, the engine applies an Lp regularisation to both edge-level σ_a and free-cone row-level σ_c:
 
@@ -631,10 +631,11 @@ const_engine.register(SumConstraintBuilder.from_acc_struct(acc, sigma_fraction=0
 
 # Two builders consume the same param_id ("conc", "eff").
 CONST_BINDINGS = [
-    ("conc", RatioConstraintBuilder, {}),
-    ("eff",  RatioConstraintBuilder, {}),
-    ("conc", RatioBoundBuilder,      {}),
-    ("eff",  RatioBoundBuilder,      {}),
+    ("conc",         RatioConstraintBuilder, {}),
+    ("eff",          RatioConstraintBuilder, {}),
+    ("conc",         RatioBoundBuilder,      {}),
+    ("eff",          RatioBoundBuilder,      {}),
+    ("stock_bounds", RatioBoundBuilder,      {}),   # agg=true rows; |Σ a| ≤ k·Σ b
 ]
 for param_id, Builder, kwargs in CONST_BINDINGS:
     const_engine.register(Builder.from_csv(
@@ -649,7 +650,8 @@ constraint_run = const_engine.run(
     parents    = {
         "inputs": {
             "acc":    inputs.acc.entry("copper"),
-            "params": [inputs.params.entry("conc"), inputs.params.entry("eff")],
+            "params": [inputs.params.entry("conc"), inputs.params.entry("eff"),
+                       inputs.params.entry("stock_bounds")],
         },
         "upstream": {"imp_run_id": imp_run_id},
     },
