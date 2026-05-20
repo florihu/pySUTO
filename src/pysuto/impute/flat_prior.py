@@ -12,7 +12,6 @@ from __future__ import annotations
 from typing import Optional
 
 import numpy as np
-import pandas as pd
 
 from pysuto.logging import get_logger
 from pysuto.param_relation import expand_edge_index
@@ -68,13 +67,6 @@ class FlatPriorImputer(BaseImputer):
     every edge is treated as fully covered (ρ = 1, CV = cv_lo) and a
     warning is logged.
 
-    **ROW modulation (optional).**
-    If ``row_mask_name`` resolves to an entry in ``acc_struct.masks``, a
-    final multiplicative step applies ``cv[row_mask] *= row_cv_factor``
-    uniformly across all bucket-resolved CVs and the default. This widens
-    (factor > 1) or tightens (factor < 1) the prior for any edge touching
-    the "rest of world" without disturbing the first-match-wins layering.
-
     **scale(j) — 3-level cascade.**
     Cascading fallback so an edge whose narrow group has no observed flow
     still receives a meaningful scale (the prior single-level rule
@@ -102,8 +94,7 @@ class FlatPriorImputer(BaseImputer):
         default_cv: float,
         acc_struct,
         p: float = 1.3,
-        row_mask_name: Optional[str] = "row",
-        row_cv_factor: float = 1.0,
+        masks: Optional[dict[str, np.ndarray]] = None,
     ) -> None:
         """
         Parameters
@@ -112,28 +103,24 @@ class FlatPriorImputer(BaseImputer):
             Mapping ``mask_name → (cv_lo, cv_hi)``. Insertion order encodes
             priority (first-matching mask wins). For backward compatibility
             a scalar ``cv`` is accepted and treated as ``(cv, cv)`` (no
-            density modulation). Each name must be present in
-            ``acc_struct.masks``.
+            density modulation). Each name must be resolvable either in
+            ``masks`` (caller-supplied overlay) or ``acc_struct.masks``.
+            Every ``cv_hi`` must be ``<= 1.0``.
         default_cv : float
             CV applied to edges that match no listed mask. Used as a single
-            value, no density modulation.
+            value, no density modulation. Must be ``<= 1.0``.
         acc_struct : AccountingStructure
             Provides ``acc_struct.masks`` (named bool arrays) and the edge /
             node index DataFrames for group-key construction.
         p : float
             Lp exponent for downstream uncertainty propagation (recorded
             in ``config()``; not used inside this imputer directly).
-        row_mask_name : str | None
-            Name of a "rest of world" mask in ``acc_struct.masks``. When set
-            and ``row_cv_factor != 1.0``, ``cv[row_mask] *= row_cv_factor`` is
-            applied uniformly after first-match-wins resolution — widening
-            (or tightening) uncertainty for ROW-touching edges across all
-            mask buckets and the default. Pass ``None`` to disable. If the
-            named mask is absent from ``acc_struct.masks``, the modulation
-            is disabled and a warning is logged.
-        row_cv_factor : float
-            Multiplicative factor applied to the resolved CV of every edge
-            in ``acc_struct.masks[row_mask_name]``. ``1.0`` is a no-op.
+        masks : dict[str, np.ndarray] | None
+            Optional overlay of caller-supplied boolean masks (shape
+            ``(n_edges,)``). Looked up before ``acc_struct.masks`` when
+            resolving names in ``cv_by_mask``. Use to inject masks not
+            registered on the accounting structure (e.g. row-specific
+            sub-masks computed in the init script).
         """
         # Normalise scalar CV → (lo, hi) so back-compat callers still work.
         self.cv_by_mask: dict[str, tuple[float, float]] = {}
@@ -144,39 +131,41 @@ class FlatPriorImputer(BaseImputer):
                 lo = hi = float(val)
             self.cv_by_mask[name] = (lo, hi)
 
+        for name, (_lo, hi) in self.cv_by_mask.items():
+            if hi > 1.0:
+                raise ValueError(
+                    f"FlatPriorImputer: cv_hi for mask {name!r} is {hi} > 1.0"
+                )
+
         self.default_cv = float(default_cv)
+        if self.default_cv > 1.0:
+            raise ValueError(
+                f"FlatPriorImputer: default_cv is {self.default_cv} > 1.0"
+            )
+
         self.p = float(p)
-        self.row_mask_name = row_mask_name
-        self.row_cv_factor = float(row_cv_factor)
         self._source_path: Optional[str] = None
         # agg_result.coverage attached by ImputationEngine.run via
         # attach_agg_result() before impute() is called.
         self._coverage: Optional[np.ndarray] = None
 
         acc_masks: dict = getattr(acc_struct, "masks", None) or {}
+        overlay: dict = masks or {}
 
         # Pre-resolve mask name → bool ndarray (length n_edges) once.
+        # Overlay takes precedence over acc_struct.masks.
         self._masks: list[tuple[str, np.ndarray]] = []
         for name in self.cv_by_mask:  # insertion order
-            mask = acc_masks.get(name)
+            mask = overlay.get(name)
+            if mask is None:
+                mask = acc_masks.get(name)
             if mask is None:
                 raise KeyError(
-                    f"acc_struct.masks has no entry {name!r}. "
-                    f"Available: {sorted(acc_masks)}"
+                    f"No mask {name!r} in overlay or acc_struct.masks. "
+                    f"Available (overlay): {sorted(overlay)}; "
+                    f"available (acc): {sorted(acc_masks)}"
                 )
             self._masks.append((name, np.asarray(mask, dtype=bool)))
-
-        # Resolve the optional ROW mask once.
-        self._row_mask: Optional[np.ndarray] = None
-        if self.row_mask_name is not None and self.row_cv_factor != 1.0:
-            row = acc_masks.get(self.row_mask_name)
-            if row is None:
-                logger.warning(
-                    "FlatPriorImputer: row_mask_name=%r not found in acc_struct.masks; "
-                    "ROW modulation disabled.", self.row_mask_name,
-                )
-            else:
-                self._row_mask = np.asarray(row, dtype=bool)
 
         self._n_edges = int(acc_struct.n_edges)
 
@@ -224,82 +213,16 @@ class FlatPriorImputer(BaseImputer):
             )
         self._coverage = cov
 
-    @classmethod
-    def from_csv(
-        cls,
-        path: str,
-        acc_struct,
-        default_cv: float,
-        p: float = 1.3,
-        row_mask_name: Optional[str] = "row",
-        row_cv_factor: float = 1.0,
-    ) -> "FlatPriorImputer":
-        """
-        Load a CV-by-mask CSV (comma-delimited).
-
-        New schema (preferred)::
-
-            mask_name, cv_lo, cv_hi, description
-
-        Legacy schema (still accepted; treated as cv_lo == cv_hi)::
-
-            mask_name, cv, description
-
-        Row order encodes priority (first-matching mask wins).
-        """
-        df = pd.read_csv(path, comment="#")
-        has_lo_hi = {"cv_lo", "cv_hi"}.issubset(df.columns)
-        has_cv    = "cv" in df.columns
-
-        if has_lo_hi:
-            df = df.dropna(subset=["mask_name", "cv_lo", "cv_hi"])
-            mode = "cv_lo/cv_hi"
-        elif has_cv:
-            df = df.dropna(subset=["mask_name", "cv"])
-            mode = "legacy single-cv"
-        else:
-            raise ValueError(
-                f"flat_prior_cv CSV at {path!r} must contain either "
-                f"(cv_lo, cv_hi) or legacy `cv` columns."
-            )
-
-        cv_by_mask: dict[str, tuple[float, float]] = {}
-        for _, row in df.iterrows():
-            name = str(row["mask_name"]).strip()
-            if not name:
-                continue
-            if has_lo_hi:
-                cv_by_mask[name] = (float(row["cv_lo"]), float(row["cv_hi"]))
-            else:
-                cv = float(row["cv"])
-                cv_by_mask[name] = (cv, cv)
-
-        logger.info("FlatPriorImputer.from_csv(%s): schema=%s, %d mask rows",
-                    path, mode, len(cv_by_mask))
-
-        inst = cls(
-            cv_by_mask=cv_by_mask,
-            default_cv=default_cv,
-            acc_struct=acc_struct,
-            p=p,
-            row_mask_name=row_mask_name,
-            row_cv_factor=row_cv_factor,
-        )
-        inst._source_path = str(path)
-        return inst
-
     @property
     def source_paths(self) -> list[str]:
         return [self._source_path] if self._source_path else []
 
     def config(self) -> dict:
         return {
-            "cv_by_mask":    {k: list(v) for k, v in self.cv_by_mask.items()},
-            "default_cv":    self.default_cv,
-            "p":             self.p,
-            "row_mask_name": self.row_mask_name,
-            "row_cv_factor": self.row_cv_factor,
-            "source_path":   self._source_path,
+            "cv_by_mask":  {k: list(v) for k, v in self.cv_by_mask.items()},
+            "default_cv":  self.default_cv,
+            "p":           self.p,
+            "source_path": self._source_path,
         }
 
     def _coverage_density(self) -> np.ndarray:
@@ -355,11 +278,6 @@ class FlatPriorImputer(BaseImputer):
             cv[new] = cv_lo + (cv_hi - cv_lo) * (1.0 - density[new])
             assigned |= new
 
-        # ROW modulation — multiplicative widen/tighten for any edge in the
-        # ROW mask, applied uniformly across all mask-resolved CVs and the
-        # default. See __init__ docstring.
-        if self._row_mask is not None:
-            cv[self._row_mask] *= self.row_cv_factor
         return cv
 
     def _resolve_scale(self, f: np.ndarray) -> np.ndarray:

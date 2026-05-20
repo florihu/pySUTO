@@ -28,6 +28,8 @@ import os
 import sys
 from datetime import datetime
 
+import numpy as np
+
 # ---------------------------------------------------------------------------
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
@@ -52,6 +54,7 @@ from pysuto.config   import load_config
 from pysuto.registry import DataFeedRegistry, ImputationRunRegistry
 from pysuto.input_registry import InputRegistries
 from pysuto.collector import FeedCollector
+from pysuto.param_relation import expand_edge_index
 from pysuto.impute   import (
     ImputationEngine,
     ParametricImputer,
@@ -345,13 +348,40 @@ def main(label: str, feed_keys: list[str]) -> None:
     ))
 
     # Final fallback — flat prior sized by mask CV × group scale.
-    engine.register(FlatPriorImputer.from_csv(
-        str(inputs.params.resolve("flat_prior") / "params.csv"),
-        acc_struct=acc,
-        default_cv=FLAT_DEFAULT_CV,
-        p=P_PROP,
+    # CVs come from config; the ROW relation (any edge touching ROW as
+    # region_from or region_to) is defined inline below and combined with
+    # acc.masks["supply"] / acc.masks["use"] to form two row-specific
+    # sub-masks whose (cv_lo, cv_hi) are pre-inflated by row_inflation.
+    flat_cfg     = cfg.imputers.flat_prior
+    supply_mask  = np.asarray(acc.masks["supply"], dtype=bool)
+    use_mask     = np.asarray(acc.masks["use"],    dtype=bool)
+
+    ei_exp       = expand_edge_index(acc.edge_index, acc.node_index)
+    row_mask     = (
+        (ei_exp["region_from"].to_numpy() == "ROW") |
+        (ei_exp["region_to"].to_numpy()   == "ROW")
+    )
+
+    row_supply   = supply_mask & row_mask
+    row_use      = use_mask    & row_mask
+
+    inflation    = flat_cfg.row_inflation
+    flat_cv_by_mask = {
+        "row_supply": (flat_cfg.cv_lo_supply * inflation,
+                       flat_cfg.cv_hi_supply * inflation),
+        "row_use":    (flat_cfg.cv_lo_use    * inflation,
+                       flat_cfg.cv_hi_use    * inflation),
+        "supply":     (flat_cfg.cv_lo_supply, flat_cfg.cv_hi_supply),
+        "use":        (flat_cfg.cv_lo_use,    flat_cfg.cv_hi_use),
+    }
+
+    engine.register(FlatPriorImputer(
+        cv_by_mask = flat_cv_by_mask,
+        default_cv = flat_cfg.default_cv,
+        acc_struct = acc,
+        p          = P_PROP,
+        masks      = {"row_supply": row_supply, "row_use": row_use},
     ))
-    param_refs.append(inputs.params.entry("flat_prior"))
 
     logger.info("C  Running imputation engine")
     agg_result = engine.run(agg_result)

@@ -1406,30 +1406,6 @@ class TestFlatPriorImputer:
             assert e["step"] == 5
             assert e["f_after"] == 0.0
 
-    def test_from_csv_loads_cv_by_mask(self, acc, tmp_path):
-        """Legacy single-cv CSVs still load: scalar CV → (cv, cv) tuple (no density modulation)."""
-        path = tmp_path / "fp.csv"
-        path.write_text("mask_name,cv,description\nsupply,0.001,sup\nuse,0.3,us\n")
-        imp = FlatPriorImputer.from_csv(
-            str(path), acc_struct=acc, default_cv=0.5,
-        )
-        assert imp.cv_by_mask == {"supply": (0.001, 0.001), "use": (0.3, 0.3)}
-        assert imp.default_cv == 0.5
-        assert imp.source_paths == [str(path)]
-
-    def test_from_csv_loads_cv_lo_hi(self, acc, tmp_path):
-        """New schema: mask_name, cv_lo, cv_hi, description."""
-        path = tmp_path / "fp.csv"
-        path.write_text(
-            "mask_name,cv_lo,cv_hi,description\n"
-            "supply,0.04,0.30,sup\n"
-            "use,0.20,0.60,us\n"
-        )
-        imp = FlatPriorImputer.from_csv(
-            str(path), acc_struct=acc, default_cv=0.5,
-        )
-        assert imp.cv_by_mask == {"supply": (0.04, 0.30), "use": (0.20, 0.60)}
-
     def test_density_aware_cv_interpolation(self, acc):
         """With (cv_lo, cv_hi) and a coverage array, CV interpolates by per-edge density
         over (sector_from, region_from). Verified on an uncovered region vs a covered one."""
@@ -1467,6 +1443,41 @@ class TestFlatPriorImputer:
                 default_cv=0.5,
                 acc_struct=acc,
             )
+
+    def test_cv_hi_above_one_raises(self, acc):
+        """cv_hi > 1.0 in any mask tuple → ValueError mentioning the mask name."""
+        with pytest.raises(ValueError, match="row_use"):
+            FlatPriorImputer(
+                cv_by_mask={"supply": (0.04, 0.3), "use": (0.2, 0.5),
+                            "row_use": (0.3, 1.05)},
+                default_cv=0.3,
+                acc_struct=acc,
+                masks={"row_use": np.zeros(acc.n_edges, dtype=bool)},
+            )
+
+    def test_default_cv_above_one_raises(self, acc):
+        """default_cv > 1.0 → ValueError."""
+        with pytest.raises(ValueError, match="default_cv"):
+            FlatPriorImputer(
+                cv_by_mask={"supply": (0.04, 0.3)},
+                default_cv=1.5,
+                acc_struct=acc,
+            )
+
+    def test_masks_overlay_resolves_caller_supplied(self, acc):
+        """A mask name absent from acc.masks but present in the masks= overlay
+        resolves to the caller-supplied boolean array."""
+        custom = np.zeros(acc.n_edges, dtype=bool)
+        custom[0] = True
+        imp = FlatPriorImputer(
+            cv_by_mask={"my_overlay": (0.1, 0.2), "supply": (0.04, 0.3)},
+            default_cv=0.3,
+            acc_struct=acc,
+            masks={"my_overlay": custom},
+        )
+        # First-match-wins: edge 0 is in my_overlay → uses (0.1, 0.2).
+        names = [n for n, _ in imp._masks]
+        assert names == ["my_overlay", "supply"]
 
 
 if __name__ == "__main__":

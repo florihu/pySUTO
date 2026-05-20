@@ -6,8 +6,7 @@ Named boolean masks over an ``AccountingStructure``'s edge index.
 A *mask* is a `(n_edges,)` boolean array aligned to ``acc.edge_index``. Masks
 are used by:
 
-  * :class:`~pysuto.impute.flat_prior.FlatPriorImputer` — per-mask CV ranges
-    and an optional multiplicative "ROW" modulator.
+  * :class:`~pysuto.impute.flat_prior.FlatPriorImputer` — per-mask CV ranges.
   * Constraint builders — restrict a constraint's edge scope to a named mask.
   * Datafeeds — restrict a feed to in-scope edges via ``edge_scope_mask`` in
     its meta file.

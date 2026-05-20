@@ -20,7 +20,12 @@ class PropagationConfig:
 
 @dataclass(frozen=True)
 class FlatPriorConfig:
-    default_cv: float
+    default_cv:    float
+    cv_lo_supply:  float
+    cv_hi_supply:  float
+    cv_lo_use:     float
+    cv_hi_use:     float
+    row_inflation: float
 
 
 @dataclass(frozen=True)

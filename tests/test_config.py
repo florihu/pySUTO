@@ -14,6 +14,11 @@ _VALID_YAML = textwrap.dedent("""\
     imputers:
       flat_prior:
         default_cv: 0.3
+        cv_lo_supply: 0.04
+        cv_hi_supply: 0.3
+        cv_lo_use: 0.2
+        cv_hi_use: 0.5
+        row_inflation: 1.5
       time:
         window: 3
         min_obs: 2

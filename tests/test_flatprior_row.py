@@ -1,7 +1,9 @@
 """
 test_flatprior_row.py
 =====================
-Verify the multiplicative ROW modulation in :class:`FlatPriorImputer`.
+Verify ROW-specific CV inflation works through the new ``masks=`` overlay
++ pre-inflated ``cv_by_mask`` tuples pattern. ROW inflation lives in the
+caller (the init script), not in ``FlatPriorImputer``.
 """
 
 from __future__ import annotations
@@ -58,7 +60,6 @@ class _RowAcc:
             "use":      np.array([False, False, True,  False, True]),
             "tradable": np.zeros(5, dtype=bool),
             "sb":       np.zeros(5, dtype=bool),
-            "row":      np.array([False, False, False, True,  True]),
         }
 
 
@@ -72,7 +73,22 @@ def _attach_full_coverage(imp, n_edges):
     imp.attach_agg_result(a)
 
 
-def test_row_factor_one_is_no_op():
+def _row_sub_masks(acc):
+    """Replicate the init-script's ROW mask computation against ``_RowAcc``.
+
+    Returns ``(row_supply, row_use)`` boolean arrays of shape ``(n_edges,)``.
+    Uses node_index["region"] directly (the fixture is small enough that we
+    skip ``expand_edge_index``).
+    """
+    region = acc.node_index["region"].to_numpy()
+    region_from = region[acc.edge_index["from_id"].to_numpy()]
+    region_to   = region[acc.edge_index["to_id"].to_numpy()]
+    row = (region_from == "ROW") | (region_to == "ROW")
+    return acc.masks["supply"] & row, acc.masks["use"] & row
+
+
+def test_row_inflation_one_is_no_op():
+    """row_inflation=1.0 → ROW supply edges get same CV as non-ROW supply edges."""
     acc = _RowAcc()
     f = np.full(5, np.nan)
     f[0] = 50.0       # finite anchor for level-2 scale group (Mining, Mass)
@@ -80,22 +96,29 @@ def test_row_factor_one_is_no_op():
     sigma[0] = 1.0
     missing = np.isnan(f)
 
+    row_supply, row_use = _row_sub_masks(acc)
+    inflation = 1.0
     imp = FlatPriorImputer(
-        cv_by_mask={"supply": 0.1, "use": 0.2},
+        cv_by_mask={
+            "row_supply": (0.1 * inflation, 0.1 * inflation),
+            "row_use":    (0.2 * inflation, 0.2 * inflation),
+            "supply":     (0.1, 0.1),
+            "use":        (0.2, 0.2),
+        },
         default_cv=0.5,
         acc_struct=acc,
-        row_cv_factor=1.0,
+        masks={"row_supply": row_supply, "row_use": row_use},
     )
     _attach_full_coverage(imp, acc.n_edges)
     imp.impute(f, sigma, missing, 0, acc)
 
-    # With factor=1.0, sigma of ROW supply (edge 3) should equal sigma of
-    # domestic-imputed supply (edge 1) — both fall through to level-2 scale.
+    # Inflation=1 → sigma of ROW supply (edge 3) equals sigma of domestic supply (edge 1).
     assert sigma[3] / sigma[1] == pytest.approx(1.0)
     assert sigma[4] / sigma[2] == pytest.approx(1.0)
 
 
-def test_row_factor_multiplies_cv_for_row_edges():
+def test_row_inflation_multiplies_cv_for_row_edges():
+    """row_inflation=2.5 → sigma[row_supply]/sigma[supply] == 2.5 within same scale group."""
     acc = _RowAcc()
     f = np.full(5, np.nan)
     f[0] = 50.0
@@ -103,57 +126,41 @@ def test_row_factor_multiplies_cv_for_row_edges():
     sigma[0] = 1.0
     missing = np.isnan(f)
 
+    row_supply, row_use = _row_sub_masks(acc)
+    inflation = 2.5
     imp = FlatPriorImputer(
-        cv_by_mask={"supply": 0.1, "use": 0.2},
+        cv_by_mask={
+            "row_supply": (0.1 * inflation, 0.1 * inflation),
+            "row_use":    (0.2 * inflation, 0.2 * inflation),
+            "supply":     (0.1, 0.1),
+            "use":        (0.2, 0.2),
+        },
         default_cv=0.5,
         acc_struct=acc,
-        row_mask_name="row",
-        row_cv_factor=2.5,
+        masks={"row_supply": row_supply, "row_use": row_use},
     )
     _attach_full_coverage(imp, acc.n_edges)
     imp.impute(f, sigma, missing, 0, acc)
 
-    # Edge 1 (supply, domestic, imputed) vs Edge 3 (supply, ROW, imputed):
-    # same level-2 scale group (Mining, Mass), so sigma ratio = ROW factor.
+    # Edge 1 (supply, domestic) vs edge 3 (supply, ROW): same level-2 scale group
+    # (Mining, Mass), so sigma ratio = inflation factor.
     assert sigma[3] / sigma[1] == pytest.approx(2.5)
     # Same comparison in the use bucket: edge 2 (use, domestic) vs edge 4 (use, ROW).
-    # Both use level-3 global fallback (no finite |f| in use sector_from group).
     assert sigma[4] / sigma[2] == pytest.approx(2.5)
 
 
-def test_row_factor_applies_to_default():
-    """Edges that match no listed mask still get the ROW factor."""
+def test_overlay_takes_priority_over_acc_masks():
+    """Caller-supplied masks overlay names already in acc.masks."""
     acc = _RowAcc()
-    f = np.full(5, np.nan)
-    f[0] = 50.0
-    sigma = np.full(5, np.nan)
-    sigma[0] = 1.0
-    missing = np.isnan(f)
-
+    # Replace supply with a different boolean via the overlay; the imputer
+    # must prefer the overlay-supplied array.
+    custom_supply = np.array([False, False, False, False, True])  # only edge 4
     imp = FlatPriorImputer(
-        cv_by_mask={},            # no buckets → everything is default
-        default_cv=0.4,
-        acc_struct=acc,
-        row_mask_name="row",
-        row_cv_factor=3.0,
-    )
-    _attach_full_coverage(imp, acc.n_edges)
-    imp.impute(f, sigma, missing, 0, acc)
-
-    assert sigma[3] / sigma[1] == pytest.approx(3.0)
-    assert sigma[4] / sigma[2] == pytest.approx(3.0)
-
-
-def test_missing_row_mask_disables_modulation():
-    """If row_mask_name is set but not present, modulation is skipped."""
-    acc = _RowAcc()
-    del acc.masks["row"]
-
-    imp = FlatPriorImputer(
-        cv_by_mask={"supply": 0.1, "use": 0.2},
+        cv_by_mask={"supply": (0.1, 0.1)},
         default_cv=0.5,
         acc_struct=acc,
-        row_mask_name="row",
-        row_cv_factor=2.0,
+        masks={"supply": custom_supply},
     )
-    assert imp._row_mask is None
+    name, mask = imp._masks[0]
+    assert name == "supply"
+    assert np.array_equal(mask, custom_supply)
