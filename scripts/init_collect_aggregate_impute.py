@@ -39,15 +39,8 @@ REGISTRY_DIR = os.path.join("data", "proc", "feed", "registry")
 IMP_DIR      = os.path.join("data", "proc", "imp")          # ImputationRunRegistry storage dir
 _INPUT_ROOT  = os.path.join("data", "input")                # root of the input registries
 
-# Power-mean exponent for σ propagation (Stage 1, Stage 2a, all imputers).
-# p ∈ [1.1, 1.5]; p=2.0 recovers Gaussian quadrature. See README.
-P_PROP       = 1.3
-# ParametricImputer α-regularization (s(α) = |α|/(|α|^q + α_min^q)^(1/q)).
-# Caps σ amplification for large |α| and damps very small |α|. See README.
-Q_REG        = 3.0
-ALPHA_MIN_REG = 0.05
-# Default CV for FlatPrior edges that match no listed mask (supply/use/...)
-FLAT_DEFAULT_CV = 0.3
+# Propagation / imputer knobs (p, q, alpha_min, flat_default_cv, time imputer
+# settings) are loaded from config/config.yaml — see `cfg = load_config()` below.
 # ---------------------------------------------------------------------------
 # Imports
 # ---------------------------------------------------------------------------
@@ -55,6 +48,7 @@ FLAT_DEFAULT_CV = 0.3
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from pysuto.acc      import AccountingStructure
+from pysuto.config   import load_config
 from pysuto.registry import DataFeedRegistry, ImputationRunRegistry
 from pysuto.input_registry import InputRegistries
 from pysuto.collector import FeedCollector
@@ -70,6 +64,12 @@ from pysuto.impute   import (
 )
 from pysuto.logging  import get_logger, add_run_handler
 from pysuto.diag     import AggDiagnostic, ImpDiagnostic
+
+cfg             = load_config()
+P_PROP          = cfg.propagation.p
+Q_REG           = cfg.propagation.q
+ALPHA_MIN_REG   = cfg.propagation.alpha_min
+FLAT_DEFAULT_CV = cfg.imputers.flat_prior.default_cv
 
 # ---------------------------------------------------------------------------
 # FormulaRelations (module-level — no runtime state, safe to define here)
@@ -336,8 +336,12 @@ def main(label: str, feed_keys: list[str]) -> None:
 
     # Temporal interpolation, no extrapolation.
     engine.register(TimeImputer(
-        window=3, method="linear", min_obs=2,
-        gap_inflation=1.05, interpolate_only=True, p=P_PROP,
+        window           = cfg.imputers.time.window,
+        method           = cfg.imputers.time.method,
+        min_obs          = cfg.imputers.time.min_obs,
+        gap_inflation    = cfg.imputers.time.gap_inflation,
+        interpolate_only = cfg.imputers.time.interpolate_only,
+        p                = P_PROP,
     ))
 
     # Final fallback — flat prior sized by mask CV × group scale.
@@ -368,8 +372,19 @@ def main(label: str, feed_keys: list[str]) -> None:
         label        = label,
         parents      = parents,
         imputers     = engine.imputers,
-        stage_config = {"p": P_PROP, "q": Q_REG, "alpha_min": ALPHA_MIN_REG,
-                        "flat_default_cv": FLAT_DEFAULT_CV},
+        stage_config = {
+            "p":               P_PROP,
+            "q":               Q_REG,
+            "alpha_min":       ALPHA_MIN_REG,
+            "flat_default_cv": FLAT_DEFAULT_CV,
+            "time": {
+                "window":           cfg.imputers.time.window,
+                "min_obs":          cfg.imputers.time.min_obs,
+                "gap_inflation":    cfg.imputers.time.gap_inflation,
+                "method":           cfg.imputers.time.method,
+                "interpolate_only": cfg.imputers.time.interpolate_only,
+            },
+        },
     )
     run_dir = os.path.join(IMP_DIR, run_id)
     logger.info("D  Registered run_id=%s  label=%s → %s", run_id, label, run_dir)

@@ -205,13 +205,14 @@ class ConstraintEngine:
     def run(
         self,
         agg_result,
-        timesteps: list,
-        agg_id:    str = "",
-        run_id:    Optional[str] = None,
-        label:     str = "",
-        persist:   bool = True,
-        diag_plot: bool = False,
-        parents:   Optional[dict] = None,
+        timesteps:    list,
+        agg_id:       str = "",
+        run_id:       Optional[str] = None,
+        label:        str = "",
+        persist:      bool = True,
+        diag_plot:    bool = False,
+        parents:      Optional[dict] = None,
+        stage_config: Optional[dict] = None,
     ) -> ConstraintRun:
         """
         Build G once, then assemble c(t) / sigma_c(t) for each timestep.
@@ -356,7 +357,7 @@ class ConstraintEngine:
         self._check(cr)
 
         if persist:
-            self._registry.register(cr, parents=parents)
+            self._registry.register(cr, parents=parents, stage_config=stage_config)
 
         if diag_plot:
             from .diag import ConstDiagnostic

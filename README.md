@@ -523,9 +523,12 @@ optim_run_id = solver.persist(
 
 ## Workflow
 
+> **Global tuning knobs live in [`config/config.yaml`](config/config.yaml).** Init scripts call `cfg = load_config()` and pass the resolved values as kwargs (`p`, `q`, `alpha_min`, `default_cv`, time-imputer settings, Stage 3 σ floors). Modules keep their existing kwarg signatures, so library use (tests, REPL) still works with module defaults.
+
 ```python
 from pysuto.acc import AccountingStructure
 from pysuto.collector import FeedCollector
+from pysuto.config import load_config
 from pysuto.feedpipe import run_feed_pipeline
 from pysuto.registry import DataFeedRegistry
 from pysuto.input_registry import InputRegistries
@@ -540,9 +543,10 @@ from pysuto.constraints import (
 from pysuto.solver import ClarabelSolver
 from pysuto.diag import AggDiagnostic, ImpDiagnostic
 
-P_PROP        = 1.3        # global Lp exponent
-Q_REG         = 3.0        # ParametricImputer backward-branch knee sharpness
-ALPHA_MIN_REG = 0.05       # ParametricImputer inverse-multiplier floor
+cfg           = load_config()           # config/config.yaml
+P_PROP        = cfg.propagation.p       # global Lp exponent
+Q_REG         = cfg.propagation.q       # ParametricImputer backward-branch knee sharpness
+ALPHA_MIN_REG = cfg.propagation.alpha_min  # ParametricImputer inverse-multiplier floor
 
 # ── Stage 0: initialise the input registries (scan-and-bump) ─────────────
 # Walks data/input/{feed,acc,params}/<id>/current/ and bumps any id whose

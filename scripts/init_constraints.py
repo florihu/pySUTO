@@ -42,8 +42,8 @@ IMP_DIR     = os.path.join("data", "proc", "imp")
 _INPUT_ROOT = os.path.join("data", "input")
 OUTPUT_DIR  = os.path.join("data", "proc", "const")
 
-# Power-mean exponent — must match the value used in the imputation pipeline
-P_PROP = 1.3
+# Power-mean exponent and σ-regularisation floors are loaded from
+# config/config.yaml — see `cfg = load_config()` below.
 
 # SB entity_sub values whose outgoing edges are subtracted from the Process
 # node LHS (waste to nature / socio-economic system boundary)
@@ -61,6 +61,7 @@ FD_SUBS = {"FD"}
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from pysuto.acc import AccountingStructure
+from pysuto.config import load_config
 from pysuto.registry import ImputationRunRegistry
 from pysuto.input_registry import InputRegistries
 from pysuto.constraints import (
@@ -72,6 +73,9 @@ from pysuto.constraints import (
     FlowBoundsBuilder,
 )
 from pysuto.logging import get_logger, add_run_handler
+
+cfg    = load_config()
+P_PROP = cfg.propagation.p
 
 _log = get_logger("init_copper_constraints")
 
@@ -112,7 +116,15 @@ def main(imp_run_id: str, label: str) -> None:
         )
 
     # ── B. Assemble constraint engine ─────────────────────────────────────
-    engine = ConstraintEngine(acc_struct=acc, storage_dir=OUTPUT_DIR)
+    engine = ConstraintEngine(
+        acc_struct        = acc,
+        storage_dir       = OUTPUT_DIR,
+        p                 = P_PROP,
+        sigma_a_cv_min    = cfg.constraints.sigma_a_cv_min,
+        sigma_a_abs_floor = cfg.constraints.sigma_a_abs_floor,
+        sigma_c_cv_min    = cfg.constraints.sigma_c_cv_min,
+        sigma_c_abs_floor = cfg.constraints.sigma_c_abs_floor,
+    )
 
     # 1. Hard mass balance
     _log.info("Registering MassBalanceBuilder")
@@ -175,12 +187,18 @@ def main(imp_run_id: str, label: str) -> None:
         "upstream": {"imp_run_id": imp_run_id},
     }
     constraint_run = engine.run(
-        agg_result = agg_result,
-        timesteps  = [str(t) for t in acc.time_range],
-        persist    = True,
-        diag_plot  = True,
-        label      = label,
-        parents    = parents,
+        agg_result   = agg_result,
+        timesteps    = [str(t) for t in acc.time_range],
+        persist      = True,
+        diag_plot    = True,
+        label        = label,
+        parents      = parents,
+        stage_config = {
+            "sigma_a_cv_min":    cfg.constraints.sigma_a_cv_min,
+            "sigma_a_abs_floor": cfg.constraints.sigma_a_abs_floor,
+            "sigma_c_cv_min":    cfg.constraints.sigma_c_cv_min,
+            "sigma_c_abs_floor": cfg.constraints.sigma_c_abs_floor,
+        },
     )
 
     # ── D. Summary ────────────────────────────────────────────────────────
