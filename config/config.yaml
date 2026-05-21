@@ -22,7 +22,7 @@ pipeline:
       - {params_id: stock_bounds, builder: RatioBoundBuilder}
       
   solver:
-    const_run_id: const_20260521_074525_b1921faf
+    const_run_id: const_20260521_091641_8d374993
 
 propagation:
   p:         1.3      # Lp/power-mean exponent (Stages 1/2/3)
