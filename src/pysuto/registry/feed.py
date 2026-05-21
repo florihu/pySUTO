@@ -21,6 +21,7 @@ from ._sidecar import (
     _RegistryEntry,
     _now_iso,
     build_sidecar,
+    make_run_id,
 )
 from .base import BaseOutputRegistry
 
@@ -32,7 +33,7 @@ class DataFeedRegistry(BaseOutputRegistry):
 
         data/proc/feed/registry/
         ├── registry.json
-        └── feed_<ts>_<code>/
+        └── feed_<id>_<ts>_<code>/
             ├── metadata.json         ← harmonized sidecar (+ ``feed_metadata`` block)
             ├── feed.pkl              ← WeightMatrix + concordance pickle
             ├── result.npz            ← F_root, sigma_root, cv_root, cv_src
@@ -117,7 +118,9 @@ class DataFeedRegistry(BaseOutputRegistry):
         if "inputs" not in parents:
             raise ValueError("parents must contain an 'inputs' block")
 
-        run_id     = self._new_run_id()
+        _fid = (parents.get("inputs", {}).get("feed", {}).get("id") or
+                getattr(metadata, "feed_name", "") or "")
+        run_id = make_run_id(f"feed_{_fid}") if _fid else self._new_run_id()
         created_at = _now_iso()
         if label is None:
             label = getattr(metadata, "feed_name", "") or ""

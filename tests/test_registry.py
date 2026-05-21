@@ -327,7 +327,9 @@ class TestRegistryRegister:
 
     def test_run_id_format(self, registry, feed, metadata, result, parents_feed):
         entry = registry.register(feed, metadata, parents=parents_feed, result=result)
-        assert _RUN_ID_RE.match(entry.run_id)
+        # DataFeedRegistry embeds the feed_id: feed_<id>_<ts>_<code>
+        _feed_run_id_re = re.compile(r"^feed_\w+_\d{8}_\d{6}_[a-f0-9]{8}$")
+        assert _feed_run_id_re.match(entry.run_id), f"unexpected format: {entry.run_id}"
         assert entry.stage == "feed"
 
     def test_label_defaults_to_feed_name(self, registry, feed, metadata, result, parents_feed):

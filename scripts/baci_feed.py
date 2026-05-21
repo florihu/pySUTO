@@ -1,7 +1,7 @@
 """
-init_crude_ore_feed.py
-======================
-Initialise the crude ore extraction DataFeed end-to-end.
+init_baci_feed.py
+=================
+Initialise the BACI copper-trade DataFeed end-to-end.
 
 This script is a thin driver.  All pipeline logic lives in feedpipe.py.
 
@@ -21,7 +21,7 @@ USER CONFIGURATION  ←  only section you ever edit
 INPUT (you provide these files):
 
   data/input/feed/<FEED_ID>/v<VERSION>/
-      values.csv          ← copper crude ore extraction (from crude_ore_parse_feed.py)
+      values.csv          ← bilateral trade flows (from baci_parse_feed.py)
       conc.xlsx           ← concordance mapping workbook
       meta.xlsx           ← pedigree / provenance sidecar
 
@@ -33,15 +33,15 @@ OUTPUT (written automatically via DataFeedRegistry):
     registry/
       registry.json          ← master index across all feeds × versions
     feed/
-      crude_ore/
+      baci/
         metadata.json        ← DataFeedMetadata (human-readable)
-        crude_ore.pkl        ← WeightMatrix pickle
+        baci.pkl             ← WeightMatrix pickle
         result.npz           ← F_root, sigma_root, cv_root, cv_src
     diagnostics/
-      crude_ore_v<VERSION>_feed.png
+      baci_v<VERSION>_diagnostics.png
 
   logs/
-      crude_ore_v<VERSION>_<timestamp>.log  ← full run log
+      baci_v<VERSION>_<timestamp>.log  ← full run log
 """
 
 from __future__ import annotations
@@ -58,8 +58,9 @@ import pandas as pd
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
 
-FEED_ID = "crude_ore"
-ACC_ID  = "copper"
+FEED_ID = "baci"
+# ACC_ID is loaded from config/config.yaml → pipeline.acc_id below, after
+# the pysuto package is added to sys.path.
 
 # ---------------------------------------------------------------------------
 # FIXED PATHS  (resolved at runtime via the input registry; do not edit)
@@ -69,10 +70,13 @@ _INPUT_ROOT  = os.path.join("data", "input")
 ACC_DIR      = os.path.join("data", "proc", "acc")
 REGISTRY_DIR = os.path.join("data", "proc", "feed", "registry")
 
-# Filled in by main() once the input registry has been initialised.
+# These four constants are filled in by main() once the input registry
+# has been initialised and the live `current/` files have been snapshotted
+# into `data/input/feed/<FEED_ID>/v{latest}/`.
 RAW_DATA: str  = ""
 CONC_FILE: str = ""
 META_FILE: str = ""
+WEIGHTS_FILE: str = ""
 
 # ---------------------------------------------------------------------------
 # LOGGING  — one timestamped file per run, plus console
@@ -91,6 +95,7 @@ logger = get_logger(__name__)
 # ---------------------------------------------------------------------------
 
 from pysuto.acc      import AccountingStructure
+from pysuto.config   import load_config
 from pysuto.meta     import DataFeedMetadata
 from pysuto.conc     import ConcordanceTable, WeightMatrix
 from pysuto.registry import DataFeedRegistry
@@ -103,6 +108,8 @@ from pysuto.feedpipe import (
     register_feed,
 )
 from pysuto.diag import FeedDiagnostics
+
+ACC_ID = load_config().pipeline.acc_id
 
 
 # ===========================================================================
@@ -127,7 +134,7 @@ def load_acc_structure() -> AccountingStructure:
         )
         raise FileNotFoundError(
             f"\nAccounting structure '{ACC_ID}' not found at '{acc_path}'.\n"
-            f"Set ACC_ID at the top of this file.\n"
+            f"Set pipeline.acc_id in config/config.yaml.\n"
             f"Available structures:\n{available}"
         )
 
@@ -144,9 +151,9 @@ def load_acc_structure() -> AccountingStructure:
 # ===========================================================================
 
 def load_raw_data() -> pd.DataFrame:
-    _check_file(RAW_DATA, "raw extraction data")
+    _check_file(RAW_DATA, "raw flow data")
     df = pd.read_csv(RAW_DATA)
-    # Year must be str for time_map lookup
+    # Year must be str for time_map lookup; Sector stays int for sector_map lookup
     df["Year"] = df["Year"].astype(str)
     return df
 
@@ -185,13 +192,26 @@ def load_meta_sidecar() -> DataFeedMetadata:
 # C  BUILD CONCORDANCE TABLE + WEIGHT MATRIX  (delegates to feedpipe)
 # ===========================================================================
 
+def load_user_weights() -> pd.DataFrame | None:
+    """Load optional user weight table; returns None if file absent."""
+    if not os.path.isfile(WEIGHTS_FILE):
+        logger.info("   weights file not found — using equal allocation")
+        return None
+    wdf = pd.read_csv(WEIGHTS_FILE)
+    logger.info("   weights file : %s  (%d entries)", WEIGHTS_FILE, len(wdf))
+    return wdf
+
+
 def build_concordance(
     raw_df: pd.DataFrame,
     tables: dict,
     acc: AccountingStructure,
+    user_weights: pd.DataFrame | None = None,
 ) -> ConcordanceTable:
     logger.info("=" * 60)
     logger.info("C  Building ConcordanceTable")
+
+    var_map_df = tables["var_map"].copy()
 
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
@@ -202,10 +222,11 @@ def build_concordance(
             region_map_df         = tables["region_map"],
             time_map_df           = tables["time_map"],
             valuation_map_df      = tables["valuation_map"],
-            var_map_df            = tables["var_map"],
+            var_map_df            = var_map_df,
             feed_id               = FEED_ID,
-            aux_col               = None,   # single-region domestic feed
+            aux_col               = None,  # BACI has explicit from/to cols — no discriminator
             allow_unmatched_edges = True,
+            user_weights_df       = user_weights,
         )
 
     for w in caught:
@@ -333,11 +354,13 @@ def _check_file(path: str, label: str) -> None:
 # ===========================================================================
 
 def _resolve_input_paths(inputs: InputRegistries) -> dict:
-    global RAW_DATA, CONC_FILE, META_FILE
-    feed_dir  = inputs.feed.resolve(FEED_ID)
-    RAW_DATA  = str(feed_dir / "values.csv")
-    CONC_FILE = str(feed_dir / "conc.xlsx")
-    META_FILE = str(feed_dir / "meta.xlsx")
+    """Resolve and stash module-level path constants from the input registry."""
+    global RAW_DATA, CONC_FILE, META_FILE, WEIGHTS_FILE
+    feed_dir = inputs.feed.resolve(FEED_ID)
+    RAW_DATA     = str(feed_dir / "values.csv")
+    CONC_FILE    = str(feed_dir / "conc.xlsx")
+    META_FILE    = str(feed_dir / "meta.xlsx")
+    WEIGHTS_FILE = str(feed_dir / "weights.csv")
     return {
         "acc":  inputs.acc.entry(ACC_ID),
         "feed": inputs.feed.entry(FEED_ID),
@@ -346,10 +369,10 @@ def _resolve_input_paths(inputs: InputRegistries) -> dict:
 
 def main() -> None:
     logger.info("=" * 60)
-    logger.info("init_crude_ore_feed.py  —  feed=%s  acc=%s", FEED_ID, ACC_ID)
+    logger.info("init_baci_feed.py  —  feed=%s  acc=%s", FEED_ID, ACC_ID)
     logger.info("run log → %s", _RUN_LOG)
 
-    # 0 — input registries
+    # 0 — input registries (scan-and-bump every kind)
     inputs    = InputRegistries.initialize(root=_INPUT_ROOT)
     input_ref = _resolve_input_paths(inputs)
     logger.info("   input feed : %s v%d (code=%s)",
@@ -368,16 +391,17 @@ def main() -> None:
     logger.info("   raw data     : %s", RAW_DATA)
     logger.info("   concordance  : %s", CONC_FILE)
     logger.info("   meta sidecar : %s", META_FILE)
-    raw_df = load_raw_data()
-    tables = load_concordance_tables()
-    meta   = load_meta_sidecar()
+    raw_df       = load_raw_data()
+    tables       = load_concordance_tables()
+    meta         = load_meta_sidecar()
+    user_weights = load_user_weights()
     logger.info("   rows loaded  : %d", len(raw_df))
     logger.info("   sector map   : %d entries", len(tables["sector_map"]))
     logger.info("   region map   : %d entries", len(tables["region_map"]))
     logger.info("   time map     : %d entries", len(tables["time_map"]))
 
     # C — concordance + weight matrix
-    ct = build_concordance(raw_df, tables, acc)
+    ct = build_concordance(raw_df, tables, acc, user_weights)
     wm = build_weight_matrix(ct)
 
     # D — source flow vector + uncertainty propagation

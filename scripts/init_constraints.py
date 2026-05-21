@@ -40,15 +40,14 @@ import sys
 # ---------------------------------------------------------------------------
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
+# Pipeline wiring (acc_id, constraint bindings) lives in config/config.yaml
+# under `pipeline:`.  Power-mean exponent and σ-regularisation floors are also
+# loaded from config — see `cfg = load_config()` below.
 
-ACC_ID      = "copper"
 ACC_DIR     = os.path.join("data", "proc", "acc")
 IMP_DIR     = os.path.join("data", "proc", "imp")
 _INPUT_ROOT = os.path.join("data", "input")
 OUTPUT_DIR  = os.path.join("data", "proc", "const")
-
-# Power-mean exponent and σ-regularisation floors are loaded from
-# config/config.yaml — see `cfg = load_config()` below.
 
 # SB entity_sub values whose outgoing edges are subtracted from the Process
 # node LHS (waste to nature / socio-economic system boundary)
@@ -80,7 +79,13 @@ from pysuto.constraints import (
 from pysuto.logging import get_logger, add_run_handler
 
 cfg    = load_config()
+ACC_ID = cfg.pipeline.acc_id
 P_PROP = cfg.propagation.p
+
+CONST_BUILDER_BY_NAME = {
+    "RatioConstraintBuilder": RatioConstraintBuilder,
+    "RatioBoundBuilder":      RatioBoundBuilder,
+}
 
 _log = get_logger("init_copper_constraints")
 
@@ -157,30 +162,24 @@ def main(imp_run_id: str, label: str) -> None:
     ))
 
     # 4–8. CSV-fed soft ratio + hard ratio-bound builders.
-    #      Two builders consume the same params_id (e.g. 'conc' → both
-    #      RatioConstraintBuilder and RatioBoundBuilder). stock_bounds joins
+    #      Bindings come from config/config.yaml → pipeline.constraints.bindings.
+    #      Two builders may consume the same params_id (e.g. 'conc' → both
+    #      RatioConstraintBuilder and RatioBoundBuilder).  stock_bounds joins
     #      the list: its CSV carries `agg=true` so the builder sums all
     #      matched a-side / b-side edges into one G row per
     #      (region, time, valuation) bucket.
-    CONST_BINDINGS: list[tuple[str, type, dict]] = [
-        ("conc",         RatioConstraintBuilder, {}),
-        ("eff",          RatioConstraintBuilder, {}),
-        ("conc",         RatioBoundBuilder,      {}),
-        ("eff",          RatioBoundBuilder,      {}),
-        ("stock_bounds", RatioBoundBuilder,      {}),
-    ]
-
     param_refs: list[dict] = []
     seen_param_ids: set[str] = set()
-    for param_id, Builder, kwargs in CONST_BINDINGS:
-        csv_path = inputs.params.resolve(param_id) / "params.csv"
+    for binding in cfg.pipeline.constraints.bindings:
+        Builder  = CONST_BUILDER_BY_NAME[binding.builder]
+        csv_path = inputs.params.resolve(binding.params_id) / "params.csv"
         _log.info("Registering %s ← params/%s v%d",
-                  Builder.__name__, param_id,
-                  inputs.params.entry(param_id)["version"])
-        engine.register(Builder.from_csv(str(csv_path), acc_struct=acc, **kwargs))
-        if param_id not in seen_param_ids:
-            param_refs.append(inputs.params.entry(param_id))
-            seen_param_ids.add(param_id)
+                  Builder.__name__, binding.params_id,
+                  inputs.params.entry(binding.params_id)["version"])
+        engine.register(Builder.from_csv(str(csv_path), acc_struct=acc))
+        if binding.params_id not in seen_param_ids:
+            param_refs.append(inputs.params.entry(binding.params_id))
+            seen_param_ids.add(binding.params_id)
 
     # 9. Hard flow bounds from acc_struct
     _log.info("Registering FlowBoundsBuilder")

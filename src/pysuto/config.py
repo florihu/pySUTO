@@ -6,7 +6,7 @@ and defaults — they do not import this module.
 """
 from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import Union
+from typing import List, Union, get_args, get_origin
 
 import yaml
 
@@ -52,10 +52,45 @@ class ConstraintsConfig:
 
 
 @dataclass(frozen=True)
+class Binding:
+    params_id: str
+    builder:   str
+
+
+@dataclass(frozen=True)
+class ImputationPipeline:
+    bindings: List[Binding]
+
+
+@dataclass(frozen=True)
+class ConstraintsPipeline:
+    bindings: List[Binding]
+
+
+@dataclass(frozen=True)
+class PipelineConfig:
+    acc_id:      str
+    feeds:       List[str]
+    imputation:  ImputationPipeline
+    constraints: ConstraintsPipeline
+
+
+@dataclass(frozen=True)
 class Config:
+    pipeline:    PipelineConfig
     propagation: PropagationConfig
     imputers:    ImputersConfig
     constraints: ConstraintsConfig
+
+
+def _build_field(typ, value):
+    if hasattr(typ, "__dataclass_fields__"):
+        return _build(typ, value)
+    if get_origin(typ) is list:
+        (item_type,) = get_args(typ)
+        if hasattr(item_type, "__dataclass_fields__"):
+            return [_build(item_type, v) for v in value]
+    return value
 
 
 def _build(cls, payload):
@@ -68,13 +103,7 @@ def _build(cls, payload):
     missing = expected - set(payload)
     if missing:
         raise ValueError(f"{cls.__name__}: missing keys {sorted(missing)}")
-    kwargs = {}
-    for f in fields(cls):
-        v = payload[f.name]
-        if hasattr(f.type, "__dataclass_fields__"):
-            kwargs[f.name] = _build(f.type, v)
-        else:
-            kwargs[f.name] = v
+    kwargs = {f.name: _build_field(f.type, payload[f.name]) for f in fields(cls)}
     return cls(**kwargs)
 
 
@@ -82,6 +111,7 @@ def load_config(path: Union[str, Path] = "config/config.yaml") -> Config:
     with open(path) as fh:
         raw = yaml.safe_load(fh)
     return _build(Config, {
+        "pipeline":    raw["pipeline"],
         "propagation": raw["propagation"],
         "imputers":    raw["imputers"],
         "constraints": raw["constraints"],

@@ -55,7 +55,8 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 
 FEED_ID = "icsg"
-ACC_ID  = "copper"
+# ACC_ID is loaded from config/config.yaml → pipeline.acc_id below, after
+# the pysuto package is added to sys.path.
 
 # ---------------------------------------------------------------------------
 # FIXED PATHS  (resolved at runtime via the input registry; do not edit)
@@ -75,6 +76,7 @@ META_FILE: str = ""
 sys.path.insert(0, os.path.dirname(__file__))
 
 from pysuto.acc      import AccountingStructure
+from pysuto.config   import load_config
 from pysuto.meta     import DataFeedMetadata
 from pysuto.conc     import ConcordanceTable, WeightMatrix
 from pysuto.registry import DataFeedRegistry
@@ -87,6 +89,8 @@ from pysuto.feedpipe import (
     register_feed,
 )
 from pysuto.diag import FeedDiagnostics
+
+ACC_ID = load_config().pipeline.acc_id
 
 
 # ===========================================================================
@@ -111,7 +115,7 @@ def load_acc_structure() -> AccountingStructure:
         )
         raise FileNotFoundError(
             f"\nAccounting structure '{ACC_ID}' not found at '{acc_path}'.\n"
-            f"Set ACC_ID at the top of this file.\n"
+            f"Set pipeline.acc_id in config/config.yaml.\n"
             f"Available structures:\n{available}"
         )
 

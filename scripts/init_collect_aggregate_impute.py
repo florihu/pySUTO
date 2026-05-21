@@ -33,16 +33,16 @@ import numpy as np
 # ---------------------------------------------------------------------------
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
+# Pipeline wiring (acc_id, feeds, imputation bindings) lives in
+# config/config.yaml under `pipeline:`.  Propagation / imputer knobs are also
+# loaded from config — see `cfg = load_config()` below.
 
-ACC_ID       = "copper"
 ACC_DIR      = os.path.join("data", "proc", "acc")
 REGISTRY_DIR = os.path.join("data", "proc", "feed", "registry")
 
 IMP_DIR      = os.path.join("data", "proc", "imp")          # ImputationRunRegistry storage dir
 _INPUT_ROOT  = os.path.join("data", "input")                # root of the input registries
 
-# Propagation / imputer knobs (p, q, alpha_min, flat_default_cv, time imputer
-# settings) are loaded from config/config.yaml — see `cfg = load_config()` below.
 # ---------------------------------------------------------------------------
 # Imports
 # ---------------------------------------------------------------------------
@@ -69,10 +69,13 @@ from pysuto.logging  import get_logger, add_run_handler
 from pysuto.diag     import AggDiagnostic, ImpDiagnostic
 
 cfg             = load_config()
+ACC_ID          = cfg.pipeline.acc_id
 P_PROP          = cfg.propagation.p
 Q_REG           = cfg.propagation.q
 ALPHA_MIN_REG   = cfg.propagation.alpha_min
 FLAT_DEFAULT_CV = cfg.imputers.flat_prior.default_cv
+
+IMP_BUILDER_BY_NAME = {"ParametricImputer": ParametricImputer}
 
 # ---------------------------------------------------------------------------
 # FormulaRelations (module-level — no runtime state, safe to define here)
@@ -261,7 +264,7 @@ cathode_mesc_domestic = FormulaRelation(
 )
 
 
-def main(label: str, feed_keys: list[str]) -> None:
+def main(label: str) -> None:
     log_path = os.path.join(
         "logs",
         f"collect_aggregate_impute_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log",
@@ -270,6 +273,8 @@ def main(label: str, feed_keys: list[str]) -> None:
     add_run_handler(log_path)
     logger = get_logger("collect_aggregate_impute")
     logger.info("=== collect_aggregate_impute START ===")
+
+    feed_keys = list(cfg.pipeline.feeds)
 
     # ── 0  Initialise input registries (scan-and-bump) ────────────────────────
     inputs = InputRegistries.initialize(root=_INPUT_ROOT)
@@ -305,23 +310,20 @@ def main(label: str, feed_keys: list[str]) -> None:
     logger.info("C  Building imputation engine")
     engine = ImputationEngine(acc_struct=acc)
 
-    # Config-table-driven imputer registration.  Each tuple is
-    #   (params_id, Builder, kwargs).  The params_id is resolved via the
-    #   input registry → data/input/params/<id>/v{latest}/params.csv.
-    IMP_BINDINGS: list[tuple[str, type, dict]] = [
-        ("eff",        ParametricImputer, dict(p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG)),
-        ("ore_grade",  ParametricImputer, dict(p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG)),
-        ("conc",       ParametricImputer, dict(p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG)),
-    ]
-
+    # Bindings come from config/config.yaml → pipeline.imputation.bindings.
+    # Each entry is `{params_id, builder}`; the params_id is resolved via the
+    # input registry → data/input/params/<id>/v{latest}/params.csv.  Propagation
+    # kwargs (p, q, alpha_min) are auto-injected for ParametricImputer.
     param_refs: list[dict] = []
-    for param_id, Builder, kwargs in IMP_BINDINGS:
-        csv_path = inputs.params.resolve(param_id) / "params.csv"
+    for binding in cfg.pipeline.imputation.bindings:
+        Builder  = IMP_BUILDER_BY_NAME[binding.builder]
+        csv_path = inputs.params.resolve(binding.params_id) / "params.csv"
+        kwargs   = dict(p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG)
         engine.register(Builder.from_csv(str(csv_path), acc, **kwargs))
-        param_refs.append(inputs.params.entry(param_id))
+        param_refs.append(inputs.params.entry(binding.params_id))
         logger.info("C  registered %s (params=%s v%d)",
-                    Builder.__name__, param_id,
-                    inputs.params.entry(param_id)["version"])
+                    Builder.__name__, binding.params_id,
+                    inputs.params.entry(binding.params_id)["version"])
 
     # FormulaImputer is lambda-driven; it shares the `conc` params CSV.
     engine.register(FormulaImputer(
@@ -433,9 +435,5 @@ def main(label: str, feed_keys: list[str]) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Feed collection, aggregation, and imputation.")
     parser.add_argument("label", help="Human-readable label stored in the run's sidecar")
-    parser.add_argument(
-        "feed_keys", nargs="+",
-        help="Feed selectors: input-feed-id (latest run wins) or exact run_id",
-    )
     args = parser.parse_args()
-    main(args.label, args.feed_keys)
+    main(args.label)
