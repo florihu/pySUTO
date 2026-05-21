@@ -78,9 +78,10 @@ from pysuto.constraints import (
 )
 from pysuto.logging import get_logger, add_run_handler
 
-cfg    = load_config()
-ACC_ID = cfg.pipeline.acc_id
-P_PROP = cfg.propagation.p
+cfg        = load_config()
+ACC_ID     = cfg.pipeline.acc_id
+P_PROP     = cfg.propagation.p
+IMP_RUN_ID = cfg.pipeline.constraints.imp_run_id
 
 CONST_BUILDER_BY_NAME = {
     "RatioConstraintBuilder": RatioConstraintBuilder,
@@ -90,7 +91,7 @@ CONST_BUILDER_BY_NAME = {
 _log = get_logger("init_copper_constraints")
 
 
-def main(imp_run_id: str, label: str) -> None:
+def main(label: str) -> None:
     from datetime import datetime
     add_run_handler(f"logs/init_copper_constraints_{datetime.now():%Y%m%d_%H%M%S}.log")
 
@@ -108,12 +109,12 @@ def main(imp_run_id: str, label: str) -> None:
 
     _log.info("Loading imputation run from %s", IMP_DIR)
     imp_registry = ImputationRunRegistry(storage_dir=IMP_DIR)
-    agg_result = imp_registry.load(imp_run_id)
+    agg_result = imp_registry.load(IMP_RUN_ID)
     _log.info("  f_agg shape=%s  coverage=%d edges  imp_run_id=%s",
-              agg_result.f_agg.shape, agg_result.coverage.sum(), imp_run_id)
+              agg_result.f_agg.shape, agg_result.coverage.sum(), IMP_RUN_ID)
 
     # ── A2. Cross-stage consistency: imp must reference same acc.id+version
-    imp_sidecar = imp_registry.load_sidecar(imp_run_id)
+    imp_sidecar = imp_registry.load_sidecar(IMP_RUN_ID)
     imp_acc_ref = (imp_sidecar.get("parents", {})
                               .get("inputs", {})
                               .get("acc"))
@@ -192,7 +193,7 @@ def main(imp_run_id: str, label: str) -> None:
             "acc":    acc_entry,
             "params": param_refs,
         },
-        "upstream": {"imp_run_id": imp_run_id},
+        "upstream": {"imp_run_id": IMP_RUN_ID},
     }
     constraint_run = engine.run(
         agg_result   = agg_result,
@@ -220,7 +221,7 @@ def main(imp_run_id: str, label: str) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Build and persist constraint matrix.")
-    parser.add_argument("imp_run_id", help="Imputation run ID from init_collect_aggregate_impute.py")
+    #parser.add_argument("imp_run_id", help="Imputation run ID from init_collect_aggregate_impute.py")
     parser.add_argument("label", help="Label for this constraint run")
     args = parser.parse_args()
-    main(args.imp_run_id, args.label)
+    main(args.label)

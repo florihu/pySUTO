@@ -63,7 +63,7 @@ def _lp_regularize(
     return sigma_new, n_cv, n_abs
 
 try:
-    from .logging import get_logger
+    from ..logging import get_logger
 except ImportError:
     import logging
     def get_logger(name):
@@ -360,7 +360,7 @@ class ConstraintEngine:
             self._registry.register(cr, parents=parents, stage_config=stage_config)
 
         if diag_plot:
-            from .diag import ConstDiagnostic
+            from ..diag import ConstDiagnostic
             odir = os.path.join(self._registry.storage_dir, cr.run_id, "diag")
             ConstDiagnostic(cr, label=cr.run_id).plot(odir=odir)
 

@@ -408,7 +408,7 @@ A `ConstDiagnostic` plot suite (in [diag/](src/pysuto/diag/)) can be triggered v
 
 ### Stage 4 — Solver
 
-**What this stage does.** Loads a persisted `ConstraintRun`, runs a feasibility pre-check on the hard rows, and solves a σ-weighted QP per timestep using Clarabel. Each timestep is warm-started from the previous solution by setting `a_0(t) = F_opt(t-1)` and reusing the KKT factorisation via `solver.update(q=…, b=…)`.
+**What this stage does.** Loads a persisted `ConstraintRun`, runs a feasibility pre-check on the hard rows, and solves a σ-weighted QP per timestep using Clarabel. Each timestep is warm-started from the previous solution by setting `a_0(t) = F_opt(t-1)` and reusing Clarabel's solver state via `solver.update(P=…, q=…, b=…)` (only `A` is time-invariant; `P` is rebuilt each year because σ_c on free rows can vary).
 
 **Inputs:** `ConstraintRun` run ID (loaded from `data/proc/const/`).
 **Outputs per timestep:** `OptimResult` with `F_opt [E]`, `eps_opt [n_free]`, `c_star [M]`, `residuals [M]`, plus solver telemetry (`objective`, `iterations`, `solve_time_s`, `solver_status`, full `convergence` dict, optional `iter_history`).
@@ -417,9 +417,9 @@ A `ConstDiagnostic` plot suite (in [diag/](src/pysuto/diag/)) can be triggered v
 
 ##### The (P*) problem
 
-$$\min_{\mathbf{a},\,\boldsymbol{\varepsilon}} \quad (\mathbf{a} - \mathbf{a}_0)^\top \Sigma_a^{-1} (\mathbf{a} - \mathbf{a}_0) \;+\; \boldsymbol{\varepsilon}^\top \Sigma_c^{-1} \boldsymbol{\varepsilon}$$
+$$\min_{\mathbf{a},\,\boldsymbol{\varepsilon}} \quad (\mathbf{a} - \mathbf{a}_0(t))^\top \Sigma_a^{-1} (\mathbf{a} - \mathbf{a}_0(t)) \;+\; \boldsymbol{\varepsilon}^\top \Sigma_c(t)^{-1} \boldsymbol{\varepsilon}$$
 
-$$\text{s.t.} \quad \mathbf{G}\,\mathbf{a} - \boldsymbol{\varepsilon} = \mathbf{c}, \qquad \mathbf{l} \leq \mathbf{a} \leq \mathbf{u}$$
+$$\text{s.t.} \quad \mathbf{G}\,\mathbf{a} - \boldsymbol{\varepsilon} = \mathbf{c}(t), \qquad \mathbf{l} \leq \mathbf{a} \leq \mathbf{u}$$
 
 | Symbol | Meaning |
 |---|---|
@@ -427,19 +427,20 @@ $$\text{s.t.} \quad \mathbf{G}\,\mathbf{a} - \boldsymbol{\varepsilon} = \mathbf{
 | $\mathbf{a}_0$ | Prior — `f_agg` from Stage 2 at $t=0$; `F_opt(t-1)` for $t > 0$ |
 | $\Sigma_a$ | Diagonal of σ_a² (regularised in Stage 3) |
 | $\boldsymbol{\varepsilon}$ | Slack on free-cone rows; zero by construction on hard rows |
-| $\Sigma_c$ | Diagonal of σ_c² on free rows |
-| $\mathbf{G}, \mathbf{c}$ | Constraint matrix and RHS from Stage 3 |
+| $\Sigma_c(t)$ | Diagonal of σ_c²(t) on free rows; **may vary per timestep** (e.g. `SumConstraintBuilder` per-year row activation via `SIGMA_C_INACTIVE`; `fraction_of_flow` mode) |
+| $\mathbf{G}$ | Constraint matrix from Stage 3 (time-invariant) |
+| $\mathbf{c}(t)$ | Per-timestep RHS from `timestep_data[t]["c"]` |
 | $\mathbf{l}, \mathbf{u}$ | Per-edge bounds from `AccountingStructure` |
 
 ##### Clarabel standard form
 
 Clarabel solves $\min_x \tfrac12 x^\top P x + q^\top x$ s.t. $A x + s = b$, $s \in \mathcal{K}$. Stack the decision variable $x = [\mathbf{a};\, \boldsymbol{\varepsilon}]$. The transform:
 
-$$P = 2\begin{bmatrix} \Sigma_a^{-1} & 0 \\ 0 & \Sigma_c^{-1} \end{bmatrix} \quad \text{(upper triangle only, CSC format)}$$
+$$P(t) = 2\begin{bmatrix} \Sigma_a^{-1} & 0 \\ 0 & \Sigma_c(t)^{-1} \end{bmatrix} \quad \text{(upper triangle only, CSC format)}$$
 
-$$q = \begin{bmatrix} -2\,\Sigma_a^{-1}\mathbf{a}_0 \\ \mathbf{0} \end{bmatrix}, \qquad A = \begin{bmatrix} \mathbf{G}_\text{free} & -\mathbf{I} \\ \mathbf{G}_\text{zero} & \mathbf{0} \\ \mathbf{G}_\text{nonneg} & \mathbf{0} \end{bmatrix}, \qquad b = \begin{bmatrix} \mathbf{c}_\text{free} \\ \mathbf{c}_\text{zero} \\ \mathbf{c}_\text{nonneg} \end{bmatrix}$$
+$$q(t) = \begin{bmatrix} -2\,\Sigma_a^{-1}\mathbf{a}_0(t) \\ \mathbf{0} \end{bmatrix}, \qquad A = \begin{bmatrix} \mathbf{G}_\text{free} & -\mathbf{I} \\ \mathbf{G}_\text{zero} & \mathbf{0} \\ \mathbf{G}_\text{nonneg} & \mathbf{0} \end{bmatrix}, \qquad b(t) = \begin{bmatrix} \mathbf{c}_\text{free}(t) \\ \mathbf{c}_\text{zero}(t) \\ \mathbf{c}_\text{nonneg}(t) \end{bmatrix}$$
 
-Cone order: `ZeroConeT(n_free)` for the soft-equality residual rows (ε is a free decision variable; the row `Gx - ε = c` is itself an exact equality), `ZeroConeT(n_zero)` for hard balance rows, `NonnegativeConeT(n_nonneg)` for bound rows. `P` and `A` are time-invariant; only `q` (because of $\mathbf{a}_0$) and `b` change per timestep.
+Cone order: `ZeroConeT(n_free)` for the soft-equality residual rows (ε is a free decision variable; the row `Gx - ε = c` is itself an exact equality), `ZeroConeT(n_zero)` for hard balance rows, `NonnegativeConeT(n_nonneg)` for bound rows. `A` is time-invariant; `P(t)`, `q(t)`, and `b(t)` change per timestep — `P(t)` because $\Sigma_c$ on free rows may vary (e.g. `SumConstraintBuilder` deactivates rows of other years via `SIGMA_C_INACTIVE`), `q(t)` from the warm-started prior $\mathbf{a}_0(t)$, `b(t)` from $\mathbf{c}(t)$. `solver.update(P=…, q=…, b=…)` refreshes them between timesteps while Clarabel reuses its solver state for $A$.
 
 ##### Σ_a conditioning
 

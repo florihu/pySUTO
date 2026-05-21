@@ -13,7 +13,10 @@ Pipeline
 
 Usage::
 
-    python scripts/init_run_solver.py <const_run_id> [--label LABEL]
+    python scripts/init_run_solver.py [--label LABEL]
+
+The ``const_run_id`` is read from ``config/config.yaml`` →
+``pipeline.solver.const_run_id``.
 """
 
 from __future__ import annotations
@@ -26,6 +29,8 @@ from datetime import datetime
 # ---------------------------------------------------------------------------
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
+# Pipeline wiring (const_run_id) lives in config/config.yaml under
+# `pipeline.solver`.
 
 CONST_DIR  = os.path.join("data", "proc", "const")
 OUTPUT_DIR = os.path.join("data", "proc", "opt")
@@ -38,14 +43,18 @@ FEASIBILITY_CHECK_FIRST_ONLY = True
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+from pysuto.config  import load_config
 from pysuto.solver  import ClarabelSolver
 from pysuto.diag    import SolverDiag
 from pysuto.logging import get_logger, add_run_handler
 
+CONST_RUN_ID = load_config().pipeline.solver.const_run_id
+
 _log = get_logger("init_run_solver")
 
 
-def main(const_run_id: str, label: str = "") -> None:
+def main(label: str = "") -> None:
+    const_run_id = CONST_RUN_ID
     os.makedirs("logs", exist_ok=True)
     add_run_handler(
         f"logs/init_run_solver_{datetime.now():%Y%m%d_%H%M%S}.log"
@@ -93,12 +102,8 @@ def main(const_run_id: str, label: str = "") -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Solve persisted ConstraintRun.")
     parser.add_argument(
-        "const_run_id",
-        help="ConstraintRun id from init_constraints.py (e.g. const_20260518_143120_c1d4e5f6)",
-    )
-    parser.add_argument(
         "--label", default="",
         help="Optional label for the optim run sidecar.",
     )
     args = parser.parse_args()
-    main(args.const_run_id, args.label)
+    main(args.label)

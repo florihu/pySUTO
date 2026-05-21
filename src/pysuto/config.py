@@ -64,15 +64,22 @@ class ImputationPipeline:
 
 @dataclass(frozen=True)
 class ConstraintsPipeline:
-    bindings: List[Binding]
+    imp_run_id: str
+    bindings:   List[Binding]
+
+
+@dataclass(frozen=True)
+class SolverPipeline:
+    const_run_id: str
 
 
 @dataclass(frozen=True)
 class PipelineConfig:
     acc_id:      str
-    feeds:       List[str]
+    feed_ids:    List[str]
     imputation:  ImputationPipeline
     constraints: ConstraintsPipeline
+    solver:      SolverPipeline
 
 
 @dataclass(frozen=True)

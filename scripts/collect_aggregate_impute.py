@@ -274,7 +274,7 @@ def main(label: str) -> None:
     logger = get_logger("collect_aggregate_impute")
     logger.info("=== collect_aggregate_impute START ===")
 
-    feed_keys = list(cfg.pipeline.feeds)
+    feed_keys = list(cfg.pipeline.feed_ids)
 
     # ── 0  Initialise input registries (scan-and-bump) ────────────────────────
     inputs = InputRegistries.initialize(root=_INPUT_ROOT)

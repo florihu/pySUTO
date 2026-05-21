@@ -425,7 +425,7 @@ class ConstDiagnostic:
         we exclude them so the histogram shows only this year's active
         rows.
         """
-        from .constraints import SIGMA_C_INACTIVE
+        from ..constraints import SIGMA_C_INACTIVE
 
         cr        = self.cr
         soft_mask = self._soft_mask()
