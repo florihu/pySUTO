@@ -177,7 +177,8 @@ def main(label: str) -> None:
         _log.info("Registering %s ← params/%s v%d",
                   Builder.__name__, binding.params_id,
                   inputs.params.entry(binding.params_id)["version"])
-        engine.register(Builder.from_csv(str(csv_path), acc_struct=acc))
+        kwargs = {"kind": binding.params_id} if Builder is RatioBoundBuilder else {}
+        engine.register(Builder.from_csv(str(csv_path), acc_struct=acc, **kwargs))
         if binding.params_id not in seen_param_ids:
             param_refs.append(inputs.params.entry(binding.params_id))
             seen_param_ids.add(binding.params_id)

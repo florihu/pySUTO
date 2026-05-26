@@ -26,6 +26,12 @@ _TYPE_COLORS = {
     "flow_bound":   _C["green"],    # Type 5 (hard flow bound — synthetic, from u/l)
 }
 
+# Display labels for the ratio_bound sub-kinds (sourced from params_id upstream).
+# stock_bounds is rendered as "share" in figure titles/legends.
+_RATIO_KIND_LABELS = {"conc": "conc", "eff": "eff", "stock_bounds": "share"}
+_RATIO_KINDS_ORDER = ("conc", "eff", "stock_bounds")
+_BOUND_DIRS_ORDER  = ("upper", "lower")
+
 # Hue palette for SolverDiag.compare(). Order matters: first run gets blue.
 _HUE_PALETTE = ["blue", "orange", "green", "purple", "red", "navy"]
 
@@ -233,6 +239,16 @@ class SolverDiag:
             "free":         np.where(ct == "free")[0],
             "nonneg":       np.where(ct == "nonneg")[0],
         }
+        groups: dict[tuple[str, str], np.ndarray] = {}
+        if "ratio_kind" in rm.columns and "bound_dir" in rm.columns:
+            rk = rm["ratio_kind"].astype(str).to_numpy()
+            bd = rm["bound_dir"].astype(str).to_numpy()
+            is_rb = (tp == "ratio_bound")
+            for kind in _RATIO_KINDS_ORDER:
+                for direction in _BOUND_DIRS_ORDER:
+                    mask = is_rb & (rk == kind) & (bd == direction)
+                    groups[(kind, direction)] = np.where(mask)[0]
+        info["ratio_bound_groups"] = groups
         return info
 
     def _t_worst(self) -> str:
@@ -393,6 +409,24 @@ class SolverDiag:
         paths.append(p)
         if not show:
             import matplotlib.pyplot as plt; plt.close(fig)
+
+        # SD-T-09a/b/c/d — |a*−a₀(t)| boxplots by edge metadata
+        for fig_fn, sd_id, fname in [
+            (self._fig_prior_departure_from_sector,
+                "SD-T-09a", "sd_t_09a_prior_dep_from_sector.png"),
+            (self._fig_prior_departure_to_sector,
+                "SD-T-09b", "sd_t_09b_prior_dep_to_sector.png"),
+            (self._fig_prior_departure_from_region,
+                "SD-T-09c", "sd_t_09c_prior_dep_from_region.png"),
+            (self._fig_prior_departure_to_region,
+                "SD-T-09d", "sd_t_09d_prior_dep_to_region.png"),
+        ]:
+            fig = fig_fn()
+            p = _savefig(fig, os.path.join(odir, fname), dpi=dpi)
+            print(f"   {sd_id}  → {p}  ✓")
+            paths.append(p)
+            if not show:
+                import matplotlib.pyplot as plt; plt.close(fig)
 
         prov_path = self._write_provenance(odir)
         if prov_path:
@@ -774,11 +808,18 @@ class SolverDiag:
         return float(np.mean(np.abs(eps) > 3.0 * sig))
 
     def _fig_hard_active(self, hue=None):
-        """SD-R-04: active Type-4 ratio bounds and Type-5 flow bounds."""
+        """SD-R-04: active Type-4 ratio bounds, split by (ratio_kind × bound_dir).
+
+        3×2 grid: rows = conc/eff/share, cols = upper/lower. Each cell shows
+        the fraction of rows of that (kind, dir) bucket that are active
+        (slack within solver tolerance) over time.
+        """
         import matplotlib.pyplot as plt
 
-        fig, axes = plt.subplots(2, 1, figsize=(13, 7), sharex=True)
-        fig.suptitle(self._title("Hard-inequality activity (SD-R-04)"),
+        n_rows = len(_RATIO_KINDS_ORDER)
+        n_cols = len(_BOUND_DIRS_ORDER)
+        fig, axes = plt.subplots(n_rows, n_cols, figsize=(13, 8.5), sharex=True)
+        fig.suptitle(self._title("Hard ratio-bound activity (SD-R-04)"),
                      fontsize=13, fontweight="bold")
 
         runs = hue if hue else [(self.label or "run", self, _C["orange"])]
@@ -786,46 +827,42 @@ class SolverDiag:
 
         for lbl, dg, color in runs:
             x = dg._ts_index()
-            rb_idx = dg._row_info["ratio_bound"]
-            n_rb = rb_idx.size
-            E = len(dg._const_run.u)
+            groups = dg._row_info.get("ratio_bound_groups", {})
+            for r, kind in enumerate(_RATIO_KINDS_ORDER):
+                for c, direction in enumerate(_BOUND_DIRS_ORDER):
+                    ax = axes[r, c]
+                    idx = groups.get((kind, direction), np.array([], dtype=int))
+                    n = idx.size
+                    if n:
+                        frac = np.array([
+                            np.sum(np.abs(-dg._results[t].residuals[idx]) <= tol) / n
+                            for t in dg._timesteps
+                        ])
+                    else:
+                        frac = np.zeros(len(dg._timesteps))
+                    ax.plot(x, frac, color=color, lw=1.6, marker="o", ms=3.5, label=lbl)
 
-            # Panel A: fraction of active Type-4 ratio-bound rows (0–1)
-            if n_rb:
-                frac_rb = np.array([
-                    np.sum(np.abs(-dg._results[t].residuals[rb_idx]) <= tol) / n_rb
-                    for t in dg._timesteps
-                ])
-            else:
-                frac_rb = np.zeros(len(dg._timesteps))
-            axes[0].plot(x, frac_rb, color=color, lw=1.8, marker="o", ms=4, label=lbl)
+        for r, kind in enumerate(_RATIO_KINDS_ORDER):
+            for c, direction in enumerate(_BOUND_DIRS_ORDER):
+                ax = axes[r, c]
+                n = self._row_info.get("ratio_bound_groups", {}).get(
+                    (kind, direction), np.array([], dtype=int)).size
+                label = _RATIO_KIND_LABELS.get(kind, kind)
+                ax.set_title(f"{label} · {direction}  (n={n})",
+                             loc="left", fontsize=9)
+                ax.set_ylim(-0.01, 1.05)
+                if c == 0:
+                    ax.set_ylabel("active fraction")
+                _apply_modern_style(ax)
 
-            # Panel B: fraction of edges at lower / upper flow bound (0–1)
-            frac_lower = np.zeros(len(dg._timesteps))
-            frac_upper = np.zeros(len(dg._timesteps))
-            for i, t in enumerate(dg._timesteps):
-                s_u, s_l = dg._flow_bound_slack(t)
-                frac_upper[i] = np.sum(np.abs(s_u) <= tol) / max(E, 1)
-                frac_lower[i] = np.sum(np.abs(s_l) <= tol) / max(E, 1)
-            if hue is None:
-                axes[1].plot(x, frac_upper, color=_C["red"],   lw=1.8, marker="^", ms=4, label="at upper")
-                axes[1].plot(x, frac_lower, color=_C["green"], lw=1.8, marker="v", ms=4, label="at lower")
-            else:
-                axes[1].plot(x, frac_upper + frac_lower, color=color, lw=1.8, marker="o", ms=4, label=f"{lbl}: total")
+        for c in range(n_cols):
+            axes[-1, c].set_xticks(self._ts_index())
+            axes[-1, c].set_xticklabels(self._ts_labels_for_xticks(),
+                                       rotation=45, ha="right", fontsize=8)
+            axes[-1, c].set_xlabel("timestep")
 
-        axes[0].set_ylabel("active fraction")
-        axes[0].set_ylim(-0.01, max(0.2, axes[0].get_ylim()[1]))
-        axes[0].set_title("Type-4 ratio-bound rows active (fraction of total)", loc="left", fontsize=10)
-        axes[1].set_ylabel("active fraction")
-        axes[1].set_title("Type-5 flow bounds active (fraction of all edges)", loc="left", fontsize=10)
-
-        for ax in axes:
-            _apply_modern_style(ax)
-        axes[1].set_xticks(self._ts_index())
-        axes[1].set_xticklabels(self._ts_labels_for_xticks(), rotation=45, ha="right", fontsize=8)
-        axes[1].set_xlabel("timestep")
-        axes[0].legend(fontsize=8, frameon=False, loc="upper right")
-        axes[1].legend(fontsize=8, frameon=False, loc="upper right")
+        if hue is not None:
+            axes[0, 0].legend(fontsize=8, frameon=False, loc="upper right")
         fig.tight_layout(rect=[0, 0, 1, 0.95])
         return fig
 
@@ -1015,6 +1052,66 @@ class SolverDiag:
                 if i % 2:
                     lab.set_visible(False)
 
+    @staticmethod
+    def _hist_logabs_signed(ax, data: np.ndarray, *, bins: int = 40,
+                            ref_lines_abs: tuple = (),
+                            pos_color: str = None, neg_color: str = None) -> None:
+        """Histogram of log10|x| with positive/negative values rendered in
+        different colours on the same axis — replaces symlog for signed data.
+
+        ``ref_lines_abs`` are positive thresholds (e.g. (1, 3) for z-scores);
+        each is drawn as a vertical line at log10(threshold).
+        """
+        pos_color = pos_color or _C["blue"]
+        neg_color = neg_color or _C["red"]
+        finite = data[np.isfinite(data)]
+        if finite.size == 0:
+            ax.text(0.5, 0.5, "n=0", transform=ax.transAxes,
+                    ha="center", va="center", fontsize=8, color=_C["grey"])
+            _apply_modern_style(ax)
+            return
+
+        pos = finite[finite > 0]
+        neg = -finite[finite < 0]  # magnitudes only
+        nonzero_abs = np.concatenate([pos, neg])
+        nonzero_abs = nonzero_abs[nonzero_abs > 0]
+        if nonzero_abs.size == 0:
+            ax.text(0.5, 0.5, "all zero", transform=ax.transAxes,
+                    ha="center", va="center", fontsize=8, color=_C["grey"])
+            _apply_modern_style(ax)
+            return
+
+        lo = float(np.log10(nonzero_abs.min()))
+        hi = float(np.log10(nonzero_abs.max()))
+        if hi <= lo:
+            hi = lo + 1.0
+        edges = np.linspace(lo, hi, bins + 1)
+
+        if pos.size:
+            ax.hist(np.log10(pos), bins=edges, color=pos_color, alpha=0.45,
+                    edgecolor=pos_color, linewidth=0.6, histtype="stepfilled",
+                    label=f"x>0 (n={pos.size})")
+        if neg.size:
+            ax.hist(np.log10(neg), bins=edges, color=neg_color, alpha=0.45,
+                    edgecolor=neg_color, linewidth=0.6, histtype="stepfilled",
+                    label=f"x<0 (n={neg.size})")
+
+        for r in ref_lines_abs:
+            if r > 0:
+                ax.axvline(np.log10(r), color=_C["grey"], lw=0.8, ls="--", alpha=0.7)
+
+        _apply_modern_style(ax)
+        n_zero = int(np.sum(finite == 0))
+        footer = (f"n={finite.size}  +={pos.size}  −={neg.size}"
+                  + (f"  z={n_zero}" if n_zero else "")
+                  + f"  max|x|={np.max(np.abs(finite)):.2e}")
+        ax.text(0.99, 0.97, footer, transform=ax.transAxes,
+                ha="right", va="top", fontsize=7, color=_C["grey"])
+        if pos.size or neg.size:
+            ax.legend(fontsize=6, frameon=False, loc="upper left")
+        ax.tick_params(axis="x", labelsize=7)
+        ax.set_xlabel("log₁₀ |x|", fontsize=8)
+
     def _fig_residual_digest(self, timesteps):
         """SD-T-01: 5 rows × 3 cols of constraint-residual histograms."""
         ts_triple = self._resolve_timesteps(timesteps)
@@ -1051,8 +1148,11 @@ class SolverDiag:
         return fig
 
     def _fig_zscore_soft(self, timesteps):
-        """SD-T-02: 2 rows × 3 cols of |ε/σ_c| z-scores for soft constraints."""
-        from matplotlib.ticker import MaxNLocator
+        """SD-T-02: 2 rows × 3 cols of ε/σ_c z-scores for soft constraints.
+
+        log₁₀|z| with sign as colour overlay (pos = blue, neg = red). Vertical
+        guides at log₁₀(1) and log₁₀(3) mark the ±1σ / ±3σ thresholds.
+        """
         ts_triple = self._resolve_timesteps(timesteps)
         fig, axes = self._make_xsection(2, "Soft-slack z-scores (SD-T-02)")
 
@@ -1066,12 +1166,9 @@ class SolverDiag:
                 sig = self._sigma_c_for_type(t, key)
                 with np.errstate(divide="ignore", invalid="ignore"):
                     z = np.where(sig > 0, eps / sig, np.nan)
-                self._hist_with_footer(
-                    ax, z[np.isfinite(z)], _TYPE_COLORS[key],
-                    bins=40, ref_lines=(-3, -1, 1, 3),
+                self._hist_logabs_signed(
+                    ax, z[np.isfinite(z)], bins=40, ref_lines_abs=(1, 3),
                 )
-                ax.set_yscale("symlog", linthresh=0.5)
-                ax.xaxis.set_major_locator(MaxNLocator(nbins=5))
                 if col == 0:
                     self._row_label(ax, rlabel)
                 if row == 0:
@@ -1081,8 +1178,11 @@ class SolverDiag:
         return fig
 
     def _fig_solution_vs_prior(self, timesteps):
-        """SD-T-03: (a*-a0)/sigma_a, |a*-a0|/|a0|, sigma_opt/sigma_a (cond.)."""
-        from matplotlib.ticker import MaxNLocator
+        """SD-T-03: (a*-a0)/σ_a, (a*-a0)/|a0|, σ_opt/σ_a (cond.).
+
+        Signed rows (z-score, relative change) use log₁₀|x| with sign overlay
+        (pos = blue, neg = red). σ_opt/σ_a is unsigned positive, plotted log₁₀.
+        """
         ts_triple = self._resolve_timesteps(timesteps)
         n_rows = 3 if self._sigma_opt else 2
         fig, axes = self._make_xsection(n_rows, "Solution vs prior (SD-T-03)")
@@ -1094,26 +1194,20 @@ class SolverDiag:
 
         for col, t in enumerate(ts_triple):
             F = self._results[t].F_opt
-            # Row 1: z-score
+            # Row 1: z-score (signed) → log10|z| with sign overlay
             z = (F - a0) / sa_safe
-            self._hist_with_footer(axes[0, col], z, _C["blue"],
-                                   bins=40, ref_lines=(-3, -1, 1, 3))
-            axes[0, col].set_yscale("symlog", linthresh=0.5)
-            axes[0, col].xaxis.set_major_locator(MaxNLocator(nbins=5))
-            # Row 2: relative change
+            self._hist_logabs_signed(axes[0, col], z, bins=40,
+                                      ref_lines_abs=(1, 3))
+            # Row 2: relative change (signed) → log10|rel| with sign overlay
             rel = (F - a0) / a0_safe
-            self._hist_with_footer(axes[1, col], rel, _C["orange"],
-                                   bins=40, symlog=True)
-            axes[1, col].set_yscale("symlog", linthresh=0.5)
-            axes[1, col].xaxis.set_major_locator(MaxNLocator(nbins=5))
-            # Row 3: sigma_opt / sigma_a (optional)
+            self._hist_logabs_signed(axes[1, col], rel, bins=40,
+                                      ref_lines_abs=(1.0,))
+            # Row 3: sigma_opt / sigma_a (positive, unsigned)
             if self._sigma_opt is not None and t in self._sigma_opt:
                 so = np.asarray(self._sigma_opt[t], dtype=float)
                 ratio = np.where(sa > 0, so / sa_safe, np.nan)
-                self._hist_with_footer(axes[2, col], ratio, _C["green"],
-                                       bins=40, ref_lines=(1.0,))
-                axes[2, col].set_yscale("symlog", linthresh=0.5)
-                axes[2, col].xaxis.set_major_locator(MaxNLocator(nbins=5))
+                self._hist_logabs_signed(axes[2, col], ratio, bins=40,
+                                          ref_lines_abs=(1.0,))
 
             if col == 0:
                 self._row_label(axes[0, col], "(a* − a₀)/σ_a")
@@ -1127,28 +1221,25 @@ class SolverDiag:
         return fig
 
     def _fig_binding_rate(self, timesteps):
-        """SD-T-04: 2 rows × 3 cols of binding-rate distributions."""
+        """SD-T-04: 2 rows × 3 cols of binding-rate distributions.
+
+        log₁₀|expression| with sign overlay (neg = slack/good, pos = violation).
+        """
         ts_triple = self._resolve_timesteps(timesteps)
         fig, axes = self._make_xsection(2, "Per-type binding rate (SD-T-04)")
 
         for col, t in enumerate(ts_triple):
             # Row 1: Type-4 ratio-bound expressions (Gx - c sign convention:
-            # we want expression value where negative ⇒ slack)
+            # negative ⇒ slack; positive ⇒ violation)
             idx = self._row_info["ratio_bound"]
             v_rb = self._results[t].residuals[idx] if idx.size else np.zeros(0)
-            self._hist_with_footer(axes[0, col], v_rb, _TYPE_COLORS["ratio_bound"],
-                                   bins=40, symlog=True, ref_lines=(0.0,))
-            axes[0, col].axvspan(min(0, axes[0, col].get_xlim()[0]) - 1, 0,
-                                 color=_C["grey"], alpha=0.08)
+            self._hist_logabs_signed(axes[0, col], v_rb, bins=40)
 
             # Row 2: Type-5 flow-bound expressions (F - u and l - F).
             # Negative = slack (good); positive = violation.
             s_u, s_l = self._flow_bound_slack(t)
-            v_fb = np.concatenate([-s_u, -s_l])  # = F - u and -(F - l) flipped — see plan
-            self._hist_with_footer(axes[1, col], v_fb, _TYPE_COLORS["flow_bound"],
-                                   bins=40, symlog=True, ref_lines=(0.0,))
-            axes[1, col].axvspan(min(0, axes[1, col].get_xlim()[0]) - 1, 0,
-                                 color=_C["grey"], alpha=0.08)
+            v_fb = np.concatenate([-s_u, -s_l])
+            self._hist_logabs_signed(axes[1, col], v_fb, bins=40)
 
             if col == 0:
                 self._row_label(axes[0, col], "Type-4: a_i − r·a_j")
@@ -1211,14 +1302,12 @@ class SolverDiag:
                 self._row_label(ax, "log₁₀ |a*|")
             ax.set_title(self._col_title(t, ts_triple), fontsize=10, fontweight="bold")
 
-            # ---- Row 1: symlog a* (signed) ----
+            # ---- Row 1: log₁₀|a*| with sign overlay (pos = blue, neg = red) ----
             ax = axes[1, col]
             F_signed = self._results[t].F_opt
-            self._hist_with_footer(ax, F_signed, _C["purple"], bins=40, symlog=True)
-            ax.text(0.99, 0.02, "symlog scale", transform=ax.transAxes,
-                    ha="right", va="bottom", fontsize=7, color=_C["grey"])
+            self._hist_logabs_signed(ax, F_signed, bins=40)
             if col == 0:
-                self._row_label(ax, "a* (symlog)")
+                self._row_label(ax, "a* (log₁₀|x| signed)")
 
             # ---- Row 2: log10|a₀(t)| ----
             ax = axes[2, col]
@@ -1236,8 +1325,11 @@ class SolverDiag:
         return fig
 
     def _fig_cstar_vs_c(self, timesteps):
-        """SD-T-06: c*-c and (c*-c)/(|c|+δ) histograms on soft rows."""
-        from matplotlib.ticker import MaxNLocator
+        """SD-T-06: c*-c and (c*-c)/(|c|+δ) histograms on soft rows.
+
+        log₁₀|x| with sign overlay (pos = blue, neg = red). For the relative
+        row, log₁₀(1) is marked to show "100% of c" departure.
+        """
         ts_triple = self._resolve_timesteps(timesteps)
         fig, axes = self._make_xsection(2, "c* vs c on soft rows (SD-T-06)")
 
@@ -1254,14 +1346,9 @@ class SolverDiag:
                 eps     = np.zeros(0)
                 rel_eps = np.zeros(0)
 
-            self._hist_with_footer(axes[0, col], eps, _C["blue"],
-                                   bins=40, symlog=True, ref_lines=(0.0,))
-            axes[0, col].set_yscale("symlog", linthresh=0.5)
-            axes[0, col].xaxis.set_major_locator(MaxNLocator(nbins=5))
-            self._hist_with_footer(axes[1, col], rel_eps, _C["purple"],
-                                   bins=40, ref_lines=(-1, 0, 1))
-            axes[1, col].set_yscale("symlog", linthresh=0.5)
-            axes[1, col].xaxis.set_major_locator(MaxNLocator(nbins=5))
+            self._hist_logabs_signed(axes[0, col], eps, bins=40)
+            self._hist_logabs_signed(axes[1, col], rel_eps, bins=40,
+                                      ref_lines_abs=(1.0,))
 
             if col == 0:
                 self._row_label(axes[0, col], "c* − c")
@@ -1273,15 +1360,18 @@ class SolverDiag:
         return fig
 
     def _fig_rocket(self, timesteps):
-        """SD-T-07: log–log scatter 'rocket' plots, coloured by constraint violation.
+        """SD-T-07: log–log scatter 'rocket' plots — warm-start prior throughout.
 
-        Row 1: log10|c| (x) vs log10|c*| (y) on sum_eq rows only.
-               Colour = |ε|/σ_c (z-score); viridis, dark = badly violated.
-        Row 2: log10|ε₀| (x) vs log10|ε_opt| (y) on soft (free-cone) rows.
-               Colour = timestep (viridis gradient). Shows how optimisation
-               reduces the prior soft-row residual.
-        Row 3: log10|a₀(t)| (x) vs log10|a*| (y) over all edges.
-               Colour = |a*−a₀|/σ_a; viridis, dark = large prior departure.
+        All three rows compare the warm-start prior `a*(t−1)` (propagated through
+        G where needed) against the current-timestep solution.
+
+        Row 1: log10|G·a*(t−1)| (x) vs log10|c*| (y) on sum_eq rows.
+               Colour = |ε|/σ_c (z-score); viridis LogNorm.
+        Row 2: log10|ε₀| (x) vs log10|ε_opt| (y) on soft (free-cone) rows,
+               where ε₀ = G_free · a*(t−1) − c_free(t).
+               Colour = |ε_opt|/σ_c (z-score); viridis LogNorm.
+        Row 3: log10|a*(t−1)| (x) vs log10|a*(t)| (y) over all edges.
+               Colour = |a*−a₀|/σ_a; viridis LogNorm.
         Diagonal y=x = perfect agreement.
         """
         import matplotlib.pyplot as plt
@@ -1309,13 +1399,14 @@ class SolverDiag:
             v = v[v > 0]
             return np.log10(v) if v.size else np.array([0.0])
 
-        # Shared limits across columns
-        if se_idx.size:
-            cs_all = np.concatenate(
-                [self._const_run.timestep_data[t]["c"][se_idx] for t in ts_triple])
+        # Row 1 x-axis is c_prior(t) = G_sum_eq · a*(t-1); shared limits across cols
+        G_se = self._const_run.G[se_idx, :] if se_idx.size else None
+        if se_idx.size and G_se is not None:
+            cprior_all = np.concatenate(
+                [np.asarray(G_se @ prior_for[t]) for t in ts_triple])
             cstars_all = np.concatenate(
                 [self._results[t].c_star[se_idx] for t in ts_triple])
-            all_r1 = np.concatenate([_logabs(cs_all), _logabs(cstars_all)])
+            all_r1 = np.concatenate([_logabs(cprior_all), _logabs(cstars_all)])
             r1_lo = float(all_r1.min()) if all_r1.size else -1.0
             r1_hi = float(all_r1.max()) if all_r1.size else 1.0
         else:
@@ -1327,7 +1418,7 @@ class SolverDiag:
         r2_lo = float(all_r2.min()) if all_r2.size else -1.0
         r2_hi = float(all_r2.max()) if all_r2.size else 1.0
 
-        # Colour normalisation: shared across columns so colour is comparable
+        # Colour normalisation for row 1: |ε|/σ_c on sum_eq, shared across cols
         if se_idx.size:
             z_all = np.concatenate([
                 np.abs(self._eps_for_type(t, "sum_eq")) /
@@ -1349,17 +1440,24 @@ class SolverDiag:
 
         # ε₀ vs ε_opt limits: free-cone rows only
         free_idx = self._row_info["free"]
-        cmap_ts = plt.get_cmap("viridis")
-        T_all = len(self._timesteps)
-        ts_col_pos = {t: self._timesteps.index(t) for t in ts_triple}
 
         def _eps0_for_t(t):
-            """Pre-optimisation soft-row residual: G_free @ a0(t) - c_free(t)."""
+            """Pre-optimisation soft-row residual: G_free @ a*(t-1) - c_free(t)."""
             if not free_idx.size:
                 return np.zeros(0)
             G_free = self._const_run.G[free_idx, :]
             c_free = np.asarray(self._const_run.timestep_data[t]["c"])[free_idx]
             return G_free @ prior_for[t] - c_free
+
+        def _z_free_for_t(t):
+            """|ε_opt|/σ_c on free-cone rows (LogNorm colour for row 2)."""
+            if not free_idx.size:
+                return np.zeros(0)
+            eps_opt = np.asarray(self._results[t].eps_opt, dtype=float)
+            sig_all = np.asarray(self._const_run.timestep_data[t]["sigma_c"], dtype=float)
+            sig_free = sig_all[free_idx][:len(eps_opt)]
+            sig_safe = np.where(sig_free > 0, sig_free, np.inf)
+            return np.abs(eps_opt) / sig_safe
 
         eps0_all_vals = np.concatenate(
             [np.abs(_eps0_for_t(t)) for t in ts_triple]
@@ -1378,18 +1476,24 @@ class SolverDiag:
         else:
             r2_eps_lo, r2_eps_hi = -9.0, 0.0
 
+        # Colour normalisation for row 2: |ε_opt|/σ_c on free-cone rows
+        z_free_all = np.concatenate([_z_free_for_t(t) for t in ts_triple])
+        z_free_all = z_free_all[np.isfinite(z_free_all) & (z_free_all > 0)]
+        z_free_norm = (LogNorm(vmin=max(z_free_all.min(), 1e-6), vmax=z_free_all.max())
+                       if z_free_all.size else Normalize(0, 1))
+
         for col, t in enumerate(ts_triple):
-            # ---- Row 1: c vs c* on sum_eq rows, coloured by |ε|/σ_c ----
+            # ---- Row 1: G·a*(t-1) vs c* on sum_eq rows, coloured by |ε|/σ_c ----
             ax = axes[0, col]
-            if se_idx.size:
-                c     = np.abs(np.asarray(self._const_run.timestep_data[t]["c"][se_idx], dtype=float))
-                cstar = np.abs(self._results[t].c_star[se_idx])
-                eps   = self._eps_for_type(t, "sum_eq")
-                sig   = self._sigma_c_for_type(t, "sum_eq")
-                z     = np.abs(eps) / np.where(sig > 0, sig, np.inf)
-                m     = (c > 0) & (cstar > 0) & np.isfinite(z)
+            if se_idx.size and G_se is not None:
+                c_prior = np.abs(np.asarray(G_se @ prior_for[t], dtype=float))
+                cstar   = np.abs(self._results[t].c_star[se_idx])
+                eps     = self._eps_for_type(t, "sum_eq")
+                sig     = self._sigma_c_for_type(t, "sum_eq")
+                z       = np.abs(eps) / np.where(sig > 0, sig, np.inf)
+                m       = (c_prior > 0) & (cstar > 0) & np.isfinite(z)
                 if m.any():
-                    sc = ax.scatter(np.log10(c[m]), np.log10(cstar[m]),
+                    sc = ax.scatter(np.log10(c_prior[m]), np.log10(cstar[m]),
                                     c=z[m], cmap=cmap, norm=znorm,
                                     s=10, alpha=0.7, edgecolors="none")
                     if col == 2:  # colorbar on last column
@@ -1398,32 +1502,35 @@ class SolverDiag:
             lo, hi = r1_lo, r1_hi
             ax.plot([lo, hi], [lo, hi], color=_C["grey"], lw=0.9, ls="--")
             ax.set_xlim(lo, hi); ax.set_ylim(lo, hi)
-            ax.set_xlabel("log₁₀ |c|  (log₁₀-transformed)", fontsize=8)
+            ax.set_xlabel("log₁₀ |G·a*(t−1)|", fontsize=8)
             _apply_modern_style(ax)
             if col == 0:
                 self._row_label(ax, "log₁₀ |c*|")
             ax.set_title(self._col_title(t, ts_triple),
                          fontsize=10, fontweight="bold")
 
-            # ---- Row 2: ε₀ vs ε_opt on free-cone rows, coloured by timestep ----
+            # ---- Row 2: ε₀ vs ε_opt on free-cone rows, coloured by |ε_opt|/σ_c ----
             ax = axes[1, col]
             eps0_t   = np.abs(_eps0_for_t(t))
             epsopt_t = np.abs(self._results[t].eps_opt)
+            zfree_t  = _z_free_for_t(t)
             # Match lengths (eps_opt is already free-cone order; eps0 built from free_idx)
-            n_min = min(len(eps0_t), len(epsopt_t))
+            n_min = min(len(eps0_t), len(epsopt_t), len(zfree_t))
             eps0_t   = eps0_t[:n_min]
             epsopt_t = epsopt_t[:n_min]
-            m2 = (eps0_t > 0) & (epsopt_t > 0)
+            zfree_t  = zfree_t[:n_min]
+            m2 = (eps0_t > 0) & (epsopt_t > 0) & np.isfinite(zfree_t)
             if m2.any():
-                ts_color = cmap_ts(ts_col_pos[t] / max(T_all - 1, 1))
-                ax.scatter(np.log10(eps0_t[m2]), np.log10(epsopt_t[m2]),
-                           color=ts_color, s=8, alpha=0.5, edgecolors="none")
+                sc3 = ax.scatter(np.log10(eps0_t[m2]), np.log10(epsopt_t[m2]),
+                                 c=zfree_t[m2], cmap=cmap, norm=z_free_norm,
+                                 s=8, alpha=0.6, edgecolors="none")
+                if col == 2:
+                    fig.colorbar(sc3, ax=ax, pad=0.02, fraction=0.05,
+                                 label="|ε_opt|/σ_c")
             lo2, hi2 = r2_eps_lo, r2_eps_hi
             ax.plot([lo2, hi2], [lo2, hi2], color=_C["grey"], lw=0.9, ls="--")
             ax.set_xlim(lo2, hi2); ax.set_ylim(lo2, hi2)
-            ax.set_xlabel("log₁₀ |ε₀|  (log₁₀-transformed)", fontsize=8)
-            ax.text(0.99, 0.02, "log₁₀ scale", transform=ax.transAxes,
-                    ha="right", va="bottom", fontsize=7, color=_C["grey"])
+            ax.set_xlabel("log₁₀ |ε₀ = G·a*(t−1) − c|", fontsize=8)
             _apply_modern_style(ax)
             if col == 0:
                 self._row_label(ax, "log₁₀ |ε_opt|")
@@ -1453,47 +1560,26 @@ class SolverDiag:
         return fig
 
     def _fig_time_hued(self, hue=None):
-        """SD-R-07: histograms of |a*|, c*(soft), and |ε_opt| hued by timestep.
+        """SD-R-07: histograms of c*(soft) and |ε_opt| hued by timestep.
 
-        Three stacked panels. Each timestep is rendered as a step-histogram
-        with viridis-coloured outline so the temporal gradient is visible.
+        Two stacked panels — the |a*| distribution panel was removed because
+        SD-T-05 row 0 already covers it at the three-timestep cross-section
+        granularity. Each timestep is rendered as a step-histogram with
+        viridis-coloured outline so the temporal gradient is visible.
         Not hueable across runs.
         """
         import matplotlib.pyplot as plt
 
         del hue  # Not used: per-timestep hue is built-in.
-        fig, axes = plt.subplots(3, 1, figsize=(13, 11))
-        fig.suptitle(self._title("Time-hued |a*|, c*, and |ε_opt| (SD-R-07)"),
+        fig, axes = plt.subplots(2, 1, figsize=(13, 8))
+        fig.suptitle(self._title("Time-hued c* and |ε_opt| (SD-R-07)"),
                      fontsize=13, fontweight="bold")
 
         cmap = plt.get_cmap("viridis")
         T = len(self._timesteps)
 
-        # --- Panel A: log10|a*| over all edges, one step-hist per timestep
+        # --- Panel A: c* on soft rows
         ax = axes[0]
-        F_all = np.concatenate([np.abs(self._results[t].F_opt) for t in self._timesteps])
-        F_all = F_all[F_all > 0]
-        if F_all.size:
-            lo, hi = np.log10(F_all.min()), np.log10(F_all.max())
-        else:
-            lo, hi = -1.0, 1.0
-        bin_edges = np.linspace(lo, hi, 41)
-        for i, t in enumerate(self._timesteps):
-            F = np.abs(self._results[t].F_opt)
-            F = F[F > 0]
-            if F.size == 0:
-                continue
-            color = cmap(i / max(T - 1, 1))
-            ax.hist(np.log10(F), bins=bin_edges, histtype="step",
-                    color=color, lw=1.1, alpha=0.85)
-        ax.set_xlabel("log₁₀ |a*|")
-        ax.set_ylabel("count")
-        ax.set_title("Per-timestep |a*| distribution (hue = time)",
-                     loc="left", fontsize=10)
-        _apply_modern_style(ax)
-
-        # --- Panel B: c* on soft rows
-        ax = axes[1]
         soft_idx = np.concatenate([self._row_info["sum_eq"],
                                    self._row_info["ratio_eq"]])
         if soft_idx.size:
@@ -1524,8 +1610,8 @@ class SolverDiag:
                      loc="left", fontsize=10)
         _apply_modern_style(ax)
 
-        # --- Panel C: log10|ε_opt| over all soft-row slacks
-        ax = axes[2]
+        # --- Panel B: log10|ε_opt| over all soft-row slacks
+        ax = axes[1]
         eps_all = np.concatenate(
             [np.abs(self._results[t].eps_opt) for t in self._timesteps]
         )
@@ -1593,7 +1679,14 @@ class SolverDiag:
         ax_z.set_yticklabels(row_labels, fontsize=8)
 
     def _fig_eps_heatmap_ratio(self):
-        """SD-T-08a: ratio_eq ε heatmap — top-50 by mean|ε| across all timesteps."""
+        """SD-T-08a: ratio_eq realized-ratio heatmap — top-50 by log10-range across t.
+
+        Each row shows ``log10(realized_ratio)`` where realized_ratio =
+        ``a*[edge_i] / a*[edge_j]`` per ratio_eq constraint row (the G row reads
+        ``1·a[edge_i] − r·a[edge_j] = 0`` so this is the realized analogue of r).
+        Row selection: top-50 by ``log10(max) − log10(min)`` of realized_ratio
+        across all timesteps (same variability metric as SD-R-06).
+        """
         import matplotlib.pyplot as plt
 
         K = 50
@@ -1602,51 +1695,82 @@ class SolverDiag:
         rm = self._const_run.row_meta
         ri = self._row_info
 
-        re_cids_all = rm.iloc[ri["ratio_eq"]]["constraint_id"].to_numpy()
-        re_mean: dict = {}
-        for cid in np.unique(re_cids_all):
-            vals = []
-            for t in self._timesteps:
-                eps_t  = self._eps_for_type(t, "ratio_eq")
-                cids_t = rm.iloc[ri["ratio_eq"]]["constraint_id"].to_numpy()
-                vals.append(float(np.mean(np.abs(eps_t[cids_t == cid]))))
-            re_mean[cid] = float(np.mean(vals))
-        re_sorted = sorted(re_mean, key=re_mean.get, reverse=True)[:K]
+        re_idx = ri["ratio_eq"]
+        if re_idx.size == 0:
+            fig = plt.figure(figsize=(8, 3))
+            fig.suptitle(self._title("ratio_eq realized-ratio heatmap (SD-T-08a) — no rows"),
+                         fontsize=12)
+            return fig
 
-        n_re = len(re_sorted)
-        eps_mat = np.full((n_re, T), np.nan)
-        z_mat   = np.full((n_re, T), np.nan)
+        # Extract (edge_i, edge_j) per ratio_eq row from G:
+        #   row coefficients are [+1 at edge_i, -r at edge_j] by construction.
+        G_re = self._const_run.G[re_idx, :].tocsr()
+        n_re = G_re.shape[0]
+        edge_i_arr = np.full(n_re, -1, dtype=np.int64)
+        edge_j_arr = np.full(n_re, -1, dtype=np.int64)
+        for i in range(n_re):
+            r = G_re.getrow(i)
+            cols, vals = r.indices, r.data
+            if cols.size == 0:
+                continue
+            pos = cols[vals > 0]
+            neg = cols[vals < 0]
+            if pos.size and neg.size:
+                edge_i_arr[i] = int(pos[0])
+                edge_j_arr[i] = int(neg[0])
+
+        valid = (edge_i_arr >= 0) & (edge_j_arr >= 0)
+
+        # Per-row realized ratio across all timesteps: r_realized[row, t] = a*[edge_i]/a*[edge_j]
+        ratio_mat_all = np.full((n_re, T), np.nan)
         for col_i, t in enumerate(self._timesteps):
-            eps_t   = self._eps_for_type(t, "ratio_eq")
-            sigma_t = self._sigma_c_for_type(t, "ratio_eq")
-            cids_t  = rm.iloc[ri["ratio_eq"]]["constraint_id"].to_numpy()
-            for row_i, cid in enumerate(re_sorted):
-                mask = cids_t == cid
-                if not mask.any():
-                    continue
-                ev = np.abs(eps_t[mask])
-                sv = sigma_t[mask]
-                eps_mat[row_i, col_i] = ev.mean()
-                safe_sv = np.where(sv > 0, sv, np.inf)
-                z_mat[row_i, col_i]   = (ev / safe_sv).mean()
+            F_t = self._results[t].F_opt
+            with np.errstate(divide="ignore", invalid="ignore"):
+                num = np.where(valid, F_t[edge_i_arr.clip(min=0)], np.nan)
+                den = np.where(valid, F_t[edge_j_arr.clip(min=0)], np.nan)
+                ratio_mat_all[:, col_i] = num / den
 
-        fig_h = max(6.0, 0.28 * n_re + 2.0)
-        fig = plt.figure(figsize=(18, fig_h))
-        fig.suptitle(self._title(f"ratio_eq ε heatmap — top-{n_re} (SD-T-08a)"),
+        # Rank by log10-range of the realized ratio across timesteps
+        abs_ratio = np.abs(ratio_mat_all)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            log_abs = np.where(abs_ratio > 0, np.log10(abs_ratio), np.nan)
+        rng = np.nanmax(log_abs, axis=1) - np.nanmin(log_abs, axis=1)
+        # Rows with no finite values get -inf and end up at the bottom of the sort
+        rng = np.where(np.isfinite(rng), rng, -np.inf)
+        order = np.argsort(-rng)[:K]
+        n_top = int(np.sum(rng[order] > -np.inf))
+        order = order[:n_top] if n_top else order[:0]
+
+        row_labels = [str(rm.iloc[re_idx[i]]["constraint_id"]) for i in order]
+        ratio_mat = ratio_mat_all[order, :]
+        with np.errstate(divide="ignore", invalid="ignore"):
+            log_mat = np.where(np.abs(ratio_mat) > 0,
+                               np.log10(np.abs(ratio_mat)), np.nan)
+
+        fig_h = max(6.0, 0.28 * len(order) + 2.0)
+        fig = plt.figure(figsize=(11, fig_h))
+        fig.suptitle(self._title(f"ratio_eq realized-ratio heatmap — top-{len(order)} (SD-T-08a)"),
                      fontsize=13, fontweight="bold")
 
         from matplotlib.gridspec import GridSpec
-        gs = GridSpec(1, 2, figure=fig, wspace=0.35,
-                      top=0.88, bottom=0.15, left=0.28, right=0.96)
-        ax_abs = fig.add_subplot(gs[0, 0])
-        ax_z   = fig.add_subplot(gs[0, 1])
-        ax_abs.set_title("log₁₀|ε|", fontsize=10)
-        ax_z.set_title("log₁₀(|ε|/σ_c)", fontsize=10)
-        self._draw_eps_heatmap_pair(fig, ax_abs, ax_z, eps_mat, z_mat, ts_labels, re_sorted)
+        gs = GridSpec(1, 1, figure=fig, top=0.88, bottom=0.15, left=0.28, right=0.92)
+        ax = fig.add_subplot(gs[0, 0])
+        ax.set_title("log₁₀ |a*[edge_i] / a*[edge_j]|", fontsize=10)
+        kw = dict(aspect="auto", interpolation="nearest")
+        if log_mat.size:
+            vmin = np.nanmin(log_mat) if np.any(np.isfinite(log_mat)) else -3
+            vmax = np.nanmax(log_mat) if np.any(np.isfinite(log_mat)) else 3
+            im = ax.imshow(log_mat, cmap="YlOrRd", vmin=vmin, vmax=vmax, **kw)
+            fig.colorbar(im, ax=ax, pad=0.01, fraction=0.04,
+                         label="log₁₀ |realized ratio|")
+        ax.set_xticks(range(T))
+        ax.set_xticklabels(ts_labels, rotation=45, ha="right", fontsize=7)
+        ax.set_yticks(range(len(row_labels)))
+        ax.set_yticklabels(row_labels, fontsize=8)
         return fig
 
     def _fig_eps_heatmap_sum(self):
-        """SD-T-08b: sum_eq ε heatmap — top-50 nodes by mean|ε| across all timesteps."""
+        """SD-T-08b: sum_eq ε heatmap — top-50 nodes by log10-range of |ε| across t."""
         import matplotlib.pyplot as plt
         import re as _re
 
@@ -1660,16 +1784,25 @@ class SolverDiag:
         nodes_all   = np.array([_re.sub(r"_t\d{4}$", "", c) for c in se_cids_all])
         unique_nodes = np.unique(nodes_all)
 
-        # Rank nodes by mean|ε| across ALL timesteps
-        se_node_mean: dict = {}
+        # Rank nodes by log10-range of mean|ε| across ALL timesteps
+        node_eps_t: dict = {}
         for node in unique_nodes:
             node_mask = nodes_all == node
             vals = []
             for t in self._timesteps:
                 eps_t = np.abs(self._eps_for_type(t, "sum_eq"))
                 vals.append(float(eps_t[node_mask].mean()) if node_mask.any() else 0.0)
-            se_node_mean[node] = float(np.mean(vals))
-        se_sorted = sorted(se_node_mean, key=se_node_mean.get, reverse=True)[:K]
+            node_eps_t[node] = np.asarray(vals, dtype=float)
+
+        def _log10_range(arr: np.ndarray) -> float:
+            pos = arr[arr > 0]
+            if pos.size < 2:
+                return -np.inf
+            return float(np.log10(pos.max()) - np.log10(pos.min()))
+
+        node_var = {n: _log10_range(node_eps_t[n]) for n in unique_nodes}
+        se_sorted_all = sorted(node_var, key=node_var.get, reverse=True)
+        se_sorted = [n for n in se_sorted_all if node_var[n] > -np.inf][:K]
 
         # Decode node keys → human labels
         try:
@@ -1719,6 +1852,170 @@ class SolverDiag:
         ax_z.set_title("log₁₀(|ε|/σ_c)", fontsize=10)
         self._draw_eps_heatmap_pair(fig, ax_abs, ax_z, eps_mat, z_mat, ts_labels, se_labels)
         return fig
+
+    # ------------------------------------------------------------------
+    # SD-T-09 — |a* − a₀(t)| distribution by edge metadata
+    # ------------------------------------------------------------------
+
+    _MINING_REGION_HIGHLIGHT = ("ROW", "Australia", "Chile", "China", "Peru", "Congo, D.R.")
+
+    def _prior_departure_per_edge(self) -> np.ndarray:
+        """Pool |a*(t) − a*(t−1)| (a₀(0) = const_run.a0) across all timesteps,
+        flattened to a single per-row array aligned with self._const_run.acc edges.
+
+        Returns
+        -------
+        ndarray of shape (T * E,) of |a* − a₀| (all timesteps stacked).
+        """
+        prev = np.asarray(self._const_run.a0, dtype=float)
+        chunks = []
+        for t in self._timesteps:
+            F = np.asarray(self._results[t].F_opt, dtype=float)
+            chunks.append(np.abs(F - prev))
+            prev = F
+        return np.concatenate(chunks) if chunks else np.zeros(0)
+
+    def _edge_index_tiled(self) -> "pd.DataFrame | None":  # type: ignore[name-defined]
+        """``acc.edge_meta`` repeated once per timestep, aligned with the
+        output of :meth:`_prior_departure_per_edge`. Cached on first call.
+        Returns None if the underlying AccountingStructure cannot be loaded
+        (e.g. toy fixtures, deleted acc data) — callers must handle this.
+        """
+        if hasattr(self, "_ei_tiled_cache"):
+            return self._ei_tiled_cache
+        try:
+            from pysuto.acc import AccountingStructure
+            acc = AccountingStructure.load(self._const_run.acc_id)
+            ei = acc.edge_meta.reset_index(drop=True)
+        except Exception:
+            self._ei_tiled_cache = None
+            return None
+        T = len(self._timesteps)
+        tiled = pd.concat([ei] * T, ignore_index=True) if T else ei.iloc[0:0]
+        self._ei_tiled_cache = tiled
+        return tiled
+
+    def _fig_prior_departure_box(self, group_col: str, title_suffix: str,
+                                  *, highlight: tuple = (),
+                                  fig_id: str = ""):
+        """Boxplot of log₁₀|a*−a₀(t)| grouped by ``group_col`` on edge_index.
+
+        Pooled across all timesteps. Categories sorted by median descending.
+        If ``highlight`` is non-empty, categories outside the highlight set are
+        rendered in grey at low alpha, and highlighted ones get distinct
+        tab10 face colours.
+        """
+        import matplotlib.pyplot as plt
+
+        delta = self._prior_departure_per_edge()
+        ei_tiled = self._edge_index_tiled()
+        if ei_tiled is None:
+            fig = plt.figure(figsize=(8, 3))
+            fig.suptitle(self._title(f"{fig_id}: edge_index unavailable (acc data missing)"),
+                         fontsize=12)
+            return fig
+        if group_col not in ei_tiled.columns:
+            fig = plt.figure(figsize=(8, 3))
+            fig.suptitle(self._title(f"{fig_id}: column '{group_col}' missing from edge_index"),
+                         fontsize=12)
+            return fig
+
+        labels = ei_tiled[group_col].astype(str).to_numpy()
+        with np.errstate(divide="ignore", invalid="ignore"):
+            log_delta = np.where(delta > 0, np.log10(delta), np.nan)
+
+        finite = np.isfinite(log_delta)
+        labels = labels[finite]
+        log_delta = log_delta[finite]
+
+        if log_delta.size == 0:
+            fig = plt.figure(figsize=(8, 3))
+            fig.suptitle(self._title(f"{fig_id}: no finite |a*−a₀| samples"),
+                         fontsize=12)
+            return fig
+
+        # Group and sort by median descending
+        cats, inv = np.unique(labels, return_inverse=True)
+        per_cat = [log_delta[inv == i] for i in range(len(cats))]
+        medians = np.array([np.median(v) if v.size else -np.inf for v in per_cat])
+        order = np.argsort(-medians)
+        cats_sorted = cats[order]
+        per_cat_sorted = [per_cat[i] for i in order]
+
+        # Colour assignment
+        tab10 = plt.get_cmap("tab10").colors
+        if highlight:
+            highlight_set = set(highlight)
+            face_colors = []
+            edge_colors = []
+            alphas = []
+            highlight_color: dict = {h: tab10[k % 10] for k, h in enumerate(highlight)}
+            for cat in cats_sorted:
+                if cat in highlight_set:
+                    face_colors.append(highlight_color[cat])
+                    edge_colors.append(highlight_color[cat])
+                    alphas.append(0.7)
+                else:
+                    face_colors.append(_C["grey"])
+                    edge_colors.append(_C["grey"])
+                    alphas.append(0.25)
+        else:
+            face_colors = [tab10[i % 10] for i in range(len(cats_sorted))]
+            edge_colors = face_colors
+            alphas = [0.7] * len(cats_sorted)
+
+        fig_w = max(10.0, 0.3 * len(cats_sorted) + 4.0)
+        fig, ax = plt.subplots(1, 1, figsize=(min(fig_w, 22), 6))
+        fig.suptitle(self._title(f"|a* − a₀(t)| by {title_suffix} ({fig_id})"),
+                     fontsize=13, fontweight="bold")
+
+        bp = ax.boxplot(per_cat_sorted, positions=range(len(cats_sorted)),
+                        widths=0.6, patch_artist=True,
+                        showfliers=False, medianprops=dict(color="black", lw=1.2))
+        for patch, face, edge, a in zip(bp["boxes"], face_colors, edge_colors, alphas):
+            patch.set_facecolor(face)
+            patch.set_edgecolor(edge)
+            patch.set_alpha(a)
+        for whisker_pair in zip(bp["whiskers"][0::2], bp["whiskers"][1::2]):
+            for w, edge in zip(whisker_pair, edge_colors):
+                w.set_color(edge)
+        for cap_pair in zip(bp["caps"][0::2], bp["caps"][1::2]):
+            for c, edge in zip(cap_pair, edge_colors):
+                c.set_color(edge)
+
+        ax.set_xticks(range(len(cats_sorted)))
+        ax.set_xticklabels(cats_sorted, rotation=60, ha="right", fontsize=8)
+        ax.set_ylabel("log₁₀ |a* − a₀(t)|")
+        ax.set_xlabel(title_suffix)
+        _apply_modern_style(ax)
+        fig.tight_layout(rect=[0, 0, 1, 0.95])
+        return fig
+
+    def _fig_prior_departure_from_sector(self):
+        """SD-T-09a: |a*−a₀(t)| boxplot grouped by from_sector."""
+        return self._fig_prior_departure_box(
+            "from_sector", "from-sector", fig_id="SD-T-09a",
+        )
+
+    def _fig_prior_departure_to_sector(self):
+        """SD-T-09b: |a*−a₀(t)| boxplot grouped by to_sector."""
+        return self._fig_prior_departure_box(
+            "to_sector", "to-sector", fig_id="SD-T-09b",
+        )
+
+    def _fig_prior_departure_from_region(self):
+        """SD-T-09c: |a*−a₀(t)| boxplot grouped by from_region (highlight ROW + 5 mining)."""
+        return self._fig_prior_departure_box(
+            "from_region", "from-region", fig_id="SD-T-09c",
+            highlight=self._MINING_REGION_HIGHLIGHT,
+        )
+
+    def _fig_prior_departure_to_region(self):
+        """SD-T-09d: |a*−a₀(t)| boxplot grouped by to_region (highlight ROW + 5 mining)."""
+        return self._fig_prior_departure_box(
+            "to_region", "to-region", fig_id="SD-T-09d",
+            highlight=self._MINING_REGION_HIGHLIGHT,
+        )
 
     # ------------------------------------------------------------------
     # Title helpers

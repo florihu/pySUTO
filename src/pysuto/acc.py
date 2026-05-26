@@ -88,6 +88,7 @@ from __future__ import annotations
 import inspect
 import os
 import pickle
+from functools import cached_property
 from typing import Optional
 
 import numpy as np
@@ -1135,6 +1136,22 @@ class AccountingStructure:
             row["time"],
             row["valuation"],
         )
+
+    @cached_property
+    def edge_meta(self) -> pd.DataFrame:
+        """``edge_index`` joined with ``node_index`` attributes on both endpoints.
+
+        Columns: ``edge_id, from_id, to_id, time, valuation`` plus
+        ``from_<attr>`` and ``to_<attr>`` for every column in ``node_index``
+        (``sector, entity, region`` and ``entity_sub`` if present).
+        Computed once per instance.
+        """
+        ei = self.edge_index.reset_index(drop=True)
+        ni_from = self.node_index.loc[ei["from_id"].values].reset_index(drop=True)
+        ni_to   = self.node_index.loc[ei["to_id"].values].reset_index(drop=True)
+        ni_from = ni_from.add_prefix("from_")
+        ni_to   = ni_to.add_prefix("to_")
+        return pd.concat([ei, ni_from, ni_to], axis=1)
 
     # ------------------------------------------------------------------
     # Save / Load  (extended to persist bounds)

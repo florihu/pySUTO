@@ -178,8 +178,9 @@ class RatioBoundBuilder(BaseConstraintBuilder):
       Lower: −a_i + r_l · a_j ≤ 0 →  G row: −1 at edge_i, +r_l at edge_j
     """
 
-    def __init__(self, bound_rows: list[dict]):
+    def __init__(self, bound_rows: list[dict], kind: str = "unknown"):
         self._bound_rows = bound_rows
+        self._kind = kind
 
     @classmethod
     def from_csv(
@@ -187,6 +188,7 @@ class RatioBoundBuilder(BaseConstraintBuilder):
         path: str,
         acc_struct,
         mask: str | None = None,
+        kind: str = "unknown",
     ) -> "RatioBoundBuilder":
         df = pd.read_csv(path, sep=None, engine="python", dtype=str).fillna("*")
         resolver = ParamRelationResolver(acc_struct)
@@ -269,7 +271,7 @@ class RatioBoundBuilder(BaseConstraintBuilder):
         _log.info("RatioBoundBuilder: %d bound rows from %s (%d agg, %d per-pair)",
                   len(bound_rows), os.path.basename(path),
                   n_agg, len(bound_rows) - n_agg)
-        return cls(bound_rows)
+        return cls(bound_rows, kind=kind)
 
     @property
     def source_paths(self) -> list[str]:
@@ -307,6 +309,8 @@ class RatioBoundBuilder(BaseConstraintBuilder):
                     "is_hard":       True,
                     "cone_type":     "nonneg",
                     "time":          t_row,
+                    "ratio_kind":    self._kind,
+                    "bound_dir":     "upper",
                 })
                 row_id += 1
 
@@ -321,6 +325,8 @@ class RatioBoundBuilder(BaseConstraintBuilder):
                     "is_hard":       True,
                     "cone_type":     "nonneg",
                     "time":          t_row,
+                    "ratio_kind":    self._kind,
+                    "bound_dir":     "lower",
                 })
                 row_id += 1
 
