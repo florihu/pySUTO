@@ -95,49 +95,61 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         uf_mask  = acc_struct.masks["use"]
         sb_mask  = acc_struct.masks["sb"]
         t_arr    = ei["time"].values
+        v_arr    = ei["valuation"].values
         times    = acc_struct.time_range
+        valuations = list(acc_struct.valuation)
         scope    = cls._resolve_scope_mask(acc_struct, mask)
 
         specs = []
         for time in times:
-            t_mask = (t_arr == str(time)) & scope
+            t_mask_base = (t_arr == str(time)) & scope
+            for valuation in valuations:
+                t_mask = t_mask_base & (v_arr == valuation)
 
-            supply_to_nodes = set(ei.loc[t_mask & sf_mask & ~sb_mask, "to_id"].values)
-            use_from_nodes  = set(ei.loc[t_mask & uf_mask, "from_id"].values)
-            balanced = supply_to_nodes & use_from_nodes
+                # Anchor each row on supply edges of this valuation. Splitting
+                # by valuation keeps every emitted row unit-coherent.
+                supply_to_nodes = set(ei.loc[t_mask & sf_mask & ~sb_mask, "to_id"].values)
+                use_from_nodes  = set(ei.loc[t_mask & uf_mask, "from_id"].values)
+                balanced = supply_to_nodes & use_from_nodes
 
-            for nid in sorted(balanced):
-                entity = str(ni.loc[nid, "entity"])
-                if entity not in entity_filter:
-                    continue
+                for nid in sorted(balanced):
+                    entity = str(ni.loc[nid, "entity"])
+                    if entity not in entity_filter:
+                        continue
 
-                sup_ids = ei.loc[
-                    t_mask & sf_mask & ~sb_mask & (ei["to_id"].values == nid),
-                    "edge_id",
-                ].values.tolist()
-                use_ids = ei.loc[
-                    t_mask & uf_mask & (ei["from_id"].values == nid),
-                    "edge_id",
-                ].values.tolist()
+                    sup_ids = ei.loc[
+                        t_mask & sf_mask & ~sb_mask & (ei["to_id"].values == nid),
+                        "edge_id",
+                    ].values.tolist()
+                    use_ids = ei.loc[
+                        t_mask & uf_mask & (ei["from_id"].values == nid),
+                        "edge_id",
+                    ].values.tolist()
 
-                if not sup_ids or not use_ids:
-                    continue
+                    if not sup_ids or not use_ids:
+                        continue
 
-                all_ids   = sup_ids + use_ids
-                all_coeff = [1.0] * len(sup_ids) + [-1.0] * len(use_ids)
+                    all_ids   = sup_ids + use_ids
+                    all_coeff = [1.0] * len(sup_ids) + [-1.0] * len(use_ids)
+                    n_row = ni.loc[nid]
 
-                specs.append({
-                    "constraint_id":   f"useful_supply_node{nid}_t{time}",
-                    "description":     f"Useful supply balance node {nid} t={time}",
-                    "edge_ids":        all_ids,
-                    "coefficients":    all_coeff,
-                    "c_k":             0.0,
-                    "sigma_ck_mode":   "fraction_of_flow",
-                    "sigma_ck_value":  0.0,
-                    "sigma_ck_fraction": sigma_fraction,
-                    "_supply_ids":     sup_ids,  # stored for sigma calc
-                    "time":            str(time),
-                })
+                    specs.append({
+                        "constraint_id":   f"useful_supply_node{nid}_t{time}_{valuation}",
+                        "description":     f"Useful supply balance node {nid} t={time} val={valuation}",
+                        "edge_ids":        all_ids,
+                        "coefficients":    all_coeff,
+                        "c_k":             0.0,
+                        "sigma_ck_mode":   "fraction_of_flow",
+                        "sigma_ck_value":  0.0,
+                        "sigma_ck_fraction": sigma_fraction,
+                        "_supply_ids":     sup_ids,
+                        "time":            str(time),
+                        "valuation":       valuation,
+                        "sector":          str(n_row["sector"]),
+                        "region":          str(n_row["region"]),
+                        "entity":          str(n_row["entity"]),
+                        "entity_sub":      str(n_row.get("entity_sub", "")) if "entity_sub" in ni.columns else None,
+                    })
 
         return cls(specs, sigma_fraction=sigma_fraction)
 
@@ -181,7 +193,9 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         ei    = acc_struct.edge_index
         ni    = acc_struct.node_index
         t_arr = ei["time"].values
+        v_arr = ei["valuation"].values
         times = acc_struct.time_range
+        valuations = list(acc_struct.valuation)
         scope = cls._resolve_scope_mask(acc_struct, mask)
 
         # Pre-build lookup arrays for the other-node's entity and entity_sub
@@ -195,63 +209,69 @@ class SumConstraintBuilder(BaseConstraintBuilder):
 
         specs = []
         for time in times:
-            t_mask = (t_arr == str(time)) & scope
+            t_mask_base = (t_arr == str(time)) & scope
+            for valuation in valuations:
+                t_mask = t_mask_base & (v_arr == valuation)
 
-            # Nodes of the right entity type that appear in this timestep
-            node_ids = sorted(set(
-                ni.index[ni["entity"].isin(entity_filter)].tolist()
-            ) & (
-                set(from_ids[t_mask]) | set(to_ids[t_mask])
-            ))
+                # Nodes of the right entity type that appear at (time, valuation)
+                node_ids = sorted(set(
+                    ni.index[ni["entity"].isin(entity_filter)].tolist()
+                ) & (
+                    set(from_ids[t_mask]) | set(to_ids[t_mask])
+                ))
 
-            for nid in node_ids:
-                lhs_pos, lhs_neg, rhs_ids = [], [], []
+                for nid in node_ids:
+                    lhs_pos, lhs_neg, rhs_ids = [], [], []
 
-                # Incoming edges: to_id == nid; other node is from_id
-                in_mask = t_mask & (to_ids == nid)
-                for eid, other_entity, other_sub in zip(
-                    eids[in_mask], from_entity[in_mask], from_entity_sub[in_mask]
-                ):
-                    if other_entity in rhs_in_entity:
-                        rhs_ids.append(eid)
-                    else:
-                        lhs_pos.append(eid)
+                    in_mask = t_mask & (to_ids == nid)
+                    for eid, other_entity, other_sub in zip(
+                        eids[in_mask], from_entity[in_mask], from_entity_sub[in_mask]
+                    ):
+                        if other_entity in rhs_in_entity:
+                            rhs_ids.append(eid)
+                        else:
+                            lhs_pos.append(eid)
 
-                # Outgoing edges: from_id == nid; other node is to_id
-                out_mask = t_mask & (from_ids == nid)
-                for eid, other_entity, other_sub in zip(
-                    eids[out_mask], to_entity[out_mask], to_entity_sub[out_mask]
-                ):
-                    other_sub_str = str(other_sub) if other_sub is not None and str(other_sub) != "nan" else None
-                    if other_entity in rhs_out_entity or other_sub_str in rhs_out_entity_sub:
-                        rhs_ids.append(eid)
-                    elif other_sub_str in lhs_neg_out_entity_sub:
-                        lhs_neg.append(eid)
-                    else:
-                        lhs_pos.append(eid)
+                    out_mask = t_mask & (from_ids == nid)
+                    for eid, other_entity, other_sub in zip(
+                        eids[out_mask], to_entity[out_mask], to_entity_sub[out_mask]
+                    ):
+                        other_sub_str = str(other_sub) if other_sub is not None and str(other_sub) != "nan" else None
+                        if other_entity in rhs_out_entity or other_sub_str in rhs_out_entity_sub:
+                            rhs_ids.append(eid)
+                        elif other_sub_str in lhs_neg_out_entity_sub:
+                            lhs_neg.append(eid)
+                        else:
+                            lhs_pos.append(eid)
 
-                lhs_edges = lhs_pos + lhs_neg
-                if not lhs_edges or not rhs_ids:
-                    continue
+                    lhs_edges = lhs_pos + lhs_neg
+                    if not lhs_edges or not rhs_ids:
+                        continue
 
-                all_ids   = lhs_pos + lhs_neg
-                all_coeff = [1.0] * len(lhs_pos) + [-1.0] * len(lhs_neg)
+                    all_ids   = lhs_pos + lhs_neg
+                    all_coeff = [1.0] * len(lhs_pos) + [-1.0] * len(lhs_neg)
+                    n_row = ni.loc[nid]
 
-                spec: dict = {
-                    "constraint_id":   f"sub_entity_node{nid}_t{time}",
-                    "description":     f"Subentity sum node {nid} t={time}",
-                    "edge_ids":        all_ids,
-                    "coefficients":    all_coeff,
-                    "c_k":             0.0,
-                    "sigma_ck_mode":   sigma_mode,
-                    "sigma_ck_value":  0.0,
-                    "sigma_ck_fraction": sigma_fraction,
-                    "_rhs_ids":        rhs_ids,
-                    "time":            str(time),
-                }
-                if sigma_mode == "fraction_of_flow":
-                    spec["_supply_ids"] = rhs_ids
-                specs.append(spec)
+                    spec: dict = {
+                        "constraint_id":   f"sub_entity_node{nid}_t{time}_{valuation}",
+                        "description":     f"Subentity sum node {nid} t={time} val={valuation}",
+                        "edge_ids":        all_ids,
+                        "coefficients":    all_coeff,
+                        "c_k":             0.0,
+                        "sigma_ck_mode":   sigma_mode,
+                        "sigma_ck_value":  0.0,
+                        "sigma_ck_fraction": sigma_fraction,
+                        "_rhs_ids":        rhs_ids,
+                        "time":            str(time),
+                        "valuation":       valuation,
+                        "sector":          str(n_row["sector"]),
+                        "region":          str(n_row["region"]),
+                        "entity":          str(n_row["entity"]),
+                        "entity_sub":      str(n_row.get("entity_sub", "")) if "entity_sub" in ni.columns else None,
+                    }
+                    if sigma_mode == "fraction_of_flow":
+                        spec["_supply_ids"] = rhs_ids
+                    specs.append(spec)
 
         _log.info(
             "SumConstraintBuilder.from_acc_struct_subentity: %d specs (entity_filter=%s)",
@@ -304,6 +324,8 @@ class SumConstraintBuilder(BaseConstraintBuilder):
             "time":        "a_time",         "valuation":   "a_valuation",
         }
 
+        edge_val = acc_struct.edge_index["valuation"].values
+
         grouped = df.groupby("constraint_id", sort=False)
         specs   = []
 
@@ -346,18 +368,43 @@ class SumConstraintBuilder(BaseConstraintBuilder):
             else:
                 spec_time = None
 
-            specs.append({
-                "constraint_id":     str(cid),
-                "description":       desc,
-                "edge_ids":          all_ids,
-                "coefficients":      all_coeff,
-                "c_k":               c_k,
-                "sigma_ck_mode":     mode,
-                "sigma_ck_value":    sv,
-                "sigma_ck_fraction": sf,
-                "_supply_ids":       [e for e, c in zip(all_ids, all_coeff) if c > 0],
-                "time":              spec_time,
-            })
+            # Per-valuation split: if a CSV constraint resolves to edges
+            # spanning multiple valuations, emit one sub-spec per valuation.
+            # Keeps every row in G unit-coherent (hard rule: no Mass+CC mixing).
+            ids_arr   = np.asarray(all_ids, dtype=int)
+            coeff_arr = np.asarray(all_coeff, dtype=float)
+            row_vals  = edge_val[ids_arr]
+            unique_vals = sorted(set(row_vals.tolist()))
+
+            if len(unique_vals) > 1:
+                _log.warning(
+                    "SumConstraintBuilder: constraint '%s' resolves to %d valuations %s — "
+                    "auto-splitting into one row per valuation",
+                    cid, len(unique_vals), unique_vals,
+                )
+
+            for val in unique_vals:
+                mask_v = (row_vals == val)
+                sub_ids   = ids_arr[mask_v].tolist()
+                sub_coeff = coeff_arr[mask_v].tolist()
+                sub_cid   = f"{cid}_{val}" if len(unique_vals) > 1 else str(cid)
+                specs.append({
+                    "constraint_id":     sub_cid,
+                    "description":       desc,
+                    "edge_ids":          sub_ids,
+                    "coefficients":      sub_coeff,
+                    "c_k":               c_k,
+                    "sigma_ck_mode":     mode,
+                    "sigma_ck_value":    sv,
+                    "sigma_ck_fraction": sf,
+                    "_supply_ids":       [e for e, c in zip(sub_ids, sub_coeff) if c > 0],
+                    "time":              spec_time,
+                    "valuation":         val,
+                    "sector":            None,
+                    "region":            None,
+                    "entity":            None,
+                    "entity_sub":        None,
+                })
 
         return cls(specs)
 
@@ -384,6 +431,11 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                 "is_hard":       False,
                 "cone_type":     "free",
                 "time":          spec.get("time"),
+                "valuation":     spec.get("valuation"),
+                "sector":        spec.get("sector"),
+                "region":        spec.get("region"),
+                "entity":        spec.get("entity"),
+                "entity_sub":    spec.get("entity_sub"),
             })
 
         M = len(self._specs)

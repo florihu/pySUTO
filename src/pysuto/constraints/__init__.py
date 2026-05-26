@@ -19,7 +19,7 @@ Builders (registered in :class:`ConstraintEngine` in any order):
 
 from .base         import BaseConstraintBuilder, ConstraintBlock
 from .run          import ConstraintRun
-from .engine       import ConstraintEngine
+from .engine       import ConstraintEngine, ConstraintUnitMixingError, MIXED_VALUATION_OK
 from .mass_balance import MassBalanceBuilder
 from .sum          import SumConstraintBuilder, SIGMA_C_INACTIVE
 from .ratio        import RatioConstraintBuilder, RatioBoundBuilder
@@ -30,6 +30,8 @@ __all__ = [
     "ConstraintBlock",
     "ConstraintRun",
     "ConstraintEngine",
+    "ConstraintUnitMixingError",
+    "MIXED_VALUATION_OK",
     "MassBalanceBuilder",
     "SumConstraintBuilder",
     "SIGMA_C_INACTIVE",

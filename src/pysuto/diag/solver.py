@@ -27,8 +27,8 @@ _TYPE_COLORS = {
 }
 
 # Display labels for the ratio_bound sub-kinds (sourced from params_id upstream).
-# stock_bounds is rendered as "share" in figure titles/legends.
-_RATIO_KIND_LABELS = {"conc": "conc", "eff": "eff", "stock_bounds": "share"}
+# stock_bounds is rendered as "stock share" in figure titles/legends.
+_RATIO_KIND_LABELS = {"conc": "conc", "eff": "eff", "stock_bounds": "stock share"}
 _RATIO_KINDS_ORDER = ("conc", "eff", "stock_bounds")
 _BOUND_DIRS_ORDER  = ("upper", "lower")
 
@@ -61,7 +61,7 @@ class SolverDiag:
 
     Plot portfolio (see README §Stage 3c for the full ID table):
 
-    * Run-scope  : SD-R-01 … SD-R-07 (x = timestep); SD-R-01 … SD-R-05 hueable
+    * Run-scope  : SD-R-01 … SD-R-09 (x = timestep); SD-R-01 … SD-R-05 hueable
     * Per-timestep cross-section : SD-T-01 … SD-T-07 (columns = t_min, t_worst, t_max)
     * Constraint ε heatmaps: SD-T-08a (ratio_eq), SD-T-08b (sum_eq)
 
@@ -75,8 +75,9 @@ class SolverDiag:
     label : str
         Optional label for figure titles and output filenames.
     sigma_opt : dict[str, np.ndarray] | None
-        Optional per-timestep σ_opt from ``OptUncertainty`` — when provided
-        unlocks the σ_opt / σ_a panel in SD-T-03.
+        Optional per-timestep σ_opt (= sigma_a_star from
+        :class:`pysuto.uncprop.KalmanUncProp`) — when provided unlocks
+        the σ_opt / σ_a panel in SD-T-03.
     """
 
     # ---- IDs (kept in plot() iteration order) ------------------------------
@@ -88,6 +89,8 @@ class SolverDiag:
         "SD-R-05",  # Warm-start delta
         "SD-R-06",  # F*(t) evolution
         "SD-R-07",  # Time-hued distributions
+        "SD-R-08",  # Process-entity outputs (stacked area)
+        "SD-R-09",  # Flow-entity outputs (stacked area)
     )
     TIMESTEP_PLOT_IDS = (
         "SD-T-01",  # Residual digest
@@ -377,6 +380,18 @@ class SolverDiag:
         paths.append(p)
         if not show:
             import matplotlib.pyplot as plt; plt.close(fig)
+
+        # SD-R-08 / SD-R-09 — entity-output stacked area by sector
+        for fn, pid, fname in [
+            (self._fig_process_outputs, "SD-R-08", "sd_r_08_process_outputs"),
+            (self._fig_flow_outputs,    "SD-R-09", "sd_r_09_flow_outputs"),
+        ]:
+            fig = fn()
+            p = _savefig(fig, os.path.join(odir, f"{fname}.png"), dpi=dpi)
+            print(f"   {pid}  → {p}  ✓")
+            paths.append(p)
+            if not show:
+                import matplotlib.pyplot as plt; plt.close(fig)
 
         # ---- Scope 2: timestep cross-section --------------------------
         for fn, pid, fname in [
@@ -1113,20 +1128,23 @@ class SolverDiag:
         ax.set_xlabel("log₁₀ |x|", fontsize=8)
 
     def _fig_residual_digest(self, timesteps):
-        """SD-T-01: 5 rows × 3 cols of constraint-residual histograms."""
+        """SD-T-01: 5 rows × 3 cols of constraint-residual histograms.
+
+        log₁₀|x| with sign overlay (pos = blue, neg = red) for every row.
+        """
         ts_triple = self._resolve_timesteps(timesteps)
         fig, axes = self._make_xsection(5, "Constraint-residual digest (SD-T-01)")
 
         row_specs = [
-            ("Type-1 mass-balance Gx",  "mass_balance", _TYPE_COLORS["mass_balance"]),
-            ("Type-2 soft-sum ε",       "sum_eq",       _TYPE_COLORS["sum_eq"]),
-            ("Type-3 soft-ratio ε",     "ratio_eq",     _TYPE_COLORS["ratio_eq"]),
-            ("Type-4 ratio-bound slack", "ratio_bound", _TYPE_COLORS["ratio_bound"]),
-            ("Type-5 flow-bound slack",  None,          _TYPE_COLORS["flow_bound"]),
+            ("Type-1 mass-balance Gx",  "mass_balance"),
+            ("Type-2 soft-sum ε",       "sum_eq"),
+            ("Type-3 soft-ratio ε",     "ratio_eq"),
+            ("Type-4 ratio-bound slack", "ratio_bound"),
+            ("Type-5 flow-bound slack",  None),
         ]
 
         for col, t in enumerate(ts_triple):
-            for row, (rlabel, key, color) in enumerate(row_specs):
+            for row, (rlabel, key) in enumerate(row_specs):
                 ax = axes[row, col]
                 if key == "mass_balance":
                     data = self._mb_residuals(t)
@@ -1138,7 +1156,7 @@ class SolverDiag:
                 else:
                     s_u, s_l = self._flow_bound_slack(t)
                     data = np.concatenate([s_u, s_l])
-                self._hist_with_footer(ax, data, color, symlog=True)
+                self._hist_logabs_signed(ax, data, bins=40)
                 if col == 0:
                     self._row_label(ax, rlabel)
                 if row == 0:
@@ -1854,102 +1872,107 @@ class SolverDiag:
         return fig
 
     # ------------------------------------------------------------------
-    # SD-T-09 — |a* − a₀(t)| distribution by edge metadata
+    # SD-T-09 — |a* − a₀| distribution by edge metadata
+    #   2×2 grid per group_col: rows = (first_t, last_t), cols = (Mass, CC).
+    #   a₀ is the stage-3 prior (const_run.a0), fixed across both rows.
     # ------------------------------------------------------------------
 
     _MINING_REGION_HIGHLIGHT = ("ROW", "Australia", "Chile", "China", "Peru", "Congo, D.R.")
+    _SD_T_09_VALUATIONS = ("Mass", "CC")
 
-    def _prior_departure_per_edge(self) -> np.ndarray:
-        """Pool |a*(t) − a*(t−1)| (a₀(0) = const_run.a0) across all timesteps,
-        flattened to a single per-row array aligned with self._const_run.acc edges.
-
-        Returns
-        -------
-        ndarray of shape (T * E,) of |a* − a₀| (all timesteps stacked).
+    def _edge_meta(self) -> "pd.DataFrame | None":  # type: ignore[name-defined]
+        """Cached AccountingStructure.edge_meta. Returns None if the underlying
+        AccountingStructure cannot be loaded (e.g. toy fixtures).
         """
-        prev = np.asarray(self._const_run.a0, dtype=float)
-        chunks = []
-        for t in self._timesteps:
-            F = np.asarray(self._results[t].F_opt, dtype=float)
-            chunks.append(np.abs(F - prev))
-            prev = F
-        return np.concatenate(chunks) if chunks else np.zeros(0)
-
-    def _edge_index_tiled(self) -> "pd.DataFrame | None":  # type: ignore[name-defined]
-        """``acc.edge_meta`` repeated once per timestep, aligned with the
-        output of :meth:`_prior_departure_per_edge`. Cached on first call.
-        Returns None if the underlying AccountingStructure cannot be loaded
-        (e.g. toy fixtures, deleted acc data) — callers must handle this.
-        """
-        if hasattr(self, "_ei_tiled_cache"):
-            return self._ei_tiled_cache
+        if hasattr(self, "_edge_meta_cache"):
+            return self._edge_meta_cache
         try:
             from pysuto.acc import AccountingStructure
             acc = AccountingStructure.load(self._const_run.acc_id)
-            ei = acc.edge_meta.reset_index(drop=True)
+            self._edge_meta_cache = acc.edge_meta.reset_index(drop=True)
         except Exception:
-            self._ei_tiled_cache = None
-            return None
-        T = len(self._timesteps)
-        tiled = pd.concat([ei] * T, ignore_index=True) if T else ei.iloc[0:0]
-        self._ei_tiled_cache = tiled
-        return tiled
+            self._edge_meta_cache = None
+        return self._edge_meta_cache
 
     def _fig_prior_departure_box(self, group_col: str, title_suffix: str,
                                   *, highlight: tuple = (),
                                   fig_id: str = ""):
-        """Boxplot of log₁₀|a*−a₀(t)| grouped by ``group_col`` on edge_index.
+        """SD-T-09 figure: 2×2 grid (year × valuation) boxplot of
+        log₁₀|a*(Y) − a₀(stage-3)| grouped by ``group_col``.
 
-        Pooled across all timesteps. Categories sorted by median descending.
-        If ``highlight`` is non-empty, categories outside the highlight set are
-        rendered in grey at low alpha, and highlighted ones get distinct
-        tab10 face colours.
+        Categories share a global x-axis order derived from the pooled median
+        across all four cells, sorted descending. Highlighted categories use
+        distinct tab10 face colours; others render grey at low alpha.
         """
         import matplotlib.pyplot as plt
 
-        delta = self._prior_departure_per_edge()
-        ei_tiled = self._edge_index_tiled()
-        if ei_tiled is None:
+        em = self._edge_meta()
+        if em is None:
             fig = plt.figure(figsize=(8, 3))
             fig.suptitle(self._title(f"{fig_id}: edge_index unavailable (acc data missing)"),
                          fontsize=12)
             return fig
-        if group_col not in ei_tiled.columns:
+        if group_col not in em.columns:
             fig = plt.figure(figsize=(8, 3))
-            fig.suptitle(self._title(f"{fig_id}: column '{group_col}' missing from edge_index"),
+            fig.suptitle(self._title(f"{fig_id}: column '{group_col}' missing from edge_meta"),
+                         fontsize=12)
+            return fig
+        if not self._timesteps:
+            fig = plt.figure(figsize=(8, 3))
+            fig.suptitle(self._title(f"{fig_id}: no timesteps in run"),
                          fontsize=12)
             return fig
 
-        labels = ei_tiled[group_col].astype(str).to_numpy()
-        with np.errstate(divide="ignore", invalid="ignore"):
-            log_delta = np.where(delta > 0, np.log10(delta), np.nan)
+        years = [self._timesteps[0]]
+        if len(self._timesteps) > 1:
+            years.append(self._timesteps[-1])
+        valuations = list(self._SD_T_09_VALUATIONS)
 
-        finite = np.isfinite(log_delta)
-        labels = labels[finite]
-        log_delta = log_delta[finite]
+        a0 = np.asarray(self._const_run.a0, dtype=float)
+        em_time = em["time"].astype(str).to_numpy()
+        em_val  = em["valuation"].astype(str).to_numpy()
+        em_lbl  = em[group_col].astype(str).to_numpy()
 
-        if log_delta.size == 0:
+        # Per-cell (Y, V) bucket: dict[(Y, V)] -> (labels_arr, log_delta_arr)
+        cells: dict = {}
+        for Y in years:
+            F = np.asarray(self._results[Y].F_opt, dtype=float)
+            delta_all = np.abs(F - a0)
+            for V in valuations:
+                mask = (em_time == str(Y)) & (em_val == V)
+                d = delta_all[mask]
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    log_d = np.where(d > 0, np.log10(d), np.nan)
+                lbl = em_lbl[mask]
+                finite = np.isfinite(log_d)
+                cells[(Y, V)] = (lbl[finite], log_d[finite])
+
+        # Pool everything to build the global category order
+        pool_lbl = np.concatenate([c[0] for c in cells.values()]) \
+            if any(c[0].size for c in cells.values()) else np.array([], dtype=str)
+        pool_log = np.concatenate([c[1] for c in cells.values()]) \
+            if any(c[1].size for c in cells.values()) else np.array([], dtype=float)
+
+        if pool_log.size == 0:
             fig = plt.figure(figsize=(8, 3))
             fig.suptitle(self._title(f"{fig_id}: no finite |a*−a₀| samples"),
                          fontsize=12)
             return fig
 
-        # Group and sort by median descending
-        cats, inv = np.unique(labels, return_inverse=True)
-        per_cat = [log_delta[inv == i] for i in range(len(cats))]
-        medians = np.array([np.median(v) if v.size else -np.inf for v in per_cat])
-        order = np.argsort(-medians)
-        cats_sorted = cats[order]
-        per_cat_sorted = [per_cat[i] for i in order]
+        cats_pool, inv_pool = np.unique(pool_lbl, return_inverse=True)
+        medians_pool = np.array([
+            np.median(pool_log[inv_pool == i]) if np.any(inv_pool == i) else -np.inf
+            for i in range(len(cats_pool))
+        ])
+        order = np.argsort(-medians_pool)
+        cats_sorted = cats_pool[order]
 
-        # Colour assignment
+        # Colour assignment per category (highlight or grey)
         tab10 = plt.get_cmap("tab10").colors
         if highlight:
             highlight_set = set(highlight)
-            face_colors = []
-            edge_colors = []
-            alphas = []
-            highlight_color: dict = {h: tab10[k % 10] for k, h in enumerate(highlight)}
+            highlight_color = {h: tab10[k % 10] for k, h in enumerate(highlight)}
+            face_colors, edge_colors, alphas = [], [], []
             for cat in cats_sorted:
                 if cat in highlight_set:
                     face_colors.append(highlight_color[cat])
@@ -1964,57 +1987,227 @@ class SolverDiag:
             edge_colors = face_colors
             alphas = [0.7] * len(cats_sorted)
 
+        # Figure layout — sharex (categorical) across all cells; sharey per column
+        n_rows = len(years)
+        n_cols = len(valuations)
         fig_w = max(10.0, 0.3 * len(cats_sorted) + 4.0)
-        fig, ax = plt.subplots(1, 1, figsize=(min(fig_w, 22), 6))
-        fig.suptitle(self._title(f"|a* − a₀(t)| by {title_suffix} ({fig_id})"),
+        fig, axes = plt.subplots(
+            n_rows, n_cols,
+            figsize=(min(fig_w, 22), 3.2 * n_rows + 1.0),
+            sharex=True, sharey="col", squeeze=False,
+        )
+        fig.suptitle(self._title(f"|a* − a₀| by {title_suffix} ({fig_id})"),
                      fontsize=13, fontweight="bold")
 
-        bp = ax.boxplot(per_cat_sorted, positions=range(len(cats_sorted)),
+        for r, Y in enumerate(years):
+            for c, V in enumerate(valuations):
+                ax = axes[r, c]
+                lbl_cell, log_cell = cells[(Y, V)]
+                if log_cell.size == 0:
+                    ax.text(0.5, 0.5, "n=0", transform=ax.transAxes,
+                            ha="center", va="center", fontsize=9, color=_C["grey"])
+                else:
+                    # Bucket cell data into the global category order
+                    per_cat = [log_cell[lbl_cell == cat] for cat in cats_sorted]
+                    positions = [i for i, v in enumerate(per_cat) if v.size]
+                    data = [v for v in per_cat if v.size]
+                    bp = ax.boxplot(
+                        data, positions=positions,
                         widths=0.6, patch_artist=True,
-                        showfliers=False, medianprops=dict(color="black", lw=1.2))
-        for patch, face, edge, a in zip(bp["boxes"], face_colors, edge_colors, alphas):
-            patch.set_facecolor(face)
-            patch.set_edgecolor(edge)
-            patch.set_alpha(a)
-        for whisker_pair in zip(bp["whiskers"][0::2], bp["whiskers"][1::2]):
-            for w, edge in zip(whisker_pair, edge_colors):
-                w.set_color(edge)
-        for cap_pair in zip(bp["caps"][0::2], bp["caps"][1::2]):
-            for c, edge in zip(cap_pair, edge_colors):
-                c.set_color(edge)
+                        showfliers=False,
+                        medianprops=dict(color="black", lw=1.2),
+                    )
+                    face_used = [face_colors[i] for i in positions]
+                    edge_used = [edge_colors[i] for i in positions]
+                    alpha_used = [alphas[i] for i in positions]
+                    for patch, face, edge, a in zip(
+                        bp["boxes"], face_used, edge_used, alpha_used
+                    ):
+                        patch.set_facecolor(face)
+                        patch.set_edgecolor(edge)
+                        patch.set_alpha(a)
+                    for whisker_pair in zip(bp["whiskers"][0::2], bp["whiskers"][1::2]):
+                        for w, edge in zip(whisker_pair, edge_used):
+                            w.set_color(edge)
+                    for cap_pair in zip(bp["caps"][0::2], bp["caps"][1::2]):
+                        for cp, edge in zip(cap_pair, edge_used):
+                            cp.set_color(edge)
 
-        ax.set_xticks(range(len(cats_sorted)))
-        ax.set_xticklabels(cats_sorted, rotation=60, ha="right", fontsize=8)
-        ax.set_ylabel("log₁₀ |a* − a₀(t)|")
-        ax.set_xlabel(title_suffix)
-        _apply_modern_style(ax)
+                ax.set_xlim(-0.6, len(cats_sorted) - 0.4)
+                ax.set_title(f"{Y} · {V}", loc="left", fontsize=10)
+                if c == 0:
+                    ax.set_ylabel("log₁₀ |a* − a₀|")
+                _apply_modern_style(ax)
+
+        # Only bottom row gets xtick labels
+        for c in range(n_cols):
+            axes[-1, c].set_xticks(range(len(cats_sorted)))
+            axes[-1, c].set_xticklabels(cats_sorted, rotation=60, ha="right", fontsize=8)
+            axes[-1, c].set_xlabel(title_suffix)
+
         fig.tight_layout(rect=[0, 0, 1, 0.95])
         return fig
 
     def _fig_prior_departure_from_sector(self):
-        """SD-T-09a: |a*−a₀(t)| boxplot grouped by from_sector."""
+        """SD-T-09a: |a*−a₀| boxplot grouped by from_sector (2×2 year × val)."""
         return self._fig_prior_departure_box(
             "from_sector", "from-sector", fig_id="SD-T-09a",
         )
 
     def _fig_prior_departure_to_sector(self):
-        """SD-T-09b: |a*−a₀(t)| boxplot grouped by to_sector."""
+        """SD-T-09b: |a*−a₀| boxplot grouped by to_sector (2×2 year × val)."""
         return self._fig_prior_departure_box(
             "to_sector", "to-sector", fig_id="SD-T-09b",
         )
 
     def _fig_prior_departure_from_region(self):
-        """SD-T-09c: |a*−a₀(t)| boxplot grouped by from_region (highlight ROW + 5 mining)."""
+        """SD-T-09c: |a*−a₀| boxplot grouped by from_region; ROW + 5 mining highlighted."""
         return self._fig_prior_departure_box(
             "from_region", "from-region", fig_id="SD-T-09c",
             highlight=self._MINING_REGION_HIGHLIGHT,
         )
 
     def _fig_prior_departure_to_region(self):
-        """SD-T-09d: |a*−a₀(t)| boxplot grouped by to_region (highlight ROW + 5 mining)."""
+        """SD-T-09d: |a*−a₀| boxplot grouped by to_region; ROW + 5 mining highlighted."""
         return self._fig_prior_departure_box(
             "to_region", "to-region", fig_id="SD-T-09d",
             highlight=self._MINING_REGION_HIGHLIGHT,
+        )
+
+    # ------------------------------------------------------------------
+    # SD-R-08 / SD-R-09 — entity-output stacked area by sector
+    # ------------------------------------------------------------------
+
+    def _fig_entity_outputs(self, *, from_entity: str, fig_id: str,
+                             title_phrase: str):
+        """Line plot of Σ a* across outgoing edges of ``from_entity``,
+        grouped by from_sector. Two panels: cols = (Mass, CC). x = timestep.
+        One line per sector.
+        """
+        import matplotlib.pyplot as plt
+
+        em = self._edge_meta()
+        if em is None:
+            fig = plt.figure(figsize=(8, 3))
+            fig.suptitle(self._title(f"{fig_id}: edge_index unavailable (acc data missing)"),
+                         fontsize=12)
+            return fig
+
+        required = {"from_entity", "from_sector", "time", "valuation"}
+        missing = required - set(em.columns)
+        if missing:
+            fig = plt.figure(figsize=(8, 3))
+            fig.suptitle(self._title(f"{fig_id}: edge_meta missing columns {missing}"),
+                         fontsize=12)
+            return fig
+
+        em_fe   = em["from_entity"].astype(str).to_numpy()
+        em_fs   = em["from_sector"].astype(str).to_numpy()
+        em_time = em["time"].astype(str).to_numpy()
+        em_val  = em["valuation"].astype(str).to_numpy()
+
+        entity_mask = (em_fe == from_entity)
+        if not entity_mask.any():
+            fig = plt.figure(figsize=(8, 3))
+            fig.suptitle(self._title(
+                f"{fig_id}: no edges with from_entity={from_entity!r}"),
+                         fontsize=12)
+            return fig
+
+        sectors = sorted({s for s in em_fs[entity_mask]})
+        valuations = list(self._SD_T_09_VALUATIONS)
+        ts = self._timesteps
+        first_t = str(ts[0]) if ts else None
+        a0 = np.asarray(self._const_run.a0, dtype=float)
+
+        # Build [n_sectors × n_timesteps] sum matrix per valuation, plus
+        # the constant a₀-at-first-year reference per sector per valuation.
+        per_val: dict = {}
+        ref_first: dict = {}
+        for V in valuations:
+            mat = np.zeros((len(sectors), len(ts)), dtype=float)
+            for j, t in enumerate(ts):
+                F = np.asarray(self._results[t].F_opt, dtype=float)
+                cell_mask = entity_mask & (em_time == str(t)) & (em_val == V)
+                if not cell_mask.any():
+                    continue
+                fs_cell = em_fs[cell_mask]
+                F_cell  = F[cell_mask]
+                for i, S in enumerate(sectors):
+                    mat[i, j] = float(np.sum(F_cell[fs_cell == S]))
+            per_val[V] = mat
+
+            ref = np.zeros(len(sectors), dtype=float)
+            if first_t is not None:
+                ref_mask = entity_mask & (em_time == first_t) & (em_val == V)
+                if ref_mask.any():
+                    fs_ref = em_fs[ref_mask]
+                    a0_ref = a0[ref_mask]
+                    for i, S in enumerate(sectors):
+                        ref[i] = float(np.sum(a0_ref[fs_ref == S]))
+            ref_first[V] = ref
+
+        # Line order = sectors sorted by mean magnitude descending (legend top-down)
+        pooled = sum(np.abs(per_val[V]).mean(axis=1) for V in valuations)
+        order = np.argsort(-pooled)
+        sectors_ord = [sectors[i] for i in order]
+
+        tab20 = plt.get_cmap("tab20").colors
+        color_for = {S: tab20[i % 20] for i, S in enumerate(sectors_ord)}
+
+        fig, axes = plt.subplots(
+            1, len(valuations),
+            figsize=(13, 5.5),
+            sharex=True, squeeze=False,
+        )
+        axes = axes[0]
+        fig.suptitle(self._title(f"{title_phrase} ({fig_id})"),
+                     fontsize=13, fontweight="bold")
+
+        x = np.arange(len(ts))
+        for c, V in enumerate(valuations):
+            ax = axes[c]
+            mat = per_val[V]
+            ref = ref_first[V]
+            for i, S in enumerate(sectors_ord):
+                ax.plot(x, mat[order[i]], color=color_for[S], lw=1.5,
+                        label=S, alpha=0.9)
+                ax.hlines(ref[order[i]], xmin=x[0], xmax=x[-1],
+                          colors=color_for[S], linestyles="--",
+                          lw=1.0, alpha=0.6)
+            ax.set_title(f"valuation = {V}", loc="left", fontsize=10)
+            ax.set_xticks(x)
+            ax.set_xticklabels([str(t) for t in ts], rotation=45, ha="right", fontsize=8)
+            ax.set_xlabel("timestep")
+            if c == 0:
+                ax.set_ylabel("Σ a* across outputs [tonnes]")
+            _apply_modern_style(ax)
+        # Generic dashed-reference entry in legend
+        axes[0].plot([], [], color=_C["grey"], ls="--", lw=1.0,
+                     label=f"a₀ ({first_t})" if first_t else "a₀")
+
+        # Single legend on the right
+        handles, labels = axes[0].get_legend_handles_labels()
+        fig.legend(handles, labels, loc="center right",
+                   fontsize=7, frameon=False, ncol=1,
+                   bbox_to_anchor=(1.0, 0.5))
+        fig.tight_layout(rect=[0, 0, 0.88, 0.95])
+        return fig
+
+    def _fig_process_outputs(self):
+        """SD-R-08: Σ supply-edge a* by from_sector, stacked area per valuation."""
+        return self._fig_entity_outputs(
+            from_entity="Process",
+            fig_id="SD-R-08",
+            title_phrase="Process-entity outputs (supply edges) by sector",
+        )
+
+    def _fig_flow_outputs(self):
+        """SD-R-09: Σ use-edge a* by from_sector, stacked area per valuation."""
+        return self._fig_entity_outputs(
+            from_entity="Flow",
+            fig_id="SD-R-09",
+            title_phrase="Flow-entity outputs (use edges) by sector",
         )
 
     # ------------------------------------------------------------------

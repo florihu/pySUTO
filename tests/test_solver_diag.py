@@ -47,9 +47,9 @@ class TestPlotPortfolio:
         results, run = toy_results
         diag = SolverDiag(results, run, label="toy")
         paths = diag.plot(odir=str(tmp_path))
-        # 7 run-scope (SD-R-01..07) + 13 timestep-scope (SD-T-01..06, 07, 08a, 08b,
-        # 09a, 09b, 09c, 09d) + 1 provenance .md  ⇒  21 total
-        assert len(paths) == 21
+        # 9 run-scope (SD-R-01..09) + 13 timestep-scope (SD-T-01..06, 07, 08a, 08b,
+        # 09a, 09b, 09c, 09d) + 1 provenance .md  ⇒  22 PNGs + 1 .md = 23 paths
+        assert len(paths) == 23
         for p in paths:
             assert os.path.exists(p)
             if p.endswith(".png"):
@@ -63,6 +63,8 @@ class TestPlotPortfolio:
         assert "sd_r_01_solver_health.png" in names
         assert "sd_r_06_f_evolution.png" in names
         assert "sd_r_07_time_hued.png" in names
+        assert "sd_r_08_process_outputs.png" in names
+        assert "sd_r_09_flow_outputs.png" in names
         assert "sd_t_06_cstar_vs_c.png" in names
         assert "sd_t_07_rocket.png" in names
         assert "sd_t_08a_eps_heatmap_ratio.png" in names
@@ -124,7 +126,7 @@ class TestFromOptId:
             const_dir  = str(const_dir),
         )
         paths = diag.plot()  # default odir = {opt_dir}/{opt_run_id}/diag
-        assert len(paths) == 21  # 20 PNGs + 1 provenance .md
+        assert len(paths) == 23  # 22 PNGs + 1 provenance .md
         for p in paths:
             assert os.path.exists(p)
         # Confirm the default odir is the run-local diag folder

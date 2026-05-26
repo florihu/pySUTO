@@ -35,6 +35,7 @@ import scipy.sparse as sp
 
 import clarabel
 
+from ._conditioning import condition_prior
 from .constraints import ConstraintRun
 from .registry import ConstraintRunRegistry, OptimRunRegistry
 from .logging import get_logger
@@ -182,51 +183,18 @@ class ClarabelSolver:
         a_0:     np.ndarray,
         sigma_a: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray]:
+        """Thin wrapper over :func:`pysuto._conditioning.condition_prior`.
+
+        Kept as a method so existing tests / call sites continue to work;
+        the actual rules live in the shared helper so uncprop sees the
+        same conditioned prior the QP did.
         """
-        Make ``a_0`` and ``sigma_a`` safe for Clarabel:
-
-        - Any NaN in ``a_0`` → 0 (flat prior, belt-and-braces in case the
-          producing ConstraintRun pre-dates FlatPriorImputer integration).
-        - Any NaN in ``sigma_a`` → ceiling (no-information prior).
-        - Floor σ_a at ``max(σ_a_floor_abs, σ_a_floor_rel · |a_0|)``.
-        - Ceiling σ_a at ``σ_a_ceiling_factor · max(finite σ_a)``.
-
-        Logs counts of NaN substitutions if any.
-        """
-        a   = np.array(a_0,     dtype=float, copy=True)
-        s   = np.array(sigma_a, dtype=float, copy=True)
-
-        n_nan_a = int(np.isnan(a).sum())
-        if n_nan_a:
-            a[np.isnan(a)] = 0.0
-            logger.warning(
-                "ClarabelSolver: %d NaN entries in a_0 substituted with 0 "
-                "(prefer registering FlatPriorImputer in Stage 2 to avoid this).",
-                n_nan_a,
-            )
-
-        # Compute ceiling from finite σ before NaN substitution
-        finite = s[np.isfinite(s) & (s < 1e30) & (s > 0)]
-        if finite.size:
-            ceiling = self.sigma_a_ceiling_factor * float(finite.max())
-        else:
-            ceiling = 1e12
-
-        n_nan_s = int(np.isnan(s).sum())
-        if n_nan_s:
-            s[np.isnan(s)] = ceiling
-            logger.warning(
-                "ClarabelSolver: %d NaN entries in sigma_a substituted with "
-                "ceiling=%.3e (no-information prior).",
-                n_nan_s, ceiling,
-            )
-
-        floor = np.maximum(self.sigma_a_floor_abs,
-                           self.sigma_a_floor_rel * np.abs(a))
-        s = np.maximum(s, floor)
-        s = np.minimum(s, ceiling)
-
-        return a, s
+        return condition_prior(
+            a_0, sigma_a,
+            floor_abs      = self.sigma_a_floor_abs,
+            floor_rel      = self.sigma_a_floor_rel,
+            ceiling_factor = self.sigma_a_ceiling_factor,
+        )
 
     def _build_problem(
         self,

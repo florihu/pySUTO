@@ -16,6 +16,7 @@ A modular Python framework for constructing, reconciling, and propagating uncert
    - [Stage 2 — Aggregation & Imputation](#stage-2--aggregation--imputation)
    - [Stage 3 — Constraint building](#stage-3--constraint-building)
    - [Stage 4 — Solver](#stage-4--solver)
+   - [Stage 5 — Posterior uncertainty propagation](#stage-5--posterior-uncertainty-propagation)
 3. [Module reference](#module-reference)
 4. [Workflow](#workflow)
 5. [File structure](#file-structure)
@@ -33,7 +34,7 @@ Supply–use tables and material flow accounts are assembled from multiple data 
 - **Multi-source uncertainty** — each data source carries a pedigree quality score (Laner et al. 2016) that translates into a coefficient of variation. Uncertainty is propagated through every transformation step using Lp / power-mean error propagation.
 - **Physical consistency** — supply must equal use for every node and every material-parameter efficiency must be respected. A linear-equality / inequality QP enforces these constraints while staying as close as possible to the aggregated data, with full uncertainty quantification on the optimised values.
 
-The package is organised into **four sequential stages**: datafeed assembly (per source), aggregation + imputation (across sources), constraint building, and constrained optimisation. Each stage has a clear input, a clear output, and its own persistence layer.
+The package is organised into **five sequential stages**: datafeed assembly (per source), aggregation + imputation (across sources), constraint building, constrained optimisation, and posterior uncertainty propagation. Each stage has a clear input, a clear output, and its own persistence layer.
 
 ---
 
@@ -51,6 +52,7 @@ The package is organised into **four sequential stages**: datafeed assembly (per
 | 2 — Aggregation & Imputation | `collector.py`, `agg.py`, `impute.py` | selected feed IDs | `AggregationResult`: `f_agg`, `σ_agg`, `Ω`, `ImputationLog` |
 | 3 — Constraint building | `constraints.py` | `AggregationResult` | `ConstraintRun`: `G`, `c(t)`, `σ_c(t)`, bounds |
 | 4 — Solver | `solver.py` | `ConstraintRun` | `OptimResult` per timestep |
+| 5 — Posterior uncertainty | `uncprop.py` | `OptimRun` + upstream `ConstraintRun` | `UncPropResult`: `σ_a*(t)`, `lower(t)`, `upper(t)` |
 
 ---
 
@@ -458,9 +460,8 @@ Before solving, the hard subsystem (zero + nonneg cones + flow bounds) is solved
 
 - **`ClarabelSolver`** ([solver.py](src/pysuto/solver.py)) — `.load_run(run_id)`, `.feasibility_check(run, t_label)`, `.solve_all(run_id, timesteps=…)`, `.persist(run_id, results, output_dir, …)`.
 - **`OptimResult`** ([solver.py](src/pysuto/solver.py)) — per-timestep dataclass: `F_opt`, `eps_opt`, `c_star`, `residuals`, `objective`, `iterations`, `solve_time_s`, `solver_status`, `convergence`, optional `iter_history`.
-- **`OptUncertainty`** ([optunc.py](src/pysuto/optunc.py)) — placeholder / stub for KKT-sensitivity uncertainty propagation `Σ_opt = J Σ_c Jᵀ`. The implementation is commented out pending re-integration; not currently called from the canonical workflow.
 
-Solver diagnostics live in [diag/](src/pysuto/diag/) (`SolverDiag`); see the module docstring for the full plot catalogue.
+Solver diagnostics live in [diag/](src/pysuto/diag/) (`SolverDiag`); see the module docstring for the full plot catalogue. Posterior uncertainty (`σ_a*`, confidence intervals) is produced by [Stage 5](#stage-5--posterior-uncertainty-propagation) (`KalmanUncProp` in [uncprop.py](src/pysuto/uncprop.py)).
 
 #### Key parameters
 
@@ -496,6 +497,106 @@ optim_run_id = solver.persist(
 
 ---
 
+### Stage 5 — Posterior uncertainty propagation
+
+**What this stage does.** Loads a persisted Stage-4 `OptimRun` plus its upstream `ConstraintRun`, then computes the marginal posterior standard deviation `σ_a*(t)` and a Gaussian `(1-α)` confidence interval per edge × timestep. The Cholesky pattern of `S(t) = G·diag(σ²_a)·Gᵀ + diag(σ²_c(t))` is analyzed once (G is time-invariant) and the numeric factor is refreshed per timestep because σ_c is time-variant.
+
+**Inputs:** `opt_run_id` (Stage 4 output; the upstream `const_run_id` is discovered from its sidecar).
+**Outputs:** `UncPropResult` with `per_timestep[t] = {sigma_a_star, lower, upper, diagnostics}`.
+
+> Uses the same σ-conditioning rules the solver applied (see [`_conditioning.py`](src/pysuto/_conditioning.py)) so that the posterior is mathematically consistent with the `a*` returned by Stage 4.
+
+#### Math
+
+##### Closed-form posterior covariance (Approach A)
+
+For the reconciliation QP with prior $a_0 \sim \mathcal{N}(\bar a_0, \Sigma_a)$, soft RHS $c_s \sim \mathcal{N}(\bar c_s, \Sigma_c)$, hard equalities $G_h a = c_h$, and slack ε on the soft block:
+
+$$\min_{a,\varepsilon}\ \tfrac{1}{2}(a - a_0)^\top \Sigma_a^{-1}(a - a_0) + \tfrac{1}{2}\varepsilon^\top \Sigma_c^{-1}\varepsilon \quad \text{s.t.}\quad G_h a = c_h,\ G_s a + \varepsilon = c_s.$$
+
+Stacking $G = [G_h;\, G_s]$ and $\Sigma_c^{\mathrm{full}} = \mathrm{blkdiag}(\mathbf{0}_{m_h},\, \Sigma_c)$, the interior KKT system collapses to
+
+$$\boxed{\;\Sigma_{a^*} = \Sigma_a - \Sigma_a G^\top S^{-1} G \Sigma_a, \qquad S = G\Sigma_a G^\top + \Sigma_c^{\mathrm{full}}.\;}$$
+
+##### Marginal diagonal via Cholesky
+
+For diagonal $\Sigma_a = \mathrm{diag}(\sigma^2_a)$, the per-edge variance reduces to
+
+$$\boxed{\;\sigma^2_{a^*,i}(t) = \sigma^2_{a,i}\,\big(1 - \sigma^2_{a,i}\,\|L(t)^{-1} g_i\|_2^2\big), \quad S(t) = L(t)L(t)^\top, \quad g_i = \text{col}_i(G).\;}$$
+
+The CHOLMOD backend computes $\|L^{-1} g_i\|^2$ column-block at a time; the scipy fallback computes the equivalent quadratic form $g_i^\top S^{-1} g_i$ via `splu` (≈ 2× the work, no symbolic-pattern reuse).
+
+Posterior std and confidence interval:
+
+$$\sigma_{a^*,i}(t) = \sqrt{\max(\sigma^2_{a^*,i}(t), 0)}, \qquad [\text{lower}_i,\, \text{upper}_i] = \max\!\big(a^*_i(t) - z\,\sigma_{a^*,i}(t),\, l_i\big) \ \text{up to}\ \min\!\big(a^*_i(t) + z\,\sigma_{a^*,i}(t),\, u_i\big), \qquad z = \Phi^{-1}(1 - \alpha/2).$$
+
+##### Hard rows and the `Σ_c^full` block structure
+
+σ_c on hard rows is forced to **exact zero** before the per-t Cholesky (see [`condition_sigma_c(hard_mask=...)`](src/pysuto/_conditioning.py)); soft rows receive a numerical floor only. This preserves the $\Sigma_c^{\mathrm{full}} = \mathrm{blkdiag}(\mathbf{0}_h,\, \Sigma_{c,s})$ structure the derivation relies on. Hard-balanced edges then produce **zero-width** CIs (`lower = a* = upper`) — this is the correct, expected behaviour.
+
+##### Sanity invariants (checked in tests)
+
+- **Monotonicity:** $\sigma^2_{a^*,i} \leq \sigma^2_{a,i}$ for every $i$.
+- **PSD-ness:** $\sigma^2_{a^*,i} \geq 0$ (clipped after the variance update).
+- **Hard residual:** $\|G_h a^*\|_\infty < 10^{-6}$ — verified via the `max_resid_hard` diagnostic.
+- **Byron (1978) limit:** as $\Sigma_c \to 0$, the formula collapses to the classical hard-only reduction.
+
+#### Classes
+
+- **`BaseUncProp`** ([uncprop.py](src/pysuto/uncprop.py)) — ABC with a single abstract method `compute(opt_run_id, alpha) → UncPropResult`. Future concretes (`MCUncProp`, `BoundedKalmanUncProp`, `KKTSensitivityUncProp`) slot in as siblings.
+- **`KalmanUncProp`** ([uncprop.py](src/pysuto/uncprop.py)) — closed-form GLS concrete using sparse Cholesky. Cross-stage discovery (`opt_run_id` → `const_run_id` via the opt sidecar) happens inside `.compute()`; persistence via `.persist(result, opt_run_id, label)`.
+- **`UncPropResult` / `UncPropTimestep`** ([uncprop.py](src/pysuto/uncprop.py)) — return dataclasses. `UncPropTimestep` holds `(sigma_a_star, lower, upper, diagnostics)` per t; `a*` is **not** stored — readers join on the upstream `opt_run_id`.
+- **`UncPropRunRegistry`** ([registry/uncprop.py](src/pysuto/registry/uncprop.py)) — Stage-5 output registry; harmonized run-id (`uncprop_<ts>_<code>`), per-t `.npz`, diagnostics in sidecar.
+- **`condition_prior` / `condition_sigma_c`** ([_conditioning.py](src/pysuto/_conditioning.py)) — shared helpers also used by `ClarabelSolver`, guaranteeing that uncprop applies the same σ_a floor / ceiling rules the solver applied.
+
+#### Key parameters
+
+| Parameter | Default | Effect |
+|---|---|---|
+| `alpha` (passed to `.compute()`) | `0.05` | CI level — Gaussian quantile $z = \Phi^{-1}(1-\alpha/2)$ |
+| `block_size` | `1024` | Column-block size for the triangular solve; trades memory ↔ Python-loop overhead |
+| `sigma_a_floor_abs` | `1e-8` | Same as `ClarabelSolver` (matched for prior consistency) |
+| `sigma_a_floor_rel` | `1e-5` | Same as `ClarabelSolver` |
+| `sigma_a_ceiling_factor` | `1e5` | Same as `ClarabelSolver` |
+| `sigma_c_floor` | `1e-9` | Floor on soft-row σ_c; hard rows are forced to exact zero regardless |
+
+#### Use case
+
+```python
+from pysuto.uncprop import KalmanUncProp
+
+prop = KalmanUncProp(
+    opt_dir     = "data/proc/opt",
+    const_dir   = "data/proc/const",
+    uncprop_dir = "data/proc/uncprop",
+)
+result          = prop.compute(opt_run_id, alpha=0.05)
+uncprop_run_id  = prop.persist(result, opt_run_id, label="copper")
+
+# result.per_timestep["2020"].sigma_a_star  → (E,) posterior std
+# result.per_timestep["2020"].lower / upper → (E,) clipped to [l, u]
+# result.per_timestep["2020"].diagnostics   → trace_prior, trace_post,
+#                                             max_resid_hard, psd_min_diag
+```
+
+#### Optional dependency
+
+Posterior covariance leans on sparse Cholesky with symbolic-pattern reuse across timesteps. Install `scikit-sparse` (CHOLMOD wrapper) for the fast path:
+
+```bash
+pip install -e ".[uncprop]"      # adds scikit-sparse
+```
+
+Without it, `KalmanUncProp` falls back to `scipy.sparse.linalg.splu` — same answers, ~2× the per-timestep cost, no symbolic-pattern caching.
+
+#### Caveats
+
+The v1 module is **bound-blind**: at edges where `a* = l` with positive dual, the marginal σ_a* is an overestimate. A future `BoundedKalmanUncProp` concrete will augment G with active-set rows from the solver dual `z*` and refactor. Per the spec (`docs/rep/plans/stage3_posterior_uncertainty_approach_A.md` §6), the closed form is also the **Laplace approximation** of the true posterior — acceptable for tightly-distributed flows but increasingly approximate for wide log-normal pedigree tails.
+
+See [`docs/rep/plans/stage5_uncprop_integration_plan.md`](docs/rep/plans/stage5_uncprop_integration_plan.md) for the full integration plan and the v1 scope cuts.
+
+---
+
 ## Module reference
 
 > Contributors / LLM assistants: see [CLAUDE.md](CLAUDE.md) for behavioural rules.
@@ -508,7 +609,7 @@ optim_run_id = solver.persist(
 | [feedpipe.py](src/pysuto/feedpipe.py) | `run_feed_pipeline`, `step_A_read_metadata`/`_B_build_concordance`/`_C_build_weight_matrix`/`_D_apply_and_propagate`, `register_feed` | Stage 1 orchestration. |
 | [unc.py](src/pysuto/unc.py) | `PedigreeScores`, `UncertaintyMixin`, `PropagationResult` | Pedigree→CV (Laner et al.); Lp / power-mean propagation through `W`. |
 | [meta.py](src/pysuto/meta.py) | `DataFeedMetadata` | Parses the Excel sidecar. |
-| [registry/](src/pysuto/registry/) | `BaseOutputRegistry`, `DataFeedRegistry`, `ImputationRunRegistry`, `ConstraintRunRegistry`, `OptimRunRegistry`, `_RegistryEntry`, `make_run_id`, `build_sidecar` | Harmonized output registries (Stages 1–4); shared run-id pattern + sidecar schema. **Subpackage layout:** `base.py`, `feed.py`, `imputation.py`, `constraint.py`, `optim.py`, `_sidecar.py`. |
+| [registry/](src/pysuto/registry/) | `BaseOutputRegistry`, `DataFeedRegistry`, `ImputationRunRegistry`, `ConstraintRunRegistry`, `OptimRunRegistry`, `UncPropRunRegistry`, `_RegistryEntry`, `make_run_id`, `build_sidecar` | Harmonized output registries (Stages 1–5); shared run-id pattern + sidecar schema. **Subpackage layout:** `base.py`, `feed.py`, `imputation.py`, `constraint.py`, `optim.py`, `uncprop.py`, `_sidecar.py`. |
 | [input_registry.py](src/pysuto/input_registry.py) | `InputRegistry`, `InputRegistries` | Per-kind versioned snapshot store for `feed`, `acc`, `params` inputs; hardlink dedup; auto-bump on content-hash change. |
 | [utils.py](src/pysuto/utils.py) | `_NpEncoder`, io helpers | JSON serialisation, numpy-safe dump/load. |
 | [logging.py](src/pysuto/logging.py) | `get_logger` | Structured run logging. |
@@ -517,7 +618,8 @@ optim_run_id = solver.persist(
 | [impute/](src/pysuto/impute/) | `ImputationEngine`, `BaseImputer`, `ParametricImputer`, `FormulaImputer`, `TimeImputer`, `FlatPriorImputer`, `ParametricRelation`, `FormulaRelation`, `SourceTerm`, `ParamRef`, `ImputationLog`, `ImputationMetadata` | Ordered imputation pipeline; per-edge provenance logging. **Subpackage layout:** `engine.py`, `base.py`, `parametric.py`, `formula.py`, `time.py`, `flat_prior.py`. |
 | [constraints/](src/pysuto/constraints/) | `ConstraintEngine`, `BaseConstraintBuilder`, `MassBalanceBuilder`, `SumConstraintBuilder`, `RatioConstraintBuilder`, `RatioBoundBuilder`, `FlowBoundsBuilder`, `ConstraintBlock`, `ConstraintRun` | Plugin constraint pipeline; persists to `data/proc/const/` via `ConstraintRunRegistry` (lives in [registry/](src/pysuto/registry/)). **Subpackage layout:** `engine.py`, `base.py`, `mass_balance.py`, `sum.py`, `ratio.py`, `flow_bound.py`, `run.py`. |
 | [solver.py](src/pysuto/solver.py) | `ClarabelSolver`, `OptimResult` | σ-weighted QP via Clarabel; warm-start across timesteps. |
-| [optunc.py](src/pysuto/optunc.py) | `OptUncertainty` *(stub)* | KKT-sensitivity uncertainty propagation; currently commented out. |
+| [uncprop.py](src/pysuto/uncprop.py) | `BaseUncProp`, `KalmanUncProp`, `UncPropResult`, `UncPropTimestep` | Stage-5 posterior uncertainty via sparse Cholesky; persists to `data/proc/uncprop/` via `UncPropRunRegistry`. |
+| [_conditioning.py](src/pysuto/_conditioning.py) | `condition_prior`, `condition_sigma_c` | Shared σ_a / σ_c conditioning rules — guarantees uncprop sees the same effective prior the solver did. |
 | [diag/](src/pysuto/diag/) | `FeedDiagnostics`, `AggDiagnostic`, `ImpDiagnostic`, `ConstDiagnostic`, `OptimDiagnostics`, `SolverDiag` | Cross-stage diagnostic plot suites. **Subpackage layout:** `feed.py`, `agg.py`, `imp.py`, `const.py`, `optim.py`, `solver.py`, `_plot.py`. |
 
 ---
@@ -542,6 +644,7 @@ from pysuto.constraints import (
     RatioConstraintBuilder, RatioBoundBuilder, FlowBoundsBuilder,
 )
 from pysuto.solver import ClarabelSolver
+from pysuto.uncprop import KalmanUncProp
 from pysuto.diag import AggDiagnostic, ImpDiagnostic
 
 cfg           = load_config()           # config/config.yaml
@@ -676,6 +779,17 @@ optim_run_id = solver.persist(
 # results[t].F_opt   → optimised flow vector
 # results[t].eps_opt → slack on free-cone rows
 # results[t].residuals = G @ F_opt - c   (≈0 on hard rows, ≈ε on free rows)
+
+# ── Stage 5: posterior uncertainty propagation ───────────────────────────
+prop = KalmanUncProp(
+    opt_dir     = "data/proc/opt",
+    const_dir   = "data/proc/const",
+    uncprop_dir = "data/proc/uncprop",
+)
+uncprop_result = prop.compute(optim_run_id, alpha=0.05)
+uncprop_run_id = prop.persist(uncprop_result, optim_run_id, label="copper")
+# uncprop_result.per_timestep[t].sigma_a_star  → (E,) posterior std
+# uncprop_result.per_timestep[t].lower / upper → (E,) Gaussian CI, clipped to [l, u]
 ```
 
 ### Output run-id format
@@ -766,12 +880,14 @@ pysuto/
 ├── meta.py                DataFeedMetadata                                  │
 ├── registry/              BaseOutputRegistry · DataFeedRegistry            │
 │   ├── base.py             ImputationRunRegistry · ConstraintRunRegistry    │
-│   ├── feed.py             OptimRunRegistry · _RegistryEntry                │
-│   ├── imputation.py       make_run_id · build_sidecar                      │
+│   ├── feed.py             OptimRunRegistry · UncPropRunRegistry            │
+│   ├── imputation.py       _RegistryEntry · make_run_id · build_sidecar     │
 │   ├── constraint.py                                                        │
 │   ├── optim.py                                                             │
+│   ├── uncprop.py                                                           │
 │   └── _sidecar.py                                                          │
-├── input_registry.py      InputRegistry · InputRegistries                  │  Stages 0–4
+├── input_registry.py      InputRegistry · InputRegistries                  │  Stages 0–5
+├── _conditioning.py       condition_prior · condition_sigma_c              │
 ├── utils.py               _NpEncoder · io helpers                          │
 ├── logging.py             structured run logging                          ─┘
 │
@@ -795,8 +911,11 @@ pysuto/
 │   └── run.py                                                              ─┘
 │
 ├── solver.py              ClarabelSolver · OptimResult                    ─┐ Stage 4
-├── optunc.py              OptUncertainty (stub)                            │
-└── diag/                  FeedDiagnostics · AggDiagnostic · ImpDiagnostic  │
+│                                                                            │
+├── uncprop.py             BaseUncProp · KalmanUncProp                     ─┐ Stage 5
+│                          UncPropResult · UncPropTimestep                   │
+│                                                                            │
+└── diag/                  FeedDiagnostics · AggDiagnostic · ImpDiagnostic  ─┐
     ├── feed.py             ConstDiagnostic · OptimDiagnostics · SolverDiag   │
     ├── agg.py                                                                │
     ├── imp.py                                                                │
@@ -812,8 +931,9 @@ pysuto/
 acc  →  conc  →  feed  →  feedpipe
 unc  ───────────────────────────────  (mixin, no upward imports)
 meta  →  registry
-collector  →  agg  →  impute  →  constraints  →  solver
-optunc / diag  ──── consumers; never imported into the data layer
+collector  →  agg  →  impute  →  constraints  →  solver  →  uncprop
+_conditioning  ←  solver, uncprop          (shared σ-conditioning helper)
+diag           ──── consumer; never imported into the data layer
 utils / logging  ←  imported by any layer, import nothing from pysuto
 ```
 
@@ -838,6 +958,7 @@ Each layer has a dedicated test file in `tests/`. Shared fixtures live in `conft
 | [test_constraints.py](tests/test_constraints.py) | All five constraint builders; `G` time-invariance; `ConstraintRunRegistry` round-trip |
 | [test_solver.py](tests/test_solver.py) | Clarabel transform, feasibility pre-check, warm-start, per-timestep solve |
 | [test_solver_diag.py](tests/test_solver_diag.py) | `SolverDiag` plot smoke test |
+| [test_uncprop.py](tests/test_uncprop.py) | `KalmanUncProp` closed-form 2×2, PSD/monotonicity, Byron limit, CHOLMOD symbolic-factor reuse, registry round-trip, CI clipping, end-to-end `compute(opt_run_id)` |
 
 Run with `pytest tests/ -v`.
 

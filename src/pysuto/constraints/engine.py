@@ -31,6 +31,17 @@ from .run  import ConstraintRun
 _log = get_logger(__name__)
 
 
+# G rows of these types are allowed to span multiple valuations (e.g.
+# ratio_eq rows that bridge Mass<->CC via a Cu-grade coefficient r).
+# Every other type must contain edges of exactly one valuation — the
+# structural unit-coherence guarantee on which the σ-weighted QP relies.
+MIXED_VALUATION_OK = frozenset({"ratio_eq", "ratio_bound"})
+
+
+class ConstraintUnitMixingError(ValueError):
+    """Raised when a G row of a non-whitelisted type mixes valuations."""
+
+
 def _lp_regularize(
     sigma:     np.ndarray,
     centre:    np.ndarray,
@@ -199,6 +210,31 @@ class ConstraintEngine:
             ok = False
         else:
             _log.info("CHECK OK: u >= l for all %d edges", acc.n_edges)
+
+        # 7. Unit coherence: no G row outside the whitelist may mix valuations.
+        if cr.G.nnz > 0 and "type" in rm.columns:
+            edge_val = acc.edge_index["valuation"].values
+            types_arr = rm["type"].to_numpy()
+            G_csr = cr.G.tocsr()
+            checked = 0
+            for row_id in range(G_csr.shape[0]):
+                if types_arr[row_id] in MIXED_VALUATION_OK:
+                    continue
+                cols = G_csr.indices[G_csr.indptr[row_id]: G_csr.indptr[row_id + 1]]
+                if cols.size == 0:
+                    continue
+                row_vals = set(edge_val[cols].tolist())
+                if len(row_vals) > 1:
+                    cid = rm.iloc[row_id]["constraint_id"]
+                    raise ConstraintUnitMixingError(
+                        f"G row {row_id} (type={types_arr[row_id]!r}, "
+                        f"constraint_id={cid!r}) mixes valuations {sorted(row_vals)}. "
+                        f"Every sum_eq / mass_balance row must contain edges of "
+                        f"exactly one valuation."
+                    )
+                checked += 1
+            _log.info("CHECK OK: unit-coherence verified on %d rows "
+                      "(whitelist: %s)", checked, sorted(MIXED_VALUATION_OK))
 
         _log.info("Constraint check %s", "PASSED" if ok else "FAILED (see warnings above)")
 

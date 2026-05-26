@@ -198,15 +198,15 @@ class TestMassBalanceBuilder:
         assert np.all(block.sigma_c == 0.0)
 
     def test_mass_balance_row_meta_has_time(self, toy_acc):
-        """row_meta carries a `time` column matching the year baked
-        into `constraint_id`."""
+        """row_meta carries a `time` column; constraint_id ends with
+        `_t{time}_{valuation}` after the per-valuation split."""
         from pysuto.constraints import MassBalanceBuilder
         block = MassBalanceBuilder().build_static(toy_acc)
         rm = block.row_meta
         assert "time" in rm.columns
-        for cid, t in zip(rm["constraint_id"], rm["time"]):
-            assert str(cid).endswith(f"_t{t}"), \
-                f"constraint_id={cid!r} does not end with _t{t}"
+        for cid, t, v in zip(rm["constraint_id"], rm["time"], rm["valuation"]):
+            assert str(cid).endswith(f"_t{t}_{v}"), \
+                f"constraint_id={cid!r} does not end with _t{t}_{v}"
 
 
 # ---------------------------------------------------------------------------
@@ -227,8 +227,8 @@ class TestSumConstraintBuilder:
         assert np.all(G[:, 9] == 0.0), "Waste edge 9 should not appear in sum constraints"
 
     def test_sum_row_meta_has_time(self, toy_acc):
-        """SumConstraintBuilder row_meta has a `time` column matching
-        the year embedded in `constraint_id`."""
+        """SumConstraintBuilder row_meta has a `time` column; constraint_id
+        ends with `_t{time}_{valuation}` after the per-valuation split."""
         from pysuto.constraints import SumConstraintBuilder
         block = SumConstraintBuilder.from_acc_struct(
             toy_acc, sigma_fraction=0.05,
@@ -236,8 +236,8 @@ class TestSumConstraintBuilder:
         rm = block.row_meta
         assert "time" in rm.columns
         assert rm["time"].notna().all()
-        for cid, t in zip(rm["constraint_id"], rm["time"]):
-            assert str(cid).endswith(f"_t{t}")
+        for cid, t, v in zip(rm["constraint_id"], rm["time"], rm["valuation"]):
+            assert str(cid).endswith(f"_t{t}_{v}")
 
     def test_sum_sigma_c_varies_per_timestep(self, toy_acc):
         """build_dynamic returns genuinely different σ_c per timestep:
@@ -354,6 +354,259 @@ class TestSumConstraintBuilder:
         if block.G_rows.shape[0] > 0:
             assert (block.row_meta["cone_type"] == "free").all()
             assert (~block.row_meta["is_hard"]).all()
+
+
+# ---------------------------------------------------------------------------
+# Per-valuation split (hard rule: no Mass+CC mixing in sum_eq / mass_balance)
+# ---------------------------------------------------------------------------
+
+def _make_two_valuation_acc():
+    """toy_acc clone with both Mass and CC valuations on the same topology."""
+    from pysuto.acc import AccountingStructure, EdgeBounds
+    acc = AccountingStructure.__new__(AccountingStructure)
+    import logging
+    acc.logger = logging.getLogger("test_acc_2val")
+    acc.id     = "toy_2val"
+    acc.node_index = pd.DataFrame(
+        [
+            ("Mining", "Process", "A", None),
+            ("Ore",    "Flow",    "A", None),
+            ("Mining", "Process", "B", None),
+            ("Ore",    "Flow",    "B", None),
+            ("Waste",  "SB",      "A", "Nature"),
+        ],
+        columns=["sector", "entity", "region", "entity_sub"],
+    )
+    acc.n_nodes    = 5
+    acc.time_range = ["2020", "2021"]
+    acc.valuation  = ["Mass", "CC"]
+
+    rows = []
+    eid  = 0
+    for t in ["2020", "2021"]:
+        for val in ["Mass", "CC"]:
+            for (fi, ti) in [(0,1),(2,3),(1,0),(3,2),(0,4)]:
+                rows.append({"edge_id": eid, "from_id": fi, "to_id": ti,
+                             "time": t, "valuation": val})
+                eid += 1
+    acc.edge_index = pd.DataFrame(rows)
+    acc.n_edges    = len(acc.edge_index)
+
+    # Per-(time, val) bucket of 5 edges: supply (0,1), use (2,3), waste (4).
+    ei = acc.edge_index
+    from_sector = acc.node_index.loc[ei["from_id"].values, "sector"].values
+    to_sector   = acc.node_index.loc[ei["to_id"].values,   "sector"].values
+    from_entity = acc.node_index.loc[ei["from_id"].values, "entity"].values
+    to_entity   = acc.node_index.loc[ei["to_id"].values,   "entity"].values
+    supply = (from_entity == "Process") & np.isin(to_entity, ["Flow", "SB"]) & (to_sector != "Waste")
+    use    = np.isin(from_entity, ["Flow", "SB"]) & (to_entity == "Process")
+    sb     = (to_entity == "SB")
+
+    acc.masks = {
+        "supply":   supply,
+        "use":      use,
+        "tradable": np.zeros(acc.n_edges, dtype=bool),
+        "sb":       sb,
+    }
+    acc.ruleset = None
+
+    bounds          = EdgeBounds.__new__(EdgeBounds)
+    bounds.n_edges  = acc.n_edges
+    bounds.DEFAULT_LOWER = EdgeBounds.DEFAULT_LOWER
+    bounds.DEFAULT_UPPER = EdgeBounds.DEFAULT_UPPER
+    bounds.l        = np.zeros(acc.n_edges)
+    bounds.u        = np.full(acc.n_edges, EdgeBounds.DEFAULT_UPPER)
+    bounds.n_exceptions = 0
+    acc.bounds = bounds
+    return acc
+
+
+@pytest.fixture
+def toy_acc_2val():
+    return _make_two_valuation_acc()
+
+
+class TestPerValuationSplit:
+
+    def test_mass_balance_doubles_with_two_valuations(self, toy_acc_2val):
+        """Same topology in 2 valuations → 2× the mass-balance rows."""
+        from pysuto.constraints import MassBalanceBuilder
+        block = MassBalanceBuilder().build_static(toy_acc_2val)
+        # Balanced nodes: Mining/A, Ore/A, Mining/B, Ore/B (4)
+        # times: 2 ; valuations: 2 → 4 × 2 × 2 = 16
+        assert block.G_rows.shape[0] == 16
+        assert set(block.row_meta["valuation"]) == {"Mass", "CC"}
+
+    def test_mass_balance_rows_are_unit_coherent(self, toy_acc_2val):
+        """No mass_balance G row touches edges of more than one valuation."""
+        from pysuto.constraints import MassBalanceBuilder
+        block = MassBalanceBuilder().build_static(toy_acc_2val)
+        G = block.G_rows.tocsr()
+        edge_val = toy_acc_2val.edge_index["valuation"].values
+        for i in range(G.shape[0]):
+            cols = G.indices[G.indptr[i]: G.indptr[i+1]]
+            assert len(set(edge_val[cols])) == 1, \
+                f"mass_balance row {i} touches multiple valuations"
+
+    def test_sum_from_acc_struct_splits_per_valuation(self, toy_acc_2val):
+        from pysuto.constraints import SumConstraintBuilder
+        block = SumConstraintBuilder.from_acc_struct(
+            toy_acc_2val, sigma_fraction=0.05,
+        ).build_static(toy_acc_2val)
+        # from_acc_struct builds rows per balanced-by-supply/use node. The
+        # toy fixture has Ore/A and Ore/B balanced (supply lands at Ore;
+        # use leaves Ore). Mining nodes have no incoming supply → not
+        # balanced by from_acc_struct semantics. So 2 × 2 (times) × 2 (vals) = 8.
+        assert block.G_rows.shape[0] == 8
+        assert set(block.row_meta["valuation"]) == {"Mass", "CC"}
+
+    def test_sum_subentity_splits_per_valuation(self, toy_acc_2val):
+        from pysuto.constraints import SumConstraintBuilder
+        block = SumConstraintBuilder.from_acc_struct_subentity(
+            toy_acc_2val,
+            entity_filter={"Process"},
+            rhs_out_entity={"Flow"},
+            lhs_neg_out_entity_sub={"Nature"},
+        ).build_static(toy_acc_2val)
+        # Process nodes: Mining/A, Mining/B at 2 times × 2 valuations = 8.
+        assert block.G_rows.shape[0] == 8
+        assert set(block.row_meta["valuation"]) == {"Mass", "CC"}
+
+    def test_sum_rows_are_unit_coherent(self, toy_acc_2val):
+        from pysuto.constraints import SumConstraintBuilder
+        block = SumConstraintBuilder.from_acc_struct(
+            toy_acc_2val, sigma_fraction=0.05,
+        ).build_static(toy_acc_2val)
+        G = block.G_rows.tocsr()
+        edge_val = toy_acc_2val.edge_index["valuation"].values
+        for i in range(G.shape[0]):
+            cols = G.indices[G.indptr[i]: G.indptr[i+1]]
+            assert len(set(edge_val[cols])) == 1
+
+    def test_row_meta_carries_node_attrs(self, toy_acc_2val):
+        """row_meta picks up sector / region / entity / entity_sub from the
+        node the row centers on (decoded from acc.node_index)."""
+        from pysuto.constraints import MassBalanceBuilder, SumConstraintBuilder
+        mb = MassBalanceBuilder().build_static(toy_acc_2val)
+        for col in ("valuation", "sector", "region", "entity", "entity_sub"):
+            assert col in mb.row_meta.columns
+
+        # Ore-A row: sector=Ore, region=A, entity=Flow
+        ore_a_row = mb.row_meta[
+            (mb.row_meta["sector"] == "Ore")
+            & (mb.row_meta["region"] == "A")
+            & (mb.row_meta["valuation"] == "Mass")
+            & (mb.row_meta["time"] == "2020")
+        ]
+        assert len(ore_a_row) == 1
+        assert ore_a_row.iloc[0]["entity"] == "Flow"
+
+        sb = SumConstraintBuilder.from_acc_struct(
+            toy_acc_2val, sigma_fraction=0.05,
+        ).build_static(toy_acc_2val)
+        for col in ("valuation", "sector", "region", "entity"):
+            assert col in sb.row_meta.columns
+
+
+class TestUnitMixingCheck:
+
+    def test_check_raises_on_mixed_sum_row(self, toy_acc_2val, toy_agg_result):
+        """Manually inject a sum_eq row that mixes Mass and CC edges; engine
+        _check must raise ConstraintUnitMixingError."""
+        from pysuto.constraints import (
+            ConstraintEngine, MassBalanceBuilder,
+            ConstraintUnitMixingError,
+        )
+
+        # Build the engine + a minimal agg_result for toy_acc_2val.
+        agg = _make_toy_agg_result(toy_acc_2val, seed=42)
+        engine = ConstraintEngine(
+            acc_struct=toy_acc_2val,
+            storage_dir=str("/tmp/test_const_runs"),
+            sigma_a_cv_min=0.0,
+            sigma_a_abs_floor=0.0,
+            sigma_c_cv_min=0.0,
+            sigma_c_abs_floor=0.0,
+        )
+        engine.register(MassBalanceBuilder())
+
+        # Run once to obtain a valid baseline run, then mutate G + row_meta
+        # to inject a mixed row and re-invoke _check.
+        cr = engine.run(
+            agg_result=agg,
+            timesteps=[str(t) for t in toy_acc_2val.time_range],
+            persist=False,
+        )
+        # Inject a fake sum_eq row that mixes Mass (eid 0) and CC (eid 5).
+        n_edges = toy_acc_2val.n_edges
+        bad_row = sp.csr_matrix(
+            ([1.0, 1.0], ([0, 0], [0, 5])), shape=(1, n_edges),
+        )
+        cr.G = sp.vstack([cr.G, bad_row], format="csr")
+        cr.row_meta = pd.concat([
+            cr.row_meta,
+            pd.DataFrame([{
+                "constraint_id": "fake_mixed",
+                "type":          "sum_eq",
+                "is_hard":       False,
+                "cone_type":     "free",
+                "time":          "2020",
+                "valuation":     None,
+            }]),
+        ], ignore_index=True)
+        for td in cr.timestep_data.values():
+            td["c"]       = np.append(td["c"], 0.0)
+            td["sigma_c"] = np.append(td["sigma_c"], 1.0)
+
+        with pytest.raises(ConstraintUnitMixingError, match="mixes valuations"):
+            engine._check(cr)
+
+    def test_check_passes_for_ratio_eq_with_mixed_valuations(self, toy_acc_2val, toy_agg_result):
+        """Whitelisted ratio_eq rows may span valuations without raising."""
+        from pysuto.constraints import (
+            ConstraintEngine, MassBalanceBuilder,
+            ConstraintUnitMixingError,
+        )
+
+        agg = _make_toy_agg_result(toy_acc_2val, seed=7)
+        engine = ConstraintEngine(
+            acc_struct=toy_acc_2val,
+            storage_dir=str("/tmp/test_const_runs"),
+            sigma_a_cv_min=0.0,
+            sigma_a_abs_floor=0.0,
+            sigma_c_cv_min=0.0,
+            sigma_c_abs_floor=0.0,
+        )
+        engine.register(MassBalanceBuilder())
+        cr = engine.run(
+            agg_result=agg,
+            timesteps=[str(t) for t in toy_acc_2val.time_range],
+            persist=False,
+        )
+
+        # Inject a ratio_eq row that legitimately bridges Mass<->CC.
+        n_edges = toy_acc_2val.n_edges
+        bad_row = sp.csr_matrix(
+            ([1.0, -0.01], ([0, 0], [0, 5])), shape=(1, n_edges),
+        )
+        cr.G = sp.vstack([cr.G, bad_row], format="csr")
+        cr.row_meta = pd.concat([
+            cr.row_meta,
+            pd.DataFrame([{
+                "constraint_id": "fake_ratio",
+                "type":          "ratio_eq",
+                "is_hard":       False,
+                "cone_type":     "free",
+                "time":          "2020",
+                "valuation":     None,
+            }]),
+        ], ignore_index=True)
+        for td in cr.timestep_data.values():
+            td["c"]       = np.append(td["c"], 0.0)
+            td["sigma_c"] = np.append(td["sigma_c"], 1.0)
+
+        # Must not raise.
+        engine._check(cr)
 
 
 # ---------------------------------------------------------------------------

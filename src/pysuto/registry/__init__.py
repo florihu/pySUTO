@@ -36,6 +36,7 @@ from .feed         import DataFeedRegistry
 from .imputation   import ImputationRunRegistry
 from .constraint   import ConstraintRunRegistry
 from .optim        import OptimRunRegistry
+from .uncprop      import UncPropRunRegistry
 
 __all__ = [
     "BaseOutputRegistry",
@@ -43,6 +44,7 @@ __all__ = [
     "ImputationRunRegistry",
     "ConstraintRunRegistry",
     "OptimRunRegistry",
+    "UncPropRunRegistry",
     "DataFeedMetadata",
     "_RegistryEntry",
     "_NpEncoder",

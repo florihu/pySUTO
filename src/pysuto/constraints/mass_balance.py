@@ -48,15 +48,10 @@ class MassBalanceBuilder(BaseConstraintBuilder):
         node_idx  = acc_struct.node_index
         n_edges   = acc_struct.n_edges
         times     = acc_struct.time_range
+        valuations = list(acc_struct.valuation)
 
-        # Expand edge_index with decoded node attributes
-        ni = node_idx.loc[ei["from_id"].values]
-        nj = node_idx.loc[ei["to_id"].values]
-        ef_arr = ni["entity"].values
-        et_arr = nj["entity"].values
-        sf_arr = acc_struct.masks["supply"]
-        uf_arr = acc_struct.masks["use"]
         t_arr  = ei["time"].values
+        v_arr  = ei["valuation"].values
 
         if self._mask_name is not None:
             if self._mask_name not in acc_struct.masks:
@@ -74,47 +69,52 @@ class MassBalanceBuilder(BaseConstraintBuilder):
         row_id = 0
 
         for time in times:
-            t_mask = (t_arr == str(time)) & scope_mask
-            # Any node that has at least one incoming AND one outgoing edge is balanced.
-            # Incoming: edges where to_id == n  (supply edges for Flow nodes,
-            #                                    use edges for Process nodes)
-            # Outgoing: edges where from_id == n (supply edges for Process nodes,
-            #                                     use edges for Flow nodes)
-            nodes_with_incoming = set(ei.loc[t_mask, "to_id"].values)
-            nodes_with_outgoing = set(ei.loc[t_mask, "from_id"].values)
-            balanced = nodes_with_incoming & nodes_with_outgoing
+            t_mask_base = (t_arr == str(time)) & scope_mask
+            for valuation in valuations:
+                t_mask = t_mask_base & (v_arr == valuation)
 
-            for nid in sorted(balanced):
-                entity = str(node_idx.loc[nid, "entity"])
-                if entity not in self._BALANCE_ENTITIES:
-                    continue
+                # Per (time, valuation): any node with ≥1 in AND ≥1 out edge of
+                # this valuation is balanced. Splitting by valuation guarantees
+                # each emitted row is unit-coherent (no Mass+CC mixing in G).
+                nodes_with_incoming = set(ei.loc[t_mask, "to_id"].values)
+                nodes_with_outgoing = set(ei.loc[t_mask, "from_id"].values)
+                balanced = nodes_with_incoming & nodes_with_outgoing
 
-                # incoming edges: to_id == nid  → coefficient +1
-                inc_mask = t_mask & (ei["to_id"].values == nid)
-                # outgoing edges: from_id == nid → coefficient −1
-                out_mask = t_mask & (ei["from_id"].values == nid)
+                for nid in sorted(balanced):
+                    entity = str(node_idx.loc[nid, "entity"])
+                    if entity not in self._BALANCE_ENTITIES:
+                        continue
 
-                inc_ids = ei.loc[inc_mask, "edge_id"].values
-                out_ids = ei.loc[out_mask, "edge_id"].values
+                    inc_mask = t_mask & (ei["to_id"].values == nid)
+                    out_mask = t_mask & (ei["from_id"].values == nid)
 
-                if len(inc_ids) == 0 or len(out_ids) == 0:
-                    continue
+                    inc_ids = ei.loc[inc_mask, "edge_id"].values
+                    out_ids = ei.loc[out_mask, "edge_id"].values
 
-                for eid in inc_ids:
-                    rows_list.append(row_id); cols_list.append(eid); vals_list.append(1.0)
-                for eid in out_ids:
-                    rows_list.append(row_id); cols_list.append(eid); vals_list.append(-1.0)
+                    if len(inc_ids) == 0 or len(out_ids) == 0:
+                        continue
 
-                c_list.append(0.0)
-                sigma_list.append(0.0)
-                meta_list.append({
-                    "constraint_id": f"mass_balance_node{nid}_t{time}",
-                    "type": "mass_balance",
-                    "is_hard": True,
-                    "cone_type": "zero",
-                    "time":      str(time),
-                })
-                row_id += 1
+                    for eid in inc_ids:
+                        rows_list.append(row_id); cols_list.append(eid); vals_list.append(1.0)
+                    for eid in out_ids:
+                        rows_list.append(row_id); cols_list.append(eid); vals_list.append(-1.0)
+
+                    c_list.append(0.0)
+                    sigma_list.append(0.0)
+                    n_row = node_idx.loc[nid]
+                    meta_list.append({
+                        "constraint_id": f"mass_balance_node{nid}_t{time}_{valuation}",
+                        "type":          "mass_balance",
+                        "is_hard":       True,
+                        "cone_type":     "zero",
+                        "time":          str(time),
+                        "valuation":     valuation,
+                        "sector":        str(n_row["sector"]),
+                        "region":        str(n_row["region"]),
+                        "entity":        str(n_row["entity"]),
+                        "entity_sub":    str(n_row.get("entity_sub", "")) if "entity_sub" in node_idx.columns else None,
+                    })
+                    row_id += 1
 
         if row_id == 0:
             return _empty_block(n_edges)
