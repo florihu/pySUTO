@@ -28,6 +28,7 @@ from pysuto.param_relation import (
 )
 
 from .base import BaseConstraintBuilder, ConstraintBlock, _empty_block
+from .sum  import SIGMA_C_INACTIVE, BOUND_C_INACTIVE
 
 _log = get_logger(__name__)
 
@@ -157,11 +158,39 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
 
         G = sp.csr_matrix((vals_list, (rows_list, cols_list)), shape=(M, n_edges))
         _log.info("RatioConstraintBuilder.build_static: %d rows", M)
-        return ConstraintBlock(
+        block = ConstraintBlock(
             G_rows   = G,
             c        = np.zeros(M),
             sigma_c  = np.array([p["sigma_c"] for p in self._pairs]),
             row_meta = pd.DataFrame(meta_list),
+        )
+        self._cached_static = block
+        return block
+
+    def build_dynamic(self, acc_struct, f_agg, sigma_agg, t) -> ConstraintBlock:
+        """
+        Deactivate ratio_eq rows whose ``time`` does not match ``t`` by
+        setting ``sigma_c = SIGMA_C_INACTIVE``. In-year rows keep the
+        per-pair σ_c assembled in :meth:`build_static`.
+
+        Mirrors :meth:`SumConstraintBuilder.build_dynamic`. ``c`` is left
+        unchanged (always 0 for ratio_eq).
+        """
+        static = getattr(self, "_cached_static", None) or self.build_static(acc_struct)
+        if static.G_rows.shape[0] == 0:
+            return _empty_block(acc_struct.n_edges)
+
+        sigma_c  = static.sigma_c.copy()
+        t_str    = str(t)
+        times    = static.row_meta["time"].astype(str).to_numpy()
+        inactive = times != t_str
+        sigma_c[inactive] = SIGMA_C_INACTIVE
+
+        return ConstraintBlock(
+            G_rows   = static.G_rows,
+            c        = static.c,
+            sigma_c  = sigma_c,
+            row_meta = static.row_meta,
         )
 
 
@@ -335,11 +364,38 @@ class RatioBoundBuilder(BaseConstraintBuilder):
 
         G = sp.csr_matrix((vals_list, (rows_list, cols_list)), shape=(row_id, n_edges))
         _log.info("RatioBoundBuilder.build_static: %d rows", row_id)
-        return ConstraintBlock(
+        block = ConstraintBlock(
             G_rows   = G,
             c        = np.zeros(row_id),
             sigma_c  = np.zeros(row_id),
             row_meta = pd.DataFrame(meta_list),
+        )
+        self._cached_static = block
+        return block
+
+    def build_dynamic(self, acc_struct, f_agg, sigma_agg, t) -> ConstraintBlock:
+        """
+        Deactivate ratio_bound rows whose ``time`` does not match ``t`` by
+        setting ``c = BOUND_C_INACTIVE``. The hard inequality
+        ``A x ≤ BOUND_C_INACTIVE`` is then trivially satisfied (worst-case
+        |A x| ≲ 4e12 ≪ 1e15 given u_max = 1e9 and typical bound ratios).
+        σ_c stays 0 for hard rows.
+        """
+        static = getattr(self, "_cached_static", None) or self.build_static(acc_struct)
+        if static.G_rows.shape[0] == 0:
+            return _empty_block(acc_struct.n_edges)
+
+        c        = static.c.copy()
+        t_str    = str(t)
+        times    = static.row_meta["time"].astype(str).to_numpy()
+        inactive = times != t_str
+        c[inactive] = BOUND_C_INACTIVE
+
+        return ConstraintBlock(
+            G_rows   = static.G_rows,
+            c        = c,
+            sigma_c  = static.sigma_c,
+            row_meta = static.row_meta,
         )
 
 

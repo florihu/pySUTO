@@ -40,9 +40,10 @@ import sys
 # ---------------------------------------------------------------------------
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
-# Pipeline wiring (acc_id, constraint bindings) lives in config/config.yaml
-# under `pipeline:`.  Power-mean exponent and σ-regularisation floors are also
-# loaded from config — see `cfg = load_config()` below.
+# Upstream wiring (`imp_run_id`) is passed via the `--imp-run-id` CLI flag.
+# Static wiring (acc_id, constraint bindings), power-mean exponent and
+# σ-regularisation floors come from config/config.yaml — see
+# `cfg = load_config()` below.
 
 ACC_DIR     = os.path.join("data", "proc", "acc")
 IMP_DIR     = os.path.join("data", "proc", "imp")
@@ -81,7 +82,6 @@ from pysuto.logging import get_logger, add_run_handler
 cfg        = load_config()
 ACC_ID     = cfg.pipeline.acc_id
 P_PROP     = cfg.propagation.p
-IMP_RUN_ID = cfg.pipeline.constraints.imp_run_id
 
 CONST_BUILDER_BY_NAME = {
     "RatioConstraintBuilder": RatioConstraintBuilder,
@@ -91,7 +91,7 @@ CONST_BUILDER_BY_NAME = {
 _log = get_logger("init_copper_constraints")
 
 
-def main(label: str) -> None:
+def main(imp_run_id: str, label: str) -> None:
     from datetime import datetime
     add_run_handler(f"logs/init_copper_constraints_{datetime.now():%Y%m%d_%H%M%S}.log")
 
@@ -109,12 +109,12 @@ def main(label: str) -> None:
 
     _log.info("Loading imputation run from %s", IMP_DIR)
     imp_registry = ImputationRunRegistry(storage_dir=IMP_DIR)
-    agg_result = imp_registry.load(IMP_RUN_ID)
+    agg_result = imp_registry.load(imp_run_id)
     _log.info("  f_agg shape=%s  coverage=%d edges  imp_run_id=%s",
-              agg_result.f_agg.shape, agg_result.coverage.sum(), IMP_RUN_ID)
+              agg_result.f_agg.shape, agg_result.coverage.sum(), imp_run_id)
 
     # ── A2. Cross-stage consistency: imp must reference same acc.id+version
-    imp_sidecar = imp_registry.load_sidecar(IMP_RUN_ID)
+    imp_sidecar = imp_registry.load_sidecar(imp_run_id)
     imp_acc_ref = (imp_sidecar.get("parents", {})
                               .get("inputs", {})
                               .get("acc"))
@@ -194,7 +194,7 @@ def main(label: str) -> None:
             "acc":    acc_entry,
             "params": param_refs,
         },
-        "upstream": {"imp_run_id": IMP_RUN_ID},
+        "upstream": {"imp_run_id": imp_run_id},
     }
     constraint_run = engine.run(
         agg_result   = agg_result,
@@ -222,7 +222,10 @@ def main(label: str) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Build and persist constraint matrix.")
-    #parser.add_argument("imp_run_id", help="Imputation run ID from init_collect_aggregate_impute.py")
+    parser.add_argument(
+        "--imp-run-id", required=True,
+        help="ImputationRun ID to load from data/proc/imp/.",
+    )
     parser.add_argument("label", help="Label for this constraint run")
     args = parser.parse_args()
-    main(args.label)
+    main(args.imp_run_id, args.label)

@@ -27,6 +27,13 @@ _log = get_logger(__name__)
 # so the row's slack ε is essentially unpenalised → constraint inactive.
 SIGMA_C_INACTIVE: float = 1e10
 
+# RHS sentinel used to deactivate a hard nonneg-cone ratio_bound row in
+# timesteps where it should not apply. Setting c = BOUND_C_INACTIVE turns
+# the row "A x ≤ c" into a no-op: with u_max = 1e9 and typical ratios
+# |r| ≤ 4000, worst-case |A x| ≤ 4e12 ≪ 1e15, so the inequality holds for
+# any feasible x. Used by RatioBoundBuilder.build_dynamic.
+BOUND_C_INACTIVE: float = 1e15
+
 
 class SumConstraintBuilder(BaseConstraintBuilder):
     """

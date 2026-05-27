@@ -21,7 +21,7 @@ from .base         import BaseConstraintBuilder, ConstraintBlock
 from .run          import ConstraintRun
 from .engine       import ConstraintEngine, ConstraintUnitMixingError, MIXED_VALUATION_OK
 from .mass_balance import MassBalanceBuilder
-from .sum          import SumConstraintBuilder, SIGMA_C_INACTIVE
+from .sum          import SumConstraintBuilder, SIGMA_C_INACTIVE, BOUND_C_INACTIVE
 from .ratio        import RatioConstraintBuilder, RatioBoundBuilder
 from .flow_bound   import FlowBoundsBuilder
 
@@ -35,6 +35,7 @@ __all__ = [
     "MassBalanceBuilder",
     "SumConstraintBuilder",
     "SIGMA_C_INACTIVE",
+    "BOUND_C_INACTIVE",
     "RatioConstraintBuilder",
     "RatioBoundBuilder",
     "FlowBoundsBuilder",

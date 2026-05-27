@@ -7,6 +7,14 @@ from pysuto.config import Config, load_config
 
 
 _VALID_YAML = textwrap.dedent("""\
+    pipeline:
+      acc_id: copper
+      imputation:
+        bindings:
+          - {params_id: eff, builder: ParametricImputer}
+      constraints:
+        bindings:
+          - {params_id: conc, builder: RatioConstraintBuilder}
     propagation:
       p: 1.3
       q: 3.0
@@ -42,6 +50,9 @@ def _write(tmp_path, text):
 def test_roundtrip(tmp_path):
     cfg = load_config(_write(tmp_path, _VALID_YAML))
     assert isinstance(cfg, Config)
+    assert cfg.pipeline.acc_id       == "copper"
+    assert cfg.pipeline.imputation.bindings[0].params_id == "eff"
+    assert cfg.pipeline.constraints.bindings[0].builder  == "RatioConstraintBuilder"
     assert cfg.propagation.p         == 1.3
     assert cfg.propagation.q         == 3.0
     assert cfg.propagation.alpha_min == 0.05

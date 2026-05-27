@@ -33,9 +33,9 @@ import numpy as np
 # ---------------------------------------------------------------------------
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
-# Pipeline wiring (acc_id, feeds, imputation bindings) lives in
-# config/config.yaml under `pipeline:`.  Propagation / imputer knobs are also
-# loaded from config — see `cfg = load_config()` below.
+# Upstream wiring (feed IDs) is passed via repeated `--feed-id` CLI flags.
+# Static wiring (acc_id, imputation bindings) and propagation / imputer knobs
+# come from config/config.yaml — see `cfg = load_config()` below.
 
 ACC_DIR      = os.path.join("data", "proc", "acc")
 REGISTRY_DIR = os.path.join("data", "proc", "feed", "registry")
@@ -264,7 +264,7 @@ cathode_mesc_domestic = FormulaRelation(
 )
 
 
-def main(label: str) -> None:
+def main(feed_ids: list[str], label: str) -> None:
     log_path = os.path.join(
         "logs",
         f"collect_aggregate_impute_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log",
@@ -274,7 +274,7 @@ def main(label: str) -> None:
     logger = get_logger("collect_aggregate_impute")
     logger.info("=== collect_aggregate_impute START ===")
 
-    feed_keys = list(cfg.pipeline.feed_ids)
+    feed_keys = list(feed_ids)
 
     # ── 0  Initialise input registries (scan-and-bump) ────────────────────────
     inputs = InputRegistries.initialize(root=_INPUT_ROOT)
@@ -434,6 +434,10 @@ def main(label: str) -> None:
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Feed collection, aggregation, and imputation.")
+    parser.add_argument(
+        "--feed-id", action="append", required=True, dest="feed_ids",
+        help="Feed run ID to include. Repeat for each feed.",
+    )
     parser.add_argument("label", help="Human-readable label stored in the run's sidecar")
     args = parser.parse_args()
-    main(args.label)
+    main(args.feed_ids, args.label)

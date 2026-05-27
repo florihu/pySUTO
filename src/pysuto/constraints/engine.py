@@ -196,6 +196,55 @@ class ConstraintEngine:
             )
             ok = False
 
+        # 4b. Ratio rows expected uniform across years. Each ratio_eq /
+        # ratio_bound template in the params CSV expands to one row per
+        # matching (time, valuation), so totals should split evenly across
+        # the timesteps in scope. A non-uniform breakdown means some year
+        # is missing rows (often: source feed has no coverage that year),
+        # which is the same class of bug that motivates per-t deactivation.
+        n_years_expected = len(list(acc.time_range))
+        for type_name in ("ratio_eq", "ratio_bound"):
+            type_mask = rm["type"].to_numpy() == type_name if len(rm) else np.array([], dtype=bool)
+            n_type = int(type_mask.sum())
+            if n_type == 0 or n_years_expected == 0:
+                continue
+            per_year = (
+                rm.loc[type_mask, "time"].astype(str).value_counts().to_dict()
+            )
+            expected_years = {str(t) for t in acc.time_range}
+            missing_years  = sorted(expected_years - set(per_year))
+            extra_years    = sorted(set(per_year) - expected_years)
+
+            if n_type % n_years_expected != 0:
+                _log.warning(
+                    "CHECK WARN: %s rows = %d not evenly divisible by %d years "
+                    "(per-year: %s)",
+                    type_name, n_type, n_years_expected,
+                    {t: per_year[t] for t in sorted(per_year)},
+                )
+                ok = False
+                continue
+
+            expected_per_year = n_type // n_years_expected
+            bad_years = {
+                t: c for t, c in per_year.items() if c != expected_per_year
+            }
+            if not bad_years and not missing_years and not extra_years:
+                _log.info(
+                    "CHECK OK: %s rows = %d (%d/year uniform across %d years)",
+                    type_name, n_type, expected_per_year, n_years_expected,
+                )
+            else:
+                _log.warning(
+                    "CHECK WARN: %s rows = %d non-uniform across years. "
+                    "Expected %d/year. Missing: %s. Extra: %s. Off-count: %s",
+                    type_name, n_type, expected_per_year,
+                    missing_years or "none",
+                    extra_years or "none",
+                    {t: c for t, c in sorted(bad_years.items())} or "none",
+                )
+                ok = False
+
         # 5. Hard constraints must have sigma_c == 0 (check first timestep)
         hard_mask = rm["is_hard"].values if len(rm) > 0 else np.array([], dtype=bool)
         if np.any(hard_mask) and cr.timestep_data:

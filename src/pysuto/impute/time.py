@@ -62,6 +62,10 @@ class TimeImputer(BaseImputer):
         window_after:  Optional[int] = None,
         interpolate_only: bool = False,
         p: float = 1.3,
+        scope_edges:      Optional[np.ndarray] = None,
+        scope_feed_id:    Optional[str]        = None,
+        scope_times:      Optional[list]       = None,
+        scope_valuations: Optional[list]       = None,
     ) -> None:
         self.window           = window
         self.method           = method
@@ -71,6 +75,40 @@ class TimeImputer(BaseImputer):
         self.wa               = window_after  if window_after  is not None else window
         self.interpolate_only = interpolate_only
         self.p                = float(p)
+
+        if scope_edges is not None and scope_feed_id is not None:
+            raise ValueError(
+                "TimeImputer: pass at most one of scope_edges, scope_feed_id."
+            )
+        self._scope_feed_id    = scope_feed_id
+        self._scope_times      = set(map(str, scope_times)) if scope_times else None
+        self._scope_valuations = set(scope_valuations) if scope_valuations else None
+        # scope_edges may be a bool mask (length = N_edges) or list of edge ids;
+        # resolved to a bool mask lazily in attach_agg_result / impute.
+        self._scope_edges_raw  = scope_edges
+        self._scope_mask: Optional[np.ndarray] = None
+        if scope_edges is not None:
+            arr = np.asarray(scope_edges)
+            if arr.dtype == bool:
+                self._scope_mask = arr
+
+    def attach_agg_result(self, agg_result) -> None:
+        """
+        Resolve ``scope_feed_id`` to a per-edge boolean mask via
+        ``~np.isnan(agg_result.F[k, :])`` where ``k = feed_ids.index(scope_feed_id)``.
+        Called by ``ImputationEngine.run`` before each step.
+        """
+        if self._scope_feed_id is None:
+            return
+        feed_ids = list(getattr(agg_result, "feed_ids", []))
+        if self._scope_feed_id not in feed_ids:
+            raise ValueError(
+                f"TimeImputer: scope_feed_id={self._scope_feed_id!r} not in "
+                f"agg_result.feed_ids={feed_ids}"
+            )
+        k = feed_ids.index(self._scope_feed_id)
+        F = np.asarray(agg_result.F)
+        self._scope_mask = ~np.isnan(F[k, :])
 
     def impute(
         self,
@@ -92,10 +130,35 @@ class TimeImputer(BaseImputer):
         val_arr = ei["valuation"].to_numpy(dtype=str)
         tim_arr = ei["time"].values
         eid_arr = ei["edge_id"].to_numpy(dtype=int)
+
+        # Resolve scope_edges-as-int-list lazily (N_edges now known).
+        if (
+            self._scope_mask is None
+            and self._scope_edges_raw is not None
+            and self._scope_feed_id is None
+        ):
+            n_edges = int(eid_arr.max()) + 1 if eid_arr.size else 0
+            mask = np.zeros(n_edges, dtype=bool)
+            mask[np.asarray(self._scope_edges_raw, dtype=int)] = True
+            self._scope_mask = mask
+
+        # scope_edges / scope_valuations drop entire edges (and their history)
+        # from the series. scope_times is applied later — at the per-target
+        # loop — so historical observations remain available as LOCF/NOCB
+        # anchors when extrapolating into a scoped target year.
         series: dict[tuple, dict[int, int]] = {}
+        scope_tidx: Optional[set] = None
+        if self._scope_times is not None:
+            scope_tidx = {t_to_idx[t] for t in all_times if str(t) in self._scope_times}
+
         for i in range(len(fid_arr)):
+            eid = int(eid_arr[i])
+            if self._scope_mask is not None and not self._scope_mask[eid]:
+                continue
+            if self._scope_valuations is not None and val_arr[i] not in self._scope_valuations:
+                continue
             key = (fid_arr[i], tid_arr[i], val_arr[i])
-            series.setdefault(key, {})[t_to_idx[tim_arr[i]]] = eid_arr[i]
+            series.setdefault(key, {})[t_to_idx[tim_arr[i]]] = eid
 
         entries: list[dict] = []
 
@@ -103,6 +166,8 @@ class TimeImputer(BaseImputer):
             sorted_tidxs = sorted(t_map.keys())
 
             for t_target in sorted_tidxs:
+                if scope_tidx is not None and t_target not in scope_tidx:
+                    continue
                 e_id = t_map[t_target]
                 if not np.isnan(f[e_id]):
                     continue

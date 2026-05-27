@@ -6,23 +6,18 @@ temporal: (1990, 2022)
 
 pipeline:
   acc_id: copper
-  feed_ids: ['feed_baci_20260521_063102_8c49f90b', 'feed_crude_ore_20260521_063102_8c49f90b', 'feed_icsg_20260521_063102_8c49f90b']
   imputation:
     bindings:
       - {params_id: eff,       builder: ParametricImputer}
       - {params_id: ore_grade, builder: ParametricImputer}
       - {params_id: conc,      builder: ParametricImputer}
   constraints:
-    imp_run_id: imp_20260521_074525_b1921faf
     bindings:
       - {params_id: conc,         builder: RatioConstraintBuilder}
       - {params_id: eff,          builder: RatioConstraintBuilder}
       - {params_id: conc,         builder: RatioBoundBuilder}
       - {params_id: eff,          builder: RatioBoundBuilder}
       - {params_id: stock_bounds, builder: RatioBoundBuilder}
-      
-  solver:
-    const_run_id: const_20260526_133303_023a9149
 
 propagation:
   p:         1.3      # Lp/power-mean exponent (Stages 1/2/3)
