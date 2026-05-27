@@ -390,3 +390,5 @@ class KalmanUncProp(BaseUncProp):
             "max_resid_hard": max_resid_hard,
             "psd_min_diag":   float(sigma_a_star.min()),
         }
+
+

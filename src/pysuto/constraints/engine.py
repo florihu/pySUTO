@@ -172,17 +172,20 @@ class ConstraintEngine:
         _log.info("Constraint type breakdown:\n%s",
                   type_counts.to_string() if len(type_counts) else "  (empty)")
 
-        # 4. Expected mass_balance row count: one per (balanced_node × time)
+        # 4. Expected mass_balance row count: one per (balanced_node × time × valuation)
         ei, ni = acc.edge_index, acc.node_index
         t_arr  = ei["time"].values
+        v_arr  = ei["valuation"].values
         expected_mb = 0
         for time in acc.time_range:
-            t_mask = (t_arr == str(time))
-            nodes_in  = set(ei.loc[t_mask, "to_id"].values)
-            nodes_out = set(ei.loc[t_mask, "from_id"].values)
-            for nid in nodes_in & nodes_out:
-                if str(ni.loc[nid, "entity"]) in {"Flow", "Process"}:
-                    expected_mb += 1
+            t_mask_base = (t_arr == str(time))
+            for valuation in acc.valuation:
+                t_mask = t_mask_base & (v_arr == valuation)
+                nodes_in  = set(ei.loc[t_mask, "to_id"].values)
+                nodes_out = set(ei.loc[t_mask, "from_id"].values)
+                for nid in nodes_in & nodes_out:
+                    if str(ni.loc[nid, "entity"]) in {"Flow", "Process"}:
+                        expected_mb += 1
         actual_mb = int(type_counts.get("mass_balance", 0))
         if actual_mb == expected_mb:
             _log.info("CHECK OK: mass_balance rows = %d (matches expected)", actual_mb)
