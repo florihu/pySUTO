@@ -994,5 +994,179 @@ class TestConstraintRunRegistry:
             reg.load("nonexistent_run")
 
 
+# ---------------------------------------------------------------------------
+# Per-timestep deactivation of ratio_eq / ratio_bound (Fix 8.2)
+# ---------------------------------------------------------------------------
+
+class TestRatioPerTimestepDeactivation:
+    """build_dynamic should flip σ_c (ratio_eq) / c (ratio_bound) for off-year
+    rows so per-t solves only see the in-year ratio constraints."""
+
+    def _write_wildcard_params_csv(self, tmp_path, name="params.csv",
+                                   nominal=0.5, bl="", bu=""):
+        import csv
+        path = tmp_path / name
+        with open(path, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=[
+                "param_id",
+                "a_sector_from", "a_entity_from", "a_region_from",
+                "a_sector_to",   "a_entity_to",   "a_region_to",
+                "a_time",        "a_valuation",
+                "b_sector_from", "b_entity_from", "b_region_from",
+                "b_sector_to",   "b_entity_to",   "b_region_to",
+                "b_time",        "b_valuation",
+                "value_nominal", "unc_type", "value_sd",
+                "value_min", "value_max",
+                "bound_lower", "bound_upper",
+            ])
+            w.writeheader()
+            w.writerow({
+                "param_id":       "test",
+                "a_sector_from":  "Mining", "a_entity_from": "Process", "a_region_from": "A",
+                "a_sector_to":    "Ore",    "a_entity_to":   "Flow",    "a_region_to":   "A",
+                "a_time":         "*",      "a_valuation":   "Mass",
+                "b_sector_from":  "Ore",    "b_entity_from": "Flow",    "b_region_from": "A",
+                "b_sector_to":    "Mining", "b_entity_to":   "Process", "b_region_to":   "A",
+                "b_time":         "same",   "b_valuation":   "same",
+                "value_nominal":  str(nominal),
+                "unc_type":       "sd",
+                "value_sd":       "0.05",
+                "value_min":      "",
+                "value_max":      "",
+                "bound_lower":    str(bl),
+                "bound_upper":    str(bu),
+            })
+        return str(path)
+
+    def test_ratio_eq_sigma_c_inactive_for_off_year(self, toy_acc, tmp_path):
+        """build_dynamic at t=2020 sets σ_c=SIGMA_C_INACTIVE for 2021 rows."""
+        from pysuto.constraints import RatioConstraintBuilder, SIGMA_C_INACTIVE
+        path    = self._write_wildcard_params_csv(tmp_path)
+        builder = RatioConstraintBuilder.from_csv(path, toy_acc)
+        static  = builder.build_static(toy_acc)
+        # Sanity: wildcard expands to 2 rows (2020, 2021).
+        assert static.G_rows.shape[0] == 2
+        times = static.row_meta["time"].astype(str).to_numpy()
+        assert set(times) == {"2020", "2021"}
+
+        dyn = builder.build_dynamic(toy_acc, None, None, "2020")
+        for i, t in enumerate(times):
+            if t == "2020":
+                assert dyn.sigma_c[i] == static.sigma_c[i]
+            else:
+                assert dyn.sigma_c[i] == SIGMA_C_INACTIVE
+        # c always 0 for ratio_eq; G_rows passed through.
+        assert np.all(dyn.c == 0.0)
+        assert dyn.G_rows.shape == static.G_rows.shape
+
+    def test_ratio_bound_c_inactive_for_off_year(self, toy_acc, tmp_path):
+        """build_dynamic at t=2020 sets c=BOUND_C_INACTIVE for 2021 rows."""
+        from pysuto.constraints import RatioBoundBuilder, BOUND_C_INACTIVE
+        path    = self._write_wildcard_params_csv(tmp_path, bl=0.1, bu=2.0)
+        builder = RatioBoundBuilder.from_csv(path, toy_acc)
+        static  = builder.build_static(toy_acc)
+        # Wildcard expansion: 2 (years) × 2 (upper+lower) = 4 rows.
+        assert static.G_rows.shape[0] == 4
+        times = static.row_meta["time"].astype(str).to_numpy()
+
+        dyn = builder.build_dynamic(toy_acc, None, None, "2020")
+        for i, t in enumerate(times):
+            if t == "2020":
+                assert dyn.c[i] == 0.0
+            else:
+                assert dyn.c[i] == BOUND_C_INACTIVE
+        # σ_c stays 0 (hard rows); G_rows passed through.
+        assert np.all(dyn.sigma_c == 0.0)
+        assert dyn.G_rows.shape == static.G_rows.shape
+
+    def test_ratio_bound_sentinel_trivially_satisfies_inequality(self, toy_acc, tmp_path):
+        """For x at u_max=1e9, A x ≤ BOUND_C_INACTIVE element-wise on inactive rows."""
+        from pysuto.constraints import RatioBoundBuilder, BOUND_C_INACTIVE
+        path    = self._write_wildcard_params_csv(tmp_path, bl=0.1, bu=2.0)
+        builder = RatioBoundBuilder.from_csv(path, toy_acc)
+        builder.build_static(toy_acc)
+        dyn = builder.build_dynamic(toy_acc, None, None, "2020")
+
+        x   = np.full(toy_acc.n_edges, 1e9)
+        Ax  = dyn.G_rows @ x
+        times = dyn.row_meta["time"].astype(str).to_numpy()
+        inactive = times != "2020"
+        # On inactive rows, Ax ≤ BOUND_C_INACTIVE must hold.
+        assert np.all(Ax[inactive] <= dyn.c[inactive])
+
+    def test_engine_per_t_dispatch_uses_dynamic(self, toy_acc, toy_agg_result, tmp_path):
+        """ConstraintEngine.run wires build_dynamic per timestep — verify the
+        per-t sigma_c / c arrays differ between 2020 and 2021 solves."""
+        from pysuto.constraints import (
+            ConstraintEngine, MassBalanceBuilder,
+            RatioConstraintBuilder, RatioBoundBuilder,
+            SIGMA_C_INACTIVE, BOUND_C_INACTIVE,
+        )
+        engine = ConstraintEngine(toy_acc, storage_dir=str(tmp_path / "const"))
+        engine.register(MassBalanceBuilder())
+        engine.register(RatioConstraintBuilder.from_csv(
+            self._write_wildcard_params_csv(tmp_path, name="re.csv"), toy_acc,
+        ))
+        engine.register(RatioBoundBuilder.from_csv(
+            self._write_wildcard_params_csv(tmp_path, name="rb.csv", bl=0.1, bu=2.0),
+            toy_acc,
+        ))
+        run = engine.run(
+            toy_agg_result, timesteps=["2020", "2021"], persist=False,
+        )
+        rm   = run.row_meta
+        t2020 = run.timestep_data["2020"]
+        t2021 = run.timestep_data["2021"]
+
+        re_mask = (rm["type"] == "ratio_eq").to_numpy()
+        rb_mask = (rm["type"] == "ratio_bound").to_numpy()
+        row_t   = rm["time"].astype(str).to_numpy()
+
+        # ratio_eq: 2021 rows deactivated at t=2020. (σ_c may be Lp-perturbed
+        # by engine post-processing — assert close to the sentinel, not equal.)
+        assert np.allclose(
+            t2020["sigma_c"][re_mask & (row_t == "2021")], SIGMA_C_INACTIVE,
+            rtol=1e-6,
+        )
+        # ratio_eq: 2020 rows active at t=2020 (σ_c finite, far below sentinel).
+        assert np.all(t2020["sigma_c"][re_mask & (row_t == "2020")] < 1.0)
+
+        # ratio_bound: 2021 rows deactivated at t=2020 via c=BOUND_C_INACTIVE.
+        # c is not regularised, so exact equality is fine here.
+        assert np.all(t2020["c"][rb_mask & (row_t == "2021")] == BOUND_C_INACTIVE)
+        assert np.all(t2020["c"][rb_mask & (row_t == "2020")] == 0.0)
+        # Symmetric at t=2021.
+        assert np.all(t2021["c"][rb_mask & (row_t == "2020")] == BOUND_C_INACTIVE)
+        assert np.all(t2021["c"][rb_mask & (row_t == "2021")] == 0.0)
+
+    def test_engine_check_warns_on_non_uniform_ratio_rows(self, toy_acc, toy_agg_result,
+                                                          tmp_path, caplog):
+        """Per-year uniformity check fires WARN when a year has fewer rows."""
+        import logging
+        from pysuto.constraints import (
+            ConstraintEngine, MassBalanceBuilder, RatioConstraintBuilder,
+        )
+        # CSV with hardcoded a_time=2020 → only 1 ratio_eq row, not uniform
+        # across the 2-year toy_acc.time_range.
+        path = tmp_path / "single_year.csv"
+        TestRatioConstraintBuilder()._write_params_csv  # type: ignore[attr-defined]
+        # Reuse the existing single-year CSV builder via the existing class.
+        path_str = TestRatioConstraintBuilder()._write_params_csv(
+            tmp_path, nominal=0.5,
+        )
+        engine = ConstraintEngine(toy_acc, storage_dir=str(tmp_path / "const"))
+        engine.register(MassBalanceBuilder())
+        engine.register(RatioConstraintBuilder.from_csv(path_str, toy_acc))
+        with caplog.at_level(logging.WARNING):
+            engine.run(
+                toy_agg_result, timesteps=["2020", "2021"], persist=False,
+            )
+        warn_msgs = [r.message for r in caplog.records if r.levelno == logging.WARNING]
+        assert any(
+            "ratio_eq" in m and ("non-uniform" in m or "not evenly divisible" in m)
+            for m in warn_msgs
+        ), f"Expected non-uniform ratio_eq warning. Got: {warn_msgs}"
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

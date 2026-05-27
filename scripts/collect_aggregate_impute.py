@@ -349,6 +349,24 @@ def main(feed_ids: list[str], label: str) -> None:
         p                = P_PROP,
     ))
 
+    # Crude-ore end-of-series extrapolation (2023, 2024). The crude_ore
+    # feed has no data for these years, so the general TimeImputer above
+    # (interpolate_only) leaves edge values NaN and FlatPriorImputer would
+    # then fill them with f=0 — opening a multi-million-tonne hole on the
+    # Mining inflow side of mass balance. This scoped extrapolator carries
+    # the last observed crude_ore value forward with gap-inflated σ, for
+    # crude_ore-covered edges only, in 2023+2024 only.
+    engine.register(TimeImputer(
+        window           = cfg.imputers.time.window,
+        method           = cfg.imputers.time.method,
+        min_obs          = cfg.imputers.time.min_obs,
+        gap_inflation    = cfg.imputers.time.gap_inflation,
+        interpolate_only = False,
+        p                = P_PROP,
+        scope_feed_id    = "crude_ore",
+        scope_times      = ["2023", "2024"],
+    ))
+
     # Final fallback — flat prior sized by mask CV × group scale.
     # CVs come from config; the ROW relation (any edge touching ROW as
     # region_from or region_to) is defined inline below and combined with

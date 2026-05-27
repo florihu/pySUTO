@@ -94,9 +94,12 @@ class TimeImputer(BaseImputer):
 
     def attach_agg_result(self, agg_result) -> None:
         """
-        Resolve ``scope_feed_id`` to a per-edge boolean mask via
-        ``~np.isnan(agg_result.F[k, :])`` where ``k = feed_ids.index(scope_feed_id)``.
-        Called by ``ImputationEngine.run`` before each step.
+        Receive ``agg_result`` so ``scope_feed_id`` can be resolved to a
+        per-edge mask in :meth:`impute` (where ``acc_struct.edge_index`` is
+        available). The mask covers every edge whose (from_id, to_id,
+        valuation) series contains ≥1 finite observation from the named
+        feed — so NaN target slots in those series are still in-scope and
+        can receive LOCF/NOCB fills.
         """
         if self._scope_feed_id is None:
             return
@@ -106,9 +109,9 @@ class TimeImputer(BaseImputer):
                 f"TimeImputer: scope_feed_id={self._scope_feed_id!r} not in "
                 f"agg_result.feed_ids={feed_ids}"
             )
-        k = feed_ids.index(self._scope_feed_id)
-        F = np.asarray(agg_result.F)
-        self._scope_mask = ~np.isnan(F[k, :])
+        self._feed_obs_mask = ~np.isnan(
+            np.asarray(agg_result.F)[feed_ids.index(self._scope_feed_id), :]
+        )
 
     def impute(
         self,
@@ -140,6 +143,27 @@ class TimeImputer(BaseImputer):
             n_edges = int(eid_arr.max()) + 1 if eid_arr.size else 0
             mask = np.zeros(n_edges, dtype=bool)
             mask[np.asarray(self._scope_edges_raw, dtype=int)] = True
+            self._scope_mask = mask
+
+        # Resolve scope_feed_id lazily — expand per-edge feed-observation
+        # mask to "every edge whose series saw ≥1 observation from the feed",
+        # so NaN target slots in those series are also in-scope.
+        feed_obs = getattr(self, "_feed_obs_mask", None)
+        if self._scope_feed_id is not None and feed_obs is not None:
+            series_seen: dict[tuple, bool] = {}
+            for i in range(len(fid_arr)):
+                key = (fid_arr[i], tid_arr[i], val_arr[i])
+                eid = int(eid_arr[i])
+                if feed_obs[eid]:
+                    series_seen[key] = True
+                else:
+                    series_seen.setdefault(key, False)
+            n_edges = int(eid_arr.max()) + 1 if eid_arr.size else 0
+            mask = np.zeros(n_edges, dtype=bool)
+            for i in range(len(fid_arr)):
+                key = (fid_arr[i], tid_arr[i], val_arr[i])
+                if series_seen.get(key, False):
+                    mask[int(eid_arr[i])] = True
             self._scope_mask = mask
 
         # scope_edges / scope_valuations drop entire edges (and their history)

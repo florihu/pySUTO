@@ -1176,6 +1176,126 @@ class TestTimeImputerInterpolateOnly:
 
 
 # =============================================================================
+# 10b. TimeImputer scoping (edge / feed / time / valuation)
+# =============================================================================
+
+class TestTimeImputerScoping:
+    """The new scope_* parameters restrict which edges/years get filled while
+    still letting historical observations anchor LOCF/NOCB extrapolation."""
+
+    def test_scope_edges_mask_restricts_fills(self, acc):
+        """Boolean mask drops untouched-edge series entirely."""
+        # Two parallel series: 0/6/8 (Mining_A→Ore_A, Mass) and 1/7/9 (Mining_B→Ore_B, Mass).
+        f     = np.full(10, np.nan)
+        sigma = np.full(10, np.nan)
+        # Anchor both series at t=2020 and t=2022 so linear interpolation fires.
+        f[0] = 10.0; sigma[0] = 1.0
+        f[8] = 20.0; sigma[8] = 1.0
+        f[1] = 30.0; sigma[1] = 1.0
+        f[9] = 50.0; sigma[9] = 1.0
+        missing = np.isnan(f)
+
+        scope = np.zeros(10, dtype=bool)
+        scope[[0, 6, 8]] = True  # only Mining_A→Ore_A series
+
+        imp = TimeImputer(window=5, method="linear", interpolate_only=True,
+                          scope_edges=scope)
+        imp.impute(f, sigma, missing, 0, acc)
+
+        assert f[6] == pytest.approx(15.0)        # in scope — interpolated
+        assert np.isnan(f[7])                     # out of scope — untouched
+
+    def test_scope_feed_id_resolves_via_attach(self, acc):
+        """scope_feed_id resolves to a mask via attach_agg_result(agg_result)."""
+        # Two feeds. Feed "crude_ore" only covers edges 0 and 8.
+        F     = np.full((2, 10), np.nan)
+        Sigma = np.full((2, 10), np.nan)
+        F[0, [0, 8]] = [10.0, 20.0]; Sigma[0, [0, 8]] = 1.0   # crude_ore
+        F[1, [1, 9]] = [30.0, 50.0]; Sigma[1, [1, 9]] = 1.0   # other
+        f_agg     = np.nanmean(F, axis=0)
+        sigma_agg = np.nanmean(Sigma, axis=0)
+        coverage  = np.isfinite(f_agg)
+
+        ar = AggregationResult(
+            f_agg     = f_agg,
+            sigma_agg = sigma_agg,
+            Omega     = np.where(np.isfinite(F), 1.0, 0.0),
+            F         = F,
+            Sigma     = Sigma,
+            feed_ids  = ["crude_ore", "other"],
+            coverage  = coverage,
+        )
+
+        f_work     = f_agg.copy()
+        sigma_work = sigma_agg.copy()
+        missing    = np.isnan(f_work)
+
+        imp = TimeImputer(window=5, method="linear", interpolate_only=True,
+                          scope_feed_id="crude_ore")
+        imp.attach_agg_result(ar)
+        imp.impute(f_work, sigma_work, missing, 0, acc)
+
+        # Mining_A→Ore_A (in crude_ore) — t=2021 interpolated.
+        assert f_work[6] == pytest.approx(15.0)
+        # Mining_B→Ore_B (NOT in crude_ore) — t=2021 untouched.
+        assert np.isnan(f_work[7])
+
+    def test_scope_times_restricts_target_years(self, acc):
+        """scope_times filters target years but leaves history available as anchor."""
+        f     = np.full(10, np.nan)
+        sigma = np.full(10, np.nan)
+        f[0] = 10.0; sigma[0] = 1.0   # t=2020 anchor
+        f[8] = 20.0; sigma[8] = 1.0   # t=2022 anchor
+        missing = np.isnan(f)
+
+        # Only fill 2022 targets (none missing for the 0/6/8 series since 8 is set).
+        # Try scope_times=["2021"] — should fill only edge 6.
+        imp = TimeImputer(window=5, method="linear", interpolate_only=True,
+                          scope_times=["2021"])
+        imp.impute(f, sigma, missing, 0, acc)
+
+        assert f[6] == pytest.approx(15.0)
+        assert not np.isnan(f[0])    # untouched, was anchor
+        # Edge 1 and 9 are missing entries in the other series — no anchor there
+        # so even though they'd be candidates, no fill possible.
+
+    def test_scope_combined_with_extrapolation(self, acc):
+        """Historical anchor at 2020 → LOCF extrapolation to 2021 + 2022
+        when scope_times restricts targets but anchor stays visible."""
+        f     = np.full(10, np.nan)
+        sigma = np.full(10, np.nan)
+        f[0] = 10.0; sigma[0] = 2.0   # t=2020 anchor only
+        missing = np.isnan(f)
+
+        imp = TimeImputer(window=5, method="linear", interpolate_only=False,
+                          gap_inflation=1.5,
+                          scope_times=["2021", "2022"])
+        entries = imp.impute(f, sigma, missing, 0, acc)
+
+        # Both 2021 and 2022 filled by single-sided "linear" path (LOCF-like).
+        assert f[6] == pytest.approx(10.0)
+        assert f[8] == pytest.approx(10.0)
+        # σ inflated by gap_inflation ^ gap_years.
+        assert sigma[6] == pytest.approx(2.0 * 1.5)
+        assert sigma[8] == pytest.approx(2.0 * 1.5 ** 2)
+        methods = {e["method"] for e in entries if e["edge_id"] in (6, 8)}
+        assert methods == {"time_linear"}
+
+    def test_scope_edges_and_feed_id_mutually_exclusive(self):
+        """Passing both scope_edges and scope_feed_id raises at construction."""
+        with pytest.raises(ValueError, match="at most one"):
+            TimeImputer(scope_edges=np.zeros(10, dtype=bool),
+                        scope_feed_id="x")
+
+    def test_scope_feed_id_not_in_agg_raises(self, acc):
+        """Resolving an unknown feed name raises a clear error."""
+        ar = _agg_result([1.0] + [np.nan]*9)
+        imp = TimeImputer(scope_feed_id="nope")
+        with pytest.raises(ValueError, match="not in"):
+            imp.attach_agg_result(ar)
+
+
+# =============================================================================
 # 11. ParametricImputer — specificity dedup
 # =============================================================================
 

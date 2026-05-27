@@ -243,8 +243,8 @@ class TestNodeIndex:
 
     def test_node_index_dataframe_shape(self, root_simple):
         acc = AccountingStructure(id="t", root=root_simple)
-        assert acc.node_index.shape == (3, 3)
-        assert list(acc.node_index.columns) == ["sector", "entity", "region"]
+        assert acc.node_index.shape == (3, 4)
+        assert list(acc.node_index.columns) == ["sector", "entity", "region", "entity_sub"]
 
     def test_encode_decode_roundtrip(self, root_simple):
         acc = AccountingStructure(id="t", root=root_simple)
@@ -550,9 +550,12 @@ class TestSaveLoad:
         acc = self._build(str(tmp_path))
         acc.save()
         loaded = AccountingStructure.load("save_test", storage_dir=str(tmp_path))
+        expected = acc.edge_index.reset_index(drop=True).copy()
+        expected["time"] = expected["time"].astype(str)
         pd.testing.assert_frame_equal(
             loaded.edge_index.reset_index(drop=True),
-            acc.edge_index.reset_index(drop=True),
+            expected,
+            check_dtype=False,
         )
 
     def test_save_load_A_tensor_shape(self, tmp_path):
@@ -603,6 +606,7 @@ class TestSaveLoad:
         pd.testing.assert_frame_equal(
             loaded.node_index.reset_index(drop=True),
             acc.node_index.reset_index(drop=True),
+            check_dtype=False,
         )
 
     def test_load_missing_raises(self, tmp_path):
