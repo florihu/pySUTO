@@ -41,9 +41,8 @@ import sys
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
 # Upstream wiring (`imp_run_id`) is passed via the `--imp-run-id` CLI flag.
-# Static wiring (acc_id, constraint bindings), power-mean exponent and
-# σ-regularisation floors come from config/config.yaml — see
-# `cfg = load_config()` below.
+# `acc_id` is read from config/config.yaml; every other knob (P_PROP, σ
+# floors, builder registrations) lives inline below.
 
 ACC_DIR     = os.path.join("data", "proc", "acc")
 IMP_DIR     = os.path.join("data", "proc", "imp")
@@ -79,14 +78,19 @@ from pysuto.constraints import (
 )
 from pysuto.logging import get_logger, add_run_handler
 
-cfg        = load_config()
-ACC_ID     = cfg.pipeline.acc_id
-P_PROP     = cfg.propagation.p
+cfg    = load_config()
+ACC_ID = cfg.pipeline.acc_id
 
-CONST_BUILDER_BY_NAME = {
-    "RatioConstraintBuilder": RatioConstraintBuilder,
-    "RatioBoundBuilder":      RatioBoundBuilder,
-}
+# ─────────────────────────────────────────────────────────────────────────────
+# USER CONFIGURATION — every knob that used to live in config/config.yaml.
+# Note: P_PROP must match scripts/collect_aggregate_impute.py's P_PROP
+# (cross-stage Lp exponent).
+# ─────────────────────────────────────────────────────────────────────────────
+P_PROP            = 1.3
+SIGMA_A_CV_MIN    = 0.05
+SIGMA_A_ABS_FLOOR = 1.0e-6
+SIGMA_C_CV_MIN    = 0.05
+SIGMA_C_ABS_FLOOR = 1.0e-3
 
 _log = get_logger("init_copper_constraints")
 
@@ -131,10 +135,10 @@ def main(imp_run_id: str, label: str) -> None:
         acc_struct        = acc,
         storage_dir       = OUTPUT_DIR,
         p                 = P_PROP,
-        sigma_a_cv_min    = cfg.constraints.sigma_a_cv_min,
-        sigma_a_abs_floor = cfg.constraints.sigma_a_abs_floor,
-        sigma_c_cv_min    = cfg.constraints.sigma_c_cv_min,
-        sigma_c_abs_floor = cfg.constraints.sigma_c_abs_floor,
+        sigma_a_cv_min    = SIGMA_A_CV_MIN,
+        sigma_a_abs_floor = SIGMA_A_ABS_FLOOR,
+        sigma_c_cv_min    = SIGMA_C_CV_MIN,
+        sigma_c_abs_floor = SIGMA_C_ABS_FLOOR,
     )
 
     # 1. Hard mass balance
@@ -163,7 +167,6 @@ def main(imp_run_id: str, label: str) -> None:
     ))
 
     # 4–8. CSV-fed soft ratio + hard ratio-bound builders.
-    #      Bindings come from config/config.yaml → pipeline.constraints.bindings.
     #      Two builders may consume the same params_id (e.g. 'conc' → both
     #      RatioConstraintBuilder and RatioBoundBuilder).  stock_bounds joins
     #      the list: its CSV carries `agg=true` so the builder sums all
@@ -171,17 +174,27 @@ def main(imp_run_id: str, label: str) -> None:
     #      (region, time, valuation) bucket.
     param_refs: list[dict] = []
     seen_param_ids: set[str] = set()
-    for binding in cfg.pipeline.constraints.bindings:
-        Builder  = CONST_BUILDER_BY_NAME[binding.builder]
-        csv_path = inputs.params.resolve(binding.params_id) / "params.csv"
+
+    def _register_builder(Builder, params_id: str, **kwargs) -> None:
+        csv_path = inputs.params.resolve(params_id) / "params.csv"
         _log.info("Registering %s ← params/%s v%d",
-                  Builder.__name__, binding.params_id,
-                  inputs.params.entry(binding.params_id)["version"])
-        kwargs = {"kind": binding.params_id} if Builder is RatioBoundBuilder else {}
+                  Builder.__name__, params_id,
+                  inputs.params.entry(params_id)["version"])
         engine.register(Builder.from_csv(str(csv_path), acc_struct=acc, **kwargs))
-        if binding.params_id not in seen_param_ids:
-            param_refs.append(inputs.params.entry(binding.params_id))
-            seen_param_ids.add(binding.params_id)
+        if params_id not in seen_param_ids:
+            param_refs.append(inputs.params.entry(params_id))
+            seen_param_ids.add(params_id)
+
+    # 4. Soft ratio — concentration
+    _register_builder(RatioConstraintBuilder, "conc")
+    # 5. Soft ratio — efficiency
+    _register_builder(RatioConstraintBuilder, "eff")
+    # 6. Hard ratio bounds — concentration
+    _register_builder(RatioBoundBuilder, "conc", kind="conc")
+    # 7. Hard ratio bounds — efficiency
+    _register_builder(RatioBoundBuilder, "eff", kind="eff")
+    # 8. Net stock bounds
+    _register_builder(RatioBoundBuilder, "stock_bounds", kind="stock_bounds")
 
     # 9. Hard flow bounds from acc_struct
     _log.info("Registering FlowBoundsBuilder")
@@ -204,10 +217,10 @@ def main(imp_run_id: str, label: str) -> None:
         label        = label,
         parents      = parents,
         stage_config = {
-            "sigma_a_cv_min":    cfg.constraints.sigma_a_cv_min,
-            "sigma_a_abs_floor": cfg.constraints.sigma_a_abs_floor,
-            "sigma_c_cv_min":    cfg.constraints.sigma_c_cv_min,
-            "sigma_c_abs_floor": cfg.constraints.sigma_c_abs_floor,
+            "sigma_a_cv_min":    SIGMA_A_CV_MIN,
+            "sigma_a_abs_floor": SIGMA_A_ABS_FLOOR,
+            "sigma_c_cv_min":    SIGMA_C_CV_MIN,
+            "sigma_c_abs_floor": SIGMA_C_ABS_FLOOR,
         },
     )
 

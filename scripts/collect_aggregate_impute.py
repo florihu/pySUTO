@@ -8,12 +8,14 @@ Steps
 A  Load accounting structure and feed registry
 B  Collect and aggregate feeds (baci, crude_ore, icsg)
 C  Run imputation pipeline:
-     0  ore-grade params (region/time-specific, higher priority)
-     1  global concentration params (generic fallback)
-     2  efficiency params
-     3  domestic-use FormulaImputer for traded flows
+     1  concentration ratios (highest priority)
+     2  ore-grade ratios
+     3  efficiency ratios
+     4  domestic-use FormulaImputer for traded flows
         (Concentrate, Matte, Anode, Cathode × FU/USC/MESC)
-     4  temporal interpolation (window=3, interpolation-only)
+     5  temporal interpolation (interpolation-only)
+     6  crude_ore end-of-series LOCF (scoped: feed=crude_ore, t∈CRUDE_ORE_TIMES)
+     7  flat-prior fallback (ROW-aware CVs)
 D  Save AggregationResult to OUTPUT_DIR
 
 ═══════════════════════════════════════════════════════════
@@ -34,8 +36,7 @@ import numpy as np
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
 # Upstream wiring (feed IDs) is passed via repeated `--feed-id` CLI flags.
-# Static wiring (acc_id, imputation bindings) and propagation / imputer knobs
-# come from config/config.yaml — see `cfg = load_config()` below.
+# `acc_id` is read from config/config.yaml; every other knob lives inline below.
 
 ACC_DIR      = os.path.join("data", "proc", "acc")
 REGISTRY_DIR = os.path.join("data", "proc", "feed", "registry")
@@ -68,14 +69,36 @@ from pysuto.impute   import (
 from pysuto.logging  import get_logger, add_run_handler
 from pysuto.diag     import AggDiagnostic, ImpDiagnostic
 
-cfg             = load_config()
-ACC_ID          = cfg.pipeline.acc_id
-P_PROP          = cfg.propagation.p
-Q_REG           = cfg.propagation.q
-ALPHA_MIN_REG   = cfg.propagation.alpha_min
-FLAT_DEFAULT_CV = cfg.imputers.flat_prior.default_cv
+cfg    = load_config()
+ACC_ID = cfg.pipeline.acc_id
 
-IMP_BUILDER_BY_NAME = {"ParametricImputer": ParametricImputer}
+# ─────────────────────────────────────────────────────────────────────────────
+# USER CONFIGURATION — every knob that used to live in config/config.yaml.
+# Note: P_PROP must match scripts/constraints.py's P_PROP (cross-stage Lp).
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Propagation / Lp settings
+P_PROP        = 1.3      # Lp/power-mean exponent
+Q_REG         = 3.0      # ParametricImputer backward-branch knee sharpness
+ALPHA_MIN_REG = 0.05     # inverse-multiplier effective-sensitivity floor
+
+# TimeImputer (general interpolation pass)
+TIME_WINDOW           = 3
+TIME_MIN_OBS          = 2
+TIME_GAP_INFLATION    = 1.05
+TIME_METHOD           = "linear"
+TIME_INTERPOLATE_ONLY = True
+
+# TimeImputer (crude_ore end-of-series extrapolation)
+CRUDE_ORE_TIMES = ["2023", "2024"]
+
+# FlatPriorImputer — CVs per mask (ROW edges get inflated CV)
+FLAT_DEFAULT_CV    = 0.3
+FLAT_CV_LO_SUPPLY  = 0.04
+FLAT_CV_HI_SUPPLY  = 0.3
+FLAT_CV_LO_USE     = 0.2
+FLAT_CV_HI_USE     = 0.5
+FLAT_ROW_INFLATION = 1.5
 
 # ---------------------------------------------------------------------------
 # FormulaRelations (module-level — no runtime state, safe to define here)
@@ -307,25 +330,31 @@ def main(feed_ids: list[str], label: str) -> None:
     agg_diag.summary()
 
     # ── C  Imputation pipeline ────────────────────────────────────────────────
+    # Step order is semantic: each imputer only fills edges still NaN after the
+    # previous one. `conc` runs first because concentration ratios anchor most
+    # downstream Mining↔MF↔Concentrate edges; subsequent passes (ore_grade,
+    # eff) refine remaining gaps. FormulaImputer reuses the conc params CSV.
     logger.info("C  Building imputation engine")
     engine = ImputationEngine(acc_struct=acc)
-
-    # Bindings come from config/config.yaml → pipeline.imputation.bindings.
-    # Each entry is `{params_id, builder}`; the params_id is resolved via the
-    # input registry → data/input/params/<id>/v{latest}/params.csv.  Propagation
-    # kwargs (p, q, alpha_min) are auto-injected for ParametricImputer.
     param_refs: list[dict] = []
-    for binding in cfg.pipeline.imputation.bindings:
-        Builder  = IMP_BUILDER_BY_NAME[binding.builder]
-        csv_path = inputs.params.resolve(binding.params_id) / "params.csv"
-        kwargs   = dict(p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG)
-        engine.register(Builder.from_csv(str(csv_path), acc, **kwargs))
-        param_refs.append(inputs.params.entry(binding.params_id))
-        logger.info("C  registered %s (params=%s v%d)",
-                    Builder.__name__, binding.params_id,
-                    inputs.params.entry(binding.params_id)["version"])
 
-    # FormulaImputer is lambda-driven; it shares the `conc` params CSV.
+    def _register_parametric(params_id: str) -> None:
+        csv_path = inputs.params.resolve(params_id) / "params.csv"
+        engine.register(ParametricImputer.from_csv(
+            str(csv_path), acc, p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG,
+        ))
+        param_refs.append(inputs.params.entry(params_id))
+        logger.info("C  registered ParametricImputer (params=%s v%d)",
+                    params_id, inputs.params.entry(params_id)["version"])
+
+    # 1. Concentration ratios — highest priority.
+    _register_parametric("conc")
+    # 2. Ore-grade ratios.
+    _register_parametric("ore_grade")
+    # 3. Process efficiencies.
+    _register_parametric("eff")
+
+    # 4. Formula-driven domestic-use fills (shares the conc params CSV).
     engine.register(FormulaImputer(
         relations=[
             concentrate_domestic,
@@ -339,65 +368,63 @@ def main(feed_ids: list[str], label: str) -> None:
         p=P_PROP,
     ))
 
-    # Temporal interpolation, no extrapolation.
+    # 5. Temporal interpolation, no extrapolation.
     engine.register(TimeImputer(
-        window           = cfg.imputers.time.window,
-        method           = cfg.imputers.time.method,
-        min_obs          = cfg.imputers.time.min_obs,
-        gap_inflation    = cfg.imputers.time.gap_inflation,
-        interpolate_only = cfg.imputers.time.interpolate_only,
+        window           = TIME_WINDOW,
+        method           = TIME_METHOD,
+        min_obs          = TIME_MIN_OBS,
+        gap_inflation    = TIME_GAP_INFLATION,
+        interpolate_only = TIME_INTERPOLATE_ONLY,
         p                = P_PROP,
     ))
 
-    # Crude-ore end-of-series extrapolation (2023, 2024). The crude_ore
+    # 6. Crude-ore end-of-series extrapolation (2023, 2024). The crude_ore
     # feed has no data for these years, so the general TimeImputer above
     # (interpolate_only) leaves edge values NaN and FlatPriorImputer would
     # then fill them with f=0 — opening a multi-million-tonne hole on the
     # Mining inflow side of mass balance. This scoped extrapolator carries
     # the last observed crude_ore value forward with gap-inflated σ, for
-    # crude_ore-covered edges only, in 2023+2024 only.
+    # crude_ore-covered edges only, in CRUDE_ORE_TIMES only.
     engine.register(TimeImputer(
-        window           = cfg.imputers.time.window,
-        method           = cfg.imputers.time.method,
-        min_obs          = cfg.imputers.time.min_obs,
-        gap_inflation    = cfg.imputers.time.gap_inflation,
+        window           = TIME_WINDOW,
+        method           = TIME_METHOD,
+        min_obs          = TIME_MIN_OBS,
+        gap_inflation    = TIME_GAP_INFLATION,
         interpolate_only = False,
         p                = P_PROP,
         scope_feed_id    = "crude_ore",
-        scope_times      = ["2023", "2024"],
+        scope_times      = CRUDE_ORE_TIMES,
     ))
 
-    # Final fallback — flat prior sized by mask CV × group scale.
-    # CVs come from config; the ROW relation (any edge touching ROW as
-    # region_from or region_to) is defined inline below and combined with
-    # acc.masks["supply"] / acc.masks["use"] to form two row-specific
-    # sub-masks whose (cv_lo, cv_hi) are pre-inflated by row_inflation.
-    flat_cfg     = cfg.imputers.flat_prior
-    supply_mask  = np.asarray(acc.masks["supply"], dtype=bool)
-    use_mask     = np.asarray(acc.masks["use"],    dtype=bool)
+    # 7. Final fallback — flat prior sized by mask CV × group scale.
+    # The ROW relation (any edge touching ROW as region_from or region_to)
+    # is combined with acc.masks["supply"] / acc.masks["use"] to form two
+    # row-specific sub-masks whose (cv_lo, cv_hi) are pre-inflated by
+    # FLAT_ROW_INFLATION.
+    supply_mask = np.asarray(acc.masks["supply"], dtype=bool)
+    use_mask    = np.asarray(acc.masks["use"],    dtype=bool)
 
-    ei_exp       = expand_edge_index(acc.edge_index, acc.node_index)
-    row_mask     = (
+    ei_exp      = expand_edge_index(acc.edge_index, acc.node_index)
+    row_mask    = (
         (ei_exp["region_from"].to_numpy() == "ROW") |
         (ei_exp["region_to"].to_numpy()   == "ROW")
     )
 
-    row_supply   = supply_mask & row_mask
-    row_use      = use_mask    & row_mask
+    row_supply  = supply_mask & row_mask
+    row_use     = use_mask    & row_mask
 
-    inflation    = flat_cfg.row_inflation
     flat_cv_by_mask = {
-        "row_supply": (flat_cfg.cv_lo_supply * inflation,
-                       flat_cfg.cv_hi_supply * inflation),
-        "row_use":    (flat_cfg.cv_lo_use    * inflation,
-                       flat_cfg.cv_hi_use    * inflation),
-        "supply":     (flat_cfg.cv_lo_supply, flat_cfg.cv_hi_supply),
-        "use":        (flat_cfg.cv_lo_use,    flat_cfg.cv_hi_use),
+        "row_supply": (FLAT_CV_LO_SUPPLY * FLAT_ROW_INFLATION,
+                       FLAT_CV_HI_SUPPLY * FLAT_ROW_INFLATION),
+        "row_use":    (FLAT_CV_LO_USE    * FLAT_ROW_INFLATION,
+                       FLAT_CV_HI_USE    * FLAT_ROW_INFLATION),
+        "supply":     (FLAT_CV_LO_SUPPLY, FLAT_CV_HI_SUPPLY),
+        "use":        (FLAT_CV_LO_USE,    FLAT_CV_HI_USE),
     }
 
     engine.register(FlatPriorImputer(
         cv_by_mask = flat_cv_by_mask,
-        default_cv = flat_cfg.default_cv,
+        default_cv = FLAT_DEFAULT_CV,
         acc_struct = acc,
         p          = P_PROP,
         masks      = {"row_supply": row_supply, "row_use": row_use},
@@ -428,11 +455,11 @@ def main(feed_ids: list[str], label: str) -> None:
             "alpha_min":       ALPHA_MIN_REG,
             "flat_default_cv": FLAT_DEFAULT_CV,
             "time": {
-                "window":           cfg.imputers.time.window,
-                "min_obs":          cfg.imputers.time.min_obs,
-                "gap_inflation":    cfg.imputers.time.gap_inflation,
-                "method":           cfg.imputers.time.method,
-                "interpolate_only": cfg.imputers.time.interpolate_only,
+                "window":           TIME_WINDOW,
+                "min_obs":          TIME_MIN_OBS,
+                "gap_inflation":    TIME_GAP_INFLATION,
+                "method":           TIME_METHOD,
+                "interpolate_only": TIME_INTERPOLATE_ONLY,
             },
         },
     )
@@ -456,6 +483,6 @@ if __name__ == "__main__":
         "--feed-id", action="append", required=True, dest="feed_ids",
         help="Feed run ID to include. Repeat for each feed.",
     )
-    parser.add_argument("label", help="Human-readable label stored in the run's sidecar")
+    parser.add_argument("--label", help="Human-readable label stored in the run's sidecar")
     args = parser.parse_args()
     main(args.feed_ids, args.label)
