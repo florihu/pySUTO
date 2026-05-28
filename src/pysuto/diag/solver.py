@@ -10,6 +10,7 @@ much wider plot surface than the other diagnostics.
 from __future__ import annotations
 
 import os
+from dataclasses import replace
 from typing import Any, Optional
 
 import numpy as np
@@ -110,7 +111,9 @@ class SolverDiag:
     ) -> None:
         # Ordered list of timestep labels = key order in results dict
         self.label         = label
-        self._results      = dict(results)
+        self._results      = self._reassemble_if_year_local(
+            dict(results), constraint_run,
+        )
         self._timesteps    = list(self._results.keys())
         self._const_run    = constraint_run
         self._sigma_opt    = dict(sigma_opt) if sigma_opt else None
@@ -133,6 +136,41 @@ class SolverDiag:
             for t in self._timesteps
         }
 
+    @staticmethod
+    def _reassemble_if_year_local(results: dict, constraint_run) -> dict:
+        """Block-path (year-local) results store only each period's solved
+        slice (F_opt over cols_t, residuals/c_star over rows_t). Scatter the
+        pieces back into one complete F (E,) and one complete residuals/c_star
+        (M,) — each edge/row belongs to exactly one period, so the assembled
+        vectors are the true, placeholder-free solution. Every existing
+        global-index figure then works unchanged. Legacy (full-vector) results
+        are returned untouched. cols_t/rows_t are retained so per-period figures
+        can slice the complete vector to a single year."""
+        if not any(getattr(r, "cols_t", None) is not None for r in results.values()):
+            return results
+
+        E = constraint_run.G.shape[1]
+        M = constraint_run.G.shape[0]
+        F_complete     = np.zeros(E)
+        resid_complete = np.zeros(M)
+        cstar_complete = np.zeros(M)
+        for r in results.values():
+            if r.cols_t is None:
+                continue
+            F_complete[r.cols_t]     = r.F_opt
+            resid_complete[r.rows_t] = r.residuals
+            cstar_complete[r.rows_t] = r.c_star
+
+        return {
+            t: replace(
+                r,
+                F_opt     = F_complete,
+                residuals = resid_complete,
+                c_star    = cstar_complete,
+            )
+            for t, r in results.items()
+        }
+
     # ------------------------------------------------------------------
     # Construction from persisted run
     # ------------------------------------------------------------------
@@ -151,6 +189,7 @@ class SolverDiag:
         # Local import to keep diag.py at the leaf of the import graph for
         # CI environments without the full Stage-3 stack installed.
         from pysuto.registry import ConstraintRunRegistry, OptimRunRegistry
+        from pysuto.registry.optim import warn_if_prefix_block_run
 
         opt_reg = OptimRunRegistry(output_dir)
         if opt_run_id not in opt_reg._index:
@@ -165,6 +204,7 @@ class SolverDiag:
                                 .get("const_run_id"))
 
         const_run = ConstraintRunRegistry(const_dir).load(const_run_id)
+        warn_if_prefix_block_run(results, const_run)
 
         instance = cls(results, const_run, label=label or opt_run_id)
         instance._default_odir = os.path.join(output_dir, opt_run_id, "diag")

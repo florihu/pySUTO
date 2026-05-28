@@ -135,6 +135,59 @@ class TestFromOptId:
 
 
 # ---------------------------------------------------------------------------
+# 3b. Year-local (block-path) results
+# ---------------------------------------------------------------------------
+
+def _solve_block_run(tmp_path, monkeypatch):
+    """Build an engine ConstraintRun (G_blocks populated) and solve it →
+    year-local OptimResults + the ConstraintRun."""
+    from test_constraints import _make_toy_acc, _make_toy_agg_result
+    from pysuto.constraints import ConstraintEngine, MassBalanceBuilder
+    from pysuto.solver import ClarabelSolver
+
+    acc = _make_toy_acc()
+    agg = _make_toy_agg_result(acc)
+    engine = ConstraintEngine(acc, storage_dir=str(tmp_path / "const"))
+    engine.register(MassBalanceBuilder())
+    cr = engine.run(agg, timesteps=["2020", "2021"], persist=False)
+
+    s = ClarabelSolver(const_dir=str(tmp_path / "const"), verbose_first_solve=False)
+    monkeypatch.setattr(s, "load_run", lambda _rid: cr)
+    return s.solve_all(cr.run_id), cr
+
+
+class TestBlockRunDiag:
+
+    def test_mass_balance_summary_near_zero(self, tmp_path, monkeypatch):
+        """SolverDiag built from year-local results reassembles the complete
+        residuals, so the mass-balance summary reads ~0 (the artifact the REP
+        traced to cross-year placeholders is gone)."""
+        import re
+        from pysuto.diag import SolverDiag
+
+        results, cr = _solve_block_run(tmp_path, monkeypatch)
+        # Sanity: results really are year-local.
+        assert all(r.cols_t is not None for r in results.values())
+
+        diag = SolverDiag(results, cr, label="block")
+        text = diag.summary()
+        m = re.search(r"mass-balance rows:\s*([0-9.eE+-]+)", text)
+        assert m, text
+        assert float(m.group(1)) < 1e-6, text
+
+    def test_full_portfolio_renders_from_year_local(self, tmp_path, monkeypatch):
+        """Every figure renders from year-local results without shape errors."""
+        from pysuto.diag import SolverDiag
+        results, cr = _solve_block_run(tmp_path, monkeypatch)
+        paths = SolverDiag(results, cr, label="block").plot(
+            odir=str(tmp_path / "diag"),
+        )
+        assert len(paths) == 23
+        for p in paths:
+            assert os.path.exists(p)
+
+
+# ---------------------------------------------------------------------------
 # 4. compare()
 # ---------------------------------------------------------------------------
 

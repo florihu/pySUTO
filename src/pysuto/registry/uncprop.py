@@ -67,12 +67,15 @@ class UncPropRunRegistry(BaseOutputRegistry):
 
         # ── 1. per-timestep arrays ────────────────────────────────────
         for t, ts in result.per_timestep.items():
-            np.savez(
-                os.path.join(ts_dir, f"t_{t}.npz"),
-                sigma_a_star = ts.sigma_a_star,
-                lower        = ts.lower,
-                upper        = ts.upper,
-            )
+            arrays = {
+                "sigma_a_star": ts.sigma_a_star,
+                "lower":        ts.lower,
+                "upper":        ts.upper,
+            }
+            # Block path (year-local) carries cols_t; legacy omits it.
+            if ts.cols_t is not None:
+                arrays["cols_t"] = ts.cols_t
+            np.savez(os.path.join(ts_dir, f"t_{t}.npz"), **arrays)
 
         # ── 2. summary (caller's per_timestep + ordered keys) ─────────
         summary = (stage_summary or {}) | {"timesteps": list(result.per_timestep.keys())}
@@ -124,6 +127,7 @@ class UncPropRunRegistry(BaseOutputRegistry):
                 lower        = npz["lower"],
                 upper        = npz["upper"],
                 diagnostics  = dict(per_ts.get(t, {})),
+                cols_t       = npz["cols_t"] if "cols_t" in npz.files else None,
             )
 
         return UncPropResult(

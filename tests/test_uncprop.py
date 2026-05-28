@@ -524,10 +524,28 @@ class TestLoadFromOptRunId:
                               "2021": np.array([5, 6, 7, 8, 9])},
         )
 
-        # Fabricate OptimResults — uncprop only reads F_opt for CI bounds and
-        # the equality residual diagnostic. F_opt below satisfies mb (a0=a1)
-        # and ratio (a0=0.5·a3) at each t exactly.
-        opt_results = {
+        # Fabricate OptimResults satisfying mb (a0=a1) and ratio (a0=0.5·a3)
+        # at each t. The block path consumes YEAR-LOCAL results (F_opt over
+        # cols_t); the legacy path consumes a full-length vector.
+        opt_year_local = {
+            "2020": OptimResult(
+                timestep="2020",
+                F_opt=np.array([1.0, 1.0, 2.0, 2.0, 4.0]),
+                eps_opt=np.zeros(0), c_star=np.zeros(2),
+                residuals=np.zeros(2), objective=0.0, iterations=0,
+                solve_time_s=0.0, solver_status="Solved", convergence={},
+                cols_t=np.array([0, 1, 2, 3, 4]), rows_t=np.array([0, 1]),
+            ),
+            "2021": OptimResult(
+                timestep="2021",
+                F_opt=np.array([1.5, 1.5, 2.5, 3.0, 4.5]),
+                eps_opt=np.zeros(0), c_star=np.zeros(2),
+                residuals=np.zeros(2), objective=0.0, iterations=0,
+                solve_time_s=0.0, solver_status="Solved", convergence={},
+                cols_t=np.array([5, 6, 7, 8, 9]), rows_t=np.array([2, 3]),
+            ),
+        }
+        opt_full = {
             "2020": OptimResult(
                 timestep="2020",
                 F_opt=np.array([1.0, 1.0, 2.0, 2.0, 4.0, 0, 0, 0, 0, 0]),
@@ -555,7 +573,7 @@ class TestLoadFromOptRunId:
         monkeypatch.setattr(prop_new._opt_registry, "load_sidecar",
                             lambda _rid: fake_sidecar)
         monkeypatch.setattr(prop_new._opt_registry, "load",
-                            lambda _rid: opt_results)
+                            lambda _rid: opt_year_local)
         monkeypatch.setattr(prop_new._const_registry, "load",
                             lambda _rid: cr)
         result_new = prop_new.compute("opt_fake", alpha=0.05)
@@ -572,30 +590,100 @@ class TestLoadFromOptRunId:
         monkeypatch.setattr(prop_legacy._opt_registry, "load_sidecar",
                             lambda _rid: fake_sidecar)
         monkeypatch.setattr(prop_legacy._opt_registry, "load",
-                            lambda _rid: opt_results)
+                            lambda _rid: opt_full)
         monkeypatch.setattr(prop_legacy._const_registry, "load",
                             lambda _rid: cr_legacy)
         result_legacy = prop_legacy.compute("opt_fake", alpha=0.05)
 
-        # Equivalence holds on t-edges; non-t edges legitimately differ —
-        # legacy enforces hard rows for non-t (σ_c=0 even when "deactivated"),
-        # creating spurious shrinkage. Per-t correctly leaves non-t at prior.
+        # Block output is year-local; legacy is full. They must agree on the
+        # t-edges (legacy non-t shrinkage is a separate, expected artifact).
         for t in ("2020", "2021"):
             new_sa  = result_new.per_timestep[t].sigma_a_star
             leg_sa  = result_legacy.per_timestep[t].sigma_a_star
             cols_t  = cr.edge_cols_by_t[t]
-            other_t = "2021" if t == "2020" else "2020"
-            non_t   = cr.edge_cols_by_t[other_t]
-            assert new_sa.shape == leg_sa.shape == (10,)
-            # 1. Per-t edges: agree numerically.
-            assert np.allclose(new_sa[cols_t], leg_sa[cols_t],
-                               atol=1e-7, rtol=1e-7), \
+            assert new_sa.shape == cols_t.shape
+            assert np.allclose(new_sa, leg_sa[cols_t], atol=1e-7, rtol=1e-7), \
                 f"t={t}: per-t σ_a* differs from legacy on t-edges " \
-                f"(max abs {np.max(np.abs(new_sa[cols_t] - leg_sa[cols_t])):.3e})"
-            # 2. Non-t edges in per-t path: prior σ_a (no shrinkage from
-            #    out-of-time constraints).
-            assert np.allclose(new_sa[non_t], cr.sigma_a[non_t], atol=1e-10), \
-                f"t={t}: per-t σ_a* on non-t edges should be prior σ_a"
+                f"(max abs {np.max(np.abs(new_sa - leg_sa[cols_t])):.3e})"
+
+    def test_block_uncprop_output_is_year_local(self, tmp_path, monkeypatch):
+        """Block-path uncprop stores year-local sigma_a_star/lower/upper over
+        cols_t, with lower ≤ a* ≤ upper, and round-trips through the registry."""
+        from pysuto.uncprop import KalmanUncProp
+        from pysuto.solver import OptimResult
+        from pysuto.constraints import ConstraintRun
+        from pysuto.registry import UncPropRunRegistry
+
+        G_per_t = sp.csr_matrix(np.array([[1.0, -1.0, 0.0]]))
+        G_global = sp.block_diag([G_per_t, G_per_t]).tocsr()
+        row_meta = pd.DataFrame({
+            "constraint_id": ["mb_2020", "mb_2021"],
+            "is_hard":       [True, True],
+            "cone_type":     ["zero", "zero"],
+            "time":          ["2020", "2021"],
+        })
+        cr = ConstraintRun(
+            G=G_global, row_meta=row_meta,
+            a0=np.array([1.0, 1.0, 2.0, 1.5, 1.5, 2.5]),
+            sigma_a=np.ones(6), u=np.full(6, 10.0), l=np.zeros(6),
+            timestep_data={
+                "2020": {"c": np.zeros(2), "sigma_c": np.array([0.0, 1e8])},
+                "2021": {"c": np.zeros(2), "sigma_c": np.array([1e8, 0.0])},
+            },
+            run_id="blk", acc_id="a", agg_id="g",
+            created_at="2026-05-28T00:00:00",
+            G_blocks={"2020": G_per_t.tocsr(), "2021": G_per_t.tocsr()},
+            edge_cols_by_t={"2020": np.array([0, 1, 2]),
+                            "2021": np.array([3, 4, 5])},
+        )
+        opt_results = {
+            "2020": OptimResult(
+                timestep="2020", F_opt=np.array([1.0, 1.0, 2.0]),
+                eps_opt=np.zeros(0), c_star=np.zeros(1), residuals=np.zeros(1),
+                objective=0.0, iterations=0, solve_time_s=0.0,
+                solver_status="Solved", convergence={},
+                cols_t=np.array([0, 1, 2]), rows_t=np.array([0]),
+            ),
+            "2021": OptimResult(
+                timestep="2021", F_opt=np.array([1.5, 1.5, 2.5]),
+                eps_opt=np.zeros(0), c_star=np.zeros(1), residuals=np.zeros(1),
+                objective=0.0, iterations=0, solve_time_s=0.0,
+                solver_status="Solved", convergence={},
+                cols_t=np.array([3, 4, 5]), rows_t=np.array([1]),
+            ),
+        }
+        prop = KalmanUncProp(
+            opt_dir=str(tmp_path / "opt"), const_dir=str(tmp_path / "const"),
+            uncprop_dir=str(tmp_path / "uncprop"),
+        )
+        monkeypatch.setattr(prop._opt_registry, "load_sidecar",
+                            lambda _rid: {"parents": {"upstream": {"const_run_id": cr.run_id}}})
+        monkeypatch.setattr(prop._opt_registry, "load", lambda _rid: opt_results)
+        monkeypatch.setattr(prop._const_registry, "load", lambda _rid: cr)
+        result = prop.compute("opt_fake", alpha=0.05)
+
+        for t in ("2020", "2021"):
+            ts = result.per_timestep[t]
+            cols_t = cr.edge_cols_by_t[t]
+            assert ts.sigma_a_star.shape == cols_t.shape
+            assert ts.lower.shape == cols_t.shape
+            assert ts.upper.shape == cols_t.shape
+            assert ts.cols_t is not None
+            np.testing.assert_array_equal(ts.cols_t, cols_t)
+            f = opt_results[t].F_opt
+            assert np.all(ts.lower <= f + 1e-9) and np.all(f - 1e-9 <= ts.upper)
+
+        # Round-trip: registry persists + reloads cols_t and year-local arrays.
+        reg = UncPropRunRegistry(str(tmp_path / "uncprop"))
+        out_id = reg.register(
+            result, parents={"inputs": {}, "upstream": {"const_run_id": cr.run_id}},
+        )
+        npz = np.load(tmp_path / "uncprop" / out_id / "timesteps" / "t_2020.npz")
+        assert "cols_t" in npz.files
+        reloaded = reg.load(out_id)
+        np.testing.assert_array_equal(
+            reloaded.per_timestep["2020"].cols_t, cr.edge_cols_by_t["2020"],
+        )
 
     def test_missing_const_run_id_raises(self, tmp_path):
         """If opt sidecar has no upstream.const_run_id, compute() should fail

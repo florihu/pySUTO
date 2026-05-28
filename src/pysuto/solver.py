@@ -76,6 +76,10 @@ class OptimResult:
     solver_status: str             # str(clarabel SolverStatus enum)
     convergence:   dict            # final get_info() snapshot (JSON-safe scalars)
     iter_history:  Optional[np.ndarray] = None  # structured array of ITER_DTYPE
+    # Block path only: F_opt/residuals/c_star are the year-local slices over
+    # these global indices. None for the legacy full-vector path.
+    cols_t:        Optional[np.ndarray] = None  # global edge cols for this t
+    rows_t:        Optional[np.ndarray] = None  # global constraint rows for this t
 
 
 # =============================================================================
@@ -764,29 +768,27 @@ class ClarabelSolver:
             if n_free_t:
                 eps_full_t[perm_t[:n_free_t]] = eps_opt_t
 
-            # Scatter F_opt_t into global F_opt; non-t entries keep their
-            # current warm-started prior value (matches legacy approximation,
-            # since the unconstrained part of the legacy global QP is pulled
-            # to a_0 by the diagonal P).
-            F_opt_global = a_0_t_global.copy()
-            F_opt_global[cols_t] = F_opt_t
-
-            c_star_global = c_t_full.copy()
-            c_star_global[rows_t] = c_t + eps_full_t
-            residuals_global = run.G @ F_opt_global - c_t_full
+            # Year-local persistence (REP §8.2): store only this period's
+            # solved values. F_opt over cols_t, residuals/c_star over rows_t —
+            # no cross-year prior placeholders. Residual is the block residual
+            # G_t @ F_opt_t - c_t (rows_t order); mass balance ≈ 0 by construction.
+            residuals_t = np.asarray(G_t @ F_opt_t - c_t)
+            c_star_t    = c_t + eps_full_t
 
             results[t] = OptimResult(
                 timestep      = t,
-                F_opt         = F_opt_global,
+                F_opt         = F_opt_t,
                 eps_opt       = eps_opt_t,
-                c_star        = c_star_global,
-                residuals     = residuals_global,
+                c_star        = c_star_t,
+                residuals     = residuals_t,
                 objective     = float(sol.obj_val),
                 iterations    = int(sol.iterations),
                 solve_time_s  = elapsed,
                 solver_status = status,
                 convergence   = convergence,
                 iter_history  = iter_history,
+                cols_t        = cols_t,
+                rows_t        = rows_t,
             )
 
             logger.info(

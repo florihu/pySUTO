@@ -124,6 +124,17 @@ class TestSolveAll:
         results = toy_solver.solve_all("toy_run")
         assert set(results.keys()) == {"2020", "2021"}
 
+    def test_legacy_path_full_vector_no_block_indices(self, toy_solver, toy_run):
+        """Legacy path (no G_blocks) keeps full-length F_opt/residuals and
+        leaves cols_t/rows_t as None — the schema discriminator."""
+        results = toy_solver.solve_all("toy_run")
+        E, M = toy_run.G.shape[1], toy_run.G.shape[0]
+        for r in results.values():
+            assert r.cols_t is None and r.rows_t is None
+            assert r.F_opt.shape == (E,)
+            assert r.residuals.shape == (M,)
+            assert r.c_star.shape == (M,)
+
     def test_status_solved(self, toy_solver):
         results = toy_solver.solve_all("toy_run")
         for t, r in results.items():
@@ -260,15 +271,49 @@ class TestPersist:
             assert "linsolver_name" in conv
             assert isinstance(conv["iterations"], int)
 
-        # per-timestep npz with iter_history
+        # per-timestep npz with iter_history; legacy run carries no block index
         for t, r in results.items():
             npz = np.load(run_dir / "timesteps" / f"t_{t}.npz")
             assert set(npz.files) >= {
                 "F_opt", "eps_opt", "c_star", "residuals", "iter_history",
             }
+            assert "cols_t" not in npz.files and "rows_t" not in npz.files
             np.testing.assert_array_equal(npz["F_opt"], r.F_opt)
             assert npz["iter_history"].dtype == ITER_DTYPE
             assert npz["iter_history"].shape == r.iter_history.shape
+
+    def test_block_run_roundtrips_year_local_arrays(self, tmp_path, monkeypatch):
+        """A block run persists + reloads cols_t/rows_t and year-local
+        F_opt/residuals; the legacy run (above) carries no block index."""
+        from tests.test_constraints import _make_toy_acc, _make_toy_agg_result
+        from pysuto.constraints import ConstraintEngine, MassBalanceBuilder
+        from pysuto.solver import ClarabelSolver
+        from pysuto.registry import OptimRunRegistry
+
+        acc = _make_toy_acc()
+        agg = _make_toy_agg_result(acc)
+        engine = ConstraintEngine(acc, storage_dir=str(tmp_path / "const"))
+        engine.register(MassBalanceBuilder())
+        cr = engine.run(agg, timesteps=["2020", "2021"], persist=False)
+
+        solver = ClarabelSolver(
+            const_dir=str(tmp_path / "const"), verbose_first_solve=False,
+        )
+        monkeypatch.setattr(solver, "load_run", lambda _rid: cr)
+        results = solver.solve_all(cr.run_id)
+        out_id = solver.persist(
+            run_id=cr.run_id, results=results,
+            output_dir=str(tmp_path / "opt"), const_run_id="c",
+        )
+
+        npz = np.load(tmp_path / "opt" / out_id / "timesteps" / "t_2020.npz")
+        assert {"cols_t", "rows_t"} <= set(npz.files)
+
+        loaded = OptimRunRegistry(str(tmp_path / "opt")).load(out_id)
+        for t, r in loaded.items():
+            np.testing.assert_array_equal(r.cols_t, cr.edge_cols_by_t[t])
+            assert r.F_opt.shape == r.cols_t.shape
+            assert r.residuals.shape == r.rows_t.shape
 
     def test_no_iter_history_when_disabled(self, monkeypatch, toy_run, tmp_path):
         from pysuto.solver import ClarabelSolver
@@ -328,19 +373,39 @@ class TestEngineToSolverIntegration:
         assert set(results.keys()) == {"2020", "2021"}
         for t, r in results.items():
             assert r.solver_status == "Solved", (t, r.solver_status)
-            assert r.F_opt.shape == (acc.n_edges,)
+            # Year-local: F_opt covers only this period's edges.
+            assert r.F_opt.shape == cr.edge_cols_by_t[t].shape
+
+    def test_block_path_emits_year_local_result(self, tmp_path, monkeypatch):
+        """Block path persists only the period's solved values: F_opt over
+        cols_t, residuals/c_star over rows_t, with cols_t/rows_t index arrays.
+        No cross-year placeholders (REP §8.2, Option 2)."""
+        acc, cr, storage_dir = self._build_real_run(tmp_path)
+        solver = self._solver_with_inmem_run(storage_dir, cr, monkeypatch)
+        results = solver.solve_all(cr.run_id)
+
+        row_time = cr.row_meta["time"].astype(str).to_numpy()
+        for t, r in results.items():
+            cols_t = cr.edge_cols_by_t[t]
+            rows_t = np.where(row_time == t)[0]
+            assert r.cols_t is not None and r.rows_t is not None, t
+            np.testing.assert_array_equal(r.cols_t, cols_t)
+            np.testing.assert_array_equal(r.rows_t, rows_t)
+            assert r.F_opt.shape == cols_t.shape
+            assert r.residuals.shape == rows_t.shape
+            assert r.c_star.shape == rows_t.shape
 
     def test_per_t_mass_balance_residuals_near_zero(self, tmp_path, monkeypatch):
-        """For each t, G_blocks[t] @ F_opt[edge_cols_by_t[t]] ≈ 0 (mass balance)."""
+        """For each t, the stored year-local residual (G_blocks[t] @ F_opt) ≈ 0
+        on the mass-balance rows."""
         acc, cr, storage_dir = self._build_real_run(tmp_path)
         solver = self._solver_with_inmem_run(storage_dir, cr, monkeypatch)
         results = solver.solve_all(cr.run_id)
 
         for t, r in results.items():
-            cols_t      = cr.edge_cols_by_t[t]
-            per_t_F     = r.F_opt[cols_t]
-            block_resid = cr.G_blocks[t] @ per_t_F
+            block_resid = cr.G_blocks[t] @ r.F_opt
             assert np.allclose(block_resid, 0.0, atol=1e-6), (t, block_resid)
+            assert np.allclose(r.residuals, block_resid, atol=1e-9), t
 
     def test_warm_start_reuses_solver_instance_when_G_blocks_identical(
         self, tmp_path, monkeypatch,
@@ -476,11 +541,76 @@ class TestEngineToSolverIntegration:
 
         for t in ("2020", "2021"):
             cols_t   = cr.edge_cols_by_t[t]
-            new_F_t  = new_results[t].F_opt[cols_t]
+            # Block path is year-local; legacy is full-vector → slice it.
+            new_F_t  = new_results[t].F_opt
             leg_F_t  = legacy_results[t].F_opt[cols_t]
             assert np.allclose(new_F_t, leg_F_t, atol=1e-7, rtol=1e-7), \
                 f"t={t}: per-t F_opt differs from legacy: " \
                 f"max abs diff {np.max(np.abs(new_F_t - leg_F_t)):.3e}"
+
+
+class TestPreFixBlockRunGuard:
+
+    def _block_const_run(self):
+        from pysuto.constraints import ConstraintRun
+        G = sp.csr_matrix(np.eye(2))
+        rm = pd.DataFrame({
+            "constraint_id": ["a", "b"], "is_hard": [True, True],
+            "cone_type": ["zero", "zero"], "time": ["2020", "2021"],
+        })
+        return ConstraintRun(
+            G=G, row_meta=rm, a0=np.zeros(2), sigma_a=np.ones(2),
+            u=np.full(2, 10.0), l=np.zeros(2),
+            timestep_data={"2020": {"c": np.zeros(2), "sigma_c": np.zeros(2)}},
+            run_id="c", acc_id="a", agg_id="g", created_at="2026-05-28T00:00:00",
+            G_blocks={"2020": G, "2021": G},
+            edge_cols_by_t={"2020": np.array([0]), "2021": np.array([1])},
+        )
+
+    def test_warns_on_full_vector_results_from_block_const(self):
+        """A const run with G_blocks but full-vector (cols_t=None) opt results
+        is a pre-fix block run carrying cross-year placeholders → warn."""
+        from pysuto.registry.optim import warn_if_prefix_block_run
+        from pysuto.solver import OptimResult
+        const_run = self._block_const_run()
+        results = {"2020": OptimResult(
+            timestep="2020", F_opt=np.zeros(2), eps_opt=np.zeros(0),
+            c_star=np.zeros(2), residuals=np.zeros(2), objective=0.0,
+            iterations=0, solve_time_s=0.0, solver_status="Solved",
+            convergence={},
+        )}
+        with pytest.warns(UserWarning, match="pre-fix block run"):
+            warn_if_prefix_block_run(results, const_run)
+
+    def test_silent_on_year_local_block_results(self, recwarn):
+        from pysuto.registry.optim import warn_if_prefix_block_run
+        from pysuto.solver import OptimResult
+        const_run = self._block_const_run()
+        results = {"2020": OptimResult(
+            timestep="2020", F_opt=np.zeros(1), eps_opt=np.zeros(0),
+            c_star=np.zeros(1), residuals=np.zeros(1), objective=0.0,
+            iterations=0, solve_time_s=0.0, solver_status="Solved",
+            convergence={}, cols_t=np.array([0]), rows_t=np.array([0]),
+        )}
+        warn_if_prefix_block_run(results, const_run)
+        assert not any(issubclass(w.category, UserWarning) for w in recwarn.list)
+
+    def test_silent_on_legacy_const(self, recwarn):
+        """A const run with no G_blocks (legacy) + full-vector results is a
+        legitimate legacy run → no warning."""
+        from pysuto.registry.optim import warn_if_prefix_block_run
+        const_run = self._block_const_run()
+        const_run.G_blocks = {}
+        const_run.edge_cols_by_t = {}
+        from pysuto.solver import OptimResult
+        results = {"2020": OptimResult(
+            timestep="2020", F_opt=np.zeros(2), eps_opt=np.zeros(0),
+            c_star=np.zeros(2), residuals=np.zeros(2), objective=0.0,
+            iterations=0, solve_time_s=0.0, solver_status="Solved",
+            convergence={},
+        )}
+        warn_if_prefix_block_run(results, const_run)
+        assert not any(issubclass(w.category, UserWarning) for w in recwarn.list)
 
 
 class TestFeasibilityCheck:

@@ -30,7 +30,7 @@ from datetime import datetime
 
 CONST_DIR  = os.path.join("data", "proc", "const")
 OUTPUT_DIR = os.path.join("data", "proc", "opt")
-TIMESTEPS  = None          # None → all timesteps in the run
+TIMESTEPS  = 1995             # None → all timesteps in the run
 FEASIBILITY_CHECK_FIRST_ONLY = True
 
 # ---------------------------------------------------------------------------
