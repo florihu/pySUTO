@@ -179,6 +179,9 @@ class KalmanUncProp(BaseUncProp):
         opt_results = self._opt_registry.load(opt_run_id)
         const_run   = self._const_registry.load(const_run_id)
 
+        if const_run.G_blocks:
+            return self._compute_via_blocks(const_run, opt_results, alpha)
+
         # 2) Condition σ_a once (time-invariant; same rules as solver).
         _, sigma_a = condition_prior(
             const_run.a0, const_run.sigma_a,
@@ -255,6 +258,141 @@ class KalmanUncProp(BaseUncProp):
             alpha        = float(alpha),
             per_timestep = per_timestep,
         )
+
+    def _compute_via_blocks(
+        self,
+        const_run,
+        opt_results: dict,
+        alpha:       float,
+    ) -> UncPropResult:
+        """Per-t Schur complement using ``run.G_blocks[t]`` — replaces the
+        ``(M × M)`` global ``S`` with one ``(m_t × m_t)`` block per timestep
+        (~30× smaller for the copper run). Mathematically identical: the
+        legacy global ``S`` is exactly block-diagonal by time when no
+        cross-time constraint coupling exists (verified by the partition
+        invariant in :func:`pysuto.constraints.engine._partition_G_by_time`).
+        Non-``t`` entries of ``sigma_a_star`` inherit the prior σ_a — same
+        as the legacy "deactivated row" outcome where ``σ_c=SIGMA_C_INACTIVE``
+        makes d≈0 and shrinkage vanishes."""
+        _, sigma_a = condition_prior(
+            const_run.a0, const_run.sigma_a,
+            floor_abs      = self.sigma_a_floor_abs,
+            floor_rel      = self.sigma_a_floor_rel,
+            ceiling_factor = self.sigma_a_ceiling_factor,
+        )
+        sigma_a2 = sigma_a ** 2
+
+        hard_mask     = const_run.row_meta["is_hard"].to_numpy().astype(bool)
+        equality_mask = (const_run.row_meta["cone_type"].to_numpy() == "zero")
+        row_time      = const_run.row_meta["time"].astype(str).to_numpy()
+
+        z = float(norm.ppf(1.0 - alpha / 2.0))
+
+        per_timestep: dict[str, UncPropTimestep] = {}
+        for t_label, opt_t in opt_results.items():
+            t_start = time.perf_counter()
+
+            cols_t = const_run.edge_cols_by_t[t_label]
+            rows_t = np.where(row_time == t_label)[0]
+            G_t    = const_run.G_blocks[t_label].tocsc()
+
+            sigma_a2_t = sigma_a2[cols_t]
+
+            raw_sc  = np.asarray(
+                const_run.timestep_data[t_label]["sigma_c"], dtype=float,
+            )[rows_t]
+            hm_t    = hard_mask[rows_t]
+            sc_t    = condition_sigma_c(
+                raw_sc, floor=self.sigma_c_floor, hard_mask=hm_t,
+            )
+            sigma_c2_t = sc_t ** 2
+
+            S_t = self._build_S(G_t, sigma_a2_t, sigma_c2_t)
+            d_t = self._marginal_diagonal_block(S_t, G_t, sigma_a2_t.size)
+
+            var_post_t = sigma_a2_t * (1.0 - sigma_a2_t * d_t)
+            np.clip(var_post_t, 0.0, None, out=var_post_t)
+            sigma_a_star_t = np.sqrt(var_post_t)
+
+            # Scatter: t-edges get the per-t result; non-t inherit prior σ_a.
+            sigma_a_star = sigma_a.copy()
+            sigma_a_star[cols_t] = sigma_a_star_t
+
+            half_width = z * sigma_a_star
+            lower = np.maximum(opt_t.F_opt - half_width, const_run.l)
+            upper = np.minimum(opt_t.F_opt + half_width, const_run.u)
+
+            # Per-t diagnostics: hard-row residual on the t-block only.
+            em_t = equality_mask[rows_t]
+            c_t_full = np.asarray(const_run.timestep_data[t_label]["c"])
+            if em_t.any():
+                resid_t = G_t @ opt_t.F_opt[cols_t] - c_t_full[rows_t]
+                max_resid_hard = float(np.abs(resid_t[em_t]).max())
+            else:
+                max_resid_hard = 0.0
+            diagnostics = {
+                "trace_prior":    float(sigma_a2.sum()),
+                "trace_post":     float(np.square(sigma_a_star).sum()),
+                "max_resid_hard": max_resid_hard,
+                "psd_min_diag":   float(sigma_a_star.min()),
+            }
+
+            per_timestep[t_label] = UncPropTimestep(
+                timestep     = t_label,
+                sigma_a_star = sigma_a_star,
+                lower        = lower,
+                upper        = upper,
+                diagnostics  = diagnostics,
+            )
+
+            shrinkage = (1.0 - diagnostics["trace_post"] / diagnostics["trace_prior"]
+                         if diagnostics["trace_prior"] > 0.0 else 0.0)
+            logger.info(
+                "t=%s  σ_post: min=%.3e med=%.3e max=%.3e  shrinkage=%.3f  "
+                "time=%.2fs  (per-t: %d cols × %d rows)",
+                t_label,
+                float(sigma_a_star.min()),
+                float(np.median(sigma_a_star)),
+                float(sigma_a_star.max()),
+                shrinkage,
+                time.perf_counter() - t_start,
+                G_t.shape[1], G_t.shape[0],
+            )
+
+        return UncPropResult(
+            method       = self.METHOD,
+            alpha        = float(alpha),
+            per_timestep = per_timestep,
+        )
+
+    def _marginal_diagonal_block(
+        self,
+        S_t: sp.csc_matrix,
+        G_t: sp.csc_matrix,
+        n_t: int,
+    ) -> np.ndarray:
+        """``d_i = g_iᵀ S_t⁻¹ g_i`` for every column ``g_i`` of ``G_t``.
+        Uses CHOLMOD when available (one analyze+factor per t — the per-t
+        path doesn't reuse symbolic patterns across t because G_blocks can
+        differ); falls back to scipy ``splu`` otherwise."""
+        d = np.zeros(n_t, dtype=np.float64)
+        try:
+            from sksparse.cholmod import cholesky as cholmod_cholesky
+            factor = cholmod_cholesky(S_t)
+            for s in range(0, n_t, self.block_size):
+                e = min(s + self.block_size, n_t)
+                G_blk = G_t[:, s:e].toarray()
+                V = factor.solve_L(G_blk, use_LDLt_decomposition=False)
+                d[s:e] = np.einsum("mb,mb->b", V, V)
+        except ImportError:
+            from scipy.sparse.linalg import splu
+            lu = splu(S_t)
+            for s in range(0, n_t, self.block_size):
+                e = min(s + self.block_size, n_t)
+                G_blk = G_t[:, s:e].toarray()
+                X = lu.solve(G_blk)
+                d[s:e] = np.einsum("mb,mb->b", G_blk, X)
+        return d
 
     def persist(
         self,

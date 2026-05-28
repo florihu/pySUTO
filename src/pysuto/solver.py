@@ -467,6 +467,22 @@ class ClarabelSolver:
             if missing:
                 raise KeyError(f"timesteps not in run: {sorted(missing)}")
 
+        if run.G_blocks:
+            return self._solve_all_via_blocks(
+                run, ts_labels, feasibility_check_first_only,
+            )
+        return self._solve_all_legacy(
+            run, ts_labels, feasibility_check_first_only,
+        )
+
+    def _solve_all_legacy(
+        self,
+        run:       ConstraintRun,
+        ts_labels: list[str],
+        feasibility_check_first_only: bool,
+    ) -> dict[str, OptimResult]:
+        """Legacy path: full-G QP per timestep with solver.update() warm-start.
+        Used only when run.G_blocks is empty (test fixtures predating Slice 2)."""
         # Feasibility pre-check
         check_labels = ts_labels[:1] if feasibility_check_first_only else ts_labels
         logger.info(
@@ -581,6 +597,209 @@ class ClarabelSolver:
 
             # Warm-start prior for next timestep: a_0(t+1) ← a*(t)
             a_0_t = F_opt
+
+        return results
+
+    @staticmethod
+    def _per_t_problem_identical(run: ConstraintRun, ts_labels: list[str]) -> bool:
+        """True when A_t = [G_t | S_t] is identical across every t in ``ts_labels``.
+
+        Requires: same G_blocks (shape, indptr, indices, data) AND same
+        cone_type ordering within each per-t row block (so the column-permuted
+        slack block S_t and cones list match too). Holds in the typical case
+        where all builders are time-invariant (e.g. ratios with a_time="*");
+        breaks when a builder emits year-specific coefficients (e.g. ore_grade
+        with explicit per-year value_nominal)."""
+        if len(ts_labels) <= 1:
+            return False
+        row_time = run.row_meta["time"].astype(str).to_numpy()
+        first_t  = ts_labels[0]
+        first_G  = run.G_blocks[first_t].tocsr()
+        first_ct = run.row_meta.iloc[
+            np.where(row_time == first_t)[0]
+        ]["cone_type"].to_numpy()
+        for t in ts_labels[1:]:
+            G_t = run.G_blocks[t].tocsr()
+            if G_t.shape != first_G.shape or G_t.nnz != first_G.nnz:
+                return False
+            if not np.array_equal(G_t.indptr,  first_G.indptr):  return False
+            if not np.array_equal(G_t.indices, first_G.indices): return False
+            if not np.array_equal(G_t.data,    first_G.data):    return False
+            ct_t = run.row_meta.iloc[
+                np.where(row_time == t)[0]
+            ]["cone_type"].to_numpy()
+            if not np.array_equal(ct_t, first_ct):
+                return False
+        return True
+
+    def _solve_all_via_blocks(
+        self,
+        run:       ConstraintRun,
+        ts_labels: list[str],
+        feasibility_check_first_only: bool,
+    ) -> dict[str, OptimResult]:
+        """Per-t solve path using run.G_blocks. Each per-t QP is ~30× smaller
+        than the legacy full-G QP. When every per-t A_t matches (typical case
+        with no time-varying ratios), one Clarabel instance is built and
+        reused via solver.update(P, q, b) — keeping the KKT factorisation
+        across the whole timestep loop."""
+        warm_start = self._per_t_problem_identical(run, ts_labels)
+        check_labels = ts_labels[:1] if feasibility_check_first_only else ts_labels
+        logger.info(
+            "Feasibility pre-check on %d/%d timesteps%s…",
+            len(check_labels), len(ts_labels),
+            " (first only)" if feasibility_check_first_only else "",
+        )
+        for t in check_labels:
+            self.feasibility_check(run, t)
+        logger.info("Feasibility pre-check passed.")
+
+        a_0_global, sigma_a_global = self._condition_prior(run.a0, run.sigma_a)
+        inv_sa_global = 1.0 / (sigma_a_global ** 2)
+
+        a_0_t_global = np.array(a_0_global, dtype=float, copy=True)
+        row_time = run.row_meta["time"].astype(str).to_numpy()
+
+        results: dict[str, OptimResult] = {}
+        solver_t: Optional[clarabel.DefaultSolver] = None
+
+        for k, t in enumerate(ts_labels):
+            cols_t  = run.edge_cols_by_t[t]
+            rows_t  = np.where(row_time == t)[0]
+            G_t     = run.G_blocks[t]
+            rm_t    = run.row_meta.iloc[rows_t]
+            c_t_full     = np.asarray(run.timestep_data[t]["c"])
+            sc_t_full    = np.asarray(run.timestep_data[t]["sigma_c"])
+            c_t          = c_t_full[rows_t]
+            sc_t         = sc_t_full[rows_t]
+
+            ct       = rm_t["cone_type"].to_numpy()
+            idx_free   = np.where(ct == "free")[0]
+            idx_zero   = np.where(ct == "zero")[0]
+            idx_nonneg = np.where(ct == "nonneg")[0]
+            perm_t   = np.concatenate([idx_free, idx_zero, idx_nonneg])
+            n_free_t = idx_free.size
+            n_zero_t, n_nonneg_t = idx_zero.size, idx_nonneg.size
+            n_a_t    = G_t.shape[1]
+            m_t      = G_t.shape[0]
+
+            inv_sa_t       = inv_sa_global[cols_t]
+            a_0_t_slice    = a_0_t_global[cols_t]
+
+            G_p_t = G_t.tocsr()[perm_t]
+            S_top = -sp.eye(n_free_t, format="csr") if n_free_t else sp.csr_matrix((0, 0))
+            S_bot = sp.csr_matrix((n_zero_t + n_nonneg_t, n_free_t))
+            S_t   = sp.vstack([S_top, S_bot], format="csr") if n_free_t else \
+                    sp.csr_matrix((m_t, 0))
+            A_t   = sp.hstack([G_p_t, S_t], format="csc")
+            b_t   = c_t[perm_t]
+
+            if n_free_t:
+                sc_arr   = np.where(np.isnan(sc_t), self.sigma_c_floor, sc_t)
+                sc_arr   = np.maximum(sc_arr, self.sigma_c_floor)
+                inv_scf  = 1.0 / (sc_arr[perm_t[:n_free_t]] ** 2)
+            else:
+                inv_scf = np.zeros(0)
+            P_diag_t = 2.0 * np.concatenate([inv_sa_t, inv_scf])
+            P_t      = sp.diags(P_diag_t, format="csc")
+            q_t      = np.concatenate([-2.0 * inv_sa_t * a_0_t_slice,
+                                        np.zeros(n_free_t)])
+
+            cones_t: list = []
+            if n_free_t   > 0: cones_t.append(clarabel.ZeroConeT(n_free_t))
+            if n_zero_t   > 0: cones_t.append(clarabel.ZeroConeT(n_zero_t))
+            if n_nonneg_t > 0: cones_t.append(clarabel.NonnegativeConeT(n_nonneg_t))
+
+            t0 = time.perf_counter()
+            verbose = self.verbose_first_solve and k == 0
+            if solver_t is None:
+                settings = self._settings(verbose=verbose)
+                solver_t = clarabel.DefaultSolver(
+                    P_t, q_t, A_t, b_t, cones_t, settings,
+                )
+            elif warm_start:
+                solver_t.update(P=P_t, q=q_t, b=b_t)
+            else:
+                settings = self._settings(verbose=verbose)
+                solver_t = clarabel.DefaultSolver(
+                    P_t, q_t, A_t, b_t, cones_t, settings,
+                )
+
+            hist: list[tuple] = []
+            if self.capture_iter_history:
+                def _cb(info, _hist=hist):
+                    _hist.append((
+                        int(info.iterations),
+                        float(info.cost_primal), float(info.cost_dual),
+                        float(info.gap_abs),
+                        float(info.res_primal), float(info.res_dual),
+                        float(info.ktratio),    float(info.mu),
+                        float(info.step_length),
+                    ))
+                    return False
+                solver_t.set_termination_callback(_cb)
+
+            sol     = solver_t.solve()
+            elapsed = time.perf_counter() - t0
+            status  = str(sol.status)
+
+            if self.capture_iter_history:
+                solver_t.unset_termination_callback()
+
+            convergence  = self._info_to_dict(solver_t.get_info())
+            iter_history = np.array(hist, dtype=ITER_DTYPE) if hist else None
+
+            if status not in _OK_STATUSES:
+                raise RuntimeError(
+                    f"Timestep {t!r}: Clarabel status={status}; halting "
+                    f"(no fallback). iterations={sol.iterations}"
+                )
+
+            x         = np.asarray(sol.x)
+            F_opt_t   = x[:n_a_t]
+            eps_opt_t = x[n_a_t:] if n_free_t else np.zeros(0)
+
+            # ε back into row-order on the per-t row block
+            eps_full_t = np.zeros(m_t)
+            if n_free_t:
+                eps_full_t[perm_t[:n_free_t]] = eps_opt_t
+
+            # Scatter F_opt_t into global F_opt; non-t entries keep their
+            # current warm-started prior value (matches legacy approximation,
+            # since the unconstrained part of the legacy global QP is pulled
+            # to a_0 by the diagonal P).
+            F_opt_global = a_0_t_global.copy()
+            F_opt_global[cols_t] = F_opt_t
+
+            c_star_global = c_t_full.copy()
+            c_star_global[rows_t] = c_t + eps_full_t
+            residuals_global = run.G @ F_opt_global - c_t_full
+
+            results[t] = OptimResult(
+                timestep      = t,
+                F_opt         = F_opt_global,
+                eps_opt       = eps_opt_t,
+                c_star        = c_star_global,
+                residuals     = residuals_global,
+                objective     = float(sol.obj_val),
+                iterations    = int(sol.iterations),
+                solve_time_s  = elapsed,
+                solver_status = status,
+                convergence   = convergence,
+                iter_history  = iter_history,
+            )
+
+            logger.info(
+                "t=%s  status=%s  iters=%d  obj=%.4e  gap=%.2e  dres=%.2e  step=%.2f  time=%.2fs  (per-t: %d cols × %d rows)",
+                t, status, sol.iterations, sol.obj_val,
+                convergence["gap_abs"], convergence["res_dual"],
+                convergence["step_length"], elapsed,
+                n_a_t, m_t,
+            )
+
+            # Warm-start prior for next timestep: a_0(t+1) ← F_opt(t) on the
+            # t-edges (other entries unchanged → carry forward across t).
+            a_0_t_global[cols_t] = F_opt_t
 
         return results
 

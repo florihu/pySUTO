@@ -470,6 +470,133 @@ class TestLoadFromOptRunId:
             np.testing.assert_array_equal(a.lower,        b.lower)
             np.testing.assert_array_equal(a.upper,        b.upper)
 
+    def test_per_t_schur_matches_legacy_sigma_a_star(self, tmp_path, monkeypatch):
+        """Slice 7: uncprop using G_blocks (per-t Schur) produces numerically
+        equivalent sigma_a_star to the legacy global-G Schur path."""
+        import copy
+        from pysuto.uncprop import KalmanUncProp
+        from pysuto.solver import OptimResult
+        from pysuto.constraints import ConstraintRun, SIGMA_C_INACTIVE
+
+        # Hand-crafted per-t ConstraintRun: 5 edges × 2 timesteps = 10 edges
+        # global. Per t: 1 hard mass balance (a0 == a1) + 1 soft ratio
+        # (a0 == 0.5·a3, σ_c=0.5). Block is full-rank → S invertible.
+        G_per_t = sp.csr_matrix(np.array([
+            [1.0, -1.0,  0.0,  0.0,  0.0],
+            [1.0,  0.0,  0.0, -0.5,  0.0],
+        ]))
+        G_global = sp.block_diag([G_per_t, G_per_t]).tocsr()
+
+        row_meta = pd.DataFrame({
+            "constraint_id": ["mb_2020", "ratio_2020", "mb_2021", "ratio_2021"],
+            "is_hard":       [True, False, True, False],
+            "cone_type":     ["zero", "free", "zero", "free"],
+            "time":          ["2020", "2020", "2021", "2021"],
+        })
+        # Legacy timestep_data: σ_c full-length, non-t rows deactivated.
+        sc_inactive = float(SIGMA_C_INACTIVE)
+        ts_data = {
+            "2020": {"c": np.zeros(4),
+                     "sigma_c": np.array([0.0, 0.5, sc_inactive, sc_inactive])},
+            "2021": {"c": np.zeros(4),
+                     "sigma_c": np.array([sc_inactive, sc_inactive, 0.0, 0.5])},
+        }
+        a0      = np.array([1.0, 1.0, 2.0, 3.0, 4.0, 1.5, 1.5, 2.5, 3.5, 4.5])
+        sigma_a = np.ones(10)
+        l       = np.zeros(10)
+        u       = np.full(10, 10.0)
+
+        cr = ConstraintRun(
+            G              = G_global,
+            row_meta       = row_meta,
+            a0             = a0,
+            sigma_a        = sigma_a,
+            u              = u,
+            l              = l,
+            timestep_data  = ts_data,
+            run_id         = "per_t",
+            acc_id         = "per_t_acc",
+            agg_id         = "per_t_agg",
+            created_at     = "2026-05-27T00:00:00",
+            G_blocks       = {"2020": G_per_t.tocsr(),
+                              "2021": G_per_t.tocsr()},
+            edge_cols_by_t = {"2020": np.array([0, 1, 2, 3, 4]),
+                              "2021": np.array([5, 6, 7, 8, 9])},
+        )
+
+        # Fabricate OptimResults — uncprop only reads F_opt for CI bounds and
+        # the equality residual diagnostic. F_opt below satisfies mb (a0=a1)
+        # and ratio (a0=0.5·a3) at each t exactly.
+        opt_results = {
+            "2020": OptimResult(
+                timestep="2020",
+                F_opt=np.array([1.0, 1.0, 2.0, 2.0, 4.0, 0, 0, 0, 0, 0]),
+                eps_opt=np.zeros(0), c_star=np.zeros(4),
+                residuals=np.zeros(4), objective=0.0, iterations=0,
+                solve_time_s=0.0, solver_status="Solved", convergence={},
+            ),
+            "2021": OptimResult(
+                timestep="2021",
+                F_opt=np.array([0, 0, 0, 0, 0, 1.5, 1.5, 2.5, 3.0, 4.5]),
+                eps_opt=np.zeros(0), c_star=np.zeros(4),
+                residuals=np.zeros(4), objective=0.0, iterations=0,
+                solve_time_s=0.0, solver_status="Solved", convergence={},
+            ),
+        }
+
+        const_dir = str(tmp_path / "const")
+        # ── Per-t Schur path: serve cr (G_blocks intact) in-memory.
+        prop_new = KalmanUncProp(
+            opt_dir=str(tmp_path / "opt"),
+            const_dir=const_dir,
+            uncprop_dir=str(tmp_path / "uncprop"),
+        )
+        fake_sidecar = {"parents": {"upstream": {"const_run_id": cr.run_id}}}
+        monkeypatch.setattr(prop_new._opt_registry, "load_sidecar",
+                            lambda _rid: fake_sidecar)
+        monkeypatch.setattr(prop_new._opt_registry, "load",
+                            lambda _rid: opt_results)
+        monkeypatch.setattr(prop_new._const_registry, "load",
+                            lambda _rid: cr)
+        result_new = prop_new.compute("opt_fake", alpha=0.05)
+
+        # ── Legacy path: clear G_blocks → dispatch to legacy global-G Schur.
+        cr_legacy = copy.copy(cr)
+        cr_legacy.G_blocks       = {}
+        cr_legacy.edge_cols_by_t = {}
+        prop_legacy = KalmanUncProp(
+            opt_dir=str(tmp_path / "opt"),
+            const_dir=const_dir,
+            uncprop_dir=str(tmp_path / "uncprop"),
+        )
+        monkeypatch.setattr(prop_legacy._opt_registry, "load_sidecar",
+                            lambda _rid: fake_sidecar)
+        monkeypatch.setattr(prop_legacy._opt_registry, "load",
+                            lambda _rid: opt_results)
+        monkeypatch.setattr(prop_legacy._const_registry, "load",
+                            lambda _rid: cr_legacy)
+        result_legacy = prop_legacy.compute("opt_fake", alpha=0.05)
+
+        # Equivalence holds on t-edges; non-t edges legitimately differ —
+        # legacy enforces hard rows for non-t (σ_c=0 even when "deactivated"),
+        # creating spurious shrinkage. Per-t correctly leaves non-t at prior.
+        for t in ("2020", "2021"):
+            new_sa  = result_new.per_timestep[t].sigma_a_star
+            leg_sa  = result_legacy.per_timestep[t].sigma_a_star
+            cols_t  = cr.edge_cols_by_t[t]
+            other_t = "2021" if t == "2020" else "2020"
+            non_t   = cr.edge_cols_by_t[other_t]
+            assert new_sa.shape == leg_sa.shape == (10,)
+            # 1. Per-t edges: agree numerically.
+            assert np.allclose(new_sa[cols_t], leg_sa[cols_t],
+                               atol=1e-7, rtol=1e-7), \
+                f"t={t}: per-t σ_a* differs from legacy on t-edges " \
+                f"(max abs {np.max(np.abs(new_sa[cols_t] - leg_sa[cols_t])):.3e})"
+            # 2. Non-t edges in per-t path: prior σ_a (no shrinkage from
+            #    out-of-time constraints).
+            assert np.allclose(new_sa[non_t], cr.sigma_a[non_t], atol=1e-10), \
+                f"t={t}: per-t σ_a* on non-t edges should be prior σ_a"
+
     def test_missing_const_run_id_raises(self, tmp_path):
         """If opt sidecar has no upstream.const_run_id, compute() should fail
         cleanly with KeyError rather than crashing deep inside the loader."""

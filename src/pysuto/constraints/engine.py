@@ -88,6 +88,61 @@ _log = get_logger(__name__)
 # =============================================================================
 
 
+def _partition_G_by_time(
+    G:          sp.csr_matrix,
+    row_meta:   pd.DataFrame,
+    edge_index: pd.DataFrame,
+    timesteps:  list,
+) -> tuple[dict, dict]:
+    """
+    Slice the monolithic constraint matrix G into one block per timestep.
+
+    Returns
+    -------
+    G_blocks       : dict t → sp.csr_matrix of shape (rows_for_t, cols_for_t)
+    edge_cols_by_t : dict t → np.ndarray of global edge_ids for t
+
+    Safety: each row's non-zero columns must lie entirely within its own time
+    bucket — this is the "no cross-time coupling" invariant. Violations raise
+    ValueError with the offending row id.
+    """
+    if "time" in row_meta.columns and len(row_meta):
+        row_time = row_meta["time"].astype(str).to_numpy()
+    else:
+        row_time = np.array([], dtype=str)
+    col_time = edge_index["time"].astype(str).to_numpy()
+    G_csr    = G.tocsr() if not sp.isspmatrix_csr(G) else G
+
+    G_blocks:       dict[str, sp.csr_matrix] = {}
+    edge_cols_by_t: dict[str, np.ndarray]    = {}
+
+    for t in timesteps:
+        t_str  = str(t)
+        rows_t = np.where(row_time == t_str)[0]
+        cols_t = np.where(col_time == t_str)[0]
+
+        G_sliced = G_csr[rows_t][:, cols_t].tocsr()
+
+        if rows_t.size:
+            full_row_slice = G_csr[rows_t]
+            cross_time_nnz = full_row_slice.nnz - G_sliced.nnz
+            if cross_time_nnz:
+                bad_rows_global = rows_t[
+                    np.diff(full_row_slice.indptr) != np.diff(G_sliced.indptr)
+                ]
+                raise ValueError(
+                    f"_partition_G_by_time: {cross_time_nnz} non-zero entries "
+                    f"lie outside the time-{t_str} column bucket "
+                    f"(offending global rows: {bad_rows_global[:5].tolist()}...). "
+                    f"This violates the 'no cross-time coupling' invariant."
+                )
+
+        G_blocks[t_str]       = G_sliced
+        edge_cols_by_t[t_str] = cols_t
+
+    return G_blocks, edge_cols_by_t
+
+
 def _concat_blocks(blocks: list[ConstraintBlock], n_edges: int) -> ConstraintBlock:
     non_empty = [b for b in blocks if b.G_rows.shape[0] > 0]
     if not non_empty:
@@ -422,24 +477,46 @@ class ConstraintEngine:
                 self._sigma_c_cv_min, self._sigma_c_abs_floor,
             )
 
+        # ── 2c. Per-t partition of G ──────────────────────────────────
+        # No constraint builder couples edges across t, so the monolithic G
+        # is exactly block-diagonal by time. Slice rows by row_meta["time"]
+        # and columns by acc.edge_index["time"]; this lossless partition is
+        # what the solver and uncprop consume to skip ~96.7% of dead cols
+        # at each per-t solve.
+        G_blocks, edge_cols_by_t = _partition_G_by_time(
+            G_static, row_meta, acc.edge_index, timesteps,
+        )
+        if G_blocks:
+            first_t = next(iter(G_blocks))
+            G0 = G_blocks[first_t]
+            _log.info(
+                "Per-t partition: %d timesteps × (%d rows × %d cols) blocks "
+                "→ per-t solve is %.1f× smaller than the global %d × %d QP",
+                len(G_blocks), G0.shape[0], G0.shape[1],
+                (M * n_edges) / max(G0.shape[0] * G0.shape[1], 1),
+                M, n_edges,
+            )
+
         # ── 3. Assemble ConstraintRun ──────────────────────────────────
         if run_id is None:
             run_id = make_run_id("const")
 
         cr = ConstraintRun(
-            G             = G_static,
-            row_meta      = row_meta,
-            a0            = f_agg.copy(),
-            sigma_a       = sigma_agg.copy(),
-            u             = acc.bounds.u.copy(),
-            l             = acc.bounds.l.copy(),
-            timestep_data = timestep_data,
-            run_id        = run_id,
-            acc_id        = acc.id,
-            agg_id        = agg_id,
-            created_at    = datetime.utcnow().isoformat(timespec="seconds") + "Z",
-            label         = label,
-            _p            = self._p,
+            G              = G_static,
+            row_meta       = row_meta,
+            a0             = f_agg.copy(),
+            sigma_a        = sigma_agg.copy(),
+            u              = acc.bounds.u.copy(),
+            l              = acc.bounds.l.copy(),
+            timestep_data  = timestep_data,
+            run_id         = run_id,
+            acc_id         = acc.id,
+            agg_id         = agg_id,
+            created_at     = datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            label          = label,
+            _p             = self._p,
+            G_blocks       = G_blocks,
+            edge_cols_by_t = edge_cols_by_t,
         )
 
         self._check(cr)

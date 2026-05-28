@@ -1168,5 +1168,93 @@ class TestRatioPerTimestepDeactivation:
         ), f"Expected non-uniform ratio_eq warning. Got: {warn_msgs}"
 
 
+# ---------------------------------------------------------------------------
+# Per-timestep G partition (Slice 2 of the per-t block plan)
+# ---------------------------------------------------------------------------
+
+class TestEnginePerTPartition:
+    """ConstraintEngine.run exposes per-t G blocks so per-t solves can act on
+    a (rows_for_t, edges_for_t) submatrix instead of the full (M, E) matrix."""
+
+    def test_g_blocks_action_matches_legacy_G(self, toy_acc, toy_agg_result, tmp_path):
+        """For each t, G_blocks[t] @ x[edge_cols_by_t[t]] equals the slice of
+        legacy_G @ x at rows tagged with t. Partition is lossless."""
+        from pysuto.constraints import ConstraintEngine, MassBalanceBuilder
+        engine = ConstraintEngine(toy_acc, storage_dir=str(tmp_path / "const"))
+        engine.register(MassBalanceBuilder())
+        cr = engine.run(toy_agg_result, timesteps=["2020", "2021"], persist=False)
+
+        assert set(cr.G_blocks.keys()) == {"2020", "2021"}
+
+        rng = np.random.default_rng(0)
+        x   = rng.standard_normal(toy_acc.n_edges)
+        legacy_full = cr.G @ x
+        times = cr.row_meta["time"].astype(str).to_numpy()
+
+        for t, G_t in cr.G_blocks.items():
+            cols_t        = cr.edge_cols_by_t[t]
+            block_action  = G_t @ x[cols_t]
+            legacy_action = legacy_full[times == t]
+            assert np.allclose(block_action, legacy_action), \
+                f"Mismatch at t={t}: per-block action != legacy slice"
+
+    def test_g_blocks_survive_registry_roundtrip(self, toy_acc, toy_agg_result, tmp_path):
+        """Slice 8: registry save→load preserves G_blocks + edge_cols_by_t."""
+        from pysuto.constraints import ConstraintEngine, MassBalanceBuilder
+        from pysuto.registry   import ConstraintRunRegistry
+        storage = str(tmp_path / "const")
+        engine = ConstraintEngine(toy_acc, storage_dir=storage)
+        engine.register(MassBalanceBuilder())
+        run = engine.run(toy_agg_result, timesteps=["2020", "2021"], persist=True)
+
+        registry = ConstraintRunRegistry(storage_dir=storage)
+        loaded   = registry.load(run.run_id)
+
+        assert set(loaded.G_blocks.keys()) == set(run.G_blocks.keys())
+        for t in run.G_blocks:
+            diff = (loaded.G_blocks[t] - run.G_blocks[t])
+            assert diff.nnz == 0, f"G_blocks[{t}] differs after roundtrip"
+            np.testing.assert_array_equal(
+                loaded.edge_cols_by_t[t], run.edge_cols_by_t[t],
+            )
+
+    def test_g_blocks_action_with_mass_balance_and_ratios(
+        self, toy_acc, toy_agg_result, tmp_path,
+    ):
+        """Partition stays lossless with a mixed builder set (mass_balance +
+        ratio_eq + ratio_bound). Exercises rows of every cone_type."""
+        from pysuto.constraints import (
+            ConstraintEngine, MassBalanceBuilder,
+            RatioConstraintBuilder, RatioBoundBuilder,
+        )
+        # Wildcard params: time-invariant ratio + bound across t=2020, 2021.
+        params_csv = TestRatioPerTimestepDeactivation()._write_wildcard_params_csv(
+            tmp_path, nominal=0.5, bl=0.1, bu=2.0,
+        )
+        engine = ConstraintEngine(toy_acc, storage_dir=str(tmp_path / "const"))
+        engine.register(MassBalanceBuilder())
+        engine.register(RatioConstraintBuilder.from_csv(params_csv, toy_acc))
+        engine.register(RatioBoundBuilder.from_csv(params_csv, toy_acc))
+        cr = engine.run(toy_agg_result, timesteps=["2020", "2021"], persist=False)
+
+        rng   = np.random.default_rng(1)
+        x     = rng.standard_normal(toy_acc.n_edges)
+        times = cr.row_meta["time"].astype(str).to_numpy()
+        legacy_full = cr.G @ x
+
+        for t, G_t in cr.G_blocks.items():
+            block_action  = G_t @ x[cr.edge_cols_by_t[t]]
+            legacy_action = legacy_full[times == t]
+            assert np.allclose(block_action, legacy_action), \
+                f"Mismatch at t={t} (mixed builders)"
+
+        # All four cone types' rows survive the partition
+        types_seen = set()
+        for t in cr.G_blocks:
+            t_rm = cr.row_meta.loc[times == t]
+            types_seen |= set(t_rm["type"].unique())
+        assert {"mass_balance", "ratio_eq", "ratio_bound"} <= types_seen
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

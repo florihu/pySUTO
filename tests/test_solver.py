@@ -291,6 +291,198 @@ class TestPersist:
 # Feasibility pre-check
 # ---------------------------------------------------------------------------
 
+class TestEngineToSolverIntegration:
+    """Slice 4: end-to-end with a real ConstraintRun (G_blocks populated by
+    engine.run). Per-t solver must produce solved status and F_opt that
+    satisfies the per-t mass balance."""
+
+    def _build_real_run(self, tmp_path):
+        # Reuse test_constraints' toy_acc / toy_agg_result via local builders.
+        # Use persist=False to keep cr.G_blocks intact (registry persistence
+        # of G_blocks lands in Slice 8; until then, save/load drops them).
+        from tests.test_constraints import _make_toy_acc, _make_toy_agg_result
+        from pysuto.constraints import ConstraintEngine, MassBalanceBuilder
+
+        acc = _make_toy_acc()
+        agg = _make_toy_agg_result(acc)
+        storage_dir = str(tmp_path / "const")
+        engine = ConstraintEngine(acc, storage_dir=storage_dir)
+        engine.register(MassBalanceBuilder())
+        cr = engine.run(agg, timesteps=["2020", "2021"], persist=False)
+        return acc, cr, storage_dir
+
+    @staticmethod
+    def _solver_with_inmem_run(storage_dir, cr, monkeypatch):
+        """Build a ClarabelSolver whose load_run returns the in-memory cr,
+        so G_blocks survives (Slice 8 will fix the on-disk round-trip)."""
+        from pysuto.solver import ClarabelSolver
+        s = ClarabelSolver(const_dir=storage_dir, verbose_first_solve=False)
+        monkeypatch.setattr(s, "load_run", lambda _rid: cr)
+        return s
+
+    def test_solver_solves_each_t_on_engine_built_run(self, tmp_path, monkeypatch):
+        acc, cr, storage_dir = self._build_real_run(tmp_path)
+        solver = self._solver_with_inmem_run(storage_dir, cr, monkeypatch)
+        results = solver.solve_all(cr.run_id)
+
+        assert set(results.keys()) == {"2020", "2021"}
+        for t, r in results.items():
+            assert r.solver_status == "Solved", (t, r.solver_status)
+            assert r.F_opt.shape == (acc.n_edges,)
+
+    def test_per_t_mass_balance_residuals_near_zero(self, tmp_path, monkeypatch):
+        """For each t, G_blocks[t] @ F_opt[edge_cols_by_t[t]] ≈ 0 (mass balance)."""
+        acc, cr, storage_dir = self._build_real_run(tmp_path)
+        solver = self._solver_with_inmem_run(storage_dir, cr, monkeypatch)
+        results = solver.solve_all(cr.run_id)
+
+        for t, r in results.items():
+            cols_t      = cr.edge_cols_by_t[t]
+            per_t_F     = r.F_opt[cols_t]
+            block_resid = cr.G_blocks[t] @ per_t_F
+            assert np.allclose(block_resid, 0.0, atol=1e-6), (t, block_resid)
+
+    def test_warm_start_reuses_solver_instance_when_G_blocks_identical(
+        self, tmp_path, monkeypatch,
+    ):
+        """When every G_blocks[t] is numerically identical (typical: no
+        time-varying ratios), the per-t loop creates one DefaultSolver and
+        reuses it via update(P, q, b)."""
+        import pysuto.solver as solver_mod
+        acc, cr, storage_dir = self._build_real_run(tmp_path)
+
+        # Sanity: G_blocks identical (toy_acc + MassBalance: ±1 coefficients,
+        # same topology per t).
+        b1 = cr.G_blocks["2020"].toarray()
+        b2 = cr.G_blocks["2021"].toarray()
+        assert np.array_equal(b1, b2), "Test premise: G_blocks must match"
+
+        init_count = [0]
+        original_cls = solver_mod.clarabel.DefaultSolver
+        def counting_factory(*args, **kwargs):
+            init_count[0] += 1
+            return original_cls(*args, **kwargs)
+        monkeypatch.setattr(
+            solver_mod.clarabel, "DefaultSolver", counting_factory,
+        )
+
+        solver = self._solver_with_inmem_run(storage_dir, cr, monkeypatch)
+        solver.solve_all(cr.run_id, feasibility_check_first_only=True)
+
+        # 1 feasibility-check solver + 1 solve solver (reused across 2 timesteps)
+        assert init_count[0] == 2, \
+            f"Expected 2 Clarabel inits (1 feas + 1 reused); got {init_count[0]}"
+
+    def test_no_warm_start_when_G_blocks_differ(self, tmp_path, monkeypatch):
+        """Time-varying ratio (different r per year) → G_blocks differ across t
+        → solver falls back to fresh Clarabel instance per timestep.
+        Numerical results still satisfy the per-year ratio."""
+        import csv
+        import pysuto.solver as solver_mod
+        from pysuto.solver import ClarabelSolver
+        from pysuto.constraints import (
+            ConstraintEngine, MassBalanceBuilder, RatioConstraintBuilder,
+        )
+        from tests.test_constraints import _make_toy_acc, _make_toy_agg_result
+
+        csv_path = str(tmp_path / "time_varying.csv")
+        with open(csv_path, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=[
+                "param_id",
+                "a_sector_from", "a_entity_from", "a_region_from",
+                "a_sector_to",   "a_entity_to",   "a_region_to",
+                "a_time",        "a_valuation",
+                "b_sector_from", "b_entity_from", "b_region_from",
+                "b_sector_to",   "b_entity_to",   "b_region_to",
+                "b_time",        "b_valuation",
+                "value_nominal", "unc_type", "value_sd",
+                "value_min", "value_max", "bound_lower", "bound_upper",
+            ])
+            w.writeheader()
+            for year, r_val in (("2020", "0.30"), ("2021", "0.70")):
+                w.writerow({
+                    "param_id":       f"r_{year}",
+                    "a_sector_from":  "Mining", "a_entity_from": "Process",
+                    "a_region_from":  "A",
+                    "a_sector_to":    "Ore",    "a_entity_to":   "Flow",
+                    "a_region_to":    "A",
+                    "a_time":         year,     "a_valuation":   "Mass",
+                    "b_sector_from":  "Ore",    "b_entity_from": "Flow",
+                    "b_region_from":  "A",
+                    "b_sector_to":    "Mining", "b_entity_to":   "Process",
+                    "b_region_to":    "A",
+                    "b_time":         "same",   "b_valuation":   "same",
+                    "value_nominal":  r_val,    "unc_type":      "sd",
+                    "value_sd":       "0.05",   "value_min":     "",
+                    "value_max":     "",        "bound_lower":   "",
+                    "bound_upper":   "",
+                })
+
+        acc = _make_toy_acc()
+        agg = _make_toy_agg_result(acc)
+        storage_dir = str(tmp_path / "const")
+        engine = ConstraintEngine(acc, storage_dir=storage_dir)
+        engine.register(MassBalanceBuilder())
+        engine.register(RatioConstraintBuilder.from_csv(csv_path, acc))
+        cr = engine.run(agg, timesteps=["2020", "2021"], persist=False)
+
+        # Sanity: blocks really do differ (different r values).
+        assert not ClarabelSolver._per_t_problem_identical(cr, ["2020", "2021"]), \
+            "Test premise: G_blocks must differ"
+
+        init_count = [0]
+        original_cls = solver_mod.clarabel.DefaultSolver
+        def counting_factory(*args, **kwargs):
+            init_count[0] += 1
+            return original_cls(*args, **kwargs)
+        # Note: counting_factory is set up BEFORE the solver_with_inmem_run
+        # call so DefaultSolver is patched at the point feasibility_check runs.
+        monkeypatch.setattr(
+            solver_mod.clarabel, "DefaultSolver", counting_factory,
+        )
+        solver = self._solver_with_inmem_run(storage_dir, cr, monkeypatch)
+        results = solver.solve_all(cr.run_id, feasibility_check_first_only=True)
+
+        # 1 feasibility-check init + 2 fresh per-t inits (no warm-start)
+        assert init_count[0] == 3, \
+            f"Expected 3 Clarabel inits (1 feas + 2 fresh); got {init_count[0]}"
+        # All timesteps solved
+        for r in results.values():
+            assert r.solver_status == "Solved"
+
+    def test_per_t_path_matches_legacy_path_F_opt(self, tmp_path, monkeypatch):
+        """Numerical equivalence: solver's per-t path and legacy full-G path
+        produce identical F_opt at the t-edges (to solver tol_gap_abs)."""
+        from pysuto.solver import ClarabelSolver
+        import copy
+        acc, cr, storage_dir = self._build_real_run(tmp_path)
+
+        # ── new per-t path: serve cr (with G_blocks) in-memory.
+        solver_new = ClarabelSolver(
+            const_dir=storage_dir, verbose_first_solve=False,
+        )
+        monkeypatch.setattr(solver_new, "load_run", lambda _rid: cr)
+        new_results = solver_new.solve_all(cr.run_id)
+
+        # ── legacy path: same cr but with G_blocks emptied.
+        cr_legacy = copy.copy(cr)
+        cr_legacy.G_blocks       = {}
+        cr_legacy.edge_cols_by_t = {}
+        solver_legacy = ClarabelSolver(
+            const_dir=storage_dir, verbose_first_solve=False,
+        )
+        monkeypatch.setattr(solver_legacy, "load_run", lambda _rid: cr_legacy)
+        legacy_results = solver_legacy.solve_all(cr.run_id)
+
+        for t in ("2020", "2021"):
+            cols_t   = cr.edge_cols_by_t[t]
+            new_F_t  = new_results[t].F_opt[cols_t]
+            leg_F_t  = legacy_results[t].F_opt[cols_t]
+            assert np.allclose(new_F_t, leg_F_t, atol=1e-7, rtol=1e-7), \
+                f"t={t}: per-t F_opt differs from legacy: " \
+                f"max abs diff {np.max(np.abs(new_F_t - leg_F_t)):.3e}"
+
+
 class TestFeasibilityCheck:
 
     def test_infeasible_raises(self, monkeypatch):

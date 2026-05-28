@@ -36,6 +36,9 @@ class ConstraintRunRegistry(BaseOutputRegistry):
             ├── sigma_a.npy
             ├── u.npy
             ├── l.npy
+            ├── blocks/
+            │   ├── g_{label}.npz   ← per-t G block (sparse)
+            │   └── edge_cols.npz   ← per-t global edge_id column indices
             └── timesteps/
                 └── t_{label}.npz
 
@@ -71,8 +74,9 @@ class ConstraintRunRegistry(BaseOutputRegistry):
         "upstream": {"imp_run_id": run.agg_id}}`` when omitted, so existing
         call sites keep working while still emitting a harmonized sidecar.
         """
-        run_dir = self._make_run_dir(run.run_id)
-        ts_dir  = os.path.join(run_dir, "timesteps")
+        run_dir     = self._make_run_dir(run.run_id)
+        ts_dir      = os.path.join(run_dir, "timesteps")
+        blocks_dir  = os.path.join(run_dir, "blocks")
         Path(ts_dir).mkdir(parents=True, exist_ok=True)
 
         sp.save_npz(os.path.join(run_dir, "G.npz"), run.G)
@@ -86,6 +90,15 @@ class ConstraintRunRegistry(BaseOutputRegistry):
             np.savez(
                 os.path.join(ts_dir, f"t_{ts_label}.npz"),
                 c=td["c"], sigma_c=td["sigma_c"],
+            )
+
+        if run.G_blocks:
+            Path(blocks_dir).mkdir(parents=True, exist_ok=True)
+            for ts_label, G_t in run.G_blocks.items():
+                sp.save_npz(os.path.join(blocks_dir, f"g_{ts_label}.npz"), G_t)
+            np.savez(
+                os.path.join(blocks_dir, "edge_cols.npz"),
+                **{t: cols for t, cols in run.edge_cols_by_t.items()},
             )
 
         if parents is None:
@@ -145,20 +158,34 @@ class ConstraintRunRegistry(BaseOutputRegistry):
             npz = np.load(os.path.join(ts_dir, f"t_{ts_label}.npz"))
             ts_data[ts_label] = {"c": npz["c"], "sigma_c": npz["sigma_c"]}
 
+        blocks_dir = os.path.join(run_dir, "blocks")
+        G_blocks:       dict[str, sp.csr_matrix] = {}
+        edge_cols_by_t: dict[str, np.ndarray]    = {}
+        edge_cols_path = os.path.join(blocks_dir, "edge_cols.npz")
+        if os.path.exists(edge_cols_path):
+            ec_npz = np.load(edge_cols_path)
+            for ts_label in summary.get("timesteps", []):
+                G_blocks[ts_label] = sp.load_npz(
+                    os.path.join(blocks_dir, f"g_{ts_label}.npz"),
+                )
+                edge_cols_by_t[ts_label] = ec_npz[ts_label]
+
         return ConstraintRun(
-            G             = G,
-            row_meta      = row_meta,
-            a0            = a0,
-            sigma_a       = sigma_a,
-            u             = u,
-            l             = l,
-            timestep_data = ts_data,
-            run_id        = run_id,
-            acc_id        = acc_id,
-            agg_id        = agg_id,
-            created_at    = sidecar.get("created_at", ""),
-            label         = sidecar.get("label", ""),
-            _p            = float(config.get("p", 1.3)),
+            G              = G,
+            row_meta       = row_meta,
+            a0             = a0,
+            sigma_a        = sigma_a,
+            u              = u,
+            l              = l,
+            timestep_data  = ts_data,
+            run_id         = run_id,
+            acc_id         = acc_id,
+            agg_id         = agg_id,
+            created_at     = sidecar.get("created_at", ""),
+            label          = sidecar.get("label", ""),
+            _p             = float(config.get("p", 1.3)),
+            G_blocks       = G_blocks,
+            edge_cols_by_t = edge_cols_by_t,
         )
 
     def load_sidecar(self, run_id: str) -> dict:
