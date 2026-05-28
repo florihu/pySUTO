@@ -379,7 +379,6 @@ class EdgeBounds:
         rf = ni["region"].values
         st = nj["sector"].values
         rt = nj["region"].values
-        tm = edge_index["time"].values.astype(str)
         vl = edge_index["valuation"].values.astype(str)
 
         required_cols = {"sector_from", "sector_to", "valuation", "lower", "upper"}
@@ -388,7 +387,7 @@ class EdgeBounds:
             raise ValueError(
                 f"Bounds file is missing required columns: {missing}\n"
                 f"Required: sector_from, sector_to, valuation, lower, upper\n"
-                f"Optional: region_from, region_to, time"
+                f"Optional: region_from, region_to"
             )
 
         for _, rule in bounds_df.iterrows():
@@ -407,8 +406,6 @@ class EdgeBounds:
                 mask &= _match(rf, rule["region_from"])
             if "region_to" in bounds_df.columns:
                 mask &= _match(rt, rule["region_to"])
-            if "time" in bounds_df.columns:
-                mask &= _match(tm, rule["time"])
 
             if mask.sum() == 0:
                 continue
@@ -441,7 +438,7 @@ class EdgeBounds:
             np.where(hi_viol[viol_idx], "above_upper", "")
         )
         if raise_on_violation:
-            _cols = ["edge_id", "from_id", "to_id", "time", "valuation",
+            _cols = ["edge_id", "from_id", "to_id", "valuation",
                      "lower", "value", "upper", "violation"]
             raise ValueError(
                 f"{len(viol_idx)} edge(s) violate bounds.\n"
@@ -1068,9 +1065,17 @@ class AccountingStructure:
     # ------------------------------------------------------------------
 
     def _build_edge_index(self, admissible_only=True) -> pd.DataFrame:
-        rows, cols, times, vals, edge_ids = [], [], [], [], []
+        """Structural edge index: one row per admissible ``(from, to, valuation)``.
+
+        Time is *not* a structural dimension — admissibility is time-independent
+        (``_edge_admissible_ruleset`` ignores ``time``), so a single representative
+        timestep is used to test admissibility. The time axis lives only on the
+        per-timestep *values* downstream, not on the edge structure.
+        """
+        rows, cols, vals, edge_ids = [], [], [], []
         edge_id = 0
         keys    = list(self.id_to_node.values())
+        t_repr  = self.time_range[0]   # admissibility is time-independent
 
         for i, ni in enumerate(keys):
             ni_dict = dict(zip(["sector", "entity", "region"], ni))
@@ -1080,16 +1085,15 @@ class AccountingStructure:
                 if admissible_only and not self._node_pair_admissible(ni_dict, nj_dict):
                     continue
 
-                for t in self.time_range:
-                    for v in self.valuation:
-                        if admissible_only and not self._edge_admissible(
-                            ni_dict, nj_dict, t, v
-                        ):
-                            continue
-                        rows.append(i);     cols.append(j)
-                        times.append(t);    vals.append(v)
-                        edge_ids.append(edge_id)
-                        edge_id += 1
+                for v in self.valuation:
+                    if admissible_only and not self._edge_admissible(
+                        ni_dict, nj_dict, t_repr, v
+                    ):
+                        continue
+                    rows.append(i);   cols.append(j)
+                    vals.append(v)
+                    edge_ids.append(edge_id)
+                    edge_id += 1
 
         if admissible_only:
             self.n_edges = len(edge_ids)
@@ -1097,7 +1101,6 @@ class AccountingStructure:
             "edge_id":   edge_ids,
             "from_id":   rows,
             "to_id":     cols,
-            "time":      times,
             "valuation": vals,
         })
 
@@ -1106,17 +1109,17 @@ class AccountingStructure:
     # ------------------------------------------------------------------
 
     def compress(self, F) -> np.ndarray:
+        """Project a dense 4-D flow tensor ``F[from, to, time, valuation]`` onto the
+        structural edge axis, returning shape ``(n_edges, n_timeps)`` — one column
+        per timestep for each structural ``(from, to, valuation)`` edge."""
         if sp.issparse(F):
             F = F.toarray()
-        ei     = self.edge_index
-        t_idxs = ei["time"].map(self.time_to_idx).values.astype(int)
-        v_idxs = ei["valuation"].map(self.val_to_idx).values.astype(int)
-        return F[
-            ei["from_id"].values.astype(int),
-            ei["to_id"].values.astype(int),
-            t_idxs,
-            v_idxs,
-        ]
+        ei       = self.edge_index
+        from_ids = ei["from_id"].values.astype(int)[:, None]
+        to_ids   = ei["to_id"].values.astype(int)[:, None]
+        v_idxs   = ei["valuation"].map(self.val_to_idx).values.astype(int)[:, None]
+        t_idxs   = np.arange(self.n_timeps)[None, :]
+        return F[from_ids, to_ids, t_idxs, v_idxs]
 
     # ------------------------------------------------------------------
     # Lookup helpers  (unchanged)
@@ -1133,7 +1136,6 @@ class AccountingStructure:
         return (
             self.decode_node(int(row["from_id"])),
             self.decode_node(int(row["to_id"])),
-            row["time"],
             row["valuation"],
         )
 
@@ -1141,7 +1143,7 @@ class AccountingStructure:
     def edge_meta(self) -> pd.DataFrame:
         """``edge_index`` joined with ``node_index`` attributes on both endpoints.
 
-        Columns: ``edge_id, from_id, to_id, time, valuation`` plus
+        Columns: ``edge_id, from_id, to_id, valuation`` plus
         ``from_<attr>`` and ``to_<attr>`` for every column in ``node_index``
         (``sector, entity, region`` and ``entity_sub`` if present).
         Computed once per instance.
@@ -1196,9 +1198,6 @@ class AccountingStructure:
 
         obj.edge_index     = pd.read_csv(os.path.join(path, "edge_index.csv"))
         obj.edge_index_all = pd.read_csv(os.path.join(path, "edge_index_all.csv"))
-        # Ensure time column is string — pandas infers year integers from CSV
-        obj.edge_index["time"]     = obj.edge_index["time"].astype(str)
-        obj.edge_index_all["time"] = obj.edge_index_all["time"].astype(str)
         obj.root_nodes     = pd.read_csv(os.path.join(path, "root_nodes.csv"))
         obj.node_index     = pd.read_csv(os.path.join(path, "node_index.csv"))
         if "entity_sub" not in obj.node_index.columns:
