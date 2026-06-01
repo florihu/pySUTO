@@ -743,41 +743,46 @@ class TestImputationRunRegistry:
 
 
 def _toy_constraint_run(run_id: str = "const_20260519_000000_aaaa1111"):
-    """Hand-rolled ConstraintRun with the smallest possible payload."""
-    from pysuto.constraints import ConstraintRun
-    import scipy.sparse as sp
-    G = sp.csr_matrix(np.array([[1.0, -1.0], [0.0, 1.0]]))
+    """Hand-rolled ConstraintRun with the smallest structural payload:
+    2 constraints, 2 edges, 1 timestep."""
+    from pysuto.constraints import ConstraintRun, StructG
+    # Sparsity pattern: row 0 touches edges {0, 1}; row 1 touches edge 1.
+    indptr  = np.array([0, 2, 3], dtype=np.int32)
+    indices = np.array([0, 1, 1], dtype=np.int32)
+    data    = np.array([[1.0], [-1.0], [1.0]])   # (nnz=3, n_timesteps=1)
     row_meta = pd.DataFrame({
         "constraint_id": ["c0", "c1"],
         "type":          ["mass_balance", "ratio"],
         "is_hard":       [True, False],
         "cone_type":     ["zero", "free"],
     })
+    G = StructG(
+        indptr   = indptr,
+        indices  = indices,
+        data     = data,
+        shape    = (2, 2),
+        row_meta = row_meta,
+    )
     return ConstraintRun(
-        G             = G,
-        row_meta      = row_meta,
-        a0            = np.array([10.0, 20.0]),
-        sigma_a       = np.array([1.0, 2.0]),
-        u             = np.array([1e9, 1e9]),
-        l             = np.array([0.0, 0.0]),
-        timestep_data = {"2020": {"c": np.array([0.0, 5.0]),
-                                  "sigma_c": np.array([1.0, 1.0])}},
-        run_id        = run_id,
-        acc_id        = "toy",
-        agg_id        = "imp_20260519_000000_bbbb2222",
-        created_at    = "2026-05-19T00:00:00Z",
-        label         = "toy-const",
-        _p            = 1.3,
+        G          = G,
+        row_meta   = row_meta,
+        a0         = np.array([10.0, 20.0]),
+        sigma_a    = np.array([[1.0], [2.0]]),    # (n_edges, n_timesteps)
+        u          = np.array([1e9, 1e9]),
+        l          = np.array([0.0, 0.0]),
+        c          = np.array([[0.0], [5.0]]),     # (n_constraints, n_timesteps)
+        sigma_c    = np.array([[1.0], [1.0]]),
+        active     = np.array([[True], [True]]),
+        timesteps  = ["2020"],
+        run_id     = run_id,
+        acc_id     = "toy",
+        agg_id     = "imp_20260519_000000_bbbb2222",
+        created_at = "2026-05-19T00:00:00Z",
+        label      = "toy-const",
+        _p         = 1.3,
     )
 
 
-@pytest.mark.xfail(
-    reason="Phase 4 — ConstraintRunRegistry persistence schema needs to be "
-           "rewritten for StructG + 2-D c/sigma_c/active + 2-D sigma_a. The "
-           "pre-refactor save/load path is incompatible with the new "
-           "ConstraintRun layout.",
-    strict=False,
-)
 class TestConstraintRunRegistry:
 
     @pytest.fixture
@@ -792,14 +797,23 @@ class TestConstraintRunRegistry:
         const_registry.register(run)
         reg2 = ConstraintRunRegistry(storage_dir=const_registry.storage_dir)
         loaded = reg2.load(run.run_id)
+
+        # 1-D / 2-D round-trip equality.
         np.testing.assert_allclose(loaded.a0,      run.a0)
         np.testing.assert_allclose(loaded.sigma_a, run.sigma_a)
         np.testing.assert_allclose(loaded.u,       run.u)
         np.testing.assert_allclose(loaded.l,       run.l)
-        np.testing.assert_allclose(
-            loaded.timestep_data["2020"]["c"],
-            run.timestep_data["2020"]["c"],
-        )
+        np.testing.assert_allclose(loaded.c,       run.c)
+        np.testing.assert_allclose(loaded.sigma_c, run.sigma_c)
+        np.testing.assert_array_equal(loaded.active, run.active)
+
+        # StructG round-trips with the same sparsity + data tape.
+        np.testing.assert_array_equal(loaded.G.indptr,  run.G.indptr)
+        np.testing.assert_array_equal(loaded.G.indices, run.G.indices)
+        np.testing.assert_allclose(loaded.G.data,       run.G.data)
+        assert loaded.G.shape == run.G.shape
+
+        assert loaded.timesteps == run.timesteps
         assert loaded.acc_id == "toy"
         assert loaded.agg_id == run.agg_id
         assert loaded._p     == pytest.approx(1.3)

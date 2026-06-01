@@ -916,17 +916,10 @@ class TestConstraintEngine:
 # ConstraintRunRegistry
 # ---------------------------------------------------------------------------
 
-@pytest.mark.xfail(
-    reason="Phase 4 — ConstraintRunRegistry persistence schema needs to "
-           "store StructG (indptr/indices/data tape) + 2-D c/sigma_c/active "
-           "+ 1-D a0/u/l + (n_edges, n_timesteps) sigma_a. The current "
-           "implementation still writes the pre-refactor layout.",
-    strict=False,
-)
 class TestConstraintRunRegistry:
 
     def test_registry_round_trip(self, toy_acc, toy_agg_result, tmp_path):
-        """Save ConstraintRun; reload; G and row_meta match."""
+        """Save ConstraintRun via the engine; reload; StructG + 2-D arrays match."""
         from pysuto.constraints import ConstraintEngine, MassBalanceBuilder
         from pysuto.registry import ConstraintRunRegistry
         storage = str(tmp_path / "const")
@@ -939,14 +932,17 @@ class TestConstraintRunRegistry:
 
         assert run2.G.shape       == run.G.shape
         assert len(run2.row_meta) == len(run.row_meta)
-        assert np.allclose(run2.a0,      run.a0)
-        assert np.allclose(run2.sigma_a, run.sigma_a)
-        assert np.allclose(run2.u,       run.u)
-        assert np.allclose(run2.l,       run.l)
-        td1 = run.timestep_data["2020"]
-        td2 = run2.timestep_data["2020"]
-        assert np.allclose(td1["c"],       td2["c"])
-        assert np.allclose(td1["sigma_c"], td2["sigma_c"])
+        np.testing.assert_array_equal(run2.G.indptr,  run.G.indptr)
+        np.testing.assert_array_equal(run2.G.indices, run.G.indices)
+        np.testing.assert_allclose(run2.G.data, run.G.data)
+        np.testing.assert_allclose(run2.a0,      run.a0)
+        np.testing.assert_allclose(run2.sigma_a, run.sigma_a)
+        np.testing.assert_allclose(run2.u,       run.u)
+        np.testing.assert_allclose(run2.l,       run.l)
+        np.testing.assert_allclose(run2.c,       run.c)
+        np.testing.assert_allclose(run2.sigma_c, run.sigma_c)
+        np.testing.assert_array_equal(run2.active, run.active)
+        assert run2.timesteps == run.timesteps
 
     def test_registry_summary_df(self, toy_acc, toy_agg_result, tmp_path):
         """summary_df() returns DataFrame with one row per registered run."""
@@ -964,7 +960,6 @@ class TestConstraintRunRegistry:
         assert "run_id" in df.columns
 
     def test_load_unknown_run_id_raises(self, tmp_path):
-        """Loading a non-existent run_id raises KeyError."""
         from pysuto.registry import ConstraintRunRegistry
         reg = ConstraintRunRegistry(storage_dir=str(tmp_path / "const"))
         with pytest.raises(KeyError):
