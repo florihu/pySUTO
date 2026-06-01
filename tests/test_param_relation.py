@@ -40,15 +40,13 @@ class MockAcc:
         2  Mining / Process / B
         3  Ore    / Flow    / B
 
-    Edges:
-        0  0→1  t=2020  Mass    Mining/A → Ore/A
-        1  2→3  t=2020  Mass    Mining/B → Ore/B
-        2  0→1  t=2020  CC      same pair, CC valuation
-        3  2→3  t=2020  CC      same pair, CC valuation
-        4  1→0  t=2020  Mass    Ore/A → Mining/A
-        5  3→2  t=2020  Mass    Ore/B → Mining/B
-        6  0→1  t=2021  Mass    Mining/A → Ore/A, next year
-        7  2→3  t=2021  Mass    Mining/B → Ore/B, next year
+    Structural edges (no time column under the structural model):
+        0  0→1  Mass    Mining/A → Ore/A
+        1  2→3  Mass    Mining/B → Ore/B
+        2  0→1  CC      same pair, CC valuation
+        3  2→3  CC      same pair, CC valuation
+        4  1→0  Mass    Ore/A → Mining/A
+        5  3→2  Mass    Ore/B → Mining/B
     """
 
     def __init__(self) -> None:
@@ -62,14 +60,13 @@ class MockAcc:
         )
         self.edge_index = pd.DataFrame(
             {
-                "edge_id":   [0, 1, 2, 3, 4, 5, 6, 7],
-                "from_id":   [0, 2, 0, 2, 1, 3, 0, 2],
-                "to_id":     [1, 3, 1, 3, 0, 2, 1, 3],
-                "time":      ["2020", "2020", "2020", "2020", "2020", "2020", "2021", "2021"],
-                "valuation": ["Mass", "Mass", "CC",   "CC",   "Mass", "Mass", "Mass", "Mass"],
+                "edge_id":   [0, 1, 2, 3, 4, 5],
+                "from_id":   [0, 2, 0, 2, 1, 3],
+                "to_id":     [1, 3, 1, 3, 0, 2],
+                "valuation": ["Mass", "Mass", "CC", "CC", "Mass", "Mass"],
             }
         )
-        self.n_edges = 8
+        self.n_edges = 6
 
 
 @pytest.fixture
@@ -151,13 +148,15 @@ class TestSpecificity:
     def test_one_concrete_field_is_one(self):
         assert specificity(_row(a_sector_from="Mining")) == 1
 
-    def test_all_concrete_is_eight(self):
+    def test_all_concrete_is_seven(self):
+        # Structural A-selector has 7 fields (a_time is no longer an edge selector;
+        # it's a period selector consumed downstream).
         row = _row(
             a_sector_from="Mining", a_entity_from="Process", a_region_from="A",
             a_sector_to="Ore",     a_entity_to="Flow",      a_region_to="A",
-            a_time="2020",         a_valuation="Mass",
+            a_valuation="Mass",
         )
-        assert specificity(row) == 8
+        assert specificity(row) == 7
 
 
 # =============================================================================
@@ -216,8 +215,9 @@ class TestResolverExplicitA:
         results = list(resolver.resolve_row(row))
         a_ids = {r.a_edge_id for r in results}
         assert a_ids == {0}
-        # Specificity = 8 non-wildcard A-fields
-        assert all(r.specificity == 8 for r in results)
+        # Specificity = 7 non-wildcard A-fields (structural A-selector has 7 dims;
+        # a_time is no longer an edge selector)
+        assert all(r.specificity == 7 for r in results)
 
 
 class TestResolverWildcards:

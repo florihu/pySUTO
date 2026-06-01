@@ -46,6 +46,12 @@ from .unc import PedigreeScores
 WILDCARD = {"*", "nan", "None", ""}
 
 # A-selector field → (ei_exp column, counterpart column for "same" constraint)
+#
+# Under the structural model, edge matching ignores time (admissibility is
+# time-independent and edge_index has no `time` column). The `a_time`/`b_time`
+# CSV columns survive on the resolved row and are read by consumers as a
+# *period selector* (which timestep the value applies to: wildcard → broadcast
+# to all timesteps, specific year → that period only).
 A_FIELDS = [
     ("a_sector_from", "sector_from", "sector_to"),
     ("a_entity_from", "entity_from", "entity_to"),
@@ -53,7 +59,6 @@ A_FIELDS = [
     ("a_sector_to",   "sector_to",   "sector_from"),
     ("a_entity_to",   "entity_to",   "entity_from"),
     ("a_region_to",   "region_to",   "region_from"),
-    ("a_time",        "time",        None),
     ("a_valuation",   "valuation",   None),
 ]
 
@@ -65,7 +70,6 @@ B_FIELDS = [
     ("b_sector_to",   "sector_to",   "sector_to"),
     ("b_entity_to",   "entity_to",   "entity_to"),
     ("b_region_to",   "region_to",   "region_to"),
-    ("b_time",        "time",        "time"),
     ("b_valuation",   "valuation",   "valuation"),
 ]
 
@@ -76,7 +80,7 @@ A_PRODUCT_THRESHOLD = 100_000
 _A_SPEC_KEYS = [k for k, _, _ in A_FIELDS]
 _A_EI_POS    = {ec: i for i, (_, ec, _) in enumerate(A_FIELDS)}
 
-_MASK_COLS = [ec for _, ec, _ in A_FIELDS]  # same 8 columns as A's ei_exp side
+_MASK_COLS = [ec for _, ec, _ in A_FIELDS]  # ei_exp columns used by A-selector matching
 
 
 # ---------------------------------------------------------------------------
@@ -142,9 +146,9 @@ def expand_edge_index(edge_index: pd.DataFrame, node_index: pd.DataFrame) -> pd.
 
 
 def _build_edge_lookup(ei_exp: pd.DataFrame) -> dict:
-    """O(1) lookup: (sfrom,efrom,rfrom,sto,eto,rto,time,val) → edge_id."""
+    """O(1) lookup: (sfrom,efrom,rfrom,sto,eto,rto,val) → edge_id (structural)."""
     cols = ["sector_from", "entity_from", "region_from",
-            "sector_to",   "entity_to",   "region_to", "time", "valuation"]
+            "sector_to",   "entity_to",   "region_to", "valuation"]
     arr  = ei_exp[cols].to_numpy(dtype=str)
     eids = ei_exp["edge_id"].to_numpy(dtype=int)
     return {tuple(arr[i]): int(eids[i]) for i in range(len(arr))}
@@ -202,10 +206,11 @@ def get_edge_cache(acc_struct) -> tuple:
 
 def _enumerate_a_edges(row: pd.Series, field_vals: dict):
     """
-    Yield all 8-tuples that match the A-selector of a CSV row.
+    Yield all N-tuples that match the A-selector of a CSV row, where N = len(A_FIELDS).
     Fixed fields → single value; wildcard → all unique values; same → copy counterpart.
     itertools.product runs only over non-same dimensions.
     """
+    n = len(A_FIELDS)
     dims: list = []
     same_to: dict = {}
     for i, (col_key, ei_col, counterpart) in enumerate(A_FIELDS):
@@ -218,10 +223,10 @@ def _enumerate_a_edges(row: pd.Series, field_vals: dict):
             dims.append(None)
         else:
             dims.append((v,))
-    free_pos  = [i for i in range(8) if dims[i] is not None]
+    free_pos  = [i for i in range(n) if dims[i] is not None]
     free_dims = [dims[i] for i in free_pos]
     for combo in itertools.product(*free_dims):
-        t: list = [None] * 8
+        t: list = [None] * n
         for idx, pos in enumerate(free_pos):
             t[pos] = combo[idx]
         for pos, cp in same_to.items():
