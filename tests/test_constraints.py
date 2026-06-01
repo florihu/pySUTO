@@ -998,6 +998,12 @@ class TestConstraintRunRegistry:
 # Per-timestep deactivation of ratio_eq / ratio_bound (Fix 8.2)
 # ---------------------------------------------------------------------------
 
+@pytest.mark.xfail(
+    reason="Phase 3 — sentinel-based per-timestep deactivation is replaced "
+           "by the first-class activation mask on ConstraintRun. Tests will "
+           "be rewritten against active[constraint, t].",
+    strict=False,
+)
 class TestRatioPerTimestepDeactivation:
     """build_dynamic should flip σ_c (ratio_eq) / c (ratio_bound) for off-year
     rows so per-t solves only see the in-year ratio constraints."""

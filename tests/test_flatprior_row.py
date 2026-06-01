@@ -51,10 +51,13 @@ class _RowAcc:
                 "edge_id":   [0, 1, 2, 3, 4],
                 "from_id":   [0, 2, 3, 4, 5],
                 "to_id":     [1, 3, 2, 5, 4],
-                "time":      ["2020"] * 5,
                 "valuation": ["Mass"] * 5,
             }
         )
+        # Single timestep — keeps fixtures compact while honouring the 2-D
+        # (n_edges, n_timesteps) contract introduced by the structural refactor.
+        self.time_range = ["2020"]
+        self.n_timeps   = 1
         self.masks = {
             "supply":   np.array([True,  True,  False, True,  False]),
             "use":      np.array([False, False, True,  False, True]),
@@ -63,13 +66,13 @@ class _RowAcc:
         }
 
 
-def _attach_full_coverage(imp, n_edges):
+def _attach_full_coverage(imp, n_edges, n_timeps=1):
     """Attach a coverage array of all True so density ρ=1 → CV=cv_lo."""
     class _Agg:
         pass
 
     a = _Agg()
-    a.coverage = np.ones(n_edges, dtype=bool)
+    a.coverage = np.ones((n_edges, n_timeps), dtype=bool)
     imp.attach_agg_result(a)
 
 
@@ -90,10 +93,10 @@ def _row_sub_masks(acc):
 def test_row_inflation_one_is_no_op():
     """row_inflation=1.0 → ROW supply edges get same CV as non-ROW supply edges."""
     acc = _RowAcc()
-    f = np.full(5, np.nan)
-    f[0] = 50.0       # finite anchor for level-2 scale group (Mining, Mass)
-    sigma = np.full(5, np.nan)
-    sigma[0] = 1.0
+    f = np.full((5, 1), np.nan)
+    f[0, 0] = 50.0       # finite anchor for level-2 scale group (Mining, Mass)
+    sigma = np.full((5, 1), np.nan)
+    sigma[0, 0] = 1.0
     missing = np.isnan(f)
 
     row_supply, row_use = _row_sub_masks(acc)
@@ -113,17 +116,17 @@ def test_row_inflation_one_is_no_op():
     imp.impute(f, sigma, missing, 0, acc)
 
     # Inflation=1 → sigma of ROW supply (edge 3) equals sigma of domestic supply (edge 1).
-    assert sigma[3] / sigma[1] == pytest.approx(1.0)
-    assert sigma[4] / sigma[2] == pytest.approx(1.0)
+    assert sigma[3, 0] / sigma[1, 0] == pytest.approx(1.0)
+    assert sigma[4, 0] / sigma[2, 0] == pytest.approx(1.0)
 
 
 def test_row_inflation_multiplies_cv_for_row_edges():
     """row_inflation=2.5 → sigma[row_supply]/sigma[supply] == 2.5 within same scale group."""
     acc = _RowAcc()
-    f = np.full(5, np.nan)
-    f[0] = 50.0
-    sigma = np.full(5, np.nan)
-    sigma[0] = 1.0
+    f = np.full((5, 1), np.nan)
+    f[0, 0] = 50.0
+    sigma = np.full((5, 1), np.nan)
+    sigma[0, 0] = 1.0
     missing = np.isnan(f)
 
     row_supply, row_use = _row_sub_masks(acc)
@@ -144,9 +147,9 @@ def test_row_inflation_multiplies_cv_for_row_edges():
 
     # Edge 1 (supply, domestic) vs edge 3 (supply, ROW): same level-2 scale group
     # (Mining, Mass), so sigma ratio = inflation factor.
-    assert sigma[3] / sigma[1] == pytest.approx(2.5)
+    assert sigma[3, 0] / sigma[1, 0] == pytest.approx(2.5)
     # Same comparison in the use bucket: edge 2 (use, domestic) vs edge 4 (use, ROW).
-    assert sigma[4] / sigma[2] == pytest.approx(2.5)
+    assert sigma[4, 0] / sigma[2, 0] == pytest.approx(2.5)
 
 
 def test_overlay_takes_priority_over_acc_masks():

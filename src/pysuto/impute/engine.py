@@ -31,16 +31,16 @@ logger = get_logger(__name__)
 
 class ImputationLog:
     """
-    Provenance table for every imputed edge.
+    Provenance table for every imputed cell (edge_id, t_idx).
 
     Each entry is a dict with keys:
-        edge_id, step, method, source_edges, coefficients,
+        edge_id, t_idx, step, method, source_edges, coefficients,
         f_before, f_after, sigma_before, sigma_after,
         description, param_id
     """
 
     _COLS = [
-        "edge_id", "step", "method", "source_edges", "coefficients",
+        "edge_id", "t_idx", "step", "method", "source_edges", "coefficients",
         "f_before", "f_after", "sigma_before", "sigma_after",
         "description", "param_id",
     ]
@@ -123,18 +123,18 @@ class ImputationEngine:
         self._imputers.append(imputer)
 
     def run(self, agg_result: AggregationResult) -> AggregationResult:
-        f     = agg_result.a_agg.copy()
+        f     = agg_result.a_agg.copy()      # (n_edges, n_timesteps)
         sigma = agg_result.sigma_agg.copy()
         log   = ImputationLog()
         meta  = ImputationMetadata()
         run_ts = datetime.now().isoformat(timespec="seconds")
 
-        n_total = len(f)
+        n_total = int(f.size)
         for step, imputer in enumerate(self._imputers):
             missing = np.isnan(f)
             n_missing_before = int(missing.sum())
             if n_missing_before == 0:
-                logger.info("step %d: no missing edges — stopping early", step)
+                logger.info("step %d: no missing cells — stopping early", step)
                 break
             cov_before = (n_total - n_missing_before) / n_total
 
@@ -149,37 +149,45 @@ class ImputationEngine:
             elapsed = time.perf_counter() - t0
             log.extend(entries)
 
-            # Post-step bounds enforcement: warn and clip any newly-filled out-of-bounds values
-            newly_filled = np.where(missing & ~np.isnan(f))[0]
-            if newly_filled.size > 0:
-                bl = self._acc_struct.bounds.l[newly_filled]
-                bu = self._acc_struct.bounds.u[newly_filled]
-                fv = f[newly_filled]
+            # Post-step bounds enforcement on newly-filled cells. Bounds are
+            # per-structural-edge (length n_edges) so broadcast across time.
+            newly_filled_mask = missing & ~np.isnan(f)
+            if newly_filled_mask.any():
+                bl_e = self._acc_struct.bounds.l  # (n_edges,)
+                bu_e = self._acc_struct.bounds.u  # (n_edges,)
+                edge_idx, t_idx = np.where(newly_filled_mask)
+                fv = f[edge_idx, t_idx]
+                bl = bl_e[edge_idx]
+                bu = bu_e[edge_idx]
                 clip_needed = (fv < bl) | (fv > bu)
                 if clip_needed.any():
                     _, _, id_to_tuple, _, _, _ = get_edge_cache(self._acc_struct)
-                    for e_id in newly_filled[clip_needed]:
-                        lo  = float(self._acc_struct.bounds.l[e_id])
-                        hi  = float(self._acc_struct.bounds.u[e_id])
-                        val = float(f[e_id])
+                    time_range = list(getattr(self._acc_struct, "time_range", []))
+                    for pos in np.where(clip_needed)[0]:
+                        e_id = int(edge_idx[pos])
+                        ti   = int(t_idx[pos])
+                        lo   = float(bl_e[e_id])
+                        hi   = float(bu_e[e_id])
+                        val  = float(f[e_id, ti])
                         clipped_val = float(np.clip(val, lo, hi))
-                        tup = id_to_tuple[int(e_id)]
+                        tup = id_to_tuple[e_id]
+                        t_lbl = time_range[ti] if ti < len(time_range) else ti
                         warnings.warn(
                             f"step {step} ({type(imputer).__name__}): "
                             f"edge {e_id} ({tup[0]}[{tup[2]}]→{tup[3]}[{tup[5]}], "
-                            f"t={tup[6]}, {tup[7]}): "
+                            f"val={tup[6]}) at t={t_lbl}: "
                             f"imputed {val:.4g} clipped to {clipped_val:.4g} "
                             f"(bounds [{lo:.4g}, {hi:.4g}])",
                             UserWarning,
                             stacklevel=2,
                         )
-                        f[e_id] = clipped_val
+                        f[e_id, ti] = clipped_val
 
             n_missing_after = int(np.isnan(f).sum())
             n_filled = n_missing_before - n_missing_after
             cov_after = (n_total - n_missing_after) / n_total
             logger.info(
-                "step %d (%s): filled %d edges  →  coverage %.1f%% → %.1f%%  (△+%.1f%%)",
+                "step %d (%s): filled %d cells  →  coverage %.1f%% → %.1f%%  (△+%.1f%%)",
                 step, type(imputer).__name__, n_filled,
                 100 * cov_before, 100 * cov_after, 100 * (cov_after - cov_before),
             )

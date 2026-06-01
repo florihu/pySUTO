@@ -153,23 +153,32 @@ class FeedCollector:
     def _load_arrays(self) -> tuple[np.ndarray, np.ndarray]:
         """
         Load F_root and sigma_root for every selected feed and stack into
-        [N_f × N_r] matrices with NaN where a feed does not cover an edge.
+        ``(N_f, n_edges, n_timesteps)`` tensors with NaN where a feed does
+        not cover a (struct_edge, t) cell.
+
+        A 1-D ``F_root`` of length ``n_edges`` from the registry is
+        broadcast across the timestep axis (single-snapshot feed); 2-D
+        ``F_root`` of shape ``(n_edges, n_timesteps)`` is loaded as-is.
 
         Returns
         -------
-        F     : [N_f × N_r]  float64, NaN = not covered
-        Sigma : [N_f × N_r]  float64, NaN = not covered
+        F     : (N_f, n_edges, n_timesteps)  float64, NaN = not covered
+        Sigma : (N_f, n_edges, n_timesteps)  float64, NaN = not covered
         """
-        N_r = len(self._acc_struct.edge_index)
-        N_f = len(self._lookup_keys)
+        n_edges  = len(self._acc_struct.edge_index)
+        n_timeps = len(getattr(self._acc_struct, "time_range", []) or [1])
+        N_f      = len(self._lookup_keys)
 
-        F     = np.full((N_f, N_r), np.nan, dtype=float)
-        Sigma = np.full((N_f, N_r), np.nan, dtype=float)
+        F     = np.full((N_f, n_edges, n_timeps), np.nan, dtype=float)
+        Sigma = np.full((N_f, n_edges, n_timeps), np.nan, dtype=float)
 
         for k, (key, fid) in enumerate(zip(self._lookup_keys, self._feed_ids)):
             res     = self._registry.load_result(key)
-            f_k     = res["F_root"].astype(float)
-            sigma_k = res["sigma_root"].astype(float)
+            f_k     = np.asarray(res["F_root"], dtype=float)
+            sigma_k = np.asarray(res["sigma_root"], dtype=float)
+            if f_k.ndim == 1:
+                f_k     = np.broadcast_to(f_k[:, None],     (n_edges, n_timeps)).copy()
+                sigma_k = np.broadcast_to(sigma_k[:, None], (n_edges, n_timeps)).copy()
 
             # sigma_root = 0 → no source edge contributed → not covered
             covered = sigma_k > 0
@@ -178,15 +187,15 @@ class FeedCollector:
                 covered &= ~below
                 if below.any():
                     logger.info(
-                        "'%s': suppressed %d near-zero edges (|f| < %.4g kt)",
+                        "'%s': suppressed %d near-zero cells (|f| < %.4g kt)",
                         fid, int(below.sum()), self._min_flow_kt,
                     )
-            F[k, covered]     = f_k[covered]
-            Sigma[k, covered] = sigma_k[covered]
+            F[k][covered]     = f_k[covered]
+            Sigma[k][covered] = sigma_k[covered]
 
             logger.debug(
-                "loaded '%s': %d / %d edges covered",
-                fid, int(covered.sum()), N_r,
+                "loaded '%s': %d / %d cells covered",
+                fid, int(covered.sum()), n_edges * n_timeps,
             )
 
         return F, Sigma

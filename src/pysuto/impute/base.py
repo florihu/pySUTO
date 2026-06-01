@@ -35,13 +35,14 @@ def _apply_cv_cap(sigma_val: float, f_val: float, cv_cap: float) -> tuple[float,
 
 
 def _log(
-    edge_id: int, step: int, method: str,
+    edge_id: int, t_idx: int, step: int, method: str,
     source_edges: list[int], coefficients: list[float],
     f_after: float, sigma_after: float,
     description: str, param_id: Optional[str],
 ) -> dict:
     return {
         "edge_id":      edge_id,
+        "t_idx":        int(t_idx),
         "step":         step,
         "method":       method,
         "source_edges": list(source_edges),
@@ -63,10 +64,11 @@ class BaseImputer(ABC):
     """
     Abstract base for all imputers.
 
-    impute() receives the current f and sigma arrays (modified in-place),
-    the missing mask at the START of this step (bool, True where NaN),
-    the pipeline step index for logging, and the accounting structure.
-    Returns a list of log-entry dicts (one per filled edge).
+    impute() receives 2-D ``f`` and ``sigma`` arrays of shape
+    ``(n_edges, n_timesteps)`` (modified in-place), the missing mask at
+    the START of this step (same shape, True where NaN), the pipeline
+    step index for logging, and the accounting structure.
+    Returns a list of log-entry dicts (one per filled cell).
     """
 
     @abstractmethod

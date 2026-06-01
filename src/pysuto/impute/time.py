@@ -1,10 +1,11 @@
 """
 time.py
 =======
-``TimeImputer`` — temporal interpolation / extrapolation per edge series.
+``TimeImputer`` — temporal interpolation / extrapolation per structural edge.
 
-Module-local :func:`_time_sort_key` (single caller — :class:`TimeImputer`)
-lives here too.
+Under the structural model each row of ``f`` is an independent time series
+for one ``(from_id, to_id, valuation)`` edge over ``acc.time_range``;
+TimeImputer scans each row's columns for NaN gaps and fills them.
 """
 
 from __future__ import annotations
@@ -12,29 +13,21 @@ from __future__ import annotations
 from typing import Literal, Optional
 
 import numpy as np
-import pandas as pd
 
 from pysuto.logging import get_logger
 from pysuto.lp import lp_combine
 
-from .base import BaseImputer, _apply_cv_cap, _log
+from .base import BaseImputer, _log
 
 logger = get_logger(__name__)
 
 
-def _time_sort_key(t):
-    try:
-        return (0, int(t))
-    except (ValueError, TypeError):
-        return (1, str(t))
-
-
 class TimeImputer(BaseImputer):
     """
-    Temporal interpolation / extrapolation for missing edges.
+    Temporal interpolation / extrapolation along the time axis of ``f``.
 
-    Edges are grouped by (from_id, to_id, valuation).  Within each group,
-    the sorted time series is scanned for gaps and filled according to method.
+    Each structural edge (row of ``f``) is its own series; the columns
+    correspond to ``acc.time_range``. Gaps are filled per ``method``.
 
     Parameters
     ----------
@@ -95,11 +88,10 @@ class TimeImputer(BaseImputer):
     def attach_agg_result(self, agg_result) -> None:
         """
         Receive ``agg_result`` so ``scope_feed_id`` can be resolved to a
-        per-edge mask in :meth:`impute` (where ``acc_struct.edge_index`` is
-        available). The mask covers every edge whose (from_id, to_id,
-        valuation) series contains ≥1 finite observation from the named
-        feed — so NaN target slots in those series are still in-scope and
-        can receive LOCF/NOCB fills.
+        per-edge mask in :meth:`impute`. The mask covers every edge whose
+        series saw ≥1 finite observation from the named feed across any
+        timestep — so NaN target slots in those series are still in-scope
+        and can receive LOCF/NOCB fills.
         """
         if self._scope_feed_id is None:
             return
@@ -109,9 +101,9 @@ class TimeImputer(BaseImputer):
                 f"TimeImputer: scope_feed_id={self._scope_feed_id!r} not in "
                 f"agg_result.feed_ids={feed_ids}"
             )
-        self._feed_obs_mask = ~np.isnan(
-            np.asarray(agg_result.F)[feed_ids.index(self._scope_feed_id), :]
-        )
+        F_feed = np.asarray(agg_result.F)[feed_ids.index(self._scope_feed_id)]
+        # F_feed shape: (n_edges, n_timesteps); any-finite over time → per-edge mask
+        self._feed_obs_mask = np.any(np.isfinite(F_feed), axis=1)
 
     def impute(
         self,
@@ -121,83 +113,55 @@ class TimeImputer(BaseImputer):
         step: int,
         acc_struct,
     ) -> list[dict]:
+        # f, sigma, missing all have shape (n_edges, n_timesteps).
         ei = acc_struct.edge_index
+        n_edges, n_timeps = f.shape
 
-        # Build sorted time ordering
-        all_times = sorted(set(ei["time"].tolist()), key=_time_sort_key)
-        t_to_idx  = {t: i for i, t in enumerate(all_times)}
-
-        # Group edges by series key → {time_idx: edge_id}
-        fid_arr = ei["from_id"].to_numpy(dtype=int)
-        tid_arr = ei["to_id"].to_numpy(dtype=int)
         val_arr = ei["valuation"].to_numpy(dtype=str)
-        tim_arr = ei["time"].values
-        eid_arr = ei["edge_id"].to_numpy(dtype=int)
+        time_range = list(getattr(acc_struct, "time_range", []))
 
-        # Resolve scope_edges-as-int-list lazily (N_edges now known).
+        # Resolve scope_edges-as-int-list lazily once n_edges is known.
         if (
             self._scope_mask is None
             and self._scope_edges_raw is not None
             and self._scope_feed_id is None
         ):
-            n_edges = int(eid_arr.max()) + 1 if eid_arr.size else 0
             mask = np.zeros(n_edges, dtype=bool)
             mask[np.asarray(self._scope_edges_raw, dtype=int)] = True
             self._scope_mask = mask
 
-        # Resolve scope_feed_id lazily — expand per-edge feed-observation
-        # mask to "every edge whose series saw ≥1 observation from the feed",
-        # so NaN target slots in those series are also in-scope.
+        # Resolve scope_feed_id from the attached feed-observation mask.
         feed_obs = getattr(self, "_feed_obs_mask", None)
         if self._scope_feed_id is not None and feed_obs is not None:
-            series_seen: dict[tuple, bool] = {}
-            for i in range(len(fid_arr)):
-                key = (fid_arr[i], tid_arr[i], val_arr[i])
-                eid = int(eid_arr[i])
-                if feed_obs[eid]:
-                    series_seen[key] = True
-                else:
-                    series_seen.setdefault(key, False)
-            n_edges = int(eid_arr.max()) + 1 if eid_arr.size else 0
-            mask = np.zeros(n_edges, dtype=bool)
-            for i in range(len(fid_arr)):
-                key = (fid_arr[i], tid_arr[i], val_arr[i])
-                if series_seen.get(key, False):
-                    mask[int(eid_arr[i])] = True
-            self._scope_mask = mask
+            self._scope_mask = np.asarray(feed_obs, dtype=bool)
 
-        # scope_edges / scope_valuations drop entire edges (and their history)
-        # from the series. scope_times is applied later — at the per-target
-        # loop — so historical observations remain available as LOCF/NOCB
-        # anchors when extrapolating into a scoped target year.
-        series: dict[tuple, dict[int, int]] = {}
+        # scope_times restricts which target columns may be filled.
         scope_tidx: Optional[set] = None
         if self._scope_times is not None:
-            scope_tidx = {t_to_idx[t] for t in all_times if str(t) in self._scope_times}
-
-        for i in range(len(fid_arr)):
-            eid = int(eid_arr[i])
-            if self._scope_mask is not None and not self._scope_mask[eid]:
-                continue
-            if self._scope_valuations is not None and val_arr[i] not in self._scope_valuations:
-                continue
-            key = (fid_arr[i], tid_arr[i], val_arr[i])
-            series.setdefault(key, {})[t_to_idx[tim_arr[i]]] = eid
+            scope_tidx = {
+                i for i, t_lbl in enumerate(time_range)
+                if str(t_lbl) in self._scope_times
+            }
 
         entries: list[dict] = []
 
-        for key, t_map in series.items():
-            sorted_tidxs = sorted(t_map.keys())
+        for e_id in range(n_edges):
+            if self._scope_mask is not None and not self._scope_mask[e_id]:
+                continue
+            if self._scope_valuations is not None and val_arr[e_id] not in self._scope_valuations:
+                continue
 
-            for t_target in sorted_tidxs:
+            row_f     = f[e_id]
+            row_sigma = sigma[e_id]
+
+            for t_target in range(n_timeps):
                 if scope_tidx is not None and t_target not in scope_tidx:
                     continue
-                e_id = t_map[t_target]
-                if not np.isnan(f[e_id]):
+                if not np.isnan(row_f[t_target]):
                     continue
 
                 entry = self._fill_one(
-                    f, sigma, t_map, t_target, e_id, step,
+                    row_f, row_sigma, t_target, e_id, step,
                 )
                 if entry is not None:
                     entries.append(entry)
@@ -206,23 +170,23 @@ class TimeImputer(BaseImputer):
 
     def _fill_one(
         self,
-        f: np.ndarray,
-        sigma: np.ndarray,
-        t_map: dict[int, int],
+        row_f: np.ndarray,
+        row_sigma: np.ndarray,
         t_target: int,
         e_id: int,
         step: int,
     ) -> Optional[dict]:
         method = self.method
+        n_t = row_f.shape[0]
 
-        # Collect known observations before and after within window
+        # Collect known (t_idx) observations before/after within window
         before = [
-            (t, t_map[t]) for t in sorted(t_map)
-            if t < t_target and (t_target - t) <= self.wb and not np.isnan(f[t_map[t]])
+            t for t in range(max(0, t_target - self.wb), t_target)
+            if not np.isnan(row_f[t])
         ]
         after = [
-            (t, t_map[t]) for t in sorted(t_map)
-            if t > t_target and (t - t_target) <= self.wa and not np.isnan(f[t_map[t]])
+            t for t in range(t_target + 1, min(n_t, t_target + self.wa + 1))
+            if not np.isnan(row_f[t])
         ]
 
         f_val: Optional[float] = None
@@ -234,20 +198,20 @@ class TimeImputer(BaseImputer):
         if method == "locf":
             if not before:
                 return None
-            t_obs, s_id = before[-1]
+            t_obs = before[-1]
             gap   = t_target - t_obs
-            f_val = float(f[s_id])
-            s_val = float(sigma[s_id]) * self.gap_inflation ** gap
-            src, wts, meth = [s_id], [1.0], "locf"
+            f_val = float(row_f[t_obs])
+            s_val = float(row_sigma[t_obs]) * self.gap_inflation ** gap
+            src, wts, meth = [t_obs], [1.0], "locf"
 
         elif method == "nocb":
             if not after:
                 return None
-            t_obs, s_id = after[0]
+            t_obs = after[0]
             gap   = t_obs - t_target
-            f_val = float(f[s_id])
-            s_val = float(sigma[s_id]) * self.gap_inflation ** gap
-            src, wts, meth = [s_id], [1.0], "nocb"
+            f_val = float(row_f[t_obs])
+            s_val = float(row_sigma[t_obs]) * self.gap_inflation ** gap
+            src, wts, meth = [t_obs], [1.0], "nocb"
 
         elif method == "mean":
             candidates = before + after
@@ -255,56 +219,56 @@ class TimeImputer(BaseImputer):
                 return None
             n     = len(candidates)
             w     = 1.0 / n
-            f_val = float(sum(w * f[eid] for _, eid in candidates))
-            # σ_mean = ( Σ_i |w·σ_i|^p )^(1/p)
-            s_val = lp_combine([w * sigma[eid] for _, eid in candidates], self.p)
-            src   = [eid for _, eid in candidates]
+            f_val = float(sum(w * row_f[t] for t in candidates))
+            s_val = lp_combine([w * row_sigma[t] for t in candidates], self.p)
+            src   = list(candidates)
             wts   = [w] * n
             meth  = "time_mean"
 
         else:  # linear
             if before and after:
-                t_a, a_id = before[-1]
-                t_b, b_id = after[0]
+                t_a = before[-1]
+                t_b = after[0]
                 gap  = t_b - t_a
                 lam  = (t_target - t_a) / gap
-                f_val = float((1 - lam) * f[a_id] + lam * f[b_id])
-                # σ_linear = ( |(1-λ)·σ_a|^p + |λ·σ_b|^p )^(1/p) · γ_0^gap
+                f_val = float((1 - lam) * row_f[t_a] + lam * row_f[t_b])
                 s_val = lp_combine(
-                    [(1 - lam) * sigma[a_id], lam * sigma[b_id]], self.p,
+                    [(1 - lam) * row_sigma[t_a], lam * row_sigma[t_b]], self.p,
                 ) * (self.gap_inflation ** gap)
-                src, wts, meth = [a_id, b_id], [1 - lam, lam], "time_linear"
+                src, wts, meth = [t_a, t_b], [1 - lam, lam], "time_linear"
             elif self.interpolate_only:
                 return None
             elif before:
-                t_obs, s_id = before[-1]
+                t_obs = before[-1]
                 gap   = t_target - t_obs
-                f_val = float(f[s_id])
-                s_val = float(sigma[s_id]) * self.gap_inflation ** gap
-                src, wts, meth = [s_id], [1.0], "time_linear"
+                f_val = float(row_f[t_obs])
+                s_val = float(row_sigma[t_obs]) * self.gap_inflation ** gap
+                src, wts, meth = [t_obs], [1.0], "time_linear"
             elif after:
-                t_obs, s_id = after[0]
+                t_obs = after[0]
                 gap   = t_obs - t_target
-                f_val = float(f[s_id])
-                s_val = float(sigma[s_id]) * self.gap_inflation ** gap
-                src, wts, meth = [s_id], [1.0], "time_linear"
+                f_val = float(row_f[t_obs])
+                s_val = float(row_sigma[t_obs]) * self.gap_inflation ** gap
+                src, wts, meth = [t_obs], [1.0], "time_linear"
             else:
                 return None
 
         if f_val is None:
             return None
 
-        f[e_id]     = f_val
-        sigma[e_id] = s_val
-        return self._make_entry(e_id, step, meth, src, wts, f_val, s_val)
+        row_f[t_target]     = f_val
+        row_sigma[t_target] = s_val
+        return self._make_entry(e_id, t_target, step, meth, src, wts, f_val, s_val)
 
     @staticmethod
     def _make_entry(
-        e_id: int, step: int, method: str,
+        e_id: int, t_idx: int, step: int, method: str,
         src: list[int], coeffs: list[float],
         f_val: float, s_val: float,
     ) -> dict:
-        return _log(e_id, step, method, src, coeffs, f_val, s_val, "", None)
+        # source_edges hold the t_idx of the anchor observation(s) within the
+        # same series; coefficients carry the corresponding weights.
+        return _log(e_id, t_idx, step, method, src, coeffs, f_val, s_val, "", None)
 
 
 # ---------------------------------------------------------------------------

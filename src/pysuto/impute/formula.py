@@ -116,7 +116,6 @@ class FormulaImputer(BaseImputer):
         self._eid_to_pos: Optional[dict]         = None
         self._ei_rf:      Optional[np.ndarray]   = None
         self._ei_rt:      Optional[np.ndarray]   = None
-        self._ei_time:    Optional[np.ndarray]   = None
         self._precomp:    Optional[list]         = None
         self.cv_cap        = float(cv_cap)
         self.p             = float(p)
@@ -143,7 +142,6 @@ class FormulaImputer(BaseImputer):
         self._eid_to_pos = dict(zip(eids_np.tolist(), range(len(eids_np))))
         self._ei_rf      = ei_exp["region_from"].to_numpy(dtype=str)
         self._ei_rt      = ei_exp["region_to"].to_numpy(dtype=str)
-        self._ei_time    = ei_exp["time"].to_numpy(dtype=str)
         self._precomp    = [
             (rel.target(ei_exp), [term.selector(ei_exp) for term in rel.terms])
             for rel in self._relations
@@ -176,7 +174,7 @@ class FormulaImputer(BaseImputer):
         step: int,
         acc_struct,
     ) -> list[dict]:
-        # ── Lazy one-time setup ──────────────────────────────────────────
+        # f, sigma, missing: shape (n_edges, n_timesteps).
         if self._ei_exp is None:
             self.prepare(acc_struct)
 
@@ -185,8 +183,8 @@ class FormulaImputer(BaseImputer):
         eid_to_pos = self._eid_to_pos
         ei_rf      = self._ei_rf
         ei_rt      = self._ei_rt
-        ei_time_np = self._ei_time
         edge_ids   = ei_exp["edge_id"].values
+        n_edges, n_timeps = f.shape
         entries: list[dict] = []
 
         _rb_col = {
@@ -204,91 +202,126 @@ class FormulaImputer(BaseImputer):
 
         for rel_idx, rel in enumerate(self._relations):
             t_mask_rel, term_base_masks = self._precomp[rel_idx]
-            missing_now = np.isnan(f)
-            t_ids = edge_ids[t_mask_rel & missing_now[edge_ids]]
+            target_edges = edge_ids[t_mask_rel]
 
-            for t_id in t_ids:
-                _pos   = eid_to_pos[int(t_id)]
-                t_rf   = str(ei_rf[_pos])
-                t_rt   = str(ei_rt[_pos])
-                t_time = str(ei_time_np[_pos])
+            for t_id in target_edges:
+                _pos = eid_to_pos[int(t_id)]
+                t_rf = str(ei_rf[_pos])
+                t_rt = str(ei_rt[_pos])
 
-                f_val       = 0.0
-                lp_terms:   list[float] = []
-                src_ids:    list[int]   = []
-                src_coeffs: list[float] = []
-                ok = True
-
+                # Resolve which source edges this term picks once per
+                # target edge (region binding is a per-target filter; time
+                # binding selects the column, not the edge).
+                term_src_ids: list[np.ndarray] = []
+                term_coeffs:  list[float]      = []
+                ok_static = True
                 for i, term in enumerate(rel.terms):
-                    # Start from pre-computed base selector mask
                     s_mask = term_base_masks[i]
-
-                    # Region binding via cache lookup
                     rb = term.region_binding
                     if rb != "none" and rb in _rb_col:
                         col = _rb_col[rb]
                         val = t_rf if _rb_side[rb] == "from" else t_rt
                         rm  = cache.get((col, val))
-                        s_mask = s_mask & rm if rm is not None else np.zeros(len(edge_ids), dtype=bool)
-
-                    # Time binding via cache lookup
-                    if term.time_binding:
-                        tm = cache.get(("time", t_time))
-                        s_mask = s_mask & tm if tm is not None else np.zeros(len(edge_ids), dtype=bool)
-
+                        s_mask = s_mask & rm if rm is not None else np.zeros(n_edges, dtype=bool)
                     s_ids = edge_ids[s_mask]
-
                     if term.aggregate == "single" and len(s_ids) != 1:
-                        ok = False
+                        ok_static = False
                         break
-                    if any(np.isnan(f[s]) for s in s_ids):
-                        ok = False
-                        break
-
                     coeff = self._resolve_coeff(term.coefficient)
                     if coeff is None:
-                        ok = False
+                        ok_static = False
                         break
-
-                    for s in s_ids:
-                        f_val   += coeff * f[s]
-                        lp_terms.append(coeff * sigma[s])
-                        src_ids.append(int(s))
-                        src_coeffs.append(coeff)
-
-                if not ok:
+                    term_src_ids.append(s_ids)
+                    term_coeffs.append(coeff)
+                if not ok_static:
                     continue
 
-                lp_terms.append(rel.epsilon * f_val)
-
-                # Clip to acc.bounds (authoritative; FormulaRelation.clip_lower/clip_upper ignored)
-                clipped = False
+                # Iterate over time columns and apply per cell.
                 lo = float(acc_struct.bounds.l[int(t_id)])
                 hi = float(acc_struct.bounds.u[int(t_id)])
-                if f_val < lo:
-                    f_val   = lo
-                    clipped = True
-                if f_val > hi:
-                    f_val   = hi
-                    clipped = True
 
-                s_val = lp_combine(lp_terms, self.p)
-                s_val, capped = _apply_cv_cap(s_val, f_val, self.cv_cap)
-                f[t_id]     = f_val
-                sigma[t_id] = s_val
-                if clipped and capped:
-                    method = "formula_clipped_capped"
-                elif clipped:
-                    method = "formula_clipped"
-                elif capped:
-                    method = "formula_capped"
-                else:
-                    method = "formula"
-                entries.append(_log(
-                    t_id, step, method,
-                    src_ids, src_coeffs, f_val, s_val,
-                    rel.description, None,
-                ))
+                for ti in range(n_timeps):
+                    if not np.isnan(f[t_id, ti]):
+                        continue
+
+                    f_val       = 0.0
+                    lp_terms:   list[float] = []
+                    src_ids:    list[int]   = []
+                    src_coeffs: list[float] = []
+                    ok = True
+
+                    for i, term in enumerate(rel.terms):
+                        ti_src = ti if term.time_binding else None
+                        coeff  = term_coeffs[i]
+                        s_ids_term = term_src_ids[i]
+                        if ti_src is None:
+                            # No time-binding ⇒ pool source cells across t.
+                            # 'single' aggregate has already been enforced
+                            # to be 1 source edge above; expand to that
+                            # edge's whole time-series for 'sum'.
+                            if term.aggregate == "single":
+                                s_id = int(s_ids_term[0])
+                                if np.any(np.isnan(f[s_id])):
+                                    ok = False
+                                    break
+                                contrib = float(np.sum(f[s_id]))
+                                f_val += coeff * contrib
+                                lp_terms.append(coeff * float(np.sum(sigma[s_id])))
+                                src_ids.append(s_id)
+                                src_coeffs.append(coeff)
+                            else:
+                                for s_id in s_ids_term:
+                                    s_id = int(s_id)
+                                    if np.any(np.isnan(f[s_id])):
+                                        ok = False
+                                        break
+                                    f_val += coeff * float(np.sum(f[s_id]))
+                                    lp_terms.append(coeff * float(np.sum(sigma[s_id])))
+                                    src_ids.append(s_id)
+                                    src_coeffs.append(coeff)
+                                if not ok:
+                                    break
+                        else:
+                            if any(np.isnan(f[int(s), ti_src]) for s in s_ids_term):
+                                ok = False
+                                break
+                            for s in s_ids_term:
+                                s = int(s)
+                                f_val += coeff * f[s, ti_src]
+                                lp_terms.append(coeff * sigma[s, ti_src])
+                                src_ids.append(s)
+                                src_coeffs.append(coeff)
+
+                    if not ok:
+                        continue
+
+                    lp_terms.append(rel.epsilon * f_val)
+
+                    clipped = False
+                    if f_val < lo:
+                        f_val = lo
+                        clipped = True
+                    if f_val > hi:
+                        f_val = hi
+                        clipped = True
+
+                    s_val = lp_combine(lp_terms, self.p)
+                    s_val, capped = _apply_cv_cap(s_val, f_val, self.cv_cap)
+                    f[t_id, ti]     = f_val
+                    sigma[t_id, ti] = s_val
+                    if clipped and capped:
+                        method = "formula_clipped_capped"
+                    elif clipped:
+                        method = "formula_clipped"
+                    elif capped:
+                        method = "formula_capped"
+                    else:
+                        method = "formula"
+                    entries.append(_log(
+                        int(t_id), ti, step, method,
+                        src_ids, src_coeffs, f_val, s_val,
+                        rel.description, None,
+                    ))
 
         return entries
 

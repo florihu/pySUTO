@@ -44,10 +44,14 @@ class _MockRegistry:
 
 
 class _MockAccStruct:
-    """Minimal accounting structure: just needs edge_index with a length."""
+    """Minimal accounting structure: ``edge_index`` for length + ``time_range``
+    for the time axis. The structural collector lifts 1-D feed F_root to a
+    ``(n_edges, n_timesteps)`` grid, so tests use a single timestep here for
+    compactness."""
 
-    def __init__(self, n_edges: int):
+    def __init__(self, n_edges: int, n_timeps: int = 1):
         self.edge_index = list(range(n_edges))
+        self.time_range = [str(2000 + i) for i in range(n_timeps)]
 
 
 # ---------------------------------------------------------------------------
@@ -124,42 +128,42 @@ class TestFeedCollectorSelect:
 class TestFeedCollectorLoadArrays:
 
     def test_sigma_zero_converted_to_nan(self, collector):
-        """sigma_root=0 means 'not covered' and must become NaN in the matrix."""
+        """sigma_root=0 means 'not covered' and must become NaN in the tensor."""
         collector.select(["feed_a"])
         F, Sigma = collector._load_arrays()
 
-        # edges 1 and 2 have sigma=0 in feed_a → must be NaN
-        assert np.isnan(Sigma[0, 1])
-        assert np.isnan(Sigma[0, 2])
+        # edges 1 and 2 have sigma=0 in feed_a → must be NaN at every t
+        assert np.isnan(Sigma[0, 1, 0])
+        assert np.isnan(Sigma[0, 2, 0])
 
     def test_f_also_nan_where_not_covered(self, collector):
         """F entry must be NaN wherever sigma was 0."""
         collector.select(["feed_a"])
         F, Sigma = collector._load_arrays()
 
-        assert np.isnan(F[0, 1])
-        assert np.isnan(F[0, 2])
+        assert np.isnan(F[0, 1, 0])
+        assert np.isnan(F[0, 2, 0])
 
     def test_covered_values_loaded_correctly(self, collector):
         """Covered entries should match the stored F_root / sigma_root."""
         collector.select(["feed_a"])
         F, Sigma = collector._load_arrays()
 
-        np.testing.assert_allclose(F[0, 0],     F_A[0],   rtol=1e-12)
-        np.testing.assert_allclose(Sigma[0, 0], SIG_A[0], rtol=1e-12)
-        np.testing.assert_allclose(F[0, 3],     F_A[3],   rtol=1e-12)
-        np.testing.assert_allclose(Sigma[0, 3], SIG_A[3], rtol=1e-12)
+        np.testing.assert_allclose(F[0, 0, 0],     F_A[0],   rtol=1e-12)
+        np.testing.assert_allclose(Sigma[0, 0, 0], SIG_A[0], rtol=1e-12)
+        np.testing.assert_allclose(F[0, 3, 0],     F_A[3],   rtol=1e-12)
+        np.testing.assert_allclose(Sigma[0, 3, 0], SIG_A[3], rtol=1e-12)
 
-    def test_shapes_are_nf_by_nr(self, collector):
+    def test_shapes_are_3d(self, collector):
         collector.select(["feed_a", "feed_b"])
         F, Sigma = collector._load_arrays()
-        assert F.shape     == (2, N_R)
-        assert Sigma.shape == (2, N_R)
+        assert F.shape     == (2, N_R, 1)
+        assert Sigma.shape == (2, N_R, 1)
 
     def test_single_feed_shape(self, collector):
         collector.select(["feed_ab"])
         F, Sigma = collector._load_arrays()
-        assert F.shape == (1, N_R)
+        assert F.shape == (1, N_R, 1)
 
 
 # ===========================================================================
@@ -178,7 +182,8 @@ class TestFeedCollectorAggregate:
 
     def test_aggregate_f_agg_has_correct_shape(self, collector):
         result = collector.select(["feed_a"]).aggregate()
-        assert result.a_agg.shape == (N_R,)
+        # 2-D (n_edges, n_timesteps); MockAccStruct has 1 timestep by default.
+        assert result.a_agg.shape == (N_R, 1)
 
     def test_aggregate_feed_ids_stored(self, collector):
         result = collector.select(["feed_a", "feed_b"]).aggregate()
@@ -195,18 +200,14 @@ class TestFeedCollectorCombination:
         """With one fully-covering feed the result should pass through unchanged."""
         result = collector.select(["feed_ab"]).aggregate()
 
-        # Every edge is covered
+        # Every cell is covered (4 edges × 1 timestep).
         assert result.n_covered == N_R
         assert result.n_missing == 0
 
-        # a_agg == F_AB on all covered edges (single feed, weight=1)
-        np.testing.assert_allclose(result.a_agg, F_AB, rtol=1e-12)
-
-        # sigma_agg == SIG_AB (single feed, no diversification)
-        np.testing.assert_allclose(result.sigma_agg, SIG_AB, rtol=1e-12)
+        np.testing.assert_allclose(result.a_agg[:, 0],     F_AB,   rtol=1e-12)
+        np.testing.assert_allclose(result.sigma_agg[:, 0], SIG_AB, rtol=1e-12)
 
     def test_all_zero_sigma_gives_no_coverage(self, collector):
-        """A feed whose entire sigma_root is 0 contributes nothing."""
         zero_registry = _MockRegistry({
             "zero_feed": {
                 "F_root":     np.array([99.0, 99.0]),
@@ -220,37 +221,29 @@ class TestFeedCollectorCombination:
         assert np.all(np.isnan(result.a_agg))
 
     def test_non_overlapping_feeds_give_full_coverage(self, collector):
-        """feed_a covers {0,3} and feed_b covers {1,2} → together all 4 edges."""
         result = collector.select(["feed_a", "feed_b"]).aggregate()
         assert result.n_covered == N_R
 
     def test_non_overlapping_feeds_passthrough_values(self, collector):
-        """When no edge is shared, each covered a_agg equals that feed's F_root."""
         result = collector.select(["feed_a", "feed_b"]).aggregate()
 
-        # feed_a owns edges 0 and 3 → Omega[0, {0,3}] == 1
-        np.testing.assert_allclose(result.a_agg[0], F_A[0], rtol=1e-12)
-        np.testing.assert_allclose(result.a_agg[3], F_A[3], rtol=1e-12)
-
-        # feed_b owns edges 1 and 2
-        np.testing.assert_allclose(result.a_agg[1], F_B[1], rtol=1e-12)
-        np.testing.assert_allclose(result.a_agg[2], F_B[2], rtol=1e-12)
+        np.testing.assert_allclose(result.a_agg[0, 0], F_A[0], rtol=1e-12)
+        np.testing.assert_allclose(result.a_agg[3, 0], F_A[3], rtol=1e-12)
+        np.testing.assert_allclose(result.a_agg[1, 0], F_B[1], rtol=1e-12)
+        np.testing.assert_allclose(result.a_agg[2, 0], F_B[2], rtol=1e-12)
 
     def test_overlapping_feeds_reduce_sigma(self, collector):
-        """On edges covered by both feeds, sigma_agg must be < min(sigma_a, sigma_b)."""
-        # feed_a and feed_ab both cover edges 0 and 3
         result = collector.select(["feed_a", "feed_ab"]).aggregate()
 
         for j in [0, 3]:
             min_sigma = min(SIG_A[j], SIG_AB[j])
-            assert result.sigma_agg[j] < min_sigma, (
-                f"Edge {j}: sigma_agg={result.sigma_agg[j]:.4f} not < min_sigma={min_sigma:.4f}"
+            assert result.sigma_agg[j, 0] < min_sigma, (
+                f"Edge {j}: sigma_agg={result.sigma_agg[j, 0]:.4f} not < min_sigma={min_sigma:.4f}"
             )
 
     def test_omega_sums_to_one_on_covered_edges(self, collector):
-        """Key invariant holds end-to-end."""
         result = collector.select(["feed_a", "feed_b"]).aggregate()
-        col_sums = result.Omega.sum(axis=0)
+        col_sums = result.Omega.sum(axis=0)            # (n_edges, n_timesteps)
         np.testing.assert_allclose(col_sums[result.coverage], 1.0, atol=1e-12)
 
     def test_n_feeds_in_result_matches_selection(self, collector):

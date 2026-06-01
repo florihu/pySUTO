@@ -197,7 +197,7 @@ class FlatPriorImputer(BaseImputer):
     def attach_agg_result(self, agg_result) -> None:
         """
         Receive a reference to the current `AggregationResult` so the
-        imputer can read per-edge ``coverage`` for density-aware CV.
+        imputer can read per-cell ``coverage`` for density-aware CV.
 
         Called by ``ImputationEngine.run`` before each step. Other imputers
         without this method are simply skipped by the engine.
@@ -207,9 +207,10 @@ class FlatPriorImputer(BaseImputer):
             self._coverage = None
             return
         cov = np.asarray(cov, dtype=bool)
-        if cov.shape != (self._n_edges,):
+        if cov.ndim != 2 or cov.shape[0] != self._n_edges:
             raise ValueError(
-                f"agg_result.coverage shape {cov.shape} != (n_edges={self._n_edges},)"
+                f"agg_result.coverage shape {cov.shape} "
+                f"!= (n_edges={self._n_edges}, n_timesteps)"
             )
         self._coverage = cov
 
@@ -227,12 +228,14 @@ class FlatPriorImputer(BaseImputer):
 
     def _coverage_density(self) -> np.ndarray:
         """
-        Per-edge fraction of `coverage == True` over the edge's
-        (sector_from, region_from) neighbourhood.
+        Per-edge fraction of ``coverage == True`` cells over the edge's
+        (sector_from, region_from) neighbourhood. The 2-D coverage
+        ``(n_edges, n_timesteps)`` contributes every cell to the
+        neighbourhood's running total.
 
         Returns an all-ones array (and logs a warning) when no coverage
         has been attached, so downstream code degrades gracefully to the
-        tight `cv_lo` end of the range.
+        tight ``cv_lo`` end of the range.
         """
         if self._coverage is None:
             logger.warning(
@@ -242,10 +245,14 @@ class FlatPriorImputer(BaseImputer):
             )
             return np.ones(self._n_edges, dtype=float)
 
-        cov = self._coverage.astype(float)
-        sums   = np.bincount(self._density_group_id, weights=cov,
+        cov_flat = self._coverage.astype(float).ravel()
+        gid_flat = np.broadcast_to(
+            self._density_group_id[:, None], self._coverage.shape,
+        ).ravel()
+
+        sums   = np.bincount(gid_flat, weights=cov_flat,
                              minlength=self._n_density_groups)
-        counts = np.bincount(self._density_group_id,
+        counts = np.bincount(gid_flat,
                              minlength=self._n_density_groups).astype(float)
         with np.errstate(divide="ignore", invalid="ignore"):
             density_per_group = np.where(counts > 0, sums / counts, 1.0)
@@ -285,20 +292,30 @@ class FlatPriorImputer(BaseImputer):
         Per-edge scale via 3-level cascade — see class docstring for the
         full rule. Only finite, non-zero ``|f|`` values contribute to any
         level; upstream-imputed zeros never pull the scale down to zero.
+
+        ``f`` is 2-D ``(n_edges, n_timesteps)``; every cell of the row
+        contributes to its edge's group at level 1 and level 2.
         """
+        n_edges, n_timeps = f.shape
         finite_nonzero = np.isfinite(f) & (f != 0.0)
         abs_f          = np.where(finite_nonzero, np.abs(f), 0.0)
         weight         = finite_nonzero.astype(float)
 
+        # Broadcast per-edge group_id across time → flat (n_edges*n_timesteps,)
+        gid1_flat = np.broadcast_to(self._group_id[:, None], f.shape).ravel()
+        gid2_flat = np.broadcast_to(self._group_id_level2[:, None], f.shape).ravel()
+        abs_f_flat = abs_f.ravel()
+        wt_flat    = weight.ravel()
+
         # Level 1 — narrow group
-        sums1   = np.bincount(self._group_id, weights=abs_f, minlength=self._n_groups)
-        counts1 = np.bincount(self._group_id, weights=weight, minlength=self._n_groups)
+        sums1   = np.bincount(gid1_flat, weights=abs_f_flat, minlength=self._n_groups)
+        counts1 = np.bincount(gid1_flat, weights=wt_flat,    minlength=self._n_groups)
         with np.errstate(divide="ignore", invalid="ignore"):
             mean1 = np.where(counts1 > 0, sums1 / counts1, 0.0)
 
         # Level 2 — broader (sector_from, valuation) group
-        sums2   = np.bincount(self._group_id_level2, weights=abs_f, minlength=self._n_groups_level2)
-        counts2 = np.bincount(self._group_id_level2, weights=weight, minlength=self._n_groups_level2)
+        sums2   = np.bincount(gid2_flat, weights=abs_f_flat, minlength=self._n_groups_level2)
+        counts2 = np.bincount(gid2_flat, weights=wt_flat,    minlength=self._n_groups_level2)
         with np.errstate(divide="ignore", invalid="ignore"):
             mean2 = np.where(counts2 > 0, sums2 / counts2, 0.0)
 
@@ -308,8 +325,8 @@ class FlatPriorImputer(BaseImputer):
         else:
             global_scale = 1.0  # whole array empty → trivial unit scale
 
-        scale_l1 = mean1[self._group_id]
-        scale_l2 = mean2[self._group_id_level2]
+        scale_l1 = mean1[self._group_id]            # (n_edges,)
+        scale_l2 = mean2[self._group_id_level2]     # (n_edges,)
 
         scale = np.where(scale_l1 > 0, scale_l1,
                          np.where(scale_l2 > 0, scale_l2, global_scale))
@@ -323,22 +340,23 @@ class FlatPriorImputer(BaseImputer):
         step: int,
         acc_struct,
     ) -> list[dict]:
-        idx = np.where(missing)[0]
-        if idx.size == 0:
+        # f, sigma, missing all have shape (n_edges, n_timesteps).
+        edge_idx, t_idx = np.where(missing)
+        if edge_idx.size == 0:
             return []
 
-        cv_per_edge    = self._resolve_cv()
-        scale_per_edge = self._resolve_scale(f)
-        sigma_target   = cv_per_edge * scale_per_edge
+        cv_per_edge    = self._resolve_cv()        # (n_edges,)
+        scale_per_edge = self._resolve_scale(f)    # (n_edges,)
+        sigma_target   = cv_per_edge * scale_per_edge  # (n_edges,)
 
-        f[idx]     = 0.0
-        sigma[idx] = sigma_target[idx]
+        f[edge_idx, t_idx]     = 0.0
+        sigma[edge_idx, t_idx] = sigma_target[edge_idx]
 
         desc = "no data, no imputer matched: flat prior (cv·scale)"
         return [
-            _log(int(j), step, "flat_prior", [], [],
-                 0.0, float(sigma_target[j]), desc, None)
-            for j in idx
+            _log(int(edge_idx[i]), int(t_idx[i]), step, "flat_prior", [], [],
+                 0.0, float(sigma_target[edge_idx[i]]), desc, None)
+            for i in range(edge_idx.size)
         ]
 
 

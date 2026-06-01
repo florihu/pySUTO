@@ -31,7 +31,7 @@ from __future__ import annotations
 
 import itertools
 from dataclasses import dataclass
-from typing import Iterator
+from typing import Iterator, Optional
 
 import numpy as np
 import pandas as pd
@@ -125,6 +125,39 @@ def specificity(row: pd.Series) -> int:
         str(row.get(k, "*")).strip() not in WILDCARD
         for k in _A_SPEC_KEYS
     )
+
+
+def resolve_period_selector(
+    val: str,
+    time_range: list,
+    counterpart_idx: Optional[list[int]] = None,
+) -> list[int]:
+    """
+    Interpret a CSV ``a_time`` / ``b_time`` cell as a *period selector* and
+    return the list of ``t_idx`` (positions into ``time_range``) the row
+    applies to.
+
+    Rules
+    -----
+    * Wildcard (``*``, ``nan``, ``None``, ``""``) → every period.
+    * Literal year (e.g. ``"2020"``) → that period if present in
+      ``time_range``; empty list otherwise.
+    * ``"same"`` (B-side only) → mirror ``counterpart_idx`` exactly. Pass
+      the A-side resolved indices in via ``counterpart_idx``; raises if
+      the directive is used without a counterpart.
+    """
+    s = str(val).strip()
+    if s in WILDCARD:
+        return list(range(len(time_range)))
+    if s == "same":
+        if counterpart_idx is None:
+            raise ValueError("'same' period selector requires counterpart_idx")
+        return list(counterpart_idx)
+    tr_str = [str(t) for t in time_range]
+    try:
+        return [tr_str.index(s)]
+    except ValueError:
+        return []
 
 
 # ---------------------------------------------------------------------------
