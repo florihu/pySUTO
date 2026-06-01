@@ -194,7 +194,7 @@ class UncertaintyMixin:
     """
     Mixin that adds pedigree-based uncertainty and error propagation
     to any object that owns:
-      - self.weight_matrix  : sparse.COO  (N_src × N_root)
+      - self.weight_matrix  : scipy.sparse  (N_src × N_root)
       - self.F_src          : np.ndarray  (N_src,)   [optional default]
       - self.pedigree       : PedigreeScores
  

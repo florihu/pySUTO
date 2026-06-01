@@ -1,7 +1,6 @@
 import pytest
 import numpy as np
 import pandas as pd
-import sparse
 import os
 
 from pysuto.acc import AccountingStructure, EdgeBounds
@@ -266,7 +265,7 @@ class TestEdgeIndexNoRules:
 
     def test_edge_count_multi_time_valuation(self, root_multi_time):
         acc = AccountingStructure(id="t", root=root_multi_time)
-        expected = 2 * 2 * 2 * 2   # 4 node pairs × 2 times × 2 valuations
+        expected = 2 * 2 * 2   # 4 node pairs × 2 valuations (structural; time not in edge_index)
         assert len(acc.edge_index) == expected
 
     def test_edge_ids_are_unique(self, root_simple):
@@ -280,7 +279,7 @@ class TestEdgeIndexNoRules:
 
     def test_edge_index_columns(self, root_simple):
         acc = AccountingStructure(id="t", root=root_simple)
-        assert set(acc.edge_index.columns) == {"edge_id", "from_id", "to_id", "time", "valuation"}
+        assert set(acc.edge_index.columns) == {"edge_id", "from_id", "to_id", "valuation"}
 
     def test_all_node_pairs_present(self, root_simple):
         acc = AccountingStructure(id="t", root=root_simple)
@@ -348,46 +347,46 @@ class TestAdmissibilityRules:
 
     def test_no_rules_yields_full_edge_set(self, root_simple):
         acc      = AccountingStructure(id="t", root=root_simple, rules=[])
-        expected = 3 * 3 * 1 * 1
+        expected = 3 * 3 * 1  # n_nodes**2 * n_valtns (structural; time is not in edge_index)
         assert len(acc.edge_index) == expected
 
-    def test_A_nodes_shape(self, root_simple):
+    def test_Adm_nodes_shape(self, root_simple):
         acc = AccountingStructure(id="t", root=root_simple, rules=[rule_no_p_to_p])
-        assert acc.A_nodes.shape == (3, 3)
+        assert acc.Adm_nodes.shape == (3, 3)
 
     def test_A_tensor_shape(self, root_simple):
         """Full tensor must be 4-D: (n_nodes, n_nodes, n_timeps, n_valtns)."""
         acc = AccountingStructure(id="t", root=root_simple, rules=[rule_no_p_to_p])
-        assert acc.A.shape == (3, 3, 1, 1)
+        assert acc.Adm.shape == (3, 3, 1, 1)
 
     def test_A_tensor_shape_multi(self, root_multi_time):
         acc = AccountingStructure(id="t", root=root_multi_time)
-        assert acc.A.shape == (2, 2, 2, 2)
+        assert acc.Adm.shape == (2, 2, 2, 2)
 
-    def test_A_nodes_consistent_with_edge_index(self, root_simple):
-        """Every (from_id, to_id) in edge_index must be 1 in A_nodes."""
+    def test_Adm_nodes_consistent_with_edge_index(self, root_simple):
+        """Every (from_id, to_id) in edge_index must be 1 in Adm_nodes."""
         acc     = AccountingStructure(id="t", root=root_simple, rules=[rule_no_p_to_p])
-        A_dense = acc.A_nodes.todense()
+        Adm_dense = acc.Adm_nodes.todense()
         for _, row in acc.edge_index.iterrows():
-            assert A_dense[int(row["from_id"]), int(row["to_id"])] == 1
+            assert Adm_dense[int(row["from_id"]), int(row["to_id"])] == 1
 
     def test_A_tensor_consistent_with_edge_index(self, root_multi_time):
-        """Every edge in edge_index must be 1 in the full tensor."""
-        acc     = AccountingStructure(id="t", root=root_multi_time)
-        A_dense = acc.A.todense()
+        """Every structural edge must be admissible at every timestep in Adm
+        (admissibility is time-independent under the structural model)."""
+        acc       = AccountingStructure(id="t", root=root_multi_time)
+        Adm_dense = acc.Adm.todense()
         for _, row in acc.edge_index.iterrows():
-            t_idx = acc.time_to_idx[row["time"]]
             v_idx = acc.val_to_idx[row["valuation"]]
-            assert A_dense[int(row["from_id"]), int(row["to_id"]), t_idx, v_idx] == 1
+            for t_idx in range(acc.n_timeps):
+                assert Adm_dense[int(row["from_id"]), int(row["to_id"]), t_idx, v_idx] == 1
 
     def test_A_tensor_nnz_equals_n_edges(self, root_simple):
-        """Number of nonzeros in A must equal number of admissible edges.
-        root_simple has Mining(P), Ore(F), Smelting(P) — rule_no_p_to_p blocks
-        Mining→Smelting and Smelting→Mining, leaving 7 of 9 node pairs × 1 time
-        × 1 valuation = 7 admissible edges, matching A.nnz exactly.
+        """Adm tensor nnz equals structural edges × n_timeps × (1, since admissibility
+        is time-independent): the 4-D tensor still has a time axis (kept as-is),
+        so each structural (i, j, v) admits all n_timeps entries.
         """
         acc = AccountingStructure(id="t", root=root_simple, rules=[rule_no_p_to_p])
-        assert acc.A.nnz == acc.n_edges
+        assert acc.Adm.nnz == acc.n_edges * acc.n_timeps
 
     def test_rule_short_circuits_on_first_failure(self, root_simple):
         call_log = []
@@ -412,14 +411,16 @@ class TestTimeValuation:
 
     def test_all_time_steps_present(self, root_multi_time):
         acc = AccountingStructure(id="t", root=root_multi_time)
-        assert set(acc.edge_index["time"].unique()) == {0, 1}
+        # time is no longer a column on edge_index (structural model); time_range is the source of truth
+        assert set(acc.time_range) == {0, 1}
 
     def test_all_valuations_present(self, root_multi_time):
         acc = AccountingStructure(id="t", root=root_multi_time)
         assert set(acc.edge_index["valuation"].unique()) == {"mass", "value"}
 
-    def test_edge_count_scales_with_time(self):
-        """Doubling time steps must double edge count."""
+    def test_edge_count_invariant_to_time(self):
+        """Edge count is invariant to the number of timesteps (structural model);
+        only the per-timestep value arrays grow with time, not the edge set."""
         root_1t = {
             "nodes": pd.DataFrame({"sector": ["A","B"], "entity": ["P","F"], "region": ["X","X"]}),
             "time_range": [0], "valuation": ["mass"]
@@ -430,7 +431,7 @@ class TestTimeValuation:
         }
         acc_1 = AccountingStructure(id="t", root=root_1t)
         acc_2 = AccountingStructure(id="t", root=root_2t)
-        assert len(acc_2.edge_index) == 2 * len(acc_1.edge_index)
+        assert len(acc_2.edge_index) == len(acc_1.edge_index)
 
     def test_edge_count_scales_with_valuation(self):
         """Doubling valuations must double edge count."""
@@ -460,14 +461,13 @@ class TestDecodeEdge:
 
         assert decoded[0] == acc.decode_node(int(row["from_id"]))
         assert decoded[1] == acc.decode_node(int(row["to_id"]))
-        assert decoded[2] == row["time"]
-        assert decoded[3] == row["valuation"]
+        assert decoded[2] == row["valuation"]
 
     def test_all_edges_decodable(self, root_simple):
         acc = AccountingStructure(id="t", root=root_simple)
         for eid in acc.edge_index["edge_id"]:
             decoded = acc.decode_edge(int(eid))
-            assert len(decoded) == 4
+            assert len(decoded) == 3
 
 
 # =============================================================================
@@ -481,29 +481,20 @@ class TestCompress:
         shape = (acc.n_nodes, acc.n_nodes, acc.n_timeps, acc.n_valtns)
         F     = np.arange(np.prod(shape), dtype=float).reshape(shape)
         out   = acc.compress(F)
-        assert len(out) == len(acc.edge_index)
+        # compress now returns (n_edges, n_timeps) — structural edge axis × time
+        assert out.shape == (acc.n_edges, acc.n_timeps)
 
-    def test_compress_sparse_4d(self, root_simple):
-        acc   = AccountingStructure(id="t", root=root_simple, rules=[rule_no_p_to_p])
-        shape = (acc.n_nodes, acc.n_nodes, acc.n_timeps, acc.n_valtns)
-        F     = sparse.COO(
-            coords=np.zeros((4, 1), dtype=np.int64),
-            data=np.array([1.0]),
-            shape=shape,
-        )
-        out = acc.compress(F)
-        assert len(out) == len(acc.edge_index)
-
-    def test_compress_values_match_tensor(self, root_simple):
-        acc   = AccountingStructure(id="t", root=root_simple)
+    def test_compress_values_match_tensor(self, root_multi_time):
+        acc   = AccountingStructure(id="t", root=root_multi_time)
         shape = (acc.n_nodes, acc.n_nodes, acc.n_timeps, acc.n_valtns)
         F     = np.arange(np.prod(shape), dtype=float).reshape(shape)
         out   = acc.compress(F)
+        # out[k, t_idx] = F[from, to, t_idx, valuation] for structural edge k
         for k, row in acc.edge_index.iterrows():
-            t_idx = acc.time_to_idx[row["time"]]
             v_idx = acc.val_to_idx[row["valuation"]]
-            expected = F[int(row["from_id"]), int(row["to_id"]), t_idx, v_idx]
-            assert out[k] == expected
+            for t_idx in range(acc.n_timeps):
+                expected = F[int(row["from_id"]), int(row["to_id"]), t_idx, v_idx]
+                assert out[k, t_idx] == expected
 
 
 # =============================================================================
@@ -551,7 +542,6 @@ class TestSaveLoad:
         acc.save()
         loaded = AccountingStructure.load("save_test", storage_dir=str(tmp_path))
         expected = acc.edge_index.reset_index(drop=True).copy()
-        expected["time"] = expected["time"].astype(str)
         pd.testing.assert_frame_equal(
             loaded.edge_index.reset_index(drop=True),
             expected,
@@ -563,20 +553,20 @@ class TestSaveLoad:
         acc = self._build(str(tmp_path))
         acc.save()
         loaded = AccountingStructure.load("save_test", storage_dir=str(tmp_path))
-        assert loaded.A.shape == acc.A.shape
+        assert loaded.Adm.shape == acc.Adm.shape
 
     def test_save_load_A_tensor_nnz(self, tmp_path):
         """Non-zero count of 4-D tensor must survive round-trip."""
         acc = self._build(str(tmp_path))
         acc.save()
         loaded = AccountingStructure.load("save_test", storage_dir=str(tmp_path))
-        assert loaded.A.nnz == acc.A.nnz
+        assert loaded.Adm.nnz == acc.Adm.nnz
 
-    def test_save_load_A_nodes_shape(self, tmp_path):
+    def test_save_load_Adm_nodes_shape(self, tmp_path):
         acc = self._build(str(tmp_path))
         acc.save()
         loaded = AccountingStructure.load("save_test", storage_dir=str(tmp_path))
-        assert loaded.A_nodes.shape == acc.A_nodes.shape
+        assert loaded.Adm_nodes.shape == acc.Adm_nodes.shape
 
     def test_save_load_time_valuation(self, tmp_path):
         acc = self._build(str(tmp_path))
@@ -633,10 +623,13 @@ class TestDeduplication:
         )
 
     def test_duplicate_time_does_not_multiply_edges(self, root_with_duplicates):
-        """With duplicates removed, edge count must equal the deduplicated count."""
+        """With duplicates removed, edge count must equal the deduplicated count.
+        Structural edge_index does not include time, so doubling unique times
+        does not multiply edge count; only n_timeps tracks the dedup."""
         acc = AccountingStructure(id="t", root=root_with_duplicates)
-        # 2 nodes × 2 nodes × 2 unique times × 1 unique valuation = 8
-        assert len(acc.edge_index) == 2 * 2 * 2 * 1
+        # 2 nodes × 2 nodes × 1 unique valuation = 4 (structural; time is not in edge_index)
+        assert len(acc.edge_index) == 2 * 2 * 1
+        assert acc.n_timeps == 2  # dedup preserved on the time axis
 
     def test_order_preserved_after_dedup(self, root_with_duplicates):
         """First occurrence of each value must be retained in order."""
@@ -683,14 +676,13 @@ class TestRuleClassification:
 
 class TestEdgeRules:
 
+    @pytest.mark.skip(reason=(
+        "Time-dependent callable edge rules are unsupported under the structural model: "
+        "admissibility is checked at a representative timestep only. Per-period rules "
+        "would require an explicit per-period activation mask (see plan)."
+    ))
     def test_edge_rule_filters_by_time(self, root_multi_time):
-        """edge_rule_only_time_0 must halve the edge count vs no rules."""
-        acc_all  = AccountingStructure(id="t", root=root_multi_time)
-        acc_t0   = AccountingStructure(
-            id="t", root=root_multi_time, rules=[edge_rule_only_time_0]
-        )
-        # Only time=0 survives; 2 valuations remain → half total edges
-        assert len(acc_t0.edge_index) == len(acc_all.edge_index) // 2
+        pass
 
     def test_edge_rule_filters_by_valuation(self, root_multi_time):
         """edge_rule_only_mass must halve the edge count vs no rules."""
@@ -725,31 +717,30 @@ class TestEdgeRules:
         )
 
     def test_node_mask_unaffected_by_edge_rules(self, root_simple):
-        """A_nodes reflects node rules only — edge rules must not alter it."""
+        """Adm_nodes reflects node rules only — edge rules must not alter it."""
         acc_node_only = AccountingStructure(id="t", root=root_simple,
                                             rules=[rule_no_p_to_p])
         acc_with_edge = AccountingStructure(id="t", root=root_simple,
                                             rules=[rule_no_p_to_p, edge_rule_only_time_0])
-        # A_nodes must be identical regardless of edge rules
-        assert (acc_node_only.A_nodes - acc_with_edge.A_nodes).nnz == 0
+        # Adm_nodes must be identical regardless of edge rules
+        assert (acc_node_only.Adm_nodes - acc_with_edge.Adm_nodes).nnz == 0
 
     def test_combined_node_and_edge_rules(self, root_multi_time):
-        """Node rule removes P→P pairs; edge rule removes time≠0. Both must apply."""
+        """Node rule removes P→P pairs; the time-dependent edge rule is evaluated at
+        the representative timestep only (structural model — admissibility is
+        time-independent), so a rule returning True at t=0 admits all edges that
+        survive the node rule. Only the node-rule effect is asserted here."""
         acc = AccountingStructure(
             id="t", root=root_multi_time,
             rules=[rule_no_p_to_p, edge_rule_only_time_0]
         )
         ei = acc.edge_index
 
-        # No P→P edges
-        node_region = {nid: t for t, nid in acc.node_to_id.items()}
+        # No P→P edges (from the node rule)
         for _, row in ei.iterrows():
             ni = acc.decode_node(int(row["from_id"]))
             nj = acc.decode_node(int(row["to_id"]))
             assert not (ni[1] == "P" and nj[1] == "P"), "P→P edge found"
-
-        # Only time=0
-        assert (ei["time"] == 0).all(), "Non-zero time edge found"
 
 
 # =============================================================================
@@ -1087,7 +1078,7 @@ class TestEdgeBoundsValidate:
         non_psc = np.where(~acc.edge_index["from_id"].isin(psc_ids).values)[0][0]
         F[non_psc] = -1.0
         result = eb.validate(F, acc.edge_index, raise_on_violation=False)
-        required_cols = {"edge_id", "from_id", "to_id", "time", "valuation",
+        required_cols = {"edge_id", "from_id", "to_id", "valuation",
                          "lower", "value", "upper", "violation"}
         assert required_cols.issubset(set(result.columns))
  
@@ -1388,37 +1379,10 @@ class TestEdgeBoundsInvariants:
                 f"PSC lower bound not set for acc with {acc.n_edges} edges"
             )
  
-    def test_time_filter_applies_correctly(self, root_bounds):
-        """A rule with time='2020' must only affect edges at t=2020."""
-        bounds_df = pd.DataFrame({
-            "sector_from": ["Mining"],
-            "sector_to":   ["*"],
-            "valuation":   ["*"],
-            "time":        ["2020"],
-            "lower":       [0.0],
-            "upper":       [100.0],
-        })
-        acc = AccountingStructure(id="t", root=root_bounds)
-        eb = EdgeBounds(
-            edge_index=acc.edge_index,
-            node_index=acc.node_index,
-            bounds_df=bounds_df,
-        )
-        mining_ids = set(nid for (s, e, r), nid in acc.node_to_id.items() if s == "Mining")
-        ei = acc.edge_index
- 
-        # t=2020, Mining-from: upper must be 100
-        t2020_mining = ei[
-            ei["from_id"].isin(mining_ids) & (ei["time"] == 2020)
-        ]
-        assert np.all(eb.u[t2020_mining.index] == 100.0)
- 
-        # t=2021, Mining-from: upper must be default (1e9)
-        t2021_mining = ei[
-            ei["from_id"].isin(mining_ids) & (ei["time"] == 2021)
-        ]
-        assert np.all(eb.u[t2021_mining.index] == 1e9)
- 
- 
+    # NOTE: per-time bounds filtering removed under the structural model
+    # (bounds are constant per structural edge; see plan Phase 1).
+    # The legacy test_time_filter_applies_correctly was deleted.
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -148,8 +148,8 @@ def main() -> AccountingStructure:
     print(f"  Valuations         : {acc.n_valtns:>10,d}")
     print(f"  Admissible edges   : {acc.n_edges:>10,d}")
     print(f"  All edges (no rule): {acc.n_edges_all:>10,d}")
-    print(f"  Tensor shape       :  {acc.A.shape}")
-    print(f"  Tensor nnz         : {acc.A.nnz:>10,d}")
+    print(f"  Tensor shape       :  {acc.Adm.shape}")
+    print(f"  Tensor nnz         : {acc.Adm.nnz:>10,d}")
     print()
     print(f"  Bounds summary     :  {acc.bounds.summary()}")
 

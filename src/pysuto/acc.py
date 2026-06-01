@@ -585,14 +585,14 @@ class AccountingStructure:
             * len(self.valuation)
         )
 
-        self.A_nodes        = self._build_node_mask()
-        self.A              = self._build_tensor()
+        self.Adm_nodes        = self._build_node_mask()
+        self.Adm             = self._build_tensor()
         self.edge_index     = self._build_edge_index()
         self.edge_index_all = self._build_edge_index(admissible_only=False)
         self.n_edges_all    = len(self.edge_index_all)
 
         # Report edge reduction
-        n_after_node_rules = int(self.A_nodes.nnz) * len(self.time_range) * len(self.valuation)
+        n_after_node_rules = int(self.Adm_nodes.nnz) * len(self.time_range) * len(self.valuation)
         self._report_reduction(n_theoretical, n_after_node_rules, self.n_edges)
 
         # ── 4. Bounds ─────────────────────────────────────────────────
@@ -614,7 +614,7 @@ class AccountingStructure:
         self.logger.info(
             f"AccountingStructure '{self.id}' initialised: "
             f"{self.n_nodes} nodes, {self.n_edges} admissible edges, "
-            f"A shape={self.A.shape}, nnz={len(self.A.data)}"
+            f"Adm shape={self.Adm.shape}, nnz={len(self.Adm.data)}"
         )
 
     # ------------------------------------------------------------------
@@ -1111,9 +1111,10 @@ class AccountingStructure:
     def compress(self, F) -> np.ndarray:
         """Project a dense 4-D flow tensor ``F[from, to, time, valuation]`` onto the
         structural edge axis, returning shape ``(n_edges, n_timeps)`` — one column
-        per timestep for each structural ``(from, to, valuation)`` edge."""
-        if sp.issparse(F):
-            F = F.toarray()
+        per timestep for each structural ``(from, to, valuation)`` edge.
+
+        ``F`` must be a NumPy ndarray; 4-D inputs are dense by definition (scipy.sparse
+        is 2-D only)."""
         ei       = self.edge_index
         from_ids = ei["from_id"].values.astype(int)[:, None]
         to_ids   = ei["to_id"].values.astype(int)[:, None]
@@ -1163,8 +1164,8 @@ class AccountingStructure:
         path = os.path.join(self.storage_dir, self.id)
         os.makedirs(path, exist_ok=True)
 
-        self.A.save_npz(os.path.join(path, "A.npz"))
-        sp.save_npz(os.path.join(path, "A_nodes.npz"), self.A_nodes)
+        self.Adm.save_npz(os.path.join(path, "Adm.npz"))
+        sp.save_npz(os.path.join(path, "Adm_nodes.npz"), self.Adm_nodes)
 
         self.edge_index.to_csv(    os.path.join(path, "edge_index.csv"),     index=False)
         self.edge_index_all.to_csv(os.path.join(path, "edge_index_all.csv"), index=False)
@@ -1193,8 +1194,8 @@ class AccountingStructure:
         assert os.path.isdir(path), \
             f"Directory '{id}' not found in {obj.storage_dir}"
 
-        obj.A        = _SparseCOO4D.load_npz(os.path.join(path, "A.npz"))
-        obj.A_nodes  = sp.load_npz(os.path.join(path, "A_nodes.npz"))
+        obj.Adm       = _SparseCOO4D.load_npz(os.path.join(path, "Adm.npz"))
+        obj.Adm_nodes = sp.load_npz(os.path.join(path, "Adm_nodes.npz"))
 
         obj.edge_index     = pd.read_csv(os.path.join(path, "edge_index.csv"))
         obj.edge_index_all = pd.read_csv(os.path.join(path, "edge_index_all.csv"))
