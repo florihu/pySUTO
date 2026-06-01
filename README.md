@@ -50,7 +50,7 @@ The package is organised into **five sequential stages**: datafeed assembly (per
 | Stage | Module(s) | Input | Output |
 |---|---|---|---|
 | 1 — Datafeed | `feedpipe.py`, `feed.py`, `conc.py`, `unc.py`, `meta.py`, `registry.py` | raw flow data + Excel sidecar | `DataFeedRegistry` entries: `W`, `F_root`, `σ_root` |
-| 2 — Aggregation & Imputation | `collector.py`, `agg.py`, `impute.py` | selected feed IDs | `AggregationResult`: `f_agg`, `σ_agg`, `Ω`, `ImputationLog` |
+| 2 — Aggregation & Imputation | `collector.py`, `agg.py`, `impute.py` | selected feed IDs | `AggregationResult`: `a_agg`, `σ_agg`, `Ω`, `ImputationLog` |
 | 3 — Constraint building | `constraints.py` | `AggregationResult` | `ConstraintRun`: `G`, `c(t)`, `σ_c(t)`, bounds |
 | 4 — Solver | `solver.py` | `ConstraintRun` | `OptimResult` per timestep |
 | 5 — Posterior uncertainty | `uncprop.py` | `OptimRun` + upstream `ConstraintRun` | `UncPropResult`: `σ_a*(t)`, `lower(t)`, `upper(t)` |
@@ -155,7 +155,7 @@ The registry now contains `registry.json`, `metadata.json`, `<feed_id>.pkl`, and
 **What this stage does.** Selects a set of registered feeds, aligns each feed's `F_root` and `σ_root` onto the common edge index, builds the inverse-variance weight matrix `Ω`, aggregates across feeds, and runs an ordered imputation pipeline to fill any edges still uncovered. Every fill is recorded in an `ImputationLog`.
 
 **Inputs:** feed IDs (or `(feed_id, version)` tuples), registry.
-**Outputs:** `AggregationResult` with `f_agg [N_r]`, `σ_agg [N_r]`, `Ω [N_f × N_r]`, `coverage [N_r]`, `ImputationLog`.
+**Outputs:** `AggregationResult` with `a_agg [n_edges × n_timesteps]`, `σ_agg [n_edges × n_timesteps]`, `Ω [N_f × n_edges × n_timesteps]`, `coverage [n_edges × n_timesteps]`, `ImputationLog`.
 
 > Uses [power-mean (Lp) uncertainty propagation](#power-mean-lp-uncertainty-propagation) and [pedigree→CV](#pedigree--coefficient-of-variation) from Stage 1.
 
@@ -244,7 +244,7 @@ Only finite, non-zero values count at every level, so upstream-imputed zeros nev
 #### Classes
 
 - **`FeedCollector`** ([collector.py](src/pysuto/collector.py)) — `.select([feed_id, ...])`, `.aggregate(p=…)`; aligns each feed onto the common edge index and returns an `AggregationResult`.
-- **`AggregationMath`** ([agg.py](src/pysuto/agg.py)) — vectorised $\Omega$, `f_agg`, `σ_agg` over the full `[N_f × N_r]` matrices.
+- **`AggregationMath`** ([agg.py](src/pysuto/agg.py)) — vectorised $\Omega$, `a_agg`, `σ_agg` over the full `[N_f × N_r]` matrices.
 - **`ImputationEngine`** ([impute/](src/pysuto/impute/)) — orders an `.register()`-list of imputers; each imputer's `.prepare(acc_struct)` is called at registration so shared lookup structures only build once.
 - **`BaseImputer`** ([impute/](src/pysuto/impute/)) — ABC; subclass and implement `.impute(...)` to add a new fill method.
 - **`ParametricImputer`** — bidirectional edge-pair constraints from a CSV (`.from_csv(...)`) or `ParametricRelation` lambdas; covers concentration (data category 3) and efficiency (data category 4) parameters.
@@ -252,7 +252,7 @@ Only finite, non-zero values count at every level, so upstream-imputed zeros nev
 - **`TimeImputer`** — sliding-window temporal interpolation/extrapolation; `method ∈ {"linear","locf","nocb","mean"}`.
 - **`FlatPriorImputer`** — final-fallback flat prior keyed by `AccountingStructure` edge masks; register **last**.
 - **`ImputationLog`** — per-edge provenance table: `edge_id`, `step`, `method`, `source_edges`, `coefficients`, `f_before/after`, `sigma_before/after`, `description`, `param_id`.
-- **`AggregationResult`** ([agg.py](src/pysuto/agg.py)) — dataclass holding `f_agg`, `sigma_agg`, `Omega`, `F`, `Sigma`, `feed_ids`, `coverage`, plus `imputation_log` and `imputation_metadata` once imputation has run.
+- **`AggregationResult`** ([agg.py](src/pysuto/agg.py)) — dataclass holding `a_agg`, `sigma_agg`, `Omega`, `F`, `Sigma`, `feed_ids`, `coverage`, plus `imputation_log` and `imputation_metadata` once imputation has run.
 
 #### Key parameters
 
@@ -275,7 +275,7 @@ Only finite, non-zero values count at every level, so upstream-imputed zeros nev
 collector = FeedCollector(registry=registry, acc_struct=acc)
 collector.select(["baci", "crude_ore"])
 agg_result = collector.aggregate(p=1.3)
-# agg_result.f_agg, agg_result.sigma_agg, agg_result.Omega, agg_result.coverage
+# agg_result.a_agg, agg_result.sigma_agg, agg_result.Omega, agg_result.coverage
 ```
 
 **Parametric imputation with both CSV parameters and a lambda relation:**
@@ -303,12 +303,12 @@ engine.register(FlatPriorImputer.from_csv(
 ))
 
 agg_result = engine.run(agg_result)
-# agg_result.f_agg updated in-place; agg_result.imputation_log records every fill
+# agg_result.a_agg updated in-place; agg_result.imputation_log records every fill
 ```
 
 #### Diagnostics
 
-`AggDiagnostic` (post-aggregation, pre-imputation) and `ImpDiagnostic` (post-imputation per-step trajectories) live in [diag/](src/pysuto/diag/). Both expose `.summary()` and `.plot(odir=...)`. `AggDiagnostic` must be constructed *before* `engine.run(...)` because imputation mutates `f_agg`/`sigma_agg` in place.
+`AggDiagnostic` (post-aggregation, pre-imputation) and `ImpDiagnostic` (post-imputation per-step trajectories) live in [diag/](src/pysuto/diag/). Both expose `.summary()` and `.plot(odir=...)`. `AggDiagnostic` must be constructed *before* `engine.run(...)` because imputation mutates `a_agg`/`sigma_agg` in place.
 
 Both accept an optional `acc_struct=` argument so that diag panels can stratify per-edge quantities by year:
 
@@ -321,10 +321,10 @@ Diag output filenames are plain plot names (`imputation_steps.png`, `agg_distrib
 
 ### Stage 3 — Constraint building
 
-**What this stage does.** Translates the aggregated `f_agg` + `sigma_agg` into a sparse constraint matrix `G ∈ ℝ^(M×E)` with per-row right-hand side `c(t)` and uncertainty `σ_c(t)`, partitioned by cone type (zero / nonneg / free). `G` is time-invariant; `c(t)` and `σ_c(t)` are assembled per timestep.
+**What this stage does.** Translates the aggregated `a_agg` + `sigma_agg` into a structural constraint operator `StructG` of shape `(n_constraints, n_edges)` whose sparsity pattern is identical across every period and whose data tape `(nnz, n_timesteps)` carries the per-period coefficient values. `c(t)`, `σ_c(t)` and a first-class `active(t)` mask collapse to 2-D arrays of shape `(n_constraints, n_timesteps)`.
 
-**Inputs:** `AggregationResult`, `AccountingStructure`, optional CSV files (sum / ratio / bound parameters).
-**Outputs:** `ConstraintRun` with `G [M×E]`, `c(t) [M]`, `σ_c(t) [M]`, flow bounds `u`/`l [E]`, and a `row_meta` DataFrame describing each row.
+**Inputs:** `AggregationResult` (2-D `a_agg` / `sigma_agg`), `AccountingStructure`, optional CSV files (sum / ratio / bound parameters).
+**Outputs:** `ConstraintRun` with `G: StructG`, `c [n_constraints × n_timesteps]`, `σ_c [n_constraints × n_timesteps]`, `active [n_constraints × n_timesteps]` (bool), `sigma_a [n_edges × n_timesteps]`, 1-D warm-start seed `a0 [n_edges]` (= `a_agg[:, 0]`), flow bounds `u`/`l [n_edges]`, and a `row_meta` DataFrame describing each row (no `time` column — per-period applicability lives in `active`).
 
 > Uses [power-mean (Lp) uncertainty propagation](#power-mean-lp-uncertainty-propagation) from Stage 1.
 
@@ -340,13 +340,13 @@ Five built-in constraint types populate rows of `G`:
 | 4 | Hard ratio bound | $a_i - r_u a_j \le 0$, $-a_i + r_l a_j \le 0$ | Non-neg | 0 |
 | 5 | Hard flow bound | $a_i \le u_i$, $-a_i \le -l_i$ | Non-neg | 0 |
 
-**Type 1 (mass balance).** One row per balanced `(Flow|Process)` node × time pair, with `SB` (open-boundary) nodes excluded. Derived automatically from the four boolean edge masks on `AccountingStructure`.
+**Type 1 (mass balance).** One row per balanced `(Flow|Process)` node × valuation under the structural model — never replicated per period. SB (open-boundary) nodes are excluded. Derived automatically from the four boolean edge masks on `AccountingStructure`.
 
-**Type 2 (soft sum).** σ_c modes: `sd` (absolute), `fraction_of_flow` (fraction of node-flow magnitude from `f_agg`), `p_mean` (Lp combine over `_rhs_ids` σ_agg using the global Lp exponent).
+**Type 2 (soft sum).** σ_c modes: `sd` (absolute), `fraction_of_flow` (fraction of node-flow magnitude from the per-period `a_agg` slice), `p_mean` (Lp combine over `_rhs_ids` σ_agg using the global Lp exponent). CSV-loaded rows with a literal `time` cell are year-locked: the engine flips them to `active = False` at every other period.
 
-**Type 3 (soft ratio).** $r$ is `value_nominal` from the params CSV; σ_c follows the three uncertainty modes (`sd`, `min_max`, `pedigree`) shared with `ParametricImputer`. The same CSV file thus serves both stages.
+**Type 3 (soft ratio).** The ratio coefficient `r(t)` lives inside `StructG`'s data tape. Rows resolving to the same structural `(edge_i, edge_j)` pair are merged into one constraint row; the per-period value comes from `value_nominal` of whichever CSV row carries that period. Pairs without a parameter at `t` are `active = False`. σ_c follows the three uncertainty modes (`sd`, `min_max`, `pedigree`) shared with `ParametricImputer`. The same CSV file thus serves both Stages 2 and 3.
 
-**Type 4 / Type 5.** Hard inequalities, σ_c = 0. When a ratio-bound row sets `agg=true`, `RatioBoundBuilder` sums every matched a-side edge into one G row and every matched b-side edge into another, scoped per `(time, valuation)` bucket — used for stock-change bounds where the relevant numerator and denominator are sums over source regions (see [data/input/params/stock_bounds/current/params.csv](data/input/params/stock_bounds/current/params.csv)).
+**Type 4 / Type 5.** Hard inequalities, σ_c = 0. The bound coefficient (`bu(t)` on upper rows, `bl(t)` on lower rows) is rewritten into the per-period data tape; periods with no bound value emit `active = False`. When a ratio-bound row sets `agg=true`, `RatioBoundBuilder` sums every matched a-side edge into one G row and every matched b-side edge into another, scoped per valuation bucket — used for stock-change bounds where the relevant numerator and denominator are sums over source regions (see [data/input/params/stock_bounds/current/params.csv](data/input/params/stock_bounds/current/params.csv)).
 
 **Prior regularisation.** Before persisting the `ConstraintRun`, the engine applies an Lp regularisation to both edge-level σ_a and free-cone row-level σ_c:
 
@@ -358,20 +358,21 @@ Defaults: $\mathrm{CV}_a^\mathrm{min} = \mathrm{CV}_c^\mathrm{min} = 0.05$, $\si
 
 **Ordering.** σ_a regularisation runs *before* `build_dynamic` propagates σ_a → σ_c via the Lp combine over `_rhs_ids`, so the regularised σ_a flows into σ_c. This is deliberate: the relative term $\mathrm{CV}_a^\mathrm{min} \cdot |a_0|$ is a modelling claim about how tightly we believe σ_a, not a numerical guard, so it *should* propagate to σ_c. The absolute floor $\sigma_a^\mathrm{floor}$ is the actual safety net — once the FlatPriorImputer's 3-level scale cascade is in place (see Stage 2) it should essentially never fire on imputer-filled edges, so its presence does not distort downstream uncertainty propagation.
 
-**Per-timestep deactivation of soft sum rows.** Each `SumConstraintBuilder` spec carries a `time` field (the year baked into `constraint_id`); `from_csv` specs with wildcard `time` are stored as `time=None`. When `ConstraintEngine.run` calls `build_dynamic(t)` for a given timestep, rows whose `spec["time"]` does not match `t` are *deactivated* by setting `c=0` and `σ_c = SIGMA_C_INACTIVE` (default `1e10`); time-agnostic rows (`time=None`) stay active for every `t`. Hard rows (mass balance, ratio bound, flow bound) are always active across all timesteps since they encode global structural invariants. The σ_c sentinel makes the row's objective contribution $(1/\sigma_c)^2 \approx 10^{-20}$ — effectively unenforced — without touching `G` or the cone structure. `ClarabelSolver.solve_all` rebuilds the QP Hessian `P` per timestep so the per-t σ_c entries actually take effect (Clarabel's `solver.update(P=…, q=…, b=…)`).
+**Per-period activation (first-class boolean).** Each builder returns an `active` mask alongside its `c` / `σ_c` overlay; the engine stacks them into `ConstraintRun.active[constraint, t]`. At solve time `active = False` means the row is dropped from that period's QP entirely (free rows: removed from the objective; hard rows: not enforced). This replaces the pre-refactor `SIGMA_C_INACTIVE` / `BOUND_C_INACTIVE` sentinel floats — the symbols still exist as constants on `pysuto.constraints.sum` for import-time backwards compatibility but no builder writes them under the structural model. Hard structural rows (mass balance, ratio bound, flow bound) stay `active = True` at every period since they encode topology-level invariants.
 
 #### Classes
 
-- **`ConstraintEngine`** ([constraints/](src/pysuto/constraints/)) — `.register(builder)` then `.run(agg_result, timesteps=…)`; persists to a `ConstraintRunRegistry`.
-- **`BaseConstraintBuilder`** — ABC; subclass and implement `build_static(...)` / `build_dynamic(...)`.
-- **`MassBalanceBuilder`** — type 1 (auto-derived from `acc_struct`).
-- **`SumConstraintBuilder`** — type 2; `.from_acc_struct(acc, sigma_fraction=…)` for auto-derived or `.from_csv(...)` for hand-written rows.
-- **`RatioConstraintBuilder`** — type 3 (`.from_csv(...)`).
-- **`RatioBoundBuilder`** — type 4 (`.from_csv(...)`).
-- **`FlowBoundsBuilder`** — type 5 (only edges with non-default bounds produce rows).
-- **`ConstraintBlock`** — internal container for one builder's rows.
-- **`ConstraintRun`** — bundle of `G`, `row_meta`, `a0`, `sigma_a`, `u`, `l`, `timestep_data[t] = {"c", "sigma_c"}`. `row_meta` carries `[constraint_id, type, is_hard, cone_type, time]`; the `time` column is the year the row belongs to (set at spec construction by each builder) or `None` for time-agnostic rows (e.g. wildcard CSV constraints). When every row's non-zeros lie inside its own time bucket (the **no cross-time coupling** invariant), the engine also stores a per-t partition `G_blocks[t]` / `edge_cols_by_t[t]` (persisted under `blocks/`); Stage 4's block solver consumes it to solve one ~30× smaller QP per year.
-- **`ConstraintRunRegistry`** — disk layout under `data/proc/const/{run_id}/` (G.npz, row_meta.parquet, a0.npy, sigma_a.npy, u.npy, l.npy, `timesteps/t_{year}.npz`).
+- **`ConstraintEngine`** ([constraints/](src/pysuto/constraints/)) — `.register(builder)` then `.run(agg_result, timesteps=…)`; persists to a `ConstraintRunRegistry`. Stacks each builder's static block into one `StructG`; loops the periods writing per-builder dynamic overlays into `StructG.data[:, t_idx]` + `c[:, t_idx]` + `σ_c[:, t_idx]` + `active[:, t_idx]`.
+- **`StructG`** — the constraint operator. Shared CSR `indptr` + `indices` + `(nnz, n_timesteps)` data tape; `.at(t_idx) → csr_matrix` is a zero-copy view. Carries `row_meta` and `shape = (n_constraints, n_edges)`.
+- **`BaseConstraintBuilder`** — ABC; subclass and implement `build_static(...)` / `build_dynamic(...)`. The contract is: `build_static` declares the row sparsity once; `build_dynamic(t)` returns the same sparsity (the engine asserts equality) with per-period data, c, σ_c, and `active` arrays.
+- **`MassBalanceBuilder`** — type 1 (auto-derived). One row per balanced node × valuation under the structural model.
+- **`SumConstraintBuilder`** — type 2; `.from_acc_struct(...)`, `.from_acc_struct_subentity(...)`, or `.from_csv(...)`.
+- **`RatioConstraintBuilder`** — type 3 (`.from_csv(...)`). Per-period `r(t)` written into `StructG.data`.
+- **`RatioBoundBuilder`** — type 4 (`.from_csv(...)`). Per-period `bu(t)` / `bl(t)` written into `StructG.data`.
+- **`FlowBoundsBuilder`** — type 5 (no G rows; bounds live on `ConstraintRun.u` / `.l`).
+- **`ConstraintBlock`** — internal container for one builder's rows (includes `active` mask).
+- **`ConstraintRun`** — bundle of `G: StructG`, `row_meta`, `a0` (1-D), `sigma_a` (2-D), `u`, `l` (1-D), `c` (2-D), `sigma_c` (2-D), `active` (2-D bool), `timesteps`. `row_meta` carries `[constraint_id, type, is_hard, cone_type, ...]` and has **no `time` column**.
+- **`ConstraintRunRegistry`** — disk layout under `data/proc/const/{run_id}/`: `struct_g.npz` (indptr, indices, data tape, shape), `row_meta.parquet`, `a0.npy`, `sigma_a.npy`, `u.npy`, `l.npy`, `c.npy`, `sigma_c.npy`, `active.npy`, `timesteps.json`.
 
 #### Key parameters
 
@@ -411,10 +412,10 @@ A `ConstDiagnostic` plot suite (in [diag/](src/pysuto/diag/)) can be triggered v
 
 ### Stage 4 — Solver
 
-**What this stage does.** Loads a persisted `ConstraintRun`, runs a feasibility pre-check on the hard rows, and solves a σ-weighted QP per timestep using Clarabel. Each timestep is warm-started from the previous solution by setting `a_0(t) = F_opt(t-1)` and reusing Clarabel's solver state via `solver.update(P=…, q=…, b=…)` (only `A` is time-invariant; `P` is rebuilt each year because σ_c on free rows can vary).
+**What this stage does.** Loads a persisted `ConstraintRun`, runs a feasibility pre-check on the hard rows, and solves a σ-weighted QP per period using Clarabel. One loop over the periods drives the entire solve; per period, `QPProblem.build` materialises the active rows via `StructG.at(t_idx)`, filters by `active[:, t_idx]`, permutes by cone type, and produces a fresh Clarabel problem. The prior policy (`AggregationPrior` vs `WarmStartPrior`) is selected per call via the `prior=` argument.
 
 **Inputs:** `ConstraintRun` run ID (loaded from `data/proc/const/`).
-**Outputs per timestep:** `OptimResult` plus solver telemetry (`objective`, `iterations`, `solve_time_s`, `solver_status`, full `convergence` dict, optional `iter_history`). The array shapes depend on the solve path — the **block path** (the default for partitioned runs) stores **year-local** slices, the **legacy** full-G path stores full-length vectors; see [Per-t block solve & year-local persistence](#per-t-block-solve--year-local-persistence).
+**Outputs per period:** `OptimResult` with full-length `a_star [n_edges]` (canonical name; `F_opt` survives as a read-only alias), per-period `c_star` / `residuals [n_constraints]`, the `active` mask used at that period, plus solver telemetry (`objective`, `iterations`, `solve_time_s`, `solver_status`, full `convergence` dict, optional `iter_history`).
 
 #### Math
 
@@ -426,13 +427,13 @@ $$\text{s.t.} \quad \mathbf{G}\,\mathbf{a} - \boldsymbol{\varepsilon} = \mathbf{
 
 | Symbol | Meaning |
 |---|---|
-| $\mathbf{a}$ | All flow values (one per root edge × time slice) |
-| $\mathbf{a}_0$ | Prior — `f_agg` from Stage 2 at $t=0$; `F_opt(t-1)` for $t > 0$ |
-| $\Sigma_a$ | Diagonal of σ_a² (regularised in Stage 3) |
-| $\boldsymbol{\varepsilon}$ | Slack on free-cone rows; zero by construction on hard rows |
-| $\Sigma_c(t)$ | Diagonal of σ_c²(t) on free rows; **may vary per timestep** (e.g. `SumConstraintBuilder` per-year row activation via `SIGMA_C_INACTIVE`; `fraction_of_flow` mode) |
-| $\mathbf{G}$ | Constraint matrix from Stage 3 (time-invariant) |
-| $\mathbf{c}(t)$ | Per-timestep RHS from `timestep_data[t]["c"]` |
+| $\mathbf{a}$ | All flow values (one per **structural** edge — no time replication) |
+| $\mathbf{a}_0(t)$ | Prior at period $t$, supplied by the `Prior` adapter (see [Prior seam](#prior-seam)) |
+| $\Sigma_a(t)$ | Diagonal of σ_a²(t) — the per-period prior precision; regularised in Stage 3 |
+| $\boldsymbol{\varepsilon}$ | Slack on active free-cone rows; zero by construction on hard rows |
+| $\Sigma_c(t)$ | Diagonal of σ_c²(t) on active free rows |
+| $\mathbf{G}(t)$ | `StructG.at(t_idx)` materialisation — same sparsity at every $t$; values vary on the data tape |
+| $\mathbf{c}(t)$ | Per-period RHS, the active subset of `ConstraintRun.c[:, t_idx]` |
 | $\mathbf{l}, \mathbf{u}$ | Per-edge bounds from `AccountingStructure` |
 
 ##### Clarabel standard form
@@ -443,7 +444,16 @@ $$P(t) = 2\begin{bmatrix} \Sigma_a^{-1} & 0 \\ 0 & \Sigma_c(t)^{-1} \end{bmatrix
 
 $$q(t) = \begin{bmatrix} -2\,\Sigma_a^{-1}\mathbf{a}_0(t) \\ \mathbf{0} \end{bmatrix}, \qquad A = \begin{bmatrix} \mathbf{G}_\text{free} & -\mathbf{I} \\ \mathbf{G}_\text{zero} & \mathbf{0} \\ \mathbf{G}_\text{nonneg} & \mathbf{0} \end{bmatrix}, \qquad b(t) = \begin{bmatrix} \mathbf{c}_\text{free}(t) \\ \mathbf{c}_\text{zero}(t) \\ \mathbf{c}_\text{nonneg}(t) \end{bmatrix}$$
 
-Cone order: `ZeroConeT(n_free)` for the soft-equality residual rows (ε is a free decision variable; the row `Gx - ε = c` is itself an exact equality), `ZeroConeT(n_zero)` for hard balance rows, `NonnegativeConeT(n_nonneg)` for bound rows. `A` is time-invariant; `P(t)`, `q(t)`, and `b(t)` change per timestep — `P(t)` because $\Sigma_c$ on free rows may vary (e.g. `SumConstraintBuilder` deactivates rows of other years via `SIGMA_C_INACTIVE`), `q(t)` from the warm-started prior $\mathbf{a}_0(t)$, `b(t)` from $\mathbf{c}(t)$. `solver.update(P=…, q=…, b=…)` refreshes them between timesteps while Clarabel reuses its solver state for $A$.
+Cone order at each period: `ZeroConeT(n_active_free)` for the soft-equality residual rows (ε is a free decision variable; the row `Gx - ε = c` is itself an exact equality), `ZeroConeT(n_active_zero)` for hard balance rows, `NonnegativeConeT(n_active_nonneg)` for bound rows. **One Clarabel instance per period.** The KKT factorisation is not reused across periods because the operator's data tape varies (`r(t)` etc.) and the active row subset may change — the pre-refactor `solver.update(P=…, q=…, b=…)` reuse is gone with the dual block / legacy paths. The per-period QP is small (rank `n_active`, not `n_constraints × n_timesteps`), so per-period rebuild is the right cost trade.
+
+##### Prior seam
+
+The prior policy is a first-class adapter selected per `solve_all` call:
+
+* **`WarmStartPrior(run.a0)`** (default) — `a_0(0) = run.a0`; `a_0(t > 0) = a*(t-1)`. The previous period's optimum carries forward; on the structurally-shared edge identity that StructG enforces, this becomes real temporal smoothing.
+* **`AggregationPrior(a_agg)`** — `a_0(t) = a_agg[:, t]`. No carry. Used as the validation baseline; under this prior the pipeline reduces to a pure re-index of the pre-refactor architecture.
+
+`WarmStartPrior` serialises the period loop (`t` needs `a*(t-1)`); `AggregationPrior` is embarrassingly parallel across periods.
 
 ##### Σ_a conditioning
 
@@ -457,16 +467,24 @@ Defaults give ~12 orders of magnitude — fine for Clarabel with default static 
 
 Before solving, the hard subsystem (zero + nonneg cones + flow bounds) is solved as a pure feasibility QP (`P = εI`, `q = 0`). If Clarabel returns a non-OK status, `ClarabelSolver` raises with a diagnostic that lists the top hard-row offenders by residual.
 
-##### Per-t block solve & year-local persistence
+##### Single solve loop
 
-When the `ConstraintRun` carries a per-t partition (`G_blocks`, `edge_cols_by_t` — built in Stage 3 whenever constraints have no cross-time coupling), `solve_all` dispatches to `_solve_all_via_blocks`: each year is solved as an independent QP over only that year's edges (`cols_t`) and rows (`rows_t`), ~30× smaller than the global QP. Because the edge set partitions **disjointly by time**, every edge is solved exactly once — in its own year — so the cross-year warm-start carry is a no-op on this path and the complete `a*` is the disjoint union of the per-period slices.
+Under the structural model `solve_all` is one loop. `QPProblem.build(run, t_idx, a_0, sigma_a)`:
 
-Each per-t `OptimResult` therefore persists **only that period's solved values**: `F_opt` over `cols_t` `[E_t]`, `residuals` / `c_star` over `rows_t` `[M_t]`, plus the `cols_t` / `rows_t` global-index arrays — with **no cross-year prior placeholders**. (Earlier block runs stored the full `[E]` vector with non-`t` edges frozen at the prior `a_0`; this surfaced the prior mass-balance infeasibility on every *other* year's rows and a spurious bimodal `a` distribution — see [`docs/rep/analysis_opt_20260527_095157_40846da4_20260528_block-solver-massbal-artifact.md`](docs/rep/analysis_opt_20260527_095157_40846da4_20260528_block-solver-massbal-artifact.md).) The legacy full-G path (empty `G_blocks`) keeps full-length `[E]` / `[M]` vectors with `cols_t = rows_t = None`; the npz `cols_t` key is the schema discriminator on load. `SolverDiag` reassembles the disjoint per-period slices into one complete `a*` / `residuals` at load time, so every figure (and the mass-balance residual) reads the true, placeholder-free solution. Loading a pre-fix block run (const has `G_blocks` but the opt npz lacks `cols_t`) emits a `warn_if_prefix_block_run` warning.
+1. Materialises `G_t = StructG.at(t_idx).tocsr()`.
+2. Filters rows by `active[:, t_idx]` (inactive rows dropped from the QP entirely — no σ_c sentinel).
+3. Permutes rows into Clarabel's expected order: `[free | zero | nonneg]`.
+4. Builds the slack column block `S = [-I_{n_free}; 0]` and `A = [G_p | S]`.
+5. Builds `P = 2 · diag([Σ_a⁻¹; Σ_c⁻¹_free])` and `q = [-2 Σ_a⁻¹ a_0; 0]`.
+
+Each period's `OptimResult` carries full-length `a_star [n_edges]`; per-row arrays (`c_star`, `residuals`) are full-length too, with zeros on inactive rows. The pre-refactor block-path year-local slices (`cols_t` / `rows_t`) and the `warn_if_prefix_block_run` cross-year placeholder guard are gone — placeholders are structurally impossible because `StructG` has no time axis on the column side.
 
 #### Classes
 
-- **`ClarabelSolver`** ([solver.py](src/pysuto/solver.py)) — `.load_run(run_id)`, `.feasibility_check(run, t_label)`, `.solve_all(run_id, timesteps=…)`, `.persist(run_id, results, output_dir, …)`.
-- **`OptimResult`** ([solver.py](src/pysuto/solver.py)) — per-timestep dataclass: `F_opt`, `eps_opt`, `c_star`, `residuals`, `objective`, `iterations`, `solve_time_s`, `solver_status`, `convergence`, optional `iter_history`, plus `cols_t` / `rows_t` (block path: the global indices the year-local `F_opt` / `residuals` slices live on; `None` on the legacy path).
+- **`ClarabelSolver`** ([solver.py](src/pysuto/solver.py)) — `.load_run(run_id)`, `.feasibility_check(run, t_idx)`, `.solve_all(run_id, timesteps=…, prior=…)`, `.persist(run_id, results, output_dir, …)`.
+- **`Prior`** ([solver.py](src/pysuto/solver.py)) — protocol; concretes are `AggregationPrior(a_agg)` and `WarmStartPrior(a0)`.
+- **`QPProblem`** ([solver.py](src/pysuto/solver.py)) — per-period Clarabel problem bundle. `build(run, t_idx, a_0, sigma_a)` returns a single dataclass with `P`, `q`, `A`, `b`, `cones`, `perm`, the original-row indices of the active subset, and the cone counts.
+- **`OptimResult`** ([solver.py](src/pysuto/solver.py)) — per-period dataclass: `a_star [n_edges]` (canonical name; `F_opt` survives as a read-only alias), `eps_opt [n_active_free]`, `c_star [n_constraints]`, `residuals [n_constraints]`, `objective`, `iterations`, `solve_time_s`, `solver_status`, `convergence`, optional `iter_history`, plus the `active [n_constraints]` mask used at that period.
 
 Solver diagnostics live in [diag/](src/pysuto/diag/) (`SolverDiag`); see the module docstring for the full plot catalogue. Posterior uncertainty (`σ_a*`, confidence intervals) is produced by [Stage 5](#stage-5--posterior-uncertainty-propagation) (`KalmanUncProp` in [uncprop.py](src/pysuto/uncprop.py)).
 
@@ -487,13 +505,18 @@ Solver diagnostics live in [diag/](src/pysuto/diag/) (`SolverDiag`); see the mod
 #### Use case
 
 ```python
+from pysuto.solver import ClarabelSolver, WarmStartPrior
+
 solver = ClarabelSolver(const_dir="data/proc/const")
+# Default prior is WarmStartPrior(run.a0). Pass AggregationPrior(a_agg)
+# explicitly when reproducing the pre-refactor re-index baseline.
 results = solver.solve_all(
     run_id="copper_const_v0",
     timesteps=[str(t) for t in range(2010, 2024)],
     feasibility_check_first_only=True,
+    prior=WarmStartPrior(solver.load_run("copper_const_v0").a0),
 )
-# results[t] is an OptimResult with F_opt, eps_opt, residuals, …
+# results[t] is an OptimResult with a_star, eps_opt, residuals, …
 optim_run_id = solver.persist(
     run_id="copper_const_v0",
     results=results,
@@ -506,10 +529,10 @@ optim_run_id = solver.persist(
 
 ### Stage 5 — Posterior uncertainty propagation
 
-**What this stage does.** Loads a persisted Stage-4 `OptimRun` plus its upstream `ConstraintRun`, then computes the marginal posterior standard deviation `σ_a*(t)` and a Gaussian `(1-α)` confidence interval per edge × timestep. The Cholesky pattern of `S(t) = G·diag(σ²_a)·Gᵀ + diag(σ²_c(t))` is analyzed once (G is time-invariant) and the numeric factor is refreshed per timestep because σ_c is time-variant.
+**What this stage does.** Loads a persisted Stage-4 `OptimRun` plus its upstream `ConstraintRun`, then computes the marginal posterior standard deviation `σ_a*(t)` and a Gaussian `(1-α)` confidence interval per edge × period. One loop over the periods drives the entire computation; at each period only the **active** rows participate in `S(t)`.
 
 **Inputs:** `opt_run_id` (Stage 4 output; the upstream `const_run_id` is discovered from its sidecar).
-**Outputs:** `UncPropResult` with `per_timestep[t] = {sigma_a_star, lower, upper, diagnostics}`. On the block path these arrays are **year-local** (over `cols_t`, matching the Stage-4 `OptimResult`) and carry `cols_t`; the legacy path keeps full-length `[E]` arrays with `cols_t = None`.
+**Outputs:** `UncPropResult` with `per_timestep[t] = {sigma_a_star [n_edges], lower [n_edges], upper [n_edges], diagnostics}`. Full-length per period — the pre-refactor year-local slices (`cols_t`) and dual block / legacy paths are gone.
 
 > Uses the same σ-conditioning rules the solver applied (see [`_conditioning.py`](src/pysuto/_conditioning.py)) so that the posterior is mathematically consistent with the `a*` returned by Stage 4.
 
@@ -527,11 +550,11 @@ $$\boxed{\;\Sigma_{a^*} = \Sigma_a - \Sigma_a G^\top S^{-1} G \Sigma_a, \qquad S
 
 ##### Marginal diagonal via Cholesky
 
-For diagonal $\Sigma_a = \mathrm{diag}(\sigma^2_a)$, the per-edge variance reduces to
+For diagonal $\Sigma_a(t) = \mathrm{diag}(\sigma^2_a(t))$, the per-edge variance reduces to
 
-$$\boxed{\;\sigma^2_{a^*,i}(t) = \sigma^2_{a,i}\,\big(1 - \sigma^2_{a,i}\,\|L(t)^{-1} g_i\|_2^2\big), \quad S(t) = L(t)L(t)^\top, \quad g_i = \text{col}_i(G).\;}$$
+$$\boxed{\;\sigma^2_{a^*,i}(t) = \sigma^2_{a,i}(t)\,\big(1 - \sigma^2_{a,i}(t)\,\|L(t)^{-1} g_i(t)\|_2^2\big), \quad S(t) = L(t)L(t)^\top, \quad g_i(t) = \text{col}_i(G_\text{active}(t)).\;}$$
 
-The CHOLMOD backend computes $\|L^{-1} g_i\|^2$ column-block at a time; the scipy fallback computes the equivalent quadratic form $g_i^\top S^{-1} g_i$ via `splu` (≈ 2× the work, no symbolic-pattern reuse).
+`G_active(t)` is the structurally-active subset of `StructG.at(t_idx)` — inactive rows are dropped from `S(t)` entirely (no σ_c sentinel). A tiny diagonal ridge (`1e-12 · I`) is added to keep `S(t)` strictly PSD when the active row set is rank-deficient (e.g. mass-balance-only periods on a graph whose constraint rows aren't linearly independent); the ridge changes shrinkage by less than one part in 10¹² of σ_a². The CHOLMOD backend computes $\|L^{-1} g_i\|^2$ column-block at a time; the scipy fallback computes the equivalent quadratic form $g_i^\top S^{-1} g_i$ via `splu` (≈ 2× the work, no symbolic-pattern reuse).
 
 Posterior std and confidence interval:
 
@@ -552,7 +575,7 @@ $$\sigma_{a^*,i}(t) = \sqrt{\max(\sigma^2_{a^*,i}(t), 0)}, \qquad [\text{lower}_
 
 - **`BaseUncProp`** ([uncprop.py](src/pysuto/uncprop.py)) — ABC with a single abstract method `compute(opt_run_id, alpha) → UncPropResult`. Future concretes (`MCUncProp`, `BoundedKalmanUncProp`, `KKTSensitivityUncProp`) slot in as siblings.
 - **`KalmanUncProp`** ([uncprop.py](src/pysuto/uncprop.py)) — closed-form GLS concrete using sparse Cholesky. Cross-stage discovery (`opt_run_id` → `const_run_id` via the opt sidecar) happens inside `.compute()`; persistence via `.persist(result, opt_run_id, label)`.
-- **`UncPropResult` / `UncPropTimestep`** ([uncprop.py](src/pysuto/uncprop.py)) — return dataclasses. `UncPropTimestep` holds `(sigma_a_star, lower, upper, diagnostics, cols_t)` per t (block path year-local over `cols_t`; legacy full-length with `cols_t = None`); `a*` is **not** stored — readers join on the upstream `opt_run_id`.
+- **`UncPropResult` / `UncPropTimestep`** ([uncprop.py](src/pysuto/uncprop.py)) — return dataclasses. `UncPropTimestep` holds `(sigma_a_star, lower, upper, diagnostics)` per period, all full-length `(n_edges,)`. `a*` is **not** stored — readers join on the upstream `opt_run_id`.
 - **`UncPropRunRegistry`** ([registry/uncprop.py](src/pysuto/registry/uncprop.py)) — Stage-5 output registry; harmonized run-id (`uncprop_<ts>_<code>`), per-t `.npz`, diagnostics in sidecar.
 - **`condition_prior` / `condition_sigma_c`** ([_conditioning.py](src/pysuto/_conditioning.py)) — shared helpers also used by `ClarabelSolver`, guaranteeing that uncprop applies the same σ_a floor / ceiling rules the solver applied.
 
@@ -580,10 +603,8 @@ prop = KalmanUncProp(
 result          = prop.compute(opt_run_id, alpha=0.05)
 uncprop_run_id  = prop.persist(result, opt_run_id, label="copper")
 
-# result.per_timestep["2020"].sigma_a_star  → posterior std (year-local [E_t] on
-#                                             the block path; full [E] on legacy)
-# result.per_timestep["2020"].lower / upper → clipped to [l, u] (same shape)
-# result.per_timestep["2020"].cols_t        → global edge index of the slice (block path)
+# result.per_timestep["2020"].sigma_a_star  → posterior std (n_edges,)
+# result.per_timestep["2020"].lower / upper → clipped to [l, u] (n_edges,)
 # result.per_timestep["2020"].diagnostics   → trace_prior, trace_post,
 #                                             max_resid_hard, psd_min_diag
 ```
@@ -623,7 +644,7 @@ See [`docs/rep/plans/stage5_uncprop_integration_plan.md`](docs/rep/plans/stage5_
 | [utils.py](src/pysuto/utils.py) | `_NpEncoder`, io helpers | JSON serialisation, numpy-safe dump/load. |
 | [logging.py](src/pysuto/logging.py) | `get_logger` | Structured run logging. |
 | [collector.py](src/pysuto/collector.py) | `FeedCollector` | Select feeds, align onto common edge index, produce `AggregationResult`. |
-| [agg.py](src/pysuto/agg.py) | `AggregationMath`, `AggregationResult` | Build `Ω`, compute `f_agg`, `σ_agg`, coverage. |
+| [agg.py](src/pysuto/agg.py) | `AggregationMath`, `AggregationResult` | Build `Ω`, compute `a_agg`, `σ_agg`, coverage. |
 | [impute/](src/pysuto/impute/) | `ImputationEngine`, `BaseImputer`, `ParametricImputer`, `FormulaImputer`, `TimeImputer`, `FlatPriorImputer`, `ParametricRelation`, `FormulaRelation`, `SourceTerm`, `ParamRef`, `ImputationLog`, `ImputationMetadata` | Ordered imputation pipeline; per-edge provenance logging. **Subpackage layout:** `engine.py`, `base.py`, `parametric.py`, `formula.py`, `time.py`, `flat_prior.py`. |
 | [constraints/](src/pysuto/constraints/) | `ConstraintEngine`, `BaseConstraintBuilder`, `MassBalanceBuilder`, `SumConstraintBuilder`, `RatioConstraintBuilder`, `RatioBoundBuilder`, `FlowBoundsBuilder`, `ConstraintBlock`, `ConstraintRun` | Plugin constraint pipeline; persists to `data/proc/const/` via `ConstraintRunRegistry` (lives in [registry/](src/pysuto/registry/)). **Subpackage layout:** `engine.py`, `base.py`, `mass_balance.py`, `sum.py`, `ratio.py`, `flow_bound.py`, `run.py`. |
 | [solver.py](src/pysuto/solver.py) | `ClarabelSolver`, `OptimResult` | σ-weighted QP via Clarabel; warm-start across timesteps. |
@@ -963,7 +984,7 @@ Each layer has a dedicated test file in `tests/`. Shared fixtures live in `conft
 | [test_feedpipe.py](tests/test_feedpipe.py) | Stage 1 orchestration end-to-end |
 | [test_registry.py](tests/test_registry.py) | `DataFeedRegistry` save/load/round-trip |
 | [test_collector.py](tests/test_collector.py) | Feed alignment, NaN coverage mask, `Ω` column sums |
-| [test_agg.py](tests/test_agg.py) | `Ω` construction, `f_agg = 1ᵀ(Ω⊙F)`, σ_agg invariants |
+| [test_agg.py](tests/test_agg.py) | `Ω` construction, `a_agg = Σ_k Ω⊙F`, σ_agg invariants on the 3-D `(N_f, n_edges, n_timesteps)` tensor |
 | [test_imputation.py](tests/test_imputation.py) | ParametricImputer, TimeImputer, FlatPriorImputer; log completeness; σ propagation; pipeline chaining |
 | [test_constraints.py](tests/test_constraints.py) | All five constraint builders; `G` time-invariance; `ConstraintRunRegistry` round-trip |
 | [test_solver.py](tests/test_solver.py) | Clarabel transform, feasibility pre-check, warm-start, per-timestep solve |
@@ -991,46 +1012,49 @@ pytest tests/ -v
 
 ## Glossary
 
-Project-specific terms for the time-partitioned solve. Pick the bold term; the
-listed aliases are ambiguous and should be avoided.
+Project-specific terms for the structural model. See [CONTEXT.md](CONTEXT.md)
+for the complete shared-language file. Pick the bold term.
 
-**Period slice** (`a*(t)`):
-The optimised flow values for a single period — the `cols_t` edges (those whose
-`time == t`). This is what a per-t block-path file stores. Shape `[E_t]`, not `[E]`.
-_Avoid_: "the per-t F_opt vector" (ambiguous — used to mean the full `[E]` vector
-with placeholders), "yearly solution vector".
+**Structural edge** (`acc.edge_index` row):
+A `(from_id, to_id, valuation)` triple — the time dimension is **not** part of
+edge identity. `acc.n_edges` counts structural edges.
 
-**Complete `a*`**:
-The full flow solution over all `[E]` edges, formed by the **disjoint union** of
-every period slice (each edge is solved exactly once, in its own year). Assembled
-on demand by consumers (e.g. `SolverDiag`); never stored as a single per-t array.
-_Avoid_: "the global F_opt", "the full vector" (collides with the legacy full-G output).
+**Period** / **`t_idx`**:
+One index along the `n_timesteps` axis; labelled by `acc.time_range[t_idx]`.
+Drives the second axis of every per-period array.
 
-**Cross-year placeholder**:
-A non-`t` edge value left at the prior `a_0` inside a per-t file. The pre-fix block
-path stored these; they caused the spurious mass-balance deviation and bimodal `a`
-distribution. Year-local persistence removes them entirely.
-_Avoid_: "warm-start carry" (that's a separate, legitimate mechanism).
+**`StructG`**:
+The constraint operator. Shared CSR `indptr` + `indices` + per-period data tape
+`(nnz, n_timesteps)` + `row_meta` (no `time` column). `StructG.at(t_idx) →
+csr_matrix` is a zero-copy view. Same sparsity pattern at every period; only the
+data column varies.
 
-**Block path** vs **legacy path**:
-*Block path* = `_solve_all_via_blocks`, used when the `ConstraintRun` carries a
-per-t partition (`G_blocks`); produces year-local output. *Legacy path* =
-`_solve_all_legacy`, used when `G_blocks` is empty; produces full-`[E]` output.
-The npz `cols_t` key discriminates the two on load.
-_Avoid_: "per-t solver" / "global solver" (both solve per timestep — the
-distinction is *partitioned* vs *full-G*, not per-t vs not).
+**Flow `a`** / **prior `a_0`** / **optimum `a*`**:
+`a` is the decision variable (one per structural edge). `a_0` is the prior mean
+the QP pulls toward at one period (supplied by the `Prior` adapter). `a*` is the
+solver's per-period optimum — `OptimResult.a_star` (canonical; `F_opt` is a
+read-only alias).
 
-**No cross-time coupling** (invariant):
-The property that every constraint row's non-zeros lie within a single time
-bucket, so `G` partitions cleanly into `G_blocks[t]`. The Stage-3 partition raises
-if this is violated.
-_Avoid_: "time independence".
+**`a_agg`**:
+The Stage-2 aggregation output, 2-D `(n_edges, n_timesteps)`. The
+`AggregationPrior` adapter wraps this for direct use as the QP prior.
 
-*Example.* "Why does the 1995 file's mass balance look enormous?" — "That's a
-pre-fix block run: the file holds 1995's **period slice** plus **cross-year
-placeholders** for every other year, and the residual was taken over the full
-`G`. Re-solve and it stores only the period slice; the **complete `a***`** is
-reassembled by the diag when it needs the whole picture."
+**`active` mask**:
+First-class boolean `(n_constraints, n_timesteps)` on `ConstraintRun`. Inactive
+rows are dropped from the per-period QP entirely. Replaces the legacy
+`SIGMA_C_INACTIVE` / `BOUND_C_INACTIVE` sentinel floats.
+
+**Warm-start** (active mechanism):
+The carry `a*(t-1) → a_0(t)` enforced by `WarmStartPrior`. Because edges are
+now structurally shared, this carry is meaningful — pre-refactor it was a no-op
+because the previous year's optimum lived on a different (time-replicated) edge
+identity. See [ADR 0001](docs/adr/0001-structural-g-time-varying-data.md) for
+the model-change framing.
+
+**Period selector** (`a_time` / `b_time` cell on a params CSV row):
+Wildcard → broadcast to every period; literal year → that period only; `"same"`
+on the B-side → mirror A's resolved periods. Consumed by Stage-2 imputers and
+Stage-3 builders via `param_relation.resolve_period_selector`.
 
 ---
 
