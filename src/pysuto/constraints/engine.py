@@ -2,14 +2,17 @@
 engine.py
 =========
 ``ConstraintEngine`` — orchestrator that runs a registered list of
-:class:`BaseConstraintBuilder` instances, assembles the static G matrix
-once, and produces per-timestep (c, σ_c) overlays.
+:class:`BaseConstraintBuilder` instances, assembles the structural
+:class:`StructG` once, and produces per-period (data, c, σ_c, active)
+overlays into the operator's data tape.
 
-Includes the two engine-local helpers:
+Includes the engine-local helpers:
 
 * :func:`_lp_regularize` — σ conditioning (cv_min and abs_floor combined via
                            Lp recipe) applied to σ_a / σ_c before Clarabel.
-* :func:`_concat_blocks` — vstack a list of :class:`ConstraintBlock` into one.
+* :func:`_concat_blocks` — vstack a list of :class:`ConstraintBlock` into one,
+                           preserving each builder's row order and ``active``
+                           mask.
 """
 
 from __future__ import annotations
@@ -27,14 +30,14 @@ from pysuto.registry import ConstraintRunRegistry, make_run_id
 
 from .base import BaseConstraintBuilder, ConstraintBlock, _empty_block
 from .run  import ConstraintRun
+from .struct_g import StructG
 
 _log = get_logger(__name__)
 
 
 # G rows of these types are allowed to span multiple valuations (e.g.
 # ratio_eq rows that bridge Mass<->CC via a Cu-grade coefficient r).
-# Every other type must contain edges of exactly one valuation — the
-# structural unit-coherence guarantee on which the σ-weighted QP relies.
+# Every other type must contain edges of exactly one valuation.
 MIXED_VALUATION_OK = frozenset({"ratio_eq", "ratio_bound"})
 
 
@@ -50,13 +53,11 @@ def _lp_regularize(
     p:         float,
 ) -> tuple[np.ndarray, int, int]:
     """
-    Lp-combine σ with a CV floor (cv_min·|centre|) and an absolute floor,
-    matching the lp_combine recipe from pysuto.lp:
+    Lp-combine σ with a CV floor (cv_min·|centre|) and an absolute floor.
 
         σ' = ( |σ|^p + |cv_min·centre|^p + |abs_floor|^p )^(1/p)
 
-    Returns (σ', n_cv_lifted, n_abs_lifted) — counts of entries whose σ
-    was lifted ≥10% by each component (diagnostic only).
+    Returns (σ', n_cv_lifted, n_abs_lifted).
     """
     cv_term  = cv_min * np.abs(centre)
     abs_term = abs_floor
@@ -67,83 +68,13 @@ def _lp_regularize(
         + np.abs(abs_term) ** p
     ) ** (1.0 / p)
 
-    # "lifted ≥10%" — floor term is at least 10% the size of the
-    # original σ (for σ=0, any positive floor counts).
     n_cv  = int((10.0 * cv_term  >= np.abs(sigma)).sum() if cv_min    > 0 else 0)
     n_abs = int((10.0 * abs_term >= np.abs(sigma)).sum() if abs_floor > 0 else 0)
     return sigma_new, n_cv, n_abs
 
-try:
-    from ..logging import get_logger
-except ImportError:
-    import logging
-    def get_logger(name):
-        return logging.getLogger(name)
-
-_log = get_logger(__name__)
-
-
-# =============================================================================
-# ConstraintBlock  — output of a single builder for one phase (static/dynamic)
-# =============================================================================
-
-
-def _partition_G_by_time(
-    G:          sp.csr_matrix,
-    row_meta:   pd.DataFrame,
-    edge_index: pd.DataFrame,
-    timesteps:  list,
-) -> tuple[dict, dict]:
-    """
-    Slice the monolithic constraint matrix G into one block per timestep.
-
-    Returns
-    -------
-    G_blocks       : dict t → sp.csr_matrix of shape (rows_for_t, cols_for_t)
-    edge_cols_by_t : dict t → np.ndarray of global edge_ids for t
-
-    Safety: each row's non-zero columns must lie entirely within its own time
-    bucket — this is the "no cross-time coupling" invariant. Violations raise
-    ValueError with the offending row id.
-    """
-    if "time" in row_meta.columns and len(row_meta):
-        row_time = row_meta["time"].astype(str).to_numpy()
-    else:
-        row_time = np.array([], dtype=str)
-    col_time = edge_index["time"].astype(str).to_numpy()
-    G_csr    = G.tocsr() if not sp.isspmatrix_csr(G) else G
-
-    G_blocks:       dict[str, sp.csr_matrix] = {}
-    edge_cols_by_t: dict[str, np.ndarray]    = {}
-
-    for t in timesteps:
-        t_str  = str(t)
-        rows_t = np.where(row_time == t_str)[0]
-        cols_t = np.where(col_time == t_str)[0]
-
-        G_sliced = G_csr[rows_t][:, cols_t].tocsr()
-
-        if rows_t.size:
-            full_row_slice = G_csr[rows_t]
-            cross_time_nnz = full_row_slice.nnz - G_sliced.nnz
-            if cross_time_nnz:
-                bad_rows_global = rows_t[
-                    np.diff(full_row_slice.indptr) != np.diff(G_sliced.indptr)
-                ]
-                raise ValueError(
-                    f"_partition_G_by_time: {cross_time_nnz} non-zero entries "
-                    f"lie outside the time-{t_str} column bucket "
-                    f"(offending global rows: {bad_rows_global[:5].tolist()}...). "
-                    f"This violates the 'no cross-time coupling' invariant."
-                )
-
-        G_blocks[t_str]       = G_sliced
-        edge_cols_by_t[t_str] = cols_t
-
-    return G_blocks, edge_cols_by_t
-
 
 def _concat_blocks(blocks: list[ConstraintBlock], n_edges: int) -> ConstraintBlock:
+    """Vertically concatenate non-empty blocks, preserving ``active`` mask."""
     non_empty = [b for b in blocks if b.G_rows.shape[0] > 0]
     if not non_empty:
         return _empty_block(n_edges)
@@ -152,17 +83,20 @@ def _concat_blocks(blocks: list[ConstraintBlock], n_edges: int) -> ConstraintBlo
         c        = np.concatenate([b.c for b in non_empty]),
         sigma_c  = np.concatenate([b.sigma_c for b in non_empty]),
         row_meta = pd.concat([b.row_meta for b in non_empty], ignore_index=True),
+        active   = np.concatenate([b.active for b in non_empty]),
     )
-
-
-# =============================================================================
-# BaseConstraintBuilder
-# =============================================================================
 
 
 class ConstraintEngine:
     """
     Orchestrates an ordered list of BaseConstraintBuilder instances.
+
+    Each builder's ``build_static`` emits its row sparsity once; the engine
+    initialises a :class:`StructG` whose data tape replicates the static
+    coefficients across every period. The per-period loop then calls each
+    builder's ``build_dynamic(t)`` to obtain the per-period (data, c,
+    σ_c, active) overlay; the engine writes those into the operator
+    tape at the builder's row offset.
 
     Usage::
 
@@ -173,11 +107,7 @@ class ConstraintEngine:
         engine.register(RatioBoundBuilder.from_csv("params.csv", acc_struct))
         engine.register(FlowBoundsBuilder())
 
-        run = engine.run(agg_result, timesteps=["2010", "2011", ...])
-
-    run.G is built once from all static blocks.
-    run.timestep_data[t] = {"c": ..., "sigma_c": ...} is assembled per timestep
-    by overlaying dynamic blocks onto the static c / sigma_c.
+        run = engine.run(agg_result, timesteps=acc_struct.time_range)
     """
 
     def __init__(
@@ -203,21 +133,23 @@ class ConstraintEngine:
         self._builders.append(builder)
 
     def _check(self, cr: ConstraintRun) -> None:
-        """Consistency checks on a completed ConstraintRun. Called automatically in run()."""
+        """Consistency checks on a completed ConstraintRun."""
         acc = self.acc_struct
         rm  = cr.row_meta
+        G   = cr.G
         ok  = True
 
         # 1. G column count matches n_edges
-        if cr.G.shape[1] != acc.n_edges:
-            _log.error("CHECK FAIL: G.shape[1]=%d != n_edges=%d", cr.G.shape[1], acc.n_edges)
+        if G.n_edges != acc.n_edges:
+            _log.error("CHECK FAIL: G.n_edges=%d != acc.n_edges=%d", G.n_edges, acc.n_edges)
             ok = False
         else:
-            _log.info("CHECK OK: G.shape = (%d rows, %d edges)", cr.G.shape[0], cr.G.shape[1])
+            _log.info("CHECK OK: StructG shape (%d constraints, %d edges, %d timesteps)",
+                      G.n_constraints, G.n_edges, G.n_timesteps)
 
-        # 2. G column references all in bounds
-        if cr.G.nnz > 0:
-            max_col = int(cr.G.indices.max())
+        # 2. Column references in bounds
+        if G.nnz > 0:
+            max_col = int(G.indices.max())
             if max_col >= acc.n_edges:
                 _log.error("CHECK FAIL: G references edge %d >= n_edges %d", max_col, acc.n_edges)
                 ok = False
@@ -227,20 +159,17 @@ class ConstraintEngine:
         _log.info("Constraint type breakdown:\n%s",
                   type_counts.to_string() if len(type_counts) else "  (empty)")
 
-        # 4. Expected mass_balance row count: one per (balanced_node × time × valuation)
+        # 4. Mass balance row count: one per (balanced_node × valuation)
         ei, ni = acc.edge_index, acc.node_index
-        t_arr  = ei["time"].values
         v_arr  = ei["valuation"].values
         expected_mb = 0
-        for time in acc.time_range:
-            t_mask_base = (t_arr == str(time))
-            for valuation in acc.valuation:
-                t_mask = t_mask_base & (v_arr == valuation)
-                nodes_in  = set(ei.loc[t_mask, "to_id"].values)
-                nodes_out = set(ei.loc[t_mask, "from_id"].values)
-                for nid in nodes_in & nodes_out:
-                    if str(ni.loc[nid, "entity"]) in {"Flow", "Process"}:
-                        expected_mb += 1
+        for valuation in acc.valuation:
+            v_mask = (v_arr == valuation)
+            nodes_in  = set(ei.loc[v_mask, "to_id"].values)
+            nodes_out = set(ei.loc[v_mask, "from_id"].values)
+            for nid in nodes_in & nodes_out:
+                if str(ni.loc[nid, "entity"]) in {"Flow", "Process"}:
+                    expected_mb += 1
         actual_mb = int(type_counts.get("mass_balance", 0))
         if actual_mb == expected_mb:
             _log.info("CHECK OK: mass_balance rows = %d (matches expected)", actual_mb)
@@ -251,64 +180,14 @@ class ConstraintEngine:
             )
             ok = False
 
-        # 4b. Ratio rows expected uniform across years. Each ratio_eq /
-        # ratio_bound template in the params CSV expands to one row per
-        # matching (time, valuation), so totals should split evenly across
-        # the timesteps in scope. A non-uniform breakdown means some year
-        # is missing rows (often: source feed has no coverage that year),
-        # which is the same class of bug that motivates per-t deactivation.
-        n_years_expected = len(list(acc.time_range))
-        for type_name in ("ratio_eq", "ratio_bound"):
-            type_mask = rm["type"].to_numpy() == type_name if len(rm) else np.array([], dtype=bool)
-            n_type = int(type_mask.sum())
-            if n_type == 0 or n_years_expected == 0:
-                continue
-            per_year = (
-                rm.loc[type_mask, "time"].astype(str).value_counts().to_dict()
-            )
-            expected_years = {str(t) for t in acc.time_range}
-            missing_years  = sorted(expected_years - set(per_year))
-            extra_years    = sorted(set(per_year) - expected_years)
-
-            if n_type % n_years_expected != 0:
-                _log.warning(
-                    "CHECK WARN: %s rows = %d not evenly divisible by %d years "
-                    "(per-year: %s)",
-                    type_name, n_type, n_years_expected,
-                    {t: per_year[t] for t in sorted(per_year)},
-                )
-                ok = False
-                continue
-
-            expected_per_year = n_type // n_years_expected
-            bad_years = {
-                t: c for t, c in per_year.items() if c != expected_per_year
-            }
-            if not bad_years and not missing_years and not extra_years:
-                _log.info(
-                    "CHECK OK: %s rows = %d (%d/year uniform across %d years)",
-                    type_name, n_type, expected_per_year, n_years_expected,
-                )
-            else:
-                _log.warning(
-                    "CHECK WARN: %s rows = %d non-uniform across years. "
-                    "Expected %d/year. Missing: %s. Extra: %s. Off-count: %s",
-                    type_name, n_type, expected_per_year,
-                    missing_years or "none",
-                    extra_years or "none",
-                    {t: c for t, c in sorted(bad_years.items())} or "none",
-                )
-                ok = False
-
-        # 5. Hard constraints must have sigma_c == 0 (check first timestep)
+        # 5. Hard constraints must have sigma_c == 0 (check first period)
         hard_mask = rm["is_hard"].values if len(rm) > 0 else np.array([], dtype=bool)
-        if np.any(hard_mask) and cr.timestep_data:
-            first_t = next(iter(cr.timestep_data))
-            if np.any(cr.timestep_data[first_t]["sigma_c"][hard_mask] != 0.0):
-                _log.warning("CHECK WARN: hard constraint rows have non-zero sigma_c at t=%s", first_t)
+        if np.any(hard_mask):
+            if np.any(cr.sigma_c[hard_mask, 0] != 0.0):
+                _log.warning("CHECK WARN: hard constraint rows have non-zero sigma_c at t=0")
                 ok = False
             else:
-                _log.info("CHECK OK: hard constraint sigma_c = 0 (t=%s)", first_t)
+                _log.info("CHECK OK: hard constraint sigma_c = 0 (t=0)")
 
         # 6. u >= l for all edges
         bad_bounds = int(np.sum(cr.u < cr.l))
@@ -318,16 +197,15 @@ class ConstraintEngine:
         else:
             _log.info("CHECK OK: u >= l for all %d edges", acc.n_edges)
 
-        # 7. Unit coherence: no G row outside the whitelist may mix valuations.
-        if cr.G.nnz > 0 and "type" in rm.columns:
+        # 7. Unit coherence
+        if G.nnz > 0 and "type" in rm.columns:
             edge_val = acc.edge_index["valuation"].values
             types_arr = rm["type"].to_numpy()
-            G_csr = cr.G.tocsr()
             checked = 0
-            for row_id in range(G_csr.shape[0]):
+            for row_id in range(G.n_constraints):
                 if types_arr[row_id] in MIXED_VALUATION_OK:
                     continue
-                cols = G_csr.indices[G_csr.indptr[row_id]: G_csr.indptr[row_id + 1]]
+                cols = G.indices[G.indptr[row_id]: G.indptr[row_id + 1]]
                 if cols.size == 0:
                     continue
                 row_vals = set(edge_val[cols].tolist())
@@ -335,9 +213,7 @@ class ConstraintEngine:
                     cid = rm.iloc[row_id]["constraint_id"]
                     raise ConstraintUnitMixingError(
                         f"G row {row_id} (type={types_arr[row_id]!r}, "
-                        f"constraint_id={cid!r}) mixes valuations {sorted(row_vals)}. "
-                        f"Every sum_eq / mass_balance row must contain edges of "
-                        f"exactly one valuation."
+                        f"constraint_id={cid!r}) mixes valuations {sorted(row_vals)}."
                     )
                 checked += 1
             _log.info("CHECK OK: unit-coherence verified on %d rows "
@@ -348,7 +224,7 @@ class ConstraintEngine:
     def run(
         self,
         agg_result,
-        timesteps:    list,
+        timesteps:    Optional[list] = None,
         agg_id:       str = "",
         run_id:       Optional[str] = None,
         label:        str = "",
@@ -358,20 +234,14 @@ class ConstraintEngine:
         stage_config: Optional[dict] = None,
     ) -> ConstraintRun:
         """
-        Build G once, then assemble c(t) / sigma_c(t) for each timestep.
+        Build the structural StructG once, then assemble per-period
+        coefficient/RHS/activation overlays for each timestep.
 
         Parameters
         ----------
-        agg_result  : AggregationResult with a_agg and sigma_agg
-        timesteps   : ordered list of time labels (strings or ints)
-        agg_id      : provenance identifier for the agg_result. If empty and
-                      ``agg_result._imp_run_id`` is set (i.e. the result came
-                      out of ImputationRunRegistry.register/load), that run_id
-                      is used automatically.
-        run_id      : explicit run ID; auto-generated if None
-        persist     : if True, save to registry
-        diag_plot   : if True, generate and save ConstDiagnostic figures to
-                      {storage_dir}/{run_id}/diag/ after the run
+        agg_result  : AggregationResult with 2-D ``a_agg`` and ``sigma_agg``
+        timesteps   : ordered list of time labels. Defaults to
+                      ``acc.time_range``.
         """
         if not agg_id:
             agg_id = getattr(agg_result, "_imp_run_id", None) or ""
@@ -380,10 +250,12 @@ class ConstraintEngine:
         a_agg      = agg_result.a_agg
         sigma_agg  = agg_result.sigma_agg
 
+        if timesteps is None:
+            timesteps = list(acc.time_range)
+        time_range_str = [str(t) for t in acc.time_range]
+        n_timesteps = len(timesteps)
+
         # ── 0. NaN precondition ───────────────────────────────────────
-        # The downstream solver (Stage 3b) requires a fully-defined prior.
-        # Register pysuto.impute.FlatPriorImputer last in the imputation
-        # pipeline (or halt upstream) to satisfy this contract.
         if np.isnan(a_agg).any() or np.isnan(sigma_agg).any():
             n_nan_f = int(np.isnan(a_agg).sum())
             n_nan_s = int(np.isnan(sigma_agg).sum())
@@ -395,128 +267,140 @@ class ConstraintEngine:
             )
 
         # ── 0b. σ_a prior Lp regularization ───────────────────────────
-        # Lifts unphysically tight σ on edges via the same Lp recipe used
-        # in impute.py. Operates on sigma_agg BEFORE build_dynamic, so the
-        # regularized σ also flows into p_mean-mode σ_c propagation.
-        #
-        # This ordering is deliberate (see REP 2026-05-13 §7 and the
-        # FlatPriorImputer docstring): the relative CV term
-        # `sigma_a_cv_min · |a₀|` is a *modeling* claim about how tightly
-        # we believe σ_a, not a numerical safeguard, so it should flow
-        # into σ_c. The absolute floor `sigma_a_abs_floor` is the safety
-        # net — once the FlatPrior 3-level scale cascade is in place it
-        # should essentially never fire on imputer-filled edges.
         if self._sigma_a_cv_min > 0 or self._sigma_a_abs_floor > 0:
             sigma_agg, n_cv, n_abs = _lp_regularize(
                 sigma_agg, a_agg,
                 self._sigma_a_cv_min, self._sigma_a_abs_floor, self._p,
             )
             _log.info(
-                "σ_a Lp regularization (p=%.2f): %d edges CV-lifted "
-                "(CV_min=%.3f), %d edges abs-lifted (abs_floor=%.0e)",
+                "σ_a Lp regularization (p=%.2f): %d cells CV-lifted "
+                "(CV_min=%.3f), %d cells abs-lifted (abs_floor=%.0e)",
                 self._p, n_cv, n_abs,
                 self._sigma_a_cv_min, self._sigma_a_abs_floor,
             )
 
-        # ── 1. Build static G (time-invariant) ────────────────────────
+        # ── 1. Build static blocks (structural) ───────────────────────
         static_blocks = [b.build_static(acc) for b in self._builders]
-        static_full   = _concat_blocks(static_blocks, n_edges)
-        G_static      = static_full.G_rows
-        c_static      = static_full.c.copy()
-        sc_static     = static_full.sigma_c.copy()
-        row_meta      = static_full.row_meta.copy()
-        M             = G_static.shape[0]
+        # Track each builder's static row offset + nnz offset.
+        offsets: list[tuple[int, int]] = []   # (row_offset, nnz_offset)
+        row_off = 0
+        nnz_off = 0
+        for sb in static_blocks:
+            offsets.append((row_off, nnz_off))
+            row_off += sb.G_rows.shape[0]
+            nnz_off += sb.G_rows.nnz
 
-        _log.info("ConstraintEngine: G shape (%d, %d)", M, n_edges)
+        static_full = _concat_blocks(static_blocks, n_edges)
+        if static_full.G_rows.shape[0] == 0:
+            G_struct = StructG(
+                indptr   = np.zeros(1, dtype=np.int32),
+                indices  = np.empty(0, dtype=np.int32),
+                data     = np.empty((0, n_timesteps), dtype=float),
+                shape    = (0, n_edges),
+                row_meta = static_full.row_meta,
+            )
+            c_2d       = np.empty((0, n_timesteps))
+            sigma_c_2d = np.empty((0, n_timesteps))
+            active_2d  = np.empty((0, n_timesteps), dtype=bool)
+            _log.info("ConstraintEngine: empty run (no constraints registered)")
+        else:
+            G_struct = StructG.from_static(
+                static_full.G_rows, static_full.row_meta, n_timesteps,
+            )
+            M = G_struct.n_constraints
+            c_2d       = np.tile(static_full.c[:, None], (1, n_timesteps))
+            sigma_c_2d = np.tile(static_full.sigma_c[:, None], (1, n_timesteps))
+            active_2d  = np.tile(static_full.active[:, None], (1, n_timesteps))
+            _log.info("ConstraintEngine: StructG shape (%d, %d), %d nnz, %d timesteps",
+                      M, n_edges, G_struct.nnz, n_timesteps)
 
-        # ── 2. Per-timestep c and sigma_c ─────────────────────────────
-        timestep_data: dict[str, dict] = {}
+        # ── 2. Per-period overlay loop ────────────────────────────────
         for t in timesteps:
             t_label = str(t)
-            # Identify rows belonging to this timestep from dynamic blocks
-            c_t      = c_static.copy()
-            sigma_c_t = sc_static.copy()
+            if t_label not in time_range_str:
+                raise ValueError(
+                    f"ConstraintEngine.run: timestep {t_label!r} not in "
+                    f"acc.time_range={time_range_str}"
+                )
+            t_idx = time_range_str.index(t_label)
 
-            # Track which static rows each dynamic block covers
-            row_offset = 0
-            for b, sb in zip(self._builders, static_blocks):
-                dyn = b.build_dynamic(acc, a_agg, sigma_agg, t_label)
+            a_slice  = a_agg[:, t_idx]
+            sa_slice = sigma_agg[:, t_idx]
+
+            for b, sb, (r_off, n_off) in zip(self._builders, static_blocks, offsets):
+                if sb.G_rows.shape[0] == 0:
+                    continue
+                dyn = b.build_dynamic(acc, a_slice, sa_slice, t_label)
                 bM  = sb.G_rows.shape[0]
-                if dyn.G_rows.shape[0] == bM and bM > 0:
-                    c_t[row_offset: row_offset + bM]       = dyn.c
-                    sigma_c_t[row_offset: row_offset + bM] = dyn.sigma_c
-                row_offset += bM
-
-            timestep_data[t_label] = {"c": c_t, "sigma_c": sigma_c_t}
+                if dyn.G_rows.shape[0] == 0:
+                    # Builder declined to refresh — keep static data + active.
+                    continue
+                if dyn.G_rows.shape[0] != bM:
+                    raise ValueError(
+                        f"build_dynamic for {type(b).__name__} returned "
+                        f"{dyn.G_rows.shape[0]} rows but build_static had "
+                        f"{bM} rows — sparsity invariant violated."
+                    )
+                dyn_csr = dyn.G_rows.tocsr()
+                if dyn_csr.nnz != sb.G_rows.nnz:
+                    raise ValueError(
+                        f"build_dynamic for {type(b).__name__} returned "
+                        f"{dyn_csr.nnz} nnz but build_static had {sb.G_rows.nnz} "
+                        f"— sparsity invariant violated."
+                    )
+                # Write per-period coefficients into the operator's data tape.
+                slot = slice(n_off, n_off + sb.G_rows.nnz)
+                G_struct.data[slot, t_idx] = dyn_csr.data
+                row_slot = slice(r_off, r_off + bM)
+                c_2d[row_slot, t_idx]       = dyn.c
+                sigma_c_2d[row_slot, t_idx] = dyn.sigma_c
+                active_2d[row_slot, t_idx]  = dyn.active
 
         # ── 2b. σ_c prior Lp regularization (free-cone rows only) ─────
-        # Lifts unphysically tight σ on soft constraint rows via the same
-        # Lp recipe used for σ_a. Hard rows (zero, nonneg) keep σ_c = 0 —
-        # the downstream Clarabel transform never reads them.
-        free_mask = (row_meta["cone_type"].to_numpy() == "free")
-        if free_mask.any() and (
-            self._sigma_c_cv_min > 0 or self._sigma_c_abs_floor > 0
-        ):
-            n_cv_total, n_abs_total = 0, 0
-            for t_label, td in timestep_data.items():
-                sc, c_arr = td["sigma_c"], td["c"]
-                sc_free, n_cv, n_abs = _lp_regularize(
-                    sc[free_mask], c_arr[free_mask],
-                    self._sigma_c_cv_min, self._sigma_c_abs_floor, self._p,
+        if G_struct.n_constraints > 0:
+            free_mask = (G_struct.row_meta["cone_type"].to_numpy() == "free")
+            if free_mask.any() and (
+                self._sigma_c_cv_min > 0 or self._sigma_c_abs_floor > 0
+            ):
+                n_cv_total, n_abs_total = 0, 0
+                for ti in range(n_timesteps):
+                    sc_free, n_cv, n_abs = _lp_regularize(
+                        sigma_c_2d[free_mask, ti], c_2d[free_mask, ti],
+                        self._sigma_c_cv_min, self._sigma_c_abs_floor, self._p,
+                    )
+                    sigma_c_2d[free_mask, ti] = sc_free
+                    n_cv_total  += n_cv
+                    n_abs_total += n_abs
+                _log.info(
+                    "σ_c Lp regularization (p=%.2f, %d free rows × %d timesteps): "
+                    "%d (row, t) entries CV-lifted (CV_min=%.3f), %d abs-lifted "
+                    "(abs_floor=%.0e)",
+                    self._p, int(free_mask.sum()), n_timesteps,
+                    n_cv_total, n_abs_total,
+                    self._sigma_c_cv_min, self._sigma_c_abs_floor,
                 )
-                sc[free_mask] = sc_free
-                td["sigma_c"] = sc
-                n_cv_total  += n_cv
-                n_abs_total += n_abs
-            _log.info(
-                "σ_c Lp regularization (p=%.2f, %d free rows × %d timesteps): "
-                "%d (row, t) entries CV-lifted (CV_min=%.3f), %d abs-lifted "
-                "(abs_floor=%.0e)",
-                self._p, int(free_mask.sum()), len(timestep_data),
-                n_cv_total, n_abs_total,
-                self._sigma_c_cv_min, self._sigma_c_abs_floor,
-            )
-
-        # ── 2c. Per-t partition of G ──────────────────────────────────
-        # No constraint builder couples edges across t, so the monolithic G
-        # is exactly block-diagonal by time. Slice rows by row_meta["time"]
-        # and columns by acc.edge_index["time"]; this lossless partition is
-        # what the solver and uncprop consume to skip ~96.7% of dead cols
-        # at each per-t solve.
-        G_blocks, edge_cols_by_t = _partition_G_by_time(
-            G_static, row_meta, acc.edge_index, timesteps,
-        )
-        if G_blocks:
-            first_t = next(iter(G_blocks))
-            G0 = G_blocks[first_t]
-            _log.info(
-                "Per-t partition: %d timesteps × (%d rows × %d cols) blocks "
-                "→ per-t solve is %.1f× smaller than the global %d × %d QP",
-                len(G_blocks), G0.shape[0], G0.shape[1],
-                (M * n_edges) / max(G0.shape[0] * G0.shape[1], 1),
-                M, n_edges,
-            )
 
         # ── 3. Assemble ConstraintRun ──────────────────────────────────
         if run_id is None:
             run_id = make_run_id("const")
 
         cr = ConstraintRun(
-            G              = G_static,
-            row_meta       = row_meta,
-            a0             = a_agg.copy(),
-            sigma_a        = sigma_agg.copy(),
-            u              = acc.bounds.u.copy(),
-            l              = acc.bounds.l.copy(),
-            timestep_data  = timestep_data,
-            run_id         = run_id,
-            acc_id         = acc.id,
-            agg_id         = agg_id,
-            created_at     = datetime.utcnow().isoformat(timespec="seconds") + "Z",
-            label          = label,
-            _p             = self._p,
-            G_blocks       = G_blocks,
-            edge_cols_by_t = edge_cols_by_t,
+            G          = G_struct,
+            row_meta   = G_struct.row_meta,
+            a0         = a_agg[:, 0].copy(),                  # 1995 seed
+            sigma_a    = sigma_agg.copy(),                    # (n_edges, n_timesteps)
+            u          = acc.bounds.u.copy(),
+            l          = acc.bounds.l.copy(),
+            c          = c_2d,
+            sigma_c    = sigma_c_2d,
+            active     = active_2d,
+            timesteps  = [str(t) for t in timesteps],
+            run_id     = run_id,
+            acc_id     = acc.id,
+            agg_id     = agg_id,
+            created_at = datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            label      = label,
+            _p         = self._p,
         )
 
         self._check(cr)

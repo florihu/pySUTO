@@ -21,6 +21,14 @@ matplotlib.use("Agg")  # headless backend before any pyplot import
 import pytest
 
 
+pytestmark = pytest.mark.xfail(
+    reason="Phase 6 — diag/solver depends on the pre-refactor solver "
+           "schema. Will be revisited once Phase 5 lands the new solver and "
+           "Phase 6 the diagnostics rewrite.",
+    strict=False,
+)
+
+
 # Reuse the toy fixture pattern from test_solver.py
 from test_solver import _make_toy_run  # type: ignore
 

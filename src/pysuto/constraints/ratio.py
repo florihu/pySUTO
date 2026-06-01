@@ -24,11 +24,11 @@ from pysuto.param_relation import (
     ParamRelationResolver,
     float_or,
     get_edge_cache,
+    resolve_period_selector,
     sigma_from_row,
 )
 
 from .base import BaseConstraintBuilder, ConstraintBlock, _empty_block
-from .sum  import SIGMA_C_INACTIVE, BOUND_C_INACTIVE
 
 _log = get_logger(__name__)
 
@@ -62,16 +62,20 @@ def _match_side_edges(row, prefix: str, acc_struct) -> np.ndarray:
 
 class RatioConstraintBuilder(BaseConstraintBuilder):
     """
-    Soft free-cone ratio constraint: a_i − r · a_j = ε_k
+    Soft free-cone ratio constraint: a_i − r(t) · a_j = ε_k
 
-    Loaded from the same params CSV schema as ParametricImputer.
-    sigma_c comes from the three standard uncertainty modes (sd / min_max / pedigree).
+    One structural row per resolved ``(edge_i, edge_j)`` pair. The
+    coefficient ``r(t)`` is genuinely time-varying — ore grade declines
+    over time, so the column carrying ``−r(t)`` is written per period by
+    :meth:`build_dynamic`. Rows are active only in periods where the CSV
+    actually supplies a value for that pair.
     """
 
     def __init__(self, pairs: list[dict]):
         """
         pairs : list of dicts with keys:
-            constraint_id, edge_i, edge_j, r, sigma_c
+            constraint_id, edge_i, edge_j, r_by_t (dict t_idx → float),
+            sigma_by_t (dict t_idx → float)
         """
         self._pairs = pairs
 
@@ -84,13 +88,16 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
     ) -> "RatioConstraintBuilder":
         """
         Load from params CSV (same schema as ParametricImputer.from_csv).
-        Resolves A→B edge pairs and computes sigma_c from unc_type column.
 
-        ``mask`` (optional): name of a mask in ``acc_struct.masks``. Pairs
-        where either edge falls outside the mask are dropped.
+        Rows resolving to the same structural ``(edge_i, edge_j)`` pair
+        are merged into one constraint row; each contributing CSV row
+        injects its ``(r, σ)`` at the period selected by ``a_time`` /
+        ``b_time`` (wildcard → every period). Pairs whose either edge
+        falls outside ``mask`` are dropped.
         """
         df = pd.read_csv(path, sep=None, engine="python", dtype=str).fillna("*")
         resolver = ParamRelationResolver(acc_struct)
+        time_range = list(getattr(acc_struct, "time_range", []))
 
         if mask is not None:
             if mask not in acc_struct.masks:
@@ -102,7 +109,8 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
         else:
             scope = None
 
-        pairs = []
+        pairs_by_key: dict[tuple, dict] = {}
+
         for _, row in df.iterrows():
             nominal = float_or(row.get("value_nominal", "nan"), np.nan)
             if np.isnan(nominal):
@@ -113,19 +121,33 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
                 sigma = 0.0
 
             param_id = str(row.get("param_id", "")).strip() or None
+            t_idxs   = resolve_period_selector(row.get("a_time", "*"), time_range)
+            if not t_idxs:
+                continue
 
-            for r in resolver.resolve_row(row):
-                if scope is not None and not (scope[r.a_edge_id] and scope[r.b_edge_id]):
+            for rr in resolver.resolve_row(row):
+                if scope is not None and not (scope[rr.a_edge_id] and scope[rr.b_edge_id]):
                     continue
-                pairs.append({
-                    "constraint_id": param_id or f"ratio_{r.a_edge_id}_{r.b_edge_id}",
-                    "edge_i":  r.b_edge_id,
-                    "edge_j":  r.a_edge_id,
-                    "r":       nominal,
-                    "sigma_c": sigma,
-                })
+                key = (rr.b_edge_id, rr.a_edge_id)
+                entry = pairs_by_key.get(key)
+                if entry is None:
+                    entry = {
+                        "constraint_id": param_id or f"ratio_{rr.a_edge_id}_{rr.b_edge_id}",
+                        "edge_i":   rr.b_edge_id,
+                        "edge_j":   rr.a_edge_id,
+                        "r_by_t":     {},
+                        "sigma_by_t": {},
+                    }
+                    pairs_by_key[key] = entry
+                for ti in t_idxs:
+                    entry["r_by_t"][ti]     = nominal
+                    entry["sigma_by_t"][ti] = sigma
 
-        _log.info("RatioConstraintBuilder: %d pairs from %s", len(pairs), os.path.basename(path))
+        pairs = list(pairs_by_key.values())
+        _log.info(
+            "RatioConstraintBuilder: %d structural pairs from %s",
+            len(pairs), os.path.basename(path),
+        )
         return cls(pairs)
 
     @property
@@ -140,28 +162,34 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
         M = len(self._pairs)
         rows_list, cols_list, vals_list = [], [], []
         meta_list = []
-        # Time per row is taken from edge_i (edge_i and edge_j share the
-        # same time by construction in the param_relation B-resolver).
-        edge_time = acc_struct.edge_index["time"].astype(str).to_numpy()
 
         for row_id, p in enumerate(self._pairs):
+            # Default static coefficient is the first period's r value
+            # (any period that has a value works for the sparsity pattern;
+            # build_dynamic overwrites per-t).
+            ts_with_r = sorted(p["r_by_t"].keys())
+            r_default = p["r_by_t"][ts_with_r[0]] if ts_with_r else 0.0
             rows_list += [row_id, row_id]
             cols_list += [p["edge_i"], p["edge_j"]]
-            vals_list += [1.0, -p["r"]]
+            vals_list += [1.0, -r_default]
             meta_list.append({
                 "constraint_id": p["constraint_id"],
                 "type":          "ratio_eq",
                 "is_hard":       False,
                 "cone_type":     "free",
-                "time":          edge_time[p["edge_i"]],
             })
 
         G = sp.csr_matrix((vals_list, (rows_list, cols_list)), shape=(M, n_edges))
         _log.info("RatioConstraintBuilder.build_static: %d rows", M)
+        # Default static σ_c is the first period's σ (placeholder).
+        sigma_static = np.array([
+            p["sigma_by_t"][sorted(p["sigma_by_t"])[0]] if p["sigma_by_t"] else 0.0
+            for p in self._pairs
+        ])
         block = ConstraintBlock(
             G_rows   = G,
             c        = np.zeros(M),
-            sigma_c  = np.array([p["sigma_c"] for p in self._pairs]),
+            sigma_c  = sigma_static,
             row_meta = pd.DataFrame(meta_list),
         )
         self._cached_static = block
@@ -169,28 +197,50 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
 
     def build_dynamic(self, acc_struct, a_agg, sigma_agg, t) -> ConstraintBlock:
         """
-        Deactivate ratio_eq rows whose ``time`` does not match ``t`` by
-        setting ``sigma_c = SIGMA_C_INACTIVE``. In-year rows keep the
-        per-pair σ_c assembled in :meth:`build_static`.
-
-        Mirrors :meth:`SumConstraintBuilder.build_dynamic`. ``c`` is left
-        unchanged (always 0 for ratio_eq).
+        Per-period overlay. Re-emits G_rows with ``−r(t)`` for every pair
+        that has a parameter at this period; pairs without a parameter
+        at ``t`` are marked ``active = False`` (G_rows still carries the
+        placeholder coefficient — the engine drops the row from the
+        objective via the activation mask).
         """
         static = getattr(self, "_cached_static", None) or self.build_static(acc_struct)
         if static.G_rows.shape[0] == 0:
             return _empty_block(acc_struct.n_edges)
 
-        sigma_c  = static.sigma_c.copy()
-        t_str    = str(t)
-        times    = static.row_meta["time"].astype(str).to_numpy()
-        inactive = times != t_str
-        sigma_c[inactive] = SIGMA_C_INACTIVE
+        time_range = list(getattr(acc_struct, "time_range", []))
+        t_str = str(t)
+        try:
+            ti = [str(x) for x in time_range].index(t_str)
+        except ValueError:
+            ti = None
+
+        M = static.G_rows.shape[0]
+        sigma_c = static.sigma_c.copy()
+        active  = np.zeros(M, dtype=bool)
+
+        # Rewrite the −r entry per row using the period coefficient.
+        G = static.G_rows.tocsr(copy=True)
+        for row_id, p in enumerate(self._pairs):
+            r_t = p["r_by_t"].get(ti)
+            if r_t is None:
+                continue
+            active[row_id] = True
+            sigma_c[row_id] = p["sigma_by_t"].get(ti, sigma_c[row_id])
+
+            # The pair has two entries in G_rows: +1 at edge_i, −r at edge_j.
+            # Find the slot whose column == edge_j and overwrite with −r_t.
+            cols_row = G.indices[G.indptr[row_id]: G.indptr[row_id + 1]]
+            data_row = G.data[G.indptr[row_id]: G.indptr[row_id + 1]]
+            for k, col in enumerate(cols_row):
+                if col == p["edge_j"]:
+                    data_row[k] = -r_t
 
         return ConstraintBlock(
-            G_rows   = static.G_rows,
+            G_rows   = G,
             c        = static.c,
             sigma_c  = sigma_c,
             row_meta = static.row_meta,
+            active   = active,
         )
 
 
@@ -221,6 +271,7 @@ class RatioBoundBuilder(BaseConstraintBuilder):
     ) -> "RatioBoundBuilder":
         df = pd.read_csv(path, sep=None, engine="python", dtype=str).fillna("*")
         resolver = ParamRelationResolver(acc_struct)
+        time_range = list(getattr(acc_struct, "time_range", []))
 
         if mask is not None:
             if mask not in acc_struct.masks:
@@ -233,10 +284,13 @@ class RatioBoundBuilder(BaseConstraintBuilder):
             scope = None
 
         ei_exp, _el, _itt, _fv, _mc, _eid = get_edge_cache(acc_struct)
-        t_all = ei_exp["time"].astype(str).to_numpy()
         v_all = ei_exp["valuation"].astype(str).to_numpy()
 
-        bound_rows = []
+        # Deduplicate per structural (edge_i, edge_j); merge per-period
+        # bound values from each CSV row.
+        agg_by_key: dict[tuple, dict]   = {}
+        pair_by_key: dict[tuple, dict]  = {}
+
         for _, row in df.iterrows():
             nominal = float_or(row.get("value_nominal", "nan"), np.nan)
             bl      = float_or(row.get("bound_lower", "nan"), np.nan)
@@ -245,6 +299,9 @@ class RatioBoundBuilder(BaseConstraintBuilder):
                 continue
 
             param_id = str(row.get("param_id", "")).strip() or None
+            t_idxs   = resolve_period_selector(row.get("a_time", "*"), time_range)
+            if not t_idxs:
+                continue
 
             if _is_agg(row):
                 a_edges = _match_side_edges(row, "a", acc_struct)
@@ -258,44 +315,63 @@ class RatioBoundBuilder(BaseConstraintBuilder):
                         param_id, a_edges.size, b_edges.size,
                     )
                     continue
-                t_a, v_a = t_all[a_edges], v_all[a_edges]
-                t_b, v_b = t_all[b_edges], v_all[b_edges]
-                keys = sorted(set(zip(t_a, v_a)) & set(zip(t_b, v_b)))
-                if not keys:
+                v_a = v_all[a_edges]
+                v_b = v_all[b_edges]
+                vals = sorted(set(v_a.tolist()) & set(v_b.tolist()))
+                if not vals:
                     _log.warning(
-                        "RatioBoundBuilder %s: agg row had no overlapping (time, valuation) "
+                        "RatioBoundBuilder %s: agg row had no overlapping valuation "
                         "buckets between a (%d edges) and b (%d edges) — skipped",
                         param_id, a_edges.size, b_edges.size,
                     )
                     continue
-                for t, v in keys:
-                    a_sub = a_edges[(t_a == t) & (v_a == v)]
-                    b_sub = b_edges[(t_b == t) & (v_b == v)]
-                    bound_rows.append({
-                        "param_id":    param_id or f"bound_agg_{t}_{v}",
-                        "agg":         True,
-                        "edge_i_list": b_sub.tolist(),
-                        "edge_j_list": a_sub.tolist(),
-                        "time":        t,
-                        "nominal":     nominal if not np.isnan(nominal) else 1.0,
-                        "bl":          bl,
-                        "bu":          bu,
-                    })
+                for v in vals:
+                    a_sub = a_edges[v_a == v]
+                    b_sub = b_edges[v_b == v]
+                    key = ("agg", tuple(sorted(b_sub.tolist())),
+                           tuple(sorted(a_sub.tolist())), v)
+                    entry = agg_by_key.get(key)
+                    if entry is None:
+                        entry = {
+                            "param_id":    param_id or f"bound_agg_{v}",
+                            "agg":         True,
+                            "edge_i_list": b_sub.tolist(),
+                            "edge_j_list": a_sub.tolist(),
+                            "nominal":     nominal if not np.isnan(nominal) else 1.0,
+                            "bl_by_t":     {},
+                            "bu_by_t":     {},
+                        }
+                        agg_by_key[key] = entry
+                    for ti in t_idxs:
+                        if not np.isnan(bl):
+                            entry["bl_by_t"][ti] = bl
+                        if not np.isnan(bu):
+                            entry["bu_by_t"][ti] = bu
                 continue
 
-            for r in resolver.resolve_row(row):
-                if scope is not None and not (scope[r.a_edge_id] and scope[r.b_edge_id]):
+            for rr in resolver.resolve_row(row):
+                if scope is not None and not (scope[rr.a_edge_id] and scope[rr.b_edge_id]):
                     continue
-                bound_rows.append({
-                    "param_id": param_id or f"bound_{r.a_edge_id}_{r.b_edge_id}",
-                    "agg":      False,
-                    "edge_i":   r.b_edge_id,
-                    "edge_j":   r.a_edge_id,
-                    "nominal":  nominal if not np.isnan(nominal) else 1.0,
-                    "bl":       bl,
-                    "bu":       bu,
-                })
+                key = ("pair", rr.b_edge_id, rr.a_edge_id)
+                entry = pair_by_key.get(key)
+                if entry is None:
+                    entry = {
+                        "param_id": param_id or f"bound_{rr.a_edge_id}_{rr.b_edge_id}",
+                        "agg":      False,
+                        "edge_i":   rr.b_edge_id,
+                        "edge_j":   rr.a_edge_id,
+                        "nominal":  nominal if not np.isnan(nominal) else 1.0,
+                        "bl_by_t":  {},
+                        "bu_by_t":  {},
+                    }
+                    pair_by_key[key] = entry
+                for ti in t_idxs:
+                    if not np.isnan(bl):
+                        entry["bl_by_t"][ti] = bl
+                    if not np.isnan(bu):
+                        entry["bu_by_t"][ti] = bu
 
+        bound_rows = list(agg_by_key.values()) + list(pair_by_key.values())
         n_agg = sum(1 for br in bound_rows if br.get("agg"))
         _log.info("RatioBoundBuilder: %d bound rows from %s (%d agg, %d per-pair)",
                   len(bound_rows), os.path.basename(path),
@@ -307,6 +383,12 @@ class RatioBoundBuilder(BaseConstraintBuilder):
         return []
 
     def build_static(self, acc_struct) -> ConstraintBlock:
+        """
+        One structural row per (bound entry, direction) — ``upper`` and
+        ``lower`` get their own rows. Each row's ``ratio_slot`` column on
+        ``row_meta`` carries the spec index so ``build_dynamic`` can
+        write the period coefficient.
+        """
         n_edges = acc_struct.n_edges
         if not self._bound_rows:
             return _empty_block(n_edges)
@@ -314,49 +396,54 @@ class RatioBoundBuilder(BaseConstraintBuilder):
         rows_list, cols_list, vals_list = [], [], []
         meta_list = []
         row_id = 0
-        edge_time = acc_struct.edge_index["time"].astype(str).to_numpy()
+        # Per-row metadata: spec index (back-ref) + direction (upper/lower).
+        self._row_specs: list[tuple[int, str]] = []
 
-        for br in self._bound_rows:
+        for spec_idx, br in enumerate(self._bound_rows):
             if br.get("agg"):
-                ei_list = br["edge_i_list"]   # denominator edges (b)
-                ej_list = br["edge_j_list"]   # numerator edges (a)
-                t_row = br["time"]
+                ei_list = br["edge_i_list"]
+                ej_list = br["edge_j_list"]
             else:
                 ei_list = [br["edge_i"]]
                 ej_list = [br["edge_j"]]
-                t_row = edge_time[br["edge_i"]]
-            bu, bl = br["bu"], br["bl"]
 
-            if not np.isnan(bu):
+            bu_default = (
+                br["bu_by_t"][sorted(br["bu_by_t"])[0]] if br["bu_by_t"] else None
+            )
+            bl_default = (
+                br["bl_by_t"][sorted(br["bl_by_t"])[0]] if br["bl_by_t"] else None
+            )
+
+            if bu_default is not None:
                 for ej in ej_list:
                     rows_list.append(row_id); cols_list.append(ej); vals_list.append(1.0)
                 for ei in ei_list:
-                    rows_list.append(row_id); cols_list.append(ei); vals_list.append(-bu)
+                    rows_list.append(row_id); cols_list.append(ei); vals_list.append(-bu_default)
                 meta_list.append({
                     "constraint_id": f"{br['param_id']}_upper",
                     "type":          "ratio_bound",
                     "is_hard":       True,
                     "cone_type":     "nonneg",
-                    "time":          t_row,
                     "ratio_kind":    self._kind,
                     "bound_dir":     "upper",
                 })
+                self._row_specs.append((spec_idx, "upper"))
                 row_id += 1
 
-            if not np.isnan(bl):
+            if bl_default is not None:
                 for ej in ej_list:
                     rows_list.append(row_id); cols_list.append(ej); vals_list.append(-1.0)
                 for ei in ei_list:
-                    rows_list.append(row_id); cols_list.append(ei); vals_list.append(bl)
+                    rows_list.append(row_id); cols_list.append(ei); vals_list.append(bl_default)
                 meta_list.append({
                     "constraint_id": f"{br['param_id']}_lower",
                     "type":          "ratio_bound",
                     "is_hard":       True,
                     "cone_type":     "nonneg",
-                    "time":          t_row,
                     "ratio_kind":    self._kind,
                     "bound_dir":     "lower",
                 })
+                self._row_specs.append((spec_idx, "lower"))
                 row_id += 1
 
         if row_id == 0:
@@ -375,27 +462,55 @@ class RatioBoundBuilder(BaseConstraintBuilder):
 
     def build_dynamic(self, acc_struct, a_agg, sigma_agg, t) -> ConstraintBlock:
         """
-        Deactivate ratio_bound rows whose ``time`` does not match ``t`` by
-        setting ``c = BOUND_C_INACTIVE``. The hard inequality
-        ``A x ≤ BOUND_C_INACTIVE`` is then trivially satisfied (worst-case
-        |A x| ≲ 4e12 ≪ 1e15 given u_max = 1e9 and typical bound ratios).
-        σ_c stays 0 for hard rows.
+        Per-period overlay. For each row, rewrite the bound coefficient
+        (``−bu(t)`` on upper rows, ``+bl(t)`` on lower rows) using the
+        spec's stored per-period value. Mark inactive when no bound is
+        defined at this period.
         """
         static = getattr(self, "_cached_static", None) or self.build_static(acc_struct)
         if static.G_rows.shape[0] == 0:
             return _empty_block(acc_struct.n_edges)
 
-        c        = static.c.copy()
-        t_str    = str(t)
-        times    = static.row_meta["time"].astype(str).to_numpy()
-        inactive = times != t_str
-        c[inactive] = BOUND_C_INACTIVE
+        time_range = list(getattr(acc_struct, "time_range", []))
+        t_str = str(t)
+        try:
+            ti = [str(x) for x in time_range].index(t_str)
+        except ValueError:
+            ti = None
+
+        M = static.G_rows.shape[0]
+        active = np.zeros(M, dtype=bool)
+        G = static.G_rows.tocsr(copy=True)
+
+        for row_id, (spec_idx, direction) in enumerate(self._row_specs):
+            spec = self._bound_rows[spec_idx]
+            ei_list = spec["edge_i_list"] if spec.get("agg") else [spec["edge_i"]]
+
+            if direction == "upper":
+                value = spec["bu_by_t"].get(ti)
+                if value is None:
+                    continue
+                coeff = -value
+            else:
+                value = spec["bl_by_t"].get(ti)
+                if value is None:
+                    continue
+                coeff = value
+
+            active[row_id] = True
+            cols_row = G.indices[G.indptr[row_id]: G.indptr[row_id + 1]]
+            data_row = G.data[G.indptr[row_id]: G.indptr[row_id + 1]]
+            ei_set = set(int(e) for e in ei_list)
+            for k, col in enumerate(cols_row):
+                if int(col) in ei_set:
+                    data_row[k] = coeff
 
         return ConstraintBlock(
-            G_rows   = static.G_rows,
-            c        = c,
+            G_rows   = G,
+            c        = static.c,
             sigma_c  = static.sigma_c,
             row_meta = static.row_meta,
+            active   = active,
         )
 
 

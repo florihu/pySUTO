@@ -2,17 +2,18 @@
 run.py
 ======
 ``ConstraintRun`` — the persisted output of one :class:`ConstraintEngine`
-run. Saved to disk by :class:`ConstraintRunRegistry`
-(in :mod:`pysuto.registry`).
+run under the structural model. Saved to disk by
+:class:`ConstraintRunRegistry` (in :mod:`pysuto.registry`).
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 import numpy as np
 import pandas as pd
-import scipy.sparse as sp
+
+from .struct_g import StructG
 
 
 @dataclass
@@ -20,36 +21,53 @@ class ConstraintRun:
     """
     Full output of one ConstraintEngine.run() call.
 
-    G              : sparse (M × E), legacy monolithic constraint matrix
-    G_blocks       : dict t → sparse (M_t × E_t); per-t partition of G with cols
-                     restricted to edges whose acc.edge_index.time == t. No
-                     cross-time coupling exists in any builder, so G is exactly
-                     block-diagonal by t and the partition is lossless.
-    edge_cols_by_t : dict t → np.ndarray of global edge_id columns belonging to t
-    row_meta       : DataFrame — one row per G row (constraint_id, type, is_hard, cone_type, time)
-    a0             : (E,) — a_agg at the first timestep (t=0 prior for optimiser)
-    sigma_a        : (E,) — sigma_agg
-    u              : (E,) — flow upper bounds
-    l              : (E,) — flow lower bounds
-    timestep_data  : dict mapping timestep label → {"c": ..., "sigma_c": ...}
-    run_id         : unique identifier
-    acc_id         : AccountingStructure id
-    agg_id         : AggregationResult id (if available)
-    created_at     : ISO timestamp
+    G          : :class:`StructG` — structurally-invariant sparsity pattern
+                 plus a per-period coefficient tape of shape
+                 ``(nnz, n_timesteps)``.
+    row_meta   : DataFrame, one row per G row (constraint_id, type, is_hard,
+                 cone_type, ...). No ``time`` column under the structural
+                 model — per-period applicability lives in ``active``.
+    a0         : (n_edges,)            — structural warm-start seed
+                 (= ``a_agg[:, 0]``; the 1995 anchor).
+    sigma_a    : (n_edges, n_timesteps) — per-period prior σ.
+    u, l       : (n_edges,)            — flow upper / lower bounds.
+    c          : (n_constraints, n_timesteps) — per-period RHS.
+    sigma_c    : (n_constraints, n_timesteps) — per-period row σ
+                 (always 0 on hard rows).
+    active     : (n_constraints, n_timesteps) bool — per-period activation
+                 mask. Hard rows: when False the engine drops the row from
+                 the QP at that t. Free rows: when False the row is
+                 excluded from the objective at that t.
+    timesteps  : list[str] — the labels solved for, in order. Indexed by
+                 the second axis of ``c`` / ``sigma_c`` / ``sigma_a`` /
+                 ``active`` / ``G.data``.
+    run_id, acc_id, agg_id, created_at, label : provenance.
     """
-    G:              sp.csr_matrix
-    row_meta:       pd.DataFrame
-    a0:             np.ndarray
-    sigma_a:        np.ndarray
-    u:              np.ndarray
-    l:              np.ndarray
-    timestep_data:  dict
-    run_id:         str
-    acc_id:         str
-    agg_id:         str
-    created_at:     str
-    label:          str = ""
-    _p:             float = 1.3
-    G_blocks:       dict = field(default_factory=dict)
-    edge_cols_by_t: dict = field(default_factory=dict)
+    G:          StructG
+    row_meta:   pd.DataFrame
+    a0:         np.ndarray
+    sigma_a:    np.ndarray
+    u:          np.ndarray
+    l:          np.ndarray
+    c:          np.ndarray
+    sigma_c:    np.ndarray
+    active:     np.ndarray
+    timesteps:  list
+    run_id:     str
+    acc_id:     str
+    agg_id:     str
+    created_at: str
+    label:      str = ""
+    _p:         float = 1.3
 
+    @property
+    def n_edges(self) -> int:
+        return int(self.G.n_edges)
+
+    @property
+    def n_constraints(self) -> int:
+        return int(self.G.n_constraints)
+
+    @property
+    def n_timesteps(self) -> int:
+        return int(self.G.n_timesteps)

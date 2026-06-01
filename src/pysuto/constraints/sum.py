@@ -21,17 +21,13 @@ from .base import BaseConstraintBuilder, ConstraintBlock, _empty_block
 _log = get_logger(__name__)
 
 
-# σ_c sentinel used to deactivate a soft sum-constraint row in timesteps
-# whose year does not match the row's spec time. Effective when squared in
-# the objective: (1/σ_c)² = 1e-20, four orders below any realistic floor,
-# so the row's slack ε is essentially unpenalised → constraint inactive.
+# Legacy sentinel constants — kept for downstream code that still imports
+# the symbols (e.g. older registry payloads). The structural refactor moved
+# per-timestep activation to the first-class boolean ``ConstraintBlock.active``
+# tracked by :class:`pysuto.constraints.run.ConstraintRun`; new builders MUST
+# NOT write these sentinels into ``sigma_c`` / ``c`` — set ``active = False``
+# on the row instead.
 SIGMA_C_INACTIVE: float = 1e10
-
-# RHS sentinel used to deactivate a hard nonneg-cone ratio_bound row in
-# timesteps where it should not apply. Setting c = BOUND_C_INACTIVE turns
-# the row "A x ≤ c" into a no-op: with u_max = 1e9 and typical ratios
-# |r| ≤ 4000, worst-case |A x| ≤ 4e12 ≪ 1e15, so the inequality holds for
-# any feasible x. Used by RatioBoundBuilder.build_dynamic.
 BOUND_C_INACTIVE: float = 1e15
 
 
@@ -101,62 +97,57 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         sf_mask  = acc_struct.masks["supply"]
         uf_mask  = acc_struct.masks["use"]
         sb_mask  = acc_struct.masks["sb"]
-        t_arr    = ei["time"].values
         v_arr    = ei["valuation"].values
-        times    = acc_struct.time_range
         valuations = list(acc_struct.valuation)
         scope    = cls._resolve_scope_mask(acc_struct, mask)
 
         specs = []
-        for time in times:
-            t_mask_base = (t_arr == str(time)) & scope
-            for valuation in valuations:
-                t_mask = t_mask_base & (v_arr == valuation)
+        for valuation in valuations:
+            v_mask = (v_arr == valuation) & scope
+            # Anchor each row on supply edges of this valuation. Splitting
+            # by valuation keeps every emitted row unit-coherent.
+            supply_to_nodes = set(ei.loc[v_mask & sf_mask & ~sb_mask, "to_id"].values)
+            use_from_nodes  = set(ei.loc[v_mask & uf_mask, "from_id"].values)
+            balanced = supply_to_nodes & use_from_nodes
 
-                # Anchor each row on supply edges of this valuation. Splitting
-                # by valuation keeps every emitted row unit-coherent.
-                supply_to_nodes = set(ei.loc[t_mask & sf_mask & ~sb_mask, "to_id"].values)
-                use_from_nodes  = set(ei.loc[t_mask & uf_mask, "from_id"].values)
-                balanced = supply_to_nodes & use_from_nodes
+            for nid in sorted(balanced):
+                entity = str(ni.loc[nid, "entity"])
+                if entity not in entity_filter:
+                    continue
 
-                for nid in sorted(balanced):
-                    entity = str(ni.loc[nid, "entity"])
-                    if entity not in entity_filter:
-                        continue
+                sup_ids = ei.loc[
+                    v_mask & sf_mask & ~sb_mask & (ei["to_id"].values == nid),
+                    "edge_id",
+                ].values.tolist()
+                use_ids = ei.loc[
+                    v_mask & uf_mask & (ei["from_id"].values == nid),
+                    "edge_id",
+                ].values.tolist()
 
-                    sup_ids = ei.loc[
-                        t_mask & sf_mask & ~sb_mask & (ei["to_id"].values == nid),
-                        "edge_id",
-                    ].values.tolist()
-                    use_ids = ei.loc[
-                        t_mask & uf_mask & (ei["from_id"].values == nid),
-                        "edge_id",
-                    ].values.tolist()
+                if not sup_ids or not use_ids:
+                    continue
 
-                    if not sup_ids or not use_ids:
-                        continue
+                all_ids   = sup_ids + use_ids
+                all_coeff = [1.0] * len(sup_ids) + [-1.0] * len(use_ids)
+                n_row = ni.loc[nid]
 
-                    all_ids   = sup_ids + use_ids
-                    all_coeff = [1.0] * len(sup_ids) + [-1.0] * len(use_ids)
-                    n_row = ni.loc[nid]
-
-                    specs.append({
-                        "constraint_id":   f"useful_supply_node{nid}_t{time}_{valuation}",
-                        "description":     f"Useful supply balance node {nid} t={time} val={valuation}",
-                        "edge_ids":        all_ids,
-                        "coefficients":    all_coeff,
-                        "c_k":             0.0,
-                        "sigma_ck_mode":   "fraction_of_flow",
-                        "sigma_ck_value":  0.0,
-                        "sigma_ck_fraction": sigma_fraction,
-                        "_supply_ids":     sup_ids,
-                        "time":            str(time),
-                        "valuation":       valuation,
-                        "sector":          str(n_row["sector"]),
-                        "region":          str(n_row["region"]),
-                        "entity":          str(n_row["entity"]),
-                        "entity_sub":      str(n_row.get("entity_sub", "")) if "entity_sub" in ni.columns else None,
-                    })
+                specs.append({
+                    "constraint_id":   f"useful_supply_node{nid}_{valuation}",
+                    "description":     f"Useful supply balance node {nid} val={valuation}",
+                    "edge_ids":        all_ids,
+                    "coefficients":    all_coeff,
+                    "c_k":             0.0,
+                    "sigma_ck_mode":   "fraction_of_flow",
+                    "sigma_ck_value":  0.0,
+                    "sigma_ck_fraction": sigma_fraction,
+                    "_supply_ids":     sup_ids,
+                    "time":            None,
+                    "valuation":       valuation,
+                    "sector":          str(n_row["sector"]),
+                    "region":          str(n_row["region"]),
+                    "entity":          str(n_row["entity"]),
+                    "entity_sub":      str(n_row.get("entity_sub", "")) if "entity_sub" in ni.columns else None,
+                })
 
         return cls(specs, sigma_fraction=sigma_fraction)
 
@@ -199,9 +190,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         """
         ei    = acc_struct.edge_index
         ni    = acc_struct.node_index
-        t_arr = ei["time"].values
         v_arr = ei["valuation"].values
-        times = acc_struct.time_range
         valuations = list(acc_struct.valuation)
         scope = cls._resolve_scope_mask(acc_struct, mask)
 
@@ -215,70 +204,68 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         to_ids          = ei["to_id"].values
 
         specs = []
-        for time in times:
-            t_mask_base = (t_arr == str(time)) & scope
-            for valuation in valuations:
-                t_mask = t_mask_base & (v_arr == valuation)
+        for valuation in valuations:
+            v_mask = (v_arr == valuation) & scope
 
-                # Nodes of the right entity type that appear at (time, valuation)
-                node_ids = sorted(set(
-                    ni.index[ni["entity"].isin(entity_filter)].tolist()
-                ) & (
-                    set(from_ids[t_mask]) | set(to_ids[t_mask])
-                ))
+            # Nodes of the right entity type that appear at this valuation
+            node_ids = sorted(set(
+                ni.index[ni["entity"].isin(entity_filter)].tolist()
+            ) & (
+                set(from_ids[v_mask]) | set(to_ids[v_mask])
+            ))
 
-                for nid in node_ids:
-                    lhs_pos, lhs_neg, rhs_ids = [], [], []
+            for nid in node_ids:
+                lhs_pos, lhs_neg, rhs_ids = [], [], []
 
-                    in_mask = t_mask & (to_ids == nid)
-                    for eid, other_entity, other_sub in zip(
-                        eids[in_mask], from_entity[in_mask], from_entity_sub[in_mask]
-                    ):
-                        if other_entity in rhs_in_entity:
-                            rhs_ids.append(eid)
-                        else:
-                            lhs_pos.append(eid)
+                in_mask = v_mask & (to_ids == nid)
+                for eid, other_entity, other_sub in zip(
+                    eids[in_mask], from_entity[in_mask], from_entity_sub[in_mask]
+                ):
+                    if other_entity in rhs_in_entity:
+                        rhs_ids.append(eid)
+                    else:
+                        lhs_pos.append(eid)
 
-                    out_mask = t_mask & (from_ids == nid)
-                    for eid, other_entity, other_sub in zip(
-                        eids[out_mask], to_entity[out_mask], to_entity_sub[out_mask]
-                    ):
-                        other_sub_str = str(other_sub) if other_sub is not None and str(other_sub) != "nan" else None
-                        if other_entity in rhs_out_entity or other_sub_str in rhs_out_entity_sub:
-                            rhs_ids.append(eid)
-                        elif other_sub_str in lhs_neg_out_entity_sub:
-                            lhs_neg.append(eid)
-                        else:
-                            lhs_pos.append(eid)
+                out_mask = v_mask & (from_ids == nid)
+                for eid, other_entity, other_sub in zip(
+                    eids[out_mask], to_entity[out_mask], to_entity_sub[out_mask]
+                ):
+                    other_sub_str = str(other_sub) if other_sub is not None and str(other_sub) != "nan" else None
+                    if other_entity in rhs_out_entity or other_sub_str in rhs_out_entity_sub:
+                        rhs_ids.append(eid)
+                    elif other_sub_str in lhs_neg_out_entity_sub:
+                        lhs_neg.append(eid)
+                    else:
+                        lhs_pos.append(eid)
 
-                    lhs_edges = lhs_pos + lhs_neg
-                    if not lhs_edges or not rhs_ids:
-                        continue
+                lhs_edges = lhs_pos + lhs_neg
+                if not lhs_edges or not rhs_ids:
+                    continue
 
-                    all_ids   = lhs_pos + lhs_neg
-                    all_coeff = [1.0] * len(lhs_pos) + [-1.0] * len(lhs_neg)
-                    n_row = ni.loc[nid]
+                all_ids   = lhs_pos + lhs_neg
+                all_coeff = [1.0] * len(lhs_pos) + [-1.0] * len(lhs_neg)
+                n_row = ni.loc[nid]
 
-                    spec: dict = {
-                        "constraint_id":   f"sub_entity_node{nid}_t{time}_{valuation}",
-                        "description":     f"Subentity sum node {nid} t={time} val={valuation}",
-                        "edge_ids":        all_ids,
-                        "coefficients":    all_coeff,
-                        "c_k":             0.0,
-                        "sigma_ck_mode":   sigma_mode,
-                        "sigma_ck_value":  0.0,
-                        "sigma_ck_fraction": sigma_fraction,
-                        "_rhs_ids":        rhs_ids,
-                        "time":            str(time),
-                        "valuation":       valuation,
-                        "sector":          str(n_row["sector"]),
-                        "region":          str(n_row["region"]),
-                        "entity":          str(n_row["entity"]),
-                        "entity_sub":      str(n_row.get("entity_sub", "")) if "entity_sub" in ni.columns else None,
-                    }
-                    if sigma_mode == "fraction_of_flow":
-                        spec["_supply_ids"] = rhs_ids
-                    specs.append(spec)
+                spec: dict = {
+                    "constraint_id":   f"sub_entity_node{nid}_{valuation}",
+                    "description":     f"Subentity sum node {nid} val={valuation}",
+                    "edge_ids":        all_ids,
+                    "coefficients":    all_coeff,
+                    "c_k":             0.0,
+                    "sigma_ck_mode":   sigma_mode,
+                    "sigma_ck_value":  0.0,
+                    "sigma_ck_fraction": sigma_fraction,
+                    "_rhs_ids":        rhs_ids,
+                    "time":            None,
+                    "valuation":       valuation,
+                    "sector":          str(n_row["sector"]),
+                    "region":          str(n_row["region"]),
+                    "entity":          str(n_row["entity"]),
+                    "entity_sub":      str(n_row.get("entity_sub", "")) if "entity_sub" in ni.columns else None,
+                }
+                if sigma_mode == "fraction_of_flow":
+                    spec["_supply_ids"] = rhs_ids
+                specs.append(spec)
 
         _log.info(
             "SumConstraintBuilder.from_acc_struct_subentity: %d specs (entity_filter=%s)",
@@ -437,7 +424,11 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                 "type":          "sum_eq",
                 "is_hard":       False,
                 "cone_type":     "free",
-                "time":          spec.get("time"),
+                # ``year_lock`` carries the spec's period-selector for CSV
+                # constraints that are year-locked; the engine reads this
+                # alongside the per-period ``active`` mask. Auto-derived
+                # rows have ``year_lock = None`` (always active).
+                "year_lock":     spec.get("time"),
                 "valuation":     spec.get("valuation"),
                 "sector":        spec.get("sector"),
                 "region":        spec.get("region"),
@@ -472,36 +463,30 @@ class SumConstraintBuilder(BaseConstraintBuilder):
 
     def build_dynamic(self, acc_struct, a_agg, sigma_agg, t) -> ConstraintBlock:
         """
-        Assemble (c, σ_c) for this builder at timestep ``t``.
+        Per-period (c, σ_c, active) overlay at ``t``.
 
-        Rows whose spec has ``time != t`` are *deactivated* for this
-        timestep: ``c = 0`` and ``σ_c = SIGMA_C_INACTIVE`` so the row's
-        slack ε is essentially unpenalised in the objective. Rows with
-        ``spec["time"] is None`` (time-agnostic, e.g. hand-written CSV
-        constraints with wildcard time) stay active for every timestep.
-
-        This is what turns the per-timestep loop in
-        ``ConstraintEngine.run`` into real per-year solves — without it,
-        ``c(t)`` and ``σ_c(t)`` would be identical for every t.
+        ``a_agg`` and ``sigma_agg`` are the 1-D period slices for ``t``
+        (shape ``(n_edges,)``). The row's ``active`` flag is False for any
+        spec with a non-matching ``year_lock`` — the engine drops the row
+        from the objective for that period rather than relying on a
+        sentinel σ_c value.
         """
-        has_fraction = any(s["sigma_ck_mode"] == "fraction_of_flow" for s in self._specs)
-        has_p_mean   = any(s["sigma_ck_mode"] == "p_mean" for s in self._specs)
-        any_per_year = any(s.get("time") is not None for s in self._specs)
-        if not (has_fraction or has_p_mean or any_per_year):
+        static  = getattr(self, "_cached_static", None) or self.build_static(acc_struct)
+        if static.G_rows.shape[0] == 0:
             return _empty_block(acc_struct.n_edges)
 
-        static  = getattr(self, "_cached_static", None) or self.build_static(acc_struct)
         c_out   = static.c.copy()
         sigma_c = static.sigma_c.copy()
+        active  = np.ones(len(self._specs), dtype=bool)
         t_str   = str(t)
 
         for i, spec in enumerate(self._specs):
             spec_time = spec.get("time")
-            active = (spec_time is None) or (str(spec_time) == t_str)
-
-            if not active:
+            if spec_time is not None and str(spec_time) != t_str:
+                # Year-locked row not applicable at this t — deactivate.
+                active[i] = False
                 c_out[i]   = 0.0
-                sigma_c[i] = SIGMA_C_INACTIVE
+                sigma_c[i] = 0.0
                 continue
 
             mode = spec["sigma_ck_mode"]
@@ -520,6 +505,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
             c        = c_out,
             sigma_c  = sigma_c,
             row_meta = static.row_meta,
+            active   = active,
         )
 
 
