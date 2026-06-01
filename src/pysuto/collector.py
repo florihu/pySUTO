@@ -15,7 +15,7 @@ Usage
     collector.select(["feed_baci_20260430_..._abcd"])  # bare run-id also OK
 
     agg_result = collector.aggregate()
-    # agg_result.f_agg    [N_r]       inverse-variance weighted mean
+    # agg_result.a_agg    [N_r]       inverse-variance weighted mean
     # agg_result.sigma_agg[N_r]       combined uncertainty
     # agg_result.Omega    [N_f × N_r] provenance weight matrix
     # agg_result.coverage [N_r] bool  True where ≥1 feed covers the edge
@@ -206,7 +206,7 @@ class FeedCollector:
 
         Returns
         -------
-        AggregationResult with f_agg, sigma_agg, Omega, F, Sigma, coverage.
+        AggregationResult with a_agg, sigma_agg, Omega, F, Sigma, coverage.
 
         Raises
         ------

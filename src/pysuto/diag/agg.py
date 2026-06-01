@@ -3,7 +3,7 @@ agg.py
 ======
 ``AggDiagnostic`` — Stage 2 aggregation diagnostic suite.
 
-Per-feed coverage, Omega weights, f_agg/σ_agg distributions.
+Per-feed coverage, Omega weights, a_agg/σ_agg distributions.
 """
 
 from __future__ import annotations
@@ -24,9 +24,9 @@ class AggDiagnostic:
 
     Produces one figure ``<label>_agg_distributions.png`` with a 2×2 panel:
 
-        [0,0]  log10 |f_agg| histogram of covered edges
+        [0,0]  log10 |a_agg| histogram of covered edges
         [0,1]  log10 σ_agg histogram
-        [1,0]  log10 CV histogram (CV = σ_agg / |f_agg|), with vertical
+        [1,0]  log10 CV histogram (CV = σ_agg / |a_agg|), with vertical
                reference lines at CV = 0.1, 1, 10, 100
         [1,1]  per-feed scatter: |f_root| vs σ_root for every feed × edge,
                one colour per feed_id, log–log axes. The diagonal CV=1 line
@@ -39,7 +39,7 @@ class AggDiagnostic:
     Parameters
     ----------
     agg_result : AggregationResult
-        Output of ``FeedCollector.aggregate()`` — uses ``f_agg``, ``sigma_agg``,
+        Output of ``FeedCollector.aggregate()`` — uses ``a_agg``, ``sigma_agg``,
         ``coverage`` (Stage 2a aggregated quantities) and ``F``, ``Sigma``,
         ``feed_ids`` (Stage 1 per-feed observations).
     label : str
@@ -48,11 +48,11 @@ class AggDiagnostic:
 
     def __init__(self, agg_result, acc_struct=None, label: str = "") -> None:
         # Snapshot the arrays we need at construction time, because
-        # ImputationEngine.run() mutates agg_result.f_agg / sigma_agg in place.
+        # ImputationEngine.run() mutates agg_result.a_agg / sigma_agg in place.
         # The per-feed F / Sigma matrices are not mutated by imputation.
         self.label      = label
         self.acc_struct = acc_struct
-        self._f_agg     = np.array(agg_result.f_agg, dtype=float, copy=True)
+        self._f_agg     = np.array(agg_result.a_agg, dtype=float, copy=True)
         self._sigma_agg = np.array(agg_result.sigma_agg, dtype=float, copy=True)
         self._coverage  = np.array(agg_result.coverage, dtype=bool, copy=True)
         self._F         = np.array(agg_result.F, dtype=float, copy=True)
@@ -106,7 +106,7 @@ class AggDiagnostic:
 
     def summary(self) -> str:
         """Print and return a one-block text summary of f, σ, CV, and outliers."""
-        f_agg     = self._f_agg
+        a_agg     = self._f_agg
         sigma_agg = self._sigma_agg
         coverage  = self._coverage
         F_mat     = self._F
@@ -114,7 +114,7 @@ class AggDiagnostic:
 
         # Aggregated CV
         with np.errstate(divide="ignore", invalid="ignore"):
-            cv_agg = np.where(np.abs(f_agg) > 0, sigma_agg / np.abs(f_agg), np.nan)
+            cv_agg = np.where(np.abs(a_agg) > 0, sigma_agg / np.abs(a_agg), np.nan)
         cv_valid = cv_agg[coverage & np.isfinite(cv_agg)]
 
         def _pct(x: np.ndarray, q: float) -> float:
@@ -131,11 +131,11 @@ class AggDiagnostic:
 
         lines: list[str] = []
         lines.append(f"AggDiagnostic ({self.label or 'unlabeled'})")
-        lines.append(f"  covered edges: {int(coverage.sum())} / {f_agg.size}")
+        lines.append(f"  covered edges: {int(coverage.sum())} / {a_agg.size}")
         lines.append(
-            f"  f_agg  : p50={_pct(np.abs(f_agg[coverage]), 50):.3g}  "
-            f"p99={_pct(np.abs(f_agg[coverage]), 99):.3g}  "
-            f"max={float(np.nanmax(np.abs(f_agg[coverage]))) if coverage.any() else float('nan'):.3g}"
+            f"  a_agg  : p50={_pct(np.abs(a_agg[coverage]), 50):.3g}  "
+            f"p99={_pct(np.abs(a_agg[coverage]), 99):.3g}  "
+            f"max={float(np.nanmax(np.abs(a_agg[coverage]))) if coverage.any() else float('nan'):.3g}"
         )
         lines.append(
             f"  σ_agg  : p50={_pct(sigma_agg[coverage], 50):.3g}  "
@@ -169,7 +169,7 @@ class AggDiagnostic:
     def _fig_distributions(self):
         import matplotlib.pyplot as plt
 
-        f_agg     = self._f_agg
+        a_agg     = self._f_agg
         sigma_agg = self._sigma_agg
         coverage  = self._coverage
         F_mat     = self._F
@@ -180,14 +180,14 @@ class AggDiagnostic:
         title = f"Aggregation diagnostics — {self.label}" if self.label else "Aggregation diagnostics"
         fig.suptitle(title, fontsize=13, fontweight="bold")
 
-        # [0,0] log10 |f_agg|
+        # [0,0] log10 |a_agg|
         ax = axes[0, 0]
-        f_pos = np.abs(f_agg[coverage])
+        f_pos = np.abs(a_agg[coverage])
         f_pos = f_pos[f_pos > 0]
         if f_pos.size:
             ax.hist(np.log10(f_pos), bins=60, color=_C["blue"], alpha=0.8)
-        ax.set_title("|f_agg|  (log10)", fontweight="bold")
-        ax.set_xlabel("log10 |f_agg|")
+        ax.set_title("|a_agg|  (log10)", fontweight="bold")
+        ax.set_xlabel("log10 |a_agg|")
         ax.set_ylabel("count")
         ax.grid(alpha=0.3)
 
@@ -205,7 +205,7 @@ class AggDiagnostic:
         # [1,0] log10 CV with reference lines at 0.1, 1, 10, 100
         ax = axes[1, 0]
         with np.errstate(divide="ignore", invalid="ignore"):
-            cv_agg = np.where(np.abs(f_agg) > 0, sigma_agg / np.abs(f_agg), np.nan)
+            cv_agg = np.where(np.abs(a_agg) > 0, sigma_agg / np.abs(a_agg), np.nan)
         cv_valid = cv_agg[coverage & np.isfinite(cv_agg) & (cv_agg > 0)]
         if cv_valid.size:
             ax.hist(np.log10(cv_valid), bins=60, color=_C["purple"], alpha=0.8)
@@ -214,7 +214,7 @@ class AggDiagnostic:
             ax.text(np.log10(ref), ax.get_ylim()[1] * 0.95, lbl,
                     rotation=90, fontsize=8, va="top", ha="right",
                     color=_C["red"], alpha=0.8)
-        ax.set_title("CV = σ_agg / |f_agg|  (log10)", fontweight="bold")
+        ax.set_title("CV = σ_agg / |a_agg|  (log10)", fontweight="bold")
         ax.set_xlabel("log10 CV")
         ax.set_ylabel("count")
         ax.grid(alpha=0.3)

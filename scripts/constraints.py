@@ -114,8 +114,8 @@ def main(imp_run_id: str, label: str) -> None:
     _log.info("Loading imputation run from %s", IMP_DIR)
     imp_registry = ImputationRunRegistry(storage_dir=IMP_DIR)
     agg_result = imp_registry.load(imp_run_id)
-    _log.info("  f_agg shape=%s  coverage=%d edges  imp_run_id=%s",
-              agg_result.f_agg.shape, agg_result.coverage.sum(), imp_run_id)
+    _log.info("  a_agg shape=%s  coverage=%d edges  imp_run_id=%s",
+              agg_result.a_agg.shape, agg_result.coverage.sum(), imp_run_id)
 
     # ── A2. Cross-stage consistency: imp must reference same acc.id+version
     imp_sidecar = imp_registry.load_sidecar(imp_run_id)

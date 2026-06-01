@@ -123,7 +123,7 @@ class ImputationEngine:
         self._imputers.append(imputer)
 
     def run(self, agg_result: AggregationResult) -> AggregationResult:
-        f     = agg_result.f_agg.copy()
+        f     = agg_result.a_agg.copy()
         sigma = agg_result.sigma_agg.copy()
         log   = ImputationLog()
         meta  = ImputationMetadata()
@@ -194,7 +194,7 @@ class ImputationEngine:
                 "pct_additionally_filled": round(100 * n_filled / n_total, 2),
             })
 
-        agg_result.f_agg               = f
+        agg_result.a_agg               = f
         agg_result.sigma_agg           = sigma
         agg_result.imputation_log      = log
         agg_result.imputation_metadata = meta

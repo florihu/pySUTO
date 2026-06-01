@@ -98,7 +98,7 @@ class ClarabelSolver:
     - **Warm-start prior across time.** The prior ``a_0(t)`` in the
       objective is the previous timestep's optimum:
 
-          a_0(0) = ConstraintRun.a0       (Stage 2 f_agg)
+          a_0(0) = ConstraintRun.a0       (Stage 2 a_agg)
           a_0(t) = F_opt(t-1)             for t > 0
 
       σ_a is held constant across timesteps (= ``ConstraintRun.sigma_a``);

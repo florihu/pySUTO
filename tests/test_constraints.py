@@ -121,14 +121,14 @@ def _make_toy_acc(with_bounds: bool = True):
 def _make_toy_agg_result(acc, seed: int = 42):
     """Return a minimal AggregationResult-like namespace for toy_acc."""
     rng     = np.random.default_rng(seed)
-    f_agg   = rng.uniform(1.0, 100.0, size=acc.n_edges)
+    a_agg   = rng.uniform(1.0, 100.0, size=acc.n_edges)
     sigma_a = rng.uniform(0.1, 10.0, size=acc.n_edges)
 
     class _R:
         pass
 
     r           = _R()
-    r.f_agg     = f_agg
+    r.a_agg     = a_agg
     r.sigma_agg = sigma_a
     return r
 
@@ -270,7 +270,7 @@ class TestSumConstraintBuilder:
             assert np.allclose(b_t0.sigma_c[active_t1], SIGMA_C_INACTIVE)
 
     def test_sum_sigma_c_scales_with_magnitude(self, toy_acc):
-        """sigma_c from fraction_of_flow doubles when f_agg doubles, for
+        """sigma_c from fraction_of_flow doubles when a_agg doubles, for
         rows whose spec time matches the requested timestep. Rows whose
         spec belongs to a different year are deactivated (σ_c =
         SIGMA_C_INACTIVE) and therefore have ratio 1.0."""
@@ -280,16 +280,16 @@ class TestSumConstraintBuilder:
             pass
 
         r1         = _R()
-        r1.f_agg   = np.ones(toy_acc.n_edges) * 10.0
+        r1.a_agg   = np.ones(toy_acc.n_edges) * 10.0
         r1.sigma_agg = np.ones(toy_acc.n_edges)
 
         r2         = _R()
-        r2.f_agg   = np.ones(toy_acc.n_edges) * 20.0
+        r2.a_agg   = np.ones(toy_acc.n_edges) * 20.0
         r2.sigma_agg = np.ones(toy_acc.n_edges)
 
         builder = SumConstraintBuilder.from_acc_struct(toy_acc, sigma_fraction=0.1)
-        b1 = builder.build_dynamic(toy_acc, r1.f_agg, r1.sigma_agg, "2020")
-        b2 = builder.build_dynamic(toy_acc, r2.f_agg, r2.sigma_agg, "2020")
+        b1 = builder.build_dynamic(toy_acc, r1.a_agg, r1.sigma_agg, "2020")
+        b2 = builder.build_dynamic(toy_acc, r2.a_agg, r2.sigma_agg, "2020")
 
         assert b1.G_rows.shape[0] > 0, "Should have at least one dynamic row"
 
@@ -298,7 +298,7 @@ class TestSumConstraintBuilder:
 
         ratio_active = b2.sigma_c[active] / b1.sigma_c[active]
         assert np.allclose(ratio_active, 2.0, rtol=0.01), \
-            "σ_c on active rows should double when f_agg doubles"
+            "σ_c on active rows should double when a_agg doubles"
 
         # Deactivated rows (spec time != 2020) stay pinned at the sentinel.
         if (~active).any():

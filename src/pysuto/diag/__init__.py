@@ -7,7 +7,7 @@ Public surface (re-exported here so call sites can keep using
 * :class:`FeedDiagnostics`   — Stage 1: feed reading, concordance coverage,
                                 F_src distribution, CV propagation.
 * :class:`AggDiagnostic`     — Stage 2: aggregation coverage, Omega weights,
-                                f_agg/σ_agg distributions.
+                                a_agg/σ_agg distributions.
 * :class:`ImpDiagnostic`     — Stage 2: per-step imputation distributions,
                                 coverage evolution, TimeImputer timeseries.
 * :class:`ConstDiagnostic`   — Stage 3: G-matrix sparsity, prior distribution,

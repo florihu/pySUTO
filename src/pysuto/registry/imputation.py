@@ -27,7 +27,7 @@ class ImputationRunRegistry(BaseOutputRegistry):
         ├── registry.json
         └── imp_<ts>_<code>/
             ├── metadata.json          ← harmonized sidecar
-            ├── agg_result.npz         ← f_agg, sigma_agg, Omega, F, Σ, coverage, feed_ids
+            ├── agg_result.npz         ← a_agg, sigma_agg, Omega, F, Σ, coverage, feed_ids
             └── imputation_log.parquet
     """
 
@@ -86,7 +86,7 @@ class ImputationRunRegistry(BaseOutputRegistry):
         # 1. arrays
         np.savez(
             os.path.join(run_dir, "agg_result.npz"),
-            f_agg     = agg_result.f_agg,
+            a_agg     = agg_result.a_agg,
             sigma_agg = agg_result.sigma_agg,
             Omega     = agg_result.Omega,
             F         = agg_result.F,
@@ -114,9 +114,9 @@ class ImputationRunRegistry(BaseOutputRegistry):
                     rec["config"] = imp.config() if hasattr(imp, "config") else {}
 
         # 4. summary numbers
-        n_total   = int(agg_result.f_agg.shape[0])
+        n_total   = int(agg_result.a_agg.shape[0])
         n_imputed = int(len(log_df))
-        n_after   = int(np.isfinite(agg_result.f_agg).sum())
+        n_after   = int(np.isfinite(agg_result.a_agg).sum())
         n_before  = int(agg_result.coverage.sum())
 
         summary = (stage_summary or {}) | {
@@ -169,7 +169,7 @@ class ImputationRunRegistry(BaseOutputRegistry):
             log_obj.extend(df.to_dict("records"))
 
         result = AggregationResult(
-            f_agg     = data["f_agg"],
+            a_agg     = data["a_agg"],
             sigma_agg = data["sigma_agg"],
             Omega     = data["Omega"],
             F         = data["F"],

@@ -27,7 +27,7 @@ class ConstraintRun:
                      block-diagonal by t and the partition is lossless.
     edge_cols_by_t : dict t → np.ndarray of global edge_id columns belonging to t
     row_meta       : DataFrame — one row per G row (constraint_id, type, is_hard, cone_type, time)
-    a0             : (E,) — f_agg at the first timestep (t=0 prior for optimiser)
+    a0             : (E,) — a_agg at the first timestep (t=0 prior for optimiser)
     sigma_a        : (E,) — sigma_agg
     u              : (E,) — flow upper bounds
     l              : (E,) — flow lower bounds

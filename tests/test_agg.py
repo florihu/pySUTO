@@ -45,25 +45,25 @@ def _lp_sigma_agg(Omega: np.ndarray, Sigma: np.ndarray, p: float) -> np.ndarray:
 class TestAggregationMath:
 
     def test_single_feed_passthrough(self):
-        """One feed: f_agg == F[0] and sigma_agg == Sigma[0] where covered."""
+        """One feed: a_agg == F[0] and sigma_agg == Sigma[0] where covered."""
         F     = np.array([[10.0, 20.0, np.nan]])
         Sigma = np.array([[2.0,  4.0,  np.nan]])
         res   = _run(F, Sigma)
 
-        np.testing.assert_allclose(res.f_agg[:2],     [10.0, 20.0], rtol=1e-12)
+        np.testing.assert_allclose(res.a_agg[:2],     [10.0, 20.0], rtol=1e-12)
         np.testing.assert_allclose(res.sigma_agg[:2], [2.0,  4.0],  rtol=1e-12)
-        assert np.isnan(res.f_agg[2])
+        assert np.isnan(res.a_agg[2])
         assert np.isnan(res.sigma_agg[2])
 
     def test_two_feeds_equal_sigma_averages_f(self):
-        """Equal sigmas → each feed gets weight 0.5 → f_agg is arithmetic mean."""
+        """Equal sigmas → each feed gets weight 0.5 → a_agg is arithmetic mean."""
         F     = np.array([[10.0, 30.0],
                           [20.0, 10.0]])
         Sigma = np.array([[5.0, 5.0],
                           [5.0, 5.0]])
         res   = _run(F, Sigma)
 
-        np.testing.assert_allclose(res.f_agg, [15.0, 20.0], rtol=1e-12)
+        np.testing.assert_allclose(res.a_agg, [15.0, 20.0], rtol=1e-12)
         np.testing.assert_allclose(res.Omega, 0.5 * np.ones((2, 2)), rtol=1e-12)
 
     def test_lower_sigma_gets_higher_weight(self):
@@ -76,8 +76,8 @@ class TestAggregationMath:
 
         # P = [1, 0.01]  →  Omega = [1/1.01, 0.01/1.01]
         assert res.Omega[0, 0] > res.Omega[1, 0]
-        # f_agg should be closer to 100 than to 200
-        assert abs(res.f_agg[0] - 100.0) < abs(res.f_agg[0] - 200.0)
+        # a_agg should be closer to 100 than to 200
+        assert abs(res.a_agg[0] - 100.0) < abs(res.a_agg[0] - 200.0)
 
     def test_omega_sums_to_one_per_covered_column(self):
         """Key invariant: Omega columns sum to 1 wherever coverage is True."""
@@ -123,12 +123,12 @@ class TestAggregationMath:
         np.testing.assert_array_equal(res.coverage, [True, True, False])
 
     def test_uncovered_edges_are_nan(self):
-        """Edges with no coverage → f_agg NaN and sigma_agg NaN."""
+        """Edges with no coverage → a_agg NaN and sigma_agg NaN."""
         F     = np.array([[np.nan], [np.nan]])
         Sigma = np.array([[np.nan], [np.nan]])
         res   = _run(F, Sigma)
 
-        assert np.isnan(res.f_agg[0])
+        assert np.isnan(res.a_agg[0])
         assert np.isnan(res.sigma_agg[0])
         assert not res.coverage[0]
 
@@ -139,11 +139,11 @@ class TestAggregationMath:
         Feed 0: F=[10, 20, NaN], Sigma=[2, 4, NaN]
         Feed 1: F=[12, NaN, 30], Sigma=[3, NaN, 5]
 
-        f_agg / Omega: unchanged from inverse-variance BLUE.
-        Edge 0: P=[1/4, 1/9] → Omega=[9/13, 4/13]; f_agg = 138/13;
+        a_agg / Omega: unchanged from inverse-variance BLUE.
+        Edge 0: P=[1/4, 1/9] → Omega=[9/13, 4/13]; a_agg = 138/13;
                 σ_agg(p=2) = 1/sqrt(P_sum) = 6/sqrt(13)
-        Edge 1 (feed 0 only): f_agg=20, σ_agg=4
-        Edge 2 (feed 1 only): f_agg=30, σ_agg=5
+        Edge 1 (feed 0 only): a_agg=20, σ_agg=4
+        Edge 2 (feed 1 only): a_agg=30, σ_agg=5
         """
         F     = np.array([[10.0, 20.0, np.nan],
                           [12.0, np.nan, 30.0]])
@@ -156,7 +156,7 @@ class TestAggregationMath:
         expected_omega = np.array([[9 / 13, 1.0, 0.0],
                                    [4 / 13, 0.0, 1.0]])
 
-        np.testing.assert_allclose(res.f_agg,     expected_f,     rtol=1e-10)
+        np.testing.assert_allclose(res.a_agg,     expected_f,     rtol=1e-10)
         np.testing.assert_allclose(res.sigma_agg, expected_sigma, rtol=1e-10)
         np.testing.assert_allclose(res.Omega,     expected_omega, atol=1e-12)
         np.testing.assert_array_equal(res.coverage, [True, True, True])
@@ -220,7 +220,7 @@ class TestAggregationResult:
 
     def test_shapes_consistent(self, result):
         N_f, N_r = result.n_feeds, result.n_edges
-        assert result.f_agg.shape     == (N_r,)
+        assert result.a_agg.shape     == (N_r,)
         assert result.sigma_agg.shape == (N_r,)
         assert result.coverage.shape  == (N_r,)
         assert result.Omega.shape     == (N_f, N_r)

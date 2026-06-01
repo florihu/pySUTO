@@ -59,7 +59,7 @@ class BaseConstraintBuilder(ABC):
 
     build_static()  — rows whose G coefficients never change across timesteps.
                       Called once per run.
-    build_dynamic() — rows whose c or sigma_c depend on f_agg / sigma_agg at time t.
+    build_dynamic() — rows whose c or sigma_c depend on a_agg / sigma_agg at time t.
                       Default: returns empty block (override only when needed).
     """
 
@@ -70,7 +70,7 @@ class BaseConstraintBuilder(ABC):
     def build_dynamic(
         self,
         acc_struct,
-        f_agg:     np.ndarray,
+        a_agg:     np.ndarray,
         sigma_agg: np.ndarray,
         t:         str,
     ) -> ConstraintBlock:

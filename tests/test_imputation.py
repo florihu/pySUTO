@@ -84,17 +84,16 @@ class MockAcc:
         2  Mining / Process / B
         3  Ore    / Flow    / B
 
-    Edges (edge_index), edge_id order:
-        0  0→1  t=2020  Mass   (supply: Mining_A → Ore_A, Mass)
-        1  2→3  t=2020  Mass   (supply: Mining_B → Ore_B, Mass)
-        2  0→1  t=2020  CC     (same pair, CC valuation)
-        3  2→3  t=2020  CC     (same pair, CC valuation)
-        4  1→0  t=2020  Mass   (use: Ore_A → Mining_A, Mass)
-        5  3→2  t=2020  Mass   (use: Ore_B → Mining_B, Mass)
-        6  0→1  t=2021  Mass   (same as 0, next time step)
-        7  2→3  t=2021  Mass   (same as 1, next time step)
-        8  0→1  t=2022  Mass   (same as 0, t+2)
-        9  2→3  t=2022  Mass   (same as 1, t+2)
+    Structural edges (no time column under the structural model):
+        0  0→1  Mass   (supply: Mining_A → Ore_A, Mass)
+        1  2→3  Mass   (supply: Mining_B → Ore_B, Mass)
+        2  0→1  CC     (same pair, CC valuation)
+        3  2→3  CC     (same pair, CC valuation)
+        4  1→0  Mass   (use: Ore_A → Mining_A, Mass)
+        5  3→2  Mass   (use: Ore_B → Mining_B, Mass)
+
+    The time dimension lives on per-period value arrays (a_agg etc.), not on
+    edge_index. time_range = ["2020", "2021", "2022"] gives n_timeps = 3.
 
     Bounds (bounds.l / bounds.u):
         Default l=0, u=1e9 for all edges.
@@ -117,26 +116,22 @@ class MockAcc:
         )
         self.edge_index = pd.DataFrame(
             {
-                "edge_id":   [0, 1, 2, 3, 4, 5, 6, 7, 8, 9],
-                "from_id":   [0, 2, 0, 2, 1, 3, 0, 2, 0, 2],
-                "to_id":     [1, 3, 1, 3, 0, 2, 1, 3, 1, 3],
-                "time":      ["2020","2020","2020","2020","2020","2020","2021","2021","2022","2022"],
-                "valuation": ["Mass","Mass","CC",  "CC",  "Mass","Mass","Mass","Mass","Mass","Mass"],
+                "edge_id":   [0, 1, 2, 3, 4, 5],
+                "from_id":   [0, 2, 0, 2, 1, 3],
+                "to_id":     [1, 3, 1, 3, 0, 2],
+                "valuation": ["Mass","Mass","CC", "CC", "Mass","Mass"],
             }
         )
-        self.bounds = MockAcc._Bounds(10)
-        self.n_edges = 10
-        # Edges 0..3, 6..9: Process→Flow → supply
-        # Edges 4,5: Flow→Process → use
+        self.time_range = ["2020", "2021", "2022"]
+        self.n_timeps   = 3
+        self.bounds = MockAcc._Bounds(6)
+        self.n_edges = 6
+        # Edges 0..3: Process→Flow → supply; edges 4,5: Flow→Process → use
         self.masks = {
-            "supply": np.array(
-                [True, True, True, True, False, False, True, True, True, True], dtype=bool,
-            ),
-            "use": np.array(
-                [False, False, False, False, True, True, False, False, False, False], dtype=bool,
-            ),
-            "tradable": np.zeros(10, dtype=bool),
-            "sb":       np.zeros(10, dtype=bool),
+            "supply":   np.array([True, True, True, True, False, False], dtype=bool),
+            "use":      np.array([False, False, False, False, True, True], dtype=bool),
+            "tradable": np.zeros(6, dtype=bool),
+            "sb":       np.zeros(6, dtype=bool),
         }
 
 
@@ -155,7 +150,7 @@ def _agg_result(f_values, sigma_values=None, n_feeds=1):
     F     = f[np.newaxis, :]
     Sigma = sigma[np.newaxis, :]
     return AggregationResult(
-        f_agg     = f.copy(),
+        a_agg     = f.copy(),
         sigma_agg = sigma.copy(),
         Omega     = np.where(np.isfinite(F), 1.0, 0.0),
         F         = F,
@@ -243,7 +238,7 @@ class TestImputationEngine:
         engine.register(imputer)
         result = engine.run(ar)
 
-        assert result.f_agg[2] == pytest.approx(5.0)
+        assert result.a_agg[2] == pytest.approx(5.0)
 
     def test_engine_pipeline_ordering(self, acc):
         """Second imputer sees fills produced by the first."""
@@ -261,8 +256,8 @@ class TestImputationEngine:
         engine.register(imp2)
         result = engine.run(ar)
 
-        assert result.f_agg[1] == pytest.approx(20.0)
-        assert result.f_agg[3] == pytest.approx(60.0)
+        assert result.a_agg[1] == pytest.approx(20.0)
+        assert result.a_agg[3] == pytest.approx(60.0)
 
     def test_engine_early_stop_when_nothing_missing(self, acc):
         """If all edges are covered, engine skips all imputers."""
@@ -1053,7 +1048,7 @@ class TestImputationEngineBounds:
         with warnings.catch_warnings():
             warnings.simplefilter("ignore", UserWarning)
             result = engine.run(ar)
-        assert result.f_agg[2] == pytest.approx(3.0)
+        assert result.a_agg[2] == pytest.approx(3.0)
 
     def test_engine_warns_on_clip_with_key_message_fields(self, acc):
         """Engine emits UserWarning containing 'clipped' and the bound value."""
@@ -1212,12 +1207,12 @@ class TestTimeImputerScoping:
         Sigma = np.full((2, 10), np.nan)
         F[0, [0, 8]] = [10.0, 20.0]; Sigma[0, [0, 8]] = 1.0   # crude_ore
         F[1, [1, 9]] = [30.0, 50.0]; Sigma[1, [1, 9]] = 1.0   # other
-        f_agg     = np.nanmean(F, axis=0)
+        a_agg     = np.nanmean(F, axis=0)
         sigma_agg = np.nanmean(Sigma, axis=0)
-        coverage  = np.isfinite(f_agg)
+        coverage  = np.isfinite(a_agg)
 
         ar = AggregationResult(
-            f_agg     = f_agg,
+            a_agg     = a_agg,
             sigma_agg = sigma_agg,
             Omega     = np.where(np.isfinite(F), 1.0, 0.0),
             F         = F,
@@ -1226,7 +1221,7 @@ class TestTimeImputerScoping:
             coverage  = coverage,
         )
 
-        f_work     = f_agg.copy()
+        f_work     = a_agg.copy()
         sigma_work = sigma_agg.copy()
         missing    = np.isnan(f_work)
 
@@ -1380,7 +1375,7 @@ class TestPipelineChaining:
         engine.register(imp1)
         engine.register(imp2)
         result = engine.run(ar)
-        assert result.f_agg[1] == pytest.approx(20.0)   # imp1's fill preserved
+        assert result.a_agg[1] == pytest.approx(20.0)   # imp1's fill preserved
 
     def test_pipeline_chaining_forward_use(self, acc):
         """
@@ -1397,8 +1392,8 @@ class TestPipelineChaining:
         engine.register(imp1)
         engine.register(imp2)
         result = engine.run(ar)
-        assert result.f_agg[1] == pytest.approx(20.0)   # filled by imp1
-        assert result.f_agg[3] == pytest.approx(60.0)   # derived from imp1's fill by imp2
+        assert result.a_agg[1] == pytest.approx(20.0)   # filled by imp1
+        assert result.a_agg[3] == pytest.approx(60.0)   # derived from imp1's fill by imp2
 
 
 # =============================================================================

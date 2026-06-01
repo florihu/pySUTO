@@ -112,7 +112,7 @@ def post_agg_diag(per_feed_results: list[dict]) -> dict:
     print("  agg_result keys:", keys)
 
     # Recompute aggregation directly from per-feed F and Sigma so we
-    # observe pre-imputation CVs only. f_agg/sigma_agg in the npz have
+    # observe pre-imputation CVs only. a_agg/sigma_agg in the npz have
     # been overwritten by the imputation pipeline.
     F = agg["F"]              # (N_f, N_r) per-feed flow, NaN where missing
     S = agg["Sigma"]          # (N_f, N_r) per-feed sigma, NaN where missing
@@ -159,7 +159,7 @@ def post_agg_diag(per_feed_results: list[dict]) -> dict:
         sign_pct = 0.0
         zero_pct = 0.0
 
-    # σ-driver: ratio of σ_agg / |f_agg| broken down by which feed dominates
+    # σ-driver: ratio of σ_agg / |a_agg| broken down by which feed dominates
     # the inverse-variance weight on that edge
     return dict(
         feed_ids=str(feed_ids),

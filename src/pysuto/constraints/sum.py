@@ -44,7 +44,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
       from_csv()        — loads user-defined sum constraints from a CSV file
 
     G rows are static (built once).  c and sigma_c are dynamic when
-    sigma_ck_mode == "fraction_of_flow" (depends on f_agg per timestep).
+    sigma_ck_mode == "fraction_of_flow" (depends on a_agg per timestep).
     For modes "sd" and "pedigree" the sigma_c is static too.
     """
 
@@ -470,7 +470,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         self._cached_static = block
         return block
 
-    def build_dynamic(self, acc_struct, f_agg, sigma_agg, t) -> ConstraintBlock:
+    def build_dynamic(self, acc_struct, a_agg, sigma_agg, t) -> ConstraintBlock:
         """
         Assemble (c, σ_c) for this builder at timestep ``t``.
 
@@ -507,12 +507,12 @@ class SumConstraintBuilder(BaseConstraintBuilder):
             mode = spec["sigma_ck_mode"]
             if mode == "fraction_of_flow":
                 sup_ids = spec.get("_supply_ids", spec["edge_ids"])
-                total   = float(np.nansum(np.abs(f_agg[sup_ids]))) if len(sup_ids) else 0.0
+                total   = float(np.nansum(np.abs(a_agg[sup_ids]))) if len(sup_ids) else 0.0
                 sigma_c[i] = spec["sigma_ck_fraction"] * total
             elif mode == "p_mean":
                 rhs = spec.get("_rhs_ids", [])
                 if rhs:
-                    c_out[i]   = float(np.nansum(f_agg[rhs]))
+                    c_out[i]   = float(np.nansum(a_agg[rhs]))
                     sigma_c[i] = float(np.nansum(sigma_agg[rhs] ** self._p) ** (1.0 / self._p))
 
         return ConstraintBlock(

@@ -178,7 +178,7 @@ class TestFeedCollectorAggregate:
 
     def test_aggregate_f_agg_has_correct_shape(self, collector):
         result = collector.select(["feed_a"]).aggregate()
-        assert result.f_agg.shape == (N_R,)
+        assert result.a_agg.shape == (N_R,)
 
     def test_aggregate_feed_ids_stored(self, collector):
         result = collector.select(["feed_a", "feed_b"]).aggregate()
@@ -199,8 +199,8 @@ class TestFeedCollectorCombination:
         assert result.n_covered == N_R
         assert result.n_missing == 0
 
-        # f_agg == F_AB on all covered edges (single feed, weight=1)
-        np.testing.assert_allclose(result.f_agg, F_AB, rtol=1e-12)
+        # a_agg == F_AB on all covered edges (single feed, weight=1)
+        np.testing.assert_allclose(result.a_agg, F_AB, rtol=1e-12)
 
         # sigma_agg == SIG_AB (single feed, no diversification)
         np.testing.assert_allclose(result.sigma_agg, SIG_AB, rtol=1e-12)
@@ -217,7 +217,7 @@ class TestFeedCollectorCombination:
         result = fc.select(["zero_feed"]).aggregate()
 
         assert result.n_covered == 0
-        assert np.all(np.isnan(result.f_agg))
+        assert np.all(np.isnan(result.a_agg))
 
     def test_non_overlapping_feeds_give_full_coverage(self, collector):
         """feed_a covers {0,3} and feed_b covers {1,2} → together all 4 edges."""
@@ -225,16 +225,16 @@ class TestFeedCollectorCombination:
         assert result.n_covered == N_R
 
     def test_non_overlapping_feeds_passthrough_values(self, collector):
-        """When no edge is shared, each covered f_agg equals that feed's F_root."""
+        """When no edge is shared, each covered a_agg equals that feed's F_root."""
         result = collector.select(["feed_a", "feed_b"]).aggregate()
 
         # feed_a owns edges 0 and 3 → Omega[0, {0,3}] == 1
-        np.testing.assert_allclose(result.f_agg[0], F_A[0], rtol=1e-12)
-        np.testing.assert_allclose(result.f_agg[3], F_A[3], rtol=1e-12)
+        np.testing.assert_allclose(result.a_agg[0], F_A[0], rtol=1e-12)
+        np.testing.assert_allclose(result.a_agg[3], F_A[3], rtol=1e-12)
 
         # feed_b owns edges 1 and 2
-        np.testing.assert_allclose(result.f_agg[1], F_B[1], rtol=1e-12)
-        np.testing.assert_allclose(result.f_agg[2], F_B[2], rtol=1e-12)
+        np.testing.assert_allclose(result.a_agg[1], F_B[1], rtol=1e-12)
+        np.testing.assert_allclose(result.a_agg[2], F_B[2], rtol=1e-12)
 
     def test_overlapping_feeds_reduce_sigma(self, collector):
         """On edges covered by both feeds, sigma_agg must be < min(sigma_a, sigma_b)."""

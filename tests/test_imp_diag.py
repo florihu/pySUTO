@@ -194,7 +194,7 @@ def test_bilateral_guard_filters_isolated_imputed(monkeypatch):
     })
 
     agg = AggregationResult(
-        f_agg=f, sigma_agg=s,
+        a_agg=f, sigma_agg=s,
         Omega=np.where(np.isfinite(f[np.newaxis, :]), 1.0, 0.0),
         F=f[np.newaxis, :], Sigma=s[np.newaxis, :],
         feed_ids=["t"],
@@ -259,7 +259,7 @@ def test_bilateral_guard_allows_real_gap(monkeypatch):
     })
 
     agg = AggregationResult(
-        f_agg=f, sigma_agg=s,
+        a_agg=f, sigma_agg=s,
         Omega=np.where(np.isfinite(f[np.newaxis, :]), 1.0, 0.0),
         F=f[np.newaxis, :], Sigma=s[np.newaxis, :],
         feed_ids=["t"],

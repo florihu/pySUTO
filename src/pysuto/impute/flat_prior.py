@@ -73,15 +73,15 @@ class FlatPriorImputer(BaseImputer):
     collapsed σ to 0 on ~40 k copper edges, which then pinned them at
     σ_a = 1e-6 via the constraints-side floor)::
 
-        level 1: mean(|f_agg|) over (sector_from, entity_from,
+        level 1: mean(|a_agg|) over (sector_from, entity_from,
                                     region_from, valuation)
-        level 2: mean(|f_agg|) over (sector_from, valuation)
+        level 2: mean(|a_agg|) over (sector_from, valuation)
                  — used when level 1 is empty
-        level 3: median(|f_agg|) over finite, non-zero entries globally
+        level 3: median(|a_agg|) over finite, non-zero entries globally
                  — used when both narrower groups are empty;
                    falls back to 1.0 only if the whole array is empty.
 
-    Only finite, non-zero |f_agg| values are counted at every level (so
+    Only finite, non-zero |a_agg| values are counted at every level (so
     upstream-imputed zeros don't pull the scale down to zero).
 
     Register LAST in the pipeline; ``ConstraintEngine.run()`` will refuse a

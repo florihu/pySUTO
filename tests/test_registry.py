@@ -632,7 +632,7 @@ class _AggResult:
     """Minimal duck-typed AggregationResult stub."""
 
     def __init__(self, n_edges=4, n_feeds=2, n_imputed=2):
-        self.f_agg     = np.array([1.0, 2.0, np.nan, 4.0][:n_edges])
+        self.a_agg     = np.array([1.0, 2.0, np.nan, 4.0][:n_edges])
         self.sigma_agg = np.array([0.1, 0.2, np.nan, 0.4][:n_edges])
         self.Omega     = np.ones((n_feeds, n_edges))
         self.F         = np.ones((n_feeds, n_edges))
@@ -728,7 +728,7 @@ class TestImputationRunRegistry:
         reg2 = ImputationRunRegistry(storage_dir=imp_registry.storage_dir)
         loaded = reg2.load(run_id)
         np.testing.assert_allclose(
-            np.nan_to_num(loaded.f_agg), np.nan_to_num(agg.f_agg)
+            np.nan_to_num(loaded.a_agg), np.nan_to_num(agg.a_agg)
         )
         assert loaded._imp_run_id == run_id
 

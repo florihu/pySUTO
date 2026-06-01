@@ -165,8 +165,8 @@ class ImpDiagnostic:
         """Print and return a text summary of the imputation pipeline."""
         log_df  = self._log_df
         agg     = self.agg_result
-        n_edges = len(agg.f_agg)
-        n_final = int(np.isfinite(agg.f_agg).sum())
+        n_edges = len(agg.a_agg)
+        n_final = int(np.isfinite(agg.a_agg).sum())
         n_imp   = len(log_df)
         n_miss  = n_edges - n_final
 
@@ -199,13 +199,13 @@ class ImpDiagnostic:
         """Reconstruct per-step (f, sigma) arrays from ImputationLog."""
         log_df = self._log_df
         if log_df.empty:
-            f = self.agg_result.f_agg
+            f = self.agg_result.a_agg
             s = self.agg_result.sigma_agg
             return [("pre", f.copy(), s.copy())]
 
         imputed_ids = log_df["edge_id"].values
 
-        f0 = self.agg_result.f_agg.copy()
+        f0 = self.agg_result.a_agg.copy()
         s0 = self.agg_result.sigma_agg.copy()
         f0[imputed_ids] = np.nan
         s0[imputed_ids] = np.nan
@@ -609,7 +609,7 @@ class ImpDiagnostic:
         except (ValueError, TypeError):
             time_order = {t: i for i, t in enumerate(acc.time_range)}
 
-        agg_f        = self.agg_result.f_agg
+        agg_f        = self.agg_result.a_agg
         imputed_set  = set(log_df["edge_id"].values)
         time_imp_set = set(time_df["edge_id"].values)
 

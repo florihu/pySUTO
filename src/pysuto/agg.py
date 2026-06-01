@@ -11,7 +11,7 @@ Mathematical summary (see README § Stage 2a)
 --------------------------------------------
     P[k, j]     = 1 / sigma[k, j]²        (precision; 0 where not covered)
     Omega[k, j] = P[k, j] / sum_k P[k, j] (normalised weight; 0 where not covered)
-    f_agg[j]    = sum_k  Omega[k, j] * F[k, j]                     (BLUE estimator)
+    a_agg[j]    = sum_k  Omega[k, j] * F[k, j]                     (BLUE estimator)
     sigma_agg[j]= ( sum_k |Omega[k, j] · sigma[k, j]|^p )^(1/p)    (Lp / power-mean)
 
 Invariants
@@ -19,7 +19,7 @@ Invariants
   • Every covered column of Omega sums to 1.
   • For p ∈ (1, 2]: sigma_agg[j] ≤ min_k sigma[k, j] (single-cover passthrough);
     when feeds overlap, σ_agg ≤ Lp({Ω·σ}) ≤ max_k σ_k.
-  • Uncovered edges (no feed contributes): f_agg = NaN, sigma_agg = NaN.
+  • Uncovered edges (no feed contributes): a_agg = NaN, sigma_agg = NaN.
 """
 
 from __future__ import annotations
@@ -45,7 +45,7 @@ class AggregationResult:
 
     Attributes
     ----------
-    f_agg       : [N_r]       inverse-variance weighted mean; NaN = not covered
+    a_agg       : [N_r]       inverse-variance weighted mean; NaN = not covered
     sigma_agg   : [N_r]       combined uncertainty; NaN = not covered
     Omega       : [N_f × N_r] provenance weight matrix; 0 where feed does not cover
     F           : [N_f × N_r] raw observations; NaN where feed does not cover
@@ -55,7 +55,7 @@ class AggregationResult:
     imputation_log : attached by ImputationEngine after imputation (None until then)
     """
 
-    f_agg:    np.ndarray
+    a_agg:    np.ndarray
     sigma_agg:np.ndarray
     Omega:    np.ndarray
     F:        np.ndarray
@@ -74,7 +74,7 @@ class AggregationResult:
 
     @property
     def n_edges(self) -> int:
-        return self.f_agg.shape[0]
+        return self.a_agg.shape[0]
 
     @property
     def n_covered(self) -> int:
@@ -134,11 +134,11 @@ class AggregationMath:
         with np.errstate(divide="ignore", invalid="ignore"):
             Omega = np.where(coverage, P / P_sum[np.newaxis, :], 0.0)
 
-        # f_agg = 1ᵀ(Omega ⊙ F):  replace NaN in F with 0 before dot product
+        # a_agg = 1ᵀ(Omega ⊙ F):  replace NaN in F with 0 before dot product
         # Safe because Omega[k,j]=0 everywhere F[k,j]=NaN.
         F_filled = np.where(np.isnan(F), 0.0, F)
-        f_agg    = np.sum(Omega * F_filled, axis=0)
-        f_agg    = np.where(coverage, f_agg, np.nan)
+        a_agg    = np.sum(Omega * F_filled, axis=0)
+        a_agg    = np.where(coverage, a_agg, np.nan)
 
         # σ_agg[j] = ( Σ_k |Ω_kj · σ_k[j]|^p )^(1/p); NaN where uncovered.
         # Mask out feed/edge pairs that are not covered (NaN σ → contribute 0).
@@ -159,7 +159,7 @@ class AggregationMath:
         )
 
         return AggregationResult(
-            f_agg     = f_agg,
+            a_agg     = a_agg,
             sigma_agg = sigma_agg,
             Omega     = Omega,
             F         = F,

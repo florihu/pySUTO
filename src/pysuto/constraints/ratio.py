@@ -167,7 +167,7 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
         self._cached_static = block
         return block
 
-    def build_dynamic(self, acc_struct, f_agg, sigma_agg, t) -> ConstraintBlock:
+    def build_dynamic(self, acc_struct, a_agg, sigma_agg, t) -> ConstraintBlock:
         """
         Deactivate ratio_eq rows whose ``time`` does not match ``t`` by
         setting ``sigma_c = SIGMA_C_INACTIVE``. In-year rows keep the
@@ -373,7 +373,7 @@ class RatioBoundBuilder(BaseConstraintBuilder):
         self._cached_static = block
         return block
 
-    def build_dynamic(self, acc_struct, f_agg, sigma_agg, t) -> ConstraintBlock:
+    def build_dynamic(self, acc_struct, a_agg, sigma_agg, t) -> ConstraintBlock:
         """
         Deactivate ratio_bound rows whose ``time`` does not match ``t`` by
         setting ``c = BOUND_C_INACTIVE``. The hard inequality

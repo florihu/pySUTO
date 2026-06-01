@@ -362,7 +362,7 @@ class ConstraintEngine:
 
         Parameters
         ----------
-        agg_result  : AggregationResult with f_agg and sigma_agg
+        agg_result  : AggregationResult with a_agg and sigma_agg
         timesteps   : ordered list of time labels (strings or ints)
         agg_id      : provenance identifier for the agg_result. If empty and
                       ``agg_result._imp_run_id`` is set (i.e. the result came
@@ -377,18 +377,18 @@ class ConstraintEngine:
             agg_id = getattr(agg_result, "_imp_run_id", None) or ""
         acc        = self.acc_struct
         n_edges    = acc.n_edges
-        f_agg      = agg_result.f_agg
+        a_agg      = agg_result.a_agg
         sigma_agg  = agg_result.sigma_agg
 
         # ── 0. NaN precondition ───────────────────────────────────────
         # The downstream solver (Stage 3b) requires a fully-defined prior.
         # Register pysuto.impute.FlatPriorImputer last in the imputation
         # pipeline (or halt upstream) to satisfy this contract.
-        if np.isnan(f_agg).any() or np.isnan(sigma_agg).any():
-            n_nan_f = int(np.isnan(f_agg).sum())
+        if np.isnan(a_agg).any() or np.isnan(sigma_agg).any():
+            n_nan_f = int(np.isnan(a_agg).sum())
             n_nan_s = int(np.isnan(sigma_agg).sum())
             raise ValueError(
-                f"agg_result contains NaN (f_agg: {n_nan_f}, sigma_agg: {n_nan_s}). "
+                f"agg_result contains NaN (a_agg: {n_nan_f}, sigma_agg: {n_nan_s}). "
                 f"Register FlatPriorImputer last in the imputation pipeline "
                 f"(or halt upstream) to ensure a fully-defined prior before "
                 f"constraint building."
@@ -408,7 +408,7 @@ class ConstraintEngine:
         # should essentially never fire on imputer-filled edges.
         if self._sigma_a_cv_min > 0 or self._sigma_a_abs_floor > 0:
             sigma_agg, n_cv, n_abs = _lp_regularize(
-                sigma_agg, f_agg,
+                sigma_agg, a_agg,
                 self._sigma_a_cv_min, self._sigma_a_abs_floor, self._p,
             )
             _log.info(
@@ -440,7 +440,7 @@ class ConstraintEngine:
             # Track which static rows each dynamic block covers
             row_offset = 0
             for b, sb in zip(self._builders, static_blocks):
-                dyn = b.build_dynamic(acc, f_agg, sigma_agg, t_label)
+                dyn = b.build_dynamic(acc, a_agg, sigma_agg, t_label)
                 bM  = sb.G_rows.shape[0]
                 if dyn.G_rows.shape[0] == bM and bM > 0:
                     c_t[row_offset: row_offset + bM]       = dyn.c
@@ -504,7 +504,7 @@ class ConstraintEngine:
         cr = ConstraintRun(
             G              = G_static,
             row_meta       = row_meta,
-            a0             = f_agg.copy(),
+            a0             = a_agg.copy(),
             sigma_a        = sigma_agg.copy(),
             u              = acc.bounds.u.copy(),
             l              = acc.bounds.l.copy(),
