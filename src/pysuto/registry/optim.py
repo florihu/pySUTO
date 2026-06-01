@@ -7,7 +7,6 @@ optim.py
 from __future__ import annotations
 
 import os
-import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Dict, Optional
 
@@ -21,24 +20,14 @@ if TYPE_CHECKING:                                  # break Stage-4 import cycle
 
 
 def warn_if_prefix_block_run(results: dict, const_run) -> None:
-    """Guard for runs produced before the year-local persistence fix (REP §8.2).
+    """No-op under the structural model.
 
-    A const run with ``G_blocks`` solved via the per-t block path. If its opt
-    results carry no ``cols_t`` (full-length vectors), the run predates the fix
-    and its per-t ``F_opt``/``residuals`` contain cross-year prior placeholders
-    (the mass-balance/distribution artifact). Warn so consumers don't read those
-    placeholders as solved values. Legacy runs (no ``G_blocks``) are silent."""
-    if not getattr(const_run, "G_blocks", None):
-        return
-    if any(getattr(r, "cols_t", None) is not None for r in results.values()):
-        return
-    warnings.warn(
-        "Loaded a pre-fix block run: its const has G_blocks but the opt results "
-        "are full-length (no cols_t), so per-t F_opt/residuals carry cross-year "
-        "prior placeholders (see REP §8.2). Re-solve for year-local results.",
-        UserWarning,
-        stacklevel=2,
-    )
+    The pre-refactor ``G_blocks`` partition and its cross-year placeholder
+    failure mode (REP §8.2) are gone: :class:`pysuto.constraints.StructG` has
+    no time axis on the column side, so every per-period optimum is naturally
+    year-local. The function is retained as a stable import name; older
+    callers see no warnings."""
+    return
 
 
 class OptimRunRegistry(BaseOutputRegistry):
@@ -93,18 +82,15 @@ class OptimRunRegistry(BaseOutputRegistry):
         # ── 1. per-timestep arrays ────────────────────────────────────
         for t, res in results.items():
             arrays = {
-                "F_opt":     res.F_opt,
+                "a_star":    res.a_star,
                 "eps_opt":   res.eps_opt,
                 "c_star":    res.c_star,
                 "residuals": res.residuals,
             }
             if res.iter_history is not None:
                 arrays["iter_history"] = res.iter_history
-            # Block path (year-local) carries the global index arrays; their
-            # presence is the schema discriminator on load. Legacy runs omit them.
-            if res.cols_t is not None:
-                arrays["cols_t"] = res.cols_t
-                arrays["rows_t"] = res.rows_t
+            if res.active is not None:
+                arrays["active"] = res.active
             np.savez(os.path.join(ts_dir, f"t_{t}.npz"), **arrays)
 
         # ── 2. summary (caller's per_timestep + ordered keys) ─────────
@@ -154,9 +140,12 @@ class OptimRunRegistry(BaseOutputRegistry):
         for t in summary.get("timesteps", []):
             npz = np.load(os.path.join(ts_dir, f"t_{t}.npz"))
             per = per_ts.get(t, {})
+            # ``a_star`` is the canonical field name under the structural
+            # refactor; older runs persisted ``F_opt`` — read either.
+            a_star = npz["a_star"] if "a_star" in npz.files else npz["F_opt"]
             results[t] = OptimResult(
                 timestep      = t,
-                F_opt         = npz["F_opt"],
+                a_star        = a_star,
                 eps_opt       = npz["eps_opt"],
                 c_star        = npz["c_star"],
                 residuals     = npz["residuals"],
@@ -166,8 +155,7 @@ class OptimRunRegistry(BaseOutputRegistry):
                 solver_status = str(per.get("solver_status", "")),
                 convergence   = dict(per.get("convergence", {})),
                 iter_history  = npz["iter_history"] if "iter_history" in npz.files else None,
-                cols_t        = npz["cols_t"] if "cols_t" in npz.files else None,
-                rows_t        = npz["rows_t"] if "rows_t" in npz.files else None,
+                active        = npz["active"] if "active" in npz.files else None,
             )
         return results
 

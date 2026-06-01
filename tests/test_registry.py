@@ -849,7 +849,7 @@ def _toy_optim_results():
     for t, obj in [("2020", 1.23), ("2021", 4.56)]:
         out[t] = OptimResult(
             timestep      = t,
-            F_opt         = np.array([1.0, 2.0]),
+            a_star        = np.array([1.0, 2.0]),
             eps_opt       = np.array([0.0]),
             c_star        = np.array([0.0, 5.0]),
             residuals     = np.array([0.0, 0.0]),
@@ -911,7 +911,7 @@ class TestOptimRunRegistry:
         reg2 = OptimRunRegistry(storage_dir=opt_registry.storage_dir)
         loaded = reg2.load(run_id)
         assert set(loaded.keys()) == {"2020", "2021"}
-        np.testing.assert_allclose(loaded["2020"].F_opt, original["2020"].F_opt)
+        np.testing.assert_allclose(loaded["2020"].a_star, original["2020"].a_star)
         assert loaded["2020"].objective    == pytest.approx(1.23)
         assert loaded["2021"].solver_status == "Solved"
         assert loaded["2021"].iterations    == 5
