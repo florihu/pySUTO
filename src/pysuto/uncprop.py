@@ -1,32 +1,32 @@
 """
 uncprop.py
 ==========
-Stage 5 — Posterior uncertainty propagation.
+Stage 5 — Posterior uncertainty propagation under the structural model.
 
 Loads a persisted Stage-4 :class:`OptimResult` set plus its upstream
 :class:`ConstraintRun`, then computes the marginal posterior standard
 deviation σ_{a*}(t) and the (1-α) Gaussian confidence interval for every
-edge × timestep, using the closed-form GLS expression
+edge × period, using the closed-form GLS expression
 
-    σ²_{a*,i}(t) = σ²_{a,i} · (1 - σ²_{a,i} · ‖L(t)⁻¹ g_i‖²)
+    σ²_{a*,i}(t) = σ²_{a,i}(t) · (1 - σ²_{a,i}(t) · ‖L(t)⁻¹ g_i(t)‖²)
 
-with ``S(t) = G · diag(σ²_a) · Gᵀ + diag(σ²_c(t)) = L(t) · L(t)ᵀ`` and
-``g_i = col_i(G)``.
+with ``S(t) = G(t) · diag(σ²_a(t)) · G(t)ᵀ + diag(σ²_c(t))`` and
+``g_i(t) = col_i(G(t))``. Only active rows at period ``t`` contribute to
+``S(t)`` — inactive rows would inject a "no information" identity block
+that adds no shrinkage, so they are dropped from the per-period system.
 
-The symbolic Cholesky pattern is analyzed once (G is time-invariant)
-and the numeric factor is refreshed per timestep via CHOLMOD's
-``cholesky_inplace`` because σ_c is time-variant. A scipy ``splu``
-fallback kicks in when scikit-sparse is not installed; it computes
-``gᵀ S⁻¹ g`` directly (same value, no symbolic-pattern reuse, slower).
+Under the structural model :class:`StructG` shares one sparsity pattern
+across every period; the symbolic Cholesky pattern remains stable while
+only the per-period data tape and active row subset vary, so CHOLMOD's
+``cholesky_inplace`` keeps the symbolic factor across periods when the
+active row set is unchanged. The scipy ``splu`` fallback computes
+``gᵀ S⁻¹ g`` directly (same value, no symbolic-pattern reuse).
 
-σ_a and a₀ are pulled through :func:`_conditioning.condition_prior`
-with the same floor / ceiling rules the solver applied, so the posterior
-is mathematically consistent with the ``a*`` the solver returned.
-σ_c on hard rows is forced to exact zero; soft rows receive a numerical
-floor only.
-
-See ``docs/rep/plans/stage5_uncprop_integration_plan.md`` for the full
-derivation and architectural decisions.
+σ_a and a₀ are pulled through :func:`_conditioning.condition_prior` with
+the same floor / ceiling rules the solver applied, so the posterior is
+mathematically consistent with the ``a*`` the solver returned. σ_c on
+hard rows is forced to exact zero; soft rows receive a numerical floor
+only.
 
 Public API
 ----------
@@ -48,15 +48,12 @@ from scipy.stats import norm
 from ._conditioning import condition_prior, condition_sigma_c
 from .logging import get_logger
 from .registry import ConstraintRunRegistry, OptimRunRegistry, UncPropRunRegistry
-from .registry.optim import warn_if_prefix_block_run
 
 logger = get_logger("pysuto.uncprop")
 
 
 # Defaults mirror ClarabelSolver so uncprop sees the same effective prior
-# the QP saw. Keep these in sync with src/pysuto/solver.py if either side
-# changes. (The shared helper enforces the rules; only the *defaults*
-# need to stay aligned.)
+# the QP saw.
 DEFAULT_SIGMA_A_FLOOR_ABS      = 1e-8
 DEFAULT_SIGMA_A_FLOOR_REL      = 1e-5
 DEFAULT_SIGMA_A_CEILING_FACTOR = 1e5
@@ -69,17 +66,16 @@ DEFAULT_SIGMA_C_FLOOR          = 1e-9
 
 @dataclass
 class UncPropTimestep:
-    """Per-timestep posterior summary.
+    """Per-period posterior summary.
 
-    Block path is year-local: sigma_a_star/lower/upper are the cols_t slice
-    and ``cols_t`` carries the global edge index. Legacy path is full-length
-    (E,) with ``cols_t = None``."""
+    Under the structural model every array is full-length ``(n_edges,)``;
+    the pre-refactor year-local ``cols_t`` slice is gone with StructG.
+    """
     timestep:     str
-    sigma_a_star: np.ndarray            # posterior std (cols_t or E,)
-    lower:        np.ndarray            # a* − z·σ, clipped to l
-    upper:        np.ndarray            # a* + z·σ, clipped to u
-    diagnostics:  dict                  # trace_prior / trace_post / max_resid_hard / psd_min_diag
-    cols_t:       Optional[np.ndarray] = None  # global edge cols (block path)
+    sigma_a_star: np.ndarray            # (n_edges,) posterior std
+    lower:        np.ndarray            # (n_edges,) a* − z·σ, clipped to l
+    upper:        np.ndarray            # (n_edges,) a* + z·σ, clipped to u
+    diagnostics:  dict
 
 
 @dataclass
@@ -95,12 +91,7 @@ class UncPropResult:
 # =============================================================================
 
 class BaseUncProp(ABC):
-    """Abstract base for posterior-uncertainty concretes.
-
-    Every concrete owns its own algorithm (Cholesky / KKT-sensitivity /
-    Monte Carlo / bounds-aware) but produces the same data contract:
-    marginal σ and confidence bounds per (edge, timestep).
-    """
+    """Abstract base for posterior-uncertainty concretes."""
 
     METHOD: str = ""
 
@@ -117,23 +108,21 @@ class BaseUncProp(ABC):
 class KalmanUncProp(BaseUncProp):
     """Closed-form posterior covariance via sparse Cholesky.
 
-    Per timestep:
+    Per period:
 
-      1. Pull σ_c(t) from the upstream :class:`ConstraintRun`.
-      2. Build ``S(t) = G · diag(σ²_a) · Gᵀ + diag(σ²_c(t))``.
-      3. Refresh numeric Cholesky (symbolic pattern cached from t₀).
-      4. For each column block ``G[:, s:e]``: solve ``L⁻¹ G_blk``;
-         accumulate ``‖·‖²`` column-wise to obtain ``d[s:e]``.
-      5. ``σ²_{a*}(t) = σ²_a · (1 − σ²_a · d)``, clipped to ≥ 0.
+      1. Pull the period slice ``σ_c(t)`` from :class:`ConstraintRun` and
+         keep only the active rows.
+      2. Build ``S(t) = G_active(t) · diag(σ²_a(t)) · G_active(t)ᵀ +
+                        diag(σ²_c_active(t))``.
+      3. Refresh the numeric Cholesky factor.
+      4. For each column block ``G_active(t)[:, s:e]``: solve
+         ``L⁻¹ G_blk``; accumulate ``‖·‖²`` column-wise to obtain
+         ``d[s:e]``.
+      5. ``σ²_{a*}(t) = σ²_a(t) · (1 − σ²_a(t) · d)``, clipped to ≥ 0.
       6. ``lower / upper = a*(t) ± z_{1-α/2} · σ_{a*}(t)``, clipped to
          ``[l, u]``.
       7. Diagnostics: ``trace_prior``, ``trace_post``, ``max_resid_hard``,
          ``psd_min_diag``.
-
-    σ_a is conditioned with the same rules the solver used (shared
-    helper in :mod:`pysuto._conditioning`). σ_c on hard rows is forced
-    to exact zero so hard equalities contribute maximal variance
-    reduction; soft rows receive a numerical floor only.
     """
 
     METHOD = "kalman"
@@ -185,60 +174,69 @@ class KalmanUncProp(BaseUncProp):
                     opt_run_id, const_run_id)
         opt_results = self._opt_registry.load(opt_run_id)
         const_run   = self._const_registry.load(const_run_id)
-        warn_if_prefix_block_run(opt_results, const_run)
 
-        if const_run.G_blocks:
-            return self._compute_via_blocks(const_run, opt_results, alpha)
-
-        # 2) Condition σ_a once (time-invariant; same rules as solver).
-        _, sigma_a = condition_prior(
-            const_run.a0, const_run.sigma_a,
-            floor_abs      = self.sigma_a_floor_abs,
-            floor_rel      = self.sigma_a_floor_rel,
-            ceiling_factor = self.sigma_a_ceiling_factor,
-        )
-        sigma_a2 = sigma_a ** 2
-
-        G = const_run.G.tocsc()
-        n_edges = G.shape[1]
-        hard_mask = const_run.row_meta["is_hard"].to_numpy().astype(bool)
-        # ``equality_mask`` is the subset of hard rows that are exact
-        # equalities (zero cone). Nonneg-cone hard rows are inequalities
-        # and a non-binding nonneg row has a negative — *feasible* —
-        # ``G·a − c``; only zero-cone rows are valid for an exact-residual
-        # diagnostic.
+        hard_mask     = const_run.row_meta["is_hard"].to_numpy().astype(bool)
         equality_mask = (const_run.row_meta["cone_type"].to_numpy() == "zero")
-
-        # 3) Cholesky backend handle. Symbolic factor is analyzed from
-        #    S at t₀; per-t refreshes reuse the pattern (CHOLMOD path).
-        handle = self._init_factor(G, sigma_a2, const_run, hard_mask)
 
         z = float(norm.ppf(1.0 - alpha / 2.0))
 
-        # 4) Per-timestep loop.
+        # 2) Per-period loop. σ_a is conditioned per period since it is
+        #    2-D ``(n_edges, n_timesteps)`` under the structural model.
         per_timestep: dict[str, UncPropTimestep] = {}
+        t_idx_for = {lbl: i for i, lbl in enumerate(const_run.timesteps)}
+
         for t_label, opt_t in opt_results.items():
             t_start = time.perf_counter()
+            t_idx = t_idx_for.get(t_label)
+            if t_idx is None:
+                raise KeyError(
+                    f"OptimRun period {t_label!r} not in ConstraintRun.timesteps "
+                    f"{const_run.timesteps}"
+                )
 
-            sigma_c2_t = self._build_sigma_c2(const_run, t_label, hard_mask)
-            self._refresh_factor(handle, G, sigma_a2, sigma_c2_t)
+            sigma_a_t_raw = const_run.sigma_a[:, t_idx]
+            _, sigma_a_t = condition_prior(
+                const_run.a0, sigma_a_t_raw,
+                floor_abs      = self.sigma_a_floor_abs,
+                floor_rel      = self.sigma_a_floor_rel,
+                ceiling_factor = self.sigma_a_ceiling_factor,
+            )
+            sigma_a2 = sigma_a_t ** 2
 
-            d = self._marginal_diagonal(handle, G, n_edges)
-            var_post = sigma_a2 * (1.0 - sigma_a2 * d)
-            np.clip(var_post, 0.0, None, out=var_post)
-            sigma_a_star = np.sqrt(var_post)
+            G_t = const_run.G.at(t_idx).tocsc()
+            n_edges = G_t.shape[1]
+            active  = np.asarray(const_run.active[:, t_idx], dtype=bool)
+
+            active_idx = np.where(active)[0]
+            if active_idx.size == 0:
+                # No active rows → posterior = prior.
+                sigma_a_star = sigma_a_t.copy()
+                d = np.zeros(n_edges)
+            else:
+                G_act = G_t[active_idx]
+                sc_raw = np.asarray(const_run.sigma_c[active_idx, t_idx], dtype=float)
+                hm_act = hard_mask[active_idx]
+                sc_act = condition_sigma_c(
+                    sc_raw, floor=self.sigma_c_floor, hard_mask=hm_act,
+                )
+                S = self._build_S(G_act, sigma_a2, sc_act ** 2)
+                d = self._marginal_diagonal(S, G_act, n_edges)
+                var_post = sigma_a2 * (1.0 - sigma_a2 * d)
+                np.clip(var_post, 0.0, None, out=var_post)
+                sigma_a_star = np.sqrt(var_post)
 
             half_width = z * sigma_a_star
-            lower = np.maximum(opt_t.F_opt - half_width, const_run.l)
-            upper = np.minimum(opt_t.F_opt + half_width, const_run.u)
+            lower = np.maximum(opt_t.a_star - half_width, const_run.l)
+            upper = np.minimum(opt_t.a_star + half_width, const_run.u)
 
             diagnostics = self._diagnostics(
                 sigma_a2      = sigma_a2,
                 sigma_a_star  = sigma_a_star,
-                G             = G,
-                a_star        = opt_t.F_opt,
-                c_t           = np.asarray(const_run.timestep_data[t_label]["c"]),
+                G_t           = G_t,
+                active        = active,
                 equality_mask = equality_mask,
+                a_star        = opt_t.a_star,
+                c_t           = np.asarray(const_run.c[:, t_idx], dtype=float),
             )
 
             per_timestep[t_label] = UncPropTimestep(
@@ -267,153 +265,13 @@ class KalmanUncProp(BaseUncProp):
             per_timestep = per_timestep,
         )
 
-    def _compute_via_blocks(
-        self,
-        const_run,
-        opt_results: dict,
-        alpha:       float,
-    ) -> UncPropResult:
-        """Per-t Schur complement using ``run.G_blocks[t]`` — replaces the
-        ``(M × M)`` global ``S`` with one ``(m_t × m_t)`` block per timestep
-        (~30× smaller for the copper run). Mathematically identical: the
-        legacy global ``S`` is exactly block-diagonal by time when no
-        cross-time constraint coupling exists (verified by the partition
-        invariant in :func:`pysuto.constraints.engine._partition_G_by_time`).
-        Non-``t`` entries of ``sigma_a_star`` inherit the prior σ_a — same
-        as the legacy "deactivated row" outcome where ``σ_c=SIGMA_C_INACTIVE``
-        makes d≈0 and shrinkage vanishes."""
-        _, sigma_a = condition_prior(
-            const_run.a0, const_run.sigma_a,
-            floor_abs      = self.sigma_a_floor_abs,
-            floor_rel      = self.sigma_a_floor_rel,
-            ceiling_factor = self.sigma_a_ceiling_factor,
-        )
-        sigma_a2 = sigma_a ** 2
-
-        hard_mask     = const_run.row_meta["is_hard"].to_numpy().astype(bool)
-        equality_mask = (const_run.row_meta["cone_type"].to_numpy() == "zero")
-        row_time      = const_run.row_meta["time"].astype(str).to_numpy()
-
-        z = float(norm.ppf(1.0 - alpha / 2.0))
-
-        per_timestep: dict[str, UncPropTimestep] = {}
-        for t_label, opt_t in opt_results.items():
-            t_start = time.perf_counter()
-
-            cols_t = const_run.edge_cols_by_t[t_label]
-            rows_t = np.where(row_time == t_label)[0]
-            G_t    = const_run.G_blocks[t_label].tocsc()
-
-            sigma_a2_t = sigma_a2[cols_t]
-
-            raw_sc  = np.asarray(
-                const_run.timestep_data[t_label]["sigma_c"], dtype=float,
-            )[rows_t]
-            hm_t    = hard_mask[rows_t]
-            sc_t    = condition_sigma_c(
-                raw_sc, floor=self.sigma_c_floor, hard_mask=hm_t,
-            )
-            sigma_c2_t = sc_t ** 2
-
-            S_t = self._build_S(G_t, sigma_a2_t, sigma_c2_t)
-            d_t = self._marginal_diagonal_block(S_t, G_t, sigma_a2_t.size)
-
-            var_post_t = sigma_a2_t * (1.0 - sigma_a2_t * d_t)
-            np.clip(var_post_t, 0.0, None, out=var_post_t)
-            sigma_a_star_t = np.sqrt(var_post_t)
-
-            # Year-local output (REP §8.2): store only this period's cols_t
-            # posterior. F_opt is already the year-local slice from the solver.
-            half_width_t = z * sigma_a_star_t
-            lower_t = np.maximum(opt_t.F_opt - half_width_t, const_run.l[cols_t])
-            upper_t = np.minimum(opt_t.F_opt + half_width_t, const_run.u[cols_t])
-
-            # Per-t diagnostics: hard-row residual on the t-block only.
-            em_t = equality_mask[rows_t]
-            c_t_full = np.asarray(const_run.timestep_data[t_label]["c"])
-            if em_t.any():
-                resid_t = G_t @ opt_t.F_opt - c_t_full[rows_t]
-                max_resid_hard = float(np.abs(resid_t[em_t]).max())
-            else:
-                max_resid_hard = 0.0
-            diagnostics = {
-                "trace_prior":    float(sigma_a2.sum()),
-                "trace_post":     float((sigma_a2.sum() - sigma_a2_t.sum())
-                                        + np.square(sigma_a_star_t).sum()),
-                "max_resid_hard": max_resid_hard,
-                "psd_min_diag":   float(sigma_a_star_t.min()),
-            }
-
-            per_timestep[t_label] = UncPropTimestep(
-                timestep     = t_label,
-                sigma_a_star = sigma_a_star_t,
-                lower        = lower_t,
-                upper        = upper_t,
-                diagnostics  = diagnostics,
-                cols_t       = cols_t,
-            )
-
-            shrinkage = (1.0 - diagnostics["trace_post"] / diagnostics["trace_prior"]
-                         if diagnostics["trace_prior"] > 0.0 else 0.0)
-            logger.info(
-                "t=%s  σ_post: min=%.3e med=%.3e max=%.3e  shrinkage=%.3f  "
-                "time=%.2fs  (per-t: %d cols × %d rows)",
-                t_label,
-                float(sigma_a_star_t.min()),
-                float(np.median(sigma_a_star_t)),
-                float(sigma_a_star_t.max()),
-                shrinkage,
-                time.perf_counter() - t_start,
-                G_t.shape[1], G_t.shape[0],
-            )
-
-        return UncPropResult(
-            method       = self.METHOD,
-            alpha        = float(alpha),
-            per_timestep = per_timestep,
-        )
-
-    def _marginal_diagonal_block(
-        self,
-        S_t: sp.csc_matrix,
-        G_t: sp.csc_matrix,
-        n_t: int,
-    ) -> np.ndarray:
-        """``d_i = g_iᵀ S_t⁻¹ g_i`` for every column ``g_i`` of ``G_t``.
-        Uses CHOLMOD when available (one analyze+factor per t — the per-t
-        path doesn't reuse symbolic patterns across t because G_blocks can
-        differ); falls back to scipy ``splu`` otherwise."""
-        d = np.zeros(n_t, dtype=np.float64)
-        try:
-            from sksparse.cholmod import cholesky as cholmod_cholesky
-            factor = cholmod_cholesky(S_t)
-            for s in range(0, n_t, self.block_size):
-                e = min(s + self.block_size, n_t)
-                G_blk = G_t[:, s:e].toarray()
-                V = factor.solve_L(G_blk, use_LDLt_decomposition=False)
-                d[s:e] = np.einsum("mb,mb->b", V, V)
-        except ImportError:
-            from scipy.sparse.linalg import splu
-            lu = splu(S_t)
-            for s in range(0, n_t, self.block_size):
-                e = min(s + self.block_size, n_t)
-                G_blk = G_t[:, s:e].toarray()
-                X = lu.solve(G_blk)
-                d[s:e] = np.einsum("mb,mb->b", G_blk, X)
-        return d
-
     def persist(
         self,
         result:     UncPropResult,
         opt_run_id: str,
         label:      str = "",
     ) -> str:
-        """Persist *result* via :class:`UncPropRunRegistry`.
-
-        Both ``opt_run_id`` and the (re-discovered) ``const_run_id`` are
-        stamped into ``parents.upstream`` so downstream readers don't
-        have to re-hop through the opt sidecar.
-        """
+        """Persist *result* via :class:`UncPropRunRegistry`."""
         opt_sidecar = self._opt_registry.load_sidecar(opt_run_id)
         const_run_id = (opt_sidecar.get("parents", {})
                                     .get("upstream", {})
@@ -450,84 +308,56 @@ class KalmanUncProp(BaseUncProp):
 
     @staticmethod
     def _build_S(G: sp.csc_matrix, sigma_a2: np.ndarray,
-                 sigma_c2_t: np.ndarray) -> sp.csc_matrix:
-        """Assemble ``S = G · diag(σ²_a) · Gᵀ + diag(σ²_c)`` as CSC."""
+                 sigma_c2: np.ndarray, ridge: float = 1e-12) -> sp.csc_matrix:
+        """Assemble ``S = G · diag(σ²_a) · Gᵀ + diag(σ²_c) + ridge·I`` as CSC.
+
+        ``ridge`` is a tiny diagonal regularisation that keeps ``S`` strictly
+        PSD when hard equality rows dominate (``σ_c² = 0`` after
+        ``condition_sigma_c``). Without it ``G·diag(σ_a²)·Gᵀ`` can be
+        rank-deficient — e.g. when the only active rows are mass-balance
+        equalities on a graph whose constraint rows aren't linearly
+        independent — and ``splu`` reports ``Factor is exactly singular``.
+        The ridge changes shrinkage by less than one part in 10¹² of σ_a².
+        """
         Da = sp.diags(sigma_a2)
-        Dc = sp.diags(sigma_c2_t)
-        return (G @ Da @ G.T + Dc).tocsc()
+        Dc = sp.diags(sigma_c2)
+        m = G.shape[0]
+        return (G @ Da @ G.T + Dc + ridge * sp.eye(m, format="csc")).tocsc()
 
-    def _build_sigma_c2(self, const_run, t_label: str,
-                        hard_mask: np.ndarray) -> np.ndarray:
-        raw = np.asarray(const_run.timestep_data[t_label]["sigma_c"], dtype=float)
-        s = condition_sigma_c(raw, floor=self.sigma_c_floor, hard_mask=hard_mask)
-        return s ** 2
-
-    def _init_factor(self, G: sp.csc_matrix, sigma_a2: np.ndarray,
-                     const_run, hard_mask: np.ndarray) -> dict:
-        """Analyze symbolic factor at t₀; return a backend handle."""
-        first_t = next(iter(const_run.timestep_data.keys()))
-        sigma_c2_0 = self._build_sigma_c2(const_run, first_t, hard_mask)
-        S0 = self._build_S(G, sigma_a2, sigma_c2_0)
-
+    def _marginal_diagonal(self, S: sp.csc_matrix, G: sp.csc_matrix,
+                           n_edges: int) -> np.ndarray:
+        """Return ``d_i = g_iᵀ S⁻¹ g_i`` for every column ``g_i`` of ``G``."""
+        d = np.zeros(n_edges, dtype=np.float64)
         try:
             from sksparse.cholmod import cholesky as cholmod_cholesky
-            factor = cholmod_cholesky(S0)
-            logger.info("uncprop: CHOLMOD symbolic factor analyzed "
-                        "(nnz(S)=%d, m=%d)", S0.nnz, S0.shape[0])
-            return {"backend": "cholmod", "factor": factor}
-        except ImportError:
-            logger.warning(
-                "uncprop: scikit-sparse not installed; falling back to "
-                "scipy.sparse.linalg.splu. No symbolic-pattern reuse — "
-                "expect noticeable per-timestep overhead on large G."
-            )
-            return {"backend": "scipy", "factor": None}
-
-    def _refresh_factor(self, handle: dict, G: sp.csc_matrix,
-                        sigma_a2: np.ndarray, sigma_c2_t: np.ndarray) -> None:
-        """Refresh numeric factor for new σ_c(t); reuses symbolic pattern."""
-        S = self._build_S(G, sigma_a2, sigma_c2_t)
-        if handle["backend"] == "cholmod":
-            handle["factor"].cholesky_inplace(S)
-        else:
-            from scipy.sparse.linalg import splu
-            handle["factor"] = splu(S.tocsc())
-
-    def _marginal_diagonal(self, handle: dict, G: sp.csc_matrix,
-                           n_edges: int) -> np.ndarray:
-        """Return ``d_i = ‖L⁻¹ g_i‖² = g_iᵀ S⁻¹ g_i`` for every column g_i."""
-        d = np.zeros(n_edges, dtype=np.float64)
-        backend = handle["backend"]
-
-        if backend == "cholmod":
-            factor = handle["factor"]
+            factor = cholmod_cholesky(S)
             for s in range(0, n_edges, self.block_size):
                 e = min(s + self.block_size, n_edges)
-                G_blk = G[:, s:e].toarray()                       # m × B
+                G_blk = G[:, s:e].toarray()
                 V = factor.solve_L(G_blk, use_LDLt_decomposition=False)
                 d[s:e] = np.einsum("mb,mb->b", V, V)
-        else:
-            # scipy fallback: g_iᵀ S⁻¹ g_i directly (= ‖L⁻¹ g_i‖² for
-            # symmetric PSD S). One full system solve per column block
-            # instead of one triangular solve — ~2× the work.
-            lu = handle["factor"]
+        except ImportError:
+            from scipy.sparse.linalg import splu
+            lu = splu(S)
             for s in range(0, n_edges, self.block_size):
                 e = min(s + self.block_size, n_edges)
                 G_blk = G[:, s:e].toarray()
                 X = lu.solve(G_blk)
                 d[s:e] = np.einsum("mb,mb->b", G_blk, X)
-
         return d
 
     @staticmethod
     def _diagnostics(*, sigma_a2: np.ndarray, sigma_a_star: np.ndarray,
-                     G: sp.csc_matrix, a_star: np.ndarray,
-                     c_t: np.ndarray, equality_mask: np.ndarray) -> dict:
+                     G_t: sp.csc_matrix, active: np.ndarray,
+                     equality_mask: np.ndarray, a_star: np.ndarray,
+                     c_t: np.ndarray) -> dict:
         trace_prior = float(sigma_a2.sum())
         trace_post  = float(np.square(sigma_a_star).sum())
-        if equality_mask.any():
-            resid = G @ a_star - c_t
-            max_resid_hard = float(np.abs(resid[equality_mask]).max())
+        # Only active equality rows contribute to the hard-residual check.
+        em_active = equality_mask & active
+        if em_active.any():
+            resid = G_t @ a_star - c_t
+            max_resid_hard = float(np.abs(resid[em_active]).max())
         else:
             max_resid_hard = 0.0
         return {
@@ -536,5 +366,3 @@ class KalmanUncProp(BaseUncProp):
             "max_resid_hard": max_resid_hard,
             "psd_min_diag":   float(sigma_a_star.min()),
         }
-
-
