@@ -165,19 +165,21 @@ class ImpDiagnostic:
         """Print and return a text summary of the imputation pipeline."""
         log_df  = self._log_df
         agg     = self.agg_result
-        n_edges = len(agg.a_agg)
+        # Under the structural model a_agg is 2-D (n_edges, n_timesteps); the
+        # coverage tallies are over the full cell grid.
+        n_cells = int(agg.a_agg.size)
         n_final = int(np.isfinite(agg.a_agg).sum())
         n_imp   = len(log_df)
-        n_miss  = n_edges - n_final
+        n_miss  = n_cells - n_final
 
         lines = [
             f"{'─'*60}",
             f"  IMPUTATION DIAGNOSTICS{' — ' + self.label if self.label else ''}",
             f"{'─'*60}",
-            f"  Root edges total       : {n_edges:>8,}",
-            f"  Covered after pipeline : {n_final:>8,}  ({n_final/n_edges*100:.1f} %)",
-            f"  Filled by imputers     : {n_imp:>8,}  ({n_imp/n_edges*100:.1f} %)",
-            f"  Still missing          : {n_miss:>8,}  ({n_miss/n_edges*100:.1f} %)",
+            f"  Cells (edges × t)      : {n_cells:>8,}",
+            f"  Covered after pipeline : {n_final:>8,}  ({n_final/n_cells*100:.1f} %)",
+            f"  Filled by imputers     : {n_imp:>8,}  ({n_imp/n_cells*100:.1f} %)",
+            f"  Still missing          : {n_miss:>8,}  ({n_miss/n_cells*100:.1f} %)",
         ]
 
         if not log_df.empty:
@@ -196,19 +198,29 @@ class ImpDiagnostic:
     # ------------------------------------------------------------------
 
     def _build_snapshots(self) -> list[tuple[str, np.ndarray, np.ndarray]]:
-        """Reconstruct per-step (f, sigma) arrays from ImputationLog."""
+        """Reconstruct per-step (f, sigma) arrays from ImputationLog.
+
+        Under the structural model ``agg_result.a_agg`` / ``sigma_agg`` are
+        2-D ``(n_edges, n_timesteps)``. The log carries the cell coordinate
+        ``(edge_id, t_idx)`` for each fill, so each snapshot tracks the
+        full grid.
+        """
         log_df = self._log_df
         if log_df.empty:
             f = self.agg_result.a_agg
             s = self.agg_result.sigma_agg
             return [("pre", f.copy(), s.copy())]
 
-        imputed_ids = log_df["edge_id"].values
+        edge_ids = log_df["edge_id"].values.astype(int)
+        # Legacy log entries written before the t_idx column existed leave
+        # NaN here; default those rows to period 0 so the snapshot loop
+        # remains operative.
+        t_idxs   = pd.to_numeric(log_df["t_idx"], errors="coerce").fillna(0).astype(int).values
 
         f0 = self.agg_result.a_agg.copy()
         s0 = self.agg_result.sigma_agg.copy()
-        f0[imputed_ids] = np.nan
-        s0[imputed_ids] = np.nan
+        f0[edge_ids, t_idxs] = np.nan
+        s0[edge_ids, t_idxs] = np.nan
 
         snapshots = [("pre", f0.copy(), s0.copy())]
         f_curr = f0.copy()
@@ -216,9 +228,11 @@ class ImpDiagnostic:
 
         for step in sorted(log_df["step"].unique()):
             mask   = log_df["step"] == step
-            ids    = log_df.loc[mask, "edge_id"].values
-            f_curr[ids] = log_df.loc[mask, "f_after"].values
-            s_curr[ids] = log_df.loc[mask, "sigma_after"].values
+            e_ids  = log_df.loc[mask, "edge_id"].values.astype(int)
+            ti     = (pd.to_numeric(log_df.loc[mask, "t_idx"], errors="coerce")
+                        .fillna(0).astype(int).values)
+            f_curr[e_ids, ti] = log_df.loc[mask, "f_after"].values
+            s_curr[e_ids, ti] = log_df.loc[mask, "sigma_after"].values
             dom    = log_df.loc[mask, "method"].value_counts().index[0]
             snapshots.append((f"step {step} ({dom})", f_curr.copy(), s_curr.copy()))
 
@@ -284,16 +298,22 @@ class ImpDiagnostic:
         ax.grid(axis="y", alpha=0.3)
 
     def _overlay_year_reference(self, ax, what: str, year: str = "1995") -> None:
-        """Overlay a fully-observed year's raw distribution as a reference curve."""
+        """Overlay a fully-observed year's raw distribution as a reference curve.
+
+        Under the structural model ``acc.time_range`` is the canonical period
+        axis. The reference year is selected by its index in ``time_range``;
+        each snapshot is a 2-D ``(n_edges, n_timesteps)`` grid, so the column
+        slice picks out one period across all edges.
+        """
         if self.acc_struct is None:
             return
-        ei = self.acc_struct.edge_index
-        mask_year = (ei["time"].astype(str) == year).to_numpy()
-        if not mask_year.any():
+        time_range = [str(t) for t in self.acc_struct.time_range]
+        if year not in time_range:
             return
+        t_idx = time_range.index(year)
         _, f_pre, s_pre = self._snapshots[0]
         if what == "f":
-            vals = np.abs(f_pre[mask_year])
+            vals = np.abs(f_pre[:, t_idx])
             vals = vals[np.isfinite(vals) & (vals > 0)]
             if not len(vals):
                 return
@@ -301,8 +321,8 @@ class ImpDiagnostic:
         elif what == "cv":
             with np.errstate(divide="ignore", invalid="ignore"):
                 cv = np.where(
-                    np.abs(f_pre[mask_year]) > 0,
-                    s_pre[mask_year] / np.abs(f_pre[mask_year]),
+                    np.abs(f_pre[:, t_idx]) > 0,
+                    s_pre[:, t_idx] / np.abs(f_pre[:, t_idx]),
                     np.nan,
                 )
             cv = cv[np.isfinite(cv) & (cv > 0)]
@@ -318,7 +338,8 @@ class ImpDiagnostic:
     def _panel_coverage(self, ax) -> None:
         labels  = [s[0] for s in self._snapshots]
         counts  = [int(np.isfinite(s[1]).sum()) for s in self._snapshots]
-        n_total = len(self._snapshots[0][1])
+        # Coverage is the count of finite cells over (n_edges × n_timesteps).
+        n_total = int(self._snapshots[0][1].size)
 
         bars = ax.barh(
             labels, counts,
@@ -582,6 +603,11 @@ class ImpDiagnostic:
     # ------------------------------------------------------------------
 
     def _fig3_timeseries(self):
+        """TimeImputer panel — under the structural model each ``(from, to,
+        valuation)`` group is a *single* edge_id, and time lives on the
+        second axis of ``a_agg``. Per-cell imputation is keyed on
+        ``(edge_id, t_idx)``.
+        """
         import matplotlib.pyplot as plt
 
         acc     = self.acc_struct
@@ -591,7 +617,7 @@ class ImpDiagnostic:
             return None
 
         ei      = acc.edge_index.set_index("edge_id")
-        time_df = time_df.join(ei[["from_id", "to_id", "time", "valuation"]], on="edge_id")
+        time_df = time_df.join(ei[["from_id", "to_id", "valuation"]], on="edge_id")
 
         # Rank groups by mean |f_after|, then pick top-6 that have ≥1
         # bilateral-valid imputed point (avoids showing empty panels).
@@ -604,43 +630,65 @@ class ImpDiagnostic:
         if grp_mean.empty:
             return None
 
+        time_range = [str(t) for t in acc.time_range]
         try:
-            time_order = {t: float(t) for t in acc.time_range}
+            time_num = [float(t) for t in time_range]
         except (ValueError, TypeError):
-            time_order = {t: i for i, t in enumerate(acc.time_range)}
+            time_num = list(range(len(time_range)))
 
         agg_f        = self.agg_result.a_agg
-        imputed_set  = set(log_df["edge_id"].values)
-        time_imp_set = set(time_df["edge_id"].values)
+        # Cell-level imputed sets keyed by (edge_id, t_idx). Tolerate
+        # legacy logs without t_idx by defaulting missing entries to 0.
+        def _ti(df):
+            return pd.to_numeric(df["t_idx"], errors="coerce").fillna(0).astype(int).values
 
-        def _has_valid_imputed(key):
+        imputed_cells  = set(zip(log_df["edge_id"].astype(int).values,
+                                  _ti(log_df)))
+        time_imp_cells = set(zip(time_df["edge_id"].astype(int).values,
+                                  _ti(time_df)))
+
+        def _group_edge_id(key) -> int | None:
             from_id, to_id, valuation = key
             grp = ei[
                 (ei["from_id"] == from_id) &
                 (ei["to_id"]   == to_id)   &
                 (ei["valuation"] == valuation)
             ]
-            raw_ts: set[float] = set()
-            for eid, row in grp.iterrows():
-                f_val = agg_f[eid]
-                if np.isfinite(f_val) and eid not in imputed_set:
-                    raw_ts.add(time_order.get(str(row["time"]), 0))
-            for eid, row in grp.iterrows():
-                if eid not in time_imp_set:
-                    continue
-                f_val = agg_f[eid]
+            if grp.empty:
+                return None
+            return int(grp.index[0])
+
+        def _collect(eid: int) -> tuple[list, list, list, list]:
+            raw_t, raw_f, imp_t, imp_f = [], [], [], []
+            raw_idx_set: set[int] = set()
+            imp_candidates: list[tuple[int, float]] = []
+            for ti in range(len(time_range)):
+                f_val = agg_f[eid, ti]
                 if not np.isfinite(f_val):
                     continue
-                t_num = time_order.get(str(row["time"]), 0)
-                if (any((t_num - d) in raw_ts for d in (1, 2, 3)) and
-                        any((t_num + d) in raw_ts for d in (1, 2, 3))):
-                    return True
-            return False
+                cell = (eid, ti)
+                if cell in time_imp_cells:
+                    imp_candidates.append((ti, float(f_val)))
+                elif cell not in imputed_cells:
+                    raw_idx_set.add(ti)
+                    raw_t.append(time_num[ti])
+                    raw_f.append(float(f_val))
+            for ti, fv in imp_candidates:
+                has_before = any((ti - d) in raw_idx_set for d in (1, 2, 3))
+                has_after  = any((ti + d) in raw_idx_set for d in (1, 2, 3))
+                if has_before and has_after:
+                    imp_t.append(time_num[ti])
+                    imp_f.append(fv)
+            return raw_t, raw_f, imp_t, imp_f
 
         top_groups = []
         for key in grp_mean.index:
-            if _has_valid_imputed(key):
-                top_groups.append(key)
+            eid = _group_edge_id(key)
+            if eid is None:
+                continue
+            _, _, imp_t, _ = _collect(eid)
+            if imp_t:
+                top_groups.append((key, eid))
                 if len(top_groups) == 6:
                     break
 
@@ -654,41 +702,10 @@ class ImpDiagnostic:
         suffix = f" — {self.label}" if self.label else ""
         fig.suptitle(f"TimeImputer timeseries{suffix}", fontsize=13, fontweight="bold")
 
-        for panel_idx, key in enumerate(top_groups):
+        for panel_idx, (key, eid) in enumerate(top_groups):
             ax = axes[panel_idx // ncols][panel_idx % ncols]
             from_id, to_id, valuation = key
-
-            group_edges = ei[
-                (ei["from_id"] == from_id) &
-                (ei["to_id"]   == to_id)   &
-                (ei["valuation"] == valuation)
-            ]
-
-            # Pass 1: collect raw observations and candidate imputed entries.
-            raw_t_set: set[float] = set()
-            raw_t, raw_f = [], []
-            imp_candidates: list[tuple[float, float]] = []
-            for eid, row in group_edges.iterrows():
-                f_val = agg_f[eid]
-                if not np.isfinite(f_val):
-                    continue
-                t_num = time_order.get(str(row["time"]), 0)
-                if eid in time_imp_set:
-                    imp_candidates.append((t_num, f_val))
-                elif eid not in imputed_set:
-                    raw_t_set.add(t_num)
-                    raw_t.append(t_num)
-                    raw_f.append(f_val)
-
-            # Pass 2: only keep imputed points with ≥1 raw obs in [t-3,t-1]
-            # AND ≥1 raw obs in [t+1,t+3] — i.e. true bilateral gap fills.
-            imp_t, imp_f = [], []
-            for t_num, f_val in imp_candidates:
-                has_before = any((t_num - d) in raw_t_set for d in (1, 2, 3))
-                has_after  = any((t_num + d) in raw_t_set for d in (1, 2, 3))
-                if has_before and has_after:
-                    imp_t.append(t_num)
-                    imp_f.append(f_val)
+            raw_t, raw_f, imp_t, imp_f = _collect(eid)
 
             if raw_t:
                 ax.scatter(raw_t, raw_f, s=30, color=_C["grey"],

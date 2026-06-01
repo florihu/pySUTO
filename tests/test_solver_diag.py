@@ -21,11 +21,14 @@ matplotlib.use("Agg")  # headless backend before any pyplot import
 import pytest
 
 
-pytestmark = pytest.mark.xfail(
-    reason="Phase 6 — diag/solver depends on the pre-refactor solver "
-           "schema. Will be revisited once Phase 5 lands the new solver and "
-           "Phase 6 the diagnostics rewrite.",
-    strict=False,
+# Phase 7 rewired diag/solver to the structural schema (StructG.at(t_idx),
+# 2-D c/sigma_c, active mask, no cols_t/rows_t reassembly). The renderer
+# and roundtrip tests now pass. The remaining xfail-marked tests below
+# depend on numerical content of toy fixtures that the new solver
+# doesn't reproduce one-for-one.
+_LEGACY_FIXTURE = pytest.mark.xfail(
+    reason="toy fixture predates structural refactor; will be re-tuned post-validation",
+    strict=True,
 )
 
 
@@ -85,6 +88,7 @@ class TestPlotPortfolio:
 
 class TestSummary:
 
+    @_LEGACY_FIXTURE
     def test_summary_mentions_worst_eps_timestep(self, toy_results, capsys):
         from pysuto.diag import SolverDiag
         results, run = toy_results
@@ -166,6 +170,7 @@ def _solve_block_run(tmp_path, monkeypatch):
 
 class TestBlockRunDiag:
 
+    @_LEGACY_FIXTURE
     def test_mass_balance_summary_near_zero(self, tmp_path, monkeypatch):
         """SolverDiag built from year-local results reassembles the complete
         residuals, so the mass-balance summary reads ~0 (the artifact the REP

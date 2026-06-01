@@ -26,14 +26,16 @@ import pytest
 # Reuse the MockAcc + helper from test_imputation.py
 from test_imputation import MockAcc, _agg_result  # type: ignore
 
-# Phase 6 of the structural refactor will rewire diag/imp.py + diag/agg.py
-# to operate on the 2-D ``(n_edges, n_timesteps)`` grid and read time
-# labels off ``acc.time_range`` instead of ``edge_index["time"]``. Until
-# then the production diag code still reads the removed ``time`` column,
-# so these tests are expected to fail.
-pytestmark = pytest.mark.xfail(
-    reason="diag/imp.py + diag/agg.py rewrite is scheduled for Phase 6",
-    strict=False,
+# Phase 7 rewired diag/imp.py + diag/agg.py to the structural 2-D schema.
+# Most tests in this file now pass; the ones still marked xfail below
+# carry hand-rolled pre-refactor fixtures (1-D AggregationResult arrays
+# or ``edge_index["time"]`` mutation) that the new diag code no longer
+# matches. They will be unblocked when the test fixtures are migrated
+# to the 2-D (n_edges, n_timesteps) shape with per-cell t_idx in the
+# imputation log.
+_LEGACY_FIXTURE = pytest.mark.xfail(
+    reason="legacy 1-D / edge_index['time'] fixture predates structural refactor",
+    strict=True,
 )
 
 
@@ -113,6 +115,7 @@ def test_cv_panel_uses_log10(acc):
 # 3. 1995 overlay present when acc_struct supplied (no-op otherwise)
 # ---------------------------------------------------------------------------
 
+@_LEGACY_FIXTURE
 def test_1995_overlay_added_when_acc_supplied(acc):
     """Patch MockAcc to include 1995 edges and confirm the overlay is drawn."""
     from pysuto.diag   import ImpDiagnostic
@@ -167,6 +170,7 @@ def test_overlay_noop_without_acc(acc):
 # 4. Bilateral-neighbour guard in _fig3_timeseries
 # ---------------------------------------------------------------------------
 
+@_LEGACY_FIXTURE
 def test_bilateral_guard_filters_isolated_imputed(monkeypatch):
     """Synthetic series: imputed at t=5, raw only at t=10 → no × marker."""
     from pysuto.diag import ImpDiagnostic
@@ -234,6 +238,7 @@ def test_bilateral_guard_filters_isolated_imputed(monkeypatch):
         import matplotlib.pyplot as plt; plt.close(fig)
 
 
+@_LEGACY_FIXTURE
 def test_bilateral_guard_allows_real_gap(monkeypatch):
     """Synthetic series: imputed at t=3, raw at t=2 and t=4 → × marker rendered."""
     from pysuto.diag   import ImpDiagnostic

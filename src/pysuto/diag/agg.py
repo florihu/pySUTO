@@ -58,13 +58,10 @@ class AggDiagnostic:
         self._F         = np.array(agg_result.F, dtype=float, copy=True)
         self._Sigma     = np.array(agg_result.Sigma, dtype=float, copy=True)
         self._feed_ids  = list(agg_result.feed_ids)
-        # Per-edge time labels, when acc_struct is provided. Used to stratify
-        # the per-feed root distributions by year.
         if acc_struct is not None:
-            ei = acc_struct.edge_index.sort_values("edge_id")
-            self._edge_times = ei["time"].astype(str).to_numpy()
+            self._time_range = [str(t) for t in acc_struct.time_range]
         else:
-            self._edge_times = None
+            self._time_range = None
 
     # ------------------------------------------------------------------
     # Public interface
@@ -92,7 +89,7 @@ class AggDiagnostic:
 
         # New: per-timestep root distributions (viridis by year) when
         # acc_struct is available so we can stratify edge columns by time.
-        if self._edge_times is not None:
+        if self._time_range is not None:
             fig_root = self._fig_root_by_year()
             if fig_root is not None:
                 if odir is not None:
@@ -125,9 +122,10 @@ class AggDiagnostic:
         with np.errstate(divide="ignore", invalid="ignore"):
             cv_feed = np.where(np.abs(F_mat) > 0, Sigma_mat / np.abs(F_mat), np.nan)
 
-        # Top-5 (feed, edge) pairs by σ
+        # Top-5 (feed, edge, t) triples by σ — Sigma_mat is 3-D
+        # (N_f, n_edges, n_timesteps) under the structural model.
         idx_sorted = np.argsort(-np.where(finite, Sigma_mat, -np.inf), axis=None)[:5]
-        rows, cols = np.unravel_index(idx_sorted, Sigma_mat.shape)
+        rows, cols, ts = np.unravel_index(idx_sorted, Sigma_mat.shape)
 
         lines: list[str] = []
         lines.append(f"AggDiagnostic ({self.label or 'unlabeled'})")
@@ -148,15 +146,18 @@ class AggDiagnostic:
             f"p99={_pct(cv_valid, 99):.3g}  "
             f"max={float(np.nanmax(cv_valid)) if cv_valid.size else float('nan'):.3g}"
         )
-        lines.append("  top-5 (feed, edge) by σ_root:")
-        for r, c in zip(rows, cols):
-            if not finite[r, c]:
+        lines.append("  top-5 (feed, edge, t) by σ_root:")
+        for r, c, t in zip(rows, cols, ts):
+            if not finite[r, c, t]:
                 continue
             fid = self._feed_ids[int(r)]
+            tlbl = (self._time_range[int(t)]
+                    if self._time_range is not None and int(t) < len(self._time_range)
+                    else str(int(t)))
             lines.append(
-                f"    feed='{fid}' edge={int(c)}  "
-                f"f={F_mat[r, c]:.3g}  σ={Sigma_mat[r, c]:.3g}  "
-                f"CV={cv_feed[r, c]:.3g}"
+                f"    feed='{fid}' edge={int(c)} t={tlbl}  "
+                f"f={F_mat[r, c, t]:.3g}  σ={Sigma_mat[r, c, t]:.3g}  "
+                f"CV={cv_feed[r, c, t]:.3g}"
             )
         text = "\n".join(lines)
         print(text)
@@ -257,32 +258,23 @@ class AggDiagnostic:
 
     def _fig_root_by_year(self):
         """Two-panel log10|f_root| and log10 σ_root histograms stratified by
-        edge time. Viridis colormap across years with a shared colorbar.
-        Pools over all feeds; requires ``self._edge_times``.
+        period index. Viridis colormap across years with a shared colorbar.
+        Pools over all feeds; requires ``self._time_range``.
         """
         import matplotlib.pyplot as plt
         from matplotlib.cm import ScalarMappable
         from matplotlib.colors import Normalize
 
-        edge_times = self._edge_times
-        if edge_times is None:
+        time_range = self._time_range
+        if time_range is None or len(time_range) == 0:
             return None
 
-        def _sort_key(t: str) -> tuple:
-            try:
-                return (0, int(t))
-            except (ValueError, TypeError):
-                return (1, str(t))
-        years_unique = sorted(set(edge_times.tolist()), key=_sort_key)
-        if not years_unique:
-            return None
-
-        # Numeric year axis for the colormap when years parse as floats; fall
+        # Numeric year axis for the colormap when labels parse as floats; fall
         # back to ordinal positions when they don't.
         try:
-            year_vals = [float(y) for y in years_unique]
+            year_vals = [float(y) for y in time_range]
         except (ValueError, TypeError):
-            year_vals = list(range(len(years_unique)))
+            year_vals = list(range(len(time_range)))
         norm = Normalize(vmin=min(year_vals), vmax=max(year_vals))
         cmap = plt.get_cmap("viridis")
 
@@ -302,19 +294,16 @@ class AggDiagnostic:
         title = f"Per-timestep root distributions — {self.label}" if self.label else "Per-timestep root distributions"
         fig.suptitle(title, fontsize=13, fontweight="bold")
 
-        for year, yval in zip(years_unique, year_vals):
-            col_mask = (edge_times == year)
-            if not col_mask.any():
-                continue
+        for t_idx, (year, yval) in enumerate(zip(time_range, year_vals)):
             color = cmap(norm(yval))
 
-            f_vals = np.abs(F_mat[:, col_mask]).ravel()
+            f_vals = np.abs(F_mat[:, :, t_idx]).ravel()
             f_vals = f_vals[np.isfinite(f_vals) & (f_vals > 0)]
             if f_vals.size:
                 axes[0].hist(np.log10(f_vals), bins=f_bins, histtype="step",
                              color=color, linewidth=1.0, alpha=0.85)
 
-            s_vals = Sigma_mat[:, col_mask].ravel()
+            s_vals = Sigma_mat[:, :, t_idx].ravel()
             s_vals = s_vals[np.isfinite(s_vals) & (s_vals > 0)]
             if s_vals.size:
                 axes[1].hist(np.log10(s_vals), bins=s_bins, histtype="step",

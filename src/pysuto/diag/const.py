@@ -43,8 +43,8 @@ class ConstDiagnostic:
     Parameters
     ----------
     constraint_run :
-        ConstraintRun dataclass (must have .G, .row_meta, .a0, .sigma_a,
-        .timestep_data, .run_id).
+        ConstraintRun dataclass (must have .G: StructG, .row_meta, .a0, .sigma_a,
+        .c, .sigma_c, .active, .timesteps, .run_id).
     label : str
         Optional label for figure titles and summary output.
     """
@@ -79,31 +79,40 @@ class ConstDiagnostic:
         Reconstruct a ConstDiagnostic by loading a persisted ConstraintRun
         directly from its directory (no registry required).
         """
-        import glob
+        import json
         import types
-        import scipy.sparse as _sp
+
+        from ..constraints import StructG
 
         run_dir = run_dir.rstrip("/\\")
 
-        G        = _sp.load_npz(os.path.join(run_dir, "G.npz"))
+        sg_npz   = np.load(os.path.join(run_dir, "struct_g.npz"))
         row_meta = pd.read_parquet(os.path.join(run_dir, "row_meta.parquet"))
+        G = StructG(
+            indptr   = sg_npz["indptr"],
+            indices  = sg_npz["indices"],
+            data     = sg_npz["data"],
+            shape    = tuple(int(x) for x in sg_npz["shape"]),
+            row_meta = row_meta,
+        )
         a0       = np.load(os.path.join(run_dir, "a0.npy"))
         sigma_a  = np.load(os.path.join(run_dir, "sigma_a.npy"))
+        c        = np.load(os.path.join(run_dir, "c.npy"))
+        sigma_c  = np.load(os.path.join(run_dir, "sigma_c.npy"))
+        active   = np.load(os.path.join(run_dir, "active.npy"))
+        with open(os.path.join(run_dir, "timesteps.json")) as f:
+            timesteps = list(json.load(f))
 
-        ts_dir        = os.path.join(run_dir, "timesteps")
-        timestep_data = {}
-        for path in sorted(glob.glob(os.path.join(ts_dir, "t_*.npz"))):
-            t_label = os.path.basename(path)[2:-4]   # strip "t_" prefix and ".npz"
-            npz     = np.load(path)
-            timestep_data[t_label] = {"c": npz["c"], "sigma_c": npz["sigma_c"]}
-
-        cr         = types.SimpleNamespace()
-        cr.G       = G
-        cr.row_meta      = row_meta
-        cr.a0            = a0
-        cr.sigma_a       = sigma_a
-        cr.timestep_data = timestep_data
-        cr.run_id        = os.path.basename(run_dir)
+        cr           = types.SimpleNamespace()
+        cr.G         = G
+        cr.row_meta  = row_meta
+        cr.a0        = a0
+        cr.sigma_a   = sigma_a
+        cr.c         = c
+        cr.sigma_c   = sigma_c
+        cr.active    = active
+        cr.timesteps = timesteps
+        cr.run_id    = os.path.basename(run_dir)
 
         return cls(cr, label=label)
 
@@ -148,6 +157,7 @@ class ConstDiagnostic:
         nnz  = cr.G.nnz
         n_hard = int(rm["is_hard"].sum()) if len(rm) else 0
         n_soft = len(rm) - n_hard
+        n_timesteps = len(cr.timesteps)
 
         lines = [
             f"{'─'*60}",
@@ -160,13 +170,13 @@ class ConstDiagnostic:
             if len(rm) else "  Hard constraints : 0",
             f"  Soft constraints : {n_soft:>8,}  ({n_soft/len(rm)*100:.1f} %)"
             if len(rm) else "  Soft constraints : 0",
-            f"  Timesteps        : {len(cr.timestep_data):>8,}",
+            f"  Timesteps        : {n_timesteps:>8,}",
         ]
 
-        if cr.timestep_data:
-            t0    = next(iter(cr.timestep_data))
-            c_t0  = cr.timestep_data[t0]["c"]
-            eps0  = c_t0 - cr.G.dot(cr.a0)
+        if n_timesteps:
+            t0    = cr.timesteps[0]
+            c_t0  = cr.c[:, 0]
+            eps0  = c_t0 - cr.G.at(0).dot(cr.a0)
             abs_e = np.abs(eps0)
             finite_e = abs_e[np.isfinite(abs_e)]
             if len(finite_e):
@@ -201,7 +211,8 @@ class ConstDiagnostic:
         n_cols_grid = min(600, E)
 
         if nnz > 0:
-            coo      = G.tocoo()
+            # Sparsity is structurally identical across periods; t=0 is fine.
+            coo      = G.at(0).tocoo()
             row_bins = np.floor(coo.row * n_rows_grid / M).astype(int).clip(0, n_rows_grid - 1)
             col_bins = np.floor(coo.col * n_cols_grid / E).astype(int).clip(0, n_cols_grid - 1)
             grid = np.zeros((n_rows_grid, n_cols_grid), dtype=np.float32)
@@ -335,11 +346,11 @@ class ConstDiagnostic:
     def _eps0_ref(self):
         """Return (eps0, c_t0, t0_label) for the first timestep, or (None, None, None)."""
         cr = self.cr
-        if not cr.timestep_data:
+        if not len(cr.timesteps):
             return None, None, None
-        t0   = next(iter(cr.timestep_data))
-        c_t0 = cr.timestep_data[t0]["c"]
-        eps0 = c_t0 - cr.G.dot(cr.a0)
+        t0   = cr.timesteps[0]
+        c_t0 = cr.c[:, 0]
+        eps0 = c_t0 - cr.G.at(0).dot(cr.a0)
         return eps0, c_t0, t0
 
     def _panel_c_by_year(self, ax) -> None:
@@ -362,16 +373,18 @@ class ConstDiagnostic:
             ax.set_title("|c| distribution (soft constraints)", fontweight="bold")
             return
 
-        timesteps = list(cr.timestep_data.keys())
+        timesteps = list(cr.timesteps)
         n    = len(timesteps)
         cmap = plt.cm.viridis
 
         # Outlined steps (not filled) so every year remains visible — with 30+
         # overlaid stepfilled histograms the latest year was drowning out the
-        # rest. Compute a common bin grid for fair comparison.
+        # rest. Compute a common bin grid for fair comparison. Only count rows
+        # that are active for the period.
         all_log_vals = []
-        for t_label in timesteps:
-            c = cr.timestep_data[t_label]["c"][soft_mask]
+        for t_idx in range(n):
+            row_mask = soft_mask & cr.active[:, t_idx]
+            c = cr.c[row_mask, t_idx]
             v = np.abs(c)
             v = v[np.isfinite(v) & (v > 0)]
             if len(v):
@@ -384,7 +397,8 @@ class ConstDiagnostic:
             bins = 40
 
         for i, t_label in enumerate(timesteps):
-            c    = cr.timestep_data[t_label]["c"][soft_mask]
+            row_mask = soft_mask & cr.active[:, i]
+            c    = cr.c[row_mask, i]
             vals = np.abs(c)
             vals = vals[np.isfinite(vals) & (vals > 0)]
             if not len(vals):
@@ -420,13 +434,9 @@ class ConstDiagnostic:
         """
         σ_c distribution at the **first timestep only**.
 
-        Soft sum-constraint rows whose spec belongs to a different year
-        are deactivated for this t via ``σ_c = SIGMA_C_INACTIVE`` (≥ 1e10);
-        we exclude them so the histogram shows only this year's active
-        rows.
+        Soft rows that aren't active at t=0 (``cr.active[:, 0]`` is False)
+        are excluded so the histogram shows only this year's active rows.
         """
-        from ..constraints import SIGMA_C_INACTIVE
-
         cr        = self.cr
         soft_mask = self._soft_mask()
 
@@ -436,17 +446,17 @@ class ConstDiagnostic:
             ax.set_title("σ_c distribution (soft constraints)", fontweight="bold")
             return
 
-        if not cr.timestep_data:
+        if not len(cr.timesteps):
             ax.text(0.5, 0.5, "No timestep data", ha="center", va="center",
                     transform=ax.transAxes)
             ax.set_title("σ_c distribution (soft constraints)", fontweight="bold")
             return
 
-        t0   = next(iter(cr.timestep_data))
-        sc   = cr.timestep_data[t0]["sigma_c"][soft_mask]
-        # Drop deactivated sentinel entries (σ_c ≈ SIGMA_C_INACTIVE).
-        active = np.isfinite(sc) & (sc > 0) & (sc < SIGMA_C_INACTIVE * 0.5)
-        vals = sc[active]
+        t0   = cr.timesteps[0]
+        row_mask = soft_mask & cr.active[:, 0]
+        sc   = cr.sigma_c[row_mask, 0]
+        finite = np.isfinite(sc) & (sc > 0)
+        vals = sc[finite]
 
         if not len(vals):
             ax.text(0.5, 0.5, "All σ_c ≤ 0 or non-finite", ha="center",

@@ -10,7 +10,6 @@ much wider plot surface than the other diagnostics.
 from __future__ import annotations
 
 import os
-from dataclasses import replace
 from typing import Any, Optional
 
 import numpy as np
@@ -111,11 +110,14 @@ class SolverDiag:
     ) -> None:
         # Ordered list of timestep labels = key order in results dict
         self.label         = label
-        self._results      = self._reassemble_if_year_local(
-            dict(results), constraint_run,
-        )
+        self._results      = dict(results)
         self._timesteps    = list(self._results.keys())
         self._const_run    = constraint_run
+        # Precompute t-label → period index for the structural per-period
+        # slice on cr.c / cr.sigma_c / cr.sigma_a / cr.G.at().
+        self._t_index_map  = {
+            t: i for i, t in enumerate(getattr(constraint_run, "timesteps", self._timesteps))
+        }
         self._sigma_opt    = dict(sigma_opt) if sigma_opt else None
 
         # Default odir cache — populated by from_opt_id; None for live mode
@@ -136,40 +138,10 @@ class SolverDiag:
             for t in self._timesteps
         }
 
-    @staticmethod
-    def _reassemble_if_year_local(results: dict, constraint_run) -> dict:
-        """Block-path (year-local) results store only each period's solved
-        slice (F_opt over cols_t, residuals/c_star over rows_t). Scatter the
-        pieces back into one complete F (E,) and one complete residuals/c_star
-        (M,) — each edge/row belongs to exactly one period, so the assembled
-        vectors are the true, placeholder-free solution. Every existing
-        global-index figure then works unchanged. Legacy (full-vector) results
-        are returned untouched. cols_t/rows_t are retained so per-period figures
-        can slice the complete vector to a single year."""
-        if not any(getattr(r, "cols_t", None) is not None for r in results.values()):
-            return results
-
-        E = constraint_run.G.shape[1]
-        M = constraint_run.G.shape[0]
-        F_complete     = np.zeros(E)
-        resid_complete = np.zeros(M)
-        cstar_complete = np.zeros(M)
-        for r in results.values():
-            if r.cols_t is None:
-                continue
-            F_complete[r.cols_t]     = r.F_opt
-            resid_complete[r.rows_t] = r.residuals
-            cstar_complete[r.rows_t] = r.c_star
-
-        return {
-            t: replace(
-                r,
-                F_opt     = F_complete,
-                residuals = resid_complete,
-                c_star    = cstar_complete,
-            )
-            for t, r in results.items()
-        }
+    def _t_idx(self, t: str) -> int:
+        """Map a timestep label to the period column index into
+        ``cr.c`` / ``cr.sigma_c`` / ``cr.sigma_a`` / ``cr.G.at(t_idx)``."""
+        return self._t_index_map[t]
 
     # ------------------------------------------------------------------
     # Construction from persisted run
@@ -686,7 +658,8 @@ class SolverDiag:
             return np.zeros(0)
         # eps_opt is in free-cone row order (length n_free); but residuals
         # are in original row order, so derive ε from c_star - c.
-        c   = np.asarray(self._const_run.timestep_data[t]["c"])
+        ti  = self._t_idx(t)
+        c   = np.asarray(self._const_run.c[:, ti], dtype=float)
         eps = self._results[t].c_star - c
         return eps[idx]
 
@@ -694,7 +667,8 @@ class SolverDiag:
         idx = self._row_info[type_key]
         if idx.size == 0:
             return np.zeros(0)
-        sc = np.asarray(self._const_run.timestep_data[t]["sigma_c"])
+        ti = self._t_idx(t)
+        sc = np.asarray(self._const_run.sigma_c[:, ti], dtype=float)
         return sc[idx]
 
     def _nonneg_slack(self, t: str) -> np.ndarray:
@@ -1246,12 +1220,14 @@ class SolverDiag:
         fig, axes = self._make_xsection(n_rows, "Solution vs prior (SD-T-03)")
 
         a0  = np.asarray(self._const_run.a0, dtype=float)
-        sa  = np.asarray(self._const_run.sigma_a, dtype=float)
-        sa_safe = np.where(sa > 0, sa, np.inf)
+        sa_2d   = np.asarray(self._const_run.sigma_a, dtype=float)
         a0_safe = np.where(np.abs(a0) > 0, np.abs(a0), np.inf)
 
         for col, t in enumerate(ts_triple):
-            F = self._results[t].F_opt
+            F  = self._results[t].F_opt
+            ti = self._t_idx(t)
+            sa = sa_2d[:, ti]
+            sa_safe = np.where(sa > 0, sa, np.inf)
             # Row 1: z-score (signed) → log10|z| with sign overlay
             z = (F - a0) / sa_safe
             self._hist_logabs_signed(axes[0, col], z, bins=40,
@@ -1396,7 +1372,8 @@ class SolverDiag:
 
         for col, t in enumerate(ts_triple):
             if soft_idx.size:
-                c       = np.asarray(self._const_run.timestep_data[t]["c"])[soft_idx]
+                ti      = self._t_idx(t)
+                c       = np.asarray(self._const_run.c[:, ti], dtype=float)[soft_idx]
                 cstar   = self._results[t].c_star[soft_idx]
                 eps     = cstar - c
                 rel_eps = eps / (np.abs(c) + 1e-12)
@@ -1449,19 +1426,26 @@ class SolverDiag:
             prior_for[t] = prev
             prev = self._results[t].F_opt
 
-        sa = np.asarray(self._const_run.sigma_a, dtype=float)
-        sa_safe = np.where(sa > 0, sa, np.inf)
+        sa_2d = np.asarray(self._const_run.sigma_a, dtype=float)
+
+        def _sa_safe(t):
+            sa_t = sa_2d[:, self._t_idx(t)]
+            return np.where(sa_t > 0, sa_t, np.inf)
 
         def _logabs(x: np.ndarray) -> np.ndarray:
             v = np.abs(np.asarray(x, dtype=float))
             v = v[v > 0]
             return np.log10(v) if v.size else np.array([0.0])
 
-        # Row 1 x-axis is c_prior(t) = G_sum_eq · a*(t-1); shared limits across cols
-        G_se = self._const_run.G[se_idx, :] if se_idx.size else None
-        if se_idx.size and G_se is not None:
+        # Row 1 x-axis is c_prior(t) = G_sum_eq(t) · a*(t-1); sparsity is shared
+        # across periods so the row-slice indexing is structural — only the
+        # data tape differs per t.
+        def _G_se_at(t):
+            return self._const_run.G.at(self._t_idx(t))[se_idx, :]
+
+        if se_idx.size:
             cprior_all = np.concatenate(
-                [np.asarray(G_se @ prior_for[t]) for t in ts_triple])
+                [np.asarray(_G_se_at(t) @ prior_for[t]) for t in ts_triple])
             cstars_all = np.concatenate(
                 [self._results[t].c_star[se_idx] for t in ts_triple])
             all_r1 = np.concatenate([_logabs(cprior_all), _logabs(cstars_all)])
@@ -1490,7 +1474,7 @@ class SolverDiag:
             znorm = Normalize(0, 1)
 
         dpa_all = np.concatenate([
-            np.abs(self._results[t].F_opt - prior_for[t]) / sa_safe
+            np.abs(self._results[t].F_opt - prior_for[t]) / _sa_safe(t)
             for t in ts_triple
         ])
         dpa_all = dpa_all[np.isfinite(dpa_all) & (dpa_all > 0)]
@@ -1500,11 +1484,12 @@ class SolverDiag:
         free_idx = self._row_info["free"]
 
         def _eps0_for_t(t):
-            """Pre-optimisation soft-row residual: G_free @ a*(t-1) - c_free(t)."""
+            """Pre-optimisation soft-row residual: G_free(t) @ a*(t-1) - c_free(t)."""
             if not free_idx.size:
                 return np.zeros(0)
-            G_free = self._const_run.G[free_idx, :]
-            c_free = np.asarray(self._const_run.timestep_data[t]["c"])[free_idx]
+            ti     = self._t_idx(t)
+            G_free = self._const_run.G.at(ti)[free_idx, :]
+            c_free = np.asarray(self._const_run.c[:, ti], dtype=float)[free_idx]
             return G_free @ prior_for[t] - c_free
 
         def _z_free_for_t(t):
@@ -1512,7 +1497,7 @@ class SolverDiag:
             if not free_idx.size:
                 return np.zeros(0)
             eps_opt = np.asarray(self._results[t].eps_opt, dtype=float)
-            sig_all = np.asarray(self._const_run.timestep_data[t]["sigma_c"], dtype=float)
+            sig_all = np.asarray(self._const_run.sigma_c[:, self._t_idx(t)], dtype=float)
             sig_free = sig_all[free_idx][:len(eps_opt)]
             sig_safe = np.where(sig_free > 0, sig_free, np.inf)
             return np.abs(eps_opt) / sig_safe
@@ -1543,8 +1528,8 @@ class SolverDiag:
         for col, t in enumerate(ts_triple):
             # ---- Row 1: G·a*(t-1) vs c* on sum_eq rows, coloured by |ε|/σ_c ----
             ax = axes[0, col]
-            if se_idx.size and G_se is not None:
-                c_prior = np.abs(np.asarray(G_se @ prior_for[t], dtype=float))
+            if se_idx.size:
+                c_prior = np.abs(np.asarray(_G_se_at(t) @ prior_for[t], dtype=float))
                 cstar   = np.abs(self._results[t].c_star[se_idx])
                 eps     = self._eps_for_type(t, "sum_eq")
                 sig     = self._sigma_c_for_type(t, "sum_eq")
@@ -1597,7 +1582,7 @@ class SolverDiag:
             ax = axes[2, col]
             a0    = np.abs(prior_for[t])
             astar = np.abs(self._results[t].F_opt)
-            dp    = np.abs(self._results[t].F_opt - prior_for[t]) / sa_safe
+            dp    = np.abs(self._results[t].F_opt - prior_for[t]) / _sa_safe(t)
             m = (a0 > 0) & (astar > 0) & np.isfinite(dp)
             if m.any():
                 sc2 = ax.scatter(np.log10(a0[m]), np.log10(astar[m]),
@@ -1762,7 +1747,9 @@ class SolverDiag:
 
         # Extract (edge_i, edge_j) per ratio_eq row from G:
         #   row coefficients are [+1 at edge_i, -r at edge_j] by construction.
-        G_re = self._const_run.G[re_idx, :].tocsr()
+        # Topology (column indices) is time-invariant; any period materialisation
+        # yields the same nnz pattern.
+        G_re = self._const_run.G.at(0)[re_idx, :].tocsr()
         n_re = G_re.shape[0]
         edge_i_arr = np.full(n_re, -1, dtype=np.int64)
         edge_j_arr = np.full(n_re, -1, dtype=np.int64)
