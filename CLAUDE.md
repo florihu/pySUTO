@@ -79,3 +79,17 @@ When you need project-specific context, see [README.md](README.md):
 
 ### Other SPECS
 - Store Analysis of solver, const or imp runs in REP
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in the `florihu/pySUTO` GitHub repo, managed via the `gh` CLI. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Canonical defaults (`needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`). See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context; `README.md` is the domain/spec source (including its `## Glossary`), ADRs in `docs/adr/`. See `docs/agents/domain.md`.
