@@ -67,7 +67,15 @@ class BaseImputer(ABC):
     the missing mask at the START of this step (bool, True where NaN),
     the pipeline step index for logging, and the accounting structure.
     Returns a list of log-entry dicts (one per filled edge).
+
+    ``id`` is a provenance label stamped onto every log entry and sidecar
+    step record by :class:`ImputationEngine`. Each concrete ``__init__``
+    accepts an optional ``id`` and defaults it to the class name; pass an
+    explicit id (e.g. ``"conc"``) to disambiguate same-class imputers.
     """
+
+    #: Provenance id; set by each concrete __init__ (default = class name).
+    id: str = ""
 
     @abstractmethod
     def impute(

@@ -194,7 +194,8 @@ class TestImputationLog:
                      "description": "d", "param_id": "p1"})
         df = log.as_dataframe()
         assert set(df.columns) == {
-            "edge_id","step","method","source_edges","coefficients",
+            "edge_id","step","imputer_id","pass","method",
+            "source_edges","coefficients",
             "f_before","f_after","sigma_before","sigma_after",
             "description","param_id",
         }
@@ -281,6 +282,110 @@ class TestImputationEngine:
         engine.register(counter)
         engine.run(ar)
         assert counter.called == 0
+
+
+# =============================================================================
+# 2b. ImputationEngine — fixpoint cascade + imputer-id provenance
+# =============================================================================
+
+class TestImputationCascade:
+    """register_cascade iterates the conc/eff-style imputers to a fixpoint."""
+
+    def _two_hop(self):
+        # edge 0 known; A fills 2 from 0 (f2 = 2·f0); B fills 3 from 2 (f3 = 3·f2).
+        # Registering B before A means B can only succeed on a *second* pass.
+        ar = _agg_result([10.0] + [np.nan] * 9, [1.0] + [np.nan] * 9)
+        imp_A = ParametricImputer(_csv_pairs=[(0, 2, 2.0, 0.1, 0.0, "A", "")], id="A")
+        imp_B = ParametricImputer(_csv_pairs=[(2, 3, 3.0, 0.1, 0.0, "B", "")], id="B")
+        return ar, imp_A, imp_B
+
+    def test_single_pass_leaves_chain_incomplete(self, acc):
+        """Terminal-only, B before A: B runs too early → edge 3 stays NaN."""
+        ar, imp_A, imp_B = self._two_hop()
+        engine = ImputationEngine(acc_struct=acc)
+        engine.register(imp_B)
+        engine.register(imp_A)
+        result = engine.run(ar)
+        assert result.f_agg[2] == pytest.approx(20.0)   # A filled it
+        assert np.isnan(result.f_agg[3])                 # B ran before edge 2 existed
+
+    def test_cascade_fills_chain_via_fixpoint(self, acc):
+        """Same imputers/order as a cascade → pass 2 lets B fill edge 3."""
+        ar, imp_A, imp_B = self._two_hop()
+        engine = ImputationEngine(acc_struct=acc)
+        engine.register_cascade([imp_B, imp_A], max_iter=10)
+        result = engine.run(ar)
+        assert result.f_agg[2] == pytest.approx(20.0)
+        assert result.f_agg[3] == pytest.approx(60.0)
+        passes = result.imputation_metadata.as_dataframe()["pass"].dropna()
+        assert int(passes.max()) == 2                    # converged after 2 productive passes
+
+    def test_max_iter_caps_passes(self, acc):
+        """max_iter=1 allows a single pass → the second hop stays unfilled."""
+        ar, imp_A, imp_B = self._two_hop()
+        engine = ImputationEngine(acc_struct=acc)
+        engine.register_cascade([imp_B, imp_A], max_iter=1)
+        result = engine.run(ar)
+        assert result.f_agg[2] == pytest.approx(20.0)    # A filled on pass 1
+        assert np.isnan(result.f_agg[3])                 # B needed pass 2 → capped
+
+    def test_no_dead_pass_recorded(self, acc):
+        """The trailing zero-fill sweep that proves convergence is discarded."""
+        ar, imp_A, imp_B = self._two_hop()
+        engine = ImputationEngine(acc_struct=acc)
+        engine.register_cascade([imp_B, imp_A], max_iter=10)
+        result = engine.run(ar)
+        md = result.imputation_metadata.as_dataframe()
+        # 2 productive passes × 2 imputers = 4 records; no pass 3.
+        assert set(md["pass"].dropna().astype(int)) == {1, 2}
+        assert (md["pass"] == 3).sum() == 0
+        assert len(md) == 4
+
+    def test_provenance_in_log_and_meta(self, acc):
+        ar, imp_A, imp_B = self._two_hop()
+        engine = ImputationEngine(acc_struct=acc)
+        engine.register_cascade([imp_B, imp_A], max_iter=10)
+        result = engine.run(ar)
+        log = result.imputation_log.as_dataframe()
+        row2 = log[log["edge_id"] == 2].iloc[0]
+        row3 = log[log["edge_id"] == 3].iloc[0]
+        assert row2["imputer_id"] == "A" and int(row2["pass"]) == 1
+        assert row3["imputer_id"] == "B" and int(row3["pass"]) == 2
+        md = result.imputation_metadata.as_dataframe()
+        assert {"imputer_id", "pass", "config"} <= set(md.columns)
+        assert set(md["imputer_id"]) == {"A", "B"}
+        assert all(isinstance(c, dict) for c in md["config"])
+
+    def test_terminal_imputer_has_null_pass(self, acc):
+        ar, imp_A, imp_B = self._two_hop()
+        imp_C = ParametricImputer(_csv_pairs=[(0, 4, 1.0, 0.1, 0.0, "C", "")], id="C")
+        engine = ImputationEngine(acc_struct=acc)
+        engine.register_cascade([imp_B, imp_A], max_iter=10)
+        engine.register(imp_C)                            # terminal
+        result = engine.run(ar)
+        assert result.f_agg[4] == pytest.approx(10.0)
+        rowC = result.imputation_log.as_dataframe()
+        rowC = rowC[rowC["edge_id"] == 4].iloc[0]
+        assert rowC["imputer_id"] == "C"
+        assert pd.isna(rowC["pass"])
+
+    def test_default_id_is_class_name(self):
+        assert ParametricImputer(_csv_pairs=[]).id == "ParametricImputer"
+
+    def test_backward_compat_terminal_only(self, acc):
+        """No cascade → old single-pass behaviour: steps 0,1 and null pass."""
+        ar = _agg_result([10.0] + [np.nan] * 9, [1.0] + [np.nan] * 9)
+        imp1 = ParametricImputer(_csv_pairs=[(0, 1, 2.0, 0.1, 0.0, "p1", "")], id="one")
+        imp2 = ParametricImputer(_csv_pairs=[(1, 3, 3.0, 0.1, 0.0, "p2", "")], id="two")
+        engine = ImputationEngine(acc_struct=acc)
+        engine.register(imp1)
+        engine.register(imp2)
+        result = engine.run(ar)
+        assert result.f_agg[1] == pytest.approx(20.0)
+        assert result.f_agg[3] == pytest.approx(60.0)
+        md = result.imputation_metadata.as_dataframe()
+        assert list(md["step"]) == [0, 1]
+        assert md["pass"].isna().all()
 
 
 # =============================================================================

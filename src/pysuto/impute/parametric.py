@@ -105,7 +105,9 @@ class ParametricImputer(BaseImputer):
         p: float = 1.3,
         q: float = 3.0,
         alpha_min: float = 0.05,
+        id: Optional[str] = None,
     ) -> None:
+        self.id          = id or type(self).__name__
         self._relations  = relations or []
         # Each tuple: (a_id, b_id, coeff, sigma_param, epsilon, param_id, desc)
         # Note: per-row `bound_lower / bound_upper` from the CSV are *ratio bounds*
@@ -144,6 +146,7 @@ class ParametricImputer(BaseImputer):
         p: float = 1.3,
         q: float = 3.0,
         alpha_min: float = 0.05,
+        id: Optional[str] = None,
     ) -> "ParametricImputer":
         """
         Load a params-template CSV (semicolon-delimited) and precompute
@@ -201,6 +204,7 @@ class ParametricImputer(BaseImputer):
             p=p,
             q=q,
             alpha_min=alpha_min,
+            id=id,
         )
 
     def impute(

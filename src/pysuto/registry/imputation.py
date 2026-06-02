@@ -102,16 +102,14 @@ class ImputationRunRegistry(BaseOutputRegistry):
             index=False,
         )
 
-        # 3. assemble per-imputer step records (matches old metadata.json shape)
+        # 3. assemble per-imputer step records (matches old metadata.json shape).
+        # ImputationEngine stamps imputer_id / pass / config onto each record at
+        # run time, so we don't re-derive config by step index here — that broke
+        # once the fixpoint cascade produced more steps than imputer objects.
+        # The `imputers` param is retained for signature compatibility.
         meta_records: list[dict] = []
         if agg_result.imputation_metadata is not None:
             meta_records = agg_result.imputation_metadata.as_dataframe().to_dict("records")
-        if imputers:
-            for rec in meta_records:
-                step = int(rec.get("step", -1))
-                if 0 <= step < len(imputers):
-                    imp = imputers[step]
-                    rec["config"] = imp.config() if hasattr(imp, "config") else {}
 
         # 4. summary numbers
         n_total   = int(agg_result.f_agg.shape[0])

@@ -76,6 +76,7 @@ class FlatPriorImputer(BaseImputer):
         masks: Optional[dict[str, np.ndarray]] = None,
         mode: str = "magnitude_aware",
         sigma_high: Optional[float] = None,
+        id: Optional[str] = None,
     ) -> None:
         """
         Parameters
@@ -114,6 +115,7 @@ class FlatPriorImputer(BaseImputer):
             ``noisy_zero`` only — required there. The single σ value
             written for every filled edge. Must be strictly positive.
         """
+        self.id = id or type(self).__name__
         self.mode = str(mode)
         if self.mode not in ("magnitude_aware", "noisy_zero"):
             raise ValueError(

@@ -105,7 +105,9 @@ class FormulaImputer(BaseImputer):
         params: Optional[dict[str, float]] = None,
         cv_cap: float = float("inf"),
         p: float = 1.3,
+        id: Optional[str] = None,
     ) -> None:
+        self.id = id or type(self).__name__
         self._relations = relations
         self._params: dict[str, float] = dict(params or {})
         if params_csv is not None:

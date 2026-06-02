@@ -82,6 +82,10 @@ P_PROP        = 1.3      # Lp/power-mean exponent
 Q_REG         = 3.0      # ParametricImputer backward-branch knee sharpness
 ALPHA_MIN_REG = 0.05     # inverse-multiplier effective-sensitivity floor
 
+# Imputation cascade — conc/eff/formula iterate to a fixpoint (re-run until a
+# full sweep fills no new edges). Safety cap on passes (chain depth ≈ 8).
+CASCADE_MAX_ITER = 10
+
 # TimeImputer (general interpolation pass)
 TIME_WINDOW           = 3
 TIME_MIN_OBS          = 2
@@ -338,32 +342,31 @@ def main(feed_ids: list[str], label: str) -> None:
     agg_diag.summary()
 
     # ── C  Imputation pipeline ────────────────────────────────────────────────
-    # Step order is semantic: each imputer only fills edges still NaN after the
-    # previous one. `conc` runs first because concentration ratios anchor most
-    # downstream Mining↔MF↔Concentrate edges; subsequent passes (ore_grade,
-    # eff) refine remaining gaps. FormulaImputer reuses the conc params CSV.
+    # The conc/eff/formula imputers form a metallurgical cascade: a value
+    # derived at one stage (e.g. Smelting→Matte CC via eff) only feeds the next
+    # stage's fill (Matte→CFR Mass via conc/formula) on a *subsequent* pass.
+    # They are registered as a fixpoint cascade — re-run together until a full
+    # sweep fills no new edges — so the chain saturates instead of dying after
+    # one hop (see docs/rep/analysis_imp_…_conc-after-eff-mass-gap.md).
+    # TimeImputer/FlatPrior run once afterwards (terminal).
     logger.info("C  Building imputation engine")
     engine = ImputationEngine(acc_struct=acc)
     param_refs: list[dict] = []
 
-    def _register_parametric(params_id: str) -> None:
+    def _build_parametric(params_id: str, imp_id: str) -> ParametricImputer:
         csv_path = inputs.params.resolve(params_id) / "params.csv"
-        engine.register(ParametricImputer.from_csv(
-            str(csv_path), acc, p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG,
-        ))
+        imp = ParametricImputer.from_csv(
+            str(csv_path), acc, id=imp_id, p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG,
+        )
         param_refs.append(inputs.params.entry(params_id))
-        logger.info("C  registered ParametricImputer (params=%s v%d)",
-                    params_id, inputs.params.entry(params_id)["version"])
+        logger.info("C  built ParametricImputer id=%s (params=%s v%d)",
+                    imp_id, params_id, inputs.params.entry(params_id)["version"])
+        return imp
 
-    # 1. Concentration ratios — highest priority.
-    _register_parametric("conc")
-    # 2. Ore-grade ratios.
-    _register_parametric("ore_grade")
-    # 3. Process efficiencies.
-    _register_parametric("eff")
-
-    # 4. Formula-driven domestic-use fills (shares the conc params CSV).
-    engine.register(FormulaImputer(
+    # Cascade group (iterated to fixpoint): concentration ratios → ore-grade
+    # ratios → process efficiencies → formula-driven domestic-use fills (the
+    # FormulaImputer shares the conc params CSV).
+    conc_formula = FormulaImputer(
         relations=[
             concentrate_domestic,
             matte_domestic,
@@ -373,10 +376,20 @@ def main(feed_ids: list[str], label: str) -> None:
             cathode_mesc_domestic,
         ],
         params_csv=str(inputs.params.resolve("conc") / "params.csv"),
+        id="conc_formula",
         p=P_PROP,
-    ))
+    )
+    engine.register_cascade(
+        [
+            _build_parametric("conc",      "conc"),
+            _build_parametric("ore_grade", "ore_grade"),
+            _build_parametric("eff",       "eff"),
+            conc_formula,
+        ],
+        max_iter=CASCADE_MAX_ITER,
+    )
 
-    # 5. Temporal interpolation, no extrapolation.
+    # 5. Temporal interpolation, no extrapolation (terminal).
     engine.register(TimeImputer(
         window           = TIME_WINDOW,
         method           = TIME_METHOD,
@@ -384,6 +397,7 @@ def main(feed_ids: list[str], label: str) -> None:
         gap_inflation    = TIME_GAP_INFLATION,
         interpolate_only = TIME_INTERPOLATE_ONLY,
         p                = P_PROP,
+        id               = "time_interp",
     ))
 
     # 6. Crude-ore end-of-series extrapolation (2023, 2024). The crude_ore
@@ -402,6 +416,7 @@ def main(feed_ids: list[str], label: str) -> None:
         p                = P_PROP,
         scope_feed_id    = "crude_ore",
         scope_times      = CRUDE_ORE_TIMES,
+        id               = "time_crude",
     ))
 
     # 7. Final fallback — flat prior.
@@ -414,6 +429,7 @@ def main(feed_ids: list[str], label: str) -> None:
             mode       = "noisy_zero",
             sigma_high = FLAT_SIGMA_HIGH,
             p          = P_PROP,
+            id         = "flat_prior",
         ))
     else:
         # The ROW relation (any edge touching ROW as region_from or region_to)
@@ -447,11 +463,16 @@ def main(feed_ids: list[str], label: str) -> None:
             default_cv = FLAT_DEFAULT_CV,
             p          = P_PROP,
             masks      = {"row_supply": row_supply, "row_use": row_use},
+            id         = "flat_prior",
         ))
 
     logger.info("C  Running imputation engine")
     agg_result = engine.run(agg_result)
-    logger.info("C  Imputation done: %d log entries", len(agg_result.imputation_log))
+    _meta_df    = agg_result.imputation_metadata.as_dataframe()
+    _passes     = _meta_df["pass"].dropna()
+    passes_run  = int(_passes.max()) if not _passes.empty else 0
+    logger.info("C  Imputation done: %d log entries, cascade ran %d pass(es)",
+                len(agg_result.imputation_log), passes_run)
 
     # ── D  Register run ───────────────────────────────────────────────────────
     logger.info("D  Registering imputation run in %s", IMP_DIR)
@@ -465,13 +486,15 @@ def main(feed_ids: list[str], label: str) -> None:
     }
     run_id = imp_registry.register(
         agg_result,
-        label        = label,
-        parents      = parents,
-        imputers     = engine.imputers,
+        label         = label,
+        parents       = parents,
+        imputers      = engine.imputers,
+        stage_summary = {"cascade_passes_run": passes_run},
         stage_config = {
             "p":               P_PROP,
             "q":               Q_REG,
             "alpha_min":       ALPHA_MIN_REG,
+            "cascade_max_iter": CASCADE_MAX_ITER,
             "flat_mode":       FLAT_MODE,
             "flat_sigma_high": FLAT_SIGMA_HIGH if FLAT_MODE == "noisy_zero" else None,
             "flat_default_cv": FLAT_DEFAULT_CV if FLAT_MODE == "magnitude_aware" else None,

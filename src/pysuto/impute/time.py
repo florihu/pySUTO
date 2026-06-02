@@ -66,7 +66,9 @@ class TimeImputer(BaseImputer):
         scope_feed_id:    Optional[str]        = None,
         scope_times:      Optional[list]       = None,
         scope_valuations: Optional[list]       = None,
+        id:               Optional[str]        = None,
     ) -> None:
+        self.id               = id or type(self).__name__
         self.window           = window
         self.method           = method
         self.min_obs          = min_obs
