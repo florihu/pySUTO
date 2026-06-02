@@ -14,7 +14,7 @@ import pandas as pd
 import scipy.sparse as sp
 
 from pysuto.logging import get_logger
-from pysuto.param_relation import WILDCARD, ParamRelationResolver
+from pysuto.param_relation import WILDCARD, ParamRelationResolver, expand_edge_index
 
 from .base import BaseConstraintBuilder, ConstraintBlock, _empty_block
 
@@ -413,6 +413,103 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                     "entity_sub":        None,
                 })
 
+        return cls(specs)
+
+    # ------------------------------------------------------------------
+    # Factory: anchor the group-sum of a masked edge family to a reference
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def from_mask_anchor(
+        cls,
+        acc_struct,
+        mask,
+        anchor_values: np.ndarray,
+        group_keys: tuple = ("region_to", "time", "valuation"),
+        sigma_cv: float = 0.01,
+        coeff: float = 1.0,
+        id_prefix: str = "anchor",
+        min_abs_c: float = 1e-9,
+    ) -> "SumConstraintBuilder":
+        """
+        One soft-sum anchor row per group of masked edges.
+
+        For every group (unique combination of ``group_keys`` over the masked
+        edges) the row pins  ``Σ coeff·a_e = c``  where the target
+        ``c = Σ anchor_values[e]`` over the group's edges, with a tight
+        relative ``σ_c = sigma_cv·|c|`` (mode "sd", static).
+
+        Fully general: ``mask`` selects the edge family, ``group_keys`` choose
+        how rows are bucketed, and ``anchor_values`` is any per-edge reference
+        vector (e.g. a feed's ``F_root``) whose group-sum is the genuine
+        target. Grouping by a dimension is equivalent to *summing over* every
+        other dimension, so re-aggregating a disaggregated feed is just
+        choosing the right ``group_keys``.
+
+        Parameters
+        ----------
+        mask          : name of a mask in ``acc_struct.masks`` or a bool
+                        ndarray of shape ``(n_edges,)``.
+        anchor_values : ``(n_edges,)`` reference values; the per-group target
+                        is their nan-safe sum over the group's masked edges.
+        group_keys    : columns of the expanded edge index to group by. Keep
+                        ``time`` and ``valuation`` in here to leave rows
+                        year-locked (per-year deactivation) and unit-coherent.
+        sigma_cv      : σ_c = sigma_cv · |c|.
+        coeff         : LHS coefficient applied to every edge in a group.
+        min_abs_c     : groups with ``|c| ≤ min_abs_c`` are skipped (no anchor
+                        data — e.g. valuations the reference does not cover).
+        """
+        if isinstance(mask, str):
+            scope = cls._resolve_scope_mask(acc_struct, mask)
+            mask_label = mask
+        else:
+            scope = np.asarray(mask, dtype=bool)
+            if scope.shape != (acc_struct.n_edges,):
+                raise ValueError(
+                    f"from_mask_anchor: mask array shape {scope.shape} != "
+                    f"({acc_struct.n_edges},)"
+                )
+            mask_label = "<array>"
+
+        ei_exp = expand_edge_index(acc_struct.edge_index, acc_struct.node_index)
+        anchor = np.asarray(anchor_values, dtype=float)
+
+        masked = ei_exp[scope].copy()
+        masked["_anchor"] = anchor[scope]
+
+        specs = []
+        for key_vals, grp in masked.groupby(list(group_keys), sort=True):
+            c = float(np.nansum(grp["_anchor"].values))
+            if abs(c) <= min_abs_c:
+                continue
+            key_tuple = key_vals if isinstance(key_vals, tuple) else (key_vals,)
+            key_map = dict(zip(group_keys, key_tuple))
+            edge_ids = grp["edge_id"].astype(int).tolist()
+            cid_tail = "_".join(str(v) for v in key_tuple)
+            specs.append({
+                "constraint_id":     f"{id_prefix}_{cid_tail}",
+                "description":       f"{id_prefix} anchor {key_map}",
+                "edge_ids":          edge_ids,
+                "coefficients":      [coeff] * len(edge_ids),
+                "c_k":               c,
+                "sigma_ck_mode":     "sd",
+                "sigma_ck_value":    sigma_cv * abs(c),
+                "sigma_ck_fraction": 0.0,
+                "_supply_ids":       edge_ids,
+                "time":              str(key_map["time"]) if "time" in key_map else None,
+                "valuation":         str(key_map["valuation"]) if "valuation" in key_map else None,
+                "sector":            None,
+                "region":            str(key_map["region_to"]) if "region_to" in key_map else None,
+                "entity":            None,
+                "entity_sub":        None,
+            })
+
+        _log.info(
+            "SumConstraintBuilder.from_mask_anchor: %d anchor rows "
+            "(mask=%s, %d edges in scope, group_keys=%s, cv=%.3g)",
+            len(specs), mask_label, int(scope.sum()), list(group_keys), sigma_cv,
+        )
         return cls(specs)
 
     # ------------------------------------------------------------------

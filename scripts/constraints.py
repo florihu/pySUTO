@@ -7,24 +7,21 @@ Constraint types (registered in order)
 ---------------------------------------
 1  Hard mass balance        — MassBalanceBuilder
                               Σ incoming − Σ outgoing = 0 per (Flow|Process) node × time
-2  Soft sum — Process nodes — SumConstraintBuilder.from_acc_struct_subentity
-                              Inputs on LHS (+1), SEM/Nature waste outputs on LHS (−1),
-                              useful supply (Flow + FD) as observed RHS c_k
-                              σ_c = Gaussian propagation of supply-edge uncertainties
-3  Soft sum — Flow nodes    — SumConstraintBuilder.from_acc_struct_subentity
-                              All demand (use + FD) on LHS (+1),
-                              Process→Flow supply as observed RHS c_k
-                              σ_c = Gaussian propagation of supply-edge uncertainties
-4  Soft ratio — concentration  — RatioConstraintBuilder (copper_conc_params.csv)
-5  Soft ratio — efficiency     — RatioConstraintBuilder (copper_efficiency_params.csv)
-6  Hard ratio bounds — conc    — RatioBoundBuilder (copper_conc_params.csv)
-7  Hard ratio bounds — eff     — RatioBoundBuilder (copper_efficiency_params.csv)
-8  Net stock bounds           — RatioBoundBuilder (stock_bounds/params.csv);
+2  Soft sum — cathode-use   — SumConstraintBuilder.from_mask_anchor
+   anchor (ICSG)              Σ Cathode→{FU,MESC,USC} over all origins = the
+                              genuine ICSG total per consuming region × year (CC);
+                              σ_c = ANCHOR_CV·|c| (tight). Reaggregates the ICSG
+                              feed F_root, which is disaggregated across origins.
+3  Soft ratio — concentration  — RatioConstraintBuilder (copper_conc_params.csv)
+4  Soft ratio — efficiency     — RatioConstraintBuilder (copper_efficiency_params.csv)
+5  Hard ratio bounds — conc    — RatioBoundBuilder (copper_conc_params.csv)
+6  Hard ratio bounds — eff     — RatioBoundBuilder (copper_efficiency_params.csv)
+7  Net stock bounds           — RatioBoundBuilder (stock_bounds/params.csv);
                                  each row carries `agg=true` so the builder
                                  sums every matched a-side edge into one
                                  G row and every matched b-side edge into
                                  another, per (region, time, valuation).
-9  Hard flow bounds           — FlowBoundsBuilder (from acc_struct.bounds)
+8  Hard flow bounds           — FlowBoundsBuilder (from acc_struct.bounds)
 
 ═══════════════════════════════════════════════════════════
 USER CONFIGURATION  ←  only section you ever edit
@@ -49,13 +46,9 @@ IMP_DIR     = os.path.join("data", "proc", "imp")
 _INPUT_ROOT = os.path.join("data", "input")
 OUTPUT_DIR  = os.path.join("data", "proc", "const")
 
-# SB entity_sub values whose outgoing edges are subtracted from the Process
-# node LHS (waste to nature / socio-economic system boundary)
-SEM_NATURE_SUBS = {"Nature", "SEM"}
-
-# SB entity_sub values treated as final demand (outgoing to these go into c_k
-# for Process nodes; default for Flow nodes)
-FD_SUBS = {"FD"}
+# Final-use SB sectors whose incoming Cathode edges are anchored to the
+# genuine ICSG total per consuming region (summed over all cathode origins).
+ANCHOR_USE_SECTORS = {"FU", "MESC", "USC"}
 
 # ---------------------------------------------------------------------------
 # END USER CONFIGURATION
@@ -66,8 +59,9 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from pysuto.acc import AccountingStructure
 from pysuto.config import load_config
-from pysuto.registry import ImputationRunRegistry
+from pysuto.registry import ImputationRunRegistry, DataFeedRegistry
 from pysuto.input_registry import InputRegistries
+from pysuto.param_relation import expand_edge_index
 from pysuto.constraints import (
     ConstraintEngine,
     MassBalanceBuilder,
@@ -89,7 +83,10 @@ ACC_ID = cfg.pipeline.acc_id
 P_PROP            = 1.3
 SIGMA_A_CV_MIN    = 0.05
 SIGMA_A_ABS_FLOOR = 1.0e-6
-SIGMA_C_CV_MIN    = 0.05
+# Anchor CV (1%). SIGMA_C_CV_MIN is lowered to match so the engine's σ_c CV
+# floor does not inflate the tight cathode-use anchor back up to 5%.
+ANCHOR_CV         = 0.01
+SIGMA_C_CV_MIN    = 0.01
 SIGMA_C_ABS_FLOOR = 1.0e-3
 
 _log = get_logger("init_copper_constraints")
@@ -130,6 +127,26 @@ def main(imp_run_id: str, label: str) -> None:
             f"{acc_entry['id']} v{acc_entry['version']}."
         )
 
+    # ── A3. ICSG anchor reference ─────────────────────────────────────────
+    # Load the F_root of the *same* ICSG feed run this imp run was built on
+    # (no "latest" drift). from_mask_anchor re-aggregates it over cathode
+    # origins to recover the genuine published per-consuming-region totals.
+    feed_run_ids = (imp_sidecar.get("parents", {})
+                               .get("upstream", {})
+                               .get("feed_run_ids", []))
+    icsg_run_ids = [r for r in feed_run_ids if str(r).startswith("feed_icsg_")]
+    if len(icsg_run_ids) != 1:
+        raise RuntimeError(
+            f"expected exactly one icsg feed run in imp provenance, "
+            f"got {icsg_run_ids!r}"
+        )
+    icsg_run_id   = icsg_run_ids[0]
+    feed_registry = DataFeedRegistry()
+    feed_registry.load_index()
+    icsg_F_root = feed_registry.load_result(icsg_run_id)["F_root"]
+    _log.info("A3  ICSG anchor reference: %s  (F_root sum=%.1f kt)",
+              icsg_run_id, float(icsg_F_root.sum()))
+
     # ── B. Assemble constraint engine ─────────────────────────────────────
     engine = ConstraintEngine(
         acc_struct        = acc,
@@ -145,28 +162,25 @@ def main(imp_run_id: str, label: str) -> None:
     _log.info("Registering MassBalanceBuilder")
     engine.register(MassBalanceBuilder())
 
-    # 2. Soft sum — Process nodes
-    _log.info("Registering SumConstraintBuilder — Process nodes")
-    engine.register(SumConstraintBuilder.from_acc_struct_subentity(
+    # 2. Soft sum — cathode-use anchor (ICSG)
+    #    One row per (consuming region, year, CC): Σ Cathode→{FU,MESC,USC} over
+    #    all origins = genuine ICSG total, with tight σ_c = ANCHOR_CV·|c|.
+    _log.info("Registering SumConstraintBuilder — cathode-use anchor (ICSG)")
+    ei_exp = expand_edge_index(acc.edge_index, acc.node_index)
+    cathode_use_mask = (
+        ei_exp["sector_from"].eq("Cathode")
+        & ei_exp["sector_to"].isin(ANCHOR_USE_SECTORS)
+    ).to_numpy()
+    engine.register(SumConstraintBuilder.from_mask_anchor(
         acc,
-        entity_filter={"Process"},
-        rhs_out_entity={"Flow"},
-        rhs_out_entity_sub=FD_SUBS,
-        lhs_neg_out_entity_sub=SEM_NATURE_SUBS,
-        p=P_PROP,
+        mask          = cathode_use_mask,
+        anchor_values = icsg_F_root,
+        group_keys    = ("region_to", "time", "valuation"),
+        sigma_cv      = ANCHOR_CV,
+        id_prefix     = "cathode_use_anchor",
     ))
 
-    # 3. Soft sum — Flow nodes
-    _log.info("Registering SumConstraintBuilder — Flow nodes")
-    engine.register(SumConstraintBuilder.from_acc_struct_subentity(
-        acc,
-        entity_filter={"Flow"},
-        rhs_in_entity={"Process"},
-        sigma_mode="p_mean",
-        p=P_PROP,
-    ))
-
-    # 4–8. CSV-fed soft ratio + hard ratio-bound builders.
+    # 3–7. CSV-fed soft ratio + hard ratio-bound builders.
     #      Two builders may consume the same params_id (e.g. 'conc' → both
     #      RatioConstraintBuilder and RatioBoundBuilder).  stock_bounds joins
     #      the list: its CSV carries `agg=true` so the builder sums all
@@ -185,18 +199,18 @@ def main(imp_run_id: str, label: str) -> None:
             param_refs.append(inputs.params.entry(params_id))
             seen_param_ids.add(params_id)
 
-    # 4. Soft ratio — concentration
+    # 3. Soft ratio — concentration
     _register_builder(RatioConstraintBuilder, "conc")
-    # 5. Soft ratio — efficiency
+    # 4. Soft ratio — efficiency
     _register_builder(RatioConstraintBuilder, "eff")
-    # 6. Hard ratio bounds — concentration
+    # 5. Hard ratio bounds — concentration
     _register_builder(RatioBoundBuilder, "conc", kind="conc")
-    # 7. Hard ratio bounds — efficiency
+    # 6. Hard ratio bounds — efficiency
     _register_builder(RatioBoundBuilder, "eff", kind="eff")
-    # 8. Net stock bounds
+    # 7. Net stock bounds
     _register_builder(RatioBoundBuilder, "stock_bounds", kind="stock_bounds")
 
-    # 9. Hard flow bounds from acc_struct
+    # 8. Hard flow bounds from acc_struct
     _log.info("Registering FlowBoundsBuilder")
     engine.register(FlowBoundsBuilder())
 
@@ -207,7 +221,7 @@ def main(imp_run_id: str, label: str) -> None:
             "acc":    acc_entry,
             "params": param_refs,
         },
-        "upstream": {"imp_run_id": imp_run_id},
+        "upstream": {"imp_run_id": imp_run_id, "icsg_feed_run_id": icsg_run_id},
     }
     constraint_run = engine.run(
         agg_result   = agg_result,
