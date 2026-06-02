@@ -94,7 +94,7 @@ def build_edge_summary(acc: AccountingStructure) -> pd.DataFrame:
         "edge_id",
         "from_sector", "from_entity", "from_region",
         "to_sector",   "to_entity",   "to_region",
-        "time", "valuation",
+        "valuation",
     ]]
 
 
@@ -161,8 +161,8 @@ def main() -> AccountingStructure:
             n_edges        = ("edge_id", "count"),
             n_cross_region = ("from_region",
                               lambda x: (x.values != edge_summary.loc[x.index, "to_region"].values).sum()),
-            n_time_vals    = ("time",
-                              lambda x: x.nunique() * edge_summary.loc[x.index, "valuation"].nunique()),
+            n_time_vals    = ("valuation",
+                              lambda x: acc.n_timeps * x.nunique()),
         )
         .reset_index()
         .sort_values("n_edges", ascending=False)

@@ -593,7 +593,9 @@ class AccountingStructure:
 
         # Report edge reduction
         n_after_node_rules = int(self.Adm_nodes.nnz) * len(self.time_range) * len(self.valuation)
-        self._report_reduction(n_theoretical, n_after_node_rules, self.n_edges)
+        # Admissible count is on the 4-D (from, to, time, valuation) basis to match
+        # the theoretical / node-pair rows; structural n_edges = Adm.nnz / n_timeps.
+        self._report_reduction(n_theoretical, n_after_node_rules, int(self.Adm.nnz))
 
         # ── 4. Bounds ─────────────────────────────────────────────────
         bounds_path  = kwargs.get("bounds_file_path", None)
