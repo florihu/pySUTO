@@ -225,7 +225,7 @@ def build_concordance(
             var_map_df            = var_map_df,
             feed_id               = FEED_ID,
             aux_col               = None,  # BACI has explicit from/to cols — no discriminator
-            allow_unmatched_edges = True,
+            allow_unmatched_edges = True,  # fan-out (weighted) ok; structural-impossibility guard in from_raw is always fatal
             user_weights_df       = user_weights,
         )
 

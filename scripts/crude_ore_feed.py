@@ -209,7 +209,7 @@ def build_concordance(
             var_map_df            = tables["var_map"],
             feed_id               = FEED_ID,
             aux_col               = None,   # single-region domestic feed
-            allow_unmatched_edges = True,
+            allow_unmatched_edges = True,  # fan-out (weighted) ok; structural-impossibility guard in from_raw is always fatal
         )
 
     for w in caught:

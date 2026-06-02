@@ -391,10 +391,45 @@ class ConcordanceTable(DataFeed):
         df_work_all = pd.concat(work_parts,   ignore_index=False)
 
         # --------------------------------------------------
-        # 7) Unmatched detection
+        # 7) Match-quality validation
         # --------------------------------------------------
-        # A raw row is unmatched if its _raw_idx never appears in the merged result —
-        # regardless of whether it was dropped by the pre-filter or the inner join.
+        # (a) Structural validity — when a raw row classifies BOTH endpoints, the
+        #     resulting (from_sector → to_sector) relation must EXIST in the
+        #     accounting structure. A classified relation with no corresponding
+        #     edge (e.g. Mining→Concentrate, when concentrate is produced by MF)
+        #     is a hard topology error and is always fatal.
+        #
+        #     Rows that classify only one endpoint may legitimately fan out across
+        #     that node's edges (the split is resolved by weights — e.g. BACI
+        #     trade distributed over consuming sectors), so they are NOT checked
+        #     here.
+        valid_sector_pairs = set(zip(edges["from_sector"], edges["to_sector"]))
+        both_classified = (
+            df_work_all["root_sector_from"].notna()
+            & df_work_all["root_sector_to"].notna()
+        )
+        if both_classified.any():
+            impossible = sorted(
+                set(zip(
+                    df_work_all.loc[both_classified, "root_sector_from"],
+                    df_work_all.loc[both_classified, "root_sector_to"],
+                ))
+                - valid_sector_pairs
+            )
+            if impossible:
+                shown = impossible[:10]
+                more = f" (+{len(impossible) - 10} more)" if len(impossible) > 10 else ""
+                raise ValueError(
+                    "Structurally impossible relation(s): no edge exists in the "
+                    f"accounting structure for sector pair(s) {shown}{more}. Both "
+                    "the 'from' and 'to' node of a classified relation must form a "
+                    "real edge (e.g. Mining→Concentrate does not exist — "
+                    "concentrate is produced by MF)."
+                )
+
+        # (b) Unmatched (coverage) — a raw row whose _raw_idx never appears in the
+        #     merged result, regardless of whether it was dropped by the
+        #     pre-filter or the inner join.
         unmatched = sorted(set(df["_raw_idx"]) - set(merged["_raw_idx"]))
 
         if unmatched:

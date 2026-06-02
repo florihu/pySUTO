@@ -75,6 +75,14 @@ class ImpDiagnostic:
         "flat_prior":             "red",
     }
 
+    # imputer_id → short token used in the canonical step id (sN <short>·pP).
+    _IMPUTER_SHORT = {
+        "FormulaImputer":    "formula",
+        "ParametricImputer": "param",
+        "TimeImputer":       "time",
+        "FlatPriorImputer":  "flat",
+    }
+
     def __init__(self, agg_result, acc_struct=None, label: str = "",
                  year: str | None = "1995") -> None:
         self.agg_result = agg_result
@@ -82,6 +90,9 @@ class ImpDiagnostic:
         self.label      = label
         self.year       = year
         self._log_df    = agg_result.imputation_log.as_dataframe()
+        # Canonical short step id (sN <imputer>·pP) shared by every panel and
+        # boxplot. Built before the snapshots/colour map, which both consume it.
+        self._step_ids  = self._build_step_ids()
         self._snapshots = self._build_snapshots()
         # Single source of truth: snapshot label → matplotlib color.  All
         # panels (fig 1 a..d, both boxplots) read from this map so step N
@@ -268,10 +279,40 @@ class ImpDiagnostic:
             ids    = log_df.loc[mask, "edge_id"].values
             f_curr[ids] = log_df.loc[mask, "f_after"].values
             s_curr[ids] = log_df.loc[mask, "sigma_after"].values
-            dom    = log_df.loc[mask, "method"].value_counts().index[0]
-            snapshots.append((f"step {step} ({dom})", f_curr.copy(), s_curr.copy()))
+            snapshots.append((self._step_label(int(step)), f_curr.copy(), s_curr.copy()))
 
         return snapshots
+
+    def _build_step_ids(self) -> dict[int, str]:
+        """Map each committed step to a short descriptive id ``sN <short>·pP``.
+
+        ``<short>`` is the imputer token from :pyattr:`_IMPUTER_SHORT` (falling
+        back to the id minus its ``Imputer`` suffix); ``·pP`` is appended only
+        for cascade steps (those with a ``pass``). When the log carries no
+        ``imputer_id`` (e.g. minimal test fixtures), fall back to the step's
+        dominant method.
+        """
+        if self._log_df.empty:
+            return {}
+        ids: dict[int, str] = {}
+        for step, grp in self._log_df.groupby("step"):
+            step = int(step)
+            imp = grp["imputer_id"].dropna()
+            if imp.empty:
+                ids[step] = f"s{step} {self._step_dominant_method(step)}"
+                continue
+            raw = str(imp.iloc[0])
+            short = self._IMPUTER_SHORT.get(raw) or raw.removesuffix("Imputer").lower()
+            pass_no = grp["pass"].dropna()
+            if not pass_no.empty:
+                ids[step] = f"s{step} {short}·p{int(pass_no.iloc[0])}"
+            else:
+                ids[step] = f"s{step} {short}"
+        return ids
+
+    def _step_label(self, step: int) -> str:
+        """Canonical step id for ``step`` (falls back to ``sN``)."""
+        return self._step_ids.get(int(step), f"s{int(step)}")
 
     def _step_dominant_method(self, step: int) -> str:
         """Most-common method label across all fills for one pipeline step."""
@@ -288,12 +329,9 @@ class ImpDiagnostic:
         method. The "pre" snapshot is grey; everything else inherits from
         ``_METHOD_COLORS``.
         """
-        mapping: dict[str, str] = {}
-        for label, _, _ in self._snapshots:
-            if label == "pre":
-                mapping[label] = _C["grey"]
-                continue
-            method = label.split("(", 1)[1].rstrip(")") if "(" in label else label
+        mapping: dict[str, str] = {"pre": _C["grey"]}
+        for step, label in self._step_ids.items():
+            method = self._step_dominant_method(step)
             mapping[label] = _C[self._METHOD_COLORS.get(method, "grey")]
         return mapping
 
@@ -481,8 +519,8 @@ class ImpDiagnostic:
 
     def _fig2_sigma_box(self):
         """
-        Single-panel σ boxplot grouped by `method` from the imputation log,
-        with a leftmost "covered" baseline box (Stage 2a observed σ before
+        Single-panel σ boxplot grouped by pipeline step from the imputation
+        log, with a leftmost "covered" baseline box (Stage 2a observed σ before
         any imputation). Outliers shown as red dots. Logarithmic y-axis.
         """
         import matplotlib.pyplot as plt
@@ -499,13 +537,14 @@ class ImpDiagnostic:
             if len(covered):
                 groups.append(("covered", covered))
 
-        # 2. One box per method in the log (skip empty-σ rows)
+        # 2. One box per pipeline step in the log (skip empty-σ rows)
         if not log_df.empty:
-            for method, sub in log_df.groupby("method", sort=False):
+            for step in sorted(log_df["step"].unique()):
+                sub  = log_df[log_df["step"] == step]
                 vals = pd.to_numeric(sub["sigma_after"], errors="coerce").to_numpy()
                 vals = vals[np.isfinite(vals) & (vals > 0)]
                 if len(vals):
-                    groups.append((str(method), vals))
+                    groups.append((self._step_label(int(step)), vals))
 
         if not groups:
             return None
@@ -513,7 +552,7 @@ class ImpDiagnostic:
         fig, ax = plt.subplots(figsize=(max(8, 1.4 * len(groups)), 6))
         suffix = f" — {self.label}" if self.label else ""
         fig.suptitle(
-            f"σ by imputer method{suffix}{self._year_suffix}",
+            f"σ by pipeline step{suffix}{self._year_suffix}",
             fontsize=13, fontweight="bold",
         )
 
@@ -521,7 +560,8 @@ class ImpDiagnostic:
         data    = [np.log10(g[1]) for g in groups]
         ns      = [len(g[1]) for g in groups]
         colors  = [
-            _C[self._METHOD_COLORS.get(lbl, "grey")]
+            _C[self._METHOD_COLORS["covered"]] if lbl == "covered"
+            else self._step_color.get(lbl, _C["grey"])
             for lbl in labels
         ]
 
@@ -549,7 +589,7 @@ class ImpDiagnostic:
                     ha="center", va="bottom", fontsize=8)
 
         ax.set_ylabel("log₁₀(σ)  [log kt]")
-        ax.set_xlabel("method")
+        ax.set_xlabel("pipeline step")
         ax.tick_params(axis="x", labelrotation=25)
         ax.grid(axis="y", alpha=0.3)
 

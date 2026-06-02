@@ -96,13 +96,13 @@ def maps():
 @pytest.fixture
 def raw_df():
     return pd.DataFrame({
-        "Process": ["Mining",  "Mining",  "Smelting", "Refining",    "Refining"],
-        "Type":    ["Ore",     "Ore",     "Concentrate","Concentrate","Ore"],
-        "Region":  ["A",       "E",       "A",         "A",          "B"],
-        #            1:1 supply  1:m supply  supply       heter. use    impossible
-        "Year":    [0, 0, 0, 0, 0],
-        "Unit":    ["kg"] * 5,
-        "Supply_Use": ["Supply", "Supply", "Supply", "Use", "Use"],
+        "Process": ["Mining",  "Mining",  "Smelting",   "Refining"],
+        "Type":    ["Ore",     "Ore",     "Concentrate","Concentrate"],
+        "Region":  ["A",       "E",       "A",          "A"],
+        #            1:1 supply  1:m supply  supply       heter. use
+        "Year":    [0, 0, 0, 0],
+        "Unit":    ["kg"] * 4,
+        "Supply_Use": ["Supply", "Supply", "Supply", "Use"],
     })
 
 
@@ -198,16 +198,18 @@ class TestConcordanceTableFromRaw:
         assert set(ore_rows["root_region_from"]) == {"A"}, "Region E should only reach Ore via Mining(A)"
 
     # ------------------------------------------------------------------
-    # 3. Impossible row is captured as unmatched
+    # 3. Structurally impossible classified relation raises
     # ------------------------------------------------------------------
-    def test_impossible_row_captured(self, raw_df, mock_acc_struct, maps):
-        ct = build_ct(raw_df, mock_acc_struct, maps)
-        # Raw index 4 (Use: Type=Ore → Process=Refining, Region=A) has no matching edge.
-        # "Ore" and "A" both exist in to_sector/to_region individually, so it passes
-        # the pre-filter, but no edge has (to_sector=Ore, to_region=A) jointly pointing
-        # to Refining — caught as a post-merge unmatched. Both stages are unified in
-        # unmatched_raw_rows.
-        assert 4 in ct.unmatched_raw_rows
+    def test_impossible_classified_relation_raises(self, mock_acc_struct, maps):
+        # Use row: Type=Ore → Process=Refining gives the relation Ore→Refining,
+        # which has no edge in the acc. Both endpoints are classified, so it is a
+        # structural impossibility → fatal (not a tolerated unmatched warning).
+        bad = pd.DataFrame({
+            "Process": ["Refining"], "Type": ["Ore"], "Region": ["B"],
+            "Year": [0], "Unit": ["kg"], "Supply_Use": ["Use"],
+        })
+        with pytest.raises(ValueError, match="(?i)structurally impossible"):
+            build_ct(bad, mock_acc_struct, maps)
 
     # ------------------------------------------------------------------
     # 4. Only edges that exist in acc_struct appear in output
@@ -399,6 +401,103 @@ class TestManyToOneFanIn:
 
         assert wm.concordance is ct
         assert wm.concordance.tab is ct.tab
+
+
+# =============================================================================
+# STRUCTURAL-VALIDITY GUARD — a classified (from→to) relation must exist as an
+# edge in the acc. Fan-out (one endpoint unclassified, split by weights) is OK;
+# a structurally impossible pair (e.g. Mining→Concentrate) must raise.
+# =============================================================================
+
+def _guard_acc():
+    """Mining(A) → {Ore, WR};  MF(A) → Concentrate.  (Mining→Concentrate absent.)"""
+    acc = SimpleNamespace(id="guard")
+    acc.node_to_id = {
+        ("Mining",      "P", "A"): 0,
+        ("Ore",         "F", "A"): 1,
+        ("WR",          "F", "A"): 2,
+        ("MF",          "P", "A"): 3,
+        ("Concentrate", "F", "A"): 4,
+    }
+    acc.id_to_node = {v: k for k, v in acc.node_to_id.items()}
+    acc.edge_index = pd.DataFrame([
+        {"edge_id": 0, "from_id": 0, "to_id": 1, "time": 0, "valuation": "mass"},  # Mining→Ore
+        {"edge_id": 1, "from_id": 0, "to_id": 2, "time": 0, "valuation": "mass"},  # Mining→WR
+        {"edge_id": 2, "from_id": 3, "to_id": 4, "time": 0, "valuation": "mass"},  # MF→Concentrate
+    ])
+    return acc
+
+
+def _guard_maps(classify_product: bool):
+    rows = [
+        {"raw_var": "Process", "src_var": "src_sector_from", "Supply_Use": "Supply"},
+        {"raw_var": "Region",  "src_var": "src_region_from", "Supply_Use": "Supply"},
+        {"raw_var": "Year",    "src_var": "src_time",        "Supply_Use": None},
+        {"raw_var": "Unit",    "src_var": "src_valuation",   "Supply_Use": None},
+    ]
+    if classify_product:
+        rows.append({"raw_var": "Type", "src_var": "src_sector_to", "Supply_Use": "Supply"})
+    return dict(
+        sector_map_df=pd.DataFrame({
+            "src_sector":  ["Mining", "Ore", "WR", "MF", "Concentrate"],
+            "root_sector": ["Mining", "Ore", "WR", "MF", "Concentrate"],
+        }),
+        region_map_df=pd.DataFrame({"src_region": ["A"], "root_region": ["A"]}),
+        time_map_df=pd.DataFrame({"src_time": [0], "root_time": [0]}),
+        valuation_map_df=pd.DataFrame({"src_valuation": ["kg"], "root_valuation": ["mass"]}),
+        var_map_df=pd.DataFrame(rows),
+    )
+
+
+def _guard_raw(process, product):
+    return pd.DataFrame({
+        "Process": [process], "Type": [product], "Region": ["A"],
+        "Year": [0], "Unit": ["kg"], "Supply_Use": ["Supply"],
+    })
+
+
+class TestStructuralValidityGuard:
+
+    def test_impossible_classified_pair_raises(self):
+        # Both endpoints classified as Mining→Concentrate — no such edge → raise.
+        with pytest.raises(ValueError, match="(?i)structurally impossible"):
+            ConcordanceTable.from_raw(
+                raw_df=_guard_raw("Mining", "Concentrate"), acc_struct=_guard_acc(),
+                aux_col="Supply_Use", allow_unmatched_edges=True,
+                id="g", **_guard_maps(classify_product=True),
+            )
+
+    def test_impossible_pair_raises_regardless_of_allow_unmatched(self):
+        # The structural error is fatal independent of allow_unmatched_edges.
+        with pytest.raises(ValueError, match="(?i)structurally impossible"):
+            ConcordanceTable.from_raw(
+                raw_df=_guard_raw("Mining", "Concentrate"), acc_struct=_guard_acc(),
+                aux_col="Supply_Use", allow_unmatched_edges=False,
+                id="g", **_guard_maps(classify_product=True),
+            )
+
+    def test_valid_classified_pair_ok(self):
+        # MF→Concentrate is a real edge → lands uniquely, no error.
+        ct = ConcordanceTable.from_raw(
+            raw_df=_guard_raw("MF", "Concentrate"), acc_struct=_guard_acc(),
+            aux_col="Supply_Use", allow_unmatched_edges=True,
+            id="g", **_guard_maps(classify_product=True),
+        )
+        assert set(zip(ct.tab["root_sector_from"], ct.tab["root_sector_to"])) == {
+            ("MF", "Concentrate")
+        }
+
+    def test_one_endpoint_fanout_does_not_raise(self):
+        # Producer-only classification (no product) → legitimately fans out
+        # across Mining→Ore and Mining→WR; weights resolve the split. No raise.
+        ct = ConcordanceTable.from_raw(
+            raw_df=_guard_raw("Mining", "Concentrate"), acc_struct=_guard_acc(),
+            aux_col="Supply_Use", allow_unmatched_edges=True,
+            id="g", **_guard_maps(classify_product=False),
+        )
+        assert set(zip(ct.tab["root_sector_from"], ct.tab["root_sector_to"])) == {
+            ("Mining", "Ore"), ("Mining", "WR")
+        }
 
 
 if __name__ == "__main__":

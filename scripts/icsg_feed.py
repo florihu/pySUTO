@@ -217,6 +217,10 @@ def build_concordance(
             var_map_df            = var_map_df,
             feed_id               = FEED_ID,
             aux_col               = "Supply_Use",
+            # Fan-out across a node's edges (resolved by weights) is allowed.
+            # A classified relation with no edge in the acc is rejected
+            # unconditionally by the structural-validity guard in
+            # ConcordanceTable.from_raw (independent of this flag).
             allow_unmatched_edges = True,
         )
 
