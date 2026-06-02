@@ -131,7 +131,9 @@ def test_1995_overlay_added_when_acc_supplied(acc):
     })
     agg.imputation_log = log
 
-    diag = ImpDiagnostic(agg, acc_struct=acc, label="t")
+    # year=None → all-year view, where the dashed 1995 reference overlay applies
+    # (under the default year="1995" focus the overlay is redundant and skipped).
+    diag = ImpDiagnostic(agg, acc_struct=acc, label="t", year=None)
     fig, ax = plt.subplots()
     diag._panel_f_dist(ax)
     legend_labels = [t.get_text() for t in ax.get_legend().get_texts()]
@@ -339,3 +341,112 @@ def test_imp_diag_filenames_have_no_prefix(acc, tmp_path):
             f"filename {bn} still carries the run_id label"
         )
         assert bn.startswith("imputation_")
+
+
+# ---------------------------------------------------------------------------
+# 7. Year focus + sector/region |f| boxplots
+# ---------------------------------------------------------------------------
+
+class _MetaAcc:
+    """Accounting-structure stub exposing ``edge_meta`` (sector/region) plus a
+    1996 edge so the 1995 focus has something to exclude."""
+
+    def __init__(self):
+        self.edge_index = pd.DataFrame({
+            "edge_id":   [0, 1, 2, 3, 4, 5],
+            "from_id":   [0, 0, 1, 1, 0, 0],
+            "to_id":     [1, 1, 0, 0, 1, 1],
+            "time":      ["1995", "1995", "1995", "1995", "1996", "1996"],
+            "valuation": ["Mass", "CC", "Mass", "CC", "Mass", "Mass"],
+        })
+        self.n_edges = 6
+        self.time_range = ["1995", "1996"]
+
+    def decode_node(self, nid):
+        return ("Mining", "Process", "A")
+
+    @property
+    def edge_meta(self):
+        return self.edge_index.assign(
+            from_sector=["Mining", "Mining", "Ore", "Ore", "Mining", "Mining"],
+            to_sector=["Ore", "Ore", "Mining", "Mining", "Ore", "Ore"],
+            from_region=["A", "A", "B", "B", "A", "A"],
+            to_region=["B", "B", "A", "A", "B", "B"],
+        )
+
+
+def _meta_agg_with_empty_log():
+    from pysuto.impute import ImputationLog
+    f = np.arange(1.0, 7.0)          # 6 finite flows
+    s = np.full(6, 0.5)
+    agg = _agg_result(f, s)
+    agg.imputation_log = ImputationLog()
+    return agg
+
+
+def test_year_filter_restricts_to_year():
+    from pysuto.diag import ImpDiagnostic
+
+    acc = _MetaAcc()
+    agg = _meta_agg_with_empty_log()
+
+    d95 = ImpDiagnostic(agg, acc_struct=acc, year="1995")
+    assert d95._year_ids == {0, 1, 2, 3}
+    assert int(d95._year_mask.sum()) == 4
+
+    # year=None → no filter at all.
+    d_all = ImpDiagnostic(agg, acc_struct=acc, year=None)
+    assert d_all._year_mask is None and d_all._year_ids is None
+
+    # A year absent from the data falls back to all-year (no empty panels).
+    d_missing = ImpDiagnostic(agg, acc_struct=acc, year="2050")
+    assert d_missing._year_mask is None and d_missing._year_ids is None
+
+
+def test_sector_region_boxplots_produced(tmp_path):
+    from pysuto.diag import ImpDiagnostic
+
+    acc = _MetaAcc()
+    agg = _meta_agg_with_empty_log()
+    paths = ImpDiagnostic(agg, acc_struct=acc, label="t", year="1995").plot(
+        odir=str(tmp_path), show=False,
+    )
+    names = {os.path.basename(p) for p in paths}
+    for fn in (
+        "imputation_box_from_sector.png", "imputation_box_to_sector.png",
+        "imputation_box_from_region.png", "imputation_box_to_region.png",
+    ):
+        assert fn in names, f"missing {fn}"
+        assert os.path.getsize(os.path.join(str(tmp_path), fn)) > 0
+
+
+def test_sector_region_boxplots_skipped_without_edge_meta(acc, tmp_path):
+    """MockAcc has no edge_meta → the sector/region boxplots are not emitted."""
+    from pysuto.diag import ImpDiagnostic
+
+    fills = [
+        {"edge_id": 0, "step": 1, "method": "time_linear", "f_after": 10.0, "sigma_after": 1.0},
+    ]
+    acc.time_range  = ["2020", "2021", "2022"]
+    acc.decode_node = lambda nid: ("Mining", "Process", "A")
+    paths = ImpDiagnostic(_agg_with_log(acc, fills), acc_struct=acc).plot(
+        odir=str(tmp_path), show=False,
+    )
+    names = {os.path.basename(p) for p in paths}
+    assert not any(n.startswith("imputation_box_") for n in names)
+
+
+def test_agg_root_by_year_ignores_year_filter(tmp_path):
+    """The 1995 focus restricts agg_distributions but agg_root_by_year stays
+    all-year and is still emitted."""
+    from pysuto.diag import AggDiagnostic
+
+    acc = _MetaAcc()
+    f = np.arange(1.0, 7.0)
+    s = np.full(6, 0.5)
+    agg = _agg_result(f, s)
+    paths = AggDiagnostic(agg, acc_struct=acc, label="copper", year="1995").plot(
+        odir=str(tmp_path), show=False,
+    )
+    names = sorted(os.path.basename(p) for p in paths)
+    assert names == ["agg_distributions.png", "agg_root_by_year.png"]

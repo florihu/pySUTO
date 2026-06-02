@@ -46,12 +46,14 @@ class AggDiagnostic:
         Optional label for figure titles and output filenames.
     """
 
-    def __init__(self, agg_result, acc_struct=None, label: str = "") -> None:
+    def __init__(self, agg_result, acc_struct=None, label: str = "",
+                 year: str | None = "1995") -> None:
         # Snapshot the arrays we need at construction time, because
         # ImputationEngine.run() mutates agg_result.f_agg / sigma_agg in place.
         # The per-feed F / Sigma matrices are not mutated by imputation.
         self.label      = label
         self.acc_struct = acc_struct
+        self.year       = year
         self._f_agg     = np.array(agg_result.f_agg, dtype=float, copy=True)
         self._sigma_agg = np.array(agg_result.sigma_agg, dtype=float, copy=True)
         self._coverage  = np.array(agg_result.coverage, dtype=bool, copy=True)
@@ -65,6 +67,15 @@ class AggDiagnostic:
             self._edge_times = ei["time"].astype(str).to_numpy()
         else:
             self._edge_times = None
+        # Distribution panels restrict to a single year when both the year and
+        # the per-edge time labels are available; None ⇒ pool all years. If the
+        # year is absent from the data, fall back to all years rather than
+        # rendering empty panels.
+        if self._edge_times is not None and year is not None:
+            mask = self._edge_times == str(year)
+            self._year_mask = mask if mask.any() else None
+        else:
+            self._year_mask = None
 
     # ------------------------------------------------------------------
     # Public interface
@@ -171,13 +182,19 @@ class AggDiagnostic:
 
         f_agg     = self._f_agg
         sigma_agg = self._sigma_agg
-        coverage  = self._coverage
         F_mat     = self._F
         Sigma_mat = self._Sigma
         feed_ids  = self._feed_ids
 
+        # Restrict every panel to the active year (when set); otherwise pool all.
+        ymask     = (self._year_mask if self._year_mask is not None
+                     else np.ones(f_agg.shape, dtype=bool))
+        coverage  = self._coverage & ymask
+
         fig, axes = plt.subplots(2, 2, figsize=(12, 9))
         title = f"Aggregation diagnostics — {self.label}" if self.label else "Aggregation diagnostics"
+        if self._year_mask is not None:
+            title += f"  ({self.year})"
         fig.suptitle(title, fontsize=13, fontweight="bold")
 
         # [0,0] log10 |f_agg|
@@ -225,7 +242,7 @@ class AggDiagnostic:
         for k, fid in enumerate(feed_ids):
             f_k = F_mat[k]
             s_k = Sigma_mat[k]
-            mask = np.isfinite(f_k) & np.isfinite(s_k) & (np.abs(f_k) > 0) & (s_k > 0)
+            mask = np.isfinite(f_k) & np.isfinite(s_k) & (np.abs(f_k) > 0) & (s_k > 0) & ymask
             if not mask.any():
                 continue
             ax.scatter(

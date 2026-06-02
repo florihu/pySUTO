@@ -333,7 +333,8 @@ def main(feed_ids: list[str], label: str) -> None:
     logger.info("B  Resolved feed_run_ids: %s", feed_run_ids)
 
     # Snapshot post-aggregation distributions BEFORE imputation mutates them.
-    agg_diag = AggDiagnostic(agg_result, acc_struct=acc, label=label)
+    # Distribution panels focus on 1995 (agg_root_by_year stays all-year).
+    agg_diag = AggDiagnostic(agg_result, acc_struct=acc, label=label, year="1995")
     agg_diag.summary()
 
     # ── C  Imputation pipeline ────────────────────────────────────────────────
@@ -490,7 +491,7 @@ def main(feed_ids: list[str], label: str) -> None:
     logger.info("E  Running diagnostics")
     diag_dir = os.path.join(run_dir, "diag")
     agg_diag.plot(odir=diag_dir, show=False)
-    diag = ImpDiagnostic(agg_result, acc_struct=acc, label=run_id)
+    diag = ImpDiagnostic(agg_result, acc_struct=acc, label=run_id, year="1995")
     diag.plot(odir=diag_dir, show=False)
     diag.summary()
 

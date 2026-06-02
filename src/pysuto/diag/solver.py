@@ -16,7 +16,7 @@ from typing import Any, Optional
 import numpy as np
 import pandas as pd
 
-from ._plot import _C, _savefig
+from ._plot import _C, _grouped_box_grid, _savefig
 
 
 _TYPE_COLORS = {
@@ -1987,106 +1987,12 @@ class SolverDiag:
                 finite = np.isfinite(log_d)
                 cells[(Y, V)] = (lbl[finite], log_d[finite])
 
-        # Pool everything to build the global category order
-        pool_lbl = np.concatenate([c[0] for c in cells.values()]) \
-            if any(c[0].size for c in cells.values()) else np.array([], dtype=str)
-        pool_log = np.concatenate([c[1] for c in cells.values()]) \
-            if any(c[1].size for c in cells.values()) else np.array([], dtype=float)
-
-        if pool_log.size == 0:
-            fig = plt.figure(figsize=(8, 3))
-            fig.suptitle(self._title(f"{fig_id}: no finite |a*−a₀| samples"),
-                         fontsize=12)
-            return fig
-
-        cats_pool, inv_pool = np.unique(pool_lbl, return_inverse=True)
-        medians_pool = np.array([
-            np.median(pool_log[inv_pool == i]) if np.any(inv_pool == i) else -np.inf
-            for i in range(len(cats_pool))
-        ])
-        order = np.argsort(-medians_pool)
-        cats_sorted = cats_pool[order]
-
-        # Colour assignment per category (highlight or grey)
-        tab10 = plt.get_cmap("tab10").colors
-        if highlight:
-            highlight_set = set(highlight)
-            highlight_color = {h: tab10[k % 10] for k, h in enumerate(highlight)}
-            face_colors, edge_colors, alphas = [], [], []
-            for cat in cats_sorted:
-                if cat in highlight_set:
-                    face_colors.append(highlight_color[cat])
-                    edge_colors.append(highlight_color[cat])
-                    alphas.append(0.7)
-                else:
-                    face_colors.append(_C["grey"])
-                    edge_colors.append(_C["grey"])
-                    alphas.append(0.25)
-        else:
-            face_colors = [tab10[i % 10] for i in range(len(cats_sorted))]
-            edge_colors = face_colors
-            alphas = [0.7] * len(cats_sorted)
-
-        # Figure layout — sharex (categorical) across all cells; sharey per column
-        n_rows = len(years)
-        n_cols = len(valuations)
-        fig_w = max(10.0, 0.3 * len(cats_sorted) + 4.0)
-        fig, axes = plt.subplots(
-            n_rows, n_cols,
-            figsize=(min(fig_w, 22), 3.2 * n_rows + 1.0),
-            sharex=True, sharey="col", squeeze=False,
+        return _grouped_box_grid(
+            cells=cells, row_keys=years, col_keys=valuations,
+            group_label=title_suffix, y_label="log₁₀ |a* − a₀|",
+            suptitle=self._title(f"|a* − a₀| by {title_suffix} ({fig_id})"),
+            highlight=highlight, cell_title=lambda Y, V: f"{Y} · {V}",
         )
-        fig.suptitle(self._title(f"|a* − a₀| by {title_suffix} ({fig_id})"),
-                     fontsize=13, fontweight="bold")
-
-        for r, Y in enumerate(years):
-            for c, V in enumerate(valuations):
-                ax = axes[r, c]
-                lbl_cell, log_cell = cells[(Y, V)]
-                if log_cell.size == 0:
-                    ax.text(0.5, 0.5, "n=0", transform=ax.transAxes,
-                            ha="center", va="center", fontsize=9, color=_C["grey"])
-                else:
-                    # Bucket cell data into the global category order
-                    per_cat = [log_cell[lbl_cell == cat] for cat in cats_sorted]
-                    positions = [i for i, v in enumerate(per_cat) if v.size]
-                    data = [v for v in per_cat if v.size]
-                    bp = ax.boxplot(
-                        data, positions=positions,
-                        widths=0.6, patch_artist=True,
-                        showfliers=False,
-                        medianprops=dict(color="black", lw=1.2),
-                    )
-                    face_used = [face_colors[i] for i in positions]
-                    edge_used = [edge_colors[i] for i in positions]
-                    alpha_used = [alphas[i] for i in positions]
-                    for patch, face, edge, a in zip(
-                        bp["boxes"], face_used, edge_used, alpha_used
-                    ):
-                        patch.set_facecolor(face)
-                        patch.set_edgecolor(edge)
-                        patch.set_alpha(a)
-                    for whisker_pair in zip(bp["whiskers"][0::2], bp["whiskers"][1::2]):
-                        for w, edge in zip(whisker_pair, edge_used):
-                            w.set_color(edge)
-                    for cap_pair in zip(bp["caps"][0::2], bp["caps"][1::2]):
-                        for cp, edge in zip(cap_pair, edge_used):
-                            cp.set_color(edge)
-
-                ax.set_xlim(-0.6, len(cats_sorted) - 0.4)
-                ax.set_title(f"{Y} · {V}", loc="left", fontsize=10)
-                if c == 0:
-                    ax.set_ylabel("log₁₀ |a* − a₀|")
-                _apply_modern_style(ax)
-
-        # Only bottom row gets xtick labels
-        for c in range(n_cols):
-            axes[-1, c].set_xticks(range(len(cats_sorted)))
-            axes[-1, c].set_xticklabels(cats_sorted, rotation=60, ha="right", fontsize=8)
-            axes[-1, c].set_xlabel(title_suffix)
-
-        fig.tight_layout(rect=[0, 0, 1, 0.95])
-        return fig
 
     def _fig_prior_departure_from_sector(self):
         """SD-T-09a: |a*−a₀| boxplot grouped by from_sector (2×2 year × val)."""

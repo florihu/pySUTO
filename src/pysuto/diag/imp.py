@@ -15,7 +15,7 @@ from typing import Any, Optional
 import numpy as np
 import pandas as pd
 
-from ._plot import _C, _savefig
+from ._plot import _C, _grouped_box_grid, _savefig
 
 
 class ImpDiagnostic:
@@ -56,6 +56,9 @@ class ImpDiagnostic:
 
     _TIME_METHODS = {"time_linear", "time_mean"}
 
+    # Valuation panels for the sector/region |f| boxplots (one column each).
+    _BOX_VALUATIONS = ("Mass", "CC")
+
     # method label → palette key used by both boxplots and step coloring.
     _METHOD_COLORS = {
         "covered":                "grey",
@@ -72,16 +75,43 @@ class ImpDiagnostic:
         "flat_prior":             "red",
     }
 
-    def __init__(self, agg_result, acc_struct=None, label: str = "") -> None:
+    def __init__(self, agg_result, acc_struct=None, label: str = "",
+                 year: str | None = "1995") -> None:
         self.agg_result = agg_result
         self.acc_struct = acc_struct
         self.label      = label
+        self.year       = year
         self._log_df    = agg_result.imputation_log.as_dataframe()
         self._snapshots = self._build_snapshots()
         # Single source of truth: snapshot label → matplotlib color.  All
         # panels (fig 1 a..d, both boxplots) read from this map so step N
         # always renders in the same colour everywhere.
         self._step_color = self._build_step_color_map()
+        # Year focus: the distribution panels and the new sector/region
+        # boxplots restrict to a single year (over edge_id order). Engages only
+        # when acc_struct exposes per-edge times AND ≥1 edge matches the year;
+        # otherwise pool all years. ``_fig3_timeseries`` deliberately ignores
+        # this (it stays multi-year by design).
+        self._year_mask, self._year_ids = self._build_year_filter()
+        self._year_suffix = f" ({self.year})" if self._year_mask is not None else ""
+
+    def _build_year_filter(self):
+        """Return (mask, edge_id_set) restricting to ``self.year``; (None, None)
+        when no acc_struct, no year, or the year is absent from the data."""
+        if self.acc_struct is None or self.year is None:
+            return None, None
+        ei = self.acc_struct.edge_index.sort_values("edge_id")
+        mask = (ei["time"].astype(str) == str(self.year)).to_numpy()
+        if not mask.any():
+            return None, None
+        ids = set(ei["edge_id"].to_numpy()[mask].tolist())
+        return mask, ids
+
+    def _year_log(self):
+        """Imputation log restricted to the active year's edges (or full)."""
+        if self._year_ids is None:
+            return self._log_df
+        return self._log_df[self._log_df["edge_id"].isin(self._year_ids)]
 
     @classmethod
     def from_saved(
@@ -146,6 +176,25 @@ class ImpDiagnostic:
             if show:
                 plt.show()
             plt.close(fig_cv)
+
+        # Figures 4a–d — sector/region |f| boxplots for the focus year.
+        # Each returns None when edge metadata / year data is unavailable.
+        for fn, fname in (
+            (self._fig_box_from_sector, "imputation_box_from_sector.png"),
+            (self._fig_box_to_sector,   "imputation_box_to_sector.png"),
+            (self._fig_box_from_region, "imputation_box_from_region.png"),
+            (self._fig_box_to_region,   "imputation_box_to_region.png"),
+        ):
+            figb = fn()
+            if figb is None:
+                continue
+            if odir is not None:
+                p = _savefig(figb, os.path.join(odir, fname), dpi=dpi)
+                paths.append(p)
+                print(f"   Imputation |f| boxplot     → {p}  ✓")
+            if show:
+                plt.show()
+            plt.close(figb)
 
         # Figure 3 — TimeImputer timeseries (n×3, optional)
         if self.acc_struct is not None:
@@ -258,7 +307,7 @@ class ImpDiagnostic:
         fig, axes = plt.subplots(2, 2, figsize=(14, 9))
         suffix = f" — {self.label}" if self.label else ""
         fig.suptitle(
-            f"Imputation pipeline — per-step diagnostics{suffix}",
+            f"Imputation pipeline — per-step diagnostics{suffix}{self._year_suffix}",
             fontsize=13, fontweight="bold",
         )
         self._panel_f_dist(axes[0, 0])
@@ -269,14 +318,19 @@ class ImpDiagnostic:
         return fig
 
     def _panel_f_dist(self, ax) -> None:
+        m = self._year_mask
         for lbl, f, _ in self._snapshots:
-            vals = f[np.isfinite(f) & (f > 0)]
+            fv = f if m is None else f[m]
+            vals = fv[np.isfinite(fv) & (fv > 0)]
             if not len(vals):
                 continue
             ax.hist(np.log10(vals), bins=60, alpha=0.45,
                     color=self._step_color[lbl], label=lbl,
                     density=True, histtype="stepfilled", edgecolor="none")
-        self._overlay_year_reference(ax, what="f", year="1995")
+        # The dashed 1995 reference curve is redundant once the whole panel is
+        # already restricted to a single year, so only draw it for the all-year view.
+        if m is None:
+            self._overlay_year_reference(ax, what="f", year="1995")
         ax.set_title("F_root distribution per step", fontweight="bold")
         ax.set_xlabel("log₁₀(f)  [log kt]")
         ax.set_ylabel("density")
@@ -316,9 +370,11 @@ class ImpDiagnostic:
                 label=f"ref {year}")
 
     def _panel_coverage(self, ax) -> None:
+        m       = self._year_mask
         labels  = [s[0] for s in self._snapshots]
-        counts  = [int(np.isfinite(s[1]).sum()) for s in self._snapshots]
-        n_total = len(self._snapshots[0][1])
+        counts  = [int(np.isfinite(s[1] if m is None else s[1][m]).sum())
+                   for s in self._snapshots]
+        n_total = len(self._snapshots[0][1]) if m is None else int(m.sum())
 
         bars = ax.barh(
             labels, counts,
@@ -343,7 +399,10 @@ class ImpDiagnostic:
         the magnitude coupling and exposes whether a step actually inflates
         relative uncertainty. Reference lines at CV = 0.1, 1, 10, 100.
         """
+        m = self._year_mask
         for lbl, fv, sv in self._snapshots:
+            if m is not None:
+                fv, sv = fv[m], sv[m]
             with np.errstate(divide="ignore", invalid="ignore"):
                 cv = np.where(np.abs(fv) > 0, sv / np.abs(fv), np.nan)
             vals = cv[np.isfinite(cv) & (cv > 0)]
@@ -354,7 +413,8 @@ class ImpDiagnostic:
                     density=True, histtype="stepfilled", edgecolor="none")
         for ref in (0.1, 1.0, 10.0, 100.0):
             ax.axvline(np.log10(ref), color=_C["red"], lw=0.7, ls="--", alpha=0.5)
-        self._overlay_year_reference(ax, what="cv", year="1995")
+        if m is None:
+            self._overlay_year_reference(ax, what="cv", year="1995")
         ax.set_title("CV (σ/|f|) distribution per step", fontweight="bold")
         ax.set_xlabel("log₁₀(CV)")
         ax.set_ylabel("density")
@@ -362,7 +422,7 @@ class ImpDiagnostic:
         ax.grid(axis="y", alpha=0.3)
 
     def _panel_imputed_count(self, ax) -> None:
-        log_df = self._log_df
+        log_df = self._year_log()
         if log_df.empty:
             ax.text(0.5, 0.5, "No fills recorded",
                     ha="center", va="center", transform=ax.transAxes)
@@ -427,12 +487,14 @@ class ImpDiagnostic:
         """
         import matplotlib.pyplot as plt
 
-        log_df = self._log_df
+        log_df = self._year_log()
         groups: list[tuple[str, np.ndarray]] = []
 
         # 1. Covered baseline = Stage-2a observed σ (pre-snapshot before any fills)
         if self._snapshots:
             _, _, s_pre = self._snapshots[0]
+            if self._year_mask is not None:
+                s_pre = s_pre[self._year_mask]
             covered = s_pre[np.isfinite(s_pre) & (s_pre > 0)]
             if len(covered):
                 groups.append(("covered", covered))
@@ -451,7 +513,7 @@ class ImpDiagnostic:
         fig, ax = plt.subplots(figsize=(max(8, 1.4 * len(groups)), 6))
         suffix = f" — {self.label}" if self.label else ""
         fig.suptitle(
-            f"σ by imputer method{suffix}",
+            f"σ by imputer method{suffix}{self._year_suffix}",
             fontsize=13, fontweight="bold",
         )
 
@@ -506,12 +568,14 @@ class ImpDiagnostic:
         """
         import matplotlib.pyplot as plt
 
-        log_df = self._log_df
+        log_df = self._year_log()
         groups: list[tuple[str, np.ndarray]] = []
 
         # 1. Covered baseline = Stage-2a observed CV (pre-snapshot before fills).
         if self._snapshots:
             _, f_pre, s_pre = self._snapshots[0]
+            if self._year_mask is not None:
+                f_pre, s_pre = f_pre[self._year_mask], s_pre[self._year_mask]
             with np.errstate(divide="ignore", invalid="ignore"):
                 cv_pre = np.where(np.abs(f_pre) > 0, s_pre / np.abs(f_pre), np.nan)
             covered = cv_pre[np.isfinite(cv_pre) & (cv_pre > 0)]
@@ -535,7 +599,7 @@ class ImpDiagnostic:
         fig, ax = plt.subplots(figsize=(max(8, 1.4 * len(groups)), 6))
         suffix = f" — {self.label}" if self.label else ""
         fig.suptitle(
-            f"CV by imputer method{suffix}",
+            f"CV by imputer method{suffix}{self._year_suffix}",
             fontsize=13, fontweight="bold",
         )
 
@@ -576,6 +640,68 @@ class ImpDiagnostic:
 
         plt.tight_layout()
         return fig
+
+    # ------------------------------------------------------------------
+    # Figures 4a–d — sector/region |f| boxplots (focus year, valuation panels)
+    # ------------------------------------------------------------------
+
+    def _fig_box_by(self, group_col: str, title_suffix: str):
+        """1×valuation boxplot of log₁₀|f_agg| grouped by an edge-meta column
+        (e.g. ``from_sector``), restricted to the focus year. Columns are the
+        valuations in :pyattr:`_BOX_VALUATIONS`; categories share a global
+        median-sorted x-order. Returns ``None`` when edge metadata or year data
+        is unavailable.
+        """
+        if self.acc_struct is None or self.year is None:
+            return None
+        try:
+            em = self.acc_struct.edge_meta.sort_values("edge_id").reset_index(drop=True)
+        except Exception:
+            return None
+        if group_col not in em.columns:
+            return None
+
+        eid = em["edge_id"].to_numpy()
+        f   = np.abs(np.asarray(self.agg_result.f_agg, dtype=float))[eid]
+        yr  = em["time"].astype(str).to_numpy() == str(self.year)
+        if not yr.any():
+            return None
+        val = em["valuation"].astype(str).to_numpy()
+        lbl = em[group_col].astype(str).to_numpy()
+
+        cells: dict = {}
+        has_data = False
+        for V in self._BOX_VALUATIONS:
+            m = yr & (val == V) & np.isfinite(f) & (f > 0)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                logf = np.log10(f[m])
+            cells[(str(self.year), V)] = (lbl[m], logf)
+            has_data = has_data or bool(m.any())
+        if not has_data:
+            return None
+
+        label_suffix = f" · {self.label}" if self.label else ""
+        return _grouped_box_grid(
+            cells=cells,
+            row_keys=[str(self.year)],
+            col_keys=list(self._BOX_VALUATIONS),
+            group_label=title_suffix,
+            y_label="log₁₀ |f|",
+            suptitle=f"|f| by {title_suffix} — {self.year}{label_suffix}",
+            cell_title=lambda _r, V: f"{self.year} · {V}",
+        )
+
+    def _fig_box_from_sector(self):
+        return self._fig_box_by("from_sector", "from-sector")
+
+    def _fig_box_to_sector(self):
+        return self._fig_box_by("to_sector", "to-sector")
+
+    def _fig_box_from_region(self):
+        return self._fig_box_by("from_region", "from-region")
+
+    def _fig_box_to_region(self):
+        return self._fig_box_by("to_region", "to-region")
 
     # ------------------------------------------------------------------
     # Figure 3 — timeseries (requires acc_struct)
