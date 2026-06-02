@@ -244,7 +244,8 @@ class ImpDiagnostic:
             lines.append(f"\n  Fills per step:")
             for step, grp in log_df.groupby("step"):
                 dom = grp["method"].value_counts().index[0]
-                lines.append(f"    step {step}  {dom:<22}  {len(grp):>6,} fills")
+                sid = self._step_label(int(step))
+                lines.append(f"    {sid:<18}  {dom:<22}  {len(grp):>6,} fills")
 
         lines.append(f"{'─'*60}")
         text = "\n".join(lines)
@@ -469,14 +470,14 @@ class ImpDiagnostic:
 
         step_counts = log_df.groupby("step").size()
         steps  = [int(s) for s in step_counts.index]
-        labels = [f"step {s} ({self._step_dominant_method(s)})" for s in steps]
+        labels = [self._step_label(s) for s in steps]
         counts = step_counts.values
         # Read from the shared step→color map; identical to the other
         # panels, so step N renders in the same colour everywhere.
         colors = [self._step_color.get(lbl, _C["grey"]) for lbl in labels]
 
         bars = ax.bar(
-            [str(s) for s in steps], counts,
+            labels, counts,
             color=colors,
             edgecolor="white",
         )
@@ -511,6 +512,7 @@ class ImpDiagnostic:
         ax.set_title("Edges imputed per step", fontweight="bold")
         ax.set_xlabel("pipeline step")
         ax.set_ylabel("# edges filled")
+        ax.tick_params(axis="x", labelrotation=30)
         ax.grid(axis="y", alpha=0.3)
 
     # ------------------------------------------------------------------
@@ -602,8 +604,8 @@ class ImpDiagnostic:
 
     def _fig_cv_box(self):
         """
-        Single-panel CV boxplot grouped by `method` from the imputation log,
-        with a leftmost "covered" baseline box (Stage 2a observed CV before
+        Single-panel CV boxplot grouped by pipeline step from the imputation
+        log, with a leftmost "covered" baseline box (Stage 2a observed CV before
         any imputation). Linear y-axis.
         """
         import matplotlib.pyplot as plt
@@ -622,16 +624,17 @@ class ImpDiagnostic:
             if len(covered):
                 groups.append(("covered", covered))
 
-        # 2. One box per method in the log.
+        # 2. One box per pipeline step in the log.
         if not log_df.empty:
-            for method, sub in log_df.groupby("method", sort=False):
+            for step in sorted(log_df["step"].unique()):
+                sub    = log_df[log_df["step"] == step]
                 f_vals = pd.to_numeric(sub["f_after"], errors="coerce").to_numpy()
                 s_vals = pd.to_numeric(sub["sigma_after"], errors="coerce").to_numpy()
                 with np.errstate(divide="ignore", invalid="ignore"):
                     cv = np.where(np.abs(f_vals) > 0, s_vals / np.abs(f_vals), np.nan)
                 cv = cv[np.isfinite(cv) & (cv > 0)]
                 if len(cv):
-                    groups.append((str(method), cv))
+                    groups.append((self._step_label(int(step)), cv))
 
         if not groups:
             return None
@@ -639,7 +642,7 @@ class ImpDiagnostic:
         fig, ax = plt.subplots(figsize=(max(8, 1.4 * len(groups)), 6))
         suffix = f" — {self.label}" if self.label else ""
         fig.suptitle(
-            f"CV by imputer method{suffix}{self._year_suffix}",
+            f"CV by pipeline step{suffix}{self._year_suffix}",
             fontsize=13, fontweight="bold",
         )
 
@@ -647,7 +650,8 @@ class ImpDiagnostic:
         data    = [g[1] for g in groups]
         ns      = [len(g[1]) for g in groups]
         colors  = [
-            _C[self._METHOD_COLORS.get(lbl, "grey")]
+            _C[self._METHOD_COLORS["covered"]] if lbl == "covered"
+            else self._step_color.get(lbl, _C["grey"])
             for lbl in labels
         ]
 
@@ -674,7 +678,7 @@ class ImpDiagnostic:
                     ha="center", va="bottom", fontsize=8)
 
         ax.set_ylabel("CV (σ/|f|)")
-        ax.set_xlabel("method")
+        ax.set_xlabel("pipeline step")
         ax.tick_params(axis="x", labelrotation=25)
         ax.grid(axis="y", alpha=0.3)
 
@@ -685,12 +689,15 @@ class ImpDiagnostic:
     # Figures 4a–d — sector/region |f| boxplots (focus year, valuation panels)
     # ------------------------------------------------------------------
 
-    def _fig_box_by(self, group_col: str, title_suffix: str):
-        """1×valuation boxplot of log₁₀|f_agg| grouped by an edge-meta column
-        (e.g. ``from_sector``), restricted to the focus year. Columns are the
-        valuations in :pyattr:`_BOX_VALUATIONS`; categories share a global
-        median-sorted x-order. Returns ``None`` when edge metadata or year data
-        is unavailable.
+    def _fig_box_by(self, group_col: str, title_suffix: str,
+                    stack_valuations_as_rows: bool = False):
+        """Valuation-panelled boxplot of log₁₀|f_agg| grouped by an edge-meta
+        column (e.g. ``from_sector``), restricted to the focus year. The
+        valuations in :pyattr:`_BOX_VALUATIONS` are laid out as columns by
+        default, or stacked as rows when ``stack_valuations_as_rows`` is set
+        (used for region plots, whose long labels need the full figure width).
+        Categories share a global median-sorted x-order. Returns ``None`` when
+        edge metadata or year data is unavailable.
         """
         if self.acc_struct is None or self.year is None:
             return None
@@ -711,24 +718,32 @@ class ImpDiagnostic:
 
         cells: dict = {}
         has_data = False
+        yr_key = str(self.year)
         for V in self._BOX_VALUATIONS:
             m = yr & (val == V) & np.isfinite(f) & (f > 0)
             with np.errstate(divide="ignore", invalid="ignore"):
                 logf = np.log10(f[m])
-            cells[(str(self.year), V)] = (lbl[m], logf)
+            # Key the cell so the valuation is on the requested axis.
+            key = (V, yr_key) if stack_valuations_as_rows else (yr_key, V)
+            cells[key] = (lbl[m], logf)
             has_data = has_data or bool(m.any())
         if not has_data:
             return None
 
+        if stack_valuations_as_rows:
+            row_keys, col_keys = list(self._BOX_VALUATIONS), [yr_key]
+        else:
+            row_keys, col_keys = [yr_key], list(self._BOX_VALUATIONS)
+
         label_suffix = f" · {self.label}" if self.label else ""
         return _grouped_box_grid(
             cells=cells,
-            row_keys=[str(self.year)],
-            col_keys=list(self._BOX_VALUATIONS),
+            row_keys=row_keys,
+            col_keys=col_keys,
             group_label=title_suffix,
             y_label="log₁₀ |f|",
             suptitle=f"|f| by {title_suffix} — {self.year}{label_suffix}",
-            cell_title=lambda _r, V: f"{self.year} · {V}",
+            cell_title=lambda a, b: f"{self.year} · {a if a in self._BOX_VALUATIONS else b}",
         )
 
     def _fig_box_from_sector(self):
@@ -738,10 +753,12 @@ class ImpDiagnostic:
         return self._fig_box_by("to_sector", "to-sector")
 
     def _fig_box_from_region(self):
-        return self._fig_box_by("from_region", "from-region")
+        return self._fig_box_by("from_region", "from-region",
+                                stack_valuations_as_rows=True)
 
     def _fig_box_to_region(self):
-        return self._fig_box_by("to_region", "to-region")
+        return self._fig_box_by("to_region", "to-region",
+                                stack_valuations_as_rows=True)
 
     # ------------------------------------------------------------------
     # Figure 3 — timeseries (requires acc_struct)

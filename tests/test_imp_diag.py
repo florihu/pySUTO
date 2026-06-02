@@ -54,6 +54,8 @@ def _agg_with_log(acc, fills: list[dict]):
         log.append({
             "edge_id":      fill["edge_id"],
             "step":         fill["step"],
+            "imputer_id":   fill.get("imputer_id", float("nan")),
+            "pass":         fill.get("pass", float("nan")),
             "method":       fill["method"],
             "source_edges": fill.get("source_edges", []),
             "coefficients": fill.get("coefficients", []),
@@ -434,6 +436,99 @@ def test_sector_region_boxplots_skipped_without_edge_meta(acc, tmp_path):
     )
     names = {os.path.basename(p) for p in paths}
     assert not any(n.startswith("imputation_box_") for n in names)
+
+
+# ---------------------------------------------------------------------------
+# 8. Canonical short step ids
+# ---------------------------------------------------------------------------
+
+def test_step_ids_use_imputer_and_pass(acc):
+    """With imputer_id + pass on the log, step ids read ``sN <short>·pP``."""
+    from pysuto.diag import ImpDiagnostic
+
+    fills = [
+        {"edge_id": 0, "step": 0, "imputer_id": "FormulaImputer", "pass": 1,
+         "method": "formula", "f_after": 10.0, "sigma_after": 1.0},
+        {"edge_id": 1, "step": 1, "imputer_id": "TimeImputer",
+         "method": "time_linear", "f_after": 5.0, "sigma_after": 0.5},
+    ]
+    diag = ImpDiagnostic(_agg_with_log(acc, fills), acc_struct=None, label="t")
+    assert diag._step_ids[0] == "s0 formula·p1"   # cascade step shows pass
+    assert diag._step_ids[1] == "s1 time"         # terminal step has no pass
+
+
+def test_step_ids_fall_back_to_method(acc):
+    """Without imputer_id the step id falls back to ``sN <dominant-method>``."""
+    from pysuto.diag import ImpDiagnostic
+
+    fills = [
+        {"edge_id": 0, "step": 1, "method": "time_linear", "f_after": 10.0, "sigma_after": 1.0},
+    ]
+    diag = ImpDiagnostic(_agg_with_log(acc, fills), acc_struct=None, label="t")
+    assert diag._step_ids[1] == "s1 time_linear"
+
+
+def test_sigma_cv_boxplots_keyed_by_step(acc):
+    """σ/CV boxplots show 'covered' + one box per step (not per method)."""
+    from pysuto.diag import ImpDiagnostic
+
+    fills = [
+        {"edge_id": 0, "step": 0, "imputer_id": "FormulaImputer", "pass": 1,
+         "method": "formula", "f_after": 10.0, "sigma_after": 1.0},
+        {"edge_id": 1, "step": 1, "imputer_id": "TimeImputer",
+         "method": "time_linear", "f_after": 5.0, "sigma_after": 0.5},
+    ]
+    diag = ImpDiagnostic(_agg_with_log(acc, fills), acc_struct=None, label="t")
+
+    for fig_fn in (diag._fig2_sigma_box, diag._fig_cv_box):
+        fig = fig_fn()
+        assert fig is not None
+        ax = fig.axes[0]
+        labels = [t.get_text() for t in ax.get_xticklabels()]
+        # Boxes are keyed by step id, not raw method name. (No 'covered'
+        # baseline here: every edge in the fixture is imputed, so the
+        # pre-snapshot carries no observed σ.)
+        assert "s0 formula·p1" in labels
+        assert "s1 time" in labels
+        assert "time_linear" not in labels
+        assert "formula" not in labels
+
+
+def test_imputed_count_panel_uses_step_ids(acc):
+    from pysuto.diag import ImpDiagnostic
+    import matplotlib.pyplot as plt
+
+    fills = [
+        {"edge_id": 0, "step": 0, "imputer_id": "FormulaImputer", "pass": 1,
+         "method": "formula", "f_after": 10.0, "sigma_after": 1.0},
+    ]
+    diag = ImpDiagnostic(_agg_with_log(acc, fills), acc_struct=None, label="t")
+    fig, ax = plt.subplots()
+    diag._panel_imputed_count(ax)
+    labels = [t.get_text() for t in ax.get_xticklabels()]
+    assert "s0 formula·p1" in labels
+    plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# 9. Region boxplots stack valuations as rows
+# ---------------------------------------------------------------------------
+
+def test_region_boxplots_stack_as_rows_sector_stays_cols():
+    """Region |f| boxplots are 2 rows × 1 col; sector plots stay 1 row × 2 cols."""
+    from pysuto.diag import ImpDiagnostic
+
+    acc = _MetaAcc()
+    agg = _meta_agg_with_empty_log()
+    diag = ImpDiagnostic(agg, acc_struct=acc, label="t", year="1995")
+
+    fig_region = diag._fig_box_from_region()
+    rows, cols = fig_region.axes[0].get_subplotspec().get_gridspec().get_geometry()
+    assert (rows, cols) == (2, 1)
+
+    fig_sector = diag._fig_box_from_sector()
+    rows, cols = fig_sector.axes[0].get_subplotspec().get_gridspec().get_geometry()
+    assert (rows, cols) == (1, 2)
 
 
 def test_agg_root_by_year_ignores_year_filter(tmp_path):
