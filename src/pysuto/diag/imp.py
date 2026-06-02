@@ -481,37 +481,16 @@ class ImpDiagnostic:
             color=colors,
             edgecolor="white",
         )
-        # σ_after p50/p99 readout per step — keeps a σ summary visible
-        # even though the distribution panel above plots CV.
-        sigma_stats: dict[int, tuple[float, float]] = {}
-        for step in steps:
-            sub = log_df.loc[log_df["step"] == step, "sigma_after"]
-            vals = pd.to_numeric(sub, errors="coerce").to_numpy()
-            vals = vals[np.isfinite(vals) & (vals > 0)]
-            if vals.size:
-                sigma_stats[step] = (
-                    float(np.percentile(vals, 50)),
-                    float(np.percentile(vals, 99)),
-                )
-
-        for bar, cnt, step in zip(bars, counts, steps):
+        for bar, cnt in zip(bars, counts):
             ax.text(
                 bar.get_x() + bar.get_width() / 2,
-                bar.get_height() + counts.max() * 0.01,
+                bar.get_height() * 1.05,
                 f"{cnt:,}", ha="center", va="bottom", fontsize=8,
             )
-            stat = sigma_stats.get(step)
-            if stat is not None:
-                ax.text(
-                    bar.get_x() + bar.get_width() / 2,
-                    bar.get_height() * 0.5,
-                    f"σ p50={stat[0]:.2g}\np99={stat[1]:.2g}",
-                    ha="center", va="center", fontsize=7,
-                    color="white" if bar.get_height() > counts.max() * 0.15 else "black",
-                )
+        ax.set_yscale("log")
         ax.set_title("Edges imputed per step", fontweight="bold")
         ax.set_xlabel("pipeline step")
-        ax.set_ylabel("# edges filled")
+        ax.set_ylabel("# edges filled  (log₁₀)")
         ax.tick_params(axis="x", labelrotation=30)
         ax.grid(axis="y", alpha=0.3)
 
