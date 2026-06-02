@@ -226,6 +226,56 @@ class TestSumConstraintBuilder:
         assert np.all(G[:, 4] == 0.0), "Waste edge 4 should not appear in sum constraints"
         assert np.all(G[:, 9] == 0.0), "Waste edge 9 should not appear in sum constraints"
 
+    def test_from_mask_anchor_groups_sigma_and_skip(self, toy_acc):
+        """from_mask_anchor: one row per (region_to, time, valuation) group of
+        masked edges; c = Σ anchor over the group; σ_c = sigma_cv·|c|; groups
+        whose anchor sums to ~0 are skipped; wrong-year rows deactivate in
+        build_dynamic."""
+        from pysuto.constraints import SumConstraintBuilder, SIGMA_C_INACTIVE
+
+        n    = toy_acc.n_edges
+        # Mask the four supply edges Mining→Ore: 0,1 (t2020) and 5,6 (t2021).
+        mask = toy_acc.masks["supply"].copy()
+
+        # Per-edge reference: group (Ore/B, 2021) = eid 6 → 0 ⇒ skipped.
+        anchor      = np.zeros(n)
+        anchor[0]   = 10.0   # → Ore/A, 2020
+        anchor[1]   = 20.0   # → Ore/B, 2020
+        anchor[5]   = 30.0   # → Ore/A, 2021
+        anchor[6]   = 0.0    # → Ore/B, 2021  (skipped)
+
+        cv      = 0.01
+        builder = SumConstraintBuilder.from_mask_anchor(
+            toy_acc, mask=mask, anchor_values=anchor,
+            group_keys=("region_to", "time", "valuation"),
+            sigma_cv=cv, id_prefix="anchor",
+        )
+        block = builder.build_static(toy_acc)
+        rm    = block.row_meta
+
+        # 3 non-zero groups; the zero-anchor group is dropped.
+        assert block.G_rows.shape[0] == 3
+        assert (rm["type"] == "sum_eq").all()
+        assert (rm["cone_type"] == "free").all()
+        assert (~rm["is_hard"].astype(bool)).all()
+
+        # Each row sums exactly its one masked edge (+1); c and σ match anchor.
+        G = block.G_rows.toarray()
+        for i, c in enumerate(block.c):
+            eids = np.flatnonzero(G[i] != 0.0)
+            assert len(eids) == 1
+            assert np.isclose(G[i, eids[0]], 1.0)
+            assert np.isclose(c, anchor[eids[0]])
+            assert np.isclose(block.sigma_c[i], cv * abs(c))
+
+        # build_dynamic at 2020 deactivates the 2021 row; 2020 rows stay tight.
+        f   = np.zeros(n)
+        s   = np.zeros(n)
+        b20 = builder.build_dynamic(toy_acc, f, s, "2020")
+        is2021 = (rm["time"].astype(str) == "2021").to_numpy()
+        assert np.allclose(b20.sigma_c[is2021], SIGMA_C_INACTIVE)
+        assert np.allclose(b20.sigma_c[~is2021], block.sigma_c[~is2021])
+
     def test_sum_row_meta_has_time(self, toy_acc):
         """SumConstraintBuilder row_meta has a `time` column; constraint_id
         ends with `_t{time}_{valuation}` after the per-valuation split."""
