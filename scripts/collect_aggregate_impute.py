@@ -92,7 +92,14 @@ TIME_INTERPOLATE_ONLY = True
 # TimeImputer (crude_ore end-of-series extrapolation)
 CRUDE_ORE_TIMES = ["2023", "2024"]
 
+# FlatPriorImputer mode
+#   "magnitude_aware" (legacy) — σ = CV(j) · scale(j) via cv_by_mask + 3-level cascade
+#   "noisy_zero" (test)        — f=0, σ=FLAT_SIGMA_HIGH; effectively no prior weight
+FLAT_MODE       = "noisy_zero"
+FLAT_SIGMA_HIGH = 1.0e6      # used only when FLAT_MODE == "noisy_zero"
+
 # FlatPriorImputer — CVs per mask (ROW edges get inflated CV)
+#   used only when FLAT_MODE == "magnitude_aware"
 FLAT_DEFAULT_CV    = 0.3
 FLAT_CV_LO_SUPPLY  = 0.04
 FLAT_CV_HI_SUPPLY  = 0.3
@@ -396,39 +403,50 @@ def main(feed_ids: list[str], label: str) -> None:
         scope_times      = CRUDE_ORE_TIMES,
     ))
 
-    # 7. Final fallback — flat prior sized by mask CV × group scale.
-    # The ROW relation (any edge touching ROW as region_from or region_to)
-    # is combined with acc.masks["supply"] / acc.masks["use"] to form two
-    # row-specific sub-masks whose (cv_lo, cv_hi) are pre-inflated by
-    # FLAT_ROW_INFLATION.
-    supply_mask = np.asarray(acc.masks["supply"], dtype=bool)
-    use_mask    = np.asarray(acc.masks["use"],    dtype=bool)
+    # 7. Final fallback — flat prior.
+    # Two modes (see FLAT_MODE config above):
+    #   - "noisy_zero":      f=0, σ=FLAT_SIGMA_HIGH (constant); prior weight ≈ 0
+    #   - "magnitude_aware": σ = CV(j) · scale(j) via cv_by_mask + 3-level cascade
+    if FLAT_MODE == "noisy_zero":
+        engine.register(FlatPriorImputer(
+            acc_struct = acc,
+            mode       = "noisy_zero",
+            sigma_high = FLAT_SIGMA_HIGH,
+            p          = P_PROP,
+        ))
+    else:
+        # The ROW relation (any edge touching ROW as region_from or region_to)
+        # is combined with acc.masks["supply"] / acc.masks["use"] to form two
+        # row-specific sub-masks whose (cv_lo, cv_hi) are pre-inflated by
+        # FLAT_ROW_INFLATION.
+        supply_mask = np.asarray(acc.masks["supply"], dtype=bool)
+        use_mask    = np.asarray(acc.masks["use"],    dtype=bool)
 
-    ei_exp      = expand_edge_index(acc.edge_index, acc.node_index)
-    row_mask    = (
-        (ei_exp["region_from"].to_numpy() == "ROW") |
-        (ei_exp["region_to"].to_numpy()   == "ROW")
-    )
+        ei_exp      = expand_edge_index(acc.edge_index, acc.node_index)
+        row_mask    = (
+            (ei_exp["region_from"].to_numpy() == "ROW") |
+            (ei_exp["region_to"].to_numpy()   == "ROW")
+        )
 
-    row_supply  = supply_mask & row_mask
-    row_use     = use_mask    & row_mask
+        row_supply  = supply_mask & row_mask
+        row_use     = use_mask    & row_mask
 
-    flat_cv_by_mask = {
-        "row_supply": (FLAT_CV_LO_SUPPLY * FLAT_ROW_INFLATION,
-                       FLAT_CV_HI_SUPPLY * FLAT_ROW_INFLATION),
-        "row_use":    (FLAT_CV_LO_USE    * FLAT_ROW_INFLATION,
-                       FLAT_CV_HI_USE    * FLAT_ROW_INFLATION),
-        "supply":     (FLAT_CV_LO_SUPPLY, FLAT_CV_HI_SUPPLY),
-        "use":        (FLAT_CV_LO_USE,    FLAT_CV_HI_USE),
-    }
+        flat_cv_by_mask = {
+            "row_supply": (FLAT_CV_LO_SUPPLY * FLAT_ROW_INFLATION,
+                           FLAT_CV_HI_SUPPLY * FLAT_ROW_INFLATION),
+            "row_use":    (FLAT_CV_LO_USE    * FLAT_ROW_INFLATION,
+                           FLAT_CV_HI_USE    * FLAT_ROW_INFLATION),
+            "supply":     (FLAT_CV_LO_SUPPLY, FLAT_CV_HI_SUPPLY),
+            "use":        (FLAT_CV_LO_USE,    FLAT_CV_HI_USE),
+        }
 
-    engine.register(FlatPriorImputer(
-        cv_by_mask = flat_cv_by_mask,
-        default_cv = FLAT_DEFAULT_CV,
-        acc_struct = acc,
-        p          = P_PROP,
-        masks      = {"row_supply": row_supply, "row_use": row_use},
-    ))
+        engine.register(FlatPriorImputer(
+            acc_struct = acc,
+            cv_by_mask = flat_cv_by_mask,
+            default_cv = FLAT_DEFAULT_CV,
+            p          = P_PROP,
+            masks      = {"row_supply": row_supply, "row_use": row_use},
+        ))
 
     logger.info("C  Running imputation engine")
     agg_result = engine.run(agg_result)
@@ -453,7 +471,9 @@ def main(feed_ids: list[str], label: str) -> None:
             "p":               P_PROP,
             "q":               Q_REG,
             "alpha_min":       ALPHA_MIN_REG,
-            "flat_default_cv": FLAT_DEFAULT_CV,
+            "flat_mode":       FLAT_MODE,
+            "flat_sigma_high": FLAT_SIGMA_HIGH if FLAT_MODE == "noisy_zero" else None,
+            "flat_default_cv": FLAT_DEFAULT_CV if FLAT_MODE == "magnitude_aware" else None,
             "time": {
                 "window":           TIME_WINDOW,
                 "min_obs":          TIME_MIN_OBS,

@@ -42,47 +42,26 @@ def _build_group_ids(keys: list[tuple]) -> tuple[np.ndarray, int]:
 
 class FlatPriorImputer(BaseImputer):
     """
-    Final-fallback imputer: fills any residual-NaN edges with a flat prior
-    sized by an accounting-mask CV × group scale, with two refinements
-    introduced after `REP/analysis_optim_const_copper_…_20260513_112419.md`.
+    Final-fallback imputer with two modes:
 
-        f_j     = 0
-        σ_j     = CV(j) · scale(j)
+    ``mode='magnitude_aware'`` (default, legacy behaviour)
+        Fills any residual-NaN edges with a flat prior sized by an
+        accounting-mask CV × group scale (two refinements introduced
+        after `REP/analysis_optim_const_copper_…_20260513_112419.md`)::
 
-    **CV(j) — coverage-aware, per-mask interpolation.**
-    Each mask (e.g. ``supply``, ``use`` — any name present in
-    ``acc_struct.masks``) carries a pair ``(cv_lo, cv_hi)``. For a given edge
-    j the CV is interpolated by the coverage density of its
-    ``(sector_from, region_from)`` neighbourhood::
+            f_j     = 0
+            σ_j     = CV(j) · scale(j)
 
-        ρ(j)   = fraction of edges in (sector_from, region_from) with
-                 ``agg_result.coverage == True``
-        CV(j)  = cv_lo[mask(j)] + (cv_hi[mask(j)] - cv_lo[mask(j)]) · (1 - ρ(j))
+        See the ``_resolve_cv`` and ``_resolve_scale`` docstrings for the
+        coverage-aware CV interpolation and the 3-level scale cascade.
 
-    Data-rich neighbourhoods (ρ ≈ 1) get the tight CV; data-poor
-    neighbourhoods (ρ ≈ 0) get the loose CV. Masks are resolved in
-    insertion order, first-match-wins; unmatched edges receive
-    ``default_cv`` with no density modulation. If no coverage array has
-    been attached at impute time (``attach_agg_result`` was not called),
-    every edge is treated as fully covered (ρ = 1, CV = cv_lo) and a
-    warning is logged.
-
-    **scale(j) — 3-level cascade.**
-    Cascading fallback so an edge whose narrow group has no observed flow
-    still receives a meaningful scale (the prior single-level rule
-    collapsed σ to 0 on ~40 k copper edges, which then pinned them at
-    σ_a = 1e-6 via the constraints-side floor)::
-
-        level 1: mean(|f_agg|) over (sector_from, entity_from,
-                                    region_from, valuation)
-        level 2: mean(|f_agg|) over (sector_from, valuation)
-                 — used when level 1 is empty
-        level 3: median(|f_agg|) over finite, non-zero entries globally
-                 — used when both narrower groups are empty;
-                   falls back to 1.0 only if the whole array is empty.
-
-    Only finite, non-zero |f_agg| values are counted at every level (so
-    upstream-imputed zeros don't pull the scale down to zero).
+    ``mode='noisy_zero'`` (test mode for the scale-collapse hypothesis)
+        Fills every residual-NaN edge with ``f_j = 0, σ_j = sigma_high``
+        (a single user-supplied constant). The intent is to drive the
+        prior weight ``1/σ_j²`` so close to zero that FlatPrior-filled
+        edges contribute essentially nothing to the QP objective; the
+        optimizer then determines them from constraints alone. Bypasses
+        all cv_by_mask / cascade machinery.
 
     Register LAST in the pipeline; ``ConstraintEngine.run()`` will refuse a
     NaN-bearing agg_result without it.
@@ -90,38 +69,83 @@ class FlatPriorImputer(BaseImputer):
 
     def __init__(
         self,
-        cv_by_mask: dict[str, tuple[float, float]],
-        default_cv: float,
         acc_struct,
+        cv_by_mask: Optional[dict[str, tuple[float, float]]] = None,
+        default_cv: Optional[float] = None,
         p: float = 1.3,
         masks: Optional[dict[str, np.ndarray]] = None,
+        mode: str = "magnitude_aware",
+        sigma_high: Optional[float] = None,
     ) -> None:
         """
         Parameters
         ----------
-        cv_by_mask : dict[str, tuple[float, float]]
-            Mapping ``mask_name → (cv_lo, cv_hi)``. Insertion order encodes
-            priority (first-matching mask wins). For backward compatibility
-            a scalar ``cv`` is accepted and treated as ``(cv, cv)`` (no
-            density modulation). Each name must be resolvable either in
-            ``masks`` (caller-supplied overlay) or ``acc_struct.masks``.
-            Every ``cv_hi`` must be ``<= 1.0``.
-        default_cv : float
-            CV applied to edges that match no listed mask. Used as a single
-            value, no density modulation. Must be ``<= 1.0``.
         acc_struct : AccountingStructure
             Provides ``acc_struct.masks`` (named bool arrays) and the edge /
-            node index DataFrames for group-key construction.
+            node index DataFrames for group-key construction. Required in
+            both modes (the engine asserts ``n_edges`` matches at fill time).
+        cv_by_mask : dict[str, tuple[float, float]] | None
+            ``magnitude_aware`` only — required there. Mapping
+            ``mask_name → (cv_lo, cv_hi)``. Insertion order encodes priority
+            (first-matching mask wins). For backward compatibility a scalar
+            ``cv`` is accepted and treated as ``(cv, cv)`` (no density
+            modulation). Each name must be resolvable either in ``masks``
+            (caller-supplied overlay) or ``acc_struct.masks``. Every
+            ``cv_hi`` must be ``<= 1.0``. Ignored in ``noisy_zero`` mode.
+        default_cv : float | None
+            ``magnitude_aware`` only — required there. CV applied to edges
+            that match no listed mask. Used as a single value, no density
+            modulation. Must be ``<= 1.0``. Ignored in ``noisy_zero`` mode.
         p : float
             Lp exponent for downstream uncertainty propagation (recorded
             in ``config()``; not used inside this imputer directly).
         masks : dict[str, np.ndarray] | None
-            Optional overlay of caller-supplied boolean masks (shape
-            ``(n_edges,)``). Looked up before ``acc_struct.masks`` when
-            resolving names in ``cv_by_mask``. Use to inject masks not
-            registered on the accounting structure (e.g. row-specific
-            sub-masks computed in the init script).
+            ``magnitude_aware`` only. Optional overlay of caller-supplied
+            boolean masks (shape ``(n_edges,)``). Looked up before
+            ``acc_struct.masks`` when resolving names in ``cv_by_mask``.
+            Use to inject masks not registered on the accounting structure
+            (e.g. row-specific sub-masks computed in the init script).
+            Ignored in ``noisy_zero`` mode.
+        mode : str
+            ``"magnitude_aware"`` (default) — legacy behaviour:
+            ``σ = CV(j) · scale(j)``.
+            ``"noisy_zero"`` — test mode: ``σ = sigma_high`` constant.
+        sigma_high : float | None
+            ``noisy_zero`` only — required there. The single σ value
+            written for every filled edge. Must be strictly positive.
         """
+        self.mode = str(mode)
+        if self.mode not in ("magnitude_aware", "noisy_zero"):
+            raise ValueError(
+                f"FlatPriorImputer: unknown mode {self.mode!r}; "
+                "expected 'magnitude_aware' or 'noisy_zero'"
+            )
+
+        self.p = float(p)
+        self._source_path: Optional[str] = None
+        # agg_result.coverage attached by ImputationEngine.run via
+        # attach_agg_result() before impute() is called.
+        self._coverage: Optional[np.ndarray] = None
+        self._n_edges = int(acc_struct.n_edges)
+
+        if self.mode == "noisy_zero":
+            if sigma_high is None or float(sigma_high) <= 0.0:
+                raise ValueError(
+                    "FlatPriorImputer(mode='noisy_zero') requires "
+                    "sigma_high > 0"
+                )
+            self.sigma_high = float(sigma_high)
+            # Magnitude-aware machinery left unbuilt — these attrs stay
+            # absent so accidental reads in this mode raise loudly.
+            return
+
+        # ── magnitude_aware below ────────────────────────────────────────
+        if cv_by_mask is None or default_cv is None:
+            raise ValueError(
+                "FlatPriorImputer(mode='magnitude_aware') requires both "
+                "cv_by_mask and default_cv"
+            )
+
         # Normalise scalar CV → (lo, hi) so back-compat callers still work.
         self.cv_by_mask: dict[str, tuple[float, float]] = {}
         for name, val in cv_by_mask.items():
@@ -143,12 +167,6 @@ class FlatPriorImputer(BaseImputer):
                 f"FlatPriorImputer: default_cv is {self.default_cv} > 1.0"
             )
 
-        self.p = float(p)
-        self._source_path: Optional[str] = None
-        # agg_result.coverage attached by ImputationEngine.run via
-        # attach_agg_result() before impute() is called.
-        self._coverage: Optional[np.ndarray] = None
-
         acc_masks: dict = getattr(acc_struct, "masks", None) or {}
         overlay: dict = masks or {}
 
@@ -166,8 +184,6 @@ class FlatPriorImputer(BaseImputer):
                     f"available (acc): {sorted(acc_masks)}"
                 )
             self._masks.append((name, np.asarray(mask, dtype=bool)))
-
-        self._n_edges = int(acc_struct.n_edges)
 
         # Pre-compute three integer group-id arrays per edge:
         #   level 1: (sector_from, entity_from, region_from, valuation) — narrow scale group
@@ -218,7 +234,15 @@ class FlatPriorImputer(BaseImputer):
         return [self._source_path] if self._source_path else []
 
     def config(self) -> dict:
+        if self.mode == "noisy_zero":
+            return {
+                "mode":        "noisy_zero",
+                "sigma_high":  self.sigma_high,
+                "p":           self.p,
+                "source_path": self._source_path,
+            }
         return {
+            "mode":        "magnitude_aware",
             "cv_by_mask":  {k: list(v) for k, v in self.cv_by_mask.items()},
             "default_cv":  self.default_cv,
             "p":           self.p,
@@ -326,6 +350,17 @@ class FlatPriorImputer(BaseImputer):
         idx = np.where(missing)[0]
         if idx.size == 0:
             return []
+
+        if self.mode == "noisy_zero":
+            sh = self.sigma_high
+            f[idx]     = 0.0
+            sigma[idx] = sh
+            desc = "no data, no imputer matched: noisy-zero (f=0, σ=sigma_high)"
+            return [
+                _log(int(j), step, "flat_prior_noisy_zero", [], [],
+                     0.0, sh, desc, None)
+                for j in idx
+            ]
 
         cv_per_edge    = self._resolve_cv()
         scale_per_edge = self._resolve_scale(f)
