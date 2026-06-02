@@ -7,11 +7,14 @@ Constraint types (registered in order)
 ---------------------------------------
 1  Hard mass balance        — MassBalanceBuilder
                               Σ incoming − Σ outgoing = 0 per (Flow|Process) node × time
-2  Soft sum — cathode-use   — SumConstraintBuilder.from_mask_anchor
-   anchor (ICSG)              Σ Cathode→{FU,MESC,USC} over all origins = the
-                              genuine ICSG total per consuming region × year (CC);
-                              σ_c = ANCHOR_CV·|c| (tight). Reaggregates the ICSG
-                              feed F_root, which is disaggregated across origins.
+2  Soft sum — ICSG totals   — SumConstraintBuilder.from_mask_anchor, one family
+   anchor (production +       per ICSG_ANCHOR_FAMILIES entry (production, usage,
+   usage)                     producer stock change). Each: Σ over a masked edge
+                              family = the genuine ICSG total per process-side
+                              region × year (CC), ROW groups excluded; σ_c =
+                              ANCHOR_CV·|c| (tight). Reaggregates the ICSG feed
+                              F_root, which is disaggregated across the opposite
+                              endpoint.
 3  Soft ratio — concentration  — RatioConstraintBuilder (copper_conc_params.csv)
 4  Soft ratio — efficiency     — RatioConstraintBuilder (copper_efficiency_params.csv)
 5  Hard ratio bounds — conc    — RatioBoundBuilder (copper_conc_params.csv)
@@ -50,6 +53,24 @@ OUTPUT_DIR  = os.path.join("data", "proc", "const")
 # genuine ICSG total per consuming region (summed over all cathode origins).
 ANCHOR_USE_SECTORS = {"FU", "MESC", "USC"}
 
+# ICSG-total anchor families: each genuine published ICSG total becomes one
+# soft-sum anchor family. An ICSG flow has one commodity node (entity=Flow) and
+# one process/boundary node; the total is published per the *process-side*
+# region, so we group by that region (sums over the disaggregated opposite
+# endpoint). Each tuple is (sector_from, {sector_to…}, group_region, id_prefix).
+# Rows whose group_region is ROW are dropped (ROW totals are an unreliable
+# catch-all). Waste (Mining→WR, SXEW→Tailings), CP→PSC, and secondary scrap
+# inputs are deliberately excluded — they are not published ICSG totals.
+ICSG_ANCHOR_FAMILIES = [
+    ("Mining",      {"Ore"},            "region_from", "mine_prod_anchor"),
+    ("SXEW",        {"CSXEW"},          "region_from", "sxew_prod_anchor"),
+    ("Concentrate", {"Smelting"},       "region_to",   "smelter_thru_anchor"),
+    ("Matte",       {"CFR"},            "region_to",   "refine_cfr_anchor"),
+    ("Anode",       {"ER"},             "region_to",   "refine_er_anchor"),
+    ("Cathode",     ANCHOR_USE_SECTORS, "region_to",   "cathode_use_anchor"),
+    ("CP",          {"Cathode"},        "region_from", "cp_cathode_anchor"),
+]
+
 # ---------------------------------------------------------------------------
 # END USER CONFIGURATION
 # ---------------------------------------------------------------------------
@@ -81,7 +102,7 @@ ACC_ID = cfg.pipeline.acc_id
 # (cross-stage Lp exponent).
 # ─────────────────────────────────────────────────────────────────────────────
 P_PROP            = 1.3
-SIGMA_A_CV_MIN    = 0.05
+SIGMA_A_CV_MIN    = 0.001
 SIGMA_A_ABS_FLOOR = 1.0e-6
 # Anchor CV (1%). SIGMA_C_CV_MIN is lowered to match so the engine's σ_c CV
 # floor does not inflate the tight cathode-use anchor back up to 5%.
@@ -129,8 +150,8 @@ def main(imp_run_id: str, label: str) -> None:
 
     # ── A3. ICSG anchor reference ─────────────────────────────────────────
     # Load the F_root of the *same* ICSG feed run this imp run was built on
-    # (no "latest" drift). from_mask_anchor re-aggregates it over cathode
-    # origins to recover the genuine published per-consuming-region totals.
+    # (no "latest" drift). from_mask_anchor re-aggregates it per family over the
+    # disaggregated endpoint to recover the genuine published per-region totals.
     feed_run_ids = (imp_sidecar.get("parents", {})
                                .get("upstream", {})
                                .get("feed_run_ids", []))
@@ -162,23 +183,27 @@ def main(imp_run_id: str, label: str) -> None:
     _log.info("Registering MassBalanceBuilder")
     engine.register(MassBalanceBuilder())
 
-    # 2. Soft sum — cathode-use anchor (ICSG)
-    #    One row per (consuming region, year, CC): Σ Cathode→{FU,MESC,USC} over
-    #    all origins = genuine ICSG total, with tight σ_c = ANCHOR_CV·|c|.
-    _log.info("Registering SumConstraintBuilder — cathode-use anchor (ICSG)")
+    # 2. Soft sum — ICSG totals anchor (production + usage)
+    #    One family per ICSG_ANCHOR_FAMILIES entry. Each row is
+    #    Σ (masked edges) = genuine ICSG total per process-side region × year (CC),
+    #    ROW groups dropped, with tight σ_c = ANCHOR_CV·|c|.
+    _log.info("Registering SumConstraintBuilder — ICSG totals anchor (%d families)",
+              len(ICSG_ANCHOR_FAMILIES))
     ei_exp = expand_edge_index(acc.edge_index, acc.node_index)
-    cathode_use_mask = (
-        ei_exp["sector_from"].eq("Cathode")
-        & ei_exp["sector_to"].isin(ANCHOR_USE_SECTORS)
-    ).to_numpy()
-    engine.register(SumConstraintBuilder.from_mask_anchor(
-        acc,
-        mask          = cathode_use_mask,
-        anchor_values = icsg_F_root,
-        group_keys    = ("region_to", "time", "valuation"),
-        sigma_cv      = ANCHOR_CV,
-        id_prefix     = "cathode_use_anchor",
-    ))
+    for sector_from, sectors_to, group_region, id_prefix in ICSG_ANCHOR_FAMILIES:
+        mask = (
+            ei_exp["sector_from"].eq(sector_from)
+            & ei_exp["sector_to"].isin(sectors_to)
+            & ei_exp[group_region].ne("ROW")
+        ).to_numpy()
+        engine.register(SumConstraintBuilder.from_mask_anchor(
+            acc,
+            mask          = mask,
+            anchor_values = icsg_F_root,
+            group_keys    = (group_region, "time", "valuation"),
+            sigma_cv      = ANCHOR_CV,
+            id_prefix     = id_prefix,
+        ))
 
     # 3–7. CSV-fed soft ratio + hard ratio-bound builders.
     #      Two builders may consume the same params_id (e.g. 'conc' → both

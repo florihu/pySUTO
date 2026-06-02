@@ -500,7 +500,8 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                 "time":              str(key_map["time"]) if "time" in key_map else None,
                 "valuation":         str(key_map["valuation"]) if "valuation" in key_map else None,
                 "sector":            None,
-                "region":            str(key_map["region_to"]) if "region_to" in key_map else None,
+                "region":            (str(key_map.get("region_to", key_map.get("region_from")))
+                                      if ("region_to" in key_map or "region_from" in key_map) else None),
                 "entity":            None,
                 "entity_sub":        None,
             })
