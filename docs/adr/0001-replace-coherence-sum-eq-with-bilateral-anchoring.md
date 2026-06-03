@@ -1,0 +1,19 @@
+# Replace coherence sum_eq with bilateral cathode anchoring
+
+The `sub_entity_*` rows produced by `SumConstraintBuilder.from_acc_struct_subentity` are **coherence constraints** (c derived from `a₀` at solve-time, see [`CONTEXT.md`](../../CONTEXT.md)); they add no information beyond the prior and carry a magnitude-blind collapse-deterrent ~`(1/CV(σ_c))² ≈ 60`. We are removing both registrations and adding a new **anchoring** sum_eq layer using genuine published per-`(from_region, to_region, FD-subtype, year, valuation)` cathode totals as `c`, with tight soft σ_c (CV ≈ 1–3%), and updating Stage 2 to seed `a₀` from the same bilateral data instead of the equal-weight split. The new family's per-row collapse-deterrent (`(1/0.02)² ≈ 2500`) exceeds σ_a's `~400` ceiling, and `mass_balance` then propagates the pinned demand-side scale upstream through Cathode → Refining → Smelting → Mining — the chain where the [`reference run`](../../data/proc/opt/opt_20260527_095157_40846da4/) currently collapses.
+
+## Considered options
+
+- **A. Keep `sub_entity_*` only for very-sure supply sectors.** Rejected: requires defining a "very sure" threshold, and the kept rows would still be coherence (no new info beyond `a₀`); they only become real anchoring when `c` comes from outside `a₀`.
+- **B. Drop `sub_entity_*` entirely, add nothing.** Considered but insufficient: removes ~39k weak coherence rows (good for honesty and model size), but does nothing to *fix* the collapse — the prior penalty ceiling of ~400 still binds.
+- **C. Drop `sub_entity_*`, add bilateral anchoring + update Stage 2 a₀. (chosen.)**
+- **D. Promote `sub_entity_*` to hard or artificially tighten σ_c on the coherence rows.** Rejected: asserts confidence we don't have; `c` is still derived from `a₀`, not external data, so tightening σ_c just amplifies the prior's voice through a back door.
+
+The choice is C with **tight soft (CV ≈ 1–3%)** rather than hard equality (`σ_c = 0`) because, while the FD-side flows terminate at an open SB and so won't create feasibility conflicts from `a₀` disagreement (see [`CONTEXT.md`](../../CONTEXT.md) §Boundary topology), the bilateral totals can still conflict with `ratio_bound` rows in the closed sub-network upstream (conc / efficiency limits). Tight soft gives belt-and-braces against those without disabling the anchor.
+
+## Consequences
+
+- **Stage 2 work.** The equal-weight cathode-to-FD disaggregation in the imputer must be replaced by ingestion of the real bilateral data CSV. a₀ and the new constraint then agree at construction; the first-year solve no longer carries a built-in tension.
+- **Constraint registration.** [`scripts/constraints.py:149–166`](../../scripts/constraints.py#L149-L166) — both `from_acc_struct_subentity` calls deleted; one new `SumConstraintBuilder.from_csv(...)` registration in their place.
+- **Open follow-ups (do not block this decision; tracked independently).** A1 (stop the `σ_a` relative-CV floor from inflating genuine tight σ on derived edges — [`engine.py:_lp_regularize` L45](../../src/pysuto/constraints/engine.py#L45)); A2 (non-zero seed for FlatPrior edges — [`impute/flat_prior.py`](../../src/pysuto/impute/flat_prior.py)); A5 (default non-negativity except for stock/sink edges). The bilateral anchoring fixes the demand-end + propagation, but the σ_a relative-floor pathology on derived edges remains until A1.
+- **Validation.** Re-run against [`opt_20260527_095157_40846da4`](../../data/proc/opt/opt_20260527_095157_40846da4/), recompute the collapse metric from [`docs/rep/scale_preservation_recommendations_20260528.md`](../rep/scale_preservation_recommendations_20260528.md#1--evidence-on-the-reference-run). Success = total-mass retention `Σ|F*|/Σ|a₀|` at t=1995 rises from ~1.6e-6 to near 1.0, and the top Mining→WR Mass edges retain magnitudes near their `a₀`.

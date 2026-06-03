@@ -1,0 +1,342 @@
+
+# Method
+# Architecture general
+- id: meth-arch-01
+  function: claim
+  word_budget: 110
+  claim: >
+    pySUTO is organised as four sequential stages — per-feed datafeed
+    assembly, aggregation + imputation, constraint building, and
+    constrained optimisation — each with a defined input/output contract
+    and its own persistence layer; a single Lp σ algebra spans Stages 1–3.
+  sources:
+    - {key: code:run_feed_pipeline, hint: "src/pysuto/feedpipe.py"}
+    - {key: code:FeedCollector,    hint: "src/pysuto/collector.py"}
+    - {key: code:ConstraintEngine, hint: "src/pysuto/constraints.py"}
+    - {key: code:ClarabelSolver,   hint: "src/pysuto/solver.py"}
+  figures: [fig-1-architecture]
+  depends_on: []
+
+- id: meth-arch-02
+  function: state_of_art
+  word_budget: 80
+  claim: >
+    Relative to ODYM (Pauliuk & Heeren 2020 — data structures, no
+    reconciliation), AISHA (constrained RAS, no per-feed pedigree
+    pipeline), PIOLab (virtual-laboratory pipeline, no global QP) and
+    Lenzen 2009 (LS reconciliation, no pedigree-driven Σ), pySUTO
+    composes pedigree-derived σ propagation with a single-call σ-weighted
+    QP in one framework.
+  sources:
+    - {key: pauliuk2020odym,    hint: "ODYM scope, sec 3"}
+    - {key: geschke2017aisha,   hint: "RAS treatment, sec 2.3"}
+    - {key: wieland2022piolab,  hint: "PIOLab pipeline, sec 4"}
+    - {key: lenzen2009matrix,   hint: "LS reconciliation formulation"}
+  forbidden_claims: ["first-ever framework"]
+  depends_on: [meth-arch-01]
+
+# Uncertainty propagation S1-4
+- id: meth-lp-01
+  function: claim
+  word_budget: 100
+  claim: >
+    All Stage 1–3 σ propagation steps share a single power-mean (Lp)
+    combiner Lp({x_i};p) = (Σ|x_i|^p)^{1/p} with default p = 1.3
+    ∈ [1.1, 1.5]; p = 2 recovers Gaussian quadrature exactly. p is a
+    constructor kwarg on every consumer (AggregationMath, BaseImputer,
+    ConstraintEngine), so init scripts set one value globally.
+  sources:
+    - {key: code:UncertaintyMixin, hint: "src/pysuto/unc.py, Lp combine"}
+    - {key: code:AggregationMath,  hint: "src/pysuto/agg.py, p kwarg"}
+  key_terms: [Lp, power-mean, p]
+  depends_on: [meth-arch-01]
+
+- id: meth-lp-02
+  function: qualification
+  word_budget: 80
+  claim: >
+    p < 2 softens the combiner relative to Gaussian quadrature in fan-in
+    regimes where per-source independence is structurally violated
+    (concordance, aggregation, imputation with shared upstreams). On
+    normalised shares ω_ij summing to 1, (Σω_ij^p)^{1/p} ≤ 1 for p ≥ 1,
+    yielding the diversification invariant CV_root ≤ CV_src on every edge.
+  sources:
+    - {key: code:UncertaintyMixin, hint: "propagate_via_weights"}
+  delivers: "novelty 2 — Lp algebra"
+  depends_on: [meth-lp-01]
+
+
+# Datafeed readin 
+- id: meth-s1-01
+  function: claim
+  word_budget: 100
+  claim: >
+    Each data source carries five pedigree indicator scores s ∈ {1,…,4}
+    per Laner et al. 2016: reliability uses CV_rel = a·e^{bs} with
+    a = 0.75, b = 1.105; the four other indicators use
+    CV_i = a_i·e^{b(s_i−1)} with sensitivity-dependent a_i ∈ {0.375, 0.75,
+    1.5}; total CV is the quadrature sum over the five.
+  sources:
+    - {key: laner2016pedigree,    hint: "pedigree scoring formulas"}
+    - {key: code:PedigreeScores,  hint: "src/pysuto/unc.py"}
+  key_terms: [pedigree, CV]
+  depends_on: [meth-lp-01]
+
+- id: meth-s1-02
+  function: claim
+  word_budget: 80
+  claim: >
+    Concordance maps source edges onto a common root taxonomy via a
+    sparse weight matrix W ∈ ℝ^{N_src × N_root} (scipy.sparse CSR); the
+    point-estimate root flow is f_root = Wᵀ f_src.
+  sources:
+    - {key: code:WeightMatrix,      hint: "src/pysuto/conc.py"}
+    - {key: code:ConcordanceTable,  hint: "src/pysuto/conc.py"}
+  key_terms: [concordance, weight matrix]
+  depends_on: [meth-arch-01]
+
+- id: meth-s1-03
+  function: claim
+  word_budget: 80
+  claim: >
+    σ is propagated through W in CV-invariant form: per root edge j,
+    normalised fan-in shares ω_ij = |W_ij f_src,i| / Σ_k |·| are combined
+    via Lp, giving CV_root[j] = CV_src · (Σ ω_ij^p)^{1/p} and
+    σ_root[j] = CV_root[j] · |f_root[j]|.
+  sources:
+    - {key: code:UncertaintyMixin, hint: "propagate_via_weights"}
+  depends_on: [meth-s1-01, meth-s1-02, meth-lp-01]
+
+
+# Aggregation + imputation
+
+- id: meth-s2-01
+  function: claim
+  word_budget: 100
+  claim: >
+    Across N_f feeds, root-edge observations stack as F[N_f × N_r] (NaN
+    where uncovered); precisions P = 1/σ² yield normalised weights
+    Ω_kj = P_kj / Σ_k P_kj. The aggregate is one matrix op
+    f_agg = 1ᵀ(Ω ⊙ F); σ_agg[j] = (Σ_k |Ω_kj σ_k[j]|^p)^{1/p} reduces to
+    1/√(Σ 1/σ_k²) at p = 2.
+  sources:
+    - {key: code:AggregationMath, hint: "src/pysuto/agg.py"}
+    - {key: code:FeedCollector,   hint: "src/pysuto/collector.py"}
+  key_terms: [Omega, inverse-variance]
+  depends_on: [meth-lp-01, meth-s1-03]
+
+- id: meth-s2-02
+  function: claim
+  word_budget: 90
+  claim: >
+    Parametric imputation fills target edge j from source edges {i_l}
+    via f_j = Σ α_l f_{i_l} with σ via Lp over
+    {α_l σ_{i_l}, σ_param, ε f_j}. The backward CSV branch
+    (β = 1/α) passes β through a regularised sensitivity
+    s(β; q = 3, α_min = 0.05) that caps σ amplification when |1/α| ≫ 1
+    — i.e. on inverse-parameter relations such as ore-grade inverses.
+  sources:
+    - {key: code:ParametricImputer,  hint: "src/pysuto/impute.py"}
+    - {key: code:ParametricRelation, hint: "src/pysuto/impute.py"}
+  key_terms: [regularised sensitivity, alpha_min]
+  delivers: "novelty 3"
+  depends_on: [meth-lp-01, meth-s2-01]
+
+- id: meth-s2-03
+  function: claim
+  word_budget: 70
+  claim: >
+    Two auxiliary imputers run before the final fallback: FormulaImputer
+    applies directed multi-source balance equations with a physical clip;
+    TimeImputer applies linear/LOCF/NOCB interpolation with a
+    multiplicative gap inflation γ_0^g that grows σ with extrapolation
+    distance. Every fill is recorded in an ImputationLog for audit.
+  sources:
+    - {key: code:FormulaImputer,  hint: "src/pysuto/impute.py"}
+    - {key: code:TimeImputer,     hint: "src/pysuto/impute.py"}
+    - {key: code:ImputationLog,   hint: "src/pysuto/impute.py"}
+  depends_on: [meth-s2-02]
+
+- id: meth-s2-04
+  function: claim
+  word_budget: 80
+  claim: >
+    FlatPriorImputer fills residual NaN edges via f_j = 0,
+    σ_j = CV(j) · scale(j), where CV is interpolated between
+    (cv_lo, cv_hi) by the observation density ρ(j) of the edge's
+    (sector_from, region_from) neighbourhood — data-rich neighbourhoods
+    get cv_lo, data-poor ones cv_hi — and scale uses a 3-level cascade
+    (narrow group → broader group → global median).
+  sources:
+    - {key: code:FlatPriorImputer, hint: "src/pysuto/impute.py"}
+  key_terms: [coverage-aware CV, 3-level scale cascade]
+  delivers: "novelty 4"
+  depends_on: [meth-s2-01]
+
+# Constraint building
+- id: meth-s3-01
+  function: claim
+  word_budget: 120
+  claim: >
+    Stage 3 assembles G, c, σ_c and bounds from five builder types —
+    MassBalance (hard, auto from acc_struct), Sum (auto + soft
+    hand-written CSV), Ratio (hard, CSV), RatioBound (hard, two
+    NonnegativeCone rows per spec), FlowBounds — each emitting rows
+    tagged with (constraint_id, type, is_hard, cone_type, time). The
+    ConstraintRun artefact carries time-invariant (G, row_meta, a_0,
+    σ_a, u, l) plus per-timestep (c(t), σ_c(t)).
+  sources:
+    - {key: code:ConstraintEngine,        hint: "src/pysuto/constraints.py"}
+    - {key: code:MassBalanceBuilder,      hint: "src/pysuto/constraints.py"}
+    - {key: code:SumConstraintBuilder,    hint: "src/pysuto/constraints.py"}
+    - {key: code:RatioConstraintBuilder,  hint: "src/pysuto/constraints.py"}
+    - {key: code:RatioBoundBuilder,       hint: "src/pysuto/constraints.py"}
+    - {key: code:FlowBoundsBuilder,       hint: "src/pysuto/constraints.py"}
+  depends_on: [meth-arch-01]
+
+- id: meth-s3-02
+  function: claim
+  word_budget: 110
+  claim: >
+    σ_a and free-row σ_c are regularised by an Lp combine of input σ
+    with a relative CV-min term (CV^min · |a_0|, default 0.05) and an
+    absolute floor (default 1e-6 for σ_a, 1e-3 for σ_c). The relative
+    term is a modelling claim about prior tightness and propagates into
+    σ_c via _rhs_ids; the absolute floor is the numerical safety net
+    and should remain dormant once the FlatPrior scale cascade is in
+    place. Hard rows keep σ_c = 0 unchanged.
+  sources:
+    - {key: code:ConstraintEngine._regularise, hint: "src/pysuto/constraints.py"}
+    - {key: code:build_dynamic,                hint: "src/pysuto/constraints.py"}
+  key_terms: [CV-min, absolute floor, σ regularisation]
+  depends_on: [meth-lp-01, meth-s3-01]
+
+- id: meth-s3-03
+  function: claim
+  word_budget: 70
+  claim: >
+    Time-tagged soft sum rows are deactivated per timestep via a σ_c
+    sentinel (10^10, making (1/σ_c)² ≈ 10^{−20} in the objective)
+    rather than via mutation of G or the cone structure; solve_all
+    rebuilds the QP Hessian P per timestep so per-t σ_c entries take
+    effect. Hard rows are active across all t.
+  sources:
+    - {key: code:SumConstraintBuilder.build_dynamic, hint: "src/pysuto/constraints.py"}
+    - {key: code:ClarabelSolver.solve_all,           hint: "src/pysuto/solver.py"}
+  key_terms: [σ_c sentinel, soft-row deactivation]
+  depends_on: [meth-s3-01]
+
+
+# Constraints
+  - id: meth-s4-01
+  function: claim
+  word_budget: 90
+  claim: >
+    Stage 4 solves a σ-weighted least-squares programme (P*):
+    min_{a,ε} (a − a_0)ᵀ Σ_a^{−1} (a − a_0) + εᵀ Σ_c^{−1} ε  s.t.
+    Ga − ε = c, l ≤ a ≤ u, with ε a free decision variable acting as
+    slack on free rows and forced to 0 on hard rows. The augmented-
+    variable form traces to van der Ploeg 1982 and the LS-reconciliation
+    lineage of Byron 1978 and Lenzen et al. 2009.
+  sources:
+    - {key: code:ClarabelSolver,  hint: "src/pysuto/solver.py, _build_qp"}
+    - {key: vdploeg1982,          hint: "augmented variable QP, eq. 4–6"}
+    - {key: byron1978,            hint: "Lagrangian reconciliation"}
+    - {key: lenzen2009matrix,     hint: "LS reconciliation"}
+  figures: [fig-3-kkt-block]
+  depends_on: [meth-s3-01]
+
+- id: meth-s4-02
+  function: claim
+  word_budget: 80
+  claim: >
+    The QP is transformed to Clarabel standard form
+    min_x ½ xᵀ P x + qᵀ x s.t. Ax + s = b, s ∈ K, with x = [a; ε].
+    Cone assignment: ZeroConeT(n_free) for the soft-equality residual
+    rows (Ga − ε = c is exact once ε is free), ZeroConeT(n_zero) for
+    hard balance rows, NonnegativeConeT(n_nonneg) for bound rows.
+  sources:
+    - {key: code:ClarabelSolver._build_qp, hint: "src/pysuto/solver.py"}
+    - {key: clarabel,                      hint: "Clarabel standard form"}
+  key_terms: [ZeroConeT, NonnegativeConeT, augmented variable]
+  depends_on: [meth-s4-01]
+
+- id: meth-s4-03
+  function: qualification
+  word_budget: 70
+  claim: >
+    Hard rows use ZeroConeT rather than a small-σ proxy on two grounds.
+    Numerically, σ_c → 0 inflates κ(Σ_c^{−1}) to ≈ 10^{12}; ZeroCone
+    sidesteps it, with κ(Σ_a^{−1}) held to ~10 OOM by the floor/ceiling.
+    Statistically, hard constraints encode structural identities (mass
+    balance), not near-certain beliefs; the cone is the correct
+    representation.
+  sources:
+    - {key: code:ClarabelSolver._condition_prior, hint: "src/pysuto/solver.py"}
+    - {key: boydvandenberghe,                     hint: "conditioning, sec 11"}
+  key_terms: [ZeroCone, condition number]
+  delivers: "novelty 5 — soft/hard hybrid"
+  depends_on: [meth-s4-02]
+
+- id: meth-s4-04
+  function: claim
+  word_budget: 60
+  claim: >
+    P and A are time-invariant; only q (via a_0) and b (via c(t))
+    change across timesteps. ClarabelSolver issues a single problem
+    build and reuses the KKT factorisation via solver.update(q, b),
+    warm-starting each t from a_0(t) = F_opt(t − 1).
+  sources:
+    - {key: code:ClarabelSolver.solve_all, hint: "src/pysuto/solver.py"}
+  key_terms: [warm-start, solver.update]
+  depends_on: [meth-s4-02]
+
+
+# Solver
+
+- id: meth-sw-01
+  function: claim
+  word_budget: 90
+  claim: >
+    pySUTO enforces a strictly one-way import hierarchy —
+    acc → conc → feed → feedpipe in Stage 1; collector → agg → impute
+    → constraints → solver in Stages 2–4; unc as a pure-numpy mixin
+    and diag/optunc as downstream consumers never imported into the
+    data layer. The discipline mirrors ODYM's class architecture
+    (Pauliuk & Heeren 2020) and prevents circular dependencies at
+    refactor time.
+  sources:
+    - {key: code:repo_layout,   hint: "README file-structure section"}
+    - {key: pauliuk2020odym,    hint: "class hierarchy"}
+  figures: [fig-2-module-graph]
+  depends_on: [meth-arch-01]
+
+- id: meth-sw-02
+  function: claim
+  word_budget: 80
+  claim: >
+    Inputs live under three kinds (feed/acc/params) in per-kind
+    hardlink-versioned registries: load-bearing files are hashed; new
+    versions materialise with hardlinks for unchanged files. Each
+    downstream output run records (id, version) of its inputs in a
+    sidecar JSON, so any output run-id traces back to the exact input
+    bytes that produced it.
+  sources:
+    - {key: code:InputRegistries,    hint: "src/pysuto/input_registry.py"}
+    - {key: code:BaseOutputRegistry, hint: "src/pysuto/registry.py"}
+  key_terms: [hardlink versioning, run-id, sidecar]
+  delivers: "novelty 6 — reproducibility engineering"
+  depends_on: [meth-arch-01]
+
+- id: meth-sw-03
+  function: claim
+  word_budget: 50
+  claim: >
+    pySUTO is hosted at github.com/florihu/pySUTO, released with a
+    Zenodo DOI per tagged version, pinned via a conda lock, and
+    licensed under [TBD]. The design follows FAIR principles
+    (Wilkinson et al. 2016).
+  sources:
+    - {key: code:repo_url,        hint: "github.com/florihu/pySUTO"}
+    - {key: wilkinson2016fair,    hint: "FAIR principles"}
+  depends_on: [meth-sw-01]

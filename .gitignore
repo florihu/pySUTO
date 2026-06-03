@@ -23,8 +23,7 @@ scripts/obs
 .claude/
 .agents/
 plans/
-docs/
-REP/
+docs/ref/
 leg/
 
 # VSCode settings (optional)
