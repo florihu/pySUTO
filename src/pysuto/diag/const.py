@@ -15,7 +15,7 @@ from typing import Any, Optional
 import numpy as np
 import pandas as pd
 
-from ._plot import _C, _savefig
+from ._plot import _C, _grouped_box_grid, _savefig
 
 
 class ConstDiagnostic:
@@ -65,16 +65,18 @@ class ConstDiagnostic:
         "flow_bound":   _C["red"],
     }
 
-    def __init__(self, constraint_run, label: str = "") -> None:
+    def __init__(self, constraint_run, label: str = "", year: str = "1995") -> None:
         self.cr    = constraint_run
         self.label = label
+        self.year  = str(year)
 
     # ------------------------------------------------------------------
     # Classmethod — load from disk
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_saved(cls, run_dir: str, label: str = "") -> "ConstDiagnostic":
+    def from_saved(cls, run_dir: str, label: str = "",
+                   year: str = "1995") -> "ConstDiagnostic":
         """
         Reconstruct a ConstDiagnostic by loading a persisted ConstraintRun
         directly from its directory (no registry required).
@@ -105,7 +107,7 @@ class ConstDiagnostic:
         cr.timestep_data = timestep_data
         cr.run_id        = os.path.basename(run_dir)
 
-        return cls(cr, label=label)
+        return cls(cr, label=label, year=year)
 
     # ------------------------------------------------------------------
     # Public interface
@@ -130,6 +132,7 @@ class ConstDiagnostic:
             (self._fig1_G_sparsity(),    "fig1_G_sparsity.png",    "G sparsity    "),
             (self._fig2_prior_overview(), "fig2_prior_overview.png", "prior overview"),
             (self._fig3_residuals(),      "fig3_residuals.png",      "residuals     "),
+            (self._fig4_sum_residuals(),  "fig4_sum_residuals.png",  "sum residuals "),
         ]:
             p = _savefig(fig, os.path.join(odir, fname), dpi=dpi)
             paths.append(p)
@@ -190,38 +193,38 @@ class ConstDiagnostic:
     # ------------------------------------------------------------------
 
     def _fig1_G_sparsity(self):
+        """True spy of the focus-year sub-block (rows active at ``self.year`` ×
+        the edge columns they touch). Falls back to the full G when the year is
+        absent. The no-cross-time-coupling invariant guarantees the columns
+        touched by a year's rows are exactly that year's edges."""
         import matplotlib.pyplot as plt
 
         G = self.cr.G
-        M, E   = G.shape
-        nnz    = G.nnz
-        density = 100 * nnz / (M * E) if M * E else 0
 
-        n_rows_grid = min(400, M)
-        n_cols_grid = min(600, E)
-
-        if nnz > 0:
-            coo      = G.tocoo()
-            row_bins = np.floor(coo.row * n_rows_grid / M).astype(int).clip(0, n_rows_grid - 1)
-            col_bins = np.floor(coo.col * n_cols_grid / E).astype(int).clip(0, n_cols_grid - 1)
-            grid = np.zeros((n_rows_grid, n_cols_grid), dtype=np.float32)
-            np.add.at(grid, (row_bins, col_bins), 1)
-            grid = (grid > 0).astype(np.float32)
+        rows_y = np.where(self._year_row_mask())[0]
+        if rows_y.size:
+            cols_y = np.unique(G[rows_y].tocoo().col)
+            G_sub  = G[rows_y][:, cols_y]
+            scope  = f"({self.year})"
         else:
-            grid = np.zeros((n_rows_grid, n_cols_grid), dtype=np.float32)
+            G_sub  = G
+            scope  = "(all years)"
+
+        M, E = G_sub.shape
+        nnz  = G_sub.nnz
+        density = 100 * nnz / (M * E) if M * E else 0
 
         suffix = f" — {self.label}" if self.label else ""
         fig, ax = plt.subplots(figsize=(14, 7))
-        ax.imshow(grid, cmap="Greys", aspect="auto", interpolation="nearest")
+        ax.spy(G_sub, markersize=0.5, aspect="auto", color=_C["navy"])
         ax.set_title(
-            f"G sparsity{suffix}   "
+            f"G sparsity {scope}{suffix}   "
             f"{M:,}×{E:,} rows×edges   "
             f"{nnz:,} non-zeros   ({density:.4f} % dense)\n"
-            f"display grid: {n_rows_grid}×{n_cols_grid} px  "
-            f"(each cell = any non-zero present in bin)",
+            f"active sub-block — true spy (one mark per non-zero)",
             fontsize=10, fontweight="bold",
         )
-        ax.set_xlabel(f"Edge index  (0 – {E - 1:,})")
+        ax.set_xlabel(f"Edge column  (0 – {E - 1:,})")
         ax.set_ylabel(f"Constraint row  (0 – {M - 1:,})")
         plt.tight_layout()
         return fig
@@ -254,6 +257,35 @@ class ConstDiagnostic:
 
         plt.tight_layout()
         return fig
+
+    def _fig4_sum_residuals(self):
+        """Per-family boxplot of log₁₀|ε₀| for the soft sum-anchors active at the
+        focus year (single CC panel — sum anchors are CC-only)."""
+        suffix = f" — {self.label}" if self.label else ""
+
+        eps0, _c, t = self._eps0_at(self.year)
+        rm   = self.cr.row_meta
+        mask = ((rm["type"].values == "sum_eq") & self._year_row_mask()
+                if eps0 is not None else np.zeros(len(rm), dtype=bool))
+
+        if mask.any():
+            family = self._sum_family(rm["constraint_id"][mask]).to_numpy()
+            vals   = np.abs(eps0[mask])
+            keep   = np.isfinite(vals) & (vals > 0)
+            cells  = {(self.year, "CC"): (family[keep], np.log10(vals[keep]))}
+        else:
+            cells  = {(self.year, "CC"): (np.array([], dtype=str),
+                                          np.array([], dtype=float))}
+
+        return _grouped_box_grid(
+            cells=cells,
+            row_keys=[self.year],
+            col_keys=["CC"],
+            group_label="anchor family",
+            y_label="log₁₀|ε₀|",
+            suptitle=f"Sum-anchor prior residuals (CC, {self.year}){suffix}",
+            cell_title=lambda r, c: f"{c} · {r}",
+        )
 
     # ------------------------------------------------------------------
     # Figure 2 panels
@@ -332,15 +364,36 @@ class ConstDiagnostic:
     def _soft_mask(self) -> np.ndarray:
         return self.cr.row_meta["cone_type"].values == "free"
 
-    def _eps0_ref(self):
-        """Return (eps0, c_t0, t0_label) for the first timestep, or (None, None, None)."""
+    def _year_row_mask(self) -> np.ndarray:
+        """Boolean row mask for constraints whose time matches the focus year."""
+        rm = self.cr.row_meta
+        if "time" not in rm.columns or not len(rm):
+            return np.zeros(len(rm), dtype=bool)
+        return rm["time"].astype(str).values == self.year
+
+    @staticmethod
+    def _sum_family(cid_series: pd.Series) -> pd.Series:
+        """Map sum-anchor constraint_ids to their family prefix.
+
+        e.g. ``mine_prod_anchor_Argentina_1997_CC`` → ``mine_prod_anchor``.
+        """
+        return cid_series.astype(str).str.split("_anchor").str[0] + "_anchor"
+
+    def _eps0_at(self, year: str):
+        """Return (eps0, c, t_label) for ``year`` (or the first timestep when
+        ``year`` is absent), or (None, None, None) when there is no timestep data."""
         cr = self.cr
         if not cr.timestep_data:
             return None, None, None
-        t0   = next(iter(cr.timestep_data))
-        c_t0 = cr.timestep_data[t0]["c"]
-        eps0 = c_t0 - cr.G.dot(cr.a0)
-        return eps0, c_t0, t0
+        t = year if year in cr.timestep_data else next(iter(cr.timestep_data))
+        c = cr.timestep_data[t]["c"]
+        eps0 = c - cr.G.dot(cr.a0)
+        return eps0, c, t
+
+    def _eps0_ref(self):
+        """Return (eps0, c_t0, t0_label) for the first timestep, or (None, None, None)."""
+        return self._eps0_at(next(iter(self.cr.timestep_data))) \
+            if self.cr.timestep_data else (None, None, None)
 
     def _panel_c_by_year(self, ax) -> None:
         """
@@ -491,42 +544,54 @@ class ConstDiagnostic:
         ax.grid(axis="y", alpha=0.3)
 
     def _panel_eps0_vs_c(self, ax) -> None:
-        eps0, c_t0, t0 = self._eps0_ref()
+        """|ε₀| vs |c| for the soft sum-anchors active at the focus year,
+        coloured by anchor family."""
+        import matplotlib.pyplot as plt
+
+        eps0, c_t, t = self._eps0_at(self.year)
         if eps0 is None:
             ax.text(0.5, 0.5, "No timestep data", ha="center", va="center",
                     transform=ax.transAxes)
-            ax.set_title("|ε₀| vs |c|", fontweight="bold")
+            ax.set_title("|ε₀| vs |c| (sum anchors)", fontweight="bold")
             return
 
-        rm       = self.cr.row_meta
-        all_cx   = np.abs(c_t0)
-        all_epsx = np.abs(eps0)
+        rm   = self.cr.row_meta
+        mask = (rm["type"].values == "sum_eq") & self._year_row_mask()
+        if not mask.any():
+            ax.text(0.5, 0.5, "No sum anchors at year", ha="center", va="center",
+                    transform=ax.transAxes)
+            ax.set_title(f"|ε₀| vs |c| (sum anchors)  (t={t})", fontweight="bold")
+            return
 
-        for cone_type, color in self._CONE_COLORS.items():
-            mask  = rm["cone_type"].values == cone_type
-            cx    = all_cx[mask]
-            epsx  = all_epsx[mask]
-            valid = np.isfinite(cx) & np.isfinite(epsx) & (cx > 0) & (epsx > 0)
+        cx     = np.abs(c_t)[mask]
+        epsx   = np.abs(eps0)[mask]
+        family = self._sum_family(rm["constraint_id"][mask]).to_numpy()
+
+        fams   = sorted(pd.unique(family))
+        colors = plt.cm.tab10(np.linspace(0, 1, max(len(fams), 1)))
+        for fam, color in zip(fams, colors):
+            fm    = family == fam
+            valid = fm & np.isfinite(cx) & np.isfinite(epsx) & (cx > 0) & (epsx > 0)
             if not valid.any():
                 continue
-            ax.scatter(cx[valid], epsx[valid], s=6, alpha=0.4, color=color,
-                       label=cone_type, linewidths=0)
+            ax.scatter(cx[valid], epsx[valid], s=6, alpha=0.5, color=color,
+                       label=fam, linewidths=0)
 
         # Diagonal reference line
-        valid_all = np.isfinite(all_cx) & np.isfinite(all_epsx) & (all_cx > 0) & (all_epsx > 0)
+        valid_all = np.isfinite(cx) & np.isfinite(epsx) & (cx > 0) & (epsx > 0)
         if valid_all.any():
-            lo = min(all_cx[valid_all].min(), all_epsx[valid_all].min())
-            hi = max(all_cx[valid_all].max(), all_epsx[valid_all].max())
+            lo = min(cx[valid_all].min(), epsx[valid_all].min())
+            hi = max(cx[valid_all].max(), epsx[valid_all].max())
             ax.plot([lo, hi], [lo, hi], "k--", lw=0.8, alpha=0.5, label="ε₀ = c")
 
         ax.set_xscale("log")
         ax.set_yscale("log")
-        ax.set_title(f"|ε₀| vs |c|  (t={t0})", fontweight="bold")
+        ax.set_title(f"|ε₀| vs |c| (sum anchors by family)  (t={t})", fontweight="bold")
         ax.set_xlabel("|c|")
         ax.set_ylabel("|ε₀|")
         handles, _labels = ax.get_legend_handles_labels()
         if handles:
-            ax.legend(fontsize=8, framealpha=0.6)
+            ax.legend(fontsize=6, framealpha=0.6)
         ax.grid(alpha=0.3, which="both")
 
 
