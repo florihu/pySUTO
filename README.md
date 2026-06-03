@@ -108,6 +108,10 @@ $$\mathrm{CV}_\mathrm{root}[j] \;=\; \mathrm{CV}_\mathrm{src} \cdot \left(\sum_i
 
 For $p \geq 1$ the power-mean of normalized weights is at most 1, so the **diversification invariant** $\mathrm{CV}_\mathrm{root}[j] \leq \mathrm{CV}_\mathrm{src}$ holds for every root edge.
 
+##### ROW pedigree penalty (optional, per feed)
+
+When a feed sets `Row_penalty: TRUE` in its metadata sidecar, every **ROW-touching** root edge (`region_from` or `region_to` $=$ `"ROW"`) is propagated as if its `geographical_correlation` score were the worst value (4). This is a per-edge multiplier $\mathrm{cv\_root\_scale}[j] = \mathrm{CV}_\mathrm{tot}(\text{geo}{=}4)/\mathrm{CV}_\mathrm{tot}(\text{geo}{=}\text{baseline})$ applied to $\mathrm{CV}_\mathrm{root}[j]$, which is exactly equivalent to re-propagating those rows at `geographical_correlation = 4` (deterministic region mapping means a ROW root edge only receives fan-in from ROW source rows). Penalised edges are recorded in a `row_penalized` provenance mask (persisted in `result.npz`) and summarised in the run's `metadata.json`. Stage 2 applies the same geographic penalty — quadrature-added — to *imputed* ROW edges in the FlatPrior fallback. See [ADR 0003](docs/adr/0003-row-geographic-pedigree-penalty.md).
+
 #### Classes
 
 - **`AccountingStructure`** ([acc.py](src/pysuto/acc.py)) — root node/edge index, supply–use topology, per-edge bounds, structural edge masks (`supply_edge_mask`, `use_edge_mask`, `sb_edge_mask`, `tradable_edge_mask`) consumed by `MassBalanceBuilder` / `FlatPriorImputer`.
@@ -1099,6 +1103,9 @@ encoded as the sparse weight matrix `W` (`f_root = Wᵀ f_src`).
 The two concordance shapes. *Fan-in* = many source edges combine into one root edge — the σ
 **diversification invariant** `CV_root ≤ CV_src` lives here. *Fan-out* = one source edge is
 distributed across several root edges (a mapping that classifies only one endpoint).
+These are the **source → root** (Mapping 2) shapes; the upstream **raw → source** projection
+(Mapping 1, where raw-row *aggregation* and *replication* live) is a separate level — see
+[CONTEXT.md](CONTEXT.md) *"Two mapping levels"*.
 
 **Aggregation**:
 Stage 2 — combining multiple feeds' observations of the *same* root edge by inverse-variance

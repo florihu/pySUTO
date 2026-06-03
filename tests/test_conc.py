@@ -4,6 +4,7 @@ import numpy as np
 from types import SimpleNamespace
 
 from pysuto.conc import ConcordanceTable, WeightMatrix
+from pysuto.feedpipe import build_F_src, matched_raw_total
 
 
 # =============================================================================
@@ -103,6 +104,21 @@ def raw_df():
         "Year":    [0, 0, 0, 0],
         "Unit":    ["kg"] * 4,
         "Supply_Use": ["Supply", "Supply", "Supply", "Use"],
+        # Distinct per-row values let build_F_src tests check mass conservation.
+        "Value":   [10.0, 20.0, 30.0, 40.0],
+    })
+
+
+@pytest.fixture
+def raw_use_only():
+    # Refining(A) consumes Concentrate; producer region NOT classified
+    # (maps only Region → src_region_to for Use rows). Edges 6 (Conc(A)→
+    # Refining(A)) and 7 (Conc(B)→Refining(A)) both match → ONE src edge fanning
+    # to both roots (Mapping 2 fan-out). Used by the fan-out and build_F_src tests.
+    return pd.DataFrame({
+        "Process": ["Refining"], "Type": ["Concentrate"], "Region": ["A"],
+        "Year": [0], "Unit": ["kg"], "Supply_Use": ["Use"],
+        "Value": [7393.1],
     })
 
 
@@ -510,17 +526,10 @@ class TestSingleEndpointUseFanOut:
     """A Use row classifying only the consumer endpoint (producer region open)
     must yield ONE src edge fanning to its roots with weights summing to 1 —
     mass-preserving. The pre-fix bug materialised one src edge per producer
-    region, each carrying the full value (N× mass inflation)."""
+    region, each carrying the full value (N× mass inflation).
 
-    @pytest.fixture
-    def raw_use_only(self):
-        # Refining(A) consumes Concentrate; producer region NOT classified
-        # (maps only Region → src_region_to for Use rows). Edges 6 (Conc(A)→
-        # Refining(A)) and 7 (Conc(B)→Refining(A)) both match.
-        return pd.DataFrame({
-            "Process": ["Refining"], "Type": ["Concentrate"], "Region": ["A"],
-            "Year": [0], "Unit": ["kg"], "Supply_Use": ["Use"],
-        })
+    Uses the module-level ``raw_use_only`` fixture (now shared with the
+    build_F_src mass-conservation tests)."""
 
     def _ct(self, raw_use_only, mock_acc_struct, maps):
         return ConcordanceTable.from_raw(
@@ -591,6 +600,80 @@ class TestSingleEndpointUseFanOut:
         assert F_root.sum() == pytest.approx(100.0)
         assert F_root[0] == pytest.approx(50.0)
         assert F_root[1] == pytest.approx(50.0)
+
+
+# =============================================================================
+# build_F_src — Mapping 1 (raw rows → source edges) mass conservation.
+# Distinct from Mapping 2 (source → root) fan-in/fan-out: these tests cover how
+# raw-row VALUES aggregate onto src edges, the seam where the 36× ICSG
+# re-inflation happened. See ADR 0002 / CONTEXT.md "Two mapping levels".
+# =============================================================================
+
+class TestBuildFSrcMassConservation:
+
+    @pytest.fixture
+    def raw_supply_dupe(self):
+        # Two raw rows with IDENTICAL SRC_COLS classification (same Process/Type/
+        # Region/Year/Unit, Supply) but distinct Value. Each keeps its own
+        # raw_id, both key to the SAME src edge → Mapping-1 raw-row aggregation:
+        # the values must SUM in F_src (not be deduped away).
+        return pd.DataFrame({
+            "Process":    ["Mining", "Mining"],
+            "Type":       ["Ore",    "Ore"],
+            "Region":     ["A",      "A"],
+            "Year":       [0, 0],
+            "Unit":       ["kg", "kg"],
+            "Supply_Use": ["Supply", "Supply"],
+            "Value":      [10.0, 20.0],
+        })
+
+    # 1. Mapping-2 fan-out is NOT replicated by build_F_src (direct bug-#3 regression)
+    def test_single_endpoint_use_row_not_replicated(self, raw_use_only, mock_acc_struct, maps):
+        ct = build_ct(raw_use_only, mock_acc_struct, maps)
+        F_src = build_F_src(raw_use_only, ct, label="t")
+        # one src edge fanning to 2 roots → exactly one F_src entry, value once
+        assert np.count_nonzero(F_src) == 1
+        assert F_src.max() == pytest.approx(7393.1)      # not 2× (replication)
+        assert F_src.sum() == pytest.approx(7393.1)
+
+    # 2. Mapping-1 raw-row aggregation: two raw rows → one src edge, values SUMMED
+    def test_raw_rows_aggregate_to_one_src_edge(self, raw_supply_dupe, mock_acc_struct, maps):
+        ct = build_ct(raw_supply_dupe, mock_acc_struct, maps)
+        assert ct.n_src_edges == 1, "identical-SRC rows must share one src edge"
+        F_src = build_F_src(raw_supply_dupe, ct, label="t")
+        # subset=SRC_COLS dedup would keep only the first raw_id → 10, then the
+        # guard would raise (matched raw = 30). Correct dedup sums to 30.
+        assert F_src.sum() == pytest.approx(30.0)
+        assert F_src[0] == pytest.approx(30.0)
+
+    # 3. Mapping-1 1:1 (distinct edges): mixed supply/use feed, mass preserved,
+    #    no inflation across the fan-out (Use) row.
+    def test_mixed_feed_mass_preserved(self, raw_df, mock_acc_struct, maps):
+        ct = build_ct(raw_df, mock_acc_struct, maps)
+        F_src = build_F_src(raw_df, ct, label="t")
+        assert F_src.sum() == pytest.approx(matched_raw_total(raw_df, ct))
+
+    # 4. Invariant across fixture shapes: ΣF_src == matched raw total
+    @pytest.mark.parametrize("which", ["use", "dupe", "mixed"])
+    def test_build_F_src_equals_matched_raw_total(
+        self, which, raw_use_only, raw_supply_dupe, raw_df, mock_acc_struct, maps
+    ):
+        raw = {"use": raw_use_only, "dupe": raw_supply_dupe, "mixed": raw_df}[which]
+        ct = build_ct(raw, mock_acc_struct, maps)
+        F_src = build_F_src(raw, ct, label="t")
+        assert F_src.sum() == pytest.approx(matched_raw_total(raw, ct))
+
+    # 5. Wiring: the mass-conservation guard runs INSIDE build_F_src
+    def test_build_F_src_invokes_guard(self, raw_use_only, mock_acc_struct, maps, monkeypatch):
+        import pysuto.feedpipe as fp
+
+        def _boom(*a, **k):
+            raise RuntimeError("guard-was-called")
+
+        monkeypatch.setattr(fp, "assert_mass_conserved", _boom)
+        ct = build_ct(raw_use_only, mock_acc_struct, maps)
+        with pytest.raises(RuntimeError, match="guard-was-called"):
+            fp.build_F_src(raw_use_only, ct, label="t")
 
 
 if __name__ == "__main__":

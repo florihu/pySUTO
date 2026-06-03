@@ -104,9 +104,8 @@ from pysuto.feedpipe import (
     step_A_read_metadata,
     step_B_build_concordance,
     step_C_build_weight_matrix,
-    step_D_apply_and_propagate,
-    assert_mass_conserved,
-    matched_raw_total,
+    propagate_with_row_penalty,
+    build_F_src as _build_F_src,
     register_feed,
 )
 from pysuto.diag import FeedDiagnostics
@@ -247,37 +246,20 @@ def build_weight_matrix(ct: ConcordanceTable) -> WeightMatrix:
 # ===========================================================================
 
 def build_F_src(raw_df: pd.DataFrame, ct: ConcordanceTable) -> np.ndarray:
-    """Aggregate raw values to the src-edge level aligned to ct.src_edges."""
-    src_raw = (
-        ct.tab[["raw_id"] + list(ConcordanceTable.SRC_COLS)]
-        .drop_duplicates(subset=list(ConcordanceTable.SRC_COLS))
-    )
-    merged = src_raw.merge(
-        raw_df.reset_index().rename(columns={"index": "_raw_idx"}),
-        left_on="raw_id", right_on="_raw_idx", how="left",
-    )
-    agg = merged.groupby(list(ConcordanceTable.SRC_COLS))["Value"].sum().reset_index()
-
-    F_src = np.zeros(ct.n_src_edges)
-    for _, row in agg.iterrows():
-        key = tuple(row[c] for c in ConcordanceTable.SRC_COLS)
-        if key in ct.src_edge_to_id:
-            F_src[ct.src_edge_to_id[key]] = row["Value"]
-
+    """Aggregate raw values to the src-edge level (delegates to feedpipe)."""
+    F_src = _build_F_src(raw_df, ct, label="baci")
     logger.info("=" * 60)
     logger.info("D  F_src vector")
     logger.info("   length    : %d", len(F_src))
     logger.info("   non-zero  : %d", int(np.count_nonzero(F_src)))
     logger.info("   total kt  : %.1f", float(F_src.sum()))
-    assert_mass_conserved(float(F_src.sum()), matched_raw_total(raw_df, ct),
-                          label="baci")
     return F_src
 
 
-def propagate(wm: WeightMatrix, F_src: np.ndarray, meta: DataFeedMetadata):
+def propagate(wm: WeightMatrix, F_src: np.ndarray, meta: DataFeedMetadata, acc):
     logger.info("=" * 60)
     logger.info("D  Propagating uncertainty")
-    return step_D_apply_and_propagate(wm, F_src, meta)
+    return propagate_with_row_penalty(wm, F_src, meta, acc)
 
 
 # ===========================================================================
@@ -291,6 +273,7 @@ def persist_and_register(
     result,
     meta:   DataFeedMetadata,
     parents: dict,
+    row_summary: dict = None,
 ):
     logger.info("=" * 60)
     logger.info("E  Registering feed")
@@ -303,6 +286,7 @@ def persist_and_register(
         wm, meta, result, registry,
         parents = parents,
         F_src   = F_src,
+        stage_summary = row_summary,
     )
 
     logger.info("   run_id           %s", entry.run_id)
@@ -410,11 +394,12 @@ def main() -> None:
 
     # D — source flow vector + uncertainty propagation
     F_src  = build_F_src(raw_df, ct)
-    result = propagate(wm, F_src, meta)
+    result, row_summary = propagate(wm, F_src, meta, acc)
 
     # E — register + persist
     parents = {"inputs": input_ref, "upstream": {}}
-    entry = persist_and_register(ct, wm, F_src, result, meta, parents=parents)
+    entry = persist_and_register(ct, wm, F_src, result, meta, parents=parents,
+                                 row_summary=row_summary)
 
     # F — diagnostics
     diagnostics(raw_df, ct, F_src, result, entry)

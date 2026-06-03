@@ -211,6 +211,35 @@ def assert_mass_conserved(projected_total: float, raw_total: float, *,
         )
 
 
+def build_F_src(raw_df: pd.DataFrame, ct: ConcordanceTable, *,
+                label: str = "feed", value_col: str = "Value") -> np.ndarray:
+    """Aggregate raw values to the src-edge level aligned to ``ct.src_edges``.
+
+    Dedup on ``(raw_id, src edge)`` so a single raw row fanning across N root
+    edges (Mapping 2 fan-out — ``ct.tab`` holds one row per src×root pair) is
+    counted **once**, while distinct raw rows that resolve to the *same* src
+    edge (Mapping 1 raw-row aggregation) are **summed**. Then assert mass
+    conservation. See ADR 0002 and CONTEXT.md "Two mapping levels".
+    """
+    src_raw = ct.tab[["raw_id"] + list(ConcordanceTable.SRC_COLS)].drop_duplicates()
+    merged = src_raw.merge(
+        raw_df.reset_index().rename(columns={"index": "_raw_idx"}),
+        left_on="raw_id", right_on="_raw_idx", how="left",
+    )
+    agg = merged.groupby(list(ConcordanceTable.SRC_COLS))[value_col].sum().reset_index()
+
+    F_src = np.zeros(ct.n_src_edges)
+    for _, row in agg.iterrows():
+        key = tuple(row[c] for c in ConcordanceTable.SRC_COLS)
+        if key in ct.src_edge_to_id:
+            F_src[ct.src_edge_to_id[key]] = row[value_col]
+
+    assert_mass_conserved(float(F_src.sum()),
+                          matched_raw_total(raw_df, ct, value_col),
+                          label=label)
+    return F_src
+
+
 # ===========================================================================
 # REGISTRATION — store everything
 # ===========================================================================
@@ -348,7 +377,7 @@ def _build_row_penalty_scale(acc_struct, metadata):
     cv_root_scale = np.where(row_mask, ratio, 1.0)
     summary = {"row_penalty": {
         "dim":         "geographical_correlation",
-        "n_penalized": int(row_mask.sum()),
+        "n_row_edges": int(row_mask.sum()),   # ROW-touching edges in the acc
         "n_edges":     int(row_mask.size),
         "cv_norm":     float(cv_norm),
         "cv_pen":      float(cv_pen),
@@ -379,10 +408,12 @@ def propagate_with_row_penalty(wm, F_src, metadata, acc_struct, p: float = 1.3):
         share = (float(np.nansum(np.abs(result.F_root[row_mask]))) / denom
                  if denom > 0 else 0.0)
         rp = row_summary["row_penalty"]
+        # edges this feed actually carries flow on (matches result.row_penalized)
+        rp["n_penalized"] = int(result.row_penalized.sum())
         rp["value_share"] = share
-        _log.info("D  row_penalty: %d/%d edges (value_share=%.1f%%) "
+        _log.info("D  row_penalty: %d/%d fed ROW edges (value_share=%.1f%%) "
                   "geo->4 cv %.4f->%.4f (ratio %.3f)",
-                  rp["n_penalized"], rp["n_edges"], share * 100,
+                  rp["n_penalized"], rp["n_row_edges"], share * 100,
                   rp["cv_norm"], rp["cv_pen"], rp["ratio"])
     return result, row_summary
 
@@ -428,20 +459,7 @@ def run_feed_pipeline(
                  allow_unmatched_edges=allow_unmatched_edges)
     _apply_edge_scope_mask(ct, acc_struct, meta.edge_scope_mask)
     wm     = step_C_build_weight_matrix(ct)
-    cv_root_scale, row_summary, row_mask = _build_row_penalty_scale(acc_struct, meta)
-    result = step_D_apply_and_propagate(wm, F_src, meta, p=p,
-                                        cv_root_scale=cv_root_scale)
-    if row_mask is not None:
-        result.row_penalized = row_mask & (result.F_root != 0)
-        denom = float(np.nansum(np.abs(result.F_root)))
-        share = (float(np.nansum(np.abs(result.F_root[row_mask]))) / denom
-                 if denom > 0 else 0.0)
-        rp = row_summary["row_penalty"]
-        rp["value_share"] = share
-        _log.info("D  row_penalty: %d/%d edges (value_share=%.1f%%) "
-                  "geo->4 cv %.4f->%.4f (ratio %.3f)",
-                  rp["n_penalized"], rp["n_edges"], share * 100,
-                  rp["cv_norm"], rp["cv_pen"], rp["ratio"])
+    result, row_summary = propagate_with_row_penalty(wm, F_src, meta, acc_struct, p=p)
     entry  = register_feed(
         wm, meta, result, registry,
         parents = parents,

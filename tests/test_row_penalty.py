@@ -55,7 +55,8 @@ def test_marks_row_edges_and_scales_by_ratio():
              / pg_norm.total_cv())
     np.testing.assert_allclose(cv_scale, [1.0, ratio, ratio])
 
-    assert summary["row_penalty"]["n_penalized"] == 2
+    # the helper knows only the structural count of ROW-touching acc edges
+    assert summary["row_penalty"]["n_row_edges"] == 2
     assert summary["row_penalty"]["dim"] == "geographical_correlation"
 
 
@@ -81,6 +82,26 @@ def test_propagate_inflates_row_edges_and_records_provenance():
     assert result.cv_root[2] / result.cv_root[0] == pytest.approx(ratio)
     # value share = (20+30)/(10+20+30)
     assert summary["row_penalty"]["value_share"] == pytest.approx(50.0 / 60.0)
+    # the reported penalised count matches the persisted provenance mask
+    assert summary["row_penalty"]["n_penalized"] == int(result.row_penalized.sum())
+
+
+def test_propagate_excludes_zero_flow_row_edges_from_provenance():
+    """A ROW edge this feed does not carry (F_root == 0) is not counted as
+    penalised: n_penalized matches the persisted mask, while n_row_edges keeps
+    the structural ROW-edge count."""
+    acc = _acc()                                   # edges: 0 domestic, 1 ->ROW, 2 ROW->
+    wm = _MixinWM(np.eye(3))
+    meta = DataFeedMetadata(feed_name="x", geographical_correlation=1,
+                            row_penalty=True)
+    F_src = np.array([10.0, 0.0, 30.0])            # ROW edge 1 carries no flow
+
+    result, summary = propagate_with_row_penalty(wm, F_src, meta, acc)
+
+    np.testing.assert_array_equal(result.row_penalized, [False, False, True])
+    assert summary["row_penalty"]["n_penalized"] == 1     # only the fed ROW edge
+    assert summary["row_penalty"]["n_row_edges"] == 2     # both ROW edges structurally
+    assert int(result.row_penalized.sum()) == summary["row_penalty"]["n_penalized"]
 
 
 def test_propagate_off_leaves_result_unpenalised():

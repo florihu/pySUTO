@@ -85,9 +85,8 @@ from pysuto.feedpipe import (
     step_A_read_metadata,
     step_B_build_concordance,
     step_C_build_weight_matrix,
-    step_D_apply_and_propagate,
-    assert_mass_conserved,
-    matched_raw_total,
+    propagate_with_row_penalty,
+    build_F_src as _build_F_src,
     register_feed,
 )
 from pysuto.diag import FeedDiagnostics
@@ -250,44 +249,24 @@ def build_weight_matrix(ct: ConcordanceTable) -> WeightMatrix:
 # ===========================================================================
 
 def build_F_src(raw_df: pd.DataFrame, ct: ConcordanceTable) -> np.ndarray:
-    """Aggregate raw values to the src-edge level aligned to ct.src_edges."""
-    # Dedup the fan-out: ct.tab has one row per (src edge × root edge), so a
-    # single raw row that fans across N roots appears N times. Collapse to
-    # unique (raw_id, src edge) pairs first, otherwise the groupby-sum below
-    # counts each raw value once per root and re-inflates mass (the fan-out
-    # replication relocated onto a single <any> src edge — see ADR 0002).
-    # Distinct raw rows mapping to the same src edge (fan-in) are preserved.
-    src_raw = ct.tab[["raw_id"] + list(ConcordanceTable.SRC_COLS)].drop_duplicates()
-    merged = src_raw.merge(
-        raw_df.reset_index().rename(columns={"index": "_raw_idx"}),
-        left_on="raw_id", right_on="_raw_idx", how="left",
-    )
-    agg = merged.groupby(list(ConcordanceTable.SRC_COLS))["Value"].sum().reset_index()
-
-    F_src = np.zeros(ct.n_src_edges)
-    for _, row in agg.iterrows():
-        key = tuple(row[c] for c in ConcordanceTable.SRC_COLS)
-        if key in ct.src_edge_to_id:
-            F_src[ct.src_edge_to_id[key]] = row["Value"]
-
+    """Aggregate raw values to the src-edge level (delegates to feedpipe)."""
+    F_src = _build_F_src(raw_df, ct, label="icsg")
     print(f"\n{'='*60}")
     print("D  F_src vector")
     print(f"   length      : {len(F_src):,}")
     print(f"   non-zero    : {np.count_nonzero(F_src):,}")
     print(f"   total (kt)  : {F_src.sum():,.1f}")
-    assert_mass_conserved(float(F_src.sum()), matched_raw_total(raw_df, ct),
-                          label="icsg")
     return F_src
 
 
-def propagate(wm: WeightMatrix, F_src: np.ndarray, meta: DataFeedMetadata):
+def propagate(wm: WeightMatrix, F_src: np.ndarray, meta: DataFeedMetadata, acc):
     print(f"\n{'='*60}")
     print("D  Propagating uncertainty (scipy.sparse)")
-    result = step_D_apply_and_propagate(wm, F_src, meta)
+    result, row_summary = propagate_with_row_penalty(wm, F_src, meta, acc)
     print(f"   CV_src       : {result.cv_src * 100:.2f} %")
     print(f"   F_root sum   : {result.F_root.sum():,.1f} kt")
     print(f"   mean CV_root : {np.nanmean(result.cv_root) * 100:.2f} %")
-    return result
+    return result, row_summary
 
 
 # ===========================================================================
@@ -301,6 +280,7 @@ def persist_and_register(
     result,
     meta:   DataFeedMetadata,
     parents: dict,
+    row_summary: dict = None,
 ):
     print(f"\n{'='*60}")
     print("E  Registering feed")
@@ -313,6 +293,7 @@ def persist_and_register(
         wm, meta, result, registry,
         parents = parents,
         F_src   = F_src,
+        stage_summary = row_summary,
     )
 
     print(f"   run_id           {entry.run_id}")
@@ -410,11 +391,12 @@ def main() -> None:
 
     # D — source flow vector + uncertainty propagation
     F_src  = build_F_src(raw_df, ct)
-    result = propagate(wm, F_src, meta)
+    result, row_summary = propagate(wm, F_src, meta, acc)
 
     # E — register + persist (via DataFeedRegistry / feedpipe)
     parents = {"inputs": input_ref, "upstream": {}}
-    entry = persist_and_register(ct, wm, F_src, result, meta, parents=parents)
+    entry = persist_and_register(ct, wm, F_src, result, meta, parents=parents,
+                                 row_summary=row_summary)
 
     # F — diagnostics
     diagnostics(raw_df, ct, F_src, result, entry)

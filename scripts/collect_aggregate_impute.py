@@ -56,6 +56,7 @@ from pysuto.registry import DataFeedRegistry, ImputationRunRegistry
 from pysuto.input_registry import InputRegistries
 from pysuto.collector import FeedCollector
 from pysuto.param_relation import expand_edge_index
+from pysuto.unc import PedigreeScores
 from pysuto.impute   import (
     ImputationEngine,
     ParametricImputer,
@@ -102,14 +103,17 @@ CRUDE_ORE_TIMES = ["2023", "2024"]
 FLAT_MODE       = "noisy_zero"
 FLAT_SIGMA_HIGH = 1.0e6      # used only when FLAT_MODE == "noisy_zero"
 
-# FlatPriorImputer — CVs per mask (ROW edges get inflated CV)
+# FlatPriorImputer — CVs per mask (ROW edges get the geographic pedigree penalty)
 #   used only when FLAT_MODE == "magnitude_aware"
 FLAT_DEFAULT_CV    = 0.3
 FLAT_CV_LO_SUPPLY  = 0.04
 FLAT_CV_HI_SUPPLY  = 0.3
 FLAT_CV_LO_USE     = 0.2
 FLAT_CV_HI_USE     = 0.5
-FLAT_ROW_INFLATION = 1.5
+# ROW edges carry the worst geographical pedigree (geographical_correlation=4),
+# added in quadrature to the base CV — the same transparent penalty Stage 1
+# applies to fed ROW edges (replaces the old ad-hoc FLAT_ROW_INFLATION x1.5).
+CV_GEO4 = PedigreeScores._cv_other(4, "medium_sensitive")
 
 # ---------------------------------------------------------------------------
 # FormulaRelations (module-level — no runtime state, safe to define here)
@@ -434,8 +438,8 @@ def main(feed_ids: list[str], label: str) -> None:
     else:
         # The ROW relation (any edge touching ROW as region_from or region_to)
         # is combined with acc.masks["supply"] / acc.masks["use"] to form two
-        # row-specific sub-masks whose (cv_lo, cv_hi) are pre-inflated by
-        # FLAT_ROW_INFLATION.
+        # row-specific sub-masks whose (cv_lo, cv_hi) carry the geographic
+        # pedigree penalty (CV_GEO4) added in quadrature to the base CV.
         supply_mask = np.asarray(acc.masks["supply"], dtype=bool)
         use_mask    = np.asarray(acc.masks["use"],    dtype=bool)
 
@@ -449,10 +453,10 @@ def main(feed_ids: list[str], label: str) -> None:
         row_use     = use_mask    & row_mask
 
         flat_cv_by_mask = {
-            "row_supply": (FLAT_CV_LO_SUPPLY * FLAT_ROW_INFLATION,
-                           FLAT_CV_HI_SUPPLY * FLAT_ROW_INFLATION),
-            "row_use":    (FLAT_CV_LO_USE    * FLAT_ROW_INFLATION,
-                           FLAT_CV_HI_USE    * FLAT_ROW_INFLATION),
+            "row_supply": (float(np.hypot(FLAT_CV_LO_SUPPLY, CV_GEO4)),
+                           float(np.hypot(FLAT_CV_HI_SUPPLY, CV_GEO4))),
+            "row_use":    (float(np.hypot(FLAT_CV_LO_USE,    CV_GEO4)),
+                           float(np.hypot(FLAT_CV_HI_USE,    CV_GEO4))),
             "supply":     (FLAT_CV_LO_SUPPLY, FLAT_CV_HI_SUPPLY),
             "use":        (FLAT_CV_LO_USE,    FLAT_CV_HI_USE),
         }
