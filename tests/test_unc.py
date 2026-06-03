@@ -551,6 +551,22 @@ class TestPropagationResult:
         )
         assert np.isnan(r.cv_root[0])
 
+    def test_row_penalized_defaults_none(self, sample_result):
+        """Feature-off results carry no penalty mask."""
+        assert sample_result.row_penalized is None
+
+    def test_row_penalized_stores_mask(self):
+        """When the ROW penalty is active the result records which edges it hit."""
+        mask = np.array([True, False, True])
+        r = PropagationResult(
+            F_root=np.array([1.0, 2.0, 3.0]),
+            sigma_root=np.array([0.1, 0.2, 0.3]),
+            cv_root=np.array([0.1, 0.1, 0.1]),
+            cv_src=0.1,
+            row_penalized=mask,
+        )
+        np.testing.assert_array_equal(r.row_penalized, mask)
+
 
 # =============================================================================
 # 7. UNCERTAINTY MIXIN — SETUP METHODS
@@ -954,6 +970,55 @@ class TestCvInvariantPropagation:
             W_4x3, F_src_4, all_ones_pedigree.total_cv(), p=1.3,
         )
         np.testing.assert_allclose(result.sigma_root, expected, rtol=1e-8)
+
+
+# =============================================================================
+# 11. APPLY WITH UNCERTAINTY — PER-EDGE cv_root_scale (generic; ROW-penalty hook)
+# =============================================================================
+
+class TestApplyCvRootScale:
+    """A per-root-edge CV multiplier. unc.py stays ROW-agnostic — it only
+    applies whatever scale the caller passes; the caller decides which edges
+    get scaled (e.g. ROW edges) and by how much."""
+
+    def test_scale_multiplies_sigma_per_edge(self, feed_4x3, all_twos_pedigree, F_src_4):
+        feed_4x3.set_pedigree(all_twos_pedigree)
+        base = feed_4x3.apply_with_uncertainty(F_src_4)
+        scale = np.array([1.0, 2.0, 1.0])          # double only the middle root edge
+        scaled = feed_4x3.apply_with_uncertainty(F_src_4, cv_root_scale=scale)
+        np.testing.assert_allclose(
+            scaled.sigma_root, base.sigma_root * scale, rtol=RTOL, atol=ATOL
+        )
+
+    def test_none_is_identity(self, feed_4x3, all_twos_pedigree, F_src_4):
+        """Passing cv_root_scale=None must reproduce the un-scaled result exactly
+        (backward compatibility for every existing caller)."""
+        feed_4x3.set_pedigree(all_twos_pedigree)
+        base = feed_4x3.apply_with_uncertainty(F_src_4)
+        same = feed_4x3.apply_with_uncertainty(F_src_4, cv_root_scale=None)
+        np.testing.assert_allclose(same.sigma_root, base.sigma_root, rtol=RTOL, atol=ATOL)
+        np.testing.assert_allclose(same.cv_root,    base.cv_root,    rtol=RTOL, atol=ATOL)
+
+    def test_ratio_scale_equals_repropagating_with_geo4(self, feed_4x3, F_src_4):
+        """The load-bearing equivalence: scaling cv_root by
+        ratio = cv(geo=4)/cv(geo=baseline) reproduces a full re-propagation with
+        geographical_correlation pushed to 4. This is why the ROW penalty can be
+        a per-edge multiplier instead of a second propagation."""
+        import dataclasses
+        pg_norm = PedigreeScores(reliability=2, completeness=2,
+                                 temporal_correlation=1, geographical_correlation=1,
+                                 other_correlation=2)
+        pg_pen = dataclasses.replace(pg_norm, geographical_correlation=4)
+        ratio = pg_pen.total_cv() / pg_norm.total_cv()
+
+        feed_4x3.set_pedigree(pg_norm)
+        via_scale = feed_4x3.apply_with_uncertainty(
+            F_src_4, cv_root_scale=np.full(3, ratio)
+        )
+        via_repropagate = feed_4x3.apply_with_uncertainty(F_src_4, pedigree=pg_pen)
+        np.testing.assert_allclose(
+            via_scale.sigma_root, via_repropagate.sigma_root, rtol=RTOL, atol=ATOL
+        )
 
 
 if __name__ == "__main__":

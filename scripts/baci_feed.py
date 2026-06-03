@@ -105,6 +105,8 @@ from pysuto.feedpipe import (
     step_B_build_concordance,
     step_C_build_weight_matrix,
     step_D_apply_and_propagate,
+    assert_mass_conserved,
+    matched_raw_total,
     register_feed,
 )
 from pysuto.diag import FeedDiagnostics
@@ -267,6 +269,8 @@ def build_F_src(raw_df: pd.DataFrame, ct: ConcordanceTable) -> np.ndarray:
     logger.info("   length    : %d", len(F_src))
     logger.info("   non-zero  : %d", int(np.count_nonzero(F_src)))
     logger.info("   total kt  : %.1f", float(F_src.sum()))
+    assert_mass_conserved(float(F_src.sum()), matched_raw_total(raw_df, ct),
+                          label="baci")
     return F_src
 
 

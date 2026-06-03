@@ -86,6 +86,8 @@ from pysuto.feedpipe import (
     step_B_build_concordance,
     step_C_build_weight_matrix,
     step_D_apply_and_propagate,
+    assert_mass_conserved,
+    matched_raw_total,
     register_feed,
 )
 from pysuto.diag import FeedDiagnostics
@@ -249,7 +251,14 @@ def build_weight_matrix(ct: ConcordanceTable) -> WeightMatrix:
 
 def build_F_src(raw_df: pd.DataFrame, ct: ConcordanceTable) -> np.ndarray:
     """Aggregate raw values to the src-edge level aligned to ct.src_edges."""
-    merged = ct.tab.merge(
+    # Dedup the fan-out: ct.tab has one row per (src edge × root edge), so a
+    # single raw row that fans across N roots appears N times. Collapse to
+    # unique (raw_id, src edge) pairs first, otherwise the groupby-sum below
+    # counts each raw value once per root and re-inflates mass (the fan-out
+    # replication relocated onto a single <any> src edge — see ADR 0002).
+    # Distinct raw rows mapping to the same src edge (fan-in) are preserved.
+    src_raw = ct.tab[["raw_id"] + list(ConcordanceTable.SRC_COLS)].drop_duplicates()
+    merged = src_raw.merge(
         raw_df.reset_index().rename(columns={"index": "_raw_idx"}),
         left_on="raw_id", right_on="_raw_idx", how="left",
     )
@@ -266,6 +275,8 @@ def build_F_src(raw_df: pd.DataFrame, ct: ConcordanceTable) -> np.ndarray:
     print(f"   length      : {len(F_src):,}")
     print(f"   non-zero    : {np.count_nonzero(F_src):,}")
     print(f"   total (kt)  : {F_src.sum():,.1f}")
+    assert_mass_conserved(float(F_src.sum()), matched_raw_total(raw_df, ct),
+                          label="icsg")
     return F_src
 
 

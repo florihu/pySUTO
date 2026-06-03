@@ -453,15 +453,30 @@ class ConcordanceTable(DataFeed):
         merged["root_region_to"]   = merged["to_region"]
         merged["root_entity_to"]   = merged["to_entity"]
 
-        # src_* fall back to the edge attribute if the raw data did not classify
-        # the opposite endpoint (e.g. Supply rows don't classify the to-side)
-        merged["src_sector_from"] = merged["src_sector_from"].fillna(merged["from_sector"])
-        merged["src_region_from"] = merged["src_region_from"].fillna(merged["from_region"])
+        # src_* fall back to "<any>" for whichever endpoint the raw data did not
+        # classify (e.g. Supply rows don't classify the to-side; Use rows don't
+        # classify the from-side). "<any>" keeps a single src edge that fans
+        # across the node's matching edges via normalised weights (mass-
+        # preserving). The classified (primary) side is always non-null, so this
+        # fallback is a no-op there. NOTE: this must be symmetric — filling the
+        # unclassified side with the concrete matched-edge attribute instead
+        # materialises one src edge per matched region and replicates the raw
+        # value across them (the ICSG single-endpoint fan-out inflation bug).
+        merged["src_sector_from"] = merged["src_sector_from"].fillna("<any>")
+        merged["src_region_from"] = merged["src_region_from"].fillna("<any>")
         merged["src_sector_to"]   = merged["src_sector_to"].fillna("<any>")
         merged["src_region_to"]   = merged["src_region_to"].fillna("<any>")
 
-        merged["src_entity_from"] = merged["root_entity_from"]
-        merged["src_entity_to"]   = merged["root_entity_to"]
+        # Entity follows the sector: for a *classified* endpoint, sector → entity
+        # is 1:1, so the concrete edge entity is correct and deterministic. For an
+        # *unclassified* ("<any>") endpoint the sector is open and spans entities
+        # (e.g. a real Flow producer AND the SB system-boundary/import source), so
+        # the entity must also be "<any>" — otherwise it re-splits the single src
+        # edge per entity and replicates the value (see ADR 0002).
+        merged["src_entity_from"] = np.where(
+            merged["src_sector_from"] == "<any>", "<any>", merged["root_entity_from"])
+        merged["src_entity_to"]   = np.where(
+            merged["src_sector_to"] == "<any>", "<any>", merged["root_entity_to"])
 
         # --------------------------------------------------
         # 9) Build final WeightMatrix table

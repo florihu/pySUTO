@@ -900,5 +900,36 @@ class TestOptimRunRegistry:
             opt_registry.load("opt_nonexistent")
 
 
+# =============================================================================
+# ROW-penalty provenance: result.npz round-trips the row_penalized mask
+# =============================================================================
+
+
+class TestRowPenalizedRoundTrip:
+    def test_row_penalized_round_trips(self, registry, feed, metadata, parents_feed):
+        from pysuto.unc import PropagationResult
+
+        mask = np.array([True, False, True])
+        result = PropagationResult(
+            F_root=np.array([100.0, 200.0, 50.0]),
+            sigma_root=np.array([2.0, 4.0, 1.0]),
+            cv_root=np.array([0.02, 0.02, 0.02]),
+            cv_src=0.0226,
+            row_penalized=mask,
+        )
+        entry = registry.register(feed, metadata, parents=parents_feed, result=result)
+        loaded = registry.load_result(entry.run_id)
+        assert "row_penalized" in loaded
+        np.testing.assert_array_equal(loaded["row_penalized"], mask)
+
+    def test_no_row_penalized_key_when_absent(
+        self, registry, feed, metadata, result, parents_feed
+    ):
+        """Feature-off runs must not write the mask (keeps result.npz clean)."""
+        entry = registry.register(feed, metadata, parents=parents_feed, result=result)
+        loaded = registry.load_result(entry.run_id)
+        assert "row_penalized" not in loaded
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

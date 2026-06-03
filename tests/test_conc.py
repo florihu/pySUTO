@@ -500,5 +500,98 @@ class TestStructuralValidityGuard:
         }
 
 
+# =============================================================================
+# Regression: single-endpoint Use rows fan out (one src edge), they do NOT
+# replicate the raw value across one src edge per matched region.
+# See docs/adr/0002-single-endpoint-rows-fan-out-not-replicate.md.
+# =============================================================================
+
+class TestSingleEndpointUseFanOut:
+    """A Use row classifying only the consumer endpoint (producer region open)
+    must yield ONE src edge fanning to its roots with weights summing to 1 —
+    mass-preserving. The pre-fix bug materialised one src edge per producer
+    region, each carrying the full value (N× mass inflation)."""
+
+    @pytest.fixture
+    def raw_use_only(self):
+        # Refining(A) consumes Concentrate; producer region NOT classified
+        # (maps only Region → src_region_to for Use rows). Edges 6 (Conc(A)→
+        # Refining(A)) and 7 (Conc(B)→Refining(A)) both match.
+        return pd.DataFrame({
+            "Process": ["Refining"], "Type": ["Concentrate"], "Region": ["A"],
+            "Year": [0], "Unit": ["kg"], "Supply_Use": ["Use"],
+        })
+
+    def _ct(self, raw_use_only, mock_acc_struct, maps):
+        return ConcordanceTable.from_raw(
+            raw_df=raw_use_only, acc_struct=mock_acc_struct,
+            aux_col="Supply_Use", id="use_fanout", **maps,
+        )
+
+    def test_single_src_edge_with_open_producer_region(self, raw_use_only, mock_acc_struct, maps):
+        ct = self._ct(raw_use_only, mock_acc_struct, maps)
+        assert ct.n_src_edges == 1, "single-endpoint Use row must be ONE src edge, not one per region"
+        assert set(ct.tab["src_region_from"]) == {"<any>"}
+
+    def test_fans_to_both_roots_with_normalised_weights(self, raw_use_only, mock_acc_struct, maps):
+        ct = self._ct(raw_use_only, mock_acc_struct, maps)
+        assert set(ct.tab["edge_id"]) == {6, 7}
+        # uniform split across the 2 roots of the single src edge
+        assert ct.tab["weight_value"].sum() == pytest.approx(1.0)
+        assert set(np.round(ct.tab["weight_value"], 6)) == {0.5}
+
+    def test_mass_preserved_through_W(self, raw_use_only, mock_acc_struct, maps):
+        ct = self._ct(raw_use_only, mock_acc_struct, maps)
+        wm = WeightMatrix(ct)
+        F_root = wm.apply(np.full(ct.n_src_edges, 100.0))
+        # split, not replicated: 50 + 50 = 100 (the raw value), NOT 200
+        assert F_root.sum() == pytest.approx(100.0)
+        assert F_root[6] == pytest.approx(50.0)
+        assert F_root[7] == pytest.approx(50.0)
+
+    def test_open_sector_spans_entities_stays_one_src_edge(self):
+        # An unclassified producer endpoint whose matching edges span TWO
+        # entities (a Flow producer AND an SB import source) must still collapse
+        # to ONE src edge — entity follows the "<any>" sector, it does not
+        # re-split. Regression for the entity half of ADR 0002.
+        acc = SimpleNamespace(id="ent")
+        acc.node_to_id = {
+            ("Conc", "F",  "A"): 0,   # Flow-entity producer
+            ("Imp",  "SB", "A"): 1,   # SB-entity (system-boundary import) producer
+            ("Refining", "P", "A"): 2,
+        }
+        acc.id_to_node = {v: k for k, v in acc.node_to_id.items()}
+        acc.edge_index = pd.DataFrame([
+            {"edge_id": 0, "from_id": 0, "to_id": 2, "time": 0, "valuation": "mass"},  # Conc(F)→Refining
+            {"edge_id": 1, "from_id": 1, "to_id": 2, "time": 0, "valuation": "mass"},  # Imp(SB)→Refining
+        ])
+        sector_map = pd.DataFrame({"src_sector": ["Refining"], "root_sector": ["Refining"]})
+        region_map = pd.DataFrame({"src_region": ["A"], "root_region": ["A"]})
+        time_map   = pd.DataFrame({"src_time": [0], "root_time": [0]})
+        val_map    = pd.DataFrame({"src_valuation": ["kg"], "root_valuation": ["mass"]})
+        # Use row classifies ONLY the consumer (Process→to, Region→to); producer
+        # sector/region/entity all unclassified.
+        var_map = pd.DataFrame([
+            {"raw_var": "Process", "src_var": "src_sector_to", "Supply_Use": "Use"},
+            {"raw_var": "Region",  "src_var": "src_region_to", "Supply_Use": "Use"},
+            {"raw_var": "Year",    "src_var": "src_time",      "Supply_Use": None},
+            {"raw_var": "Unit",    "src_var": "src_valuation", "Supply_Use": None},
+        ])
+        raw = pd.DataFrame({"Process": ["Refining"], "Region": ["A"], "Year": [0],
+                            "Unit": ["kg"], "Supply_Use": ["Use"]})
+        ct = ConcordanceTable.from_raw(
+            raw_df=raw, acc_struct=acc, aux_col="Supply_Use",
+            sector_map_df=sector_map, region_map_df=region_map, time_map_df=time_map,
+            valuation_map_df=val_map, var_map_df=var_map, id="ent",
+        )
+        assert ct.n_src_edges == 1, "open-sector fan across entities must be ONE src edge"
+        assert set(ct.tab["src_entity_from"]) == {"<any>"}
+        # fans to both producers, mass preserved (50 / 50, not 100 / 100)
+        F_root = WeightMatrix(ct).apply(np.full(ct.n_src_edges, 100.0))
+        assert F_root.sum() == pytest.approx(100.0)
+        assert F_root[0] == pytest.approx(50.0)
+        assert F_root[1] == pytest.approx(50.0)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -189,6 +189,7 @@ class ConstraintEngine:
         sigma_c_cv_min:    float = 0.05,
         sigma_c_abs_floor: float = 1e-3,
         p: float = 1.3,
+        prior_box_k: Optional[float] = None,
     ):
         self.acc_struct  = acc_struct
         self._builders:  list[BaseConstraintBuilder] = []
@@ -198,6 +199,42 @@ class ConstraintEngine:
         self._sigma_c_cv_min    = float(sigma_c_cv_min)
         self._sigma_c_abs_floor = float(sigma_c_abs_floor)
         self._p                 = float(p)
+        self._prior_box_k       = float(prior_box_k) if prior_box_k else None
+
+    def _apply_prior_box(self, l, u, a0, sigma_a):
+        """Tighten flow bounds to ``a₀ ± k·σ_a`` on edges with a real prior.
+
+        Grafts the RAS scale-floor onto the QP box (Lenzen 2009: the balanced
+        estimate can never go more than ~kσ below ``a₀``), preventing the
+        homogeneous collapse to ``l`` while keeping the σ_a-weighted quadratic
+        objective intact. Edges with ``a₀ = 0`` (FlatPrior — no prior
+        information) keep their original ``[l, u]`` so the box does not pin
+        genuinely-unknown edges to zero. The box never *widens* an existing
+        bound; where a tighter box would invert a single edge (``u < l``, e.g.
+        a prior that already violates its own sign bound) that edge reverts to
+        its original ``[l, u]`` so only the meaningful *cross-constraint*
+        infeasibility (e.g. an incoherent ratio pair) surfaces, not spurious
+        single-edge empties. Returns new ``(l, u)``.
+        """
+        k = self._prior_box_k
+        if not k or k <= 0:
+            return l, u
+        has_prior = a0 != 0.0
+        lo = a0 - k * sigma_a
+        hi = a0 + k * sigma_a
+        l_new, u_new = l.copy(), u.copy()
+        l_new[has_prior] = np.maximum(l[has_prior], lo[has_prior])
+        u_new[has_prior] = np.minimum(u[has_prior], hi[has_prior])
+        conflict = u_new < l_new
+        l_new[conflict] = l[conflict]
+        u_new[conflict] = u[conflict]
+        _log.info(
+            "Prior box (k=%.2f): tightened bounds on %d/%d edges with a prior "
+            "(%d reverted to avoid single-edge u<l)",
+            k, int(has_prior.sum() - conflict.sum()), int(has_prior.sum()),
+            int(conflict.sum()),
+        )
+        return l_new, u_new
 
     def register(self, builder: BaseConstraintBuilder) -> None:
         self._builders.append(builder)
@@ -501,13 +538,17 @@ class ConstraintEngine:
         if run_id is None:
             run_id = make_run_id("const")
 
+        l_box, u_box = self._apply_prior_box(
+            acc.bounds.l.copy(), acc.bounds.u.copy(), f_agg, sigma_agg,
+        )
+
         cr = ConstraintRun(
             G              = G_static,
             row_meta       = row_meta,
             a0             = f_agg.copy(),
             sigma_a        = sigma_agg.copy(),
-            u              = acc.bounds.u.copy(),
-            l              = acc.bounds.l.copy(),
+            u              = u_box,
+            l              = l_box,
             timestep_data  = timestep_data,
             run_id         = run_id,
             acc_id         = acc.id,

@@ -134,13 +134,16 @@ class DataFeedRegistry(BaseOutputRegistry):
         feed.save(path=os.path.join(run_dir, "feed.pkl"))
 
         if result is not None:
-            np.savez(
-                os.path.join(run_dir, "result.npz"),
+            arrays = dict(
                 F_root     = result.F_root,
                 sigma_root = result.sigma_root,
                 cv_root    = result.cv_root,
                 cv_src     = np.array([result.cv_src]),
             )
+            row_pen = getattr(result, "row_penalized", None)
+            if row_pen is not None:
+                arrays["row_penalized"] = np.asarray(row_pen, dtype=bool)
+            np.savez(os.path.join(run_dir, "result.npz"), **arrays)
 
         if F_src is not None:
             np.save(os.path.join(run_dir, "F_src.npy"),

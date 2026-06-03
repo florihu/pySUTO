@@ -136,6 +136,7 @@ def step_D_apply_and_propagate(
     F_src:    np.ndarray,
     metadata: DataFeedMetadata,
     p:        float = 1.3,
+    cv_root_scale: Optional[np.ndarray] = None,
 ) -> PropagationResult:
     """
     1.  Derive PedigreeScores from metadata and attach to the weight matrix.
@@ -156,12 +157,58 @@ def step_D_apply_and_propagate(
     pg = metadata.to_pedigree_scores()
     wm.set_pedigree(pg)
     wm.set_F_src(F_src)
-    result = wm.apply_with_uncertainty(p=p)
+    # Only forward the per-edge scale when a penalty is active, so callers whose
+    # apply_with_uncertainty predates this kwarg keep working in the common case.
+    if cv_root_scale is None:
+        result = wm.apply_with_uncertainty(p=p)
+    else:
+        result = wm.apply_with_uncertainty(p=p, cv_root_scale=cv_root_scale)
     _log.info("   cv_src=%.2f%%  F_root_sum=%.1f kt  mean_cv_root=%.2f%%",
               result.cv_src * 100,
               float(result.F_root.sum()),
               float(np.nanmean(result.cv_root)) * 100)
     return result
+
+
+# ===========================================================================
+# MASS-CONSERVATION GUARD — feed read-in robustness
+# ===========================================================================
+
+def matched_raw_total(raw_df: pd.DataFrame, ct: ConcordanceTable,
+                      value_col: str = "Value") -> float:
+    """Total raw ``value_col`` over the raw rows that matched ≥1 src edge.
+
+    This is the mass the concordance is *responsible for projecting*. Raw rows
+    with no src edge are excluded — their drop is coverage loss (governed by
+    ``allow_unmatched_edges``), not a projection error, so they must not count
+    against the conservation check.
+    """
+    matched = raw_df.index.isin(set(ct.tab["raw_id"].dropna()))
+    return float(raw_df.loc[matched, value_col].sum())
+
+
+def assert_mass_conserved(projected_total: float, raw_total: float, *,
+                          label: str = "feed", tol: float = 0.01) -> None:
+    """Raise ``ValueError`` if projected feed mass deviates from the matched raw
+    input mass by more than ``tol`` (relative).
+
+    Catches single-endpoint fan-out **replication** (one raw row duplicated
+    across many src edges → N× inflation) and any non-mass-preserving weight
+    matrix. A legitimate fan-in (several raw rows summing into one src edge)
+    still conserves the total, so it passes. See
+    ``docs/adr/0002-single-endpoint-rows-fan-out-not-replicate.md``.
+    """
+    if raw_total == 0:
+        return
+    rel = abs(projected_total - raw_total) / abs(raw_total)
+    if rel > tol:
+        factor = projected_total / raw_total if raw_total else float("inf")
+        raise ValueError(
+            f"{label}: feed mass not conserved — projected {projected_total:,.1f} "
+            f"vs matched raw {raw_total:,.1f} ({factor:.2f}× / {rel:.1%} deviation "
+            f"> tol {tol:.1%}). Likely single-endpoint fan-out replication "
+            f"(ADR 0002) or a non-normalised weight matrix."
+        )
 
 
 # ===========================================================================
@@ -267,6 +314,79 @@ def _apply_edge_scope_mask(ct, acc_struct, mask_name: str) -> None:
         )
 
 
+def _build_row_penalty_scale(acc_struct, metadata):
+    """Build a per-root-edge CV multiplier that pushes ROW-touching edges to the
+    worst geographical pedigree score (``geographical_correlation = 4``).
+
+    A root edge is ROW-touching iff its from- or to-node region is ``"ROW"``.
+    The region is decoded inline from ``acc_struct`` (a downward dependency) —
+    the same node-index join used in ``acc.py`` / ``masks.py`` — so feedpipe
+    stays within the one-way import direction (no ``param_relation`` import).
+
+    Scaling ROW edges' CV by ``ratio = cv(geo=4)/cv(geo=baseline)`` is exactly
+    equivalent to re-propagating those rows with ``geographical_correlation=4``.
+
+    Returns ``(cv_root_scale, summary, row_mask)`` or ``(None, None, None)``
+    when the feed does not opt into the penalty.
+    """
+    if not getattr(metadata, "row_penalty", False):
+        return None, None, None
+
+    import dataclasses
+
+    pg_norm = metadata.to_pedigree_scores()
+    pg_pen  = dataclasses.replace(pg_norm, geographical_correlation=4)
+    cv_norm = pg_norm.total_cv()
+    cv_pen  = pg_pen.total_cv()
+    ratio   = cv_pen / cv_norm if cv_norm > 0 else 1.0
+
+    ei = acc_struct.edge_index
+    rf = acc_struct.node_index.loc[ei["from_id"].values, "region"].to_numpy().astype(str)
+    rt = acc_struct.node_index.loc[ei["to_id"].values,   "region"].to_numpy().astype(str)
+    row_mask = (rf == "ROW") | (rt == "ROW")
+
+    cv_root_scale = np.where(row_mask, ratio, 1.0)
+    summary = {"row_penalty": {
+        "dim":         "geographical_correlation",
+        "n_penalized": int(row_mask.sum()),
+        "n_edges":     int(row_mask.size),
+        "cv_norm":     float(cv_norm),
+        "cv_pen":      float(cv_pen),
+        "ratio":       float(ratio),
+    }}
+    return cv_root_scale, summary, row_mask
+
+
+def propagate_with_row_penalty(wm, F_src, metadata, acc_struct, p: float = 1.3):
+    """Run step-D propagation and apply the optional ROW pedigree penalty.
+
+    Wraps :func:`step_D_apply_and_propagate` so the penalty is wired identically
+    in :func:`run_feed_pipeline` and the per-feed open-coded scripts. When the
+    feed opts into ``row_penalty``, ROW-touching edges are propagated with a
+    geo->4 cv multiplier, the result is stamped with a ``row_penalized``
+    provenance mask (only edges this feed actually carries), and an INFO line is
+    logged.
+
+    Returns ``(result, stage_summary)`` where ``stage_summary`` is the
+    row_penalty summary dict (or ``None`` when the penalty is off).
+    """
+    cv_root_scale, row_summary, row_mask = _build_row_penalty_scale(acc_struct, metadata)
+    result = step_D_apply_and_propagate(wm, F_src, metadata, p=p,
+                                        cv_root_scale=cv_root_scale)
+    if row_mask is not None:
+        result.row_penalized = row_mask & (result.F_root != 0)
+        denom = float(np.nansum(np.abs(result.F_root)))
+        share = (float(np.nansum(np.abs(result.F_root[row_mask]))) / denom
+                 if denom > 0 else 0.0)
+        rp = row_summary["row_penalty"]
+        rp["value_share"] = share
+        _log.info("D  row_penalty: %d/%d edges (value_share=%.1f%%) "
+                  "geo->4 cv %.4f->%.4f (ratio %.3f)",
+                  rp["n_penalized"], rp["n_edges"], share * 100,
+                  rp["cv_norm"], rp["cv_pen"], rp["ratio"])
+    return result, row_summary
+
+
 def run_feed_pipeline(
     excel_path:       str,
     raw_df:           pd.DataFrame,
@@ -308,13 +428,27 @@ def run_feed_pipeline(
                  allow_unmatched_edges=allow_unmatched_edges)
     _apply_edge_scope_mask(ct, acc_struct, meta.edge_scope_mask)
     wm     = step_C_build_weight_matrix(ct)
-    result = step_D_apply_and_propagate(wm, F_src, meta, p=p)
+    cv_root_scale, row_summary, row_mask = _build_row_penalty_scale(acc_struct, meta)
+    result = step_D_apply_and_propagate(wm, F_src, meta, p=p,
+                                        cv_root_scale=cv_root_scale)
+    if row_mask is not None:
+        result.row_penalized = row_mask & (result.F_root != 0)
+        denom = float(np.nansum(np.abs(result.F_root)))
+        share = (float(np.nansum(np.abs(result.F_root[row_mask]))) / denom
+                 if denom > 0 else 0.0)
+        rp = row_summary["row_penalty"]
+        rp["value_share"] = share
+        _log.info("D  row_penalty: %d/%d edges (value_share=%.1f%%) "
+                  "geo->4 cv %.4f->%.4f (ratio %.3f)",
+                  rp["n_penalized"], rp["n_edges"], share * 100,
+                  rp["cv_norm"], rp["cv_pen"], rp["ratio"])
     entry  = register_feed(
         wm, meta, result, registry,
         parents = parents,
         F_src   = F_src,
         label   = label,
         stage_config = {"p": p, "allow_unmatched_edges": allow_unmatched_edges},
+        stage_summary = row_summary,
     )
 
     if diag_plot:

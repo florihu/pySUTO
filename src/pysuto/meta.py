@@ -63,6 +63,11 @@ class DataFeedMetadata:
     # pipeline drops concordance rows whose resolved root edge is outside
     # this mask. Empty string ("") disables the filter.
     edge_scope_mask:    str = ""
+
+    # When True, ROW-touching edges (region_from/region_to == "ROW") are
+    # propagated with geographical_correlation pushed to its worst score (4),
+    # inflating their σ. Default False = no penalty / no behaviour change.
+    row_penalty:        bool = False
  
     # --- Computed (filled in by registry.register()) ------------------
     cv_total:             Optional[float] = None
@@ -115,6 +120,14 @@ class DataFeedMetadata:
                 return int(v)
             except (TypeError, ValueError):
                 return default
+
+        def get_bool(key: str, default: bool = False) -> bool:
+            v = get(key, default)
+            if isinstance(v, bool):
+                return v
+            if v is None:
+                return default
+            return str(v).strip().lower() in {"true", "1", "yes", "y", "t"}
  
         return cls(
             feed_name  = str(get("Feed_name", "")),
@@ -129,6 +142,7 @@ class DataFeedMetadata:
             person             = str(get("Person",             "")),
             dataset_link       = str(get("Dataset_link",       "")),
             edge_scope_mask    = str(get("Edge_scope_mask",    "") or "").strip(),
+            row_penalty        = get_bool("Row_penalty",       False),
         )
  
     @classmethod

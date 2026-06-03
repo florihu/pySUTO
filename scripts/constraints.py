@@ -109,6 +109,11 @@ SIGMA_A_ABS_FLOOR = 1.0e-6
 ANCHOR_CV         = 0.01
 SIGMA_C_CV_MIN    = 0.01
 SIGMA_C_ABS_FLOOR = 1.0e-3
+# Prior box ("tight fitting"): box flow bounds to a₀ ± PRIOR_BOX_K·σ_a on edges
+# with a real prior, grafting RAS's scale-floor onto the QP to stop the
+# homogeneous collapse to l. None = off (legacy behaviour). See
+# docs/rep/analysis_opt_20260602_133908_46bc514e_20260603_feed-scale-collapse.md §8.3.
+PRIOR_BOX_K       = None
 
 _log = get_logger("init_copper_constraints")
 
@@ -177,6 +182,7 @@ def main(imp_run_id: str, label: str) -> None:
         sigma_a_abs_floor = SIGMA_A_ABS_FLOOR,
         sigma_c_cv_min    = SIGMA_C_CV_MIN,
         sigma_c_abs_floor = SIGMA_C_ABS_FLOOR,
+        prior_box_k       = PRIOR_BOX_K,
     )
 
     # 1. Hard mass balance
@@ -260,6 +266,7 @@ def main(imp_run_id: str, label: str) -> None:
             "sigma_a_abs_floor": SIGMA_A_ABS_FLOOR,
             "sigma_c_cv_min":    SIGMA_C_CV_MIN,
             "sigma_c_abs_floor": SIGMA_C_ABS_FLOOR,
+            "prior_box_k":       PRIOR_BOX_K,
         },
     )
 

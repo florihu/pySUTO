@@ -464,5 +464,39 @@ class TestStepD:
         np.testing.assert_allclose(ratio_sigma, ratio_cv, rtol=1e-6)
 
 
+class TestMassConservationGuard:
+    """Feed read-in robustness: ΣF_src must equal the matched raw input mass.
+    Catches single-endpoint fan-out replication (ADR 0002)."""
+
+    def test_passes_when_conserved(self):
+        from pysuto.feedpipe import assert_mass_conserved
+        # exactly equal, and within 1% tolerance
+        assert_mass_conserved(100.0, 100.0, label="t")
+        assert_mass_conserved(100.5, 100.0, label="t")  # 0.5% < 1%
+
+    def test_raises_on_inflation(self):
+        from pysuto.feedpipe import assert_mass_conserved
+        # 47× replication (the ICSG bug shape)
+        with pytest.raises(ValueError, match="not conserved"):
+            assert_mass_conserved(47 * 7393.1, 7393.1, label="icsg")
+
+    def test_raises_on_small_inflation_over_tol(self):
+        from pysuto.feedpipe import assert_mass_conserved
+        with pytest.raises(ValueError):
+            assert_mass_conserved(102.0, 100.0, label="t", tol=0.01)  # 2% > 1%
+
+    def test_zero_raw_is_noop(self):
+        from pysuto.feedpipe import assert_mass_conserved
+        assert_mass_conserved(0.0, 0.0, label="t")  # no division by zero
+
+    def test_matched_raw_total_excludes_unmatched(self):
+        from types import SimpleNamespace
+        import pandas as pd
+        from pysuto.feedpipe import matched_raw_total
+        raw = pd.DataFrame({"Value": [10.0, 20.0, 30.0]})  # index 0,1,2
+        ct = SimpleNamespace(tab=pd.DataFrame({"raw_id": [0, 2]}))  # row 1 unmatched
+        assert matched_raw_total(raw, ct) == pytest.approx(40.0)  # 10 + 30, not 60
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

@@ -171,11 +171,16 @@ class PropagationResult:
         NaN where F_root == 0.
     cv_src : float
         The dataset-level total CV used as input.
+    row_penalized : np.ndarray, shape (N_root,), optional
+        Boolean provenance mask flagging the edges whose σ was inflated by a
+        per-edge ``cv_root_scale`` (e.g. the ROW pedigree penalty). ``None``
+        when no penalty was applied. Set by the caller, not by propagation.
     """
     F_root:    np.ndarray
     sigma_root: np.ndarray
     cv_root:   np.ndarray
     cv_src:    float
+    row_penalized: Optional[np.ndarray] = None
  
     def __repr__(self) -> str:
         return (
@@ -234,6 +239,7 @@ class UncertaintyMixin:
         F_src: Optional[np.ndarray] = None,
         pedigree: Optional[PedigreeScores] = None,
         p: float = 1.3,
+        cv_root_scale: Optional[np.ndarray] = None,
     ) -> PropagationResult:
         r"""
         Map F_src through the weight matrix and propagate uncertainty.
@@ -335,6 +341,10 @@ class UncertaintyMixin:
 
         cv_root_arr = cv_tot * np.power(np.maximum(sum_omega_p, 0.0), 1.0 / p)
         cv_root_arr = np.where(np.asarray(sum_omega_p) > 0.0, cv_root_arr, 0.0)
+        # Optional per-root-edge CV multiplier (ROW penalty supplies this; the
+        # mixin stays agnostic about why an edge is scaled).
+        if cv_root_scale is not None:
+            cv_root_arr = cv_root_arr * np.asarray(cv_root_scale, dtype=float)
         sigma_root = cv_root_arr * np.abs(F_root)
 
         # --- reported per-edge CV (sigma / |F|; NaN where F=0) -------

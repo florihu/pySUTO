@@ -1306,5 +1306,64 @@ class TestEnginePerTPartition:
         assert {"mass_balance", "ratio_eq", "ratio_bound"} <= types_seen
 
 
+class TestPriorBox:
+    """`_apply_prior_box` grafts the RAS scale-floor onto the QP bounds."""
+
+    def _engine(self, k):
+        from pysuto.constraints import ConstraintEngine
+        e = ConstraintEngine.__new__(ConstraintEngine)
+        e._prior_box_k = float(k) if k else None
+        return e
+
+    def test_off_is_noop(self):
+        e = self._engine(None)
+        a0 = np.array([100.0, 0.0, 10.0])
+        sa = np.array([7.0, 1.0, 2.0])
+        l = np.array([0.0, 0.0, 0.0])
+        u = np.array([1e9, 1e9, 1e9])
+        ln, un = e._apply_prior_box(l.copy(), u.copy(), a0, sa)
+        assert np.array_equal(ln, l) and np.array_equal(un, u)
+
+    def test_boxes_priored_edges(self):
+        e = self._engine(2.0)
+        a0 = np.array([100.0, 1000.0])
+        sa = np.array([7.0, 50.0])
+        l = np.array([0.0, 0.0])
+        u = np.array([1e9, 1e9])
+        ln, un = e._apply_prior_box(l.copy(), u.copy(), a0, sa)
+        assert np.allclose(ln, [86.0, 900.0])
+        assert np.allclose(un, [114.0, 1100.0])
+
+    def test_flat_prior_untouched(self):
+        # a0 == 0 (FlatPrior) keeps its original [l, u] — not pinned to zero.
+        e = self._engine(2.0)
+        a0 = np.array([0.0])
+        sa = np.array([1.0])
+        l = np.array([0.0])
+        u = np.array([1e9])
+        ln, un = e._apply_prior_box(l.copy(), u.copy(), a0, sa)
+        assert ln[0] == 0.0 and un[0] == 1e9
+
+    def test_single_edge_conflict_reverts(self):
+        # a0 < 0 with a sign bound l=0 would invert (u < l); that edge reverts
+        # so only cross-constraint infeasibility surfaces, not single-edge empties.
+        e = self._engine(2.0)
+        a0 = np.array([-5.0])
+        sa = np.array([1.0])
+        l = np.array([0.0])
+        u = np.array([1e9])
+        ln, un = e._apply_prior_box(l.copy(), u.copy(), a0, sa)
+        assert ln[0] == 0.0 and un[0] == 1e9
+
+    def test_never_widens(self):
+        e = self._engine(10.0)
+        a0 = np.array([100.0])
+        sa = np.array([50.0])           # a0 - kσ = -400, a0 + kσ = 600
+        l = np.array([10.0])            # tighter than the box low side
+        u = np.array([200.0])           # tighter than the box high side
+        ln, un = e._apply_prior_box(l.copy(), u.copy(), a0, sa)
+        assert ln[0] == 10.0 and un[0] == 200.0
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
