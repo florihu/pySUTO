@@ -1,0 +1,90 @@
+"""Unit tests for the pure trade-share weight computation (ADR 0002 option D)."""
+import os
+import sys
+
+import numpy as np
+import pandas as pd
+import pytest
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+from build_trade_shares import compute_trade_share_weights  # noqa: E402
+
+CONC = {"Cathode": 0.9975}
+
+
+def _edge(rf, rt, icsg, baci, sf="Cathode", st="FU", t=2010):
+    return {"root_sector_from": sf, "root_sector_to": st,
+            "root_region_from": rf, "root_region_to": rt,
+            "root_time": t, "icsg": icsg, "baci_mass": baci}
+
+
+def test_domestic_residual_and_conc_conversion():
+    # Consumer China; usage = Σ icsg = 7393. Imports: USA 2000, Chile 1000 (Mass).
+    df = pd.DataFrame([
+        _edge("China", "China", 7393 / 3, np.nan),   # domestic
+        _edge("USA",   "China", 7393 / 3, 2000.0),
+        _edge("Chile", "China", 7393 / 3, 1000.0),
+    ])
+    out = compute_trade_share_weights(df, CONC)
+    w = {r.root_region_from: r.weight for r in out.itertuples()}
+    # import legs use conc·Mass (NOT raw Mass)
+    assert w["USA"]   == pytest.approx(0.9975 * 2000)
+    assert w["Chile"] == pytest.approx(0.9975 * 1000)
+    # domestic = usage − Σ conc·Mass
+    assert w["China"] == pytest.approx(7393 - 0.9975 * 3000)
+    assert len(out) == 3
+
+
+def test_untraded_producer_in_covered_group_gets_zero():
+    # Peru is a fan target but BACI shows no trade → weight 0, still emitted
+    # (per-consumer-group complete fallback).
+    df = pd.DataFrame([
+        _edge("China", "China", 7393 / 4, np.nan),
+        _edge("USA",   "China", 7393 / 4, 2000.0),
+        _edge("Chile", "China", 7393 / 4, 1000.0),
+        _edge("Peru",  "China", 7393 / 4, 0.0),
+    ])
+    out = compute_trade_share_weights(df, CONC)
+    w = {r.root_region_from: r.weight for r in out.itertuples()}
+    assert w["Peru"] == 0.0
+    assert len(out) == 4
+
+
+def test_uncovered_group_emits_no_rows():
+    # No BACI imports anywhere in the group → uniform fallback (no rows).
+    df = pd.DataFrame([
+        _edge("China", "China", 100.0, np.nan),
+        _edge("USA",   "China", 100.0, 0.0),
+    ])
+    out = compute_trade_share_weights(df, CONC)
+    assert out.empty
+
+
+def test_imports_exceeding_usage_clip_domestic_to_zero():
+    # BACI transit/re-export > ICSG usage → domestic residual clipped to 0.
+    df = pd.DataFrame([
+        _edge("Switzerland", "Switzerland", 0.05 / 2, np.nan),
+        _edge("Chile",       "Switzerland", 0.05 / 2, 300.0),
+    ])
+    out = compute_trade_share_weights(df, CONC)
+    w = {r.root_region_from: r.weight for r in out.itertuples()}
+    assert w["Switzerland"] == 0.0
+    assert w["Chile"] == pytest.approx(0.9975 * 300)
+
+
+def test_groups_are_independent_per_year():
+    # Same route, two years, different BACI → different weights, no cross-talk.
+    df = pd.DataFrame([
+        _edge("China", "China", 1000.0, np.nan, t=2010),
+        _edge("USA",   "China", 1000.0, 500.0,  t=2010),
+        _edge("China", "China", 1000.0, np.nan, t=2011),
+        _edge("USA",   "China", 1000.0, 900.0,  t=2011),
+    ])
+    out = compute_trade_share_weights(df, CONC)
+    by = {(r.root_region_from, r.root_time): r.weight for r in out.itertuples()}
+    assert by[("USA", 2010)] == pytest.approx(0.9975 * 500)
+    assert by[("USA", 2011)] == pytest.approx(0.9975 * 900)
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
