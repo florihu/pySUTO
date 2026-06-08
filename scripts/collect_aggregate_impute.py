@@ -68,7 +68,7 @@ from pysuto.impute   import (
     FlatPriorImputer,
 )
 from pysuto.logging  import get_logger, add_run_handler
-from pysuto.diag     import AggDiagnostic, ImpDiagnostic
+from pysuto.diag     import AggDiagnostic, CoverageDiagnostic, ImpDiagnostic
 
 cfg    = load_config()
 ACC_ID = cfg.pipeline.acc_id
@@ -521,6 +521,7 @@ def main(feed_ids: list[str], label: str) -> None:
     diag = ImpDiagnostic(agg_result, acc_struct=acc, label=run_id, year="1995")
     diag.plot(odir=diag_dir, show=False)
     diag.summary()
+    CoverageDiagnostic(agg_result, acc_struct=acc, year="1995").write(diag_dir)
 
     logger.info("=== collect_aggregate_impute DONE ===")
 
