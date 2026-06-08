@@ -79,9 +79,11 @@ def step_B_build_concordance(
         that rows that cannot be matched to a root edge are collected in
         ct.unmatched_raw_rows rather than raising an exception.
     user_weights_df : optional DataFrame with columns [root_sector_from,
-        root_sector_to, weight].  Rows matching (root_sector_from,
-        root_sector_to) override the default equal-split weight.  Other rows
-        keep the uniform default (weight=1, normalised per src_edge group).
+        root_sector_to, root_region_from, root_region_to, root_time, weight].
+        Rows matching that full bilateral-route + year key override the default
+        equal-split weight; other fan legs keep the uniform default (weight=1,
+        normalised per src_edge group). Used for BACI-trade-share weighting of
+        the ICSG producer fan-out (ADR 0002 option D).
 
     Returns a validated ConcordanceTable ready for weight-matrix assembly.
     """

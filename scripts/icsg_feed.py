@@ -199,6 +199,7 @@ def build_concordance(
     raw_df: pd.DataFrame,
     tables: dict,
     acc: AccountingStructure,
+    user_weights_df: pd.DataFrame | None = None,
 ) -> ConcordanceTable:
     print(f"\n{'='*60}")
     print("C  Building ConcordanceTable")
@@ -223,6 +224,9 @@ def build_concordance(
             # unconditionally by the structural-validity guard in
             # ConcordanceTable.from_raw (independent of this flag).
             allow_unmatched_edges = True,
+            # BACI-trade-share producer weights (ADR 0002 option D); None ⇒
+            # uniform fan (unchanged behaviour).
+            user_weights_df       = user_weights_df,
         )
 
     unmatched = getattr(ct, "unmatched_raw_rows", [])
@@ -359,6 +363,28 @@ def _resolve_input_paths(inputs: InputRegistries) -> dict:
     }
 
 
+# Params id holding the BACI-trade-share producer weights (ADR 0002 option D).
+TRADE_SHARES_ID = "trade_shares"
+
+
+def load_trade_shares(inputs: InputRegistries):
+    """Load the optional BACI-trade-share weights as user_weights_df.
+
+    Returns (df, entry) or (None, None) when the artifact is not registered, so
+    the ICSG build falls back to the uniform producer fan (unchanged behaviour).
+    Run scripts/build_trade_shares.py to (re)generate it.
+    """
+    if TRADE_SHARES_ID not in inputs.params.ids():
+        print(f"   trade_shares : not registered — uniform fan")
+        return None, None
+    path = inputs.params.resolve(TRADE_SHARES_ID) / "shares.csv"
+    df = pd.read_csv(path)
+    entry = inputs.params.entry(TRADE_SHARES_ID)
+    print(f"   trade_shares : {TRADE_SHARES_ID} v{entry['version']} "
+          f"(code={entry['code']}, {len(df):,} weight rows)")
+    return df, entry
+
+
 def main() -> None:
     # 0 — input registries
     inputs    = InputRegistries.initialize(root=_INPUT_ROOT)
@@ -380,13 +406,16 @@ def main() -> None:
     raw_df = load_raw_data()
     tables = load_concordance_tables()
     meta   = load_meta_sidecar()
+    trade_shares_df, trade_shares_entry = load_trade_shares(inputs)
     print(f"   rows loaded  : {len(raw_df):,}")
     print(f"   sector map   : {len(tables['sector_map'])} entries")
     print(f"   region map   : {len(tables['region_map'])} entries")
     print(f"   time map     : {len(tables['time_map'])} entries")
+    if trade_shares_entry is not None:
+        input_ref["trade_shares"] = trade_shares_entry
 
     # C — concordance + weight matrix
-    ct = build_concordance(raw_df, tables, acc)
+    ct = build_concordance(raw_df, tables, acc, user_weights_df=trade_shares_df)
     wm = build_weight_matrix(ct)
 
     # D — source flow vector + uncertainty propagation
