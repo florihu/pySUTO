@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import replace
-from typing import Any, Optional
+from typing import Any, NamedTuple, Optional
 
 import numpy as np
 import pandas as pd
@@ -36,9 +36,21 @@ _BOUND_DIRS_ORDER  = ("upper", "lower")
 # Hue palette for SolverDiag.compare(). Order matters: first run gets blue.
 _HUE_PALETTE = ["blue", "orange", "green", "purple", "red", "navy"]
 
-# Plot IDs hueable under SolverDiag.compare(). Excluded: SD-R-07 (per-edge
-# semantics differ across runs) and every SD-T-* (cross-sections).
-_HUEABLE_IDS = ("SD-R-01", "SD-R-02", "SD-R-03", "SD-R-04", "SD-R-05")
+
+class PlotSpec(NamedTuple):
+    """One row of the :attr:`SolverDiag.PLOTS` registry.
+
+    ``method`` is the ``_fig_*`` entrypoint (each returns exactly one Figure),
+    ``filename`` the PNG stem (``.png`` appended at save), ``desc`` a one-line
+    explanation, and ``hueable`` whether the fig can be overlaid in
+    :meth:`SolverDiag.compare` (excludes per-edge SD-R-07 and the SD-T-*
+    cross-sections, whose semantics differ across runs).
+    """
+
+    method:   str
+    filename: str
+    desc:     str
+    hueable:  bool = False
 
 
 def _apply_modern_style(ax) -> None:
@@ -60,11 +72,10 @@ class SolverDiag:
       the run from ``{output_dir}/registry.json`` and per-timestep ``.npz``
       files, plus the matching ``ConstraintRun`` from ``ConstraintRunRegistry``.
 
-    Plot portfolio (see README §Stage 3c for the full ID table):
-
-    * Run-scope  : SD-R-01 … SD-R-09 (x = timestep); SD-R-01 … SD-R-05 hueable
-    * Per-timestep cross-section : SD-T-01 … SD-T-07 (columns = t_min, t_worst, t_max)
-    * Constraint ε heatmaps: SD-T-08a (ratio_eq), SD-T-08b (sum_eq)
+    Plot portfolio: see :attr:`PLOTS` — the canonical registry mapping every
+    plot id → its ``_fig_*`` method, PNG stem, one-line description, and
+    ``.compare()`` hue-eligibility. It is the single source of truth and must
+    gain an entry whenever a new figure method is added.
 
     Parameters
     ----------
@@ -81,26 +92,32 @@ class SolverDiag:
         the σ_opt / σ_a panel in SD-T-03.
     """
 
-    # ---- IDs (kept in plot() iteration order) ------------------------------
-    RUN_PLOT_IDS = (
-        "SD-R-01",  # Solver health
-        "SD-R-02",  # Mass-balance leakage
-        "SD-R-03",  # Soft-slack stress
-        "SD-R-04",  # Hard-inequality activity
-        "SD-R-05",  # Warm-start delta
-        "SD-R-06",  # F*(t) evolution
-        "SD-R-07",  # Time-hued distributions
-        "SD-R-08",  # Process-entity outputs (stacked area)
-        "SD-R-09",  # Flow-entity outputs (stacked area)
-    )
-    TIMESTEP_PLOT_IDS = (
-        "SD-T-01",  # Residual digest
-        "SD-T-02",  # Soft-slack z-scores
-        "SD-T-03",  # Solution vs prior cross-section
-        "SD-T-04",  # Per-type binding rate
-        "SD-T-05",  # Distribution of a
-        "SD-T-06",  # c* vs c
-    )
+    # ---- Plot registry — single source of truth (insertion order = render order) ----
+    # Add an entry here whenever a new _fig_* method is implemented.
+    PLOTS: "dict[str, PlotSpec]" = {
+        "SD-R-01":  PlotSpec("_fig_solver_health",    "sd_r_01_solver_health",     "Solver health: objective, iterations, solve time, KKT residuals", hueable=True),
+        "SD-R-02":  PlotSpec("_fig_mass_balance",     "sd_r_02_mass_balance",      "Mass-balance leakage: max|·| and L2 of residuals over t", hueable=True),
+        "SD-R-03":  PlotSpec("_fig_soft_slack",       "sd_r_03_soft_slack",        "Soft-slack stress: ε norms + fraction above 3·σ_c", hueable=True),
+        "SD-R-04":  PlotSpec("_fig_hard_active",      "sd_r_04_hard_active",       "Hard-inequality activity by kind/direction", hueable=True),
+        "SD-R-05":  PlotSpec("_fig_warmstart_delta",  "sd_r_05_warmstart_delta",   "Warm-start delta: L∞/L2/relative-L2 between consecutive solutions", hueable=True),
+        "SD-R-06":  PlotSpec("_fig_f_evolution",      "sd_r_06_f_evolution",       "F*(t) evolution: heatmap + top-variable edge lines"),
+        "SD-R-07":  PlotSpec("_fig_time_hued",        "sd_r_07_time_hued",         "Time-hued histograms of c* and |ε_opt|"),
+        "SD-R-08":  PlotSpec("_fig_process_outputs",  "sd_r_08_process_outputs",   "Process-entity outputs, stacked area by sector"),
+        "SD-R-09":  PlotSpec("_fig_flow_outputs",     "sd_r_09_flow_outputs",      "Flow-entity outputs, stacked area by sector"),
+        "SD-T-01":  PlotSpec("_fig_residual_digest",    "sd_t_01_residual_digest",    "Residual digest: log10|x| histograms by constraint type"),
+        "SD-T-02":  PlotSpec("_fig_zscore_soft",        "sd_t_02_zscore_soft",        "Soft-slack z-scores (ε/σ_c) histograms"),
+        "SD-T-03":  PlotSpec("_fig_solution_vs_prior",  "sd_t_03_solution_vs_prior",  "Solution magnitude + z-score + σ_opt/σ_a panels"),
+        "SD-T-04":  PlotSpec("_fig_binding_rate",       "sd_t_04_binding_rate",       "Per-type binding-rate distributions"),
+        "SD-T-05":  PlotSpec("_fig_solution_magnitude", "sd_t_05_distribution_of_a",  "Distribution of a: log10|a*|, signed a*, log10|a₀(t)|"),
+        "SD-T-06":  PlotSpec("_fig_cstar_vs_c",         "sd_t_06_cstar_vs_c",         "c*−c and relative-change histograms on soft rows"),
+        "SD-T-07":  PlotSpec("_fig_rocket",             "sd_t_07_rocket",             "Rocket: log–log scatters of prior vs solution on key row families"),
+        "SD-T-08a": PlotSpec("_fig_eps_heatmap_ratio",  "sd_t_08a_eps_heatmap_ratio", "ratio_eq realized-ratio heatmap, top-50 by log10-range"),
+        "SD-T-08b": PlotSpec("_fig_eps_heatmap_sum",    "sd_t_08b_eps_heatmap_sum",   "sum_eq ε heatmap, top-50 nodes by log10-range"),
+        "SD-T-09a": PlotSpec("_fig_prior_departure_from_sector", "sd_t_09a_prior_dep_from_sector", "|a*−a₀| by from-sector"),
+        "SD-T-09b": PlotSpec("_fig_prior_departure_to_sector",   "sd_t_09b_prior_dep_to_sector",   "|a*−a₀| by to-sector"),
+        "SD-T-09c": PlotSpec("_fig_prior_departure_from_region", "sd_t_09c_prior_dep_from_region", "|a*−a₀| by from-region (mining highlighted)"),
+        "SD-T-09d": PlotSpec("_fig_prior_departure_to_region",   "sd_t_09d_prior_dep_to_region",   "|a*−a₀| by to-region (mining highlighted)"),
+    }
 
     def __init__(
         self,
@@ -364,8 +381,9 @@ class SolverDiag:
         timesteps: Optional[tuple] = None,
         show: bool = False,
         dpi:  int  = 150,
+        plot_ids: Optional[list] = None,
     ) -> list[str]:
-        """Render the full 15-figure portfolio.
+        """Render figures from the :attr:`PLOTS` registry.
 
         Parameters
         ----------
@@ -373,8 +391,12 @@ class SolverDiag:
             Output directory. If None, defaults to ``{output_dir}/{opt_run_id}/diag``
             when this instance came from ``from_opt_id``; otherwise required.
         timesteps : tuple[str, str, str] | None
-            (t_min_col, t_mid_col, t_max_col) for Scope-2 figures. If None,
+            (t_min_col, t_mid_col, t_max_col) for cross-section figures. If None,
             defaults to (first, worst-ε, last).
+        plot_ids : list[str] | None
+            Subset of registry ids to render. ``None`` (default) renders every
+            registered figure. Figures always render in canonical registry order
+            regardless of the order given here. An unknown id raises ``ValueError``.
         """
         import matplotlib.pyplot as plt  # noqa: F401 — pre-import for backend setup
         if odir is None:
@@ -386,103 +408,27 @@ class SolverDiag:
             )
         os.makedirs(odir, exist_ok=True)
 
+        selected = set(self.PLOTS) if plot_ids is None else set(plot_ids)
+        unknown = selected - set(self.PLOTS)
+        if unknown:
+            raise ValueError(
+                f"Unknown plot_ids {sorted(unknown)}. Valid ids: {list(self.PLOTS)}"
+            )
+
         ts_triple = self._resolve_timesteps(timesteps)
 
         paths: list[str] = []
-
-        # ---- Scope 1: run-scope ----------------------------------------
-        for fn, pid, fname in [
-            (self._fig_solver_health,    "SD-R-01", "sd_r_01_solver_health"),
-            (self._fig_mass_balance,     "SD-R-02", "sd_r_02_mass_balance"),
-            (self._fig_soft_slack,       "SD-R-03", "sd_r_03_soft_slack"),
-            (self._fig_hard_active,      "SD-R-04", "sd_r_04_hard_active"),
-            (self._fig_warmstart_delta,  "SD-R-05", "sd_r_05_warmstart_delta"),
-        ]:
-            fig = fn(hue=None)
-            p = _savefig(fig, os.path.join(odir, f"{fname}.png"), dpi=dpi)
+        for pid, spec in self.PLOTS.items():        # canonical registry order
+            if pid not in selected:
+                continue
+            fig = getattr(self, spec.method)(hue=None, timesteps=ts_triple)
+            p = _savefig(fig, os.path.join(odir, f"{spec.filename}.png"), dpi=dpi)
             print(f"   {pid}  → {p}  ✓")
             paths.append(p)
             if not show:
                 import matplotlib.pyplot as plt; plt.close(fig)
 
-        # SD-R-06 has no hue parameter
-        fig = self._fig_f_evolution()
-        p = _savefig(fig, os.path.join(odir, "sd_r_06_f_evolution.png"), dpi=dpi)
-        print(f"   SD-R-06  → {p}  ✓")
-        paths.append(p)
-        if not show:
-            import matplotlib.pyplot as plt; plt.close(fig)
-
-        # SD-R-07 — time-hued histograms (per-timestep colour gradient)
-        fig = self._fig_time_hued()
-        p = _savefig(fig, os.path.join(odir, "sd_r_07_time_hued.png"), dpi=dpi)
-        print(f"   SD-R-07  → {p}  ✓")
-        paths.append(p)
-        if not show:
-            import matplotlib.pyplot as plt; plt.close(fig)
-
-        # SD-R-08 / SD-R-09 — entity-output stacked area by sector
-        for fn, pid, fname in [
-            (self._fig_process_outputs, "SD-R-08", "sd_r_08_process_outputs"),
-            (self._fig_flow_outputs,    "SD-R-09", "sd_r_09_flow_outputs"),
-        ]:
-            fig = fn()
-            p = _savefig(fig, os.path.join(odir, f"{fname}.png"), dpi=dpi)
-            print(f"   {pid}  → {p}  ✓")
-            paths.append(p)
-            if not show:
-                import matplotlib.pyplot as plt; plt.close(fig)
-
-        # ---- Scope 2: timestep cross-section --------------------------
-        for fn, pid, fname in [
-            (self._fig_residual_digest,    "SD-T-01", "sd_t_01_residual_digest"),
-            (self._fig_zscore_soft,        "SD-T-02", "sd_t_02_zscore_soft"),
-            (self._fig_solution_vs_prior,  "SD-T-03", "sd_t_03_solution_vs_prior"),
-            (self._fig_binding_rate,       "SD-T-04", "sd_t_04_binding_rate"),
-            (self._fig_solution_magnitude, "SD-T-05", "sd_t_05_distribution_of_a"),
-            (self._fig_cstar_vs_c,         "SD-T-06", "sd_t_06_cstar_vs_c"),
-            (self._fig_rocket,             "SD-T-07", "sd_t_07_rocket"),
-        ]:
-            fig = fn(timesteps=ts_triple)
-            p = _savefig(fig, os.path.join(odir, f"{fname}.png"), dpi=dpi)
-            print(f"   {pid}  → {p}  ✓")
-            paths.append(p)
-            if not show:
-                import matplotlib.pyplot as plt; plt.close(fig)
-
-        # SD-T-08a/b — constraint-level ε heatmaps split by type (not cross-sections)
-        fig = self._fig_eps_heatmap_ratio()
-        p = _savefig(fig, os.path.join(odir, "sd_t_08a_eps_heatmap_ratio.png"), dpi=dpi)
-        print(f"   SD-T-08a  → {p}  ✓")
-        paths.append(p)
-        if not show:
-            import matplotlib.pyplot as plt; plt.close(fig)
-
-        fig = self._fig_eps_heatmap_sum()
-        p = _savefig(fig, os.path.join(odir, "sd_t_08b_eps_heatmap_sum.png"), dpi=dpi)
-        print(f"   SD-T-08b  → {p}  ✓")
-        paths.append(p)
-        if not show:
-            import matplotlib.pyplot as plt; plt.close(fig)
-
-        # SD-T-09a/b/c/d — |a*−a₀(t)| boxplots by edge metadata
-        for fig_fn, sd_id, fname in [
-            (self._fig_prior_departure_from_sector,
-                "SD-T-09a", "sd_t_09a_prior_dep_from_sector.png"),
-            (self._fig_prior_departure_to_sector,
-                "SD-T-09b", "sd_t_09b_prior_dep_to_sector.png"),
-            (self._fig_prior_departure_from_region,
-                "SD-T-09c", "sd_t_09c_prior_dep_from_region.png"),
-            (self._fig_prior_departure_to_region,
-                "SD-T-09d", "sd_t_09d_prior_dep_to_region.png"),
-        ]:
-            fig = fig_fn()
-            p = _savefig(fig, os.path.join(odir, fname), dpi=dpi)
-            print(f"   {sd_id}  → {p}  ✓")
-            paths.append(p)
-            if not show:
-                import matplotlib.pyplot as plt; plt.close(fig)
-
+        # Provenance is run lineage, not a figure — always appended (no-op in live mode).
         prov_path = self._write_provenance(odir)
         if prov_path:
             paths.append(prov_path)
@@ -609,17 +555,19 @@ class SolverDiag:
         odir : str
             Output directory. Files land at ``{odir}/{label}_{plot_id}.png``.
         plot_ids : list[str] | None
-            Subset of hueable IDs to render. Default is all of _HUEABLE_IDS.
+            Subset of hueable ids to render. Default is every hueable id in
+            :attr:`PLOTS`.
         """
         if not diags:
             raise ValueError("compare() requires at least one diag")
+        hueable = [pid for pid, spec in cls.PLOTS.items() if spec.hueable]
         if plot_ids is None:
-            plot_ids = list(_HUEABLE_IDS)
-        not_hueable = set(plot_ids) - set(_HUEABLE_IDS)
+            plot_ids = list(hueable)
+        not_hueable = set(plot_ids) - set(hueable)
         if not_hueable:
             raise ValueError(
                 f"plot_ids contain non-hueable plots: {sorted(not_hueable)}. "
-                f"Hueable: {_HUEABLE_IDS}"
+                f"Hueable: {hueable}"
             )
         os.makedirs(odir, exist_ok=True)
 
@@ -629,22 +577,13 @@ class SolverDiag:
             color = _C[_HUE_PALETTE[k % len(_HUE_PALETTE)]]
             hue.append((lbl, dg, color))
 
-        # Map plot_id → (method_name, filename_stem)
-        plot_dispatch = {
-            "SD-R-01": ("_fig_solver_health",    "sd_r_01_solver_health"),
-            "SD-R-02": ("_fig_mass_balance",     "sd_r_02_mass_balance"),
-            "SD-R-03": ("_fig_soft_slack",       "sd_r_03_soft_slack"),
-            "SD-R-04": ("_fig_hard_active",      "sd_r_04_hard_active"),
-            "SD-R-05": ("_fig_warmstart_delta",  "sd_r_05_warmstart_delta"),
-        }
-
         # Render using the first diag as host; each method accepts hue=[(label,diag,color),...]
         host = next(iter(diags.values()))
         paths: list[str] = []
         for pid in plot_ids:
-            method_name, stem = plot_dispatch[pid]
-            fig = getattr(host, method_name)(hue=hue)
-            p = _savefig(fig, os.path.join(odir, f"{label}_{stem}.png"), dpi=dpi)
+            spec = cls.PLOTS[pid]
+            fig = getattr(host, spec.method)(hue=hue)
+            p = _savefig(fig, os.path.join(odir, f"{label}_{spec.filename}.png"), dpi=dpi)
             print(f"   {pid} (compare) → {p}  ✓")
             paths.append(p)
             import matplotlib.pyplot as plt; plt.close(fig)
@@ -715,7 +654,7 @@ class SolverDiag:
     # Figures — Scope 1 (run-scope)
     # ==================================================================
 
-    def _fig_solver_health(self, hue=None):
+    def _fig_solver_health(self, *, hue=None, timesteps=None):
         """SD-R-01: 4 stacked panels."""
         import matplotlib.pyplot as plt
 
@@ -759,7 +698,7 @@ class SolverDiag:
         fig.tight_layout(rect=[0, 0, 1, 0.96])
         return fig
 
-    def _fig_mass_balance(self, hue=None):
+    def _fig_mass_balance(self, *, hue=None, timesteps=None):
         """SD-R-02: max/L2 of mass-balance residual per timestep (semilogy)."""
         import matplotlib.pyplot as plt
 
@@ -790,7 +729,7 @@ class SolverDiag:
         fig.tight_layout(rect=[0, 0, 1, 0.94])
         return fig
 
-    def _fig_soft_slack(self, hue=None):
+    def _fig_soft_slack(self, *, hue=None, timesteps=None):
         """SD-R-03: ε norms + fraction of soft rows with |ε| > 3·σ_c."""
         import matplotlib.pyplot as plt
 
@@ -862,7 +801,7 @@ class SolverDiag:
         sig = np.where(sigma > 0, sigma, np.inf)
         return float(np.mean(np.abs(eps) > 3.0 * sig))
 
-    def _fig_hard_active(self, hue=None):
+    def _fig_hard_active(self, *, hue=None, timesteps=None):
         """SD-R-04: active Type-4 ratio bounds, split by (ratio_kind × bound_dir).
 
         3×2 grid: rows = conc/eff/share, cols = upper/lower. Each cell shows
@@ -921,7 +860,7 @@ class SolverDiag:
         fig.tight_layout(rect=[0, 0, 1, 0.95])
         return fig
 
-    def _fig_warmstart_delta(self, hue=None):
+    def _fig_warmstart_delta(self, *, hue=None, timesteps=None):
         """SD-R-05: consecutive ||a*(t) − a*(t-1)|| over time."""
         import matplotlib.pyplot as plt
 
@@ -961,7 +900,7 @@ class SolverDiag:
         fig.tight_layout(rect=[0, 0, 1, 0.94])
         return fig
 
-    def _fig_f_evolution(self):
+    def _fig_f_evolution(self, *, hue=None, timesteps=None):
         """SD-R-06: heatmap of F*(t) for top-K most-variable edges + top-10 lines."""
         import matplotlib.pyplot as plt
         from matplotlib.colors import SymLogNorm
@@ -1167,7 +1106,7 @@ class SolverDiag:
         ax.tick_params(axis="x", labelsize=7)
         ax.set_xlabel("log₁₀ |x|", fontsize=8)
 
-    def _fig_residual_digest(self, timesteps):
+    def _fig_residual_digest(self, *, hue=None, timesteps=None):
         """SD-T-01: 5 rows × 3 cols of constraint-residual histograms.
 
         log₁₀|x| with sign overlay (pos = blue, neg = red) for every row.
@@ -1205,7 +1144,7 @@ class SolverDiag:
         fig.tight_layout(rect=[0, 0, 1, 0.96])
         return fig
 
-    def _fig_zscore_soft(self, timesteps):
+    def _fig_zscore_soft(self, *, hue=None, timesteps=None):
         """SD-T-02: 2 rows × 3 cols of ε/σ_c z-scores for soft constraints.
 
         log₁₀|z| with sign as colour overlay (pos = blue, neg = red). Vertical
@@ -1235,7 +1174,7 @@ class SolverDiag:
         fig.tight_layout(rect=[0, 0, 1, 0.96])
         return fig
 
-    def _fig_solution_vs_prior(self, timesteps):
+    def _fig_solution_vs_prior(self, *, hue=None, timesteps=None):
         """SD-T-03: (a*-a0)/σ_a, (a*-a0)/|a0|, σ_opt/σ_a (cond.).
 
         Signed rows (z-score, relative change) use log₁₀|x| with sign overlay
@@ -1278,7 +1217,7 @@ class SolverDiag:
         fig.tight_layout(rect=[0, 0, 1, 0.96])
         return fig
 
-    def _fig_binding_rate(self, timesteps):
+    def _fig_binding_rate(self, *, hue=None, timesteps=None):
         """SD-T-04: 2 rows × 3 cols of binding-rate distributions.
 
         log₁₀|expression| with sign overlay (neg = slack/good, pos = violation).
@@ -1308,7 +1247,7 @@ class SolverDiag:
         fig.tight_layout(rect=[0, 0, 1, 0.96])
         return fig
 
-    def _fig_solution_magnitude(self, timesteps):
+    def _fig_solution_magnitude(self, *, hue=None, timesteps=None):
         """SD-T-05: distribution of a — log10|a*|, symlog a*, and log10|a₀(t)|."""
         ts_triple = self._resolve_timesteps(timesteps)
         fig, axes = self._make_xsection(3, "Distribution of a (SD-T-05)")
@@ -1382,7 +1321,7 @@ class SolverDiag:
         fig.tight_layout(rect=[0, 0, 1, 0.96])
         return fig
 
-    def _fig_cstar_vs_c(self, timesteps):
+    def _fig_cstar_vs_c(self, *, hue=None, timesteps=None):
         """SD-T-06: c*-c and (c*-c)/(|c|+δ) histograms on soft rows.
 
         log₁₀|x| with sign overlay (pos = blue, neg = red). For the relative
@@ -1417,7 +1356,7 @@ class SolverDiag:
         fig.tight_layout(rect=[0, 0, 1, 0.96])
         return fig
 
-    def _fig_rocket(self, timesteps):
+    def _fig_rocket(self, *, hue=None, timesteps=None):
         """SD-T-07: log–log scatter 'rocket' plots — warm-start prior throughout.
 
         All three rows compare the warm-start prior `a*(t−1)` (propagated through
@@ -1617,7 +1556,7 @@ class SolverDiag:
         fig.tight_layout(rect=[0, 0, 1, 0.96])
         return fig
 
-    def _fig_time_hued(self, hue=None):
+    def _fig_time_hued(self, *, hue=None, timesteps=None):
         """SD-R-07: histograms of c*(soft) and |ε_opt| hued by timestep.
 
         Two stacked panels — the |a*| distribution panel was removed because
@@ -1736,7 +1675,7 @@ class SolverDiag:
         ax_z.set_yticks(range(n_rows))
         ax_z.set_yticklabels(row_labels, fontsize=8)
 
-    def _fig_eps_heatmap_ratio(self):
+    def _fig_eps_heatmap_ratio(self, *, hue=None, timesteps=None):
         """SD-T-08a: ratio_eq realized-ratio heatmap — top-50 by log10-range across t.
 
         Each row shows ``log10(realized_ratio)`` where realized_ratio =
@@ -1827,7 +1766,7 @@ class SolverDiag:
         ax.set_yticklabels(row_labels, fontsize=8)
         return fig
 
-    def _fig_eps_heatmap_sum(self):
+    def _fig_eps_heatmap_sum(self, *, hue=None, timesteps=None):
         """SD-T-08b: sum_eq ε heatmap — top-50 nodes by log10-range of |ε| across t."""
         import matplotlib.pyplot as plt
         import re as _re
@@ -1994,26 +1933,26 @@ class SolverDiag:
             highlight=highlight, cell_title=lambda Y, V: f"{Y} · {V}",
         )
 
-    def _fig_prior_departure_from_sector(self):
+    def _fig_prior_departure_from_sector(self, *, hue=None, timesteps=None):
         """SD-T-09a: |a*−a₀| boxplot grouped by from_sector (2×2 year × val)."""
         return self._fig_prior_departure_box(
             "from_sector", "from-sector", fig_id="SD-T-09a",
         )
 
-    def _fig_prior_departure_to_sector(self):
+    def _fig_prior_departure_to_sector(self, *, hue=None, timesteps=None):
         """SD-T-09b: |a*−a₀| boxplot grouped by to_sector (2×2 year × val)."""
         return self._fig_prior_departure_box(
             "to_sector", "to-sector", fig_id="SD-T-09b",
         )
 
-    def _fig_prior_departure_from_region(self):
+    def _fig_prior_departure_from_region(self, *, hue=None, timesteps=None):
         """SD-T-09c: |a*−a₀| boxplot grouped by from_region; ROW + 5 mining highlighted."""
         return self._fig_prior_departure_box(
             "from_region", "from-region", fig_id="SD-T-09c",
             highlight=self._MINING_REGION_HIGHLIGHT,
         )
 
-    def _fig_prior_departure_to_region(self):
+    def _fig_prior_departure_to_region(self, *, hue=None, timesteps=None):
         """SD-T-09d: |a*−a₀| boxplot grouped by to_region; ROW + 5 mining highlighted."""
         return self._fig_prior_departure_box(
             "to_region", "to-region", fig_id="SD-T-09d",
@@ -2140,7 +2079,7 @@ class SolverDiag:
         fig.tight_layout(rect=[0, 0, 0.88, 0.95])
         return fig
 
-    def _fig_process_outputs(self):
+    def _fig_process_outputs(self, *, hue=None, timesteps=None):
         """SD-R-08: Σ supply-edge a* by from_sector, stacked area per valuation."""
         return self._fig_entity_outputs(
             from_entity="Process",
@@ -2148,7 +2087,7 @@ class SolverDiag:
             title_phrase="Process-entity outputs (supply edges) by sector",
         )
 
-    def _fig_flow_outputs(self):
+    def _fig_flow_outputs(self, *, hue=None, timesteps=None):
         """SD-R-09: Σ use-edge a* by from_sector, stacked area per valuation."""
         return self._fig_entity_outputs(
             from_entity="Flow",
