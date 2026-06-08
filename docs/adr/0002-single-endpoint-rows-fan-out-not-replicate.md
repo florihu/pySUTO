@@ -46,9 +46,12 @@ guard rejected the previous, incomplete state):
 - **C. Require feed authors to map the producer region explicitly (config, not code).** Rejected:
   for genuinely single-endpoint data (ICSG publishes national consumption with no producer origin)
   there is nothing to map; forcing a concrete region would assert information we do not have.
-- **D. Weight the producer split by BACI trade shares immediately.** Deferred (follow-up): the
-  uniform split fixes the mass inflation; trade-weighting improves accuracy and is a separate change
-  via the existing `user_weights_df` mechanism.
+- **D. Weight the producer split by BACI trade shares. (adopted 2026-06-08.)** The uniform split
+  (option A) fixes the mass inflation but leaves every ICSG-CC trade value a *fan artifact* that
+  disagrees with the real BACI-Mass observation on the same edge, breaking the `conc_*_supply` ratio
+  (both-observed z up to ~10⁶ — see REP
+  [`…_icsg-baci-trade-share.md`](../rep/analysis_opt_20260603_111330_0c1a19b7_20260608_icsg-baci-trade-share.md)).
+  Now implemented via the `user_weights_df` mechanism (see Implementation below).
 
 ## Consequences
 
@@ -63,3 +66,35 @@ guard rejected the previous, incomplete state):
   to multiple distinct source edges drops **5,576 (max 48×) → 0**; `ΣF_src` and `ΣF_root` both equal
   the matched raw total **2,069,585 kt** (was 74.7M — `36.08× → 1.0000×`); `F_root` max drops
   7393.1 → 4282.7. The mass-conservation guard passes.
+
+## Implementation of option D — BACI-trade-share weighting (2026-06-08)
+
+The producer fan is reweighted by BACI bilateral import shares for the four **traded** ICSG-fanned
+sectors — **Cathode, Concentrate, Anode, Matte** (Scrap is an ICSG `Use` type but is **not traded** and
+is excluded). Per (sector_from, sector_to, consumer Y, year t), in copper-content units:
+
+    import X≠Y : raw weight = conc_sector · BACI_Mass_Froot(X→Y, t)
+    domestic   : raw weight = max(0, ICSG_usage_CC(Y, t) − Σ_X conc_sector · BACI_Mass(X→Y, t))
+
+`ConcordanceTable._impute_weights` normalises each src fan's raw weights to sum 1, so
+`F_root_CC(import) = conc·BACI_Mass` (the `conc_*_supply` ratio then holds by construction) and
+`F_root_CC(domestic) = usage − imports` (national usage conserved). The domestic leg is needed because
+BACI has **no self-trade**; its weight falls out of `usage − imports` and needs no ICSG production data.
+The split is computed in **CC** (apply `conc` to BACI Mass) so low-conc sectors are unit-consistent.
+
+- **Cross-feed dependency (new).** ICSG's fan weights now derive from BACI. Feeds stay loosely coupled
+  via a versioned artifact: `scripts/build_trade_shares.py` reads the BACI feed `F_root`, the ICSG feed
+  `F_root` (for usage — weight-invariant), and the `conc` param, and emits the **`trade_shares`**
+  params-kind input (`params.csv`, so the params registry content-versions it). `scripts/icsg_feed.py`
+  consumes it as `user_weights_df` (region+time-keyed) and records its entry in the feed sidecar; absent
+  artifact ⇒ uniform fan (unchanged).
+- **Time-variant.** Weights are per-year (`root_time` key); `_impute_weights` already normalises per
+  `src_time`.
+- **Fallback.** Per-consumer-group complete: covered groups emit weights for all fan targets (0 for
+  untraded producers); groups BACI does not cover get no rows ⇒ uniform.
+- **Validation (verified in-process, opt `opt_20260608_064938_44faa1f1`).** `conc_*_supply` both-observed
+  z>1e3 @2010: cathode **75.9% → 10.0%**; per-family overall cathode 4.33%→0.57%, concentrate
+  2.13%→0.09%, anode 1.20%→0.09%. ICSG mass still conserved (`ΣF_root = 2,069,585 kt`). The remaining
+  residual is dominated by **transit-hub** trade edges (Switzerland/Netherlands), where BACI gross trade
+  legitimately exceeds ICSG consumption (usage-vs-trade totals gap; imports compress, domestic clips to 0),
+  plus a few stale-BACI domestic self-trade artifacts — both separate follow-ups, not the uniform-fan bug.
