@@ -377,7 +377,7 @@ def load_trade_shares(inputs: InputRegistries):
     if TRADE_SHARES_ID not in inputs.params.ids():
         print(f"   trade_shares : not registered — uniform fan")
         return None, None
-    path = inputs.params.resolve(TRADE_SHARES_ID) / "shares.csv"
+    path = inputs.params.resolve(TRADE_SHARES_ID) / "params.csv"
     df = pd.read_csv(path)
     entry = inputs.params.entry(TRADE_SHARES_ID)
     print(f"   trade_shares : {TRADE_SHARES_ID} v{entry['version']} "

@@ -54,10 +54,11 @@ from pysuto.config import load_config
 # ---------------------------------------------------------------------------
 
 # Traded supplier sectors whose ICSG producer fan is BACI-weighted. Scrap is
-# NOT traded and must never appear here.
+# NOT traded and must never appear here. All are uniform producer fans
+# (verified): Cathode→FU/USC, Concentrate→Smelting, Anode→ER, Matte→CFR.
 TRADED_SECTORS = ["Cathode", "Concentrate", "Anode", "Matte"]
-# Sectors actually emitted this run (commit 2 ships Cathode; commit 4 widens).
-SECTORS = ["Cathode"]
+# Sectors actually emitted this run.
+SECTORS = list(TRADED_SECTORS)
 
 _INPUT_ROOT = os.path.join("data", "input")
 ACC_DIR     = os.path.join("data", "proc", "acc")
@@ -183,7 +184,9 @@ def main() -> None:
     shares = compute_trade_share_weights(edges, conc_by_sector)
 
     os.makedirs(OUT_DIR, exist_ok=True)
-    out_csv = os.path.join(OUT_DIR, "shares.csv")
+    # Named params.csv because the params input-registry only hashes that file
+    # for content-versioning (input_registry _LOAD_BEARING["params"]).
+    out_csv = os.path.join(OUT_DIR, "params.csv")
     shares.to_csv(out_csv, index=False)
     print(f"   wrote {len(shares):,} weight rows → {out_csv}")
     print(f"   consumer groups: "
