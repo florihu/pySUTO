@@ -80,6 +80,11 @@ class CoverageDiagnostic:
         em["has_val"] = self._compute_has_val(em)
         return em
 
+    @property
+    def edges(self) -> pd.DataFrame:
+        """Per-edge frame with ``f_agg`` + ``has_val`` (one row per edge)."""
+        return self._edges
+
     def _compute_has_val(self, em: pd.DataFrame) -> np.ndarray:
         finite = np.isfinite(em["f_agg"].to_numpy())
         log = self.agg_result.imputation_log.as_dataframe()
