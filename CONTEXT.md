@@ -47,6 +47,43 @@ system-boundary/import source). Concordance code must therefore make the entity 
 its sector is `"<any>"`, not pin it to a concrete edge entity. See
 [ADR 0002](docs/adr/0002-single-endpoint-rows-fan-out-not-replicate.md).
 
+**System-boundary category (`entity_sub` on SB nodes)** — the sub-classification carried by every
+`SB` node, naming *what kind* of boundary crossing it is. In the copper model: `Nature` (primary
+extraction entering the system — crude ore, `CO`), `FD` (final demand leaving the system — the
+final-demand categories `FU` / `MESC` / `USC`), `SEM` (secondary / residual material — `Scrap`
+recycling inputs and `Slag` / `Tailings` / `WR` / `PSC` residual outputs). `entity_sub` is
+meaningful only on `SB` nodes (`Flow` / `Process` nodes leave it empty). _Note:_ `FD` is
+structurally an SB-*output* (`entity_to == "SB"`) yet semantically belongs to the **use** side — a
+commodity consumed by final demand, with a real `Flow` commodity on its origin endpoint; only
+`Nature` and `SEM` are pure raw/secondary boundary crossings with no `Flow` endpoint.
+_Avoid_: conflating `entity_sub` with **entity** (only `Process` | `Flow` | `SB`).
+
+## Feed valuation & trade-share vocabulary
+
+**Valuation — `CC` vs `Mass`.** Every edge exists in two valuations. **`Mass`** is the gross product
+mass (tonnes of the commodity as traded/handled). **`CC`** (*copper content*) is the contained-copper
+mass (tonnes Cu). They are linked per sector by the **concentration coefficient**.
+
+**Concentration coefficient (`conc`).** The Cu mass fraction of a sector's commodity (e.g. Cathode
+0.9975, Anode 0.94, Matte 0.525, Concentrate 0.275; from the `conc` param). The `conc_<sector>_supply`
+relation enforces `CC = conc · Mass` on each node pair, so the two valuations of one edge are not
+independent. _Avoid_: reading the `conc_*_supply` z-violation as a "bug" — it fires whenever the two
+feeds populating the CC and Mass sides of an edge disagree.
+
+**Feed semantics — ICSG vs BACI.** **ICSG** publishes production/usage statistics in **copper content
+(`CC`)**; its `Use` rows are **single-endpoint** (consumer known, producer open) ⇒ producer **fan-out**.
+**BACI** publishes **bilateral gross trade** in **`Mass`** (fully classified X→Y; no self-trade rows, so
+no domestic leg). On a trade edge the ICSG-CC value is therefore a *fan artifact* and the BACI-Mass value
+is the real observation. _Avoid_: treating a per-edge ICSG-CC trade value as a measurement — it is the
+national usage split across producers by the fan weights.
+
+**Trade-share fan weighting** ([ADR 0002](docs/adr/0002-single-endpoint-rows-fan-out-not-replicate.md)
+option D) — weighting ICSG's producer fan by BACI bilateral import shares instead of uniformly, so ICSG-CC
+inherits BACI's geography. The domestic leg (X==Y) carries the residual `usage − Σ imports` (in CC units);
+the split is computed in copper content via `conc`. Applies only to the four **traded** ICSG-fanned
+sectors — Cathode, Concentrate, Anode, Matte. _Avoid_: including **Scrap** — it is an ICSG `Use` type but
+is **not traded**.
+
 ## ROW pedigree-penalty vocabulary
 
 **ROW** — *Rest of World*, the residual region aggregate for countries not individually
