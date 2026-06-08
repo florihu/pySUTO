@@ -153,6 +153,16 @@ class SolverDiag:
             for t in self._timesteps
         }
 
+    @property
+    def results(self) -> dict:
+        """The (reassembled) per-timestep ``OptimResult`` dict."""
+        return self._results
+
+    @property
+    def constraint_run(self):
+        """The ``ConstraintRun`` this diag was built from."""
+        return self._const_run
+
     @staticmethod
     def _reassemble_if_year_local(results: dict, constraint_run) -> dict:
         """Block-path (year-local) results store only each period's solved
