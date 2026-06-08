@@ -676,5 +676,74 @@ class TestBuildFSrcMassConservation:
             fp.build_F_src(raw_use_only, ct, label="t")
 
 
+class TestUserWeightsRegionTimeKeyed:
+    """user_weights_df reweights a single-endpoint producer fan per bilateral
+    route (root_region_from→root_region_to) and per year (root_time) — the seam
+    BACI-trade-share weighting of the ICSG fan rides on (ADR 0002 option D).
+
+    The ``raw_use_only`` fixture fans ONE src edge to roots 6 and 7:
+      edge 6 = (Concentrate, A) → (Refining, A)
+      edge 7 = (Concentrate, B) → (Refining, A)
+    so the two fan legs differ only in root_region_from (A vs B)."""
+
+    def _ct(self, raw_use_only, mock_acc_struct, maps, uw):
+        return ConcordanceTable.from_raw(
+            raw_df=raw_use_only, acc_struct=mock_acc_struct,
+            aux_col="Supply_Use", id="use_fanout_uw",
+            user_weights_df=uw, **maps,
+        )
+
+    def test_region_keyed_split_overrides_uniform(self, raw_use_only, mock_acc_struct, maps):
+        uw = pd.DataFrame([
+            {"root_sector_from": "Concentrate", "root_sector_to": "Refining",
+             "root_region_from": "A", "root_region_to": "A", "root_time": 0, "weight": 0.7},
+            {"root_sector_from": "Concentrate", "root_sector_to": "Refining",
+             "root_region_from": "B", "root_region_to": "A", "root_time": 0, "weight": 0.3},
+        ])
+        ct = self._ct(raw_use_only, mock_acc_struct, maps, uw)
+        w = dict(zip(ct.tab["edge_id"], ct.tab["weight_value"]))
+        assert w[6] == pytest.approx(0.7)
+        assert w[7] == pytest.approx(0.3)
+        assert ct.tab["weight_value"].sum() == pytest.approx(1.0)
+
+    def test_partial_user_rows_normalise_against_uniform(self, raw_use_only, mock_acc_struct, maps):
+        # Only the A→A leg gets a user weight; the B→A leg stays uniform (=1.0)
+        # before normalisation. _impute_weights normalises the group: 2/(2+1),
+        # 1/(2+1) — confirms user + uniform rows coexist correctly.
+        uw = pd.DataFrame([
+            {"root_sector_from": "Concentrate", "root_sector_to": "Refining",
+             "root_region_from": "A", "root_region_to": "A", "root_time": 0, "weight": 2.0},
+        ])
+        ct = self._ct(raw_use_only, mock_acc_struct, maps, uw)
+        w = dict(zip(ct.tab["edge_id"], ct.tab["weight_value"]))
+        assert w[6] == pytest.approx(2.0 / 3.0)
+        assert w[7] == pytest.approx(1.0 / 3.0)
+
+    def test_time_key_mismatch_falls_back_to_uniform(self, raw_use_only, mock_acc_struct, maps):
+        # Weights tagged for a different year (root_time=99) must NOT match the
+        # fixture's year-0 edges → both legs stay uniform 0.5/0.5.
+        uw = pd.DataFrame([
+            {"root_sector_from": "Concentrate", "root_sector_to": "Refining",
+             "root_region_from": "A", "root_region_to": "A", "root_time": 99, "weight": 0.7},
+            {"root_sector_from": "Concentrate", "root_sector_to": "Refining",
+             "root_region_from": "B", "root_region_to": "A", "root_time": 99, "weight": 0.3},
+        ])
+        ct = self._ct(raw_use_only, mock_acc_struct, maps, uw)
+        assert set(np.round(ct.tab["weight_value"], 6)) == {0.5}
+
+    def test_string_time_key_matches_int_edge_time(self, raw_use_only, mock_acc_struct, maps):
+        # root_time supplied as str must still match the int edge time (dtype-robust).
+        uw = pd.DataFrame([
+            {"root_sector_from": "Concentrate", "root_sector_to": "Refining",
+             "root_region_from": "A", "root_region_to": "A", "root_time": "0", "weight": 0.9},
+            {"root_sector_from": "Concentrate", "root_sector_to": "Refining",
+             "root_region_from": "B", "root_region_to": "A", "root_time": "0", "weight": 0.1},
+        ])
+        ct = self._ct(raw_use_only, mock_acc_struct, maps, uw)
+        w = dict(zip(ct.tab["edge_id"], ct.tab["weight_value"]))
+        assert w[6] == pytest.approx(0.9)
+        assert w[7] == pytest.approx(0.1)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
