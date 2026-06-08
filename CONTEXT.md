@@ -58,6 +58,26 @@ commodity consumed by final demand, with a real `Flow` commodity on its origin e
 `Nature` and `SEM` are pure raw/secondary boundary crossings with no `Flow` endpoint.
 _Avoid_: conflating `entity_sub` with **entity** (only `Process` | `Flow` | `SB`).
 
+## Coverage & val vocabulary
+
+**Value (`val`)** — *a value of an edge*: the post-imputation `f_agg` on a root edge.
+Every root edge has one (imputation fills all NaN), so "having a val" alone says nothing
+about data quality — see **val-coverage**.
+
+**val-coverage** (reported as the `val_pct` column of the stats/coverage diagnostics) —
+the relative number of edges in a subset that carry a **real** val, where "real" follows
+the imputation-log *method* rule (`has_val`): flat-prior / `flat_prior_noisy_zero` default
+fills are **not** real; observed values — *including a genuine `0.0`* — and
+fan / time / parametric / formula imputations **are**. _Avoid_: deciding val-coverage from
+`f == 0` — a flat-prior fill is `0` but so is a real observed zero, and the two are
+distinguished by the log method, not the magnitude.
+
+**Coverage** (glossary, the `agg_result.coverage` boolean) — *did any feed observe this
+edge?* — a **pre-imputation** notion, strictly **narrower** than val-coverage: it credits
+**only** feed observations, never any imputation. _Avoid_: conflating the two — the stats
+column is `val_pct` (not `coverage_pct`) precisely because val-coverage also credits
+non-flat-prior imputations that feed-`Coverage` excludes.
+
 ## Feed valuation & trade-share vocabulary
 
 **Valuation — `CC` vs `Mass`.** Every edge exists in two valuations. **`Mass`** is the gross product
