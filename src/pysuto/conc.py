@@ -513,21 +513,36 @@ class ConcordanceTable(DataFeed):
         # --------------------------------------------------
         # 9b) Apply user-specified weights (optional)
         # --------------------------------------------------
-        # user_weights_df columns: src_sector_from, root_sector_to, weight
-        # Rows matching (src_sector_from, root_sector_to) get weight_mode='user'
-        # and the supplied raw weight. _impute_weights() normalises all weights
-        # per src_edge group, treating uniform rows as weight=1 before normalising.
+        # user_weights_df columns: root_sector_from, root_sector_to,
+        # root_region_from, root_region_to, root_time, weight.
+        # Rows matching that full bilateral-route + year key get weight_mode='user'
+        # and the supplied raw weight; _impute_weights() then normalises all
+        # weights per src_edge group, treating any remaining uniform rows as
+        # weight=1 before normalising. The region+time keys let a caller reweight
+        # a single-endpoint producer fan per bilateral route X→Y and per year —
+        # e.g. BACI-trade-share weighting of the ICSG fan (ADR 0002 option D).
+        # The key (sectors, regions, time) must be unique in user_weights_df so
+        # the left-merge preserves tab rows 1:1.
         if user_weights_df is not None and not user_weights_df.empty:
+            uw = (user_weights_df[['root_sector_from', 'root_sector_to',
+                                   'root_region_from', 'root_region_to',
+                                   'root_time', 'weight']]
+                  .rename(columns={'weight': '_uw'})
+                  .copy())
+            # root_time may be int on one side and str on the other; align on str.
+            uw['root_time'] = uw['root_time'].astype(str)
+            tab['_rt_str']  = tab['root_time'].astype(str)
+            uw = uw.rename(columns={'root_time': '_rt_str'})
             tab = tab.merge(
-                user_weights_df[['root_sector_from', 'root_sector_to', 'weight']]
-                .rename(columns={'weight': '_uw'}),
-                on=['root_sector_from', 'root_sector_to'],
+                uw,
+                on=['root_sector_from', 'root_sector_to',
+                    'root_region_from', 'root_region_to', '_rt_str'],
                 how='left',
             )
             mask = tab['_uw'].notna()
             tab.loc[mask, 'weight_value'] = tab.loc[mask, '_uw']
             tab.loc[mask, 'weight_mode']  = 'user'
-            tab.drop(columns=['_uw'], inplace=True)
+            tab.drop(columns=['_uw', '_rt_str'], inplace=True)
 
         # tab was built from a correct edge-join — skip redundant re-validation
         instance = cls(tab=tab, acc_struct=acc_struct, id=id, _skip_validation=True)
