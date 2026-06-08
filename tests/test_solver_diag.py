@@ -219,3 +219,70 @@ class TestCompare:
                 odir=str(tmp_path),
                 plot_ids=["SD-R-07"],  # not hueable
             )
+
+
+# ---------------------------------------------------------------------------
+# 5. plot_ids selection
+# ---------------------------------------------------------------------------
+
+class TestPlotSelection:
+
+    def test_subset_renders_only_selected(self, toy_results, tmp_path):
+        from pysuto.diag import SolverDiag
+        results, run = toy_results
+        diag = SolverDiag(results, run, label="toy")
+        paths = diag.plot(odir=str(tmp_path),
+                          plot_ids=["SD-R-01", "SD-T-05", "SD-T-07"])
+        pngs = sorted(os.path.basename(p) for p in paths if p.endswith(".png"))
+        assert pngs == sorted([
+            "sd_r_01_solver_health.png",
+            "sd_t_05_distribution_of_a.png",
+            "sd_t_07_rocket.png",
+        ])
+        # No other figure leaked onto disk
+        on_disk = {n for n in os.listdir(tmp_path) if n.endswith(".png")}
+        assert on_disk == set(pngs)
+
+    def test_render_order_is_registry_order(self, toy_results, tmp_path):
+        from pysuto.diag import SolverDiag
+        results, run = toy_results
+        diag = SolverDiag(results, run, label="toy")
+        # Pass ids in reverse registry order; output must still follow registry order.
+        paths = diag.plot(odir=str(tmp_path),
+                          plot_ids=["SD-T-07", "SD-T-05", "SD-R-01"])
+        pngs = [os.path.basename(p) for p in paths if p.endswith(".png")]
+        assert pngs == [
+            "sd_r_01_solver_health.png",
+            "sd_t_05_distribution_of_a.png",
+            "sd_t_07_rocket.png",
+        ]
+
+    def test_unknown_id_raises(self, toy_results, tmp_path):
+        from pysuto.diag import SolverDiag
+        results, run = toy_results
+        diag = SolverDiag(results, run, label="toy")
+        with pytest.raises(ValueError, match="Unknown plot_ids"):
+            diag.plot(odir=str(tmp_path), plot_ids=["SD-R-01", "SD-X-99"])
+
+
+# ---------------------------------------------------------------------------
+# 6. Registry integrity — the dict is the single source of truth
+# ---------------------------------------------------------------------------
+
+class TestRegistry:
+
+    def test_every_spec_method_exists(self):
+        from pysuto.diag import SolverDiag
+        for pid, spec in SolverDiag.PLOTS.items():
+            assert callable(getattr(SolverDiag, spec.method, None)), \
+                f"{pid}: missing method {spec.method!r}"
+
+    def test_every_spec_has_description(self):
+        from pysuto.diag import SolverDiag
+        for pid, spec in SolverDiag.PLOTS.items():
+            assert spec.desc.strip(), f"{pid}: empty description"
+
+    def test_filenames_are_unique(self):
+        from pysuto.diag import SolverDiag
+        stems = [spec.filename for spec in SolverDiag.PLOTS.values()]
+        assert len(stems) == len(set(stems))

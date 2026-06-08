@@ -86,7 +86,8 @@ def main(const_run_id: str, label: str = "") -> None:
     diag = SolverDiag(results, solver.load_run(const_run_id),
                       label=label or optim_run_id)
     diag.summary()
-    diag.plot(odir=os.path.join(OUTPUT_DIR, optim_run_id, "diag"))
+    diag.plot(odir=os.path.join(OUTPUT_DIR, optim_run_id, "diag"),
+              plot_ids=["SD-R-01", "SD-T-05", "SD-T-07"])
 
     _log.info("=== init_run_solver DONE ===")
 
