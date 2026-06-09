@@ -114,6 +114,22 @@ relation enforces `CC = conc · Mass` on each node pair, so the two valuations o
 independent. _Avoid_: reading the `conc_*_supply` z-violation as a "bug" — it fires whenever the two
 feeds populating the CC and Mass sides of an edge disagree.
 
+**Recovery efficiency (`eff`).** The copper-recovery fraction of a Process, in **`CC`** (from the `eff`
+param) — the sibling coefficient to `conc`. A process's recovered Flow product is `eff · Σ(primary
+inputs)` in CC; the `(1 − eff)` complement is the residual that leaves as the **SEM** residual output.
+`eff` acts on the **pooled primary inputs, Scrap included** (Smelting/CFR consume Scrap, so
+`product = eff·(primary + scrap)`); only the `eff`-named primary appears in the `eff` *ratio
+constraint*, so a pooled prior legitimately exceeds that soft row by `eff·Scrap` — see
+[ADR 0004](docs/adr/0004-process-recipe-traversal-imputer.md). _Avoid_: conflating `eff` (a CC recovery
+fraction) with `conc` (a Mass→CC fraction) — they are different coefficient families.
+
+**Process recipe.** A Process node viewed as a mass-closing transformation in CC: its **pooled primary
+inputs** → one **Flow product** (`eff·Σin`) + a **SEM residual output** (`(1−eff)·Σin`). The unit of
+reasoning for the network-traversal imputer ([ADR 0004](docs/adr/0004-process-recipe-traversal-imputer.md)).
+_Avoid_: confusing the recipe's **SEM residual-output** (Slag / Tailings / WR / PSC, reached via a
+*supply* edge) with a **SEM secondary input** (Scrap, reached via a *use* edge) — both carry
+`entity_sub == "SEM"`, and only the edge direction distinguishes the two roles.
+
 **Feed semantics — ICSG vs BACI.** **ICSG** publishes production/usage statistics in **copper content
 (`CC`)**; its `Use` rows are **single-endpoint** (consumer known, producer open) ⇒ producer **fan-out**.
 **BACI** publishes **bilateral gross trade** in **`Mass`** (fully classified X→Y; no self-trade rows, so

@@ -1153,6 +1153,23 @@ class AccountingStructure:
         ni_to   = ni_to.add_prefix("to_")
         return pd.concat([ei, ni_from, ni_to], axis=1)
 
+    @cached_property
+    def process_recipes(self):
+        """Structural process-recipe skeletons grouped per Process node.
+
+        One recipe per ``(process_sector, region, time)`` with at least one
+        process-incident CC supply edge: its ``inputs`` (use edges into the
+        process, CC, any region), ``product`` (the single supply edge to a
+        ``Flow``), and ``wastes`` (supply edges to ``SB`` nodes with
+        ``entity_sub == "SEM"``). Derived from ``edge_meta`` + the
+        ``supply``/``use`` masks + ``entity_sub`` — works whether or not
+        ``self.ruleset`` is set (it is ``None`` after :meth:`load`). The
+        recipe carries no parameters; :class:`~pysuto.impute.network.NetworkImputer`
+        attaches efficiency/concentration from the params CSVs.
+        """
+        from pysuto.impute.network import derive_process_recipes
+        return derive_process_recipes(self)
+
     # ------------------------------------------------------------------
     # Save / Load  (extended to persist bounds)
     # ------------------------------------------------------------------

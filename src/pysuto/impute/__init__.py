@@ -10,6 +10,7 @@ Public surface (re-exported here so call sites can keep using
 * :class:`ImputationMetadata`  — run-level per-step summary
 
 Imputers (run order is up to the engine's registration sequence):
+* :class:`NetworkImputer`      — process-recipe traversal (mass closure on CC)
 * :class:`ParametricImputer`   — CSV bidirectional pairs + λ directed relations
 * :class:`FormulaImputer`      — multi-source balance equations
 * :class:`TimeImputer`         — temporal interpolation / extrapolation
@@ -25,6 +26,7 @@ from .base       import BaseImputer
 from .engine     import ImputationEngine, ImputationLog, ImputationMetadata
 from .parametric import ParametricImputer, ParametricRelation, _reg_sensitivity
 from .formula    import FormulaImputer, FormulaRelation, ParamRef, SourceTerm
+from .network    import NetworkImputer, ProcessRecipe, derive_process_recipes
 from .time       import TimeImputer
 from .flat_prior import FlatPriorImputer
 
@@ -33,6 +35,9 @@ __all__ = [
     "ImputationEngine",
     "ImputationLog",
     "ImputationMetadata",
+    "NetworkImputer",
+    "ProcessRecipe",
+    "derive_process_recipes",
     "ParametricImputer",
     "ParametricRelation",
     "FormulaImputer",

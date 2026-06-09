@@ -59,6 +59,7 @@ from pysuto.param_relation import expand_edge_index
 from pysuto.unc import PedigreeScores
 from pysuto.impute   import (
     ImputationEngine,
+    NetworkImputer,
     ParametricImputer,
     FormulaImputer,
     FormulaRelation,
@@ -86,6 +87,11 @@ ALPHA_MIN_REG = 0.05     # inverse-multiplier effective-sensitivity floor
 # Imputation cascade — conc/eff/formula iterate to a fixpoint (re-run until a
 # full sweep fills no new edges). Safety cap on passes (chain depth ≈ 8).
 CASCADE_MAX_ITER = 10
+
+# NetworkImputer — waste-rock mass as a ratio of ore output (WR_Mass = k·Ore_Mass).
+# A direct ratio avoids the CO_Mass − Ore_Mass residual going negative when a
+# region's ore_grade exceeds the flat conc_ore.
+WR_TO_ORE_RATIO = 2.0
 
 # TimeImputer (general interpolation pass)
 TIME_WINDOW           = 3
@@ -383,8 +389,20 @@ def main(feed_ids: list[str], label: str) -> None:
         id="conc_formula",
         p=P_PROP,
     )
+    # NetworkImputer runs FIRST and is the sole writer of process-incident,
+    # same-region chain edges (recipe closure on CC + Mass twins + SEM waste).
+    # The eff/conc parametric imputers are demoted to a fallback on whatever the
+    # network leaves undetermined; chain-edge provenance now shows network_*.
+    network = NetworkImputer(
+        eff_csv       = str(inputs.params.resolve("eff")       / "params.csv"),
+        conc_csv      = str(inputs.params.resolve("conc")      / "params.csv"),
+        ore_grade_csv = str(inputs.params.resolve("ore_grade") / "params.csv"),
+        p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG, cv_cap=1.5,
+        wr_to_ore_ratio=WR_TO_ORE_RATIO, id="network",
+    )
     engine.register_cascade(
         [
+            network,
             _build_parametric("conc",      "conc"),
             _build_parametric("ore_grade", "ore_grade"),
             _build_parametric("eff",       "eff"),

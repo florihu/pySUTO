@@ -185,15 +185,21 @@ def get_edge_cache(acc_struct) -> tuple:
     Subsequent calls with the same acc_struct return the cached tuple.
     """
     key = id(acc_struct)
-    if key not in _ec_cache:
+    cached = _ec_cache.get(key)
+    # Guard against id() reuse: once an acc_struct is GC'd its id() can be handed
+    # to a new object, which would otherwise inherit the dead acc's edge cache.
+    # Keep the acc_struct reference and rebuild when the cached one is not this.
+    if cached is None or cached[0] is not acc_struct:
         ei_exp       = expand_edge_index(acc_struct.edge_index, acc_struct.node_index)
         edge_lookup  = _build_edge_lookup(ei_exp)
         id_to_tuple  = {eid: tup for tup, eid in edge_lookup.items()}
         field_vals   = {col: sorted(str(v) for v in ei_exp[col].unique()) for col in _MASK_COLS}
         mask_cache   = _build_mask_cache(ei_exp)
         edge_ids_arr = ei_exp["edge_id"].to_numpy(dtype=int)
-        _ec_cache[key] = (ei_exp, edge_lookup, id_to_tuple, field_vals, mask_cache, edge_ids_arr)
-    return _ec_cache[key]
+        cached = (acc_struct,
+                  (ei_exp, edge_lookup, id_to_tuple, field_vals, mask_cache, edge_ids_arr))
+        _ec_cache[key] = cached
+    return cached[1]
 
 
 # ---------------------------------------------------------------------------
