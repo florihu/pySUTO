@@ -1,0 +1,72 @@
+# Process-recipe traversal imputer for the production chain
+
+Stage-2 imputation is a cascade of **per-edge** fillers (`ParametricImputer`,
+`FormulaImputer`, `TimeImputer`, `FlatPriorImputer`); the unit of reasoning is an *edge*, not
+a *node*. In the reference run [`imp_20260608_080016_0563ae84`](../../data/proc/imp/) **80.3 %
+of edges (686 k) end as `flat_prior_noisy_zero`** — the smart imputers fill ~9 % and the rest
+is given up on. The **SEM residual outputs** (Slag / Tailings / WR / PSC) have zero feed
+[`Coverage`](../../CONTEXT.md) and can *only* be reached by mass closure, so today they are
+noisy zeros (no [`val`](../../CONTEXT.md)). The conc-after-eff Mass-gap is the same
+per-edge brittleness.
+
+We add a **`NetworkImputer`** ([`src/pysuto/impute/network.py`](../../src/pysuto/impute/network.py))
+that treats each **Process node as a mass-closing [recipe](../../CONTEXT.md)**: it propagates
+copper content (`CC`) through recovery efficiencies (`product = eff·Σ(primary inputs)`, `waste =
+(1−eff)·Σ(primary inputs)`, Scrap pooled in), balances Flow nodes (`Σ supply-in = Σ uses-out`,
+which joins one process's product to the next process's input and resolves the `Ore` branch
+split MF-pyro vs SXEW-hydro from whichever side the data pins), and derives `Mass` twins via
+`conc` in the same step. It runs **first** in the existing cascade and is the **sole writer of
+process-incident, same-region** chain edges; cross-region traded imports and `Cathode →
+FU/USC/MESC` final demand are read as boundary terms but never written. eff/conc are resolved
+with the same `ParamRelationResolver` the constraint builders use. It is a new *imputer*, not a
+new *engine* — it reuses the engine cascade/fixpoint, the Lp/σ machinery, `_reg_sensitivity`,
+the `ImputationLog`, and the bounds-clip.
+
+## Considered options
+
+- **A. New `NetworkImputer` in the existing engine; sole writer of chain edges. (chosen.)**
+  One ledger (`agg_result`), one σ/provenance path, one coefficient source shared with
+  Stage 3. The race that produced the conc-after-eff bug is removed structurally: on its
+  territory the network is the only writer and it emits CC + Mass + waste atomically.
+- **B. A dedicated `ProcessNetwork` engine.** Cleaner conceptual model, but a *second* ledger
+  writing into `agg_result` and re-derived σ/provenance/determinacy — a new place for the conc
+  value to diverge from Stage 3. Rejected: more inconsistency surface, not less.
+- **C. Keep the per-edge model, author more `FormulaRelation`s + reorder the cascade.** Lowest
+  effort, but stays per-edge: it cannot traverse the network (a single upstream gap blocks
+  everything below) and the SEM residual outputs stay unreachable.
+- **D. Dual CC + Mass closure at every node.** Rejected: `conc` point-values make Mass
+  infeasible through a concentrating process (at MF, mass-in ≠ mass-out by construction), and
+  it duplicates the solver's hard mass-balance. The network closes **CC** (Cu conserved by
+  `eff`) and leaves Mass mass-balance to Stage 4.
+- **E. Fabricate free splits (equal / param split now).** Rejected for the `Ore` branch and the
+  Concentrate-vs-Scrap split: an honest flat-prior gap the solver can widen beats an invented
+  number. The network fills only what the recipe + known neighbours pin uniquely; a missing
+  **SEM secondary** (Scrap) is treated as absent (0) so the primary chain still flows.
+
+## Consequences
+
+- **Generalises [ADR 0002](0002-single-endpoint-rows-fan-out-not-replicate.md) option D.** That
+  decision made `conc_*_supply` hold *by construction* for the four traded edges; resolving
+  conc with the same `ParamRelationResolver` here extends "conc holds by construction" to the
+  whole chain — domestic legs, intermediates, and SEM waste.
+- **Serves [ADR 0001](0001-replace-coherence-sum-eq-with-bilateral-anchoring.md) and delivers
+  its follow-up A2.** The network propagates the pinned demand-side scale upstream
+  Cathode → … → Mining, and replaces the `flat_prior` noisy-zero seed with derived non-zero
+  values on chain + SEM edges (A2: "non-zero seed for FlatPrior edges").
+- **A1 caveat (not fixed here).** The network's genuinely tight σ on high-recovery steps (ER
+  `eff = 0.997`) is floored by the Stage-3 `σ_a` relative-CV floor (`SIGMA_A_CV_MIN = 0.001`,
+  [`constraints/engine.py:_lp_regularize`](../../src/pysuto/constraints/engine.py)) until A1
+  lands. Not a blocker; the constraint stage is intentionally untouched by this work.
+- **`eff` ratio scope (follow-up).** The `eff` *ratio constraint* relates the product to the
+  single `eff`-named primary only; the pooled recipe (`product = eff·(primary + scrap)`) makes
+  the imputed prior exceed it by `eff·Scrap` for Smelting / CFR. The soft eff row absorbs this;
+  pooling Scrap into the `eff` ratio constraint is a separate, independently-validated change.
+- **Provenance shift.** Process-chain edges are now attributed to `network_*` methods; the
+  eff/conc `ParametricImputer`s remain as a fallback on whatever the network leaves
+  undetermined (and on non-chain edges).
+- **`acc` accessor added.** `AccountingStructure.process_recipes` exposes the structural recipe
+  skeletons (derived from `edge_meta` + supply/use masks + `entity_sub`, which survive
+  `load()` — `ruleset` is `None` there).
+- **Validation.** Re-run the imputation driver; success = **val-coverage (`val_pct`) of the
+  `SEM` column in `coverage_system_boundary_<year>.csv` and of chain commodities in
+  `coverage_supply_use_<year>.csv` rises**, with `flat_prior_noisy_zero` share well below 80 %.
