@@ -258,18 +258,25 @@ class NetworkImputer(BaseImputer):
         return {k: v[:4] for k, v in best.items()}
 
     def _build_flow_balances(self, acc):
-        """Per Flow node: (incoming CC supply edges, outgoing CC use edges)."""
+        """Per **(Flow node, year)**: (incoming CC supply edges, outgoing CC use edges).
+
+        Keyed by ``(node_id, time)``. ``node_index`` carries no time axis, so
+        grouping on the bare node id would pool all years onto one node — leaving
+        the balance with as many unknowns as years and the single-unknown
+        determinacy guard in :meth:`_do_flow_balance` could never fire.
+        """
         em = acc.edge_meta
         cc = em[em["valuation"].to_numpy() == "CC"]
-        flows = acc.node_index.index[acc.node_index["entity"].to_numpy() == "Flow"]
+        flow_ids = set(acc.node_index.index[acc.node_index["entity"].to_numpy() == "Flow"])
+        by_to = {k: g["edge_id"].to_numpy() for k, g in cc.groupby(["to_id", "time"])}
+        by_from = {k: g["edge_id"].to_numpy() for k, g in cc.groupby(["from_id", "time"])}
         balances = []
-        by_to = {n: g["edge_id"].to_numpy() for n, g in cc.groupby("to_id")}
-        by_from = {n: g["edge_id"].to_numpy() for n, g in cc.groupby("from_id")}
-        for n in flows:
-            inc = tuple(int(e) for e in by_to.get(n, ()))
-            out = tuple(int(e) for e in by_from.get(n, ()))
-            if inc and out:
-                balances.append((inc, out))
+        for key in by_to.keys() & by_from.keys():  # nodes/years with both in- and out-edges
+            if key[0] not in flow_ids:
+                continue
+            inc = tuple(int(e) for e in by_to[key])
+            out = tuple(int(e) for e in by_from[key])
+            balances.append((inc, out))
         return balances
 
     # -- imputation ---------------------------------------------------------

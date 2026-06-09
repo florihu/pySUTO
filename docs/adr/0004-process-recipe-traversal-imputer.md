@@ -64,6 +64,19 @@ the `ImputationLog`, and the bounds-clip.
 - **Provenance shift.** Process-chain edges are now attributed to `network_*` methods; the
   eff/conc `ParametricImputer`s remain as a fallback on whatever the network leaves
   undetermined (and on non-chain edges).
+- **Flow-node balance is keyed per `(node, year)` (defect fix, 2026-06-09).** The Decision above
+  describes the Flow balance `Σ supply-in = Σ uses-out` as joining one process's product to the
+  next process's input. As first shipped, [`_build_flow_balances`](../../src/pysuto/impute/network.py)
+  grouped a Flow node's incident edges on the **time-agnostic node id** (`node_index` has no time
+  axis), pooling all 30 years onto one node; with that many unknown legs the single-unknown
+  determinacy guard never fired, so `network_balance` ran **0×** — the supply→use join was inert,
+  the `CP` pool (reachable only through it) never closed (`CSXEW→CP`, `CER→CP`, `CP→Cathode`,
+  `CP→PSC` left `flat_prior_noisy_zero`), and the `Ore` split was resolved only via recipe-backward
+  from observed products. Keying the balance per `(node_id, time)` realises the documented join —
+  the CP pool now closes via balance → recipe. Because recipes still run **before** balances in the
+  sweep, the change is additive (it fills only what recipes leave) and introduces no new node
+  conflict. A two-year regression test (`tests/test_network_imputer.py`) guards it, since a
+  single-year fixture cannot exhibit the pooling.
 - **`acc` accessor added.** `AccountingStructure.process_recipes` exposes the structural recipe
   skeletons (derived from `edge_meta` + supply/use masks + `entity_sub`, which survive
   `load()` — `ruleset` is `None` there).

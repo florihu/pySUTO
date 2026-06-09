@@ -13,6 +13,12 @@ A small synthetic copper chain (one region, one year) exercises:
   * determinacy / no-overwrite
   * CP pooling (eff = 1)
   * conc-by-construction: written CC/Mass twins satisfy CC = conc·Mass
+
+A second, **two-year** fixture (``acc2``) guards the time-pooling regression: the
+Flow-node balance must be keyed per ``(node, year)``. With a single year the bug is
+invisible (one edge per node), so these tests use two years with distinct per-year
+values and assert no cross-year contamination — they fail on the pre-fix code where
+``_build_flow_balances`` pooled all years onto the time-agnostic node id.
 """
 from __future__ import annotations
 
@@ -93,7 +99,7 @@ class _Bounds:
 class MockAcc:
     """Minimal AccountingStructure stand-in for the synthetic chain."""
 
-    def __init__(self):
+    def __init__(self, times=("2020",)):
         self.node_index = pd.DataFrame(
             [(s, e, "A", sub) for s, e, sub in NODES],
             columns=["sector", "entity", "region", "entity_sub"],
@@ -105,9 +111,10 @@ class MockAcc:
         rows = []
         eid = 0
         for fs, ts in EDGES:
-            for val in ("Mass", "CC"):
-                rows.append((eid, sec_to_id[fs], sec_to_id[ts], "2020", val))
-                eid += 1
+            for t in times:
+                for val in ("Mass", "CC"):
+                    rows.append((eid, sec_to_id[fs], sec_to_id[ts], t, val))
+                    eid += 1
         self.edge_index = pd.DataFrame(
             rows, columns=["edge_id", "from_id", "to_id", "time", "valuation"]
         )
@@ -136,10 +143,10 @@ class MockAcc:
         return derive_process_recipes(self)
 
     # edge_id helpers for tests --------------------------------------------
-    def eid(self, fs, ts, val):
+    def eid(self, fs, ts, val, time="2020"):
         m = self.edge_meta
         hit = m[(m["from_sector"] == fs) & (m["to_sector"] == ts)
-                & (m["valuation"] == val)]
+                & (m["valuation"] == val) & (m["time"] == time)]
         return int(hit["edge_id"].iloc[0])
 
 
@@ -365,3 +372,76 @@ def test_conc_by_construction(imputer, acc):
         cc = f[acc.eid("MF" if s == "Concentrate" else "Smelting", s, "CC")]
         mass = f[acc.eid("MF" if s == "Concentrate" else "Smelting", s, "Mass")]
         assert cc == pytest.approx(CONC[s] * mass, rel=1e-9)
+
+
+# =============================================================================
+# Two-year time-pooling regression (the CP-pool gap fix)
+# =============================================================================
+
+@pytest.fixture
+def acc2():
+    return MockAcc(times=("2020", "2021"))
+
+
+@pytest.fixture
+def imputer2(tmp_path, acc2):
+    eff = tmp_path / "eff.csv"
+    conc = tmp_path / "conc.csv"
+    og = tmp_path / "ore_grade.csv"
+    write_eff_csv(eff)
+    write_conc_csv(conc)
+    write_ore_grade_csv(og)
+    imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=float("inf"))
+    imp.prepare(acc2)
+    return imp
+
+
+def _run2(imputer, acc, seeds):
+    """seeds: (from_sector, to_sector, valuation, time) -> value.
+
+    Returns (f, method) where method maps edge_id -> log method.
+    """
+    f = np.full(acc.n_edges, np.nan)
+    sigma = np.full(acc.n_edges, np.nan)
+    for (fs, ts, v, t), val in seeds.items():
+        e = acc.eid(fs, ts, v, t)
+        f[e] = val
+        sigma[e] = 0.01 * abs(val) if val else 0.01
+    entries = imputer.impute(f, sigma, np.isnan(f), step=0, acc_struct=acc)
+    return f, {en["edge_id"]: en["method"] for en in entries}
+
+
+def test_flow_balance_fires_per_year_no_cross_contamination(imputer2, acc2):
+    # Concentrate flow: seed the supply leg MF->Concentrate per year with DIFFERENT
+    # values; the only use leg Concentrate->Smelting must fill from THAT year's
+    # supply. Pre-fix the two years pool onto one node (2 unknown use legs) and the
+    # balance never fires -> both stay NaN. This test is the direct guard.
+    f, method = _run2(imputer2, acc2, {
+        ("MF", "Concentrate", "CC", "2020"): 80.0,
+        ("MF", "Concentrate", "CC", "2021"): 40.0,
+    })
+    e20 = acc2.eid("Concentrate", "Smelting", "CC", "2020")
+    e21 = acc2.eid("Concentrate", "Smelting", "CC", "2021")
+    assert f[e20] == pytest.approx(80.0)   # 2020 supply — not leaked from 2021
+    assert f[e21] == pytest.approx(40.0)
+    assert method[e20] == "network_balance"
+    assert method[e21] == "network_balance"
+
+
+def test_cp_pool_closes_per_year_via_flow_balance(imputer2, acc2):
+    # The reported gap: CSXEW->CP is derived from the SXEW->CSXEW flow per year, then
+    # the CP recipe closes Cathode = CSXEW->CP + CER->CP with PSC = 0 — independently
+    # per year (distinct values prove no cross-year leak). CER->CP is seeded because
+    # the synthetic chain has no ER supply into the CER flow.
+    f, method = _run2(imputer2, acc2, {
+        ("SXEW", "CSXEW", "CC", "2020"): 30.0,
+        ("SXEW", "CSXEW", "CC", "2021"): 50.0,
+        ("CER", "CP", "CC", "2020"): 70.0,
+        ("CER", "CP", "CC", "2021"): 20.0,
+    })
+    for t, csx, cer in (("2020", 30.0, 70.0), ("2021", 50.0, 20.0)):
+        e_csxcp = acc2.eid("CSXEW", "CP", "CC", t)
+        assert f[e_csxcp] == pytest.approx(csx)          # filled from the flow
+        assert method[e_csxcp] == "network_balance"
+        assert f[acc2.eid("CP", "Cathode", "CC", t)] == pytest.approx(csx + cer)
+        assert f[acc2.eid("CP", "PSC", "CC", t)] == pytest.approx(0.0)
