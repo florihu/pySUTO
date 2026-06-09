@@ -78,6 +78,30 @@ edge?* — a **pre-imputation** notion, strictly **narrower** than val-coverage:
 column is `val_pct` (not `coverage_pct`) precisely because val-coverage also credits
 non-flat-prior imputations that feed-`Coverage` excludes.
 
+## Defect, residual & violation vocabulary
+
+**Defect** — the per-**edge** prior departure `a* − a₀` (solved value minus the warm-start
+prior). Plotted by SD-T-09 (`|a*−a₀|` by from/to sector/region) and tabulated by
+`SolverStatsDiagnostic` (`defect_from/to_<year>.csv`), keyed by `(sector, region, valuation)`.
+Its standardised form is `z = (a*−a₀)/σ_a` (SD-T-03). _Avoid_: calling the defect a
+"residual" — that term is reserved (below).
+
+**Residual** — the per-**constraint-row** delta `G·a − c` (`OptimResult.residuals`; SD-T-01
+"Constraint-residual digest", SD-R-02 mass-balance leakage). ≈ 0 on hard rows; on a **soft
+(free) row** it equals the slack `ε` (see README §"Cone order": `Gx − ε = c`). _Avoid_:
+conflating with **defect** — residual is per-constraint, defect is per-edge.
+
+**Soft-constraint violation table** — the harmonised per-soft-`constraint_id` table emitted at
+*both* stages with one schema `[type, valuation, c, lhs, residual, sigma_c, z]`, where
+`lhs = G·a` (the achieved left-hand side), `residual = lhs − c` and `z = residual/σ_c`
+(SD-T-02). The only difference is which `a` feeds `lhs`: the **prior** `a0` at the constraint
+stage (`ConstStatsDiagnostic` → `constraint_violations_prior_<year>.csv`, `lhs = G·a0`) vs the
+**solved** `a*` at the solver stage (`SolverStatsDiagnostic` →
+`constraint_violations_<year>.csv`, `lhs = c_star = G·a*`). _Avoid_: reading a large `|z|` as a
+failure on its own — a soft row is *meant* to absorb disagreement; `|z|` just measures it in
+units of the row's tolerance `σ_c`. _Note_: `ConstDiagnostic` plots the same prior quantity
+under the opposite sign (`eps0 = c − G·a0`); the table follows the reserved `G·a − c` sign.
+
 ## Feed valuation & trade-share vocabulary
 
 **Valuation — `CC` vs `Mass`.** Every edge exists in two valuations. **`Mass`** is the gross product

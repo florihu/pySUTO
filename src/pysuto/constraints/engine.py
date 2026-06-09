@@ -566,8 +566,9 @@ class ConstraintEngine:
             self._registry.register(cr, parents=parents, stage_config=stage_config)
 
         if diag_plot:
-            from ..diag import ConstDiagnostic
+            from ..diag import ConstDiagnostic, ConstStatsDiagnostic
             odir = os.path.join(self._registry.storage_dir, cr.run_id, "diag")
             ConstDiagnostic(cr, label=cr.run_id).plot(odir=odir)
+            ConstStatsDiagnostic(cr, year="1995").write(odir)
 
         return cr

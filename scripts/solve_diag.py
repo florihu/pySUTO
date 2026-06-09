@@ -35,7 +35,8 @@ TIMESTEPS  = None              # None → all timesteps; or e.g. (1995, 2010, 20
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from pysuto.diag    import SolverDiag
+from pysuto.acc     import AccountingStructure
+from pysuto.diag    import SolverDiag, SolverStatsDiagnostic
 from pysuto.logging import get_logger, add_run_handler
 
 _log = get_logger("init_solve_diag")
@@ -58,8 +59,12 @@ def main(opt_run_id: str, label: str = "") -> None:
     diag.summary()
     paths = diag.plot(timesteps=TIMESTEPS)
 
-    _log.info("Wrote %d figures to %s", len(paths),
-              os.path.join(OUTPUT_DIR, opt_run_id, "diag"))
+    diag_dir = os.path.join(OUTPUT_DIR, opt_run_id, "diag")
+    _log.info("Wrote %d figures to %s", len(paths), diag_dir)
+
+    acc = AccountingStructure.load(diag.constraint_run.acc_id)
+    SolverStatsDiagnostic(diag.results, diag.constraint_run, acc, year="1995").write(diag_dir)
+
     _log.info("=== init_solve_diag DONE ===")
 
 

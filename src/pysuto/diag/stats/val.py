@@ -1,6 +1,6 @@
 """
-stats.py
-========
+val.py
+======
 ``StatsDiagnostic`` — post-imputation per-bucket val *distribution* CSVs.
 
 Where :class:`CoverageDiagnostic` counts how many real vals exist per bucket, this
@@ -35,6 +35,7 @@ import os
 import numpy as np
 import pandas as pd
 
+from ._core import grouped_stats
 from .coverage import CoverageDiagnostic
 
 
@@ -50,9 +51,6 @@ class StatsDiagnostic:
     year : str
         The single year both tables are restricted to (default ``"1995"``).
     """
-
-    _COLUMNS = ["min", "p25", "p50", "p75", "p95", "mean", "max", "sum",
-                "n_val", "n_nan", "val_pct"]
 
     def __init__(self, agg_result, acc_struct, year: str = "1995") -> None:
         self._cov = CoverageDiagnostic(agg_result, acc_struct, year=year)
@@ -70,28 +68,7 @@ class StatsDiagnostic:
             return pd.DataFrame()
 
         e["val_value"] = np.where(e["has_val"].to_numpy(), e["f_agg"].to_numpy(), np.nan)
-        keys = [f"{side}_sector", f"{side}_region", "valuation"]
-        g    = e.groupby(keys)
-        v    = g["val_value"]
-
-        out = pd.DataFrame({
-            "min":  v.min(),
-            "p25":  v.quantile(0.25),
-            "p50":  v.quantile(0.50),
-            "p75":  v.quantile(0.75),
-            "p95":  v.quantile(0.95),
-            "mean": v.mean(),
-            "max":  v.max(),
-            "sum":  v.sum(),
-            "n_val": v.count(),
-            "n_nan": g.size() - v.count(),
-        })
-        out["val_pct"] = 100.0 * out["n_val"] / g.size()
-        out["n_val"]   = out["n_val"].astype(int)
-        out["n_nan"]   = out["n_nan"].astype(int)
-        out = out[self._COLUMNS]
-        out.index.names = ["sector", "region", "valuation"]
-        return out
+        return grouped_stats(e, side, "val_value")
 
     def stats_from_table(self) -> pd.DataFrame:
         """File A — stats grouped by the ``from`` (sector, region)."""
