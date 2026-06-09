@@ -361,7 +361,7 @@ class AggDiagnostic:
 # ===========================================================================
 
 # Per constraint-type colour binding — reused across every SolverDiag figure.
-# Real ConstraintEngine.row_meta uses {mass_balance, sum_eq, ratio_eq,
-# ratio_bound}; flow bounds live in u/l and never appear in row_meta. Toy
-# fixtures may omit the "type" column entirely, in which case we fall back
-# to cone_type.
+# Real ConstraintEngine.row_meta uses the canonical families {massbal, sum,
+# ratio} (with the variant/cone splitting ratio into eq=free vs bound=nonneg);
+# flow bounds live in u/l and never appear in row_meta. Toy fixtures may omit
+# the "type" column entirely, in which case we fall back to cone_type.

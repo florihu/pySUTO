@@ -26,16 +26,17 @@ from pysuto.logging import get_logger
 from pysuto.registry import ConstraintRunRegistry, make_run_id
 
 from .base import BaseConstraintBuilder, ConstraintBlock, _empty_block
+from .naming import TYPE_MASSBAL, TYPE_RATIO
 from .run  import ConstraintRun
 
 _log = get_logger(__name__)
 
 
-# G rows of these types are allowed to span multiple valuations (e.g.
-# ratio_eq rows that bridge Mass<->CC via a Cu-grade coefficient r).
-# Every other type must contain edges of exactly one valuation — the
-# structural unit-coherence guarantee on which the σ-weighted QP relies.
-MIXED_VALUATION_OK = frozenset({"ratio_eq", "ratio_bound"})
+# G rows of these types are allowed to span multiple valuations (ratio rows
+# bridge Mass<->CC via a Cu-grade coefficient r). Every other type must
+# contain edges of exactly one valuation — the structural unit-coherence
+# guarantee on which the σ-weighted QP relies.
+MIXED_VALUATION_OK = frozenset({TYPE_RATIO})
 
 
 class ConstraintUnitMixingError(ValueError):
@@ -278,7 +279,7 @@ class ConstraintEngine:
                 for nid in nodes_in & nodes_out:
                     if str(ni.loc[nid, "entity"]) in {"Flow", "Process"}:
                         expected_mb += 1
-        actual_mb = int(type_counts.get("mass_balance", 0))
+        actual_mb = int(type_counts.get(TYPE_MASSBAL, 0))
         if actual_mb == expected_mb:
             _log.info("CHECK OK: mass_balance rows = %d (matches expected)", actual_mb)
         else:
@@ -288,15 +289,20 @@ class ConstraintEngine:
             )
             ok = False
 
-        # 4b. Ratio rows expected uniform across years. Each ratio_eq /
-        # ratio_bound template in the params CSV expands to one row per
-        # matching (time, valuation), so totals should split evenly across
-        # the timesteps in scope. A non-uniform breakdown means some year
-        # is missing rows (often: source feed has no coverage that year),
-        # which is the same class of bug that motivates per-t deactivation.
+        # 4b. Ratio rows expected uniform across years. Each ratio template
+        # (soft ratio_eq → free cone, hard ratio_bound → nonneg cone) in the
+        # params CSV expands to one row per matching (time, valuation), so
+        # totals should split evenly across the timesteps in scope. A
+        # non-uniform breakdown means some year is missing rows (often: source
+        # feed has no coverage that year), which is the same class of bug that
+        # motivates per-t deactivation. Both collapse to type=="ratio"; the
+        # cone separates eq (free) from bound (nonneg).
         n_years_expected = len(list(acc.time_range))
-        for type_name in ("ratio_eq", "ratio_bound"):
-            type_mask = rm["type"].to_numpy() == type_name if len(rm) else np.array([], dtype=bool)
+        for type_name, cone in (("ratio_eq", "free"), ("ratio_bound", "nonneg")):
+            type_mask = (
+                (rm["type"].to_numpy() == TYPE_RATIO) & (rm["cone_type"].to_numpy() == cone)
+                if len(rm) else np.array([], dtype=bool)
+            )
             n_type = int(type_mask.sum())
             if n_type == 0 or n_years_expected == 0:
                 continue
@@ -373,7 +379,7 @@ class ConstraintEngine:
                     raise ConstraintUnitMixingError(
                         f"G row {row_id} (type={types_arr[row_id]!r}, "
                         f"constraint_id={cid!r}) mixes valuations {sorted(row_vals)}. "
-                        f"Every sum_eq / mass_balance row must contain edges of "
+                        f"Every sum / massbal row must contain edges of "
                         f"exactly one valuation."
                     )
                 checked += 1

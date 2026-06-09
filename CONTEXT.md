@@ -128,6 +128,34 @@ the split is computed in copper content via `conc`. Applies only to the four **t
 sectors — Cathode, Concentrate, Anode, Matte. _Avoid_: including **Scrap** — it is an ICSG `Use` type but
 is **not traded**.
 
+## Constraint identity vocabulary
+
+**`constraint_id`** — the unique, human-readable **display key** of one constraint row, with the
+grammar `{type}_{variant}_{specs}_{year}` (tokens joined by `_`; every token underscore-free). It is
+a key for *reading*, never *parsing*: all structured fields live as `row_meta` columns and are read
+from there. _Avoid_: splitting a `constraint_id` to recover a field — read the column instead.
+
+**type** (constraint family) — the top identity slot, one of `massbal` | `sum` | `ratio`. Already a
+reserved word for the constraint-row `type` column (see Glossary §Entity `_Avoid_`: "node type").
+_Avoid_: using `type` for an entity kind (that is **entity**: `Process` | `Flow` | `SB`).
+
+**variant** — the second identity slot: the *role* a constraint plays within its family
+(`massbal`; `usefulsupply` / `subentity` / `anchor` / a user csv label for `sum`; `ratioeq` / `bound`
+for `ratio`). _Avoid_: "name" (collides with **Sector**, "the named instance").
+
+**Node-scoped vs set-scoped constraint** — a `massbal` or node-`sum` row balances **one node**, so its
+specs render that node as `sector_region_valuation`; the collapse of a node to `sector_region` is
+sound because constraint rows are emitted over **concrete** nodes only (the `sector→entity` 1:1
+invariant holds; open `<any>` sectors never reach a row). A `ratio` row relates **two edges**, each
+rendered full `from→to`, numerator over denominator. A set-`sum` (`anchor` / csv) spans **many**
+edges with no single node — its identity rests on the `variant` plus group-key specs. _Avoid_:
+expecting a single `sector`/`region` on a set-sum or ratio row (they are null there).
+
+**Cross-valuation row** — `ratio` is the **only** constraint family whose two sides may differ in
+**valuation** (a `conc` ratio pins `CC = conc·Mass`, so `num_valuation = CC`, `denom_valuation =
+Mass`); `massbal` and `sum` rows are strictly single-valuation. This is why `ratio` is the family
+whitelisted for mixed-valuation rows. _Avoid_: reading a ratio's two valuations as a bug.
+
 ## ROW pedigree-penalty vocabulary
 
 **ROW** — *Rest of World*, the residual region aggregate for countries not individually

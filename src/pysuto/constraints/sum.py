@@ -17,6 +17,7 @@ from pysuto.logging import get_logger
 from pysuto.param_relation import WILDCARD, ParamRelationResolver, expand_edge_index
 
 from .base import BaseConstraintBuilder, ConstraintBlock, _empty_block
+from .naming import TYPE_SUM, _safe, build_constraint_id, empty_row_meta_dict
 
 _log = get_logger(__name__)
 
@@ -140,8 +141,13 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                     all_coeff = [1.0] * len(sup_ids) + [-1.0] * len(use_ids)
                     n_row = ni.loc[nid]
 
+                    sector = str(n_row["sector"])
+                    region = str(n_row["region"])
                     specs.append({
-                        "constraint_id":   f"useful_supply_node{nid}_t{time}_{valuation}",
+                        "constraint_id":   build_constraint_id(
+                            TYPE_SUM, "usefulsupply", sector, region, valuation, year=time,
+                        ),
+                        "variant":         "usefulsupply",
                         "description":     f"Useful supply balance node {nid} t={time} val={valuation}",
                         "edge_ids":        all_ids,
                         "coefficients":    all_coeff,
@@ -152,8 +158,8 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                         "_supply_ids":     sup_ids,
                         "time":            str(time),
                         "valuation":       valuation,
-                        "sector":          str(n_row["sector"]),
-                        "region":          str(n_row["region"]),
+                        "sector":          sector,
+                        "region":          region,
                         "entity":          str(n_row["entity"]),
                         "entity_sub":      str(n_row.get("entity_sub", "")) if "entity_sub" in ni.columns else None,
                     })
@@ -259,8 +265,13 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                     all_coeff = [1.0] * len(lhs_pos) + [-1.0] * len(lhs_neg)
                     n_row = ni.loc[nid]
 
+                    sector = str(n_row["sector"])
+                    region = str(n_row["region"])
                     spec: dict = {
-                        "constraint_id":   f"sub_entity_node{nid}_t{time}_{valuation}",
+                        "constraint_id":   build_constraint_id(
+                            TYPE_SUM, "subentity", sector, region, valuation, year=time,
+                        ),
+                        "variant":         "subentity",
                         "description":     f"Subentity sum node {nid} t={time} val={valuation}",
                         "edge_ids":        all_ids,
                         "coefficients":    all_coeff,
@@ -271,8 +282,8 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                         "_rhs_ids":        rhs_ids,
                         "time":            str(time),
                         "valuation":       valuation,
-                        "sector":          str(n_row["sector"]),
-                        "region":          str(n_row["region"]),
+                        "sector":          sector,
+                        "region":          region,
                         "entity":          str(n_row["entity"]),
                         "entity_sub":      str(n_row.get("entity_sub", "")) if "entity_sub" in ni.columns else None,
                     }
@@ -303,6 +314,10 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         ``mask`` (optional): name of a mask in ``acc_struct.masks``. Resolved
         edges that fall outside the mask are dropped from each spec. A
         constraint whose remaining edges are empty is skipped with a warning.
+
+        The ``constraint_id`` column becomes the grammar ``variant`` slot and
+        must be **underscore-free** (``_`` is the id slot separator); a label
+        containing ``_`` raises :class:`ConstraintIdError`.
 
         Required columns:
             constraint_id, coefficient, c_k, sigma_ck_mode
@@ -390,13 +405,19 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                     cid, len(unique_vals), unique_vals,
                 )
 
+            # The user-supplied constraint_id becomes the grammar `variant` slot
+            # — it must be underscore-free (the slot separator). _safe raises a
+            # ConstraintIdError pointing at the offending csv label otherwise.
+            variant = _safe(cid, field="csv constraint_id")
             for val in unique_vals:
                 mask_v = (row_vals == val)
                 sub_ids   = ids_arr[mask_v].tolist()
                 sub_coeff = coeff_arr[mask_v].tolist()
-                sub_cid   = f"{cid}_{val}" if len(unique_vals) > 1 else str(cid)
                 specs.append({
-                    "constraint_id":     sub_cid,
+                    "constraint_id":     build_constraint_id(
+                        TYPE_SUM, variant, val, year=spec_time,
+                    ),
+                    "variant":           variant,
                     "description":       desc,
                     "edge_ids":          sub_ids,
                     "coefficients":      sub_coeff,
@@ -486,9 +507,16 @@ class SumConstraintBuilder(BaseConstraintBuilder):
             key_tuple = key_vals if isinstance(key_vals, tuple) else (key_vals,)
             key_map = dict(zip(group_keys, key_tuple))
             edge_ids = grp["edge_id"].astype(int).tolist()
-            cid_tail = "_".join(str(v) for v in key_tuple)
+            # `time` (if grouped on) lands in the year slot; every other group
+            # key becomes a spec token. id_prefix is the grammar `variant`.
+            variant = _safe(id_prefix, field="anchor id_prefix")
+            spec_tokens = [str(key_map[k]) for k in group_keys if k != "time"]
             specs.append({
-                "constraint_id":     f"{id_prefix}_{cid_tail}",
+                "constraint_id":     build_constraint_id(
+                    TYPE_SUM, variant, *spec_tokens,
+                    year=key_map.get("time"),
+                ),
+                "variant":           variant,
                 "description":       f"{id_prefix} anchor {key_map}",
                 "edge_ids":          edge_ids,
                 "coefficients":      [coeff] * len(edge_ids),
@@ -530,9 +558,11 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         for row_id, spec in enumerate(self._specs):
             for eid, coeff in zip(spec["edge_ids"], spec["coefficients"]):
                 rows_list.append(row_id); cols_list.append(eid); vals_list.append(coeff)
-            meta_list.append({
+            meta = empty_row_meta_dict()
+            meta.update({
                 "constraint_id": spec["constraint_id"],
-                "type":          "sum_eq",
+                "type":          TYPE_SUM,
+                "variant":       spec.get("variant"),
                 "is_hard":       False,
                 "cone_type":     "free",
                 "time":          spec.get("time"),
@@ -542,6 +572,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                 "entity":        spec.get("entity"),
                 "entity_sub":    spec.get("entity_sub"),
             })
+            meta_list.append(meta)
 
         M = len(self._specs)
         G = sp.csr_matrix((vals_list, (rows_list, cols_list)), shape=(M, n_edges))

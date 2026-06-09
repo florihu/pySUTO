@@ -56,13 +56,11 @@ class ConstDiagnostic:
         "free":   _C["green"],
     }
 
-    # constraint type → bar colour
+    # constraint family (type) → bar colour
     _TYPE_COLORS = {
-        "mass_balance": _C["blue"],
-        "sum_eq":       _C["green"],
-        "ratio_eq":     _C["purple"],
-        "ratio_bound":  _C["orange"],
-        "flow_bound":   _C["red"],
+        "massbal": _C["blue"],
+        "sum":     _C["green"],
+        "ratio":   _C["purple"],
     }
 
     def __init__(self, constraint_run, label: str = "", year: str = "1995") -> None:
@@ -265,11 +263,11 @@ class ConstDiagnostic:
 
         eps0, _c, t = self._eps0_at(self.year)
         rm   = self.cr.row_meta
-        mask = ((rm["type"].values == "sum_eq") & self._year_row_mask()
+        mask = ((rm["type"].values == "sum") & self._year_row_mask()
                 if eps0 is not None else np.zeros(len(rm), dtype=bool))
 
         if mask.any():
-            family = self._sum_family(rm["constraint_id"][mask]).to_numpy()
+            family = rm["variant"][mask].astype(str).to_numpy()
             vals   = np.abs(eps0[mask])
             keep   = np.isfinite(vals) & (vals > 0)
             cells  = {(self.year, "CC"): (family[keep], np.log10(vals[keep]))}
@@ -292,24 +290,26 @@ class ConstDiagnostic:
     # ------------------------------------------------------------------
 
     def _panel_type_bar(self, ax) -> None:
-        rm     = self.cr.row_meta
-        types  = rm["type"].unique().tolist() if len(rm) else []
+        rm       = self.cr.row_meta
+        variants = rm["variant"].unique().tolist() if len(rm) else []
 
-        if not types:
+        if not variants:
             ax.text(0.5, 0.5, "No constraints", ha="center", va="center",
                     transform=ax.transAxes)
-            ax.set_title("Constraints by type", fontweight="bold")
+            ax.set_title("Constraints by variant", fontweight="bold")
             return
 
-        x      = np.arange(len(types))
+        x      = np.arange(len(variants))
         width  = 0.6
         totals = []
 
-        for i, t in enumerate(types):
-            sub    = rm[rm["type"] == t]
+        for i, v in enumerate(variants):
+            sub    = rm[rm["variant"] == v]
             n_soft = int((~sub["is_hard"]).sum())
             n_hard = int(sub["is_hard"].sum())
-            color  = self._TYPE_COLORS.get(t, _C["grey"])
+            # colour by the variant's family (type); families share a hue.
+            fam    = str(sub["type"].iloc[0]) if len(sub) else ""
+            color  = self._TYPE_COLORS.get(fam, _C["grey"])
             ax.bar(i, n_soft, width, color=color, alpha=0.45, edgecolor="white")
             ax.bar(i, n_hard, width, bottom=n_soft, color=color, alpha=0.9,
                    edgecolor="white", hatch="//")
@@ -330,8 +330,8 @@ class ConstDiagnostic:
             fontsize=8,
         )
         ax.set_xticks(x)
-        ax.set_xticklabels(types, rotation=25, ha="right", fontsize=8)
-        ax.set_title("Constraints by type", fontweight="bold")
+        ax.set_xticklabels(variants, rotation=25, ha="right", fontsize=8)
+        ax.set_title("Constraints by variant", fontweight="bold")
         ax.set_ylabel("# constraint rows")
         ax.grid(axis="y", alpha=0.3)
 
@@ -370,14 +370,6 @@ class ConstDiagnostic:
         if "time" not in rm.columns or not len(rm):
             return np.zeros(len(rm), dtype=bool)
         return rm["time"].astype(str).values == self.year
-
-    @staticmethod
-    def _sum_family(cid_series: pd.Series) -> pd.Series:
-        """Map sum-anchor constraint_ids to their family prefix.
-
-        e.g. ``mine_prod_anchor_Argentina_1997_CC`` → ``mine_prod_anchor``.
-        """
-        return cid_series.astype(str).str.split("_anchor").str[0] + "_anchor"
 
     def _eps0_at(self, year: str):
         """Return (eps0, c, t_label) for ``year`` (or the first timestep when
@@ -556,7 +548,7 @@ class ConstDiagnostic:
             return
 
         rm   = self.cr.row_meta
-        mask = (rm["type"].values == "sum_eq") & self._year_row_mask()
+        mask = (rm["type"].values == "sum") & self._year_row_mask()
         if not mask.any():
             ax.text(0.5, 0.5, "No sum anchors at year", ha="center", va="center",
                     transform=ax.transAxes)
@@ -565,7 +557,7 @@ class ConstDiagnostic:
 
         cx     = np.abs(c_t)[mask]
         epsx   = np.abs(eps0)[mask]
-        family = self._sum_family(rm["constraint_id"][mask]).to_numpy()
+        family = rm["variant"][mask].astype(str).to_numpy()
 
         fams   = sorted(pd.unique(family))
         colors = plt.cm.tab10(np.linspace(0, 1, max(len(fams), 1)))

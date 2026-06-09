@@ -113,16 +113,25 @@ def soft_constraint_table(
     year : str
         Restrict to rows whose ``time`` matches.
     soft_types : tuple
-        Which ``type`` values count as soft (default ``sum_eq`` / ``ratio_eq``).
+        Legacy fallback only — used when ``row_meta`` has no ``cone_type``
+        column. A soft row is canonically a **free-cone** row (``cone_type ==
+        "free"``), which is exactly the old ``sum_eq`` ∪ ``ratio_eq`` set.
 
     Returns
     -------
     pd.DataFrame
         Indexed by ``constraint_id``; columns
-        ``[type, valuation, c, lhs, residual, sigma_c, z]`` with ``z = residual/σ_c``.
+        ``[type, variant, valuation, c, lhs, residual, sigma_c, z]`` with
+        ``z = residual/σ_c``.
     """
     rm = row_meta.reset_index(drop=True)
-    mask = rm["type"].isin(soft_types) & (rm["time"].astype(str) == str(year))
+    # Soft ⟺ free cone (slack-bearing). Fall back to the legacy type whitelist
+    # only when cone_type is absent (toy fixtures).
+    if "cone_type" in rm.columns:
+        soft = rm["cone_type"].astype(str) == "free"
+    else:
+        soft = rm["type"].isin(soft_types)
+    mask = soft & (rm["time"].astype(str) == str(year))
     idx = np.flatnonzero(mask.to_numpy())
 
     c       = np.asarray(c, dtype=float)[idx]
@@ -137,9 +146,15 @@ def soft_constraint_table(
     else:
         valuation = np.full(idx.size, np.nan)
 
+    if "variant" in rm.columns:
+        variant = rm["variant"].to_numpy()[idx]
+    else:
+        variant = np.full(idx.size, np.nan)
+
     return pd.DataFrame(
         {
             "type":      rm["type"].to_numpy()[idx],
+            "variant":   variant,
             "valuation": valuation,
             "c":         c,
             "lhs":       lhs,

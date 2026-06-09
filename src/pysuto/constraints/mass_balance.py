@@ -14,6 +14,7 @@ import scipy.sparse as sp
 from pysuto.logging import get_logger
 
 from .base import BaseConstraintBuilder, ConstraintBlock, _empty_block
+from .naming import TYPE_MASSBAL, build_constraint_id, empty_row_meta_dict
 
 _log = get_logger(__name__)
 
@@ -102,18 +103,25 @@ class MassBalanceBuilder(BaseConstraintBuilder):
                     c_list.append(0.0)
                     sigma_list.append(0.0)
                     n_row = node_idx.loc[nid]
-                    meta_list.append({
-                        "constraint_id": f"mass_balance_node{nid}_t{time}_{valuation}",
-                        "type":          "mass_balance",
+                    sector = str(n_row["sector"])
+                    region = str(n_row["region"])
+                    meta = empty_row_meta_dict()
+                    meta.update({
+                        "constraint_id": build_constraint_id(
+                            TYPE_MASSBAL, "massbal", sector, region, valuation, year=time,
+                        ),
+                        "type":          TYPE_MASSBAL,
+                        "variant":       "massbal",
                         "is_hard":       True,
                         "cone_type":     "zero",
                         "time":          str(time),
                         "valuation":     valuation,
-                        "sector":        str(n_row["sector"]),
-                        "region":        str(n_row["region"]),
+                        "sector":        sector,
+                        "region":        region,
                         "entity":        str(n_row["entity"]),
                         "entity_sub":    str(n_row.get("entity_sub", "")) if "entity_sub" in node_idx.columns else None,
                     })
+                    meta_list.append(meta)
                     row_id += 1
 
         if row_id == 0:

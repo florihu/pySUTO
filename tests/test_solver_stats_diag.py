@@ -44,10 +44,10 @@ class CRStub:
     a0      = np.array([10, 0, 5, 3, 7, 0, 8, 9, 0], dtype=float)
     sigma_a = np.array([1, 1, 1, 1, 1, 1, 2, 1, 1], dtype=float)
     row_meta = pd.DataFrame([
-        {"constraint_id": "sum_A",   "type": "sum_eq",       "time": "1995", "valuation": "Mass"},
-        {"constraint_id": "ratio_A", "type": "ratio_eq",     "time": "1995"},                       # no valuation
-        {"constraint_id": "mb_A",    "type": "mass_balance", "time": "1995", "valuation": "Mass"},   # hard → excluded
-        {"constraint_id": "sum_B",   "type": "sum_eq",       "time": "1996", "valuation": "Mass"},   # year → excluded
+        {"constraint_id": "sumA",   "type": "sum",     "variant": "anchor",  "cone_type": "free", "time": "1995", "valuation": "Mass"},
+        {"constraint_id": "ratioA", "type": "ratio",   "variant": "ratioeq", "cone_type": "free", "time": "1995"},                       # no valuation
+        {"constraint_id": "mbA",    "type": "massbal", "variant": "massbal", "cone_type": "zero", "time": "1995", "valuation": "Mass"},   # hard → excluded
+        {"constraint_id": "sumB",   "type": "sum",     "variant": "anchor",  "cone_type": "free", "time": "1996", "valuation": "Mass"},   # year → excluded
     ])
     timestep_data = {
         "1995": {"c": np.array([100, 0, 0, 50], dtype=float),
@@ -131,26 +131,26 @@ def test_defect_year_filter_drops_1996(diag):
 
 def test_violations_only_soft_in_year(diag):
     v = diag.violations_table()
-    assert list(v.index) == ["sum_A", "ratio_A"]
-    assert "mb_A" not in v.index      # hard excluded
-    assert "sum_B" not in v.index     # 1996 excluded
+    assert list(v.index) == ["sumA", "ratioA"]
+    assert "mbA" not in v.index      # hard excluded
+    assert "sumB" not in v.index     # 1996 excluded
     assert v.index.name == "constraint_id"
 
 
 def test_violations_residual_and_z(diag):
     v = diag.violations_table()
-    assert list(v.columns) == ["type", "valuation", "c", "lhs", "residual", "sigma_c", "z"]
-    s = v.loc["sum_A"]
+    assert list(v.columns) == ["type", "variant", "valuation", "c", "lhs", "residual", "sigma_c", "z"]
+    s = v.loc["sumA"]
     assert s["c"] == 100.0 and s["lhs"] == 104.0  # lhs = c_star
     assert s["residual"] == pytest.approx(4.0)    # lhs - c
     assert s["sigma_c"] == 10.0
     assert s["z"] == pytest.approx(0.4)           # residual / sigma_c
-    assert s["type"] == "sum_eq" and s["valuation"] == "Mass"
+    assert s["type"] == "sum" and s["valuation"] == "Mass"
 
 
 def test_violations_ratio_valuation_nan(diag):
     v = diag.violations_table()
-    r = v.loc["ratio_A"]
+    r = v.loc["ratioA"]
     assert r["residual"] == pytest.approx(1.0)
     assert r["z"] == pytest.approx(0.5)          # 1 / 2
     assert pd.isna(r["valuation"])               # ratio_eq omits valuation

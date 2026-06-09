@@ -198,15 +198,16 @@ class TestMassBalanceBuilder:
         assert np.all(block.sigma_c == 0.0)
 
     def test_mass_balance_row_meta_has_time(self, toy_acc):
-        """row_meta carries a `time` column; constraint_id ends with
-        `_t{time}_{valuation}` after the per-valuation split."""
+        """row_meta carries a `time` column; constraint_id follows the grammar
+        `massbal_massbal_{sector}_{region}_{valuation}_{year}`."""
         from pysuto.constraints import MassBalanceBuilder
         block = MassBalanceBuilder().build_static(toy_acc)
         rm = block.row_meta
         assert "time" in rm.columns
         for cid, t, v in zip(rm["constraint_id"], rm["time"], rm["valuation"]):
-            assert str(cid).endswith(f"_t{t}_{v}"), \
-                f"constraint_id={cid!r} does not end with _t{t}_{v}"
+            assert str(cid).startswith("massbal_massbal_"), cid
+            assert str(cid).endswith(f"_{v}_{t}"), \
+                f"constraint_id={cid!r} does not end with _{v}_{t}"
 
 
 # ---------------------------------------------------------------------------
@@ -255,7 +256,8 @@ class TestSumConstraintBuilder:
 
         # 3 non-zero groups; the zero-anchor group is dropped.
         assert block.G_rows.shape[0] == 3
-        assert (rm["type"] == "sum_eq").all()
+        assert (rm["type"] == "sum").all()
+        assert (rm["variant"] == "anchor").all()
         assert (rm["cone_type"] == "free").all()
         assert (~rm["is_hard"].astype(bool)).all()
 
@@ -278,7 +280,7 @@ class TestSumConstraintBuilder:
 
     def test_sum_row_meta_has_time(self, toy_acc):
         """SumConstraintBuilder row_meta has a `time` column; constraint_id
-        ends with `_t{time}_{valuation}` after the per-valuation split."""
+        follows the grammar `sum_usefulsupply_{sector}_{region}_{val}_{year}`."""
         from pysuto.constraints import SumConstraintBuilder
         block = SumConstraintBuilder.from_acc_struct(
             toy_acc, sigma_fraction=0.05,
@@ -287,7 +289,8 @@ class TestSumConstraintBuilder:
         assert "time" in rm.columns
         assert rm["time"].notna().all()
         for cid, t, v in zip(rm["constraint_id"], rm["time"], rm["valuation"]):
-            assert str(cid).endswith(f"_t{t}_{v}")
+            assert str(cid).startswith("sum_usefulsupply_"), cid
+            assert str(cid).endswith(f"_{v}_{t}")
 
     def test_sum_sigma_c_varies_per_timestep(self, toy_acc):
         """build_dynamic returns genuinely different σ_c per timestep:
@@ -372,7 +375,7 @@ class TestSumConstraintBuilder:
             w.writeheader()
             # term 1: supply Mining/A → Ore/A  at 2020 (edge 0)
             w.writerow({
-                "constraint_id": "test_sum", "description": "test",
+                "constraint_id": "testsum", "description": "test",
                 "sector_from": "Mining", "entity_from": "Process", "region_from": "A",
                 "sector_to":   "Ore",    "entity_to":   "Flow",    "region_to":   "A",
                 "time": "2020", "valuation": "Mass",
@@ -381,7 +384,7 @@ class TestSumConstraintBuilder:
             })
             # term 2: use Ore/A → Mining/A  at 2020 (edge 2), subtract
             w.writerow({
-                "constraint_id": "test_sum", "description": "",
+                "constraint_id": "testsum", "description": "",
                 "sector_from": "Ore",    "entity_from": "Flow",    "region_from": "A",
                 "sector_to":   "Mining", "entity_to":   "Process", "region_to":   "A",
                 "time": "2020", "valuation": "Mass",
@@ -643,8 +646,8 @@ class TestUnitMixingCheck:
         cr.row_meta = pd.concat([
             cr.row_meta,
             pd.DataFrame([{
-                "constraint_id": "fake_ratio",
-                "type":          "ratio_eq",
+                "constraint_id": "fakeratio",
+                "type":          "ratio",
                 "is_hard":       False,
                 "cone_type":     "free",
                 "time":          "2020",
@@ -684,7 +687,7 @@ class TestRatioConstraintBuilder:
             ])
             w.writeheader()
             w.writerow({
-                "param_id":       "test_ratio",
+                "param_id":       "testratio",
                 "a_sector_from":  "Mining", "a_entity_from": "Process", "a_region_from": "A",
                 "a_sector_to":    "Ore",    "a_entity_to":   "Flow",    "a_region_to":   "A",
                 "a_time":         "2020",   "a_valuation":   "Mass",
@@ -746,7 +749,7 @@ class TestRatioConstraintBuilder:
             ])
             w.writeheader()
             w.writerow({
-                "param_id":       "mm_ratio",
+                "param_id":       "mmratio",
                 "a_sector_from":  "Mining", "a_entity_from": "Process", "a_region_from": "A",
                 "a_sector_to":    "Ore",    "a_entity_to":   "Flow",    "a_region_to":   "A",
                 "a_time":         "2020",   "a_valuation":   "Mass",
@@ -803,7 +806,7 @@ class TestRatioBoundBuilder:
             ])
             w.writeheader()
             w.writerow({
-                "param_id":       "bound_test",
+                "param_id":       "boundtest",
                 "a_sector_from":  "Mining", "a_entity_from": "Process", "a_region_from": "A",
                 "a_sector_to":    "Ore",    "a_entity_to":   "Flow",    "a_region_to":   "A",
                 "a_time":         "2020",   "a_valuation":   "Mass",
@@ -988,8 +991,11 @@ class TestConstraintEngine:
         run = engine.run(toy_agg_result, timesteps=["2020"], persist=False)
 
         assert run.G.shape[0] > 0
-        assert "mass_balance" in run.row_meta["type"].values
-        assert "ratio_bound"  in run.row_meta["type"].values
+        assert "massbal" in run.row_meta["type"].values
+        assert "ratio"   in run.row_meta["type"].values
+        # param_id "mb" becomes the variant; the bound rows are the nonneg cone.
+        assert "mb"     in run.row_meta["variant"].values
+        assert "nonneg" in run.row_meta["cone_type"].values
 
 
 # ---------------------------------------------------------------------------
@@ -1298,12 +1304,17 @@ class TestEnginePerTPartition:
             assert np.allclose(block_action, legacy_action), \
                 f"Mismatch at t={t} (mixed builders)"
 
-        # All four cone types' rows survive the partition
+        # Rows of every family/cone survive the partition: massbal (zero),
+        # ratio_eq (free) and ratio_bound (nonneg). The shared param_id is the
+        # variant, so eq vs bound is told apart by cone_type, not variant.
         types_seen = set()
+        cones_seen = set()
         for t in cr.G_blocks:
             t_rm = cr.row_meta.loc[times == t]
             types_seen |= set(t_rm["type"].unique())
-        assert {"mass_balance", "ratio_eq", "ratio_bound"} <= types_seen
+            cones_seen |= set(t_rm["cone_type"].unique())
+        assert {"massbal", "ratio"} <= types_seen
+        assert {"zero", "free", "nonneg"} <= cones_seen
 
 
 class TestPriorBox:
@@ -1363,6 +1374,57 @@ class TestPriorBox:
         u = np.array([200.0])           # tighter than the box high side
         ln, un = e._apply_prior_box(l.copy(), u.copy(), a0, sa)
         assert ln[0] == 10.0 and un[0] == 200.0
+
+
+class TestConstraintIdGrammar:
+    """The {type}_{variant}_{specs}_{year} grammar and uniform row_meta schema
+    across a full multi-builder engine run."""
+
+    def _full_run(self, toy_acc, toy_agg_result, tmp_path):
+        from pysuto.constraints import (
+            ConstraintEngine, MassBalanceBuilder,
+            SumConstraintBuilder, RatioConstraintBuilder, RatioBoundBuilder,
+        )
+        params = TestRatioPerTimestepDeactivation()._write_wildcard_params_csv(
+            tmp_path, nominal=0.5, bl=0.1, bu=2.0,
+        )
+        engine = ConstraintEngine(toy_acc, storage_dir=str(tmp_path / "const"))
+        engine.register(MassBalanceBuilder())
+        engine.register(SumConstraintBuilder.from_acc_struct(toy_acc, sigma_fraction=0.05))
+        engine.register(RatioConstraintBuilder.from_csv(params, toy_acc))
+        engine.register(RatioBoundBuilder.from_csv(params, toy_acc))
+        return engine.run(toy_agg_result, timesteps=["2020", "2021"], persist=False)
+
+    def test_row_meta_schema_is_uniform(self, toy_acc, toy_agg_result, tmp_path):
+        from pysuto.constraints.naming import ROW_META_COLS
+        cr = self._full_run(toy_acc, toy_agg_result, tmp_path)
+        assert list(cr.row_meta.columns) == ROW_META_COLS
+
+    def test_ids_unique(self, toy_acc, toy_agg_result, tmp_path):
+        cr = self._full_run(toy_acc, toy_agg_result, tmp_path)
+        assert cr.row_meta["constraint_id"].is_unique
+
+    def test_id_grammar_round_trips(self, toy_acc, toy_agg_result, tmp_path):
+        cr = self._full_run(toy_acc, toy_agg_result, tmp_path)
+        rm = cr.row_meta
+        for cid, typ, variant, time in zip(
+            rm["constraint_id"], rm["type"], rm["variant"], rm["time"],
+        ):
+            toks = str(cid).split("_")
+            assert len(toks) >= 4, cid
+            assert toks[0] == typ, (cid, typ)            # slot 1 == type column
+            assert toks[1] == variant, (cid, variant)    # slot 2 == variant
+            assert toks[-1] == (str(time) if time is not None else "na")
+        assert set(rm["type"].unique()) <= {"massbal", "sum", "ratio"}
+
+    def test_ratio_struct_cols_populated_only_on_ratio(self, toy_acc, toy_agg_result, tmp_path):
+        cr = self._full_run(toy_acc, toy_agg_result, tmp_path)
+        rm = cr.row_meta
+        is_ratio = rm["type"] == "ratio"
+        # ratio rows carry the numerator/denominator decode; others do not.
+        assert rm.loc[is_ratio, "num_sector_from"].notna().all()
+        assert rm.loc[is_ratio, "denom_valuation"].notna().all()
+        assert rm.loc[~is_ratio, "num_sector_from"].isna().all()
 
 
 if __name__ == "__main__":
