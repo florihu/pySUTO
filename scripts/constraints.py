@@ -61,14 +61,16 @@ ANCHOR_USE_SECTORS = {"FU", "MESC", "USC"}
 # Rows whose group_region is ROW are dropped (ROW totals are an unreliable
 # catch-all). Waste (Mining→WR, SXEW→Tailings), CP→PSC, and secondary scrap
 # inputs are deliberately excluded — they are not published ICSG totals.
+# NOTE: id_prefix is the constraint-id `variant` slot and must be
+# underscore-free (`_` is the id separator) — see constraints/naming.py.
 ICSG_ANCHOR_FAMILIES = [
-    ("Mining",      {"Ore"},            "region_from", "mine_prod_anchor"),
-    ("SXEW",        {"CSXEW"},          "region_from", "sxew_prod_anchor"),
-    ("Concentrate", {"Smelting"},       "region_to",   "smelter_thru_anchor"),
-    ("Matte",       {"CFR"},            "region_to",   "refine_cfr_anchor"),
-    ("Anode",       {"ER"},             "region_to",   "refine_er_anchor"),
-    ("Cathode",     ANCHOR_USE_SECTORS, "region_to",   "cathode_use_anchor"),
-    ("CP",          {"Cathode"},        "region_from", "cp_cathode_anchor"),
+    ("Mining",      {"Ore"},            "region_from", "mineprodanchor"),
+    ("SXEW",        {"CSXEW"},          "region_from", "sxewprodanchor"),
+    ("Concentrate", {"Smelting"},       "region_to",   "smelterthruanchor"),
+    ("Matte",       {"CFR"},            "region_to",   "refinecfranchor"),
+    ("Anode",       {"ER"},             "region_to",   "refineeranchor"),
+    ("Cathode",     ANCHOR_USE_SECTORS, "region_to",   "cathodeuseanchor"),
+    ("CP",          {"Cathode"},        "region_from", "cpcathodeanchor"),
 ]
 
 # ---------------------------------------------------------------------------

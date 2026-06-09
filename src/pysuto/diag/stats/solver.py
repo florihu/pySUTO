@@ -15,9 +15,9 @@ match :class:`StatsDiagnostic` plus ``median_abs_z`` where ``z = (F_opt − a0)/
 Stage-2 tables.
 
 **Constraint-violation table** (``constraint_violations_<year>.csv``) — one row per
-**soft** constraint (``type ∈ {sum_eq, ratio_eq}``) active in ``year``, indexed by
-``constraint_id``, with the stage-neutral schema ``[type, valuation, c, lhs, residual,
-sigma_c, z]`` (shared with :class:`ConstStatsDiagnostic`). Here ``lhs = c_star`` (=
+**soft** constraint (free cone — the old ``sum_eq`` ∪ ``ratio_eq``) active in ``year``,
+indexed by ``constraint_id``, with the stage-neutral schema ``[type, variant, valuation,
+c, lhs, residual, sigma_c, z]`` (shared with :class:`ConstStatsDiagnostic`). Here ``lhs = c_star`` (=
 ``G·a*`` on a soft row), ``residual = lhs − c`` is the row's residual ``G·a − c`` (= the
 slack the solver calls ``eps``; see README §"Cone order"), and ``z = residual/σ_c`` (SD-T-02).
 

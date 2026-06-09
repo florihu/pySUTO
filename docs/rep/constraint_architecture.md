@@ -89,10 +89,13 @@ class ConstraintRegistry:
 ## Sum Constraint CSV Schema (long format)
 
 One row per term; `constraint_id` groups terms belonging to the same constraint.
+The CSV `constraint_id` becomes the grammar **`variant`** slot and must be
+**underscore-free** (`_` separates id slots) — a label with `_` raises
+`ConstraintIdError`. The emitted row id is `sum_{variant}_{valuation}_{year}`.
 
 | Column | Description |
 |---|---|
-| `constraint_id` | Groups all terms of one constraint |
+| `constraint_id` | Groups all terms of one constraint; underscore-free (becomes the id `variant`) |
 | `description` | Human-readable label (first row of each group) |
 | `sector_from`, `entity_from`, `region_from` | Edge from-node selector (`*` = wildcard) |
 | `sector_to`, `entity_to`, `region_to` | Edge to-node selector |
@@ -104,6 +107,9 @@ One row per term; `constraint_id` groups terms belonging to the same constraint.
 | `sigma_ck_fraction` | Fraction of node flow magnitude (mode=`fraction_of_flow`) |
 
 Ratio/bounds constraints reuse the existing params CSV schema from `ParametricImputer`.
+A supplied `param_id` becomes the id `variant` (must be underscore-free); when absent
+the variant defaults to `ratioeq` (soft ratio) or `bound` (ratio bound). Ratio ids
+render both edges full from→to: `ratio_{variant}_{numEdge}_{denomEdge}_{numVal}_{denomVal}[_{dir}]_{year}`.
 
 ---
 
@@ -113,9 +119,18 @@ Ratio/bounds constraints reuse the existing params CSV schema from `ParametricIm
 data/proc/const/{run_id}/
 ├── registry.json        ← acc_id, agg_id, params_hash, timestamp
 ├── G.npz                ← sparse (M × E), time-invariant
-├── row_meta.parquet     ← constraint_id, type, is_hard, cone_type per row
+├── row_meta.parquet     ← uniform schema (naming.ROW_META_COLS): constraint_id,
+│                          type ∈ {massbal,sum,ratio}, variant, is_hard, cone_type,
+│                          time, valuation, sector/region/entity, ratio num_*/denom_*
 ├── a0.npy               ← f_agg at t=0
 ├── sigma_a.npy          ← sigma_agg
 ├── u.npy / l.npy        ← flow bounds
 └── timesteps/t_{year}.npz ← c, sigma_c per timestep
 ```
+
+**`constraint_id` grammar.** `{type}_{variant}_{specs}_{year}` (tokens joined by
+`_`, every token underscore-free). It is a unique human-readable **display key** —
+read structured fields from the `row_meta` columns, never split the id. The old
+node/edge-id ids and the legacy `type` values (`sum_eq`/`ratio_eq`/`ratio_bound`/
+`mass_balance`) are gone; **old const runs are not forward-compatible** with the
+new diagnostics and must be re-run through Stage 3.

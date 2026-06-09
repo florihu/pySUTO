@@ -17,6 +17,8 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
+from .naming import ROW_META_COLS
+
 
 # =============================================================================
 # ConstraintBlock  — output of a single builder for one phase (static/dynamic)
@@ -30,8 +32,10 @@ class ConstraintBlock:
     G_rows    : (M_k × E) sparse CSR matrix
     c         : (M_k,) RHS values
     sigma_c   : (M_k,) per-row uncertainty (0 for hard constraints)
-    row_meta  : DataFrame with one row per G row; columns:
-                  constraint_id (str), type (str), is_hard (bool), cone_type (str)
+    row_meta  : DataFrame with one row per G row; columns are the canonical
+                :data:`pysuto.constraints.naming.ROW_META_COLS` (constraint_id,
+                type, name, is_hard, cone_type, time, valuation, sector/region,
+                and the ratio num_*/denom_* fields), uniform across builders.
     """
     G_rows:   sp.csr_matrix
     c:        np.ndarray
@@ -44,7 +48,7 @@ def _empty_block(n_edges: int) -> ConstraintBlock:
         G_rows   = sp.csr_matrix((0, n_edges)),
         c        = np.empty(0),
         sigma_c  = np.empty(0),
-        row_meta = pd.DataFrame(columns=["constraint_id", "type", "is_hard", "cone_type"]),
+        row_meta = pd.DataFrame(columns=ROW_META_COLS),
     )
 
 

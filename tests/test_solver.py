@@ -466,7 +466,7 @@ class TestEngineToSolverIntegration:
             w.writeheader()
             for year, r_val in (("2020", "0.30"), ("2021", "0.70")):
                 w.writerow({
-                    "param_id":       f"r_{year}",
+                    "param_id":       f"r{year}",
                     "a_sector_from":  "Mining", "a_entity_from": "Process",
                     "a_region_from":  "A",
                     "a_sector_to":    "Ore",    "a_entity_to":   "Flow",

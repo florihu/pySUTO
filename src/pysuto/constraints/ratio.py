@@ -22,18 +22,48 @@ from pysuto.param_relation import (
     B_FIELDS,
     WILDCARD,
     ParamRelationResolver,
+    expand_edge_index,
     float_or,
     get_edge_cache,
     sigma_from_row,
 )
 
 from .base import BaseConstraintBuilder, ConstraintBlock, _empty_block
+from .naming import TYPE_RATIO, _safe, build_constraint_id, empty_row_meta_dict, render_edge
 from .sum  import SIGMA_C_INACTIVE, BOUND_C_INACTIVE
 
 _log = get_logger(__name__)
 
 
 _AGG_TRUE = {"true", "1", "yes", "y", "t"}
+
+
+def _decode_edge(ei_exp_idx, eid: int) -> dict:
+    """Decoded (sector/region from→to + valuation + time) for one edge_id.
+
+    ``ei_exp_idx`` is :func:`expand_edge_index` output indexed by ``edge_id``.
+    """
+    r = ei_exp_idx.loc[eid]
+    return {
+        "sector_from": str(r["sector_from"]),
+        "region_from": str(r["region_from"]),
+        "sector_to":   str(r["sector_to"]),
+        "region_to":   str(r["region_to"]),
+        "valuation":   str(r["valuation"]),
+        "time":        str(r["time"]),
+    }
+
+
+def _ratio_struct_cols(num: dict, denom: dict) -> dict:
+    """row_meta num_*/denom_* columns from two decoded edges."""
+    return {
+        "num_sector_from":   num["sector_from"], "num_region_from": num["region_from"],
+        "num_sector_to":     num["sector_to"],   "num_region_to":   num["region_to"],
+        "num_valuation":     num["valuation"],
+        "denom_sector_from": denom["sector_from"], "denom_region_from": denom["region_from"],
+        "denom_sector_to":   denom["sector_to"],   "denom_region_to":   denom["region_to"],
+        "denom_valuation":   denom["valuation"],
+    }
 
 
 def _is_agg(row) -> bool:
@@ -91,6 +121,7 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
         """
         df = pd.read_csv(path, sep=None, engine="python", dtype=str).fillna("*")
         resolver = ParamRelationResolver(acc_struct)
+        ei_idx = expand_edge_index(acc_struct.edge_index, acc_struct.node_index).set_index("edge_id")
 
         if mask is not None:
             if mask not in acc_struct.masks:
@@ -112,17 +143,36 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
             except Exception:
                 sigma = 0.0
 
+            # A user param_id, if present, becomes the grammar `variant` slot
+            # (underscore-free); otherwise the ratio variant is "ratioeq".
             param_id = str(row.get("param_id", "")).strip() or None
+            variant  = _safe(param_id, field="param_id") if param_id else "ratioeq"
 
             for r in resolver.resolve_row(row):
                 if scope is not None and not (scope[r.a_edge_id] and scope[r.b_edge_id]):
                     continue
+                # edge_i (coeff +1) is the numerator; edge_j (coeff −r) the denom.
+                num   = _decode_edge(ei_idx, r.b_edge_id)
+                denom = _decode_edge(ei_idx, r.a_edge_id)
+                cid = build_constraint_id(
+                    TYPE_RATIO, variant,
+                    render_edge(num["sector_from"], num["region_from"],
+                                num["sector_to"], num["region_to"]),
+                    render_edge(denom["sector_from"], denom["region_from"],
+                                denom["sector_to"], denom["region_to"]),
+                    num["valuation"], denom["valuation"],
+                    year=num["time"],
+                )
                 pairs.append({
-                    "constraint_id": param_id or f"ratio_{r.a_edge_id}_{r.b_edge_id}",
-                    "edge_i":  r.b_edge_id,
-                    "edge_j":  r.a_edge_id,
-                    "r":       nominal,
-                    "sigma_c": sigma,
+                    "constraint_id": cid,
+                    "variant":  variant,
+                    "edge_i":   r.b_edge_id,
+                    "edge_j":   r.a_edge_id,
+                    "r":        nominal,
+                    "sigma_c":  sigma,
+                    "time":     num["time"],
+                    "num":      num,
+                    "denom":    denom,
                 })
 
         _log.info("RatioConstraintBuilder: %d pairs from %s", len(pairs), os.path.basename(path))
@@ -140,21 +190,24 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
         M = len(self._pairs)
         rows_list, cols_list, vals_list = [], [], []
         meta_list = []
-        # Time per row is taken from edge_i (edge_i and edge_j share the
-        # same time by construction in the param_relation B-resolver).
-        edge_time = acc_struct.edge_index["time"].astype(str).to_numpy()
 
         for row_id, p in enumerate(self._pairs):
             rows_list += [row_id, row_id]
             cols_list += [p["edge_i"], p["edge_j"]]
             vals_list += [1.0, -p["r"]]
-            meta_list.append({
+            num, denom = p["num"], p["denom"]
+            meta = empty_row_meta_dict()
+            meta.update({
                 "constraint_id": p["constraint_id"],
-                "type":          "ratio_eq",
+                "type":          TYPE_RATIO,
+                "variant":       p["variant"],
                 "is_hard":       False,
                 "cone_type":     "free",
-                "time":          edge_time[p["edge_i"]],
+                "time":          p["time"],
+                "valuation":     num["valuation"],
+                **_ratio_struct_cols(num, denom),
             })
+            meta_list.append(meta)
 
         G = sp.csr_matrix((vals_list, (rows_list, cols_list)), shape=(M, n_edges))
         _log.info("RatioConstraintBuilder.build_static: %d rows", M)
@@ -235,6 +288,7 @@ class RatioBoundBuilder(BaseConstraintBuilder):
         ei_exp, _el, _itt, _fv, _mc, _eid = get_edge_cache(acc_struct)
         t_all = ei_exp["time"].astype(str).to_numpy()
         v_all = ei_exp["valuation"].astype(str).to_numpy()
+        ei_idx = expand_edge_index(acc_struct.edge_index, acc_struct.node_index).set_index("edge_id")
 
         bound_rows = []
         for _, row in df.iterrows():
@@ -244,7 +298,10 @@ class RatioBoundBuilder(BaseConstraintBuilder):
             if np.isnan(bl) and np.isnan(bu):
                 continue
 
+            # A user param_id, if present, becomes the grammar `variant` slot
+            # (underscore-free); otherwise the bound variant is "bound".
             param_id = str(row.get("param_id", "")).strip() or None
+            variant  = _safe(param_id, field="param_id") if param_id else "bound"
 
             if _is_agg(row):
                 a_edges = _match_side_edges(row, "a", acc_struct)
@@ -272,11 +329,12 @@ class RatioBoundBuilder(BaseConstraintBuilder):
                     a_sub = a_edges[(t_a == t) & (v_a == v)]
                     b_sub = b_edges[(t_b == t) & (v_b == v)]
                     bound_rows.append({
-                        "param_id":    param_id or f"bound_agg_{t}_{v}",
+                        "variant":     variant,
                         "agg":         True,
                         "edge_i_list": b_sub.tolist(),
                         "edge_j_list": a_sub.tolist(),
                         "time":        t,
+                        "valuation":   v,
                         "nominal":     nominal if not np.isnan(nominal) else 1.0,
                         "bl":          bl,
                         "bu":          bu,
@@ -287,10 +345,12 @@ class RatioBoundBuilder(BaseConstraintBuilder):
                 if scope is not None and not (scope[r.a_edge_id] and scope[r.b_edge_id]):
                     continue
                 bound_rows.append({
-                    "param_id": param_id or f"bound_{r.a_edge_id}_{r.b_edge_id}",
+                    "variant":  variant,
                     "agg":      False,
                     "edge_i":   r.b_edge_id,
                     "edge_j":   r.a_edge_id,
+                    "num":      _decode_edge(ei_idx, r.b_edge_id),
+                    "denom":    _decode_edge(ei_idx, r.a_edge_id),
                     "nominal":  nominal if not np.isnan(nominal) else 1.0,
                     "bl":       bl,
                     "bu":       bu,
@@ -314,50 +374,60 @@ class RatioBoundBuilder(BaseConstraintBuilder):
         rows_list, cols_list, vals_list = [], [], []
         meta_list = []
         row_id = 0
-        edge_time = acc_struct.edge_index["time"].astype(str).to_numpy()
 
         for br in self._bound_rows:
+            variant = br["variant"]
             if br.get("agg"):
                 ei_list = br["edge_i_list"]   # denominator edges (b)
                 ej_list = br["edge_j_list"]   # numerator edges (a)
-                t_row = br["time"]
+                t_row   = br["time"]
+                valuation   = br["valuation"]
+                spec_tokens = (valuation,)            # set-scoped: no single edge
+                struct_cols = {}                      # num_*/denom_* stay None
             else:
                 ei_list = [br["edge_i"]]
                 ej_list = [br["edge_j"]]
-                t_row = edge_time[br["edge_i"]]
+                num, denom = br["num"], br["denom"]
+                t_row     = num["time"]
+                valuation = num["valuation"]
+                spec_tokens = (
+                    render_edge(num["sector_from"], num["region_from"],
+                                num["sector_to"], num["region_to"]),
+                    render_edge(denom["sector_from"], denom["region_from"],
+                                denom["sector_to"], denom["region_to"]),
+                    num["valuation"], denom["valuation"],
+                )
+                struct_cols = _ratio_struct_cols(num, denom)
             bu, bl = br["bu"], br["bl"]
 
-            if not np.isnan(bu):
+            def _emit(direction: str, ei_sign: float, ej_sign: float, r_coeff: float):
+                nonlocal row_id
                 for ej in ej_list:
-                    rows_list.append(row_id); cols_list.append(ej); vals_list.append(1.0)
+                    rows_list.append(row_id); cols_list.append(ej); vals_list.append(ej_sign)
                 for ei in ei_list:
-                    rows_list.append(row_id); cols_list.append(ei); vals_list.append(-bu)
-                meta_list.append({
-                    "constraint_id": f"{br['param_id']}_upper",
-                    "type":          "ratio_bound",
+                    rows_list.append(row_id); cols_list.append(ei); vals_list.append(ei_sign * r_coeff)
+                meta = empty_row_meta_dict()
+                meta.update({
+                    "constraint_id": build_constraint_id(
+                        TYPE_RATIO, variant, *spec_tokens, direction, year=t_row,
+                    ),
+                    "type":          TYPE_RATIO,
+                    "variant":       variant,
                     "is_hard":       True,
                     "cone_type":     "nonneg",
                     "time":          t_row,
+                    "valuation":     valuation,
                     "ratio_kind":    self._kind,
-                    "bound_dir":     "upper",
+                    "bound_dir":     direction,
+                    **struct_cols,
                 })
+                meta_list.append(meta)
                 row_id += 1
 
+            if not np.isnan(bu):
+                _emit("upper", ei_sign=-1.0, ej_sign=1.0, r_coeff=bu)
             if not np.isnan(bl):
-                for ej in ej_list:
-                    rows_list.append(row_id); cols_list.append(ej); vals_list.append(-1.0)
-                for ei in ei_list:
-                    rows_list.append(row_id); cols_list.append(ei); vals_list.append(bl)
-                meta_list.append({
-                    "constraint_id": f"{br['param_id']}_lower",
-                    "type":          "ratio_bound",
-                    "is_hard":       True,
-                    "cone_type":     "nonneg",
-                    "time":          t_row,
-                    "ratio_kind":    self._kind,
-                    "bound_dir":     "lower",
-                })
-                row_id += 1
+                _emit("lower", ei_sign=1.0, ej_sign=-1.0, r_coeff=bl)
 
         if row_id == 0:
             return _empty_block(n_edges)
