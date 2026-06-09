@@ -144,6 +144,7 @@ class NetworkImputer(BaseImputer):
         q: float = 3.0,
         alpha_min: float = 0.05,
         cv_cap: float = 1.5,
+        wr_to_ore_ratio: float = 2.0,
         id: str | None = None,
     ) -> None:
         self.id = id or type(self).__name__
@@ -154,6 +155,10 @@ class NetworkImputer(BaseImputer):
         self.q = float(q)
         self.alpha_min = float(alpha_min)
         self.cv_cap = float(cv_cap)
+        # WR_Mass = wr_to_ore_ratio · Ore_Mass. A direct ratio avoids the
+        # CO_Mass − Ore_Mass residual, which goes negative when a region's
+        # ore_grade exceeds the flat conc_ore (→ spurious negative WR mass).
+        self.wr_to_ore_ratio = float(wr_to_ore_ratio)
         # populated by prepare()
         self._recipes: list[_RRecipe] = []
         self._flow_nodes: list[tuple[tuple[int, ...], tuple[int, ...]]] = []
@@ -200,7 +205,7 @@ class NetworkImputer(BaseImputer):
             )
             secondary = tuple(i for i in rec.inputs if sub_from.get(i) == "SEM")
             primary = tuple(i for i in rec.inputs if sub_from.get(i) != "SEM")
-            special = "wr_mass_residual" if rec.process_sector == "Mining" else None
+            special = "wr_to_ore" if rec.process_sector == "Mining" else None
             self._recipes.append(
                 _RRecipe(rec.inputs, primary, secondary, rec.product, rec.wastes,
                          float(eff), float(eff_sig), float(eff_eps), pid, special)
@@ -360,12 +365,12 @@ class NetworkImputer(BaseImputer):
 
     def _emit_twins(self, rec, f, sigma, entries, step) -> None:
         p = self.p
-        wr_cc = rec.wastes[0] if (rec.special == "wr_mass_residual" and rec.wastes) else None
+        wr_cc = rec.wastes[0] if (rec.special == "wr_to_ore" and rec.wastes) else None
         cc_edges = list(rec.inputs) + ([rec.product] if rec.product is not None else []) \
             + list(rec.wastes)
         for cc in cc_edges:
             if cc == wr_cc:
-                continue  # WR mass comes from the residual below, not CC/conc
+                continue  # WR mass comes from the ore ratio below, not CC/conc
             if np.isnan(f[cc]):
                 continue
             twin = self._cc_to_mass.get(cc)
@@ -378,18 +383,18 @@ class NetworkImputer(BaseImputer):
                 self._w(m, f_m, s_m, f, sigma, entries, step,
                         "network_mass_twin", [cc], [1.0 / conc], None)
 
-        # ---- Mining: WR mass-residual  WR_Mass = CO_Mass − Ore_Mass ----
-        if wr_cc is not None and rec.inputs and rec.product is not None:
-            co_twin = self._cc_to_mass.get(rec.inputs[0])
+        # ---- Mining: WR_Mass = wr_to_ore_ratio · Ore_Mass ----
+        if wr_cc is not None and rec.product is not None:
             ore_twin = self._cc_to_mass.get(rec.product)
             wr_twin = self._cc_to_mass.get(wr_cc)
-            if co_twin and ore_twin and wr_twin:
-                co_m, ore_m, wr_m = co_twin[0], ore_twin[0], wr_twin[0]
-                if not np.isnan(f[co_m]) and not np.isnan(f[ore_m]) and np.isnan(f[wr_m]):
-                    f_wr = float(f[co_m] - f[ore_m])
-                    s_wr = lp_combine([sigma[co_m], sigma[ore_m]], p)
+            if ore_twin and wr_twin:
+                ore_m, wr_m = ore_twin[0], wr_twin[0]
+                if not np.isnan(f[ore_m]) and np.isnan(f[wr_m]):
+                    r = self.wr_to_ore_ratio
+                    f_wr = float(r * f[ore_m])
+                    s_wr = lp_combine([r * sigma[ore_m]], p)
                     self._w(wr_m, f_wr, s_wr, f, sigma, entries, step,
-                            "network_wr_residual", [co_m, ore_m], [1.0, -1.0], None)
+                            "network_wr_ratio", [ore_m], [r], None)
 
     def _do_flow_balance(self, inc, out, f, sigma, entries, step) -> None:
         """Flow-node CC balance: Σ(supply in) = Σ(uses out); fill a lone gap."""

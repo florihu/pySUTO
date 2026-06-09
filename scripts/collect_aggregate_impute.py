@@ -88,6 +88,11 @@ ALPHA_MIN_REG = 0.05     # inverse-multiplier effective-sensitivity floor
 # full sweep fills no new edges). Safety cap on passes (chain depth ≈ 8).
 CASCADE_MAX_ITER = 10
 
+# NetworkImputer — waste-rock mass as a ratio of ore output (WR_Mass = k·Ore_Mass).
+# A direct ratio avoids the CO_Mass − Ore_Mass residual going negative when a
+# region's ore_grade exceeds the flat conc_ore.
+WR_TO_ORE_RATIO = 2.0
+
 # TimeImputer (general interpolation pass)
 TIME_WINDOW           = 3
 TIME_MIN_OBS          = 2
@@ -392,7 +397,8 @@ def main(feed_ids: list[str], label: str) -> None:
         eff_csv       = str(inputs.params.resolve("eff")       / "params.csv"),
         conc_csv      = str(inputs.params.resolve("conc")      / "params.csv"),
         ore_grade_csv = str(inputs.params.resolve("ore_grade") / "params.csv"),
-        p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG, cv_cap=1.5, id="network",
+        p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG, cv_cap=1.5,
+        wr_to_ore_ratio=WR_TO_ORE_RATIO, id="network",
     )
     engine.register_cascade(
         [

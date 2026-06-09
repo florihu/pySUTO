@@ -324,7 +324,7 @@ def test_ore_split_without_anchor_left_nan(imputer, acc):
     assert np.isnan(f[acc.eid("Ore", "SXEW", "CC")])
 
 
-def test_mining_wr_mass_residual(imputer, acc):
+def test_mining_wr_to_ore_ratio(imputer, acc):
     f, sigma = _run(imputer, acc, {("CO", "Mining", "CC"): 100.0})
     assert f[acc.eid("Mining", "Ore", "CC")] == pytest.approx(100.0)   # eff=1
     assert f[acc.eid("Mining", "WR", "CC")] == pytest.approx(0.0)
@@ -332,7 +332,8 @@ def test_mining_wr_mass_residual(imputer, acc):
     ore_mass = f[acc.eid("Mining", "Ore", "Mass")]
     assert co_mass == pytest.approx(100.0 / ORE_GRADE_A)   # ore_grade, not conc_co
     assert ore_mass == pytest.approx(100.0 / 0.009)
-    assert f[acc.eid("Mining", "WR", "Mass")] == pytest.approx(co_mass - ore_mass)
+    # WR = wr_to_ore_ratio (default 2) * Ore_Mass — never negative
+    assert f[acc.eid("Mining", "WR", "Mass")] == pytest.approx(2.0 * ore_mass)
 
 
 def test_cp_pool_eff_one(imputer, acc):
