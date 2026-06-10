@@ -41,17 +41,117 @@ The package is organised into **five sequential stages**: datafeed assembly (per
 
 ## Architecture
 
-> **Note:** the diagrams under `figs/` currently depict the previous 3-stage layout and are being regenerated to reflect the 4-stage layout described below.
+**Workflow** — horizontal data flow through the five stages:
 
-![Full package architecture](figs/architecture.svg)
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│  Raw inputs (per source)                                               │
+│  flow data · classification maps · Excel pedigree sidecar              │
+│  AccountingStructure (root index · edge masks · bounds)                │
+└──────┬─────────────────────────────────────────────────────────────────┘
+       │
+       ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│  STAGE 1 — Datafeed   ·   scripts/*_feed.py                            │
+│  run_feed_pipeline  (step_A → B → C → D)                               │
+│  in  : raw flows + pedigree + concordance                              │
+│  out : W · F_root · σ_root   →   DataFeedRegistry                      │
+└──────┬─────────────────────────────────────────────────────────────────┘
+       │  feed_ids
+       ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│  STAGE 2 — Aggregation & Imputation   ·   collect_aggregate_impute.py  │
+│  FeedCollector → AggregationMath → ImputationEngine                    │
+│  cascade→fixpoint : Network → Parametric(conc,eff) → Formula(conc)     │
+│  then terminal    : Time → Time(extrap) → FlatPrior                    │
+│  in  : feed_ids                                                        │
+│  out : AggregationResult (f_agg · σ_agg · Ω · coverage · imp_log)      │
+└──────┬─────────────────────────────────────────────────────────────────┘
+       │  agg_result
+       ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│  STAGE 3 — Constraint building   ·   scripts/constraints.py            │
+│  ConstraintEngine.register(builders).run()                             │
+│  builders : MassBalance(hard) · Sum-anchor(soft)                       │
+│           · Ratio conc,eff (soft ratioeq)                              │
+│           · RatioBound conc,eff,stock (hard) · FlowBounds(hard)        │
+│  in  : AggregationResult                                               │
+│  out : ConstraintRun (G · row_meta · a0 · σ_a · l,u · c(t),σ_c(t))     │
+└──────┬─────────────────────────────────────────────────────────────────┘
+       │  const_run_id
+       ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│  STAGE 4 — Solver   ·   scripts/run_solver.py                          │
+│  ClarabelSolver.solve_all()  (QP, warm-started per timestep)           │
+│  in  : ConstraintRun                                                   │
+│  out : OptimResult per t (F_opt · ε · residuals · telemetry)           │
+└──────┬─────────────────────────────────────────────────────────────────┘
+       │  opt_run_id
+       ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│  STAGE 5 — Posterior uncertainty   ·   uncertainty_propagation.py      │
+│  KalmanUncProp.compute()  (closed-form GLS · sparse Cholesky)          │
+│  in  : OptimRun (+ upstream ConstraintRun)                             │
+│  out : UncPropResult per t (σ_a* · lower · upper · diagnostics)        │
+└────────────────────────────────────────────────────────────────────────┘
+```
 
-![Stage-to-stage data flow](figs/dataflow.svg)
+**Orthogonal architecture** — cross-cutting concerns (top) crossing every stage, over the layered one-way import stack (bottom):
+
+```
+ORTHOGONAL CROSS-CUTTING CONCERNS   (one service, applied across every stage)
+
+               Stage 1    Stage 2    Stage 3    Stage 4    Stage 5
+               Datafeed   Agg+Imp    Constr.     Solver   Posterior
+             ┌──────────┬──────────┬──────────┬──────────┬──────────┐
+Registry     │   feed   │   imp    │  const   │   opt    │ uncprop  │
+(run store)  │ registry │ registry │ registry │ registry │ registry │
+             ├──────────┴──────────┴──────────┴──────────┴──────────┤
+Provenance   │ sidecar metadata.json · parents.inputs (versioned)   │
+(lineage)    │ + parents.upstream  (run_id chain, re-discovered)    │
+             ├──────────────────────────────────────────────────────┤
+Logging      │ get_logger(name) per module + add_run_handler() —    │
+             │ one file per run; all named loggers funnel to root   │
+             ├──────────────────────────────────────────────────────┤
+Config /     │ load_config(config.yaml) · InputRegistries versions  │
+inputs       │ acc / feed / params (hash-bumped) — read every run   │
+             └──────────────────────────────────────────────────────┘
+
+modules:  Registry=registry/ (BaseOutputRegistry · _sidecar · make_run_id)
+          Logging=logging.py   Config=config.py + input_registry.py
+
+LAYERED MODULE STACK   (imports flow downward only — never upward)
+
+┌────────────────────────────────────────────────────────────────┐
+│  domain  ·  acc → conc → unc (mixin) · masks · param_relation  │
+└──────┬─────────────────────────────────────────────────────────┘
+       │
+       ▼  imported by
+┌────────────────────────────────────────────────────────────────┐
+│  pipeline (the 5 horizontal stages)                            │
+│  feed → feedpipe → collector → agg → impute/ → constraints/    │
+│       → solver → uncprop                                       │
+└──────┬─────────────────────────────────────────────────────────┘
+       │
+       ▼  consumed by (never imports back up)
+┌────────────────────────────────────────────────────────────────┐
+│  diagnostics (leaf)  ·  diag/  — emits PNGs,                   │
+│  never imported into the data layer                            │
+└────────────────────────────────────────────────────────────────┘
+
+cross-cutting (import nothing from the data layer):
+  any layer    : logging · config · utils · lp (lp_combine)
+  all stages   : registry/  (BaseOutputRegistry + _sidecar provenance)
+  St4–St5 only : _conditioning (condition_prior · condition_sigma_c)
+  plugin seam  : BaseImputer→ImputationEngine (St2) ;
+                 BaseConstraintBuilder→ConstraintEngine (St3)
+```
 
 | Stage | Module(s) | Input | Output |
 |---|---|---|---|
-| 1 — Datafeed | `feedpipe.py`, `feed.py`, `conc.py`, `unc.py`, `meta.py`, `registry.py` | raw flow data + Excel sidecar | `DataFeedRegistry` entries: `W`, `F_root`, `σ_root` |
-| 2 — Aggregation & Imputation | `collector.py`, `agg.py`, `impute.py` | selected feed IDs | `AggregationResult`: `f_agg`, `σ_agg`, `Ω`, `ImputationLog` |
-| 3 — Constraint building | `constraints.py` | `AggregationResult` | `ConstraintRun`: `G`, `c(t)`, `σ_c(t)`, bounds |
+| 1 — Datafeed | `feedpipe.py`, `feed.py`, `conc.py`, `unc.py`, `meta.py`, `registry/` | raw flow data + Excel sidecar | `DataFeedRegistry` entries: `W`, `F_root`, `σ_root` |
+| 2 — Aggregation & Imputation | `collector.py`, `agg.py`, `impute/` | selected feed IDs | `AggregationResult`: `f_agg`, `σ_agg`, `Ω`, `ImputationLog` |
+| 3 — Constraint building | `constraints/` | `AggregationResult` | `ConstraintRun`: `G`, `c(t)`, `σ_c(t)`, bounds |
 | 4 — Solver | `solver.py` | `ConstraintRun` | `OptimResult` per timestep |
 | 5 — Posterior uncertainty | `uncprop.py` | `OptimRun` + upstream `ConstraintRun` | `UncPropResult`: `σ_a*(t)`, `lower(t)`, `upper(t)` |
 
