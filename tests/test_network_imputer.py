@@ -176,11 +176,11 @@ def _write(path, rows):
     pd.DataFrame(rows, columns=_COLS).to_csv(path, sep=";", index=False)
 
 
-def write_eff_csv(path):
+def write_eff_csv(path, stripping_ratio: float | None = 2.0):
     rows = []
     for (inp, proc, prod), v in EFF.items():
         rows.append(_row(
-            param_id=f"eff_{proc.lower()}",
+            param_id=f"eff_{proc.lower()}", param_type="efficiency",
             a_sector_from=inp, a_entity_from="Flow", a_region_from="*",
             a_sector_to=proc, a_entity_to="Process", a_region_to="same",
             a_time="*", a_valuation="CC",
@@ -188,6 +188,18 @@ def write_eff_csv(path):
             b_sector_to=prod, b_entity_to="Flow", b_region_to="same",
             b_time="same", b_valuation="same",
             value_nominal=str(v),
+        ))
+    if stripping_ratio is not None:
+        # WR_Mass = stripping_ratio · Ore_Mass: A=Mining→Ore Mass, B=Mining→WR Mass.
+        rows.append(_row(
+            param_id="stripping_ratio", param_type="stripping_ratio",
+            a_sector_from="Mining", a_entity_from="Process", a_region_from="*",
+            a_sector_to="Ore", a_entity_to="Flow", a_region_to="same",
+            a_time="*", a_valuation="Mass",
+            b_sector_from="Mining", b_entity_from="Process", b_region_from="same",
+            b_sector_to="WR", b_entity_to="SB", b_region_to="same",
+            b_time="same", b_valuation="same",
+            value_nominal=str(stripping_ratio),
         ))
     _write(path, rows)
 
@@ -339,8 +351,38 @@ def test_mining_wr_to_ore_ratio(imputer, acc):
     ore_mass = f[acc.eid("Mining", "Ore", "Mass")]
     assert co_mass == pytest.approx(100.0 / ORE_GRADE_A)   # ore_grade, not conc_co
     assert ore_mass == pytest.approx(100.0 / 0.009)
-    # WR = wr_to_ore_ratio (default 2) * Ore_Mass — never negative
+    # WR = stripping_ratio (2.0 in the eff CSV) * Ore_Mass — never negative
     assert f[acc.eid("Mining", "WR", "Mass")] == pytest.approx(2.0 * ore_mass)
+
+
+def test_stripping_ratio_from_csv_overrides_default(tmp_path, acc):
+    """The WR/Ore ratio is read from the eff CSV (param_type=stripping_ratio),
+    not the constructor default — a CSV value of 3.0 wins over the 2.0 default."""
+    eff = tmp_path / "eff.csv"; conc = tmp_path / "conc.csv"; og = tmp_path / "og.csv"
+    write_eff_csv(eff, stripping_ratio=3.0)
+    write_conc_csv(conc)
+    write_ore_grade_csv(og)
+    imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=float("inf"),
+                         wr_to_ore_ratio=2.0)   # default would give 2·Ore
+    imp.prepare(acc)
+    f, _ = _run(imp, acc, {("CO", "Mining", "CC"): 100.0})
+    ore_mass = f[acc.eid("Mining", "Ore", "Mass")]
+    assert f[acc.eid("Mining", "WR", "Mass")] == pytest.approx(3.0 * ore_mass)
+
+
+def test_stripping_ratio_absent_falls_back_to_default(tmp_path, acc):
+    """With no stripping_ratio row, the constructor default ratio is used."""
+    eff = tmp_path / "eff.csv"; conc = tmp_path / "conc.csv"; og = tmp_path / "og.csv"
+    write_eff_csv(eff, stripping_ratio=None)
+    write_conc_csv(conc)
+    write_ore_grade_csv(og)
+    imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=float("inf"),
+                         wr_to_ore_ratio=2.5)
+    imp.prepare(acc)
+    assert imp._stripping == {}
+    f, _ = _run(imp, acc, {("CO", "Mining", "CC"): 100.0})
+    ore_mass = f[acc.eid("Mining", "Ore", "Mass")]
+    assert f[acc.eid("Mining", "WR", "Mass")] == pytest.approx(2.5 * ore_mass)
 
 
 def test_cp_pool_eff_one(imputer, acc):

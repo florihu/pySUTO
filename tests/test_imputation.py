@@ -71,6 +71,32 @@ class TestRegSensitivity:
 
 
 # =============================================================================
+# ParametricImputer consumed-set selection
+# =============================================================================
+
+class TestParametricConsumes:
+    """ParametricImputer must not build per-pair fills from pooled (agg) rows
+    or the stripping_ratio family — those are owned by NetworkImputer + the
+    ratio constraint builders. Guards against a spurious Scrap = Matte/eff fill
+    once Smelting/CFR eff rows are broadened to a_sector_from=*."""
+
+    def test_skips_agg_rows(self):
+        from pysuto.impute.parametric import _parametric_consumes
+        for v in ("true", "True", "1", "yes", "y", "t"):
+            assert _parametric_consumes({"agg": v}) is False
+
+    def test_skips_stripping_ratio(self):
+        from pysuto.impute.parametric import _parametric_consumes
+        assert _parametric_consumes({"param_type": "stripping_ratio"}) is False
+
+    def test_consumes_plain_efficiency_and_concentration(self):
+        from pysuto.impute.parametric import _parametric_consumes
+        assert _parametric_consumes({"agg": "", "param_type": "efficiency"}) is True
+        assert _parametric_consumes({"param_type": "concentration"}) is True
+        assert _parametric_consumes({}) is True
+
+
+# =============================================================================
 # Fixtures — minimal mock accounting structure
 # =============================================================================
 

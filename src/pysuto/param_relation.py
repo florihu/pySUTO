@@ -84,9 +84,14 @@ _MASK_COLS = [ec for _, ec, _ in A_FIELDS]  # same 8 columns as A's ei_exp side
 # ---------------------------------------------------------------------------
 
 def float_or(val, default: float) -> float:
-    """Lenient float parse: returns `default` for blank / 'nan' / 'None' / non-numeric."""
+    """Lenient float parse: returns `default` for blank / 'nan' / 'None' / wildcard / non-numeric."""
     s = str(val).strip()
-    return float(s) if s and s not in ("nan", "None", "") else default
+    if not s or s in WILDCARD:
+        return default
+    try:
+        return float(s)
+    except ValueError:
+        return default
 
 
 def sigma_from_row(row: pd.Series, nominal: float) -> float:

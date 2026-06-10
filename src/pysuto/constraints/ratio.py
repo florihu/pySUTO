@@ -90,6 +90,42 @@ def _match_side_edges(row, prefix: str, acc_struct) -> np.ndarray:
     return edge_ids_arr[mask]
 
 
+def _agg_buckets(row, acc_struct, scope):
+    """Match a/b selectors and bucket both sides by ``(region_to, time, valuation)``.
+
+    Returns ``(buckets, a_size, b_size)`` where each bucket is
+    ``{"region", "time", "valuation", "a_edges": [...], "b_edges": [...]}`` for
+    every key present on *both* sides. Bucketing on ``region_to`` scopes the
+    pool per process region: input use-edges carry ``region_to = process region``
+    and the product supply-edge carries ``region_to = product region`` (the
+    same-region recipe makes the two equal), so cross-region pooling cannot leak.
+    For stock-bounds rows ``region_to`` is pinned by the selector, so adding it to
+    the key leaves their bucketing unchanged.
+    """
+    ei_exp = get_edge_cache(acc_struct)[0]
+    r_all = ei_exp["region_to"].astype(str).to_numpy()
+    t_all = ei_exp["time"].astype(str).to_numpy()
+    v_all = ei_exp["valuation"].astype(str).to_numpy()
+    a_edges = _match_side_edges(row, "a", acc_struct)
+    b_edges = _match_side_edges(row, "b", acc_struct)
+    if scope is not None:
+        a_edges = a_edges[scope[a_edges]]
+        b_edges = b_edges[scope[b_edges]]
+    asz, bsz = int(a_edges.size), int(b_edges.size)
+    if asz == 0 or bsz == 0:
+        return [], asz, bsz
+    ra, ta, va = r_all[a_edges], t_all[a_edges], v_all[a_edges]
+    rb, tb, vb = r_all[b_edges], t_all[b_edges], v_all[b_edges]
+    keys = sorted(set(zip(ra, ta, va)) & set(zip(rb, tb, vb)))
+    buckets = []
+    for r, t, v in keys:
+        a_sub = a_edges[(ra == r) & (ta == t) & (va == v)]
+        b_sub = b_edges[(rb == r) & (tb == t) & (vb == v)]
+        buckets.append({"region": r, "time": t, "valuation": v,
+                        "a_edges": a_sub.tolist(), "b_edges": b_sub.tolist()})
+    return buckets, asz, bsz
+
+
 class RatioConstraintBuilder(BaseConstraintBuilder):
     """
     Soft free-cone ratio constraint: a_i − r · a_j = ε_k
@@ -148,6 +184,38 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
             param_id = str(row.get("param_id", "")).strip() or None
             variant  = _safe(param_id, field="param_id") if param_id else "ratioeq"
 
+            # agg rows pool every matched a-side edge against every matched
+            # b-side edge per (region_to, time, valuation) bucket → one soft row
+            #   Σ b − r·Σ a = ε   (pooled denominator; set-scoped).
+            if _is_agg(row):
+                buckets, asz, bsz = _agg_buckets(row, acc_struct, scope)
+                if not buckets:
+                    _log.warning(
+                        "RatioConstraintBuilder %s: agg row had no overlapping "
+                        "(region, time, valuation) buckets (a=%d b=%d) — skipped",
+                        variant, asz, bsz,
+                    )
+                    continue
+                for bk in buckets:
+                    cid = build_constraint_id(
+                        TYPE_RATIO, variant,
+                        _safe(bk["region"], field="region"), bk["valuation"],
+                        year=bk["time"],
+                    )
+                    pairs.append({
+                        "constraint_id": cid,
+                        "variant":     variant,
+                        "agg":         True,
+                        "edge_i_list": bk["b_edges"],
+                        "edge_j_list": bk["a_edges"],
+                        "r":           nominal,
+                        "sigma_c":     sigma,
+                        "time":        bk["time"],
+                        "valuation":   bk["valuation"],
+                        "region":      bk["region"],
+                    })
+                continue
+
             for r in resolver.resolve_row(row):
                 if scope is not None and not (scope[r.a_edge_id] and scope[r.b_edge_id]):
                     continue
@@ -192,10 +260,22 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
         meta_list = []
 
         for row_id, p in enumerate(self._pairs):
-            rows_list += [row_id, row_id]
-            cols_list += [p["edge_i"], p["edge_j"]]
-            vals_list += [1.0, -p["r"]]
-            num, denom = p["num"], p["denom"]
+            if p.get("agg"):
+                # Σ b (coeff +1) − r·Σ a (coeff −r) into one row; set-scoped, so
+                # num_*/denom_* stay None (no single numerator/denominator edge).
+                for ei in p["edge_i_list"]:
+                    rows_list.append(row_id); cols_list.append(ei); vals_list.append(1.0)
+                for ej in p["edge_j_list"]:
+                    rows_list.append(row_id); cols_list.append(ej); vals_list.append(-p["r"])
+                valuation = p["valuation"]
+                struct = {}
+            else:
+                rows_list += [row_id, row_id]
+                cols_list += [p["edge_i"], p["edge_j"]]
+                vals_list += [1.0, -p["r"]]
+                num, denom = p["num"], p["denom"]
+                valuation = num["valuation"]
+                struct = _ratio_struct_cols(num, denom)
             meta = empty_row_meta_dict()
             meta.update({
                 "constraint_id": p["constraint_id"],
@@ -204,8 +284,8 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
                 "is_hard":       False,
                 "cone_type":     "free",
                 "time":          p["time"],
-                "valuation":     num["valuation"],
-                **_ratio_struct_cols(num, denom),
+                "valuation":     valuation,
+                **struct,
             })
             meta_list.append(meta)
 
@@ -285,9 +365,6 @@ class RatioBoundBuilder(BaseConstraintBuilder):
         else:
             scope = None
 
-        ei_exp, _el, _itt, _fv, _mc, _eid = get_edge_cache(acc_struct)
-        t_all = ei_exp["time"].astype(str).to_numpy()
-        v_all = ei_exp["valuation"].astype(str).to_numpy()
         ei_idx = expand_edge_index(acc_struct.edge_index, acc_struct.node_index).set_index("edge_id")
 
         bound_rows = []
@@ -304,37 +381,29 @@ class RatioBoundBuilder(BaseConstraintBuilder):
             variant  = _safe(param_id, field="param_id") if param_id else "bound"
 
             if _is_agg(row):
-                a_edges = _match_side_edges(row, "a", acc_struct)
-                b_edges = _match_side_edges(row, "b", acc_struct)
-                if scope is not None:
-                    a_edges = a_edges[scope[a_edges]]
-                    b_edges = b_edges[scope[b_edges]]
-                if a_edges.size == 0 or b_edges.size == 0:
+                buckets, asz, bsz = _agg_buckets(row, acc_struct, scope)
+                if asz == 0 or bsz == 0:
                     _log.warning(
                         "RatioBoundBuilder %s: agg row matched no edges (a=%d b=%d) — skipped",
-                        param_id, a_edges.size, b_edges.size,
+                        param_id, asz, bsz,
                     )
                     continue
-                t_a, v_a = t_all[a_edges], v_all[a_edges]
-                t_b, v_b = t_all[b_edges], v_all[b_edges]
-                keys = sorted(set(zip(t_a, v_a)) & set(zip(t_b, v_b)))
-                if not keys:
+                if not buckets:
                     _log.warning(
-                        "RatioBoundBuilder %s: agg row had no overlapping (time, valuation) "
-                        "buckets between a (%d edges) and b (%d edges) — skipped",
-                        param_id, a_edges.size, b_edges.size,
+                        "RatioBoundBuilder %s: agg row had no overlapping (region, time, "
+                        "valuation) buckets between a (%d edges) and b (%d edges) — skipped",
+                        param_id, asz, bsz,
                     )
                     continue
-                for t, v in keys:
-                    a_sub = a_edges[(t_a == t) & (v_a == v)]
-                    b_sub = b_edges[(t_b == t) & (v_b == v)]
+                for bk in buckets:
                     bound_rows.append({
                         "variant":     variant,
                         "agg":         True,
-                        "edge_i_list": b_sub.tolist(),
-                        "edge_j_list": a_sub.tolist(),
-                        "time":        t,
-                        "valuation":   v,
+                        "edge_i_list": bk["b_edges"],
+                        "edge_j_list": bk["a_edges"],
+                        "region":      bk["region"],
+                        "time":        bk["time"],
+                        "valuation":   bk["valuation"],
                         "nominal":     nominal if not np.isnan(nominal) else 1.0,
                         "bl":          bl,
                         "bu":          bu,
@@ -382,7 +451,10 @@ class RatioBoundBuilder(BaseConstraintBuilder):
                 ej_list = br["edge_j_list"]   # numerator edges (a)
                 t_row   = br["time"]
                 valuation   = br["valuation"]
-                spec_tokens = (valuation,)            # set-scoped: no single edge
+                # set-scoped: no single edge. Region is in the id so a shared
+                # variant (e.g. one eff param across regions) stays unique per
+                # (region, valuation, year).
+                spec_tokens = (_safe(br["region"], field="region"), valuation)
                 struct_cols = {}                      # num_*/denom_* stay None
             else:
                 ei_list = [br["edge_i"]]

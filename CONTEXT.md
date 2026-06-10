@@ -115,20 +115,37 @@ independent. _Avoid_: reading the `conc_*_supply` z-violation as a "bug" — it 
 feeds populating the CC and Mass sides of an edge disagree.
 
 **Recovery efficiency (`eff`).** The copper-recovery fraction of a Process, in **`CC`** (from the `eff`
-param) — the sibling coefficient to `conc`. A process's recovered Flow product is `eff · Σ(primary
+param) — the sibling coefficient to `conc`. A process's recovered Flow product is `eff · Σ(all CC
 inputs)` in CC; the `(1 − eff)` complement is the residual that leaves as the **SEM** residual output.
-`eff` acts on the **pooled primary inputs, Scrap included** (Smelting/CFR consume Scrap, so
-`product = eff·(primary + scrap)`); only the `eff`-named primary appears in the `eff` *ratio
-constraint*, so a pooled prior legitimately exceeds that soft row by `eff·Scrap` — see
-[ADR 0004](docs/adr/0004-process-recipe-traversal-imputer.md). _Avoid_: conflating `eff` (a CC recovery
-fraction) with `conc` (a Mass→CC fraction) — they are different coefficient families.
+`eff` acts on the **sum of all CC inputs — primary plus the `Scrap` SEM-secondary** (Smelting/CFR
+consume Scrap, so `product = eff·(primary + scrap)`). Both the imputer prior and the `eff` **ratio
+constraint** now pool that *same* set, so there is no longer an `eff·Scrap` gap between them — see
+[ADR 0005](docs/adr/0005-pool-scrap-into-eff-constraint-and-stripping-ratio.md). The pooling is
+**declared explicitly in the eff params file** by the `agg` flag on the row (a reader sees it in the
+CSV), never inferred from code. The **primary vs SEM-secondary** distinction is retained only for
+**NaN-propagation** in the imputer (a missing primary blocks the forward fill; a missing Scrap counts
+as 0), *not* for what gets summed. _Avoid_: conflating `eff` (a CC recovery fraction) with `conc` (a
+Mass→CC fraction) — they are different coefficient families.
 
-**Process recipe.** A Process node viewed as a mass-closing transformation in CC: its **pooled primary
-inputs** → one **Flow product** (`eff·Σin`) + a **SEM residual output** (`(1−eff)·Σin`). The unit of
-reasoning for the network-traversal imputer ([ADR 0004](docs/adr/0004-process-recipe-traversal-imputer.md)).
-_Avoid_: confusing the recipe's **SEM residual-output** (Slag / Tailings / WR / PSC, reached via a
-*supply* edge) with a **SEM secondary input** (Scrap, reached via a *use* edge) — both carry
-`entity_sub == "SEM"`, and only the edge direction distinguishes the two roles.
+**Process recipe.** A Process node viewed as a mass-closing transformation in CC: its **pooled inputs**
+(primary + `Scrap` secondary) → one **Flow product** (`eff·Σin`) + a **SEM residual output**
+(`(1−eff)·Σin`). The unit of reasoning for the network-traversal imputer
+([ADR 0004](docs/adr/0004-process-recipe-traversal-imputer.md)). **Mining is the exception**: it has
+*no* `eff` row (eff defaults to 1.0, so CC is conserved CO→Ore) and its `WR` residual follows the
+**stripping ratio** (below) on Mass (`WR_Mass = stripping_ratio·Ore_Mass`), not the generic
+`(1−eff)·Σin` SEM-residual rule. _Avoid_: confusing the recipe's **SEM residual-output** (Slag / Tailings / WR / PSC,
+reached via a *supply* edge) with a **SEM secondary input** (Scrap, reached via a *use* edge) — both
+carry `entity_sub == "SEM"`, and only the edge direction distinguishes the two roles.
+
+**Stripping ratio (`stripping_ratio`).** The mass of waste rock (`WR`) stripped per unit of `Ore`
+extracted at a Mining process — `WR_Mass = stripping_ratio · Ore_Mass`, a **Mass→Mass** ratio between
+two **outputs** of Mining (default 2.0). It is *not* a recovery efficiency: not in `CC`, not a
+recovery fraction, and `> 1`. It lives in the **eff parameter file** as its own `param_type`
+(`stripping_ratio`, distinct from `efficiency`), making that file a store of **process input/output
+ratios** of which recovery-`eff` and `stripping_ratio` are two families. It is the single source of
+truth for both the NetworkImputer's WR-mass fill (replacing a hard-coded constant) and the soft
+`ratio` constraint `WR − stripping_ratio·Ore = 0`. _Avoid_: calling it an `eff` — `eff` is strictly a
+CC copper-recovery fraction (above); the two only share a file.
 
 **Feed semantics — ICSG vs BACI.** **ICSG** publishes production/usage statistics in **copper content
 (`CC`)**; its `Use` rows are **single-endpoint** (consumer known, producer open) ⇒ producer **fan-out**.
@@ -162,10 +179,15 @@ for `ratio`). _Avoid_: "name" (collides with **Sector**, "the named instance").
 **Node-scoped vs set-scoped constraint** — a `massbal` or node-`sum` row balances **one node**, so its
 specs render that node as `sector_region_valuation`; the collapse of a node to `sector_region` is
 sound because constraint rows are emitted over **concrete** nodes only (the `sector→entity` 1:1
-invariant holds; open `<any>` sectors never reach a row). A `ratio` row relates **two edges**, each
-rendered full `from→to`, numerator over denominator. A set-`sum` (`anchor` / csv) spans **many**
+invariant holds; open `<any>` sectors never reach a row). A `ratio` row is either **pair-scoped** —
+relating **two edges**, each rendered full `from→to`, numerator over denominator, with `num_*`/`denom_*`
+populated — or **set-scoped** when its row carries `agg=true`: it pools **many** a-side edges against
+many b-side edges per `(region_to, time, valuation)` bucket (`Σb − r·Σa`), so it has no single
+numerator/denominator edge and its identity rests on the `variant` plus `region`/`valuation` group-key
+specs (`num_*`/`denom_*` are null, exactly like a set-`sum`). A set-`sum` (`anchor` / csv) spans **many**
 edges with no single node — its identity rests on the `variant` plus group-key specs. _Avoid_:
-expecting a single `sector`/`region` on a set-sum or ratio row (they are null there).
+expecting a single `sector`/`region`, or populated `num_*`/`denom_*`, on a set-sum or **set-scoped
+(agg) ratio** row (they are null there).
 
 **Cross-valuation row** — `ratio` is the **only** constraint family whose two sides may differ in
 **valuation** (a `conc` ratio pins `CC = conc·Mass`, so `num_valuation = CC`, `denom_valuation =

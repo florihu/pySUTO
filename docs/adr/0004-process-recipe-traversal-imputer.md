@@ -57,10 +57,12 @@ the `ImputationLog`, and the bounds-clip.
   `eff = 0.997`) is floored by the Stage-3 `σ_a` relative-CV floor (`SIGMA_A_CV_MIN = 0.001`,
   [`constraints/engine.py:_lp_regularize`](../../src/pysuto/constraints/engine.py)) until A1
   lands. Not a blocker; the constraint stage is intentionally untouched by this work.
-- **`eff` ratio scope (follow-up).** The `eff` *ratio constraint* relates the product to the
-  single `eff`-named primary only; the pooled recipe (`product = eff·(primary + scrap)`) makes
-  the imputed prior exceed it by `eff·Scrap` for Smelting / CFR. The soft eff row absorbs this;
-  pooling Scrap into the `eff` ratio constraint is a separate, independently-validated change.
+- **`eff` ratio scope (follow-up — RESOLVED by [ADR 0005](0005-pool-scrap-into-eff-constraint-and-stripping-ratio.md)).**
+  As first shipped, the `eff` *ratio constraint* related the product to the single `eff`-named
+  primary only; the pooled recipe (`product = eff·(primary + scrap)`) made the imputed prior exceed
+  it by `eff·Scrap` for Smelting / CFR, which the soft eff row absorbed. ADR 0005 pools Scrap into
+  the `eff` ratio constraint (schema-driven `agg` rows with `region_to` bucketing), so prior and
+  constraint now agree.
 - **Provenance shift.** Process-chain edges are now attributed to `network_*` methods; the
   eff/conc `ParametricImputer`s remain as a fallback on whatever the network leaves
   undetermined (and on non-chain edges).

@@ -163,6 +163,7 @@ class NetworkImputer(BaseImputer):
         self._recipes: list[_RRecipe] = []
         self._flow_nodes: list[tuple[tuple[int, ...], tuple[int, ...]]] = []
         self._cc_to_mass: dict[int, tuple[int, float, float]] = {}
+        self._stripping: dict[int, tuple[float, float]] = {}  # ore_mass_edge -> (ratio, σ)
         self._same_region: np.ndarray | None = None
 
     @property
@@ -193,6 +194,10 @@ class NetworkImputer(BaseImputer):
 
         # product CC edge -> (eff, σ_eff, ε, param_id)
         product_eff = self._load_eff_map(self._eff_csv, resolver)
+
+        # Ore Mass edge -> (stripping ratio, σ); single source of truth for the
+        # Mining WR_Mass fill (replaces the hard-coded wr_to_ore_ratio constant).
+        self._stripping = self._load_stripping_map(self._eff_csv, resolver)
 
         # input edge -> from-node entity_sub (classifies primary vs SEM secondary)
         sub_from = dict(zip(em["edge_id"].to_numpy(), em["from_entity_sub"].to_numpy()))
@@ -240,6 +245,10 @@ class NetworkImputer(BaseImputer):
         df = pd.read_csv(path, sep=";", comment="#", dtype=str)
         df = df.dropna(subset=["param_id"])
         df = df[~df["param_id"].str.startswith("#")]
+        # Recovery-efficiency rows only; the stripping_ratio row (a Mass output
+        # ratio, not a CC recovery fraction) lives in the same file and must not
+        # pollute the eff map. Filter by param_type, not by a magic param_id.
+        df = df[df["param_type"].astype(str).str.strip() == "efficiency"]
         best: dict[int, tuple] = {}  # product_cc -> (eff, σ, ε, param_id, specificity)
         for _, row in df.iterrows():
             try:
@@ -256,6 +265,31 @@ class NetworkImputer(BaseImputer):
                 if prod not in best or rr.specificity > best[prod][4]:
                     best[prod] = (nominal, sig, eps, pid, rr.specificity)
         return {k: v[:4] for k, v in best.items()}
+
+    def _load_stripping_map(self, path, resolver) -> dict:
+        """Resolve stripping_ratio rows (A=Ore Mass, B=WR Mass) → {ore_mass_edge: (ratio, σ)}.
+
+        Keyed by the Ore Mass edge (the A-side denominator) so :meth:`_emit_twins`
+        can look the ratio up by a Mining recipe's Ore-Mass twin.
+        """
+        df = pd.read_csv(path, sep=";", comment="#", dtype=str)
+        df = df.dropna(subset=["param_id"])
+        df = df[~df["param_id"].str.startswith("#")]
+        df = df[df["param_type"].astype(str).str.strip() == "stripping_ratio"]
+        best: dict[int, tuple] = {}  # ore_mass_edge -> (ratio, σ, specificity)
+        for _, row in df.iterrows():
+            try:
+                nominal = float(row["value_nominal"])
+                sig = sigma_from_row(row, nominal)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("stripping map %s: row %s skipped (%s)",
+                               path, row.get("param_id"), exc)
+                continue
+            for rr in resolver.resolve_row(row):
+                ore = rr.a_edge_id  # A-side = Ore Mass edge (denominator)
+                if ore not in best or rr.specificity > best[ore][2]:
+                    best[ore] = (nominal, sig, rr.specificity)
+        return {k: v[:2] for k, v in best.items()}
 
     def _build_flow_balances(self, acc):
         """Per **(Flow node, year)**: (incoming CC supply edges, outgoing CC use edges).
@@ -397,7 +431,9 @@ class NetworkImputer(BaseImputer):
             if ore_twin and wr_twin:
                 ore_m, wr_m = ore_twin[0], wr_twin[0]
                 if not np.isnan(f[ore_m]) and np.isnan(f[wr_m]):
-                    r = self.wr_to_ore_ratio
+                    # stripping ratio from the eff CSV (param_type=stripping_ratio);
+                    # fall back to the constructor default if no row resolves.
+                    r, _sig_r = self._stripping.get(ore_m, (self.wr_to_ore_ratio, 0.0))
                     f_wr = float(r * f[ore_m])
                     s_wr = lp_combine([r * sigma[ore_m]], p)
                     self._w(wr_m, f_wr, s_wr, f, sigma, entries, step,

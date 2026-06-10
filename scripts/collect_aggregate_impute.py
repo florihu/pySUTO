@@ -89,9 +89,10 @@ ALPHA_MIN_REG = 0.05     # inverse-multiplier effective-sensitivity floor
 CASCADE_MAX_ITER = 10
 
 # NetworkImputer — waste-rock mass as a ratio of ore output (WR_Mass = k·Ore_Mass).
-# A direct ratio avoids the CO_Mass − Ore_Mass residual going negative when a
-# region's ore_grade exceeds the flat conc_ore.
-WR_TO_ORE_RATIO = 2.0
+# The ratio (k) is now a parameter: the `stripping_ratio` row in the eff params
+# CSV (param_type=stripping_ratio), so it is no longer hard-coded here. A direct
+# ratio avoids the CO_Mass − Ore_Mass residual going negative when a region's
+# ore_grade exceeds the flat conc_ore.
 
 # TimeImputer (general interpolation pass)
 TIME_WINDOW           = 3
@@ -398,7 +399,7 @@ def main(feed_ids: list[str], label: str) -> None:
         conc_csv      = str(inputs.params.resolve("conc")      / "params.csv"),
         ore_grade_csv = str(inputs.params.resolve("ore_grade") / "params.csv"),
         p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG, cv_cap=1.5,
-        wr_to_ore_ratio=WR_TO_ORE_RATIO, id="network",
+        id="network",
     )
     engine.register_cascade(
         [

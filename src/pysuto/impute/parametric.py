@@ -33,6 +33,25 @@ from .base import BaseImputer, _apply_cv_cap, _log
 logger = get_logger(__name__)
 
 
+_AGG_TRUE = {"true", "1", "yes", "y", "t"}
+
+
+def _parametric_consumes(row) -> bool:
+    """True if ParametricImputer should build per-pair fills from this params row.
+
+    Explicit consumed-set selection: skip **aggregated** (pooled) rows and the
+    **stripping_ratio** family. Those are owned by ``NetworkImputer`` (imputation)
+    and the ratio constraint builders — letting the per-pair parametric fallback
+    touch them would, e.g., backfill a spurious ``Scrap = Matte / eff`` from a
+    broadened ``a_sector_from=*`` eff row. The eff/conc per-pair rows still flow.
+    """
+    if str(row.get("agg", "")).strip().lower() in _AGG_TRUE:
+        return False
+    if str(row.get("param_type", "")).strip() == "stripping_ratio":
+        return False
+    return True
+
+
 def _reg_sensitivity(coeff: float, q: float, alpha_min: float) -> float:
     """
     Bounded effective sensitivity used in ParametricImputer σ propagation.
@@ -167,6 +186,8 @@ class ParametricImputer(BaseImputer):
         best: dict[tuple, tuple] = {}
 
         for _, row in df.iterrows():
+            if not _parametric_consumes(row):
+                continue
             nominal = float(row["value_nominal"])
             try:
                 sigma_p = sigma_from_row(row, nominal)

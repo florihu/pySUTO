@@ -781,6 +781,91 @@ class TestRatioConstraintBuilder:
             assert (block.row_meta["cone_type"] == "free").all()
             assert (~block.row_meta["is_hard"]).all()
 
+    def _write_agg_csv(self, tmp_path):
+        """One agg row: pool every use-edge into Mining (a-side) against the
+        Mining→Ore product (b-side), at Mass. Mirrors the eff pooled recipe."""
+        import csv
+        path = tmp_path / "agg.csv"
+        with open(path, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=[
+                "param_id", "agg",
+                "a_sector_from", "a_entity_from", "a_region_from",
+                "a_sector_to",   "a_entity_to",   "a_region_to", "a_time", "a_valuation",
+                "b_sector_from", "b_entity_from", "b_region_from",
+                "b_sector_to",   "b_entity_to",   "b_region_to", "b_time", "b_valuation",
+                "value_nominal", "unc_type", "value_sd", "value_min", "value_max",
+                "bound_lower", "bound_upper",
+            ])
+            w.writeheader()
+            w.writerow({
+                "param_id": "aggeff", "agg": "true",
+                "a_sector_from": "*", "a_entity_from": "*", "a_region_from": "*",
+                "a_sector_to": "Mining", "a_entity_to": "Process", "a_region_to": "*",
+                "a_time": "*", "a_valuation": "Mass",
+                "b_sector_from": "Mining", "b_entity_from": "Process", "b_region_from": "*",
+                "b_sector_to": "Ore", "b_entity_to": "Flow", "b_region_to": "*",
+                "b_time": "*", "b_valuation": "Mass",
+                "value_nominal": "0.8", "unc_type": "sd", "value_sd": "0.05",
+                "value_min": "", "value_max": "", "bound_lower": "", "bound_upper": "",
+            })
+        return str(path)
+
+    def test_ratio_agg_buckets_per_region_and_year(self, toy_acc, tmp_path):
+        """An agg row emits one set-scoped soft row per (region_to, time, valuation):
+        Σb − r·Σa = 0. toy_acc has Mining in regions A,B over 2 years → 4 rows."""
+        from pysuto.constraints import RatioConstraintBuilder
+        builder = RatioConstraintBuilder.from_csv(self._write_agg_csv(tmp_path), toy_acc)
+        block   = builder.build_static(toy_acc)
+        rm = block.row_meta
+        assert block.G_rows.shape[0] == 4                      # 2 regions × 2 years
+        assert rm["constraint_id"].nunique() == 4              # unique per bucket
+        # set-scoped: no single numerator/denominator edge
+        assert rm["num_sector_from"].isna().all()
+        assert rm["denom_sector_from"].isna().all()
+        assert (rm["cone_type"] == "free").all() and (~rm["is_hard"]).all()
+        assert np.allclose(block.sigma_c, 0.05)
+        assert np.all(block.c == 0.0)
+        # each row: +1 on the product edge, −0.8 on the pooled input edge
+        G = block.G_rows.toarray()
+        for row in G:
+            assert np.isclose(row, 1.0).sum() == 1
+            assert np.isclose(row, -0.8).sum() == 1
+
+    def test_ratio_single_pair_mass_output_ratio(self, toy_acc, tmp_path):
+        """Stripping-ratio shape: a single-pair Mass ratio between two Mining
+        outputs (WR/Ore) → +1·Waste − r·Ore (no agg)."""
+        import csv
+        from pysuto.constraints import RatioConstraintBuilder
+        path = str(tmp_path / "strip.csv")
+        with open(path, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=[
+                "param_id", "param_type",
+                "a_sector_from", "a_entity_from", "a_region_from",
+                "a_sector_to",   "a_entity_to",   "a_region_to", "a_time", "a_valuation",
+                "b_sector_from", "b_entity_from", "b_region_from",
+                "b_sector_to",   "b_entity_to",   "b_region_to", "b_time", "b_valuation",
+                "value_nominal", "unc_type", "value_sd",
+            ])
+            w.writeheader()
+            w.writerow({
+                "param_id": "strippingratio", "param_type": "stripping_ratio",
+                "a_sector_from": "Mining", "a_entity_from": "Process", "a_region_from": "A",
+                "a_sector_to": "Ore", "a_entity_to": "Flow", "a_region_to": "A",
+                "a_time": "*", "a_valuation": "Mass",
+                "b_sector_from": "Mining", "b_entity_from": "Process", "b_region_from": "same",
+                "b_sector_to": "Waste", "b_entity_to": "SB", "b_region_to": "same",
+                "b_time": "same", "b_valuation": "same",
+                "value_nominal": "2.0", "unc_type": "sd", "value_sd": "0.5",
+            })
+        builder = RatioConstraintBuilder.from_csv(path, toy_acc)
+        block   = builder.build_static(toy_acc)
+        assert block.G_rows.shape[0] >= 1
+        G = block.G_rows.toarray()
+        row = G[0]
+        assert 1.0 in row                # +1 on WR (numerator)
+        assert -2.0 in row               # −2 on Ore (denominator)
+        assert (block.row_meta["num_sector_from"] == "Mining").all()   # pair-scoped
+
 
 # ---------------------------------------------------------------------------
 # RatioBoundBuilder

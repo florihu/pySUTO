@@ -30,7 +30,7 @@ ACC_DIR = REPO_ROOT / "data/proc/acc"
 
 # Electrorefining efficiency (Anode/Flow → ER/Process → CER/Flow) applied to
 # Anode-Use rows to get refined-cathode production for the PSC denominator.
-REFINING_EFF_PARAM_ID = "eff_er"
+REFINING_EFF_PARAM_ID = "effer"
 
 # Per-indicator region clustering: indicators listed here are split into
 # multiple clusters via largest-gap on log10(per-region p95). Others use a
@@ -286,7 +286,9 @@ def _build_param_row(indicator: str, region: str, p95: float,
 
     slug = _slug(region)
     ind = indicator.lower()
-    param_id = f"net_stock_bound_{ind}_{slug}"
+    # param_id is used as the constraint-id `variant` slot, which must be
+    # underscore-free (see constraints/naming._safe); strip separators.
+    param_id = f"net_stock_bound_{ind}_{slug}".replace("_", "")
     descr = (f"{indicator} bound — region={region}, cluster={cluster_label}: "
              f"|Σ {ind}| ≤ {p95:.4f} · [Σ {denom_lbl}] over all from_regions")
 
