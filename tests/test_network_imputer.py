@@ -9,7 +9,7 @@ A small synthetic copper chain (one region, one year) exercises:
   * two-hop propagation across a Flow node (fixpoint)
   * backward multi-input subtraction (pooled Scrap)
   * the Ore branch split resolved from the SXEW anchor (+ negative: left NaN)
-  * the Mining WR mass-residual
+  * the Mining WR stripping ratio (WR_Mass = stripping_ratio · Ore_Mass)
   * determinacy / no-overwrite
   * CP pooling (eff = 1)
   * conc-by-construction: written CC/Mass twins satisfy CC = conc·Mass
@@ -343,7 +343,7 @@ def test_ore_split_without_anchor_left_nan(imputer, acc):
     assert np.isnan(f[acc.eid("Ore", "SXEW", "CC")])
 
 
-def test_mining_wr_to_ore_ratio(imputer, acc):
+def test_mining_stripping_ratio(imputer, acc):
     f, sigma = _run(imputer, acc, {("CO", "Mining", "CC"): 100.0})
     assert f[acc.eid("Mining", "Ore", "CC")] == pytest.approx(100.0)   # eff=1
     assert f[acc.eid("Mining", "WR", "CC")] == pytest.approx(0.0)
@@ -363,7 +363,7 @@ def test_stripping_ratio_from_csv_overrides_default(tmp_path, acc):
     write_conc_csv(conc)
     write_ore_grade_csv(og)
     imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=float("inf"),
-                         wr_to_ore_ratio=2.0)   # default would give 2·Ore
+                         stripping_ratio=2.0)   # default would give 2·Ore
     imp.prepare(acc)
     f, _ = _run(imp, acc, {("CO", "Mining", "CC"): 100.0})
     ore_mass = f[acc.eid("Mining", "Ore", "Mass")]
@@ -377,7 +377,7 @@ def test_stripping_ratio_absent_falls_back_to_default(tmp_path, acc):
     write_conc_csv(conc)
     write_ore_grade_csv(og)
     imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=float("inf"),
-                         wr_to_ore_ratio=2.5)
+                         stripping_ratio=2.5)
     imp.prepare(acc)
     assert imp._stripping == {}
     f, _ = _run(imp, acc, {("CO", "Mining", "CC"): 100.0})
