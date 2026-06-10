@@ -140,7 +140,7 @@ concentrate_domestic = FormulaRelation(
                 (ei["sector_to"]   == "Concentrate") & (ei["entity_to"]   == "Flow") &
                 (ei["valuation"]   == "CC")
             ),
-            coefficient=ParamRef("conc_concentrate_supply", "inverse"),
+            coefficient=ParamRef("concconcentratesupply", "inverse"),
             region_binding="to_matches_target_from",
             aggregate="single",
         ),
@@ -172,7 +172,7 @@ matte_domestic = FormulaRelation(
                 (ei["sector_to"]   == "Matte")    & (ei["entity_to"]   == "Flow") &
                 (ei["valuation"]   == "CC")
             ),
-            coefficient=ParamRef("conc_matte_supply", "inverse"),
+            coefficient=ParamRef("concmattesupply", "inverse"),
             region_binding="to_matches_target_from",
             aggregate="single",
         ),
@@ -204,7 +204,7 @@ anode_domestic = FormulaRelation(
                 (ei["sector_to"]   == "Anode") & (ei["entity_to"]   == "Flow") &
                 (ei["valuation"]   == "CC")
             ),
-            coefficient=ParamRef("conc_anode_supply", "inverse"),
+            coefficient=ParamRef("concanodesupply", "inverse"),
             region_binding="to_matches_target_from",
             aggregate="single",
         ),
@@ -229,7 +229,7 @@ def _cathode_supply_term():
             (ei["sector_to"]   == "Cathode") & (ei["entity_to"]   == "Flow") &
             (ei["valuation"]   == "CC")
         ),
-        coefficient=ParamRef("conc_cathode_supply", "inverse"),
+        coefficient=ParamRef("conccathodesupply", "inverse"),
         region_binding="to_matches_target_from",
         aggregate="single",
     )

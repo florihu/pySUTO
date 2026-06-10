@@ -167,6 +167,9 @@ class NetworkImputer(BaseImputer):
         self._cc_to_mass: dict[int, tuple[int, float, float]] = {}
         self._stripping: dict[int, tuple[float, float]] = {}  # ore_mass_edge -> (ratio, σ)
         self._same_region: np.ndarray | None = None
+        self._lower: np.ndarray | None = None  # per-edge bounds (for in-imputer clipping)
+        self._upper: np.ndarray | None = None
+        self._n_clipped: int = 0
 
     @property
     def source_paths(self) -> list[str]:
@@ -186,6 +189,12 @@ class NetworkImputer(BaseImputer):
         same = (em["from_region"].to_numpy() == em["to_region"].to_numpy())
         self._same_region = np.zeros(acc.n_edges, dtype=bool)
         self._same_region[em["edge_id"].to_numpy()] = same
+
+        # per-edge bounds: clip fills to [l, u] inside _w so a negative residual
+        # (e.g. Ore→SXEW = Mining→Ore − Ore→MF) cannot propagate through the
+        # internal fixpoint and drag downstream sums below their true values.
+        self._lower = acc.bounds.l
+        self._upper = acc.bounds.u
 
         # CC edge -> (Mass twin edge, conc, σ_conc). conc first, ore_grade
         # overlaid (more specific for CO → wins on specificity).
@@ -319,6 +328,7 @@ class NetworkImputer(BaseImputer):
 
     def impute(self, f, sigma, missing, step, acc_struct) -> list[dict]:
         entries: list[dict] = []
+        self._n_clipped = 0
         # Internal fixpoint: keep sweeping recipes + flow balances until a full
         # sweep fills nothing new (the engine cascade re-runs us too, but
         # converging here keeps chain propagation within one call).
@@ -330,6 +340,10 @@ class NetworkImputer(BaseImputer):
                 self._do_flow_balance(inc, out, f, sigma, entries, step)
             if len(entries) == n_before:
                 break
+        if self._n_clipped:
+            # One summary in place of the engine's per-edge out-of-bounds warnings
+            # (now silent, since fills are clipped to bounds before they propagate).
+            logger.info("NetworkImputer: clipped %d fill(s) to edge bounds", self._n_clipped)
         return entries
 
     def _do_recipe(self, rec, f, sigma, entries, step) -> None:
@@ -473,15 +487,31 @@ class NetworkImputer(BaseImputer):
 
     def _w(self, e, val, sig, f, sigma, entries, step, method,
            sources, coeffs, param_id, desc="") -> bool:
-        """Write a fill, guarded by ownership (same-region) + no-overwrite."""
+        """Write a fill, guarded by ownership (same-region) + no-overwrite.
+
+        The value is clipped to the edge's ``[lower, upper]`` bounds *before* it is
+        written, so a negative residual (e.g. ``Ore→SXEW = Mining→Ore − Ore→MF`` in
+        a no-SXEW region) cannot propagate through the internal fixpoint and drag
+        downstream sums below their true values. A clipped fill widens σ to the clip
+        gap (a saturated estimate, not a precise bound) and is tagged ``_clipped``.
+        """
         if not self._same_region[e] or not np.isnan(f[e]):
             return False
-        sig, capped = _apply_cv_cap(float(sig), float(val), self.cv_cap)
-        f[e] = float(val)
+        val = float(val)
+        sig = float(sig)
+        clipped_val = float(min(max(val, self._lower[e]), self._upper[e]))
+        was_clipped = clipped_val != val
+        if was_clipped:
+            sig = lp_combine([sig, abs(val - clipped_val)], self.p)  # widen σ to the clip gap
+            val = clipped_val
+            self._n_clipped += 1
+        sig, capped = _apply_cv_cap(sig, val, self.cv_cap)  # cap self-disables at val==0
+        f[e] = val
         sigma[e] = float(sig)
         entries.append(_log(
-            int(e), step, method + ("_capped" if capped else ""),
+            int(e), step,
+            method + ("_clipped" if was_clipped else "") + ("_capped" if capped else ""),
             [int(s) for s in sources], [float(c) for c in coeffs],
-            float(val), float(sig), desc, param_id,
+            val, float(sig), desc, param_id,
         ))
         return True

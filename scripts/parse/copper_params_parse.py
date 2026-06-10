@@ -234,7 +234,8 @@ def convert_conc(path_in: str) -> list[dict]:
         # use-direction: flow node as to-node (only if some process outputs this sector)
         if valid["to_node"]:
             use = base.copy()
-            use["param_id"]      = f"conc_{pid_base}_use"
+            # underscore-free: param_id is the constraint-id variant slot (naming._safe)
+            use["param_id"]      = f"conc_{pid_base}_use".replace("_", "")
             use["description"]   = (f"Cu concentration in {raw_sector} ({entity}) "
                                      f"— use edges (to-node={root_sector}/{entity})")
             use["a_sector_from"] = "*"
@@ -247,7 +248,7 @@ def convert_conc(path_in: str) -> list[dict]:
         # supply-direction: flow node as from-node (only if this sector feeds some process)
         if valid["from_node"]:
             sup = base.copy()
-            sup["param_id"]      = f"conc_{pid_base}_supply"
+            sup["param_id"]      = f"conc_{pid_base}_supply".replace("_", "")
             sup["description"]   = (f"Cu concentration in {raw_sector} ({entity}) "
                                      f"— supply edges (from-node={root_sector}/{entity})")
             sup["a_sector_from"] = root_sector
@@ -279,7 +280,8 @@ def convert_eff(path_in: str) -> list[dict]:
         vmax    = float(r["Value_max_tCu_per_tCu"])
         nominal = round((vmin + vmax) / 2, 6)
         source  = str(r["Source"])
-        pid     = "eff_" + process_name.lower().replace(" ", "_").replace("(", "").replace(")", "")
+        pid     = ("eff_" + process_name.lower().replace(" ", "_")
+                   .replace("(", "").replace(")", "")).replace("_", "")
 
         proc_sector = chain["process_sector"]
 

@@ -68,9 +68,22 @@ about data quality — see **val-coverage**.
 the relative number of edges in a subset that carry a **real** val, where "real" follows
 the imputation-log *method* rule (`has_val`): flat-prior / `flat_prior_noisy_zero` default
 fills are **not** real; observed values — *including a genuine `0.0`* — and
-fan / time / parametric / formula imputations **are**. _Avoid_: deciding val-coverage from
-`f == 0` — a flat-prior fill is `0` but so is a real observed zero, and the two are
+fan / time / parametric / formula / **network** (including a bounds-**clipped** fill, below)
+imputations **are**. _Avoid_: deciding val-coverage from `f == 0` — a flat-prior fill is `0`
+but so is a real observed zero (and a clipped-to-0 network fill), and the three are
 distinguished by the log method, not the magnitude.
+
+**Bounds-clip (in-imputer) — `network_*_clipped` fill.** The NetworkImputer floors every
+fill to the edge's `[lower, upper]` bounds **before** it propagates through the recipe/
+balance fixpoint, so a negative residual (e.g. `Ore→SXEW = Mining→Ore − Ore→MF` in a region
+with little/no SXEW) cannot cascade and drag downstream sums below their true values. The
+clipped value is a **saturated estimate**, not a precise bound: σ is widened to the clip gap
+and the fill is tagged `network_*_clipped`. A clipped network fill still **counts as real
+val-coverage** — it is a network inference, and its low confidence lives in the widened σ,
+not in coverage. _Distinct from_: (1) the engine's **post-return bounds clip**
+([impute/engine.py](src/pysuto/impute/engine.py)) which warns + clips *any* imputer's
+out-of-bounds fill — the in-imputer clip makes it a no-op for network fills; (2) the **σ-cap**
+(`_capped`, the `cv_cap` ceiling on σ — caps the *uncertainty*, not the value).
 
 **Coverage** (glossary, the `agg_result.coverage` boolean) — *did any feed observe this
 edge?* — a **pre-imputation** notion, strictly **narrower** than val-coverage: it credits

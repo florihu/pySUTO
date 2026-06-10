@@ -82,6 +82,18 @@ the `ImputationLog`, and the bounds-clip.
 - **`acc` accessor added.** `AccountingStructure.process_recipes` exposes the structural recipe
   skeletons (derived from `edge_meta` + supply/use masks + `entity_sub`, which survive
   `load()` — `ruleset` is `None` there).
+- **In-imputer bounds-clip (2026-06-10).** `_w` clips every fill to the edge's `[lower, upper]`
+  bounds *before* it propagates through the internal fixpoint, σ-widened to the clip gap and
+  tagged `network_*_clipped`. Without it, a negative residual at the over-determined `Ore` split
+  (`Ore→SXEW = Mining→Ore − Ore→MF`, negative in regions with little/no SXEW when feed priors
+  disagree) propagated un-clipped down the SXEW branch and **dragged downstream sums below their
+  true values** — `CP→Cathode = CER − |neg|` → engine-clipped to 0, losing the real CER (pyro)
+  contribution. The engine's post-return clip can't prevent this (it runs after the fixpoint), so
+  the floor must be applied inside. Chose **saturated-zero over NaN**: NaN would block the
+  downstream recipe (missing primary input), pushing the whole SXEW branch to `flat_prior_noisy_zero`
+  (worse `val_pct`) and discarding the structural fact that the branch is ~0; for the dominant
+  no-SXEW case 0 is the true value. The widened σ keeps the zero honest (a floor, not a precise
+  measurement). See [CONTEXT.md](../../CONTEXT.md) §"Bounds-clip (in-imputer)".
 - **Validation.** Re-run the imputation driver; success = **val-coverage (`val_pct`) of the
   `SEM` column in `coverage_system_boundary_<year>.csv` and of chain commodities in
   `coverage_supply_use_<year>.csv` rises**, with `flat_prior_noisy_zero` share well below 80 %.

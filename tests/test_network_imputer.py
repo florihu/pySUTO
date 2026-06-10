@@ -8,7 +8,8 @@ A small synthetic copper chain (one region, one year) exercises:
   * forward recipe closure (product + SEM waste) and the Mass twin
   * two-hop propagation across a Flow node (fixpoint)
   * backward multi-input subtraction (pooled Scrap)
-  * the Ore branch split resolved from the SXEW anchor (+ negative: left NaN)
+  * the Ore branch split resolved from the SXEW anchor (+ negative residual: clipped
+    to the edge bound, σ-widened, and not propagated downstream)
   * the Mining WR stripping ratio (WR_Mass = stripping_ratio · Ore_Mass)
   * determinacy / no-overwrite
   * CP pooling (eff = 1)
@@ -341,6 +342,38 @@ def test_ore_split_without_anchor_left_nan(imputer, acc):
     f, _ = _run(imputer, acc, {("Mining", "Ore", "CC"): 100.0})
     assert np.isnan(f[acc.eid("Ore", "MF", "CC")])
     assert np.isnan(f[acc.eid("Ore", "SXEW", "CC")])
+
+
+def test_negative_balance_clipped_not_propagated(imputer, acc):
+    """A negative Ore->SXEW residual (Mining->Ore - Ore->MF < 0, as in a region with
+    little/no SXEW) is clipped to the edge bound (0) with σ widened to the clip gap,
+    tagged `_clipped`, and does NOT propagate: the SXEW branch closes at 0 and
+    CP->Cathode keeps the full CER (pyro) contribution instead of being dragged to 0."""
+    f = np.full(acc.n_edges, np.nan)
+    sigma = np.full(acc.n_edges, np.nan)
+    seeds = {
+        ("Mining", "Ore", "CC"): 100.0,   # ore supply
+        ("Ore", "MF", "CC"):     120.0,   # flotation feed > ore  -> Ore->SXEW = -20
+        ("CER", "CP", "CC"):     70.0,    # pyro leg into the CP pool
+    }
+    for (fs, ts, v), val in seeds.items():
+        e = acc.eid(fs, ts, v)
+        f[e] = val
+        sigma[e] = 0.01 * val
+    entries = imputer.impute(f, sigma, np.isnan(f), step=0, acc_struct=acc)
+
+    e_sxew = acc.eid("Ore", "SXEW", "CC")
+    # clipped to the lower bound, not left negative
+    assert f[e_sxew] == pytest.approx(0.0)
+    rec = next(e for e in entries if e["edge_id"] == e_sxew)
+    assert rec["method"].endswith("_clipped")
+    assert sigma[e_sxew] >= 20.0            # σ widened to at least the clip gap (|−20|)
+
+    # negativity did not propagate down the SXEW branch
+    assert f[acc.eid("SXEW", "CSXEW", "CC")] == pytest.approx(0.0)
+    assert f[acc.eid("CSXEW", "CP", "CC")]   == pytest.approx(0.0)
+    # CP->Cathode keeps the CER contribution (eff_CP = 1), NOT dragged to 0
+    assert f[acc.eid("CP", "Cathode", "CC")] == pytest.approx(70.0)
 
 
 def test_mining_stripping_ratio(imputer, acc):
