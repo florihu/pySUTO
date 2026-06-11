@@ -63,7 +63,7 @@ def main(opt_run_id: str, label: str = "") -> None:
     _log.info("Wrote %d figures to %s", len(paths), diag_dir)
 
     acc = AccountingStructure.load(diag.constraint_run.acc_id)
-    SolverStatsDiagnostic(diag.results, diag.constraint_run, acc, year="1995").write(diag_dir)
+    SolverStatsDiagnostic(diag.results, diag.constraint_run, acc, years=("1995",)).write(diag_dir)
 
     _log.info("=== init_solve_diag DONE ===")
 

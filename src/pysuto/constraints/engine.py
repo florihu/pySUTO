@@ -575,6 +575,6 @@ class ConstraintEngine:
             from ..diag import ConstDiagnostic, ConstStatsDiagnostic
             odir = os.path.join(self._registry.storage_dir, cr.run_id, "diag")
             ConstDiagnostic(cr, label=cr.run_id).plot(odir=odir)
-            ConstStatsDiagnostic(cr, year="1995").write(odir)
+            ConstStatsDiagnostic(cr, years=("1995",)).write(odir)
 
         return cr

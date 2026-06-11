@@ -16,13 +16,13 @@ Public surface (re-exported here so call sites can keep using
                                 (per (sector, region, valuation) by from/to endpoint).
 * :class:`ConstDiagnostic`   — Stage 3: G-matrix sparsity, prior distribution,
                                 constraint residuals ε₀ = c − G·a₀.
-* :class:`ConstStatsDiagnostic`— Stage 3: prior soft-constraint residual/violation
-                                CSV (G·a₀ − c per soft constraint_id).
+* :class:`ConstStatsDiagnostic`— Stage 3: prior row-level constraint CSV
+                                (lhs_prior = G·a₀ per constraint_id, all rows).
 * :class:`OptimDiagnostics`  — Stage 4: optimisation residuals, σ_opt vs σ_agg,
                                 convergence across timesteps.
 * :class:`SolverDiag`        — Stage 4: solver-side residual/objective plots.
-* :class:`SolverStatsDiagnostic`— Stage 4: post-solve per-bucket CSVs (edge defect
-                                a*−a₀ by from/to endpoint; soft-constraint violations).
+* :class:`SolverStatsDiagnostic`— Stage 4: post-solve row-level CSVs (per-edge
+                                defect a*−a₀; per-constraint lhs_prior/lhs_post).
 
 Design conventions
 ------------------

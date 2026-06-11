@@ -527,7 +527,10 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                 "_supply_ids":       edge_ids,
                 "time":              str(key_map["time"]) if "time" in key_map else None,
                 "valuation":         str(key_map["valuation"]) if "valuation" in key_map else None,
-                "sector":            None,
+                # Node-sum rows (grouped on a sector key) carry their node identity in
+                # sector/region, symmetric fills; set-sum rows (no sector key) leave sector None.
+                "sector":            (str(key_map.get("sector_from", key_map.get("sector_to")))
+                                      if ("sector_from" in key_map or "sector_to" in key_map) else None),
                 "region":            (str(key_map.get("region_to", key_map.get("region_from")))
                                       if ("region_to" in key_map or "region_from" in key_map) else None),
                 "entity":            None,

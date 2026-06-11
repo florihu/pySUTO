@@ -7,12 +7,13 @@ Groups the stats-table diagnostics and their shared builders:
                                                     coverage CSVs + the ``has_val`` rule.
 * :class:`StatsDiagnostic`       (``val.py``)    — Stage 2: imputed-val distribution
                                                     per (sector, region, valuation).
-* :class:`ConstStatsDiagnostic`  (``const.py``)  — Stage 3: prior soft-constraint
-                                                    residual/violation table.
-* :class:`SolverStatsDiagnostic` (``solver.py``) — Stage 4: solver defect distribution
-                                                    + solved soft-constraint violations.
+* :class:`ConstStatsDiagnostic`  (``const.py``)  — Stage 3: prior row-level
+                                                    constraint table (lhs_prior = G·a0).
+* :class:`SolverStatsDiagnostic` (``solver.py``) — Stage 4: row-level edge table
+                                                    (defect a*−a₀) + constraint table
+                                                    (lhs_prior + lhs_post = c_star).
 
-The shared, stateless builders (:func:`grouped_stats`, :func:`soft_constraint_table`)
+The shared, stateless builders (:func:`grouped_stats`, :func:`constraint_table`)
 live in ``_core.py`` and are the DRY seam across all three. ``StatsDiagnostic`` also
 composes :class:`CoverageDiagnostic` (reuses its per-edge frame + ``has_val``).
 """

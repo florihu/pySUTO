@@ -10,10 +10,12 @@ serves every stage instead of being copied per diagnostic.
   defect distribution). The value is masked to ``NaN`` upstream wherever it should
   be excluded; every aggregator here skips NaN, counts it (``n_nan``), and reports
   ``val_pct`` = non-NaN share.
-* :func:`soft_constraint_table` — flat per-**soft-constraint** residual/violation
-  table. Used by both :class:`ConstStatsDiagnostic` (Stage 3, prior residual
-  ``G·a0 − c``) and :class:`SolverStatsDiagnostic` (Stage 4, solved
-  ``c_star − c``). Same schema, parametrised only by the achieved LHS ``lhs = G·a``.
+* :func:`constraint_table` — flat per-**constraint** row-level table over **all**
+  rows (hard + soft). Used by both :class:`ConstStatsDiagnostic` (Stage 3,
+  ``residual = lhs_prior − c``) and :class:`SolverStatsDiagnostic` (Stage 4,
+  ``residual = lhs_post − c``). Harmonised schema: ``lhs_prior = G·a0`` appears in
+  both stages' tables; ``lhs_post = c_star`` only at the solver stage, and
+  ``residual``/``z`` always derive from the stage's achieved LHS.
 """
 
 from __future__ import annotations
@@ -23,8 +25,6 @@ import pandas as pd
 
 _COLUMNS = ["min", "p25", "p50", "p75", "p95", "mean", "max", "sum",
             "n_val", "n_nan", "val_pct"]
-
-_SOFT_TYPES = ("sum_eq", "ratio_eq")
 
 
 def grouped_stats(
@@ -88,79 +88,78 @@ def grouped_stats(
     return out
 
 
-def soft_constraint_table(
+def constraint_table(
     row_meta: pd.DataFrame,
     c,
     sigma_c,
-    lhs,
+    lhs_prior,
     year: str,
-    soft_types: tuple = _SOFT_TYPES,
+    lhs_post=None,
 ) -> pd.DataFrame:
-    """Per-soft-constraint residual/violation table for one ``year``.
+    """Row-level per-constraint table for one ``year`` — **all** rows (hard + soft).
 
-    Stage-neutral: it works off the achieved left-hand side ``lhs = G·a`` —
-    ``G·a0`` (prior) at the constraint stage, ``c_star`` (= ``G·a*`` on soft rows)
-    at the solver stage. ``residual = lhs − c`` is the codebase-reserved residual
-    ``G·a − c``; on a soft row this equals the slack the solver calls ``eps``.
+    Harmonised across stages: ``lhs_prior = G·a0`` means the same thing in both
+    stages' tables; ``lhs_post`` (= ``c_star = G·a*``) is given only at the solver
+    stage. ``residual = lhs − c`` (the codebase-reserved residual ``G·a − c``,
+    = the slack ``eps`` on a soft row) and ``z = residual/σ_c`` always derive from
+    the stage's achieved LHS: ``lhs_post`` when given, else ``lhs_prior``. ``z`` is
+    NaN where ``σ_c ≤ 0`` (hard rows).
 
     Parameters
     ----------
     row_meta : pd.DataFrame
         One row per constraint (``constraint_id``, ``type``, ``time``, optionally
-        ``valuation``). Positionally aligned with ``c`` / ``sigma_c`` / ``lhs``.
-    c, sigma_c, lhs : array-like (M,)
-        Target RHS, per-row tolerance, achieved LHS — full constraint-row length.
+        ``variant`` / ``cone_type`` / ``valuation``). Positionally aligned with
+        ``c`` / ``sigma_c`` / ``lhs_prior`` / ``lhs_post``.
+    c, sigma_c, lhs_prior : array-like (M,)
+        Target RHS, per-row tolerance, prior LHS ``G·a0`` — full row length.
     year : str
         Restrict to rows whose ``time`` matches.
-    soft_types : tuple
-        Legacy fallback only — used when ``row_meta`` has no ``cone_type``
-        column. A soft row is canonically a **free-cone** row (``cone_type ==
-        "free"``), which is exactly the old ``sum_eq`` ∪ ``ratio_eq`` set.
+    lhs_post : array-like (M,), optional
+        Solved LHS ``c_star``; adds the ``lhs_post`` column and rebases
+        ``residual``/``z`` on it.
 
     Returns
     -------
     pd.DataFrame
-        Indexed by ``constraint_id``; columns
-        ``[type, variant, valuation, c, lhs, residual, sigma_c, z]`` with
-        ``z = residual/σ_c``.
+        Columns ``[constraint_id, type, variant, cone_type, valuation, c,
+        lhs_prior, (lhs_post,) residual, residual_abs, sigma_c, z, z_abs]``.
     """
     rm = row_meta.reset_index(drop=True)
-    # Soft ⟺ free cone (slack-bearing). Fall back to the legacy type whitelist
-    # only when cone_type is absent (toy fixtures).
-    if "cone_type" in rm.columns:
-        soft = rm["cone_type"].astype(str) == "free"
-    else:
-        soft = rm["type"].isin(soft_types)
-    mask = soft & (rm["time"].astype(str) == str(year))
+    mask = rm["time"].astype(str) == str(year)
     idx = np.flatnonzero(mask.to_numpy())
 
-    c       = np.asarray(c, dtype=float)[idx]
-    sigma_c = np.asarray(sigma_c, dtype=float)[idx]
-    lhs     = np.asarray(lhs, dtype=float)[idx]
-    residual = lhs - c
+    c         = np.asarray(c, dtype=float)[idx]
+    sigma_c   = np.asarray(sigma_c, dtype=float)[idx]
+    lhs_prior = np.asarray(lhs_prior, dtype=float)[idx]
+    if lhs_post is not None:
+        lhs_post = np.asarray(lhs_post, dtype=float)[idx]
+    achieved = lhs_post if lhs_post is not None else lhs_prior
+    residual = achieved - c
     with np.errstate(divide="ignore", invalid="ignore"):
         z = np.where(sigma_c > 0, residual / sigma_c, np.nan)
 
-    if "valuation" in rm.columns:
-        valuation = rm["valuation"].to_numpy()[idx]
-    else:
-        valuation = np.full(idx.size, np.nan)
+    def _col(name):
+        if name in rm.columns:
+            return rm[name].to_numpy()[idx]
+        return np.full(idx.size, np.nan)
 
-    if "variant" in rm.columns:
-        variant = rm["variant"].to_numpy()[idx]
-    else:
-        variant = np.full(idx.size, np.nan)
-
-    return pd.DataFrame(
-        {
-            "type":      rm["type"].to_numpy()[idx],
-            "variant":   variant,
-            "valuation": valuation,
-            "c":         c,
-            "lhs":       lhs,
-            "residual":  residual,
-            "sigma_c":   sigma_c,
-            "z":         z,
-        },
-        index=pd.Index(rm["constraint_id"].to_numpy()[idx], name="constraint_id"),
-    )
+    out = {
+        "constraint_id": rm["constraint_id"].to_numpy()[idx],
+        "type":          rm["type"].to_numpy()[idx],
+        "variant":       _col("variant"),
+        "cone_type":     _col("cone_type"),
+        "valuation":     _col("valuation"),
+        "c":             c,
+        "lhs_prior":     lhs_prior,
+    }
+    if lhs_post is not None:
+        out["lhs_post"] = lhs_post
+    out.update({
+        "residual":     residual,
+        "residual_abs": np.abs(residual),
+        "sigma_c":      sigma_c,
+        "z":            z,
+        "z_abs":        np.abs(z),
+    })
+    return pd.DataFrame(out)

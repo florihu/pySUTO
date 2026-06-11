@@ -17,6 +17,7 @@ A modular Python framework for constructing, reconciling, and propagating uncert
    - [Stage 3 — Constraint building](#stage-3--constraint-building)
    - [Stage 4 — Solver](#stage-4--solver)
    - [Stage 5 — Posterior uncertainty propagation](#stage-5--posterior-uncertainty-propagation)
+   - [Stage 6 — PSUT/PIOT builder (planned)](#stage-6--psutpiot-builder-planned)
 3. [Module reference](#module-reference)
 4. [Workflow](#workflow)
 5. [File structure](#file-structure)
@@ -72,7 +73,7 @@ The package is organised into **five sequential stages**: datafeed assembly (per
 ┌────────────────────────────────────────────────────────────────────────┐
 │  STAGE 3 — Constraint building   ·   scripts/constraints.py            │
 │  ConstraintEngine.register(builders).run()                             │
-│  builders : MassBalance(hard) · Sum-anchor(soft)                       │
+│  builders : MassBalance(hard) · ScaleTotal(soft)                       │
 │           · Ratio conc,eff (soft ratioeq)                              │
 │           · RatioBound conc,eff,stock (hard) · FlowBounds(hard)        │
 │  in  : AggregationResult                                               │
@@ -93,6 +94,14 @@ The package is organised into **five sequential stages**: datafeed assembly (per
 │  KalmanUncProp.compute()  (closed-form GLS · sparse Cholesky)          │
 │  in  : OptimRun (+ upstream ConstraintRun)                             │
 │  out : UncPropResult per t (σ_a* · lower · upper · diagnostics)        │
+└──────┬─────────────────────────────────────────────────────────────────┘
+       │  opt_run_id
+       ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│  STAGE 6 — PSUT/PIOT builder   ·   scripts/psut.py      (PLANNED)      │
+│  build_psut → build_piot → indicators (per period · valuation)         │
+│  in  : OptimRun (a* = F_opt) + AccountingStructure                     │
+│  out : PSUT(S·U·Y·E·O·P) · gPIOT(A·Z·L) · footprints → registry        │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -474,7 +483,7 @@ Defaults: $\mathrm{CV}_a^\mathrm{min} = \mathrm{CV}_c^\mathrm{min} = 0.05$, $\si
 - **`RatioBoundBuilder`** — type 4 (`.from_csv(...)`).
 - **`FlowBoundsBuilder`** — type 5 (only edges with non-default bounds produce rows).
 - **`ConstraintBlock`** — internal container for one builder's rows.
-- **`ConstraintRun`** — bundle of `G`, `row_meta`, `a0`, `sigma_a`, `u`, `l`, `timestep_data[t] = {"c", "sigma_c"}`. `row_meta` carries a uniform column set across all builders (`pysuto.constraints.naming.ROW_META_COLS`): `[constraint_id, type, variant, is_hard, cone_type, time, valuation, sector, region, entity, entity_sub, ratio_kind, bound_dir, num_*/denom_* (ratio numerator/denominator decode)]`. Every `constraint_id` follows the grammar **`{type}_{variant}_{specs}_{year}`** where `type ∈ {massbal, sum, ratio}` and `variant` is the role within the family (`usefulsupply`/`subentity`/`anchor`/csv-label for sum, `ratioeq`/`bound` for ratio, or a user `param_id`). The id is a unique **display key — never parse it; read the columns** (see [CONTEXT.md](CONTEXT.md) §"Constraint identity"). The `time` column is the year the row belongs to (the final id token; set at spec construction by each builder) or `None` for time-agnostic rows (e.g. wildcard CSV constraints), whose id ends in `_na`. When every row's non-zeros lie inside its own time bucket (the **no cross-time coupling** invariant), the engine also stores a per-t partition `G_blocks[t]` / `edge_cols_by_t[t]` (persisted under `blocks/`); Stage 4's block solver consumes it to solve one ~30× smaller QP per year.
+- **`ConstraintRun`** — bundle of `G`, `row_meta`, `a0`, `sigma_a`, `u`, `l`, `timestep_data[t] = {"c", "sigma_c"}`. `row_meta` carries a uniform column set across all builders (`pysuto.constraints.naming.ROW_META_COLS`): `[constraint_id, type, variant, is_hard, cone_type, time, valuation, sector, region, entity, entity_sub, ratio_kind, bound_dir, num_*/denom_* (ratio numerator/denominator decode)]`. Every `constraint_id` follows the grammar **`{type}_{variant}_{specs}_{year}`** where `type ∈ {massbal, sum, ratio}` and `variant` is the role within the family (`usefulsupply`/`subentity`/`supplytotout`/`usetotout`/csv-label for sum, `ratioeq`/`bound` for ratio, or a user `param_id`). The id is a unique **display key — never parse it; read the columns** (see [CONTEXT.md](CONTEXT.md) §"Constraint identity"). The `time` column is the year the row belongs to (the final id token; set at spec construction by each builder) or `None` for time-agnostic rows (e.g. wildcard CSV constraints), whose id ends in `_na`. When every row's non-zeros lie inside its own time bucket (the **no cross-time coupling** invariant), the engine also stores a per-t partition `G_blocks[t]` / `edge_cols_by_t[t]` (persisted under `blocks/`); Stage 4's block solver consumes it to solve one ~30× smaller QP per year.
 - **`ConstraintRunRegistry`** — disk layout under `data/proc/const/{run_id}/` (G.npz, row_meta.parquet, a0.npy, sigma_a.npy, u.npy, l.npy, `timesteps/t_{year}.npz`).
 
 #### Key parameters
@@ -707,6 +716,10 @@ Without it, `KalmanUncProp` falls back to `scipy.sparse.linalg.splu` — same an
 The v1 module is **bound-blind**: at edges where `a* = l` with positive dual, the marginal σ_a* is an overestimate. A future `BoundedKalmanUncProp` concrete will augment G with active-set rows from the solver dual `z*` and refactor. Per the spec (`docs/rep/plans/stage3_posterior_uncertainty_approach_A.md` §6), the closed form is also the **Laplace approximation** of the true posterior — acceptable for tightly-distributed flows but increasingly approximate for wide log-normal pedigree tails.
 
 See [`docs/rep/plans/stage5_uncprop_integration_plan.md`](docs/rep/plans/stage5_uncprop_integration_plan.md) for the full integration plan and the v1 scope cuts.
+
+### Stage 6 — PSUT/PIOT builder *(planned)*
+
+Downstream of the solver: **materialise** the solved edge vector `a*` (`OptimResult.F_opt`) as numeric **physical supply-use tables (PSUT)** — supply `S`, use `U`, final use `Y`, plus boundary blocks `E`/`O`/`P` — per period and per valuation (`CC`, `Mass`), reusing the existing supply/use masks and `entity_sub`. From each PSUT it builds the symmetric **physical input-output table (PIOT)** following PIOLab (Wieland et al. 2022) and Suh (2004) — by-products endogenised as negative inputs, then `A`, `Z`, `L = (I−A)⁻¹` over a full **MRIO** (region × flow) — and ships the classical analytics: footprints / embodied flows, embodied bilateral trade, ew-MFA headline indicators, and multipliers / SDA. v1 is point-estimate only (Stage-5 σ propagation deferred). Rationale and the deliberate *no pySUT / pymrio dependency* are recorded in [ADR 0007](docs/adr/0007-downstream-psut-piot-follows-piolab-suh-no-external-io-lib.md).
 
 ---
 
@@ -1170,16 +1183,27 @@ fitted onto. **Source / src edge** = an edge in a feed's own classification, *be
 concordance maps it onto root via `W` (`f_root = Wᵀ f_src`).
 _Avoid_: "common structure" (ambiguous about which side is canonical).
 
-**Control total**:
+**Control total** *(removed — superseded by **Scale total**, see [ADR 0006](docs/adr/0006-scale-total-supersedes-external-control-total.md))*:
 A Type-2 **soft-sum** constraint (`Σ aᵢ = c + ε`, free cone) whose RHS `c(t)` is an externally
 published total — here ICSG production + usage, per year — that a defined edge-set must sum to.
 **ROW (Rest-Of-World) totals are not imposed** (ROW-excluded). Internal edge consistency is
 *not* a control total — that is the job of hard mass balance.
-_Avoid_: "anchor", "coherence soft-sum" (the latter was a removed mechanism).
+_Avoid_: "anchor", "coherence soft-sum" (both removed mechanisms).
+
+**Scale total**:
+A Type-2 **soft-sum** constraint (`Σ aᵢ = c + ε`, free cone) whose RHS `c` is the model's **own**
+prior group-sum (`c = Σ f_agg`), used to **preserve total-output scale** against the homogeneous
+collapse — *not* to add information (that distinguishes it from a **control total**, whose RHS is
+*external*). Two families, both 0-excluded and year-locked per valuation: **supply total output**
+(per process — its process→flow useful output) and **use total output** (per flow — `Σ` over all
+destinations incl. final demand); `variant ∈ {supplytotout, usetotout}`. "Kind-of-external" because
+the warm-start prior (`a₀ = f_agg` at t₀, `a_post(t−1)` after) never sees this fixed Stage-2 total.
+See [ADR 0006](docs/adr/0006-scale-total-supersedes-external-control-total.md).
+_Avoid_: "control total" (external RHS), "anchor", "coherence soft-sum".
 
 **Data-category typology** (Pauliuk et al. 2019):
 The four parameter kinds, split **extensive** vs **intensive**. *Extensive* (kt magnitudes):
-**flows** (individual edges) and **totals of flows** (aggregates, e.g. ICSG control totals).
+**flows** (individual edges) and **totals of flows** (aggregates, e.g. scale totals).
 *Intensive* (per-unit ratios relating flows): **concentration** (category 3) and **efficiency**
 (category 4) — these two are the `ParametricImputer` edge-pair relations.
 

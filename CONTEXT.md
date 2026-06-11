@@ -94,8 +94,8 @@ non-flat-prior imputations that feed-`Coverage` excludes.
 ## Defect, residual & violation vocabulary
 
 **Defect** — the per-**edge** prior departure `a* − a₀` (solved value minus the warm-start
-prior). Plotted by SD-T-09 (`|a*−a₀|` by from/to sector/region) and tabulated by
-`SolverStatsDiagnostic` (`defect_from/to_<year>.csv`), keyed by `(sector, region, valuation)`.
+prior). Plotted by SD-T-09 (`|a*−a₀|` by from/to sector/region) and tabulated row-level by
+`SolverStatsDiagnostic` (`edges_<year>.csv`, columns `defect` / `defect_abs` / `z`).
 Its standardised form is `z = (a*−a₀)/σ_a` (SD-T-03). _Avoid_: calling the defect a
 "residual" — that term is reserved (below).
 
@@ -104,16 +104,19 @@ Its standardised form is `z = (a*−a₀)/σ_a` (SD-T-03). _Avoid_: calling the 
 (free) row** it equals the slack `ε` (see README §"Cone order": `Gx − ε = c`). _Avoid_:
 conflating with **defect** — residual is per-constraint, defect is per-edge.
 
-**Soft-constraint violation table** — the harmonised per-soft-`constraint_id` table emitted at
-*both* stages with one schema `[type, valuation, c, lhs, residual, sigma_c, z]`, where
-`lhs = G·a` (the achieved left-hand side), `residual = lhs − c` and `z = residual/σ_c`
-(SD-T-02). The only difference is which `a` feeds `lhs`: the **prior** `a0` at the constraint
-stage (`ConstStatsDiagnostic` → `constraint_violations_prior_<year>.csv`, `lhs = G·a0`) vs the
-**solved** `a*` at the solver stage (`SolverStatsDiagnostic` →
-`constraint_violations_<year>.csv`, `lhs = c_star = G·a*`). _Avoid_: reading a large `|z|` as a
-failure on its own — a soft row is *meant* to absorb disagreement; `|z|` just measures it in
-units of the row's tolerance `σ_c`. _Note_: `ConstDiagnostic` plots the same prior quantity
-under the opposite sign (`eps0 = c − G·a0`); the table follows the reserved `G·a − c` sign.
+**Constraint table (prior/post)** — the harmonised **row-level, all-rows** per-`constraint_id`
+table pair (hard + soft rows; `type` / `cone_type` columns carry the family for filtering):
+`constraints_prior_<year>.csv` at the constraint stage (`ConstStatsDiagnostic`) and
+`constraints_<year>.csv` at the solver stage (`SolverStatsDiagnostic`). **`lhs_prior` = G·a0**
+means the same thing in *both* files; **`lhs_post` = c_star = G·a*** exists only post-solve.
+`residual` / `z = residual/σ_c` (SD-T-02) are the *stage's achieved* residual — `lhs_prior − c`
+at the constraint stage, `lhs_post − c` (= the slack `eps` on a soft row) at the solver stage;
+`z` is NaN on hard rows (`σ_c = 0`). _Avoid_: reading a large `|z|` as a failure on its own — a
+soft row is *meant* to absorb disagreement; `|z|` just measures it in units of the row's
+tolerance `σ_c`. _Avoid_: an unqualified `lhs` column — the files qualify every LHS as
+`lhs_prior` / `lhs_post` so no column changes meaning between stages. _Note_: `ConstDiagnostic`
+plots the same prior quantity under the opposite sign (`eps0 = c − G·a0`); the table follows
+the reserved `G·a − c` sign.
 
 ## Feed valuation & trade-share vocabulary
 
@@ -174,6 +177,57 @@ the split is computed in copper content via `conc`. Applies only to the four **t
 sectors — Cathode, Concentrate, Anode, Matte. _Avoid_: including **Scrap** — it is an ICSG `Use` type but
 is **not traded**.
 
+## Total-output / scale-total vocabulary
+
+**Total output** — of a process or flow, the sum of **all its outgoing edges** (incl. waste, final
+demand, SB outflows) ≙ PIOLab *throughput / gross output* `x = S·j + P·l + W·n` (Wieland et al. 2022).
+_Avoid_: equating it with **useful output** (which is net of waste).
+
+**Total input** — of a process or flow, the sum of **all its incoming edges** (incl. SB secondary and
+nature inputs) ≙ PIOLab `x′ = i·U + k·O + m·E`.
+
+**Useful output** — a process's total output **minus** the SB outflows it supplies (waste / SEM
+residuals); i.e. its process→flow edges only ≙ PIOLab *useful output* (supply table `S`,
+`x_new = S·j = x − P·l − W·n`). _Avoid_: "total output" — useful output is net of waste.
+
+**Scale total** — a Type-2 **soft-sum** (`Σ aᵢ = c + ε`, free cone) whose RHS `c` is the model's
+**own prior** group-sum (`c = Σ f_agg`), used for **scale-preservation** against the homogeneous
+collapse — not to add information. "Kind-of-external" because the warm-start solve (`a₀ = f_agg` at
+t₀, `a_post(t−1)` after) never sees this fixed Stage-2 total. Two families: **supply total output**
+(per process — its process→flow useful output) and **use total output** (per flow — Σ over all
+destinations incl. final demand). _Avoid_: **control total** (its RHS is an *external* published
+number — see README; that mechanism was removed by
+[ADR 0006](docs/adr/0006-scale-total-supersedes-external-control-total.md)); **anchor** /
+**coherence soft-sum** (deprecated terms — see README §Glossary "control total" _Avoid_).
+
+## Downstream PSUT / PIOT vocabulary
+
+**PSUT (physical supply-use table)** — the **materialised numeric** supply/use matrices for *one period and
+one valuation*, derived from the solved edge vector `a*`: supply `S` (useful output), use `U`, final use `Y`,
+plus boundary blocks nature-input `E`, SEM-input `O`, SEM-output `P`. The Process+Flow **SUT** is the *graph*;
+the **PSUT** is its matrix realisation. _Avoid_: calling the edge graph a "PSUT" (the graph is the **SUT**);
+"SUT" for the numeric matrices.
+
+**PIOT (physical input-output table)** — the **symmetric** product-by-product table derived from a PSUT by
+endogenising by-products as negative inputs (Suh 2004): technical coefficients `A`, core flows `Z`, total
+requirements `L`. _Avoid_: conflating with the rectangular **PSUT** (a PIOT is square).
+
+**gPIOT** — the full **multi-regional** PIOT over (region × flow), whose `L` traces embodied/indirect flows
+across borders. _Avoid_: "global PIOT" for a single-region table.
+
+**Technical coefficients `A`** (uppercase) — the per-unit input-requirements matrix of the PIOT (`A = B·D`).
+_Avoid_: confusing with the lowercase **edge vector `a`** (the decision variable) — case distinguishes them.
+
+**Total requirements / Leontief inverse `L`** — `L = (I − A)⁻¹`, mapping final demand to total (direct +
+indirect) output. _Avoid_: "multiplier" (a multiplier is a row/column sum of `L`, not `L` itself).
+
+**Footprint** — a **consumption-based** indicator: the boundary input (extraction) embodied in a vector of
+final demand. _Avoid_: "direct/apparent" use (a footprint is the indirect/embodied counterpart).
+
+**Realized `conc`** — the *ex-post* concentration `CC/Mass` of an edge in the materialised PSUT, versus the
+parametric **concentration coefficient** input; the gap is solver slack. Ore grade is the Ore-sector instance.
+_Avoid_: reading a realized≠parametric gap as an error (cf. the `conc_*_supply` z-violation — it is absorbed slack).
+
 ## Constraint identity vocabulary
 
 **`constraint_id`** — the unique, human-readable **display key** of one constraint row, with the
@@ -186,8 +240,8 @@ reserved word for the constraint-row `type` column (see Glossary §Entity `_Avoi
 _Avoid_: using `type` for an entity kind (that is **entity**: `Process` | `Flow` | `SB`).
 
 **variant** — the second identity slot: the *role* a constraint plays within its family
-(`massbal`; `usefulsupply` / `subentity` / `anchor` / a user csv label for `sum`; `ratioeq` / `bound`
-for `ratio`). _Avoid_: "name" (collides with **Sector**, "the named instance").
+(`massbal`; `usefulsupply` / `subentity` / `supplytotout` / `usetotout` / a user csv label for `sum`;
+`ratioeq` / `bound` for `ratio`). _Avoid_: "name" (collides with **Sector**, "the named instance").
 
 **Node-scoped vs set-scoped constraint** — a `massbal` or node-`sum` row balances **one node**, so its
 specs render that node as `sector_region_valuation`; the collapse of a node to `sector_region` is
@@ -197,8 +251,10 @@ relating **two edges**, each rendered full `from→to`, numerator over denominat
 populated — or **set-scoped** when its row carries `agg=true`: it pools **many** a-side edges against
 many b-side edges per `(region_to, time, valuation)` bucket (`Σb − r·Σa`), so it has no single
 numerator/denominator edge and its identity rests on the `variant` plus `region`/`valuation` group-key
-specs (`num_*`/`denom_*` are null, exactly like a set-`sum`). A set-`sum` (`anchor` / csv) spans **many**
-edges with no single node — its identity rests on the `variant` plus group-key specs. _Avoid_:
+specs (`num_*`/`denom_*` are null, exactly like a set-`sum`). A set-`sum` (a csv constraint grouped
+across nodes) spans **many** edges with no single node — its identity rests on the `variant` plus
+group-key specs; by contrast the `supplytotout` / `usetotout` **scale totals** are node-`sum` rows
+(one process / one flow each) and so carry populated `sector`/`region`. _Avoid_:
 expecting a single `sector`/`region`, or populated `num_*`/`denom_*`, on a set-sum or **set-scoped
 (agg) ratio** row (they are null there).
 

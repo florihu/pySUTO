@@ -7,14 +7,20 @@ Constraint types (registered in order)
 ---------------------------------------
 1  Hard mass balance        — MassBalanceBuilder
                               Σ incoming − Σ outgoing = 0 per (Flow|Process) node × time
-2  Soft sum — ICSG totals   — SumConstraintBuilder.from_mask_anchor, one family
-   anchor (production +       per ICSG_ANCHOR_FAMILIES entry (production, usage,
-   usage)                     producer stock change). Each: Σ over a masked edge
-                              family = the genuine ICSG total per process-side
-                              region × year (CC), ROW groups excluded; σ_c =
-                              ANCHOR_CV·|c| (tight). Reaggregates the ICSG feed
-                              F_root, which is disaggregated across the opposite
-                              endpoint.
+2  Soft sum — supply/use    — SumConstraintBuilder.from_mask_anchor, two families
+   total-output SCALE TOTAL   pinned to the model's own prior f_agg
+   (scale preservation)       (c = Σ f_agg over each group, σ_c = ANCHOR_CV·|c|,
+                              |c|≈0 groups dropped). Both grouped by
+                              (sector_from, region_from, time, valuation):
+                                • supply total output (process→flow useful output)
+                                  → one row per process;
+                                • use total output (flow→process use + flow→SB
+                                  final demand) → one row per flow, summed over
+                                  all destinations.
+                              A *scale total*, not an external *control total* —
+                              the warm-start (a₀=f_agg at t₀, a_post(t-1) after)
+                              solve never sees this fixed Stage-2 total. See
+                              ADR 0006.
 3  Soft ratio — concentration  — RatioConstraintBuilder (copper_conc_params.csv)
 4  Soft ratio — efficiency     — RatioConstraintBuilder (copper_efficiency_params.csv)
 5  Hard ratio bounds — conc    — RatioBoundBuilder (copper_conc_params.csv)
@@ -49,29 +55,10 @@ IMP_DIR     = os.path.join("data", "proc", "imp")
 _INPUT_ROOT = os.path.join("data", "input")
 OUTPUT_DIR  = os.path.join("data", "proc", "const")
 
-# Final-use SB sectors whose incoming Cathode edges are anchored to the
-# genuine ICSG total per consuming region (summed over all cathode origins).
-ANCHOR_USE_SECTORS = {"FU", "MESC", "USC"}
-
-# ICSG-total anchor families: each genuine published ICSG total becomes one
-# soft-sum anchor family. An ICSG flow has one commodity node (entity=Flow) and
-# one process/boundary node; the total is published per the *process-side*
-# region, so we group by that region (sums over the disaggregated opposite
-# endpoint). Each tuple is (sector_from, {sector_to…}, group_region, id_prefix).
-# Rows whose group_region is ROW are dropped (ROW totals are an unreliable
-# catch-all). Waste (Mining→WR, SXEW→Tailings), CP→PSC, and secondary scrap
-# inputs are deliberately excluded — they are not published ICSG totals.
-# NOTE: id_prefix is the constraint-id `variant` slot and must be
-# underscore-free (`_` is the id separator) — see constraints/naming.py.
-ICSG_ANCHOR_FAMILIES = [
-    ("Mining",      {"Ore"},            "region_from", "mineprodanchor"),
-    ("SXEW",        {"CSXEW"},          "region_from", "sxewprodanchor"),
-    ("Concentrate", {"Smelting"},       "region_to",   "smelterthruanchor"),
-    ("Matte",       {"CFR"},            "region_to",   "refinecfranchor"),
-    ("Anode",       {"ER"},             "region_to",   "refineeranchor"),
-    ("Cathode",     ANCHOR_USE_SECTORS, "region_to",   "cathodeuseanchor"),
-    ("CP",          {"Cathode"},        "region_from", "cpcathodeanchor"),
-]
+# Supply/use total-output SCALE TOTALS pin every process's and every flow's
+# total-output scale to the model's own Stage-2 prior (c = Σ f_agg), preventing
+# the homogeneous scale-collapse. Built generically from the edge topology (no
+# per-sector family list) — see section B below. ANCHOR_CV sets their tight σ_c.
 
 # ---------------------------------------------------------------------------
 # END USER CONFIGURATION
@@ -82,7 +69,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from pysuto.acc import AccountingStructure
 from pysuto.config import load_config
-from pysuto.registry import ImputationRunRegistry, DataFeedRegistry
+from pysuto.registry import ImputationRunRegistry
 from pysuto.input_registry import InputRegistries
 from pysuto.param_relation import expand_edge_index
 from pysuto.constraints import (
@@ -155,26 +142,6 @@ def main(imp_run_id: str, label: str) -> None:
             f"{acc_entry['id']} v{acc_entry['version']}."
         )
 
-    # ── A3. ICSG anchor reference ─────────────────────────────────────────
-    # Load the F_root of the *same* ICSG feed run this imp run was built on
-    # (no "latest" drift). from_mask_anchor re-aggregates it per family over the
-    # disaggregated endpoint to recover the genuine published per-region totals.
-    feed_run_ids = (imp_sidecar.get("parents", {})
-                               .get("upstream", {})
-                               .get("feed_run_ids", []))
-    icsg_run_ids = [r for r in feed_run_ids if str(r).startswith("feed_icsg_")]
-    if len(icsg_run_ids) != 1:
-        raise RuntimeError(
-            f"expected exactly one icsg feed run in imp provenance, "
-            f"got {icsg_run_ids!r}"
-        )
-    icsg_run_id   = icsg_run_ids[0]
-    feed_registry = DataFeedRegistry()
-    feed_registry.load_index()
-    icsg_F_root = feed_registry.load_result(icsg_run_id)["F_root"]
-    _log.info("A3  ICSG anchor reference: %s  (F_root sum=%.1f kt)",
-              icsg_run_id, float(icsg_F_root.sum()))
-
     # ── B. Assemble constraint engine ─────────────────────────────────────
     engine = ConstraintEngine(
         acc_struct        = acc,
@@ -191,27 +158,42 @@ def main(imp_run_id: str, label: str) -> None:
     _log.info("Registering MassBalanceBuilder")
     engine.register(MassBalanceBuilder())
 
-    # 2. Soft sum — ICSG totals anchor (production + usage)
-    #    One family per ICSG_ANCHOR_FAMILIES entry. Each row is
-    #    Σ (masked edges) = genuine ICSG total per process-side region × year (CC),
-    #    ROW groups dropped, with tight σ_c = ANCHOR_CV·|c|.
-    _log.info("Registering SumConstraintBuilder — ICSG totals anchor (%d families)",
-              len(ICSG_ANCHOR_FAMILIES))
-    ei_exp = expand_edge_index(acc.edge_index, acc.node_index)
-    for sector_from, sectors_to, group_region, id_prefix in ICSG_ANCHOR_FAMILIES:
-        mask = (
-            ei_exp["sector_from"].eq(sector_from)
-            & ei_exp["sector_to"].isin(sectors_to)
-            & ei_exp[group_region].ne("ROW")
-        ).to_numpy()
-        engine.register(SumConstraintBuilder.from_mask_anchor(
-            acc,
-            mask          = mask,
-            anchor_values = icsg_F_root,
-            group_keys    = (group_region, "time", "valuation"),
-            sigma_cv      = ANCHOR_CV,
-            id_prefix     = id_prefix,
-        ))
+    # 2. Soft sum — supply/use total-output SCALE TOTALS (self-referential).
+    #    Pin every process's and every flow's total-output scale to the model's
+    #    own Stage-2 prior:  Σ (group edges) = Σ f_agg over the group, with tight
+    #    σ_c = ANCHOR_CV·|c|; |c|≈0 groups are dropped by from_mask_anchor. Both
+    #    families group by (sector_from, region_from, time, valuation) so each row
+    #    is node-scoped, year-locked and unit-coherent.
+    #      • supply total output: process→flow useful output → one row per process
+    #        (a single process→flow edge is itself the total supply; no summing).
+    #      • use total output: flow→process use + flow→SB final demand → one row
+    #        per flow, summing over all sector_to destinations = the flow's total
+    #        output of an industrial flow.
+    #    A *scale total*, not an external *control total* — see ADR 0006.
+    ei_exp      = expand_edge_index(acc.edge_index, acc.node_index)
+    f_agg       = agg_result.f_agg
+    supply_mask = (ei_exp["entity_from"].eq("Process")
+                   & ei_exp["entity_to"].eq("Flow")).to_numpy()
+    use_mask    = ei_exp["entity_from"].eq("Flow").to_numpy()
+    GROUP_KEYS  = ("sector_from", "region_from", "time", "valuation")
+
+    _log.info("Registering SumConstraintBuilder — supply/use total-output scale totals")
+    engine.register(SumConstraintBuilder.from_mask_anchor(
+        acc,
+        mask          = supply_mask,
+        anchor_values = f_agg,
+        group_keys    = GROUP_KEYS,
+        sigma_cv      = ANCHOR_CV,
+        id_prefix     = "supplytotout",
+    ))
+    engine.register(SumConstraintBuilder.from_mask_anchor(
+        acc,
+        mask          = use_mask,
+        anchor_values = f_agg,
+        group_keys    = GROUP_KEYS,
+        sigma_cv      = ANCHOR_CV,
+        id_prefix     = "usetotout",
+    ))
 
     # 3–7. CSV-fed soft ratio + hard ratio-bound builders.
     #      Two builders may consume the same params_id (e.g. 'conc' → both
@@ -254,7 +236,7 @@ def main(imp_run_id: str, label: str) -> None:
             "acc":    acc_entry,
             "params": param_refs,
         },
-        "upstream": {"imp_run_id": imp_run_id, "icsg_feed_run_id": icsg_run_id},
+        "upstream": {"imp_run_id": imp_run_id},
     }
     constraint_run = engine.run(
         agg_result   = agg_result,

@@ -1512,5 +1512,180 @@ class TestConstraintIdGrammar:
         assert rm.loc[~is_ratio, "num_sector_from"].isna().all()
 
 
+# ---------------------------------------------------------------------------
+# Supply/use total-output SCALE TOTALS (self-anchored to f_agg). See ADR 0006.
+# ---------------------------------------------------------------------------
+
+def _make_fd_acc():
+    """Minimal acc: one flow (Cathode/A) consumed by a process (use) AND by
+    final demand (Cathode→FU/SB), to exercise use-side summation over all
+    destinations including final demand."""
+    from pysuto.acc import AccountingStructure
+    import logging
+    acc = AccountingStructure.__new__(AccountingStructure)
+    acc.logger = logging.getLogger("test_fd_acc")
+    acc.id = "toyfd"
+    acc.node_index = pd.DataFrame(
+        [
+            ("Smelter", "Process", "A"),   # 0
+            ("Cathode", "Flow",    "A"),   # 1
+            ("Fab",     "Process", "A"),   # 2
+            ("FU",      "SB",      "A"),   # 3  final-demand boundary
+        ],
+        columns=["sector", "entity", "region"],
+    )
+    acc.n_nodes    = 4
+    acc.time_range = ["2020"]
+    acc.valuation  = ["Mass"]
+    acc.edge_index = pd.DataFrame([
+        {"edge_id": 0, "from_id": 0, "to_id": 1, "time": "2020", "valuation": "Mass"},  # supply Smelter→Cathode
+        {"edge_id": 1, "from_id": 1, "to_id": 2, "time": "2020", "valuation": "Mass"},  # use    Cathode→Fab
+        {"edge_id": 2, "from_id": 1, "to_id": 3, "time": "2020", "valuation": "Mass"},  # FD     Cathode→FU (SB)
+    ])
+    acc.n_edges = 3
+    return acc
+
+
+class TestSupplyUseScaleTotal:
+    """Supply/use total-output scale totals, self-anchored to f_agg, grouped by
+    (sector_from, region_from, time, valuation). Mirrors the wiring in
+    scripts/constraints.py. See ADR 0006."""
+
+    GROUP_KEYS = ("sector_from", "region_from", "time", "valuation")
+    CV = 0.01
+
+    @staticmethod
+    def _masks(acc):
+        from pysuto.param_relation import expand_edge_index
+        ei = expand_edge_index(acc.edge_index, acc.node_index)
+        supply = (ei["entity_from"].eq("Process") & ei["entity_to"].eq("Flow")).to_numpy()
+        use    = ei["entity_from"].eq("Flow").to_numpy()
+        return supply, use
+
+    def test_supply_scale_total_one_row_per_process(self, toy_acc, toy_agg_result):
+        """Supply side: one node-scoped row per process; each process→flow edge
+        IS the total supply (no summing); c = f_agg[edge]; σ_c = cv·|c|."""
+        from pysuto.constraints import SumConstraintBuilder
+        supply, _ = self._masks(toy_acc)
+        f_agg = toy_agg_result.f_agg
+        block = SumConstraintBuilder.from_mask_anchor(
+            toy_acc, mask=supply, anchor_values=f_agg,
+            group_keys=self.GROUP_KEYS, sigma_cv=self.CV, id_prefix="supplytotout",
+        ).build_static(toy_acc)
+        rm = block.row_meta
+
+        # supply edges {0,1,5,6} → one (Mining, region, year) group each = 4 rows
+        assert block.G_rows.shape[0] == 4
+        assert (rm["type"] == "sum").all()
+        assert (rm["variant"] == "supplytotout").all()
+        assert (rm["cone_type"] == "free").all()
+        assert (~rm["is_hard"].astype(bool)).all()
+        # node identity populated (re-grill: sector filled, symmetric with region)
+        assert (rm["sector"] == "Mining").all()
+        assert set(rm["region"]) == {"A", "B"}
+
+        G = block.G_rows.toarray()
+        for i, c in enumerate(block.c):
+            eids = np.flatnonzero(G[i] != 0.0)
+            assert len(eids) == 1                      # no summing on the supply side
+            assert np.isclose(G[i, eids[0]], 1.0)
+            assert np.isclose(c, f_agg[eids[0]])
+            assert np.isclose(block.sigma_c[i], self.CV * abs(c))
+
+    def test_use_scale_total_one_row_per_flow(self, toy_acc, toy_agg_result):
+        """Use side: one node-scoped row per flow; c = Σ f_agg over its
+        outgoing edges."""
+        from pysuto.constraints import SumConstraintBuilder
+        _, use = self._masks(toy_acc)
+        f_agg = toy_agg_result.f_agg
+        block = SumConstraintBuilder.from_mask_anchor(
+            toy_acc, mask=use, anchor_values=f_agg,
+            group_keys=self.GROUP_KEYS, sigma_cv=self.CV, id_prefix="usetotout",
+        ).build_static(toy_acc)
+        rm = block.row_meta
+
+        assert block.G_rows.shape[0] == 4
+        assert (rm["variant"] == "usetotout").all()
+        assert (rm["sector"] == "Ore").all()
+        G = block.G_rows.toarray()
+        for i, c in enumerate(block.c):
+            eids = np.flatnonzero(G[i] != 0.0)
+            assert np.allclose(G[i, eids], 1.0)
+            assert np.isclose(c, f_agg[eids].sum())
+
+    def test_use_scale_total_sums_destinations_incl_final_demand(self):
+        """A flow used by a process AND by final demand → one row whose c sums
+        BOTH outgoing edges (use + flow→SB final demand)."""
+        from pysuto.constraints import SumConstraintBuilder
+        from pysuto.param_relation import expand_edge_index
+        acc   = _make_fd_acc()
+        f_agg = np.array([10.0, 6.0, 4.0])     # supply, use, final demand
+        ei    = expand_edge_index(acc.edge_index, acc.node_index)
+        use_mask = ei["entity_from"].eq("Flow").to_numpy()   # {1,2}: Cathode→Fab + Cathode→FU
+
+        block = SumConstraintBuilder.from_mask_anchor(
+            acc, mask=use_mask, anchor_values=f_agg,
+            group_keys=self.GROUP_KEYS, sigma_cv=self.CV, id_prefix="usetotout",
+        ).build_static(acc)
+
+        assert block.G_rows.shape[0] == 1          # one flow node
+        G = block.G_rows.toarray()
+        eids = np.flatnonzero(G[0] != 0.0)
+        assert set(eids.tolist()) == {1, 2}        # use AND final demand included
+        assert np.allclose(G[0, eids], 1.0)
+        assert np.isclose(block.c[0], f_agg[1] + f_agg[2])   # 6 + 4 = 10
+        assert np.isclose(block.sigma_c[0], self.CV * abs(block.c[0]))
+        assert block.row_meta["sector"].iloc[0] == "Cathode"
+        assert block.row_meta["variant"].iloc[0] == "usetotout"
+
+    def test_scale_total_zero_group_excluded(self, toy_acc, toy_agg_result):
+        """A group whose f_agg sum is ~0 is dropped (0-exclusion)."""
+        from pysuto.constraints import SumConstraintBuilder
+        supply, _ = self._masks(toy_acc)
+        f_agg = toy_agg_result.f_agg.copy()
+        f_agg[6] = 0.0                              # supply edge for (Mining, B, 2021)
+        block = SumConstraintBuilder.from_mask_anchor(
+            toy_acc, mask=supply, anchor_values=f_agg,
+            group_keys=self.GROUP_KEYS, sigma_cv=self.CV, id_prefix="supplytotout",
+        ).build_static(toy_acc)
+        rm = block.row_meta
+        assert block.G_rows.shape[0] == 3          # the zero group is skipped
+        present = set(zip(rm["region"].astype(str), rm["time"].astype(str)))
+        assert ("B", "2021") not in present
+        assert present == {("A", "2020"), ("B", "2020"), ("A", "2021")}
+
+    def test_scale_total_per_year_deactivation(self, toy_acc, toy_agg_result):
+        """Rows are year-locked: build_dynamic at 2020 deactivates 2021 rows."""
+        from pysuto.constraints import SumConstraintBuilder, SIGMA_C_INACTIVE
+        supply, _ = self._masks(toy_acc)
+        builder = SumConstraintBuilder.from_mask_anchor(
+            toy_acc, mask=supply, anchor_values=toy_agg_result.f_agg,
+            group_keys=self.GROUP_KEYS, sigma_cv=self.CV, id_prefix="supplytotout",
+        )
+        block = builder.build_static(toy_acc)
+        rm    = block.row_meta
+        zeros = np.zeros(toy_acc.n_edges)
+        b20   = builder.build_dynamic(toy_acc, zeros, zeros, "2020")
+        is2021 = (rm["time"].astype(str) == "2021").to_numpy()
+        assert np.allclose(b20.sigma_c[is2021], SIGMA_C_INACTIVE)
+        assert np.allclose(b20.sigma_c[~is2021], block.sigma_c[~is2021])
+
+    def test_scale_total_both_valuations(self, toy_acc_2val):
+        """Both valuations yield unit-coherent rows, one per (process, region,
+        year, valuation)."""
+        from pysuto.constraints import SumConstraintBuilder
+        supply, _ = self._masks(toy_acc_2val)
+        f_agg = np.arange(1.0, toy_acc_2val.n_edges + 1.0)   # all > 0
+        block = SumConstraintBuilder.from_mask_anchor(
+            toy_acc_2val, mask=supply, anchor_values=f_agg,
+            group_keys=self.GROUP_KEYS, sigma_cv=self.CV, id_prefix="supplytotout",
+        ).build_static(toy_acc_2val)
+        rm = block.row_meta
+        # Mining×{A,B} × {2020,2021} × {Mass,CC} = 8 rows
+        assert block.G_rows.shape[0] == 8
+        assert set(rm["valuation"]) == {"Mass", "CC"}
+        assert (rm["sector"] == "Mining").all()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
