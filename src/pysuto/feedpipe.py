@@ -69,6 +69,8 @@ def step_B_build_concordance(
     aux_col:          Optional[str] = None,
     allow_unmatched_edges: bool = True,
     user_weights_df:  Optional[pd.DataFrame] = None,
+    leg_filter:       Optional[dict] = None,
+    drop_unweighted_fans: bool = False,
 ) -> ConcordanceTable:
     """
     Build the src→root edge mapping (ConcordanceTable) from raw data.
@@ -84,6 +86,9 @@ def step_B_build_concordance(
         equal-split weight; other fan legs keep the uniform default (weight=1,
         normalised per src_edge group). Used for BACI-trade-share weighting of
         the ICSG producer fan-out (ADR 0002 option D).
+    leg_filter / drop_unweighted_fans : fan policy (ADR 0008), passed through
+        to ConcordanceTable.from_raw — restrict qualifier fans to their input
+        sector's legs, and do not distribute fans that have no weights.
 
     Returns a validated ConcordanceTable ready for weight-matrix assembly.
     """
@@ -102,12 +107,18 @@ def step_B_build_concordance(
         allow_unmatched_edges = allow_unmatched_edges,
         id                    = feed_id,
         user_weights_df       = user_weights_df,
+        leg_filter            = leg_filter,
+        drop_unweighted_fans  = drop_unweighted_fans,
     )
     unmatched = getattr(ct, "unmatched_raw_rows", [])
-    _log.info("   src_edges=%d  root_edges=%d  conc_rows=%d  unmatched=%d",
-              ct.n_src_edges, ct.n_root_edges, len(ct.tab), len(unmatched))
+    undistributed = getattr(ct, "undistributed_raw_rows", [])
+    _log.info("   src_edges=%d  root_edges=%d  conc_rows=%d  unmatched=%d  undistributed=%d",
+              ct.n_src_edges, ct.n_root_edges, len(ct.tab), len(unmatched), len(undistributed))
     if unmatched:
         _log.warning("   %d raw rows could not be matched to a root edge", len(unmatched))
+    if undistributed:
+        _log.warning("   %d raw rows matched but were not distributed "
+                     "(unweighted fans, ADR 0008)", len(undistributed))
     return ct
 
 

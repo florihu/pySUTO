@@ -131,15 +131,28 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
     Soft free-cone ratio constraint: a_i − r · a_j = ε_k
 
     Loaded from the same params CSV schema as ParametricImputer.
-    sigma_c comes from the three standard uncertainty modes (sd / min_max / pedigree).
+    The CSV uncertainty modes (sd / min_max / pedigree) yield the *relative*
+    ratio-space σ_r per pair; :meth:`build_dynamic` rescales it to flow space
+    symmetrically (Gauss–Newton linearization of the log-ratio error model at
+    the prior, REP analysis_opt_20260611_075036 §8.2):
+
+        σ_c = max(σ_r, sigma_rel_floor) · max(Σ|a₀,num|, |r|·Σ|a₀,denom|, scale_abs_floor)
     """
 
-    def __init__(self, pairs: list[dict]):
+    def __init__(self, pairs: list[dict],
+                 sigma_rel_floor: float = 0.02,
+                 scale_abs_floor: float = 1.0):
         """
         pairs : list of dicts with keys:
-            constraint_id, edge_i, edge_j, r, sigma_c
+            constraint_id, edge_i, edge_j, r, sigma_c   (sigma_c = relative σ_r)
+        sigma_rel_floor : lower bound on σ_r (caps |z| at 1/floor on a 100 %
+            ratio violation).
+        scale_abs_floor : lower bound on the flow-space scale (tonnage), so
+            both-zero-prior pairs keep a finite σ_c.
         """
         self._pairs = pairs
+        self._sigma_rel_floor = float(sigma_rel_floor)
+        self._scale_abs_floor = float(scale_abs_floor)
 
     @classmethod
     def from_csv(
@@ -147,10 +160,12 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
         path: str,
         acc_struct,
         mask: str | None = None,
+        sigma_rel_floor: float = 0.02,
+        scale_abs_floor: float = 1.0,
     ) -> "RatioConstraintBuilder":
         """
         Load from params CSV (same schema as ParametricImputer.from_csv).
-        Resolves A→B edge pairs and computes sigma_c from unc_type column.
+        Resolves A→B edge pairs and computes the relative σ_r from unc_type.
 
         ``mask`` (optional): name of a mask in ``acc_struct.masks``. Pairs
         where either edge falls outside the mask are dropped.
@@ -244,7 +259,7 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
                 })
 
         _log.info("RatioConstraintBuilder: %d pairs from %s", len(pairs), os.path.basename(path))
-        return cls(pairs)
+        return cls(pairs, sigma_rel_floor=sigma_rel_floor, scale_abs_floor=scale_abs_floor)
 
     @property
     def source_paths(self) -> list[str]:
@@ -300,11 +315,31 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
         self._cached_static = block
         return block
 
+    def _scale_index(self):
+        """Cached flattened (row, col) index arrays for the numerator and
+        denominator sides of every pair, plus |r| per row — used to evaluate
+        the symmetric flow-space scale in one vectorized pass per timestep."""
+        cached = getattr(self, "_scale_idx", None)
+        if cached is None:
+            rn, cn, rd, cd, rabs = [], [], [], [], []
+            for row_id, p in enumerate(self._pairs):
+                num_cols = p["edge_i_list"] if p.get("agg") else [p["edge_i"]]
+                den_cols = p["edge_j_list"] if p.get("agg") else [p["edge_j"]]
+                rn += [row_id] * len(num_cols); cn += list(num_cols)
+                rd += [row_id] * len(den_cols); cd += list(den_cols)
+                rabs.append(abs(p["r"]))
+            cached = (np.asarray(rn, dtype=int), np.asarray(cn, dtype=int),
+                      np.asarray(rd, dtype=int), np.asarray(cd, dtype=int),
+                      np.asarray(rabs))
+            self._scale_idx = cached
+        return cached
+
     def build_dynamic(self, acc_struct, f_agg, sigma_agg, t) -> ConstraintBlock:
         """
-        Deactivate ratio_eq rows whose ``time`` does not match ``t`` by
-        setting ``sigma_c = SIGMA_C_INACTIVE``. In-year rows keep the
-        per-pair σ_c assembled in :meth:`build_static`.
+        Rescale the relative σ_r to flow space against the prior ``f_agg``
+        (symmetric: max of numerator-side and r·denominator-side prior mass,
+        floored), then deactivate rows whose ``time`` does not match ``t`` by
+        setting ``sigma_c = SIGMA_C_INACTIVE``.
 
         Mirrors :meth:`SumConstraintBuilder.build_dynamic`. ``c`` is left
         unchanged (always 0 for ratio_eq).
@@ -313,7 +348,17 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
         if static.G_rows.shape[0] == 0:
             return _empty_block(acc_struct.n_edges)
 
-        sigma_c  = static.sigma_c.copy()
+        rn, cn, rd, cd, rabs = self._scale_index()
+        M = static.G_rows.shape[0]
+        num_scale = np.zeros(M)
+        den_scale = np.zeros(M)
+        np.add.at(num_scale, rn, np.abs(f_agg[cn]))
+        np.add.at(den_scale, rd, np.abs(f_agg[cd]))
+        scale   = np.maximum(np.maximum(num_scale, rabs * den_scale),
+                             self._scale_abs_floor)
+        sigma_r = np.maximum(static.sigma_c, self._sigma_rel_floor)
+        sigma_c = sigma_r * scale
+
         t_str    = str(t)
         times    = static.row_meta["time"].astype(str).to_numpy()
         inactive = times != t_str
@@ -475,9 +520,9 @@ class RatioBoundBuilder(BaseConstraintBuilder):
             def _emit(direction: str, ei_sign: float, ej_sign: float, r_coeff: float):
                 nonlocal row_id
                 for ej in ej_list:
-                    rows_list.append(row_id); cols_list.append(ej); vals_list.append(ej_sign)
+                    rows_list.append(row_id); cols_list.append(ej); vals_list.append(ej_sign * r_coeff)
                 for ei in ei_list:
-                    rows_list.append(row_id); cols_list.append(ei); vals_list.append(ei_sign * r_coeff)
+                    rows_list.append(row_id); cols_list.append(ei); vals_list.append(ei_sign)
                 meta = empty_row_meta_dict()
                 meta.update({
                     "constraint_id": build_constraint_id(
@@ -497,9 +542,9 @@ class RatioBoundBuilder(BaseConstraintBuilder):
                 row_id += 1
 
             if not np.isnan(bu):
-                _emit("upper", ei_sign=-1.0, ej_sign=1.0, r_coeff=bu)
+                _emit("upper", ei_sign=1.0, ej_sign=-1.0, r_coeff=bu)
             if not np.isnan(bl):
-                _emit("lower", ei_sign=1.0, ej_sign=-1.0, r_coeff=bl)
+                _emit("lower", ei_sign=-1.0, ej_sign=1.0, r_coeff=bl)
 
         if row_id == 0:
             return _empty_block(n_edges)

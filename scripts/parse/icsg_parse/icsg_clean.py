@@ -8,25 +8,25 @@ RENAME_TOT = {'Smelting': 'Primary',
           'Refining': 'Primary',
           'Mining': 'Concentrate'}
 
-RENAME ={('Refining','Primary'): 'Anode',
+# Refining primary feed is matte/blister entering CFR (CFR consumes Matte +
+# Scrap; the acc has no Anode→CFR edge — anodes feed ER).
+RENAME ={('Refining','Primary'): 'Matte',
          ('Smelting','Primary'): 'Concentrate',
          ('Mining','Concentrate'): 'Concentrate',
          ('Mining','Concentrates'): 'Concentrate',
-            ('Smelting','Secondary'): 'Srap',
+            ('Smelting','Secondary'): 'Scrap',
             ('Refining','Secondary'): 'Scrap'
-            
+
             }
 
 
-def read_eff(path ='data/input/params/copper_efficiency.csv'):
+def read_eff(path ='data/input/params/eff/current/copper_efficiency.csv'):
 
     df = pd.read_csv(path)
 
     # filter refining and smelting calcualted median Value_min_tCu_per_tCu	Value_max_tCu_per_tCu
 
     df['Value_median']= df[['Value_min_tCu_per_tCu', 'Value_max_tCu_per_tCu']].median(axis=1)
-
-    df['Process'].replace({'Smelting': 'Smelting', 'ER': 'Refining'}, inplace=True)
 
     return df
 
@@ -65,9 +65,15 @@ def cl(raw):
         df.loc[m, 'Type'] = new_name
 
     #3 for smelting and refining calculate multiple the primary and secondary values with 1/ efficiency channge supply_use to use
+    # Refining input enters at CFR and passes CFR→Anode→ER, so production
+    # converts to input through both stages: eff_CFR · eff_ER.
     eff = read_eff()
-    for process in ['Smelting', 'Refining']:
-        df.loc[df['Process'] == process, 'Value'] = df.loc[df['Process'] == process, 'Value'] * (1/eff.loc[eff['Process'] == process, 'Value_median'].values[0])
+    def _eff(process):
+        return eff.loc[eff['Process'] == process, 'Value_median'].values[0]
+    divisor = {'Smelting': _eff('Smelting'),
+               'Refining': _eff('CFR') * _eff('ER')}
+    for process, d in divisor.items():
+        df.loc[df['Process'] == process, 'Value'] = df.loc[df['Process'] == process, 'Value'] * (1/d)
         df.loc[df['Process'] == process, 'Supply_Use'] = 'Use'
 
 
@@ -108,7 +114,7 @@ def cl(raw):
 
 
     # store
-    dr = '/mnt/nfs_fineprint/tmp/PYSUT/pySUTO/data/proc/datafeed/icsg_clean'
+    dr = 'data/proc/feedprep/icsg_clean'
     os.makedirs(dr, exist_ok=True)
     df.to_csv(os.path.join(dr, 'icsg_flows_clean.csv'), index=False)
     print(f"Cleaned data saved to {os.path.join(dr, 'icsg_flows_clean.csv')}")
@@ -118,7 +124,7 @@ def cl(raw):
 
 if __name__ == "__main__":
     
-    path =  'data/proc/datafeed/icsg_clean/icsg_flows_comb.csv'
+    path =  'data/proc/feedprep/icsg_clean/icsg_flows_comb.csv'
 
     df = pd.read_csv(path)
     df = cl(df)

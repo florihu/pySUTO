@@ -103,6 +103,15 @@ SIGMA_C_ABS_FLOOR = 1.0e-3
 # homogeneous collapse to l. None = off (legacy behaviour). See
 # docs/rep/analysis_opt_20260602_133908_46bc514e_20260603_feed-scale-collapse.md §8.3.
 PRIOR_BOX_K       = None
+# Soft-ratio σ_c scaling (REP analysis_opt_20260611_075036 §8.2): the CSV ratio
+# σ_r is rescaled to flow space per row, σ_c = max(σ_r, REL_FLOOR) ·
+# max(Σ|a₀,num|, |r|·Σ|a₀,denom|, ABS_FLOOR). REL_FLOOR caps |z| at 1/floor on
+# a 100 % ratio violation; ABS_FLOOR (tonnage) keeps both-zero-prior rows finite
+# AND soft: ~77 % of soft ratio rows are zero-prior parametric ties, and at
+# ABS_FLOOR=1 their σ_c=0.02 t made the Hessian so stiff Clarabel stalled
+# (InsufficientProgress @2005). 100 t → σ_c=2 t on those rows (z=50 per 100 t).
+RATIO_SIGMA_REL_FLOOR = 0.02
+RATIO_SCALE_ABS_FLOOR = 100.0
 
 _log = get_logger("init_copper_constraints")
 
@@ -215,9 +224,13 @@ def main(imp_run_id: str, label: str) -> None:
             seen_param_ids.add(params_id)
 
     # 3. Soft ratio — concentration
-    _register_builder(RatioConstraintBuilder, "conc")
+    _register_builder(RatioConstraintBuilder, "conc",
+                      sigma_rel_floor=RATIO_SIGMA_REL_FLOOR,
+                      scale_abs_floor=RATIO_SCALE_ABS_FLOOR)
     # 4. Soft ratio — efficiency
-    _register_builder(RatioConstraintBuilder, "eff")
+    _register_builder(RatioConstraintBuilder, "eff",
+                      sigma_rel_floor=RATIO_SIGMA_REL_FLOOR,
+                      scale_abs_floor=RATIO_SCALE_ABS_FLOOR)
     # 5. Hard ratio bounds — concentration
     _register_builder(RatioBoundBuilder, "conc", kind="conc")
     # 6. Hard ratio bounds — efficiency
@@ -251,6 +264,8 @@ def main(imp_run_id: str, label: str) -> None:
             "sigma_c_cv_min":    SIGMA_C_CV_MIN,
             "sigma_c_abs_floor": SIGMA_C_ABS_FLOOR,
             "prior_box_k":       PRIOR_BOX_K,
+            "ratio_sigma_rel_floor": RATIO_SIGMA_REL_FLOOR,
+            "ratio_scale_abs_floor": RATIO_SCALE_ABS_FLOOR,
         },
     )
 

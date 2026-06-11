@@ -152,7 +152,7 @@ def _make_sector_key(row: pd.Series) -> str:
     if proc == "Refining" and typ == "Scrap":
         return "Refining_Scrap"
     if proc == "Refining":
-        return "Refining_Anode"
+        return "Refining_Matte"
     return proc
 
 
@@ -160,7 +160,9 @@ def load_concordance_tables() -> dict[str, pd.DataFrame]:
     _check_file(CONC_FILE, "concordance workbook")
     sheets = pd.read_excel(CONC_FILE, sheet_name=None)
 
-    sector_map    = sheets["sector_map"][["src_sector",     "root_sector"]].drop_duplicates()
+    # icsg_type / supply_use feed the fan-policy leg filter (ADR 0008)
+    sector_map    = sheets["sector_map"][["src_sector", "root_sector",
+                                          "icsg_type",  "supply_use"]].drop_duplicates()
     region_map    = sheets["region_map"][["src_region",     "root_region"]].drop_duplicates()
     time_map      = sheets["time_map"][  ["src_time",       "root_time"]  ].drop_duplicates()
     valuation_map = sheets["valuation_map"][["src_valuation","root_valuation"]].drop_duplicates()
@@ -207,6 +209,17 @@ def build_concordance(
     var_map_df = tables["var_map"].copy()
     var_map_df["Supply_Use"] = var_map_df["Supply_Use"].replace("", pd.NA)
 
+    # Fan policy (ADR 0008): each ICSG Use variable names its input product
+    # (sector_map icsg_type) — its fan may only land on legs of that supplier
+    # sector. Without this, the '<any>' open side fans across every incoming
+    # edge of the consumer node (e.g. Smelting_Scrap value on Concentrate
+    # legs) and route-keyed trade-share weights bleed across products.
+    sm = tables["sector_map"]
+    leg_filter = dict(
+        sm.loc[sm["supply_use"].astype(str).str.lower() == "use",
+               ["src_sector", "icsg_type"]].itertuples(index=False, name=None)
+    )
+
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
         ct = step_B_build_concordance(
@@ -225,15 +238,20 @@ def build_concordance(
             # ConcordanceTable.from_raw (independent of this flag).
             allow_unmatched_edges = True,
             # BACI-trade-share producer weights (ADR 0002 option D); None ⇒
-            # uniform fan (unchanged behaviour).
+            # uniform fan, which the fan policy below then refuses to
+            # distribute (ADR 0008).
             user_weights_df       = user_weights_df,
+            leg_filter            = leg_filter,
+            drop_unweighted_fans  = True,
         )
 
-    unmatched = getattr(ct, "unmatched_raw_rows", [])
+    unmatched     = getattr(ct, "unmatched_raw_rows", [])
+    undistributed = getattr(ct, "undistributed_raw_rows", [])
     print(f"   src edges (unique): {ct.n_src_edges:,}")
     print(f"   root edges        : {ct.n_root_edges:,}")
     print(f"   concordance rows  : {len(ct.tab):,}")
     print(f"   unmatched rows    : {len(unmatched):,}")
+    print(f"   undistributed     : {len(undistributed):,} raw rows (unweighted fans)")
     for w in caught:
         print(f"   ⚠  {w.message}")
     return ct

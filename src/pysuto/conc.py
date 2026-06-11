@@ -179,7 +179,9 @@ class ConcordanceTable(DataFeed):
                 aux_col: Optional[str] = None,
                 allow_unmatched_edges: bool = True,
                 id: str = "ct_from_raw",
-                user_weights_df: Optional[pd.DataFrame] = None):
+                user_weights_df: Optional[pd.DataFrame] = None,
+                leg_filter: Optional[dict] = None,
+                drop_unweighted_fans: bool = False):
 
 
         # --------------------------------------------------
@@ -544,9 +546,74 @@ class ConcordanceTable(DataFeed):
             tab.loc[mask, 'weight_mode']  = 'user'
             tab.drop(columns=['_uw', '_rt_str'], inplace=True)
 
+        # --------------------------------------------------
+        # 9c) Fan policy (optional; ADR 0008)
+        # --------------------------------------------------
+        # leg_filter: {src_sector_to → required root_sector_from}. A src
+        # variable that names its input product (e.g. Smelting_Scrap) must
+        # only land on legs of that supplier sector — the '<any>' open side
+        # otherwise fans onto every incoming edge of the consumer node, and
+        # route-keyed user weights from *other* products bleed onto the
+        # wrong legs. A fan left with zero legs means the mapping targets a
+        # structurally nonexistent edge family → hard error.
+        if leg_filter:
+            required = tab['src_sector_to'].map(leg_filter)
+            is_q     = required.notna()
+            keep     = ~is_q | (tab['root_sector_from'] == required)
+            grp_keep = keep.groupby([tab[c] for c in cls.SRC_COLS]).transform('any')
+            dead     = is_q & ~grp_keep
+            if dead.any():
+                ex = (tab.loc[dead, ['src_sector_to', 'src_region_to', 'src_time']]
+                      .drop_duplicates())
+                raise ValueError(
+                    f"leg_filter: {len(ex)} fan(s) have no root leg with the "
+                    f"required supplier sector — the src→root mapping targets a "
+                    f"structurally nonexistent edge family. Examples:\n"
+                    f"{ex.head(5).to_string(index=False)}"
+                )
+            n_legs_dropped = int((~keep).sum())
+            if n_legs_dropped:
+                warnings.warn(
+                    f"leg_filter: dropped {n_legs_dropped} cross-sector fan "
+                    f"leg(s) whose root_sector_from does not match the src "
+                    f"variable's input product."
+                )
+            tab = tab.loc[keep].reset_index(drop=True)
+
+        # drop_unweighted_fans: no weight → no distribution. Fans (N>1) with
+        # user weights drop their remaining uniform legs; all-uniform fans are
+        # not distributed at all (their raw rows leave the table and are
+        # excluded from the mass-conservation total). N==1 exact matches keep
+        # the single uniform leg.
+        undistributed: list = []
+        if drop_unweighted_fans:
+            grp      = tab.groupby(cls.SRC_COLS)['weight_mode']
+            has_wgt  = grp.transform(lambda s: s.ne('uniform').any())
+            n_legs   = grp.transform('size')
+            is_unif  = tab['weight_mode'] == 'uniform'
+            # a weighted fan whose weights sum to 0 cannot be distributed
+            # either (normalization would yield NaN — previously the uniform
+            # leg absorbed the whole value)
+            wsum     = (tab['weight_value'].where(~is_unif, 0.0)
+                        .groupby([tab[c] for c in cls.SRC_COLS]).transform('sum'))
+            drop_leg = is_unif & has_wgt & (n_legs > 1) & (wsum > 0)
+            drop_fan = (n_legs > 1) & (~has_wgt | (wsum == 0))
+            undistributed = sorted(
+                tab.loc[drop_fan, 'raw_id'].dropna().unique().tolist())
+            if drop_leg.any() or drop_fan.any():
+                n_fans = tab.loc[drop_fan, cls.SRC_COLS].drop_duplicates().shape[0]
+                warnings.warn(
+                    f"drop_unweighted_fans: {n_fans} unweighted fan(s) not "
+                    f"distributed ({len(undistributed)} raw rows), plus "
+                    f"{int(drop_leg.sum())} unweighted leg(s) dropped from "
+                    f"weighted fans."
+                )
+            tab = tab.loc[~(drop_leg | drop_fan)].reset_index(drop=True)
+
         # tab was built from a correct edge-join — skip redundant re-validation
         instance = cls(tab=tab, acc_struct=acc_struct, id=id, _skip_validation=True)
         instance.unmatched_raw_rows = unmatched
+        instance.undistributed_raw_rows = undistributed
         return instance
 
     # ------------------------------------------------------------------ #

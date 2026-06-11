@@ -866,6 +866,65 @@ class TestRatioConstraintBuilder:
         assert -2.0 in row               # −2 on Ore (denominator)
         assert (block.row_meta["num_sector_from"] == "Mining").all()   # pair-scoped
 
+    def test_ratio_sigma_c_scaled_symmetrically(self, toy_acc, tmp_path):
+        """build_dynamic rescales σ_r to flow space:
+        σ_c = max(σ_r, rel_floor)·max(Σ|f_num|, r·Σ|f_denom|, abs_floor)."""
+        from pysuto.constraints import RatioConstraintBuilder
+        path    = self._write_params_csv(tmp_path, nominal=0.5, unc_type="sd", value_sd=0.05)
+        builder = RatioConstraintBuilder.from_csv(
+            path, toy_acc, sigma_rel_floor=0.02, scale_abs_floor=1.0)
+        builder.build_static(toy_acc)
+        p = builder._pairs[0]
+        f = np.zeros(toy_acc.n_edges)
+        # numerator-dominant: |f_num| > r·|f_denom|
+        f[p["edge_i"]] = 1000.0
+        f[p["edge_j"]] = 100.0
+        dyn = builder.build_dynamic(toy_acc, f, None, p["time"])
+        assert dyn.sigma_c[0] == pytest.approx(0.05 * 1000.0)
+        # denominator-dominant: r·|f_denom| > |f_num|
+        f[p["edge_i"]] = 10.0
+        f[p["edge_j"]] = 4000.0
+        dyn = builder.build_dynamic(toy_acc, f, None, p["time"])
+        assert dyn.sigma_c[0] == pytest.approx(0.05 * 0.5 * 4000.0)
+
+    def test_ratio_sigma_c_floors(self, toy_acc, tmp_path):
+        """rel floor lifts a quasi-hard σ_r; abs floor keeps both-zero-prior
+        rows at a finite σ_c."""
+        from pysuto.constraints import RatioConstraintBuilder
+        path    = self._write_params_csv(tmp_path, nominal=0.5, unc_type="sd", value_sd=0.001)
+        builder = RatioConstraintBuilder.from_csv(
+            path, toy_acc, sigma_rel_floor=0.02, scale_abs_floor=1.0)
+        builder.build_static(toy_acc)
+        p = builder._pairs[0]
+        f = np.zeros(toy_acc.n_edges)
+        # rel floor: σ_r=0.001 < 0.02 → 0.02 used
+        f[p["edge_i"]] = 1000.0
+        dyn = builder.build_dynamic(toy_acc, f, None, p["time"])
+        assert dyn.sigma_c[0] == pytest.approx(0.02 * 1000.0)
+        # abs floor: both priors zero → scale = 1.0
+        f[:] = 0.0
+        dyn = builder.build_dynamic(toy_acc, f, None, p["time"])
+        assert dyn.sigma_c[0] == pytest.approx(0.02 * 1.0)
+
+    def test_ratio_sigma_c_scaled_agg(self, toy_acc, tmp_path):
+        """Agg (pooled) rows scale by the pooled sums Σ|f| over each side."""
+        from pysuto.constraints import RatioConstraintBuilder
+        builder = RatioConstraintBuilder.from_csv(
+            self._write_agg_csv(tmp_path), toy_acc,
+            sigma_rel_floor=0.02, scale_abs_floor=1.0)
+        builder.build_static(toy_acc)
+        p = builder._pairs[0]
+        f = np.zeros(toy_acc.n_edges)
+        f[p["edge_i_list"]] = 100.0
+        f[p["edge_j_list"]] = 300.0
+        dyn = builder.build_dynamic(toy_acc, f, None, p["time"])
+        expected = max(0.05, 0.02) * max(
+            100.0 * len(p["edge_i_list"]),
+            p["r"] * 300.0 * len(p["edge_j_list"]),
+            1.0,
+        )
+        assert dyn.sigma_c[0] == pytest.approx(expected)
+
 
 # ---------------------------------------------------------------------------
 # RatioBoundBuilder
@@ -918,19 +977,34 @@ class TestRatioBoundBuilder:
             f"Expected 2 rows (upper + lower); got {block.G_rows.shape[0]}"
 
     def test_ratio_bound_inequality_direction(self, toy_acc, tmp_path):
-        """Upper row: G[i]=+1, G[j]=−bu. Lower row: G[i]=−1, G[j]=+bl."""
+        """Upper row: G[i]=+1, G[j]=−bu. Lower row: G[i]=−1, G[j]=+bl.
+
+        Asserts coefficients per column (not just value membership): the
+        bound coefficient must sit on the denominator edge (a-side) and the
+        ±1 on the numerator edge (b-side). Under the solver convention
+        G·x ≤ 0 this encodes bl·denom ≤ num ≤ bu·denom; the swapped
+        placement instead pins denom ≤ bu⁻¹·num (regression: mass collapse
+        in opt_20260611_075036_6d2e540f).
+        """
         from pysuto.constraints import RatioBoundBuilder
         path    = self._write_bound_csv(tmp_path, bu=2.0, bl=0.1)
         builder = RatioBoundBuilder.from_csv(path, toy_acc)
         block   = builder.build_static(toy_acc)
         G       = block.G_rows.toarray()
 
+        # _write_bound_csv: a-edge (denominator) = Mining/A→Ore/A 2020 = eid 0,
+        #                   b-edge (numerator)   = Ore/A→Mining/A 2020 = eid 2.
+        denom_col, num_col = 0, 2
         upper_row = G[0]
         lower_row = G[1]
-        assert  1.0 in upper_row and -2.0 in upper_row, \
-            f"Upper row should have +1 and -bu=-2.0; got {upper_row[upper_row != 0]}"
-        assert -1.0 in lower_row and  0.1 in lower_row, \
-            f"Lower row should have -1 and +bl=0.1; got {lower_row[lower_row != 0]}"
+        assert upper_row[num_col] == pytest.approx(1.0) and \
+               upper_row[denom_col] == pytest.approx(-2.0), \
+            f"Upper row should be +1 on num (col {num_col}), -bu on denom " \
+            f"(col {denom_col}); got {upper_row[upper_row != 0]}"
+        assert lower_row[num_col] == pytest.approx(-1.0) and \
+               lower_row[denom_col] == pytest.approx(0.1), \
+            f"Lower row should be -1 on num (col {num_col}), +bl on denom " \
+            f"(col {denom_col}); got {lower_row[lower_row != 0]}"
 
     def test_ratio_bound_cone_type(self, toy_acc, tmp_path):
         """All ratio bound rows have cone_type='nonneg' and is_hard=True."""
@@ -1190,7 +1264,9 @@ class TestRatioPerTimestepDeactivation:
         times = static.row_meta["time"].astype(str).to_numpy()
         assert set(times) == {"2020", "2021"}
 
-        dyn = builder.build_dynamic(toy_acc, None, None, "2020")
+        # f_agg = 1 everywhere → flow-space scale = max(1, r·1, abs_floor=1) = 1,
+        # so the active row's σ_c equals the static σ_r.
+        dyn = builder.build_dynamic(toy_acc, np.ones(toy_acc.n_edges), None, "2020")
         for i, t in enumerate(times):
             if t == "2020":
                 assert dyn.sigma_c[i] == static.sigma_c[i]

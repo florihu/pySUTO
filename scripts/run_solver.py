@@ -54,7 +54,17 @@ def main(const_run_id: str, label: str = "") -> None:
 
     _log.info("=== init_run_solver START ===")
     _log.info("Loading ClarabelSolver (const_dir=%s)", CONST_DIR)
-    solver = ClarabelSolver(const_dir=CONST_DIR)
+    # Termination tolerances for the scaled-σ_c QP: the iterate hits the
+    # floating-point floor (μ ~1e-15) with rel gap 1e-4–5e-3 and dual residual
+    # ~1e-8–7e-7 — just above the 1e-8 defaults — and Clarabel then reports
+    # InsufficientProgress. Main tols 1e-7/1e-3 catch most years; the reduced
+    # tols accept a floored iterate as AlmostSolved (rel gap ≤1 %, feas ≤1e-5)
+    # — still orders of magnitude below any z-interpretation threshold.
+    solver = ClarabelSolver(const_dir=CONST_DIR, tol_feas=1e-7,
+                            tol_gap_rel=1e-3, tol_gap_abs=1e-1,
+                            reduced_tol_feas=1e-5,
+                            reduced_tol_gap_rel=1e-2,
+                            reduced_tol_gap_abs=1e2)
 
     _log.info("Solving ConstraintRun '%s'", const_run_id)
     results = solver.solve_all(

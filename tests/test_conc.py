@@ -745,5 +745,112 @@ class TestUserWeightsRegionTimeKeyed:
         assert w[7] == pytest.approx(0.1)
 
 
+class TestFanPolicy:
+    """Fan policy (ADR 0008): leg_filter restricts qualifier fans to their
+    input sector's legs (hard error if none survive); drop_unweighted_fans
+    refuses to distribute fans that have no weights (no 1/N fallback).
+
+    ``raw_use_only`` fans ONE src edge to roots 6 and 7 (both Concentrate
+    legs, regions A/B). The open-from-side variants below add an Ore leg to
+    Refining(A) so the leg filter has a cross-sector leg to drop."""
+
+    def _uw(self, wa=0.7, wb=0.3):
+        return pd.DataFrame([
+            {"root_sector_from": "Concentrate", "root_sector_to": "Refining",
+             "root_region_from": "A", "root_region_to": "A", "root_time": 0, "weight": wa},
+            {"root_sector_from": "Concentrate", "root_sector_to": "Refining",
+             "root_region_from": "B", "root_region_to": "A", "root_time": 0, "weight": wb},
+        ])
+
+    # -- drop_unweighted_fans ------------------------------------------------
+
+    def test_unweighted_fan_not_distributed(self, raw_use_only, mock_acc_struct, maps):
+        ct = ConcordanceTable.from_raw(
+            raw_df=raw_use_only, acc_struct=mock_acc_struct,
+            aux_col="Supply_Use", id="t", drop_unweighted_fans=True, **maps)
+        assert len(ct.tab) == 0
+        assert ct.undistributed_raw_rows == [0]
+
+    def test_weighted_fan_kept_and_normalised(self, raw_use_only, mock_acc_struct, maps):
+        ct = ConcordanceTable.from_raw(
+            raw_df=raw_use_only, acc_struct=mock_acc_struct,
+            aux_col="Supply_Use", id="t", user_weights_df=self._uw(),
+            drop_unweighted_fans=True, **maps)
+        w = dict(zip(ct.tab["edge_id"], ct.tab["weight_value"]))
+        assert w[6] == pytest.approx(0.7) and w[7] == pytest.approx(0.3)
+        assert ct.undistributed_raw_rows == []
+
+    def test_mixed_fan_drops_uniform_leg_and_renormalises(self, raw_use_only, mock_acc_struct, maps):
+        # weight only the B leg → the uniform A leg is dropped, B carries 1.0
+        uw = self._uw(wa=None, wb=3.0).dropna(subset=["weight"])
+        ct = ConcordanceTable.from_raw(
+            raw_df=raw_use_only, acc_struct=mock_acc_struct,
+            aux_col="Supply_Use", id="t", user_weights_df=uw,
+            drop_unweighted_fans=True, **maps)
+        assert set(ct.tab["edge_id"]) == {7}
+        assert ct.tab["weight_value"].iloc[0] == pytest.approx(1.0)
+
+    def test_zero_weight_fan_not_distributed(self, raw_use_only, mock_acc_struct, maps):
+        # weights present but all zero → normalisation impossible → drop fan
+        ct = ConcordanceTable.from_raw(
+            raw_df=raw_use_only, acc_struct=mock_acc_struct,
+            aux_col="Supply_Use", id="t", user_weights_df=self._uw(0.0, 0.0),
+            drop_unweighted_fans=True, **maps)
+        assert len(ct.tab) == 0
+        assert ct.undistributed_raw_rows == [0]
+
+    def test_exact_match_kept(self, raw_df, mock_acc_struct, maps):
+        # N==1 groups survive (incl. the E-region row, which degenerates to a
+        # single root leg); only the N>1 heterogeneous-use fan is dropped.
+        ct = ConcordanceTable.from_raw(
+            raw_df=raw_df, acc_struct=mock_acc_struct,
+            aux_col="Supply_Use", id="t", drop_unweighted_fans=True, **maps)
+        assert sorted(ct.undistributed_raw_rows) == [3]
+        sizes = ct.tab.groupby(ConcordanceTable.SRC_COLS).size()
+        assert (sizes == 1).all() and len(sizes) == 3
+
+    # -- leg_filter ----------------------------------------------------------
+
+    def _open_from_maps(self, maps):
+        """Use rows classify only the consumer (from side fully open), like
+        the real ICSG var_map — the fan then spans every incoming edge."""
+        m = {k: v.copy() for k, v in maps.items()}
+        vm = maps["var_map_df"]
+        m["var_map_df"] = vm[~((vm["Supply_Use"] == "Use") &
+                               (vm["src_var"] == "src_sector_from"))].reset_index(drop=True)
+        return m
+
+    def _acc_with_ore_leg(self, mock_acc_struct):
+        import copy
+        acc = copy.deepcopy(mock_acc_struct)
+        acc.edge_index = pd.concat([
+            acc.edge_index,
+            pd.DataFrame([{"edge_id": 9, "from_id": 1, "to_id": 7,
+                           "time": 0, "valuation": "mass"}]),  # Ore(A)→Refining(A)
+        ], ignore_index=True)
+        return acc
+
+    def test_leg_filter_drops_cross_sector_legs(self, raw_use_only, mock_acc_struct, maps):
+        import warnings
+        acc = self._acc_with_ore_leg(mock_acc_struct)
+        m   = self._open_from_maps(maps)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            ct = ConcordanceTable.from_raw(
+                raw_df=raw_use_only, acc_struct=acc,
+                aux_col="Supply_Use", id="t",
+                leg_filter={"Refining": "Concentrate"}, **m)
+        assert set(ct.tab["edge_id"]) == {6, 7}          # Ore leg (9) dropped
+        assert set(np.round(ct.tab["weight_value"], 6)) == {0.5}
+
+    def test_leg_filter_zero_legs_raises(self, raw_use_only, mock_acc_struct, maps):
+        m = self._open_from_maps(maps)
+        with pytest.raises(ValueError, match="structurally nonexistent"):
+            ConcordanceTable.from_raw(
+                raw_df=raw_use_only, acc_struct=mock_acc_struct,
+                aux_col="Supply_Use", id="t",
+                leg_filter={"Refining": "Cathode"}, **m)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

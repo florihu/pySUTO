@@ -33,6 +33,22 @@ fan-out; it inflates total mass by the fan cardinality. Distinguished from fan-o
 *distinct src edges per raw row*: fan-out = 1 (→ many roots); replication = many. See
 [ADR 0002](docs/adr/0002-single-endpoint-rows-fan-out-not-replicate.md).
 
+**Unweighted fan** — a fan-out whose legs carry no weighting information (no trade shares, no
+user weights — every leg still at the uniform default). Such a fan is **not distributed**: an
+even 1/N split asserts a fabricated partner pattern at the observation's confidence, whereas the
+honest state of knowledge is "total known, split unknown". The raw value stays undistributed
+(excluded from the feed's projected mass). A fan that degenerates to a single leg is an exact
+match, not an unweighted fan. See [ADR 0008](docs/adr/0008-unweighted-fans-are-not-distributed.md).
+
+**Qualifier fan** — a Use fan whose source variable names its **input product** (e.g. smelter
+production *from scrap*, refinery production *from matte*). Only root legs whose supplier sector
+matches the named product belong to the fan; other incoming edges of the consumer node are
+out-of-scope legs that the open (`"<any>"`) endpoint would otherwise wrongly absorb — and onto
+which route-keyed weights of *other* products can bleed. A qualifier fan with **zero** matching
+legs marks a structurally impossible mapping (the named product does not feed that consumer in
+the accounting structure) and is a hard error, never a silent fan. See
+[ADR 0008](docs/adr/0008-unweighted-fans-are-not-distributed.md).
+
 **Boundary topology** *(referenced by [ADR 0001](docs/adr/0001-replace-coherence-sum-eq-with-bilateral-anchoring.md); to be expanded)* —
 the open System-Boundary (SB) endpoints where flows terminate, so prior disagreement there does
 not create feasibility conflicts.

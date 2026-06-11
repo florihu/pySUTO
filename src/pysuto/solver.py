@@ -135,6 +135,9 @@ class ClarabelSolver:
         tol_feas:               float = 1e-8,
         tol_gap_abs:            float = 1e-8,
         tol_gap_rel:            float = 1e-8,
+        reduced_tol_feas:       float | None = None,
+        reduced_tol_gap_abs:    float | None = None,
+        reduced_tol_gap_rel:    float | None = None,
         max_iter:               int   = 200,
         verbose_first_solve:    bool  = True,
         capture_iter_history:   bool  = True,
@@ -148,6 +151,9 @@ class ClarabelSolver:
         self.tol_feas               = tol_feas
         self.tol_gap_abs            = tol_gap_abs
         self.tol_gap_rel            = tol_gap_rel
+        self.reduced_tol_feas       = reduced_tol_feas
+        self.reduced_tol_gap_abs    = reduced_tol_gap_abs
+        self.reduced_tol_gap_rel    = reduced_tol_gap_rel
         self.max_iter               = max_iter
         self.verbose_first_solve    = verbose_first_solve
         self.capture_iter_history   = capture_iter_history
@@ -179,6 +185,15 @@ class ClarabelSolver:
         s.tol_feas        = self.tol_feas
         s.tol_gap_abs     = self.tol_gap_abs
         s.tol_gap_rel     = self.tol_gap_rel
+        # Reduced-accuracy acceptance: when the iterate hits the numerical
+        # floor (InsufficientProgress), accept it as AlmostSolved if it meets
+        # these secondary tolerances. None ⇒ Clarabel defaults.
+        if self.reduced_tol_feas is not None:
+            s.reduced_tol_feas = self.reduced_tol_feas
+        if self.reduced_tol_gap_abs is not None:
+            s.reduced_tol_gap_abs = self.reduced_tol_gap_abs
+        if self.reduced_tol_gap_rel is not None:
+            s.reduced_tol_gap_rel = self.reduced_tol_gap_rel
         # Default static + dynamic regularisation kept on (Clarabel defaults).
         return s
 
@@ -750,13 +765,35 @@ class ClarabelSolver:
             if self.capture_iter_history:
                 solver_t.unset_termination_callback()
 
+            if status not in _OK_STATUSES and warm_start and k > 0:
+                # The reused instance keeps the equilibration computed for the
+                # first timestep (update() does not re-equilibrate); per-t
+                # σ_c now varies with f_agg, so a later year can stall on
+                # stale scaling. Cold restart with fresh equilibration.
+                logger.warning(
+                    "t=%s  status=%s on reused solver — cold-restart retry",
+                    t, status,
+                )
+                settings = self._settings(verbose=False)
+                solver_t = clarabel.DefaultSolver(
+                    P_t, q_t, A_t, b_t, cones_t, settings,
+                )
+                hist.clear()
+                if self.capture_iter_history:
+                    solver_t.set_termination_callback(_cb)
+                sol     = solver_t.solve()
+                elapsed = time.perf_counter() - t0
+                status  = str(sol.status)
+                if self.capture_iter_history:
+                    solver_t.unset_termination_callback()
+
             convergence  = self._info_to_dict(solver_t.get_info())
             iter_history = np.array(hist, dtype=ITER_DTYPE) if hist else None
 
             if status not in _OK_STATUSES:
                 raise RuntimeError(
                     f"Timestep {t!r}: Clarabel status={status}; halting "
-                    f"(no fallback). iterations={sol.iterations}"
+                    f"(cold restart already tried). iterations={sol.iterations}"
                 )
 
             x         = np.asarray(sol.x)
