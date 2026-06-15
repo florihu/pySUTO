@@ -108,15 +108,17 @@ class SolverDiag:
         "SD-T-02":  PlotSpec("_fig_zscore_soft",        "sd_t_02_zscore_soft",        "Soft-slack z-scores (ε/σ_c) histograms"),
         "SD-T-03":  PlotSpec("_fig_solution_vs_prior",  "sd_t_03_solution_vs_prior",  "Solution magnitude + z-score + σ_opt/σ_a panels"),
         "SD-T-04":  PlotSpec("_fig_binding_rate",       "sd_t_04_binding_rate",       "Per-type binding-rate distributions"),
-        "SD-T-05":  PlotSpec("_fig_solution_magnitude", "sd_t_05_distribution_of_a",  "Distribution of a: log10|a*|, signed a*, log10|a₀(t)|"),
+        "SD-T-05":  PlotSpec("_fig_solution_magnitude", "sd_t_05_distribution_of_a",  "Distribution of a (per period): log10|a_prior(t)| and log10|a*(t)|, sliced to the year's edges"),
         "SD-T-06":  PlotSpec("_fig_cstar_vs_c",         "sd_t_06_cstar_vs_c",         "c*−c and relative-change histograms on soft rows"),
-        "SD-T-07":  PlotSpec("_fig_rocket",             "sd_t_07_rocket",             "Rocket: log–log scatters of prior vs solution on key row families"),
+        "SD-T-07":  PlotSpec("_fig_rocket",             "sd_t_07_rocket",             "Rocket: per-period log–log scatters of a_prior(t) vs a*(t) on key row families"),
         "SD-T-08a": PlotSpec("_fig_eps_heatmap_ratio",  "sd_t_08a_eps_heatmap_ratio", "ratio_eq realized-ratio heatmap, top-50 by log10-range"),
         "SD-T-08b": PlotSpec("_fig_eps_heatmap_sum",    "sd_t_08b_eps_heatmap_sum",   "sum_eq ε heatmap, top-50 nodes by log10-range"),
         "SD-T-09a": PlotSpec("_fig_prior_departure_from_sector", "sd_t_09a_prior_dep_from_sector", "|a*−a₀| by from-sector"),
         "SD-T-09b": PlotSpec("_fig_prior_departure_to_sector",   "sd_t_09b_prior_dep_to_sector",   "|a*−a₀| by to-sector"),
         "SD-T-09c": PlotSpec("_fig_prior_departure_from_region", "sd_t_09c_prior_dep_from_region", "|a*−a₀| by from-region (mining highlighted)"),
         "SD-T-09d": PlotSpec("_fig_prior_departure_to_region",   "sd_t_09d_prior_dep_to_region",   "|a*−a₀| by to-region (mining highlighted)"),
+        "SD-T-10":  PlotSpec("_fig_defect_over_time",   "sd_t_10_defect_time",        "Defect over time: per-year boxplot of log10|a*−a_prior|"),
+        "SD-T-11":  PlotSpec("_fig_constraint_residuals", "sd_t_11_constraint_residuals", "Per-year boxplots of log10|residual| — parametric-soft & supply/use-total constraints"),
     }
 
     def __init__(
@@ -1001,6 +1003,67 @@ class SolverDiag:
         """Left-side row caption that does not collide with histogram bars."""
         ax.set_ylabel(text, fontsize=9, labelpad=8)
 
+    def _period_prior_post(self, t):
+        """Year-local ``(a_prior(t), a_post(t))`` over the year's edges (cols_t).
+
+        Posterior is the reassembled ``F_opt`` sliced to ``cols_t``; prior is the
+        per-period ``a_prior`` the solver stored (warm = ``a_post(t-1)``, cold =
+        ``f_agg(t)``). Falls back to the global cold prior ``a_prior_global``
+        sliced to the year for runs predating the warm-start fix (no a_prior).
+        """
+        r    = self._results[t]
+        cols = r.cols_t
+        if cols is None:  # legacy full-vector path: a_prior is already full-length
+            post  = np.asarray(r.F_opt, dtype=float)
+            prior = (np.asarray(r.a_prior, dtype=float) if r.a_prior is not None
+                     else np.asarray(self._const_run.a_prior_global, dtype=float))
+            return prior, post
+        post = np.asarray(r.F_opt, dtype=float)[cols]
+        if r.a_prior is not None:
+            prior = np.asarray(r.a_prior, dtype=float)
+        else:
+            prior = np.asarray(self._const_run.a_prior_global, dtype=float)[cols]
+        return prior, post
+
+    def _ap_global(self, t) -> np.ndarray:
+        """Year-t prior scattered into a global (E,) vector (zero off year t).
+
+        Lets the constraint LHS ``G·a_prior(t)`` be formed against the full G
+        (its year-t rows touch only year-t columns)."""
+        prior, _ = self._period_prior_post(t)
+        r = self._results[t]
+        if r.cols_t is None:
+            return np.asarray(prior, dtype=float)
+        out = np.zeros(self._const_run.G.shape[1], dtype=float)
+        out[r.cols_t] = prior
+        return out
+
+    @staticmethod
+    def _hist_log10_abs(ax, data, bin_edges, color, *, quantiles=True) -> None:
+        """Histogram of ``log10|data|`` (zeros dropped) with an ``n=`` footer and
+        optional p50/p95/p99 guide lines."""
+        v = np.abs(np.asarray(data, dtype=float))
+        v = v[v > 0]
+        if v.size == 0:
+            ax.text(0.5, 0.5, "n=0", transform=ax.transAxes,
+                    ha="center", va="center", fontsize=8, color=_C["grey"])
+            _apply_modern_style(ax)
+            return
+        lv = np.log10(v)
+        ax.hist(lv, bins=bin_edges, color=color, alpha=0.55,
+                edgecolor=color, linewidth=0.6)
+        if quantiles:
+            for q, lbl, cq in ((50, "p50", _C["navy"]),
+                               (95, "p95", _C["orange"]),
+                               (99, "p99", _C["red"])):
+                val = float(np.percentile(lv, q))
+                ax.axvline(val, color=cq, lw=1.1, ls="--", alpha=0.8)
+                ax.text(val, ax.get_ylim()[1] * 0.95 if ax.get_ylim()[1] > 0 else 1.0,
+                        lbl, rotation=90, fontsize=7, va="top", ha="right", color=cq)
+        ax.text(0.99, 0.97, f"n={v.size}", transform=ax.transAxes,
+                ha="right", va="top", fontsize=7, color=_C["grey"])
+        _apply_modern_style(ax)
+
     @staticmethod
     def _hist_with_footer(ax, data: np.ndarray, color: str, *, symlog: bool = False,
                           bins: int = 40, ref_lines: tuple = (),
@@ -1273,75 +1336,44 @@ class SolverDiag:
         return fig
 
     def _fig_solution_magnitude(self, *, hue=None, timesteps=None):
-        """SD-T-05: distribution of a — log10|a*|, symlog a*, and log10|a₀(t)|."""
+        """SD-T-05: per-period prior vs posterior magnitude.
+
+        Row 0: log₁₀|a_prior(t)| (the warm-start prior actually used that year).
+        Row 1: log₁₀|a*(t)|       (the posterior).
+        Each panel is sliced to the year's own edges (cols_t), so the ``n=``
+        footer is that year's edge count — not the pooled multi-year vector.
+        """
         ts_triple = self._resolve_timesteps(timesteps)
-        fig, axes = self._make_xsection(3, "Distribution of a (SD-T-05)")
+        fig, axes = self._make_xsection(2, "Distribution of a (SD-T-05)")
 
-        # Build warm-start prior path: a0(t0)=const_run.a0; a0(t>0)=F*(t-1)
-        prior_for: dict = {}
-        prev = np.asarray(self._const_run.a0, dtype=float)
-        for t in self._timesteps:
-            prior_for[t] = prev
-            prev = self._results[t].F_opt
+        priors = {t: self._period_prior_post(t)[0] for t in ts_triple}
+        posts  = {t: self._period_prior_post(t)[1] for t in ts_triple}
 
-        # Shared bin edges for row 0 (log10|a*|) across the three columns
-        F_all = np.concatenate([self._results[t].F_opt for t in ts_triple])
-        F_pos = np.abs(F_all)
-        F_pos = F_pos[F_pos > 0]
-        if F_pos.size:
-            lo, hi = np.log10(F_pos.min()), np.log10(F_pos.max())
-        else:
-            lo, hi = -1.0, 1.0
-        bin_edges_r0 = np.linspace(lo, hi, 41)
+        def _edges(vmaps):
+            allv = np.concatenate([np.abs(v) for v in vmaps.values()])
+            allv = allv[allv > 0]
+            if allv.size:
+                return np.linspace(np.log10(allv.min()), np.log10(allv.max()), 41)
+            return np.linspace(-1.0, 1.0, 41)
 
-        # Shared bin edges for row 2 (log10|a₀|) across the three columns
-        a0_all = np.concatenate([np.abs(prior_for[t]) for t in ts_triple])
-        a0_pos = a0_all[a0_all > 0]
-        if a0_pos.size:
-            lo0, hi0 = np.log10(a0_pos.min()), np.log10(a0_pos.max())
-        else:
-            lo0, hi0 = -1.0, 1.0
-        bin_edges_r2 = np.linspace(lo0, hi0, 41)
+        be_prior = _edges(priors)
+        be_post  = _edges(posts)
 
         for col, t in enumerate(ts_triple):
-            # ---- Row 0: log10|a*| (original) ----
+            # ---- Row 0: prior log₁₀|a_prior(t)| ----
             ax = axes[0, col]
-            F = np.abs(self._results[t].F_opt)
-            F = F[F > 0]
-            if F.size:
-                ax.hist(np.log10(F), bins=bin_edges_r0, color=_C["blue"],
-                        alpha=0.55, edgecolor=_C["blue"], linewidth=0.6)
-                for q, lbl, col_q in [(50, "p50", _C["navy"]),
-                                       (95, "p95", _C["orange"]),
-                                       (99, "p99", _C["red"])]:
-                    val = float(np.percentile(np.log10(F), q))
-                    ax.axvline(val, color=col_q, lw=1.2, ls="--", alpha=0.8)
-                    ax.text(val, ax.get_ylim()[1] * 0.95 if ax.get_ylim()[1] > 0 else 1.0,
-                            lbl, rotation=90, fontsize=7, va="top", ha="right", color=col_q)
-            _apply_modern_style(ax)
-            ax.set_xlabel("log₁₀ |a*|  (log₁₀-transformed)")
+            self._hist_log10_abs(ax, priors[t], be_prior, _C["orange"])
+            ax.set_xlabel("log₁₀ |a_prior(t)|  (log₁₀-transformed)", fontsize=8)
             if col == 0:
-                self._row_label(ax, "log₁₀ |a*|")
+                self._row_label(ax, "prior — log₁₀|a_prior|")
             ax.set_title(self._col_title(t, ts_triple), fontsize=10, fontweight="bold")
 
-            # ---- Row 1: log₁₀|a*| with sign overlay (pos = blue, neg = red) ----
+            # ---- Row 1: posterior log₁₀|a*(t)| ----
             ax = axes[1, col]
-            F_signed = self._results[t].F_opt
-            self._hist_logabs_signed(ax, F_signed, bins=40)
+            self._hist_log10_abs(ax, posts[t], be_post, _C["blue"])
+            ax.set_xlabel("log₁₀ |a*(t)|  (log₁₀-transformed)", fontsize=8)
             if col == 0:
-                self._row_label(ax, "a* (log₁₀|x| signed)")
-
-            # ---- Row 2: log10|a₀(t)| ----
-            ax = axes[2, col]
-            a0_t = np.abs(prior_for[t])
-            a0_t = a0_t[a0_t > 0]
-            if a0_t.size:
-                ax.hist(np.log10(a0_t), bins=bin_edges_r2, color=_C["orange"],
-                        alpha=0.55, edgecolor=_C["orange"], linewidth=0.6)
-            _apply_modern_style(ax)
-            ax.set_xlabel("log₁₀ |a₀(t)|  (log₁₀-transformed)")
-            if col == 0:
-                self._row_label(ax, "a₀(t) — log₁₀|a₀|")
+                self._row_label(ax, "posterior — log₁₀|a*|")
 
         fig.tight_layout(rect=[0, 0, 1, 0.96])
         return fig
@@ -1382,18 +1414,20 @@ class SolverDiag:
         return fig
 
     def _fig_rocket(self, *, hue=None, timesteps=None):
-        """SD-T-07: log–log scatter 'rocket' plots — warm-start prior throughout.
+        """SD-T-07: per-period log–log scatter 'rocket' plots — a_prior(t) vs a*(t).
 
-        All three rows compare the warm-start prior `a*(t−1)` (propagated through
-        G where needed) against the current-timestep solution.
+        The prior is the warm-start prior the solver actually used that year
+        (``a_prior(t)`` = ``a_post(t-1)`` under prior_mode='warm', cold seed
+        f_agg at t0), scattered to global where multiplied through G. Each column
+        is one timestep and is restricted to that year's edges/rows.
 
-        Row 1: log10|G·a*(t−1)| (x) vs log10|c*| (y) on sum_eq rows.
+        Row 1: log10|G·a_prior(t)| (x) vs log10|c*| (y) on sum_eq rows.
                Colour = |ε|/σ_c (z-score); viridis LogNorm.
         Row 2: log10|ε₀| (x) vs log10|ε_opt| (y) on soft (free-cone) rows,
-               where ε₀ = G_free · a*(t−1) − c_free(t).
+               where ε₀ = G_free · a_prior(t) − c_free(t).
                Colour = |ε_opt|/σ_c (z-score); viridis LogNorm.
-        Row 3: log10|a*(t−1)| (x) vs log10|a*(t)| (y) over all edges.
-               Colour = |a*−a₀|/σ_a; viridis LogNorm.
+        Row 3: log10|a_prior(t)| (x) vs log10|a*(t)| (y) over the year's edges.
+               Colour = |a*−a_prior|/σ_a; viridis LogNorm.
         Diagonal y=x = perfect agreement.
         """
         import matplotlib.pyplot as plt
@@ -1406,12 +1440,8 @@ class SolverDiag:
         # Row 1: sum_eq only
         se_idx = self._row_info["sum_eq"]
 
-        # Build warm-start prior path: a0(t0)=const_run.a0; a0(t>0)=F*(t-1)
-        prior_for: dict = {}
-        prev = np.asarray(self._const_run.a0, dtype=float)
-        for t in self._timesteps:
-            prior_for[t] = prev
-            prev = self._results[t].F_opt
+        # Per-period prior scattered to global (E,) — zero off the year's edges.
+        prior_for = {t: self._ap_global(t) for t in ts_triple}
 
         sa = np.asarray(self._const_run.sigma_a, dtype=float)
         sa_safe = np.where(sa > 0, sa, np.inf)
@@ -1524,7 +1554,7 @@ class SolverDiag:
             lo, hi = r1_lo, r1_hi
             ax.plot([lo, hi], [lo, hi], color=_C["grey"], lw=0.9, ls="--")
             ax.set_xlim(lo, hi); ax.set_ylim(lo, hi)
-            ax.set_xlabel("log₁₀ |G·a*(t−1)|", fontsize=8)
+            ax.set_xlabel("log₁₀ |G·a_prior(t)|", fontsize=8)
             _apply_modern_style(ax)
             if col == 0:
                 self._row_label(ax, "log₁₀ |c*|")
@@ -1552,7 +1582,7 @@ class SolverDiag:
             lo2, hi2 = r2_eps_lo, r2_eps_hi
             ax.plot([lo2, hi2], [lo2, hi2], color=_C["grey"], lw=0.9, ls="--")
             ax.set_xlim(lo2, hi2); ax.set_ylim(lo2, hi2)
-            ax.set_xlabel("log₁₀ |ε₀ = G·a*(t−1) − c|", fontsize=8)
+            ax.set_xlabel("log₁₀ |ε₀ = G·a_prior(t) − c|", fontsize=8)
             _apply_modern_style(ax)
             if col == 0:
                 self._row_label(ax, "log₁₀ |ε_opt|")
@@ -1569,16 +1599,130 @@ class SolverDiag:
                                  s=8, alpha=0.5, edgecolors="none")
                 if col == 2:
                     fig.colorbar(sc2, ax=ax, pad=0.02, fraction=0.05,
-                                 label="|a*−a₀|/σ_a")
+                                 label="|a*−a_prior|/σ_a")
             lo, hi = r2_lo, r2_hi
             ax.plot([lo, hi], [lo, hi], color=_C["grey"], lw=0.9, ls="--")
             ax.set_xlim(lo, hi); ax.set_ylim(lo, hi)
-            ax.set_xlabel("log₁₀ |a₀(t)|  (log₁₀-transformed)", fontsize=8)
+            ax.set_xlabel("log₁₀ |a_prior(t)|  (log₁₀-transformed)", fontsize=8)
             _apply_modern_style(ax)
             if col == 0:
                 self._row_label(ax, "log₁₀ |a*|")
 
         fig.tight_layout(rect=[0, 0, 1, 0.96])
+        return fig
+
+    @staticmethod
+    def _box_per_year(ax, data, positions, color, *, width=0.6):
+        """Boxplot one series across years; empty years render as a gap."""
+        bp = ax.boxplot([d if len(d) else [np.nan] for d in data],
+                        positions=positions, widths=width, showfliers=False,
+                        patch_artist=True)
+        for box in bp["boxes"]:
+            box.set(facecolor=color, alpha=0.5, edgecolor=color)
+        for med in bp["medians"]:
+            med.set(color=_C["navy"], linewidth=1.1)
+        for whisk in bp["whiskers"]:
+            whisk.set(color=color, alpha=0.8)
+        for cap in bp["caps"]:
+            cap.set(color=color, alpha=0.8)
+        return bp
+
+    def _fig_defect_over_time(self, *, hue=None, timesteps=None):
+        """SD-T-10: per-year boxplot of log10|defect(t)| over time.
+
+        defect(t) = a*(t) − a_prior(t) — the per-period prior departure, one box
+        per solved year on a shared time axis.
+        """
+        import matplotlib.pyplot as plt
+        ts   = list(self._timesteps)
+        data = []
+        for t in ts:
+            prior, post = self._period_prior_post(t)
+            d = np.abs(np.asarray(post, dtype=float) - np.asarray(prior, dtype=float))
+            d = d[d > 0]
+            data.append(np.log10(d) if d.size else np.array([]))
+
+        fig, ax = plt.subplots(figsize=(max(8.0, 0.42 * len(ts)), 4.2))
+        fig.suptitle(self._title("Defect over time (SD-T-10)"),
+                     fontsize=13, fontweight="bold")
+        positions = np.arange(len(ts))
+        self._box_per_year(ax, data, positions, _C["blue"])
+        ax.set_xticks(positions)
+        ax.set_xticklabels([str(t) for t in ts], rotation=45, ha="right", fontsize=8)
+        ax.set_xlabel("timestep")
+        ax.set_ylabel("log₁₀ |a*(t) − a_prior(t)|")
+        _apply_modern_style(ax)
+        fig.tight_layout(rect=[0, 0, 1, 0.95])
+        return fig
+
+    def _fig_constraint_residuals(self, *, hue=None, timesteps=None):
+        """SD-T-11: per-year boxplots of log10|residual| (residual = G·a* − c).
+
+        Panel A — parametric-soft constraints (type=ratio, free cone): the
+        conc/eff ratio rows whose RHS comes from parameters.
+        Panel B — supply-total and use-total *scale totals*
+        (variant ∈ {supplytotout, usetotout}) as two box series per year.
+        """
+        import matplotlib.pyplot as plt
+        from matplotlib.patches import Patch
+
+        rm = self._const_run.row_meta
+        n  = len(rm)
+
+        def _col(name):
+            return (rm[name].astype(str).to_numpy() if name in rm.columns
+                    else np.array([""] * n))
+
+        typ, cone, var, row_time = (_col("type"), _col("cone_type"),
+                                    _col("variant"), _col("time"))
+        param_soft = (typ == "ratio") & (cone == "free")
+        supply_tot = (var == "supplytotout")
+        use_tot    = (var == "usetotout")
+
+        ts        = list(self._timesteps)
+        positions = np.arange(len(ts))
+
+        def _resid_logabs(mask, t):
+            idx = np.where(mask & (row_time == str(t)))[0]
+            if idx.size == 0:
+                return np.array([])
+            r = np.abs(np.asarray(self._results[t].residuals, dtype=float)[idx])
+            r = r[r > 0]
+            return np.log10(r) if r.size else np.array([])
+
+        fig, axes = plt.subplots(1, 2, figsize=(max(12.0, 0.6 * len(ts)), 4.6))
+        fig.suptitle(self._title("Constraint residuals over time (SD-T-11)"),
+                     fontsize=13, fontweight="bold")
+
+        # Panel A: parametric soft
+        axA = axes[0]
+        self._box_per_year(axA, [_resid_logabs(param_soft, t) for t in ts],
+                           positions, _C["purple"])
+        axA.set_title("parametric soft (ratio, free cone)", fontsize=10, fontweight="bold")
+        axA.set_xticks(positions)
+        axA.set_xticklabels([str(t) for t in ts], rotation=45, ha="right", fontsize=7)
+        axA.set_xlabel("timestep")
+        axA.set_ylabel("log₁₀ |residual = G·a* − c|")
+        _apply_modern_style(axA)
+
+        # Panel B: supply-total vs use-total (two series)
+        axB = axes[1]
+        w = 0.34
+        self._box_per_year(axB, [_resid_logabs(supply_tot, t) for t in ts],
+                           positions - w / 1.6, _C["green"], width=w)
+        self._box_per_year(axB, [_resid_logabs(use_tot, t) for t in ts],
+                           positions + w / 1.6, _C["orange"], width=w)
+        axB.set_title("supply-total vs use-total scale totals", fontsize=10, fontweight="bold")
+        axB.set_xticks(positions)
+        axB.set_xticklabels([str(t) for t in ts], rotation=45, ha="right", fontsize=7)
+        axB.set_xlabel("timestep")
+        axB.set_ylabel("log₁₀ |residual|")
+        axB.legend(handles=[Patch(facecolor=_C["green"], alpha=0.5, label="supply total"),
+                            Patch(facecolor=_C["orange"], alpha=0.5, label="use total")],
+                   fontsize=7, frameon=False, loc="upper right")
+        _apply_modern_style(axB)
+
+        fig.tight_layout(rect=[0, 0, 1, 0.94])
         return fig
 
     def _fig_time_hued(self, *, hue=None, timesteps=None):
@@ -2089,6 +2233,7 @@ class SolverDiag:
             ax.set_xticks(x)
             ax.set_xticklabels([str(t) for t in ts], rotation=45, ha="right", fontsize=8)
             ax.set_xlabel("timestep")
+            ax.set_yscale("log")
             if c == 0:
                 ax.set_ylabel("Σ a* across outputs [tonnes]")
             _apply_modern_style(ax)

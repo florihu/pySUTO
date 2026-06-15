@@ -118,7 +118,19 @@ class SolverStatsDiagnostic:
         res = self._result_for_year(year)
 
         a_post  = np.asarray(res.F_opt, dtype=float)
-        a_prior = np.asarray(self._cr.a0, dtype=float)
+        # Global cold prior (a_prior_global when available, else legacy a0).
+        cold = getattr(self._cr, "a_prior_global", None)
+        cold = np.asarray(cold if cold is not None else self._cr.a0, dtype=float)
+        # Per-period prior the solver actually used (warm = a_post(t-1), cold =
+        # f_agg(t)); scatter the year-local a_prior into global edge order,
+        # falling back to the cold prior for legacy runs without a_prior.
+        if getattr(res, "a_prior", None) is not None and res.cols_t is not None:
+            a_prior = cold.copy()
+            a_prior[np.asarray(res.cols_t)] = np.asarray(res.a_prior, dtype=float)
+        elif getattr(res, "a_prior", None) is not None:
+            a_prior = np.asarray(res.a_prior, dtype=float)
+        else:
+            a_prior = cold
         sigma_a = np.asarray(self._cr.sigma_a, dtype=float)
 
         defect = a_post - a_prior
