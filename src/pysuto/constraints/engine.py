@@ -540,6 +540,17 @@ class ConstraintEngine:
                 M, n_edges,
             )
 
+        # ── 2d. Per-t cold prior  a_prior(t) = f_agg sliced to year-t edges ──
+        # The optimiser's prior is time-variant: a_prior(t0) = f_agg (cold seed)
+        # and a_prior(t>0) = a_post(t-1) under warm-start. Here we store only the
+        # cold per-period seed (f_agg restricted to the year's edges, in cols_t
+        # order); the warm chain is produced by the solver at solve time. Block
+        # path only — the legacy full-vector path keeps using the global prior.
+        for t_label, td in timestep_data.items():
+            cols_t = edge_cols_by_t.get(t_label)
+            if cols_t is not None:
+                td["a_prior"] = f_agg[np.asarray(cols_t)].copy()
+
         # ── 3. Assemble ConstraintRun ──────────────────────────────────
         if run_id is None:
             run_id = make_run_id("const")
