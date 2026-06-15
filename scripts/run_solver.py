@@ -103,7 +103,8 @@ def main(const_run_id: str, label: str = "") -> None:
     diag = SolverDiag(results, const_run, label=label or optim_run_id)
     diag.summary()
     diag.plot(odir=diag_dir,
-              plot_ids=["SD-R-01", "SD-T-05", "SD-T-07", "SD-T-10", "SD-T-11"])
+              plot_ids=["SD-R-01", "SD-R-08", "SD-R-09",
+                        "SD-T-05", "SD-T-07", "SD-T-10", "SD-T-11"])
 
     # Initialise the solver stats module as part of the run: per-year edge
     # (defect) and constraint (residual) row-level CSVs. Use diag.results — the
