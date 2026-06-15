@@ -106,9 +106,11 @@ def main(const_run_id: str, label: str = "") -> None:
               plot_ids=["SD-R-01", "SD-T-05", "SD-T-07", "SD-T-10", "SD-T-11"])
 
     # Initialise the solver stats module as part of the run: per-year edge
-    # (defect) and constraint (residual) row-level CSVs.
+    # (defect) and constraint (residual) row-level CSVs. Use diag.results — the
+    # reassembled global-length vectors the stats tables expect (raw solver
+    # results are year-local slices).
     acc = AccountingStructure.load(const_run.acc_id)
-    SolverStatsDiagnostic(results, const_run, acc, years="all").write(diag_dir)
+    SolverStatsDiagnostic(diag.results, const_run, acc, years="all").write(diag_dir)
 
     _log.info("=== init_run_solver DONE ===")
 
