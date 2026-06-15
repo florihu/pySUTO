@@ -80,6 +80,10 @@ class OptimResult:
     # these global indices. None for the legacy full-vector path.
     cols_t:        Optional[np.ndarray] = None  # global edge cols for this t
     rows_t:        Optional[np.ndarray] = None  # global constraint rows for this t
+    # The per-period prior mean actually used in the objective q-vector.
+    # Block path: year-local (cols_t order); warm = a_post(t-1), cold = f_agg(t).
+    # Legacy path: full-length (E,). None for runs predating the warm-start fix.
+    a_prior:       Optional[np.ndarray] = None
 
 
 # =============================================================================
@@ -95,19 +99,30 @@ class ClarabelSolver:
 
     Modelling decisions (locked in design grilling):
 
-    - **Warm-start prior across time.** The prior ``a_0(t)`` in the
-      objective is the previous timestep's optimum:
+    - **Warm-start prior across time** (``prior_mode='warm'``, the default).
+      The per-period prior mean ``a_prior(t)`` in the objective is the
+      previous timestep's optimum, aligned by **edge template**
+      ``(from_id, to_id, valuation)`` since each year occupies disjoint
+      global columns (``cols_t``):
 
-          a_0(0) = ConstraintRun.a0       (Stage 2 f_agg)
-          a_0(t) = F_opt(t-1)             for t > 0
+          a_prior(0) = f_agg                    (cold seed, the year-0 a_prior)
+          a_prior(t) = a_post(t-1) | template   for t > 0
 
-      σ_a is held constant across timesteps (= ``ConstraintRun.sigma_a``);
-      the prior mean drifts forward but the prior precision does not.
-      Consequence to be aware of: each year's optimum depends on every
-      prior year through the prior. If year t-1 drifts from its data,
-      year t inherits that drift.
-    - Cross-timestep speedup uses ``solver.update(q=..., b=...)`` to
-      retain the KKT factorisation. ``P`` and ``A`` are time-invariant.
+      ``prior_mode='cold'`` disables the chain: every year uses its own cold
+      seed ``timestep_data[t]["a_prior"]`` (= f_agg sliced to year t). The
+      actually-used ``a_prior(t)`` is stored on each ``OptimResult``.
+      σ_a is held constant across timesteps (conditioned once from the cold
+      prior): the prior mean drifts forward but the prior precision does not.
+      Consequence: each warm year's optimum depends on every prior year
+      through the chained prior.
+      *Historical note:* the block path previously wrote ``a_0[cols_t]=F_opt_t``
+      into the same (disjoint) year-t columns it had just read, so the
+      carry-forward was a silent no-op and every year fell back to the
+      time-replicated f_agg. The template-aligned chain below fixes that.
+    - Cross-timestep speedup (``reuse_factorization``) uses
+      ``solver.update(q=..., b=...)`` to retain the KKT factorisation — a
+      *numerical* warm-start, distinct from the *prior* warm-start above.
+      ``P`` and ``A`` are time-invariant.
     - Hard rows (zero and nonneg cones) are enforced exactly. The
       feasibility pre-check rules out impossible problems before the
       main solve and halts on any infeasibility.
@@ -141,9 +156,15 @@ class ClarabelSolver:
         max_iter:               int   = 200,
         verbose_first_solve:    bool  = True,
         capture_iter_history:   bool  = True,
+        prior_mode:             str   = "warm",
     ) -> None:
+        if prior_mode not in ("warm", "cold"):
+            raise ValueError(
+                f"prior_mode must be 'warm' or 'cold', got {prior_mode!r}"
+            )
         self.const_dir              = const_dir
         self.opt_dir                = opt_dir
+        self.prior_mode             = prior_mode
         self.sigma_a_floor_abs      = sigma_a_floor_abs
         self.sigma_a_floor_rel      = sigma_a_floor_rel
         self.sigma_a_ceiling_factor = sigma_a_ceiling_factor
@@ -238,7 +259,7 @@ class ClarabelSolver:
         """
         G        = run.G
         row_meta = run.row_meta
-        a_0, sigma_a = self._condition_prior(run.a0, run.sigma_a)
+        a_0, sigma_a = self._condition_prior(run.a_prior_global, run.sigma_a)
 
         # Permute rows by cone_type → [free; zero; nonneg]
         ct = row_meta["cone_type"].to_numpy()
@@ -523,8 +544,11 @@ class ClarabelSolver:
         M       = skel["M"]
         inv_sa  = skel["inv_sa"]
 
-        # Warm-start prior: a_0(0) = run.a0; a_0(t>0) = previous F_opt
-        a_0_t = np.array(skel["a_0_init"], dtype=float, copy=True)
+        # Prior: a_prior(0) = cold seed (conditioned f_agg); a_prior(t>0) =
+        # previous F_opt under prior_mode='warm' (full-vector path: cols align,
+        # so the carry-forward is genuine), else the cold seed every year.
+        a_0_cold = np.array(skel["a_0_init"], dtype=float, copy=True)
+        a_0_t    = np.array(a_0_cold, dtype=float, copy=True)
 
         results: dict[str, OptimResult] = {}
         solver: Optional[clarabel.DefaultSolver] = None
@@ -605,6 +629,7 @@ class ClarabelSolver:
                 solver_status = status,
                 convergence   = convergence,
                 iter_history  = iter_history,
+                a_prior       = np.array(a_0_t, dtype=float, copy=True),
             )
 
             logger.info(
@@ -614,8 +639,8 @@ class ClarabelSolver:
                 convergence["step_length"], elapsed,
             )
 
-            # Warm-start prior for next timestep: a_0(t+1) ← a*(t)
-            a_0_t = F_opt
+            # Prior for next timestep: warm → a_prior(t+1) ← a*(t); cold → cold seed
+            a_0_t = F_opt if self.prior_mode == "warm" else a_0_cold
 
         return results
 
@@ -662,7 +687,7 @@ class ClarabelSolver:
         with no time-varying ratios), one Clarabel instance is built and
         reused via solver.update(P, q, b) — keeping the KKT factorisation
         across the whole timestep loop."""
-        warm_start = self._per_t_problem_identical(run, ts_labels)
+        reuse_factorization = self._per_t_problem_identical(run, ts_labels)
         check_labels = ts_labels[:1] if feasibility_check_first_only else ts_labels
         logger.info(
             "Feasibility pre-check on %d/%d timesteps%s…",
@@ -673,14 +698,32 @@ class ClarabelSolver:
             self.feasibility_check(run, t)
         logger.info("Feasibility pre-check passed.")
 
-        a_0_global, sigma_a_global = self._condition_prior(run.a0, run.sigma_a)
+        a_0_global, sigma_a_global = self._condition_prior(
+            run.a_prior_global, run.sigma_a,
+        )
         inv_sa_global = 1.0 / (sigma_a_global ** 2)
-
-        a_0_t_global = np.array(a_0_global, dtype=float, copy=True)
         row_time = run.row_meta["time"].astype(str).to_numpy()
+
+        # Edge-template map for the warm-start carry-forward: a_prior(t)=a_post(t-1)
+        # aligned by (from_id,to_id,valuation), since cols_t are disjoint per year.
+        # When the AccountingStructure is unavailable (toy fixtures), fall back to
+        # a positional carry-forward — per-year cols_t are emitted in template
+        # order, so equal-length adjacent years align position-for-position.
+        acc_ws = None
+        if self.prior_mode == "warm":
+            try:
+                from pysuto.acc import AccountingStructure
+                acc_ws = AccountingStructure.load(run.acc_id)
+            except Exception:
+                logger.warning(
+                    "warm prior: AccountingStructure %r unavailable — using "
+                    "positional carry-forward by edge order.", run.acc_id,
+                )
 
         results: dict[str, OptimResult] = {}
         solver_t: Optional[clarabel.DefaultSolver] = None
+        prev_cols: Optional[np.ndarray] = None
+        prev_F:    Optional[np.ndarray] = None
 
         for k, t in enumerate(ts_labels):
             cols_t  = run.edge_cols_by_t[t]
@@ -702,8 +745,18 @@ class ClarabelSolver:
             n_a_t    = G_t.shape[1]
             m_t      = G_t.shape[0]
 
-            inv_sa_t       = inv_sa_global[cols_t]
-            a_0_t_slice    = a_0_t_global[cols_t]
+            inv_sa_t = inv_sa_global[cols_t]
+            # Per-period prior mean a_prior(t): warm → a_post(t-1) aligned by
+            # template; cold seed (t0, or every year in cold mode) → conditioned
+            # f_agg slice.
+            a_prior_t = a_0_global[cols_t].copy()
+            if self.prior_mode == "warm" and prev_F is not None:
+                if acc_ws is not None:
+                    g   = acc_ws.warm_start_gather(prev_cols, cols_t)
+                    hit = g >= 0
+                    a_prior_t[hit] = prev_F[g[hit]]
+                elif len(prev_F) == len(a_prior_t):
+                    a_prior_t = prev_F.copy()  # positional fallback (no acc)
 
             G_p_t = G_t.tocsr()[perm_t]
             S_top = -sp.eye(n_free_t, format="csr") if n_free_t else sp.csr_matrix((0, 0))
@@ -721,7 +774,7 @@ class ClarabelSolver:
                 inv_scf = np.zeros(0)
             P_diag_t = 2.0 * np.concatenate([inv_sa_t, inv_scf])
             P_t      = sp.diags(P_diag_t, format="csc")
-            q_t      = np.concatenate([-2.0 * inv_sa_t * a_0_t_slice,
+            q_t      = np.concatenate([-2.0 * inv_sa_t * a_prior_t,
                                         np.zeros(n_free_t)])
 
             cones_t: list = []
@@ -736,7 +789,7 @@ class ClarabelSolver:
                 solver_t = clarabel.DefaultSolver(
                     P_t, q_t, A_t, b_t, cones_t, settings,
                 )
-            elif warm_start:
+            elif reuse_factorization:
                 solver_t.update(P=P_t, q=q_t, b=b_t)
             else:
                 settings = self._settings(verbose=verbose)
@@ -765,7 +818,7 @@ class ClarabelSolver:
             if self.capture_iter_history:
                 solver_t.unset_termination_callback()
 
-            if status not in _OK_STATUSES and warm_start and k > 0:
+            if status not in _OK_STATUSES and reuse_factorization and k > 0:
                 # The reused instance keeps the equilibration computed for the
                 # first timestep (update() does not re-equilibrate); per-t
                 # σ_c now varies with f_agg, so a later year can stall on
@@ -826,6 +879,7 @@ class ClarabelSolver:
                 iter_history  = iter_history,
                 cols_t        = cols_t,
                 rows_t        = rows_t,
+                a_prior       = a_prior_t,
             )
 
             logger.info(
@@ -836,9 +890,11 @@ class ClarabelSolver:
                 n_a_t, m_t,
             )
 
-            # Warm-start prior for next timestep: a_0(t+1) ← F_opt(t) on the
-            # t-edges (other entries unchanged → carry forward across t).
-            a_0_t_global[cols_t] = F_opt_t
+            # Carry this period's posterior forward as next year's warm prior,
+            # aligned to t+1's edges by template (warm_start_gather above). The
+            # old in-place a_0_t_global[cols_t]=F_opt_t write was a no-op (cols_t
+            # are disjoint per year, so a later year never read it).
+            prev_cols, prev_F = cols_t, F_opt_t
 
         return results
 
@@ -850,7 +906,7 @@ class ClarabelSolver:
         """Convenience: solve a single timestep (no warm-start)."""
         return self.solve_all(run_id, timesteps=[t_label])[t_label]
 
-    # ------------------------------------------------------------------
+    # --------------------1----------------------------------------------
     # Persistence
     # ------------------------------------------------------------------
 
