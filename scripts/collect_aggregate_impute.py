@@ -130,101 +130,16 @@ CV_GEO4 = PedigreeScores._cv_other(4, "medium_sensitive")
 # FormulaRelations (module-level — no runtime state, safe to define here)
 # ---------------------------------------------------------------------------
 
-concentrate_domestic = FormulaRelation(
-    description="Domestic Concentrate use: MF supply/conc - exports, clip 0",
-    target=lambda ei: (
-        (ei["sector_from"] == "Concentrate") & (ei["entity_from"] == "Flow") &
-        (ei["sector_to"]   == "Smelting")    & (ei["entity_to"]   == "Process") &
-        (ei["region_from"] == ei["region_to"]) & (ei["valuation"] == "Mass")
-    ),
-    terms=[
-        SourceTerm(
-            selector=lambda ei: (
-                (ei["sector_from"] == "MF")          & (ei["entity_from"] == "Process") &
-                (ei["sector_to"]   == "Concentrate") & (ei["entity_to"]   == "Flow") &
-                (ei["valuation"]   == "CC")
-            ),
-            coefficient=ParamRef("concconcentratesupply", "inverse"),
-            region_binding="to_matches_target_from",
-            aggregate="single",
-        ),
-        SourceTerm(
-            selector=lambda ei: (
-                (ei["sector_from"] == "Concentrate") & (ei["entity_from"] == "Flow") &
-                (ei["entity_to"]   == "Flow") & (ei["valuation"] == "Mass")
-            ),
-            coefficient=-1.0,
-            region_binding="from_matches_target_from",
-            aggregate="sum",
-        ),
-    ],
-    clip_lower=0.0,
-    epsilon=0.05,
-)
-
-matte_domestic = FormulaRelation(
-    description="Domestic Matte use: Smelting supply/conc - exports, clip 0",
-    target=lambda ei: (
-        (ei["sector_from"] == "Matte") & (ei["entity_from"] == "Flow") &
-        (ei["sector_to"]   == "CFR")   & (ei["entity_to"]   == "Process") &
-        (ei["region_from"] == ei["region_to"]) & (ei["valuation"] == "Mass")
-    ),
-    terms=[
-        SourceTerm(
-            selector=lambda ei: (
-                (ei["sector_from"] == "Smelting") & (ei["entity_from"] == "Process") &
-                (ei["sector_to"]   == "Matte")    & (ei["entity_to"]   == "Flow") &
-                (ei["valuation"]   == "CC")
-            ),
-            coefficient=ParamRef("concmattesupply", "inverse"),
-            region_binding="to_matches_target_from",
-            aggregate="single",
-        ),
-        SourceTerm(
-            selector=lambda ei: (
-                (ei["sector_from"] == "Matte") & (ei["entity_from"] == "Flow") &
-                (ei["entity_to"]   == "Flow")  & (ei["valuation"]   == "Mass")
-            ),
-            coefficient=-1.0,
-            region_binding="from_matches_target_from",
-            aggregate="sum",
-        ),
-    ],
-    clip_lower=0.0,
-    epsilon=0.05,
-)
-
-anode_domestic = FormulaRelation(
-    description="Domestic Anode use: CFR supply/conc - exports, clip 0",
-    target=lambda ei: (
-        (ei["sector_from"] == "Anode") & (ei["entity_from"] == "Flow") &
-        (ei["sector_to"]   == "ER")    & (ei["entity_to"]   == "Process") &
-        (ei["region_from"] == ei["region_to"]) & (ei["valuation"] == "Mass")
-    ),
-    terms=[
-        SourceTerm(
-            selector=lambda ei: (
-                (ei["sector_from"] == "CFR")   & (ei["entity_from"] == "Process") &
-                (ei["sector_to"]   == "Anode") & (ei["entity_to"]   == "Flow") &
-                (ei["valuation"]   == "CC")
-            ),
-            coefficient=ParamRef("concanodesupply", "inverse"),
-            region_binding="to_matches_target_from",
-            aggregate="single",
-        ),
-        SourceTerm(
-            selector=lambda ei: (
-                (ei["sector_from"] == "Anode") & (ei["entity_from"] == "Flow") &
-                (ei["entity_to"]   == "Flow")  & (ei["valuation"]   == "Mass")
-            ),
-            coefficient=-1.0,
-            region_binding="from_matches_target_from",
-            aggregate="sum",
-        ),
-    ],
-    clip_lower=0.0,
-    epsilon=0.05,
-)
+# concentrate_domestic / matte_domestic / anode_domestic RETIRED (ADR 0010 §C).
+# The deepened NetworkImputer now closes these domestic chain legs structurally
+# (CC flow-balance → Mass twin), and more correctly than the hand-written
+# formulas did: their export term selected entity_to=="Flow" and so missed the
+# bilateral Anode(Flow)→ER(Process) trade legs, over-attributing the domestic
+# leg. Verified on the reference feeds — once the recipe gate opens these three
+# relations fired 0× (the network's network_mass_twin fills the domestic Mass
+# legs first). The cathode FD-split trio below is NOT subsumable (the Cathode
+# node has three same-region FD unknowns, beyond the lone-gap flow-balance) and
+# is retained.
 
 def _cathode_supply_term():
     return SourceTerm(
@@ -383,9 +298,8 @@ def main(feed_ids: list[str], label: str) -> None:
     # FormulaImputer shares the conc params CSV).
     conc_formula = FormulaImputer(
         relations=[
-            concentrate_domestic,
-            matte_domestic,
-            anode_domestic,
+            # chain-3 (concentrate/matte/anode_domestic) retired — see note above;
+            # the NetworkImputer now closes these legs. Cathode FD split retained.
             cathode_fu_domestic,
             cathode_usc_domestic,
             cathode_mesc_domestic,
