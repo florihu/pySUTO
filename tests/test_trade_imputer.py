@@ -270,3 +270,39 @@ def test_no_conc_row_is_noop(tmp_path):
     imp = acc.eid("Anode", "B", "ER", "A", "CC")
     assert entries == []
     assert np.isnan(f[imp])
+
+
+def test_ownership_partition_holds_on_chain(tmp_path):
+    from pysuto.diag import ownership_violations
+    acc, trade, network = _build(tmp_path)
+    f = np.full(acc.n_edges, np.nan)
+    sigma = np.full(acc.n_edges, np.nan)
+    for (fs, fr, ts, tr, v), val in {
+        ("Matte", "A", "CFR", "A", "CC"): 100.0,
+        ("Anode", "B", "ER",  "A", "Mass"): 20.0,
+    }.items():
+        e = acc.eid(fs, fr, ts, tr, v)
+        f[e] = val
+        sigma[e] = 0.01 * abs(val)
+    entries  = trade.impute(f, sigma, np.isnan(f), 0, acc)
+    entries += network.impute(f, sigma, np.isnan(f), 1, acc)
+    log = pd.DataFrame(entries)
+    assert ownership_violations(log, acc.edge_meta).empty
+
+
+def test_ownership_violations_flags_breaches():
+    from pysuto.diag import ownership_violations
+    edge_meta = pd.DataFrame({
+        "edge_id":     [0, 1, 2, 3],
+        "from_region": ["A", "A", "A", "B"],
+        "to_region":   ["A", "B", "A", "A"],
+    })
+    log = pd.DataFrame({
+        "edge_id": [0, 1, 2, 3],
+        "method":  ["network_forward",  # 0 same-region net → ok
+                    "network_balance",  # 1 cross-region net → VIOLATION
+                    "trade_seed",       # 2 same-region trade → VIOLATION
+                    "trade_seed"],      # 3 cross-region trade → ok
+    })
+    bad = ownership_violations(log, edge_meta)
+    assert set(bad["edge_id"]) == {1, 2}

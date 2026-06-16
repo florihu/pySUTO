@@ -39,11 +39,15 @@ _AGG_TRUE = {"true", "1", "yes", "y", "t"}
 def _parametric_consumes(row) -> bool:
     """True if ParametricImputer should build per-pair fills from this params row.
 
-    Explicit consumed-set selection: skip **aggregated** (pooled) rows and the
-    **stripping_ratio** family. Those are owned by ``NetworkImputer`` (imputation)
-    and the ratio constraint builders — letting the per-pair parametric fallback
-    touch them would, e.g., backfill a spurious ``Scrap = Matte / eff`` from a
-    broadened ``a_sector_from=*`` eff row. The eff/conc per-pair rows still flow.
+    The ``agg`` flag is the **relation-type marker** that partitions the shared
+    params CSV between consumers (the single place this is decided): an
+    ``agg=true`` row is a *pooled, set-scoped recipe relation* (wildcarded a-side,
+    ``Σb = r·Σa`` per bucket) owned by ``NetworkImputer`` (Stage 2 prior) and the
+    agg ratio-constraint builder (Stage 3); a non-agg row is a *per-pair relation*
+    consumed here and by the per-pair ratio builder. ParametricImputer therefore
+    skips agg rows (and the ``stripping_ratio`` family) — resolving a pooled
+    wildcard row per-pair would, e.g., backfill a spurious ``Scrap = Matte / eff``
+    from a broadened ``a_sector_from=*`` eff row. The eff/conc per-pair rows still flow.
     """
     if str(row.get("agg", "")).strip().lower() in _AGG_TRUE:
         return False

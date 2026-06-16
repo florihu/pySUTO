@@ -36,7 +36,7 @@ Design conventions
 """
 
 from .feed     import FeedDiagnostics
-from .imp      import ImpDiagnostic
+from .imp      import ImpDiagnostic, ownership_violations
 from .optim    import OptimDiagnostics
 from .const    import ConstDiagnostic
 from .agg      import AggDiagnostic
@@ -51,6 +51,7 @@ from .stats    import (
 __all__ = [
     "FeedDiagnostics",
     "ImpDiagnostic",
+    "ownership_violations",
     "CoverageDiagnostic",
     "StatsDiagnostic",
     "ConstStatsDiagnostic",

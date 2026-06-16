@@ -18,6 +18,33 @@ import pandas as pd
 from ._plot import _C, _grouped_box_grid, _savefig
 
 
+def ownership_violations(log_df: pd.DataFrame, edge_meta: pd.DataFrame) -> pd.DataFrame:
+    """Imputation-log rows that break the Trade↔Network ownership partition (ADR 0010).
+
+    The partition is explicit and structural: the NetworkImputer writes **only**
+    same-region edges (its ``_w`` same-region guard); the TradeImputer writes
+    **only** cross-region ``Flow→Process`` CC edges. A clean run therefore has
+    *no*:
+
+      * cross-region edge filled by a ``network_*`` method, nor
+      * same-region edge filled by ``trade_seed``.
+
+    Returns the offending rows (columns ``edge_id, method, from_region,
+    to_region``); an empty frame means the partition held. Read-only — intended
+    as a post-run assertion after :meth:`ImputationEngine.run`.
+    """
+    cols = ["edge_id", "method", "from_region", "to_region"]
+    if log_df is None or len(log_df) == 0:
+        return pd.DataFrame(columns=cols)
+    em = edge_meta[["edge_id", "from_region", "to_region"]]
+    df = log_df[["edge_id", "method"]].merge(em, on="edge_id", how="left")
+    cross  = df["from_region"].astype(str) != df["to_region"].astype(str)
+    method = df["method"].astype(str)
+    bad = (cross & method.str.startswith("network_")) | \
+          (~cross & method.str.startswith("trade_seed"))
+    return df.loc[bad, cols].reset_index(drop=True)
+
+
 class ImpDiagnostic:
     """
     Per-step imputation diagnostics for Stage 2 of the pySUTO pipeline.

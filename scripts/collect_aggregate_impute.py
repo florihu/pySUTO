@@ -70,7 +70,10 @@ from pysuto.impute   import (
     FlatPriorImputer,
 )
 from pysuto.logging  import get_logger, add_run_handler
-from pysuto.diag     import AggDiagnostic, CoverageDiagnostic, ImpDiagnostic, StatsDiagnostic
+from pysuto.diag     import (
+    AggDiagnostic, CoverageDiagnostic, ImpDiagnostic, StatsDiagnostic,
+    ownership_violations,
+)
 
 cfg    = load_config()
 ACC_ID = cfg.pipeline.acc_id
@@ -507,6 +510,14 @@ def main(feed_ids: list[str], label: str) -> None:
     passes_run  = int(_passes.max()) if not _passes.empty else 0
     logger.info("C  Imputation done: %d log entries, cascade ran %d pass(es)",
                 len(agg_result.imputation_log), passes_run)
+
+    # Ownership-partition check (ADR 0010): trade owns cross-region edges, the
+    # network owns same-region edges. A clean run has zero violations; warn loudly
+    # if a guard ever regressed.
+    _viol = ownership_violations(agg_result.imputation_log.as_dataframe(), acc.edge_meta)
+    if len(_viol):
+        logger.warning("C  ownership-partition VIOLATIONS: %d edge(s) filled by an "
+                       "unintended owner\n%s", len(_viol), _viol.head(20).to_string(index=False))
 
     # ── D  Register run ───────────────────────────────────────────────────────
     logger.info("D  Registering imputation run in %s", IMP_DIR)
