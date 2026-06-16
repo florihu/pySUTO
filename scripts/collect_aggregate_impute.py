@@ -59,6 +59,7 @@ from pysuto.param_relation import expand_edge_index
 from pysuto.unc import PedigreeScores
 from pysuto.impute   import (
     ImputationEngine,
+    TradeImputer,
     NetworkImputer,
     ParametricImputer,
     FormulaImputer,
@@ -390,10 +391,19 @@ def main(feed_ids: list[str], label: str) -> None:
         id="conc_formula",
         p=P_PROP,
     )
-    # NetworkImputer runs FIRST and is the sole writer of process-incident,
-    # same-region chain edges (recipe closure on CC + Mass twins + SEM waste).
-    # The eff/conc parametric imputers are demoted to a fallback on whatever the
-    # network leaves undetermined; chain-edge provenance now shows network_*.
+    # TradeImputer runs FIRST: it seeds cross-region Flow→Process import CC legs
+    # from the BACI Mass twin (f_CC = conc·f_Mass), so the NetworkImputer recipe
+    # gate can pool them and the flow-balance can close the lone domestic leg
+    # (ADR 0010). It owns only cross-region edges — the complement of the
+    # network's same-region territory.
+    trade = TradeImputer(
+        conc_csv = str(inputs.params.resolve("conc") / "params.csv"),
+        p=P_PROP, id="trade",
+    )
+    # NetworkImputer is the sole writer of process-incident, same-region chain
+    # edges (recipe closure on CC + Mass twins + SEM waste). The eff/conc
+    # parametric imputers are demoted to a fallback on whatever the network
+    # leaves undetermined; chain-edge provenance shows network_*.
     network = NetworkImputer(
         eff_csv       = str(inputs.params.resolve("eff")       / "params.csv"),
         conc_csv      = str(inputs.params.resolve("conc")      / "params.csv"),
@@ -403,6 +413,7 @@ def main(feed_ids: list[str], label: str) -> None:
     )
     engine.register_cascade(
         [
+            trade,
             network,
             _build_parametric("conc",      "conc"),
             _build_parametric("ore_grade", "ore_grade"),
