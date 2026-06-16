@@ -20,7 +20,7 @@ figs/mn/
 res/
 logs/
 scripts/obs
-.claude/
+#.claude/
 .agents/
 plans/
 docs/ref/
