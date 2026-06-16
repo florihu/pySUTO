@@ -225,12 +225,11 @@ class NetworkImputer(BaseImputer):
                 rec.product, (1.0, 0.0, 0.0, None)
             )
             secondary = tuple(i for i in rec.inputs if sub_from.get(i) == "SEM")
-            primary = tuple(i for i in rec.inputs if sub_from.get(i) != "SEM")
-            # cross-region non-SEM imports (subset of `primary` for now; `_do_recipe`
-            # does not yet consume this field — the gate change lands in the next commit).
-            bilateral_import = tuple(
-                i for i in primary if reg_from.get(i) != reg_to.get(i)
-            )
+            non_sem = [i for i in rec.inputs if sub_from.get(i) != "SEM"]
+            # same-region non-SEM inputs block the forward gate; cross-region imports
+            # are pooled-when-known / 0-when-missing and never block (ADR 0010).
+            primary = tuple(i for i in non_sem if reg_from.get(i) == reg_to.get(i))
+            bilateral_import = tuple(i for i in non_sem if reg_from.get(i) != reg_to.get(i))
             special = "stripping_ratio" if rec.process_sector == "Mining" else None
             self._recipes.append(
                 _RRecipe(rec.inputs, primary, secondary, bilateral_import,
@@ -339,12 +338,17 @@ class NetworkImputer(BaseImputer):
         p = self.p
         P, W = rec.product, list(rec.wastes)
         PR, SE = list(rec.primary), list(rec.secondary)
+        BI = list(rec.bilateral_import)
         eff, eff_sig, eps = rec.eff, rec.eff_sig, rec.eff_eps
 
         miss_PR = [i for i in PR if np.isnan(f[i])]
-        # missing SEM secondaries (Scrap) count as absent → 0
+        # missing SEM secondaries (Scrap) AND missing cross-region imports count as
+        # absent → 0; neither blocks the forward gate (ADR 0010). Only same-region
+        # primaries (PR) block.
         sec_sum = float(sum(f[i] for i in SE if not np.isnan(f[i])))
         sec_sig = [sigma[i] for i in SE if not np.isnan(f[i])]
+        imp_sum = float(sum(f[i] for i in BI if not np.isnan(f[i])))
+        imp_sig = [sigma[i] for i in BI if not np.isnan(f[i])]
         known_PR = [i for i in PR if not np.isnan(f[i])]
 
         # ---- determine total primary input CC (S) and its σ ----
@@ -352,9 +356,9 @@ class NetworkImputer(BaseImputer):
         S_src = None
         sig_S = 0.0
         if PR and not miss_PR:
-            S = float(sum(f[i] for i in PR)) + sec_sum
+            S = float(sum(f[i] for i in PR)) + sec_sum + imp_sum
             S_src = "inputs"
-            sig_S = lp_combine([sigma[i] for i in PR] + sec_sig, p)
+            sig_S = lp_combine([sigma[i] for i in PR] + sec_sig + imp_sig, p)
         elif P is not None and not np.isnan(f[P]) and eff > _EPS:
             S = float(f[P] / eff)
             S_src = "product"
@@ -383,12 +387,13 @@ class NetworkImputer(BaseImputer):
                     rec.eff_param_id)
 
         # ---- single missing PRIMARY input by subtraction (S from output) ----
-        # (secondaries are pooled when known / 0 when missing; never written here)
+        # (secondaries + cross-region imports are pooled when known / 0 when missing;
+        # never written here, so they must be subtracted off the recovered S)
         if S_src in ("product", "waste") and len(miss_PR) == 1:
             i = miss_PR[0]
-            f_i = S - float(sum(f[j] for j in known_PR)) - sec_sum
+            f_i = S - float(sum(f[j] for j in known_PR)) - sec_sum - imp_sum
             s_i = lp_combine(
-                [sig_S] + [sigma[j] for j in known_PR] + sec_sig + [eps * abs(f_i)], p,
+                [sig_S] + [sigma[j] for j in known_PR] + sec_sig + imp_sig + [eps * abs(f_i)], p,
             )
             self._w(i, f_i, s_i, f, sigma, entries, step,
                     "network_backward", [P] if S_src == "product" else list(W),
@@ -449,16 +454,20 @@ class NetworkImputer(BaseImputer):
         p = self.p
         edges = list(inc) + list(out)
         missing = [e for e in edges if np.isnan(f[e]) and self._same_region[e]]
-        # only act if exactly one *writable* edge is unknown and everything else known
+        # only act if exactly one *writable* (same-region) edge is unknown
         if len(missing) != 1:
             return
-        if any(np.isnan(f[e]) for e in edges if e != missing[0]):
-            return
         e = missing[0]
-        in_sum = float(sum(f[x] for x in inc if x != e))
-        out_sum = float(sum(f[x] for x in out if x != e))
+        # every other *same-region* edge must be known; missing cross-region
+        # (non-writable) legs are treated as 0 (no trade on that route) — symmetric
+        # with the recipe's bilateral_import tier (ADR 0010). They are counted as 0,
+        # never written, so the uncovered edge stays an honest flat-prior gap.
+        if any(np.isnan(f[x]) for x in edges if x != e and self._same_region[x]):
+            return
+        in_sum = float(sum(f[x] for x in inc if x != e and not np.isnan(f[x])))
+        out_sum = float(sum(f[x] for x in out if x != e and not np.isnan(f[x])))
         f_e = (in_sum - out_sum) if e in out else (out_sum - in_sum)
-        others = [x for x in edges if x != e]
+        others = [x for x in edges if x != e and not np.isnan(f[x])]
         s_e = lp_combine([sigma[x] for x in others], p)
         self._w(e, f_e, s_e, f, sigma, entries, step,
                 "network_balance", others, [1.0] * len(others), None)

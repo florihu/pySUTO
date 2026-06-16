@@ -520,3 +520,179 @@ def test_cp_pool_closes_per_year_via_flow_balance(imputer2, acc2):
         assert method[e_csxcp] == "network_balance"
         assert f[acc2.eid("CP", "Cathode", "CC", t)] == pytest.approx(csx + cer)
         assert f[acc2.eid("CP", "PSC", "CC", t)] == pytest.approx(0.0)
+
+
+# =============================================================================
+# Two-region bilateral-import gate fixture (ADR 0010)
+# =============================================================================
+#
+# Minimal cross-region topology to exercise the bilateral_import recipe tier and
+# the flow-balance cross-region-as-0 relaxation. Regions A, B:
+#
+#   Conc(A) ─┐                          (domestic primary into Sm_A)
+#   Conc(B) ─┴► Sm(A) ─► Matte(A) ─┬─► CFR(A)   (domestic use of Matte_A)
+#             (import)   │          └─► CFR(B)   (cross-region export of Matte_A)
+#                        └► Slag(A)   (SEM waste)
+#
+_BI_NODES = [
+    ("Conc",  "Flow",    "A", None),
+    ("Conc",  "Flow",    "B", None),
+    ("Sm",    "Process", "A", None),
+    ("Matte", "Flow",    "A", None),
+    ("Slag",  "SB",      "A", "SEM"),
+    ("CFR",   "Process", "A", None),
+    ("CFR",   "Process", "B", None),
+]
+# (from_sector, from_region, to_sector, to_region)
+_BI_EDGES = [
+    ("Conc",  "A", "Sm",    "A"),   # domestic primary
+    ("Conc",  "B", "Sm",    "A"),   # cross-region import (bilateral_import)
+    ("Sm",    "A", "Matte", "A"),   # product
+    ("Sm",    "A", "Slag",  "A"),   # SEM waste
+    ("Matte", "A", "CFR",   "A"),   # domestic use of Matte_A (flow-balance target)
+    ("Matte", "A", "CFR",   "B"),   # cross-region export of Matte_A
+]
+_BI_EFF  = 0.9
+_BI_CONC = {"Conc": 0.275, "Matte": 0.525, "Slag": 0.0275}
+
+
+class _BiAcc:
+    """Minimal two-region AccountingStructure stand-in for the gate tests."""
+
+    def __init__(self):
+        self.node_index = pd.DataFrame(
+            _BI_NODES, columns=["sector", "entity", "region", "entity_sub"],
+        )
+        self.node_index.index = range(len(_BI_NODES))
+        nid = {(s, r): i for i, (s, _e, r, _sub) in enumerate(_BI_NODES)}
+        rows, eid = [], 0
+        for fs, fr, ts, tr in _BI_EDGES:
+            for val in ("Mass", "CC"):
+                rows.append((eid, nid[(fs, fr)], nid[(ts, tr)], "2020", val))
+                eid += 1
+        self.edge_index = pd.DataFrame(
+            rows, columns=["edge_id", "from_id", "to_id", "time", "valuation"]
+        )
+        self.n_edges = len(rows)
+        self.bounds = _Bounds(self.n_edges)
+        ent = self.node_index["entity"]
+        fe = self.edge_index["from_id"].map(ent).to_numpy()
+        te = self.edge_index["to_id"].map(ent).to_numpy()
+        self.masks = {
+            "supply": (fe == "Process") & np.isin(te, ["Flow", "SB"]),
+            "use":    np.isin(fe, ["Flow", "SB"]) & (te == "Process"),
+            "tradable": np.zeros(self.n_edges, dtype=bool),
+            "sb":     (te == "SB"),
+        }
+
+    @property
+    def edge_meta(self):
+        ei = self.edge_index.reset_index(drop=True)
+        nf = self.node_index.loc[ei["from_id"].values].reset_index(drop=True).add_prefix("from_")
+        nt = self.node_index.loc[ei["to_id"].values].reset_index(drop=True).add_prefix("to_")
+        return pd.concat([ei, nf, nt], axis=1)
+
+    @property
+    def process_recipes(self):
+        return derive_process_recipes(self)
+
+    def eid(self, fs, fr, ts, tr, val):
+        m = self.edge_meta
+        hit = m[(m["from_sector"] == fs) & (m["from_region"] == fr)
+                & (m["to_sector"] == ts) & (m["to_region"] == tr)
+                & (m["valuation"] == val)]
+        return int(hit["edge_id"].iloc[0])
+
+
+def _write_bi_eff(path):
+    _write(path, [_row(
+        param_id="eff_sm", param_type="efficiency",
+        a_sector_from="Conc", a_entity_from="Flow", a_region_from="*",
+        a_sector_to="Sm", a_entity_to="Process", a_region_to="same",
+        a_time="*", a_valuation="CC",
+        b_sector_from="Sm", b_entity_from="Process", b_region_from="same",
+        b_sector_to="Matte", b_entity_to="Flow", b_region_to="same",
+        b_time="same", b_valuation="same",
+        value_nominal=str(_BI_EFF),
+    )])
+
+
+def _write_bi_conc(path):
+    rows = []
+    for s in ("Conc", "Matte"):
+        rows.append(_conc_pair(f"{s.lower()}_use", s, "Flow", "use", _BI_CONC[s]))
+        rows.append(_conc_pair(f"{s.lower()}_supply", s, "Flow", "supply", _BI_CONC[s]))
+    rows.append(_conc_pair("slag_use", "Slag", "SB", "use", _BI_CONC["Slag"]))
+    _write(path, rows)
+
+
+@pytest.fixture
+def bi_imputer(tmp_path):
+    acc = _BiAcc()
+    eff = tmp_path / "bi_eff.csv"
+    conc = tmp_path / "bi_conc.csv"
+    _write_bi_eff(eff)
+    _write_bi_conc(conc)
+    imp = NetworkImputer(str(eff), str(conc), p=1.3, cv_cap=float("inf"))
+    imp.prepare(acc)
+    return imp, acc
+
+
+def _bi_run(imp, acc, seeds):
+    f = np.full(acc.n_edges, np.nan)
+    sigma = np.full(acc.n_edges, np.nan)
+    for (fs, fr, ts, tr, v), val in seeds.items():
+        e = acc.eid(fs, fr, ts, tr, v)
+        f[e] = val
+        sigma[e] = 0.01 * abs(val) if val else 0.01
+    imp.impute(f, sigma, np.isnan(f), step=0, acc_struct=acc)
+    return f, sigma
+
+
+def test_bilateral_import_classification(bi_imputer):
+    imp, acc = bi_imputer
+    prod = acc.eid("Sm", "A", "Matte", "A", "CC")
+    rec = next(r for r in imp._recipes if r.product == prod)
+    dom = acc.eid("Conc", "A", "Sm", "A", "CC")
+    imp_leg = acc.eid("Conc", "B", "Sm", "A", "CC")
+    assert dom in rec.primary and dom not in rec.bilateral_import
+    assert imp_leg in rec.bilateral_import and imp_leg not in rec.primary
+
+
+def test_gate_opens_with_missing_import(bi_imputer):
+    # domestic primary known, cross-region import MISSING → gate opens, import = 0.
+    imp, acc = bi_imputer
+    f, _ = _bi_run(imp, acc, {("Conc", "A", "Sm", "A", "CC"): 100.0})
+    prod = acc.eid("Sm", "A", "Matte", "A", "CC")
+    assert f[prod] == pytest.approx(_BI_EFF * 100.0)  # eff·(domestic + 0)
+
+
+def test_import_pooled_when_known(bi_imputer):
+    imp, acc = bi_imputer
+    f, _ = _bi_run(imp, acc, {
+        ("Conc", "A", "Sm", "A", "CC"): 100.0,
+        ("Conc", "B", "Sm", "A", "CC"): 50.0,
+    })
+    prod = acc.eid("Sm", "A", "Matte", "A", "CC")
+    assert f[prod] == pytest.approx(_BI_EFF * 150.0)  # eff·(domestic + import)
+
+
+def test_backward_subtracts_import(bi_imputer):
+    # product + import known, domestic primary missing → domestic = S − import.
+    imp, acc = bi_imputer
+    f, _ = _bi_run(imp, acc, {
+        ("Sm", "A", "Matte", "A", "CC"): 90.0,
+        ("Conc", "B", "Sm", "A", "CC"): 50.0,
+    })
+    dom = acc.eid("Conc", "A", "Sm", "A", "CC")
+    assert f[dom] == pytest.approx(90.0 / _BI_EFF - 50.0)  # 100 − 50
+
+
+def test_flow_balance_missing_cross_region_as_zero(bi_imputer):
+    # Matte supply known; domestic use unknown; cross-region export MISSING → 0.
+    imp, acc = bi_imputer
+    f, _ = _bi_run(imp, acc, {("Sm", "A", "Matte", "A", "CC"): 135.0})
+    dom_use = acc.eid("Matte", "A", "CFR", "A", "CC")
+    exp_leg = acc.eid("Matte", "A", "CFR", "B", "CC")
+    assert f[dom_use] == pytest.approx(135.0)  # export counted as 0
+    assert np.isnan(f[exp_leg])                # cross-region leg never written
