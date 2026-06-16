@@ -117,9 +117,11 @@ def derive_process_recipes(acc) -> list[ProcessRecipe]:
 
 @dataclass
 class _RRecipe:
-    inputs: tuple[int, ...]     # all use-side inputs (for Mass-twin emission)
-    primary: tuple[int, ...]    # Flow / SB-Nature inputs (block forward if missing)
-    secondary: tuple[int, ...]  # SB-SEM inputs (Scrap): treated as 0 when missing
+    inputs: tuple[int, ...]            # all use-side inputs (for Mass-twin emission)
+    primary: tuple[int, ...]           # same-region Flow / SB-Nature inputs (block forward if missing)
+    secondary: tuple[int, ...]         # SB-SEM inputs (Scrap): treated as 0 when missing
+    bilateral_import: tuple[int, ...]  # cross-region Flow→Process imports: pooled when known,
+                                       # treated as 0 when missing, non-blocking (ADR 0010)
     product: int | None
     wastes: tuple[int, ...]
     eff: float
@@ -212,6 +214,9 @@ class NetworkImputer(BaseImputer):
 
         # input edge -> from-node entity_sub (classifies primary vs SEM secondary)
         sub_from = dict(zip(em["edge_id"].to_numpy(), em["from_entity_sub"].to_numpy()))
+        # input edge -> from/to region (classifies same-region vs cross-region import)
+        reg_from = dict(zip(em["edge_id"].to_numpy(), em["from_region"].to_numpy()))
+        reg_to   = dict(zip(em["edge_id"].to_numpy(), em["to_region"].to_numpy()))
 
         # attach eff to each structural recipe
         self._recipes = []
@@ -221,9 +226,15 @@ class NetworkImputer(BaseImputer):
             )
             secondary = tuple(i for i in rec.inputs if sub_from.get(i) == "SEM")
             primary = tuple(i for i in rec.inputs if sub_from.get(i) != "SEM")
+            # cross-region non-SEM imports (subset of `primary` for now; `_do_recipe`
+            # does not yet consume this field — the gate change lands in the next commit).
+            bilateral_import = tuple(
+                i for i in primary if reg_from.get(i) != reg_to.get(i)
+            )
             special = "stripping_ratio" if rec.process_sector == "Mining" else None
             self._recipes.append(
-                _RRecipe(rec.inputs, primary, secondary, rec.product, rec.wastes,
+                _RRecipe(rec.inputs, primary, secondary, bilateral_import,
+                         rec.product, rec.wastes,
                          float(eff), float(eff_sig), float(eff_eps), pid, special)
             )
 
