@@ -1154,6 +1154,45 @@ class AccountingStructure:
         return pd.concat([ei, ni_from, ni_to], axis=1)
 
     @cached_property
+    def edge_template_code(self) -> np.ndarray:
+        """Time-invariant template id per global edge — length ``E``, aligned to
+        ``edge_index`` order.
+
+        Two edges that differ **only** in ``time`` share one code: the template
+        key is ``(from_id, to_id, valuation)`` (the node ids are time-independent
+        — see :meth:`_build_edge_index`). This is the single home for the
+        cross-year edge identity used by the solver's warm-start carry-forward
+        (``a_prior(t) = a_post(t-1)``) and by the solver diagnostics.
+        """
+        ei = self.edge_index
+        codes, _ = pd.factorize(
+            pd.Series(zip(ei["from_id"].to_numpy(),
+                          ei["to_id"].to_numpy(),
+                          ei["valuation"].to_numpy()))
+        )
+        return np.asarray(codes, dtype=np.int64)
+
+    def warm_start_gather(self, cols_prev: np.ndarray,
+                          cols_cur: np.ndarray) -> np.ndarray:
+        """Gather index aligning a previous period's values onto the current
+        period's edges **by template**.
+
+        Returns ``g`` (length ``len(cols_cur)``) such that
+        ``value_cur[i] := value_prev[g[i]]`` carries the same
+        ``(from_id, to_id, valuation)`` template forward. ``g[i] == -1`` marks a
+        current-period template with no counterpart in ``cols_prev`` (a new edge),
+        for which the caller must fall back to the cold prior. When the two
+        periods share an identical template order (the copper case), ``g`` is the
+        identity ``arange`` — the carry-forward is positional.
+        """
+        code = self.edge_template_code
+        prev_pos = {int(c): i for i, c in enumerate(code[np.asarray(cols_prev)])}
+        return np.fromiter(
+            (prev_pos.get(int(c), -1) for c in code[np.asarray(cols_cur)]),
+            dtype=np.int64, count=len(cols_cur),
+        )
+
+    @cached_property
     def process_recipes(self):
         """Structural process-recipe skeletons grouped per Process node.
 

@@ -517,14 +517,22 @@ class TestEngineToSolverIntegration:
 
     def test_per_t_path_matches_legacy_path_F_opt(self, tmp_path, monkeypatch):
         """Numerical equivalence: solver's per-t path and legacy full-G path
-        produce identical F_opt at the t-edges (to solver tol_gap_abs)."""
+        produce identical F_opt at the t-edges (to solver tol_gap_abs).
+
+        Compared under ``prior_mode='cold'``: the legacy full-vector path has no
+        per-year ``cols`` and so cannot replicate the block path's year-local
+        warm-start chain (``a_prior(t)=a_post(t-1)``). Path-equivalence is only
+        well-defined in cold mode, where each year solves independently against
+        the cold seed; the warm chain is a block-path feature exercised by
+        ``test_block_path_warm_start_chains_posterior``.
+        """
         from pysuto.solver import ClarabelSolver
         import copy
         acc, cr, storage_dir = self._build_real_run(tmp_path)
 
         # ── new per-t path: serve cr (with G_blocks) in-memory.
         solver_new = ClarabelSolver(
-            const_dir=storage_dir, verbose_first_solve=False,
+            const_dir=storage_dir, verbose_first_solve=False, prior_mode="cold",
         )
         monkeypatch.setattr(solver_new, "load_run", lambda _rid: cr)
         new_results = solver_new.solve_all(cr.run_id)
@@ -534,7 +542,7 @@ class TestEngineToSolverIntegration:
         cr_legacy.G_blocks       = {}
         cr_legacy.edge_cols_by_t = {}
         solver_legacy = ClarabelSolver(
-            const_dir=storage_dir, verbose_first_solve=False,
+            const_dir=storage_dir, verbose_first_solve=False, prior_mode="cold",
         )
         monkeypatch.setattr(solver_legacy, "load_run", lambda _rid: cr_legacy)
         legacy_results = solver_legacy.solve_all(cr.run_id)
@@ -547,6 +555,24 @@ class TestEngineToSolverIntegration:
             assert np.allclose(new_F_t, leg_F_t, atol=1e-7, rtol=1e-7), \
                 f"t={t}: per-t F_opt differs from legacy: " \
                 f"max abs diff {np.max(np.abs(new_F_t - leg_F_t)):.3e}"
+
+    def test_block_path_warm_start_chains_posterior(self, tmp_path, monkeypatch):
+        """Block-path warm start (the default) stores the per-period prior on
+        each OptimResult and chains it: a_prior(t>0) == a_post(t-1)."""
+        from pysuto.solver import ClarabelSolver
+        acc, cr, storage_dir = self._build_real_run(tmp_path)
+
+        solver = ClarabelSolver(const_dir=storage_dir, verbose_first_solve=False)
+        monkeypatch.setattr(solver, "load_run", lambda _rid: cr)
+        res = solver.solve_all(cr.run_id)
+
+        for t in ("2020", "2021"):
+            assert res[t].a_prior is not None
+            assert len(res[t].a_prior) == len(cr.edge_cols_by_t[t])
+
+        # 2021's prior is 2020's posterior (template-aligned; positional here).
+        assert np.allclose(res["2021"].a_prior, res["2020"].F_opt,
+                           atol=1e-9, rtol=1e-9)
 
 
 class TestPreFixBlockRunGuard:

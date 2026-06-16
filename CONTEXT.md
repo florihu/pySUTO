@@ -109,11 +109,30 @@ non-flat-prior imputations that feed-`Coverage` excludes.
 
 ## Defect, residual & violation vocabulary
 
-**Defect** — the per-**edge** prior departure `a* − a₀` (solved value minus the warm-start
-prior). Plotted by SD-T-09 (`|a*−a₀|` by from/to sector/region) and tabulated row-level by
-`SolverStatsDiagnostic` (`edges_<year>.csv`, columns `defect` / `defect_abs` / `z`).
-Its standardised form is `z = (a*−a₀)/σ_a` (SD-T-03). _Avoid_: calling the defect a
-"residual" — that term is reserved (below).
+**a_prior (warm-start prior)** — the per-**period** prior mean the optimiser uses for year `t`.
+Under `prior_mode='warm'` (the `ClarabelSolver` default) it is genuinely the *previous* year's
+posterior, aligned by **edge template** `(from_id, to_id, valuation)` since each year occupies
+disjoint global columns: `a_prior(t0) = f_agg` (the cold seed), `a_prior(t) = a_post(t-1)` for
+`t > 0`. Under `prior_mode='cold'` every year uses its own cold seed `f_agg(t)`. Stored as the
+per-period cold seed on `ConstraintRun.timestep_data[t]["a_prior"]` and as the *actually-used*
+prior on `OptimResult.a_prior`; `ConstraintRun.a_prior_global` reconstructs the global cold
+prior. _Avoid_: reading `ConstraintRun.a0` as the per-year prior — `a0` is the legacy global
+(time-replicated) cold vector; the year's prior is `a_prior`. _Historical bug_: the block path
+once wrote the carry-forward into the same disjoint columns it read, so the warm chain was a
+silent no-op and every year fell back to `f_agg` — see [ADR 0009](docs/adr/0009-warm-start-prior-chain.md).
+
+**Two warm-starts (not the same thing).** `prior_mode` (warm/cold) is the **modelling** prior
+above. `reuse_factorization` is a purely **numerical** warm-start — reusing Clarabel's KKT
+factorisation across timesteps via `solver.update()`. _Avoid_: conflating the two; the local
+that selects KKT reuse was historically also called `warm_start`.
+
+**Defect** — the per-**edge** prior departure `a* − a_prior` (solved value minus the warm-start
+prior, `a_prior` above). Plotted per period by SD-T-05 (prior vs posterior magnitude), SD-T-07
+(prior-vs-posterior rocket) and SD-T-10 (per-year boxplot of `log10|defect|`), by SD-T-09
+(`|a*−a_prior|` by from/to sector/region), and tabulated row-level by `SolverStatsDiagnostic`
+(`edges_<year>.csv`, columns `defect` / `defect_abs` / `z`). Its standardised form is
+`z = (a*−a_prior)/σ_a` (SD-T-03). _Avoid_: calling the defect a "residual" — that term is
+reserved (below).
 
 **Residual** — the per-**constraint-row** delta `G·a − c` (`OptimResult.residuals`; SD-T-01
 "Constraint-residual digest", SD-R-02 mass-balance leakage). ≈ 0 on hard rows; on a **soft

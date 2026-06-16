@@ -87,10 +87,10 @@ class ConstraintRunRegistry(BaseOutputRegistry):
         np.save(os.path.join(run_dir, "l.npy"),       run.l)
 
         for ts_label, td in run.timestep_data.items():
-            np.savez(
-                os.path.join(ts_dir, f"t_{ts_label}.npz"),
-                c=td["c"], sigma_c=td["sigma_c"],
-            )
+            arrs = {"c": td["c"], "sigma_c": td["sigma_c"]}
+            if td.get("a_prior") is not None:
+                arrs["a_prior"] = td["a_prior"]
+            np.savez(os.path.join(ts_dir, f"t_{ts_label}.npz"), **arrs)
 
         if run.G_blocks:
             Path(blocks_dir).mkdir(parents=True, exist_ok=True)
@@ -156,7 +156,10 @@ class ConstraintRunRegistry(BaseOutputRegistry):
         ts_data: dict[str, dict] = {}
         for ts_label in summary.get("timesteps", []):
             npz = np.load(os.path.join(ts_dir, f"t_{ts_label}.npz"))
-            ts_data[ts_label] = {"c": npz["c"], "sigma_c": npz["sigma_c"]}
+            td = {"c": npz["c"], "sigma_c": npz["sigma_c"]}
+            if "a_prior" in npz.files:
+                td["a_prior"] = npz["a_prior"]
+            ts_data[ts_label] = td
 
         blocks_dir = os.path.join(run_dir, "blocks")
         G_blocks:       dict[str, sp.csr_matrix] = {}

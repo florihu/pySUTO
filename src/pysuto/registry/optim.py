@@ -105,6 +105,8 @@ class OptimRunRegistry(BaseOutputRegistry):
             if res.cols_t is not None:
                 arrays["cols_t"] = res.cols_t
                 arrays["rows_t"] = res.rows_t
+            if res.a_prior is not None:
+                arrays["a_prior"] = res.a_prior
             np.savez(os.path.join(ts_dir, f"t_{t}.npz"), **arrays)
 
         # ── 2. summary (caller's per_timestep + ordered keys) ─────────
@@ -168,6 +170,7 @@ class OptimRunRegistry(BaseOutputRegistry):
                 iter_history  = npz["iter_history"] if "iter_history" in npz.files else None,
                 cols_t        = npz["cols_t"] if "cols_t" in npz.files else None,
                 rows_t        = npz["rows_t"] if "rows_t" in npz.files else None,
+                a_prior       = npz["a_prior"] if "a_prior" in npz.files else None,
             )
         return results
 

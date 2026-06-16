@@ -8,8 +8,11 @@ Pipeline
 --------
 1  Load ClarabelSolver + ConstraintRun
 2  Feasibility pre-check (defaults to first timestep only)
-3  Solve every timestep with warm-start prior  a_0(t) = a*(t-1)
+3  Solve every timestep with the warm-start prior  a_prior(t) = a_post(t-1)
+   (prior_mode='warm', the ClarabelSolver default)
 4  Persist OptimResults to data/proc/opt/<opt_run_id>/
+5  Render a diagnostics subset and initialise the solver stats module
+   (per-year edge/constraint CSVs) under data/proc/opt/<opt_run_id>/diag/
 
 Usage::
 
@@ -32,6 +35,7 @@ CONST_DIR  = os.path.join("data", "proc", "const")
 OUTPUT_DIR = os.path.join("data", "proc", "opt")
 TIMESTEPS  = None #[1995]           # None → all timesteps in the run
 FEASIBILITY_CHECK_FIRST_ONLY = True
+PRIOR_MODE = "cold"  
 
 # ---------------------------------------------------------------------------
 # END USER CONFIGURATION
@@ -39,8 +43,9 @@ FEASIBILITY_CHECK_FIRST_ONLY = True
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+from pysuto.acc     import AccountingStructure
 from pysuto.solver  import ClarabelSolver
-from pysuto.diag    import SolverDiag
+from pysuto.diag    import SolverDiag, SolverStatsDiagnostic
 from pysuto.logging import get_logger, add_run_handler
 
 _log = get_logger("init_run_solver")
@@ -64,7 +69,8 @@ def main(const_run_id: str, label: str = "") -> None:
                             tol_gap_rel=1e-3, tol_gap_abs=1e-1,
                             reduced_tol_feas=1e-5,
                             reduced_tol_gap_rel=1e-2,
-                            reduced_tol_gap_abs=1e2)
+                            reduced_tol_gap_abs=1e2, 
+                            prior_mode=PRIOR_MODE)
 
     _log.info("Solving ConstraintRun '%s'", const_run_id)
     results = solver.solve_all(
@@ -93,11 +99,21 @@ def main(const_run_id: str, label: str = "") -> None:
     )
     _log.info("OptimRun saved as '%s' under %s", optim_run_id, OUTPUT_DIR)
 
-    diag = SolverDiag(results, solver.load_run(const_run_id),
-                      label=label or optim_run_id)
+    const_run = solver.load_run(const_run_id)
+    diag_dir  = os.path.join(OUTPUT_DIR, optim_run_id, "diag")
+
+    diag = SolverDiag(results, const_run, label=label or optim_run_id)
     diag.summary()
-    diag.plot(odir=os.path.join(OUTPUT_DIR, optim_run_id, "diag"),
-              plot_ids=["SD-R-01", "SD-T-05", "SD-T-07"])
+    diag.plot(odir=diag_dir,
+              plot_ids=["SD-R-01", "SD-R-08", "SD-R-09",
+                        "SD-T-05", "SD-T-07", "SD-T-10", "SD-T-11"])
+
+    # Initialise the solver stats module as part of the run: per-year edge
+    # (defect) and constraint (residual) row-level CSVs. Use diag.results — the
+    # reassembled global-length vectors the stats tables expect (raw solver
+    # results are year-local slices).
+    acc = AccountingStructure.load(const_run.acc_id)
+    SolverStatsDiagnostic(diag.results, const_run, acc, years="all").write(diag_dir)
 
     _log.info("=== init_run_solver DONE ===")
 
