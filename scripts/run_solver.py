@@ -35,6 +35,7 @@ CONST_DIR  = os.path.join("data", "proc", "const")
 OUTPUT_DIR = os.path.join("data", "proc", "opt")
 TIMESTEPS  = None #[1995]           # None → all timesteps in the run
 FEASIBILITY_CHECK_FIRST_ONLY = True
+PRIOR_MODE = "cold"  
 
 # ---------------------------------------------------------------------------
 # END USER CONFIGURATION
@@ -68,7 +69,8 @@ def main(const_run_id: str, label: str = "") -> None:
                             tol_gap_rel=1e-3, tol_gap_abs=1e-1,
                             reduced_tol_feas=1e-5,
                             reduced_tol_gap_rel=1e-2,
-                            reduced_tol_gap_abs=1e2)
+                            reduced_tol_gap_abs=1e2, 
+                            prior_mode=PRIOR_MODE)
 
     _log.info("Solving ConstraintRun '%s'", const_run_id)
     results = solver.solve_all(
