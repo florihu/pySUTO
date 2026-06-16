@@ -1,6 +1,9 @@
 # Trade-first seeding of bilateral Flow→Process inputs + non-blocking import tier
 
-**Status:** proposed
+**Status:** accepted — amends [ADR 0004](0004-process-recipe-traversal-imputer.md) (adds a third
+`bilateral_import` recipe tier and the symmetric flow-balance relaxation; closes its rejected
+option-C "a single upstream gap blocks everything below" case). Verified in
+[analysis_imp_…trade-seed-er-cer-revival.md](../rep/analysis_imp_20260616_074410_9b387727_trade-seed-er-cer-revival.md).
 
 The NetworkImputer's process-recipe forward fill (`product = eff·Σinputs`,
 [network.py:365](../../src/pysuto/impute/network.py)) fires only when **every** primary input is
@@ -31,7 +34,13 @@ sector):
   when missing, and exclude from `miss_PR`** so it no longer blocks the forward gate. Domestic
   (X==Y) legs stay blocking `primary`. A bilateral import leg with no trade observation means "no
   trade on this route" — 0 is the honest value, the same trade-off
-  [ADR 0004](0004-process-recipe-traversal-imputer.md) made for SEM secondaries.
+  [ADR 0004](0004-process-recipe-traversal-imputer.md) made for SEM secondaries. **The flow-balance
+  (`_do_flow_balance`) gets the symmetric treatment:** missing cross-region (non-writable) legs are
+  counted as 0 in the in/out sums (never written), so a domestic leg can close from the upstream
+  product even when some export routes are uncovered — without fabricating a value on the uncovered
+  edge (it stays an honest flat-prior gap the solver can widen, consistent with
+  [ADR 0008](0008-unweighted-fans-are-not-distributed.md) "no weight → no distribution" and ADR 0004
+  option E). A recipe with *no* same-region primary (imports only) keeps the gate closed by design.
 - **`TradeImputer` (supporting).** A new `BaseImputer` (`src/pysuto/impute/trade.py`) registered
   first in the cascade (before `network`). For each cross-region Flow→Process **CC** edge whose
   BACI **Mass** twin is known, write `f_CC = conc·f_Mass` (method `"trade_seed"`), reusing a shared
@@ -40,8 +49,25 @@ sector):
   absent.
 
 Net effect: the network forward-fills the `agg=true` products from domestic + covered-import inputs
-→ CFR→Anode/Smelting→Matte revive → the Flow-node balance fills the domestic Anode→ER leg →
-`anode_domestic`/`effer` propagate ER→CER → CER→CP. The warm-start chain then carries a real prior.
+→ CFR→Anode/Smelting→Matte revive → the Flow-node balance fills the domestic Anode→ER leg (CC) and
+its Mass twin → the network recipe (`effer`) propagates ER→CER → CER→CP. The warm-start chain then
+carries a real prior (verified: ER→CER 2020 prior 1.8 → 20.8k, vs solved ≈ 13.5k).
+
+### Consolidation (C) — applied with the fix
+
+- **Retire the chain `*_domestic` FormulaRelations** (`concentrate_/matte_/anode_domestic`). With the
+  gate open the network closes these domestic Mass legs structurally (CC flow-balance → `network_mass_twin`),
+  and *more correctly*: `anode_domestic`'s export term selected `entity_to == "Flow"` and so missed the
+  bilateral `Anode(Flow)→ER(Process)` trade legs, over-attributing the domestic leg. Verified a **no-op**:
+  the three relations fired 0× and the imp output is byte-identical before/after retirement
+  (`f_agg max|Δ| = 0.0`). The `cathode_{fu,usc,mesc}_domestic` trio is **retained** — the Cathode node has
+  three same-region FD unknowns, beyond the lone-gap flow-balance, so the network cannot subsume the split
+  (`Cathode→USC/MESC` remain flat-prior).
+- **Lightweight explicit ownership.** Trade↔Network is now an explicit structural partition: TradeImputer
+  writes only cross-region `Flow→Process` CC edges, NetworkImputer only same-region edges. The `agg` flag is
+  documented (in `_parametric_consumes`) as the *relation-type marker* (pooled recipe vs per-pair) that
+  splits the shared params CSV between consumers. A read-only post-run check (`diag.ownership_violations`)
+  flags any edge filled by an unintended owner (empty on the reference run).
 
 ## Considered options
 

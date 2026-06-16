@@ -173,9 +173,13 @@ consume Scrap, so `product = eff·(primary + scrap)`). Both the imputer prior an
 constraint** now pool that *same* set, so there is no longer an `eff·Scrap` gap between them — see
 [ADR 0005](docs/adr/0005-pool-scrap-into-eff-constraint-and-stripping-ratio.md). The pooling is
 **declared explicitly in the eff params file** by the `agg` flag on the row (a reader sees it in the
-CSV), never inferred from code. The **primary vs SEM-secondary** distinction is retained only for
-**NaN-propagation** in the imputer (a missing primary blocks the forward fill; a missing Scrap counts
-as 0), *not* for what gets summed. _Avoid_: conflating `eff` (a CC recovery fraction) with `conc` (a
+CSV), never inferred from code. The input-tier distinction is retained only for
+**NaN-propagation** in the imputer, *not* for what gets summed. There are **three** tiers (all pooled
+into `Σin`): **primary** (same-region Flow / SB-Nature inputs — a missing one *blocks* the forward
+fill); **SEM-secondary** (`Scrap` — missing counts as 0); and **bilateral-import** (cross-region
+`Flow→Process` legs — missing counts as 0, non-blocking, [ADR 0010](docs/adr/0010-trade-first-seeding-of-bilateral-flow-process-inputs.md)).
+The same cross-region-as-0 rule applies to the Flow-node balance (a missing cross-region leg is
+counted as 0, never written). _Avoid_: conflating `eff` (a CC recovery fraction) with `conc` (a
 Mass→CC fraction) — they are different coefficient families.
 
 **Process recipe.** A Process node viewed as a mass-closing transformation in CC: its **pooled inputs**
@@ -211,6 +215,17 @@ inherits BACI's geography. The domestic leg (X==Y) carries the residual `usage �
 the split is computed in copper content via `conc`. Applies only to the four **traded** ICSG-fanned
 sectors — Cathode, Concentrate, Anode, Matte. _Avoid_: including **Scrap** — it is an ICSG `Use` type but
 is **not traded**.
+
+**Trade-seed** — the `TradeImputer` fill (method `trade_seed`) that sets the **CC** value of a
+*cross-region* `Flow→Process` import leg from its already-aggregated BACI **Mass** twin
+(`f_CC = conc·f_Mass`), reusing the shared `conc_twin_map`. It is the imputation-time complement of the
+trade-share fan: the fan distributes ICSG-CC by BACI geography at *feed* time, whereas trade-seed reads
+the BACI-Mass observation directly at *imputation* time so the network recipe gate can pool the covered
+import legs. Ownership is a clean structural partition: trade-seed writes **only** cross-region
+`Flow→Process` CC edges; the `NetworkImputer` writes **only** same-region edges. A route with no BACI
+Mass observation is left NaN (an honest flat-prior gap), never seeded to 0. See
+[ADR 0010](docs/adr/0010-trade-first-seeding-of-bilateral-flow-process-inputs.md). _Avoid_: reading a
+trade-seed CC as a new measurement — it is the conc twin of the BACI Mass observation.
 
 ## Total-output / scale-total vocabulary
 
