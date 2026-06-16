@@ -37,6 +37,7 @@ from pysuto.logging import get_logger
 from pysuto.lp import lp_combine
 from pysuto.param_relation import (
     ParamRelationResolver,
+    conc_twin_map,
     float_or,
     get_edge_cache,
     sigma_from_row,
@@ -197,11 +198,10 @@ class NetworkImputer(BaseImputer):
         self._upper = acc.bounds.u
 
         # CC edge -> (Mass twin edge, conc, σ_conc). conc first, ore_grade
-        # overlaid (more specific for CO → wins on specificity).
-        self._cc_to_mass = {}
-        self._load_twin_map(self._conc_csv, resolver, self._cc_to_mass)
+        # overlaid (more specific for CO → wins, since it is applied second).
+        self._cc_to_mass = conc_twin_map(self._conc_csv, resolver)
         if self._ore_grade_csv:
-            self._load_twin_map(self._ore_grade_csv, resolver, self._cc_to_mass)
+            conc_twin_map(self._ore_grade_csv, resolver, self._cc_to_mass)
 
         # product CC edge -> (eff, σ_eff, ε, param_id)
         product_eff = self._load_eff_map(self._eff_csv, resolver)
@@ -229,28 +229,6 @@ class NetworkImputer(BaseImputer):
 
         # Flow-node CC balances: (incoming supply edges, outgoing use edges)
         self._flow_nodes = self._build_flow_balances(acc)
-
-    def _load_twin_map(self, path, resolver, into: dict) -> None:
-        """Resolve a conc-style CSV (A=Mass, B=CC) into CC->(Mass,conc,σ)."""
-        df = pd.read_csv(path, sep=";", comment="#", dtype=str)
-        df = df.dropna(subset=["param_id"])
-        df = df[~df["param_id"].str.startswith("#")]
-        best: dict[int, tuple] = {}  # cc_edge -> (mass_edge, conc, σ, specificity)
-        for _, row in df.iterrows():
-            try:
-                nominal = float(row["value_nominal"])
-                sig = sigma_from_row(row, nominal)
-            except Exception as exc:  # noqa: BLE001
-                logger.warning("twin map %s: row %s skipped (%s)",
-                               path, row.get("param_id"), exc)
-                continue
-            for rr in resolver.resolve_row(row):
-                cc = rr.b_edge_id
-                if cc not in best or rr.specificity > best[cc][3]:
-                    best[cc] = (rr.a_edge_id, nominal, sig, rr.specificity)
-        for cc, (mass, conc, sig, _) in best.items():
-            if conc > 0.0:
-                into[cc] = (mass, conc, sig)
 
     def _load_eff_map(self, path, resolver) -> dict:
         df = pd.read_csv(path, sep=";", comment="#", dtype=str)

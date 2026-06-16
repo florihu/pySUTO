@@ -36,7 +36,10 @@ from typing import Iterator
 import numpy as np
 import pandas as pd
 
+from .logging import get_logger
 from .unc import PedigreeScores
+
+logger = get_logger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -126,6 +129,38 @@ def specificity(row: pd.Series) -> int:
         str(row.get(k, "*")).strip() not in WILDCARD
         for k in _A_SPEC_KEYS
     )
+
+
+def conc_twin_map(path, resolver, into: dict | None = None) -> dict:
+    """Resolve a conc-style CSV (A=Mass, B=CC) into ``CC -> (Mass_edge, conc, σ)``.
+
+    The shared twin-map builder consumed by both ``NetworkImputer`` (CC→Mass twin
+    emission) and ``TradeImputer`` (Mass→CC trade-seed). Keyed by the CC (B-side)
+    edge, keeping the most specific row per edge. Pass ``into`` to overlay onto an
+    existing map — a later call's rows overwrite earlier ones for shared CC edges
+    (used to overlay ore_grade onto conc); omit it for a fresh map. Returns the map.
+    """
+    into = {} if into is None else into
+    df = pd.read_csv(path, sep=";", comment="#", dtype=str)
+    df = df.dropna(subset=["param_id"])
+    df = df[~df["param_id"].str.startswith("#")]
+    best: dict[int, tuple] = {}  # cc_edge -> (mass_edge, conc, σ, specificity)
+    for _, row in df.iterrows():
+        try:
+            nominal = float(row["value_nominal"])
+            sig = sigma_from_row(row, nominal)
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("conc_twin_map %s: row %s skipped (%s)",
+                           path, row.get("param_id"), exc)
+            continue
+        for rr in resolver.resolve_row(row):
+            cc = rr.b_edge_id
+            if cc not in best or rr.specificity > best[cc][3]:
+                best[cc] = (rr.a_edge_id, nominal, sig, rr.specificity)
+    for cc, (mass, conc, sig, _) in best.items():
+        if conc > 0.0:
+            into[cc] = (mass, conc, sig)
+    return into
 
 
 # ---------------------------------------------------------------------------
