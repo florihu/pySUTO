@@ -1025,6 +1025,99 @@ class TestRatioBoundBuilder:
         block   = builder.build_static(toy_acc)
         assert np.all(block.sigma_c == 0.0)
 
+    # ── net-stock-change bound orientation (regression: cathode-pool collapse) ──
+
+    def test_stock_bound_agg_orientation(self, toy_acc, tmp_path):
+        """An agg stock-shaped bound encodes `stock ≤ p95·denom`, not its inverse.
+
+        The stock change (b-side, here Mining→Waste/SB) is the numerator and must
+        carry the ±1; the denominator (a-side, Mining→Ore) carries ∓bu/bl — the
+        `Σb − r·Σa` form (CONTEXT.md §"Node-scoped vs set-scoped"; ADR 0005). The
+        swapped placement builds `denom ≤ p95·stock` → forces stock ≥ denom/p95
+        (~20–42×), the cathode-pool collapse this guards against.
+        """
+        import csv
+        from pysuto.constraints import RatioBoundBuilder
+        path = tmp_path / "stock_bound.csv"
+        with open(path, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=[
+                "param_id", "agg",
+                "a_sector_from", "a_entity_from", "a_region_from",
+                "a_sector_to", "a_entity_to", "a_region_to", "a_time", "a_valuation",
+                "b_sector_from", "b_entity_from", "b_region_from",
+                "b_sector_to", "b_entity_to", "b_region_to", "b_time", "b_valuation",
+                "value_nominal", "value_min", "value_max",
+            ])
+            w.writeheader()
+            w.writerow({
+                "param_id": "netstockboundtest", "agg": "true",
+                # a-side = DENOMINATOR (Mining→Ore)
+                "a_sector_from": "Mining", "a_entity_from": "Process", "a_region_from": "A",
+                "a_sector_to": "Ore", "a_entity_to": "Flow", "a_region_to": "A",
+                "a_time": "2020", "a_valuation": "Mass",
+                # b-side = NUMERATOR / stock change (Mining→Waste)
+                "b_sector_from": "Mining", "b_entity_from": "Process", "b_region_from": "A",
+                "b_sector_to": "Waste", "b_entity_to": "SB", "b_region_to": "A",
+                "b_time": "2020", "b_valuation": "Mass",
+                "value_nominal": "0", "value_min": "-0.05", "value_max": "0.05",
+            })
+        block = RatioBoundBuilder.from_csv(str(path), toy_acc).build_static(toy_acc)
+        assert block.G_rows.shape[0] == 2, "one (region,time,val) bucket × (upper, lower)"
+        G = block.G_rows.toarray()
+        stock_col, denom_col = 4, 0   # eid 4 = Mining/A→Waste/A 2020; eid 0 = Mining/A→Ore/A 2020
+        upper, lower = G[0], G[1]
+        assert upper[stock_col] == pytest.approx(1.0) and upper[denom_col] == pytest.approx(-0.05), \
+            f"upper must be +1 on stock (col {stock_col}), -bu on denom (col {denom_col}); got {upper[upper != 0]}"
+        assert lower[stock_col] == pytest.approx(-1.0) and lower[denom_col] == pytest.approx(-0.05), \
+            f"lower must be -1 on stock, +bl(=-0.05) on denom; got {lower[lower != 0]}"
+
+    def _load_stock_bounds_generator(self):
+        """Import scripts/explo/stock_bounds_study.py by path (it is import-safe:
+        data reads live in functions, main() is guarded)."""
+        import importlib.util, pathlib
+        repo = pathlib.Path(__file__).resolve().parents[1]
+        mod_path = repo / "scripts" / "explo" / "stock_bounds_study.py"
+        try:
+            spec = importlib.util.spec_from_file_location("stock_bounds_study", mod_path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+        except ImportError as e:                       # e.g. matplotlib absent in a minimal env
+            pytest.skip(f"stock_bounds_study not importable: {e}")
+        return mod
+
+    @pytest.mark.parametrize("indicator,stock,denom", [
+        ("PSC", "PSC", "Cathode"),
+        ("USC", "USC", "FU"),
+        ("MESC", "MESC", "FU"),
+    ])
+    def test_stock_bound_generator_orientation(self, indicator, stock, denom):
+        """`_build_param_row` writes the stock edge on the b-side (numerator) and the
+        FU/Cathode denominator on the a-side — the orientation RatioBoundBuilder needs.
+        A straight a→a / b→b mapping inverts the bound (cathode-pool collapse)."""
+        gen = self._load_stock_bounds_generator()
+        row = gen._build_param_row(indicator, "Chile", 0.05, "test", "denom-label")
+        assert row["b_sector_to"] == stock, f"{indicator}: stock edge must be the b-side numerator"
+        assert row["a_sector_to"] == denom, f"{indicator}: denominator must be the a-side"
+        assert float(row["value_min"]) < 0 < float(row["value_max"]), "two-sided ±p95 band in value_min/max"
+
+    def test_stock_bound_params_contract(self):
+        """The shipped stock_bounds params keep the correct orientation: stock edge
+        (PSC/USC/MESC) on the b-side, FU/Cathode on the a-side, symmetric ±band in
+        value_min/value_max. Skips when the (gitignored) params file is absent."""
+        import pathlib
+        repo = pathlib.Path(__file__).resolve().parents[1]
+        p = repo / "data" / "input" / "params" / "stock_bounds" / "current" / "params.csv"
+        if not p.exists():
+            pytest.skip("stock_bounds/current/params.csv absent (gitignored data dir)")
+        df = pd.read_csv(p, sep=None, engine="python", dtype=str)
+        s = df[df["param_type"] == "stock_bound"]
+        assert len(s) > 0, "no stock_bound rows in shipped params"
+        assert s["b_sector_to"].isin(["PSC", "USC", "MESC"]).all(), "stock edge must be the b-side numerator"
+        assert s["a_sector_to"].isin(["Cathode", "FU"]).all(), "denominator must be the a-side"
+        vmin = pd.to_numeric(s["value_min"]); vmax = pd.to_numeric(s["value_max"])
+        assert (vmin < 0).all() and (vmax > 0).all() and np.allclose(vmin, -vmax), \
+            "value_min/value_max must be a symmetric ±p95 band"
+
 
 # ---------------------------------------------------------------------------
 # FlowBoundsBuilder

@@ -867,7 +867,7 @@ CONST_BINDINGS = [
     ("eff",          RatioConstraintBuilder, {}),
     ("conc",         RatioBoundBuilder,      {}),
     ("eff",          RatioBoundBuilder,      {}),
-    ("stock_bounds", RatioBoundBuilder,      {}),   # agg=true rows; |Σ a| ≤ k·Σ b
+    ("stock_bounds", RatioBoundBuilder,      {}),   # agg=true rows; |Σ b| ≤ k·Σ a  (b=stock numerator, a=FU/Cathode denom; the Σb−r·Σa form, see CONTEXT.md §"Node-scoped vs set-scoped")
 ]
 for param_id, Builder, kwargs in CONST_BINDINGS:
     const_engine.register(Builder.from_csv(

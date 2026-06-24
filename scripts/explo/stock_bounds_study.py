@@ -279,6 +279,14 @@ def _build_param_row(indicator: str, region: str, p95: float,
     spec = INDICATOR_EDGES[indicator]
     a = spec["a"]; b = spec["b"]; intra = spec["intra"]
 
+    # RatioBoundBuilder's CSV convention is a-side = DENOMINATOR, b-side = NUMERATOR:
+    # the agg row is `Σb − r·Σa`, bounding b/a ≤ r (CONTEXT.md §"Node-scoped vs
+    # set-scoped"; ADR 0005). INDICATOR_EDGES labels the stock edge "a" (the natural
+    # numerator) and the denominator "b", so we write them into the CSV *swapped* —
+    # denominator → a_*, stock → b_*. A straight a→a / b→b mapping inverts the bound
+    # to `denom ≤ p95·stock` (forces stock ≥ denom/p95 ~20–42×; the cathode-pool collapse).
+    denom, num = b, a   # CSV a-side = denominator, CSV b-side = numerator (stock change)
+
     a_region_from = region if intra else "*"
     b_region_from = region if intra else "*"
     a_region_to   = region
@@ -297,19 +305,21 @@ def _build_param_row(indicator: str, region: str, p95: float,
         "param_type": "stock_bound",
         "agg":        "true",
         "description": descr,
-        "a_sector_from": a["sector_from"], "a_entity_from": a["entity_from"],
+        "a_sector_from": denom["sector_from"], "a_entity_from": denom["entity_from"],
         "a_region_from": a_region_from,
-        "a_sector_to":   a["sector_to"],   "a_entity_to":   a["entity_to"],
+        "a_sector_to":   denom["sector_to"],   "a_entity_to":   denom["entity_to"],
         "a_region_to":   a_region_to,
         "a_time": "*", "a_valuation": "CC",
-        "b_sector_from": b["sector_from"], "b_entity_from": b["entity_from"],
+        "b_sector_from": num["sector_from"], "b_entity_from": num["entity_from"],
         "b_region_from": b_region_from,
-        "b_sector_to":   b["sector_to"],   "b_entity_to":   b["entity_to"],
+        "b_sector_to":   num["sector_to"],   "b_entity_to":   num["entity_to"],
         "b_region_to":   b_region_to,
         "b_time": "*", "b_valuation": "CC",
         "value_nominal": 0,
         "unc_type": "",
-        "value_sd": "", "value_min": "", "value_max": "",
+        # RatioBoundBuilder reads the band from value_min/value_max (bound_lower/upper
+        # are legacy/provenance) — write the ±p95 share into both.
+        "value_sd": "", "value_min": -p95, "value_max": +p95,
         "pedigree_reliability": "", "pedigree_completeness": "",
         "pedigree_temporal_correlation": "",
         "pedigree_geographical_correlation": "",
@@ -355,6 +365,13 @@ def main() -> None:
     eff_er = load_eff_value(REFINING_EFF_PARAM_ID)
     print(f"Using {REFINING_EFF_PARAM_ID} = {eff_er} for the anode→cathode "
           f"contribution to the PSC denominator (empirical study only).")
+    # WARNING (known bug — do not ship a regenerated PSC bound without fixing this):
+    # the `Type="Anode"` term below matches ZERO rows — the ICSG feed has no `Anode`
+    # type (types are Cathode/Concentrate/Matte/PSC/Scrap). So the PSC denominator
+    # silently collapses to SXEW-only (~16% of refined cathode), inflating PSC's p95
+    # ~70× (0.05 → 3.52). The shipped PSC bound is the validated v3 value (0.05); a
+    # correct refined-cathode-production denominator + data-provenance check are a
+    # separate follow-up. USC/MESC (Cathode→FU denominator) are unaffected.
     DENOMINATORS["PSC"] = [
         (dict(Type="Cathode", Supply_Use="Supply", Process="SXEW"), 1.0),
         (dict(Type="Anode",   Supply_Use="Use",    Process="Refining"), eff_er),
