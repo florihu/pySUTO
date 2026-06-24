@@ -960,10 +960,12 @@ class TestRatioBoundBuilder:
                 "value_nominal":  "1.0",
                 "unc_type":       "sd",
                 "value_sd":       "0.1",
-                "value_min":      "",
-                "value_max":      "",
-                "bound_lower":    str(bl),
-                "bound_upper":    str(bu),
+                # RatioBoundBuilder reads the band from value_min/value_max
+                # (bound_lower/bound_upper are legacy/ignored — see conc params).
+                "value_min":      str(bl),
+                "value_max":      str(bu),
+                "bound_lower":    "",
+                "bound_upper":    "",
             })
         return str(path)
 
@@ -1141,7 +1143,7 @@ class TestConstraintEngine:
                 "b_sector_to":   "Mining", "b_entity_to":   "Process", "b_region_to":   "A",
                 "b_time": "same", "b_valuation": "same",
                 "value_nominal": "1.0", "unc_type": "sd", "value_sd": "0.1",
-                "value_min": "", "value_max": "", "bound_lower": "0.5", "bound_upper": "2.0",
+                "value_min": "0.5", "value_max": "2.0", "bound_lower": "", "bound_upper": "",
             })
 
         engine = ConstraintEngine(toy_acc, storage_dir="/tmp/test_const_multi")
@@ -1246,10 +1248,11 @@ class TestRatioPerTimestepDeactivation:
                 "value_nominal":  str(nominal),
                 "unc_type":       "sd",
                 "value_sd":       "0.05",
-                "value_min":      "",
-                "value_max":      "",
-                "bound_lower":    str(bl),
-                "bound_upper":    str(bu),
+                # RatioBoundBuilder reads the band from value_min/value_max.
+                "value_min":      str(bl),
+                "value_max":      str(bu),
+                "bound_lower":    "",
+                "bound_upper":    "",
             })
         return str(path)
 

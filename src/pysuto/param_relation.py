@@ -141,7 +141,7 @@ def conc_twin_map(path, resolver, into: dict | None = None) -> dict:
     (used to overlay ore_grade onto conc); omit it for a fresh map. Returns the map.
     """
     into = {} if into is None else into
-    df = pd.read_csv(path, sep=";", comment="#", dtype=str)
+    df = pd.read_csv(path, sep=None, engine="python", comment="#", dtype=str)
     df = df.dropna(subset=["param_id"])
     df = df[~df["param_id"].str.startswith("#")]
     best: dict[int, tuple] = {}  # cc_edge -> (mass_edge, conc, σ, specificity)

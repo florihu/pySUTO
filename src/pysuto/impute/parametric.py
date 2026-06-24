@@ -177,7 +177,7 @@ class ParametricImputer(BaseImputer):
 
         Comment lines (starting with #) and rows with blank param_id are skipped.
         """
-        df = pd.read_csv(path, sep=";", comment="#", dtype=str)
+        df = pd.read_csv(path, sep=None, engine="python", comment="#", dtype=str)
         df = df.dropna(subset=["param_id"])
         df = df[~df["param_id"].str.startswith("#")]
 
@@ -266,7 +266,10 @@ class ParametricImputer(BaseImputer):
                     [a_id], [coeff], f_b, s_b, desc, param_id,
                 ))
 
-            elif a_nan and not b_nan:
+            elif a_nan and not b_nan and coeff != 0.0:
+                # coeff == 0 (e.g. concwruse: WR is copperless) makes the backward
+                # inversion A = B/coeff undefined — A's Mass comes from elsewhere
+                # (the Mining CO-split), never from inverting a zero ratio.
                 inv = 1.0 / coeff
                 f_a = float(inv * f[b_id])
                 # Backward (B→A): regularized sensitivity caps σ amplification

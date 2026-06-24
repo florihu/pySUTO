@@ -35,7 +35,7 @@ CONST_DIR  = os.path.join("data", "proc", "const")
 OUTPUT_DIR = os.path.join("data", "proc", "opt")
 TIMESTEPS  = None #[1995]           # None → all timesteps in the run
 FEASIBILITY_CHECK_FIRST_ONLY = True
-PRIOR_MODE = "cold"  
+
 
 # ---------------------------------------------------------------------------
 # END USER CONFIGURATION
@@ -51,7 +51,7 @@ from pysuto.logging import get_logger, add_run_handler
 _log = get_logger("init_run_solver")
 
 
-def main(const_run_id: str, label: str = "") -> None:
+def main(const_run_id: str, label: str = "", prior_mode: str = "warm") -> None:
     os.makedirs("logs", exist_ok=True)
     add_run_handler(
         f"logs/init_run_solver_{datetime.now():%Y%m%d_%H%M%S}.log"
@@ -70,7 +70,7 @@ def main(const_run_id: str, label: str = "") -> None:
                             reduced_tol_feas=1e-5,
                             reduced_tol_gap_rel=1e-2,
                             reduced_tol_gap_abs=1e2, 
-                            prior_mode=PRIOR_MODE)
+                            prior_mode=prior_mode,)
 
     _log.info("Solving ConstraintRun '%s'", const_run_id)
     results = solver.solve_all(
@@ -125,8 +125,15 @@ if __name__ == "__main__":
         help="ConstraintRun ID to load from data/proc/const/.",
     )
     parser.add_argument(
-        "--label", default="",
+        "--label", required=False, default="",
         help="Optional label for the optim run sidecar.",
     )
+
+    parser.add_argument(
+        "--prior-mode", required=False, default='cold',
+        choices=["warm", "cold"],
+        help="ClarabelSolver prior mode: 'warm' (default) or 'cold'."
+    )
+
     args = parser.parse_args()
-    main(args.const_run_id, args.label)
+    main(args.const_run_id, args.label, args.prior_mode)

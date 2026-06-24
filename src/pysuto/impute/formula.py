@@ -152,7 +152,7 @@ class FormulaImputer(BaseImputer):
         ]
 
     def _load_params_csv(self, path: str) -> None:
-        df = pd.read_csv(path, sep=";", comment="#", dtype=str)
+        df = pd.read_csv(path, sep=None, engine="python", comment="#", dtype=str)
         df = df.dropna(subset=["param_id"])
         df = df[~df["param_id"].str.startswith("#")]
         for _, row in df.iterrows():

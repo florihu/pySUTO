@@ -414,9 +414,15 @@ class RatioBoundBuilder(BaseConstraintBuilder):
 
         bound_rows = []
         for _, row in df.iterrows():
+            # Stripping ratio is soft-only (ADR 0005): its [value_min, value_max] is a
+            # plausible range, not an empirical hard WR/Ore bound. The imputer fills
+            # WR = max(0, CO − Ore) (ASSUMPTIONS.md), which a hard WR ≥ value_min·Ore bound
+            # would make infeasible for crude_ore < grade-implied-ore regions. Skip it.
+            if str(row.get("param_type", "")).strip() == "stripping_ratio":
+                continue
             nominal = float_or(row.get("value_nominal", "nan"), np.nan)
-            bl      = float_or(row.get("bound_lower", "nan"), np.nan)
-            bu      = float_or(row.get("bound_upper", "nan"), np.nan)
+            bl      = float_or(row.get("value_min", "nan"), np.nan)
+            bu      = float_or(row.get("value_max", "nan"), np.nan)
             if np.isnan(bl) and np.isnan(bu):
                 continue
 
