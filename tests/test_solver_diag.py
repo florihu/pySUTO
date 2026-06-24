@@ -47,9 +47,9 @@ class TestPlotPortfolio:
         results, run = toy_results
         diag = SolverDiag(results, run, label="toy")
         paths = diag.plot(odir=str(tmp_path))
-        # 9 run-scope (SD-R-01..09) + 15 timestep-scope (SD-T-01..06, 07, 08a, 08b,
-        # 09a..09d, 10, 11) + 1 provenance .md  ⇒  24 PNGs + 1 .md = 25 paths
-        assert len(paths) == 25
+        # 10 run-scope (SD-R-01..10) + 15 timestep-scope (SD-T-01..06, 07, 08a, 08b,
+        # 09a..09d, 10, 11) + 1 provenance .md  ⇒  25 PNGs + 1 .md = 26 paths
+        assert len(paths) == 26
         for p in paths:
             assert os.path.exists(p)
             if p.endswith(".png"):
@@ -126,7 +126,7 @@ class TestFromOptId:
             const_dir  = str(const_dir),
         )
         paths = diag.plot()  # default odir = {opt_dir}/{opt_run_id}/diag
-        assert len(paths) == 25  # 24 PNGs + 1 provenance .md
+        assert len(paths) == 26  # 25 PNGs + 1 provenance .md
         for p in paths:
             assert os.path.exists(p)
         # Confirm the default odir is the run-local diag folder
@@ -182,7 +182,7 @@ class TestBlockRunDiag:
         paths = SolverDiag(results, cr, label="block").plot(
             odir=str(tmp_path / "diag"),
         )
-        assert len(paths) == 25
+        assert len(paths) == 26
         for p in paths:
             assert os.path.exists(p)
 

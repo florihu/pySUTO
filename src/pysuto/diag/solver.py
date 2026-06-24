@@ -104,6 +104,7 @@ class SolverDiag:
         "SD-R-07":  PlotSpec("_fig_time_hued",        "sd_r_07_time_hued",         "Time-hued histograms of c* and |ε_opt|"),
         "SD-R-08":  PlotSpec("_fig_process_outputs",  "sd_r_08_process_outputs",   "Process-entity outputs, stacked area by sector"),
         "SD-R-09":  PlotSpec("_fig_flow_outputs",     "sd_r_09_flow_outputs",      "Flow-entity outputs, stacked area by sector"),
+        "SD-R-10":  PlotSpec("_fig_boundary_flows",   "sd_r_10_boundary_flows",    "System-boundary edge totals by sector: Σa* over SB edges, 2×2 (valuation × direction)"),
         "SD-T-01":  PlotSpec("_fig_residual_digest",    "sd_t_01_residual_digest",    "Residual digest: log10|x| histograms by constraint type"),
         "SD-T-02":  PlotSpec("_fig_zscore_soft",        "sd_t_02_zscore_soft",        "Soft-slack z-scores (ε/σ_c) histograms"),
         "SD-T-03":  PlotSpec("_fig_solution_vs_prior",  "sd_t_03_solution_vs_prior",  "Solution magnitude + z-score + σ_opt/σ_a panels"),
@@ -2264,6 +2265,172 @@ class SolverDiag:
             fig_id="SD-R-09",
             title_phrase="Flow-entity outputs (use edges) by sector",
         )
+
+    # ------------------------------------------------------------------
+    # SD-R-10 — system-boundary edge totals by SB-node sector
+    #   2×2 grid: rows = valuation (Mass, CC), cols = direction
+    #   (from SB · inputs / to SB · outputs). One line per SB-node sector,
+    #   pooled over regions; a₀ is the stage-3 prior (const_run.a0).
+    # ------------------------------------------------------------------
+
+    _BOUNDARY_FAMILY_ORDER = {"Nature": 0, "SEM": 1, "FD": 2}
+
+    def _fig_boundary_flows(self, *, hue=None, timesteps=None):
+        """SD-R-10: Σ a* over system-boundary edges (exactly one SB endpoint),
+        grouped by the SB-node sector. Two columns: from-SB inputs / to-SB
+        outputs; two rows: Mass / CC. One line per sector, summed across
+        regions; sectors ordered by entity_sub family (Nature→SEM→FD) then
+        magnitude; dashed line = a₀ (stage-3 prior) at the first timestep.
+        """
+        import matplotlib.pyplot as plt
+
+        em = self._edge_meta()
+        if em is None:
+            fig = plt.figure(figsize=(8, 3))
+            fig.suptitle(self._title("SD-R-10: edge_index unavailable (acc data missing)"),
+                         fontsize=12)
+            return fig
+
+        required = {"from_entity", "to_entity", "from_sector", "to_sector",
+                    "from_entity_sub", "to_entity_sub", "time", "valuation"}
+        missing = required - set(em.columns)
+        if missing:
+            fig = plt.figure(figsize=(8, 3))
+            fig.suptitle(self._title(f"SD-R-10: edge_meta missing columns {missing}"),
+                         fontsize=12)
+            return fig
+
+        em_fe   = em["from_entity"].astype(str).to_numpy()
+        em_te   = em["to_entity"].astype(str).to_numpy()
+        em_fs   = em["from_sector"].astype(str).to_numpy()
+        em_ts   = em["to_sector"].astype(str).to_numpy()
+        em_fsub = em["from_entity_sub"].astype(str).to_numpy()
+        em_tsub = em["to_entity_sub"].astype(str).to_numpy()
+        em_time = em["time"].astype(str).to_numpy()
+        em_val  = em["valuation"].astype(str).to_numpy()
+
+        boundary = (em_fe == "SB") ^ (em_te == "SB")   # exactly one SB endpoint
+        if not boundary.any():
+            fig = plt.figure(figsize=(8, 3))
+            fig.suptitle(self._title("SD-R-10: no system-boundary edges present"),
+                         fontsize=12)
+            return fig
+
+        # direction → (column title, edge mask, SB-node sector, SB-node entity_sub)
+        directions = [
+            ("from SB · inputs",                     boundary & (em_fe == "SB"), em_fs, em_fsub),
+            ("to SB · outputs (incl. final demand)", boundary & (em_te == "SB"), em_ts, em_tsub),
+        ]
+        valuations = list(self._SD_T_09_VALUATIONS)   # ("Mass", "CC")
+        ts = self._timesteps
+        first_t = str(ts[0]) if ts else None
+        a0 = np.asarray(self._const_run.a0, dtype=float)
+        x = np.arange(len(ts))
+
+        # Per direction: ordered sector list + [n_sec × n_ts] sum matrix per
+        # valuation + first-year a₀ reference per sector per valuation.
+        prepared: list = []
+        all_sectors: set = set()
+        for dlabel, dmask, sec_arr, sub_arr in directions:
+            sectors = sorted({s for s in sec_arr[dmask]})
+            fam_of = {}
+            for s in sectors:
+                subs = sub_arr[dmask & (sec_arr == s)]
+                fam_of[s] = str(subs[0]) if len(subs) else ""
+
+            per_val: dict = {}
+            ref_val: dict = {}
+            for V in valuations:
+                mat = np.zeros((len(sectors), len(ts)), dtype=float)
+                for j, t in enumerate(ts):
+                    F = np.asarray(self._results[t].F_opt, dtype=float)
+                    cell = dmask & (em_time == str(t)) & (em_val == V)
+                    if not cell.any():
+                        continue
+                    sec_cell = sec_arr[cell]
+                    F_cell   = F[cell]
+                    for i, S in enumerate(sectors):
+                        mat[i, j] = float(np.sum(F_cell[sec_cell == S]))
+                per_val[V] = mat
+
+                ref = np.zeros(len(sectors), dtype=float)
+                if first_t is not None:
+                    rmask = dmask & (em_time == first_t) & (em_val == V)
+                    if rmask.any():
+                        sec_r = sec_arr[rmask]
+                        a0_r  = a0[rmask]
+                        for i, S in enumerate(sectors):
+                            ref[i] = float(np.sum(a0_r[sec_r == S]))
+                ref_val[V] = ref
+
+            # order: entity_sub family (Nature→SEM→FD), then mean magnitude desc
+            pooled = sum(np.abs(per_val[V]).mean(axis=1) for V in valuations)
+            order = sorted(
+                range(len(sectors)),
+                key=lambda i: (self._BOUNDARY_FAMILY_ORDER.get(fam_of[sectors[i]], 99),
+                               -pooled[i]),
+            )
+            prepared.append({
+                "label":   dlabel,
+                "sectors": [sectors[i] for i in order],
+                "per_val": {V: per_val[V][order] for V in valuations},
+                "ref_val": {V: ref_val[V][order] for V in valuations},
+            })
+            all_sectors.update(sectors)
+
+        # one stable colour per SB-node sector across both columns / rows
+        tab20 = plt.get_cmap("tab20").colors
+        color_for = {S: tab20[i % 20] for i, S in enumerate(sorted(all_sectors))}
+
+        fig, axes = plt.subplots(
+            len(valuations), len(directions),
+            figsize=(13, 9),
+            sharex=True, squeeze=False,
+        )
+        fig.suptitle(self._title("System-boundary edge totals by sector (SD-R-10)"),
+                     fontsize=13, fontweight="bold")
+
+        for r, V in enumerate(valuations):
+            for c, prep in enumerate(prepared):
+                ax = axes[r][c]
+                mat = prep["per_val"][V]
+                ref = prep["ref_val"][V]
+                for i, S in enumerate(prep["sectors"]):
+                    ax.plot(x, mat[i], color=color_for[S], lw=1.5,
+                            label=S, alpha=0.9)
+                    ax.hlines(ref[i], xmin=x[0], xmax=x[-1],
+                              colors=color_for[S], linestyles="--",
+                              lw=1.0, alpha=0.6)
+                ax.set_title(f"{prep['label']} · {V}", loc="left", fontsize=10)
+                ax.set_xticks(x)
+                ax.set_xticklabels([str(t) for t in ts], rotation=45, ha="right", fontsize=8)
+                if r == len(valuations) - 1:
+                    ax.set_xlabel("timestep")
+                ax.set_yscale("log")
+                if c == 0:
+                    unit = "t" if V == "Mass" else "t Cu"
+                    ax.set_ylabel(f"Σ a* over SB edges [{unit}]")
+                _apply_modern_style(ax)
+
+        # generic dashed-reference entry, placed on the last axis so it sorts last
+        axes[-1][-1].plot([], [], color=_C["grey"], ls="--", lw=1.0,
+                          label=f"a₀ ({first_t})" if first_t else "a₀")
+
+        # single legend on the right, deduped across all axes
+        handles, labels = [], []
+        seen: set = set()
+        for row in axes:
+            for ax in row:
+                for h, l in zip(*ax.get_legend_handles_labels()):
+                    if l not in seen:
+                        seen.add(l)
+                        handles.append(h)
+                        labels.append(l)
+        fig.legend(handles, labels, loc="center right",
+                   fontsize=7, frameon=False, ncol=1,
+                   bbox_to_anchor=(1.0, 0.5))
+        fig.tight_layout(rect=[0, 0, 0.88, 0.95])
+        return fig
 
     # ------------------------------------------------------------------
     # Title helpers

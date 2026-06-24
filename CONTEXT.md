@@ -72,7 +72,10 @@ meaningful only on `SB` nodes (`Flow` / `Process` nodes leave it empty). _Note:_
 structurally an SB-*output* (`entity_to == "SB"`) yet semantically belongs to the **use** side — a
 commodity consumed by final demand, with a real `Flow` commodity on its origin endpoint; only
 `Nature` and `SEM` are pure raw/secondary boundary crossings with no `Flow` endpoint.
-_Avoid_: conflating `entity_sub` with **entity** (only `Process` | `Flow` | `SB`).
+_Avoid_: conflating `entity_sub` with **entity** (only `Process` | `Flow` | `SB`); and avoid
+"boundary type" as a loose synonym for it — that phrase is ambiguous between this `entity_sub` class
+(Nature/SEM/FD) and the **sector** of the SB node (`CO`, `Slag`, `FU`, …, the finer per-commodity
+grain), so name the grain you mean.
 
 ## Coverage & val vocabulary
 
