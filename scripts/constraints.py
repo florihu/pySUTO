@@ -103,6 +103,13 @@ SIGMA_C_ABS_FLOOR = 1.0e-3
 # homogeneous collapse to l. None = off (legacy behaviour). See
 # docs/rep/analysis_opt_20260602_133908_46bc514e_20260603_feed-scale-collapse.md §8.3.
 PRIOR_BOX_K       = None
+# No-data ("flat-prior") σ_a magnitude anchor: edges with a₀=0 whose σ fell back
+# to the global-median (≈1e6) get σ = NODATA_ANCHOR_CV · median|a₀| of anchored
+# siblings in the same (from_sector, valuation), so the zero prior pulls and they
+# stop absorbing mass routed through data-free subgraphs (e.g. scrap on Taiwan/
+# Panama CFR). Extraction front-end {CO,Mining,Ore,WR,Tailings} is excluded (real
+# stripping-ratio magnitude prior). 0 disables. See ADR 0013.
+NODATA_ANCHOR_CV  = 0.3
 # Soft-ratio σ_c scaling (REP analysis_opt_20260611_075036 §8.2): the CSV ratio
 # σ_r is rescaled to flow space per row, σ_c = max(σ_r, REL_FLOOR) ·
 # max(Σ|a₀,num|, |r|·Σ|a₀,denom|, ABS_FLOOR). REL_FLOOR caps |z| at 1/floor on
@@ -161,6 +168,7 @@ def main(imp_run_id: str, label: str) -> None:
         sigma_c_cv_min    = SIGMA_C_CV_MIN,
         sigma_c_abs_floor = SIGMA_C_ABS_FLOOR,
         prior_box_k       = PRIOR_BOX_K,
+        nodata_anchor_cv  = NODATA_ANCHOR_CV,
     )
 
     # 1. Hard mass balance
@@ -264,6 +272,7 @@ def main(imp_run_id: str, label: str) -> None:
             "sigma_c_cv_min":    SIGMA_C_CV_MIN,
             "sigma_c_abs_floor": SIGMA_C_ABS_FLOOR,
             "prior_box_k":       PRIOR_BOX_K,
+            "nodata_anchor_cv":  NODATA_ANCHOR_CV,
             "ratio_sigma_rel_floor": RATIO_SIGMA_REL_FLOOR,
             "ratio_scale_abs_floor": RATIO_SCALE_ABS_FLOOR,
         },

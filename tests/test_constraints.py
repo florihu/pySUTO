@@ -1025,6 +1025,66 @@ class TestRatioBoundBuilder:
         block   = builder.build_static(toy_acc)
         assert np.all(block.sigma_c == 0.0)
 
+    # ── empty-band guard (regression: scrap dual-class collapse) ──
+
+    def _write_two_bound_csv(self, tmp_path, b1, b2):
+        """Two bound params on the SAME (a,b) edge pair, with bands b1, b2."""
+        import csv
+        path = tmp_path / "two_bound_params.csv"
+        with open(path, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=[
+                "param_id",
+                "a_sector_from", "a_entity_from", "a_region_from",
+                "a_sector_to",   "a_entity_to",   "a_region_to",
+                "a_time",        "a_valuation",
+                "b_sector_from", "b_entity_from", "b_region_from",
+                "b_sector_to",   "b_entity_to",   "b_region_to",
+                "b_time",        "b_valuation",
+                "value_nominal", "unc_type", "value_sd", "value_min", "value_max",
+            ])
+            w.writeheader()
+            for pid, (bl, bu) in (("classlo", b1), ("classhi", b2)):
+                w.writerow({
+                    "param_id":      pid,
+                    "a_sector_from": "Mining", "a_entity_from": "Process", "a_region_from": "A",
+                    "a_sector_to":   "Ore",    "a_entity_to":   "Flow",    "a_region_to":   "A",
+                    "a_time":        "2020",   "a_valuation":   "Mass",
+                    "b_sector_from": "Ore",    "b_entity_from": "Flow",    "b_region_from": "A",
+                    "b_sector_to":   "Mining", "b_entity_to":   "Process", "b_region_to":   "A",
+                    "b_time":        "same",   "b_valuation":   "same",
+                    "value_nominal": str(0.5 * (bl + bu)), "unc_type": "min_max",
+                    "value_sd":      "", "value_min": str(bl), "value_max": str(bu),
+                })
+        return str(path)
+
+    def test_empty_band_disjoint_params_raises(self, toy_acc, tmp_path):
+        """Two hard bounds on one edge-pair whose bands don't overlap → raise.
+
+        Mirrors the scrap class-1 [0.9,0.98] ∩ class-2 [0.4,0.6] = ∅ collapse:
+        effective band [max(lo), min(hi)] is empty, so the flow is pinned to 0.
+        """
+        from pysuto.constraints import RatioBoundBuilder
+        from pysuto.constraints.engine import _validate_ratio_bounds
+        path  = self._write_two_bound_csv(tmp_path, (0.4, 0.6), (0.9, 0.98))
+        block = RatioBoundBuilder.from_csv(path, toy_acc).build_static(toy_acc)
+        with pytest.raises(ValueError, match="empty interval"):
+            _validate_ratio_bounds(block.G_rows, block.row_meta)
+
+    def test_overlapping_bands_ok(self, toy_acc, tmp_path):
+        """A single wide band [0.4,0.98] (post-merge scrap) is non-empty → OK."""
+        from pysuto.constraints import RatioBoundBuilder
+        from pysuto.constraints.engine import _validate_ratio_bounds
+        path  = self._write_bound_csv(tmp_path, bu=0.98, bl=0.4)
+        block = RatioBoundBuilder.from_csv(path, toy_acc).build_static(toy_acc)
+        _validate_ratio_bounds(block.G_rows, block.row_meta)  # must not raise
+
+    def test_value_min_gt_max_raises(self, toy_acc, tmp_path):
+        """A single param with value_min > value_max is rejected at load time."""
+        from pysuto.constraints import RatioBoundBuilder
+        path = self._write_bound_csv(tmp_path, bu=0.4, bl=0.9)  # bl>bu
+        with pytest.raises(ValueError, match="empty ratio band"):
+            RatioBoundBuilder.from_csv(path, toy_acc)
+
     # ── net-stock-change bound orientation (regression: cathode-pool collapse) ──
 
     def test_stock_bound_agg_orientation(self, toy_acc, tmp_path):
@@ -1857,6 +1917,74 @@ class TestSupplyUseScaleTotal:
         assert block.G_rows.shape[0] == 8
         assert set(rm["valuation"]) == {"Mass", "CC"}
         assert (rm["sector"] == "Mining").all()
+
+
+# ---------------------------------------------------------------------------
+# No-data ("flat-prior") σ_a magnitude anchor
+# ---------------------------------------------------------------------------
+
+def _make_anchor_acc():
+    """Minimal acc for the no-data σ_a anchor: a metallurgical sector (Scrap,
+    not excluded) with one anchored sibling + one no-data edge, and an
+    extraction edge (Mining, excluded)."""
+    from pysuto.acc import AccountingStructure
+    acc = AccountingStructure.__new__(AccountingStructure)
+    acc.node_index = pd.DataFrame(
+        [
+            ("Scrap",    "SB",      "A"),   # 0
+            ("Smelting", "Process", "A"),   # 1
+            ("Mining",   "Process", "A"),   # 2
+            ("Ore",      "Flow",    "A"),   # 3
+        ],
+        columns=["sector", "entity", "region"],
+    )
+    acc.edge_index = pd.DataFrame([
+        {"edge_id": 0, "from_id": 0, "to_id": 1, "time": "2020", "valuation": "Mass"},  # Scrap→Smelting anchored
+        {"edge_id": 1, "from_id": 0, "to_id": 1, "time": "2020", "valuation": "Mass"},  # Scrap→Smelting no-data
+        {"edge_id": 2, "from_id": 2, "to_id": 3, "time": "2020", "valuation": "Mass"},  # Mining→Ore no-data (excluded)
+    ])
+    acc.n_edges = len(acc.edge_index)
+    return acc
+
+
+class TestNodataSigmaAnchor:
+
+    def test_anchors_nodata_metallurgical_edge(self):
+        """A no-data edge (a₀=0, σ=1e6) in a non-excluded sector gets
+        σ = cv·median|a₀| of anchored siblings; the anchored sibling and the
+        extraction edge are left untouched."""
+        from pysuto.constraints import ConstraintEngine
+        acc = _make_anchor_acc()
+        eng = ConstraintEngine(acc_struct=acc)            # cv default 0.3
+        a0      = np.array([100.0, 0.0,  0.0])
+        sigma_a = np.array([  5.0, 1e6,  1e6])
+        out = eng._anchor_nodata_sigma(a0, sigma_a, acc)
+        assert out[1] == pytest.approx(0.3 * 100.0)        # cv · median(anchored Scrap a₀)
+        assert out[0] == 5.0                               # anchored sibling untouched
+        assert out[2] == 1e6                               # Mining excluded → still flat
+        assert sigma_a[1] == 1e6                           # original not mutated in place
+
+    def test_disable_switch(self):
+        """nodata_anchor_cv=0 leaves every σ_a untouched."""
+        from pysuto.constraints import ConstraintEngine
+        acc = _make_anchor_acc()
+        eng = ConstraintEngine(acc_struct=acc, nodata_anchor_cv=0.0)
+        a0      = np.array([100.0, 0.0, 0.0])
+        sigma_a = np.array([  5.0, 1e6, 1e6])
+        out = eng._anchor_nodata_sigma(a0, sigma_a, acc)
+        np.testing.assert_array_equal(out, sigma_a)
+
+    def test_below_threshold_not_anchored(self):
+        """A zero-prior edge whose σ is already below the flat threshold (i.e.
+        not a global-median fallback) is left alone — only the 1e6 fallback is
+        retargeted."""
+        from pysuto.constraints import ConstraintEngine
+        acc = _make_anchor_acc()
+        eng = ConstraintEngine(acc_struct=acc)
+        a0      = np.array([100.0, 0.0, 0.0])
+        sigma_a = np.array([  5.0, 50.0, 1e6])             # e1 σ below 1e5 threshold
+        out = eng._anchor_nodata_sigma(a0, sigma_a, acc)
+        assert out[1] == 50.0                              # untouched (not a fallback σ)
 
 
 if __name__ == "__main__":

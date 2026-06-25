@@ -156,6 +156,65 @@ def _concat_blocks(blocks: list[ConstraintBlock], n_edges: int) -> ConstraintBlo
     )
 
 
+def _validate_ratio_bounds(G: sp.spmatrix, row_meta: pd.DataFrame) -> None:
+    """Reject hard ratio bounds that pin an edge-pair to an empty interval.
+
+    Each per-pair hard ``ratio``/``nonneg`` row encodes one side of a band on
+    ``R = num/den`` (``Gx ≤ 0``): a ``+1`` on the numerator with ``-hi`` on the
+    denominator means ``R ≤ hi``; a ``-1`` with ``+lo`` means ``R ≥ lo``. When
+    several params bound the *same* ``(num, den)`` pair (e.g. two scrap conc
+    "classes"), the effective band is ``[max(lo), min(hi)]``; if that is empty
+    the only feasible flow is 0 — a silent collapse. Catch it at build time.
+    Scoped to per-pair (2-nonzero) rows; set-scoped (``agg``) rows are skipped.
+    """
+    if not len(row_meta):
+        return
+    mask = (
+        (row_meta["type"].to_numpy() == "ratio")
+        & (row_meta["cone_type"].to_numpy() == "nonneg")
+        & row_meta["is_hard"].to_numpy()
+    )
+    rows = np.where(mask)[0]
+    if rows.size == 0:
+        return
+    G_csr = G.tocsr() if not sp.isspmatrix_csr(G) else G
+    variant = row_meta["variant"].to_numpy()
+    # (num_edge, den_edge) -> [lo, hi, set(variants)]
+    bands: dict[tuple[int, int], list] = {}
+    for ri in rows:
+        cols = G_csr.indices[G_csr.indptr[ri]: G_csr.indptr[ri + 1]]
+        vals = G_csr.data[G_csr.indptr[ri]: G_csr.indptr[ri + 1]]
+        if cols.size != 2:
+            continue  # set-scoped / pooled row — out of scope
+        # numerator carries the ±1; denominator carries ∓bound
+        if np.isclose(abs(vals[0]), 1.0):
+            (num, cnum), (den, cden) = (cols[0], vals[0]), (cols[1], vals[1])
+        elif np.isclose(abs(vals[1]), 1.0):
+            (num, cnum), (den, cden) = (cols[1], vals[1]), (cols[0], vals[0])
+        else:
+            continue
+        key = (int(num), int(den))
+        b = bands.setdefault(key, [-np.inf, np.inf, set()])
+        if cnum > 0:                       # R ≤ hi
+            b[1] = min(b[1], -cden)
+        else:                              # R ≥ lo
+            b[0] = max(b[0], cden)
+        b[2].add(str(variant[ri]))
+    empty = {k: v for k, v in bands.items() if v[0] > v[1] + 1e-12}
+    if empty:
+        ex = list(empty.items())[:5]
+        detail = "; ".join(
+            f"edges(num={k[0]},den={k[1]}) band=[{v[0]:.4g},{v[1]:.4g}] "
+            f"from {sorted(v[2])}"
+            for k, v in ex
+        )
+        raise ValueError(
+            f"_validate_ratio_bounds: {len(empty)} edge-pair(s) carry hard ratio "
+            f"bounds with an empty interval (lo>hi) → those flows are pinned to 0. "
+            f"First offenders: {detail}"
+        )
+
+
 # =============================================================================
 # BaseConstraintBuilder
 # =============================================================================
@@ -191,6 +250,9 @@ class ConstraintEngine:
         sigma_c_abs_floor: float = 1e-3,
         p: float = 1.3,
         prior_box_k: Optional[float] = None,
+        nodata_anchor_cv: float = 0.3,
+        nodata_anchor_exclude_sectors: tuple = ("CO", "Mining", "Ore", "WR", "Tailings"),
+        nodata_anchor_flat_threshold: float = 1e5,
     ):
         self.acc_struct  = acc_struct
         self._builders:  list[BaseConstraintBuilder] = []
@@ -201,6 +263,9 @@ class ConstraintEngine:
         self._sigma_c_abs_floor = float(sigma_c_abs_floor)
         self._p                 = float(p)
         self._prior_box_k       = float(prior_box_k) if prior_box_k else None
+        self._nodata_anchor_cv  = float(nodata_anchor_cv)
+        self._nodata_anchor_exclude = tuple(nodata_anchor_exclude_sectors)
+        self._nodata_anchor_flat_threshold = float(nodata_anchor_flat_threshold)
 
     def _apply_prior_box(self, l, u, a0, sigma_a):
         """Tighten flow bounds to ``a₀ ± k·σ_a`` on edges with a real prior.
@@ -236,6 +301,70 @@ class ConstraintEngine:
             int(conflict.sum()),
         )
         return l_new, u_new
+
+    def _anchor_nodata_sigma(self, a0, sigma_a, acc):
+        """Soft magnitude-anchor for no-data ("flat-prior") edges.
+
+        Edges with no feed coverage are filled by ``FlatPriorImputer`` with
+        ``a₀ = 0`` and a σ whose scale cascade falls back to the *global* flow
+        median (≈1e6). That σ is a non-anchor: the prior pull ``(F−0)²/σ² ≈ 0``,
+        so the solver uses such edges as free slack and they soak up mass pulled
+        through data-free subgraphs (e.g. scrap on the Taiwan/Panama CFR nodes).
+
+        For every no-data edge *outside the extraction front-end* this replaces
+        the σ with a sector-appropriate scale
+        ``σ = max(abs_floor, cv · median|a₀| of anchored siblings in the same
+        (from_sector, valuation))``. The prior mean stays 0, so the now-meaningful
+        σ pulls the edge toward its zero seed; a hard mass balance can still force
+        genuine flow through at a finite penalty cost (soft anchor, no hard
+        infeasibility). The extraction sectors (``Mining/Ore/CO/WR/Tailings``)
+        carry a real a₀ magnitude prior (stripping ratios) and are left untouched.
+        Returns a new ``sigma_a`` array.
+        """
+        cv = self._nodata_anchor_cv
+        if cv <= 0:
+            return sigma_a
+
+        em          = acc.edge_meta
+        from_sector = em["from_sector"].to_numpy()
+        to_sector   = em["to_sector"].to_numpy()
+        valuation   = em["valuation"].to_numpy()
+
+        excl          = np.asarray(self._nodata_anchor_exclude, dtype=object)
+        is_extraction = np.isin(from_sector, excl) | np.isin(to_sector, excl)
+        nodata        = (np.abs(a0) < 1e-9) & (sigma_a >= self._nodata_anchor_flat_threshold)
+        target        = nodata & ~is_extraction
+        if not target.any():
+            _log.info("no-data σ_a anchor (cv=%.2f): 0 edges matched", cv)
+            return sigma_a
+
+        # Reference scale per (from_sector, valuation): median |a₀| over the
+        # *anchored* siblings (a₀ != 0) in that group. Verified always defined
+        # (every no-data sector has anchored siblings); global anchored median
+        # is the safety fallback for any empty group.
+        anchored = np.abs(a0) > 1e-9
+        ref_df = pd.DataFrame({
+            "from_sector": from_sector[anchored],
+            "valuation":   valuation[anchored],
+            "abs_a0":      np.abs(a0)[anchored],
+        })
+        scale_ref = ref_df.groupby(["from_sector", "valuation"])["abs_a0"].median()
+        global_ref = float(np.median(np.abs(a0)[anchored])) if anchored.any() else 1.0
+
+        keys     = list(zip(from_sector[target], valuation[target]))
+        ref_vals = scale_ref.reindex(keys).to_numpy()
+        ref_vals = np.where(np.isfinite(ref_vals), ref_vals, global_ref)
+
+        new_sigma = np.maximum(self._sigma_a_abs_floor, cv * ref_vals)
+        sigma_a = sigma_a.copy()
+        sigma_a[target] = new_sigma
+        _log.info(
+            "no-data σ_a anchor (cv=%.2f): %d edges anchored (excl. %s); "
+            "σ_new range [%.3g, %.3g]",
+            cv, int(target.sum()), ",".join(self._nodata_anchor_exclude),
+            float(new_sigma.min()), float(new_sigma.max()),
+        )
+        return sigma_a
 
     def register(self, builder: BaseConstraintBuilder) -> None:
         self._builders.append(builder)
@@ -461,6 +590,15 @@ class ConstraintEngine:
                 self._sigma_a_cv_min, self._sigma_a_abs_floor,
             )
 
+        # ── 0c. No-data ("flat-prior") σ_a magnitude anchor ───────────
+        # Replaces the global-median σ fallback (≈1e6) on no-data edges
+        # (a₀=0) outside the extraction front-end with a sector-appropriate
+        # scale, so the zero prior actually pulls and these edges stop
+        # absorbing mass routed through data-free subgraphs. Runs after Lp
+        # regularization so the anchored σ_a flows into a0.npy/sigma_a.npy
+        # and p_mean-mode σ_c propagation.
+        sigma_agg = self._anchor_nodata_sigma(f_agg, sigma_agg, acc)
+
         # ── 1. Build static G (time-invariant) ────────────────────────
         static_blocks = [b.build_static(acc) for b in self._builders]
         static_full   = _concat_blocks(static_blocks, n_edges)
@@ -469,6 +607,8 @@ class ConstraintEngine:
         sc_static     = static_full.sigma_c.copy()
         row_meta      = static_full.row_meta.copy()
         M             = G_static.shape[0]
+
+        _validate_ratio_bounds(G_static, row_meta)
 
         _log.info("ConstraintEngine: G shape (%d, %d)", M, n_edges)
 

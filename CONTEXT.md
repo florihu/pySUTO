@@ -138,9 +138,14 @@ prior, `a_prior` above). Plotted per period by SD-T-05 (prior vs posterior magni
 reserved (below).
 
 **Residual** — the per-**constraint-row** delta `G·a − c` (`OptimResult.residuals`; SD-T-01
-"Constraint-residual digest", SD-R-02 mass-balance leakage). ≈ 0 on hard rows; on a **soft
-(free) row** it equals the slack `ε` (see README §"Cone order": `Gx − ε = c`). _Avoid_:
-conflating with **defect** — residual is per-constraint, defect is per-edge.
+"Constraint-residual digest", SD-R-02 mass-balance leakage). Its feasible range depends on the
+row's cone: **≈ 0 on hard *equalities*** (`zero` cone — mass balance); **`≤ 0` on hard *bounds***
+(`nonneg` cone — ratio/flow bounds, since feasibility is `G·a ≤ c`), where a *negative* residual
+is healthy **slack** (distance below the limit), not a violation, and only a *positive* residual
+is a breach; **`= ε`, the slack, on a soft (free) row** (see README §"Cone order": `Gx − ε = c`).
+_Avoid_: (1) reading a large-negative residual on a `nonneg` bound as a violation — it is slack
+(a misread that once produced a phantom "inverted bound" diagnosis); (2) conflating with
+**defect** — residual is per-constraint, defect is per-edge.
 
 **Constraint table (prior/post)** — the harmonised **row-level, all-rows** per-`constraint_id`
 table pair (hard + soft rows; `type` / `cone_type` columns carry the family for filtering):
@@ -165,8 +170,14 @@ mass (tonnes Cu). They are linked per sector by the **concentration coefficient*
 **Concentration coefficient (`conc`).** The Cu mass fraction of a sector's commodity (e.g. Cathode
 0.9975, Anode 0.94, Matte 0.525, Concentrate 0.275; from the `conc` param). The `conc_<sector>_supply`
 relation enforces `CC = conc · Mass` on each node pair, so the two valuations of one edge are not
-independent. _Avoid_: reading the `conc_*_supply` z-violation as a "bug" — it fires whenever the two
-feeds populating the CC and Mass sides of an edge disagree.
+independent. The param's `value_nominal` drives the **soft** `CC = conc·Mass` ratio row; its
+`[value_min, value_max]` drives a **hard grade band** `value_min ≤ CC/Mass ≤ value_max`
+(`ratio`/`nonneg`). **Invariant: each commodity carries exactly one such band** — `Scrap` is one
+mixed-grade commodity with a single wide band `[0.40, 0.98]`, nominal 0.70, *not* two grade classes
+(two simultaneous hard bands on the one `Scrap/SB` node intersected to ∅ and collapsed all scrap;
+[ADR 0012](docs/adr/0012-scrap-one-mixed-grade-commodity.md)). _Avoid_: reading the `conc_*_supply`
+z-violation as a "bug" — it fires whenever the two feeds populating the CC and Mass sides of an edge
+disagree.
 
 **Recovery efficiency (`eff`).** The copper-recovery fraction of a Process, in **`CC`** (from the `eff`
 param) — the sibling coefficient to `conc`. A process's recovered Flow product is `eff · Σ(all CC

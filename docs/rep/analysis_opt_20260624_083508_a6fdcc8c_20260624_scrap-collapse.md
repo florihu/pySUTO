@@ -8,15 +8,24 @@
 
 ## 0. Executive summary
 
-Scrap is not weakly anchored — it is **hard-infeasible at any positive value**. Two independent defects each pin every one of the 5,640 scrap input edges to exactly zero:
+Scrap is not weakly anchored — it is **hard-infeasible at any positive value**, because a single
+`Scrap/SB` edge is constrained by **two mutually-exclusive hard grade bands**:
+`concscrapclass1supply` `[0.90, 0.98]` **and** `concscrapclass2supply` `[0.40, 0.60]`, both emitted
+on the same `(Mass, CC)` pair. Their intersection is `∅`, so the only feasible flow is 0 — the
+solver duly drives every one of the 5,640 scrap input edges to ~0 in every year. The prior carries a
+real ~7–18 kt/yr scrap signal, all destroyed. The per-edge prior wants scrap at `a0` with a pull of
+`(a0/σ_a)² ≈ 48`; that is irrelevant — **no soft term (prior, or the user's proposed soft sum) can
+relax a hard infeasibility.** The fix is in the hard ratio-bound spec, not the constraint init (§5).
 
-1. **Inverted ratio-bound direction (systemic).** Commit `4fd60ef` (2026-06-11, *"fixed icsg conc err + fan out"*) flipped the upper/lower sign convention in `RatioBoundBuilder._emit` ([ratio.py:550–553](../../src/pysuto/constraints/ratio.py#L550-L553)). Every hard `conc`/`eff` ratio bound now enforces the **empty band `[hi, lo]`** instead of `[lo, hi]`. For scrap-supply `conc` rows this means `grade ≥ conc_max` **and** `grade ≤ conc_min` simultaneously — satisfiable only at flow = 0.
-
-2. **Dual-class over-constraint (scrap-specific).** Both `concscrapclass1supply` (grade band 0.90–0.98) **and** `concscrapclass2supply` (0.40–0.60) are emitted as hard bounds on the **same** `Scrap/SB` root edge. Even with defect #1 corrected, `[0.90,0.98] ∩ [0.40,0.60] = ∅`, so any positive scrap flow is still infeasible.
-
-The per-edge prior wants scrap at `a0` with a pull of only `(a0/σ_a)² ≈ 48`; that is irrelevant — **no soft term (prior or a proposed soft sum) can relax a hard infeasibility.** The user's soft-sum proposal therefore **cannot** fix this. The fix must be in the hard ratio-bound construction (§5).
-
-This is the same defect *family* as `5abf8eb` ("correct inverted net-stock-change ratio bounds (cathode collapse)"), which fixed the inversion in `stock_bounds_study.py`. The `RatioBoundBuilder` inversion governing `eff` + `conc` is still live and is consistent with the paused "mining mass-collapse" work.
+> **Correction (2026-06-24).** An earlier draft of this report claimed a *second*, systemic defect: an
+> inverted `RatioBoundBuilder._emit` (commit `4fd60ef`) making every `conc`/`eff` band empty. **That was
+> wrong** — it assumed the feasibility sign backwards. Hard `nonneg` rows are feasible at **`G·a ≤ c`**
+> (Clarabel `NonnegativeConeT`, [solver.py:313](../../src/pysuto/solver.py#L313)); on disk **100 % of
+> hard nonneg rows are satisfied** (max residual ≈ +2e-9), and the large *negative* residuals are slack,
+> not violations (see CONTEXT.md §"Residual"). `_emit`, `eff`, and `stock_bounds` are correct — the
+> `5abf8eb` net-stock fix at the generator/CSV layer (ADR 0005 amendment) confirms the convention. A
+> scan of all 637,320 bounded edge-pairs finds the empty-band defect is **scrap and only scrap** (2,820
+> pairs); no other `conc`/`eff`/`trade_shares`/`stock_bounds` band is contradictory.
 
 ---
 
@@ -45,7 +54,7 @@ Per-year totals over the **2,820 scrap-Mass edges** (94 regions/yr). `a0` is rea
 | 2020 | 14,791 | 2.5e-9 | 94/94 |
 | 2024 | 17,762 | 1.1e-6 | 94/94 |
 
-The prior run `opt_20260616_102226_a28a854e` shows the same edge at `F*≈3.4e-7` — the collapse is **longstanding** (post-`4fd60ef`, 2026-06-11), not new to this run. "Previously 10⁴" = the `a0`/feed signal, which the optimiser has never respected.
+The prior run `opt_20260616_102226_a28a854e` shows the same edge at `F*≈3.4e-7` — the collapse is **longstanding** (as long as both scrap classes have shipped), not new to this run. "Previously 10⁴" = the `a0`/feed signal, which the optimiser has never respected.
 
 ---
 
@@ -70,95 +79,109 @@ The prior run `opt_20260616_102226_a28a854e` shows the same edge at `F*≈3.4e-7
 | 216331 | `concscrapclass2supply…` | ratio | free | ❌ | −0.50 | +1.00 | 125 |
 | 219151 | `concscrapclass1supply…` | ratio | free | ❌ | −0.94 | +1.00 | 94 |
 
-Decoding the four **hard** `nonneg` rows (`coeff·F ≥ 0`) into bounds on grade `g = CC/Mass`:
+Decoding the four **hard** `nonneg` rows (feasible at `coeff·F ≤ 0`, the Clarabel convention) into
+bounds on grade `g = CC/Mass`. The `bound_dir` labels are **correct**:
 
-| row | `bound_dir` | inequality | implied bound on g |
+| row | `bound_dir` | inequality (`≤ 0`) | implied bound on g |
 |---|---|---|---|
-| 809100 | **upper** | `−0.98·Mass + CC ≥ 0` | `g ≥ 0.98`  ← a *lower* bound |
-| 809101 | **lower** | `+0.90·Mass − CC ≥ 0` | `g ≤ 0.90`  ← an *upper* bound |
-| 803460 | **upper** | `−0.60·Mass + CC ≥ 0` | `g ≥ 0.60` |
-| 803461 | **lower** | `+0.40·Mass − CC ≥ 0` | `g ≤ 0.40` |
+| 809100 | upper | `−0.98·Mass + CC ≤ 0` | `g ≤ 0.98` |
+| 809101 | lower | `+0.90·Mass − CC ≤ 0` | `g ≥ 0.90` |
+| 803460 | upper | `−0.60·Mass + CC ≤ 0` | `g ≤ 0.60` |
+| 803461 | lower | `+0.40·Mass − CC ≤ 0` | `g ≥ 0.40` |
 
-The `bound_dir` label is **inverted** relative to the inequality it produces. Combined feasible set:
+So class-1 gives `g ∈ [0.90, 0.98]` and class-2 gives `g ∈ [0.40, 0.60]`, both **hard** on the one
+edge. Combined feasible set:
 
 ```
-g ≥ max(0.98, 0.60) = 0.98   AND   g ≤ min(0.90, 0.40) = 0.40
-→  0.98 ≤ g ≤ 0.40  →  ∅   →  only Mass = CC = 0 is feasible.
+g ≥ max(0.90, 0.40) = 0.90   AND   g ≤ min(0.98, 0.60) = 0.60
+→  0.90 ≤ g ≤ 0.60  →  ∅   →  only Mass = CC = 0 is feasible.
 ```
 
-**Counterfactual** (set the edge back to `a0`, hold others fixed): rows 38361, 809100, 803460, 803461 flip infeasible (residuals +4997, −4897, −2998, +1499). Prior penalty *saved* = 48; hard infeasibility *incurred* = unbounded. The solver's only feasible move is scrap → 0. **Verdict: hard-constraint forced collapse**, not a weak prior.
+**Counterfactual** (set the edge back to `a0` ⇒ grade 0.50, hold others fixed): class-2 `[0.40,0.60]`
+is satisfied (0.50 ✓), but the class-1 lower bound `g ≥ 0.90` is violated (row 809101 residual
+`0.90·Mass − CC = +1999 > 0`). The two classes cannot both hold for any positive flow, so the solver's
+only feasible move is scrap → 0. Prior penalty *saved* by `a0` = `(a0/σ_a)² ≈ 48`; irrelevant against a
+hard infeasibility. **Verdict: dual-class hard-band contradiction forces the collapse**, not a weak
+prior and not an inverted builder.
 
-Mass balance (row 38361) is *not* the driver — with scrap free, other inputs rebalance. The **conc-supply hard bounds are the killers.**
+Mass balance (row 38361) is *not* the driver — with scrap free, other inputs rebalance. The **two
+conc-supply hard bands on one edge are the killers.**
 
 ---
 
 ## 4. Root cause (Step 5)
 
-### 4a. Inversion source — `RatioBoundBuilder._emit`
+### 4a. Two grade classes mapped onto one node
 
-`4fd60ef` changed both where `r_coeff` is applied **and** the upper/lower signs:
-
-```python
-# current (post-4fd60ef) — ratio.py:550-553
-if not np.isnan(bu): _emit("upper", ei_sign= 1.0, ej_sign=-1.0, r_coeff=bu)
-if not np.isnan(bl): _emit("lower", ei_sign=-1.0, ej_sign= 1.0, r_coeff=bl)
-```
-
-With `ej = a = Mass` (numerator), `ei = b = CC` (denominator) and conc value = grade = `CC/Mass = b/a`, this emits `g ≥ bu` (upper) and `g ≤ bl` (lower) — the band `[bu, bl]`, which is empty whenever `bl < bu` (always, by construction). The conc params at [data/input/params/conc/v1/params.csv](../../data/input/params/conc/v1/params.csv):
+The two scrap conc params in [data/input/params/conc/current/params.csv](../../data/input/params/conc/current/params.csv) both target the **same** `Scrap/SB` root node (their comments say *"Mapped from 'Scrap_class_N' → root 'Scrap/SB'"*):
 
 | param | value_min | value_max | source |
 |---|---|---|---|
 | `concscrapclass2supply` | 0.4 | 0.6 | Schlesinger et al. (2022, Ch.18) — mixed low-grade |
 | `concscrapclass1supply` | 0.9 | 0.98 | high-grade |
 
-### 4b. The inversion is systemic (eff too)
+`RatioBoundBuilder` emits each as a **hard** grade band on the one `(Mass, CC)` pair. Two disjoint hard bands on one edge ⇒ empty feasible set ⇒ flow pinned to 0. This is systemic: all **2,820** scrap-Mass edges (94 regions × Smelting+CFR × 30 yr) carry the same `class-1 ∩ class-2 = ∅`.
 
-11,280 hard `conc`-scrap-supply rows (5,640 upper + 5,640 lower) follow the identical inverted pattern across all 94 regions. The **`eff` bounds are inverted identically**: `effsmelting` 2024 emits `Matte ≥ 0.98·Σinputs` (upper) **and** `Matte ≤ 0.95·Σinputs` (lower) → empty band `[0.98, 0.95]`. Difference in outcome:
+### 4b. The builder is correct — there is no inversion
 
-- **eff outputs** (Matte, CSXEW, …) are pinned **nonzero** by downstream demand + the soft eff equation, so the contradictory hard bound is merely **violated** (e.g. Matte 386.8 vs 0.95·Σin ≈ 382 → residual ≈ +5). These are the hundreds-magnitude residual / huge-z hard rows seen in the first-pass scan.
-- **scrap-supply conc** edges have **no downstream pull** (scrap is a secondary input, missing→0 per ADR 0004/0005), so the optimiser satisfies the contradiction the only feasible way: drive scrap to **exactly 0**.
+An earlier draft blamed an inverted `RatioBoundBuilder._emit` (commit `4fd60ef`). **That was a misread of the cone sign.** Hard `nonneg` rows are feasible at `G·a ≤ c` (Clarabel `NonnegativeConeT`, [solver.py:313](../../src/pysuto/solver.py#L313)); decoded that way the `bound_dir` labels and bands are correct (§3). Empirics confirm it:
 
-So one inversion explains both the broad eff/stock "violations" and the total scrap collapse.
+- **100 % of hard nonneg rows feasible** — max residual ≈ +2e-9 on disk; the 5,399 large-*negative* residuals are slack, not violations.
+- The `eff` bounds are **correct**: `effsmelting` 2024 holds `0.95·Σin ≤ Matte ≤ 0.98·Σin`, and the solved `Matte/Σin ≈ 0.965` sits inside it.
+- A scan of **all 637,320 bounded edge-pairs** finds an empty band on **exactly 2,820 — every one the scrap conflict**. No other `conc`/`eff`/`trade_shares`/`stock_bounds` band is contradictory.
 
-### 4c. Why the sign-revert alone is insufficient for scrap (defect #2)
-
-Reverting to `upper:(ei=-1, ej=+1, r=bu)`, `lower:(ei=+1, ej=-1, r=bl)` (old signs, new `r_coeff` placement) yields the **correct** bands:
-
-| class | current (empty) | fixed |
-|---|---|---|
-| class1 | `g ≥ 0.98 ∧ g ≤ 0.90` | `g ∈ [0.90, 0.98]` |
-| class2 | `g ≥ 0.60 ∧ g ≤ 0.40` | `g ∈ [0.40, 0.60]` |
-
-But both classes still bind the **same** edge as hard constraints → `[0.90,0.98] ∩ [0.40,0.60] = ∅`. `a0` grade 0.50 fits class2 only. **Scrap stays pinned to 0 until defect #2 is also resolved.** The params note both are *"Mapped … → root 'Scrap/SB'"* — two physical grade classes collapsed onto one root edge.
+So the cause is **solely** the dual-class mapping; `_emit`, `eff`, and `stock_bounds` (the latter fixed at the generator layer in `5abf8eb`, ADR 0005 amendment) are all sound.
 
 ---
 
-## 5. Fix strategies (Step 6) — ranked
+## 5. Fix (implemented)
 
-> Investigation-only per the user's instruction; no code changed. The user picks.
+Scrap is **one** mixed-grade commodity (one `Scrap/SB` node; ADR 0005 single pool), so the two
+classes are merged into a single `concscrapsupply` band `[0.40, 0.98]`, `value_nominal = 0.70`
+(blend). The band contains the prior grade (0.50→now 0.70), so scrap is freed; the level is then set
+by the eff balance + priors. Decision recorded in
+[ADR 0012](../adr/0012-scrap-one-mixed-grade-commodity.md).
 
-| # | fix | P(fixes it) | complexity | blast radius |
-|---|---|---|---|---|
-| **1** | **Revert the `_emit` sign inversion** in `RatioBoundBuilder` ([ratio.py:550–553](../../src/pysuto/constraints/ratio.py#L550-L553)) to `upper:(ei=-1, ej=+1, r=bu)`, `lower:(ei=+1, ej=-1, r=bl)`. | High — necessary | 1-line | **Large but correct**: fixes *all* `eff`+`conc` hard bounds; should also relieve the eff/stock violations and the broader "mining mass-collapse". Re-solve required. |
-| **2** | **De-conflict the scrap dual-class bound** (needed *in addition* to #1 for scrap to recover). Options, simplest first: (a) emit a single **union** band `[min(value_min), max(value_max)] = [0.40, 0.98]` per shared `Scrap/SB` edge; (b) make `conc…supply` bounds **soft** (free cone, σ from `min_max`) so they pull but don't pin; (c) **split** scrap into `class_1`/`class_2` edges. | High (with #1) | (a) small / (b) small / (c) large | (a)/(b) scrap edges only; (c) touches accounting structure. |
-| 3 | **Soft sum constraint on scrap (user's original idea).** | **~0 alone** | medium | Cannot relax a hard infeasibility; target `c` is circular (4,528/5,640 edges have no feed); a sum pins only the total, not members. Documented for completeness — **not recommended.** |
+To prevent recurrence across **all** param classes, `ConstraintEngine.run` now rejects any edge-pair
+whose hard ratio bounds intersect to ∅ (`_validate_ratio_bounds`), and `RatioBoundBuilder.from_csv`
+rejects `value_min > value_max`. Glossary sharpened (CONTEXT.md §"Residual", §"Concentration
+coefficient"). Alternatives considered and rejected: **split** scrap into two nodes (contradicts the
+root node, no feed data); **soft-only** conc bounds (keeps two conflicting pulls); a **soft sum** on
+scrap (the original idea — cannot relax a hard infeasibility, circular target, pins only the total).
 
-**Recommended:** #1 + #2(a) or #2(b). Verify by re-solving and checking (i) Σ scrap-Mass `F*` returns to the `a0` order (~7–18 kt), (ii) `eff`/`conc` hard-row residuals drop from hundreds to ~0, (iii) no new collapses elsewhere.
+**Verified (re-solve `opt_20260625_064556_c98db9b0`, conc `v4`, nominal 0.70):**
+
+- Empty-band scan on the new const → **0 pairs** (was 2,820); the build-time guard passes on the
+  merged params.
+- Scrap is un-collapsed. The **anchored** scrap-Mass edges (a0 ≥ 0.1) land at their prior —
+  **median `F*/a0 = 0.96`** (2024). Edge 291598 (China Smelting): `F* = 6,238 t`, grade 0.846 ∈
+  `[0.4,0.98]`.
+- Mass-balance residual `max|Gx−c| = 3.9e-8`; `pytest tests/test_constraints.py` 76 passed.
+- Boundary totals (`sd_r_10_boundary_flows.png`): Scrap returns as a live SB *input* (~10⁴–10⁵ t/yr)
+  vs ~0 before.
+
+**Follow-up (separate, pre-existing — not this fix).** The **flat-prior** scrap edges (a0 = 0,
+σ = 1e6; 57/94 in 2024) overshoot: they sum to ~82 kt, dominated by **Taiwan CFR ≈ 40 kt** and
+**Panama CFR ≈ 40 kt** — regions with no scrap prior where scrap floats as a slack variable for the
+CFR/Smelting eff balance (the band constrains *grade*, not *magnitude*). This is the "weakly-anchored
+scrap" condition (§ coverage: 4,528/5,640 edges have no feed); previously masked by the empty-band
+collapse. Candidate next step: a magnitude anchor on scrap (scale-total or tighter flat-prior σ),
+tracked separately.
 
 ---
 
-## 6. Verification done
+## 6. Evidence captured
 
 - Per-year scrap totals (a0 vs F*, all 94 edges collapse every year) — ad-hoc numpy over the `t_*.npz` / `a0.npy` arrays below.
-- Edge-291598 row decode + counterfactual: 4 hard rows force flow=0; prior pull = 48 ≪ hard infeasibility.
-- Systemic: 11,280 hard conc-supply rows, identical inversion; eff bounds inverted identically; eff outputs violated-not-collapsed (187/235 nonzero).
-- Sign-revert algebra verified to restore `[lo,hi]`; dual-class intersection confirmed empty post-revert.
+- Edge-291598 row decode + counterfactual: class-1 and class-2 hard bands disjoint ⇒ flow=0; prior pull ≈ 48 ≪ hard infeasibility.
+- Cone convention confirmed from disk: 100 % of hard nonneg rows feasible (`G·a ≤ c`, max residual ≈ +2e-9); eff band `[0.95,0.98]` satisfied at 0.965.
+- Full scan of 637,320 bounded edge-pairs ⇒ empty band on exactly 2,820, all scrap; no other param class affected.
 
 ## Sources
 
 - `data/proc/opt/opt_20260624_083508_a6fdcc8c/timesteps/t_*.npz` — `F_opt`, `cols_t`, `residuals`
 - `data/proc/const/const_20260624_082019_faf4c868/{G.npz, a0.npy, sigma_a.npy, row_meta.parquet, timesteps/t_*.npz}`
 - `data/proc/acc/copper/{edge_index.csv, node_index.csv}`
-- `data/input/params/conc/v1/params.csv`
-- `src/pysuto/constraints/ratio.py` — `RatioBoundBuilder.from_csv` (393–478), `build_static._emit` (524–553)
-- commits `4fd60ef` (inversion introduced), `5abf8eb` (sibling fix in `stock_bounds_study.py`)
+- `data/input/params/conc/current/params.csv`
+- `src/pysuto/constraints/ratio.py` — `RatioBoundBuilder.from_csv` / `build_static._emit`; `src/pysuto/solver.py:313` (cone)
+- `src/pysuto/constraints/engine.py` — `_validate_ratio_bounds`

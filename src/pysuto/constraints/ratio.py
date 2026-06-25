@@ -425,6 +425,11 @@ class RatioBoundBuilder(BaseConstraintBuilder):
             bu      = float_or(row.get("value_max", "nan"), np.nan)
             if np.isnan(bl) and np.isnan(bu):
                 continue
+            if not np.isnan(bl) and not np.isnan(bu) and bl > bu:
+                raise ValueError(
+                    f"RatioBoundBuilder: param {row.get('param_id', '?')!r} has "
+                    f"value_min={bl} > value_max={bu} — empty ratio band."
+                )
 
             # A user param_id, if present, becomes the grammar `variant` slot
             # (underscore-free); otherwise the bound variant is "bound".
