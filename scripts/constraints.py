@@ -109,7 +109,14 @@ PRIOR_BOX_K       = None
 # stop absorbing mass routed through data-free subgraphs (e.g. scrap on Taiwan/
 # Panama CFR). Extraction front-end {CO,Mining,Ore,WR,Tailings} is excluded (real
 # stripping-ratio magnitude prior). 0 disables. See ADR 0013.
-NODATA_ANCHOR_CV  = 0.3
+NODATA_ANCHOR_CV  = 0.0
+# Cold sensitivity run (branch sensitivity/no-flat-prior-zeros): hard-pin every
+# genuine no-data ("flat-prior") leaf edge to [0,0] in the flow bounds — "no feed
+# data ⇒ no flow" — and solve on the data-backed remainder. Supersedes the soft
+# NODATA_ANCHOR_CV pull (set to 0 above so it does not re-tighten σ on edges we
+# have already pinned). The pin spares structurally-determined edges (extraction
+# chain + all four SEM residual outputs {WR,Tailings,Slag,PSC}); see ADR 0013.
+PIN_FLAT_PRIOR_ZEROS = True
 # Soft-ratio σ_c scaling (REP analysis_opt_20260611_075036 §8.2): the CSV ratio
 # σ_r is rescaled to flow space per row, σ_c = max(σ_r, REL_FLOOR) ·
 # max(Σ|a₀,num|, |r|·Σ|a₀,denom|, ABS_FLOOR). REL_FLOOR caps |z| at 1/floor on
@@ -169,6 +176,7 @@ def main(imp_run_id: str, label: str) -> None:
         sigma_c_abs_floor = SIGMA_C_ABS_FLOOR,
         prior_box_k       = PRIOR_BOX_K,
         nodata_anchor_cv  = NODATA_ANCHOR_CV,
+        pin_flat_prior_zeros = PIN_FLAT_PRIOR_ZEROS,
     )
 
     # 1. Hard mass balance
@@ -273,6 +281,7 @@ def main(imp_run_id: str, label: str) -> None:
             "sigma_c_abs_floor": SIGMA_C_ABS_FLOOR,
             "prior_box_k":       PRIOR_BOX_K,
             "nodata_anchor_cv":  NODATA_ANCHOR_CV,
+            "pin_flat_prior_zeros": PIN_FLAT_PRIOR_ZEROS,
             "ratio_sigma_rel_floor": RATIO_SIGMA_REL_FLOOR,
             "ratio_scale_abs_floor": RATIO_SCALE_ABS_FLOOR,
         },

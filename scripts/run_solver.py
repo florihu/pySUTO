@@ -34,7 +34,10 @@ from datetime import datetime
 CONST_DIR  = os.path.join("data", "proc", "const")
 OUTPUT_DIR = os.path.join("data", "proc", "opt")
 TIMESTEPS  = None #[1995]           # None → all timesteps in the run
-FEASIBILITY_CHECK_FIRST_ONLY = True
+# Sensitivity cold run: scan every year up front so an infeasibility introduced
+# by the flat-prior-zero pin halts at — and localises — the first breaking year,
+# rather than only checking year 0. See branch sensitivity/no-flat-prior-zeros.
+FEASIBILITY_CHECK_FIRST_ONLY = False
 
 
 # ---------------------------------------------------------------------------
