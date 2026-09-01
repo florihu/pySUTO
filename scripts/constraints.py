@@ -25,11 +25,16 @@ Constraint types (registered in order)
 4  Soft ratio — efficiency     — RatioConstraintBuilder (copper_efficiency_params.csv)
 5  Hard ratio bounds — conc    — RatioBoundBuilder (copper_conc_params.csv)
 6  Hard ratio bounds — eff     — RatioBoundBuilder (copper_efficiency_params.csv)
-7  Net stock bounds           — RatioBoundBuilder (stock_bounds/params.csv);
+7  Net stock bounds           — RatioConstraintBuilder or RatioBoundBuilder
+                                 (stock_bounds/params.csv, per STOCK_BOUNDS_MODE);
                                  each row carries `agg=true` so the builder
                                  sums every matched a-side edge into one
                                  G row and every matched b-side edge into
                                  another, per (region, time, valuation).
+7b Scrap-share bands          — RatioBoundBuilder (scrap_share/params.csv, per
+                                 SCRAP_SHARE_MODE); per (region, P∈{Smelting,CFR})
+                                 hard band bl·Σ(CC inputs to P) ≤ Σ(Scrap→P) ≤
+                                 bu·Σ(CC inputs to P), agg=true.
 8  Hard flow bounds           — FlowBoundsBuilder (from acc_struct.bounds)
 
 ═══════════════════════════════════════════════════════════
@@ -107,15 +112,23 @@ PRIOR_BOX_K       = None
 # to the global-median (≈1e6) get σ = NODATA_ANCHOR_CV · median|a₀| of anchored
 # siblings in the same (from_sector, valuation), so the zero prior pulls and they
 # stop absorbing mass routed through data-free subgraphs (e.g. scrap on Taiwan/
-# Panama CFR). Extraction front-end {CO,Mining,Ore,WR,Tailings} is excluded (real
-# stripping-ratio magnitude prior). 0 disables. See ADR 0013.
-NODATA_ANCHOR_CV  = 0.0
+# Panama CFR). 0.05 ⇒ z=20 per median-sibling-flow deviation: tight, but soft —
+# a hard mass balance can still force genuine flow at visible penalty cost.
+# This is the EFFECTIVE QP-side mechanism: the flat-prior-zero pin below only
+# reaches the feasibility pre-check (ConstraintRun.l/u are never handed to
+# Clarabel), so the anchor must not be disabled in its favour. Exclusion list
+# is aligned with the pin's (extraction chain + all four SEM residual outputs);
+# see NODATA_ANCHOR_EXCLUDE and ADR 0013.
+NODATA_ANCHOR_CV  = 0.05
+NODATA_ANCHOR_EXCLUDE = ("CO", "Mining", "Ore", "WR", "Tailings", "Slag", "PSC")
 # Cold sensitivity run (branch sensitivity/no-flat-prior-zeros): hard-pin every
 # genuine no-data ("flat-prior") leaf edge to [0,0] in the flow bounds — "no feed
-# data ⇒ no flow" — and solve on the data-backed remainder. Supersedes the soft
-# NODATA_ANCHOR_CV pull (set to 0 above so it does not re-tighten σ on edges we
-# have already pinned). The pin spares structurally-determined edges (extraction
-# chain + all four SEM residual outputs {WR,Tailings,Slag,PSC}); see ADR 0013.
+# data ⇒ no flow". NOTE: the pin's l/u boxes only constrain the feasibility
+# pre-check probe, NOT the QP (FlowBoundsBuilder is a no-op for G) — the soft
+# NODATA_ANCHOR_CV above is what the solver actually feels. The pin stays on to
+# keep the pre-check strict and document intent. The pin spares structurally-
+# determined edges (extraction chain + all four SEM residual outputs
+# {WR,Tailings,Slag,PSC}); see ADR 0013.
 PIN_FLAT_PRIOR_ZEROS = True
 # Soft-ratio σ_c scaling (REP analysis_opt_20260611_075036 §8.2): the CSV ratio
 # σ_r is rescaled to flow space per row, σ_c = max(σ_r, REL_FLOOR) ·
@@ -134,6 +147,17 @@ RATIO_SCALE_ABS_FLOOR = 100.0
 # bounds went infeasible under the flat-prior-zero pin (denominator collapse);
 # see docs/rep/analysis_const_20260625_130524_...flat-prior-zero-pin-cold.md.
 STOCK_BOUNDS_MODE = "soft"
+# Scrap-share bands: per (region, process P∈{Smelting,CFR}) hard nonneg-cone band
+# bl·Σ(CC inputs to P) ≤ Σ(Scrap→P, CC) ≤ bu·Σ(CC inputs to P), bands derived
+# per-region from observed ICSG scrap shares (scripts/explo/scrap_share_study.py).
+# Guards the secondary/primary input mix: without it, no-data Scrap→Process edges
+# (in neither scale-total sum family) acted as free copper faucets and inverted
+# the primary share (see REP analysis_opt_20260901_080337_99aa122f). "hard" →
+# RatioBoundBuilder; "soft" → RatioConstraintBuilder fallback (if the hard band
+# ever conflicts with eff/grade bands at the feasibility check); "off" disables.
+# Deliberately hard-only (no soft centre row): a soft pull toward median·inputs
+# would fight the NODATA_ANCHOR_CV zero anchor on no-data regions.
+SCRAP_SHARE_MODE = "hard"
 
 _log = get_logger("init_copper_constraints")
 
@@ -184,6 +208,7 @@ def main(imp_run_id: str, label: str) -> None:
         sigma_c_abs_floor = SIGMA_C_ABS_FLOOR,
         prior_box_k       = PRIOR_BOX_K,
         nodata_anchor_cv  = NODATA_ANCHOR_CV,
+        nodata_anchor_exclude_sectors = NODATA_ANCHOR_EXCLUDE,
         pin_flat_prior_zeros = PIN_FLAT_PRIOR_ZEROS,
     )
 
@@ -266,6 +291,13 @@ def main(imp_run_id: str, label: str) -> None:
                           scale_abs_floor=RATIO_SCALE_ABS_FLOOR)
     else:
         _register_builder(RatioBoundBuilder, "stock_bounds", kind="stock_bounds")
+    # 7b. Scrap-share bands — hard (nonneg cone) by default; see SCRAP_SHARE_MODE
+    if SCRAP_SHARE_MODE == "hard":
+        _register_builder(RatioBoundBuilder, "scrap_share", kind="scrap_share")
+    elif SCRAP_SHARE_MODE == "soft":
+        _register_builder(RatioConstraintBuilder, "scrap_share",
+                          sigma_rel_floor=RATIO_SIGMA_REL_FLOOR,
+                          scale_abs_floor=RATIO_SCALE_ABS_FLOOR)
 
     # 8. Hard flow bounds from acc_struct
     _log.info("Registering FlowBoundsBuilder")
@@ -294,10 +326,12 @@ def main(imp_run_id: str, label: str) -> None:
             "sigma_c_abs_floor": SIGMA_C_ABS_FLOOR,
             "prior_box_k":       PRIOR_BOX_K,
             "nodata_anchor_cv":  NODATA_ANCHOR_CV,
+            "nodata_anchor_exclude": list(NODATA_ANCHOR_EXCLUDE),
             "pin_flat_prior_zeros": PIN_FLAT_PRIOR_ZEROS,
             "ratio_sigma_rel_floor": RATIO_SIGMA_REL_FLOOR,
             "ratio_scale_abs_floor": RATIO_SCALE_ABS_FLOOR,
             "stock_bounds_mode": STOCK_BOUNDS_MODE,
+            "scrap_share_mode":  SCRAP_SHARE_MODE,
         },
     )
 

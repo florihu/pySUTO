@@ -3,6 +3,27 @@
 **Status:** accepted (soft σ anchor); the hard flat-prior-zero *pin* is an
 experimental sensitivity variant (branch `sensitivity/no-flat-prior-zeros`).
 
+**Amended 2026-09-01:**
+1. **The pin's `l`/`u` boxes only reach the feasibility pre-check, not the QP.**
+   `ConstraintRun.l/.u` are read solely by `ClarabelSolver.feasibility_check`;
+   neither solve path hands them to Clarabel (`FlowBoundsBuilder` is a
+   documented no-op for `G`). The claim below that the pin is "mathematically
+   identical to deleting the edge from every linear constraint" therefore holds
+   only inside the feasibility probe. In the actual solve, pinned edges kept
+   σ = 1e6 and acted as free slack — the QP-effective mechanism is the **soft σ
+   anchor**, which must not be disabled in the pin's favour
+   (`NODATA_ANCHOR_CV = 0.05` since the scrap-faucet fix; see REP
+   `analysis_opt_20260901_080337_99aa122f_20260901_all-years-deviation-scan.md`).
+2. **The anchor's exclusion list is widened to the pin's 7-sector hand-list**
+   `{CO, Mining, Ore, WR, Tailings, Slag, PSC}`, closing the "latent hole"
+   below. The structural-detection follow-up stays open with one added
+   requirement: it must be **direction-aware**. Bare `entity_sub == "SEM"`
+   matching would also exempt `Scrap` (a SEM secondary *input*, reached via a
+   use edge) — exactly the sector the anchor exists to discipline. Only
+   supply-side edges into SEM SB nodes (the residual outputs) qualify; see
+   CONTEXT.md §"System-boundary category" for the residual-output vs
+   secondary-input distinction.
+
 ## Context
 
 ~83 % of root edges have **no feed coverage** and are filled by
