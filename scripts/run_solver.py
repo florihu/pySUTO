@@ -38,6 +38,11 @@ TIMESTEPS  = None #[1995]           # None → all timesteps in the run
 # by the flat-prior-zero pin halts at — and localises — the first breaking year,
 # rather than only checking year 0. See branch sensitivity/no-flat-prior-zeros.
 FEASIBILITY_CHECK_FIRST_ONLY = False
+# Clarabel iteration cap. The default (200) is too low for the pinned, soft-stock
+# 1.37M-row phase-1 feasibility QP (converges but not within 200 iters → spurious
+# MaxIterations reported as infeasible). max_iter is a CAP, so easy runs still stop
+# early; raising it only helps the hard pinned scan. 2000 solves 1995 feasibility.
+MAX_ITER = 2000
 
 
 # ---------------------------------------------------------------------------
@@ -72,7 +77,8 @@ def main(const_run_id: str, label: str = "", prior_mode: str = "warm") -> None:
                             tol_gap_rel=1e-3, tol_gap_abs=1e-1,
                             reduced_tol_feas=1e-5,
                             reduced_tol_gap_rel=1e-2,
-                            reduced_tol_gap_abs=1e2, 
+                            reduced_tol_gap_abs=1e2,
+                            max_iter=MAX_ITER,
                             prior_mode=prior_mode,)
 
     _log.info("Solving ConstraintRun '%s'", const_run_id)

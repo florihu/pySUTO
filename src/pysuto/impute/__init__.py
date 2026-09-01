@@ -30,6 +30,7 @@ from .formula    import FormulaImputer, FormulaRelation, ParamRef, SourceTerm
 from .network    import NetworkImputer, ProcessRecipe, derive_process_recipes
 from .trade      import TradeImputer
 from .time       import TimeImputer
+from .share      import ShareImputer
 from .flat_prior import FlatPriorImputer
 
 __all__ = [
@@ -48,6 +49,7 @@ __all__ = [
     "ParamRef",
     "SourceTerm",
     "TimeImputer",
+    "ShareImputer",
     "FlatPriorImputer",
     "_reg_sensitivity",
 ]

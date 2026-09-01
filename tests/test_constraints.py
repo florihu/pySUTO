@@ -831,6 +831,80 @@ class TestRatioConstraintBuilder:
             assert np.isclose(row, 1.0).sum() == 1
             assert np.isclose(row, -0.8).sum() == 1
 
+    def _write_stock_bound_csv(self, tmp_path, value_max=0.1):
+        """One agg net-stock bound row: numerator (b) = Mining→Waste/SB (net stock),
+        denominator (a) = Mining→Ore (throughput). value_nominal=0, ±value_max band,
+        empty unc_type (matches the shipped stock_bounds params)."""
+        import csv
+        path = tmp_path / "stock.csv"
+        with open(path, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=[
+                "param_id", "param_type", "agg",
+                "a_sector_from", "a_entity_from", "a_region_from",
+                "a_sector_to",   "a_entity_to",   "a_region_to", "a_time", "a_valuation",
+                "b_sector_from", "b_entity_from", "b_region_from",
+                "b_sector_to",   "b_entity_to",   "b_region_to", "b_time", "b_valuation",
+                "value_nominal", "unc_type", "value_sd", "value_min", "value_max",
+                "bound_lower", "bound_upper",
+            ])
+            w.writeheader()
+            w.writerow({
+                "param_id": "netstockboundtest", "param_type": "stock_bound", "agg": "true",
+                "a_sector_from": "Mining", "a_entity_from": "Process", "a_region_from": "*",
+                "a_sector_to": "Ore", "a_entity_to": "Flow", "a_region_to": "*",
+                "a_time": "*", "a_valuation": "Mass",
+                "b_sector_from": "Mining", "b_entity_from": "Process", "b_region_from": "*",
+                "b_sector_to": "Waste", "b_entity_to": "SB", "b_region_to": "*",
+                "b_time": "*", "b_valuation": "Mass",
+                "value_nominal": "0", "unc_type": "", "value_sd": "",
+                "value_min": str(-value_max), "value_max": str(value_max),
+                "bound_lower": "", "bound_upper": "",
+            })
+        return str(path)
+
+    def test_stock_bound_soft_sigma_c_throughput_scaled(self, toy_acc, tmp_path):
+        """param_type='stock_bound' → free-cone soft ratio whose σ_c scales off the
+        THROUGHPUT denominator (σ_c = (value_max/Z95)·Σ|a₀,denom|), NOT the quasi-hard
+        abs-floor value. Also: z-at-prior ≈ Z95 at the p95 edge (O(1)), and a collapsed
+        denominator keeps σ_c finite & soft (feasibility under the flat-prior-zero pin)."""
+        from pysuto.constraints import RatioConstraintBuilder
+        from pysuto.constraints.ratio import Z95_STOCK
+        from pysuto.constraints.sum import SIGMA_C_INACTIVE
+
+        p95  = 0.1
+        path = self._write_stock_bound_csv(tmp_path, value_max=p95)
+        builder = RatioConstraintBuilder.from_csv(
+            path, toy_acc, sigma_rel_floor=0.02, scale_abs_floor=100.0)
+        static = builder.build_static(toy_acc)
+        assert static.G_rows.shape[0] == 2                     # region A × 2 years
+        assert (static.row_meta["cone_type"] == "free").all()  # soft, not nonneg
+
+        tput = 10_000.0
+        f = np.zeros(toy_acc.n_edges)
+        s = np.ones(toy_acc.n_edges)
+        f[[0, 5]] = tput             # Mining→Ore supply (throughput), both years
+        f[[4, 9]] = p95 * tput       # Mining→Waste/SB (net stock) at the band edge
+
+        blk    = builder.build_dynamic(toy_acc, f, s, "2020")
+        active = (blk.row_meta["time"].astype(str) == "2020").to_numpy()
+        assert active.sum() == 1
+
+        sc = blk.sigma_c[active][0]
+        assert sc == pytest.approx((p95 / Z95_STOCK) * tput, rel=1e-6)  # ≈ 608 t
+        assert sc > 100.0                                              # NOT quasi-hard (~2 t)
+        assert blk.sigma_c[~active][0] == pytest.approx(SIGMA_C_INACTIVE)  # off-year deactivated
+
+        # z at the prior = |residual|/σ_c ≈ Z95 when the stock sits at the empirical p95.
+        resid = (blk.G_rows @ f - blk.c)[active][0]
+        assert abs(resid) / sc == pytest.approx(Z95_STOCK, rel=1e-6)
+
+        # Denominator collapse (flat-prior-zero pin): σ_c stays finite & soft, not 0.
+        blk0 = builder.build_dynamic(toy_acc, np.zeros(toy_acc.n_edges), s, "2020")
+        a0   = (blk0.row_meta["time"].astype(str) == "2020").to_numpy()
+        sc0  = blk0.sigma_c[a0][0]
+        assert sc0 == pytest.approx((p95 / Z95_STOCK) * 100.0, rel=1e-6)  # σ_r · abs_floor
+        assert 0.0 < sc0 < SIGMA_C_INACTIVE
+
     def test_ratio_single_pair_mass_output_ratio(self, toy_acc, tmp_path):
         """Stripping-ratio shape: a single-pair Mass ratio between two Mining
         outputs (WR/Ore) → +1·Waste − r·Ore (no agg)."""

@@ -37,6 +37,11 @@ _log = get_logger(__name__)
 
 _AGG_TRUE = {"true", "1", "yes", "y", "t"}
 
+# Net-stock bands are centred at 0 (value_nominal=0) with a symmetric ±p95 half-band
+# (value_max). Read that half-band as the ratio-space σ_r via p95 ≈ Z95·σ, treating
+# the net-change/throughput ratio as ~N(0, σ). See plan A2 / docs/rep.
+Z95_STOCK = 1.645
+
 
 def _decode_edge(ei_exp_idx, eid: int) -> dict:
     """Decoded (sector/region from→to + valuation + time) for one edge_id.
@@ -189,10 +194,21 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
             nominal = float_or(row.get("value_nominal", "nan"), np.nan)
             if np.isnan(nominal):
                 continue
-            try:
-                sigma = sigma_from_row(row, nominal)
-            except Exception:
-                sigma = 0.0
+            # Net-stock bands (param_type=="stock_bound", nominal r=0, centred at 0):
+            # read the symmetric ±p95 half-band (value_max) as the ratio-space σ_r and
+            # tag scale_mode="denominator" so build_dynamic scales σ_c off the THROUGHPUT
+            # denominator (|r|·den = 0 here would otherwise collapse it to the abs floor
+            # → quasi-hard). All other ratios keep the CSV unc modes + symmetric scale.
+            if str(row.get("param_type", "")).strip() == "stock_bound":
+                vmax = float_or(row.get("value_max", "nan"), np.nan)
+                sigma = abs(vmax) / Z95_STOCK if not np.isnan(vmax) else 0.0
+                scale_mode = "denominator"
+            else:
+                try:
+                    sigma = sigma_from_row(row, nominal)
+                except Exception:
+                    sigma = 0.0
+                scale_mode = "symmetric"
 
             # A user param_id, if present, becomes the grammar `variant` slot
             # (underscore-free); otherwise the ratio variant is "ratioeq".
@@ -225,6 +241,7 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
                         "edge_j_list": bk["a_edges"],
                         "r":           nominal,
                         "sigma_c":     sigma,
+                        "scale_mode":  scale_mode,
                         "time":        bk["time"],
                         "valuation":   bk["valuation"],
                         "region":      bk["region"],
@@ -253,6 +270,7 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
                     "edge_j":   r.a_edge_id,
                     "r":        nominal,
                     "sigma_c":  sigma,
+                    "scale_mode": scale_mode,
                     "time":     num["time"],
                     "num":      num,
                     "denom":    denom,
@@ -321,16 +339,17 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
         the symmetric flow-space scale in one vectorized pass per timestep."""
         cached = getattr(self, "_scale_idx", None)
         if cached is None:
-            rn, cn, rd, cd, rabs = [], [], [], [], []
+            rn, cn, rd, cd, rabs, den_mode = [], [], [], [], [], []
             for row_id, p in enumerate(self._pairs):
                 num_cols = p["edge_i_list"] if p.get("agg") else [p["edge_i"]]
                 den_cols = p["edge_j_list"] if p.get("agg") else [p["edge_j"]]
                 rn += [row_id] * len(num_cols); cn += list(num_cols)
                 rd += [row_id] * len(den_cols); cd += list(den_cols)
                 rabs.append(abs(p["r"]))
+                den_mode.append(p.get("scale_mode") == "denominator")
             cached = (np.asarray(rn, dtype=int), np.asarray(cn, dtype=int),
                       np.asarray(rd, dtype=int), np.asarray(cd, dtype=int),
-                      np.asarray(rabs))
+                      np.asarray(rabs), np.asarray(den_mode, dtype=bool))
             self._scale_idx = cached
         return cached
 
@@ -348,14 +367,19 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
         if static.G_rows.shape[0] == 0:
             return _empty_block(acc_struct.n_edges)
 
-        rn, cn, rd, cd, rabs = self._scale_index()
+        rn, cn, rd, cd, rabs, den_mode = self._scale_index()
         M = static.G_rows.shape[0]
         num_scale = np.zeros(M)
         den_scale = np.zeros(M)
         np.add.at(num_scale, rn, np.abs(f_agg[cn]))
         np.add.at(den_scale, rd, np.abs(f_agg[cd]))
-        scale   = np.maximum(np.maximum(num_scale, rabs * den_scale),
-                             self._scale_abs_floor)
+        # Symmetric ratios (r≠0): scale by max(|num|, |r|·|den|). Net-stock bands
+        # (scale_mode="denominator", r=0): scale by the throughput |denominator|
+        # alone — else |r|·den=0 collapses σ_c to the abs floor (quasi-hard). The
+        # abs floor still keeps σ_c finite & soft when the throughput collapses
+        # (flat-prior-zero pin), avoiding re-infeasibility. See plan A2.
+        scale   = np.where(den_mode, den_scale, np.maximum(num_scale, rabs * den_scale))
+        scale   = np.maximum(scale, self._scale_abs_floor)
         sigma_r = np.maximum(static.sigma_c, self._sigma_rel_floor)
         sigma_c = sigma_r * scale
 

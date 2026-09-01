@@ -67,6 +67,7 @@ from pysuto.impute   import (
     SourceTerm,
     ParamRef,
     TimeImputer,
+    ShareImputer,
     FlatPriorImputer,
 )
 from pysuto.logging  import get_logger, add_run_handler
@@ -369,6 +370,19 @@ def main(feed_ids: list[str], label: str) -> None:
         scope_times      = CRUDE_ORE_TIMES,
         id               = "time_crude",
     ))
+
+    # 6.5 Net-stock share imputation. Give Δstock (PSC/USC/MESC) edges informative,
+    # cold-smooth priors BEFORE flat_prior would fill them with noisy_zero: PSC by
+    # share-transfer (share=PSC/(CSXEW+CER) carried across years, seeding 1995), and
+    # MESC/USC by a zero-mean throughput-scaled seed σ=(p95/Z95)·FU. p95 is read from
+    # the SAME stock_bounds params the Part-A soft bounds use, so prior and bound agree.
+    engine.register(ShareImputer.from_stock_bounds_csv(
+        str(inputs.params.resolve("stock_bounds") / "params.csv"),
+        scale_abs_floor = 100.0,
+        p               = P_PROP,
+        id              = "net_stock_share",
+    ))
+    param_refs.append(inputs.params.entry("stock_bounds"))
 
     # 7. Final fallback — flat prior.
     # Two modes (see FLAT_MODE config above):

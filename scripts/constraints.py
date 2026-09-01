@@ -126,6 +126,14 @@ PIN_FLAT_PRIOR_ZEROS = True
 # (InsufficientProgress @2005). 100 t → σ_c=2 t on those rows (z=50 per 100 t).
 RATIO_SIGMA_REL_FLOOR = 0.02
 RATIO_SCALE_ABS_FLOOR = 100.0
+# Net-stock ("stock_bound") mode. "soft" routes the PSC/USC/MESC net-stock-change
+# bounds to the free-cone soft-ratio path (minimized quadratic slack, σ_c scaled
+# off the throughput denominator — see RatioConstraintBuilder scale_mode); "hard"
+# keeps the legacy nonneg-cone RatioBoundBuilder. Soft guarantees feasibility (no
+# stock row can break) and secures too-high AND too-low symmetrically. The hard
+# bounds went infeasible under the flat-prior-zero pin (denominator collapse);
+# see docs/rep/analysis_const_20260625_130524_...flat-prior-zero-pin-cold.md.
+STOCK_BOUNDS_MODE = "soft"
 
 _log = get_logger("init_copper_constraints")
 
@@ -251,8 +259,13 @@ def main(imp_run_id: str, label: str) -> None:
     _register_builder(RatioBoundBuilder, "conc", kind="conc")
     # 6. Hard ratio bounds — efficiency
     _register_builder(RatioBoundBuilder, "eff", kind="eff")
-    # 7. Net stock bounds
-    _register_builder(RatioBoundBuilder, "stock_bounds", kind="stock_bounds")
+    # 7. Net stock bounds — soft (free cone, minimized slack) or hard (nonneg cone)
+    if STOCK_BOUNDS_MODE == "soft":
+        _register_builder(RatioConstraintBuilder, "stock_bounds",
+                          sigma_rel_floor=RATIO_SIGMA_REL_FLOOR,
+                          scale_abs_floor=RATIO_SCALE_ABS_FLOOR)
+    else:
+        _register_builder(RatioBoundBuilder, "stock_bounds", kind="stock_bounds")
 
     # 8. Hard flow bounds from acc_struct
     _log.info("Registering FlowBoundsBuilder")
@@ -284,6 +297,7 @@ def main(imp_run_id: str, label: str) -> None:
             "pin_flat_prior_zeros": PIN_FLAT_PRIOR_ZEROS,
             "ratio_sigma_rel_floor": RATIO_SIGMA_REL_FLOOR,
             "ratio_scale_abs_floor": RATIO_SCALE_ABS_FLOOR,
+            "stock_bounds_mode": STOCK_BOUNDS_MODE,
         },
     )
 
