@@ -5,6 +5,21 @@
 option-C "a single upstream gap blocks everything below" case). Verified in
 [analysis_imp_…trade-seed-er-cer-revival.md](../rep/analysis_imp_20260616_074410_9b387727_trade-seed-er-cer-revival.md).
 
+**Amended 2026-09-02 — pooled primaries relax at fixpoint convergence.** "Domestic (X==Y) legs
+stay blocking `primary`" (below) is relaxed for recipes with **several** same-region primaries —
+parallel technology routes such as CP's `CER`+`CSXEW`. The NetworkImputer now runs a two-phase
+fixpoint: during the strict phase a missing primary blocks as before; only once a full
+recipe+balance sweep adds nothing (so "missing" provably means *underivable*, not "not yet
+derived") does a relaxed pass close the recipe with missing primaries counted as 0, **provided ≥1
+primary is known** — then the strict sweep re-converges on what the close unlocked. This is the
+same honesty argument made below for unobserved trade routes: ICSG's SX-EW coverage is
+comprehensive, so a `CSXEW→CP` leg that stays underivable means the region has no SX-EW route
+(pre-fix, 12 refining regions — Japan foremost — had `CP→Cathode` stuck at noisy-zero, forced open
+by the solver at z≈80 while CER→CP was dragged −35 %). Two guards keep the original intent: a
+recipe with **no** known primary stays blocked (no fabricated zeros), and a relaxed-close output is
+never used to backward-fill the primary it assumed absent (that would echo the missing=0 assumption
+as an explicit 0 — the route stays an honest NaN gap, consistent with "never seeded to 0" below).
+
 The NetworkImputer's process-recipe forward fill (`product = eff·Σinputs`,
 [network.py:365](../../src/pysuto/impute/network.py)) fires only when **every** primary input is
 known (`_RRecipe.primary` "block forward if missing", network.py:120-121). A Process is fed by

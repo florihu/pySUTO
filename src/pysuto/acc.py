@@ -761,10 +761,13 @@ class AccountingStructure:
         All masks have shape ``(n_edges,)`` and are aligned to ``self.edge_index``.
         Built-in names:
 
-          supply   — (sector_from, sector_to) in ruleset.supply_pairs
-          use      — (sector_from, sector_to) in ruleset.use_pairs
-          tradable — sector_from in ruleset.tradable_flows
-          sb       — entity_to == "SB" (system-boundary endpoint)
+          supply       — (sector_from, sector_to) in ruleset.supply_pairs
+          use          — (sector_from, sector_to) in ruleset.use_pairs
+          tradable     — sector_from in ruleset.tradable_flows
+          sb           — entity_to == "SB" (system-boundary endpoint)
+          cross_region — region_from != region_to (trade edges; the edge scope
+                         for bilateral feeds, which must never inform domestic
+                         edges — mapped self-trade exclusion, ADR 0014)
 
         When ruleset is None (legacy callable-rules mode), supply/use/tradable
         masks fall back to checking entity_from/entity_to directly:
@@ -795,12 +798,14 @@ class AccountingStructure:
             tradable = np.zeros(len(ei), dtype=bool)
 
         sb = (et == "SB")
+        cross_region = (ni["region"].values != nj["region"].values)
 
         self.masks: dict[str, np.ndarray] = {
-            "supply":   supply,
-            "use":      use,
-            "tradable": tradable,
-            "sb":       sb,
+            "supply":       supply,
+            "use":          use,
+            "tradable":     tradable,
+            "sb":           sb,
+            "cross_region": cross_region,
         }
 
     # ------------------------------------------------------------------

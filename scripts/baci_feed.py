@@ -107,6 +107,7 @@ from pysuto.feedpipe import (
     propagate_with_row_penalty,
     build_F_src as _build_F_src,
     register_feed,
+    _apply_edge_scope_mask,
 )
 from pysuto.diag import FeedDiagnostics
 
@@ -193,13 +194,33 @@ def load_meta_sidecar() -> DataFeedMetadata:
 # C  BUILD CONCORDANCE TABLE + WEIGHT MATRIX  (delegates to feedpipe)
 # ===========================================================================
 
-def load_user_weights() -> pd.DataFrame | None:
-    """Load optional user weight table; returns None if file absent."""
+def load_user_weights(acc: AccountingStructure) -> pd.DataFrame | None:
+    """Load optional user weight table; returns None if file absent.
+
+    The committed baci weights.csv is the legacy sector-pair format
+    (root_sector_from, root_sector_to, weight — e.g. the Cathode→FU/USC/MESC
+    98/1/1 to-side fan split). Since the route+time-keyed user_weights seam
+    (commit 8faf5a4) ``ConcordanceTable.from_raw`` requires the full
+    (sectors, regions, time) key, so a sector-pair row — which by the old
+    semantics applied to every route and year — is expanded across all
+    region pairs × years here, preserving those semantics.
+    """
     if not os.path.isfile(WEIGHTS_FILE):
         logger.info("   weights file not found — using equal allocation")
         return None
     wdf = pd.read_csv(WEIGHTS_FILE)
     logger.info("   weights file : %s  (%d entries)", WEIGHTS_FILE, len(wdf))
+    route_cols = {"root_region_from", "root_region_to", "root_time"}
+    if route_cols.isdisjoint(wdf.columns):
+        regions = sorted(acc.node_index["region"].unique())
+        times = [str(t) for t in acc.time_range]
+        key = pd.MultiIndex.from_product(
+            [regions, regions, times],
+            names=["root_region_from", "root_region_to", "root_time"],
+        ).to_frame(index=False)
+        wdf = wdf.merge(key, how="cross")
+        logger.info("   weights expanded: legacy sector-pair rows → %d "
+                    "full-key rows (all routes × years)", len(wdf))
     return wdf
 
 
@@ -382,7 +403,7 @@ def main() -> None:
     raw_df       = load_raw_data()
     tables       = load_concordance_tables()
     meta         = load_meta_sidecar()
-    user_weights = load_user_weights()
+    user_weights = load_user_weights(acc)
     logger.info("   rows loaded  : %d", len(raw_df))
     logger.info("   sector map   : %d entries", len(tables["sector_map"]))
     logger.info("   region map   : %d entries", len(tables["region_map"]))
@@ -390,6 +411,11 @@ def main() -> None:
 
     # C — concordance + weight matrix
     ct = build_concordance(raw_df, tables, acc, user_weights)
+    # Edge scope (meta.xlsx Edge_scope_mask): BACI is scoped to cross_region —
+    # bilateral trade must never inform domestic edges (mapped self-trade
+    # exclusion, ADR 0014). run_feed_pipeline applies this automatically; this
+    # script builds the ct directly, so apply it here.
+    _apply_edge_scope_mask(ct, acc, meta.edge_scope_mask)
     wm = build_weight_matrix(ct)
 
     # D — source flow vector + uncertainty propagation

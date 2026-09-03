@@ -49,6 +49,16 @@ legs marks a structurally impossible mapping (the named product does not feed th
 the accounting structure) and is a hard error, never a silent fan. See
 [ADR 0008](docs/adr/0008-unweighted-fans-are-not-distributed.md).
 
+**Mapped self-trade** — a bilateral src row whose two endpoints fold onto the **same root region**
+under the region map (Hong Kong→mainland once both map to "China"; any small-country pair inside
+ROW). Its root address is indistinguishable from the **domestic** edge, yet its value is a tiny,
+customs-precise subsample of a production-scale transfer — an inconsistent observation, not a
+measurement of that edge. Bilateral feeds are therefore **scoped to cross-region edges** (their
+edge scope drops rows resolving to domestic addresses), see
+[ADR 0014](docs/adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md). _Avoid_: reading a
+mapped self-trade row as a domestic observation — the china-matte case put 0.028 kt of gross mass
+next to 5,678 kt of copper content on one edge.
+
 **Boundary topology** *(referenced by [ADR 0001](docs/adr/0001-replace-coherence-sum-eq-with-bilateral-anchoring.md); to be expanded)* —
 the open System-Boundary (SB) endpoints where flows terminate, so prior disagreement there does
 not create feasibility conflicts.
@@ -190,7 +200,11 @@ constraint** now pool that *same* set, so there is no longer an `eff·Scrap` gap
 CSV), never inferred from code. The input-tier distinction is retained only for
 **NaN-propagation** in the imputer, *not* for what gets summed. There are **three** tiers (all pooled
 into `Σin`): **primary** (same-region Flow / SB-Nature inputs — a missing one *blocks* the forward
-fill); **SEM-secondary** (`Scrap` — missing counts as 0); and **bilateral-import** (cross-region
+fill while derivation is still possible; once the traversal has converged, a missing primary counts
+as 0 *provided ≥1 primary is known* — parallel technology routes such as CP's CER+CSXEW, where an
+underivable leg means the region lacks that route; a recipe with **no** known primary stays blocked,
+[ADR 0010 amendment](docs/adr/0010-trade-first-seeding-of-bilateral-flow-process-inputs.md));
+**SEM-secondary** (`Scrap` — missing counts as 0); and **bilateral-import** (cross-region
 `Flow→Process` legs — missing counts as 0, non-blocking, [ADR 0010](docs/adr/0010-trade-first-seeding-of-bilateral-flow-process-inputs.md)).
 The same cross-region-as-0 rule applies to the Flow-node balance (a missing cross-region leg is
 counted as 0, never written). _Avoid_: conflating `eff` (a CC recovery fraction) with `conc` (a
@@ -218,10 +232,13 @@ CC copper-recovery fraction (above); the two only share a file.
 
 **Feed semantics — ICSG vs BACI.** **ICSG** publishes production/usage statistics in **copper content
 (`CC`)**; its `Use` rows are **single-endpoint** (consumer known, producer open) ⇒ producer **fan-out**.
-**BACI** publishes **bilateral gross trade** in **`Mass`** (fully classified X→Y; no self-trade rows, so
-no domestic leg). On a trade edge the ICSG-CC value is therefore a *fan artifact* and the BACI-Mass value
-is the real observation. _Avoid_: treating a per-edge ICSG-CC trade value as a measurement — it is the
-national usage split across producers by the fan weights.
+**BACI** publishes **bilateral gross trade** in **`Mass`** (fully classified X→Y; no self-trade rows *at
+source* — but region folding creates **mapped self-trade** at root, so the feed is scoped to
+cross-region edges and never informs a domestic leg,
+[ADR 0014](docs/adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)). On a trade edge the ICSG-CC
+value is therefore a *fan artifact* and the BACI-Mass value is the real observation. _Avoid_: treating a
+per-edge ICSG-CC trade value as a measurement — it is the national usage split across producers by the
+fan weights.
 
 **Trade-share fan weighting** ([ADR 0002](docs/adr/0002-single-endpoint-rows-fan-out-not-replicate.md)
 option D) — weighting ICSG's producer fan by BACI bilateral import shares instead of uniformly, so ICSG-CC
