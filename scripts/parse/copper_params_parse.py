@@ -198,10 +198,11 @@ def convert_conc(path_in: str) -> list[dict]:
         if root_sector is None:
             logger.warning("  Unknown flow sector '%s' — skipped", raw_sector)
             continue
-        if root_sector in ("CO", "Ore"):
-            # ADR 0015: the CO/Ore Mass↔CC coupling is owned by the
-            # region×year in-situ ore_grade params (scripts/build_ore_grade.py)
-            # — the global 1% placeholder rows are retired.
+        if root_sector in ("CO", "Ore", "Tailings"):
+            # ADR 0015 (+ amendment): the CO/Ore Mass↔CC coupling and the
+            # per-route Tailings conc are owned by the region×year ore_grade
+            # params (scripts/build_ore_grade.py) — the global placeholder
+            # rows (1 % grade, 0.55 % tailings) are retired.
             logger.info("  %s → owned by ore_grade params (ADR 0015) — skipped",
                         root_sector)
             continue

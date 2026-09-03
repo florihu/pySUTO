@@ -278,6 +278,33 @@ class TestSumConstraintBuilder:
         assert np.allclose(b20.sigma_c[is2021], SIGMA_C_INACTIVE)
         assert np.allclose(b20.sigma_c[~is2021], block.sigma_c[~is2021])
 
+    def test_from_mask_anchor_sigma_cv_resolver(self, toy_acc):
+        """sigma_cv_resolver overrides the scalar cv per group; returning
+        None keeps the sigma_cv fallback (provenance-aware scale totals)."""
+        from pysuto.constraints import SumConstraintBuilder
+
+        n      = toy_acc.n_edges
+        mask   = toy_acc.masks["supply"].copy()
+        anchor = np.zeros(n)
+        anchor[0] = 10.0   # → Ore/A, 2020
+        anchor[1] = 20.0   # → Ore/B, 2020
+
+        def resolver(key_map, edge_ids):
+            assert set(key_map) == {"region_to", "time", "valuation"}
+            assert len(edge_ids) >= 1
+            return 0.15 if key_map["region_to"] == "B" else None
+
+        block = SumConstraintBuilder.from_mask_anchor(
+            toy_acc, mask=mask, anchor_values=anchor,
+            group_keys=("region_to", "time", "valuation"),
+            sigma_cv=0.01, id_prefix="anchor",
+            sigma_cv_resolver=resolver,
+        ).build_static(toy_acc)
+        rm = block.row_meta
+        is_b = (rm["region"].astype(str) == "B").to_numpy()
+        assert np.allclose(block.sigma_c[is_b], 0.15 * np.abs(block.c[is_b]))
+        assert np.allclose(block.sigma_c[~is_b], 0.01 * np.abs(block.c[~is_b]))
+
     def test_sum_row_meta_has_time(self, toy_acc):
         """SumConstraintBuilder row_meta has a `time` column; constraint_id
         follows the grammar `sum_usefulsupply_{sector}_{region}_{val}_{year}`."""

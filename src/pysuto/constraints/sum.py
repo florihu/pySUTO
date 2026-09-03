@@ -451,6 +451,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         coeff: float = 1.0,
         id_prefix: str = "anchor",
         min_abs_c: float = 1e-9,
+        sigma_cv_resolver=None,
     ) -> "SumConstraintBuilder":
         """
         One soft-sum anchor row per group of masked edges.
@@ -480,6 +481,11 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         coeff         : LHS coefficient applied to every edge in a group.
         min_abs_c     : groups with ``|c| ≤ min_abs_c`` are skipped (no anchor
                         data — e.g. valuations the reference does not cover).
+        sigma_cv_resolver : optional callable ``(key_map, edge_ids) -> float``
+                        returning the cv for one group (``key_map`` maps each
+                        group key to its value, ``edge_ids`` are the group's
+                        edges). Overrides ``sigma_cv`` per group; return
+                        ``None`` to keep the ``sigma_cv`` fallback.
         """
         if isinstance(mask, str):
             scope = cls._resolve_scope_mask(acc_struct, mask)
@@ -507,6 +513,11 @@ class SumConstraintBuilder(BaseConstraintBuilder):
             key_tuple = key_vals if isinstance(key_vals, tuple) else (key_vals,)
             key_map = dict(zip(group_keys, key_tuple))
             edge_ids = grp["edge_id"].astype(int).tolist()
+            cv = sigma_cv
+            if sigma_cv_resolver is not None:
+                resolved = sigma_cv_resolver(key_map, edge_ids)
+                if resolved is not None:
+                    cv = float(resolved)
             # `time` (if grouped on) lands in the year slot; every other group
             # key becomes a spec token. id_prefix is the grammar `variant`.
             variant = _safe(id_prefix, field="anchor id_prefix")
@@ -522,7 +533,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                 "coefficients":      [coeff] * len(edge_ids),
                 "c_k":               c,
                 "sigma_ck_mode":     "sd",
-                "sigma_ck_value":    sigma_cv * abs(c),
+                "sigma_ck_value":    cv * abs(c),
                 "sigma_ck_fraction": 0.0,
                 "_supply_ids":       edge_ids,
                 "time":              str(key_map["time"]) if "time" in key_map else None,

@@ -127,6 +127,32 @@ FLAT_CV_HI_USE     = 0.5
 # applies to fed ROW edges (replaces the old ad-hoc FLAT_ROW_INFLATION x1.5).
 CV_GEO4 = PedigreeScores._cv_other(4, "medium_sensitive")
 
+# Bilateral-leg plausibility screen (post-aggregation, pre-imputation).
+# BACI misclassification/gross-weight outliers (e.g. Papua New Guinea →
+# Philippines/ROW "Concentrate" at 14–21 Mt/yr, >20× PNG's production) carry
+# customs-grade σ into the QP, which then pays z≈1/cv per deleted leg. Where an
+# exporter's implied bilateral CC exports (Σ Mass·conc_nominal) exceed
+# OUTLIER_LEG_K × its ICSG-covered CC production of that sector-year, the
+# exporter's bilateral Mass legs get σ inflated to OUTLIER_LEG_CV·|f| — the
+# data stays (trace + report CSV), only its false authority goes, mirroring the
+# pedigree-penalty style (ADR 0003). Exporters with no covered production are
+# skipped (nothing to judge against). See REP
+# analysis_opt_20260903_084528_45fdd041_masscc-tension-root-causes §4.
+OUTLIER_LEG_K  = 3.0
+OUTLIER_LEG_CV = 5.0
+
+# Size-damped σ on bilateral legs (ADR 0017; applied BEFORE the screen above).
+# The Laner pedigree cv (~0.21 on BACI Mass legs) is size-blind, so deleting
+# any leg entirely costs z = 1/cv ≈ 4.8 flat — per tonne the biggest legs are
+# thousands of times cheaper to delete, and the QP eats them first (deleted
+# share 7%→45% by size decile; Chile→China/Japan zeroed). Power-law damping,
+#     σ_e = cv_pedigree(e) · a_ref(sector)^(1−γ) · a_e^γ ,
+# anchored at each sector's median covered bilateral leg (a_ref, pooled over
+# years): at the median σ is unchanged, bigger legs get relatively tighter,
+# smaller looser (cv capped at LEG_SIGMA_CV_CAP). γ=1.0 or None disables.
+LEG_SIGMA_GAMMA  = 0.5
+LEG_SIGMA_CV_CAP = 1.0
+
 # ---------------------------------------------------------------------------
 # FormulaRelations (module-level — no runtime state, safe to define here)
 # ---------------------------------------------------------------------------
@@ -239,6 +265,124 @@ cathode_mesc_domestic = FormulaRelation(
 )
 
 
+def _damp_leg_sigma(acc, agg_result, gamma, cv_cap, logger):
+    """Size-damp σ on covered bilateral Flow-origin Mass legs (ADR 0017).
+
+    σ_e = cv_e · a_ref(sector)^(1−γ) · a_e^γ with a_ref = the sector's median
+    covered bilateral leg |f|, pooled over years; resulting cv capped at
+    cv_cap. Runs BEFORE the outlier screen (its cv-5 inflation overrides).
+    """
+    if gamma is None or gamma >= 1.0:
+        logger.info("B  leg-σ damping disabled (gamma=%s)", gamma)
+        return
+    ei = expand_edge_index(acc.edge_index, acc.node_index)
+    cov = np.asarray(agg_result.coverage, dtype=bool)
+    eid = ei["edge_id"].to_numpy()
+    f = np.asarray(agg_result.f_agg, dtype=float)
+    # entity_from Flow, any destination — Cathode's bilateral legs are
+    # Flow→SB (final demand), matching the outlier screen's population.
+    bilat = (cov[eid]
+             & ei["entity_from"].eq("Flow").to_numpy()
+             & (ei["region_from"] != ei["region_to"]).to_numpy()
+             & ei["valuation"].eq("Mass").to_numpy()
+             & (np.abs(np.nan_to_num(f[eid])) > 0))
+    legs = ei[bilat]
+    n_damped = 0
+    for sector, grp in legs.groupby("sector_from"):
+        ids = grp["edge_id"].to_numpy()
+        a = np.abs(f[ids])
+        a_ref = float(np.median(a))
+        if a_ref <= 0:
+            continue
+        cv0 = agg_result.sigma_agg[ids] / a
+        sigma = cv0 * a_ref ** (1.0 - gamma) * a ** gamma
+        sigma = np.minimum(sigma, cv_cap * a)          # σ-cap on tiny legs
+        agg_result.sigma_agg[ids] = sigma
+        n_damped += len(ids)
+        logger.info(
+            "B  leg-σ damping %-12s a_ref=%.1f kt  n=%d  cv %0.3f–%0.3f "
+            "(pedigree cv med %.3f)",
+            sector, a_ref, len(ids), float(np.min(sigma / a)),
+            float(np.max(sigma / a)), float(np.median(cv0)))
+    logger.info("B  leg-σ damping: gamma=%.2f cv_cap=%.2f — %d legs damped",
+                gamma, cv_cap, n_damped)
+
+
+def _screen_outlier_trade_legs(acc, agg_result, conc_csv: str, logger):
+    """σ-inflate implausible bilateral Mass legs (see OUTLIER_LEG_K above).
+
+    Per (flow sector, exporter region, year): implied CC exports =
+    Σ covered bilateral Flow→* Mass legs · conc_nominal(sector); reference =
+    Σ covered Process→Flow CC edges into that exporter's flow node (ICSG
+    production). Ratio > OUTLIER_LEG_K ⇒ every covered bilateral Mass leg of
+    that group gets sigma_agg = OUTLIER_LEG_CV·|f_agg|. Returns the report
+    DataFrame (flagged groups only; empty frame if none).
+    """
+    import pandas as pd
+
+    ei = expand_edge_index(acc.edge_index, acc.node_index)
+    cov = np.asarray(agg_result.coverage, dtype=bool)
+    f = np.nan_to_num(np.asarray(agg_result.f_agg, dtype=float))
+
+    conc_p = pd.read_csv(conc_csv, sep=None, engine="python", comment="#", dtype=str)
+    conc_p = conc_p[conc_p["param_type"] == "concentration"]
+    conc_by_sector = {
+        r["a_sector_from"]: float(r["value_nominal"])
+        for _, r in conc_p.iterrows()
+        if r["a_sector_from"] not in ("*", "", None) and r["a_valuation"] == "Mass"
+    }
+
+    eid = ei["edge_id"].to_numpy()
+    bilat = (cov[eid]
+             & ei["entity_from"].eq("Flow").to_numpy()
+             & (ei["region_from"] != ei["region_to"]).to_numpy()
+             & ei["valuation"].eq("Mass").to_numpy()
+             & ei["sector_from"].isin(conc_by_sector).to_numpy())
+    prodm = (cov[eid]
+             & ei["entity_from"].eq("Process").to_numpy()
+             & ei["entity_to"].eq("Flow").to_numpy()
+             & ei["valuation"].eq("CC").to_numpy())
+
+    legs = ei[bilat].copy()
+    legs["cc"] = f[legs["edge_id"].to_numpy()] \
+        * legs["sector_from"].map(conc_by_sector).to_numpy()
+    exp_cc = legs.groupby(["sector_from", "region_from", "time"])["cc"].sum()
+
+    prod = ei[prodm].copy()
+    prod["cc"] = f[prod["edge_id"].to_numpy()]
+    prod_cc = prod.groupby(["sector_to", "region_to", "time"])["cc"].sum()
+    prod_cc.index.names = exp_cc.index.names
+
+    both = pd.concat([exp_cc.rename("exports_cc"), prod_cc.rename("prod_cc")],
+                     axis=1, join="inner")
+    both = both[(both["prod_cc"] > 0) & (both["exports_cc"] > 0)]
+    both["ratio"] = both["exports_cc"] / both["prod_cc"]
+    flagged = both[both["ratio"] > OUTLIER_LEG_K].reset_index()
+
+    n_edges = 0
+    for _, g in flagged.iterrows():
+        m = bilat \
+            & ei["sector_from"].eq(g["sector_from"]).to_numpy() \
+            & ei["region_from"].eq(g["region_from"]).to_numpy() \
+            & ei["time"].eq(g["time"]).to_numpy()
+        ids = ei["edge_id"].to_numpy()[m]
+        ids = ids[np.abs(f[ids]) > 0]      # a genuine 0 keeps its σ (no 0-pin)
+        agg_result.sigma_agg[ids] = OUTLIER_LEG_CV * np.abs(agg_result.f_agg[ids])
+        n_edges += len(ids)
+
+    if len(flagged):
+        logger.warning(
+            "B  outlier-leg screen: %d exporter-sector-years flagged "
+            "(implied CC exports > %.1f× covered production) — σ inflated to "
+            "cv=%.1f on %d bilateral Mass legs\n%s",
+            len(flagged), OUTLIER_LEG_K, OUTLIER_LEG_CV, n_edges,
+            flagged.sort_values("ratio", ascending=False).head(10).to_string(index=False))
+    else:
+        logger.info("B  outlier-leg screen: no exporter-sector-year exceeds "
+                    "%.1f× covered production — nothing inflated", OUTLIER_LEG_K)
+    return flagged
+
+
 def main(feed_ids: list[str], label: str) -> None:
     log_path = os.path.join(
         "logs",
@@ -276,6 +420,12 @@ def main(feed_ids: list[str], label: str) -> None:
 
     feed_run_ids = [s["feed_run_id"] for s in collector.selected if s["feed_run_id"]]
     logger.info("B  Resolved feed_run_ids: %s", feed_run_ids)
+
+    # Size-damped leg σ (ADR 0017), then the plausibility screen — the screen's
+    # cv-5 inflation overrides damping on flagged legs.
+    _damp_leg_sigma(acc, agg_result, LEG_SIGMA_GAMMA, LEG_SIGMA_CV_CAP, logger)
+    outlier_report = _screen_outlier_trade_legs(
+        acc, agg_result, str(inputs.params.resolve("conc") / "params.csv"), logger)
 
     # Snapshot post-aggregation distributions BEFORE imputation mutates them.
     # Distribution panels focus on 1995 (agg_root_by_year stays all-year).
@@ -479,6 +629,10 @@ def main(feed_ids: list[str], label: str) -> None:
             "alpha_min":       ALPHA_MIN_REG,
             "cascade_max_iter": CASCADE_MAX_ITER,
             "flat_mode":       FLAT_MODE,
+            "outlier_leg_k":   OUTLIER_LEG_K,
+            "outlier_leg_cv":  OUTLIER_LEG_CV,
+            "leg_sigma_gamma":  LEG_SIGMA_GAMMA,
+            "leg_sigma_cv_cap": LEG_SIGMA_CV_CAP,
             "flat_sigma_high": FLAT_SIGMA_HIGH if FLAT_MODE == "noisy_zero" else None,
             "flat_default_cv": FLAT_DEFAULT_CV if FLAT_MODE == "magnitude_aware" else None,
             "time": {
@@ -496,6 +650,8 @@ def main(feed_ids: list[str], label: str) -> None:
     # ── E  Diagnostics ────────────────────────────────────────────────────────
     logger.info("E  Running diagnostics")
     diag_dir = os.path.join(run_dir, "diag")
+    os.makedirs(diag_dir, exist_ok=True)
+    outlier_report.to_csv(os.path.join(diag_dir, "outlier_leg_screen.csv"), index=False)
     agg_diag.plot(odir=diag_dir, show=False)
     diag = ImpDiagnostic(agg_result, acc_struct=acc, label=run_id, year="1995")
     diag.plot(odir=diag_dir, show=False)

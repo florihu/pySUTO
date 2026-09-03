@@ -245,7 +245,10 @@ the mill feed ÷ allocated ore = recovered ÷ recovery-`eff`. The model's `CO`/`
 in-situ** (production ÷ eff, matching the recipe's `(1−eff)` Tailings copper), so their grade
 rows use the **in-situ** value — region×year-resolved, owned by the `ore_grade` params, not the
 global `conc` family
-([ADR 0015](docs/adr/0015-in-situ-ore-grades-on-allocated-ore-basis.md)). On the allocated basis
+([ADR 0015](docs/adr/0015-in-situ-ore-grades-on-allocated-ore-basis.md)). The same artifact also
+owns the region×year×route **tailings** conc (`(1−eff)` recipe copper over the process
+Mass-balance residual, per MF/SXEW route — ADR 0015 amendment); the global `conctailingsuse`
+row is retired. On the allocated basis
 these are *not* physical mill-head grades (Australia ~2–3 % vs ~0.8 % head grade). _Avoid_:
 applying a recovered-basis grade to an in-situ edge (a systematic 1/eff error), or citing these
 grades against literature head grades without converting.
@@ -296,10 +299,17 @@ residuals); i.e. its process→flow edges only ≙ PIOLab *useful output* (suppl
 collapse — not to add information. "Kind-of-external" because the warm-start solve (`a₀ = f_agg` at
 t₀, `a_post(t−1)` after) never sees this fixed Stage-2 total. Two families: **supply total output**
 (per process — its process→flow useful output) and **use total output** (per flow — Σ over all
-destinations incl. final demand). _Avoid_: **control total** (its RHS is an *external* published
+destinations incl. final demand). Groups are classified **fabricated vs feed-backed** (per
+`agg_result.coverage`) — but both keep the same tight cv: loosening fabricated groups was tried
+and rejected, because these rows double as the counterweight to the nodata zero anchors and
+loosening them collapses the interior chain
+([ADR 0016](docs/adr/0016-provenance-aware-sigma-on-scale-totals.md)).
+_Avoid_: **control total** (its RHS is an *external* published
 number — see README; that mechanism was removed by
 [ADR 0006](docs/adr/0006-scale-total-supersedes-external-control-total.md)); **anchor** /
-**coherence soft-sum** (deprecated terms — see README §Glossary "control total" _Avoid_).
+**coherence soft-sum** (deprecated terms — see README §Glossary "control total" _Avoid_);
+reading a scale total as only a prior-preservation device — on no-data subgraphs it is also
+what holds scale against the zero anchors (ADR 0016).
 
 ## Downstream PSUT / PIOT vocabulary
 
