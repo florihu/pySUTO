@@ -8,8 +8,11 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 from build_ore_grade import (  # noqa: E402
     build_param_rows,
+    build_tailings_rows,
     compute_insitu_grades,
+    compute_tailings_grades,
     region_bands,
+    tailings_bands,
 )
 
 EFF_MF, EFF_SXEW = 0.8, 0.725
@@ -77,5 +80,63 @@ def test_param_rows_shape_and_grammar():
     sup = rows[rows.param_id.str.contains("oresupply")].iloc[0]
     assert (sup["a_sector_from"], sup["a_region_from"]) == ("Ore", "Korea, Rep.")
     # value_min/max feed both the hard band and the min_max σ
+    assert (rows["value_min"] < rows["value_nominal"]).all()
+    assert (rows["value_max"] > rows["value_nominal"]).all()
+
+
+CONC_CONCENTRATE, CONC_CSXEW = 0.275, 0.9975
+
+
+def test_tailings_grade_closes_prior_mass_balance():
+    # The point of the construction (ADR 0015 amendment): the tailings Mass
+    # twin TailCC/g_tail must equal the process Mass-balance residual
+    # OreMass_route − ProdMass under the prior twins, per route.
+    prod = _prod([("Chile", "2015", 3993.7, 1778.4, 732723.3)])
+    grades = compute_insitu_grades(
+        prod, pd.DataFrame(columns=["region", "time", "factor"]), EFF_MF, EFF_SXEW)
+    tails = compute_tailings_grades(prod, grades, EFF_MF, EFF_SXEW,
+                                    CONC_CONCENTRATE, CONC_CSXEW)
+    assert set(tails["route"]) == {"mf", "sxew"}
+    g = grades.iloc[0]["g"]
+    mf = tails[tails.route == "mf"].iloc[0]
+    tail_cc = 3993.7 * (1 - EFF_MF) / EFF_MF
+    ore_mass_mf = (3993.7 / EFF_MF) / g
+    tail_mass = ore_mass_mf - 3993.7 / CONC_CONCENTRATE
+    assert tail_cc / mf["g"] == pytest.approx(tail_mass)
+    # regression: matches the validated run's Chile 2015 prior construction
+    assert tail_cc == pytest.approx(998.4, abs=0.1)
+    assert mf["g"] == pytest.approx(0.002094, abs=1e-5)
+    sx = tails[tails.route == "sxew"].iloc[0]
+    assert 1778.4 * (1 - EFF_SXEW) / EFF_SXEW / sx["g"] == pytest.approx(
+        (1778.4 / EFF_SXEW) / g - 1778.4 / CONC_CSXEW)
+
+
+def test_tailings_grades_skip_fallback_and_missing_routes():
+    prod = _prod([
+        ("A", "2000", 80.0, 0.0, 10000.0),   # icsg, MF only → 1 mf row, no sxew
+        ("B", "2000", 0.0, 0.0, 5000.0),     # factor fallback → no tailings row
+    ])
+    fb = pd.DataFrame([("B", "2000", 125.0)], columns=["region", "time", "factor"])
+    grades = compute_insitu_grades(prod, fb, EFF_MF, EFF_SXEW)
+    tails = compute_tailings_grades(prod, grades, EFF_MF, EFF_SXEW,
+                                    CONC_CONCENTRATE, CONC_CSXEW)
+    assert len(tails) == 1
+    assert tuple(tails.iloc[0][["region", "route"]]) == ("A", "mf")
+
+
+def test_tailings_rows_shape_and_grammar():
+    tails = pd.DataFrame({"region": ["Korea, Rep."] * 2, "time": ["2015"] * 2,
+                          "route": ["mf", "sxew"], "g": [0.002, 0.003]})
+    rows = build_tailings_rows(tails, tailings_bands(tails))
+    assert len(rows) == 2
+    assert rows["param_id"].str.fullmatch(r"[a-z0-9]+").all()
+    assert (rows["param_id"] == "oregradetailingsusemfkorearep2015").any()
+    assert (rows["param_id"] == "oregradetailingsusesxewkorearep2015").any()
+    mf = rows[rows.param_id.str.contains("usemf")].iloc[0]
+    assert (mf["a_sector_from"], mf["a_entity_from"], mf["a_region_from"]) == \
+        ("MF", "Process", "Korea, Rep.")
+    assert (mf["a_sector_to"], mf["a_entity_to"]) == ("Tailings", "SB")
+    assert set(rows["a_valuation"]) == {"Mass"}
+    assert set(rows["b_valuation"]) == {"CC"}
     assert (rows["value_min"] < rows["value_nominal"]).all()
     assert (rows["value_max"] > rows["value_nominal"]).all()

@@ -31,6 +31,23 @@ value_min/value_max = the region's in-situ series min/max ∓/± MARGIN_REL —
 consumed as the hard band by RatioBoundBuilder and as σ (min_max) by the soft
 RatioConstraintBuilder and the imputer twin map.
 
+Tailings extension (ADR 0015 amendment)
+---------------------------------------
+The same artifact also owns the region×year **tailings** concentration, per
+route (replacing the conc family's global ``conctailingsuse``, nominal 0.55 %):
+    oregradetailingsusemf{region}{year}    a: MF→Tailings/SB
+    oregradetailingsusesxew{region}{year}  a: SXEW→Tailings/SB
+built from the imputer's own prior construction so the tailings Mass twin
+closes the hard process Mass balance at prior (the WR≈0 trick):
+
+    TailCC_route   = ProdCC · (1 − eff_route)/eff_route
+    TailMass_route = (ProdCC/eff_route)/g_insitu − ProdCC/conc_product
+    g_tail(route)  = TailCC_route / TailMass_route
+
+with the product conc nominals (Concentrate 0.275, CSXEW 0.9975) read from the
+conc params file. Regions without an ICSG production source get no tailings
+row (honest flat-prior gap, as for CO/Ore).
+
 Output: data/input/params/ore_grade/current/params.csv (registry-versioned;
 the raw S&P factor file and ore_grade_map.xlsx stay alongside). NOTE data/ is
 gitignored — regenerate on a fresh checkout.
@@ -139,6 +156,83 @@ def region_bands(grades: pd.DataFrame, margin_rel: float = MARGIN_REL) -> pd.Dat
     }).reset_index()
 
 
+def compute_tailings_grades(
+    prod: pd.DataFrame,
+    grades: pd.DataFrame,
+    eff_mf: float,
+    eff_sxew: float,
+    conc_concentrate: float,
+    conc_csxew: float,
+) -> pd.DataFrame:
+    """g_tail per (region, time, route) from the prior's own construction.
+
+    Per route the tailings CC is the recipe residual ``ProdCC·(1−eff)/eff``
+    and the tailings Mass is the process Mass-balance residual under the
+    prior twins, ``(ProdCC/eff)/g_insitu − ProdCC/conc_product`` — so the
+    resulting g_tail makes the tailings Mass twin close the hard MF/SXEW
+    Mass balance at prior level. Only ICSG-derived in-situ grades qualify
+    (the factor fallback has no route split). Returns
+    (region, time, route ∈ {"mf", "sxew"}, g).
+    """
+    g_icsg = grades[grades["src"] == "icsg"][["region", "time", "g"]]
+    df = prod.merge(g_icsg, on=["region", "time"], how="inner")
+    routes = []
+    for route, cc_col, eff, conc_prod in (
+        ("mf", "conc_cc", eff_mf, conc_concentrate),
+        ("sxew", "sxew_cc", eff_sxew, conc_csxew),
+    ):
+        r = df[df[cc_col].fillna(0.0) > 0].copy()
+        tail_cc = r[cc_col] * (1.0 - eff) / eff
+        tail_mass = (r[cc_col] / eff) / r["g"] - r[cc_col] / conc_prod
+        r["g"] = tail_cc / tail_mass
+        r["route"] = route
+        routes.append(r[tail_mass > 0][["region", "time", "route", "g"]])
+    out = pd.concat(routes, ignore_index=True)
+    return out[out["g"] > 0].reset_index(drop=True)
+
+
+def tailings_bands(tails: pd.DataFrame, margin_rel: float = MARGIN_REL) -> pd.DataFrame:
+    """Per (region, route) hard band = series min/max ∓/± relative margin."""
+    g = tails.groupby(["region", "route"])["g"]
+    return pd.DataFrame({
+        "g_min": g.min() * (1.0 - margin_rel),
+        "g_max": g.max() * (1.0 + margin_rel),
+    }).reset_index()
+
+
+def build_tailings_rows(tails: pd.DataFrame, bands: pd.DataFrame) -> pd.DataFrame:
+    """Expand (region, time, route, g) into conctailingsuse-shaped rows."""
+    route_sector = {"mf": "MF", "sxew": "SXEW"}
+    merged = tails.merge(bands, on=["region", "route"])
+    rows = []
+    for _, r in merged.iterrows():
+        slug = "".join(ch for ch in str(r["region"]).lower() if ch.isalnum())
+        row = {c: "" for c in TEMPLATE_COLS}
+        row.update({
+            "param_id": f"oregradetailingsuse{r['route']}{slug}{r['time']}",
+            "param_type": "concentration",
+            "description": ("Cu concentration in Tailings (SB) — use edges "
+                            f"(from-node={route_sector[r['route']]}, to-node=Tailings/SB)"),
+            "a_sector_from": route_sector[r["route"]], "a_entity_from": "Process",
+            "a_region_from": r["region"],
+            "a_sector_to": "Tailings", "a_entity_to": "SB", "a_region_to": "*",
+            "a_time": str(r["time"]), "a_valuation": "Mass",
+            "b_sector_from": "same", "b_entity_from": "same",
+            "b_region_from": "same", "b_sector_to": "same",
+            "b_entity_to": "same", "b_region_to": "same",
+            "b_time": "same", "b_valuation": "CC",
+            "value_nominal": round(float(r["g"]), 8),
+            "unc_type": "min_max",
+            "value_min": round(float(r["g_min"]), 8),
+            "value_max": round(float(r["g_max"]), 8),
+            "bound_lower": 0, "bound_upper": 1,
+            "source": "recipe residual / prior Mass balance (ADR 0015 amendment)",
+            "comment": f"allocated basis; route={r['route']}",
+        })
+        rows.append(row)
+    return pd.DataFrame(rows, columns=TEMPLATE_COLS)
+
+
 def build_param_rows(grades: pd.DataFrame, bands: pd.DataFrame) -> pd.DataFrame:
     """Expand (region, time, g) into the three conc-family roles."""
     merged = grades.merge(bands, on="region")
@@ -199,6 +293,17 @@ def _eff_nominals() -> tuple[float, float]:
     return eff["effmfflotation"], eff["effsxew"]
 
 
+def _conc_nominals() -> tuple[float, float]:
+    """Product conc nominals (Concentrate, CSXEW) from the conc params file."""
+    from pysuto.input_registry import InputRegistries
+    inputs = InputRegistries.initialize(root=_INPUT_ROOT)
+    csv = inputs.params.resolve("conc") / "params.csv"
+    p = pd.read_csv(csv, sep=None, engine="python", comment="#", dtype=str)
+    conc = {row["param_id"]: float(row["value_nominal"]) for _, row in p.iterrows()
+            if row.get("param_type") == "concentration"}
+    return conc["concconcentratesupply"], conc["conccsxewsupply"]
+
+
 def _decoded_edges(acc: AccountingStructure) -> pd.DataFrame:
     ei = acc.edge_index.copy()
     nidx = acc.node_index.reset_index(drop=True)
@@ -254,16 +359,26 @@ def main() -> None:
     icsg  = _latest_feed_froot("icsg")
     crude = _latest_feed_froot("crude_ore")
 
+    conc_concentrate, conc_csxew = _conc_nominals()
+    print(f"   conc_Concentrate={conc_concentrate}  conc_CSXEW={conc_csxew}  (from conc params)")
+
     prod = build_production_frame(acc, icsg, crude)
     grades = compute_insitu_grades(prod, load_factor_fallback(), eff_mf, eff_sxew)
     bands = region_bands(grades)
-    params = build_param_rows(grades, bands)
+    tails = compute_tailings_grades(prod, grades, eff_mf, eff_sxew,
+                                    conc_concentrate, conc_csxew)
+    params = pd.concat([
+        build_param_rows(grades, bands),
+        build_tailings_rows(tails, tailings_bands(tails)),
+    ], ignore_index=True)
 
     n_icsg = (grades["src"] == "icsg").sum()
     n_fb   = (grades["src"] == "factor").sum()
     n_gap  = int((prod["ore_mass"] > 0).sum()) - len(grades)
     print(f"   region-years: {n_icsg} icsg-derived + {n_fb} factor-fallback "
           f"({n_gap} with ore mass but no grade source)")
+    print(f"   tailings rows: {len(tails)} region-year-routes "
+          f"({(tails['route'] == 'mf').sum()} mf + {(tails['route'] == 'sxew').sum()} sxew)")
     for r in ("Chile", "Australia"):
         s = grades[grades["region"] == r]
         if len(s):

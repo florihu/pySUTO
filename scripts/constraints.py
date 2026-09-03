@@ -53,6 +53,8 @@ import argparse
 import os
 import sys
 
+import numpy as np
+
 # ---------------------------------------------------------------------------
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
@@ -107,6 +109,27 @@ SIGMA_A_ABS_FLOOR = 1.0e-6
 # floor does not inflate the tight cathode-use anchor back up to 5%.
 ANCHOR_CV         = 0.01
 SIGMA_C_CV_MIN    = 0.01
+# Provenance-aware scale totals: a scale total preserves the model's own prior
+# group-sum ("not to add information", CONTEXT.md §Total-output). Where that
+# prior is FABRICATED (twin/recipe/flat imputations, no feed observation behind
+# the group) a tight ANCHOR_CV over-preserves it — it fights the observed
+# valuation of the same sectors and inverts the data hierarchy (REP
+# analysis_opt_20260903_084528_45fdd041_masscc-tension: 3.0M z² on fabricated
+# totals; observed totals moved MORE than fabricated ones). Groups whose
+# feed-backed share of Σ|f_agg| (agg_result.coverage — feed observations only)
+# falls below FEED_SHARE_OBSERVED keep their row but at the loose
+# FABRICATED_ANCHOR_CV; feed-backed groups keep ANCHOR_CV.
+# NEGATIVE RESULT (Round A, 2026-09-03): loosening was tried at 0.15 and 0.05
+# and both collapsed the world chain (CO Mass retention 0.66→0.41/0.45, observed
+# China cathode dragged to z≈−20/−16) — the fabricated totals do DOUBLE DUTY:
+# besides over-preserving fabricated priors they are the counterweight to the
+# NODATA_ANCHOR zero pulls (ADR 0013) on the same interior subgraphs, and
+# loosening them hands the interior to the zero anchors. Default therefore
+# keeps FABRICATED_ANCHOR_CV = ANCHOR_CV (policy inert); the resolver mechanism
+# stays for a future σ design that decouples the two roles (e.g. propagated
+# edge σ). See ADR 0016 and the Round-A REP.
+FABRICATED_ANCHOR_CV = 0.01
+FEED_SHARE_OBSERVED  = 0.5
 SIGMA_C_ABS_FLOOR = 1.0e-3
 # Prior box ("tight fitting"): box flow bounds to a₀ ± PRIOR_BOX_K·σ_a on edges
 # with a real prior, grafting RAS's scale-floor onto the QP to stop the
@@ -240,6 +263,21 @@ def main(imp_run_id: str, label: str) -> None:
     use_mask    = ei_exp["entity_from"].eq("Flow").to_numpy()
     GROUP_KEYS  = ("sector_from", "region_from", "time", "valuation")
 
+    # Provenance-aware σ_c: loosen scale totals whose prior group-sum is
+    # fabricated (feed-backed share of Σ|f_agg| < FEED_SHARE_OBSERVED). Uses
+    # agg_result.coverage — the pre-imputation "did any feed observe this
+    # edge?" flag (CONTEXT.md §Coverage), so imputations never count.
+    _cov  = np.asarray(agg_result.coverage, dtype=bool)
+    _absf = np.abs(np.nan_to_num(np.asarray(f_agg, dtype=float)))
+
+    def _scale_total_cv(key_map, edge_ids):
+        ids = np.asarray(edge_ids, dtype=int)
+        tot = _absf[ids].sum()
+        if tot <= 0.0:
+            return FABRICATED_ANCHOR_CV
+        feed_share = _absf[ids[_cov[ids]]].sum() / tot
+        return None if feed_share >= FEED_SHARE_OBSERVED else FABRICATED_ANCHOR_CV
+
     _log.info("Registering SumConstraintBuilder — supply/use total-output scale totals")
     engine.register(SumConstraintBuilder.from_mask_anchor(
         acc,
@@ -248,6 +286,7 @@ def main(imp_run_id: str, label: str) -> None:
         group_keys    = GROUP_KEYS,
         sigma_cv      = ANCHOR_CV,
         id_prefix     = "supplytotout",
+        sigma_cv_resolver = _scale_total_cv,
     ))
     engine.register(SumConstraintBuilder.from_mask_anchor(
         acc,
@@ -256,6 +295,7 @@ def main(imp_run_id: str, label: str) -> None:
         group_keys    = GROUP_KEYS,
         sigma_cv      = ANCHOR_CV,
         id_prefix     = "usetotout",
+        sigma_cv_resolver = _scale_total_cv,
     ))
 
     # 3–7. CSV-fed soft ratio + hard ratio-bound builders.
@@ -343,6 +383,8 @@ def main(imp_run_id: str, label: str) -> None:
             "ratio_sigma_rel_floor": RATIO_SIGMA_REL_FLOOR,
             "ratio_scale_abs_floor": RATIO_SCALE_ABS_FLOOR,
             "ore_grade_basis": "in-situ (ADR 0015)",
+            "fabricated_anchor_cv": FABRICATED_ANCHOR_CV,
+            "feed_share_observed":  FEED_SHARE_OBSERVED,
             "stock_bounds_mode": STOCK_BOUNDS_MODE,
             "scrap_share_mode":  SCRAP_SHARE_MODE,
         },
