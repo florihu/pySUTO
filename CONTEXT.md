@@ -225,10 +225,30 @@ extracted at a Mining process — `WR_Mass = stripping_ratio · Ore_Mass`, a **M
 two **outputs** of Mining (default 2.0). It is *not* a recovery efficiency: not in `CC`, not a
 recovery fraction, and `> 1`. It lives in the **eff parameter file** as its own `param_type`
 (`stripping_ratio`, distinct from `efficiency`), making that file a store of **process input/output
-ratios** of which recovery-`eff` and `stripping_ratio` are two families. It is the single source of
-truth for both the NetworkImputer's WR-mass fill (replacing a hard-coded constant) and the soft
-`ratio` constraint `WR − stripping_ratio·Ore = 0`. _Avoid_: calling it an `eff` — `eff` is strictly a
-CC copper-recovery fraction (above); the two only share a file.
+ratios** of which recovery-`eff` and `stripping_ratio` are two families. It survives **only as the
+soft `ratio` constraint** `WR − stripping_ratio·Ore = 0` (kept free/inert): the NetworkImputer fills
+WR as the **mass-balance residual** `WR_Mass = max(0, CO_Mass − Ore_Mass)` instead — and on the
+allocated-ore basis (below) that residual is ≈ 0 by construction, as allocated data carries no
+separate waste-rock mass. _Avoid_: calling it an `eff` — `eff` is strictly a CC copper-recovery
+fraction (above); the two only share a file. _Avoid_: reading the imputer's WR fill as
+stripping-ratio-driven — that rule was replaced 2026-06.
+
+**Allocated ore mass.** The `crude_ore` feed's ore Mass is S&P **price-allocated**: a
+poly-metallic mine's physical ore is split across its metals by price share, so the copper-
+attributed mass is *smaller than the physical ore mined*. `Ore`/`CO` Mass edges carry this
+allocated mass, and everything derived per unit of it (grade, WR residual) inherits the basis.
+_Avoid_: comparing it to physically mined/milled tonnages.
+
+**Recovered vs in-situ grade.** Two grade notions per region-year: **recovered grade** = metal
+produced ÷ allocated ore (`1/factor`, the raw S&P number); **in-situ grade** = copper contained in
+the mill feed ÷ allocated ore = recovered ÷ recovery-`eff`. The model's `CO`/`Ore` **CC edges are
+in-situ** (production ÷ eff, matching the recipe's `(1−eff)` Tailings copper), so their grade
+rows use the **in-situ** value — region×year-resolved, owned by the `ore_grade` params, not the
+global `conc` family
+([ADR 0015](docs/adr/0015-in-situ-ore-grades-on-allocated-ore-basis.md)). On the allocated basis
+these are *not* physical mill-head grades (Australia ~2–3 % vs ~0.8 % head grade). _Avoid_:
+applying a recovered-basis grade to an in-situ edge (a systematic 1/eff error), or citing these
+grades against literature head grades without converting.
 
 **Feed semantics — ICSG vs BACI.** **ICSG** publishes production/usage statistics in **copper content
 (`CC`)**; its `Use` rows are **single-endpoint** (consumer known, producer open) ⇒ producer **fan-out**.

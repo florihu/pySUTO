@@ -21,9 +21,14 @@ Constraint types (registered in order)
                               the warm-start (a₀=f_agg at t₀, a_post(t-1) after)
                               solve never sees this fixed Stage-2 total. See
                               ADR 0006.
-3  Soft ratio — concentration  — RatioConstraintBuilder (copper_conc_params.csv)
+3  Soft ratio — concentration  — RatioConstraintBuilder (conc/params.csv)
+3b Soft ratio — ore grade      — RatioConstraintBuilder (ore_grade/params.csv,
+                                 region×year in-situ CO/Ore grades; owns the
+                                 CO/Ore Mass↔CC coupling — ADR 0015)
 4  Soft ratio — efficiency     — RatioConstraintBuilder (copper_efficiency_params.csv)
-5  Hard ratio bounds — conc    — RatioBoundBuilder (copper_conc_params.csv)
+5  Hard ratio bounds — conc    — RatioBoundBuilder (conc/params.csv)
+5b Hard ratio bounds — ore grade — RatioBoundBuilder (ore_grade/params.csv,
+                                 per-region series band)
 6  Hard ratio bounds — eff     — RatioBoundBuilder (copper_efficiency_params.csv)
 7  Net stock bounds           — RatioConstraintBuilder or RatioBoundBuilder
                                  (stock_bounds/params.csv, per STOCK_BOUNDS_MODE);
@@ -280,8 +285,15 @@ def main(imp_run_id: str, label: str) -> None:
     _register_builder(RatioConstraintBuilder, "eff",
                       sigma_rel_floor=RATIO_SIGMA_REL_FLOOR,
                       scale_abs_floor=RATIO_SCALE_ABS_FLOOR)
+    # 3b. Soft ratio — region×year in-situ ore grades (CO/Ore edges; ADR 0015 —
+    #     these replace the conc family's retired global CO/Ore rows)
+    _register_builder(RatioConstraintBuilder, "ore_grade",
+                      sigma_rel_floor=RATIO_SIGMA_REL_FLOOR,
+                      scale_abs_floor=RATIO_SCALE_ABS_FLOOR)
     # 5. Hard ratio bounds — concentration
     _register_builder(RatioBoundBuilder, "conc", kind="conc")
+    # 5b. Hard ratio bounds — ore grade (per-region series band; ADR 0015)
+    _register_builder(RatioBoundBuilder, "ore_grade", kind="conc")
     # 6. Hard ratio bounds — efficiency
     _register_builder(RatioBoundBuilder, "eff", kind="eff")
     # 7. Net stock bounds — soft (free cone, minimized slack) or hard (nonneg cone)
@@ -330,6 +342,7 @@ def main(imp_run_id: str, label: str) -> None:
             "pin_flat_prior_zeros": PIN_FLAT_PRIOR_ZEROS,
             "ratio_sigma_rel_floor": RATIO_SIGMA_REL_FLOOR,
             "ratio_scale_abs_floor": RATIO_SCALE_ABS_FLOOR,
+            "ore_grade_basis": "in-situ (ADR 0015)",
             "stock_bounds_mode": STOCK_BOUNDS_MODE,
             "scrap_share_mode":  SCRAP_SHARE_MODE,
         },
