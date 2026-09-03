@@ -141,6 +141,18 @@ CV_GEO4 = PedigreeScores._cv_other(4, "medium_sensitive")
 OUTLIER_LEG_K  = 3.0
 OUTLIER_LEG_CV = 5.0
 
+# Size-damped σ on bilateral legs (ADR 0017; applied BEFORE the screen above).
+# The Laner pedigree cv (~0.21 on BACI Mass legs) is size-blind, so deleting
+# any leg entirely costs z = 1/cv ≈ 4.8 flat — per tonne the biggest legs are
+# thousands of times cheaper to delete, and the QP eats them first (deleted
+# share 7%→45% by size decile; Chile→China/Japan zeroed). Power-law damping,
+#     σ_e = cv_pedigree(e) · a_ref(sector)^(1−γ) · a_e^γ ,
+# anchored at each sector's median covered bilateral leg (a_ref, pooled over
+# years): at the median σ is unchanged, bigger legs get relatively tighter,
+# smaller looser (cv capped at LEG_SIGMA_CV_CAP). γ=1.0 or None disables.
+LEG_SIGMA_GAMMA  = 0.5
+LEG_SIGMA_CV_CAP = 1.0
+
 # ---------------------------------------------------------------------------
 # FormulaRelations (module-level — no runtime state, safe to define here)
 # ---------------------------------------------------------------------------
@@ -251,6 +263,49 @@ cathode_mesc_domestic = FormulaRelation(
     clip_lower=0.0,
     epsilon=0.05,
 )
+
+
+def _damp_leg_sigma(acc, agg_result, gamma, cv_cap, logger):
+    """Size-damp σ on covered bilateral Flow-origin Mass legs (ADR 0017).
+
+    σ_e = cv_e · a_ref(sector)^(1−γ) · a_e^γ with a_ref = the sector's median
+    covered bilateral leg |f|, pooled over years; resulting cv capped at
+    cv_cap. Runs BEFORE the outlier screen (its cv-5 inflation overrides).
+    """
+    if gamma is None or gamma >= 1.0:
+        logger.info("B  leg-σ damping disabled (gamma=%s)", gamma)
+        return
+    ei = expand_edge_index(acc.edge_index, acc.node_index)
+    cov = np.asarray(agg_result.coverage, dtype=bool)
+    eid = ei["edge_id"].to_numpy()
+    f = np.asarray(agg_result.f_agg, dtype=float)
+    # entity_from Flow, any destination — Cathode's bilateral legs are
+    # Flow→SB (final demand), matching the outlier screen's population.
+    bilat = (cov[eid]
+             & ei["entity_from"].eq("Flow").to_numpy()
+             & (ei["region_from"] != ei["region_to"]).to_numpy()
+             & ei["valuation"].eq("Mass").to_numpy()
+             & (np.abs(np.nan_to_num(f[eid])) > 0))
+    legs = ei[bilat]
+    n_damped = 0
+    for sector, grp in legs.groupby("sector_from"):
+        ids = grp["edge_id"].to_numpy()
+        a = np.abs(f[ids])
+        a_ref = float(np.median(a))
+        if a_ref <= 0:
+            continue
+        cv0 = agg_result.sigma_agg[ids] / a
+        sigma = cv0 * a_ref ** (1.0 - gamma) * a ** gamma
+        sigma = np.minimum(sigma, cv_cap * a)          # σ-cap on tiny legs
+        agg_result.sigma_agg[ids] = sigma
+        n_damped += len(ids)
+        logger.info(
+            "B  leg-σ damping %-12s a_ref=%.1f kt  n=%d  cv %0.3f–%0.3f "
+            "(pedigree cv med %.3f)",
+            sector, a_ref, len(ids), float(np.min(sigma / a)),
+            float(np.max(sigma / a)), float(np.median(cv0)))
+    logger.info("B  leg-σ damping: gamma=%.2f cv_cap=%.2f — %d legs damped",
+                gamma, cv_cap, n_damped)
 
 
 def _screen_outlier_trade_legs(acc, agg_result, conc_csv: str, logger):
@@ -366,7 +421,9 @@ def main(feed_ids: list[str], label: str) -> None:
     feed_run_ids = [s["feed_run_id"] for s in collector.selected if s["feed_run_id"]]
     logger.info("B  Resolved feed_run_ids: %s", feed_run_ids)
 
-    # Bilateral-leg plausibility screen (σ inflation, see USER CONFIGURATION).
+    # Size-damped leg σ (ADR 0017), then the plausibility screen — the screen's
+    # cv-5 inflation overrides damping on flagged legs.
+    _damp_leg_sigma(acc, agg_result, LEG_SIGMA_GAMMA, LEG_SIGMA_CV_CAP, logger)
     outlier_report = _screen_outlier_trade_legs(
         acc, agg_result, str(inputs.params.resolve("conc") / "params.csv"), logger)
 
@@ -574,6 +631,8 @@ def main(feed_ids: list[str], label: str) -> None:
             "flat_mode":       FLAT_MODE,
             "outlier_leg_k":   OUTLIER_LEG_K,
             "outlier_leg_cv":  OUTLIER_LEG_CV,
+            "leg_sigma_gamma":  LEG_SIGMA_GAMMA,
+            "leg_sigma_cv_cap": LEG_SIGMA_CV_CAP,
             "flat_sigma_high": FLAT_SIGMA_HIGH if FLAT_MODE == "noisy_zero" else None,
             "flat_default_cv": FLAT_DEFAULT_CV if FLAT_MODE == "magnitude_aware" else None,
             "time": {

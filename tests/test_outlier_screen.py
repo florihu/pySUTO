@@ -99,3 +99,94 @@ def test_screen_clean_returns_empty_and_keeps_zero_sigma_guard(tmp_path):
     report = _screen_outlier_trade_legs(acc, agg, _conc_csv(tmp_path), _Log())
     assert len(report) == 0
     assert (agg.sigma_agg == 1.0).all()
+
+
+# ---------------------------------------------------------------------------
+# Size-damped leg σ (ADR 0017)
+# ---------------------------------------------------------------------------
+
+from collect_aggregate_impute import _damp_leg_sigma  # noqa: E402
+
+
+class _DampAcc:
+    """Two sectors, three bilateral legs each (small/median/big) + extras."""
+
+    def __init__(self):
+        nodes = [
+            ("Concentrate", "Flow", "A"),   # 0
+            ("Concentrate", "Flow", "B"),   # 1
+            ("Cathode", "Flow", "A"),       # 2
+            ("Sm", "Process", "C"),         # 3
+            ("Sm", "Process", "A"),         # 4  (domestic target for node 0)
+            ("ER", "Process", "C"),         # 5
+        ]
+        self.node_index = pd.DataFrame(nodes, columns=["sector", "entity", "region"])
+        edges = [
+            (0, 3),  # Concentrate A->C  (bilateral)
+            (1, 3),  # Concentrate B->C  (bilateral)
+            (0, 4),  # Concentrate A->A  (domestic — untouched)
+            (2, 5),  # Cathode A->C      (bilateral)
+        ]
+        rows, eid = [], 0
+        for f, t in edges:
+            for val in ("Mass", "CC"):
+                rows.append((eid, f, t, "2020", val))
+                eid += 1
+        # one more Concentrate bilateral leg in another year (median pooling)
+        rows.append((eid, 1, 3, "2021", "Mass")); eid += 1
+        self.edge_index = pd.DataFrame(
+            rows, columns=["edge_id", "from_id", "to_id", "time", "valuation"])
+        self.n_edges = eid
+
+
+def test_damping_anchors_at_sector_median_and_caps():
+    acc = _DampAcc()
+    agg = _Agg(acc.n_edges)
+    # Concentrate bilateral Mass legs: 1 (small), 100 (median), 10000 (big)
+    vals = {0: 1.0, 2: 100.0, 8: 10000.0}
+    for eid, v in vals.items():
+        agg.f_agg[eid] = v
+        agg.coverage[eid] = True
+        agg.sigma_agg[eid] = 0.21 * v          # pedigree cv 0.21
+    # Cathode bilateral leg at 50 (its own sector median of one)
+    agg.f_agg[6] = 50.0; agg.coverage[6] = True; agg.sigma_agg[6] = 0.21 * 50.0
+    # domestic Concentrate leg — must stay untouched
+    agg.f_agg[4] = 77.0; agg.coverage[4] = True; agg.sigma_agg[4] = 0.21 * 77.0
+
+    _damp_leg_sigma(acc, agg, gamma=0.5, cv_cap=1.0, logger=_Log())
+
+    # median leg (a_ref=100) keeps its σ exactly
+    assert np.isclose(agg.sigma_agg[2], 0.21 * 100.0)
+    # big leg: cv = 0.21·(100/10000)^0.5 = 0.021
+    assert np.isclose(agg.sigma_agg[8] / 10000.0, 0.021)
+    # small leg: cv = 0.21·(100/1)^0.5 = 2.1 → capped at 1.0
+    assert np.isclose(agg.sigma_agg[0] / 1.0, 1.0)
+    # Cathode anchored at its own median → unchanged, not at Concentrate's
+    assert np.isclose(agg.sigma_agg[6], 0.21 * 50.0)
+    # domestic leg untouched
+    assert np.isclose(agg.sigma_agg[4], 0.21 * 77.0)
+    # CC twins untouched at this stage (trade_seed inherits later)
+    assert agg.sigma_agg[1] == 1.0 and agg.sigma_agg[3] == 1.0
+
+
+def test_damping_disabled_and_screen_overrides(tmp_path):
+    acc = _DampAcc()
+    agg = _Agg(acc.n_edges)
+    agg.f_agg[0] = 10.0; agg.coverage[0] = True; agg.sigma_agg[0] = 2.1
+    _damp_leg_sigma(acc, agg, gamma=1.0, cv_cap=1.0, logger=_Log())
+    assert np.isclose(agg.sigma_agg[0], 2.1)          # off at gamma=1
+    _damp_leg_sigma(acc, agg, gamma=None, cv_cap=1.0, logger=_Log())
+    assert np.isclose(agg.sigma_agg[0], 2.1)
+
+    # damping then screen: flagged exporter's leg ends at the screen's cv 5
+    acc2, agg2 = _Acc(), _Agg(10)
+    m = acc2.edge_index
+    for i, val, fv in ((0, "CC", 100.0), (2, "Mass", 2000.0)):
+        eid = int(m[(m.index // 2 == i) & (m["valuation"] == val)]["edge_id"].iloc[0])
+        agg2.f_agg[eid] = fv
+        agg2.coverage[eid] = True
+        agg2.sigma_agg[eid] = 0.21 * fv
+    png = int(m[(m.index // 2 == 2) & (m["valuation"] == "Mass")]["edge_id"].iloc[0])
+    _damp_leg_sigma(acc2, agg2, gamma=0.5, cv_cap=1.0, logger=_Log())
+    _screen_outlier_trade_legs(acc2, agg2, _conc_csv(tmp_path), _Log())
+    assert np.isclose(agg2.sigma_agg[png], 5.0 * 2000.0)
