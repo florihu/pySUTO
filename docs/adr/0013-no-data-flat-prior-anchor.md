@@ -1,7 +1,8 @@
 # No-data (flat-prior) σ anchor, and the structurally-determined carve-out
 
-**Status:** accepted (soft σ anchor); the hard flat-prior-zero *pin* is an
-experimental sensitivity variant (branch `sensitivity/no-flat-prior-zeros`).
+**Status:** accepted (soft σ anchor, `NODATA_ANCHOR_CV=0.05` — the default since the
+2026-09-03 merge to main); the hard flat-prior-zero *pin* is retained only for
+feasibility-pre-check strictness (it is inert in the QP — see amendment 1 below).
 
 **Amended 2026-09-01:**
 1. **The pin's `l`/`u` boxes only reach the feasibility pre-check, not the QP.**
