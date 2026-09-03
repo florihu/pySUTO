@@ -424,6 +424,23 @@ def test_cp_pool_eff_one(imputer, acc):
     assert f[acc.eid("CP", "PSC", "CC")] == pytest.approx(0.0)
 
 
+def test_cp_pool_partial_primary_counts_missing_as_zero(imputer, acc):
+    # ADR 0010 amendment: a missing pooled primary counts as 0 when ≥1 primary
+    # is known — CP's CER/CSXEW are parallel technology routes (a region with
+    # refining but no SX-EW, e.g. Japan, must still close its CP recipe).
+    f, _ = _run(imputer, acc, {("CER", "CP", "CC"): 70.0})
+    assert f[acc.eid("CP", "Cathode", "CC")] == pytest.approx(70.0)
+    # the absent route is never written — it stays an honest gap
+    assert np.isnan(f[acc.eid("CSXEW", "CP", "CC")])
+
+
+def test_cp_pool_all_primaries_missing_still_blocks(imputer, acc):
+    # Guard: with NO known primary the gate stays closed (no fabricated zeros),
+    # even while unrelated recipes fire.
+    f, _ = _run(imputer, acc, {("CO", "Mining", "CC"): 100.0})
+    assert np.isnan(f[acc.eid("CP", "Cathode", "CC")])
+
+
 def test_no_overwrite_observed(imputer, acc):
     # Observed product should not be overwritten by the recipe
     f = np.full(acc.n_edges, np.nan)
@@ -693,3 +710,48 @@ def test_flow_balance_missing_cross_region_as_zero(bi_imputer):
     exp_leg = acc.eid("Matte", "A", "CFR", "B", "CC")
     assert f[dom_use] == pytest.approx(135.0)  # export counted as 0
     assert np.isnan(f[exp_leg])                # cross-region leg never written
+
+
+# =============================================================================
+# Region-resolved ore-grade overlay (ADR 0015)
+# =============================================================================
+
+def test_region_resolved_grade_overlay_twin_map(tmp_path):
+    """Region/time-resolved ore_grade rows overlay the global conc twin map
+    per edge (most-specific wins), leaving un-overlaid sectors on the global
+    value — the mechanism that makes CO/Ore Mass twins region×year-aware."""
+    from pysuto.param_relation import (
+        ParamRelationResolver, conc_twin_map, get_edge_cache,
+    )
+
+    acc = _BiAcc()
+    conc = tmp_path / "c.csv"
+    og = tmp_path / "og.csv"
+    _write_bi_conc(conc)  # global Conc = 0.275
+
+    def _og_row(pid, region, val):
+        return _row(
+            param_id=pid, param_type="concentration",
+            a_sector_from="Conc", a_entity_from="Flow", a_region_from=region,
+            a_time="2020", a_valuation="Mass",
+            b_sector_from="same", b_entity_from="same", b_region_from="same",
+            b_sector_to="same", b_entity_to="same", b_region_to="same",
+            b_time="same", b_valuation="CC",
+            value_nominal=str(val),
+        )
+
+    _write(og, [_og_row("oregradeconcsupplya2020", "A", 0.2),
+                _og_row("oregradeconcsupplyb2020", "B", 0.4)])
+
+    get_edge_cache(acc)
+    resolver = ParamRelationResolver(acc)
+    m = conc_twin_map(str(conc), resolver)
+    conc_twin_map(str(og), resolver, m)
+
+    cc_a = acc.eid("Conc", "A", "Sm", "A", "CC")
+    cc_b = acc.eid("Conc", "B", "Sm", "A", "CC")
+    assert m[cc_a][0] == acc.eid("Conc", "A", "Sm", "A", "Mass")
+    assert m[cc_a][1] == pytest.approx(0.2)   # region A overlay wins
+    assert m[cc_b][1] == pytest.approx(0.4)   # region B overlay wins
+    cc_matte = acc.eid("Matte", "A", "CFR", "A", "CC")
+    assert m[cc_matte][1] == pytest.approx(_BI_CONC["Matte"])  # untouched

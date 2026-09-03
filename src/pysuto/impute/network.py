@@ -168,6 +168,7 @@ class NetworkImputer(BaseImputer):
         self.stripping_ratio = float(stripping_ratio)
         # populated by prepare()
         self._recipes: list[_RRecipe] = []
+        self._relaxed_fills: set[int] = set()
         self._flow_nodes: list[tuple[tuple[int, ...], tuple[int, ...]]] = []
         self._cc_to_mass: dict[int, tuple[int, float, float]] = {}
         # structural CC→Mass edge twin (same from/to/time), conc-independent — locates the
@@ -301,15 +302,28 @@ class NetworkImputer(BaseImputer):
     def impute(self, f, sigma, missing, step, acc_struct) -> list[dict]:
         entries: list[dict] = []
         self._n_clipped = 0
-        # Internal fixpoint: keep sweeping recipes + flow balances until a full
-        # sweep fills nothing new (the engine cascade re-runs us too, but
-        # converging here keeps chain propagation within one call).
-        for _ in range(64):
+        self._relaxed_fills = set()
+        # Two-phase fixpoint. Strict phase: keep sweeping recipes + flow
+        # balances until a full sweep fills nothing new (the engine cascade
+        # re-runs us too, but converging here keeps chain propagation within
+        # one call). Relaxed phase (ADR 0010 amendment): only at strict
+        # convergence may a still-missing pooled primary be treated as an
+        # absent parallel route (count 0, ≥1 primary known) — convergence
+        # proves "missing" means *underivable*, not "not yet derived". A
+        # relaxed close can unlock further strict fills, so re-converge.
+        for _outer in range(8):
+            for _ in range(64):
+                n_before = len(entries)
+                for rec in self._recipes:
+                    self._do_recipe(rec, f, sigma, entries, step)
+                for inc, out in self._flow_nodes:
+                    self._do_flow_balance(inc, out, f, sigma, entries, step)
+                if len(entries) == n_before:
+                    break
             n_before = len(entries)
             for rec in self._recipes:
-                self._do_recipe(rec, f, sigma, entries, step)
-            for inc, out in self._flow_nodes:
-                self._do_flow_balance(inc, out, f, sigma, entries, step)
+                self._do_recipe(rec, f, sigma, entries, step,
+                                relax_primaries=True)
             if len(entries) == n_before:
                 break
         if self._n_clipped:
@@ -318,7 +332,8 @@ class NetworkImputer(BaseImputer):
             logger.info("NetworkImputer: clipped %d fill(s) to edge bounds", self._n_clipped)
         return entries
 
-    def _do_recipe(self, rec, f, sigma, entries, step) -> None:
+    def _do_recipe(self, rec, f, sigma, entries, step,
+                   relax_primaries: bool = False) -> None:
         p = self.p
         P, W = rec.product, list(rec.wastes)
         PR, SE = list(rec.primary), list(rec.secondary)
@@ -327,8 +342,13 @@ class NetworkImputer(BaseImputer):
 
         miss_PR = [i for i in PR if np.isnan(f[i])]
         # missing SEM secondaries (Scrap) AND missing cross-region imports count as
-        # absent → 0; neither blocks the forward gate (ADR 0010). Only same-region
-        # primaries (PR) block.
+        # absent → 0; neither blocks the forward gate (ADR 0010). In the relaxed
+        # phase (post strict-fixpoint only, see impute()), a missing same-region
+        # primary also counts as 0 *provided ≥1 primary is known* (ADR 0010
+        # amendment: parallel technology routes, e.g. CP's CER+CSXEW — a leg
+        # still underivable at convergence means the region doesn't have that
+        # route). A recipe with NO known primary keeps the gate closed
+        # (no fabricated zeros).
         sec_sum = float(sum(f[i] for i in SE if not np.isnan(f[i])))
         sec_sig = [sigma[i] for i in SE if not np.isnan(f[i])]
         imp_sum = float(sum(f[i] for i in BI if not np.isnan(f[i])))
@@ -339,10 +359,10 @@ class NetworkImputer(BaseImputer):
         S = None
         S_src = None
         sig_S = 0.0
-        if PR and not miss_PR:
-            S = float(sum(f[i] for i in PR)) + sec_sum + imp_sum
+        if PR and (not miss_PR or (relax_primaries and known_PR)):
+            S = float(sum(f[i] for i in known_PR)) + sec_sum + imp_sum
             S_src = "inputs"
-            sig_S = lp_combine([sigma[i] for i in PR] + sec_sig + imp_sig, p)
+            sig_S = lp_combine([sigma[i] for i in known_PR] + sec_sig + imp_sig, p)
         elif P is not None and not np.isnan(f[P]) and eff > _EPS:
             S = float(f[P] / eff)
             S_src = "product"
@@ -363,17 +383,24 @@ class NetworkImputer(BaseImputer):
         eff_term = eff_sig * abs(S) if S_src == "inputs" else 0.0
 
         # ---- product = eff·S ----
+        relaxed_close = bool(relax_primaries and miss_PR and S_src == "inputs")
         if P is not None and np.isnan(f[P]):
             f_P = eff * S
             s_P = lp_combine([eff * sig_S, eff_term, eps * abs(f_P)], p)
             self._w(P, f_P, s_P, f, sigma, entries, step,
-                    "network_forward", PR if S_src == "inputs" else [P], [eff],
+                    "network_forward", known_PR if S_src == "inputs" else [P], [eff],
                     rec.eff_param_id)
+            if relaxed_close:
+                self._relaxed_fills.add(P)
 
         # ---- single missing PRIMARY input by subtraction (S from output) ----
         # (secondaries + cross-region imports are pooled when known / 0 when missing;
         # never written here, so they must be subtracted off the recovered S)
-        if S_src in ("product", "waste") and len(miss_PR) == 1:
+        # A relaxed-close output must not circle back into the primary it
+        # assumed absent (that would echo the missing=0 assumption as an
+        # explicit 0 — the route stays an honest NaN gap, ADR 0010).
+        if S_src in ("product", "waste") and len(miss_PR) == 1 \
+                and (P if S_src == "product" else W[0]) not in self._relaxed_fills:
             i = miss_PR[0]
             f_i = S - float(sum(f[j] for j in known_PR)) - sec_sum - imp_sum
             s_i = lp_combine(
@@ -393,7 +420,9 @@ class NetworkImputer(BaseImputer):
             method = "network_forward" if S_src == "inputs" else "network_backward"
             s_w = lp_combine([(1.0 - eff) * sig_S, eff_term, eps * abs(f_w)], p)
             self._w(w, f_w, s_w, f, sigma, entries, step, method,
-                    PR if S_src == "inputs" else [P], [1.0 - eff], rec.eff_param_id)
+                    known_PR if S_src == "inputs" else [P], [1.0 - eff], rec.eff_param_id)
+            if relaxed_close:
+                self._relaxed_fills.add(w)
 
         # ---- Mass twins for this recipe's CC edges (atomic with the CC fills) ----
         self._emit_twins(rec, f, sigma, entries, step)

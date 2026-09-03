@@ -498,5 +498,57 @@ class TestMassConservationGuard:
         assert matched_raw_total(raw, ct) == pytest.approx(40.0)  # 10 + 30, not 60
 
 
+class TestEdgeScopeMask:
+    """``_apply_edge_scope_mask`` with the ``cross_region`` built-in — the
+    mapped self-trade exclusion for bilateral feeds (ADR 0014)."""
+
+    def test_cross_region_scope_drops_domestic_rows(self):
+        import pandas as pd
+        from types import SimpleNamespace
+        from pysuto.acc import AccountingStructure
+        from pysuto.feedpipe import _apply_edge_scope_mask
+
+        root = {
+            "nodes": pd.DataFrame({
+                "sector": ["Mining", "Ore", "Mining", "Ore"],
+                "entity": ["P",      "F",   "P",      "F"],
+                "region": ["A",      "A",   "B",      "B"],
+            }),
+            "time_range": [0],
+            "valuation":  ["mass"],
+        }
+        acc = AccountingStructure(id="t", root=root)
+        ei = acc.edge_index
+        cr = acc.masks["cross_region"]
+        cross = ei[cr].iloc[0]
+        dom   = ei[~cr].iloc[0]
+
+        def _row(e):
+            fs = acc.id_to_node[e["from_id"]]
+            ts = acc.id_to_node[e["to_id"]]
+            return {
+                "root_sector_from": fs[0], "root_entity_from": fs[1],
+                "root_region_from": fs[2],
+                "root_sector_to": ts[0], "root_entity_to": ts[1],
+                "root_region_to": ts[2],
+                "root_time": str(e["time"]), "root_valuation": str(e["valuation"]),
+            }
+
+        ct = SimpleNamespace(tab=pd.DataFrame([_row(cross), _row(dom)]))
+        _apply_edge_scope_mask(ct, acc, "cross_region")
+        assert len(ct.tab) == 1
+        kept = ct.tab.iloc[0]
+        assert kept["root_region_from"] != kept["root_region_to"]
+
+    def test_empty_mask_name_is_noop(self):
+        import pandas as pd
+        from types import SimpleNamespace
+        from pysuto.feedpipe import _apply_edge_scope_mask
+
+        ct = SimpleNamespace(tab=pd.DataFrame({"root_region_from": ["A"]}))
+        _apply_edge_scope_mask(ct, None, "")
+        assert len(ct.tab) == 1
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

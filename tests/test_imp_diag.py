@@ -545,3 +545,50 @@ def test_agg_root_by_year_ignores_year_filter(tmp_path):
     )
     names = sorted(os.path.basename(p) for p in paths)
     assert names == ["agg_distributions.png", "agg_root_by_year.png"]
+
+
+# ---------------------------------------------------------------------------
+# Cross-valuation consistency gate (report-only)
+# ---------------------------------------------------------------------------
+
+def test_cross_valuation_check_flags_impossible_pair(acc, tmp_path):
+    """A feed-covered CC/Mass twin with CC > Mass (the mapped-self-trade
+    poisoning signature) is reported; healthy pairs are not."""
+    from pysuto.diag.imp import ImpDiagnostic
+
+    agg = _agg_with_log(acc, [
+        {"edge_id": 4, "step": 0, "method": "flat_prior",
+         "f_after": 0.0, "sigma_after": 1e6},
+    ])
+    # edges 0/2 = Mining_A→Ore_A Mass/CC (2020); 1/3 = the B pair
+    agg.f_agg[[0, 2, 1, 3]] = [0.03, 5678.0, 200.0, 100.0]
+    agg.sigma_agg[[0, 2, 1, 3]] = [0.005, 389.0, 5.0, 5.0]
+    agg.coverage[[0, 1, 2, 3]] = True
+
+    out = ImpDiagnostic(agg, acc_struct=acc, label="t").cross_valuation_check(
+        odir=str(tmp_path))
+    assert len(out) == 1
+    row = out.iloc[0]
+    assert (row["from_sector"], row["from_region"]) == ("Mining", "A")
+    assert row["implied_conc"] > 1.0
+    assert os.path.exists(os.path.join(str(tmp_path), "cross_valuation_check.csv"))
+
+
+def test_cross_valuation_check_clean_and_uncovered_ignored(acc):
+    """Consistent pairs pass; a CC>Mass pair is ignored unless BOTH sides are
+    feed-covered (imputed values are not observations)."""
+    from pysuto.diag.imp import ImpDiagnostic
+
+    agg = _agg_with_log(acc, [
+        {"edge_id": 4, "step": 0, "method": "flat_prior",
+         "f_after": 0.0, "sigma_after": 1e6},
+    ])
+    agg.f_agg[[0, 2]] = [200.0, 100.0]     # healthy covered pair
+    agg.sigma_agg[[0, 2]] = [5.0, 5.0]
+    agg.coverage[[0, 2]] = True
+    agg.f_agg[[1, 3]] = [0.03, 5678.0]     # impossible, but Mass side uncovered
+    agg.sigma_agg[[1, 3]] = [0.005, 389.0]
+    agg.coverage[3] = True
+
+    out = ImpDiagnostic(agg, acc_struct=acc, label="t").cross_valuation_check()
+    assert out.empty

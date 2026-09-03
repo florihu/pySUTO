@@ -56,6 +56,12 @@ class SourceTerm:
     time_binding    If True, source.time must equal target.time.
     aggregate       "single" (expect exactly one matching edge) or
                     "sum"    (sum over all matching edges).
+    missing         NaN-source policy: "block" (default) aborts the fill when
+                    any matched source value is missing; "zero" treats missing
+                    sources as 0 (CONTEXT.md "missing counts as 0" — for
+                    subtract/export terms whose absence means "no such flow
+                    observed", not "unknown"). Structural failures (aggregate
+                    "single" matching ≠ 1 edge) always block.
     """
     selector:       Callable
     coefficient:    Union[float, "ParamRef"] = 1.0
@@ -66,6 +72,7 @@ class SourceTerm:
     ] = "none"
     time_binding:   bool                           = True
     aggregate:      Literal["single", "sum"]       = "single"
+    missing:        Literal["block", "zero"]       = "block"
 
 
 @dataclass
@@ -243,7 +250,11 @@ class FormulaImputer(BaseImputer):
                     if term.aggregate == "single" and len(s_ids) != 1:
                         ok = False
                         break
-                    if any(np.isnan(f[s]) for s in s_ids):
+                    if term.missing == "zero":
+                        # NaN sources count as 0 (contribute nothing) — the
+                        # structural single-edge check above still applies.
+                        s_ids = [s for s in s_ids if not np.isnan(f[s])]
+                    elif any(np.isnan(f[s]) for s in s_ids):
                         ok = False
                         break
 

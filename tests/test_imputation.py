@@ -821,6 +821,36 @@ class TestFormulaImputer:
         imp.impute(f, sigma, missing, 0, acc)
         assert f[1] == pytest.approx(70.0)
 
+    def test_missing_zero_counts_nan_source_as_zero(self, acc):
+        """missing="zero": a NaN subtract term contributes 0 instead of blocking
+        the fill (CONTEXT.md "missing counts as 0"); the default "block" on the
+        same shape still aborts."""
+        def _rel(missing):
+            return FormulaRelation(
+                description="balance",
+                target=lambda ei: ei["edge_id"] == 1,
+                terms=[
+                    SourceTerm(selector=lambda ei: ei["edge_id"] == 0,
+                               coefficient=1.0, region_binding="none",
+                               time_binding=False, aggregate="single"),
+                    SourceTerm(selector=lambda ei: ei["edge_id"] == 4,
+                               coefficient=-1.0, region_binding="none",
+                               time_binding=False, aggregate="single",
+                               missing=missing),
+                ],
+                clip_lower=None,
+            )
+        # subtract source (edge 4) left NaN
+        f     = np.full(10, np.nan);  f[0] = 100.0
+        sigma = np.full(10, np.nan);  sigma[0] = 5.0
+        FormulaImputer(relations=[_rel("zero")]).impute(f, sigma, np.isnan(f), 0, acc)
+        assert f[1] == pytest.approx(100.0), "NaN subtract term must count as 0"
+        # default "block" semantics unchanged
+        f     = np.full(10, np.nan);  f[0] = 100.0
+        sigma = np.full(10, np.nan);  sigma[0] = 5.0
+        FormulaImputer(relations=[_rel("block")]).impute(f, sigma, np.isnan(f), 0, acc)
+        assert np.isnan(f[1]), "default must still block on a NaN source"
+
     def test_clip_lower_zero(self, acc):
         """Negative result is clipped to clip_lower=0."""
         f     = np.full(10, np.nan)
@@ -1729,6 +1759,68 @@ class TestFlatPriorImputer:
         # First-match-wins: edge 0 is in my_overlay → uses (0.1, 0.2).
         names = [n for n, _ in imp._masks]
         assert names == ["my_overlay", "supply"]
+
+
+class TestCathodeFdSplitSelectors:
+    """The cathode final-demand split FormulaRelations must select SB-entity
+    targets: FU/USC/MESC nodes carry entity == "SB", not "Process". With the
+    old "Process" predicate the formulas matched zero edges and silently never
+    fired (domestic Cathode→FU fell to flat_prior_noisy_zero)."""
+
+    def _load_script(self):
+        import importlib.util, pathlib
+        repo = pathlib.Path(__file__).resolve().parents[1]
+        mod_path = repo / "scripts" / "collect_aggregate_impute.py"
+        try:
+            spec = importlib.util.spec_from_file_location(
+                "collect_aggregate_impute", mod_path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+        except ImportError as e:
+            pytest.skip(f"collect_aggregate_impute not importable: {e}")
+        return mod
+
+    def _toy_ei(self):
+        # one domestic Cathode→FU SB edge + decoys (cross-region / wrong entity)
+        return pd.DataFrame([
+            dict(sector_from="Cathode", entity_from="Flow", region_from="A",
+                 sector_to="FU",   entity_to="SB",   region_to="A", valuation="Mass"),
+            dict(sector_from="Cathode", entity_from="Flow", region_from="A",
+                 sector_to="FU",   entity_to="SB",   region_to="B", valuation="Mass"),
+            dict(sector_from="Cathode", entity_from="Flow", region_from="A",
+                 sector_to="USC",  entity_to="SB",   region_to="A", valuation="Mass"),
+            dict(sector_from="Cathode", entity_from="Flow", region_from="A",
+                 sector_to="MESC", entity_to="SB",   region_to="A", valuation="Mass"),
+            dict(sector_from="Cathode", entity_from="Flow", region_from="A",
+                 sector_to="MF",   entity_to="Process", region_to="A", valuation="Mass"),
+        ])
+
+    def test_fd_split_targets_match_sb_entities(self):
+        mod = self._load_script()
+        ei = self._toy_ei()
+        assert mod.cathode_fu_domestic.target(ei).tolist() == [True, False, False, False, False], \
+            "cathode_fu_domestic must match exactly the domestic Cathode→FU SB edge"
+        assert mod.cathode_usc_domestic.target(ei).tolist() == [False, False, True, False, False]
+        assert mod.cathode_mesc_domestic.target(ei).tolist() == [False, False, False, True, False]
+
+    def test_fd_split_subtract_terms_match_sb_entities(self):
+        mod = self._load_script()
+        ei = self._toy_ei()
+        term = mod._cathode_domestic_subtract("USC")
+        assert term.selector(ei).tolist() == [False, False, True, False, False], \
+            "_cathode_domestic_subtract must select the domestic SB leg"
+
+    def test_fd_split_missing_policy(self):
+        """FU (the free-sink anchor) counts missing USC/MESC/exports as 0 so it
+        fires wherever production is known; USC/MESC keep "block" so they stay
+        reserved for the ShareImputer zero-mean seed (Part B not preempted)."""
+        mod = self._load_script()
+        fu_missing = [t.missing for t in mod.cathode_fu_domestic.terms]
+        assert fu_missing == ["block", "zero", "zero", "zero"], \
+            "FU: supply blocks, exports/USC/MESC count missing as 0"
+        for rel in (mod.cathode_usc_domestic, mod.cathode_mesc_domestic):
+            assert all(t.missing == "block" for t in rel.terms), \
+                "USC/MESC must keep full block semantics"
 
 
 if __name__ == "__main__":

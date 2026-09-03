@@ -246,7 +246,66 @@ class ImpDiagnostic:
                     plt.show()
                 plt.close(fig3)
 
+        # Cross-valuation consistency table (report-only, needs acc_struct)
+        if self.acc_struct is not None:
+            self.cross_valuation_check(odir=odir)
+
         return paths
+
+    def cross_valuation_check(self, odir: str | None = None,
+                              floor: float = 1e-6) -> pd.DataFrame:
+        """Report-only gate: feed-covered CC/Mass twins where CC > Mass.
+
+        Pairs every edge address (from_id, to_id, time) across its two
+        valuations; where BOTH are feed-covered, copper content exceeding gross
+        mass is physically impossible (implied conc > 1) and marks inconsistent
+        observations (e.g. a mapped self-trade Mass next to a production-scale
+        CC — the China matte case). No data is mutated; the offending pairs are
+        returned, written to ``cross_valuation_check.csv`` when ``odir`` is
+        given, and announced loudly. ``floor`` suppresses ~0-vs-0 noise pairs.
+        """
+        cols = ["from_sector", "from_region", "to_sector", "to_region", "time",
+                "f_mass", "sigma_mass", "f_cc", "sigma_cc", "implied_conc"]
+        ni = getattr(self.acc_struct, "node_index", None)
+        if self.acc_struct is None or ni is None or \
+                getattr(self.acc_struct, "edge_index", None) is None:
+            return pd.DataFrame(columns=cols)
+        agg = self.agg_result
+        ei = self.acc_struct.edge_index[["edge_id", "from_id", "to_id",
+                                         "time", "valuation"]].copy()
+        cov = pd.Series(np.asarray(agg.coverage, dtype=bool),
+                        index=np.arange(len(agg.f_agg)))
+        ei["covered"] = cov.reindex(ei["edge_id"]).to_numpy()
+        ei["f"] = np.asarray(agg.f_agg)[ei["edge_id"].to_numpy()]
+        ei["sigma"] = np.asarray(agg.sigma_agg)[ei["edge_id"].to_numpy()]
+        mass = ei[ei["valuation"] == "Mass"]
+        cc = ei[ei["valuation"] == "CC"]
+        pair = mass.merge(cc, on=["from_id", "to_id", "time"],
+                          suffixes=("_mass", "_cc"))
+        both = pair[pair["covered_mass"] & pair["covered_cc"]]
+        bad = both[(both["f_cc"] > both["f_mass"]) & (both["f_cc"] > floor)]
+        out = pd.DataFrame({
+            "from_sector": ni.loc[bad["from_id"], "sector"].to_numpy(),
+            "from_region": ni.loc[bad["from_id"], "region"].to_numpy(),
+            "to_sector":   ni.loc[bad["to_id"], "sector"].to_numpy(),
+            "to_region":   ni.loc[bad["to_id"], "region"].to_numpy(),
+            "time":        bad["time"].to_numpy(),
+            "f_mass":      bad["f_mass"].to_numpy(),
+            "sigma_mass":  bad["sigma_mass"].to_numpy(),
+            "f_cc":        bad["f_cc"].to_numpy(),
+            "sigma_cc":    bad["sigma_cc"].to_numpy(),
+            "implied_conc": (bad["f_cc"] / bad["f_mass"].replace(0.0, np.nan)).to_numpy(),
+        }).sort_values("implied_conc", ascending=False).reset_index(drop=True)
+        if odir is not None:
+            p = os.path.join(odir, "cross_valuation_check.csv")
+            out.to_csv(p, index=False)
+            print(f"   Cross-valuation check      → {p}  "
+                  f"({'CLEAN' if out.empty else f'{len(out)} VIOLATIONS'})")
+        if not out.empty:
+            print(f"   ⚠  cross-valuation check: {len(out)} covered CC/Mass "
+                  f"pair(s) with CC > Mass (physically impossible) — worst "
+                  f"implied conc {out['implied_conc'].max():.1f}×")
+        return out
 
     def summary(self) -> str:
         """Print and return a text summary of the imputation pipeline."""

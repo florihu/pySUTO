@@ -67,6 +67,7 @@ from pysuto.impute   import (
     SourceTerm,
     ParamRef,
     TimeImputer,
+    ShareImputer,
     FlatPriorImputer,
 )
 from pysuto.logging  import get_logger, add_run_handler
@@ -153,7 +154,7 @@ def _cathode_supply_term():
         aggregate="single",
     )
 
-def _cathode_export_term():
+def _cathode_export_term(missing: str = "block"):
     return SourceTerm(
         selector=lambda ei: (
             (ei["sector_from"] == "Cathode") & (ei["entity_from"] == "Flow") &
@@ -162,32 +163,42 @@ def _cathode_export_term():
         coefficient=-1.0,
         region_binding="from_matches_target_from",
         aggregate="sum",
+        missing=missing,
     )
 
-def _cathode_domestic_subtract(sector_to: str):
+def _cathode_domestic_subtract(sector_to: str, missing: str = "block"):
     return SourceTerm(
         selector=lambda ei, s=sector_to: (
             (ei["sector_from"] == "Cathode") & (ei["entity_from"] == "Flow") &
-            (ei["sector_to"]   == s)         & (ei["entity_to"]   == "Process") &
+            (ei["sector_to"]   == s)         & (ei["entity_to"]   == "SB") &
             (ei["region_from"] == ei["region_to"]) & (ei["valuation"] == "Mass")
         ),
         coefficient=-1.0,
         region_binding="from_matches_target_from",
         aggregate="single",
+        missing=missing,
     )
 
+# FU uses missing="zero" on the subtract/export terms: absent USC/MESC or
+# unobserved export legs count as 0 (CONTEXT.md "missing counts as 0"), so the
+# residual fires wherever CP→Cathode production is known — this is what anchors
+# the FU sink with a real prior. The supply term keeps missing="block": without
+# known production a residual FU prior would be meaningless. USC/MESC below
+# deliberately keep full "block" semantics so they stay reserved for the
+# ShareImputer's zero-mean throughput-scaled seed (Part B) instead of being
+# preempted by a near-zero formula residual.
 cathode_fu_domestic = FormulaRelation(
     description="Domestic Cathode→FU: CP supply/conc - exports - USC - MESC, clip 0",
     target=lambda ei: (
         (ei["sector_from"] == "Cathode") & (ei["entity_from"] == "Flow") &
-        (ei["sector_to"]   == "FU")      & (ei["entity_to"]   == "Process") &
+        (ei["sector_to"]   == "FU")      & (ei["entity_to"]   == "SB") &
         (ei["region_from"] == ei["region_to"]) & (ei["valuation"] == "Mass")
     ),
     terms=[
         _cathode_supply_term(),
-        _cathode_export_term(),
-        _cathode_domestic_subtract("USC"),
-        _cathode_domestic_subtract("MESC"),
+        _cathode_export_term(missing="zero"),
+        _cathode_domestic_subtract("USC", missing="zero"),
+        _cathode_domestic_subtract("MESC", missing="zero"),
     ],
     clip_lower=0.0,
     epsilon=0.05,
@@ -197,7 +208,7 @@ cathode_usc_domestic = FormulaRelation(
     description="Domestic Cathode→USC: CP supply/conc - exports - FU - MESC, clip 0",
     target=lambda ei: (
         (ei["sector_from"] == "Cathode") & (ei["entity_from"] == "Flow") &
-        (ei["sector_to"]   == "USC")     & (ei["entity_to"]   == "Process") &
+        (ei["sector_to"]   == "USC")     & (ei["entity_to"]   == "SB") &
         (ei["region_from"] == ei["region_to"]) & (ei["valuation"] == "Mass")
     ),
     terms=[
@@ -214,7 +225,7 @@ cathode_mesc_domestic = FormulaRelation(
     description="Domestic Cathode→MESC: CP supply/conc - exports - FU - USC, clip 0",
     target=lambda ei: (
         (ei["sector_from"] == "Cathode") & (ei["entity_from"] == "Flow") &
-        (ei["sector_to"]   == "MESC")    & (ei["entity_to"]   == "Process") &
+        (ei["sector_to"]   == "MESC")    & (ei["entity_to"]   == "SB") &
         (ei["region_from"] == ei["region_to"]) & (ei["valuation"] == "Mass")
     ),
     terms=[
@@ -369,6 +380,19 @@ def main(feed_ids: list[str], label: str) -> None:
         scope_times      = CRUDE_ORE_TIMES,
         id               = "time_crude",
     ))
+
+    # 6.5 Net-stock share imputation. Give Δstock (PSC/USC/MESC) edges informative,
+    # cold-smooth priors BEFORE flat_prior would fill them with noisy_zero: PSC by
+    # share-transfer (share=PSC/(CSXEW+CER) carried across years, seeding 1995), and
+    # MESC/USC by a zero-mean throughput-scaled seed σ=(p95/Z95)·FU. p95 is read from
+    # the SAME stock_bounds params the Part-A soft bounds use, so prior and bound agree.
+    engine.register(ShareImputer.from_stock_bounds_csv(
+        str(inputs.params.resolve("stock_bounds") / "params.csv"),
+        scale_abs_floor = 100.0,
+        p               = P_PROP,
+        id              = "net_stock_share",
+    ))
+    param_refs.append(inputs.params.entry("stock_bounds"))
 
     # 7. Final fallback — flat prior.
     # Two modes (see FLAT_MODE config above):

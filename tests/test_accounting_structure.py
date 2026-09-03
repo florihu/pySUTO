@@ -1420,5 +1420,20 @@ class TestEdgeBoundsInvariants:
         assert np.all(eb.u[t2021_mining.index] == 1e9)
  
  
+class TestCrossRegionMask:
+    """Built-in structural mask ``cross_region`` (mapped self-trade scope, ADR 0014)."""
+
+    def test_cross_region_builtin(self, root_multi_region):
+        acc = AccountingStructure(id="t", root=root_multi_region)
+        assert "cross_region" in acc.masks
+        ei = acc.edge_index
+        rf = acc.node_index.loc[ei["from_id"].values, "region"].to_numpy()
+        rt = acc.node_index.loc[ei["to_id"].values, "region"].to_numpy()
+        np.testing.assert_array_equal(acc.masks["cross_region"], rf != rt)
+        # the two-region toy has both trade and domestic edges
+        assert acc.masks["cross_region"].any()
+        assert (~acc.masks["cross_region"]).any()
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

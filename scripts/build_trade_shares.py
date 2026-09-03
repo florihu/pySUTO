@@ -129,7 +129,8 @@ def _latest_feed_froot(label: str) -> np.ndarray:
 def _conc_by_sector() -> dict[str, float]:
     inputs = _input_registries()
     csv = inputs.params.resolve("conc") / "params.csv"
-    p = pd.read_csv(csv, sep=";", comment="#", dtype=str)
+    # delimiter-agnostic: the conc params CSV moved to comma-delimited
+    p = pd.read_csv(csv, sep=None, engine="python", comment="#", dtype=str)
     # param_ids are underscore-free since conc v2 (naming grammar), e.g.
     # 'concmattesupply'
     p = p[(p["param_type"] == "concentration")

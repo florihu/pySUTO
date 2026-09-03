@@ -831,6 +831,80 @@ class TestRatioConstraintBuilder:
             assert np.isclose(row, 1.0).sum() == 1
             assert np.isclose(row, -0.8).sum() == 1
 
+    def _write_stock_bound_csv(self, tmp_path, value_max=0.1):
+        """One agg net-stock bound row: numerator (b) = Mining→Waste/SB (net stock),
+        denominator (a) = Mining→Ore (throughput). value_nominal=0, ±value_max band,
+        empty unc_type (matches the shipped stock_bounds params)."""
+        import csv
+        path = tmp_path / "stock.csv"
+        with open(path, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=[
+                "param_id", "param_type", "agg",
+                "a_sector_from", "a_entity_from", "a_region_from",
+                "a_sector_to",   "a_entity_to",   "a_region_to", "a_time", "a_valuation",
+                "b_sector_from", "b_entity_from", "b_region_from",
+                "b_sector_to",   "b_entity_to",   "b_region_to", "b_time", "b_valuation",
+                "value_nominal", "unc_type", "value_sd", "value_min", "value_max",
+                "bound_lower", "bound_upper",
+            ])
+            w.writeheader()
+            w.writerow({
+                "param_id": "netstockboundtest", "param_type": "stock_bound", "agg": "true",
+                "a_sector_from": "Mining", "a_entity_from": "Process", "a_region_from": "*",
+                "a_sector_to": "Ore", "a_entity_to": "Flow", "a_region_to": "*",
+                "a_time": "*", "a_valuation": "Mass",
+                "b_sector_from": "Mining", "b_entity_from": "Process", "b_region_from": "*",
+                "b_sector_to": "Waste", "b_entity_to": "SB", "b_region_to": "*",
+                "b_time": "*", "b_valuation": "Mass",
+                "value_nominal": "0", "unc_type": "", "value_sd": "",
+                "value_min": str(-value_max), "value_max": str(value_max),
+                "bound_lower": "", "bound_upper": "",
+            })
+        return str(path)
+
+    def test_stock_bound_soft_sigma_c_throughput_scaled(self, toy_acc, tmp_path):
+        """param_type='stock_bound' → free-cone soft ratio whose σ_c scales off the
+        THROUGHPUT denominator (σ_c = (value_max/Z95)·Σ|a₀,denom|), NOT the quasi-hard
+        abs-floor value. Also: z-at-prior ≈ Z95 at the p95 edge (O(1)), and a collapsed
+        denominator keeps σ_c finite & soft (feasibility under the flat-prior-zero pin)."""
+        from pysuto.constraints import RatioConstraintBuilder
+        from pysuto.constraints.ratio import Z95_STOCK
+        from pysuto.constraints.sum import SIGMA_C_INACTIVE
+
+        p95  = 0.1
+        path = self._write_stock_bound_csv(tmp_path, value_max=p95)
+        builder = RatioConstraintBuilder.from_csv(
+            path, toy_acc, sigma_rel_floor=0.02, scale_abs_floor=100.0)
+        static = builder.build_static(toy_acc)
+        assert static.G_rows.shape[0] == 2                     # region A × 2 years
+        assert (static.row_meta["cone_type"] == "free").all()  # soft, not nonneg
+
+        tput = 10_000.0
+        f = np.zeros(toy_acc.n_edges)
+        s = np.ones(toy_acc.n_edges)
+        f[[0, 5]] = tput             # Mining→Ore supply (throughput), both years
+        f[[4, 9]] = p95 * tput       # Mining→Waste/SB (net stock) at the band edge
+
+        blk    = builder.build_dynamic(toy_acc, f, s, "2020")
+        active = (blk.row_meta["time"].astype(str) == "2020").to_numpy()
+        assert active.sum() == 1
+
+        sc = blk.sigma_c[active][0]
+        assert sc == pytest.approx((p95 / Z95_STOCK) * tput, rel=1e-6)  # ≈ 608 t
+        assert sc > 100.0                                              # NOT quasi-hard (~2 t)
+        assert blk.sigma_c[~active][0] == pytest.approx(SIGMA_C_INACTIVE)  # off-year deactivated
+
+        # z at the prior = |residual|/σ_c ≈ Z95 when the stock sits at the empirical p95.
+        resid = (blk.G_rows @ f - blk.c)[active][0]
+        assert abs(resid) / sc == pytest.approx(Z95_STOCK, rel=1e-6)
+
+        # Denominator collapse (flat-prior-zero pin): σ_c stays finite & soft, not 0.
+        blk0 = builder.build_dynamic(toy_acc, np.zeros(toy_acc.n_edges), s, "2020")
+        a0   = (blk0.row_meta["time"].astype(str) == "2020").to_numpy()
+        sc0  = blk0.sigma_c[a0][0]
+        assert sc0 == pytest.approx((p95 / Z95_STOCK) * 100.0, rel=1e-6)  # σ_r · abs_floor
+        assert 0.0 < sc0 < SIGMA_C_INACTIVE
+
     def test_ratio_single_pair_mass_output_ratio(self, toy_acc, tmp_path):
         """Stripping-ratio shape: a single-pair Mass ratio between two Mining
         outputs (WR/Ore) → +1·Waste − r·Ore (no agg)."""
@@ -1177,6 +1251,81 @@ class TestRatioBoundBuilder:
         vmin = pd.to_numeric(s["value_min"]); vmax = pd.to_numeric(s["value_max"])
         assert (vmin < 0).all() and (vmax > 0).all() and np.allclose(vmin, -vmax), \
             "value_min/value_max must be a symmetric ±p95 band"
+
+    def test_scrap_share_band_num_in_pooled_denom(self, toy_acc, tmp_path):
+        """A scrap_share-shaped agg band (wildcard pooled denominator that CONTAINS
+        the numerator edge) emits `bl·ΣD ≤ ΣN ≤ bu·ΣD` with summed coefficients.
+
+        Shape mirrors the shipped scrap_share params: b-side numerator = one SB
+        input leg; a-side denominator = wildcard over ALL edges into the region's
+        nodes, which includes the numerator edge itself. scipy's COO→CSR sums the
+        duplicate entry, so the numerator column nets 1−bu (upper) / −1+bl (lower)
+        — the share form N ≤ bu·(N + others)."""
+        import csv
+        from pysuto.constraints import RatioBoundBuilder
+        bl, bu = 0.1, 0.4
+        path = tmp_path / "scrap_share.csv"
+        with open(path, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=[
+                "param_id", "param_type", "agg",
+                "a_sector_from", "a_entity_from", "a_region_from",
+                "a_sector_to", "a_entity_to", "a_region_to", "a_time", "a_valuation",
+                "b_sector_from", "b_entity_from", "b_region_from",
+                "b_sector_to", "b_entity_to", "b_region_to", "b_time", "b_valuation",
+                "value_nominal", "value_min", "value_max",
+            ])
+            w.writeheader()
+            w.writerow({
+                "param_id": "scrapsharetest", "param_type": "scrap_share", "agg": "true",
+                # a-side = DENOMINATOR: every edge into a region-A node in 2020
+                # (eids 0 Mining→Ore, 2 Ore→Mining, 4 Mining→Waste)
+                "a_sector_from": "*", "a_entity_from": "*", "a_region_from": "*",
+                "a_sector_to": "*", "a_entity_to": "*", "a_region_to": "A",
+                "a_time": "2020", "a_valuation": "Mass",
+                # b-side = NUMERATOR: the single Mining→Waste/SB leg (eid 4)
+                "b_sector_from": "Mining", "b_entity_from": "Process", "b_region_from": "A",
+                "b_sector_to": "Waste", "b_entity_to": "SB", "b_region_to": "A",
+                "b_time": "2020", "b_valuation": "Mass",
+                "value_nominal": "0.2", "value_min": str(bl), "value_max": str(bu),
+            })
+        block = RatioBoundBuilder.from_csv(str(path), toy_acc, kind="scrap_share") \
+                                 .build_static(toy_acc)
+        assert block.G_rows.shape[0] == 2, "one bucket × (upper, lower)"
+        assert block.row_meta["is_hard"].all() and (block.row_meta["cone_type"] == "nonneg").all()
+        G = block.G_rows.toarray()
+        num_col, other_cols = 4, [0, 2]
+        upper, lower = G[0], G[1]
+        assert upper[num_col] == pytest.approx(1.0 - bu), \
+            f"numerator-in-denominator must net 1−bu on the upper row; got {upper[num_col]}"
+        assert all(upper[c] == pytest.approx(-bu) for c in other_cols), \
+            f"pooled denominator edges must carry −bu; got {upper[other_cols]}"
+        assert lower[num_col] == pytest.approx(-1.0 + bl) and \
+               all(lower[c] == pytest.approx(bl) for c in other_cols), \
+            "lower row must be −ΣN + bl·ΣD ≤ 0 with the duplicate summed"
+
+    def test_scrap_share_generator_orientation(self):
+        """scrap_share_study._build_param_row: Scrap numerator on the b-side,
+        wildcard pooled denominator on the a-side, band in value_min/value_max,
+        underscore-free param_id, CC on both sides."""
+        import importlib.util, pathlib
+        repo = pathlib.Path(__file__).resolve().parents[1]
+        mod_path = repo / "scripts" / "explo" / "scrap_share_study.py"
+        try:
+            spec = importlib.util.spec_from_file_location("scrap_share_study", mod_path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+        except ImportError as e:
+            pytest.skip(f"scrap_share_study not importable: {e}")
+        row = mod._build_param_row("Smelting", "Rep. of Test", 0.1, 0.4,
+                                   nominal=0.2, n_obs=12, own=True)
+        assert row["b_sector_from"] == "Scrap" and row["b_entity_from"] == "SB", \
+            "Scrap leg must be the b-side numerator"
+        assert row["a_sector_from"] == "*" and row["a_sector_to"] == "Smelting", \
+            "a-side must be the wildcard pooled denominator into the process"
+        assert row["a_valuation"] == "CC" and row["b_valuation"] == "CC"
+        assert float(row["value_min"]) == pytest.approx(0.1)
+        assert float(row["value_max"]) == pytest.approx(0.4)
+        assert "_" not in row["param_id"], "param_id fills the variant slot (underscore-free)"
 
 
 # ---------------------------------------------------------------------------
