@@ -37,7 +37,10 @@ TIMESTEPS  = None #[1995]           # None → all timesteps in the run
 # Sensitivity cold run: scan every year up front so an infeasibility introduced
 # by the flat-prior-zero pin halts at — and localises — the first breaking year,
 # rather than only checking year 0. See branch sensitivity/no-flat-prior-zeros.
-FEASIBILITY_CHECK_FIRST_ONLY = False
+# Back to the first-only default since Round C: the 30-probe scan costs ~350 s
+# per probe (~3 h) on the full hard system, and each year's QP reports its own
+# status anyway — flip to False only to localise a mid-series infeasibility.
+FEASIBILITY_CHECK_FIRST_ONLY = True
 # Clarabel iteration cap. The default (200) is too low for the pinned, soft-stock
 # 1.37M-row phase-1 feasibility QP (converges but not within 200 iters → spurious
 # MaxIterations reported as infeasible). max_iter is a CAP, so easy runs still stop
