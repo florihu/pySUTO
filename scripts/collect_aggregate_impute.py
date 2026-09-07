@@ -132,11 +132,16 @@ CV_GEO4 = PedigreeScores._cv_other(4, "medium_sensitive")
 # Philippines/ROW "Concentrate" at 14–21 Mt/yr, >20× PNG's production) carry
 # customs-grade σ into the QP, which then pays z≈1/cv per deleted leg. Where an
 # exporter's implied bilateral CC exports (Σ Mass·conc_nominal) exceed
-# OUTLIER_LEG_K × its ICSG-covered CC production of that sector-year, the
-# exporter's bilateral Mass legs get σ inflated to OUTLIER_LEG_CV·|f| — the
-# data stays (trace + report CSV), only its false authority goes, mirroring the
+# OUTLIER_LEG_K × its covered CC supply of that sector-year — ICSG-covered
+# production PLUS implied CC imports (Σ covered bilateral Mass in · conc), so
+# legitimate re-exporters (Japan 1996–2004, Spain 2011–15: exports > own mine
+# production, fed by imports) are not false positives — the exporter's
+# bilateral Mass legs get σ inflated to OUTLIER_LEG_CV·|f|; the data stays
+# (trace + report CSV), only its false authority goes, mirroring the
 # pedigree-penalty style (ADR 0003). Exporters with no covered production are
-# skipped (nothing to judge against). See REP
+# still skipped (P=0 groups are the transit-hub population — Round C measures
+# them, Round D treats them structurally; σ-nuking ~1100 such groups here
+# would be a hub policy in disguise). See REP
 # analysis_opt_20260903_084528_45fdd041_masscc-tension-root-causes §4.
 OUTLIER_LEG_K  = 3.0
 OUTLIER_LEG_CV = 5.0
@@ -314,8 +319,12 @@ def _screen_outlier_trade_legs(acc, agg_result, conc_csv: str, logger):
     Per (flow sector, exporter region, year): implied CC exports =
     Σ covered bilateral Flow→* Mass legs · conc_nominal(sector); reference =
     Σ covered Process→Flow CC edges into that exporter's flow node (ICSG
-    production). Ratio > OUTLIER_LEG_K ⇒ every covered bilateral Mass leg of
-    that group gets sigma_agg = OUTLIER_LEG_CV·|f_agg|. Returns the report
+    production) + implied CC imports (Σ covered bilateral Mass legs into the
+    region · conc_nominal), so re-exporters are judged against what they
+    actually receive. Groups without covered production stay unjudged (the
+    transit-hub population; see the config comment above).
+    Ratio > OUTLIER_LEG_K ⇒ every covered bilateral Mass leg
+    of that group gets sigma_agg = OUTLIER_LEG_CV·|f_agg|. Returns the report
     DataFrame (flagged groups only; empty frame if none).
     """
     import pandas as pd
@@ -347,16 +356,19 @@ def _screen_outlier_trade_legs(acc, agg_result, conc_csv: str, logger):
     legs["cc"] = f[legs["edge_id"].to_numpy()] \
         * legs["sector_from"].map(conc_by_sector).to_numpy()
     exp_cc = legs.groupby(["sector_from", "region_from", "time"])["cc"].sum()
+    imp_cc = legs.groupby(["sector_from", "region_to", "time"])["cc"].sum()
+    imp_cc.index.names = exp_cc.index.names
 
     prod = ei[prodm].copy()
     prod["cc"] = f[prod["edge_id"].to_numpy()]
     prod_cc = prod.groupby(["sector_to", "region_to", "time"])["cc"].sum()
     prod_cc.index.names = exp_cc.index.names
 
-    both = pd.concat([exp_cc.rename("exports_cc"), prod_cc.rename("prod_cc")],
-                     axis=1, join="inner")
+    both = pd.concat([exp_cc.rename("exports_cc"), prod_cc.rename("prod_cc"),
+                      imp_cc.rename("import_cc")], axis=1).fillna(0.0)
+    both["ref_cc"] = both["prod_cc"] + both["import_cc"]
     both = both[(both["prod_cc"] > 0) & (both["exports_cc"] > 0)]
-    both["ratio"] = both["exports_cc"] / both["prod_cc"]
+    both["ratio"] = both["exports_cc"] / both["ref_cc"]
     flagged = both[both["ratio"] > OUTLIER_LEG_K].reset_index()
 
     n_edges = 0
@@ -373,13 +385,14 @@ def _screen_outlier_trade_legs(acc, agg_result, conc_csv: str, logger):
     if len(flagged):
         logger.warning(
             "B  outlier-leg screen: %d exporter-sector-years flagged "
-            "(implied CC exports > %.1f× covered production) — σ inflated to "
-            "cv=%.1f on %d bilateral Mass legs\n%s",
+            "(implied CC exports > %.1f× covered production+imports) — σ "
+            "inflated to cv=%.1f on %d bilateral Mass legs\n%s",
             len(flagged), OUTLIER_LEG_K, OUTLIER_LEG_CV, n_edges,
             flagged.sort_values("ratio", ascending=False).head(10).to_string(index=False))
     else:
         logger.info("B  outlier-leg screen: no exporter-sector-year exceeds "
-                    "%.1f× covered production — nothing inflated", OUTLIER_LEG_K)
+                    "%.1f× covered production+imports — nothing inflated",
+                    OUTLIER_LEG_K)
     return flagged
 
 
@@ -631,6 +644,7 @@ def main(feed_ids: list[str], label: str) -> None:
             "flat_mode":       FLAT_MODE,
             "outlier_leg_k":   OUTLIER_LEG_K,
             "outlier_leg_cv":  OUTLIER_LEG_CV,
+            "outlier_ref":     "production+imports",
             "leg_sigma_gamma":  LEG_SIGMA_GAMMA,
             "leg_sigma_cv_cap": LEG_SIGMA_CV_CAP,
             "flat_sigma_high": FLAT_SIGMA_HIGH if FLAT_MODE == "noisy_zero" else None,

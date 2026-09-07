@@ -101,6 +101,68 @@ def test_screen_clean_returns_empty_and_keeps_zero_sigma_guard(tmp_path):
     assert (agg.sigma_agg == 1.0).all()
 
 
+# nodes for the import-adjusted reference (Round C): a re-exporter fed by
+# imports, and an exporter with imports but no production
+_REEXP_NODES = [
+    ("Concentrate", "Flow", "Peru"),     # 0 upstream exporter (skipped: no ref)
+    ("Concentrate", "Flow", "Japan"),    # 1 re-exporter — imports cover exports
+    ("Concentrate", "Flow", "Hubless"),  # 2 exporter — imports+prod ≪ exports
+    ("Sm", "Process", "Japan"),          # 3 import target
+    ("Sm", "Process", "Philippines"),    # 4 export target
+    ("MF", "Process", "Japan"),          # 5 producer
+    ("Sm", "Process", "Hubless"),        # 6 import target
+    ("MF", "Process", "Hubless"),        # 7 producer
+]
+_REEXP_EDGES = [
+    (5, 1),  # MF→Concentrate Japan (production)
+    (0, 3),  # Peru→Japan bilateral (Japan import)
+    (1, 4),  # Japan→Philippines bilateral (Japan export)
+    (0, 6),  # Peru→Hubless bilateral (Hubless import)
+    (2, 4),  # Hubless→Philippines bilateral (Hubless export)
+    (7, 2),  # MF→Concentrate Hubless (production)
+]
+
+
+class _ReexpAcc(_Acc):
+    def __init__(self):
+        self.node_index = pd.DataFrame(
+            _REEXP_NODES, columns=["sector", "entity", "region"])
+        rows, eid = [], 0
+        for f, t in _REEXP_EDGES:
+            for val in ("Mass", "CC"):
+                rows.append((eid, f, t, "2020", val))
+                eid += 1
+        self.edge_index = pd.DataFrame(
+            rows, columns=["edge_id", "from_id", "to_id", "time", "valuation"])
+        self.n_edges = len(rows)
+
+
+def test_screen_reference_includes_covered_imports(tmp_path):
+    acc, agg = _ReexpAcc(), _Agg(12)
+
+    def set_edge(i, val, f):
+        m = acc.edge_index
+        eid = int(m[(m.index // 2 == i) & (m["valuation"] == val)]["edge_id"].iloc[0])
+        agg.f_agg[eid] = f
+        agg.coverage[eid] = True
+        return eid
+
+    set_edge(0, "CC", 10.0)                # Japan production 10 CC
+    set_edge(1, "Mass", 400.0)             # Japan imports 110 CC
+    jpn = set_edge(2, "Mass", 400.0)       # Japan exports 110 CC:
+    #   old ratio 110/10 = 11 → false positive; new 110/120 ≈ 0.9 → keep
+    set_edge(3, "Mass", 40.0)              # Hubless imports 11 CC
+    hub = set_edge(4, "Mass", 400.0)       # Hubless exports 110 CC
+    set_edge(5, "CC", 1.0)                 # Hubless production 1 CC
+    #   → ratio 110/12 ≈ 9.2 against production+imports → flag
+
+    report = _screen_outlier_trade_legs(acc, agg, _conc_csv(tmp_path), _Log())
+    assert list(report["region_from"]) == ["Hubless"]
+    assert np.isclose(report["ratio"].iloc[0], 110.0 / 12.0)
+    assert np.isclose(agg.sigma_agg[hub], OUTLIER_LEG_CV * 400.0)
+    assert agg.sigma_agg[jpn] == 1.0
+
+
 # ---------------------------------------------------------------------------
 # Size-damped leg σ (ADR 0017)
 # ---------------------------------------------------------------------------
