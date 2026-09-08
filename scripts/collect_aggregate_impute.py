@@ -56,6 +56,8 @@ from pysuto.registry import DataFeedRegistry, ImputationRunRegistry
 from pysuto.input_registry import InputRegistries
 from pysuto.collector import FeedCollector
 from pysuto.param_relation import expand_edge_index
+from pysuto.flow_node_balance import (K_CLOSE as UNCLOSED_K,
+                                      contradicted_flow_nodes)
 from pysuto.unc import PedigreeScores
 from pysuto.impute   import (
     ImputationEngine,
@@ -145,6 +147,26 @@ CV_GEO4 = PedigreeScores._cv_other(4, "medium_sensitive")
 # analysis_opt_20260903_084528_45fdd041_masscc-tension-root-causes §4.
 OUTLIER_LEG_K  = 3.0
 OUTLIER_LEG_CV = 5.0
+
+# Contradicted flow nodes (ADR 0019). A Flow node's hard mass balance cannot
+# honour two disagreeing scale-total anchors; because σ_c scales with |c| the
+# solver collapses the node to the SMALLER prior, even when that side is the
+# less trustworthy one (Russia Matte 1995: inflow 545 kt CC from ICSG
+# concentrate use vs outflow 50.8 from an under-reported ICSG refining series
+# → the smelting chain collapsed). Where the outflow prior falls below
+# UNCLOSED_K × the inflow prior, its covered edges get σ = UNCLOSED_CV·|f| —
+# data kept, false authority removed, mirroring the outlier screen — and
+# scripts/constraints.py loosens the matching usetotout anchor to match.
+# cv 1.0 (not 0.15): flipping the solver's preference needs
+# cv > ANCHOR_CV·c_inflow/c_outflow, which is 0.52 at Iran 1996.
+# MEASURED AND REJECTED as a remedy (ADR 0019): loosening σ repriced the
+# contradiction without resolving it — z² fell to ~baseline while only 0.46 %
+# of the model's mass moved and the collapses were untouched, because the
+# binding limit is missing downstream capacity, not σ. The DETECTION ships
+# (the report CSV localises where ICSG's own series disagree); set
+# UNCLOSED_CV to a value to re-enable the inflation.
+UNCLOSED_SECTORS = ("Matte",)
+UNCLOSED_CV      = None
 
 # Size-damped σ on bilateral legs (ADR 0017; applied BEFORE the screen above).
 # The Laner pedigree cv (~0.21 on BACI Mass legs) is size-blind, so deleting
@@ -396,6 +418,46 @@ def _screen_outlier_trade_legs(acc, agg_result, conc_csv: str, logger):
     return flagged
 
 
+def _screen_contradicted_nodes(acc, agg_result, logger):
+    """σ-inflate the outflow edges of contradicted Flow nodes (ADR 0019).
+
+    Detection lives in ``pysuto.flow_node_balance`` so Stage 3 applies the
+    identical rule to the scale-total anchors. Returns the report DataFrame
+    (failing nodes only; empty frame if none).
+
+    Runs **after** imputation: the inflow side of a Flow node (Smelting→Matte)
+    is never fed, so pre-cascade its prior is 0 and no node looks contradicted.
+    """
+    keys, report = contradicted_flow_nodes(
+        acc, agg_result, sectors=UNCLOSED_SECTORS)
+    if not keys:
+        logger.info("B  contradicted-node screen: every %s node's outflow "
+                    "prior honours its inflow — nothing inflated",
+                    "/".join(UNCLOSED_SECTORS))
+        return report
+
+    ei = expand_edge_index(acc.edge_index, acc.node_index)
+    cov = np.asarray(agg_result.coverage, dtype=bool)
+    f = np.nan_to_num(np.asarray(agg_result.f_agg, dtype=float))
+    eid = ei["edge_id"].to_numpy()
+    outflow = cov[eid] & ei["entity_from"].eq("Flow").to_numpy()
+    node_key = list(zip(ei["sector_from"], ei["region_from"], ei["time"]))
+    hit = outflow & np.array([k in keys for k in node_key])
+
+    ids = eid[hit]
+    ids = ids[np.abs(f[ids]) > 0]          # a genuine 0 keeps its σ (no 0-pin)
+    if UNCLOSED_CV is not None:
+        agg_result.sigma_agg[ids] = UNCLOSED_CV * np.abs(agg_result.f_agg[ids])
+    logger.warning(
+        "B  contradicted-node screen: %d %s node-years whose outflow prior is "
+        "< %.2f× their inflow prior (%d outflow edges) — σ action: %s\n%s",
+        len(keys), "/".join(UNCLOSED_SECTORS), UNCLOSED_K, len(ids),
+        f"cv={UNCLOSED_CV}" if UNCLOSED_CV is not None
+        else "none (ADR 0019 — detector only)",
+        report.head(10).to_string(index=False))
+    return report
+
+
 def main(feed_ids: list[str], label: str) -> None:
     log_path = os.path.join(
         "logs",
@@ -612,6 +674,12 @@ def main(feed_ids: list[str], label: str) -> None:
     logger.info("C  Imputation done: %d log entries, cascade ran %d pass(es)",
                 len(agg_result.imputation_log), passes_run)
 
+    # ADR 0019 — must run AFTER imputation: a Flow node's inflow edge
+    # (Smelting→Matte) carries no feed observation, so before the cascade the
+    # inflow prior reads 0 and no contradiction is visible. The outflow edges
+    # it inflates are covered, so imputation never overwrites them.
+    unclosed_report = _screen_contradicted_nodes(acc, agg_result, logger)
+
     # Ownership-partition check (ADR 0010): trade owns cross-region edges, the
     # network owns same-region edges. A clean run has zero violations; warn loudly
     # if a guard ever regressed.
@@ -645,6 +713,9 @@ def main(feed_ids: list[str], label: str) -> None:
             "outlier_leg_k":   OUTLIER_LEG_K,
             "outlier_leg_cv":  OUTLIER_LEG_CV,
             "outlier_ref":     "production+imports",
+            "unclosed_sectors": list(UNCLOSED_SECTORS),
+            "unclosed_cv":     UNCLOSED_CV,
+            "unclosed_k":      UNCLOSED_K,
             "leg_sigma_gamma":  LEG_SIGMA_GAMMA,
             "leg_sigma_cv_cap": LEG_SIGMA_CV_CAP,
             "flat_sigma_high": FLAT_SIGMA_HIGH if FLAT_MODE == "noisy_zero" else None,
@@ -666,6 +737,8 @@ def main(feed_ids: list[str], label: str) -> None:
     diag_dir = os.path.join(run_dir, "diag")
     os.makedirs(diag_dir, exist_ok=True)
     outlier_report.to_csv(os.path.join(diag_dir, "outlier_leg_screen.csv"), index=False)
+    unclosed_report.to_csv(
+        os.path.join(diag_dir, "contradicted_node_screen.csv"), index=False)
     agg_diag.plot(odir=diag_dir, show=False)
     diag = ImpDiagnostic(agg_result, acc_struct=acc, label=run_id, year="1995")
     diag.plot(odir=diag_dir, show=False)

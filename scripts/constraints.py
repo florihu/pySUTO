@@ -84,6 +84,7 @@ from pysuto.config import load_config
 from pysuto.registry import ImputationRunRegistry
 from pysuto.input_registry import InputRegistries
 from pysuto.param_relation import expand_edge_index
+from pysuto.flow_node_balance import contradicted_flow_nodes
 from pysuto.constraints import (
     ConstraintEngine,
     MassBalanceBuilder,
@@ -130,6 +131,23 @@ SIGMA_C_CV_MIN    = 0.01
 # edge σ). See ADR 0016 and the Round-A REP.
 FABRICATED_ANCHOR_CV = 0.01
 FEED_SHARE_OBSERVED  = 0.5
+
+# Contradicted flow nodes (ADR 0019). A Flow node's hard mass balance cannot
+# honour two disagreeing scale-total anchors; since σ_c scales with |c| the
+# solver collapses the node to the smaller prior even when that side is the
+# less trustworthy one. Where pysuto.flow_node_balance finds the outflow prior
+# below K_CLOSE × the inflow prior, that node's usetotout row is loosened to
+# UNCLOSED_ANCHOR_CV so the hard balance can settle at the reliable inflow
+# instead. This is the first live use of the ADR-0016 resolver, on a DISJOINT
+# population: these groups are feed-backed and covered, so ADR 0013's no-data
+# zero anchors — the counterweight whose loss made ADR 0016 reject loosening
+# fabricated groups — do not act on them. FABRICATED_ANCHOR_CV stays inert.
+# cv 1.0 (not 0.15): the flip needs cv > ANCHOR_CV·c_inflow/c_outflow = 0.52
+# at Iran 1996.
+# MEASURED AND REJECTED as a remedy (ADR 0019) — see the Stage-2 note. The
+# detection is still run and logged; set a cv to re-enable the loosening.
+UNCLOSED_SECTORS     = ("Matte",)
+UNCLOSED_ANCHOR_CV   = None
 SIGMA_C_ABS_FLOOR = 1.0e-3
 # Prior box ("tight fitting"): box flow bounds to a₀ ± PRIOR_BOX_K·σ_a on edges
 # with a real prior, grafting RAS's scale-floor onto the QP to stop the
@@ -270,7 +288,21 @@ def main(imp_run_id: str, label: str) -> None:
     _cov  = np.asarray(agg_result.coverage, dtype=bool)
     _absf = np.abs(np.nan_to_num(np.asarray(f_agg, dtype=float)))
 
+    # ADR 0019: the same detection Stage 2 used to σ-inflate the edges.
+    _unclosed, _unclosed_rep = contradicted_flow_nodes(
+        acc, agg_result, sectors=UNCLOSED_SECTORS)
+    _log.info("ADR 0019: %d contradicted %s node-year(s) — anchor action: %s",
+              len(_unclosed), "/".join(UNCLOSED_SECTORS),
+              f"usetotout cv={UNCLOSED_ANCHOR_CV}"
+              if UNCLOSED_ANCHOR_CV is not None else "none (detector only)")
+
     def _scale_total_cv(key_map, edge_ids):
+        # Contradicted node: the outflow anchor loses authority so the hard
+        # balance can settle at the reliable inflow prior (ADR 0019).
+        if (UNCLOSED_ANCHOR_CV is not None
+                and (key_map.get("sector_from"), key_map.get("region_from"),
+                     key_map.get("time")) in _unclosed):
+            return UNCLOSED_ANCHOR_CV
         ids = np.asarray(edge_ids, dtype=int)
         tot = _absf[ids].sum()
         if tot <= 0.0:

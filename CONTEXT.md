@@ -327,6 +327,22 @@ number — see README; that mechanism was removed by
 reading a scale total as only a prior-preservation device — on no-data subgraphs it is also
 what holds scale against the zero anchors (ADR 0016).
 
+**Contradicted flow node** — a Flow node whose **inflow** prior (`Process→Flow`) and **outflow**
+prior (`Flow→Process` + `Flow→SB`) cannot both hold under its own **hard** mass balance. Because
+`σ_c = ANCHOR_CV·|c|` scales with the total, the *smaller* side is the cheaper anchor to satisfy,
+so the solver collapses the node to the smaller prior even when that side is the worse evidenced
+one (Russia Matte 1995: inflow 545 kt CC from ICSG concentrate use vs outflow 50.8 from an
+under-reported ICSG refining series ⇒ the smelting chain collapsed). Detected by
+`pysuto.flow_node_balance.contradicted_flow_nodes` (outflow < `K_CLOSE`·inflow) and treated by
+stripping the **outflow** side's authority — σ on its covered edges and on its `usetotout` anchor
+— was tried and **rejected**: σ reprices a data contradiction without resolving it (ADR 0019).
+The term survives as a **diagnostic**: a flag is a statement about the *input data* (the
+source's two series disagree for that region-year), not about the reconciliation, and the
+remedy is data-side.
+_Avoid_: reading a downstream export as an outlet for the node — anode exports are produced *by*
+CFR *from* matte, so they raise the matte requirement rather than relieving it. See
+[ADR 0019](docs/adr/0019-contradicted-flow-nodes-lose-anchor-authority.md).
+
 ## Downstream PSUT / PIOT vocabulary
 
 **PSUT (physical supply-use table)** — the **materialised numeric** supply/use matrices for *one period and
