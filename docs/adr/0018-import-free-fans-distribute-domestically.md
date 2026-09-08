@@ -3,7 +3,7 @@
 **Status:** accepted — amends [ADR 0008](0008-unweighted-fans-are-not-distributed.md)
 (the scope of "no weight → no distribution"). Evidence: REP
 [`…roundC-transit-diagnosis`](../rep/analysis_opt_20260903_124655_4b23df2f_20260907_roundC-transit-diagnosis.md)
-§1–2 and [`…roundD-fan-recovery`](../rep/analysis_opt_20260908_roundD-fan-recovery.md).
+§1–2 and [`…roundD-fan-recovery`](../rep/analysis_opt_20260908_084500_724780b3_20260908_roundD-fan-recovery.md).
 
 ## Context
 
