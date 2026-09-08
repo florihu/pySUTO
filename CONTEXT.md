@@ -38,7 +38,11 @@ user weights — every leg still at the uniform default). Such a fan is **not di
 even 1/N split asserts a fabricated partner pattern at the observation's confidence, whereas the
 honest state of knowledge is "total known, split unknown". The raw value stays undistributed
 (excluded from the feed's projected mass). A fan that degenerates to a single leg is an exact
-match, not an unweighted fan. See [ADR 0008](docs/adr/0008-unweighted-fans-are-not-distributed.md).
+match, not an unweighted fan. _Avoid_: reading "no imports" as "no weighting information" — a
+fan weighted **all-domestic** because BACI observed the region and recorded no imports carries
+weights and is not an unweighted fan ([ADR 0018](docs/adr/0018-import-free-fans-distribute-domestically.md));
+the doctrine bites only where the split is genuinely uninformed. See
+[ADR 0008](docs/adr/0008-unweighted-fans-are-not-distributed.md).
 
 **Qualifier fan** — a Use fan whose source variable names its **input product** (e.g. smelter
 production *from scrap*, refinery production *from matte*). Only root legs whose supplier sector
@@ -267,8 +271,20 @@ fan weights.
 option D) — weighting ICSG's producer fan by BACI bilateral import shares instead of uniformly, so ICSG-CC
 inherits BACI's geography. The domestic leg (X==Y) carries the residual `usage − Σ imports` (in CC units);
 the split is computed in copper content via `conc`. Applies only to the four **traded** ICSG-fanned
-sectors — Cathode, Concentrate, Anode, Matte. _Avoid_: including **Scrap** — it is an ICSG `Use` type but
-is **not traded**.
+sectors — Cathode, Concentrate, Anode, Matte. The residual also governs the **import-free** case: where
+BACI *observes* the consumer region (46 of 47 — all but **Taiwan**, trade-blind because BACI 490 "Other
+Asia, nes" folds into ROW, [ADR 0014](docs/adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)),
+`Σ imports = 0` is a real observation of domestic sourcing and the residual `usage − 0 = usage` gives an
+all-domestic fan ([ADR 0018](docs/adr/0018-import-free-fans-distribute-domestically.md)); where BACI is
+blind, zero imports carries no information and the fan stays undistributed. _Avoid_: including **Scrap** —
+it is an ICSG `Use` type but is **not traded**.
+
+**BACI-observed region** — a consumer region for which the BACI feed records at least one cross-region
+import (any traded sector, any year). The flag is what makes `Σ imports = 0` *informative*: for an
+observed region it means "sourced domestically", for a trade-blind one it means "we cannot see". Derived
+in `build_trade_shares.baci_observed_regions()` from the BACI `F_root`. _Avoid_: treating a zero import
+sum as evidence without checking observability — that is how a 100 %-domestic pattern gets fabricated at
+the observation's confidence.
 
 **Trade-seed** — the `TradeImputer` fill (method `trade_seed`) that sets the **CC** value of a
 *cross-region* `Flow→Process` import leg from its already-aggregated BACI **Mass** twin

@@ -170,6 +170,17 @@ The evidence splits the problem in three; only one part needs new structure.
    (ICSG refined/EW coverage for CIS + African producers, or an export-implied
    production prior), not a re-export concept — netting would wrongly delete these
    exports.
+
+   > **Amended 2026-09-08 — the mechanism is not an ICSG coverage gap.** ICSG carries
+   > full Refining/Smelting rows for every one of these regions (Kazakhstan 30/30 years,
+   > 256–460 kt/yr; likewise Zambia, Russia, Uzbekistan). *The pipeline drops them*:
+   > `build_trade_shares` emitted fan weights only where BACI recorded ≥1 import, and
+   > ADR 0008's "no weight → no distribution" then discarded the whole fan — 469 fans,
+   > ~45 Mt CC never reaching any edge, in region-years matching this class exactly.
+   > So it is not a data-acquisition item but a one-predicate feed fix; see
+   > [ADR 0018](../adr/0018-import-free-fans-distribute-domestically.md) and the
+   > Round-D REP. The conclusion that netting must not fire on these exports stands —
+   > they are real, and they now have a production basis behind them.
 3. **The faucet knot** (§4): keep `share_seed` + `netstockbound` as designed, but
    Round D's netting should be validated against the PSC tail — the Singapore/UAE/NL
    PSC violations should collapse when hub exports no longer require invented
