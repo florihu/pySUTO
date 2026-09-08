@@ -23,8 +23,15 @@ copper-content (CC) units so the domestic/import split is unit-consistent:
 
 ``ConcordanceTable._impute_weights`` then normalises each src fan's raw weights
 to sum 1, so ``F_root_CC(import) = conc·BACI_Mass`` and
-``F_root_CC(domestic) = usage − imports`` (usage conserved). Groups BACI does
-not cover at all get no rows → uniform fallback (unchanged behaviour).
+``F_root_CC(domestic) = usage − imports`` (usage conserved).
+
+Groups with **no** recorded imports (ADR 0018): if BACI observes the consumer
+region at all, ``Σ imports = 0`` is a real observation of domestic sourcing and
+the residual ``usage − 0 = usage`` yields an all-domestic fan. If BACI is blind
+to the region (Taiwan — BACI 490 "Other Asia, nes" folds into ROW, ADR 0014),
+no rows are emitted and the fan stays undistributed per ADR 0008. Before ADR
+0018 every import-free group was unemitted, which silently discarded 469 ICSG
+fans (~45 Mt CC) — see REP roundD-fan-recovery.
 
 ``ICSG_usage_CC`` is read from the *existing* ICSG feed ``F_root``: the fan total
 Σ_X F_root(X→Y) equals the raw ICSG usage regardless of the weights used to
@@ -75,6 +82,8 @@ assert "Scrap" not in TRADED_SECTORS and "Scrap" not in SECTORS, "Scrap is not t
 def compute_trade_share_weights(
     edges: pd.DataFrame,
     conc_by_sector: dict[str, float],
+    baci_observed_regions: set[str] | None = None,
+    usage_fallback: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Compute raw fan weights from a decoded CC-edge frame.
 
@@ -83,11 +92,29 @@ def compute_trade_share_weights(
         root_time, icsg (ICSG F_root CC), baci_mass (BACI F_root Mass on the
         paired Mass edge; NaN/0 where no trade).
 
+    ``baci_observed_regions`` — consumer regions BACI observes at all (any
+    cross-region import, any sector, any year). For those, ``Σ imports == 0``
+    is an *observation* of domestic sourcing, so the ADR-0002-option-D residual
+    ``max(0, usage − Σ imports) = usage`` applies and the fan is emitted
+    all-domestic (ADR 0018). For a region BACI never observes (BACI 490 "Other
+    Asia, nes" → ROW leaves Taiwan trade-blind, ADR 0014), zero imports carries
+    no information: the group is left unemitted so the fan stays undistributed
+    — the honest "total known, split unknown" state (ADR 0008). ``None`` means
+    "no region is known-observed", i.e. the pre-ADR-0018 behaviour.
+
+    ``usage_fallback`` — per-group ICSG usage read from the *raw* ICSG rows
+    (the four group keys + ``usage_raw``). Needed only to break a bootstrap:
+    ``usage`` is normally the ICSG ``F_root`` fan total, but a fan a previous
+    build left **undistributed** has ``F_root == 0`` on every leg, so its usage
+    reads as 0 and the group could never be recovered. Applied strictly where
+    the ``F_root`` total is 0, leaving distributed groups bit-for-bit unchanged.
+
     Returns rows with columns
         root_sector_from, root_sector_to, root_region_from, root_region_to,
         root_time, weight
-    only for consumer groups BACI covers (≥1 import). The raw weights are NOT
-    normalised here — ConcordanceTable._impute_weights does that per src fan.
+    for consumer groups with ICSG usage that BACI either covers (≥1 import) or
+    observes. The raw weights are NOT normalised here —
+    ConcordanceTable._impute_weights does that per src fan.
     """
     df = edges.copy()
     df["baci_mass"] = df["baci_mass"].fillna(0.0)
@@ -97,8 +124,14 @@ def compute_trade_share_weights(
 
     grp_cols = ["root_sector_from", "root_sector_to", "root_region_to", "root_time"]
     g = df.groupby(grp_cols, sort=False)
-    usage   = g["icsg"].transform("sum")
-    imp_sum = g["imp_cc"].transform("sum")
+    usage   = g["icsg"].transform("sum").to_numpy()
+    imp_sum = g["imp_cc"].transform("sum").to_numpy()
+
+    if usage_fallback is not None:
+        # many-to-one left merge preserves df's row order
+        raw_u = (df[grp_cols].merge(usage_fallback, on=grp_cols, how="left")
+                 ["usage_raw"].fillna(0.0).to_numpy())
+        usage = np.where(usage > 0, usage, raw_u)
 
     df["weight"] = np.where(
         df["is_domestic"],
@@ -106,8 +139,11 @@ def compute_trade_share_weights(
         df["imp_cc"],                       # import leg (0 where untraded)
     )
 
-    # Emit only groups BACI covers (some import) AND ICSG fans into (usage>0).
-    covered = (imp_sum > 0) & (usage > 0)
+    # Emit groups ICSG fans into (usage>0) that BACI either covers (≥1 import)
+    # or observes (zero imports is then a real observation → all-domestic fan,
+    # ADR 0018). Trade-blind regions stay unemitted → fan undistributed.
+    observed = df["root_region_to"].isin(baci_observed_regions or set()).to_numpy()
+    covered = (usage > 0) & ((imp_sum > 0) | observed)
     out = df.loc[covered, grp_cols[:2] + ["root_region_from", "root_region_to",
                                           "root_time", "weight"]]
     return out.reset_index(drop=True)
@@ -155,6 +191,64 @@ def _decoded_edges(acc: AccountingStructure) -> pd.DataFrame:
     return ei
 
 
+def _icsg_sector_key(proc: str, typ: str, supply_use: str) -> str:
+    """Mirror of ``icsg_feed._make_sector_key`` for Use rows (process+material
+    disambiguation). Kept local so this script does not import the feed driver."""
+    if supply_use == "Supply":
+        return proc
+    if proc == "Smelting" and typ in ("Scrap", "Srap"):
+        return "Smelting_Scrap"
+    if proc == "Smelting":
+        return "Smelting_Concentrate"
+    if proc == "Refining" and typ == "Scrap":
+        return "Refining_Scrap"
+    if proc == "Refining":
+        return "Refining_Matte"
+    return proc
+
+
+def icsg_raw_usage(sectors) -> pd.DataFrame:
+    """Per-fan-group ICSG Use totals straight from the raw ICSG rows.
+
+    Group key is the fan's ``(root_sector_from, root_sector_to,
+    root_region_to, root_time)``: the input product (sector_map ``icsg_type``),
+    the consumer process/boundary (``root_sector``), the mapped consumer region
+    and the year. Verified to reproduce the ICSG ``F_root`` fan total exactly
+    (max relative difference 3e-16 over all 2,610 distributed groups), so it is
+    a faithful stand-in where ``F_root`` is 0 because the fan was dropped.
+    """
+    inputs = _input_registries()
+    fdir = inputs.feed.resolve("icsg")
+    raw = pd.read_csv(fdir / "values.csv")
+    smap_df = pd.read_excel(fdir / "conc.xlsx", sheet_name="sector_map")
+    rmap_df = pd.read_excel(fdir / "conc.xlsx", sheet_name="region_map")
+    regmap = dict(zip(rmap_df["src_region"], rmap_df["root_region"]))
+    smap = {r["src_sector"]: (r["icsg_type"], r["root_sector"])
+            for _, r in smap_df[smap_df["supply_use"] == "Use"].iterrows()}
+
+    u = raw[raw["Supply_Use"] == "Use"].copy()
+    key = [_icsg_sector_key(p, t, su) for p, t, su
+           in zip(u["Process"], u["Type"], u["Supply_Use"])]
+    u["root_sector_from"] = [smap.get(k, (None, None))[0] for k in key]
+    u["root_sector_to"]   = [smap.get(k, (None, None))[1] for k in key]
+    u["root_region_to"]   = u["Region"].map(regmap)
+    u["root_time"]        = u["Year"].astype(str)
+    u = u[u["root_sector_from"].isin(sectors) & u["root_region_to"].notna()]
+    return (u.groupby(["root_sector_from", "root_sector_to",
+                       "root_region_to", "root_time"])["Value"]
+             .sum().rename("usage_raw").reset_index())
+
+
+def baci_observed_regions(acc, baci_froot) -> set[str]:
+    """Consumer regions BACI observes at all (any cross-region import, any
+    sector/year). Zero imports is informative only for these — see ADR 0018."""
+    ei = _decoded_edges(acc)
+    cross = ei[(ei["root_region_from"] != ei["root_region_to"])
+               & (ei["valuation"] == "Mass")]
+    v = baci_froot[cross["edge_id"].to_numpy()]
+    return set(cross.loc[v > 0, "root_region_to"].unique())
+
+
 def build_edges_frame(acc, icsg_froot, baci_froot, sectors) -> pd.DataFrame:
     """One row per CC fan-target edge for `sectors`, with icsg + paired baci_mass."""
     ei = _decoded_edges(acc)
@@ -184,7 +278,28 @@ def main() -> None:
     baci = _latest_feed_froot("baci")
 
     edges = build_edges_frame(acc, icsg, baci, SECTORS)
-    shares = compute_trade_share_weights(edges, conc_by_sector)
+    observed = baci_observed_regions(acc, baci)
+    usage_raw = icsg_raw_usage(SECTORS)
+    all_regions = set(acc.node_index["region"])
+    blind = sorted(all_regions - observed)
+    print(f"   BACI-observed regions: {len(observed)}/{len(all_regions)}"
+          f"   trade-blind (fans stay undistributed): {blind or 'none'}")
+    shares = compute_trade_share_weights(edges, conc_by_sector, observed,
+                                         usage_raw)
+
+    # ADR 0018 diagnostic: which groups are emitted only because of the
+    # import-free domestic fallback, and how much ICSG tonnage they carry.
+    pre = compute_trade_share_weights(edges, conc_by_sector, None, None)
+    gcols = ["root_sector_from", "root_sector_to", "root_region_to", "root_time"]
+    new_grp = (shares[gcols].drop_duplicates()
+               .merge(pre[gcols].drop_duplicates(), how="left", indicator=True))
+    n_new = int((new_grp["_merge"] == "left_only").sum())
+    dom = shares[shares["root_region_from"] == shares["root_region_to"]]
+    recovered = dom.merge(new_grp[new_grp["_merge"] == "left_only"][gcols],
+                          on=gcols)["weight"].sum()
+    print(f"   ADR 0018 domestic fallback: {n_new:,} groups recovered, "
+          f"{recovered:,.0f} kt CC of ICSG usage that previously went "
+          f"undistributed")
 
     os.makedirs(OUT_DIR, exist_ok=True)
     # Named params.csv because the params input-registry only hashes that file
