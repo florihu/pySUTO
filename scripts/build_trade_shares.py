@@ -84,6 +84,7 @@ def compute_trade_share_weights(
     conc_by_sector: dict[str, float],
     baci_observed_regions: set[str] | None = None,
     usage_fallback: pd.DataFrame | None = None,
+    withhold_fallback: set | None = None,
 ) -> pd.DataFrame:
     """Compute raw fan weights from a decoded CC-edge frame.
 
@@ -108,6 +109,12 @@ def compute_trade_share_weights(
     build left **undistributed** has ``F_root == 0`` on every leg, so its usage
     reads as 0 and the group could never be recovered. Applied strictly where
     the ``F_root`` total is 0, leaving distributed groups bit-for-bit unchanged.
+
+    ``withhold_fallback`` — group keys ``(sector_from, sector_to, region_to,
+    time)`` for which the import-free domestic fallback must **not** fire, so
+    the fan stays undistributed exactly as it was before ADR 0018. Groups BACI
+    covers are unaffected. Used by ADR 0020 to withhold a restored refining
+    total that contradicts its own region-year's smelting series.
 
     Returns rows with columns
         root_sector_from, root_sector_to, root_region_from, root_region_to,
@@ -143,6 +150,11 @@ def compute_trade_share_weights(
     # or observes (zero imports is then a real observation → all-domestic fan,
     # ADR 0018). Trade-blind regions stay unemitted → fan undistributed.
     observed = df["root_region_to"].isin(baci_observed_regions or set()).to_numpy()
+    if withhold_fallback:
+        held = np.array([k in withhold_fallback for k in
+                         zip(df["root_sector_from"], df["root_sector_to"],
+                             df["root_region_to"], df["root_time"])])
+        observed = observed & ~held
     covered = (usage > 0) & ((imp_sum > 0) | observed)
     out = df.loc[covered, grp_cols[:2] + ["root_region_from", "root_region_to",
                                           "root_time", "weight"]]
@@ -239,6 +251,48 @@ def icsg_raw_usage(sectors) -> pd.DataFrame:
              .sum().rename("usage_raw").reset_index())
 
 
+def _eff_smelting() -> float:
+    """`effsmelting` nominal from the live eff params (ADR 0005: pooled inputs)."""
+    csv = _input_registries().params.resolve("eff") / "params.csv"
+    p = pd.read_csv(csv, sep=None, engine="python", comment="#", dtype=str)
+    row = p[(p["param_type"] == "efficiency") & (p["a_sector_to"] == "Smelting")]
+    return float(row["value_nominal"].iloc[0])
+
+
+def chain_inconsistent_refining(k: float = 0.5) -> set[tuple[str, str]]:
+    """Region-years whose ICSG refining feed contradicts their own smelting.
+
+    A region-year's smelted matte must be refined at home or exported; ICSG
+    reports both sides, and where
+
+        refining_feed < k · eff_smelting · (smelting concentrate + scrap)
+
+    the two series cannot both be right. Restoring the refining side as a
+    covered prior there makes the Matte node's *hard* mass balance
+    unsatisfiable at the priors, and the solver resolves it by collapsing the
+    smelting chain (Russia 1995: 545.0 kt CC in vs 50.8 out; Iran 1996:
+    116.0 vs 3.8). ADR 0020 therefore withholds the ADR-0018 fallback for
+    those groups, leaving the fan undistributed as it was before.
+
+    Read straight from the raw ICSG rows — no model state, so it can gate the
+    feed build that produces that state. Returns ``{(root_region, year)}``.
+    """
+    fdir = _input_registries().feed.resolve("icsg")
+    raw = pd.read_csv(fdir / "values.csv")
+    rmap = pd.read_excel(fdir / "conc.xlsx", sheet_name="region_map")
+    raw["reg"] = raw["Region"].map(dict(zip(rmap["src_region"],
+                                            rmap["root_region"])))
+    raw["yr"] = raw["Year"].astype(str)
+    raw = raw[raw["reg"].notna()]
+    smelt = raw[raw["Process"] == "Smelting"].groupby(["reg", "yr"])["Value"].sum()
+    refine = (raw[(raw["Process"] == "Refining") & (raw["Type"] == "Matte")]
+              .groupby(["reg", "yr"])["Value"].sum())
+    d = pd.concat([(smelt * _eff_smelting()).rename("matte_in"),
+                   refine.rename("matte_out")], axis=1).fillna(0.0)
+    d = d[d["matte_in"] > 1.0]
+    return set(d.index[d["matte_out"] < k * d["matte_in"]])
+
+
 def baci_observed_regions(acc, baci_froot) -> set[str]:
     """Consumer regions BACI observes at all (any cross-region import, any
     sector/year). Zero imports is informative only for these — see ADR 0018."""
@@ -280,12 +334,19 @@ def main() -> None:
     edges = build_edges_frame(acc, icsg, baci, SECTORS)
     observed = baci_observed_regions(acc, baci)
     usage_raw = icsg_raw_usage(SECTORS)
+    # ADR 0020: a restored refining total that contradicts its own smelting
+    # series would make the Matte node's hard balance unsatisfiable — withhold
+    # the fallback for those Matte→CFR groups only.
+    inconsistent = chain_inconsistent_refining()
+    withhold = {("Matte", "CFR", r, t) for r, t in inconsistent}
+    print(f"   ADR 0020: {len(inconsistent)} region-years whose ICSG refining "
+          f"contradicts their smelting — Matte→CFR fallback withheld there")
     all_regions = set(acc.node_index["region"])
     blind = sorted(all_regions - observed)
     print(f"   BACI-observed regions: {len(observed)}/{len(all_regions)}"
           f"   trade-blind (fans stay undistributed): {blind or 'none'}")
     shares = compute_trade_share_weights(edges, conc_by_sector, observed,
-                                         usage_raw)
+                                         usage_raw, withhold)
 
     # ADR 0018 diagnostic: which groups are emitted only because of the
     # import-free domestic fallback, and how much ICSG tonnage they carry.

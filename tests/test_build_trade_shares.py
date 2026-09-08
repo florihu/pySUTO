@@ -75,6 +75,36 @@ def test_import_free_group_in_trade_blind_region_emits_no_rows():
     assert out.empty
 
 
+def test_withheld_group_does_not_get_the_domestic_fallback():
+    # ADR 0020: an import-free group in an observed region normally gets the
+    # all-domestic fan; when withheld it stays undistributed as before ADR 0018.
+    df = pd.DataFrame([
+        _edge("China", "China", 100.0, np.nan, sf="Matte", st="CFR"),
+        _edge("USA",   "China", 100.0, 0.0,    sf="Matte", st="CFR"),
+    ])
+    key = {("Matte", "CFR", "China", 2010)}
+    assert compute_trade_share_weights(df, {"Matte": 0.525}, {"China"},
+                                       withhold_fallback=key).empty
+    # ...and an unrelated group in the same region is untouched
+    assert not compute_trade_share_weights(df, {"Matte": 0.525}, {"China"},
+                                           withhold_fallback={("Matte", "CFR",
+                                                               "Peru", 2010)}).empty
+
+
+def test_withholding_never_touches_baci_covered_groups():
+    # A group BACI covers keeps its trade-share weights even if withheld —
+    # the gate only governs the import-free fallback.
+    df = pd.DataFrame([
+        _edge("China", "China", 100.0, np.nan, sf="Matte", st="CFR"),
+        _edge("USA",   "China", 100.0, 50.0,   sf="Matte", st="CFR"),
+    ])
+    out = compute_trade_share_weights(df, {"Matte": 0.525}, {"China"},
+                                      withhold_fallback={("Matte", "CFR",
+                                                          "China", 2010)})
+    assert len(out) == 2
+    assert {r.root_region_from for r in out.itertuples()} == {"China", "USA"}
+
+
 def test_uncovered_group_emits_no_rows_without_observability_info():
     # Default (no observability set) preserves pre-ADR-0018 behaviour.
     df = pd.DataFrame([
