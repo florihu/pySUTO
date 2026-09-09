@@ -1,0 +1,404 @@
+% Supporting Information for the pySUTO model paper.
+% Standalone document: compile with  latexmk -pdf si.tex
+% Cross-references to the main text are written literally ("Eq. (1) of the
+% main text") to avoid a compile-time dependency on main.tex.
+\documentclass[11pt]{article}
+
+\usepackage[a4paper,margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage[round]{natbib}
+
+% S-prefixed counters
+\renewcommand{\thesection}{S\arabic{section}}
+\renewcommand{\theequation}{S\arabic{equation}}
+\renewcommand{\thetable}{S\arabic{table}}
+\setcounter{section}{-1}
+
+\newcommand{\Lp}[1]{\mathrm{L}_p\!\left(#1\right)}
+\newcommand{\diag}{\operatorname{diag}}
+
+\title{Supporting Information\\[2pt]
+\large pySUTO: uncertainty-carrying compilation and reconciliation of
+physical supply--use tables}
+\author{}
+\date{}
+
+\begin{document}
+\maketitle
+
+This Supporting Information states the complete mathematical rules of the five
+pySUTO stages summarised in the Method section of the main text. Section
+numbers mirror the pipeline: notation (\S\ref{si:notation}), datafeed assembly
+(\S\ref{si:stage1}), aggregation and imputation (\S\ref{si:stage2}), constraint
+building (\S\ref{si:stage3}), the solver (\S\ref{si:stage4}), posterior
+uncertainty propagation (\S\ref{si:stage5}), and the provenance schema
+(\S\ref{si:provenance}). Numerical values are the reference-configuration
+defaults recorded in the run sidecars; application-specific parameter values
+(concentrations, efficiencies, bands) belong to the application dataset, not to
+the framework.
+
+\section{Notation}\label{si:notation}
+
+\begin{table}[h]
+\centering\small
+\begin{tabular}{@{}llll@{}}
+\toprule
+Symbol & Meaning & Dimension & First used \\
+\midrule
+$a$ & edge values (flows) of one year & $E_t$ & Stage 3 \\
+$a_0$ & prior edge values entering the solve & $E_t$ & Stage 3 \\
+$\sigma_a,\ \Sigma_a=\diag(\sigma_a^2)$ & prior standard deviations / covariance & $E_t$ & Stage 3 \\
+$f_{\mathrm{src}},\ f_{\mathrm{root}}$ & one feed's values in source / root classification & $N_{\mathrm{src}},\ E$ & Stage 1 \\
+$W$ & concordance weight matrix (sparse) & $N_{\mathrm{src}}\times E$ & Stage 1 \\
+$\omega_{ij}$ & value-share fan-in weights of root edge $j$ & --- & Stage 1 \\
+$F_k,\ \sigma_k$ & root-aligned values / $\sigma$ of feed $k$ & $E$ & Stage 2 \\
+$\Omega$ & inverse-variance aggregation weights & $N_f\times E$ & Stage 2 \\
+$f_{\mathrm{agg}},\ \sigma_{\mathrm{agg}}$ & aggregated values / $\sigma$ & $E$ & Stage 2 \\
+$G$ & constraint matrix (sparse, time-invariant) & $M\times E$ & Stage 3 \\
+$c(t),\ \sigma_c(t),\ \Sigma_c$ & constraint targets / $\sigma$ / covariance & $M$ & Stage 3 \\
+$\varepsilon$ & residuals of the soft constraint rows & $m_s$ & Stage 4 \\
+$l,\ u$ & per-edge lower / upper bounds & $E$ & Stage 3 \\
+$p$ & power-mean exponent (default $1.3$) & --- & Eq.~(1), main text \\
+$q,\ \alpha_{\min}$ & regularised-sensitivity parameters ($3$, $0.05$) & --- & \S\ref{si:stage2} \\
+$S,\ L$ & posterior innovation matrix, its Cholesky factor & $M\times M$ & Stage 5 \\
+$z$ & standard-normal quantile $\Phi^{-1}(1-\alpha/2)$ & --- & Stage 5 \\
+\bottomrule
+\end{tabular}
+\caption{Symbols used in the main text and this Supporting Information.
+$E$: number of edges (854{,}460 in the copper application); $E_t$: edges of one
+year; $N_f$: number of feeds; $M$: constraint rows; $m_s$/$m_h$/$m_b$: soft,
+hard-equality, and hard-band rows.}
+\end{table}
+
+Throughout, $\Lp{x_1,\dots,x_n} = \bigl(\sum_i |x_i|^p\bigr)^{1/p}$ denotes the
+power-mean combiner of Eq.~(1) of the main text with the global exponent
+$p=1.3$; $p=2$ recovers Gaussian quadrature.
+
+\section{Stage 1 --- Datafeed assembly}\label{si:stage1}
+Implemented in \texttt{pysuto/\{unc,conc,feedpipe\}.py}.
+
+\subsection{Pedigree scores to coefficients of variation}
+Each feed carries one pedigree score $s\in\{1,2,3,4\}$ per data-quality
+indicator (reliability, completeness, temporal, geographical, and other
+correlation), following \citet{laner2016} with the pedigree lineage of
+\citet{weidema1996pedigree}. Scores map to per-indicator coefficients of
+variation through the exponential model
+\begin{equation}
+\mathrm{CV}_{\mathrm{rel}} = \frac{0.75\, e^{1.105\, s_{\mathrm{rel}}}}{100},
+\qquad
+\mathrm{CV}_{i} =
+\begin{cases}
+0 & s_i = 1,\\[2pt]
+\dfrac{a_i\, e^{1.105\,(s_i-1)}}{100} & s_i > 1,
+\end{cases}
+\end{equation}
+where the sensitivity coefficient $a_i$ is $0.375$ (not sensitive), $0.750$
+(medium), or $1.5$ (highly sensitive) depending on the indicator's assessed
+influence. The indicators combine in quadrature to one per-feed coefficient of
+variation,
+\begin{equation}
+\mathrm{CV}_{\mathrm{tot}} = \sqrt{\mathrm{CV}_{\mathrm{rel}}^2 +
+\mathrm{CV}_{\mathrm{comp}}^2 + \mathrm{CV}_{\mathrm{temp}}^2 +
+\mathrm{CV}_{\mathrm{geo}}^2 + \mathrm{CV}_{\mathrm{oth}}^2}.
+\end{equation}
+Edges touching an aggregate rest-of-world region are penalised by the factor
+$\mathrm{CV}_{\mathrm{tot}}(s_{\mathrm{geo}}{=}4)/\mathrm{CV}_{\mathrm{tot}}(s_{\mathrm{geo}})$,
+equivalent to re-scoring them at the worst geographical correlation.
+
+\subsection{Concordance}
+Raw records are first cast as directed source edges, then mapped onto the root
+accounting structure by a sparse weight matrix $W$:
+\begin{equation}
+f_{\mathrm{root}} = W^{\top} f_{\mathrm{src}},
+\qquad \textstyle\sum_j W_{ij} = 1 \ \text{for every source edge } i,
+\end{equation}
+so every fan-out conserves mass. Uniform weights are overridden where external
+split information exists (in the copper application, bilateral trade shares).
+A fan with no split information is \emph{not} distributed: asserting a uniform
+$1/N$ partner pattern would fabricate structure the source does not contain,
+so such rows remain undistributed and their information enters only through
+constraints.
+
+\subsection{CV-invariant propagation}
+Uncertainty propagates through $W$ in coefficient-of-variation form. With
+value shares $A_{ij} = |W_{ij} f_{\mathrm{src},i}|$ and fan-in weights
+$\omega_{ij} = A_{ij}/\sum_k A_{kj}$,
+\begin{equation}
+\mathrm{CV}_{\mathrm{root},j} = \mathrm{CV}_{\mathrm{tot}}
+\Bigl(\sum_i \omega_{ij}^{\,p}\Bigr)^{1/p},
+\qquad
+\sigma_{\mathrm{root},j} = \mathrm{CV}_{\mathrm{root},j}\,
+|f_{\mathrm{root},j}|.
+\label{eq:si-cvprop}
+\end{equation}
+Because the $\omega_{ij}$ lie on the simplex, $\omega_{ij}^{\,p} \le
+\omega_{ij}$ for $p \ge 1$ and hence $\sum_i \omega_{ij}^{\,p} \le 1$: fan-in
+diversifies ($\mathrm{CV}_{\mathrm{root}} \le \mathrm{CV}_{\mathrm{tot}}$),
+pure fan-out leaves the CV unchanged, and no concordance operation can
+increase relative uncertainty. Stage 1 outputs one root-aligned pair
+$(F_k, \sigma_k)$ per feed.
+
+\section{Stage 2 --- Aggregation and imputation}\label{si:stage2}
+Implemented in \texttt{pysuto/\{collector,agg\}.py} and \texttt{pysuto/impute/}.
+
+\subsection{Inverse-variance aggregation}
+With per-feed precisions $P_{kj} = \sigma_{kj}^{-2}$ (zero where feed $k$ does
+not cover edge $j$; observations below $0.01$\,kt are suppressed as noise),
+\begin{equation}
+\Omega_{kj} = \frac{P_{kj}}{\sum_k P_{kj}}, \qquad
+f_{\mathrm{agg},j} = \sum_k \Omega_{kj} F_{kj}, \qquad
+\sigma_{\mathrm{agg},j} = \Lp{\{\Omega_{kj}\sigma_{kj}\}_k}.
+\label{eq:si-agg}
+\end{equation}
+At $p=2$, $\sigma_{\mathrm{agg},j} = (\sum_k \sigma_{kj}^{-2})^{-1/2}$, the
+classical minimum-variance combination of independent estimates; the default
+$p=1.3$ grants deliberately less diversification credit. A coverage mask
+records which edges any feed observed; uncovered edges pass to imputation as
+missing.
+
+\subsection{Imputation engine}
+Imputers are plugins run in two phases: a \emph{cascade} whose members are
+swept in order until one full sweep fills no new edge (at most 10 sweeps), and
+a \emph{terminal} phase run once. Fills are write-once (no imputer overwrites
+an observed or previously filled edge), values are clipped to the per-edge
+bounds $[l,u]$ with $\sigma$ widened by the clip distance, and every fill is
+appended to the imputation log with its method, source edges, coefficients,
+and before/after values. Table~\ref{tab:si-imputers} states the per-imputer
+rules; $\varepsilon_r$ denotes a per-relation relative residual term.
+
+\begin{table}[h]
+\centering\footnotesize
+\begin{tabular}{@{}p{2.2cm}p{5.6cm}p{5.6cm}@{}}
+\toprule
+Imputer & Fill rule & $\sigma$ rule \\
+\midrule
+Trade (cascade) & bilateral import legs in the content valuation from their
+mass twin: $f_{\mathrm{CC}} = \mathit{conc}\cdot f_{\mathrm{Mass}}$ &
+$\Lp{\mathit{conc}\,\sigma_{\mathrm{Mass}},\,
+|f_{\mathrm{CC}}|\,\sigma_{\mathit{conc}}/\mathit{conc}}$ \\[4pt]
+Network (cascade) & process-recipe closure over pooled inputs $S$ (same-region
+primaries, secondary inputs, imports): product $f_P = \mathit{eff}\cdot S$;
+waste $f_W = (1-\mathit{eff})\,S - \sum_{\text{other wastes}} f$; single
+missing input as balance residual; mass twins $f_{\mathrm{Mass}} =
+f_{\mathrm{CC}}/\mathit{conc}$; per-node flow balance when exactly one
+same-region edge is unknown &
+$\sigma_P = \Lp{\mathit{eff}\,\sigma_S,\ \sigma_{\mathit{eff}}|S|,\
+\varepsilon_r|f_P|}$ and analogously for $f_W$; $\sigma_S =
+\Lp{\{\sigma_i\}_{\text{inputs}}}$; capped at $1.5\,|f|$ \\[4pt]
+Parametric (cascade; concentration, ore grade, efficiency) & pairwise relation
+$f_b = \alpha f_a$; backward $f_a = f_b/\alpha$ &
+forward $\Lp{\alpha\sigma_a,\ \sigma_\alpha,\ \varepsilon_r f_b}$; backward
+uses the regularised sensitivity $s(\beta) = |\beta| / (|\beta|^{q} +
+\alpha_{\min}^{q})^{1/q}$ with $\beta = 1/\alpha$, $q=3$,
+$\alpha_{\min}=0.05$, damping the amplification of near-zero coefficients \\[4pt]
+Formula (cascade) & directed multi-source balance $f = \sum_i \alpha_i f_i$,
+clipped to physical range &
+$\Lp{\{\alpha_i \sigma_i\}_i,\ \varepsilon_r f}$ \\[4pt]
+Time (terminal) & linear interpolation between nearest observations; a second,
+scoped instance extrapolates series ends &
+$\Lp{(1-\lambda)\sigma_a,\ \lambda\sigma_b}\cdot 1.05^{\,g}$ for gap length
+$g$ \\[4pt]
+Share (terminal) & net-stock edges: observed share of a base flow transferred
+across years; unobserved stock changes seeded at zero mean &
+transferred-share $\sigma$; zero-mean seeds get $\sigma =
+p_{95}/1.645\cdot|f_{\mathrm{base}}|$ (floored), the same band later used as a
+constraint \\[4pt]
+Flat prior (terminal) & every remaining edge: $f = 0$ &
+$\sigma = 10^{6}$ (noisy zero; re-anchored in Stage 3,
+\S\ref{si:anchor}) \\
+\bottomrule
+\end{tabular}
+\caption{Imputer rules in execution order. A magnitude-aware flat-prior mode
+(coverage-dependent CV on a per-group magnitude scale) is available as an
+alternative to the noisy zero.}
+\label{tab:si-imputers}
+\end{table}
+
+\section{Stage 3 --- Constraint building}\label{si:stage3}
+Implemented in \texttt{pysuto/constraints/}.
+
+\subsection{Constraint families}
+Builder plugins emit rows of the time-invariant sparse matrix $G$; every row
+carries metadata (family, year, cone) and per-year targets $c(t)$ with
+uncertainties $\sigma_c(t)$. Table~\ref{tab:si-constraints} lists the families
+of the reference configuration.
+
+\begin{table}[h]
+\centering\footnotesize
+\begin{tabular}{@{}p{3.2cm}p{1.5cm}p{4.6cm}p{4.4cm}@{}}
+\toprule
+Family & Type & Row form & Target and $\sigma_c$ \\
+\midrule
+Mass balance & hard (zero cone) & $\sum_{\mathrm{in}(n)} a_i -
+\sum_{\mathrm{out}(n)} a_i = 0$ per node, region, year, and valuation;
+system-boundary nodes excluded & $c=0$, $\sigma_c = 0$ \\[3pt]
+Scale totals (supply, use) & soft & $\sum_{i\in g} a_i = c_g +
+\varepsilon_g$ over each total-output group $g$ & self-anchored $c_g =
+\sum_{i\in g} f_{\mathrm{agg},i}$; $\sigma_c = 0.01\,|c_g|$ \\[3pt]
+Ratio (concentration, efficiency) & soft & $\sum_{\mathrm{num}} a_i - r
+\sum_{\mathrm{den}} a_j = \varepsilon$ (efficiency rows pool all inputs of a
+process) & $\sigma_c = \max(\sigma_r, 0.02) \cdot
+\max\bigl(\max(\sum|a_{0,\mathrm{num}}|,\ |r|\sum|a_{0,\mathrm{den}}|),\
+100\bigr)$; $\sigma_r$ from the parameter table (standard deviation,
+range$/4$, or pedigree) \\[3pt]
+Net-stock bands & soft & as ratio rows with $r=0$ (zero-centred) &
+$\sigma_r = |v_{\max}|/1.645$; scale from the denominator sum \\[3pt]
+Ratio bands (concentration, efficiency, scrap share) & hard (nonneg.\ cone) &
+$\sum_{\mathrm{num}} a_i - r_u \sum_{\mathrm{den}} a_j \le 0$ and
+$-\sum_{\mathrm{num}} a_i + r_l \sum_{\mathrm{den}} a_j \le 0$ &
+$\sigma_c = 0$; empty intersected bands are rejected at build time \\[3pt]
+Flow bounds & stored only & per-edge $[l, u]$ kept on the constraint run &
+not part of the optimisation (\S\ref{si:stage4}) \\
+\bottomrule
+\end{tabular}
+\caption{Constraint families of the reference configuration. Only rows of a
+row's own year are active in that year's solve: inactive soft rows get
+$\sigma_c = 10^{10}$ (objective weight $\approx 10^{-20}$), inactive band rows
+get $c = 10^{15}$ (vacuous); mass-balance rows are always active.}
+\label{tab:si-constraints}
+\end{table}
+
+\subsection{Prior conditioning and the no-data anchor}\label{si:anchor}
+Before persisting, prior uncertainties are regularised through Eq.~(1) of the
+main text with a relative and an absolute floor,
+\begin{equation}
+\sigma_a' = \Lp{\sigma_a,\ \mathrm{CV}_a^{\min} |a_0|,\
+\sigma_a^{\mathrm{floor}}},
+\qquad
+\mathrm{CV}_a^{\min} = 10^{-3},\quad \sigma_a^{\mathrm{floor}} = 10^{-6},
+\end{equation}
+and free-row constraint uncertainties analogously with
+$\mathrm{CV}_c^{\min}=10^{-2}$, $\sigma_c^{\mathrm{floor}}=10^{-3}$.
+Edges that reached Stage 3 as noisy zeros ($a_0 = 0$, $\sigma \ge 10^{5}$)
+would otherwise act as free slack: with $(f-0)^2/\sigma^2 \approx 0$ the
+solver can route arbitrary mass through data-free subgraphs. The no-data
+anchor therefore rescales their $\sigma$ to
+\begin{equation}
+\sigma_{a,j} \leftarrow \max\bigl(\sigma_a^{\mathrm{floor}},\
+0.05 \cdot \operatorname{median}\{|a_{0,i}| \ne 0 :\ i \sim j\}\bigr),
+\end{equation}
+where $i \sim j$ ranges over the edge's (sector, valuation) siblings. The
+prior mean stays zero, so these edges are softly pulled toward zero at a
+sector-appropriate scale while a hard balance can still force flow through
+them at finite cost. Sectors whose magnitude is structurally determined by a
+ratio or balance relation rather than by feed data (in the copper application
+the extraction front-end and the residual outputs) are excluded: for them
+$a_0 = 0$ means ``value comes from the relation'', not ``no flow''.
+
+Finally, $G$ is partitioned into per-year blocks; a build-time check verifies
+that no row couples edges of different years, so each year solves
+independently (in the copper application, 30 blocks of $\approx$45{,}900 rows
+$\times$ 28{,}482 edges).
+
+\section{Stage 4 --- Solver}\label{si:stage4}
+Implemented in \texttt{pysuto/solver.py} and \texttt{pysuto/\_conditioning.py}.
+
+\subsection{Conic standard form}
+Eq.~(2) of the main text is passed to Clarabel \citep{goulart2024clarabel} in
+the standard form $\min \tfrac12 x^\top P x + q^\top x$ subject to
+$Ax + s = b$, $s \in \mathcal{K}$, with stacked variables
+$x = [a;\ \varepsilon]$:
+\begin{equation}
+P = 2\begin{bmatrix}\Sigma_a^{-1} & 0\\ 0 & \Sigma_c^{-1}\end{bmatrix},
+\quad
+q = \begin{bmatrix}-2\,\Sigma_a^{-1} a_0\\ 0\end{bmatrix},
+\quad
+A = \begin{bmatrix}G_s & -I\\ G_h & 0\\ G_b & 0\end{bmatrix},
+\quad
+b = \begin{bmatrix}c_s(t)\\ c_h(t)\\ c_b(t)\end{bmatrix},
+\end{equation}
+with cones $\mathcal{K} = \{0\}^{m_s} \times \{0\}^{m_h} \times
+\mathbb{R}_{\ge 0}^{m_b}$: soft rows are exact equalities in $x$ because their
+residual $\varepsilon$ is itself a variable, hard balances sit in a zero cone,
+and band rows in a nonnegative cone. Representing hard rows as cones rather
+than as small-$\sigma$ soft rows avoids the $\kappa \approx 10^{12}$
+ill-conditioning that $\sigma_c \to 0$ would inject into $P$.
+
+\subsection{Conditioning, feasibility probe, and prior modes}
+Before each solve, $\sigma_a$ is clipped to
+$[\max(10^{-8},\ 10^{-5}|a_0|),\ 10^{5}\cdot\max\sigma_a^{\mathrm{finite}}]$
+(shared with Stage 5, so solver and posterior see the same prior). A
+feasibility probe minimises $10^{-10}\|x\|^2$ over the hard subsystem alone
+--- zero-cone balances plus $[G_b; I; -I]$ against $[c_b; u; -l]$ --- and, on
+failure, reports the rows with the largest violation $|G a - c|$; this is the
+only place the stored bounds $l, u$ act on the optimisation. The prior is
+$a_0(t) = f_{\mathrm{agg}}(t)$ (cold, the executed default) or the previous
+year's optimum $a^*(t{-}1)$ (warm chaining). Independently, the KKT
+factorisation is reused across years when the block sparsity pattern is
+identical, refreshing only $P$, $q$, and $b$; a legacy path solving the
+monolithic $G$ remains available.
+
+\subsection{Reference solver settings}
+\begin{center}\small
+\begin{tabular}{@{}llll@{}}
+\toprule
+feasibility tol.\ & $10^{-7}$ & reduced-accuracy feasibility & $10^{-5}$ \\
+relative gap & $10^{-3}$ & reduced relative gap & $10^{-2}$ \\
+absolute gap & $10^{-1}$ & reduced absolute gap & $10^{2}$ \\
+iteration cap & 2000 & accepted statuses & Solved, AlmostSolved \\
+\bottomrule
+\end{tabular}
+\end{center}
+
+\section{Stage 5 --- Posterior uncertainty propagation}\label{si:stage5}
+Implemented in \texttt{pysuto/uncprop.py}.
+
+\subsection{Derivation}
+Model the prior as $a \sim \mathcal{N}(a_0, \Sigma_a)$ and the constraint
+system as a Gaussian observation $G a = c - \eta$ with $\eta \sim
+\mathcal{N}(0, \Sigma_c^{\mathrm{full}})$, where
+$\Sigma_c^{\mathrm{full}} = \operatorname{blkdiag}(0_{m_h}, \Sigma_c)$ assigns
+hard rows zero variance. Standard Gaussian conditioning yields the posterior
+covariance of Eq.~(3) of the main text,
+\begin{equation}
+\Sigma_{a^*} = \Sigma_a - \Sigma_a G^\top S^{-1} G \Sigma_a,
+\qquad S = G \Sigma_a G^\top + \Sigma_c^{\mathrm{full}},
+\end{equation}
+the generalised-least-squares update of the reconciliation lineage
+\citep{byron1978, vanderploeg1982}. Only the marginal variances are needed:
+with the sparse Cholesky factorisation $S = L L^\top$ (CHOLMOD, symbolic
+pattern reused across years; a SuperLU fallback costs about twice as much),
+\begin{equation}
+\sigma^2_{a^*\!,i} = \sigma^2_{a,i}\bigl(1 - \sigma^2_{a,i}\,
+\| L^{-1} g_i \|_2^2\bigr), \qquad g_i = \text{column } i \text{ of } G.
+\end{equation}
+Intervals are $[\,\max(a^*_i - z\,\sigma_{a^*\!,i},\ l_i),\
+\min(a^*_i + z\,\sigma_{a^*\!,i},\ u_i)\,]$ with
+$z = \Phi^{-1}(1-\alpha/2)$, $\alpha = 0.05$.
+
+\subsection{Invariants and limitations}
+Three properties are enforced by tests: monotone shrinkage
+($\sigma^2_{a^*} \le \sigma^2_a$ elementwise), positive semidefiniteness of
+the update, and recovery of the hard-constraints-only reduction of
+\citet{byron1978} in the limit $\Sigma_c \to 0$. Hard-balanced edges obtain
+zero-width intervals --- the correct limiting behaviour, not an artefact. Two
+limitations qualify the result: the update is the linear-Gaussian (Laplace)
+approximation of the true posterior, increasingly approximate for wide
+pedigree tails, and it is blind to the bounds, so $\sigma_{a^*}$ overestimates
+the uncertainty of solutions resting on $l$ or $u$; interval clipping is
+applied after the fact.
+
+\section{Provenance schema}\label{si:provenance}
+Implemented in \texttt{pysuto/input\_registry.py} and \texttt{pysuto/registry/}.
+
+Inputs live in a versioned registry of four kinds (feeds, accounting
+structure, parameter tables, masks). At initialisation the registry hashes
+each input's load-bearing files (SHA-256); any change materialises a new
+version directory, with unchanged files deduplicated as hardlinks, and runs
+may pin older versions. Every stage writes its outputs under a run identifier
+\texttt{\{stage\}\_\{timestamp\}\_\{uuid\}} together with a sidecar
+(\texttt{metadata.json}) recording: the exact input versions consumed
+(\texttt{parents.inputs}: id, version, content code), the upstream run
+identifiers (\texttt{parents.upstream}), every configuration knob of the stage
+(\texttt{stage\_config}), and summary statistics (\texttt{stage\_summary}).
+The chain feed $\to$ imputation $\to$ constraints $\to$ optimisation $\to$
+posterior is thereby fully reconstructable from any run directory, and
+cross-stage consistency is enforced at build time: a constraint run refuses an
+imputation run built against a different accounting-structure version.
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\end{document}

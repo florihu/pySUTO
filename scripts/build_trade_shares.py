@@ -74,6 +74,15 @@ OUT_DIR     = os.path.join(_INPUT_ROOT, "params", "trade_shares", "current")
 
 assert "Scrap" not in TRADED_SECTORS and "Scrap" not in SECTORS, "Scrap is not traded"
 
+# ADR 0020's withhold, retained but disabled by ADR 0021 (the ADR-0019 pattern:
+# keep the detector, drop the remedy).  The gate existed because a refining
+# total below its own region's smelting made the Matte node's hard balance
+# unsatisfiable.  ADR 0021 removes that at source — refined production no
+# longer anchors Matte→CFR — so the same comparison now flags an *anode
+# exporter*, which the model can finally represent.  Withholding there would
+# discard exactly the data the re-placement is designed to accommodate.
+WITHHOLD_CHAIN_INCONSISTENT = False
+
 
 # ---------------------------------------------------------------------------
 # Pure share computation (unit-tested)
@@ -215,7 +224,9 @@ def _icsg_sector_key(proc: str, typ: str, supply_use: str) -> str:
     if proc == "Refining" and typ == "Scrap":
         return "Refining_Scrap"
     if proc == "Refining":
-        return "Refining_Matte"
+        # ADR 0021: the refining Use row is total refined production placed on
+        # the anode entering ER, not the matte entering CFR.
+        return "Refining_Anode"
     return proc
 
 
@@ -276,6 +287,13 @@ def chain_inconsistent_refining(k: float = 0.5) -> set[tuple[str, str]]:
 
     Read straight from the raw ICSG rows — no model state, so it can gate the
     feed build that produces that state. Returns ``{(root_region, year)}``.
+
+    **Disabled by ADR 0021** (``WITHHOLD_CHAIN_INCONSISTENT``). Since refined
+    production anchors ``Anode→ER`` rather than ``Matte→CFR``, a refining total
+    below the region's smelting no longer makes any node unsatisfiable — it is
+    the signature of an anode/blister exporter, and the matte's outlet is the
+    observed anode export leg. Kept as a diagnostic, and so the remedy can be
+    revived from one constant if the measurement calls for it.
     """
     fdir = _input_registries().feed.resolve("icsg")
     raw = pd.read_csv(fdir / "values.csv")
@@ -285,7 +303,7 @@ def chain_inconsistent_refining(k: float = 0.5) -> set[tuple[str, str]]:
     raw["yr"] = raw["Year"].astype(str)
     raw = raw[raw["reg"].notna()]
     smelt = raw[raw["Process"] == "Smelting"].groupby(["reg", "yr"])["Value"].sum()
-    refine = (raw[(raw["Process"] == "Refining") & (raw["Type"] == "Matte")]
+    refine = (raw[(raw["Process"] == "Refining") & (raw["Type"] == "Anode")]
               .groupby(["reg", "yr"])["Value"].sum())
     d = pd.concat([(smelt * _eff_smelting()).rename("matte_in"),
                    refine.rename("matte_out")], axis=1).fillna(0.0)
@@ -334,13 +352,12 @@ def main() -> None:
     edges = build_edges_frame(acc, icsg, baci, SECTORS)
     observed = baci_observed_regions(acc, baci)
     usage_raw = icsg_raw_usage(SECTORS)
-    # ADR 0020: a restored refining total that contradicts its own smelting
-    # series would make the Matte node's hard balance unsatisfiable — withhold
-    # the fallback for those Matte→CFR groups only.
+    # ADR 0020's withhold, disabled by ADR 0021 — see WITHHOLD_CHAIN_INCONSISTENT.
     inconsistent = chain_inconsistent_refining()
-    withhold = {("Matte", "CFR", r, t) for r, t in inconsistent}
-    print(f"   ADR 0020: {len(inconsistent)} region-years whose ICSG refining "
-          f"contradicts their smelting — Matte→CFR fallback withheld there")
+    withhold = ({("Anode", "ER", r, t) for r, t in inconsistent}
+                if WITHHOLD_CHAIN_INCONSISTENT else set())
+    print(f"   chain-inconsistent refining: {len(inconsistent)} region-years"
+          f"   withheld: {len(withhold)} (ADR 0021 disables the ADR-0020 gate)")
     all_regions = set(acc.node_index["region"])
     blind = sorted(all_regions - observed)
     print(f"   BACI-observed regions: {len(observed)}/{len(all_regions)}"

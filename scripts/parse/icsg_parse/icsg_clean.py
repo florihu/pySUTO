@@ -8,16 +8,73 @@ RENAME_TOT = {'Smelting': 'Primary',
           'Refining': 'Primary',
           'Mining': 'Concentrate'}
 
-# Refining primary feed is matte/blister entering CFR (CFR consumes Matte +
-# Scrap; the acc has no Anode→CFR edge — anodes feed ER).
-RENAME ={('Refining','Primary'): 'Matte',
-         ('Smelting','Primary'): 'Concentrate',
+# ADR 0021: ICSG refined production measures what the *electrolytic refinery*
+# made, so it anchors the anode entering ER — not the matte entering CFR.  The
+# old placement divided it back through eff_CFR·eff_ER to the middle of the
+# chain, which silently assumed a region refines at home every anode it makes;
+# for anode/blister exporters (Zambia, Bulgaria, Congo D.R.) it left the matte
+# with no anchored outlet.  Matte→CFR now carries no ICSG anchor: the Matte
+# node's hard mass balance already determines it from Smelting→Matte.
+RENAME ={('Smelting','Primary'): 'Concentrate',
          ('Mining','Concentrate'): 'Concentrate',
          ('Mining','Concentrates'): 'Concentrate',
             ('Smelting','Secondary'): 'Scrap',
             ('Refining','Secondary'): 'Scrap'
 
             }
+
+
+def refining_anode_rows(df):
+    """ICSG *total* refined production as one 'Anode' row per region-year.
+
+    Total, not primary: scrap-derived copper reaches ER as anode too, so
+    anchoring on the primary series alone understates ER's feed by 19 % world
+    wide (Germany 49 %, Austria 100 %, Belgium 41 %) and would relocate the
+    contradiction from the Matte node to the Anode node.  The Secondary rows
+    stay in place as the Scrap→CFR anchor: that is the same copper measured at
+    a different point of its path, not a double count.
+    """
+    r = df[(df['Process'] == 'Refining') & (df['Supply_Use'] == 'Supply')
+           & (df['Type'].isin(('Primary', 'Secondary')))]
+    a = r.groupby(['Region', 'Year'], as_index=False).agg(
+        Value=('Value', 'sum'),
+        Unit=('Unit', 'first'),
+        Year_loaded_from_file=('Year_loaded_from_file', 'first'))
+    a['Process'], a['Supply_Use'], a['Type'] = 'Refining', 'Supply', 'Anode'
+    return a[df.columns]
+
+
+def apply_input_divisors(df, eff):
+    """Convert each production series back to the input it consumed.
+
+    Every series is divided by the efficiency of exactly the stages between
+    that input and the reported output (ADR 0021):
+
+      Smelting production  → concentrate/scrap entering Smelting  ÷ eff_Smelting
+      Refined (total)      → anode entering ER                    ÷ eff_ER
+      Refined (secondary)  → scrap entering CFR, which then passes
+                             CFR→Anode→ER                         ÷ eff_CFR·eff_ER
+
+    Before ADR 0021 the refined series was divided by eff_CFR·eff_ER and placed
+    on the matte entering CFR — two stages back instead of one, which assumed
+    every anode a region makes is refined at home.
+    """
+    def _eff(process):
+        return eff.loc[eff['Process'] == process, 'Value_median'].values[0]
+
+    df = pd.concat([df, refining_anode_rows(df)], ignore_index=True)
+    # the Primary series is now carried by the Anode row; it no longer anchors
+    # Matte→CFR, so drop it rather than leave a stale mapping behind.
+    df = df[~((df['Process'] == 'Refining') & (df['Type'] == 'Primary'))].copy()
+
+    is_sm = df['Process'] == 'Smelting'
+    is_an = (df['Process'] == 'Refining') & (df['Type'] == 'Anode')
+    is_sc = (df['Process'] == 'Refining') & (df['Type'] == 'Secondary')
+    df.loc[is_sm, 'Value'] = df.loc[is_sm, 'Value'] / _eff('Smelting')
+    df.loc[is_an, 'Value'] = df.loc[is_an, 'Value'] / _eff('ER')
+    df.loc[is_sc, 'Value'] = df.loc[is_sc, 'Value'] / (_eff('CFR') * _eff('ER'))
+    df.loc[is_sm | is_an | is_sc, 'Supply_Use'] = 'Use'
+    return df
 
 
 def read_eff(path ='data/input/params/eff/current/copper_efficiency.csv'):
@@ -64,17 +121,8 @@ def cl(raw):
         m = (df['Process'] == process) & (df['Type'] == 'Total')
         df.loc[m, 'Type'] = new_name
 
-    #3 for smelting and refining calculate multiple the primary and secondary values with 1/ efficiency channge supply_use to use
-    # Refining input enters at CFR and passes CFR→Anode→ER, so production
-    # converts to input through both stages: eff_CFR · eff_ER.
-    eff = read_eff()
-    def _eff(process):
-        return eff.loc[eff['Process'] == process, 'Value_median'].values[0]
-    divisor = {'Smelting': _eff('Smelting'),
-               'Refining': _eff('CFR') * _eff('ER')}
-    for process, d in divisor.items():
-        df.loc[df['Process'] == process, 'Value'] = df.loc[df['Process'] == process, 'Value'] * (1/d)
-        df.loc[df['Process'] == process, 'Supply_Use'] = 'Use'
+    #3 production → the input it consumed, marked as a Use row
+    df = apply_input_divisors(df, read_eff())
 
 
 

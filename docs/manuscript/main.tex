@@ -1,0 +1,28 @@
+% Thin compile wrapper for the Method section draft.
+% Build:  latexmk -pdf -interaction=nonstopmode main.tex
+% The SI compiles separately:  latexmk -pdf -interaction=nonstopmode si.tex
+\documentclass[11pt]{article}
+
+\usepackage[a4paper,margin=2.5cm]{geometry}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{tikz}
+\usetikzlibrary{positioning, arrows.meta, fit}
+\usepackage[round]{natbib}
+
+\title{pySUTO: uncertainty-carrying compilation and reconciliation of
+physical supply--use tables\\
+\large (Method section draft --- working title)}
+\author{}
+\date{\today}
+
+\begin{document}
+\maketitle
+
+\input{method}
+
+\bibliographystyle{plainnat}
+\bibliography{refs}
+
+\end{document}

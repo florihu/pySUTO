@@ -33,6 +33,7 @@ docs/rep/analysis_opt_20260903_124655_4b23df2f_20260907_roundC-transit-diagnosis
 """
 from __future__ import annotations
 
+import json
 import os
 import sys
 from pathlib import Path
@@ -58,9 +59,23 @@ IMP_RUN = ROOT / "data/proc/imp" / (sys.argv[1] if len(sys.argv) > 2
 OPT_RUN = ROOT / "data/proc/opt" / (sys.argv[2] if len(sys.argv) > 2
                                     else "opt_20260903_124655_4b23df2f")
 FEED_REG = ROOT / "data/proc/feed/registry"
-# exact feed runs behind the γ=0.5 chain (imp metadata upstream.feed_run_ids)
-FEED_ICSG = "feed_icsg_20260902_085421_899e69f8"
-FEED_BACI = "feed_baci_20260902_085153_de9e393f"
+
+
+def _feeds_of(imp_run: Path) -> tuple[str, str]:
+    """The ICSG and BACI feed runs behind this imp run, from its own metadata.
+
+    Hardcoding them silently measures the wrong feed as soon as the chain is
+    rebuilt: part C (the clip ledger) read the Round-B ICSG feed on every later
+    run, so the shipped run's clip_ledger.csv was byte-identical to Round B's
+    and blind to everything ADR 0018/0020 changed at feed time.
+    """
+    meta = json.loads((imp_run / "metadata.json").read_text())
+    ids = meta["parents"]["upstream"]["feed_run_ids"]
+    pick = lambda lbl: next(i for i in ids if i.startswith(f"feed_{lbl}_"))
+    return pick("icsg"), pick("baci")
+
+
+FEED_ICSG, FEED_BACI = _feeds_of(IMP_RUN)
 
 OUT_DIR = OPT_RUN / "diag" / "roundC_transit"
 YEARS = range(1995, 2025)
@@ -85,8 +100,12 @@ def _load_agg_frame():
 # producing processes whose covered feed is the production basis of each
 # traded flow sector (ICSG keys production data by process input — see
 # docstring). CFR feed backs Anode AND Cathode: refining-chain CC yield ≈ 1.
+# ADR 0021 moved the ICSG refining anchor from the CFR feed (matte) to the ER
+# feed (anode), so the ER feed is now the covered evidence backing produced
+# Anode as well as Cathode. Without this the anode basis reads as 0 on any
+# post-0021 run and its region-sectors mis-classify as "fabricated".
 PROC_OF = {"Smelting": ["Matte"], "CFR": ["Anode", "Cathode"],
-           "ER": ["Cathode"]}
+           "ER": ["Anode", "Cathode"]}
 DIRECT_AS = {"CSXEW": "Cathode"}   # electrowon cathode counts as Cathode
 
 
