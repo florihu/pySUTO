@@ -1,0 +1,6 @@
+Process,Value_min_tCu_per_tCu,Value_max_tCu_per_tCu,Source
+SXEW,0.60,0.85,"Schlesinger et al. (2022, Ch. 14–16); Mazuelos et al. (2009); Yang et al. (2025)"
+MF (Flotation),0.70,0.90,"Schlesinger et al. (2022, Ch. 3); Biswas & Davenport (2003); Xie et al. (2014); Tong et al. (2014); Sun et al. (2024)"
+Smelting,0.95,0.98,"Schlesinger et al. (2022, Ch. 4); Davenport et al. (2002)"
+CFR,0.98,0.995,"Schlesinger et al. (2022, Ch. 12); Davenport et al. (2002)"
+ER,0.995,0.999,"Schlesinger et al. (2022, Ch. 13); Davenport et al. (2002)"

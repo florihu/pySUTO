@@ -12,6 +12,14 @@ env/
 venv/
 
 # Data folders
+# data/ is not tracked: bulk source values.csv, script-generated params
+# (ore_grade, trade_shares) and the run tree are all reproducible or too large.
+# EXCEPTION: the hand-authored inputs under data/input are force-added to git
+# (~290 KB) so a fresh clone can reconstruct the configuration. The input
+# registry already versions and content-hashes them per run (data/input/*/
+# registry.json, vN/ retained, run metadata parents.inputs) — git adds
+# off-machine durability, not versioning. Add new hand-authored inputs with
+# `git add -f`; anything a script writes stays ignored.
 data/
 orga/
 figs/ex/

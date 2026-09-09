@@ -1,0 +1,16 @@
+indicator;region;cluster
+MESC;Belgium;domestic
+MESC;China;domestic
+MESC;France;domestic
+MESC;Germany;domestic
+MESC;Greece;domestic
+MESC;Italy;domestic
+MESC;Malaysia;domestic
+MESC;Netherlands;hub
+MESC;Singapore;hub
+MESC;South Korea;domestic
+MESC;Spain;domestic
+MESC;Sweden;domestic
+MESC;United Arab Emirates;domestic
+MESC;United Kingdom;hub
+MESC;United States;domestic

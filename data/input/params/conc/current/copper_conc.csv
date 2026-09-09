@@ -1,0 +1,14 @@
+Flow,Value_min_tCu_per_t,Value_max_tCu_per_t,Source,Comment
+CO,0.003,0.017,"Schlesinger et al. (2022, Ch.3); modern ore grade data",Ore grades ~0.3–1.7% Cu in head ore
+WR,0.0000,0.0005,"Schlesinger et al. (2022, Ch.3)",Waste rock/gangue with negligible Cu
+Ore,0.006,0.012,"Schlesinger et al. (2022, Ch.3)",Beneficiated feed ore grades
+Concentrate,0.20,0.35,"Schlesinger et al. (2022, Ch.3)",Copper concentrate ~20–35% Cu
+Matte,0.30,0.75,"Schlesinger et al. (2022, Chs.4–5)",Matte from smelting varies by process
+Tailings,0.001,0.010,Chen & Zhang (2025),Low Cu in flotation tailings
+Slag,0.005,0.050,Liu et al. (2025),Residual Cu in smelting slag
+Scrap_class_2,0.40,0.60,"Schlesinger et al. (2022, Ch.18)",Mixed low‑grade copper scrap
+Scrap_class_1,0.90,0.98,"Schlesinger et al. (2022, Ch.18)",High‑grade copper scrap
+Anode,0.90,0.98,"Schlesinger et al. (2022, Chs.12–13)",Converted copper anode
+CSXEW,0.995,1.000,"Schlesinger et al. (2022, Ch.16)",Electrowon cathode copper
+CER,0.995,1.000,"Schlesinger et al. (2022, Ch.13)",Fire‑refined copper
+Cathode,0.995,1.000,Schlesinger et al. (2022),Final refined copper product
