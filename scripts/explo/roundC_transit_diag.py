@@ -51,8 +51,12 @@ from build_trade_shares import (                              # noqa: E402
     TRADED_SECTORS, _conc_by_sector, build_edges_frame,
 )
 
-IMP_RUN = ROOT / "data/proc/imp/imp_20260903_122719_f13ea10b"
-OPT_RUN = ROOT / "data/proc/opt/opt_20260903_124655_4b23df2f"
+# Defaults are the Round-C reference chain; pass "<imp_run_id> <opt_run_id>" to
+# re-measure another chain (Round D re-runs this against the recovered fans).
+IMP_RUN = ROOT / "data/proc/imp" / (sys.argv[1] if len(sys.argv) > 2
+                                    else "imp_20260903_122719_f13ea10b")
+OPT_RUN = ROOT / "data/proc/opt" / (sys.argv[2] if len(sys.argv) > 2
+                                    else "opt_20260903_124655_4b23df2f")
 FEED_REG = ROOT / "data/proc/feed/registry"
 # exact feed runs behind the γ=0.5 chain (imp metadata upstream.feed_run_ids)
 FEED_ICSG = "feed_icsg_20260902_085421_899e69f8"

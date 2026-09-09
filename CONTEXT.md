@@ -38,7 +38,11 @@ user weights — every leg still at the uniform default). Such a fan is **not di
 even 1/N split asserts a fabricated partner pattern at the observation's confidence, whereas the
 honest state of knowledge is "total known, split unknown". The raw value stays undistributed
 (excluded from the feed's projected mass). A fan that degenerates to a single leg is an exact
-match, not an unweighted fan. See [ADR 0008](docs/adr/0008-unweighted-fans-are-not-distributed.md).
+match, not an unweighted fan. _Avoid_: reading "no imports" as "no weighting information" — a
+fan weighted **all-domestic** because BACI observed the region and recorded no imports carries
+weights and is not an unweighted fan ([ADR 0018](docs/adr/0018-import-free-fans-distribute-domestically.md));
+the doctrine bites only where the split is genuinely uninformed. See
+[ADR 0008](docs/adr/0008-unweighted-fans-are-not-distributed.md).
 
 **Qualifier fan** — a Use fan whose source variable names its **input product** (e.g. smelter
 production *from scrap*, refinery production *from matte*). Only root legs whose supplier sector
@@ -267,8 +271,20 @@ fan weights.
 option D) — weighting ICSG's producer fan by BACI bilateral import shares instead of uniformly, so ICSG-CC
 inherits BACI's geography. The domestic leg (X==Y) carries the residual `usage − Σ imports` (in CC units);
 the split is computed in copper content via `conc`. Applies only to the four **traded** ICSG-fanned
-sectors — Cathode, Concentrate, Anode, Matte. _Avoid_: including **Scrap** — it is an ICSG `Use` type but
-is **not traded**.
+sectors — Cathode, Concentrate, Anode, Matte. The residual also governs the **import-free** case: where
+BACI *observes* the consumer region (46 of 47 — all but **Taiwan**, trade-blind because BACI 490 "Other
+Asia, nes" folds into ROW, [ADR 0014](docs/adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)),
+`Σ imports = 0` is a real observation of domestic sourcing and the residual `usage − 0 = usage` gives an
+all-domestic fan ([ADR 0018](docs/adr/0018-import-free-fans-distribute-domestically.md)); where BACI is
+blind, zero imports carries no information and the fan stays undistributed. _Avoid_: including **Scrap** —
+it is an ICSG `Use` type but is **not traded**.
+
+**BACI-observed region** — a consumer region for which the BACI feed records at least one cross-region
+import (any traded sector, any year). The flag is what makes `Σ imports = 0` *informative*: for an
+observed region it means "sourced domestically", for a trade-blind one it means "we cannot see". Derived
+in `build_trade_shares.baci_observed_regions()` from the BACI `F_root`. _Avoid_: treating a zero import
+sum as evidence without checking observability — that is how a 100 %-domestic pattern gets fabricated at
+the observation's confidence.
 
 **Trade-seed** — the `TradeImputer` fill (method `trade_seed`) that sets the **CC** value of a
 *cross-region* `Flow→Process` import leg from its already-aggregated BACI **Mass** twin
@@ -310,6 +326,22 @@ number — see README; that mechanism was removed by
 **coherence soft-sum** (deprecated terms — see README §Glossary "control total" _Avoid_);
 reading a scale total as only a prior-preservation device — on no-data subgraphs it is also
 what holds scale against the zero anchors (ADR 0016).
+
+**Contradicted flow node** — a Flow node whose **inflow** prior (`Process→Flow`) and **outflow**
+prior (`Flow→Process` + `Flow→SB`) cannot both hold under its own **hard** mass balance. Because
+`σ_c = ANCHOR_CV·|c|` scales with the total, the *smaller* side is the cheaper anchor to satisfy,
+so the solver collapses the node to the smaller prior even when that side is the worse evidenced
+one (Russia Matte 1995: inflow 545 kt CC from ICSG concentrate use vs outflow 50.8 from an
+under-reported ICSG refining series ⇒ the smelting chain collapsed). Detected by
+`pysuto.flow_node_balance.contradicted_flow_nodes` (outflow < `K_CLOSE`·inflow) and treated by
+stripping the **outflow** side's authority — σ on its covered edges and on its `usetotout` anchor
+— was tried and **rejected**: σ reprices a data contradiction without resolving it (ADR 0019).
+The term survives as a **diagnostic**: a flag is a statement about the *input data* (the
+source's two series disagree for that region-year), not about the reconciliation, and the
+remedy is data-side.
+_Avoid_: reading a downstream export as an outlet for the node — anode exports are produced *by*
+CFR *from* matte, so they raise the matte requirement rather than relieving it. See
+[ADR 0019](docs/adr/0019-contradicted-flow-nodes-lose-anchor-authority.md).
 
 ## Downstream PSUT / PIOT vocabulary
 
