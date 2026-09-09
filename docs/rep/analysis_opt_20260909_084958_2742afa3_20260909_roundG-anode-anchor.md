@@ -10,6 +10,16 @@ shipped run `opt_20260908_114321_279e7979` (Round F, main\@3c24a46). Branch
 sum-row z² rises 4.8 %. The regression is concentrated in an identified population that this
 round did not touch. Not recommended for merge as it stands — see §6.**
 
+> **Superseded 2026-09-09 — the +4.8 % was an artefact of the baseline.** The population this
+> round "did not touch" turned out to be the anode trade, which the model deleted at 95 % in
+> *every* run because `effer` lacked `agg = true`
+> ([ADR 0022](../adr/0022-er-pools-its-anode-input-over-all-source-regions.md)). Measured
+> against a model whose anode trade works, this change costs 0.2 pp of z² instead of 4.8 % and
+> gains retention across the chain. **§6's recommendation to hold is withdrawn**; the two
+> changes are complementary and ship together. See the 2×2 in
+> [`…roundH-anode-trade`](analysis_opt_20260909_094009_49eab1dc_20260909_roundH-anode-trade.md).
+> The measurement below stands as recorded — it is what pointed at the anode trade.
+
 ## 1 · What was wrong
 
 `icsg_clean.py` derived the `Matte→CFR` anchor from ICSG **refined (cathode) production**

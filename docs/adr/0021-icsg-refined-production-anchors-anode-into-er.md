@@ -1,8 +1,12 @@
 # ICSG refined production anchors the anode entering ER, not the matte entering CFR
 
-**Status:** **proposed — implemented and measured on `fix/masscc-round-g`; merge decision
-pending.** The placement error is confirmed and the contradiction is removed, but total sum-row
-z² rises 4.8 % on a population this round does not touch (see Consequences). Amends
+**Status:** **accepted.** *(Was "proposed — z² rises 4.8 %". That cost was an artefact of the
+baseline: measured against a model whose anode trade was structurally deleted, this change
+appeared to regress. On top of [ADR 0022](0022-er-pools-its-anode-input-over-all-source-regions.md)
+it costs essentially nothing — sum-row z² −26.4 % → −26.6 % — and adds Conc-CC +4.6 pp, Smelt-CC
++5.0 pp, 2022 anode-trade retention +10.4 pp and p99 8.00 → 7.45, while remaining the only one
+of the two that fixes the contradicted Matte nodes. The two are complementary and ship
+together.)* Amends
 [ADR 0006](0006-scale-total-supersedes-external-control-total.md)
 (removes a second anchor from the Matte node), resolves the population
 [ADR 0019](0019-contradicted-flow-nodes-lose-anchor-authority.md) detected and
@@ -136,7 +140,11 @@ Two consequences follow that are worth naming:
 - Fabricated class 200 → **189** group-years, hub∪fab z² 33.6 % → **30.0 %** of sum-row z².
 - **Cost: sum-row z² 3,834,168 → 4,017,200 (+4.8 %).** Belgium (+222,696), Italy (+142,745) and
   Austria (+122,094) carry three quarters of it — anode-importing and secondary-dominated
-  refiners. Measured per constraint row, that cost lands on `ER`, `CER`, `CP` and `Cathode` —
+  refiners. **Superseded by the 2×2 in the Round-H REP:** that cost is an artefact of measuring
+  against a broken baseline — with [ADR 0022](0022-er-pools-its-anode-input-over-all-source-regions.md)
+  applied the same change costs 0.2 pp of z² and gains retention everywhere. What follows is the
+  Round-G-only measurement, kept because it is what pointed at the anode trade.
+  Measured per constraint row, that cost lands on `ER`, `CER`, `CP` and `Cathode` —
   rows that in Round F carried **zero** z² for Austria because the chain did not exist there at
   all (its `Scrap→CFR` collapsed 104.5 → 0.3 kt; `ER→CER` prior was 0.0). Round G makes that
   secondary refinery exist (104.5 → 71.5, `ER→CER` 102.9 → 70.6) and it then pays for being
