@@ -152,7 +152,9 @@ def _make_sector_key(row: pd.Series) -> str:
     if proc == "Refining" and typ == "Scrap":
         return "Refining_Scrap"
     if proc == "Refining":
-        return "Refining_Matte"
+        # ADR 0021: the refining Use row is total refined production placed on
+        # the anode entering ER, not the matte entering CFR.
+        return "Refining_Anode"
     return proc
 
 

@@ -165,7 +165,11 @@ OUTLIER_LEG_CV = 5.0
 # binding limit is missing downstream capacity, not σ. The DETECTION ships
 # (the report CSV localises where ICSG's own series disagree); set
 # UNCLOSED_CV to a value to re-enable the inflation.
-UNCLOSED_SECTORS = ("Matte",)
+# ADR 0021 widens the *report* to Anode: moving the refined-production anchor
+# from Matte→CFR to Anode→ER removes the Matte contradiction at source, and the
+# question that replaces it is whether it reappears one node downstream. The
+# remedy stays disabled, so this is diagnostics only.
+UNCLOSED_SECTORS = ("Matte", "Anode")
 UNCLOSED_CV      = None
 
 # Size-damped σ on bilateral legs (ADR 0017; applied BEFORE the screen above).
