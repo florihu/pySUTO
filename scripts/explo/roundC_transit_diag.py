@@ -100,8 +100,12 @@ def _load_agg_frame():
 # producing processes whose covered feed is the production basis of each
 # traded flow sector (ICSG keys production data by process input — see
 # docstring). CFR feed backs Anode AND Cathode: refining-chain CC yield ≈ 1.
+# ADR 0021 moved the ICSG refining anchor from the CFR feed (matte) to the ER
+# feed (anode), so the ER feed is now the covered evidence backing produced
+# Anode as well as Cathode. Without this the anode basis reads as 0 on any
+# post-0021 run and its region-sectors mis-classify as "fabricated".
 PROC_OF = {"Smelting": ["Matte"], "CFR": ["Anode", "Cathode"],
-           "ER": ["Cathode"]}
+           "ER": ["Anode", "Cathode"]}
 DIRECT_AS = {"CSXEW": "Cathode"}   # electrowon cathode counts as Cathode
 
 

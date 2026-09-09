@@ -343,6 +343,20 @@ _Avoid_: reading a downstream export as an outlet for the node — anode exports
 CFR *from* matte, so they raise the matte requirement rather than relieving it. See
 [ADR 0019](docs/adr/0019-contradicted-flow-nodes-lose-anchor-authority.md).
 
+**Anchor placement** — *which edge* a source series is attached to, as distinct from its value.
+A production series measures throughput at one point of the chain; converting it into an edge
+prior by dividing through efficiencies moves it to a *different* point, and each stage crossed
+adds an assumption. ICSG smelter production ÷ `eff_Smelting` is the concentrate entering
+`Smelting` (one stage); ICSG refined production ÷ `eff_ER` is the anode entering `ER` (one
+stage). Dividing that same refined series by `eff_CFR·eff_ER` instead placed it two stages back,
+on the matte entering `CFR` — and thereby assumed every anode a region makes is refined at home,
+which is false for anode/blister exporters. A misplaced anchor is not a σ problem and not a
+value problem: the number is right and the edge is wrong.
+_Avoid_: anchoring both sides of a hard-balanced node — the balance already determines the
+second side, and double anchoring is the over-constraint
+[ADR 0006](docs/adr/0006-scale-total-supersedes-external-control-total.md) rejected. See
+[ADR 0021](docs/adr/0021-icsg-refined-production-anchors-anode-into-er.md).
+
 ## Downstream PSUT / PIOT vocabulary
 
 **PSUT (physical supply-use table)** — the **materialised numeric** supply/use matrices for *one period and
