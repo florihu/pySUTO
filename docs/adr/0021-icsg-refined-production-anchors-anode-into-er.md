@@ -101,10 +101,14 @@ Two consequences follow that are worth naming:
   placement, not the test's accounting.
 - **Correct the ICSG values.** Rejected, as in ADR 0020: a data-source question. Nothing here
   edits a published number — only which edge each series is attached to.
-- **Move the `Refining` Secondary series too** (out of `Scrap→CFR`). Considered and deferred:
-  whether secondary scrap enters at the smelter or the refinery is a separate modelling
-  question with its own evidence, and `Scrap→CFR` is left untouched so this round measures one
-  change. Named as the follow-up if the Anode node develops tension.
+- **Move the `Refining` Secondary series out of `Scrap→CFR` as well.** Rejected — and it was
+  briefly proposed as the follow-up before being checked. `ER` consumes only `Anode` (`effer`
+  is `Anode→ER`); scrap enters at `CFR` and `Smelting` only. The secondary tonnage therefore
+  appears once as scrap entering CFR and once inside the anode leaving CFR, which is the same
+  copper at two points of one path, not a double count. The algebra confirms it cancels: with
+  `Scrap→CFR = S/(eff_CFR·eff_ER)`, the Anode-node balance
+  `eff_CFR·(M + Scrap→CFR) = (P+S)/eff_ER` reduces to `M = P/(eff_CFR·eff_ER)` — the secondary
+  term drops out entirely. There is nothing to move.
 
 ## Consequences
 
@@ -132,9 +136,22 @@ Two consequences follow that are worth naming:
 - Fabricated class 200 → **189** group-years, hub∪fab z² 33.6 % → **30.0 %** of sum-row z².
 - **Cost: sum-row z² 3,834,168 → 4,017,200 (+4.8 %).** Belgium (+222,696), Italy (+142,745) and
   Austria (+122,094) carry three quarters of it — anode-importing and secondary-dominated
-  refiners, whose refining end is newly constrained because `Anode` also becomes a fanned
-  sector for the first time. That is the deferred Secondary-series option above, and it is the
-  reason this ADR is not yet accepted.
+  refiners. Measured per constraint row, that cost lands on `ER`, `CER`, `CP` and `Cathode` —
+  rows that in Round F carried **zero** z² for Austria because the chain did not exist there at
+  all (its `Scrap→CFR` collapsed 104.5 → 0.3 kt; `ER→CER` prior was 0.0). Round G makes that
+  secondary refinery exist (104.5 → 71.5, `ER→CER` 102.9 → 70.6) and it then pays for being
+  imperfectly satisfied. A model with nothing at a node pays no penalty there, so part of the
+  +4.8 % is the price of chains existing rather than of a reconciliation getting worse.
+- **The binding defect is the anode trade, and it is pre-existing.** Cross-region `Anode`
+  retention is **4–7 % in every year of both runs** (2000: 5.6/5.4 %; 2015: 6.7/6.1 %; 2022:
+  4.7/4.3 %) against Concentrate 76–105 %, Matte 91–116 %, Cathode 96–112 % — 2,087 kt CC of
+  2022 anode trade reduced to 90. Until this ADR there was no ICSG anode Use row anywhere, so
+  `Anode→ER` had no anchor at all ([ADR 0010](0010-trade-first-seeding-of-bilateral-flow-process-inputs.md)
+  recorded both facts), the node had no anchored outlet for imported anode, and exporters'
+  anode was pushed onto their domestic `ER` leg instead: Chile's anode exports 394 → 9,
+  Zambia's 319 → 1, Bulgaria's 112 → 0.02, while each region's domestic `Anode→ER` rose. This
+  ADR is a **precondition** for repairing that, not its cause, and repairing it is the reason
+  the ADR is not yet accepted.
 - **One prediction failed.** Anode-export retention at those nodes went 4 % → **2 %**: the fix
   did not save the deleted trade, because the BACI export priors exceed the regions' entire
   production (Zambia 2022: 838 kt CC of anode exports against 727 kt of smelter output). That

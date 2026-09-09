@@ -1,0 +1,306 @@
+% Method section of the pySUTO model paper.
+% Compiled via main.tex (\input); FIG1 is drawn inline in TikZ below.
+% Word budgets (approx.): Architecture 180 / Uncertainty 180 / S1 260 / S2 360
+% / S3 300 / S4 280 / S5 180 / Software 140  ->  ~1880 total.
+
+\section{Method}\label{sec:method}
+
+\subsection{Architecture}\label{sec:arch}
+
+pySUTO organises the compilation and reconciliation of physical supply--use
+tables into five sequential stages (Figure~\ref{fig:pipeline}): datafeed
+assembly, aggregation and imputation, constraint building, constrained
+optimisation, and posterior uncertainty propagation. Each stage consumes the
+persisted output of its predecessor and writes a registered run of its own,
+and the quantity exchanged at every interface is the same: for each
+\emph{edge} --- one directed flow between two nodes of the accounting graph,
+resolved by period and valuation --- a value together with its standard
+deviation $\sigma$. Stage~1 runs once per source; all later stages operate on
+the combined edge set. In the copper application, three feeds populate
+28{,}482 edges per year across 47 regions and two valuations over 1995--2024.
+
+This design joins two strands that industrial ecology software has kept
+separate. System-definition frameworks such as ODYM
+\citep{pauliuk2020odym} and the general socioeconomic-metabolism data model
+\citep{pauliuk2019datamodel} structure material-system data but do not
+reconcile it; the constrained-balancing lineage of AISHA, large-scale matrix
+balancing, and the PIOLab \citep{geschke2011aisha, lenzen2009matrix,
+wieland2022piolab} reconciles large accounts but does not carry per-source
+data quality through to the result. pySUTO does both by treating $\sigma$ as
+a first-class artifact of every stage.
+
+\begin{figure}[t]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[font=\small,
+  stage/.style={draw, rounded corners, align=center, minimum height=17mm,
+                text width=26mm, inner sep=3pt},
+  art/.style={font=\scriptsize, align=center},
+  flow/.style={-{Stealth[length=2.5mm]}, thick}]
+\node[stage] (s1) {\textbf{1 Datafeed}\\[1pt]\scriptsize concordance $W$;\\
+  \scriptsize pedigree $\to \sigma$};
+\node[stage, right=11mm of s1] (s2) {\textbf{2 Aggregate \& impute}\\[1pt]
+  \scriptsize inverse variance;\\ \scriptsize imputer cascade};
+\node[stage, right=11mm of s2] (s3) {\textbf{3 Constraints}\\[1pt]
+  \scriptsize hard/soft rows;\\ \scriptsize prior conditioning};
+\node[stage, right=11mm of s3] (s4) {\textbf{4 Solver}\\[1pt]
+  \scriptsize per-year QP, Eq.~(\ref{eq:qp});\\ \scriptsize interior point};
+\node[stage, right=11mm of s4] (s5) {\textbf{5 Posterior}\\[1pt]
+  \scriptsize GLS update, Eq.~(\ref{eq:posterior});\\ \scriptsize intervals};
+\draw[flow] (s1) -- node[art, above]{$(F_k,\sigma_k)$\\ per feed} (s2);
+\draw[flow] (s2) -- node[art, above]{$f_{\mathrm{agg}},\sigma_{\mathrm{agg}}$\\
+  coverage, log} (s3);
+\draw[flow] (s3) -- node[art, above]{$G, c(t), \sigma_c(t)$\\
+  $a_0, \sigma_a, [l,u]$} (s4);
+\draw[flow] (s4) -- node[art, above]{$a^*\!(t), \varepsilon^*\!(t)$\\
+  residuals} (s5);
+\node[draw, rounded corners, fill=black!4, inner sep=5pt, align=center,
+      text width=157mm, below=9mm of s3] (reg)
+  {\scriptsize Input registry: SHA-256-versioned feeds $\cdot$ accounting
+   structure $\cdot$ parameters \quad$\vert$\quad per-run provenance sidecars:
+   input versions $\cdot$ upstream run IDs $\cdot$ full configuration};
+\foreach \s in {s1,s2,s3,s4,s5}
+  \draw[dashed, {Stealth[length=2mm]}-{Stealth[length=2mm]}]
+    (\s.south) -- (\s.south |- reg.north);
+\end{tikzpicture}}
+\caption{The pySUTO pipeline. Five sequential stages transform per-source raw
+data into reconciled flows with posterior uncertainties; every inter-stage
+artifact carries values and standard deviations together. Solid arrows show
+the data artifacts handed between stages; the substrate (dashed) is the
+content-hashed input registry and the per-run provenance sidecars that link
+every result to exact input versions, upstream runs, and configuration.
+Outputs $a^*\!(t)$ are the reconciled flows of year $t$; the posterior stage
+adds $\sigma_{a^*}$ and confidence intervals.}
+\label{fig:pipeline}
+\end{figure}
+
+\subsection{Uncertainty treatment}\label{sec:uncertainty}
+
+Uncertainty enters once, at the source, and is then only transformed. Each
+feed is scored on five data-quality indicators --- reliability, completeness,
+and temporal, geographical, and other correlation --- and the scores are
+translated into per-indicator coefficients of variation (CVs) with the
+exponential model of \citet{laner2016}, in the pedigree tradition of
+\citet{weidema1996pedigree}; their quadrature sum is the feed's CV
+(coefficients in Supporting Information~S1). From this point, no
+transformation may drop $\sigma$.
+
+All subsequent $\sigma$ arithmetic instantiates a single composition rule,
+the power-mean combiner
+\begin{equation}
+\sigma_{\oplus} \;=\; \Bigl(\sum\nolimits_k \lvert w_k\,
+\sigma_k\rvert^{\,p}\Bigr)^{1/p},
+\label{eq:lp}
+\end{equation}
+which merges weighted contributions $w_k \sigma_k$ into one standard
+deviation. At $p=2$, Eq.~\eqref{eq:lp} is the Gaussian quadrature of
+independent errors; pySUTO's default $p=1.3$ (configurable) deliberately
+grants less diversification credit, because the many contributions that meet
+on one edge --- parallel sources, fanned-in sub-flows --- rarely err
+independently. For $p \ge 1$ the rule preserves a useful invariant: relative
+uncertainty never grows under mass-preserving aggregation or disaggregation.
+The stage descriptions below state where Eq.~\eqref{eq:lp} fires and with
+which weights; Stage~5 then converts the accumulated prior $\sigma$ into
+posterior uncertainty.
+
+\subsection{Stage 1: Datafeed assembly}\label{sec:stage1}
+
+Each source enters through its own concordance. Raw records are first cast as
+directed source edges, then projected onto the root accounting structure by a
+sparse weight matrix $W$, $f_{\mathrm{root}} = W^{\top} f_{\mathrm{src}}$,
+whose outgoing weights sum to one per source edge so that every fan-out
+conserves mass. Where the split of an aggregate onto root edges is known --- for example,
+from bilateral trade shares --- those shares override the uniform weights. A fan with no split information is not
+distributed at all: a uniform $1/N$ allocation would fabricate bilateral
+structure the source does not contain, so the record is left undistributed
+and its information enters later as a constraint. The projection is guarded
+--- total mass must be conserved to within 1\%, and a raw record fanning
+onto several root edges is counted once, never replicated.
+
+The feed's pedigree CV (Section~\ref{sec:uncertainty}) attaches at this
+point, with one penalty: edges touching an aggregate rest-of-world region are
+re-scored at the worst geographical-correlation level, since such composites
+inherit the weakest regional attribution.
+
+Uncertainty then propagates through $W$ in CV form, by
+Eq.~\eqref{eq:lp} with the value shares $\omega_{ij}$ of the contributing
+source edges as weights:
+$\mathrm{CV}_{\mathrm{root},j} = \mathrm{CV}_{\mathrm{src}}
+(\sum_i \omega_{ij}^{\,p})^{1/p}$. Because the shares sum to one, fan-in
+diversifies ($\mathrm{CV}_{\mathrm{root}} \le \mathrm{CV}_{\mathrm{src}}$ for
+$p \ge 1$) while fan-out leaves the CV unchanged. Stage~1 ends with one
+root-aligned pair $(F_k, \sigma_k)$ per feed $k$ in the feed registry ---
+for copper: industry statistics reported in metal content, bilateral trade
+in gross mass, and national crude-ore extraction.
+
+\subsection{Stage 2: Aggregation and imputation}\label{sec:stage2}
+
+Where several feeds observe the same edge, their values are combined by
+inverse variance: weights $\Omega_{kj} = \sigma_{kj}^{-2} / \sum_k
+\sigma_{kj}^{-2}$ give the aggregate $f_{\mathrm{agg},j} = \sum_k \Omega_{kj}
+F_{kj}$, and its $\sigma_{\mathrm{agg}}$ follows from Eq.~\eqref{eq:lp} with
+weights $\Omega_{kj}$. At $p=2$ this is the classical minimum-variance
+combination of independent estimates; the default $p=1.3$ keeps the aggregate
+deliberately more cautious. A coverage mask records which edges any feed
+observed.
+
+The uncovered edges are filled by an imputation engine that runs plugin
+imputers in two phases: a \emph{cascade}, swept repeatedly in fixed order
+until a full sweep fills no new edge, and a single \emph{terminal} pass. The
+cascade seeds bilateral trade legs, closes process recipes, applies parameter
+relations, and evaluates formula splits. Fills are write-once, and every fill is logged
+with its method, source edges, and coefficients --- the imputation provenance
+of each edge.
+
+Two cascade members do most of the work. The trade imputer converts observed
+gross-mass trade into metal content through the concentration relation
+$f_{\mathrm{CC}} = \mathit{conc} \cdot f_{\mathrm{Mass}}$. The network
+imputer traverses process recipes: a process's product equals its recovery
+efficiency times its pooled inputs (secondary inputs and imports included),
+its residual output receives the complement $(1-\mathit{eff})$, and known
+totals propagate to the single missing edge of a node balance; each filled
+content edge also seeds its mass twin. The parametric imputers apply the same
+relations in reverse where only the downstream side is observed, damping the
+inversion of near-zero coefficients (an ore grade of $0.01$ would otherwise
+amplify $\sigma$ a hundredfold) with a regularised sensitivity
+(Supporting Information~S2). All imputed $\sigma$ compose via
+Eq.~\eqref{eq:lp}.
+
+The terminal pass interpolates remaining gaps in time, with $\sigma$ inflated
+per gap year; seeds zero-mean stock-change priors scaled by observed
+stock-change bands; and assigns every still-empty edge a flat prior --- value
+zero with $\sigma = 10^{6}$, a noisy zero re-anchored in Stage~3
+(a magnitude-aware flat-prior mode is available as an alternative). In the
+copper application the cascade converges in three passes: 7.8\% of the
+854{,}460 edges are feed-observed, relational and temporal imputation extend
+informative priors to a further 12.4\%, and the remaining 79.8\% carry flat
+priors.
+
+\subsection{Stage 3: Constraint building}\label{sec:stage3}
+
+The aggregated prior is next confronted with what must, and what should, hold.
+Constraint builders --- plugins like the imputers --- emit rows of a sparse
+matrix $G$, each row carrying its year, its target $c(t)$, and a target
+uncertainty $\sigma_c(t)$. \emph{Hard} rows must hold exactly; \emph{soft}
+rows may be violated at a cost weighted by $\sigma_c^{-2}$, in the
+$\sigma$-weighted-residual tradition of accounting-matrix reconciliation
+\citep{byron1978, vanderploeg1982, lenzen2009matrix} and of data
+reconciliation in material flow analysis \citep{cencic2008stan}.
+
+The reference configuration registers five families. Hard mass balances
+enforce supply\,$=$\,use per node, region, year, and valuation, with
+system-boundary nodes exempt. Soft \emph{scale totals} tie each total-output
+group to its own aggregated sum ($\sigma_c = 0.01\,|c|$); their targets are
+self-anchored, adding no external information but preserving the prior's
+scale against homogeneous shrinkage of the solution. Soft ratio rows impose
+concentration and recovery-efficiency relations (efficiency rows pool all
+inputs of a process), their parameter uncertainty rescaled to flow space by a
+Gauss--Newton linearisation at the prior; zero-centred net-stock rows bound
+stock changes within observed bands. Hard one-sided band rows cap
+concentration, efficiency, and scrap-share ratios. Per-edge bounds $[l,u]$
+are stored but are not part of the optimisation
+(Section~\ref{sec:stage4}). For copper this yields ${\approx}45{,}900$ rows
+per year, 1.38 million in total.
+
+Two conditioning steps close the stage. Prior $\sigma_a$ is floored through
+Eq.~\eqref{eq:lp} with a relative and an absolute term, and edges that arrive
+as noisy zeros are re-anchored: at $\sigma = 10^{6}$ their prior pull is
+${\approx}\,0$, so the solver could route arbitrary mass through data-free
+subgraphs. The anchor sets their $\sigma$ to 5\% of the median prior
+magnitude among their sector--valuation siblings --- a soft pull toward zero
+at a sector-appropriate scale --- exempting sectors whose magnitude is
+structurally determined by a ratio or balance relation rather than by data.
+A final check verifies that no row couples different years, so $G$ partitions
+into independent per-year blocks.
+
+\subsection{Stage 4: Solver}\label{sec:stage4}
+
+Each year is reconciled by a quadratic program over the flows $a$ and the
+soft residuals $\varepsilon$,
+\begin{equation}
+\min_{a,\;\varepsilon}\;
+(a - a_0)^{\top} \Sigma_a^{-1} (a - a_0)
+\;+\; \varepsilon^{\top} \Sigma_c^{-1} \varepsilon
+\quad \text{s.t.} \quad
+G_s\, a - \varepsilon = c_s, \qquad
+G_h\, a = c_h, \qquad
+G_b\, a \le c_b,
+\label{eq:qp}
+\end{equation}
+where $a_0$ is the prior, $\Sigma_a = \mathrm{diag}(\sigma_a^2)$ and
+$\Sigma_c = \mathrm{diag}(\sigma_c^2)$ carry the accumulated uncertainties as
+inverse-variance weights, and the rows of $G$ split into soft equalities
+($G_s$), hard balances ($G_h$), and hard bands ($G_b$), with $c = c(t)$.
+The problem is solved by Clarabel, an interior-point solver for conic
+programs with quadratic objectives \citep{goulart2024clarabel}; the three row
+groups map onto two zero cones and one nonnegative cone (Supporting
+Information~S4).
+
+Eq.~\eqref{eq:qp} contains no bound constraints. Non-negativity is induced
+rather than imposed --- by the zero-anchored priors and the hard bands ---
+so that a data conflict surfaces as a visible residual instead of being
+absorbed silently at a bound. The stored $[l,u]$ act only twice: in a
+pre-solve feasibility probe of the hard subsystem, which on failure reports
+the most violated rows and thereby turns infeasibility into a data
+diagnostic, and in the interval clipping of Stage~5.
+
+Before each solve, $\sigma_a$ is clipped to a fixed dynamic range by a
+conditioning rule shared with Stage~5, so that solver and posterior see the
+same effective prior. The year blocks solve independently (for copper,
+28{,}482 edges by ${\approx}45{,}900$ rows each, in place of one monolithic
+system). The executed default is a cold prior,
+$a_0(t) = f_{\mathrm{agg}}(t)$; chaining
+the previous optimum, $a_0(t) = a^*(t{-}1)$, is available as a warm
+alternative. Independently of the prior choice, the solver's KKT
+factorisation is reused across years whose block structure is identical.
+Each solve returns the reconciled flows $a^*(t)$, the residuals
+$\varepsilon^*(t)$, and per-row diagnostics.
+
+\subsection{Stage 5: Posterior uncertainty propagation}\label{sec:stage5}
+
+The optimum $a^*$ is a point estimate; Stage~5 restores its distribution.
+Modelling the prior as Gaussian with covariance $\Sigma_a$ and the
+constraints as observations with covariance
+$\Sigma_c^{\mathrm{full}} = \operatorname{blkdiag}(0, \Sigma_c)$ --- zero
+variance on hard rows --- Gaussian conditioning gives the closed-form
+posterior covariance
+\begin{equation}
+\Sigma_{a^*} \;=\; \Sigma_a \;-\; \Sigma_a G^{\top} S^{-1} G\, \Sigma_a,
+\qquad S = G\, \Sigma_a G^{\top} + \Sigma_c^{\mathrm{full}},
+\label{eq:posterior}
+\end{equation}
+the generalised-least-squares update of the reconciliation lineage
+\citep{byron1978, vanderploeg1982}. Only the marginal variances are
+extracted, via one sparse Cholesky factorisation $S = LL^{\top}$ per year
+with $\sigma^2_{a^*\!,i} = \sigma^2_{a,i}\,(1 - \sigma^2_{a,i}
+\|L^{-1} g_i\|_2^2)$; intervals $a^*_i \pm z\,\sigma_{a^*\!,i}$ are clipped
+to $[l_i, u_i]$. Hard-balanced edges obtain zero-width intervals --- the
+correct limit, not an artefact. Three invariants are enforced by tests:
+posterior variance never exceeds prior variance, the update stays positive
+semidefinite, and as $\Sigma_c \to 0$ it recovers the hard-constraints-only
+reduction of \citet{byron1978}. Two qualifications remain: the update is the
+linear-Gaussian approximation of the true posterior, and it is blind to the
+bounds, so $\sigma_{a^*}$ overestimates uncertainty where the solution rests
+on them. The posterior thereby makes explicit which parts of the account are
+fixed by structure and which remain limited by data --- the information a
+point estimate alone cannot convey.
+
+\subsubsection{Software architecture and reproducibility}\label{sec:software}
+
+Every number above is reproducible from the repository. Inputs live in a
+content-hashed registry: load-bearing files are SHA-256-hashed, any change
+creates a new immutable version, and runs may pin old ones. Each stage writes
+its outputs under a timestamped run identifier with a sidecar recording the
+exact input versions, the upstream run identifiers, and every configuration
+knob --- a provenance chain from raw feed to posterior interval that is
+enforced, not merely recorded: a stage refuses inputs built against a
+different accounting-structure version \citep{pauliuk2024traceability,
+stodden2014best, wilkinson2016fair}.
+
+The package comprises ${\sim}19{,}000$ lines of Python in 60 modules with 839
+tests, strictly layered imports (domain $\to$ pipeline $\to$ diagnostics),
+and two extension seams --- imputers and constraint builders subclass a
+common interface --- following the field's call for transparent, reusable
+model software \citep{pauliuk2015transparency, pauliuk2020cumulative}. It builds on the scientific
+Python stack and Clarabel, with an optional sparse-Cholesky accelerator for
+Stage~5.

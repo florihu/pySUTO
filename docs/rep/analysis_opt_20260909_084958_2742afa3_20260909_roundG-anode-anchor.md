@@ -139,15 +139,47 @@ gone at the prior, does not reappear at the Anode node, the collapsed smelting c
 double their survival, and — unlike Rounds D and F — the world chain retention moves **up**
 rather than down. But it does not beat the baseline on the headline metric.
 
-**Recommended: hold on `fix/masscc-round-g`, do the secondary-refiner round first.** Three
-quarters of the regression sits in Belgium/Italy/Austria, and ADR 0021 already names the
-candidate mechanism as its deferred option: the `Refining` **Secondary** series still anchors
-`Scrap→CFR` at ÷`eff_CFR·eff_ER` while the same tonnage now also rides in the `Anode→ER` anchor.
-Whether scrap enters at the smelter or the refinery is a separate, measurable question, and it
-is exactly the population that regressed. Two further leads named by this round:
+**Recommended: hold on `fix/masscc-round-g` and do the anode-trade round next.**
 
-1. **BACI anode-export priors exceed regional production** (Zambia 838 vs 727 kt). The transit
-   round, not this one.
+*A first draft of this section proposed moving the `Refining` Secondary series out of
+`Scrap→CFR`. That was wrong and is withdrawn: `ER` consumes only `Anode` (`effer` is
+`Anode→ER`), scrap enters at `CFR` and `Smelting` only, and the secondary term cancels out of
+the Anode-node balance — see the rejected option in ADR 0021. There is nothing to move.*
+
+Measuring the regression per constraint row instead points somewhere else. The cost sits on
+`ER`, `CER`, `CP` and `Cathode` rows, and in Round F those rows carried **zero** z² for Austria
+because the chain did not exist: its `Scrap→CFR` collapsed 104.5 → 0.3 kt and `ER→CER` had a
+prior of 0.0. Round G makes Austria's secondary refinery exist (104.5 → **71.5**, `ER→CER`
+102.9 → **70.6**), and it then pays for being imperfectly satisfied. A model with nothing at a
+node pays no penalty there, so part of the +4.8 % is the price of chains existing rather than of
+a reconciliation getting worse. Belgium is the genuine regression of the three: it refines far
+more than it smelts, and the old `Matte→CFR` anchor (237.0 kt prior) was propping up a CFR feed
+that its own smelting cannot supply once that anchor is gone (41.1 kt).
+
+**What actually binds those chains is the anode trade, and it is broken independently of this
+round.** Cross-region retention by traded sector (CC, Σpost/Σprior):
+
+| sector | 2000 F / G | 2015 F / G | 2022 F / G |
+|---|---|---|---|
+| Concentrate | 104.8 / 102.7 % | 82.1 / 81.7 % | 80.2 / 76.5 % |
+| Matte | 91.5 / 97.0 % | 106.5 / 116.0 % | 111.4 / 100.3 % |
+| **Anode** | **5.6 / 5.4 %** | **6.7 / 6.1 %** | **4.7 / 4.3 %** |
+| Cathode | 112.1 / 107.4 % | 99.2 / 103.4 % | 95.9 / 101.0 % |
+
+The model deletes ~95 % of anode trade in every year of **both** runs — 2,087 kt CC in 2022
+reduced to 90. The exporters have the anode and it is reassigned to their domestic refineries
+rather than shipped: Chile 394 → 9, Zambia 319 → 1, Bulgaria 112 → 0.02, ROW 123 → 3, each with
+its domestic `Anode→ER` rising to absorb it; Belgium's 214 kt of imports die at the other end.
+Until ADR 0021 there was no ICSG anode Use row at all, so `Anode→ER` carried no anchor anywhere
+and the node had no anchored outlet for imported anode — ADR 0010 recorded both facts and this
+round is what makes them fixable. **This is also the reason the Zambia anode-export prediction
+failed in §5**: those exports are not refused only because BACI overstates them, they are
+refused because the whole anode trade network is unanchored at the receiving end.
+
+Two further leads named by this round:
+
+1. **BACI anode-export priors exceed regional production** in places (Zambia 2022: 838 vs
+   727 kt), so the anode-trade round must handle over-statement as well as anchoring.
 2. **Belgium's ICSG series is split** across `Belgium` (2013–2024) and `Belgium-Luxembourg`
    (1995–2013), overlapping in 2013 — both map to root `Belgium`, so 2013 is double-counted.
    Pre-existing, but it bites harder now that the series anchors a major edge.
