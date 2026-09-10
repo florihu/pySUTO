@@ -140,3 +140,64 @@ def test_tailings_rows_shape_and_grammar():
     assert set(rows["b_valuation"]) == {"CC"}
     assert (rows["value_min"] < rows["value_nominal"]).all()
     assert (rows["value_max"] > rows["value_nominal"]).all()
+
+
+# ---- ADR 0023: temporal carry-forward past the crude_ore feed's last year ----
+
+from build_ore_grade import MARGIN_REL_CARRY, carry_grades_forward  # noqa: E402
+
+
+def _observed():
+    return pd.DataFrame({"region": ["A", "A", "B"], "time": ["2021", "2022", "2020"],
+                         "g": [0.010, 0.012, 0.020], "src": ["icsg", "icsg", "factor"]})
+
+
+def test_carry_forward_only_into_later_production_years():
+    prod = _prod([
+        ("A", "2021", 80.0, 0.0, 10000.0),
+        ("A", "2022", 80.0, 0.0, 10000.0),
+        ("A", "2023", 85.0, 0.0, 0.0),      # production, no ore mass → carried
+        ("A", "2024", 0.0, 0.0, 0.0),       # no production → not carried
+        ("B", "2019", 10.0, 0.0, 0.0),      # before B's last grade → not carried (forward only)
+        ("B", "2021", 10.0, 5.0, 0.0),      # carried from 2020
+        ("C", "2023", 10.0, 0.0, 0.0),      # never had a grade → uncovered
+    ])
+    c = carry_grades_forward(_observed(), prod)
+    assert list(c.columns) == ["region", "time", "g", "src", "from_time"]
+    assert set(c["src"]) == {"carry"}
+    got = {(r.region, r.time): (r.g, r.from_time) for r in c.itertuples()}
+    assert got == {("A", "2023"): (0.012, "2022"), ("B", "2021"): (0.020, "2020")}
+
+
+def test_carried_rows_get_wider_band_and_record_source_year():
+    obs = _observed()
+    prod = _prod([("A", "2023", 85.0, 0.0, 0.0)])
+    carried = carry_grades_forward(obs, prod)
+    grades = pd.concat([obs, carried], ignore_index=True)
+    # carried g equals an observed g, so the series band is unchanged by it
+    assert region_bands(grades).set_index("region").loc["A", "g_max"] == \
+        pytest.approx(0.012 * (1 + 0.10))
+    rows = build_param_rows(carried, region_bands(grades, MARGIN_REL_CARRY))
+    assert len(rows) == 3
+    assert (rows["a_time"] == "2023").all()
+    assert rows["value_nominal"].tolist() == pytest.approx([0.012] * 3)
+    assert rows["value_min"].tolist() == pytest.approx([0.010 * (1 - MARGIN_REL_CARRY)] * 3)
+    assert rows["value_max"].tolist() == pytest.approx([0.012 * (1 + MARGIN_REL_CARRY)] * 3)
+    assert (rows["comment"] == "in-situ basis; src=carry; from=2022").all()
+    assert rows["source"].str.contains("carried forward").all()
+
+
+def test_tailings_for_carried_year_use_that_years_production():
+    obs = pd.DataFrame({"region": ["Chile"], "time": ["2022"], "g": [0.01016], "src": ["icsg"]})
+    prod = _prod([("Chile", "2022", 3993.7, 1778.4, 732723.3),
+                  ("Chile", "2023", 3500.0, 1600.0, 0.0)])
+    grades = pd.concat([obs, carry_grades_forward(obs, prod)], ignore_index=True)
+    tails = compute_tailings_grades(prod, grades, EFF_MF, EFF_SXEW,
+                                    CONC_CONCENTRATE, CONC_CSXEW)
+    t23 = tails[(tails.time == "2023") & (tails.route == "mf")].iloc[0]
+    assert t23["src"] == "carry"
+    tail_cc = 3500.0 * (1 - EFF_MF) / EFF_MF
+    tail_mass = (3500.0 / EFF_MF) / 0.01016 - 3500.0 / CONC_CONCENTRATE
+    assert tail_cc / t23["g"] == pytest.approx(tail_mass)
+    # observed rows are unchanged by the carried ones
+    assert set(tails[tails.time == "2022"]["src"]) == {"icsg"}
