@@ -23,6 +23,15 @@ Output runs reference inputs by ``(id, version)`` tuples in their
 per-run ``metadata.json``, so this is the authoritative source for
 assumption-change auditing.
 
+``current/`` must never share an inode with a snapshot: a truncating
+write to the live copy (``to_csv``, ``open(..., "w")``) would then rewrite
+every snapshot linked to it and silently destroy the history the recorded
+hashes vouch for.  The 2026 migration materialised ``v1/`` as hardlinks
+*back to* ``current/`` and every later snapshot linked "unchanged" files
+onward, so :meth:`initialize` first gives each file under ``current/`` a
+private inode (copy-and-replace when its link count exceeds one).
+Snapshots may still share inodes among themselves — nothing writes there.
+
 Load-bearing files (changes trigger a version bump):
 
 * ``params/<id>/`` — ``params.csv``
@@ -177,6 +186,12 @@ class InputRegistry:
 
     def _maybe_bump(self, id: str, label_override: Optional[str]) -> None:
         current = self.root / id / "current"
+        n_shared = self._privatise_current(current)
+        if n_shared:
+            _log.warning(
+                "input/%s/%s: %d file(s) under current/ shared an inode with a "
+                "snapshot — given a private copy (an in-place write would have "
+                "rewritten history)", self.kind, id, n_shared)
         load_bearing = self._load_bearing_files(id, current)
         new_hashes = _hash_files(current, load_bearing)
 
@@ -206,6 +221,19 @@ class InputRegistry:
         })
         self._index[id] = rec
         _log.info("input/%s/%s: bumped to v%d (label=%r)", self.kind, id, new_version, label)
+
+    @staticmethod
+    def _privatise_current(current: Path) -> int:
+        """Give every file under *current* its own inode; return how many
+        were shared (link count > 1) and replaced by a private copy."""
+        n = 0
+        for child in current.rglob("*"):
+            if child.is_file() and os.stat(child).st_nlink > 1:
+                tmp = child.with_name(child.name + ".private~")
+                shutil.copy2(child, tmp)
+                os.replace(tmp, child)
+                n += 1
+        return n
 
     def _snapshot(
         self,

@@ -48,6 +48,17 @@ with the product conc nominals (Concentrate 0.275, CSXEW 0.9975) read from the
 conc params file. Regions without an ICSG production source get no tailings
 row (honest flat-prior gap, as for CO/Ore).
 
+Temporal carry-forward (ADR 0023)
+--------------------------------
+The crude_ore feed ends in 2022; ICSG mine production continues. A region-year
+with production but no ore-mass source gets its **last observed in-situ grade
+carried forward** (src="carry"), on a band widened to MARGIN_REL_CARRY, so the
+NetworkImputer derives the whole Mass chain (CO→Mining, Mining→Ore, Ore→MF/
+SXEW, Tailings) from that year's ICSG production through the grade — ore mass
+follows production, the grade is what is assumed constant. Tailings rows for
+carried years are computed from the carried grade and the year's own
+production, not carried themselves. Forward only, from the last observed year.
+
 Output: data/input/params/ore_grade/current/params.csv (registry-versioned;
 the raw S&P factor file and ore_grade_map.xlsx stay alongside). NOTE data/ is
 gitignored — regenerate on a fresh checkout.
@@ -79,6 +90,9 @@ OUT_CSV     = os.path.join(OG_DIR, "params.csv")
 
 # Relative margin applied to a region's in-situ series min/max for the hard band.
 MARGIN_REL = 0.10
+# Wider band for carried-forward grades (ADR 0023): the grade is assumed, not
+# measured, in those years.
+MARGIN_REL_CARRY = 0.20
 
 TEMPLATE_COLS = [
     "param_id", "param_type", "description",
@@ -156,6 +170,26 @@ def region_bands(grades: pd.DataFrame, margin_rel: float = MARGIN_REL) -> pd.Dat
     }).reset_index()
 
 
+def carry_grades_forward(grades: pd.DataFrame, prod: pd.DataFrame) -> pd.DataFrame:
+    """Carry each region's last observed grade into later production years.
+
+    A (region, time) qualifies when ``prod`` shows ICSG production
+    (conc_cc + sxew_cc > 0) and ``time`` lies after the region's last grade in
+    ``grades``. Forward only; regions without any observed grade, and years
+    without production, are left uncovered. Returns rows
+    (region, time, g, src="carry", from_time).
+    """
+    cols = ["region", "time", "g", "src", "from_time"]
+    has_prod = prod[(prod["conc_cc"].fillna(0.0) + prod["sxew_cc"].fillna(0.0)) > 0]
+    rows = []
+    for region, s in grades.groupby("region"):
+        last = s.sort_values("time").iloc[-1]
+        later = has_prod[(has_prod["region"] == region) & (has_prod["time"] > last["time"])]
+        for t in sorted(later["time"]):
+            rows.append((region, t, float(last["g"]), "carry", last["time"]))
+    return pd.DataFrame(rows, columns=cols)
+
+
 def compute_tailings_grades(
     prod: pd.DataFrame,
     grades: pd.DataFrame,
@@ -170,12 +204,12 @@ def compute_tailings_grades(
     and the tailings Mass is the process Mass-balance residual under the
     prior twins, ``(ProdCC/eff)/g_insitu − ProdCC/conc_product`` — so the
     resulting g_tail makes the tailings Mass twin close the hard MF/SXEW
-    Mass balance at prior level. Only ICSG-derived in-situ grades qualify
-    (the factor fallback has no route split). Returns
-    (region, time, route ∈ {"mf", "sxew"}, g).
+    Mass balance at prior level. ICSG-derived and carried-forward grades
+    qualify (the factor fallback has no route split). Returns
+    (region, time, route ∈ {"mf", "sxew"}, g, src).
     """
-    g_icsg = grades[grades["src"] == "icsg"][["region", "time", "g"]]
-    df = prod.merge(g_icsg, on=["region", "time"], how="inner")
+    g_ok = grades[grades["src"].isin(("icsg", "carry"))][["region", "time", "g", "src"]]
+    df = prod.merge(g_ok, on=["region", "time"], how="inner")
     routes = []
     for route, cc_col, eff, conc_prod in (
         ("mf", "conc_cc", eff_mf, conc_concentrate),
@@ -186,7 +220,7 @@ def compute_tailings_grades(
         tail_mass = (r[cc_col] / eff) / r["g"] - r[cc_col] / conc_prod
         r["g"] = tail_cc / tail_mass
         r["route"] = route
-        routes.append(r[tail_mass > 0][["region", "time", "route", "g"]])
+        routes.append(r[tail_mass > 0][["region", "time", "route", "g", "src"]])
     out = pd.concat(routes, ignore_index=True)
     return out[out["g"] > 0].reset_index(drop=True)
 
@@ -227,10 +261,17 @@ def build_tailings_rows(tails: pd.DataFrame, bands: pd.DataFrame) -> pd.DataFram
             "value_max": round(float(r["g_max"]), 8),
             "bound_lower": 0, "bound_upper": 1,
             "source": "recipe residual / prior Mass balance (ADR 0015 amendment)",
-            "comment": f"allocated basis; route={r['route']}",
+            "comment": f"allocated basis; route={r['route']}; src={r.get('src', 'icsg')}",
         })
         rows.append(row)
     return pd.DataFrame(rows, columns=TEMPLATE_COLS)
+
+
+_SOURCE = {
+    "icsg":   "ICSG productions / crude_ore allocated mass (ADR 0015)",
+    "factor": "S&P factor (1/factor)/eff_MF fallback (ADR 0015)",
+    "carry":  "last observed in-situ grade carried forward (ADR 0023)",
+}
 
 
 def build_param_rows(grades: pd.DataFrame, bands: pd.DataFrame) -> pd.DataFrame:
@@ -257,10 +298,9 @@ def build_param_rows(grades: pd.DataFrame, bands: pd.DataFrame) -> pd.DataFrame:
                 "value_min": round(float(r["g_min"]), 8),
                 "value_max": round(float(r["g_max"]), 8),
                 "bound_lower": 0, "bound_upper": 1,
-                "source": "ICSG productions / crude_ore allocated mass (ADR 0015)"
-                          if r["src"] == "icsg" else
-                          "S&P factor (1/factor)/eff_MF fallback (ADR 0015)",
-                "comment": f"in-situ basis; src={r['src']}",
+                "source": _SOURCE[r["src"]],
+                "comment": (f"in-situ basis; src=carry; from={r['from_time']}"
+                            if r["src"] == "carry" else f"in-situ basis; src={r['src']}"),
             })
             for k, v in sel.items():
                 if k != "region_col":
@@ -363,20 +403,29 @@ def main() -> None:
     print(f"   conc_Concentrate={conc_concentrate}  conc_CSXEW={conc_csxew}  (from conc params)")
 
     prod = build_production_frame(acc, icsg, crude)
-    grades = compute_insitu_grades(prod, load_factor_fallback(), eff_mf, eff_sxew)
-    bands = region_bands(grades)
+    observed = compute_insitu_grades(prod, load_factor_fallback(), eff_mf, eff_sxew)
+    carried = carry_grades_forward(observed, prod)
+    grades = pd.concat([observed, carried], ignore_index=True)
     tails = compute_tailings_grades(prod, grades, eff_mf, eff_sxew,
                                     conc_concentrate, conc_csxew)
+    is_carry_t = tails["src"] == "carry"
     params = pd.concat([
-        build_param_rows(grades, bands),
-        build_tailings_rows(tails, tailings_bands(tails)),
+        build_param_rows(observed, region_bands(grades)),
+        build_param_rows(carried, region_bands(grades, MARGIN_REL_CARRY)),
+        build_tailings_rows(tails[~is_carry_t], tailings_bands(tails)),
+        build_tailings_rows(tails[is_carry_t], tailings_bands(tails, MARGIN_REL_CARRY)),
     ], ignore_index=True)
 
-    n_icsg = (grades["src"] == "icsg").sum()
-    n_fb   = (grades["src"] == "factor").sum()
-    n_gap  = int((prod["ore_mass"] > 0).sum()) - len(grades)
+    n_icsg = (observed["src"] == "icsg").sum()
+    n_fb   = (observed["src"] == "factor").sum()
+    n_gap  = int((prod["ore_mass"] > 0).sum()) - len(observed)
     print(f"   region-years: {n_icsg} icsg-derived + {n_fb} factor-fallback "
           f"({n_gap} with ore mass but no grade source)")
+    if len(carried):
+        span = carried["time"].astype(int) - carried["from_time"].astype(int)
+        print(f"   carried forward: {len(carried)} region-years into "
+              f"{sorted(carried['time'].unique())} (from {sorted(carried['from_time'].unique())}; "
+              f"max span {int(span.max())} y; {int((tails['src'] == 'carry').sum())} tailings rows)")
     print(f"   tailings rows: {len(tails)} region-year-routes "
           f"({(tails['route'] == 'mf').sum()} mf + {(tails['route'] == 'sxew').sum()} sxew)")
     for r in ("Chile", "Australia"):

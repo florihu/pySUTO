@@ -14,8 +14,7 @@ C  Run imputation pipeline:
      4  domestic-use FormulaImputer for traded flows
         (Concentrate, Matte, Anode, Cathode × FU/USC/MESC)
      5  temporal interpolation (interpolation-only)
-     6  crude_ore end-of-series LOCF (scoped: feed=crude_ore, t∈CRUDE_ORE_TIMES)
-     7  flat-prior fallback (ROW-aware CVs)
+     6  flat-prior fallback (ROW-aware CVs)
 D  Save AggregationResult to OUTPUT_DIR
 
 ═══════════════════════════════════════════════════════════
@@ -107,9 +106,6 @@ TIME_MIN_OBS          = 2
 TIME_GAP_INFLATION    = 1.05
 TIME_METHOD           = "linear"
 TIME_INTERPOLATE_ONLY = True
-
-# TimeImputer (crude_ore end-of-series extrapolation)
-CRUDE_ORE_TIMES = ["2023", "2024"]
 
 # FlatPriorImputer mode
 #   "magnitude_aware" (legacy) — σ = CV(j) · scale(j) via cv_by_mask + 3-level cascade
@@ -591,24 +587,10 @@ def main(feed_ids: list[str], label: str) -> None:
         id               = "time_interp",
     ))
 
-    # 6. Crude-ore end-of-series extrapolation (2023, 2024). The crude_ore
-    # feed has no data for these years, so the general TimeImputer above
-    # (interpolate_only) leaves edge values NaN and FlatPriorImputer would
-    # then fill them with f=0 — opening a multi-million-tonne hole on the
-    # Mining inflow side of mass balance. This scoped extrapolator carries
-    # the last observed crude_ore value forward with gap-inflated σ, for
-    # crude_ore-covered edges only, in CRUDE_ORE_TIMES only.
-    engine.register(TimeImputer(
-        window           = TIME_WINDOW,
-        method           = TIME_METHOD,
-        min_obs          = TIME_MIN_OBS,
-        gap_inflation    = TIME_GAP_INFLATION,
-        interpolate_only = False,
-        p                = P_PROP,
-        scope_feed_id    = "crude_ore",
-        scope_times      = CRUDE_ORE_TIMES,
-        id               = "time_crude",
-    ))
+    # (The scoped crude_ore end-of-series extrapolator that used to sit here
+    # is retired — ADR 0023: past the crude_ore feed's last year the ore Mass
+    # chain is derived by the NetworkImputer from ICSG production through the
+    # carried-forward in-situ grade, so nothing is left for it to fill.)
 
     # 6.5 Net-stock share imputation. Give Δstock (PSC/USC/MESC) edges informative,
     # cold-smooth priors BEFORE flat_prior would fill them with noisy_zero: PSC by

@@ -257,6 +257,17 @@ these are *not* physical mill-head grades (Australia ~2–3 % vs ~0.8 % head gra
 applying a recovered-basis grade to an in-situ edge (a systematic 1/eff error), or citing these
 grades against literature head grades without converting.
 
+**Grade carried past the ore feed.** The `crude_ore` feed ends before ICSG production does
+(2022 vs 2024). For a region-year with production but no ore mass the `ore_grade` generator
+carries the region's **last observed in-situ grade** forward (`src=carry`, band ±20 % instead
+of ±10 %); the NetworkImputer then derives the whole `CO→Mining→Ore→…` Mass chain from that
+year's production through the grade, and the scale totals and grade rows follow on their own.
+**The assumption is on the grade, never on the mass**: ore mass tracks production
+([ADR 0023](docs/adr/0023-ore-grade-carried-past-the-crude-ore-feed.md)). _Avoid_: carrying
+the ore Mass itself (holds tonnage flat whatever was produced, and disagrees with the grade), or
+running any Mass extrapolator *after* the network cascade (fills the boundary leg only, leaves
+the chain behind it at flat-prior zero and drops its anchor rows).
+
 **Feed semantics — ICSG vs BACI.** **ICSG** publishes production/usage statistics in **copper content
 (`CC`)**; its `Use` rows are **single-endpoint** (consumer known, producer open) ⇒ producer **fan-out**.
 **BACI** publishes **bilateral gross trade** in **`Mass`** (fully classified X→Y; no self-trade rows *at

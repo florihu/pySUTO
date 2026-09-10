@@ -51,7 +51,9 @@ one-relation-drives-all pattern.
   (Australia ~2–3 % where mill-head is ~0.8 % — the allocation shrinks the denominator). Never
   compare them to literature head grades without converting.
 - Coverage: region-years with ore mass but no grade source (~35, all tiny — Slovakia ≤421 kt ore
-  over 20 y) have no Mass↔CC coupling; logged by the generator.
+  over 20 y) have no Mass↔CC coupling; logged by the generator. The converse gap — production
+  but no ore mass, i.e. every year past the crude_ore feed's end — is closed by carrying the
+  grade forward ([ADR 0023](0023-ore-grade-carried-past-the-crude-ore-feed.md)).
 - ⚠ `data/` is gitignored: on a fresh checkout run `scripts/build_ore_grade.py` (needs registered
   icsg + crude_ore feed runs) and re-apply the conc-file row removal by re-running
   `scripts/parse/copper_params_parse.py` semantics (the live conc file is hand-maintained — it

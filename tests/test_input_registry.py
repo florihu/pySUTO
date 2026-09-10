@@ -331,3 +331,31 @@ def test_registry_json_shape(tmp_path: Path) -> None:
     assert set(v1.keys()) == {"version", "date", "code", "hashes"}
     assert "params.csv" in v1["hashes"]
     assert len(v1["hashes"]["params.csv"]) == 64                  # sha256 hex
+
+
+def test_current_gets_private_inode_so_in_place_writes_cannot_rewrite_snapshots(tmp_path: Path) -> None:
+    # The 2026 migration materialised v1/ as hardlinks back to current/;
+    # reproduce that state, then check initialize() breaks the sharing and a
+    # truncating write to current/ no longer reaches the snapshot.
+    _params_id(tmp_path, "conc", "param_id;value\nx;1\n")
+    InputRegistry("params", root=tmp_path).initialize()
+    current = tmp_path / "params" / "conc" / "current" / "params.csv"
+    v1 = tmp_path / "params" / "conc" / "v1" / "params.csv"
+    current.unlink()
+    os.link(v1, current)
+    assert current.stat().st_ino == v1.stat().st_ino
+
+    InputRegistry("params", root=tmp_path).initialize()   # no content change → no bump
+    assert current.stat().st_nlink == 1
+    assert current.stat().st_ino != v1.stat().st_ino
+    assert current.read_text() == v1.read_text()
+    assert not (tmp_path / "params" / "conc" / "v2").exists()
+
+    with open(current, "w", encoding="utf-8") as fh:          # in-place, truncating
+        fh.write("param_id;value\nx;2\n")
+    assert v1.read_text() == "param_id;value\nx;1\n"
+
+    InputRegistry("params", root=tmp_path).initialize()   # now a real change → v2
+    v2 = tmp_path / "params" / "conc" / "v2" / "params.csv"
+    assert v2.read_text() == "param_id;value\nx;2\n"
+    assert v2.stat().st_ino != current.stat().st_ino
