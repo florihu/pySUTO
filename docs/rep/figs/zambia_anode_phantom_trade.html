@@ -1,0 +1,301 @@
+<title>Zambia's Phantom Anode Exports</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Serif:ital,wght@0,400;0,500;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+:root{
+  color-scheme: light;
+  --ground:#fbfaf7; --surface:#ffffff; --surface-2:#f4f1ea;
+  --ink:#17150f; --ink-2:#5c574c; --ink-3:#8a8375;
+  --rule:#e5e0d6; --rule-strong:#cfc8b8;
+  --refiner:#2a78d6; --hub:#eb6834; --ceiling:#8a8375;
+  --sans:"IBM Plex Sans",system-ui,sans-serif;
+  --serif:"IBM Plex Serif",Georgia,serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  color-scheme: dark;
+  --ground:#161511; --surface:#1f1e19; --surface-2:#26241d;
+  --ink:#f5f3ee; --ink-2:#bdb7a8; --ink-3:#8d8677;
+  --rule:#33312a; --rule-strong:#474338;
+  --refiner:#3987e5; --hub:#d95926; --ceiling:#8d8677;
+}}
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --ground:#161511; --surface:#1f1e19; --surface-2:#26241d;
+  --ink:#f5f3ee; --ink-2:#bdb7a8; --ink-3:#8d8677;
+  --rule:#33312a; --rule-strong:#474338;
+  --refiner:#3987e5; --hub:#d95926; --ceiling:#8d8677;
+}
+*{box-sizing:border-box}
+body{background:var(--ground);color:var(--ink);font-family:var(--serif);line-height:1.6;margin:0}
+.wrap{max-width:1060px;margin:0 auto;padding:48px 28px 80px}
+.measure{max-width:64ch}
+h1{font-family:var(--sans);font-weight:600;font-size:clamp(28px,4vw,40px);line-height:1.15;letter-spacing:-.02em;margin:0 0 6px;text-wrap:balance}
+h2{font-family:var(--sans);font-weight:600;font-size:19px;letter-spacing:-.01em;margin:0 0 4px;text-wrap:balance}
+.eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.14em;text-transform:uppercase;color:var(--ink-3);margin:0 0 14px}
+.verdict{font-size:18px;color:var(--ink-2);margin:0 0 4px}
+.verdict b{color:var(--ink);font-weight:500}
+p{margin:0 0 14px}
+.note{font-size:14.5px;color:var(--ink-2)}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+hr{border:0;border-top:1px solid var(--rule);margin:44px 0}
+
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:1px;background:var(--rule);
+  border:1px solid var(--rule);margin:30px 0 8px}
+.stat{background:var(--surface);padding:16px 18px 15px}
+.stat .k{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px;line-height:1.35}
+.stat .v{font-family:var(--sans);font-size:29px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1}
+.stat .s{font-size:13px;color:var(--ink-2);margin-top:6px;line-height:1.4}
+.v.hub{color:var(--hub)} .v.ref{color:var(--refiner)}
+
+section{margin:38px 0 0}
+.figure{margin:18px 0 0;border:1px solid var(--rule);background:var(--surface)}
+.figure .head{padding:15px 18px 12px;border-bottom:1px solid var(--rule)}
+.figure .body{padding:16px 10px 10px;overflow-x:auto}
+.legend{display:flex;flex-wrap:wrap;gap:16px;padding:0 18px 14px;font-family:var(--sans);font-size:12.5px;color:var(--ink-2)}
+.legend span{display:inline-flex;align-items:center;gap:7px}
+.sw{width:11px;height:11px;border-radius:2px;display:inline-block}
+.sw.line{width:16px;height:0;border-top:2px dashed var(--ceiling);border-radius:0}
+svg{display:block;width:100%;height:auto;min-width:560px}
+.gl{stroke:var(--rule);stroke-width:1}
+.ax{font-family:var(--mono);font-size:10px;fill:var(--ink-3)}
+.axb{font-family:var(--mono);font-size:10px;fill:var(--ink-2)}
+.dlab{font-family:var(--sans);font-size:11px;font-weight:500;fill:var(--ink)}
+.hit{fill:transparent;cursor:crosshair}
+
+#tip{position:fixed;z-index:60;pointer-events:none;opacity:0;transition:opacity .1s;
+  background:var(--surface);border:1px solid var(--rule-strong);padding:9px 11px;
+  font-family:var(--sans);font-size:12.5px;color:var(--ink);box-shadow:0 6px 20px rgba(0,0,0,.13);max-width:250px}
+#tip .ty{font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;color:var(--ink-3);margin-bottom:5px}
+#tip .tr{display:flex;justify-content:space-between;gap:16px;font-variant-numeric:tabular-nums}
+#tip .tr b{font-weight:500}
+
+table{border-collapse:collapse;width:100%;font-family:var(--mono);font-size:12.5px;font-variant-numeric:tabular-nums}
+th,td{padding:6px 9px;text-align:right;border-bottom:1px solid var(--rule);white-space:nowrap}
+th{font-size:10.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);font-weight:500;text-align:right}
+th:first-child,td:first-child{text-align:left}
+tbody tr.brk td{border-top:2px solid var(--rule-strong)}
+td.over{color:var(--hub);font-weight:500}
+details{margin-top:14px}
+summary{font-family:var(--sans);font-size:13.5px;color:var(--ink-2);cursor:pointer;padding:5px 0}
+summary:focus-visible,a:focus-visible{outline:2px solid var(--refiner);outline-offset:2px}
+.tbl-wrap{overflow-x:auto;margin-top:12px;border:1px solid var(--rule)}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+
+<div class="wrap">
+  <p class="eyebrow">BACI HS 740200 · ICSG smelter series · 1995–2024</p>
+  <h1>Zambia's phantom anode exports</h1>
+  <div class="measure">
+    <p class="verdict">From 2016 the trade data books Zambian copper anode to <b>Switzerland, Singapore and Luxembourg</b> — three countries with no copper refinery. In 2017 it books <b>nearly twice as much anode as Zambia's smelters produced</b>.</p>
+  </div>
+
+  <div class="stats">
+    <div class="stat"><div class="k">2017 recorded exports<br>÷ smelter output</div><div class="v hub">1.88×</div><div class="s">1,485 kt Cu booked against 788 kt made</div></div>
+    <div class="stat"><div class="k">Booked to CH / SG / LU<br>2016–2024</div><div class="v hub">4,454 kt</div><div class="s">Essentially nil before 2016</div></div>
+    <div class="stat"><div class="k">Re-exported onward<br>by those three</div><div class="v">39 kt</div><div class="s">0.9% of what entered — max 13.4 kt in any year</div></div>
+    <div class="stat"><div class="k">China's imports<br>from Zambia, 2015→2017</div><div class="v ref">206→381</div><div class="s">kt — rose through the break, not diverted</div></div>
+  </div>
+  <p class="note measure" style="margin-top:14px">Removing the three hub destinations returns Zambia's export-to-output ratio to <span class="mono">0.25–0.74</span> in every year from 2016 on — physically sane throughout.</p>
+
+  <hr>
+
+  <section>
+    <h2>1 · Recorded exports break through the physical ceiling in 2016</h2>
+    <p class="note measure">Zambia's smelters set a hard ceiling on how much anode it can ship. Until 2015 exports track well under it. In 2016 a new destination class appears and the stack crosses the line.</p>
+    <div class="figure">
+      <div class="head"><strong style="font-family:var(--sans);font-size:14px">Zambia anode exports by destination, against ICSG smelter output</strong>
+        <div class="note" style="font-size:12.5px;margin-top:3px">kt contained copper (BACI gross × 0.94), HS 740200</div></div>
+      <div class="legend">
+        <span><i class="sw" style="background:var(--refiner)"></i>To refining destinations</span>
+        <span><i class="sw" style="background:var(--hub)"></i>To trading hubs (CH / SG / LU)</span>
+        <span><i class="sw line"></i>ICSG smelter output — the ceiling</span>
+      </div>
+      <div class="body"><svg id="cA" viewBox="0 0 1000 340" role="img" aria-label="Stacked columns of Zambia anode exports by destination 2010-2024 against smelter output"></svg></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>2 · The copper goes in and never comes out</h2>
+    <p class="note measure">If these were genuine transhipment points, what arrives would leave again. It does not. Across 2016–2024 the three jurisdictions absorb <span class="mono">4,541 kt Cu</span> and re-export <span class="mono">39 kt</span> — and ICSG reports no refined production for any of them, so it cannot have been consumed there either.</p>
+    <div class="figure">
+      <div class="head"><strong style="font-family:var(--sans);font-size:14px">Switzerland, Singapore &amp; Luxembourg — anode in vs anode out</strong>
+        <div class="note" style="font-size:12.5px;margin-top:3px">kt contained copper, combined</div></div>
+      <div class="legend">
+        <span><i class="sw" style="background:var(--hub)"></i>Anode imported</span>
+        <span><i class="sw" style="background:var(--ink-3)"></i>Anode re-exported</span>
+      </div>
+      <div class="body"><svg id="cB" viewBox="0 0 1000 250" role="img" aria-label="Anode imported by Switzerland Singapore and Luxembourg versus re-exported"></svg></div>
+    </div>
+  </section>
+
+  <section>
+    <h2>3 · China's imports from Zambia were never diverted</h2>
+    <p class="note measure">This is where the hypothesis needs amending. If the hub legs were the China cargo re-labelled, China's recorded imports from Zambia would fall as the hub legs rise. They do the opposite — 206 → 381 kt Cu — and China books almost nothing from the hubs (under 1 kt/yr throughout).</p>
+    <div class="figure">
+      <div class="head"><strong style="font-family:var(--sans);font-size:14px">China's anode imports from Zambia</strong>
+        <div class="note" style="font-size:12.5px;margin-top:3px">kt contained copper, HS 740200</div></div>
+      <div class="body"><svg id="cC" viewBox="0 0 1000 230" role="img" aria-label="China anode imports from Zambia 2010 to 2024"></svg></div>
+    </div>
+  </section>
+
+  <hr>
+
+  <section>
+    <h2>What this rules out, and what it leaves</h2>
+    <div class="measure">
+      <p class="note"><b style="color:var(--ink)">Congolese copper is here — as ore, and it is already inside the ceiling.</b> Zambia is the export corridor for Congo D.R., and Congolese <em>concentrate</em> genuinely feeds Zambian smelters: <span class="mono">190 kt Cu</span> in 2013, <span class="mono">196 kt Cu</span> in 2017, <span class="mono">73 kt Cu</span> in 2022. That is exactly why Zambia's smelter output (788 kt Cu in 2017) exceeds its own mine output (628 kt Cu). But the smelting happens in Zambia, so ICSG already counts it as Zambian smelter production — it raises the ceiling rather than creating room above it.</p>
+      <p class="note"><b style="color:var(--ink)">Finished metal does not transit.</b> Recorded Congo→Zambia <em>anode</em> and <em>cathode</em> are <span class="mono">0.0 kt</span> in every year of the series. Congo ships its own refined copper out directly — 2,041 kt Cu in 2024, of which 1,447 kt straight to China. And Zambia imports essentially no anode itself (<span class="mono">0.00–0.16 kt/yr</span>), so there is no re-export route into the anode line either.</p>
+      <p class="note"><b style="color:var(--ink)">Not a re-routing of the China flow.</b> China's imports from Zambia rose from 206 to 381 kt Cu straight through the break.</p>
+      <p class="note"><b style="color:var(--ink)">A second anomaly, older and unexplained.</b> Counted in contained copper, Zambia's <em>total</em> recorded exports exceeded everything its plants turned out well before 2016 — <span class="mono">1.59×</span> in 2013, on the cathode line, with no hub tonnage in play. The anode story here does not explain that one, and Congolese cathode transit cannot either (it is zero). It deserves its own look.</p>
+      <p class="note"><b style="color:var(--ink)">What remains.</b> The hub legs have no physical backing at Zambia's end — the smelters never made that copper, Congolese feed included. The legitimate destinations are still recorded separately and at plausible volumes, so this reads as the same cargo booked twice: once to the buyer, once to the trader's jurisdiction of invoice. The data cannot say which of the two records is the duplicate, and it cannot trace where each shipment physically landed. For the reconciliation the distinction does not matter: roughly <span class="mono">450–960 kt/yr</span> of anode is being asserted that Zambia did not produce.</p>
+    </div>
+  </section>
+
+  <section>
+    <details>
+      <summary>Show the underlying numbers (2010–2024)</summary>
+      <div class="tbl-wrap"><table id="tbl">
+        <thead><tr><th>Year</th><th>Smelter output</th><th>Total exports</th><th>To hubs</th><th>To China</th><th>Other</th><th>Exp ÷ output</th><th>Ex-hub ÷ output</th></tr></thead>
+        <tbody></tbody>
+      </table></div>
+      <p class="note" style="font-size:13px;margin-top:12px">All tonnages kt of contained copper. BACI reports gross mass of the traded commodity; it is converted here with the model's nominal copper content for HS 740200 (0.94) so it is comparable with ICSG, which already reports contained copper. Mixing the two bases overstates the ratio by about 6%. Exports and hub flows: BACI HS 740200 (unrefined copper / anodes for electrolytic refining), the reconciled bilateral trade matrix. Smelter output: ICSG smelter production, Zambia. Chart 1 starts at 2010 because Zambian anode exports before 2009 are negligible (&lt;10 kt) and the ICSG smelter series carries a gap for 2004–2007 that makes the ratio meaningless in those years.</p>
+    </details>
+  </section>
+</div>
+<div id="tip" role="status" aria-live="polite"></div>
+
+<script>
+const D = {"years":[1995,1996,1997,1998,1999,2000,2001,2002,2003,2004,2005,2006,2007,2008,2009,2010,2011,2012,2013,2014,2015,2016,2017,2018,2019,2020,2021,2022,2023,2024],"smelter":[234.5,253.1,241.2,231.0,217.6,180.0,203.0,245.0,245.0,20.0,10.0,10.0,1.8,270.0,402.0,535.0,520.0,519.2,520.3,525.8,648.8,698.1,787.9,815.5,648.1,789.6,769.1,727.2,648.9,683.9],"refined":[275.6,276.2,280.0,245.6,201.4,162.4,209.5,247.8,240.8,285.6,247.0,240.0,228.7,267.0,294.0,369.6,369.4,344.0,327.2,288.8,312.8,230.6,264.8,248.0,119.8,232.3,213.4,177.0,111.0,78.4],"zam":{"Switzerland":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.15,0.88,3.62,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.08,408.17,596.88,563.35,314.66,352.05,305.49,322.87,344.3,370.75],"Singapore":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,4.97,0.21,240.47,50.19,47.99,108.19,121.23,100.29,27.2,11.35],"Luxembourg":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.08,0.0,68.22,75.81,1.59,5.1,15.43,0.0,1.79,0.74],"China":[0.0,1.56,0.94,0.7,0.0,2.36,0.69,2.09,3.81,3.8,5.87,12.41,13.0,19.5,79.19,163.89,148.09,166.49,221.76,220.37,205.64,273.15,381.34,126.98,183.89,194.18,176.23,214.55,169.72,199.94],"India":[0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],"Other":[0.2,1.08,0.56,1.13,7.12,5.72,0.69,1.29,0.09,0.43,0.91,5.09,3.85,0.06,9.43,7.91,15.22,24.87,10.59,18.66,107.7,241.44,198.04,267.42,143.15,66.0,17.46,49.21,214.18,169.56]},"hub_in":{"Switzerland":[0.07,3.14,0.41,0.01,7.39,27.64,15.99,3.87,0.07,1.49,0.63,2.54,3.65,0.46,0.0,1.11,3.48,0.83,0.0,1.88,20.52,451.19,625.05,564.12,315.92,352.06,305.52,326.26,345.8,370.75],"Singapore":[1.49,9.73,1.31,1.3,0.85,1.16,0.79,1.15,1.39,0.92,0.81,0.73,0.53,0.6,1.95,0.59,0.57,0.79,0.77,0.35,5.58,0.87,240.72,50.54,49.04,109.36,121.9,100.59,30.55,11.72],"Luxembourg":[0.0,0.0,0.0,0.0,0.0,0.17,0.04,0.0,0.0,0.0,0.06,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.12,0.0,68.23,75.83,1.6,5.1,15.43,0.0,1.79,0.75]},"hub_out":{"Switzerland":[0.12,1.86,1.07,1.46,0.06,0.7,3.43,5.6,6.54,9.35,6.18,0.03,0.08,0.02,0.02,0.01,0.49,0.01,0.03,0.01,0.01,0.01,0.02,3.54,7.97,0.06,0.01,0.01,0.34,0.0],"Singapore":[2.16,13.37,2.74,4.21,0.34,0.2,0.19,0.27,1.18,0.8,0.74,0.23,0.15,0.35,0.22,2.9,1.38,0.24,0.08,0.4,0.07,0.08,0.13,7.2,6.16,0.99,3.05,1.01,1.38,1.21],"Luxembourg":[0.0,0.0,0.0,0.0,0.02,0.02,0.01,0.0,0.0,0.0,0.0,0.0,0.0,0.08,0.0,0.0,0.18,0.24,0.29,0.23,0.02,0.0,0.0,3.69,1.87,0.0,0.0,0.0,0.0,0.0]},"chn_from_zam":[0.0,1.56,0.94,0.7,0.0,2.36,0.69,2.09,3.81,3.8,5.87,12.41,13.0,19.5,79.19,163.89,148.09,166.49,221.76,220.37,205.64,273.15,381.34,126.98,183.89,194.18,176.23,214.55,169.72,199.94],"chn_total":[84.29,126.38,108.38,69.93,81.56,56.45,71.97,70.99,93.84,86.73,102.74,68.5,115.38,141.74,233.75,365.33,424.41,488.72,580.67,506.72,476.61,577.65,697.66,472.36,485.94,729.37,637.71,757.4,666.49,615.29]};
+const HUBS = ["Switzerland","Singapore","Luxembourg"];
+const i0 = D.years.indexOf(2010), Y = D.years.slice(i0);
+const sum = (o,j)=>HUBS.reduce((a,k)=>a+o[k][j],0);
+const rows = Y.map((y,n)=>{
+  const j=i0+n, hub=sum(D.zam,j);
+  const tot=Object.keys(D.zam).reduce((a,k)=>a+D.zam[k][j],0);
+  return {y,hub,tot,ref:tot-hub,chn:D.zam.China[j],oth:D.zam.Other[j]+D.zam.India[j],
+          sm:D.smelter[j],hin:sum(D.hub_in,j),hout:sum(D.hub_out,j),cz:D.chn_from_zam[j]};
+});
+const NS="http://www.w3.org/2000/svg";
+const el=(p,t,a)=>{const e=document.createElementNS(NS,t);for(const k in a)e.setAttribute(k,a[k]);p.appendChild(e);return e;};
+const tip=document.getElementById("tip");
+function show(ev,title,lines){
+  tip.innerHTML=`<div class="ty">${title}</div>`+lines.map(l=>
+    `<div class="tr"><span>${l[0]}</span><b>${l[1]}</b></div>`).join("");
+  tip.style.opacity=1;
+  const r=tip.getBoundingClientRect();
+  let x=ev.clientX+14, y=ev.clientY-10;
+  if(x+r.width>innerWidth-8) x=ev.clientX-r.width-14;
+  if(y+r.height>innerHeight-8) y=innerHeight-r.height-8;
+  tip.style.left=x+"px"; tip.style.top=Math.max(8,y)+"px";
+}
+const hide=()=>tip.style.opacity=0;
+const kt=v=>v.toLocaleString(undefined,{maximumFractionDigits:v<10?1:0});
+
+/* ---- Chart A: stacked columns + ceiling line ---- */
+(function(){
+  const s=document.getElementById("cA"), W=1000,H=340,L=52,R=14,T=18,B=34;
+  const iw=W-L-R, ih=H-T-B, max=1600, x=n=>L+iw*(n+.5)/rows.length, bw=iw/rows.length*0.62;
+  const yy=v=>T+ih-(v/max)*ih;
+  [0,400,800,1200,1600].forEach(v=>{
+    el(s,"line",{x1:L,x2:W-R,y1:yy(v),y2:yy(v),class:"gl"});
+    el(s,"text",{x:L-9,y:yy(v)+3.5,class:"ax","text-anchor":"end"}).textContent=v.toLocaleString();
+  });
+  el(s,"text",{x:L-9,y:T-6,class:"ax","text-anchor":"end"}).textContent="kt";
+  rows.forEach((d,n)=>{
+    const cx=x(n)-bw/2;
+    const hRef=(d.ref/max)*ih, hHub=(d.hub/max)*ih;
+    if(hRef>0) el(s,"rect",{x:cx,y:yy(d.ref),width:bw,height:Math.max(hRef,1),fill:"var(--refiner)",rx:2});
+    if(hHub>0.5) el(s,"rect",{x:cx,y:yy(d.tot),width:bw,height:Math.max(hHub-2,1),fill:"var(--hub)",rx:2});
+    el(s,"text",{x:x(n),y:H-B+15,class:"axb","text-anchor":"middle"}).textContent=("'"+String(d.y).slice(2));
+  });
+  // ceiling line drawn over the bars
+  const pts=rows.map((d,n)=>`${x(n)},${yy(d.sm)}`).join(" ");
+  el(s,"polyline",{points:pts,fill:"none",stroke:"var(--ceiling)","stroke-width":2,"stroke-dasharray":"6 4","stroke-linejoin":"round"});
+  rows.forEach((d,n)=>el(s,"circle",{cx:x(n),cy:yy(d.sm),r:2.6,fill:"var(--ceiling)"}));
+  // direct labels on the decisive year
+  const k=rows.findIndex(d=>d.y===2017);
+  el(s,"text",{x:x(k),y:yy(rows[k].tot)-9,class:"dlab","text-anchor":"middle",fill:"var(--hub)"}).textContent="1.88× output";
+  rows.forEach((d,n)=>{
+    const r=el(s,"rect",{x:x(n)-iw/rows.length/2,y:T,width:iw/rows.length,height:ih,class:"hit"});
+    r.addEventListener("mousemove",e=>show(e,d.y,[
+      ["To trading hubs",kt(d.hub)+" kt"],["To refiners",kt(d.ref)+" kt"],
+      ["Total exports",kt(d.tot)+" kt"],["Smelter output",kt(d.sm)+" kt"],
+      ["Exports ÷ output",(d.tot/d.sm).toFixed(2)+"×"]]));
+    r.addEventListener("mouseleave",hide);
+  });
+})();
+
+/* ---- Chart B: hub in vs out ---- */
+(function(){
+  const s=document.getElementById("cB"), W=1000,H=250,L=52,R=14,T=16,B=34;
+  const sub=rows.filter(d=>d.y>=2014);
+  const iw=W-L-R, ih=H-T-B, max=1000, x=n=>L+iw*(n+.5)/sub.length, bw=iw/sub.length*0.30;
+  const yy=v=>T+ih-(v/max)*ih;
+  [0,250,500,750,1000].forEach(v=>{
+    el(s,"line",{x1:L,x2:W-R,y1:yy(v),y2:yy(v),class:"gl"});
+    el(s,"text",{x:L-9,y:yy(v)+3.5,class:"ax","text-anchor":"end"}).textContent=v.toLocaleString();
+  });
+  el(s,"text",{x:L-9,y:T-4,class:"ax","text-anchor":"end"}).textContent="kt";
+  sub.forEach((d,n)=>{
+    // grouped: imports left, re-exports right, 2px surface gap between them
+    el(s,"rect",{x:x(n)-bw-1,y:yy(d.hin),width:bw,height:Math.max((d.hin/max)*ih,1),fill:"var(--hub)",rx:2});
+    const ho=Math.max((d.hout/max)*ih,2.5);
+    el(s,"rect",{x:x(n)+1,y:yy(d.hout)-ho,width:bw,height:ho,fill:"var(--ink-3)",rx:1.5});
+    el(s,"text",{x:x(n),y:H-B+15,class:"axb","text-anchor":"middle"}).textContent="'"+String(d.y).slice(2);
+  });
+  const k=sub.findIndex(d=>d.y===2017);
+  el(s,"text",{x:x(k)-bw/2-1,y:yy(sub[k].hin)-9,class:"dlab","text-anchor":"middle",fill:"var(--hub)"}).textContent="934 kt in";
+  el(s,"text",{x:x(k)+bw+5,y:yy(0)-7,class:"dlab","text-anchor":"start",fill:"var(--ink-2)"}).textContent="0.1 kt out";
+  sub.forEach((d,n)=>{
+    const r=el(s,"rect",{x:x(n)-iw/sub.length/2,y:T,width:iw/sub.length,height:ih,class:"hit"});
+    r.addEventListener("mousemove",e=>show(e,d.y+" · CH + SG + LU",[
+      ["Anode imported",kt(d.hin)+" kt"],["Anode re-exported",kt(d.hout)+" kt"],
+      ["Retained / unaccounted",kt(d.hin-d.hout)+" kt"]]));
+    r.addEventListener("mouseleave",hide);
+  });
+})();
+
+/* ---- Chart C: China from Zambia ---- */
+(function(){
+  const s=document.getElementById("cC"), W=1000,H=230,L=52,R=14,T=18,B=34;
+  const iw=W-L-R, ih=H-T-B, max=400, x=n=>L+iw*(n+.5)/rows.length;
+  const yy=v=>T+ih-(v/max)*ih;
+  [0,100,200,300,400].forEach(v=>{
+    el(s,"line",{x1:L,x2:W-R,y1:yy(v),y2:yy(v),class:"gl"});
+    el(s,"text",{x:L-9,y:yy(v)+3.5,class:"ax","text-anchor":"end"}).textContent=v;
+  });
+  el(s,"text",{x:L-9,y:T-4,class:"ax","text-anchor":"end"}).textContent="kt";
+  const bi=rows.findIndex(d=>d.y===2016);
+  el(s,"line",{x1:x(bi)-iw/rows.length/2,x2:x(bi)-iw/rows.length/2,y1:T,y2:T+ih,
+    stroke:"var(--rule-strong)","stroke-width":1,"stroke-dasharray":"3 3"});
+  el(s,"text",{x:x(bi)-iw/rows.length/2+6,y:T+11,class:"ax",fill:"var(--ink-2)"}).textContent="hub legs appear →";
+  el(s,"polyline",{points:rows.map((d,n)=>`${x(n)},${yy(d.cz)}`).join(" "),fill:"none",
+    stroke:"var(--refiner)","stroke-width":2,"stroke-linejoin":"round","stroke-linecap":"round"});
+  rows.forEach((d,n)=>{
+    el(s,"circle",{cx:x(n),cy:yy(d.cz),r:3.4,fill:"var(--refiner)",stroke:"var(--surface)","stroke-width":2});
+    el(s,"text",{x:x(n),y:H-B+15,class:"axb","text-anchor":"middle"}).textContent="'"+String(d.y).slice(2);
+  });
+  const k=rows.findIndex(d=>d.y===2017);
+  el(s,"text",{x:x(k),y:yy(rows[k].cz)-11,class:"dlab","text-anchor":"middle",fill:"var(--refiner)"}).textContent="381 kt";
+  rows.forEach((d,n)=>{
+    const r=el(s,"rect",{x:x(n)-iw/rows.length/2,y:T,width:iw/rows.length,height:ih,class:"hit"});
+    r.addEventListener("mousemove",e=>show(e,d.y,[["China imports from Zambia",kt(d.cz)+" kt"]]));
+    r.addEventListener("mouseleave",hide);
+  });
+})();
+
+/* ---- table ---- */
+(function(){
+  const tb=document.querySelector("#tbl tbody");
+  rows.forEach(d=>{
+    const tr=document.createElement("tr");
+    if(d.y===2016) tr.className="brk";
+    const ratio=d.tot/d.sm, ex=(d.tot-d.hub)/d.sm;
+    tr.innerHTML=`<td>${d.y}</td><td>${kt(d.sm)}</td><td>${kt(d.tot)}</td>`+
+      `<td${d.hub>1?' class="over"':''}>${kt(d.hub)}</td><td>${kt(d.chn)}</td><td>${kt(d.oth)}</td>`+
+      `<td${ratio>1?' class="over"':''}>${ratio.toFixed(2)}×</td><td>${ex.toFixed(2)}×</td>`;
+    tb.appendChild(tr);
+  });
+})();
+document.addEventListener("scroll",hide,{passive:true});
+</script>
