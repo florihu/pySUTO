@@ -142,3 +142,90 @@ def test_groups_are_independent_per_year():
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+# ---- ADR 0024: domestic residual bounded by the region's own production ----
+
+CONC_C = {"Concentrate": 0.275}
+
+
+def _prod(rows):
+    return pd.DataFrame(rows, columns=["root_sector_from", "root_region_to", "root_time", "production_cc"])
+
+
+def _india(usage=821.0, chile_mass=1000.0, peru_mass=470.0):
+    # ICSG smelter use 821 kt CC; BACI imports 1470 kt gross → 404 CC at 0.275;
+    # residual 417 vs 30 mined.
+    n = 3
+    return pd.DataFrame([
+        _edge("India", "India", usage / n, np.nan, sf="Concentrate", st="Smelting"),
+        _edge("Chile", "India", usage / n, chile_mass, sf="Concentrate", st="Smelting"),
+        _edge("Peru",  "India", usage / n, peru_mass,  sf="Concentrate", st="Smelting"),
+    ])
+
+
+def test_domestic_bounded_by_production_and_remainder_spread_on_imports():
+    df = _india()
+    prod = _prod([("Concentrate", "India", 2010, 30.0)])
+    out = compute_trade_share_weights(df, CONC_C, production=prod)
+    w = {r.root_region_from: r.weight for r in out.itertuples()}
+    assert w["India"] == pytest.approx(30.0)                       # not 821 − 404.25 = 416.75
+    imp_sum = 0.275 * 1470.0
+    scale = (821.0 - 30.0) / imp_sum
+    assert w["Chile"] == pytest.approx(0.275 * 1000.0 * scale)     # BACI proportions kept
+    assert w["Peru"] == pytest.approx(0.275 * 470.0 * scale)
+    assert w["Chile"] / w["Peru"] == pytest.approx(1000.0 / 470.0)
+    assert sum(w.values()) == pytest.approx(821.0)                  # usage conserved
+
+
+def test_bound_is_inert_when_residual_within_production():
+    df = _india()
+    prod = _prod([("Concentrate", "India", 2010, 5000.0)])
+    free = compute_trade_share_weights(df, CONC_C)
+    bound = compute_trade_share_weights(df, CONC_C, production=prod)
+    pd.testing.assert_frame_equal(free, bound)
+
+
+def test_bound_needs_a_production_row_and_an_import_leg():
+    df = _india()
+    # no production row for this group → unchanged
+    other = _prod([("Concentrate", "Chile", 2010, 5000.0)])
+    pd.testing.assert_frame_equal(compute_trade_share_weights(df, CONC_C),
+                                  compute_trade_share_weights(df, CONC_C, production=other))
+    # import-free fan (ADR 0018) → all-domestic form kept even with production 30
+    df0 = pd.DataFrame([
+        _edge("Poland", "Poland", 477.0, np.nan, sf="Concentrate", st="Smelting"),
+        _edge("Chile",  "Poland", 0.0,   np.nan, sf="Concentrate", st="Smelting"),
+    ])
+    prod = _prod([("Concentrate", "Poland", 2010, 427.0)])
+    out = compute_trade_share_weights(df0, CONC_C, {"Poland"}, production=prod)
+    w = {r.root_region_from: r.weight for r in out.itertuples()}
+    assert w["Poland"] == pytest.approx(477.0)
+
+
+def test_zero_production_puts_all_usage_on_imports():
+    df = _india(usage=1309.0, chile_mass=2000.0, peru_mass=1195.0)   # Japan-like: mines nothing
+    prod = _prod([("Concentrate", "India", 2010, 0.0)])
+    out = compute_trade_share_weights(df, CONC_C, production=prod)
+    w = {r.root_region_from: r.weight for r in out.itertuples()}
+    assert w["India"] == 0.0
+    assert w["Chile"] + w["Peru"] == pytest.approx(1309.0)
+
+
+def test_bound_needs_imports_able_to_carry_the_remainder():
+    # United States 2000-like: usage 996, mine 886, imports 26 kt CC. The
+    # remainder (996 − 26 − 886 = 84) would need the import legs to grow
+    # fourfold → the gap is not BACI's; the fan keeps the ADR 0002 form.
+    df = pd.DataFrame([
+        _edge("USA",    "USA", 996 / 2, np.nan,        sf="Concentrate", st="Smelting"),
+        _edge("Mexico", "USA", 996 / 2, 26.0 / 0.275, sf="Concentrate", st="Smelting"),
+    ])
+    prod = _prod([("Concentrate", "USA", 2010, 886.0)])
+    free = compute_trade_share_weights(df, CONC_C)
+    bound = compute_trade_share_weights(df, CONC_C, production=prod)
+    pd.testing.assert_frame_equal(free, bound)
+    w = {r.root_region_from: r.weight for r in bound.itertuples()}
+    assert w["USA"] == pytest.approx(996 - 26.0)
+    # India-like (imports 404 ≥ remainder 387) is still bounded
+    out = compute_trade_share_weights(_india(), CONC_C, production=_prod([("Concentrate", "India", 2010, 30.0)]))
+    assert {r.root_region_from: r.weight for r in out.itertuples()}["India"] == pytest.approx(30.0)

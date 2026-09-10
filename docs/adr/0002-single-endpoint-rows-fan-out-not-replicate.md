@@ -80,6 +80,9 @@ is excluded). Per (sector_from, sector_to, consumer Y, year t), in copper-conten
 `F_root_CC(import) = conc·BACI_Mass` (the `conc_*_supply` ratio then holds by construction) and
 `F_root_CC(domestic) = usage − imports` (national usage conserved). The domestic leg is needed because
 BACI has **no self-trade**; its weight falls out of `usage − imports` and needs no ICSG production data.
+*(Amended by [ADR 0024](0024-fan-domestic-leg-bounded-by-own-production.md): for the bounded sectors
+the residual is capped at the region's own production and the remainder goes to the import legs —
+the "no production data" property let the fan book copper a region never produced.)*
 The split is computed in **CC** (apply `conc` to BACI Mass) so low-conc sectors are unit-consistent.
 
 - **Cross-feed dependency (new).** ICSG's fan weights now derive from BACI. Feeds stay loosely coupled
