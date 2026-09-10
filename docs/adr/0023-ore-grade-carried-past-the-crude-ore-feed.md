@@ -1,6 +1,6 @@
 # Past the crude-ore feed's last year, the in-situ grade is carried forward — not the ore mass
 
-**Status:** proposed — measured, merge decision pending (Round I, REP
+**Status:** accepted — merged 2026-09-10 (Round I, REP
 [`…roundI-ore-grade-carry`](../rep/analysis_opt_20260910_114200_7f4040d9_20260910_roundI-ore-grade-carry.md)).
 Extends
 [ADR 0015](0015-in-situ-ore-grades-on-allocated-ore-basis.md); retires the Stage 2
@@ -123,4 +123,6 @@ files are not. Fix in `src/pysuto/input_registry.py`: `initialize()` gives every
 `current/` a private inode before hashing (`_privatise_current`), so the live copy can never share
 one with a snapshot again. Regression test added. `ore_grade` v2 and v3 are exactly reproducible
 (regenerated from the generator at `696027c` and `8ac5720`, both sha256-verified against the
-registry); restoring them into `v2/`/`v3/` is a write into history and is left to the owner.
+registry); `scripts/explo/restore_ore_grade_versions.py` writes them into `v2/`/`v3/` only when
+the regenerated sha256 equals the registry record — run by the owner, since it is a write into
+history. v1 and the feed/acc mismatches are not reproducible from the repo.

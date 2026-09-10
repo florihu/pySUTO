@@ -84,10 +84,11 @@ shared `current/` files listed by the audit.
 
 **Restorable with proof:** `ore_grade` v2 and v3 regenerate exactly from the generator at
 `696027c` and `8ac5720` (sha256 `25910e35…` and `3ebf3b3d…`, both equal to the registry record).
-Writing them into `v2/`/`v3/` is a write into history and was deliberately left to the owner.
+`python scripts/explo/restore_ore_grade_versions.py` restores them, writing only on an exact hash
+match; the audit then lists 26.
 `ore_grade` v1, and the feed/acc mismatches, are not reproducible from the repo alone.
 
-## 6. Merge recommendation
+## 6. Merge decision
 
-Ship. Both parts are corrections of stated invariants (the chain is derived from the grade;
+Shipped 2026-09-10 (merged to main). Both parts are corrections of stated invariants (the chain is derived from the grade;
 snapshots are immutable), and neither moves anything before 2023.
