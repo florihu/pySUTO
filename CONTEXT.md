@@ -268,6 +268,18 @@ the ore Mass itself (holds tonnage flat whatever was produced, and disagrees wit
 running any Mass extrapolator *after* the network cascade (fills the boundary leg only, leaves
 the chain behind it at flat-prior zero and drops its anchor rows).
 
+**⚠ The grades in use are internal, not external.** Every `ore_grade` row the model consumes is
+*derived* from ICSG production and crude_ore allocated mass (ADR 0015). The **external** S&P
+factor series (`data/input/params/ore_grade/current/all_integrated_est_fac_2024-07-04.csv`, the
+basis of `ore_grade` **v1** from 2026-05) enters only as a fallback where ICSG production is
+absent (129 rows) — even though it carries real 2023 values for every region the carry-forward
+touches. Measured 2026-09-10: its *level* differs from the internal grade by up to ±8 % at the
+2022/2023 seam (Mexico +7.6 %, Russia +6.0 %, Chile −2.7 %), its year-on-year *trend* by
+< 0.5 %. Using that trend for carried years (`g(t) = g(t−1)·factor(t−1)/factor(t)`) is an open,
+sub-percent option recorded in ADR 0023; using its level would reintroduce the basis jump
+ADR 0015 removed. _Avoid_: describing the ore-grade series as external data, or comparing it to
+the S&P factor without converting bases (`1/factor` is recovered-basis, the model is in-situ).
+
 **Feed semantics — ICSG vs BACI.** **ICSG** publishes production/usage statistics in **copper content
 (`CC`)**; its `Use` rows are **single-endpoint** (consumer known, producer open) ⇒ producer **fan-out**.
 **BACI** publishes **bilateral gross trade** in **`Mass`** (fully classified X→Y; no self-trade rows *at

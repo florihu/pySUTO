@@ -70,6 +70,16 @@ falls from 735,040 to 723,198 kt instead of being held at 735,040.
   refining chain that *is* covered.
 - **A separate `TimeImputer` on the grade params.** Params are not edges; the imputer has no
   purchase on them. The generator is the one place that owns the grade series (ADR 0015).
+- **Use the external S&P factor for 2023 instead of carrying** (raised by the owner 2026-09-10 —
+  the factor file has real 2023 values for all 29 carried regions). Two variants, measured:
+  *level* (`(1/factor)/eff_MF` directly) re-creates the recovered-vs-in-situ basis jump ADR 0015
+  removed — factor-derived / ICSG-derived grade in 2022 has median 1.000 but Mexico 1.076,
+  Russia 1.060, Chile 0.973, Indonesia 0.972, tails 0.78–1.60 — so a seam of up to ±8 % at
+  2022/2023. *Trend* (`g(t) = g(t−1)·factor(t−1)/factor(t)`) keeps the internal level and takes
+  the external drift: multipliers 0.995–1.005, median 0.9992, i.e. < 0.5 % of ore mass against a
+  ±20 % band. **Not taken in this round** (sub-percent effect); it remains the principled next
+  refinement if the carried years ever matter. ⚠ The grades in use are therefore *internal*
+  (ADR 0015 derivation), not the external v1 series — see CONTEXT.md.
 
 ## Consequences
 
