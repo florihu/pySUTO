@@ -1,6 +1,6 @@
 # The fan's domestic leg is bounded by the region's own production
 
-**Status:** proposed — measured in two variants (Round J), merge decision pending. Amends
+**Status:** accepted — J.1 merged 2026-09-14 (shipped run `opt_20260910_133212_45f034f1`). Amends
 [ADR 0002](0002-single-endpoint-rows-fan-out-not-replicate.md) option D and
 [ADR 0018](0018-import-free-fans-distribute-domestically.md). Evidence: REP
 [`…india-concentrate-residual-domestic`](../rep/analysis_20260910_india-concentrate-residual-domestic.md).
@@ -139,4 +139,4 @@ at most ×1.27) would never bound India — and it is the owner's call.
 
 **Recommendation:** ship **J.1** — it never inflates a leg more than twofold, removes the Congo
 effect and halves the US one, and carries the larger headline gain — and record India 2014/2016
-and the interpolation of bilateral legs as the next two items. Decision pending the owner.
+and the interpolation of bilateral legs as the next two items. **Decided 2026-09-14: J.1 shipped.**

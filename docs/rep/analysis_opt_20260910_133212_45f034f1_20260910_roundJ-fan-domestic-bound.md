@@ -8,8 +8,7 @@
   crude_ore `20260603_095651_558f7369`, ore_grade v4, conc v6, eff v3 unchanged
 - reproducers: `python scripts/explo/roundJ_fan_bound_diag.py <base> <new>`;
   `python scripts/explo/india_concentrate_diag.py <opt>` for the class
-- branch `fix/fan-domestic-bounded-by-production`, **not merged** — decision pending
-  (owner's weekend). ADR [0024](../adr/0024-fan-domestic-leg-bounded-by-own-production.md);
+- branch `fix/fan-domestic-bounded-by-production`, **J.1 merged to main 2026-09-14**. ADR [0024](../adr/0024-fan-domestic-leg-bounded-by-own-production.md);
   diagnosis REP [`…india-concentrate-residual-domestic`](analysis_20260910_india-concentrate-residual-domestic.md).
 
 ## 1. Change
@@ -91,9 +90,9 @@ Mass moves with the metric — 24–27 Mt of prior moved off fabricated domestic
 tuned to the metric (the guard was designed from the US trace, and it *costs* India). Both variants
 pass. The one physical regression (US 2000) is traced to a pre-existing mechanism and halved.
 
-## 5. Decision (pending)
+## 5. Decision
 
-Recommend **J.1**. Open for the owner: (a) J.1 as is; (b) J (India fully fixed, US/Congo side
+**J.1 shipped (2026-09-14).** The alternatives considered: (a) J.1 as is; (b) J (India fully fixed, US/Congo side
 effects); (c) J.1 plus a share-based guard for India-class importers; (d) either, plus excluding
 bilateral legs from `time_interp` (removes the US mechanism at the root — a separate ADR).
 Follow-ups regardless: σ floor on tiny scale totals; Matte's 33 region-years / 1.3 Mt.
