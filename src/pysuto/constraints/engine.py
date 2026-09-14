@@ -694,8 +694,8 @@ class ConstraintEngine:
                 "%d (row, t) entries CV-lifted (CV_min=%.3f), %d abs-lifted "
                 "(abs_floor=%.0e)",
                 self._p, int(free_mask.sum()), len(timestep_data),
-                n_cv_total, n_abs_total,
-                self._sigma_c_cv_min, self._sigma_c_abs_floor,
+                n_cv_total, self._sigma_c_cv_min,
+                n_abs_total, self._sigma_c_abs_floor,
             )
 
         # ── 2c. Per-t partition of G ──────────────────────────────────

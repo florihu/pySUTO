@@ -2165,3 +2165,75 @@ class TestNodataSigmaAnchor:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+class TestSigmaCAbsFloor:
+
+    def test_scale_total_sigma_c_carries_absolute_floor(self, toy_acc):
+        """ADR 0025: after engine regularization a scale total with |c| = 1 kt
+        carries σ_c ≥ the absolute floor (0.3 kt), a 1,000 kt total is unchanged
+        to 1 % (the CV term dominates), and hard rows keep σ_c = 0."""
+        from pysuto.constraints import (
+            ConstraintEngine, MassBalanceBuilder, SumConstraintBuilder,
+        )
+
+        agg = _make_toy_agg_result(toy_acc, seed=1)
+        n = toy_acc.n_edges
+        anchor = np.zeros(n)
+        anchor[0] = 1.0        # Ore/A 2020 — tiny total
+        anchor[1] = 1000.0     # Ore/B 2020 — large total
+        anchor[5] = 30.0       # Ore/A 2021
+        cv, floor, p = 0.01, 0.3, 1.3
+        builder = SumConstraintBuilder.from_mask_anchor(
+            toy_acc, mask=toy_acc.masks["supply"].copy(), anchor_values=anchor,
+            group_keys=("region_to", "time", "valuation"),
+            sigma_cv=cv, id_prefix="anchor",
+        )
+        engine = ConstraintEngine(
+            acc_struct=toy_acc, storage_dir="/tmp/test_const_runs", p=p,
+            sigma_a_cv_min=0.0, sigma_a_abs_floor=0.0,
+            sigma_c_cv_min=cv, sigma_c_abs_floor=floor,
+        )
+        engine.register(MassBalanceBuilder())
+        engine.register(builder)
+        cr = engine.run(agg_result=agg,
+                        timesteps=[str(t) for t in toy_acc.time_range], persist=False)
+
+        td = cr.timestep_data["2020"]
+        rm = cr.row_meta
+        is_sum = (rm["type"] == "sum").to_numpy()
+        c, sc = td["c"], td["sigma_c"]
+        tiny = is_sum & np.isclose(c, 1.0)
+        big = is_sum & np.isclose(c, 1000.0)
+        assert tiny.sum() == 1 and big.sum() == 1
+        # Lp recipe: σ' = (σ^p + (cv·c)^p + floor^p)^(1/p)
+        assert sc[tiny][0] >= floor
+        assert sc[tiny][0] == pytest.approx((2 * (cv * 1.0) ** p + floor ** p) ** (1 / p), rel=1e-6)
+        no_floor_big = (2 * (cv * 1000.0) ** p) ** (1 / p)
+        assert sc[big][0] == pytest.approx(no_floor_big, rel=0.01)
+        assert sc[big][0] > no_floor_big
+        hard = rm["is_hard"].astype(bool).to_numpy()
+        assert np.all(sc[hard] == 0.0)
+
+
+class TestScaleTotalCvRule:
+    """ADR 0025 via the ADR 0016 resolver: feed-backed small totals are floored
+    at the feeds' reporting resolution; fabricated groups keep their tight cv."""
+
+    def test_rule(self):
+        import os
+        import sys
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+        from constraints import scale_total_cv
+        kw = dict(anchor_cv=0.01, fabricated_cv=0.01, feed_share_observed=0.5, abs_floor=0.3)
+        # feed-backed, tiny total: cv·|c| == floor
+        assert scale_total_cv(1.0, 1.0, **kw) * 1.0 == pytest.approx(0.3)
+        assert scale_total_cv(1.0, 0.02, **kw) * 0.02 == pytest.approx(0.3)
+        # feed-backed, large total: the anchor cv wins (floor is below cv·|c|)
+        assert scale_total_cv(1.0, 1000.0, **kw) == pytest.approx(0.01)
+        assert scale_total_cv(1.0, 30.0, **kw) == pytest.approx(0.01)
+        # boundary: |c| = floor/anchor_cv = 30 kt is where the two meet
+        # fabricated: tight cv regardless of size (the ADR 0016 counterweight)
+        assert scale_total_cv(0.0, 1.0, **kw) == 0.01
+        assert scale_total_cv(0.49, 0.01, **kw) == 0.01
+        # feed-backed with no magnitude: defer to the builder default
+        assert scale_total_cv(1.0, 0.0, **kw) is None
