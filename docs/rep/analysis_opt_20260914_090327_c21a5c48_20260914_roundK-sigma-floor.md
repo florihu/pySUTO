@@ -7,7 +7,7 @@
   `SIGMA_C_ABS_FLOOR = 0.3` on every free-cone row — **measured and rejected**
 - baseline: `opt_20260910_133212_45f034f1` (shipped Round J.1), sum-row z² 2,745,311
 - reproducer: `python scripts/explo/roundK_sigma_floor_diag.py <base> <new>`
-- branch `fix/sigma-c-floor`, **not merged** — decision pending. ADR
+- branch `fix/sigma-c-floor`, **K.1 merged to main 2026-09-14**. ADR
   [0025](../adr/0025-scale-totals-carry-the-feeds-reporting-resolution-as-a-sigma-floor.md).
 
 ## 1. Why
@@ -77,7 +77,7 @@ priors with no feed behind them). K.1 leaves them tight by design; K showed what
 does. Their cure is structural — the re-export round (Round L) removes the phantom stubs they
 price — not a σ.
 
-## 5. Decision (pending)
+## 5. Decision
 
-Recommend **K.1**. The `>1,000 kt` improvement is welcome but unexplained; record it as the
+**K.1 shipped (2026-09-14).** The `>1,000 kt` improvement is welcome but unexplained; record it as the
 first lead of the mining-collapse thread rather than count it as this round's design.

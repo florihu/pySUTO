@@ -1,6 +1,6 @@
 # Scale totals carry the feeds' reporting resolution as an absolute σ floor
 
-**Status:** proposed — measured in two variants (Round K), merge decision pending; REP
+**Status:** accepted — K.1 merged 2026-09-14 (shipped run `opt_20260914_090327_c21a5c48`); REP
 [`…roundK-sigma-floor`](../rep/analysis_opt_20260914_090327_c21a5c48_20260914_roundK-sigma-floor.md). Amends
 [ADR 0006](0006-scale-total-supersedes-external-control-total.md) (σ_c = ANCHOR_CV·|c|); same
 shape as [ADR 0013](0013-no-data-flat-prior-anchor.md)'s edge floor `σ = max(abs_floor, cv·…)`;
@@ -130,4 +130,4 @@ untouched by design — it is the counterweight ADR 0016 measured, and the globa
 what loosening it does. Its cure is not σ: it is the re-export structure (Round L), after which
 those phantom stubs stop existing.
 
-**Recommendation:** ship. Keep/revert is the owner's call on these numbers.
+**Decided 2026-09-14: K.1 shipped.**
