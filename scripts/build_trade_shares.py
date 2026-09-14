@@ -33,6 +33,27 @@ no rows are emitted and the fan stays undistributed per ADR 0008. Before ADR
 0018 every import-free group was unemitted, which silently discarded 469 ICSG
 fans (~45 Mt CC) — see REP roundD-fan-recovery.
 
+Domestic leg bounded by production (ADR 0024). The residual "needs no ICSG
+production data" — and that is the defect: where BACI imports in CC fall short
+of what the consumer's process used, the shortfall is booked as *domestic*
+supply the region never produced (India: 100–456 kt/yr of concentrate against
+23–48 kt mined). For sectors in ``BOUND_DOMESTIC_SECTORS`` the domestic raw
+weight is therefore capped at the consumer region's own ICSG production of
+the product, and the remainder of the usage is spread over the import legs in
+BACI proportion (usage still conserved):
+
+    dom_raw   = min(max(0, usage − Σ imp_cc), production_CC(Y, t))
+    imp_raw_X = imp_cc_X · (usage − dom_raw) / Σ imp_cc
+
+Bounded only where the recorded imports can carry the remainder,
+``Σ imp_cc ≥ residual − production`` (the import legs are at most doubled).
+An import-free fan has no leg to carry it and keeps the ADR 0018
+all-domestic form; a near-self-sufficient smelter (United States 1997–2003:
+usage 996, mine 886, imports 26 kt CC) has legs that would need to grow
+fourfold — that gap is ICSG-internal, not BACI's, and spreading it would
+fabricate imports instead of domestic supply (measured: it cut US mine
+output 10–30 pp in those years through the interpolated neighbours).
+
 ``ICSG_usage_CC`` is read from the *existing* ICSG feed ``F_root``: the fan total
 Σ_X F_root(X→Y) equals the raw ICSG usage regardless of the weights used to
 build it (mass-preserving), so it is the same number the raw carries.
@@ -74,6 +95,14 @@ OUT_DIR     = os.path.join(_INPUT_ROOT, "params", "trade_shares", "current")
 
 assert "Scrap" not in TRADED_SECTORS and "Scrap" not in SECTORS, "Scrap is not traded"
 
+# ADR 0024: sectors whose fan's domestic leg is bounded by the consumer
+# region's own ICSG production of the product (read from the ICSG F_root on
+# the producing-process → product edge). Concentrate first — 21.7 Mt of
+# residual above mine output over 210 region-years; Matte (1.3 Mt) is the
+# follow-up once the rule is measured.
+BOUND_DOMESTIC_SECTORS = ["Concentrate"]
+PRODUCER_OF = {"Concentrate": "MF", "Matte": "Smelting", "Anode": "CFR"}
+
 # ADR 0020's withhold, retained but disabled by ADR 0021 (the ADR-0019 pattern:
 # keep the detector, drop the remedy).  The gate existed because a refining
 # total below its own region's smelting made the Matte node's hard balance
@@ -94,6 +123,7 @@ def compute_trade_share_weights(
     baci_observed_regions: set[str] | None = None,
     usage_fallback: pd.DataFrame | None = None,
     withhold_fallback: set | None = None,
+    production: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
     """Compute raw fan weights from a decoded CC-edge frame.
 
@@ -125,6 +155,15 @@ def compute_trade_share_weights(
     covers are unaffected. Used by ADR 0020 to withhold a restored refining
     total that contradicts its own region-year's smelting series.
 
+    ``production`` — per ``(root_sector_from, root_region_to, root_time)`` the
+    consumer region's own ICSG production of the input product in CC
+    (``production_cc``). Where given, and the group has ≥1 recorded import,
+    the domestic residual is bounded by it and the remainder of the usage is
+    spread over the import legs in BACI proportion (ADR 0024) — provided the
+    recorded imports can carry that remainder (``Σ imp_cc ≥ residual −
+    production``). Groups without a production row, import-free groups, and
+    groups whose imports are too small to carry the remainder are unchanged.
+
     Returns rows with columns
         root_sector_from, root_sector_to, root_region_from, root_region_to,
         root_time, weight
@@ -149,11 +188,24 @@ def compute_trade_share_weights(
                  ["usage_raw"].fillna(0.0).to_numpy())
         usage = np.where(usage > 0, usage, raw_u)
 
-    df["weight"] = np.where(
-        df["is_domestic"],
-        np.maximum(0.0, usage - imp_sum),   # domestic residual
-        df["imp_cc"],                       # import leg (0 where untraded)
-    )
+    dom_raw = np.maximum(0.0, usage - imp_sum)      # domestic residual (ADR 0002)
+    imp_raw = df["imp_cc"].to_numpy()               # import leg (0 where untraded)
+
+    if production is not None and len(production):
+        # ADR 0024: a region cannot supply itself more of the product than it
+        # produces; bound the residual and hand the remainder to the imports.
+        pcols = ["root_sector_from", "root_region_to", "root_time"]
+        prod = (df[pcols].merge(production[pcols + ["production_cc"]], on=pcols, how="left")
+                ["production_cc"].to_numpy())
+        remainder = dom_raw - np.maximum(np.nan_to_num(prod, nan=np.inf), 0.0)
+        bounded = ~np.isnan(prod) & (imp_sum > 0) & (imp_sum >= remainder)
+        dom_b = np.where(bounded, np.minimum(dom_raw, np.maximum(prod, 0.0)), dom_raw)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            scale = np.where(bounded, (usage - dom_b) / imp_sum, 1.0)
+        dom_raw = dom_b
+        imp_raw = np.where(bounded, imp_raw * scale, imp_raw)
+
+    df["weight"] = np.where(df["is_domestic"], dom_raw, imp_raw)
 
     # Emit groups ICSG fans into (usage>0) that BACI either covers (≥1 import)
     # or observes (zero imports is then a real observation → all-domestic fan,
@@ -321,6 +373,25 @@ def baci_observed_regions(acc, baci_froot) -> set[str]:
     return set(cross.loc[v > 0, "root_region_to"].unique())
 
 
+def icsg_production(acc, icsg_froot, sectors) -> pd.DataFrame:
+    """Per (product sector, region, year): the region's own ICSG production of
+    the product in CC, read off the producing-process → product edge of the
+    ICSG ``F_root`` (``PRODUCER_OF``). Rows for ``sectors`` only; keyed the way
+    ``compute_trade_share_weights`` expects (``root_sector_from`` = product)."""
+    ei = _decoded_edges(acc)
+    frames = []
+    for sec in sectors:
+        m = ((ei["root_sector_from"] == PRODUCER_OF[sec]) & (ei["root_sector_to"] == sec)
+             & (ei["root_region_from"] == ei["root_region_to"]) & (ei["valuation"] == "CC"))
+        sub = ei.loc[m, ["root_region_to", "root_time", "edge_id"]].copy()
+        sub["production_cc"] = np.nan_to_num(icsg_froot[sub["edge_id"].values], nan=0.0)
+        g = sub.groupby(["root_region_to", "root_time"])["production_cc"].sum().reset_index()
+        g.insert(0, "root_sector_from", sec)
+        frames.append(g)
+    cols = ["root_sector_from", "root_region_to", "root_time", "production_cc"]
+    return pd.concat(frames, ignore_index=True)[cols] if frames else pd.DataFrame(columns=cols)
+
+
 def build_edges_frame(acc, icsg_froot, baci_froot, sectors) -> pd.DataFrame:
     """One row per CC fan-target edge for `sectors`, with icsg + paired baci_mass."""
     ei = _decoded_edges(acc)
@@ -362,8 +433,21 @@ def main() -> None:
     blind = sorted(all_regions - observed)
     print(f"   BACI-observed regions: {len(observed)}/{len(all_regions)}"
           f"   trade-blind (fans stay undistributed): {blind or 'none'}")
+    production = icsg_production(acc, icsg, BOUND_DOMESTIC_SECTORS)
     shares = compute_trade_share_weights(edges, conc_by_sector, observed,
-                                         usage_raw, withhold)
+                                         usage_raw, withhold, production)
+
+    # ADR 0024 diagnostic: how many groups the production bound touched and
+    # how much usage moved from the domestic leg onto the import legs.
+    unbounded = compute_trade_share_weights(edges, conc_by_sector, observed,
+                                            usage_raw, withhold, None)
+    dcols = ["root_sector_from", "root_sector_to", "root_region_from", "root_region_to", "root_time"]
+    both = (unbounded.merge(shares, on=dcols, suffixes=("_free", "_bound")))
+    dom_both = both[both["root_region_from"] == both["root_region_to"]]
+    moved = (dom_both["weight_free"] - dom_both["weight_bound"])
+    print(f"   ADR 0024 production bound ({BOUND_DOMESTIC_SECTORS}): "
+          f"{int((moved > 1e-9).sum()):,} domestic legs bounded, "
+          f"{moved.sum():,.0f} kt CC moved from domestic residual onto import legs")
 
     # ADR 0018 diagnostic: which groups are emitted only because of the
     # import-free domestic fallback, and how much ICSG tonnage they carry.

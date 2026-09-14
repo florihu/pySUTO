@@ -299,8 +299,17 @@ BACI *observes* the consumer region (46 of 47 — all but **Taiwan**, trade-blin
 Asia, nes" folds into ROW, [ADR 0014](docs/adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)),
 `Σ imports = 0` is a real observation of domestic sourcing and the residual `usage − 0 = usage` gives an
 all-domestic fan ([ADR 0018](docs/adr/0018-import-free-fans-distribute-domestically.md)); where BACI is
-blind, zero imports carries no information and the fan stays undistributed. _Avoid_: including **Scrap** —
-it is an ICSG `Use` type but is **not traded**.
+blind, zero imports carries no information and the fan stays undistributed. **The domestic leg is
+bounded by the region's own production** of the product for the sectors in
+`BOUND_DOMESTIC_SECTORS` (Concentrate; [ADR 0024](docs/adr/0024-fan-domestic-leg-bounded-by-own-production.md)):
+where the residual exceeds what the region produced, the excess is spread over the import legs in
+BACI proportion (usage conserved) — a region cannot supply itself more than it makes, and the hard
+Flow-node balance enforces exactly that on the posterior. Bounded only where the recorded imports
+can carry the remainder (`Σ imports ≥ residual − production`, legs at most doubled); import-free
+fans keep the ADR 0018 form and near-self-sufficient smelters (US 1997–2003) keep the residual,
+because their gap is ICSG-internal and spreading it fabricates imports instead.
+_Avoid_: including **Scrap** — it is an ICSG `Use` type but is **not traded**; and reading a large
+domestic leg as evidence of domestic mining — before ADR 0024 it was the BACI-vs-ICSG shortfall.
 
 **BACI-observed region** — a consumer region for which the BACI feed records at least one cross-region
 import (any traded sector, any year). The flag is what makes `Σ imports = 0` *informative*: for an
