@@ -149,6 +149,40 @@ FEED_SHARE_OBSERVED  = 0.5
 UNCLOSED_SECTORS     = ("Matte",)
 UNCLOSED_ANCHOR_CV   = None
 SIGMA_C_ABS_FLOOR = 1.0e-3
+# ADR 0025: a FEED-BACKED scale total cannot be known better than the feeds
+# report it. ICSG's raw series are published at 0.1–1 kt (Mining 51 % at
+# 0.1 kt, 20 % at integer kt; crude_ore 0.1–1 kt); integer-kt rounding alone
+# carries σ = 0.5/√3 = 0.29 kt per reported value. With σ_c = ANCHOR_CV·|c| a
+# 1 kt anchor was priced at ≈ 0.017 kt, so a 1 kt miss cost z ≈ −56 (Portugal
+# Cathode, the largest cell on the Round-J run, has a 0.3–1.7 kt anchor).
+# Applied through the ADR-0016 resolver, in the direction that ADR asked for:
+# feed-backed groups (feed share ≥ FEED_SHARE_OBSERVED) get
+# σ_c = max(ANCHOR_CV·|c|, SCALE_TOTAL_ABS_FLOOR); FABRICATED groups keep the
+# tight cv — their tightness is the counterweight to the nodata zero anchors,
+# and a global abs floor (Round K, first variant) let small fabricated chains
+# grow (small-node posterior/prior p90 1.06 → 2.33, Chile concentrate export
+# retention −8 pp). See ADR 0025 and the Round-K REP.
+SCALE_TOTAL_ABS_FLOOR = 0.3
+
+
+def scale_total_cv(feed_share: float, c_abs: float,
+                   anchor_cv: float = ANCHOR_CV,
+                   fabricated_cv: float = FABRICATED_ANCHOR_CV,
+                   feed_share_observed: float = FEED_SHARE_OBSERVED,
+                   abs_floor: float = SCALE_TOTAL_ABS_FLOOR) -> float | None:
+    """cv for one scale-total group (ADR 0016 classification, ADR 0025 floor).
+
+    Fabricated groups (feed share below the threshold) keep ``fabricated_cv``.
+    Feed-backed groups get the cv that makes ``cv·|c|`` equal the feeds'
+    reporting-resolution floor on small totals, ``max(anchor_cv, floor/|c|)``,
+    so σ_c = max(anchor_cv·|c|, floor). ``None`` means "use the builder's
+    default cv" (a feed-backed group with |c| = 0 cannot be floored via cv).
+    """
+    if feed_share < feed_share_observed:
+        return fabricated_cv
+    if c_abs <= 0.0:
+        return None
+    return max(anchor_cv, abs_floor / c_abs)
 # Prior box ("tight fitting"): box flow bounds to a₀ ± PRIOR_BOX_K·σ_a on edges
 # with a real prior, grafting RAS's scale-floor onto the QP to stop the
 # homogeneous collapse to l. None = off (legacy behaviour). See
@@ -286,7 +320,8 @@ def main(imp_run_id: str, label: str) -> None:
     # agg_result.coverage — the pre-imputation "did any feed observe this
     # edge?" flag (CONTEXT.md §Coverage), so imputations never count.
     _cov  = np.asarray(agg_result.coverage, dtype=bool)
-    _absf = np.abs(np.nan_to_num(np.asarray(f_agg, dtype=float)))
+    _f_agg_signed = np.nan_to_num(np.asarray(f_agg, dtype=float))
+    _absf = np.abs(_f_agg_signed)
 
     # ADR 0019: the same detection Stage 2 used to σ-inflate the edges.
     _unclosed, _unclosed_rep = contradicted_flow_nodes(
@@ -308,7 +343,7 @@ def main(imp_run_id: str, label: str) -> None:
         if tot <= 0.0:
             return FABRICATED_ANCHOR_CV
         feed_share = _absf[ids[_cov[ids]]].sum() / tot
-        return None if feed_share >= FEED_SHARE_OBSERVED else FABRICATED_ANCHOR_CV
+        return scale_total_cv(feed_share, abs(float(_f_agg_signed[ids].sum())))
 
     _log.info("Registering SumConstraintBuilder — supply/use total-output scale totals")
     engine.register(SumConstraintBuilder.from_mask_anchor(

@@ -351,7 +351,10 @@ destinations incl. final demand). Groups are classified **fabricated vs feed-bac
 `agg_result.coverage`) — but both keep the same tight cv: loosening fabricated groups was tried
 and rejected, because these rows double as the counterweight to the nodata zero anchors and
 loosening them collapses the interior chain
-([ADR 0016](docs/adr/0016-provenance-aware-sigma-on-scale-totals.md)).
+([ADR 0016](docs/adr/0016-provenance-aware-sigma-on-scale-totals.md)). σ_c carries an
+**absolute floor at the feeds' reporting resolution** (0.3 kt, the rounding σ of integer-kt
+ICSG/crude_ore values, Lp-combined with the cv term — [ADR 0025](docs/adr/0025-scale-totals-carry-the-feeds-reporting-resolution-as-a-sigma-floor.md));
+it reaches totals below ~18 kt only, so a sub-kilotonne total is never priced to tens of tonnes.
 _Avoid_: **control total** (its RHS is an *external* published
 number — see README; that mechanism was removed by
 [ADR 0006](docs/adr/0006-scale-total-supersedes-external-control-total.md)); **anchor** /
