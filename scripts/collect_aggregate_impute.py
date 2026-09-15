@@ -106,6 +106,16 @@ TIME_MIN_OBS          = 2
 TIME_GAP_INFLATION    = 1.05
 TIME_METHOD           = "linear"
 TIME_INTERPOLATE_ONLY = True
+# ADR 0026: the interpolator is scoped to same-region edges. BACI is a *complete*
+# bilateral matrix — a route absent in a year is a recorded zero, not a gap — so
+# interpolating a cross-region leg from its neighbouring years invents trade the
+# source never reported (9,215 Mass legs / 20,252 kt on the pre-ADR-0026 chain,
+# of which 15,266 kt survived into the posterior: Papua New Guinea concentrate,
+# Zambia cathode/matte, Peru). ADR 0010 and CONTEXT "Trade-seed" already state
+# the intent ("a route with no BACI Mass observation is left NaN, an honest
+# flat-prior gap, never seeded to 0"); the unscoped imputer silently overrode it.
+# Set False to restore the pre-ADR-0026 behaviour.
+TIME_SCOPE_SAME_REGION = True
 
 # FlatPriorImputer mode
 #   "magnitude_aware" (legacy) — σ = CV(j) · scale(j) via cv_by_mask + 3-level cascade
@@ -577,6 +587,18 @@ def main(feed_ids: list[str], label: str) -> None:
     )
 
     # 5. Temporal interpolation, no extrapolation (terminal).
+    #    Scoped to same-region edges (ADR 0026) — see TIME_SCOPE_SAME_REGION.
+    #    scope_edges drops the excluded edges from the series entirely, so a
+    #    cross-region leg is neither a fill target nor an interpolation source.
+    time_scope = None
+    if TIME_SCOPE_SAME_REGION:
+        _ei_t = expand_edge_index(acc.edge_index, acc.node_index)
+        time_scope = (_ei_t["region_from"].to_numpy()
+                      == _ei_t["region_to"].to_numpy())
+        logger.info("   time_interp scope: same-region edges only "
+                    "(%d of %d; %d cross-region edges excluded, ADR 0026)",
+                    int(time_scope.sum()), time_scope.size,
+                    int((~time_scope).sum()))
     engine.register(TimeImputer(
         window           = TIME_WINDOW,
         method           = TIME_METHOD,
@@ -584,6 +606,7 @@ def main(feed_ids: list[str], label: str) -> None:
         gap_inflation    = TIME_GAP_INFLATION,
         interpolate_only = TIME_INTERPOLATE_ONLY,
         p                = P_PROP,
+        scope_edges      = time_scope,
         id               = "time_interp",
     ))
 
@@ -712,6 +735,7 @@ def main(feed_ids: list[str], label: str) -> None:
                 "gap_inflation":    TIME_GAP_INFLATION,
                 "method":           TIME_METHOD,
                 "interpolate_only": TIME_INTERPOLATE_ONLY,
+                "scope_same_region": TIME_SCOPE_SAME_REGION,
             },
         },
     )
