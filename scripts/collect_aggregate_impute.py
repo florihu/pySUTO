@@ -178,6 +178,16 @@ OUTLIER_LEG_CV = 5.0
 UNCLOSED_SECTORS = ("Matte", "Anode")
 UNCLOSED_CV      = None
 
+# ADR 0027: pin ADR 0017's per-sector reference size instead of re-deriving it.
+# `a_ref` is the median of the *assembled* covered bilateral-leg population, so
+# any change to that population — the re-export netting removes the small
+# hub-side legs — shifts it (+22 % to +58 % per sector when measured), which
+# re-prices every trade leg in the sector. Across a measurement series that is
+# a σ change confounded with a structural one: the metric moves without mass.
+# Pin it to the values the predecessor run logged, and report the unpinned
+# variant as a sensitivity line. None = derive from this run (the default).
+LEG_SIGMA_AREF = None      # e.g. {"Concentrate": 10.3, "Cathode": 0.3, ...}
+
 # Size-damped σ on bilateral legs (ADR 0017; applied BEFORE the screen above).
 # The Laner pedigree cv (~0.21 on BACI Mass legs) is size-blind, so deleting
 # any leg entirely costs z = 1/cv ≈ 4.8 flat — per tonne the biggest legs are
@@ -302,7 +312,7 @@ cathode_mesc_domestic = FormulaRelation(
 )
 
 
-def _damp_leg_sigma(acc, agg_result, gamma, cv_cap, logger):
+def _damp_leg_sigma(acc, agg_result, gamma, cv_cap, logger, a_ref_override=None):
     """Size-damp σ on covered bilateral Flow-origin Mass legs (ADR 0017).
 
     σ_e = cv_e · a_ref(sector)^(1−γ) · a_e^γ with a_ref = the sector's median
@@ -328,7 +338,14 @@ def _damp_leg_sigma(acc, agg_result, gamma, cv_cap, logger):
     for sector, grp in legs.groupby("sector_from"):
         ids = grp["edge_id"].to_numpy()
         a = np.abs(f[ids])
-        a_ref = float(np.median(a))
+        a_ref_run = float(np.median(a))
+        # ADR 0027: across a measurement series the reference size is pinned to
+        # the predecessor run's, so a change in the leg population cannot
+        # re-price every leg in the sector under cover of the structural change.
+        a_ref = float((a_ref_override or {}).get(sector, a_ref_run))
+        if a_ref_override and sector in a_ref_override:
+            logger.info("B  leg-σ damping %-12s a_ref PINNED %.4g kt "
+                        "(this run would use %.4g)", sector, a_ref, a_ref_run)
         if a_ref <= 0:
             continue
         cv0 = agg_result.sigma_agg[ids] / a
@@ -508,7 +525,8 @@ def main(feed_ids: list[str], label: str) -> None:
 
     # Size-damped leg σ (ADR 0017), then the plausibility screen — the screen's
     # cv-5 inflation overrides damping on flagged legs.
-    _damp_leg_sigma(acc, agg_result, LEG_SIGMA_GAMMA, LEG_SIGMA_CV_CAP, logger)
+    _damp_leg_sigma(acc, agg_result, LEG_SIGMA_GAMMA, LEG_SIGMA_CV_CAP, logger,
+                    a_ref_override=LEG_SIGMA_AREF)
     outlier_report = _screen_outlier_trade_legs(
         acc, agg_result, str(inputs.params.resolve("conc") / "params.csv"), logger)
 
@@ -725,6 +743,7 @@ def main(feed_ids: list[str], label: str) -> None:
             "unclosed_sectors": list(UNCLOSED_SECTORS),
             "unclosed_cv":     UNCLOSED_CV,
             "unclosed_k":      UNCLOSED_K,
+            "leg_sigma_a_ref":  LEG_SIGMA_AREF,
             "leg_sigma_gamma":  LEG_SIGMA_GAMMA,
             "leg_sigma_cv_cap": LEG_SIGMA_CV_CAP,
             "flat_sigma_high": FLAT_SIGMA_HIGH if FLAT_MODE == "noisy_zero" else None,

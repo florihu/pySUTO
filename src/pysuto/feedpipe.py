@@ -399,7 +399,8 @@ def _build_row_penalty_scale(acc_struct, metadata):
     return cv_root_scale, summary, row_mask
 
 
-def propagate_with_row_penalty(wm, F_src, metadata, acc_struct, p: float = 1.3):
+def propagate_with_row_penalty(wm, F_src, metadata, acc_struct, p: float = 1.3,
+                               cv_root_scale_extra=None):
     """Run step-D propagation and apply the optional ROW pedigree penalty.
 
     Wraps :func:`step_D_apply_and_propagate` so the penalty is wired identically
@@ -409,10 +410,19 @@ def propagate_with_row_penalty(wm, F_src, metadata, acc_struct, p: float = 1.3):
     provenance mask (only edges this feed actually carries), and an INFO line is
     logged.
 
+    ``cv_root_scale_extra`` is a second per-root-edge CV multiplier the caller
+    may supply, combined multiplicatively with the ROW ratio. It exists for
+    feeds whose rows are part observation and part inference: ADR 0027's
+    re-export re-attribution prices the inferred component through it. ``None``
+    (the default) leaves every caller's behaviour bit-identical.
+
     Returns ``(result, stage_summary)`` where ``stage_summary`` is the
     row_penalty summary dict (or ``None`` when the penalty is off).
     """
     cv_root_scale, row_summary, row_mask = _build_row_penalty_scale(acc_struct, metadata)
+    if cv_root_scale_extra is not None:
+        extra = np.asarray(cv_root_scale_extra, dtype=float)
+        cv_root_scale = extra if cv_root_scale is None else cv_root_scale * extra
     result = step_D_apply_and_propagate(wm, F_src, metadata, p=p,
                                         cv_root_scale=cv_root_scale)
     if row_mask is not None:

@@ -363,6 +363,38 @@ def chain_inconsistent_refining(k: float = 0.5) -> set[tuple[str, str]]:
     return set(d.index[d["matte_out"] < k * d["matte_in"]])
 
 
+def imports_exhausted_groups(edges: pd.DataFrame) -> set:
+    """Fan groups whose ``Σ imports = 0`` was *constructed*, not observed.
+
+    [ADR 0027](../docs/adr/0027-re-exports-are-re-attributed-at-feed-time.md)'s
+    netting can consume every import leg of a hub-year while the region still
+    has ICSG usage to cover. The resulting zero looks exactly like ADR 0018's
+    "BACI observed the region and it recorded no imports", but it is an artefact
+    of the re-attribution, not evidence of domestic sourcing — so the fan must
+    not hand those groups an all-domestic split. They are withheld instead,
+    leaving the fan undistributed: ADR 0008's honest "total known, split
+    unknown". Reads the ledger the netting wrote beside the feed; absent ledger
+    (an un-netted feed) means an empty set and unchanged behaviour.
+    """
+    path = _input_registries().feed.resolve("baci") / "reexport_ledger.csv"
+    if not path.is_file():
+        return set()
+    led = pd.read_csv(path)
+    flagged = led[led["imports_exhausted"].astype(bool)]
+    if not len(flagged):
+        return set()
+    key = edges[["root_sector_from", "root_sector_to", "root_region_to",
+                 "root_time"]].drop_duplicates()
+    key["root_time"] = key["root_time"].astype(str)
+    hit = key.merge(
+        flagged[["sector", "region", "time"]].astype({"time": str}).rename(
+            columns={"sector": "root_sector_from", "region": "root_region_to",
+                     "time": "root_time"}),
+        on=["root_sector_from", "root_region_to", "root_time"], how="inner")
+    return set(zip(hit["root_sector_from"], hit["root_sector_to"],
+                   hit["root_region_to"], hit["root_time"]))
+
+
 def baci_observed_regions(acc, baci_froot) -> set[str]:
     """Consumer regions BACI observes at all (any cross-region import, any
     sector/year). Zero imports is informative only for these — see ADR 0018."""
@@ -429,6 +461,12 @@ def main() -> None:
                 if WITHHOLD_CHAIN_INCONSISTENT else set())
     print(f"   chain-inconsistent refining: {len(inconsistent)} region-years"
           f"   withheld: {len(withhold)} (ADR 0021 disables the ADR-0020 gate)")
+    # ADR 0027: a hub whose imports the netting exhausted has a *constructed*
+    # zero import sum; it must not be read as observed domestic sourcing.
+    exhausted = imports_exhausted_groups(edges)
+    withhold = withhold | exhausted
+    print(f"   imports exhausted by the ADR 0027 netting: {len(exhausted)} fan "
+          f"groups withheld (left undistributed, ADR 0008)")
     all_regions = set(acc.node_index["region"])
     blind = sorted(all_regions - observed)
     print(f"   BACI-observed regions: {len(observed)}/{len(all_regions)}"

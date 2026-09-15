@@ -328,6 +328,12 @@ import legs. Ownership is a clean structural partition: trade-seed writes **only
 Mass observation is left NaN (an honest flat-prior gap), never seeded to 0. See
 [ADR 0010](docs/adr/0010-trade-first-seeding-of-bilateral-flow-process-inputs.md). _Avoid_: reading a
 trade-seed CC as a new measurement — it is the conc twin of the BACI Mass observation.
+**A bilateral leg is never interpolated in time** ([ADR 0026](docs/adr/0026-bilateral-trade-legs-are-not-time-interpolated.md)):
+BACI is a *complete* matrix, so a route carrying no row in a year carried no trade, and the
+`TimeImputer` is scoped to same-region edges — a cross-region leg is neither a fill target nor an
+interpolation anchor. _Avoid_: reading an absent bilateral cell as a gap; before ADR 0026 the
+unscoped interpolator invented 9,215 Mass legs / 20,252 kt of trade, 75 % of which survived into
+the posterior.
 
 ## Total-output / scale-total vocabulary
 

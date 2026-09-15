@@ -351,18 +351,28 @@ def net_reexports(trade: pd.DataFrame, volumes: pd.DataFrame, screened: set,
 
     events = []
     for (s, t), mat in mats.items():
-        scr = {a for (ss, a, tt) in screened if ss == s and tt == t}
+        scr  = {a for (ss, a, tt) in screened if ss == s and tt == t}
+        hubs = {h: v for (ss, h, tt), v in want.items() if ss == s and tt == t}
+        done: dict = defaultdict(float)     # hub → T already applied
         for p in range(max_passes):
+            # A hub is worth (re)visiting for whatever of its T it has not yet
+            # moved, capped by the legs it *now* carries: a later pass exists
+            # only because an upstream hub's re-attribution replenished this
+            # one's inflow (the hub→hub chain), never to re-apply its T twice.
             todo = sorted(
-                ((v, h) for (ss, h, tt), v in want.items() if ss == s and tt == t),
+                ((min(v - done[h], _flow(mat, h)), h) for h, v in hubs.items()
+                 if v - done[h] > MIN_T_CC),
                 reverse=True,
-            ) if p == 0 else _recompute(mat, s, t, want)
+            )
             applied_pass = 0.0
             for t_want, h in todo:
+                if t_want <= MIN_T_CC:
+                    continue
                 t_app, self_amt, n_new = net_one_hub(
                     mat, h, t_want, scr, min_new_leg)
                 if t_app <= 0.0:
                     continue
+                done[h] += t_app
                 applied_pass += t_app
                 events.append(dict(sector=s, region=h, time=t, pass_no=p,
                                    T_applied=t_app, self_dropped=self_amt,
@@ -379,21 +389,11 @@ def net_reexports(trade: pd.DataFrame, volumes: pd.DataFrame, screened: set,
     return trade_new, pd.DataFrame(events)
 
 
-def _recompute(mat: dict, s: str, t: str, want: dict) -> list:
-    """Re-derive what each hub still wants after a pass (hub→hub chains)."""
-    imp: dict = defaultdict(float)
-    exp: dict = defaultdict(float)
-    for (a, z), c in mat.items():
-        exp[a] += c
-        imp[z] += c
-    out = []
-    for (ss, h, tt), v in want.items():
-        if ss != s or tt != t:
-            continue
-        still = min(imp[h], exp[h], v)
-        if still > MIN_T_CC:
-            out.append((still, h))
-    return sorted(out, reverse=True)
+def _flow(mat: dict, h: str) -> float:
+    """``min(imports, exports)`` of ``h`` in the matrix as it now stands."""
+    i_h = sum(c for (a, z), c in mat.items() if z == h)
+    x_h = sum(c for (a, z), c in mat.items() if a == h)
+    return min(i_h, x_h)
 
 
 def cv_scale(trade_old: pd.DataFrame, trade_new: pd.DataFrame,

@@ -116,6 +116,7 @@ def _hub_classes(e, acc, ei):
     t["I"] = I.reindex(t.index).fillna(0.0)
     t["P"] = P.reindex(t.index).fillna(0.0)
     t = t[t.X > X_MIN_CC].reset_index()
+    t["time"] = t["time"].astype(int)     # sum rows carry the year as int
     ti = np.where(t.P > 0, t.X / t.P.replace(0, np.nan), np.inf)
     ref = t.X / (t.P + t.I + 1e-9)
     t["klass"] = "ordinary"
@@ -125,8 +126,12 @@ def _hub_classes(e, acc, ei):
 
 
 def _sums(opt):
+    """Soft **scale-total** rows only — the family every round is measured on
+    (ADR 0006). `D._rows` returns every constraint row, so the ratio family
+    would otherwise inflate the headline against the documented baselines."""
     const, _ = D._lineage(opt)
-    return D._rows(opt, const)
+    c = D._rows(opt, const)
+    return c[c.type == "sum"].copy()
 
 
 def main(base, l0, l1=None):
@@ -144,7 +149,7 @@ def main(base, l0, l1=None):
     E = {lab: _edges(r, ei) for lab, r in runs}
     S = {lab: _sums(r) for lab, r in runs}
 
-    print("\n== sum-row z² (all soft scale totals)")
+    print("\n== sum-row z² (soft scale totals; ratio rows excluded)")
     for lab, r in runs:
         tot = S[lab].z2.sum()
         d = f"  ({(tot / S['base'].z2.sum() - 1) * 100:+.1f} % vs base)" if lab != "base" else ""

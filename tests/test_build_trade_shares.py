@@ -229,3 +229,52 @@ def test_bound_needs_imports_able_to_carry_the_remainder():
     # India-like (imports 404 ≥ remainder 387) is still bounded
     out = compute_trade_share_weights(_india(), CONC_C, production=_prod([("Concentrate", "India", 2010, 30.0)]))
     assert {r.root_region_from: r.weight for r in out.itertuples()}["India"] == pytest.approx(30.0)
+
+
+# ---- ADR 0027: a netting-exhausted import sum is not an observation --------
+
+def _ledger(tmp_path, monkeypatch, rows):
+    """Point the feed registry at a directory holding a reexport_ledger.csv."""
+    import build_trade_shares as B
+
+    d = tmp_path / "feed" / "baci" / "v9"
+    d.mkdir(parents=True)
+    if rows is not None:
+        pd.DataFrame(rows).to_csv(d / "reexport_ledger.csv", index=False)
+
+    class _Regs:
+        feed = type("_Feed", (), {"resolve": staticmethod(lambda _id: d)})()
+
+    monkeypatch.setattr(B, "_input_registries", lambda: _Regs())
+    return B
+
+
+def _edges_frame():
+    return pd.DataFrame([
+        _edge("China", "China", 50.0, np.nan, sf="Cathode", st="FU", t=2015),
+        _edge("Chile", "China", 50.0, 0.0,    sf="Cathode", st="FU", t=2015),
+        _edge("China", "China", 10.0, np.nan, sf="Cathode", st="USC", t=2015),
+        _edge("Chile", "China", 10.0, 0.0,    sf="Cathode", st="USC", t=2015),
+        _edge("Peru",  "Peru",  50.0, np.nan, sf="Cathode", st="FU", t=2015),
+        _edge("Chile", "Peru",  50.0, 0.0,    sf="Cathode", st="FU", t=2015),
+    ])
+
+
+def test_exhausted_groups_are_derived_from_the_ledger(tmp_path, monkeypatch):
+    """Every fan target of a flagged (product, region, year) is withheld —
+    cathode fans into FU, USC and MESC, so one flag must reach all of them."""
+    B = _ledger(tmp_path, monkeypatch, [
+        {"sector": "Cathode", "region": "China", "time": 2015,
+         "imports_exhausted": True},
+        {"sector": "Cathode", "region": "Peru", "time": 2015,
+         "imports_exhausted": False},
+    ])
+    got = B.imports_exhausted_groups(_edges_frame())
+    assert got == {("Cathode", "FU", "China", "2015"),
+                   ("Cathode", "USC", "China", "2015")}
+
+
+def test_no_ledger_means_no_withholding(tmp_path, monkeypatch):
+    """An un-netted feed has no ledger; behaviour must be unchanged."""
+    B = _ledger(tmp_path, monkeypatch, None)
+    assert B.imports_exhausted_groups(_edges_frame()) == set()
