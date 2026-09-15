@@ -317,12 +317,12 @@ class TestCvScale:
         new = _trade([_leg("Cathode", "Chile", "DE", 150.0)])
         assert cv_scale(old, new)["cv_scale"].iloc[0] == 1.0
 
-    def test_a_mostly_netted_leg_is_much_less_certain(self):
+    def test_a_partly_netted_leg_is_less_certain(self):
         old = _trade([_leg("Cathode", "Chile", "NL", 100.0)])
-        new = _trade([_leg("Cathode", "Chile", "NL", 10.0)])
+        new = _trade([_leg("Cathode", "Chile", "NL", 70.0)])
         got = cv_scale(old, new)["cv_scale"].iloc[0]
-        assert got == pytest.approx(np.sqrt(100.0 ** 2 + 2 * 90.0 ** 2) / 10.0)
-        assert got > 10.0
+        assert got == pytest.approx(np.sqrt(100.0 ** 2 + 2 * 30.0 ** 2) / 70.0)
+        assert 1.0 < got < 2.0
 
     def test_untouched_legs_are_absent(self):
         old = _trade([_leg("Cathode", "Chile", "DE", 100.0)])
@@ -331,3 +331,19 @@ class TestCvScale:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestCvScaleBounds:
+    """A netted-to-nothing leg must not carry an astronomical σ (measured at
+    1e48 before the cap: v_new → 0 makes the ratio explode)."""
+
+    def test_scale_is_capped(self):
+        from build_baci_reexport import MAX_CV_SCALE
+        old = _trade([_leg("Cathode", "Chile", "NL", 100.0)])
+        new = _trade([_leg("Cathode", "Chile", "NL", 0.001)])
+        assert cv_scale(old, new)["cv_scale"].iloc[0] == pytest.approx(MAX_CV_SCALE)
+
+    def test_legs_netted_to_dust_are_excluded(self):
+        old = _trade([_leg("Cathode", "Chile", "NL", 100.0)])
+        new = _trade([_leg("Cathode", "Chile", "NL", 1e-12)])
+        assert len(cv_scale(old, new)) == 0

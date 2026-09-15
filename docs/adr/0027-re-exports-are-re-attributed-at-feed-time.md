@@ -1,6 +1,11 @@
 # Re-exports are re-attributed to origin and destination at feed time
 
-**Status:** proposed — Round L.1. Amends
+**Status:** proposed — **measured 2026-09-15, decision pending** (run `opt_20260915_111233_def72bc3`:
+sum-row z² 2,331,632 → **1,769,941, −24.1 %**, hub-class z² −76 %, Germany/Korea phantom chains to
+zero, PSC tail p95 12.2 → 9.8 — but **exporter retention fails the stop rule**: Chile 0.636 → 0.561,
+Peru 0.944 → 0.901, world mining chain −3 pp). Evidence: REP
+[`…roundL1-baci-reexport`](../rep/analysis_opt_20260915_111233_def72bc3_20260915_roundL1-baci-reexport.md).
+Round L.1. Amends
 [ADR 0002](0002-single-endpoint-rows-fan-out-not-replicate.md) option D (which BACI version the
 fan weights read), [ADR 0014](0014-bilateral-feeds-scoped-to-cross-region-edges.md) (the bilateral
 feed now carries inferred legs, flagged and σ-compounded),
@@ -160,3 +165,31 @@ for nothing. A new leg carries exactly √2 × the pedigree cv; a leg 90 % nette
 - The three ledgers live beside `values.csv` in the feed directory, so the input registry hashes
   them into the version: the run that consumed a netted feed can always be traced to the exact
   ledger that produced it.
+
+## Measured (Round L.1, 2026-09-15) — not yet decided
+
+Applied 10,524 kt CC (2.14 % of gross trade) over 1,358 hub-years; 182 new legs; 467 kt of
+re-imports dropped; 60,600 kt of residual labelled rather than clipped.
+
+**What it fixed.** Ore/Germany 53,606 → 0; Concentrate/Germany 21,043 → 0; Concentrate/Korea
+22,479 → 0; Cathode/Portugal 30,004 → 3,984; Anode/Netherlands 68,411 → 18,379. Phantom production
+at the P = 0 hubs falls 55–81 % wherever the ledger says `pass-through`. Round C hub-class z²
+−76 %; hub∪fabricated 14.7 % → 8.9 % of the total; every constraint family improves; PSC net-stock
+tail |z| p95 12.23 → 9.76; 187,790 kt CC of posterior mass moved; 30/30 Solved.
+
+**What it cost.** Exporter concentrate retention Chile 0.636 → 0.561, Peru 0.944 → 0.901; world
+`MF→Concentrate` 0.893 → 0.871, `Ore→MF` 0.804 → 0.772, `CO→Ore` 0.787 → 0.761. The stop rule
+required ±0.01 or up, so **L.1 does not ship on this measurement**.
+
+**Traced.** The loss sits entirely on legs the rule moved (touched-leg retention 0.814 → 0.795;
+untouched legs *improve*, 0.966 → 1.007). The fan withhold is too small to explain it (124 kt of
+concentrate demand) and the σ compounding is flat on every Chilean destination but Spain. The
+mechanism is the concentrate balance: Chile's Mass export prior is unchanged to the kilotonne, but
+re-attribution moves its tonnage from hubs — where the clip discarded it — to consumers whose ICSG
+intake cannot grow to receive it, and China's node resolves the collision by deleting upstream.
+Closing the clip leak therefore *exposes* a BACI-vs-ICSG disagreement the hub had been absorbing;
+it does not create it.
+
+**Open.** Whether to keep L.1, revert to L.0, or measure L.2 first (extending ADR 0024's production
+bound to Cathode and Anode, which acts on the use side where the collision now lands, and which
+L.1's own `ceiling-relabel` class of 459 hub-years already points at).

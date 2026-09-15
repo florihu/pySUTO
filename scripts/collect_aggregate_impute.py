@@ -186,7 +186,10 @@ UNCLOSED_CV      = None
 # a σ change confounded with a structural one: the metric moves without mass.
 # Pin it to the values the predecessor run logged, and report the unpinned
 # variant as a sensitivity line. None = derive from this run (the default).
-LEG_SIGMA_AREF = None      # e.g. {"Concentrate": 10.3, "Cathode": 0.3, ...}
+# Pinned to the Round L.0 run `imp_20260915_095200_64dfaa88` (BACI v5, the
+# un-netted leg population), so the L.1 metric is not confounded by σ.
+LEG_SIGMA_AREF = {"Anode": 0.213367, "Cathode": 0.26827266,
+                  "Concentrate": 10.26, "Matte": 0.2225045}
 
 # Size-damped σ on bilateral legs (ADR 0017; applied BEFORE the screen above).
 # The Laner pedigree cv (~0.21 on BACI Mass legs) is size-blind, so deleting

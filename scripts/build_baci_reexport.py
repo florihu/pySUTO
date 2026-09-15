@@ -135,6 +135,19 @@ MIN_NEW_LEG_CC = 1.0
 # σ compounding: the adjustment derives from two observed legs.
 K_INFER = float(np.sqrt(2.0))
 
+# Ceiling on that compounding. The pedigree cv of a BACI leg is ~0.209, and
+# ADR 0017 caps a damped leg's cv at 1.0, so a multiplier beyond ~4.8 is
+# already inert — while an *uncapped* ratio explodes on a leg the netting drove
+# to a rounding remainder (v_new → 0 ⇒ scale → ∞, measured at 1e48 before this
+# cap). A leg that far gone is "no trade on this route" (ADR 0010), not a
+# precisely-known tiny flow.
+MAX_CV_SCALE = 5.0
+
+# kt CC. Below this a leg is not a flow: `FeedCollector(min_flow_kt=0.01)`
+# drops it from coverage, so carrying a σ for it is meaningless. Netting
+# remainders under this floor are zeroed rather than left as dust.
+LEG_ZERO_FLOOR_CC = 1.0e-4
+
 # Hub→hub chains (Chile→NL→Germany) need the first hub netted before the
 # second sees its inflow, so the sweep repeats until nothing moves.
 MAX_PASSES = 3
@@ -383,7 +396,9 @@ def net_reexports(trade: pd.DataFrame, volumes: pd.DataFrame, screened: set,
     rows = []
     for (s, t), mat in mats.items():
         for (a, z), cc in mat.items():
-            rows.append((s, a, z, t, max(0.0, cc)))
+            # Float remainders of a fully-netted leg are not a flow.
+            rows.append((s, a, z, t,
+                         0.0 if cc < LEG_ZERO_FLOOR_CC else cc))
     trade_new = pd.DataFrame(
         rows, columns=["sector", "region_from", "region_to", "time", "cc"])
     return trade_new, pd.DataFrame(events)
@@ -397,20 +412,27 @@ def _flow(mat: dict, h: str) -> float:
 
 
 def cv_scale(trade_old: pd.DataFrame, trade_new: pd.DataFrame,
-             k: float = K_INFER) -> pd.DataFrame:
+             k: float = K_INFER, max_scale: float = MAX_CV_SCALE) -> pd.DataFrame:
     """Per changed root leg, the σ multiplier of the ADR 0027 inference.
 
     ``σ_new = cv_pedigree · √(v_obs² + (k·Δ)²)`` ⇒
-    ``cv_root_scale = √(v_obs² + (k·Δ)²) / |v_new|``, floored at 1 so a netting
-    step can never make a leg *more* certain than its pedigree says it is.
+    ``cv_root_scale = √(v_obs² + (k·Δ)²) / |v_new|``, **floored at 1** so a
+    netting step can never make a leg more certain than its pedigree says it is,
+    and **capped at ``max_scale``** because past that the leg's cv has already
+    reached ADR 0017's ceiling of 1.0 and further inflation buys nothing.
+
+    Legs the netting drove below ``LEG_ZERO_FLOOR_CC`` are excluded rather than
+    carried at a vast σ: they are not flows, and the collector's ``min_flow_kt``
+    would drop them from coverage anyway.
     """
     key = ["sector", "region_from", "region_to", "time"]
     m = trade_old.merge(trade_new, on=key, how="outer",
                         suffixes=("_obs", "_new")).fillna({"cc_obs": 0.0, "cc_new": 0.0})
     m["delta"] = m["cc_new"] - m["cc_obs"]
-    m = m[(m["delta"].abs() > 1e-9) & (m["cc_new"] > 0.0)].copy()
-    m["cv_scale"] = np.maximum(
-        1.0, np.sqrt(m["cc_obs"] ** 2 + (k * m["delta"]) ** 2) / m["cc_new"])
+    m = m[(m["delta"].abs() > 1e-9) & (m["cc_new"] >= LEG_ZERO_FLOOR_CC)].copy()
+    m["cv_scale"] = np.clip(
+        np.sqrt(m["cc_obs"] ** 2 + (k * m["delta"]) ** 2) / m["cc_new"],
+        1.0, max_scale)
     return m[key + ["cc_obs", "cc_new", "delta", "cv_scale"]]
 
 
@@ -683,7 +705,9 @@ def main(source_version: int = SOURCE_VERSION) -> None:
     print(f"\n   σ scale    : {len(scales):,} changed legs; "
           f"median {scales['cv_scale'].median():.3f}  "
           f"p90 {scales['cv_scale'].quantile(0.9):.3f}  "
-          f"share>2 {(scales['cv_scale'] > 2).mean() * 100:.1f} %")
+          f"max {scales['cv_scale'].max():.3f}  "
+          f"share>2 {(scales['cv_scale'] > 2).mean() * 100:.1f} %  "
+          f"at the cap {(scales['cv_scale'] >= MAX_CV_SCALE).sum():,}")
 
     values_new = rebuild_values(raw, legs_old, legs_new, conc)
     print(f"   values.csv : {len(raw):,} rows → {len(values_new):,}   "

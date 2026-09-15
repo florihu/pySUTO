@@ -125,6 +125,23 @@ def _hub_classes(e, acc, ei):
     return t
 
 
+def _ledger(opt):
+    """The ADR 0027 ledger of the BACI input version this run's feed consumed.
+
+    Resolved through the run's own sidecar chain (opt → const → imp → feed run →
+    `parents.inputs.feed.version`), never from `current/`, so re-running the diag
+    after another netting still reports the ledger the run actually used.
+    """
+    _, imp, feeds = _chain(opt)
+    baci = feeds.get("baci")
+    if baci is None:
+        return None
+    meta = json.load(open(ROOT / "feed" / "registry" / baci / "metadata.json"))
+    ver = meta["parents"]["inputs"]["feed"]["version"]
+    path = Path("data/input/feed/baci") / f"v{ver}" / "reexport_ledger.csv"
+    return pd.read_csv(path) if path.is_file() else None
+
+
 def _sums(opt):
     """Soft **scale-total** rows only — the family every round is measured on
     (ADR 0006). `D._rows` returns every constraint row, so the ratio family
@@ -205,6 +222,18 @@ def main(base, l0, l1=None):
                  & (e.valuation == "CC"))
             line += f"{e[m].post.sum():13,.0f}"
         print(line)
+
+    led = _ledger(runs[-1][1])
+    if led is not None:
+        print("\n== ADR 0027 ledger of the last run's BACI feed (kt CC)")
+        g = led.groupby("label").agg(n=("T", "size"), T=("T", "sum"),
+                                     applied=("T_applied", "sum"),
+                                     resid=("resid", "sum"))
+        print(g.round(0).to_string())
+        print(f"   applied {led['T_applied'].fillna(0).sum():,.0f}   "
+              f"residual still clipped {led['resid'].clip(lower=0).sum():,.0f}   "
+              f"withheld from the fan (imports exhausted) "
+              f"{int(led['imports_exhausted'].astype(bool).sum())} groups")
 
     print("\n== Round C classes, fixed on the BASE run's prior "
           "(so shrinkage is visible)")
