@@ -278,3 +278,74 @@ def test_no_ledger_means_no_withholding(tmp_path, monkeypatch):
     """An un-netted feed has no ledger; behaviour must be unchanged."""
     B = _ledger(tmp_path, monkeypatch, None)
     assert B.imports_exhausted_groups(_edges_frame()) == set()
+
+
+# ---- ADR 0027 / L.2: the production bound extended to Cathode and Anode ----
+
+def test_cathode_domestic_residual_is_bounded_by_refined_output():
+    """France 2015's real shape: ICSG cathode intake 185 kt CC, BACI imports
+    146.7, no refinery. Without the bound the 38.3 kt gap is booked as domestic
+    cathode France never refined — the cathode twin of the India case ADR 0024
+    fixed, and the reason the re-export netting alone leaves France's phantom
+    refinery standing (it moves from the export side to the use side)."""
+    df = pd.DataFrame([
+        _edge("France", "France", 92.5, np.nan),          # usage 185 over two legs
+        _edge("Chile",  "France", 92.5, 146.7 / 0.9975),  # imports 146.7 kt CC
+    ])
+    prod = _prod([("Cathode", "France", 2010, 0.0)])
+    out = compute_trade_share_weights(df, CONC, {"France"}, production=prod)
+    w = {r.root_region_from: r.weight for r in out.itertuples()}
+    assert w["France"] == 0.0, "a region with no refinery supplies itself nothing"
+    assert w["Chile"] == pytest.approx(185.0), "usage conserved onto the import leg"
+
+
+def test_cathode_bound_still_refuses_to_fabricate_imports():
+    """ADR 0024's guard is unchanged by the extension: where the import legs
+    would have to grow several-fold to carry the remainder, the gap is
+    ICSG-internal and spreading it would fabricate imports instead of domestic
+    supply (the United States 1997–2003 case, in cathode)."""
+    df = pd.DataFrame([
+        _edge("France", "France", 200.0, np.nan),   # usage 400, imports ~100
+        _edge("Chile",  "France", 200.0, 100.0),
+    ])
+    free = compute_trade_share_weights(df, CONC, {"France"})
+    bound = compute_trade_share_weights(
+        df, CONC, {"France"}, production=_prod([("Cathode", "France", 2010, 0.0)]))
+    pd.testing.assert_frame_equal(free, bound)
+
+
+def test_cathode_bound_is_inert_for_a_real_refiner():
+    df = pd.DataFrame([
+        _edge("Germany", "Germany", 200.0, np.nan),
+        _edge("Chile",   "Germany", 200.0, 100.0),
+    ])
+    free = compute_trade_share_weights(df, CONC, {"Germany"})
+    bound = compute_trade_share_weights(
+        df, CONC, {"Germany"}, production=_prod([("Cathode", "Germany", 2010, 900.0)]))
+    pd.testing.assert_frame_equal(free, bound)
+
+
+def test_raw_production_emits_an_explicit_zero_for_a_non_producer(monkeypatch):
+    """The bound reads a *missing* production row as "unknown" and declines to
+    fire. A raw-ICSG lookup returns nothing for a region that mines nothing, so
+    without an explicit zero the guard silently un-bounds exactly the
+    phantom-mine regions it exists for (measured on Round L.2: Germany's
+    concentrate cell went 0 → 38,731 z² and Korea's phantom mine 149 → 2,173 kt
+    when this frame carried only the rows ICSG reports)."""
+    import build_baci_reexport as R
+    import build_trade_shares as B
+
+    # ICSG reports Chile's mine and nothing for Germany, as in the real feed.
+    monkeypatch.setattr(
+        R, "icsg_intake_production",
+        lambda sectors=None: ({}, {("Concentrate", "Chile", "2015"): 500.0}, set()))
+    edges = pd.DataFrame([
+        _edge("Chile",   "Germany", 100.0, 50.0, sf="Concentrate", st="Smelting", t=2015),
+        _edge("Germany", "Germany", 100.0, np.nan, sf="Concentrate", st="Smelting", t=2015),
+        _edge("Chile",   "Chile",   100.0, np.nan, sf="Concentrate", st="Smelting", t=2015),
+    ])
+    out = B.icsg_raw_production(["Concentrate"], edges)
+    got = {r.root_region_to: r.production_cc for r in out.itertuples()}
+    assert got["Germany"] == 0.0, "a non-producer must say zero, not nothing"
+    assert got["Chile"] == pytest.approx(500.0)
+    assert out["root_time"].tolist() == ["2015"] * len(out), "years are strings"

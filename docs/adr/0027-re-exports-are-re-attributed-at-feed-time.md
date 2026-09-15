@@ -190,6 +190,23 @@ intake cannot grow to receive it, and China's node resolves the collision by del
 Closing the clip leak therefore *exposes* a BACI-vs-ICSG disagreement the hub had been absorbing;
 it does not create it.
 
-**Open.** Whether to keep L.1, revert to L.0, or measure L.2 first (extending ADR 0024's production
-bound to Cathode and Anode, which acts on the use side where the collision now lands, and which
-L.1's own `ceiling-relabel` class of 459 hub-years already points at).
+**L.2 measured (2026-09-15), and it settles two of the three questions.** Extending ADR 0024's
+production bound to Cathode and Anode — on BACI **v8**, after correcting two defects in this
+round's own code (a non-producer must carry an explicit zero, or the guard reads it as unknown and
+declines to bound; and `P_Anode` must pool the scrap entering CFR, or a secondary refiner like
+Belgium reads 139 kt against the 380 kt its own refinery consumes) — gives, against L.0:
+
+| | netting, bound = Concentrate | netting + bound on Cathode/Anode |
+|---|---|---|
+| sum-row z² (L.0 = 2,136,925) | 1,828,508 (−14.4 %) | **1,720,192 (−19.5 %)** |
+| Round C hub-class z² (L.0 = 151,887) | 67,300 | **35,136** |
+| Cathode/France phantom production (L.0 = 1,848) | 1,817 | **86** |
+| Chile · Peru · Indonesia retention (L.0 = 0.636 · 0.944 · 0.850) | 0.574 · 0.903 · 0.845 | 0.574 · 0.903 · 0.845 |
+
+- **The bound belongs with the netting**: a further −5.9 %, the hub class halved again, France's
+  phantom refinery down 95 %, Italy's cathode cell halved, and nothing regresses.
+- **The exporter cost is inherent to the re-attribution**, not to the unbounded cathode residual:
+  the three exporters are identical to three decimals in both variants.
+- **The stop rule still fails** (Chile −0.062, Peru −0.041 against ±0.01), so the decision stands
+  with the owner: keep the netting with the extended bound, or revert to L.0 and keep ADR 0026
+  alone. ADR 0024 gains the amendment either way only if the netting is kept.

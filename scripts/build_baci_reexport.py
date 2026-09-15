@@ -510,13 +510,20 @@ def icsg_intake_production(sectors=SECTORS) -> tuple:
     the same definitions (ADR 0024's bound needs exactly this ``P``).
 
         Concentrate  U = Smelting/Concentrate use       P = Mining/Concentrate supply
-        Anode        U = Refining/Anode use (ADR 0021)  P = smelter intake · eff_Smelting · eff_CFR
+        Anode        U = Refining/Anode use (ADR 0021)  P = (matte + scrap into CFR) · eff_CFR
         Cathode      U = Semi + USC + MESC use          P = Refining/Anode use · eff_ER
                                                           + Refining/Scrap use · eff_CFR · eff_ER
                                                           + SXEW/Cathode supply
-        Matte        U = max(P_matte, anode use ÷ eff_CFR)   — no ICSG series; a
-                     converter consumes at least its own smelter's matte
-                     P = smelter intake · eff_Smelting
+        Matte        U = max(P_matte, anode use ÷ eff_CFR − scrap into CFR)
+                     — no ICSG series; a converter consumes at least its own
+                     smelter's matte, and its anode output nets off the scrap it
+                     also pools.       P = smelter intake · eff_Smelting
+
+    CFR pools matte **and** scrap (ADR 0005), so anode production must count both:
+    Belgium 2015 smelts 146 kt of scrap but feeds its converter a further 155 kt
+    of scrap directly, and a matte-only reading puts its anode output at 139 kt
+    against the 380 kt its own refinery consumes — a secondary refiner made to
+    look like a pure importer.
     """
     fdir = _input_registries().feed.resolve("icsg")
     raw  = pd.read_csv(fdir / "values.csv")
@@ -531,15 +538,16 @@ def icsg_intake_production(sectors=SECTORS) -> tuple:
                 & (raw["Supply_Use"] == supply_use)]
         return x.groupby(["reg", "yr"])["Value"].sum()
 
-    smelt_in = ser("Smelting", "Concentrate", "Use").add(
+    smelt_in  = ser("Smelting", "Concentrate", "Use").add(
         ser("Smelting", "Scrap", "Use"), fill_value=0.0)
-    anode_in = ser("Refining", "Anode", "Use")
-    matte_p  = smelt_in * eff["Smelting"]
+    anode_in  = ser("Refining", "Anode", "Use")
+    scrap_cfr = ser("Refining", "Scrap", "Use")     # ADR 0021: scrap enters CFR
+    matte_p   = smelt_in * eff["Smelting"]
 
     prod = {
         "Concentrate": ser("Mining", "Concentrate", "Supply"),
         "Matte":       matte_p,
-        "Anode":       matte_p * eff["CFR"],
+        "Anode":       matte_p.add(scrap_cfr, fill_value=0.0) * eff["CFR"],
         "Cathode":     (anode_in * eff["ER"])
                        .add(ser("Refining", "Scrap", "Use") * eff["CFR"] * eff["ER"],
                             fill_value=0.0)
@@ -551,7 +559,10 @@ def icsg_intake_production(sectors=SECTORS) -> tuple:
         "Cathode":     ser("Semi", "Cathode", "Use")
                        .add(ser("USC", "Cathode", "Use"), fill_value=0.0)
                        .add(ser("MESC", "Cathode", "Use"), fill_value=0.0),
-        "Matte":       pd.concat([matte_p, anode_in / eff["CFR"]], axis=1).max(axis=1),
+        "Matte":       pd.concat(
+            [matte_p,
+             (anode_in / eff["CFR"]).subtract(scrap_cfr, fill_value=0.0).clip(lower=0.0)],
+            axis=1).max(axis=1),
     }
 
     intake, production, reported = {}, {}, set()

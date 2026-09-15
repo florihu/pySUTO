@@ -1,4 +1,4 @@
-# Round L.1 — re-exports re-attributed at feed time (ADR 0027): the structure works, the exporters pay
+# Round L.1 / L.2 — re-exports re-attributed at feed time (ADR 0027): the structure works, the exporters pay
 
 - run `opt_20260915_111233_def72bc3` ← `const_20260915_110002_b000445c` ←
   `imp_20260915_105459_546b615b` ← `feed_baci_20260915_105105_187857d6` (BACI input **v7**,
@@ -149,3 +149,72 @@ nothing is merged to `main`.
 **State to preserve either way:** ADR 0026 / Round L.0 is shipped and independent of this decision.
 The netting code, its 28 tests, the ledgers and this measurement stand regardless, and BACI v5
 remains byte-identical to its registered hash, so the revert is exact.
+
+---
+
+# Addendum — two defects in this round's own code, and the corrected measurement
+
+The first L.2 run (extending ADR 0024's bound to Cathode and Anode) appeared to **reverse** L.1's
+main win: Concentrate/Germany 0 → 38,731 z², Korea's phantom mine 149 → 2,173 kt. That reading was
+wrong, and chasing it found two defects in this round's own code. Both were caught by measurement,
+neither by review.
+
+1. **A non-producer must say "zero", not "nothing".** Extending the bound meant sourcing production
+   from the raw ICSG rows rather than the ICSG `F_root`. `icsg_production` returns a row for every
+   region-year (value 0 where the region produces none, because it groups over all domestic
+   producing edges); a raw lookup returns **no row at all** for Germany or Korea, which mine no
+   concentrate. ADR 0024's guard reads a missing row as *unknown* and declines to bound — so the
+   helper silently un-bounded exactly the phantom-mine regions the bound exists for.
+   `icsg_raw_production` now spans every group the fan covers and defaults to 0.0, which is what
+   the `F_root` reading did implicitly. Regression test pins it with these numbers.
+2. **The converter pools matte *and* scrap.** `P_Anode` was `matte · eff_CFR`, omitting the scrap
+   that enters CFR directly (ADR 0005/0021). Belgium 2015 smelts 146 kt of scrap and feeds its
+   converter a further **155 kt** directly, so its anode output read 139 kt against the 380 kt its
+   own refinery consumes — a secondary refiner made to look like a pure importer, whose domestic
+   residual the bound then capped far too low (CFR/Anode Belgium 44,349 → 75,656 z²). Corrected to
+   `(matte + scrap) · eff_CFR`, Belgium reads 292 kt and the cell returns to 43,884. `U_Matte`
+   takes the same correction (`anode use ÷ eff_CFR − scrap`).
+
+The netting itself barely moves: applied **10,496** kt CC instead of 10,524, with Concentrate
+unchanged at 5,252 — so §2–§4 above stand as the description of what the re-attribution does. BACI
+input **v8** carries the corrected definitions and is the version both variants below were built on.
+
+## Corrected, like-for-like (all on BACI v8, `feed_baci_20260915_122645_ef721a4b`)
+
+| | L.0 `…103911_38b3fffc` | **L.1** netting, bound = Concentrate `…124806_d5ec9551` | **L.2** netting + bound on Cathode/Anode `…131115_b8bf05a9` |
+|---|---|---|---|
+| sum-row z² | 2,136,925 | 1,828,508 (−14.4 %) | **1,720,192 (−19.5 %)** |
+| Round C hub-class z² | 151,887 | 67,300 | **35,136 (−77 %)** |
+| hub ∪ fabricated share | 12.5 % | 9.9 % | **8.6 %** |
+| Σ\|Δposterior\| CC vs predecessor | — | 154,873 kt (2.26 %) | +23,108 kt (0.34 %) |
+| Cathode / France phantom production | 1,848 | 1,817 | **86** |
+| Cathode / UAE · Malaysia · UK | 985 · 891 · 736 | 741 · 830 · 495 | **257 · 367 · 262** |
+| Concentrate / Germany · Korea | 375 · 791 | 160 · 148 | 160 · 151 |
+| CFR / Belgium | 43,493 | 43,955 | 43,884 |
+| Cathode / Italy | 66,917 | 67,567 | **35,374** |
+| **Chile · Peru · Indonesia retention** | **0.636 · 0.944 · 0.850** | **0.574 · 0.903 · 0.845** | **0.574 · 0.903 · 0.845** |
+| world CO Mass / Conc CC / Cath CC | 0.788 / 0.882 / 1.012 | 0.779 / 0.872 / 1.008 | 0.779 / 0.872 / 1.003 |
+| Zambia → CH/SG/LU | 0.019 | 0.025 | 0.025 |
+| solver | 30/30 | 30/30 | 30/30 |
+
+Three things this settles:
+
+- **The extended bound is strictly better than not having it.** A further −5.9 % on the headline,
+  the hub class halved again, France's phantom refinery reduced to 86 kt (−95 %), Italy's cathode
+  cell halved — at no cost anywhere, including to Belgium once `P_Anode` is right. If the netting
+  is kept, it is kept with the bound.
+- **The exporter cost is inherent to the re-attribution, not to the unbounded cathode residual.**
+  Chile (0.574), Peru (0.903) and Indonesia (0.845) are **identical to three decimals** in both
+  variants. Extending the bound changes the use side and leaves the exporter side exactly where it
+  was, which is what §3's trace predicted.
+- **The stop rule still fails.** Chile −0.062 and Peru −0.041 against a ±0.01 band.
+
+## Decision, restated on the corrected numbers
+
+**Pending — the owner's call.** The trade is: **−19.5 % on the headline, the hub class down 77 %,
+the Germany/Korea/France/Portugal/Netherlands phantom chains gone, the PSC tail down** against
+**6.2 points of Chile's export retention, 4.1 of Peru's, and ~1 point of the world mining chain**.
+
+The working tree carries BACI at **v8** and `BOUND_DOMESTIC_SECTORS = ["Concentrate", "Cathode",
+"Anode"]` (the L.2 variant). Reverting is exact: BACI v5 is byte-identical to its registered hash,
+so restoring it into `current/` and rebuilding returns the chain to L.0, which ships on its own.
