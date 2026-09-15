@@ -218,3 +218,58 @@ the Germany/Korea/France/Portugal/Netherlands phantom chains gone, the PSC tail 
 The working tree carries BACI at **v8** and `BOUND_DOMESTIC_SECTORS = ["Concentrate", "Cathode",
 "Anode"]` (the L.2 variant). Reverting is exact: BACI v5 is byte-identical to its registered hash,
 so restoring it into `current/` and rebuilding returns the chain to L.0, which ships on its own.
+
+---
+
+# Addendum 2 — the exporter "failure" is a 4-point deepening of a 31-point defect
+
+Asked to recommend keep-or-revert, I diagnosed the exporter loss before answering. The answer
+changes what the stop-rule failure means.
+
+**Chile's trade is physically supportable.** Over 2010–19, BACI has Chile exporting 20,776 kt CC of
+concentrate against 24,572 available (ICSG mine + imports − its own smelters) — a ratio of
+**0.845**. Chile is not exporting copper it did not mine, so deleting its export legs is not a
+correction. (Peru sits at 1.098 and Indonesia at 1.248, mildly over-committed; Chile is the clean
+case.)
+
+**China's node is short, not long.** BACI imports plus its own mine fall **9,187 kt CC below**
+ICSG's smelter intake, pooled. The fan's residual and ADR 0024's bound are already carrying that
+gap; the re-attribution does not create it.
+
+**And Chile's own chain is where the copper actually goes.** Prior → posterior, 2010–19:
+
+| | L.0 | netting | netting + bound |
+|---|---|---|---|
+| CO → Ore (Mass) | 7,230,748 → 2,938,109 (**0.406**) | → 2,831,675 (0.392) | → 2,835,105 (0.392) |
+| Ore → MF (Mass) | 7,230,747 → 2,893,317 (**0.400**) | → 2,790,102 (0.386) | → 2,792,817 (0.386) |
+| MF → Concentrate (CC) | 38,000 → 26,043 (**0.685**) | → 24,857 (0.654) | → 24,877 (0.655) |
+| Concentrate exports (CC) | 20,966 → 13,340 (0.636) | → 12,347 (0.574) | → 12,351 (0.574) |
+
+The `MF→Concentrate` prior of 38,000 kt CC is ICSG's own Chilean mine output, and **the model
+deletes a third of it in every run, including the shipped baseline**. Sixty per cent of Chile's ore
+goes with it. That is the "Chile cut" named since ADR 0015 and re-flagged as the open lead after
+K.1, and it is an order of magnitude larger than anything Round L buys or costs.
+
+So the stop rule is flagging a **symptom**: the re-attribution deepens an existing 31 % deletion of
+Chile's ICSG-reported mine output by about 4 points. It is not the re-attribution that is deleting
+Chile's copper.
+
+## Recommendation
+
+**Keep the netting with the extended bound, and make Chile's mine chain the next round.**
+
+- The gain is real, attributable and accompanied by mass movement — not a repricing. The
+  Germany/Korea/France/Portugal/Netherlands phantom chains are fabrications the model no longer
+  needs, and they do not come back.
+- The cost is a marginal worsening of a defect that dominates the model and needs its own round
+  regardless. Reverting protects a retention figure that is *already* an artefact of that unfixed
+  defect (0.636 means 36 % of Chile's exports were being deleted before Round L touched anything).
+- Reverting would not move Chile's ore chain at all: 0.406 at L.0 versus 0.392 with the netting.
+
+**The case for reverting instead** is stop-rule discipline: the rule says do not ship a physical
+regression, and deepening a known defect while it is unfixed makes the eventual fix harder to
+attribute. That is a legitimate call, and it costs only the delay — the netting code, its tests and
+this measurement keep.
+
+**Either way the next round is the same**: why the model deletes a third of Chile's ICSG-reported
+mine output, and 60 % of its ore.
