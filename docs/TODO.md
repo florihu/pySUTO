@@ -78,8 +78,26 @@ priced at 27.5 % Cu. The grades the nodes need are not uniform and not 0.275: Ch
 solver went the other way to 0.210. This is exactly the defect ADR 0015 fixed for
 **ore** grades and never applied to **concentrate** grade.
 
-**Next:** region×year concentrate grade, then measure. Caveat before spending on it:
-Chile's node is over-determined by 3,053 kt CC and the posterior destroys 13,124 —
-a **4.3× amplification** that the grade alone does not explain. If closing the node
-does not stop the deletion, the fault is in how infeasibility is discharged (leg
-cv 0.069 vs anchor cv 0.017) — the same family as the `a_ref` item above.
+**The instrument is a pair of HARD bands, both pinned.** `value_min`/`value_max` are
+not prior shaping — `RatioBoundBuilder` makes them hard cones. Chile sits on the
+concentrate *floor* (0.20) in 35 % of its export leg-years, 100 % of the Chile→Japan
+lane, and on the ore-grade *ceiling* in 10 years out of 10. The ceiling is permissive
+because ADR 0015 made the grade nominal region×year but left the band at the region's
+30-year extremes: Chile's cap is 1.1× its **1995** grade, 75 % above its 2019 nominal.
+World-wide only 5.9 % of region-years are at that cap; of the 12 biggest ore producers
+only Chile (10/10) and China (7/10) are — and they are exactly the two whose ore mass
+collapses (0.386, 0.555) while the US, Peru, Zambia and Indonesia hold at ~1.0.
+
+Which gives the loss an exact decomposition:
+**ore Mass retention 0.42 = 0.69 (copper deleted) × 0.61 (rock discarded at the cap).**
+
+**Next, in this order (independent, measure separately):**
+1. **Year-local ore-grade bands** — bracket *that year's* nominal, not the 30-year
+   extremes. One parameter file. Should move Chile's ore retention 0.39 → ~0.65 with
+   no change to the copper story.
+2. **Region×year concentrate grade** — `conc_Concentrate` is still one global 0.275,
+   band [0.20, 0.35]. A realistic Chilean band (~0.28-0.32) forbids emptying the legs.
+3. **Then re-read the amplification**: Chile's node is over-determined by 3,053 kt CC
+   and the posterior destroys 13,124 (**4.3×**). If closing the node does not stop the
+   deletion, the fault is in the discharge path (leg cv 0.069 vs anchor cv 0.017) —
+   the same family as the `a_ref` item above.

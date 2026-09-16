@@ -90,9 +90,8 @@ uniform:
 
 **Chile needs 0.325 — inside the parameter's own declared band [0.20, 0.35].** Raising the grade on
 Chile's export legs to 0.325 would close its node exactly, and Chilean concentrates really do assay
-around 28–32 % Cu. The solver went the other way: the posterior grade on Chile's export legs is
-**0.210**, hard against the 0.20 floor, which removes *more* copper from the legs and deepens the
-surplus it then pays for by deleting the mine.
+around 28–32 % Cu. The solver went the other way, to the **floor**: see §5a — 35 % of Chile's export
+leg-years sit exactly on 0.20, including 100 % of the Chile→Japan lane and 80 % of Chile→China.
 
 This is the same shape of defect [ADR 0015](../adr/0015-in-situ-ore-grades-on-allocated-ore-basis.md) fixed for
 **ore** grades — "region×year in-situ grades replace global 1 % rows" — and never fixed for
@@ -110,16 +109,66 @@ Per year, 2010–19 (`σ_c` is 1.7 % of the anchor throughout):
 | `usetotout Concentrate CC` | 2,787 … 4,489 | 2,332 … 2,944 | −6 … −20 |
 | `oregradeoresupplychile<year>` | — | — | **+13 … +15** |
 
-The last row is the tell. The ore-grade ratio row is violated *upward*: Chile's posterior ore grade
-is **1.00 % → 1.64 %**, which is not a Chilean grade — the model keeps a third of the copper while
-throwing away 61 % of the rock. The prior satisfies every one of these rows exactly
-(`lhs_prior == c`), and no box bound is active anywhere in the chain, so this is an interior
-optimum: the solver is choosing this.
+The last row is the tell, and §5a explains it. The prior satisfies every one of these rows exactly
+(`lhs_prior == c`), and no *box* bound (`l`/`u`) is active anywhere in the chain — but the hard
+**ratio cones** are, and they are what shapes the answer.
 
 **Why it can choose it.** After ADR 0017 damping, Chile's concentrate export legs carry
 **cv 0.069**; its scale-total anchors carry **cv 0.017**. The leg is four times softer in relative
 terms, so the disagreement between ICSG's two ends — its mine figure and its smelter figures — is
 discharged through the trade that connects them. Both ends then have to follow the leg down.
+
+## 5a. The bands are hard, and both of them are pinned — in opposite directions
+
+`value_min` / `value_max` in the params CSVs are not prior shaping. `RatioBoundBuilder`
+([`ratio.py:403`](../../src/pysuto/constraints/ratio.py)) turns each into a **hard non-negative
+cone**, so every concentrate edge carries three rows — one soft ratio plus a hard lower and a hard
+upper (`row_meta`: 66,270 soft + 66,270 lower + 66,270 upper for `concconcentratesupply`). The same
+holds for `ore_grade`. Chile is pressed against one of each:
+
+**Concentrate grade, at the FLOOR.** Posterior CC/Mass per edge, 2010–19:
+
+| | legs at 0.20 | legs at 0.35 | median grade |
+|---|---|---|---|
+| all concentrate legs, world | 4.9 % | 4.5 % | 0.277 |
+| **Chile's export legs** | **35.3 %** | 0.0 % | 0.231 |
+| Chile → Japan | **100 %** | 0 % | 0.200 |
+| Chile → China | 80 % | 0 % | 0.201 |
+| Chile → Korea · Germany | 80 % | 0 % | 0.205 |
+
+Chile's own domestic leg, by contrast, stays at 0.24–0.28 — the pressure is on the legs that cross
+a border. The solver is not choosing 0.21; it is **held at 0.20 and would go lower**.
+
+**Ore grade, at the CEILING.** Chile sits at `value_max` in **10 years out of 10**:
+
+| year | nominal (ADR 0015, region×year) | `value_max` | posterior | at cap |
+|---|---|---|---|---|
+| 2010 | 0.01061 | 0.016617 | 0.016617 | ✔ |
+| 2015 | 0.01016 | 0.016617 | 0.016617 | ✔ |
+| 2019 | 0.00952 | 0.016617 | 0.016617 | ✔ |
+
+Across the world only 5.9 % of region-years sit at the ore-grade cap; of the twelve biggest ore
+producers **only Chile (10/10) and China (7/10)** do — and they are exactly the two whose ore mass
+collapses (0.386, 0.555) while the United States (0.990), Peru (0.962), Zambia (1.014) and
+Indonesia (0.990) hold.
+
+**Why the cap is so permissive.** ADR 0015 made the ore-grade *nominal* region×year, and it is a
+real declining series — Chile 1.51 % (1995) → 0.95 % (2019). The *band* was not: Chile's
+`value_min`/`value_max` are constant across all 30 years at 0.9 × and 1.1 × the **period** extremes,
+so the cap is 1.1 × Chile's **1995** grade. By 2019 the ceiling sits **75 % above** that year's own
+nominal. In a region with a strong secular grade decline the band therefore licenses the solver to
+price this year's ore at the grade of twenty-five years ago.
+
+**Which gives the deletion an exact decomposition.** Chile's ore-mass retention is not one number
+but the product of two:
+
+    ore Mass retention 0.42  =  0.69  ×  0.61
+                                 │       └─ rock discarded at the grade ceiling (g_prior ÷ g_cap)
+                                 └───────── copper deleted (the trade story, §1–4)
+
+So of Chile's "60 % of its ore", roughly half is the copper story and half is a **parameter-band
+artefact**: once a tonne of copper is deleted, the ceiling decides how many tonnes of rock leave
+with it. Widening the bands would make this worse; the fix is to make them year-local.
 
 ## 6. What this establishes, and what it does not
 
@@ -129,6 +178,10 @@ infeasible at Chile's node by 3,053 kt CC; the solver amplifies that 4.3×; and 
 0.275 concentrate grade is demonstrably wrong for most regions, with the correction Chile needs
 sitting inside the parameter's own band.
 
+Added by §5a: the hard ratio cones are the instrument. Chile's export legs are pinned on the
+concentrate floor (0.20) and its ore on the grade ceiling (0.016617, 1.1× its 1995 grade) in every
+year, and the two together decompose the ore loss exactly into 0.69 copper × 0.61 rock.
+
 **Not established.** That regionalising the grade *fixes* it. The amplification factor of 4.3×
 says most of the damage is in how the system discharges infeasibility, not in the infeasibility
 itself — so closing Chile's 3,053 may recover far more than 3,053, or may simply move the deletion
@@ -136,11 +189,23 @@ to whichever node becomes the softest. That is an experiment, not an inference.
 
 ## 7. Next
 
-1. **Region×year concentrate grade** — the ADR 0015 treatment applied to `conc_Concentrate`.
-   Sources: exporter-declared concentrate grades, or derive per region from the ICSG/BACI
-   consistency condition above with the [0.20, 0.35] band as the guard. Measure against this run.
-2. **Then re-read the amplification.** If Chile's node closes and the mine still deletes, the fault
-   is in the discharge path (leg σ versus anchor σ), and that is an ADR 0016/0017/0025 question —
+Two changes, and they are independent — measure them separately, in this order, because the second
+is cheap and removes half the symptom without touching the physics argument.
+
+1. **Year-local ore-grade bands.** `value_min`/`value_max` should bracket *that year's* nominal
+   (ADR 0015 already produces a region×year series), not the region's 30-year extremes. Chile's
+   ceiling is currently 1.1× its 1995 grade and binds in 10 years out of 10. This is a
+   one-parameter-file change and it directly bounds how much rock can leave with each tonne of
+   deleted copper. Expect Chile's ore retention to move from 0.39 toward ~0.65 without any change
+   in the copper story.
+2. **Region×year concentrate grade** — the ADR 0015 treatment applied to `conc_Concentrate`, which
+   is still one global 0.275 with a global [0.20, 0.35] band. Chile's legs are pinned on that floor;
+   a realistic Chilean band (~0.28–0.32) forbids emptying them and forces the imbalance to surface
+   where it can be seen instead of being absorbed as grade. Sources: exporter-declared concentrate
+   grades, or per-region derivation from the ICSG/BACI consistency condition in §4.
+3. **Then re-read the amplification.** If Chile's node closes and the mine still deletes, the fault
+   is in the discharge path (leg cv 0.069 versus anchor cv 0.017), an ADR 0016/0017/0025 question —
    related to the open `a_ref` item in [TODO](../TODO.md).
-3. Do **not** read an exporter-retention change as a verdict on any round until this is fixed; it
-   is 36 % deleted at baseline and moves with anything that touches trade.
+
+Throughout: do **not** read an exporter-retention change as a verdict on any round until this is
+fixed; it is 36 % deleted at baseline and moves with anything that touches trade.
