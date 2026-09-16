@@ -173,6 +173,8 @@ cross-cutting (import nothing from the data layer):
 **Inputs:** raw flow data, classification mapping tables, Excel metadata file.
 **Outputs per feed:** weight matrix `W`, root flow vector `F_root`, standard deviation `σ_root`, metadata sidecar.
 
+**Two preprocessing scripts run before the feed pipelines and write into the input registry, so their order matters:** `scripts/build_baci_reexport.py` reads the registered gross BACI version and writes a **netted** one — re-exported tonnage re-attributed from the hub to its true origin and destination, with a residual ledger beside it ([ADR 0027](docs/adr/0027-re-exports-are-re-attributed-at-feed-time.md)) — and must run before `scripts/baci_feed.py`; `scripts/build_trade_shares.py` then builds the ICSG fan weights from that netted matrix ([ADR 0002](docs/adr/0002-single-endpoint-rows-fan-out-not-replicate.md) option D, [ADR 0024](docs/adr/0024-fan-domestic-leg-bounded-by-own-production.md)) and must run before `scripts/icsg_feed.py`.
+
 #### Math
 
 ##### Pedigree → coefficient of variation

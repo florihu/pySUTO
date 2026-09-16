@@ -1,6 +1,8 @@
 # The fan's domestic leg is bounded by the region's own production
 
-**Status:** accepted — J.1 merged 2026-09-14 (shipped run `opt_20260910_133212_45f034f1`). Amends
+**Status:** accepted — J.1 merged 2026-09-14 (shipped run `opt_20260910_133212_45f034f1`);
+**amended 2026-09-16 by [ADR 0027](0027-re-exports-are-re-attributed-at-feed-time.md)** — the
+bound now covers Cathode and Anode as well as Concentrate (see *Amendment* below). Amends
 [ADR 0002](0002-single-endpoint-rows-fan-out-not-replicate.md) option D and
 [ADR 0018](0018-import-free-fans-distribute-domestically.md). Evidence: REP
 [`…india-concentrate-residual-domestic`](../rep/analysis_20260910_india-concentrate-residual-domestic.md).
@@ -140,3 +142,39 @@ at most ×1.27) would never bound India — and it is the owner's call.
 **Recommendation:** ship **J.1** — it never inflates a leg more than twofold, removes the Congo
 effect and halves the US one, and carries the larger headline gain — and record India 2014/2016
 and the interpolation of bilateral legs as the next two items. **Decided 2026-09-14: J.1 shipped.**
+
+## Amendment (Round L.2, 2026-09-16): the bound covers Cathode and Anode
+
+`BOUND_DOMESTIC_SECTORS = ["Concentrate", "Cathode", "Anode"]`. ADR 0027's re-attribution exposed
+why Concentrate alone was not enough. Where a hub's ICSG intake exceeds its BACI imports and it
+produces nothing (France, UAE and Malaysia cathode), netting removes the export legs the phantom
+refinery had been built to supply — but with the cathode residual unbounded the same phantom
+simply moved to the use side: France 2015 booked 49.4 kt of *domestic* cathode where it had
+booked 38.3 + 11.1 of exports, the same node inflow under another name. The ledger labelled those
+hub-years `ceiling-relabel` precisely so the gap would not pass unnoticed.
+
+Cathode and Anode cannot read production off the ICSG `F_root` the way Concentrate reads
+`MF→Concentrate` — there is no ICSG-anchored `CP→Cathode` edge — so `icsg_raw_production` derives
+it from the raw ICSG rows, with the same definitions ADR 0027 uses for `P`
+(Cathode = Refining/Anode use · eff_ER + Refining/Scrap use · eff_CFR · eff_ER + SXEW supply;
+Anode = (smelter intake · eff_Smelting + Refining/Scrap use) · eff_CFR). One helper, shared by
+`build_trade_shares.py` and `build_baci_reexport.py`, so the two never drift apart.
+
+Measured against the netting alone: sum-row z² 1,828,508 → **1,720,192** (a further −5.9 %), Round
+C hub-class z² 67,300 → 35,136, Cathode/France phantom production 1,817 → 86 (−95 %), Italy's
+cathode cell halved, and nothing regresses; the three exporters are identical to three decimals in
+both variants, which is what established that ADR 0027's exporter cost is inherent to the
+re-attribution and not to the unbounded cathode residual.
+
+**Two defects in the extension's own first cut, both fixed before the measurement above** (they
+are the reason this paragraph exists):
+
+- *A non-producer must say "zero", not "nothing".* `icsg_raw_production` returned no row for
+  regions that do not mine or refine at all, and the guard reads a missing row as *unknown* and
+  declines to bound — silently un-bounding exactly the phantom-mine regions the bound exists for
+  (Concentrate/Germany 0 → 38,731 z²; Korea's phantom mine back at 2,173 kt). The helper now spans
+  the full fan-group grid with an explicit 0.0.
+- *`P_Anode` omitted the scrap entering CFR* (ADR 0021), so Belgium 2015 read 139 kt of anode
+  against the 380 kt its own refinery consumes and its residual was capped far too low
+  (CFR/Anode Belgium 44,349 → 75,656 z²). Corrected to `(matte + scrap) · eff_CFR` → 292 kt; the
+  cell returned to 43,884. `U_Matte` carries the same correction.

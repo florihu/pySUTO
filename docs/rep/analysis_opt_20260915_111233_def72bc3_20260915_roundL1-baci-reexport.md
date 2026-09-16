@@ -273,3 +273,35 @@ this measurement keep.
 
 **Either way the next round is the same**: why the model deletes a third of Chile's ICSG-reported
 mine output, and 60 % of its ore.
+
+---
+
+# Decision (2026-09-16): kept, with the extended bound
+
+The owner took the recommendation above. **ADR 0027 is accepted and ADR 0024 amended**; the
+shipped run is `opt_20260915_131115_b8bf05a9` (L.2 on BACI v8), sum-row z² **1,720,192**, −19.5 %
+against its L.0 predecessor and −26.2 % against the Round K baseline.
+
+This is the first change in the arc shipped **over a failed stop rule**, so the reasoning is
+recorded rather than assumed: the rule asks whether a change moves physics in the wrong direction,
+and here it was measured to be reporting a pre-existing defect that the change deepens by about
+4 points out of 31. Chile's exports are physically supportable (0.845), China's node is short
+rather than long (−9,187 kt CC), and Chile's ore chain sits at 0.406 before Round L exists. The
+counter-case — that deepening a known defect makes its eventual fix harder to attribute — is why
+the two obligations below are obligations.
+
+**Carried out of this round:**
+
+1. **Release the `a_ref` pin** (`LEG_SIGMA_AREF = None`, ADR 0017's own definition) at the start
+   of the next round, measured on its own against this shipped run. The pin did its job — it kept
+   the L series measuring structure instead of σ — and it must not become permanent, or every
+   later round inherits a reference size from the L.0 leg population.
+2. **Chile's mine chain is the next round.** Why the model deletes ~31 % of Chile's
+   ICSG-reported mine output and ~60 % of its ore, in every run to date, baseline included.
+
+**A reading rule this round earned**: an exporter-retention move is not a verdict on a structural
+change until the exporter's own upstream chain has been read. Here it took three read-only
+measurements to tell "the change is deleting Chile's copper" from "the change is deepening a
+deletion that was already there". Round E's stop rule (a change must move mass, not just the
+metric) is unchanged — this round moved 187,790 kt CC — but its retention band now carries that
+caveat.

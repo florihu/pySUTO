@@ -117,6 +117,35 @@ and its information enters later as a constraint. The projection is guarded
 --- total mass must be conserved to within 1\%, and a raw record fanning
 onto several root edges is counted once, never replicated.
 
+One source is adjusted before it enters. Bilateral trade statistics record
+gross border crossings, so a consignment that is imported into a warehouse or
+merchanting economy and re-exported unchanged is counted twice, and the second
+crossing asks the accounts for domestic production the exporting region does
+not have. We re-attribute that tonnage at feed time. For each product,
+region and year we read four observed quantities in copper content ---
+imports $I$ and exports $X$ from the trade matrix, intake $U$ and production
+$P$ from the industry statistics --- and net the re-exported volume
+\begin{equation}
+T = \min\bigl(X,\, I,\, \max(R, E)\bigr), \qquad
+R = \max(0,\, I-U), \qquad
+E = \max(0,\, X-P),
+\label{eq:reexport}
+\end{equation}
+where $R$ is the surplus-import reading of the same physical fact (what the
+region imported and did not use) and $E$ the uncovered-export reading (what it
+exported and could not have produced), domestic production being taken to
+supply exports first. The volume is
+removed from both of the hub's legs and added to the direct origin--destination
+legs in proportion to the observed inbound and outbound shares; a pair whose
+two ends coincide is a re-import and is dropped. The caps $T \le X$ and
+$T \le I$ make the rule inert for producers with thin industry rows, which
+are never netted. Adjusted legs carry a compounded uncertainty,
+$\sigma_{\mathrm{new}} = \mathrm{CV}\sqrt{v_{\mathrm{obs}}^{2} +
+2\Delta^{2}}$, floored so that no netting step can make a leg more certain
+than its pedigree. Tonnage that arrives at a region and has no recorded
+outbound leg cannot be re-attributed from trade data alone; it is retained,
+labelled in a residual ledger, and left for the reconciliation to judge.
+
 The feed's pedigree CV (Section~\ref{sec:uncertainty}) attaches at this
 point, with one penalty: edges touching an aggregate rest-of-world region are
 re-scored at the worst geographical-correlation level, since such composites
@@ -131,7 +160,7 @@ diversifies ($\mathrm{CV}_{\mathrm{root}} \le \mathrm{CV}_{\mathrm{src}}$ for
 $p \ge 1$) while fan-out leaves the CV unchanged. Stage~1 ends with one
 root-aligned pair $(F_k, \sigma_k)$ per feed $k$ in the feed registry ---
 for copper: industry statistics reported in metal content, bilateral trade
-in gross mass, and national crude-ore extraction.
+in gross mass net of re-exports, and national crude-ore extraction.
 
 \subsection{Stage 2: Aggregation and imputation}\label{sec:stage2}
 
@@ -170,10 +199,14 @@ The terminal pass interpolates remaining gaps in time, with $\sigma$ inflated
 per gap year; seeds zero-mean stock-change priors scaled by observed
 stock-change bands; and assigns every still-empty edge a flat prior --- value
 zero with $\sigma = 10^{6}$, a noisy zero re-anchored in Stage~3
-(a magnitude-aware flat-prior mode is available as an alternative). In the
-copper application the cascade converges in three passes: 7.8\% of the
+(a magnitude-aware flat-prior mode is available as an alternative). Temporal
+interpolation is scoped to within-region edges. A bilateral trade matrix is
+complete by construction, so a partner pair absent in one year is an observed
+zero and not a gap; interpolating it would manufacture trade the source
+denies, and the missing route is left to the flat prior instead. In the
+copper application the cascade converges in two passes: 7.3\% of the
 854{,}460 edges are feed-observed, relational and temporal imputation extend
-informative priors to a further 12.4\%, and the remaining 79.8\% carry flat
+informative priors to a further 9.1\%, and the remaining 83.6\% carry flat
 priors.
 
 \subsection{Stage 3: Constraint building}\label{sec:stage3}

@@ -4,6 +4,10 @@
 (the scope of "no weight → no distribution"). Evidence: REP
 [`…roundC-transit-diagnosis`](../rep/analysis_opt_20260903_124655_4b23df2f_20260907_roundC-transit-diagnosis.md)
 §1–2 and [`…roundD-fan-recovery`](../rep/analysis_opt_20260908_084500_724780b3_20260908_roundD-fan-recovery.md).
+Amended 2026-09-16 by [ADR 0027](0027-re-exports-are-re-attributed-at-feed-time.md): a
+`Σ imports = 0` that the re-export netting *constructed* is not an observation of domestic
+sourcing, so those groups are withheld (left undistributed, ADR 0008's honest state) instead of
+fanned all-domestic. The observability *set* is unchanged.
 
 ## Context
 

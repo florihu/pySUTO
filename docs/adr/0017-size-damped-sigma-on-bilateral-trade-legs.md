@@ -3,6 +3,10 @@
 **Status:** accepted. Evidence: Round-B REP (γ=0.5 and γ=0.7 chains vs Round-A baseline
 `opt_20260903_105145_fa7049e3`); motivation in the root-cause REP
 `analysis_opt_20260903_084528_45fdd041_20260903_masscc-tension-root-causes.md` §4.
+Amended 2026-09-16 by [ADR 0027](0027-re-exports-are-re-attributed-at-feed-time.md): `a_ref`
+may be **pinned** to a predecessor run's medians across a measurement series, so that a change to
+the covered-leg population is not read as a change in physics. The median definition below stands
+for a fresh baseline, and a pin is an obligation to release it at the next round's start.
 
 ## Context
 

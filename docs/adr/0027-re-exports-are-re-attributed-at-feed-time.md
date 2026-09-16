@@ -1,19 +1,26 @@
 # Re-exports are re-attributed to origin and destination at feed time
 
-**Status:** proposed — **measured 2026-09-15, decision pending** (run `opt_20260915_111233_def72bc3`:
-sum-row z² 2,331,632 → **1,769,941, −24.1 %**, hub-class z² −76 %, Germany/Korea phantom chains to
-zero, PSC tail p95 12.2 → 9.8 — but **exporter retention fails the stop rule**: Chile 0.636 → 0.561,
-Peru 0.944 → 0.901, world mining chain −3 pp). Evidence: REP
-[`…roundL1-baci-reexport`](../rep/analysis_opt_20260915_111233_def72bc3_20260915_roundL1-baci-reexport.md).
-Round L.1. Amends
+**Status:** accepted — L.1 + L.2 merged 2026-09-16 (shipped run `opt_20260915_131115_b8bf05a9`:
+sum-row z² **2,136,925 → 1,720,192, −19.5 %** against its L.0 predecessor; Round C hub-class z²
+151,887 → 35,136, −77 %; the Germany, Korea, France and Portugal phantom chains gone; 187,790 kt CC
+of posterior mass moved; 30/30 Solved). Shipped **knowingly over a failed stop rule** — exporter
+concentrate retention Chile 0.636 → 0.574, Peru 0.944 → 0.903 against a ±0.01 band — because the
+loss was traced to a pre-existing defect that the re-attribution deepens rather than creates: the
+model already deletes 31 % of Chile's ICSG-reported mine output and 60 % of its ore at L.0, before
+this ADR touches anything, and Chile's exports are physically supportable (0.845 of what its mine
+and imports leave available). That defect is the named next round. Evidence: REP
+[`…roundL1-baci-reexport`](../rep/analysis_opt_20260915_111233_def72bc3_20260915_roundL1-baci-reexport.md)
+(§5 and Addenda 1–2). Round L.1 / L.2. Amends
 [ADR 0002](0002-single-endpoint-rows-fan-out-not-replicate.md) option D (which BACI version the
 fan weights read), [ADR 0014](0014-bilateral-feeds-scoped-to-cross-region-edges.md) (the bilateral
 feed now carries inferred legs, flagged and σ-compounded),
 [ADR 0017](0017-size-damped-sigma-on-bilateral-trade-legs.md) (`a_ref` may be pinned across a
-measurement series) and [ADR 0018](0018-import-free-fans-distribute-domestically.md) (a
-*constructed* zero import sum is not an observation). Requires
+measurement series), [ADR 0018](0018-import-free-fans-distribute-domestically.md) (a
+*constructed* zero import sum is not an observation) and
+[ADR 0024](0024-fan-domestic-leg-bounded-by-own-production.md) (the production bound extended to
+Cathode and Anode). Requires
 [ADR 0026](0026-bilateral-trade-legs-are-not-time-interpolated.md). Baseline
-`opt_20260914_090327_c21a5c48`.
+`opt_20260914_090327_c21a5c48`; L.0 predecessor `opt_20260915_103911_38b3fffc`.
 
 ## Context
 
@@ -166,7 +173,7 @@ for nothing. A new leg carries exactly √2 × the pedigree cv; a leg 90 % nette
   them into the version: the run that consumed a netted feed can always be traced to the exact
   ledger that produced it.
 
-## Measured (Round L.1, 2026-09-15) — not yet decided
+## Measured (Round L.1 / L.2, 2026-09-15)
 
 Applied 10,524 kt CC (2.14 % of gross trade) over 1,358 hub-years; 182 new legs; 467 kt of
 re-imports dropped; 60,600 kt of residual labelled rather than clipped.
@@ -207,6 +214,42 @@ Belgium reads 139 kt against the 380 kt its own refinery consumes) — gives, ag
   phantom refinery down 95 %, Italy's cathode cell halved, and nothing regresses.
 - **The exporter cost is inherent to the re-attribution**, not to the unbounded cathode residual:
   the three exporters are identical to three decimals in both variants.
-- **The stop rule still fails** (Chile −0.062, Peru −0.041 against ±0.01), so the decision stands
+- **The stop rule still fails** (Chile −0.062, Peru −0.041 against ±0.01), which put the decision
   with the owner: keep the netting with the extended bound, or revert to L.0 and keep ADR 0026
-  alone. ADR 0024 gains the amendment either way only if the netting is kept.
+  alone.
+
+## Decision on the stop-rule failure (2026-09-16)
+
+Kept, with the extended bound. The failure was diagnosed before the call rather than judged, and
+three read-only measurements decided it (REP Addendum 2):
+
+1. **Chile's trade is physically supportable.** 2010–19 BACI concentrate exports 20,776 kt CC
+   against 24,572 kt available from its own mine plus imports less its own smelters — a ratio of
+   0.845. Deleting Chile's export legs is therefore not a correction. (Peru 1.098, Indonesia
+   1.248 are mildly over-committed; Chile is the clean case.)
+2. **China's concentrate node is short, not long** — 9,187 kt CC below ICSG's smelter intake,
+   pooled — so the re-attribution is not over-supplying the destination it moves tonnage to.
+3. **Chile's own chain is where the copper goes, and it goes there already at L.0**: `CO→Ore`
+   0.406, `Ore→MF` 0.400, `MF→Concentrate` 0.685 on a prior of 38,000 kt CC that *is* ICSG's
+   Chilean mine figure. The netting moves that last number to 0.655.
+
+So the rule flagged a symptom: a ~4-point deepening of a ~31-point deletion that is present in
+every run including the shipped baseline, is an order of magnitude larger than anything this ADR
+buys or costs, and needs its own round regardless. Reverting would have protected a retention
+figure that is itself an artefact of that defect (0.636 means 36 % of Chile's exports were already
+being deleted) and would not have moved Chile's ore chain at all (0.406 versus 0.392).
+
+The counter-case — stop-rule discipline, since deepening a known defect makes its eventual fix
+harder to attribute — is recorded, not dismissed. It is the reason the two items below are
+carried as obligations rather than options.
+
+**Carried forward with this decision:**
+
+- **The `a_ref` pin is temporary.** `LEG_SIGMA_AREF` in `collect_aggregate_impute.py` holds the
+  L.0 medians so the L series measured structure and not σ. It must be released — set back to
+  `None`, ADR 0017's own definition — at the **start** of the next round, on its own measurement
+  against this shipped run, or every later round silently inherits a frozen reference size from a
+  superseded leg population.
+- **Chile's mine chain is the next round.** Why the model deletes ~31 % of Chile's ICSG-reported
+  mine output and ~60 % of its ore, in every run to date. Until it is understood, an exporter-
+  retention change is not by itself a verdict on a structural change — read the ore chain first.
