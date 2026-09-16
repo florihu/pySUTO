@@ -57,33 +57,19 @@ def test_region_bands_min_max_margin():
     assert b.loc["A", "g_max"] == pytest.approx(0.012 * 1.1)
 
 
-def test_band_is_year_local(  # ADR 0028
-):
-    """Each year's hard band brackets that year's own grade, not the series."""
-    g = pd.DataFrame({"region": ["A", "A", "A"], "time": ["1", "2", "3"],
-                      "g": [0.010, 0.008, 0.012], "src": ["icsg"] * 3})
-    rows = build_param_rows(g, region_bands(g), margin_rel=0.10)
-    by_year = rows.drop_duplicates("a_time").set_index("a_time")
-    for t, nominal in [("1", 0.010), ("2", 0.008), ("3", 0.012)]:
-        assert by_year.loc[t, "value_min"] == pytest.approx(nominal * 0.9)
-        assert by_year.loc[t, "value_max"] == pytest.approx(nominal * 1.1)
-    # the three years get three different bands — the whole point
-    assert by_year["value_max"].nunique() == 3
-    # and the widest year's ceiling is far below the old series ceiling
-    assert by_year["value_max"].max() < 0.012 * 1.1 * 1.0001
-    assert by_year.loc["2", "value_max"] < 0.012 * 1.1
-
-
 def test_sigma_is_pinned_to_the_series_envelope():
-    """ADR 0028: σ is stated explicitly so narrowing the band cannot move it.
+    """ADR 0028: σ is stated explicitly instead of being derived from the band.
 
     `value_sd` must equal the σ the retired `min_max` mode derived from the
-    series envelope — (g_max − g_min)/4 — so the soft ratio row, the
-    ParametricImputer prior and the NetworkImputer twin map are unchanged.
+    series envelope — (g_max − g_min)/4 — so that changing the band cannot
+    silently move the soft ratio row, the ParametricImputer prior or the
+    NetworkImputer twin map. That separation is what made Round M's result
+    attributable; the year-local band it was built for was measured and
+    rejected.
     """
     g = pd.DataFrame({"region": ["A", "A", "A"], "time": ["1", "2", "3"],
                       "g": [0.010, 0.008, 0.012], "src": ["icsg"] * 3})
-    rows = build_param_rows(g, region_bands(g), margin_rel=0.10)
+    rows = build_param_rows(g, region_bands(g))
     expected = (0.012 * 1.1 - 0.008 * 0.9) / 4.0
     assert set(rows["unc_type"]) == {"sd"}
     assert rows["value_sd"].astype(float).tolist() == pytest.approx([expected] * 9)
@@ -216,16 +202,13 @@ def test_carried_rows_get_wider_band_and_record_source_year():
     # carried g equals an observed g, so the series band is unchanged by it
     assert region_bands(grades).set_index("region").loc["A", "g_max"] == \
         pytest.approx(0.012 * (1 + 0.10))
-    rows = build_param_rows(carried, region_bands(grades, MARGIN_REL_CARRY),
-                            MARGIN_REL_CARRY)
+    rows = build_param_rows(carried, region_bands(grades, MARGIN_REL_CARRY))
     assert len(rows) == 3
     assert (rows["a_time"] == "2023").all()
     assert rows["value_nominal"].tolist() == pytest.approx([0.012] * 3)
-    # ADR 0028: the wider carried margin is now taken around the carried year's
-    # own grade (0.012), not around the region's series extremes (0.010/0.012).
-    assert rows["value_min"].tolist() == pytest.approx([0.012 * (1 - MARGIN_REL_CARRY)] * 3)
+    assert rows["value_min"].tolist() == pytest.approx([0.010 * (1 - MARGIN_REL_CARRY)] * 3)
     assert rows["value_max"].tolist() == pytest.approx([0.012 * (1 + MARGIN_REL_CARRY)] * 3)
-    # ...while σ still comes from the wider series envelope, unchanged
+    # ADR 0028: σ is the same envelope's quarter-width, stated explicitly
     assert rows["value_sd"].tolist() == pytest.approx(
         [(0.012 * (1 + MARGIN_REL_CARRY) - 0.010 * (1 - MARGIN_REL_CARRY)) / 4.0] * 3)
     assert (rows["comment"] == "in-situ basis; src=carry; from=2022").all()

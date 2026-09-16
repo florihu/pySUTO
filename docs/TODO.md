@@ -58,25 +58,40 @@ it is the measurement above that says so. Decide instead: a per-sector constant,
 quantile of the *gross* matrix, or a physically motivated size — something that does
 not move when the matrix it prices gets better.
 
-## Chile's mine chain — DIAGNOSED 2026-09-16, experiment pending
+## THE DISCHARGE PATH — why the softest thing pays (the active target)
 
-REP `analysis_opt_20260915_131115_b8bf05a9_20260916_chile-mine-chain.md`.
+Round M settled what the Chile diagnosis could only hypothesise. The grade bands
+do **not** cause the ore deletion; they **shape** it. Closing them relocates the
+same contradiction and, on the copper side, relocates it worse:
 
-Not Chile's defect: **trade's**. Self-sufficient nodes hold their anchors (US 1.000,
-Russia 1.024, Zambia 1.014); trade-dependent ones lose a fifth to a third (Korea
-0.717, Germany 0.737, China 0.748, Japan 0.789, Chile's mine 0.655). Chile is 69 % of
-the world shortfall only because it is the largest number attached to a
-trade-dependent node. Nothing downstream backs up (anode 0.994, cathode 1.002) — the
-hole is healed by scrap backfill and by implied efficiency drift (smelting
-0.917 → 0.963, refining 0.881 → 0.983), both silent.
+| | escapes through | Chile legs on the conc floor | US ore retention |
+|---|---|---|---|
+| base | Chile's ore-grade **ceiling** | 35 % | 0.990 |
+| + year-local ore band | Chile's concentrate **floor** | 55 % | 1.307 |
+| + narrowed conc band | **US ore** | **66 %** | **1.356** |
 
-**The lead:** `conc_Concentrate` is a single global constant — `a_region = *`,
-nominal 0.275, band [0.20, 0.35] — so every leg from every mine to every smelter is
-priced at 27.5 % Cu. The grades the nodes need are not uniform and not 0.275: Chile
-0.325, China 0.292, Korea 0.315, Germany 0.320, Japan 0.260, Spain 0.371, Brazil
-0.384, India 0.466. Chile's 0.325 is *inside the parameter's own band*, and the
-solver went the other way to 0.210. This is exactly the defect ADR 0015 fixed for
-**ore** grades and never applied to **concentrate** grade.
+So the question is not where the walls are, it is **why the fluid exists and
+who pays**. Chile's concentrate node is over-determined by 3,053 kt CC and the
+posterior destroys **13,124 — 4.3x**. A disagreement between two ICSG figures
+(a mine total and a smelter total) is settled by deleting the *trade and ore
+that connect them*, because that is the softest thing in the neighbourhood:
+**leg cv 0.069** after ADR 0017 damping against **scale-total anchor cv 0.017**.
+
+Leads, in the ADR 0016 / 0017 / 0025 family:
+- ADR 0016 already measured that *loosening* fabricated anchors collapses the
+  chain (CO Mass 0.66 -> 0.41). So the fix is not "loosen the anchors".
+- The `a_ref` item above is the same family and has its own measurement.
+- A contradiction between two anchors should probably be *visible as a residual
+  on those anchors*, not discharged through a third quantity neither of them
+  measures. ADR 0019 (contradicted nodes lose anchor authority) and ADR 0020
+  (withhold) are the existing precedents for that shape.
+
+Rejected, with a working implementation in commit `f6bd5c9` and the numbers in
+ADR 0028: year-local grade bands, and a narrowed concentrate band. Do not
+re-propose either until the discharge path is understood; then re-measure
+rather than assume.
+
+## Chile's mine chain — the diagnosis that led here
 
 **The instrument is a pair of HARD bands, both pinned.** `value_min`/`value_max` are
 not prior shaping — `RatioBoundBuilder` makes them hard cones. Chile sits on the
@@ -91,13 +106,7 @@ collapses (0.386, 0.555) while the US, Peru, Zambia and Indonesia hold at ~1.0.
 Which gives the loss an exact decomposition:
 **ore Mass retention 0.42 = 0.69 (copper deleted) × 0.61 (rock discarded at the cap).**
 
-**Next, in this order (independent, measure separately):**
-1. **Year-local ore-grade bands** — bracket *that year's* nominal, not the 30-year
-   extremes. One parameter file. Should move Chile's ore retention 0.39 → ~0.65 with
-   no change to the copper story.
-2. **Region×year concentrate grade** — `conc_Concentrate` is still one global 0.275,
-   band [0.20, 0.35]. A realistic Chilean band (~0.28-0.32) forbids emptying the legs.
-3. **Then re-read the amplification**: Chile's node is over-determined by 3,053 kt CC
-   and the posterior destroys 13,124 (**4.3×**). If closing the node does not stop the
-   deletion, the fault is in the discharge path (leg cv 0.069 vs anchor cv 0.017) —
-   the same family as the `a_ref` item above.
+**Both band fixes were built, measured and REJECTED** (Round M, ADR 0028): the
+ore band moved Chile's retention 0.386 → 0.566 and removed its impossible
+1.662 % posterior grade, but the deletion relocated to the concentrate floor and
+then to US ore. See the discharge-path section above, which is where this went.

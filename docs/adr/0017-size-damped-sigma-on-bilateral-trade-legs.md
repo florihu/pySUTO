@@ -11,6 +11,11 @@ costs 2.4 points of Chilean concentrate retention — which exposes a defect in 
 itself: `a_ref` rises whenever the leg population is *cleaned* of small legs, and a higher `a_ref`
 loosens σ on every leg that survived. The reference size is a free parameter the population moves,
 not a neutral descriptive statistic. Open: give it a size that does not drift with what it prices.
+Round M (2026-09-16,
+[ADR 0028](0028-grade-sigma-is-stated-not-derived-from-the-band.md)) sharpened why this matters:
+leg cv ≈ 0.069 after damping against scale-total anchor cv 0.017 is what decides that a
+disagreement between two ICSG figures is paid for by deleting the trade between them. The
+discharge path, not any band, is the next target.
 
 ## Context
 

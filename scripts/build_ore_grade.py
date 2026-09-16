@@ -88,9 +88,8 @@ FEED_REG    = os.path.join("data", "proc", "feed", "registry")
 OG_DIR      = os.path.join(_INPUT_ROOT, "params", "ore_grade", "current")
 OUT_CSV     = os.path.join(OG_DIR, "params.csv")
 
-# Relative margin. ADR 0028: applied to *that year's own* grade for the hard
-# band (`value_min`/`value_max`), and to the region's in-situ series min/max for
-# the σ the band used to imply (`value_sd` = envelope width / 4).
+# Relative margin applied to a region's in-situ series min/max, which sets both
+# the hard band and (as envelope width / 4) the σ now written to `value_sd`.
 MARGIN_REL = 0.10
 # Wider margin for carried-forward grades (ADR 0023): the grade is assumed, not
 # measured, in those years.
@@ -164,13 +163,9 @@ def compute_insitu_grades(
 
 
 def region_bands(grades: pd.DataFrame, margin_rel: float = MARGIN_REL) -> pd.DataFrame:
-    """Per-region series envelope = series min/max ∓/± relative margin.
+    """Per-region hard band = series min/max ∓/± relative margin.
 
-    ADR 0028: this is the **σ source**, not the hard band. `(g_max − g_min)/4`
-    is written to `value_sd`, which reproduces exactly the σ the `min_max`
-    unc_type used to derive from these two numbers — so the soft ratio row and
-    the Stage-2 twin map are unchanged. The hard band is year-local and is
-    computed per row in `build_param_rows`.
+    Also the σ source: `(g_max − g_min)/4` is written to `value_sd` (ADR 0028).
     """
     g = grades.groupby("region")["g"]
     return pd.DataFrame({
@@ -283,20 +278,20 @@ _SOURCE = {
 }
 
 
-def build_param_rows(grades: pd.DataFrame, bands: pd.DataFrame,
-                     margin_rel: float = MARGIN_REL) -> pd.DataFrame:
+def build_param_rows(grades: pd.DataFrame, bands: pd.DataFrame) -> pd.DataFrame:
     """Expand (region, time, g) into the three conc-family roles.
 
-    ADR 0028 splits the two jobs `value_min`/`value_max` used to do at once:
+    ADR 0028 states σ explicitly (`unc_type="sd"`) instead of leaving it to be
+    derived from the band, so that the band's two jobs — a hard plausibility
+    limit and a measurement uncertainty — can be changed independently. The
+    values are unchanged: `value_sd` is the quarter-width of the same series
+    envelope the retired `min_max` mode read, so the soft ratio row, the
+    `ParametricImputer` prior and the `NetworkImputer` twin map are identical.
 
-    * the **hard band** (`RatioBoundBuilder`) brackets *that year's own* grade,
-      `g·(1 ∓ margin_rel)`. Applying the margin to the region's 30-year series
-      envelope instead let a declining-grade region price this year's ore at
-      the grade of decades earlier — Chile's ceiling was 1.1× its 1995 grade
-      and bound in 26 of 30 years;
-    * the **σ** (`RatioConstraintBuilder`, `ParametricImputer`, the
-      `NetworkImputer` twin map) stays the series-envelope quarter-width via an
-      explicit `value_sd`, so this change moves the cone and nothing else.
+    The band itself stays the region's series envelope (ADR 0015). A year-local
+    band was built and measured in Round M and **rejected** — it removed Chile's
+    impossible 1.66 % posterior ore grade but merely relocated the deletion
+    (US ore 0.990 → 1.356); see ADR 0028 and its REP.
     """
     merged = grades.merge(bands, on="region")
     rows = []
@@ -317,13 +312,12 @@ def build_param_rows(grades: pd.DataFrame, bands: pd.DataFrame,
                 "b_time": "same", "b_valuation": "CC",
                 "value_nominal": round(float(r["g"]), 8),
                 "unc_type": "sd",
-                # Rounded ENDS, unrounded quotient: this is bit-for-bit the σ
-                # the retired `min_max` branch derived from the written band,
-                # so Stage 2 cannot move (ADR 0028's attribution gate).
+                # Rounded ENDS, unrounded quotient: bit-for-bit the σ the
+                # retired `min_max` branch derived from the band (ADR 0028).
                 "value_sd": (round(float(r["g_max"]), 8)
                              - round(float(r["g_min"]), 8)) / 4.0,
-                "value_min": round(float(r["g"]) * (1.0 - margin_rel), 8),
-                "value_max": round(float(r["g"]) * (1.0 + margin_rel), 8),
+                "value_min": round(float(r["g_min"]), 8),
+                "value_max": round(float(r["g_max"]), 8),
                 "bound_lower": 0, "bound_upper": 1,
                 "source": _SOURCE[r["src"]],
                 "comment": (f"in-situ basis; src=carry; from={r['from_time']}"
@@ -437,9 +431,8 @@ def main() -> None:
                                     conc_concentrate, conc_csxew)
     is_carry_t = tails["src"] == "carry"
     params = pd.concat([
-        build_param_rows(observed, region_bands(grades), MARGIN_REL),
-        build_param_rows(carried, region_bands(grades, MARGIN_REL_CARRY),
-                         MARGIN_REL_CARRY),
+        build_param_rows(observed, region_bands(grades)),
+        build_param_rows(carried, region_bands(grades, MARGIN_REL_CARRY)),
         build_tailings_rows(tails[~is_carry_t], tailings_bands(tails)),
         build_tailings_rows(tails[is_carry_t], tailings_bands(tails, MARGIN_REL_CARRY)),
     ], ignore_index=True)

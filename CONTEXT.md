@@ -257,6 +257,17 @@ these are *not* physical mill-head grades (Australia ~2–3 % vs ~0.8 % head gra
 applying a recovered-basis grade to an in-situ edge (a systematic 1/eff error), or citing these
 grades against literature head grades without converting.
 
+**Grade band vs grade σ.** A `conc`-family params row's `value_min`/`value_max` are read **twice**:
+as a **hard cone** by `RatioBoundBuilder` (`value_min·Mass ≤ CC ≤ value_max·Mass`, per edge per
+year — a physical plausibility limit, no slack) and, when `unc_type = "min_max"`, as the **σ** of the
+*soft* ratio row via `sigma_from_row` — which also sets the `ParametricImputer` prior and the
+`NetworkImputer` twin-map σ. Those are two different statements, and conflating them means changing
+a limit silently re-prices three things. The `ore_grade` grade rows therefore carry
+`unc_type = "sd"` with an explicit `value_sd` (ADR 0028); tailings rows still use `min_max`. The
+other `unc_type` mode is `pedigree` (σ = nominal · Laner total CV). _Avoid_: calling the band "the
+σ" — a band is the wall, σ is the price of approaching it; and narrowing a `min_max` band when you
+only meant to move the wall.
+
 **Grade carried past the ore feed.** The `crude_ore` feed ends before ICSG production does
 (2022 vs 2024). For a region-year with production but no ore mass the `ore_grade` generator
 carries the region's **last observed in-situ grade** forward (`src=carry`, band ±20 % instead
