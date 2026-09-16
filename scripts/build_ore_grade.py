@@ -88,9 +88,10 @@ FEED_REG    = os.path.join("data", "proc", "feed", "registry")
 OG_DIR      = os.path.join(_INPUT_ROOT, "params", "ore_grade", "current")
 OUT_CSV     = os.path.join(OG_DIR, "params.csv")
 
-# Relative margin applied to a region's in-situ series min/max for the hard band.
+# Relative margin applied to a region's in-situ series min/max, which sets both
+# the hard band and (as envelope width / 4) the σ now written to `value_sd`.
 MARGIN_REL = 0.10
-# Wider band for carried-forward grades (ADR 0023): the grade is assumed, not
+# Wider margin for carried-forward grades (ADR 0023): the grade is assumed, not
 # measured, in those years.
 MARGIN_REL_CARRY = 0.20
 
@@ -162,7 +163,10 @@ def compute_insitu_grades(
 
 
 def region_bands(grades: pd.DataFrame, margin_rel: float = MARGIN_REL) -> pd.DataFrame:
-    """Per-region hard band = series min/max ∓/± relative margin."""
+    """Per-region hard band = series min/max ∓/± relative margin.
+
+    Also the σ source: `(g_max − g_min)/4` is written to `value_sd` (ADR 0028).
+    """
     g = grades.groupby("region")["g"]
     return pd.DataFrame({
         "g_min": g.min() * (1.0 - margin_rel),
@@ -275,7 +279,20 @@ _SOURCE = {
 
 
 def build_param_rows(grades: pd.DataFrame, bands: pd.DataFrame) -> pd.DataFrame:
-    """Expand (region, time, g) into the three conc-family roles."""
+    """Expand (region, time, g) into the three conc-family roles.
+
+    ADR 0028 states σ explicitly (`unc_type="sd"`) instead of leaving it to be
+    derived from the band, so that the band's two jobs — a hard plausibility
+    limit and a measurement uncertainty — can be changed independently. The
+    values are unchanged: `value_sd` is the quarter-width of the same series
+    envelope the retired `min_max` mode read, so the soft ratio row, the
+    `ParametricImputer` prior and the `NetworkImputer` twin map are identical.
+
+    The band itself stays the region's series envelope (ADR 0015). A year-local
+    band was built and measured in Round M and **rejected** — it removed Chile's
+    impossible 1.66 % posterior ore grade but merely relocated the deletion
+    (US ore 0.990 → 1.356); see ADR 0028 and its REP.
+    """
     merged = grades.merge(bands, on="region")
     rows = []
     for _, r in merged.iterrows():
@@ -294,7 +311,11 @@ def build_param_rows(grades: pd.DataFrame, bands: pd.DataFrame) -> pd.DataFrame:
                 "b_entity_to": "same", "b_region_to": "same",
                 "b_time": "same", "b_valuation": "CC",
                 "value_nominal": round(float(r["g"]), 8),
-                "unc_type": "min_max",
+                "unc_type": "sd",
+                # Rounded ENDS, unrounded quotient: bit-for-bit the σ the
+                # retired `min_max` branch derived from the band (ADR 0028).
+                "value_sd": (round(float(r["g_max"]), 8)
+                             - round(float(r["g_min"]), 8)) / 4.0,
                 "value_min": round(float(r["g_min"]), 8),
                 "value_max": round(float(r["g_max"]), 8),
                 "bound_lower": 0, "bound_upper": 1,

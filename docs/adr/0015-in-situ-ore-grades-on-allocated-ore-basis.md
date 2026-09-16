@@ -1,6 +1,11 @@
 # Ore grades are in-situ, on the price-allocated ore basis, region×year-resolved
 
-**Status:** accepted. Evidence run: `opt_20260902_092933_02064ce2` (post mapped-self-trade); REP
+**Status:** accepted.
+Amended 2026-09-16 by [ADR 0028](0028-grade-sigma-is-stated-not-derived-from-the-band.md):
+the grade rows' σ is now **stated** (`unc_type="sd"`) rather than derived from the band, so the
+band's two jobs can move independently. The band values below are unchanged — a **year-local**
+band was built and measured in Round M and rejected: it removed Chile's impossible 1.662 %
+posterior ore grade but relocated the deletion (US ore 0.990 → 1.356) rather than reducing it. Evidence run: `opt_20260902_092933_02064ce2` (post mapped-self-trade); REP
 of the grade-basis fix run under `docs/rep/`.
 
 ## Context

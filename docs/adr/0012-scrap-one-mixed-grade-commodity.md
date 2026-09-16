@@ -1,5 +1,10 @@
 # Scrap is one mixed-grade commodity — a single conc band, no grade classes
 
+*Its invariant — **each commodity carries exactly one hard grade band** — was re-affirmed
+2026-09-16 by [ADR 0028](0028-grade-sigma-is-stated-not-derived-from-the-band.md) as the reason
+region-specific `conc` rows are not added: neither constraint builder dedups by specificity, so a
+region row layers on the global one instead of replacing it.*
+
 The `conc` params shipped **two** scrap supply concentrations — `concscrapclass1supply`
 (`[0.90, 0.98]`, high-grade) and `concscrapclass2supply` (`[0.40, 0.60]`, low-grade) — both
 *mapped onto the single `Scrap/SB` root node* (their own comments say *"Mapped from

@@ -49,11 +49,32 @@ def test_factor_fallback_and_gaps():
 
 
 def test_region_bands_min_max_margin():
+    """The series envelope. ADR 0028: this is now the σ source, not the band."""
     g = pd.DataFrame({"region": ["A", "A", "A"], "time": ["1", "2", "3"],
                       "g": [0.010, 0.008, 0.012], "src": ["icsg"] * 3})
     b = region_bands(g, margin_rel=0.10).set_index("region")
     assert b.loc["A", "g_min"] == pytest.approx(0.008 * 0.9)
     assert b.loc["A", "g_max"] == pytest.approx(0.012 * 1.1)
+
+
+def test_sigma_is_pinned_to_the_series_envelope():
+    """ADR 0028: σ is stated explicitly instead of being derived from the band.
+
+    `value_sd` must equal the σ the retired `min_max` mode derived from the
+    series envelope — (g_max − g_min)/4 — so that changing the band cannot
+    silently move the soft ratio row, the ParametricImputer prior or the
+    NetworkImputer twin map. That separation is what made Round M's result
+    attributable; the year-local band it was built for was measured and
+    rejected.
+    """
+    g = pd.DataFrame({"region": ["A", "A", "A"], "time": ["1", "2", "3"],
+                      "g": [0.010, 0.008, 0.012], "src": ["icsg"] * 3})
+    rows = build_param_rows(g, region_bands(g))
+    expected = (0.012 * 1.1 - 0.008 * 0.9) / 4.0
+    assert set(rows["unc_type"]) == {"sd"}
+    assert rows["value_sd"].astype(float).tolist() == pytest.approx([expected] * 9)
+    # identical in every year, as the envelope is
+    assert rows["value_sd"].nunique() == 1
 
 
 def test_param_rows_shape_and_grammar():
@@ -63,7 +84,7 @@ def test_param_rows_shape_and_grammar():
     # three conc-family roles per region-year
     assert len(rows) == 3
     assert set(rows["param_type"]) == {"concentration"}
-    assert set(rows["unc_type"]) == {"min_max"}
+    assert set(rows["unc_type"]) == {"sd"}          # ADR 0028
     # underscore-free, punctuation-free param ids (naming._safe grammar)
     assert rows["param_id"].str.fullmatch(r"[a-z0-9]+").all()
     assert (rows["param_id"] == "oregradecosupplykorearep2015").any()
@@ -79,9 +100,10 @@ def test_param_rows_shape_and_grammar():
         ("Ore", "Flow", "Korea, Rep.")
     sup = rows[rows.param_id.str.contains("oresupply")].iloc[0]
     assert (sup["a_sector_from"], sup["a_region_from"]) == ("Ore", "Korea, Rep.")
-    # value_min/max feed both the hard band and the min_max σ
+    # value_min/max are the hard band only; σ is value_sd (ADR 0028)
     assert (rows["value_min"] < rows["value_nominal"]).all()
     assert (rows["value_max"] > rows["value_nominal"]).all()
+    assert (rows["value_sd"].astype(float) > 0).all()
 
 
 CONC_CONCENTRATE, CONC_CSXEW = 0.275, 0.9975
@@ -140,6 +162,9 @@ def test_tailings_rows_shape_and_grammar():
     assert set(rows["b_valuation"]) == {"CC"}
     assert (rows["value_min"] < rows["value_nominal"]).all()
     assert (rows["value_max"] > rows["value_nominal"]).all()
+    # ADR 0028 scope boundary: tailings bands were measured NOT to bind, so they
+    # keep the series envelope and the min_max σ. Grade rows do not.
+    assert set(rows["unc_type"]) == {"min_max"}
 
 
 # ---- ADR 0023: temporal carry-forward past the crude_ore feed's last year ----
@@ -183,6 +208,9 @@ def test_carried_rows_get_wider_band_and_record_source_year():
     assert rows["value_nominal"].tolist() == pytest.approx([0.012] * 3)
     assert rows["value_min"].tolist() == pytest.approx([0.010 * (1 - MARGIN_REL_CARRY)] * 3)
     assert rows["value_max"].tolist() == pytest.approx([0.012 * (1 + MARGIN_REL_CARRY)] * 3)
+    # ADR 0028: σ is the same envelope's quarter-width, stated explicitly
+    assert rows["value_sd"].tolist() == pytest.approx(
+        [(0.012 * (1 + MARGIN_REL_CARRY) - 0.010 * (1 - MARGIN_REL_CARRY)) / 4.0] * 3)
     assert (rows["comment"] == "in-situ basis; src=carry; from=2022").all()
     assert rows["source"].str.contains("carried forward").all()
 

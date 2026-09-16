@@ -1,6 +1,8 @@
 # Past the crude-ore feed's last year, the in-situ grade is carried forward — not the ore mass
 
-**Status:** accepted — merged 2026-09-10 (Round I, REP
+**Status:** accepted *(amended 2026-09-16 by
+[ADR 0028](0028-grade-sigma-is-stated-not-derived-from-the-band.md): the ±20 % carried band is
+unchanged in value; re-basing it on the carried year's own grade was measured and rejected.)* — merged 2026-09-10 (Round I, REP
 [`…roundI-ore-grade-carry`](../rep/analysis_opt_20260910_114200_7f4040d9_20260910_roundI-ore-grade-carry.md)).
 Extends
 [ADR 0015](0015-in-situ-ore-grades-on-allocated-ore-basis.md); retires the Stage 2
