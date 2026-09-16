@@ -58,8 +58,28 @@ it is the measurement above that says so. Decide instead: a per-sector constant,
 quantile of the *gross* matrix, or a physically motivated size — something that does
 not move when the matrix it prices gets better.
 
-## Chile's mine chain (the named next round)
+## Chile's mine chain — DIAGNOSED 2026-09-16, experiment pending
 
-The model deletes ~31 % of Chile's ICSG-reported mine output and ~60 % of its ore in
-every run, the shipped baseline included. See [[chile-mine-chain-deletion]] /
-REP `…roundL1-baci-reexport` Addendum 2. Under investigation.
+REP `analysis_opt_20260915_131115_b8bf05a9_20260916_chile-mine-chain.md`.
+
+Not Chile's defect: **trade's**. Self-sufficient nodes hold their anchors (US 1.000,
+Russia 1.024, Zambia 1.014); trade-dependent ones lose a fifth to a third (Korea
+0.717, Germany 0.737, China 0.748, Japan 0.789, Chile's mine 0.655). Chile is 69 % of
+the world shortfall only because it is the largest number attached to a
+trade-dependent node. Nothing downstream backs up (anode 0.994, cathode 1.002) — the
+hole is healed by scrap backfill and by implied efficiency drift (smelting
+0.917 → 0.963, refining 0.881 → 0.983), both silent.
+
+**The lead:** `conc_Concentrate` is a single global constant — `a_region = *`,
+nominal 0.275, band [0.20, 0.35] — so every leg from every mine to every smelter is
+priced at 27.5 % Cu. The grades the nodes need are not uniform and not 0.275: Chile
+0.325, China 0.292, Korea 0.315, Germany 0.320, Japan 0.260, Spain 0.371, Brazil
+0.384, India 0.466. Chile's 0.325 is *inside the parameter's own band*, and the
+solver went the other way to 0.210. This is exactly the defect ADR 0015 fixed for
+**ore** grades and never applied to **concentrate** grade.
+
+**Next:** region×year concentrate grade, then measure. Caveat before spending on it:
+Chile's node is over-determined by 3,053 kt CC and the posterior destroys 13,124 —
+a **4.3× amplification** that the grade alone does not explain. If closing the node
+does not stop the deletion, the fault is in how infeasibility is discharged (leg
+cv 0.069 vs anchor cv 0.017) — the same family as the `a_ref` item above.
