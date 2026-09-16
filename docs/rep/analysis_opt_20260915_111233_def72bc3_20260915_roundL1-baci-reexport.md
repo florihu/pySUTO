@@ -305,3 +305,42 @@ measurements to tell "the change is deleting Chile's copper" from "the change is
 deletion that was already there". Round E's stop rule (a change must move mass, not just the
 metric) is unchanged — this round moved 187,790 kt CC — but its retention band now carries that
 caveat.
+
+---
+
+# Addendum 3 — the `a_ref` sensitivity, and what it says about ADR 0017
+
+The plan's last open acceptance item (g) was to report the **unpinned** `a_ref` variant as a
+sensitivity line. Run `opt_20260916_072151_ac748919` (imp `imp_20260916_070419_9df3101b`), identical
+to the shipped chain except `LEG_SIGMA_AREF = None`, so ADR 0017 re-derives the sector medians from
+the netted leg population:
+
+| | pinned to L.0 (**shipped**) | unpinned |
+|---|---|---|
+| `a_ref` Concentrate / Cathode / Anode / Matte (kt) | 10.26 · 0.268 · 0.213 · 0.223 | 12.0 · 0.3 · 0.3 · 0.3 *(as logged, 1 dp)* |
+| sum-row z² | **1,720,192** | 1,748,645 (**+1.7 %**) |
+| Chile · Peru · Indonesia retention | **0.574** · 0.903 · 0.845 | 0.550 · 0.900 · 0.845 |
+| world CO Mass · Concentrate CC · Cathode CC | **0.779** · 0.872 · 1.003 | 0.767 · 0.864 · 1.001 |
+| solved | 30/30 | 30/30 |
+
+**The pin was not flattering the metric — it is the better configuration, on every axis measured.**
+That was worth knowing, because a pin introduced to protect a measurement is exactly the kind of
+control that can quietly become a thumb on the scale. It is not one here: releasing it costs
+1.7 % of z², 2.4 points of Chile's retention and a point of world mining retention.
+
+**Which turns a hygiene item into a finding about ADR 0017.** The mechanism runs the wrong way
+round. Netting *removes the small hub-side legs*, so the sector median rises; a higher `a_ref`
+raises the damped cv of every leg in the sector (more of them reach the 1.0 cap); looser legs are
+cheaper for the QP to delete; and deleting them makes the scale-total rows — which anchor the node
+sums independently — harder to satisfy, so the headline worsens while retention falls. ADR 0017's
+median rule therefore **penalises a cleaner leg population**: improve the bilateral matrix and the
+reference size drifts up, loosening σ on the legs that survived. `a_ref` is not a neutral
+descriptive statistic; it is a free parameter the leg population moves.
+
+**So obligation 1 changes shape.** The pin must be *decided*, not merely released: either ADR 0017
+gets a reference size that does not move with the population it prices (a fixed per-sector constant,
+or a quantile of the *gross* matrix, or a physically-motivated size), or the pin becomes that
+constant with the reasoning recorded. Releasing it blindly at the next round's start would silently
+give back 1.7 % and 2.4 points of Chile. Ranked against the Chile mine chain it is the smaller
+question, but it now has a measured answer attached and should not be carried as an unexamined
+"restore the default".

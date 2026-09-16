@@ -5,8 +5,12 @@
 `analysis_opt_20260903_084528_45fdd041_20260903_masscc-tension-root-causes.md` §4.
 Amended 2026-09-16 by [ADR 0027](0027-re-exports-are-re-attributed-at-feed-time.md): `a_ref`
 may be **pinned** to a predecessor run's medians across a measurement series, so that a change to
-the covered-leg population is not read as a change in physics. The median definition below stands
-for a fresh baseline, and a pin is an obligation to release it at the next round's start.
+the covered-leg population is not read as a change in physics. Measured 2026-09-16, that pin is
+not a thumb on the scale — running the shipped chain unpinned *worsens* sum-row z² by 1.7 % and
+costs 2.4 points of Chilean concentrate retention — which exposes a defect in the median rule
+itself: `a_ref` rises whenever the leg population is *cleaned* of small legs, and a higher `a_ref`
+loosens σ on every leg that survived. The reference size is a free parameter the population moves,
+not a neutral descriptive statistic. Open: give it a size that does not drift with what it prices.
 
 ## Context
 

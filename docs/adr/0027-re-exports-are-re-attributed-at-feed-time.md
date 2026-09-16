@@ -245,11 +245,17 @@ carried as obligations rather than options.
 
 **Carried forward with this decision:**
 
-- **The `a_ref` pin is temporary.** `LEG_SIGMA_AREF` in `collect_aggregate_impute.py` holds the
-  L.0 medians so the L series measured structure and not σ. It must be released — set back to
-  `None`, ADR 0017's own definition — at the **start** of the next round, on its own measurement
-  against this shipped run, or every later round silently inherits a frozen reference size from a
-  superseded leg population.
+- **The `a_ref` pin must be decided, not merely released.** `LEG_SIGMA_AREF` in
+  `collect_aggregate_impute.py` holds the L.0 medians so the L series measured structure and not σ.
+  The sensitivity the plan required was run (`opt_20260916_072151_ac748919`, the shipped chain with
+  the pin off) and it came back the other way: unpinned costs **+1.7 % of sum-row z²** (1,748,645),
+  2.4 points of Chile's retention (0.574 → 0.550) and a point of world mining retention. The pin was
+  therefore not flattering the metric — but it also cannot simply be restored to the default,
+  because the mechanism runs backwards: netting removes the small hub-side legs, the sector median
+  rises, a higher `a_ref` loosens σ on every surviving leg, and cheaper-to-delete legs make the
+  scale-total rows worse. **ADR 0017's median rule penalises a cleaner leg population.** The next
+  round must give `a_ref` a reference size that does not move with the population it prices, or
+  adopt the pinned values as that constant with the reasoning written down. REP Addendum 3.
 - **Chile's mine chain is the next round.** Why the model deletes ~31 % of Chile's ICSG-reported
   mine output and ~60 % of its ore, in every run to date. Until it is understood, an exporter-
   retention change is not by itself a verdict on a structural change — read the ore chain first.

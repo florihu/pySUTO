@@ -92,7 +92,9 @@ def main(opt):
     print(u.loc[[1998, 2003, 2008, 2012, 2015, 2017, 2019, 2020, 2022, 2024], ["c", "lhs_post", "z"]].round(1).to_string())
 
     # 2. the raw pair behind the anchor
-    b = pd.read_csv("data/input/feed/baci/current/values.csv")
+    # v5 is the last GROSS BACI version; `current/` is netted of re-exports
+    # from ADR 0027 onwards, and this block reports gross imports.
+    b = pd.read_csv("data/input/feed/baci/v5/values.csv")
     b = b[b.Sector == HS_CONC]
     i = pd.read_csv("data/input/feed/icsg/current/values.csv")
     i = i[i.Region == "India"]
@@ -126,7 +128,7 @@ def main(opt):
     print("\n== 4. usetotout z² by sector × (domestic leg exceeds production)")
     print(uu.groupby(["sector", "has_excess"]).agg(rows=("z2", "size"), z2=("z2", "sum")).round(0).to_string())
     print("total sum-row z² on the run: %.0f" % c[c.type == "sum"].z2.sum())
-    reg = pd.read_excel("data/input/feed/baci/current/conc.xlsx", sheet_name="region_map")
+    reg = pd.read_excel("data/input/feed/baci/v5/conc.xlsx", sheet_name="region_map")
     codes = reg.groupby("root_region").src_region.apply(list).to_dict()
     ii = pd.read_csv("data/input/feed/icsg/current/values.csv")
     print("\n== 5. Concentrate importers with excess: grade the BACI imports would need, (usage − mine)/gross,"

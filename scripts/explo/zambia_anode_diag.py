@@ -7,7 +7,7 @@ of ``docs/rep/figs/zambia_anode_phantom_trade.html``.
 Deliberately reads **inputs only** — the claim is about bias in the source, so
 touching priors or posteriors would be circular:
 
-  BACI  data/input/feed/baci/current/values.csv        (the feed as loaded)
+  BACI  data/input/feed/baci/v5/values.csv             (gross, pre-ADR-0027)
   ICSG  data/proc/feedprep/icsg_clean/icsg_flows_comb.csv  (pre-``icsg_clean.cl``)
 
 BACI reports gross mass of the traded commodity; ICSG already reports contained
@@ -30,11 +30,13 @@ import pandas as pd
 ROOT = Path(__file__).resolve().parents[2]
 os.chdir(ROOT)
 
-BACI = "data/input/feed/baci/current/values.csv"
+# v5 = the last GROSS version; `current/` is netted of re-exports (ADR 0027),
+# and this forensic is about what BACI itself books.
+BACI = "data/input/feed/baci/v5/values.csv"
 ICSG = "data/proc/feedprep/icsg_clean/icsg_flows_comb.csv"
 CONC = {260300: 0.275, 740200: 0.94, 740311: 0.9975}   # params/conc nominals
 HS_ANODE = 740200
-# UN M49 codes (data/input/feed/baci/current/conc.xlsx :: region_map)
+# UN M49 codes (data/input/feed/baci/v5/conc.xlsx :: region_map)
 ZAM, CD, IND = 894, 180, 356
 CHINA = {156, 344, 446}                     # China + Hong Kong + Macao
 HUBS = {"Switzerland": 757, "Singapore": 702, "Luxembourg": 442}
