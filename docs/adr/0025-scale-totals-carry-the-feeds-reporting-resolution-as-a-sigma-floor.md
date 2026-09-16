@@ -5,6 +5,9 @@
 [ADR 0006](0006-scale-total-supersedes-external-control-total.md) (σ_c = ANCHOR_CV·|c|); same
 shape as [ADR 0013](0013-no-data-flat-prior-anchor.md)'s edge floor `σ = max(abs_floor, cv·…)`;
 tested against [ADR 0016](0016-provenance-aware-sigma-on-scale-totals.md)'s collapse mode.
+Its note that a re-export structure would *"add small hub nodes"* anticipated Option 1;
+[ADR 0027](0027-re-exports-are-re-attributed-at-feed-time.md) (2026-09-16) takes Option 2 instead
+and adds no nodes at all.
 
 ## Context
 

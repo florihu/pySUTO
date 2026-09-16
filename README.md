@@ -173,6 +173,8 @@ cross-cutting (import nothing from the data layer):
 **Inputs:** raw flow data, classification mapping tables, Excel metadata file.
 **Outputs per feed:** weight matrix `W`, root flow vector `F_root`, standard deviation `σ_root`, metadata sidecar.
 
+**Two preprocessing scripts run before the feed pipelines and write into the input registry, so their order matters:** `scripts/build_baci_reexport.py` reads the registered gross BACI version and writes a **netted** one — re-exported tonnage re-attributed from the hub to its true origin and destination, with a residual ledger beside it ([ADR 0027](docs/adr/0027-re-exports-are-re-attributed-at-feed-time.md)) — and must run before `scripts/baci_feed.py`; `scripts/build_trade_shares.py` then builds the ICSG fan weights from that netted matrix ([ADR 0002](docs/adr/0002-single-endpoint-rows-fan-out-not-replicate.md) option D, [ADR 0024](docs/adr/0024-fan-domestic-leg-bounded-by-own-production.md)) and must run before `scripts/icsg_feed.py`.
+
 #### Math
 
 ##### Pedigree → coefficient of variation
@@ -364,7 +366,7 @@ Only finite, non-zero values count at every level, so upstream-imputed zeros nev
 - **`NetworkImputer`** ([impute/network.py](src/pysuto/impute/network.py)) — process-recipe traversal: closes each Process node's CC mass balance (`product = eff·Σinputs`, SEM waste, Mass twins) plus Flow-node balances; **sole writer of same-region chain edges**. A missing same-region primary blocks the forward fill; missing `Scrap` and missing cross-region imports count as 0 (see [ADR 0004](docs/adr/0004-process-recipe-traversal-imputer.md), [ADR 0010](docs/adr/0010-trade-first-seeding-of-bilateral-flow-process-inputs.md)).
 - **`ParametricImputer`** — bidirectional edge-pair constraints from a CSV (`.from_csv(...)`) or `ParametricRelation` lambdas; covers concentration (data category 3) and efficiency (data category 4) parameters.
 - **`FormulaImputer`** — directed multi-source balance equations with region/time-correlated source selection and a physical clip. Building blocks: `ParamRef`, `SourceTerm`, `FormulaRelation`.
-- **`TimeImputer`** — sliding-window temporal interpolation/extrapolation; `method ∈ {"linear","locf","nocb","mean"}`.
+- **`TimeImputer`** — sliding-window temporal interpolation/extrapolation; `method ∈ {"linear","locf","nocb","mean"}`. Scoped to **same-region** edges in the copper driver: a bilateral trade leg absent in a year is a recorded zero, not a gap ([ADR 0026](docs/adr/0026-bilateral-trade-legs-are-not-time-interpolated.md)).
 - **`FlatPriorImputer`** — final-fallback flat prior keyed by `AccountingStructure` edge masks; register **last**.
 - **`ImputationLog`** — per-edge provenance table: `edge_id`, `step`, `method`, `source_edges`, `coefficients`, `f_before/after`, `sigma_before/after`, `description`, `param_id`.
 - **`AggregationResult`** ([agg.py](src/pysuto/agg.py)) — dataclass holding `f_agg`, `sigma_agg`, `Omega`, `F`, `Sigma`, `feed_ids`, `coverage`, plus `imputation_log` and `imputation_metadata` once imputation has run.

@@ -2,6 +2,10 @@
 
 **Status:** accepted. Evidence run: `opt_20260901_101148_39fbd1bc`; REP
 `analysis_opt_20260901_101148_39fbd1bc_*` (scrap-faucet fix) and the follow-up self-trade REP.
+Amended 2026-09-16 by [ADR 0027](0027-re-exports-are-re-attributed-at-feed-time.md): the
+bilateral feed now carries **inferred** legs as well as observed ones (re-attributed re-exports,
+flagged in the ledger and σ-compounded), and a re-attributed pair whose two ends fold to the same
+root region is dropped as mapped self-trade exactly as a source row would be.
 
 ## Context
 

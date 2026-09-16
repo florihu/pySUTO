@@ -286,13 +286,18 @@ the S&P factor without converting bases (`1/factor` is recovered-basis, the mode
 source* — but region folding creates **mapped self-trade** at root, so the feed is scoped to
 cross-region edges and never informs a domestic leg,
 [ADR 0014](docs/adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)). On a trade edge the ICSG-CC
-value is therefore a *fan artifact* and the BACI-Mass value is the real observation. _Avoid_: treating a
+value is therefore a *fan artifact* and the BACI-Mass value is the real observation — for a leg the
+**re-export** netting did not change; a re-attributed leg is part observation, part inference, and carries
+the compounded σ ADR 0027 defines. _Avoid_: treating a
 per-edge ICSG-CC trade value as a measurement — it is the national usage split across producers by the
 fan weights.
 
 **Trade-share fan weighting** ([ADR 0002](docs/adr/0002-single-endpoint-rows-fan-out-not-replicate.md)
 option D) — weighting ICSG's producer fan by BACI bilateral import shares instead of uniformly, so ICSG-CC
-inherits BACI's geography. The domestic leg (X==Y) carries the residual `usage − Σ imports` (in CC units);
+inherits BACI's geography. Since [ADR 0027](docs/adr/0027-re-exports-are-re-attributed-at-feed-time.md)
+those shares are read from the **netted** BACI version, and a group whose imports the netting exhausted is
+**withheld** (left undistributed) rather than fanned all-domestic: its `Σ imports = 0` is constructed, not
+observed, so ADR 0018's condition does not hold. The domestic leg (X==Y) carries the residual `usage − Σ imports` (in CC units);
 the split is computed in copper content via `conc`. Applies only to the four **traded** ICSG-fanned
 sectors — Cathode, Concentrate, Anode, Matte. The residual also governs the **import-free** case: where
 BACI *observes* the consumer region (46 of 47 — all but **Taiwan**, trade-blind because BACI 490 "Other
@@ -311,6 +316,39 @@ because their gap is ICSG-internal and spreading it fabricates imports instead.
 _Avoid_: including **Scrap** — it is an ICSG `Use` type but is **not traded**; and reading a large
 domestic leg as evidence of domestic mining — before ADR 0024 it was the BACI-vs-ICSG shortfall.
 
+**Re-export (re-attributed leg)** — tonnage a region imported and shipped on unchanged. BACI records
+it as **two** gross border crossings (`A→h`, `h→Z`), which the accounting structure would read as two
+statements about *supply origin* — the second one false, since `h` produced nothing. ADR 0027 moves it
+at feed time: `T = min(X, I, max(R, E))` per (product, region, year) in `CC`, where `R = max(0, I−U)` is
+the use-side reading (imports above ICSG intake) and `E = max(0, X−P)` the supply-side one (exports above
+ICSG production); the volume is split by the hub's own observed origin and destination shares onto direct
+`A→Z` legs. The two caps `T ≤ X` and `T ≤ I` are the safety property: a **producer** with thin ICSG
+coverage (Kazakhstan cathode — no imports) has `T = 0` however large `E` is and is never netted. See
+[ADR 0027](docs/adr/0027-re-exports-are-re-attributed-at-feed-time.md). _Avoid_: calling every hub leg a
+re-export — only the part the caps admit is one, and the rest stays in the **transit residual ledger**.
+
+**Re-import** — the `A→h→A` branch of a re-attribution: goods that left `A`, reached the hub and came
+back. It is dropped rather than booked, for the same reason **mapped self-trade** is: its root address is
+the domestic edge, which it is not a measurement of. Where `A` is `ROW` the same branch is third-country
+trade folded onto one aggregate, and is dropped identically. 467 kt CC over 1995–2024.
+
+**Merchanting** — a title trade in a third country while the cargo sails elsewhere (BPM6 §10.41). Two
+shapes, and only one is netted: **both legs recorded** (Switzerland concentrate: `I ≈ X`, no process) is
+an ordinary re-export and re-attributes in full; **inbound only** (Zambia→Switzerland/Singapore/
+Luxembourg anode: `X ≈ 0`) cannot be, because nothing leaves the hub to carry it — those legs stay gross
+and the QP keeps refusing them at the exporter's capacity ([`zambia-anode-phantom-trade`](docs/rep/analysis_20260910_zambia-anode-phantom-trade.md)).
+_Avoid_: reading a small `T` at a merchanting hub as a failure of the rule — it is the rule declining to
+invent a destination.
+
+**Transit residual ledger** — what the netting deliberately leaves behind, written per (product, region,
+year) beside the feed (`reexport_ledger.csv`) with a label: `pass-through`, `partial`, `ceiling-relabel`,
+`inbound-only[/no-process]`, `producer`, `icsg-gap`, `excluded-aggregate` (ROW is never a hub — an
+aggregate of 186 economies has no warehouse), `untouched`. Before ADR 0027 this tonnage was the fan's
+silent **clip** (`max(0, Σ imports − usage)`); it is the same material, now named. _Distinct from_:
+the **Bounds-clip** above, which is an imputer's saturated fill. _Avoid_: reading the residual as an
+error — the Rotterdam effect (imports a hub never re-exports on the record) genuinely cannot be
+re-attributed from BACI alone.
+
 **BACI-observed region** — a consumer region for which the BACI feed records at least one cross-region
 import (any traded sector, any year). The flag is what makes `Σ imports = 0` *informative*: for an
 observed region it means "sourced domestically", for a trade-blind one it means "we cannot see". Derived
@@ -328,6 +366,12 @@ import legs. Ownership is a clean structural partition: trade-seed writes **only
 Mass observation is left NaN (an honest flat-prior gap), never seeded to 0. See
 [ADR 0010](docs/adr/0010-trade-first-seeding-of-bilateral-flow-process-inputs.md). _Avoid_: reading a
 trade-seed CC as a new measurement — it is the conc twin of the BACI Mass observation.
+**A bilateral leg is never interpolated in time** ([ADR 0026](docs/adr/0026-bilateral-trade-legs-are-not-time-interpolated.md)):
+BACI is a *complete* matrix, so a route carrying no row in a year carried no trade, and the
+`TimeImputer` is scoped to same-region edges — a cross-region leg is neither a fill target nor an
+interpolation anchor. _Avoid_: reading an absent bilateral cell as a gap; before ADR 0026 the
+unscoped interpolator invented 9,215 Mass legs / 20,252 kt of trade, 75 % of which survived into
+the posterior.
 
 ## Total-output / scale-total vocabulary
 

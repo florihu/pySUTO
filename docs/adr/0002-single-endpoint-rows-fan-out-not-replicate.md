@@ -69,6 +69,12 @@ guard rejected the previous, incomplete state):
 
 ## Implementation of option D — BACI-trade-share weighting (2026-06-08)
 
+*Amended 2026-09-16 by [ADR 0027](0027-re-exports-are-re-attributed-at-feed-time.md): the
+`BACI_Mass` the fan weights read is the **netted** bilateral matrix — re-exports re-attributed
+to origin and destination — not the gross one. The domestic leg's "needs no ICSG production
+data" property was already withdrawn by [ADR 0024](0024-fan-domestic-leg-bounded-by-own-production.md),
+whose bound now covers Cathode and Anode as well as Concentrate.*
+
 The producer fan is reweighted by BACI bilateral import shares for the four **traded** ICSG-fanned
 sectors — **Cathode, Concentrate, Anode, Matte** (Scrap is an ICSG `Use` type but is **not traded** and
 is excluded). Per (sector_from, sector_to, consumer Y, year t), in copper-content units:

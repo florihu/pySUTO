@@ -100,7 +100,13 @@ assert "Scrap" not in TRADED_SECTORS and "Scrap" not in SECTORS, "Scrap is not t
 # the producing-process → product edge). Concentrate first — 21.7 Mt of
 # residual above mine output over 210 region-years; Matte (1.3 Mt) is the
 # follow-up once the rule is measured.
-BOUND_DOMESTIC_SECTORS = ["Concentrate"]
+# ADR 0027 amends this: Concentrate alone leaves the *cathode* hubs' residual
+# unbounded, so the re-export netting merely moves their phantom refinery from
+# the export side to the use side (France: posterior CP→Cathode 1,848 → 1,818
+# across L.1, against Netherlands 1,369 → 328). Cathode and Anode production
+# cannot be read off the ICSG F_root — there is no ICSG-anchored CP→Cathode
+# edge — so `icsg_raw_production` derives all three from the raw ICSG rows.
+BOUND_DOMESTIC_SECTORS = ["Concentrate", "Cathode", "Anode"]
 PRODUCER_OF = {"Concentrate": "MF", "Matte": "Smelting", "Anode": "CFR"}
 
 # ADR 0020's withhold, retained but disabled by ADR 0021 (the ADR-0019 pattern:
@@ -363,6 +369,38 @@ def chain_inconsistent_refining(k: float = 0.5) -> set[tuple[str, str]]:
     return set(d.index[d["matte_out"] < k * d["matte_in"]])
 
 
+def imports_exhausted_groups(edges: pd.DataFrame) -> set:
+    """Fan groups whose ``Σ imports = 0`` was *constructed*, not observed.
+
+    [ADR 0027](../docs/adr/0027-re-exports-are-re-attributed-at-feed-time.md)'s
+    netting can consume every import leg of a hub-year while the region still
+    has ICSG usage to cover. The resulting zero looks exactly like ADR 0018's
+    "BACI observed the region and it recorded no imports", but it is an artefact
+    of the re-attribution, not evidence of domestic sourcing — so the fan must
+    not hand those groups an all-domestic split. They are withheld instead,
+    leaving the fan undistributed: ADR 0008's honest "total known, split
+    unknown". Reads the ledger the netting wrote beside the feed; absent ledger
+    (an un-netted feed) means an empty set and unchanged behaviour.
+    """
+    path = _input_registries().feed.resolve("baci") / "reexport_ledger.csv"
+    if not path.is_file():
+        return set()
+    led = pd.read_csv(path)
+    flagged = led[led["imports_exhausted"].astype(bool)]
+    if not len(flagged):
+        return set()
+    key = edges[["root_sector_from", "root_sector_to", "root_region_to",
+                 "root_time"]].drop_duplicates()
+    key["root_time"] = key["root_time"].astype(str)
+    hit = key.merge(
+        flagged[["sector", "region", "time"]].astype({"time": str}).rename(
+            columns={"sector": "root_sector_from", "region": "root_region_to",
+                     "time": "root_time"}),
+        on=["root_sector_from", "root_region_to", "root_time"], how="inner")
+    return set(zip(hit["root_sector_from"], hit["root_sector_to"],
+                   hit["root_region_to"], hit["root_time"]))
+
+
 def baci_observed_regions(acc, baci_froot) -> set[str]:
     """Consumer regions BACI observes at all (any cross-region import, any
     sector/year). Zero imports is informative only for these — see ADR 0018."""
@@ -390,6 +428,41 @@ def icsg_production(acc, icsg_froot, sectors) -> pd.DataFrame:
         frames.append(g)
     cols = ["root_sector_from", "root_region_to", "root_time", "production_cc"]
     return pd.concat(frames, ignore_index=True)[cols] if frames else pd.DataFrame(columns=cols)
+
+
+def icsg_raw_production(sectors, edges: pd.DataFrame) -> pd.DataFrame:
+    """Per (product, consumer region, year) that region's own ICSG production, CC.
+
+    `icsg_production` reads the producing-process → product edge of the ICSG
+    ``F_root``, which exists only where ICSG anchors that edge: there is no
+    ICSG-anchored ``CP→Cathode`` edge, so cathode production is invisible to it.
+    This reads the raw ICSG rows instead, through the definitions ADR 0027 states
+    (cathode = refined + SX-EW; anode = smelter intake · eff_Smelting · eff_CFR),
+    and is the *same* helper the re-export netting uses for its ``P`` — imported
+    rather than restated, so the two can never drift apart.
+
+    **A region ICSG does not report is a region that produces none, and the row
+    must say so explicitly.** ADR 0024's guard reads a *missing* row as "unknown"
+    and declines to bound; a raw-ICSG lookup returns nothing at all for Germany
+    or Korea, which mine no concentrate — so emitting only the rows ICSG carries
+    silently un-bounds exactly the phantom-mine regions the bound exists for
+    (measured: Concentrate/Germany 0 → 38,731 z², Korea's phantom mine 149 →
+    2,173 kt). The frame therefore spans every group the fan covers, defaulting
+    to 0.0, which is what the `F_root` reading did implicitly.
+    """
+    from build_baci_reexport import icsg_intake_production   # deferred: cycle
+
+    _, production, _ = icsg_intake_production(sectors)
+    grid = (edges.loc[edges["root_sector_from"].isin(sectors),
+                      ["root_sector_from", "root_region_to", "root_time"]]
+            .drop_duplicates().copy())
+    grid["root_time"] = grid["root_time"].astype(str)
+    grid["production_cc"] = [
+        max(0.0, float(production.get((s, r, t), 0.0)))
+        for s, r, t in zip(grid["root_sector_from"], grid["root_region_to"],
+                           grid["root_time"])]
+    cols = ["root_sector_from", "root_region_to", "root_time", "production_cc"]
+    return grid[cols].reset_index(drop=True)
 
 
 def build_edges_frame(acc, icsg_froot, baci_froot, sectors) -> pd.DataFrame:
@@ -429,11 +502,19 @@ def main() -> None:
                 if WITHHOLD_CHAIN_INCONSISTENT else set())
     print(f"   chain-inconsistent refining: {len(inconsistent)} region-years"
           f"   withheld: {len(withhold)} (ADR 0021 disables the ADR-0020 gate)")
+    # ADR 0027: a hub whose imports the netting exhausted has a *constructed*
+    # zero import sum; it must not be read as observed domestic sourcing.
+    exhausted = imports_exhausted_groups(edges)
+    withhold = withhold | exhausted
+    print(f"   imports exhausted by the ADR 0027 netting: {len(exhausted)} fan "
+          f"groups withheld (left undistributed, ADR 0008)")
     all_regions = set(acc.node_index["region"])
     blind = sorted(all_regions - observed)
     print(f"   BACI-observed regions: {len(observed)}/{len(all_regions)}"
           f"   trade-blind (fans stay undistributed): {blind or 'none'}")
-    production = icsg_production(acc, icsg, BOUND_DOMESTIC_SECTORS)
+    production = icsg_raw_production(BOUND_DOMESTIC_SECTORS, edges)
+    print(f"   production rows (raw ICSG, ADR 0027 definitions): {len(production):,} "
+          f"for {BOUND_DOMESTIC_SECTORS}")
     shares = compute_trade_share_weights(edges, conc_by_sector, observed,
                                          usage_raw, withhold, production)
 

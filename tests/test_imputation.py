@@ -1826,3 +1826,113 @@ class TestCathodeFdSplitSelectors:
 if __name__ == "__main__":
     import pytest
     pytest.main([__file__, "-v"])
+
+
+# =============================================================================
+# ADR 0026 — bilateral trade legs are not time-interpolated
+# =============================================================================
+
+class _TradeAcc:
+    """Two parallel Mass series over 2020–2022, one domestic, one bilateral.
+
+    Nodes: 0 Concentrate/Flow/A · 1 Smelting/Process/A · 2 Smelting/Process/B
+
+    Edges (edge_id order), all Mass:
+        0,1,2  0→1  2020/2021/2022   domestic  (Concentrate.A → Smelting.A)
+        3,4,5  0→2  2020/2021/2022   bilateral (Concentrate.A → Smelting.B)
+    """
+
+    class _Bounds:
+        def __init__(self, n):
+            self.l = np.zeros(n, dtype=float)
+            self.u = np.full(n, 1e9, dtype=float)
+
+    def __init__(self):
+        self.node_index = pd.DataFrame(
+            {"sector": ["Concentrate", "Smelting", "Smelting"],
+             "entity": ["Flow",        "Process",  "Process"],
+             "region": ["A",           "A",        "B"]},
+            index=[0, 1, 2],
+        )
+        self.edge_index = pd.DataFrame({
+            "edge_id":   [0, 1, 2, 3, 4, 5],
+            "from_id":   [0, 0, 0, 0, 0, 0],
+            "to_id":     [1, 1, 1, 2, 2, 2],
+            "time":      ["2020", "2021", "2022", "2020", "2021", "2022"],
+            "valuation": ["Mass"] * 6,
+        })
+        self.bounds = _TradeAcc._Bounds(6)
+        self.n_edges = 6
+        self.masks = {}
+
+
+def _same_region_scope(acc):
+    """The mask the Stage-2 driver builds for TIME_SCOPE_SAME_REGION."""
+    from pysuto.param_relation import expand_edge_index
+    ei = expand_edge_index(acc.edge_index, acc.node_index)
+    return (ei["region_from"].to_numpy() == ei["region_to"].to_numpy())
+
+
+class TestTimeImputerSameRegionScope:
+    """ADR 0026: BACI is a complete bilateral matrix, so a route absent in a
+    year is a recorded zero, not a gap. The interpolator must not invent it."""
+
+    def test_bilateral_leg_is_not_interpolated_while_domestic_one_is(self):
+        acc = _TradeAcc()
+        f     = np.full(6, np.nan)
+        sigma = np.full(6, np.nan)
+        # Both series observed in 2020 and 2022, missing in 2021.
+        f[0], sigma[0] = 10.0, 1.0
+        f[2], sigma[2] = 20.0, 1.0
+        f[3], sigma[3] = 30.0, 1.0
+        f[5], sigma[5] = 50.0, 1.0
+        missing = np.isnan(f)
+
+        imp = TimeImputer(window=3, method="linear", min_obs=2,
+                          interpolate_only=True,
+                          scope_edges=_same_region_scope(acc),
+                          id="time_interp")
+        imp.impute(f, sigma, missing, 0, acc)
+
+        assert f[1] == pytest.approx(15.0), "domestic series still interpolates"
+        assert np.isnan(f[4]), "bilateral leg must stay an honest gap (ADR 0026)"
+
+    def test_unscoped_imputer_fills_the_bilateral_leg(self):
+        """The pre-ADR-0026 behaviour, pinned so the regression is visible."""
+        acc = _TradeAcc()
+        f     = np.full(6, np.nan)
+        sigma = np.full(6, np.nan)
+        f[0], sigma[0] = 10.0, 1.0
+        f[2], sigma[2] = 20.0, 1.0
+        f[3], sigma[3] = 30.0, 1.0
+        f[5], sigma[5] = 50.0, 1.0
+        missing = np.isnan(f)
+
+        imp = TimeImputer(window=3, method="linear", min_obs=2,
+                          interpolate_only=True, id="time_interp")
+        imp.impute(f, sigma, missing, 0, acc)
+
+        assert f[1] == pytest.approx(15.0)
+        assert f[4] == pytest.approx(40.0)
+
+    def test_scope_excludes_bilateral_legs_as_sources_too(self):
+        """A scoped-out edge is dropped from the series entirely, so it can
+        neither receive a fill nor anchor one."""
+        acc = _TradeAcc()
+        scope = _same_region_scope(acc)
+        assert scope.tolist() == [True, True, True, False, False, False]
+
+        f     = np.full(6, np.nan)
+        sigma = np.full(6, np.nan)
+        # Only the bilateral series is observed; nothing may be filled anywhere.
+        f[3], sigma[3] = 30.0, 1.0
+        f[5], sigma[5] = 50.0, 1.0
+        missing = np.isnan(f)
+
+        imp = TimeImputer(window=3, method="linear", min_obs=2,
+                          interpolate_only=True, scope_edges=scope,
+                          id="time_interp")
+        entries = imp.impute(f, sigma, missing, 0, acc)
+
+        assert entries == []
+        assert np.isnan(f[4])

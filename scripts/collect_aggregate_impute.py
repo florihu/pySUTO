@@ -106,6 +106,16 @@ TIME_MIN_OBS          = 2
 TIME_GAP_INFLATION    = 1.05
 TIME_METHOD           = "linear"
 TIME_INTERPOLATE_ONLY = True
+# ADR 0026: the interpolator is scoped to same-region edges. BACI is a *complete*
+# bilateral matrix — a route absent in a year is a recorded zero, not a gap — so
+# interpolating a cross-region leg from its neighbouring years invents trade the
+# source never reported (9,215 Mass legs / 20,252 kt on the pre-ADR-0026 chain,
+# of which 15,266 kt survived into the posterior: Papua New Guinea concentrate,
+# Zambia cathode/matte, Peru). ADR 0010 and CONTEXT "Trade-seed" already state
+# the intent ("a route with no BACI Mass observation is left NaN, an honest
+# flat-prior gap, never seeded to 0"); the unscoped imputer silently overrode it.
+# Set False to restore the pre-ADR-0026 behaviour.
+TIME_SCOPE_SAME_REGION = True
 
 # FlatPriorImputer mode
 #   "magnitude_aware" (legacy) — σ = CV(j) · scale(j) via cv_by_mask + 3-level cascade
@@ -167,6 +177,19 @@ OUTLIER_LEG_CV = 5.0
 # remedy stays disabled, so this is diagnostics only.
 UNCLOSED_SECTORS = ("Matte", "Anode")
 UNCLOSED_CV      = None
+
+# ADR 0027: pin ADR 0017's per-sector reference size instead of re-deriving it.
+# `a_ref` is the median of the *assembled* covered bilateral-leg population, so
+# any change to that population — the re-export netting removes the small
+# hub-side legs — shifts it (+22 % to +58 % per sector when measured), which
+# re-prices every trade leg in the sector. Across a measurement series that is
+# a σ change confounded with a structural one: the metric moves without mass.
+# Pin it to the values the predecessor run logged, and report the unpinned
+# variant as a sensitivity line. None = derive from this run (the default).
+# Pinned to the Round L.0 run `imp_20260915_095200_64dfaa88` (BACI v5, the
+# un-netted leg population), so the L.1 metric is not confounded by σ.
+LEG_SIGMA_AREF = {"Anode": 0.213367, "Cathode": 0.26827266,
+                  "Concentrate": 10.26, "Matte": 0.2225045}
 
 # Size-damped σ on bilateral legs (ADR 0017; applied BEFORE the screen above).
 # The Laner pedigree cv (~0.21 on BACI Mass legs) is size-blind, so deleting
@@ -292,7 +315,7 @@ cathode_mesc_domestic = FormulaRelation(
 )
 
 
-def _damp_leg_sigma(acc, agg_result, gamma, cv_cap, logger):
+def _damp_leg_sigma(acc, agg_result, gamma, cv_cap, logger, a_ref_override=None):
     """Size-damp σ on covered bilateral Flow-origin Mass legs (ADR 0017).
 
     σ_e = cv_e · a_ref(sector)^(1−γ) · a_e^γ with a_ref = the sector's median
@@ -318,7 +341,14 @@ def _damp_leg_sigma(acc, agg_result, gamma, cv_cap, logger):
     for sector, grp in legs.groupby("sector_from"):
         ids = grp["edge_id"].to_numpy()
         a = np.abs(f[ids])
-        a_ref = float(np.median(a))
+        a_ref_run = float(np.median(a))
+        # ADR 0027: across a measurement series the reference size is pinned to
+        # the predecessor run's, so a change in the leg population cannot
+        # re-price every leg in the sector under cover of the structural change.
+        a_ref = float((a_ref_override or {}).get(sector, a_ref_run))
+        if a_ref_override and sector in a_ref_override:
+            logger.info("B  leg-σ damping %-12s a_ref PINNED %.4g kt "
+                        "(this run would use %.4g)", sector, a_ref, a_ref_run)
         if a_ref <= 0:
             continue
         cv0 = agg_result.sigma_agg[ids] / a
@@ -498,7 +528,8 @@ def main(feed_ids: list[str], label: str) -> None:
 
     # Size-damped leg σ (ADR 0017), then the plausibility screen — the screen's
     # cv-5 inflation overrides damping on flagged legs.
-    _damp_leg_sigma(acc, agg_result, LEG_SIGMA_GAMMA, LEG_SIGMA_CV_CAP, logger)
+    _damp_leg_sigma(acc, agg_result, LEG_SIGMA_GAMMA, LEG_SIGMA_CV_CAP, logger,
+                    a_ref_override=LEG_SIGMA_AREF)
     outlier_report = _screen_outlier_trade_legs(
         acc, agg_result, str(inputs.params.resolve("conc") / "params.csv"), logger)
 
@@ -577,6 +608,18 @@ def main(feed_ids: list[str], label: str) -> None:
     )
 
     # 5. Temporal interpolation, no extrapolation (terminal).
+    #    Scoped to same-region edges (ADR 0026) — see TIME_SCOPE_SAME_REGION.
+    #    scope_edges drops the excluded edges from the series entirely, so a
+    #    cross-region leg is neither a fill target nor an interpolation source.
+    time_scope = None
+    if TIME_SCOPE_SAME_REGION:
+        _ei_t = expand_edge_index(acc.edge_index, acc.node_index)
+        time_scope = (_ei_t["region_from"].to_numpy()
+                      == _ei_t["region_to"].to_numpy())
+        logger.info("   time_interp scope: same-region edges only "
+                    "(%d of %d; %d cross-region edges excluded, ADR 0026)",
+                    int(time_scope.sum()), time_scope.size,
+                    int((~time_scope).sum()))
     engine.register(TimeImputer(
         window           = TIME_WINDOW,
         method           = TIME_METHOD,
@@ -584,6 +627,7 @@ def main(feed_ids: list[str], label: str) -> None:
         gap_inflation    = TIME_GAP_INFLATION,
         interpolate_only = TIME_INTERPOLATE_ONLY,
         p                = P_PROP,
+        scope_edges      = time_scope,
         id               = "time_interp",
     ))
 
@@ -702,6 +746,7 @@ def main(feed_ids: list[str], label: str) -> None:
             "unclosed_sectors": list(UNCLOSED_SECTORS),
             "unclosed_cv":     UNCLOSED_CV,
             "unclosed_k":      UNCLOSED_K,
+            "leg_sigma_a_ref":  LEG_SIGMA_AREF,
             "leg_sigma_gamma":  LEG_SIGMA_GAMMA,
             "leg_sigma_cv_cap": LEG_SIGMA_CV_CAP,
             "flat_sigma_high": FLAT_SIGMA_HIGH if FLAT_MODE == "noisy_zero" else None,
@@ -712,6 +757,7 @@ def main(feed_ids: list[str], label: str) -> None:
                 "gap_inflation":    TIME_GAP_INFLATION,
                 "method":           TIME_METHOD,
                 "interpolate_only": TIME_INTERPOLATE_ONLY,
+                "scope_same_region": TIME_SCOPE_SAME_REGION,
             },
         },
     )

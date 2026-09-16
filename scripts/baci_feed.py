@@ -277,10 +277,50 @@ def build_F_src(raw_df: pd.DataFrame, ct: ConcordanceTable) -> np.ndarray:
     return F_src
 
 
+def load_reexport_cv_scale(acc) -> np.ndarray | None:
+    """Per-root-edge CV multiplier for ADR 0027's re-attributed legs.
+
+    ``build_baci_reexport.py`` writes ``reexport_cv_scale.csv`` beside
+    ``values.csv``; each row is one root leg (sector, from-region, to-region,
+    year) and the factor by which its σ must grow because part of its value is
+    an inference rather than an observation. The factor is applied to **every**
+    cross-region Flow-origin edge of that leg in both valuations — for cathode
+    that is the FU/USC/MESC triplet, which the feed's own fan splits 98/1/1.
+
+    Returns ``None`` when the file is absent (an un-netted feed version), so the
+    build is bit-identical to before ADR 0027.
+    """
+    path = os.path.join(os.path.dirname(RAW_DATA), "reexport_cv_scale.csv")
+    if not os.path.isfile(path):
+        logger.info("   reexport cv scale: none (feed is not netted)")
+        return None
+    from pysuto.param_relation import expand_edge_index
+
+    df = pd.read_csv(path)
+    ei = expand_edge_index(acc.edge_index, acc.node_index)
+    ei = ei[(ei["region_from"] != ei["region_to"])
+            & (ei["entity_from"] == "Flow")].copy()
+    ei["root_time"] = ei["time"].astype(str)
+    df["root_time"] = df["time"].astype(str)
+    j = ei.merge(
+        df[["sector", "region_from", "region_to", "root_time", "cv_scale"]],
+        left_on=["sector_from", "region_from", "region_to", "root_time"],
+        right_on=["sector", "region_from", "region_to", "root_time"],
+        how="inner")
+    scale = np.ones(len(acc.edge_index), dtype=float)
+    scale[j["edge_id"].to_numpy(dtype=int)] = j["cv_scale"].to_numpy(dtype=float)
+    logger.info("   reexport cv scale: %d root legs → %d edges scaled "
+                "(median %.3f, max %.1f)", len(df), len(j),
+                float(j["cv_scale"].median()), float(j["cv_scale"].max()))
+    return scale
+
+
 def propagate(wm: WeightMatrix, F_src: np.ndarray, meta: DataFeedMetadata, acc):
     logger.info("=" * 60)
     logger.info("D  Propagating uncertainty")
-    return propagate_with_row_penalty(wm, F_src, meta, acc)
+    return propagate_with_row_penalty(
+        wm, F_src, meta, acc,
+        cv_root_scale_extra=load_reexport_cv_scale(acc))
 
 
 # ===========================================================================

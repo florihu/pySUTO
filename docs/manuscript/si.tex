@@ -121,6 +121,17 @@ $1/N$ partner pattern would fabricate structure the source does not contain,
 so such rows remain undistributed and their information enters only through
 constraints.
 
+The bilateral trade matrix that supplies those shares is netted of re-exports
+before it enters (Eq.~\ref{eq:reexport}): tonnage that a region imported and
+re-exported unchanged is removed from both of its legs and added to the direct
+origin--destination leg in proportion to the observed inbound and outbound
+shares. The adjustment is bounded by the region's own recorded imports and
+exports, so a producer whose industry rows are thin is never netted, and a
+re-attributed pair whose two ends fold to the same root region is a re-import
+and is dropped with the other mapped self-trade. Adjusted legs carry a
+compounded standard deviation and inferred legs a $\sqrt{2}$ pedigree factor,
+floored so that netting never makes a leg more certain than its source.
+
 \subsection{CV-invariant propagation}
 Uncertainty propagates through $W$ in coefficient-of-variation form. With
 value shares $A_{ij} = |W_{ij} f_{\mathrm{src},i}|$ and fan-in weights
