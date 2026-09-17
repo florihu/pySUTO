@@ -171,7 +171,33 @@ def icsg_world(icsg: pd.DataFrame, eff: dict) -> pd.DataFrame:
     w["S_refined_prod"] = w.scrap_in_refining * eff["cfr"] * eff["er"]     # published
     w["total_refined"] = w.anode_in_er * eff["er"]                         # published (P+S)
     w["P_primary_refined"] = w.total_refined - w.S_refined_prod
+    # The overlap is a REGIONAL fact: a secondary smelter's copper is inside its
+    # country's secondary refined production only where a secondary refinery
+    # took it. Per region-year, min(S_sm·k, S_ref) is the part booked twice; the
+    # excess (S_sm·k > S_ref: Japan, Bulgaria, Iran …) is smelter copper refined
+    # as "primary" or exported as anode, where booking both series is right.
+    k = eff["cfr"] * eff["er"]
+    sc = (icsg[icsg.Type == "Scrap"]
+          .pivot_table(index=["reg", "Year"], columns="Process", values="Value", aggfunc="sum")
+          .dropna(subset=["Smelting", "Refining"]))
+    via = sc["Smelting"] * eff["sm"] * k
+    ref = sc["Refining"] * k
+    w["overlap"] = np.minimum(via, ref).groupby(level="Year").sum().reindex(YEARS).fillna(0.0)
+    w["smelter_excess"] = (via - ref).clip(lower=0.0).groupby(level="Year").sum().reindex(YEARS).fillna(0.0)
     return w
+
+
+def smelter_excess_by_region(icsg: pd.DataFrame, eff: dict) -> pd.DataFrame:
+    """Region-years where the smelter route exceeds secondary refined — listed, not clipped."""
+    k = eff["cfr"] * eff["er"]
+    sc = (icsg[icsg.Type == "Scrap"]
+          .pivot_table(index=["reg", "Year"], columns="Process", values="Value", aggfunc="sum")
+          .dropna(subset=["Smelting", "Refining"]))
+    ex = (sc["Smelting"] * eff["sm"] * k - sc["Refining"] * k)
+    ex = ex[ex > 1e-6].rename("excess_kt").reset_index()
+    return (ex.groupby("reg").agg(n_years=("Year", "size"), excess_kt=("excess_kt", "sum"),
+                                  first=("Year", "min"), last=("Year", "max"))
+              .sort_values("excess_kt", ascending=False).rename_axis("region").reset_index())
 
 
 # ---------------------------------------------------------------------------
@@ -201,9 +227,9 @@ def t1a_secondary_world(icsg: pd.DataFrame, eff: dict, cc: pd.DataFrame) -> pd.D
     """ICSG as published vs both series booked as inputs, and the concentrate gap."""
     w = icsg_world(icsg, eff)
     k = eff["cfr"] * eff["er"]
-    w["sec_via_smelters"] = w.S_smelter_prod * k             # refined-Cu equivalent
-    w["sec_direct_to_refinery"] = w.S_refined_prod - w.sec_via_smelters
-    w["secondary_both_booked"] = w.sec_via_smelters + w.S_refined_prod
+    w["sec_via_smelters"] = w.overlap                        # inside S_ref, refined-Cu equivalent
+    w["sec_direct_to_refinery"] = w.S_refined_prod - w.overlap
+    w["secondary_both_booked"] = w.S_smelter_prod * k + w.S_refined_prod   # what the model books
     w["refined_plus_sxew"] = w.total_refined + w.sxew
     w["share_nested"] = w.S_refined_prod / w.refined_plus_sxew
     w["share_both_booked"] = w.secondary_both_booked / w.refined_plus_sxew
@@ -251,8 +277,10 @@ def t1b_nesting_test(icsg: pd.DataFrame, eff: dict, cc: pd.DataFrame) -> pd.Data
 def t1c_deletion_vs_double_count(cc: pd.DataFrame, icsg: pd.DataFrame, eff: dict) -> pd.DataFrame:
     w = icsg_world(icsg, eff)
     m = by_year(flow(cc, "MF", "Concentrate"))
+    k = eff["cfr"] * eff["er"]
     t = pd.DataFrame({"mine_prior": m.prior, "mine_post": m.post,
-                      "deleted": m.prior - m.post, "double_count": w.S_smelter_prod})
+                      "deleted": m.prior - m.post, "double_count": w.overlap / k,
+                      "smelter_prod_gross": w.S_smelter_prod, "smelter_excess": w.smelter_excess / k})
     t["ratio"] = t.deleted / t.double_count
     return t
 
@@ -686,6 +714,45 @@ def _records(df: pd.DataFrame) -> list:
     return json.loads(d.to_json(orient="records", double_precision=6))
 
 
+def write_page_data(out: Path, cc: pd.DataFrame, tables: dict) -> None:
+    """The compact series the interactive page inlines (docs/rep/figs/.../copper_metabolism.html)."""
+    d = {k: _records(t) for k, t in tables.items()}
+    sk = {}
+    for col in ("prior", "post"):
+        li = (cc[cc.year == 2024].groupby(["sector_from", "sector_to"])[col].sum().reset_index()
+              .rename(columns={"sector_from": "src", "sector_to": "dst", col: "a_post"}))
+        keep = set(SF.NODE_X) | set(SF.CONTRACT)
+        li = SF._contract_flows(li[(li.a_post > 1.0) & li.src.isin(keep) & li.dst.isin(keep)])
+        sk[col] = [dict(src=r.src, dst=r.dst, v=round(float(r.a_post), 1)) for r in li.itertuples()]
+    keep1a = ("Year", "P_primary_refined", "sxew", "sec_via_smelters", "sec_direct_to_refinery",
+              "refined_plus_sxew", "share_nested", "share_both_booked", "model_share_prior",
+              "model_share_post", "mine_conc", "conc_needed_both", "conc_needed_nested", "gap_both", "gap_nested")
+    keep0 = ("year", "conc_to_smelting_prior", "conc_to_smelting_post", "sxew_prior", "sxew_post",
+             "scrap_to_smelting_prior", "scrap_to_smelting_post", "scrap_to_cfr_prior", "scrap_to_cfr_post")
+    page = {
+        "sankey": sk, "sankey_label": SF.SANKEY_LABEL, "node_x": SF.NODE_X, "node_y": SF.NODE_Y,
+        "t1a": [{k: r[k] for k in keep1a} for r in d["t1a_secondary_world"]],
+        "t0": [{k: r[k] for k in keep0} for r in d["t0_world_accounts"]],
+        "t1b": d["t1b_nesting_test"], "t1c": d["t1c_deletion_vs_double_count"],
+        "t1d": [r for r in d["t1d_who_pays"] if max(abs(r["d_conc_intake"]), abs(r["d_mine"]), abs(r["d_scrap_to_smelting"])) > 100],
+        "t1e": d["t1e_secondary_share_by_group"], "china": d["t1e_china_smelter_scrap_share"],
+        "t2a": d["t2a_intake_shares"],
+        "t2b": [r for r in d["t2b_import_dependence"] if r["intake_pool_prior"] > 1000],
+        "chile": [r for r in d["t2d_discharge_capacity"] if r["region"] == "Chile"],
+        "t3a": d["t3a_fu_shares"], "t3b": d["t3b_fu_cumulative"][:12],
+        "t3c": d["t3c_stock_buffers_world"], "hubs": d["t3c_mesc_by_hub"],
+    }
+    with open(out / "page_data.json", "w") as f:
+        json.dump(page, f, separators=(",", ":"))
+    html = out / "copper_metabolism.html"
+    if html.exists():   # re-inline the data into the page, leaving its markup untouched
+        import re
+        txt = html.read_text()
+        txt = re.sub(r"const DATA = .*?;\n", "const DATA = " + json.dumps(page, separators=(",", ":")) + ";\n",
+                     txt, count=1, flags=re.S)
+        html.write_text(txt)
+
+
 def main(opt: str = DEFAULT_RUN, figures: bool = True) -> None:
     out = Path("docs/rep/figs") / f"metabolism_{opt}"
     (out / "tables").mkdir(parents=True, exist_ok=True)
@@ -704,6 +771,7 @@ def main(opt: str = DEFAULT_RUN, figures: bool = True) -> None:
         "t1b_nesting_test": t1b_nesting_test(icsg, eff, cc),
         "t1c_deletion_vs_double_count": t1c_deletion_vs_double_count(cc, icsg, eff),
         "t1d_who_pays": t1d_who_pays(cc, icsg),
+        "t1f_smelter_excess": smelter_excess_by_region(icsg, eff),
         "t1e_secondary_share_by_group": t1e_secondary_share_by_group(cc),
         "t2a_intake_shares": t2a_intake_shares(cc),
         "t2b_import_dependence": t2b_import_dependence(cc),
@@ -734,6 +802,10 @@ def main(opt: str = DEFAULT_RUN, figures: bool = True) -> None:
           f"{(w.refined_plus_sxew[2024]/w.refined_plus_sxew[2010]-1)*100:.0f} %")
     print(f"  I1 model secondary share 2020-24: prior {w.model_share_prior.loc[2020:2024].mean():.3f}  "
           f"post {w.model_share_post.loc[2020:2024].mean():.3f}; both-booked ICSG share 2024 {w.share_both_booked[2024]:.3f}")
+    ex = tables["t1f_smelter_excess"]
+    print(f"  I1 nesting: overlap 2024 {w.overlap[2024]:,.0f} kt of S_sm·k {w.S_smelter_prod[2024]*eff['cfr']*eff['er']:,.0f}; "
+          f"smelter route > S_ref in {int(ex.n_years.sum())} region-years, {int(ex.region.nunique())} regions, "
+          f"excess 30-y {ex.excess_kt.sum():,.0f} kt (top: {', '.join(f'{r.region} {r.excess_kt:,.0f}' for r in ex.head(4).itertuples())})")
     print(f"  I1 double count 2024 {w.sec_via_smelters[2024]/1e3:.2f} Mt (S_sm {w.S_smelter_prod[2024]:,.0f} kt); "
           f"conc absorbable both {w.conc_needed_both[2024]:,.0f} vs mine {w.mine_conc[2024]:,.0f} → gap {w.gap_both[2024]:,.0f} kt; "
           f"nested gap {w.gap_nested[2024]:,.0f} kt")
@@ -771,6 +843,7 @@ def main(opt: str = DEFAULT_RUN, figures: bool = True) -> None:
           f"post {acc0.ore_in_situ_post[1995]/e[(e.valuation=='Mass')&(e.sector_from=='CO')&(e.year==1995)].post.sum()*100:.2f} "
           f"→ {acc0.ore_in_situ_post[2024]/e[(e.valuation=='Mass')&(e.sector_from=='CO')&(e.year==2024)].post.sum()*100:.2f} %")
 
+    write_page_data(out, cc, tables)
     if figures:
         fig0_sankey(cc, out)
         fig1a_supply_stacks(w, cc, eff, out)

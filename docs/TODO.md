@@ -67,9 +67,14 @@ Found while writing the copper-metabolism insights REP
 production series into inputs — `Smelter Second.` → Scrap→Smelting and
 `Refinery Second.` → Scrap→CFR — but ICSG's secondary refined production already
 INCLUDES the copper that came through secondary smelters (blister → anode → ER).
-The two series overlap by the entire secondary-smelter output: **3,958 kt in
-2024, 74.2 Mt over 1995-2024**, against a 30-y world mine-chain deletion of
-52.9 Mt (ratio 0.71, corr 0.64).
+The two series overlap by the smelter route, per region-year
+`min(S_sm·k, S_ref)`: **3,718 kt in 2024, 70.0 Mt over 1995-2024**, against a
+30-y world mine-chain deletion of 52.9 Mt (ratio 0.75, corr 0.67). In 119
+region-years (Japan, Bulgaria, Iran …, 1.99 Mt total) the smelter route exceeds
+secondary refined: clip to zero, list them. **Second instance:** the cathode
+term in `icsg_intake_production` adds `Refining/Scrap·k` on top of an
+`anode_in` that is already total refined — ~4.7 Mt (17 %) too much cathode
+production in the P that ADR 0027/0024 use.
 
 Proof: Austria (Brixlegg, 100 % secondary) — ICSG 60 kt secondary smelter inside
 123 kt secondary refined = 123 kt total; the feed books 62 + 125 = 187 kt of
@@ -77,13 +82,18 @@ scrap against a 123 kt anode anchor; the posterior deletes the smelter scrap to
 0.1 kt. With both booked, the anode anchor can absorb 14,758 kt of concentrate
 in 2024 against 18,207 mined (gap 3,450); nested, the gap is −652.
 
-**The fix (parse level, then full chain):**
+**The fix (parse level + cathode term + scrap_share v2, then full chain —
+plan grilled 2026-09-17):**
 ```
-Scrap→CFR      = (S_ref − S_sm · eff_CFR · eff_ER) / (eff_CFR · eff_ER)   # direct-to-refinery only
-Scrap→Smelting = S_sm / eff_Sm                                             # unchanged
+Scrap→CFR      = max(0, S_ref − S_sm · eff_CFR · eff_ER) / (eff_CFR · eff_ER)   # direct-to-refinery only
+Scrap→Smelting = S_sm / eff_Sm                                                     # unchanged
+P_Cathode      = anode_in · eff_ER + SXEW                                          # no second scrap term
 ```
+`scrap_share` MUST be regenerated with it (v1 CFR floors — China 0.160,
+Germany 0.342, Austria 0.95 — sit above the post-fix direct-route shares
+0.040 / 0.126 / 0.503 and would force the scrap back in).
 Acceptance, before any solver run: Austria's both-booked share → 1.0; the
-world `conc_absorbable` gap → ≈ 0 (`t1a_secondary_world.csv`, nested column).
+world `conc_absorbable` gap → ≈ −0.46 Mt (`t1a_secondary_world.csv`, nested column).
 On the chain: mine-chain deletion ≪ 12.8 %; posterior secondary share → ≈ 0.17
 (ICSG); China's smelters off their scrap-band ceiling (0.40); Chile's mine
 retention up with NO change to the grade cones. List, do not clip, the

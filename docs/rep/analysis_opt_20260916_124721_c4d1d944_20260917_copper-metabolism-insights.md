@@ -98,8 +98,18 @@ intake 123 → 109. The nesting holds everywhere it can be checked (`t1b_nesting
 | China | 2,411 | 2,985 | 12,374 | 0.43 | 0.24 |
 | **World** | **3,958** | **4,706** | **22,623** | **0.314** (of refined + SX-EW) | **0.172** |
 
-S_sm < S_ref in every region and every year, exactly as nesting requires and as an additive
-reading would not.
+Over all 503 region-years that carry both series the record splits three ways
+(`t1f_smelter_excess.csv`; the overlap below is the regional `Σ min(S_sm·k, S_ref)`, not the world
+smelter series):
+
+| class | region-years | what it is |
+|---|---|---|
+| S_ref > S_sm·k — a visible direct route | 250 | Austria, China (ratio 0.72), Germany (0.70), Belgium (0.75), Spain (0.19) |
+| **identical published figures** (\|Δ\| < 0.5 %) | **131, in 15 regions** | Brazil, Mexico, Sweden, Poland, Russia, India, Korea … — ICSG's secondary refined there *is* the smelter figure; the direct route is nil |
+| S_sm·k > S_ref — excess | 119 (12 regions, 1.99 Mt over 30 y) | Japan (median ratio 1.13, no anode exports) and Iran (1.25, none) are definitional mismatches with a direct route ≈ 0; Bulgaria (2.41, exports 113 kt/yr of anode against 35 kt/yr of secondary smelter output) is genuinely additive |
+
+The identical-series class is the sharpest proof available: fifteen countries publish the *same
+number* under both headings.
 
 **Why the double count is the deletion.** ADR 0021 anchors the anode entering ER on *total*
 refined production and lets `Scrap→CFR` carry S_ref, so the anode-node balance reduces to
@@ -114,14 +124,15 @@ conc_absorbable = P / (eff_Sm · eff_CFR · eff_ER) − Scrap→Smelting
 |---|---|---|
 | concentrate the anode anchor can absorb | 14,758 | 18,859 |
 | ICSG mine concentrate | 18,207 | 18,207 |
-| **gap = concentrate with nowhere to go** | **3,450** | −652 |
+| **gap = concentrate with nowhere to go** | **3,450** | −464 |
 
-Nested, the world's books close to within 0.65 Mt (a shortfall, where concentrate stocks and
+Nested, the world's books close to within 0.46 Mt (a shortfall, where concentrate stocks and
 statistical differences live). Both-booked, **3.45 Mt of mined concentrate cannot enter the chain**
 in 2024 — and the posterior deletes 2.8 Mt of world mine output that year. Over the 30 years the
-double count sums to **74.2 Mt** and the world MF→Concentrate deletion to **52.9 Mt** (ratio 0.71,
-year-series correlation 0.64, fig 1c); the remainder of the surplus is discharged through scrap→CFR
-(−4.6 Mt over 2020-24) and Austria-type deletions rather than through the mine.
+regional overlap sums to **70.0 Mt** (3,718 of the 3,897 kt of smelter-route copper in 2024) and
+the world MF→Concentrate deletion to **52.9 Mt** (ratio 0.75, year-series correlation 0.67,
+fig 1c); the remainder of the surplus is discharged through scrap→CFR (−4.6 Mt over 2020-24) and
+Austria-type deletions rather than through the mine.
 
 **Who pays, 2020-24 (Δ = posterior − prior, kt Cu; `t1d_who_pays.csv`):**
 
@@ -151,6 +162,12 @@ less concentrate than it mines, and the QP drops it where a hard cone already ma
   checked for S_sm against S_ref, and ADR 0005 (which pooled scrap into the eff recipe) predates
   the question. The scrap-faucet fix of 2026-09-01 then made the double-counted scrap *stiff*
   (anchor cv 0.05, hard scrap-share bands), so the discharge falls on the soft side — concentrate.
+- **The same defect sits one node further down.** `build_baci_reexport.icsg_intake_production`
+  computes `P_Cathode = anode_in·eff_ER + Refining/Scrap·eff_CFR·eff_ER + SXEW`, and `anode_in`
+  has been *total* refined since ADR 0021 — so secondary refined is counted twice at the cathode
+  node too, ~4.7 Mt (17 %) of world cathode production in 2024, in exactly the `P` that ADR 0027's
+  cathode netting (`E = max(0, X − P)`) and ADR 0024's cathode bound consume. Hub re-exports of
+  cathode are under-netted by it (see the MESC concern under Insight 3).
 - **Direct-melt scrap is outside the boundary.** ICSG's total scrap use is roughly twice its
   secondary refined production once fabricators' direct use is counted ("recycled copper already
   meets more than 30 % of demand", [IEA/Fastmarkets](https://www.fastmarkets.com/insights/copper-recycling-must-accelerate-to-meet-green-energy-demand-iea-says/)).
@@ -326,17 +343,20 @@ recycling unable to supply more than half of it (RCR 2023 above).
 the scrap charged *directly* to refineries,
 
 ```
-Scrap→CFR = (S_ref − S_sm · eff_CFR · eff_ER) / (eff_CFR · eff_ER)
+Scrap→CFR = max(0, S_ref − S_sm · eff_CFR · eff_ER) / (eff_CFR · eff_ER)
 ```
 
 with `Scrap→Smelting = S_sm / eff_Sm` unchanged, so the secondary-smelter copper reaches ER once,
-as matte. Acceptance, all measurable before a solver run: Austria's both-booked share → 1.0; the
-world `conc_absorbable` gap → ≈ 0 (nested column above); then, on the chain: the mine-chain
-deletion ≪ 12.8 %, the posterior secondary share → ≈ 0.17, China's smelters off their scrap-band
-ceiling, and Chile's mine retention up *without* any change to the grade cones. Own ADR, own plan,
-full-chain measurement; ADR 0021's "not a double count" sentence to be amended. Regions with
-scrap→CFR that would go negative under the formula (S_sm·k > S_ref) are the check on the nesting
-assumption and must be listed, not clipped silently.
+as matte; the 119 excess region-years clip to zero and are listed (Bulgaria's ~15 kt/yr genuine
+direct route is the known cost). The cathode term drops its `+ Refining/Scrap·k`. The coupled
+`scrap_share` bands must be regenerated in the same round: the shipped v1 CFR floors (China 0.160,
+Germany 0.342, Belgium 0.355, Austria 0.95) sit far above the direct-route shares the fix leaves
+(0.040, 0.126, 0.065, 0.503) and would force the double-counted scrap back in. Acceptance, all
+measurable before a solver run: Austria's both-booked share → 1.0; the world `conc_absorbable`
+gap → ≈ −0.46 Mt; `P_Cathode` = refined + SX-EW. Then, on the chain: the mine-chain deletion
+≪ 12.8 %, the posterior secondary share → ≈ 0.17, China's smelters off their scrap-band ceiling,
+and Chile's mine retention up *without* any change to the grade cones. Own ADR, own plan,
+full-chain measurement; ADR 0021's "not a double count" sentence to be amended.
 
 **Then the export-mass gap** (docs/TODO.md), now understood as the routing of Round O's surplus —
 re-measure it after O, since half of it may disappear with the surplus.
