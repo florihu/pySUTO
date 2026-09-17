@@ -58,7 +58,53 @@ it is the measurement above that says so. Decide instead: a per-sector constant,
 quantile of the *gross* matrix, or a physically motivated size — something that does
 not move when the matrix it prices gets better.
 
-## THE DISCHARGE PATH — why the softest thing pays (the active target)
+## THE CONCENTRATE EXPORT-MASS GAP (the new active target, 2026-09-17)
+
+Round N went looking for a region-resolved concentrate grade and found this
+instead. **Half of the mine-chain deletion is arithmetic, not optimisation.**
+
+Copper leaves a mine node only as domestic smelter intake or as export mass
+times a grade the hard cone caps at 0.35. So `cap = 0.35·X_mass + U` bounds what
+a region can discharge at prior-level intake — and on the shipped run
+
+```
+HARD-CAPPED region-years                      144 of 965 with production
+forced shortfall Σ max(0, P − cap)        25,913 kt CC = 49.0 % of all deletion
+   Chile   14,270 (40.6 % of its own)   ROW 7,840 (92.6 %)   Zambia 1,460 (76.5 %)
+```
+
+Chile is hard-capped in **19 of 30 years**. Its BACI concentrate export mass
+swings 12,401 (2020) → 4,723 (2021) → 4,088 (2022) → 10,269 (2023) → 4,951
+(2024) while its mine output stays flat at ~4,200 kt CC and its anode and
+cathode export lines do not move. Three checks put the defect in the **source**:
+gross v5 ≡ netted v8 for Chile every year (ADR 0027 never touched it); HS 260300
+itself drops, so it is not the sector map; and world concentrate trade excluding
+Chile is stable while Chile halves, with China's recorded imports *from Chile*
+falling 7,720 → 2,553 kt in the same step. The tonnage is absent from **both**
+sides of the bilateral matrix.
+
+This is an **input** defect, which is where all three large wins in this arc came
+from (ADR 0022 −26.6 %, ADR 0027 −19.5 %, ADR 0015). Before anything is built it
+has to answer:
+
+1. Is the hole Chile's non-reporting, and does BACI's mirror reconstruction fail
+   for HS 260300 specifically? Check the raw release for a reporter flag on
+   Chile in 2021-22 and 2024, and on Australia→China 2021 (809 → 11 kt).
+2. If the mass is unrecoverable, what is the honest repair — scale the
+   region-year's export legs to the copper ICSG says left, widen σ on them, or
+   let the mine node carry a stock? Each is a different claim about *who is
+   wrong*, and each is measurable.
+3. Does ROW's 92.6 % forced share have this cause or is it the aggregate's
+   folded internal trade (ADR 0014)? Separate it before it contaminates a repair.
+
+**Do not widen the [0.20, 0.35] band to relieve this.** It would license
+concentrate at 60-90 % Cu (that is metal), and ADR 0028 already measured what
+moving that wall does.
+
+Detector and full evidence: `scripts/explo/roundN_concentrate_grade_diag.py`,
+REP `…roundN-concentrate-grade`, ADR 0029.
+
+## THE DISCHARGE PATH — why the softest thing pays (the other half)
 
 Round M settled what the Chile diagnosis could only hypothesise. The grade bands
 do **not** cause the ore deletion; they **shape** it. Closing them relocates the
@@ -69,6 +115,9 @@ same contradiction and, on the copper side, relocates it worse:
 | base | Chile's ore-grade **ceiling** | 35 % | 0.990 |
 | + year-local ore band | Chile's concentrate **floor** | 55 % | 1.307 |
 | + narrowed conc band | **US ore** | **66 %** | **1.356** |
+
+**Now bounded at 51 %** of the mine-chain deletion: the other 49 % is the
+export-mass gap above, which no re-pricing can reach.
 
 So the question is not where the walls are, it is **why the fluid exists and
 who pays**. Chile's concentrate node is over-determined by 3,053 kt CC and the

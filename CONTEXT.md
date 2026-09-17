@@ -257,6 +257,17 @@ these are *not* physical mill-head grades (Australia ~2–3 % vs ~0.8 % head gra
 applying a recovered-basis grade to an in-situ edge (a systematic 1/eff error), or citing these
 grades against literature head grades without converting.
 
+**Concentrate grade.** The Cu mass fraction of copper concentrate — the `Concentrate` case of the
+concentration coefficient, one **global** row (0.275, band [0.20, 0.35]). Unlike an **in-situ ore
+grade** it is a *direct assay*: no allocation basis, no `eff` division, so it may be read against
+industry figures (20–35 % Cu) as it stands. It is deliberately **not** region-resolved the way ore
+grades are: measured over the region-years whose books are physically possible, the between-region
+spread is 0.0117 against the 0.0375 σ the single row already declares, and the residual that looks
+like a regional grade is a gap in the recorded export **mass**
+([ADR 0029](docs/adr/0029-the-concentrate-grade-stays-global.md)). _Avoid_: reading a region's
+implied `(P−U)/X` as its grade — where export mass is under-recorded that ratio absorbs the missing
+tonnage and returns values (0.6–0.9, and negatives elsewhere) that are not grades at all.
+
 **Grade band vs grade σ.** A `conc`-family params row's `value_min`/`value_max` are read **twice**:
 as a **hard cone** by `RatioBoundBuilder` (`value_min·Mass ≤ CC ≤ value_max·Mass`, per edge per
 year — a physical plausibility limit, no slack) and, when `unc_type = "min_max"`, as the **σ** of the
