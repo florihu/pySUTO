@@ -193,6 +193,19 @@ mixed-grade commodity with a single wide band `[0.40, 0.98]`, nominal 0.70, *not
 z-violation as a "bug" — it fires whenever the two feeds populating the CC and Mass sides of an edge
 disagree.
 
+**Smelter scrap · direct-to-refinery scrap.** The model's two `Scrap` inflows, named by where the
+scrap enters: **smelter scrap** feeds `Smelting` with the primary concentrate and leaves as matte;
+**direct-to-refinery scrap** feeds `CFR` with the matte and leaves as anode. ICSG reports two
+*output* classifications — **secondary smelter production** (blister/anode made from scrap) and
+**secondary refined production** (refined copper made from scrap by *either* route) — and the
+second contains the first. Direct-to-refinery scrap is therefore secondary refined *minus* the
+smelter route; in fifteen countries the two published figures are identical and the direct route
+is nil. **Direct melt** — scrap fabricators use without refining — is a third quantity, outside
+this model's boundary ([ADR 0030](docs/adr/0030-secondary-smelter-copper-enters-the-chain-once.md)).
+_Avoid_: booking secondary refined production as a second inflow beside smelter scrap (the copper
+enters twice, and the anode anchor discharges the surplus by deleting concentrate); reading
+"secondary" as the model's SEM input class when ICSG means an output classification.
+
 **Recovery efficiency (`eff`).** The copper-recovery fraction of a Process, in **`CC`** (from the `eff`
 param) — the sibling coefficient to `conc`. A process's recovered Flow product is `eff · Σ(all CC
 inputs)` in CC; the `(1 − eff)` complement is the residual that leaves as the **SEM** residual output.

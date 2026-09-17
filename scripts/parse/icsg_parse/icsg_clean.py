@@ -1,7 +1,13 @@
 
 import argparse
-import pandas as pd
 import os
+import shutil
+
+import numpy as np
+import pandas as pd
+
+CLEAN_DIR = 'data/proc/feedprep/icsg_clean'
+FEED_VALUES = 'data/input/feed/icsg/current/values.csv'
 
 
 RENAME_TOT = {'Smelting': 'Primary',
@@ -44,6 +50,36 @@ def refining_anode_rows(df):
     return a[df.columns]
 
 
+def _eff_of(eff, process):
+    return eff.loc[eff['Process'] == process, 'Value_median'].values[0]
+
+
+def _smelter_route(df, eff):
+    """Per (Region, Year): the secondary smelter production carried through to
+    refined copper, ``S_sm · eff_CFR · eff_ER`` — the part of ICSG's secondary
+    refined production that entered as smelter scrap (ADR 0030)."""
+    k = _eff_of(eff, 'CFR') * _eff_of(eff, 'ER')
+    sm = df[(df['Process'] == 'Smelting') & (df['Type'] == 'Secondary')]
+    return sm.groupby(['Region', 'Year'])['Value'].sum() * k
+
+
+def secondary_excess(df, eff):
+    """Region-years whose smelter route exceeds their secondary refined production.
+
+    Under the nesting rule these get a zero direct-to-refinery route; they are
+    listed, never silently clipped. Japan and Iran are definitional mismatches
+    (no anode exports, ratio ≈ 1.1-1.3); Bulgaria exports its secondary anode
+    (ADR 0030). Columns: Region, Year, smelter_route_kt, secondary_refined_kt,
+    excess_kt — production values, kt Cu.
+    """
+    rf = (df[(df['Process'] == 'Refining') & (df['Type'] == 'Secondary')]
+          .groupby(['Region', 'Year'])['Value'].sum())
+    both = pd.concat([_smelter_route(df, eff).rename('smelter_route_kt'),
+                      rf.rename('secondary_refined_kt')], axis=1).dropna()
+    both['excess_kt'] = both['smelter_route_kt'] - both['secondary_refined_kt']
+    return both[both['excess_kt'] > 1e-9].reset_index()
+
+
 def apply_input_divisors(df, eff):
     """Convert each production series back to the input it consumed.
 
@@ -52,16 +88,25 @@ def apply_input_divisors(df, eff):
 
       Smelting production  → concentrate/scrap entering Smelting  ÷ eff_Smelting
       Refined (total)      → anode entering ER                    ÷ eff_ER
-      Refined (secondary)  → scrap entering CFR, which then passes
-                             CFR→Anode→ER                         ÷ eff_CFR·eff_ER
+      Refined (secondary)  → direct-to-refinery scrap entering CFR,
+                             which then passes CFR→Anode→ER      ÷ eff_CFR·eff_ER
+
+    Direct-to-refinery scrap is secondary refined production MINUS the smelter
+    route (ADR 0030): ICSG's secondary refined figure already contains the
+    copper that reached the refinery as blister/anode from a secondary smelter
+    ("the blister is fire refined to anode copper for electro-refining"), and
+    that copper enters the model once, as smelter scrap. So per (Region, Year)
+
+        Scrap→CFR = max(0, S_ref − S_sm · eff_CFR · eff_ER) / (eff_CFR · eff_ER)
+
+    A region-year with a smelter series but no refined-secondary series is
+    untouched (nothing is booked twice); one whose smelter route exceeds S_ref
+    gets a zero direct route and is reported by ``secondary_excess``.
 
     Before ADR 0021 the refined series was divided by eff_CFR·eff_ER and placed
     on the matte entering CFR — two stages back instead of one, which assumed
     every anode a region makes is refined at home.
     """
-    def _eff(process):
-        return eff.loc[eff['Process'] == process, 'Value_median'].values[0]
-
     df = pd.concat([df, refining_anode_rows(df)], ignore_index=True)
     # the Primary series is now carried by the Anode row; it no longer anchors
     # Matte→CFR, so drop it rather than leave a stale mapping behind.
@@ -70,9 +115,16 @@ def apply_input_divisors(df, eff):
     is_sm = df['Process'] == 'Smelting'
     is_an = (df['Process'] == 'Refining') & (df['Type'] == 'Anode')
     is_sc = (df['Process'] == 'Refining') & (df['Type'] == 'Secondary')
-    df.loc[is_sm, 'Value'] = df.loc[is_sm, 'Value'] / _eff('Smelting')
-    df.loc[is_an, 'Value'] = df.loc[is_an, 'Value'] / _eff('ER')
-    df.loc[is_sc, 'Value'] = df.loc[is_sc, 'Value'] / (_eff('CFR') * _eff('ER'))
+
+    # the direct route, on production values — before any divisor is applied
+    k = _eff_of(eff, 'CFR') * _eff_of(eff, 'ER')
+    keys = pd.MultiIndex.from_arrays([df.loc[is_sc, 'Region'], df.loc[is_sc, 'Year']])
+    nested = _smelter_route(df, eff).reindex(keys).fillna(0.0).to_numpy()
+    direct = np.maximum(df.loc[is_sc, 'Value'].to_numpy(dtype=float) - nested, 0.0)
+
+    df.loc[is_sm, 'Value'] = df.loc[is_sm, 'Value'] / _eff_of(eff, 'Smelting')
+    df.loc[is_an, 'Value'] = df.loc[is_an, 'Value'] / _eff_of(eff, 'ER')
+    df.loc[is_sc, 'Value'] = direct / k
     df.loc[is_sm | is_an | is_sc, 'Supply_Use'] = 'Use'
     return df
 
@@ -122,7 +174,9 @@ def cl(raw):
         df.loc[m, 'Type'] = new_name
 
     #3 production → the input it consumed, marked as a Use row
-    df = apply_input_divisors(df, read_eff())
+    eff = read_eff()
+    excess = secondary_excess(df, eff)
+    df = apply_input_divisors(df, eff)
 
 
 
@@ -162,17 +216,29 @@ def cl(raw):
 
 
     # store
-    dr = 'data/proc/feedprep/icsg_clean'
-    os.makedirs(dr, exist_ok=True)
-    df.to_csv(os.path.join(dr, 'icsg_flows_clean.csv'), index=False)
-    print(f"Cleaned data saved to {os.path.join(dr, 'icsg_flows_clean.csv')}")
-
-    pass
+    os.makedirs(CLEAN_DIR, exist_ok=True)
+    out = os.path.join(CLEAN_DIR, 'icsg_flows_clean.csv')
+    df.to_csv(out, index=False)
+    print(f"Cleaned data saved to {out}")
+    ex_path = os.path.join(CLEAN_DIR, 'icsg_secondary_excess.csv')
+    excess.to_csv(ex_path, index=False)
+    print(f"Smelter route > secondary refined (direct route clipped to 0): "
+          f"{len(excess)} region-years, {excess['excess_kt'].sum():,.0f} kt Cu → {ex_path}")
+    if len(excess):
+        print(excess.groupby('Region')['excess_kt'].agg(['size', 'sum']).round(0)
+              .sort_values('sum', ascending=False).head(8).to_string())
+    return out
 
 
 if __name__ == "__main__":
-    
-    path =  'data/proc/feedprep/icsg_clean/icsg_flows_comb.csv'
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--to-feed", action="store_true",
+                    help=f"copy the clean file to {FEED_VALUES} (the registry "
+                         "versions it on the next InputRegistries.initialize())")
+    args = ap.parse_args()
 
-    df = pd.read_csv(path)
-    df = cl(df)
+    path = os.path.join(CLEAN_DIR, 'icsg_flows_comb.csv')
+    clean = cl(pd.read_csv(path))
+    if args.to_feed:
+        shutil.copyfile(clean, FEED_VALUES)
+        print(f"Copied to {FEED_VALUES}")

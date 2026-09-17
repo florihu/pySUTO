@@ -64,7 +64,9 @@ Scrap-derived copper reaches ER as anode too; anchoring on primary would underst
 by 19 % world wide — Germany 49 %, Austria 100 %, Belgium 41 % — and would simply relocate the
 contradiction from the Matte node to the Anode node. The Secondary series keeps its separate
 role as the `Scrap→CFR` anchor: the same copper measured at a different point of its path, not
-a double count.
+a double count. *(Amended 2026-09-17: true of the secondary refined series against this total
+anchor — and never checked against the secondary **smelter** series, which it contains. See the
+amendment below and [ADR 0030](0030-secondary-smelter-copper-enters-the-chain-once.md).)*
 
 Implementation is three coordinated edits (`icsg_clean.apply_input_divisors` /
 `refining_anode_rows`, the `Refining_Anode` sector key in `icsg_feed` and its mirror in
@@ -112,7 +114,10 @@ Two consequences follow that are worth naming:
   copper at two points of one path, not a double count. The algebra confirms it cancels: with
   `Scrap→CFR = S/(eff_CFR·eff_ER)`, the Anode-node balance
   `eff_CFR·(M + Scrap→CFR) = (P+S)/eff_ER` reduces to `M = P/(eff_CFR·eff_ER)` — the secondary
-  term drops out entirely. There is nothing to move.
+  term drops out entirely. There is nothing to move. *(Amended 2026-09-17: the algebra is right and
+  it is exactly what makes the smelter series' overlap fatal — with the matte confined to `P`, every
+  tonne of smelter scrap displaces a tonne of concentrate. ADR 0030 moves the smelter route out of
+  `Scrap→CFR`, not the secondary series as a whole.)*
 
 ## Consequences
 
@@ -164,3 +169,27 @@ Two consequences follow that are worth naming:
   did not save the deleted trade, because the BACI export priors exceed the regions' entire
   production (Zambia 2022: 838 kt CC of anode exports against 727 kt of smelter output). That
   is BACI over-statement / transit, which no anchor placement can address.
+
+## Amendment — Round O, 2026-09-17 (ADR 0030)
+
+Two of this ADR's statements were correct as far as they went and wrong in what they left
+unchecked:
+
+1. **"Not a double count."** The secondary refined series `S` is indeed the same copper as the
+   `S` inside the total anode anchor. But ICSG's secondary refined production also *contains* the
+   copper that reached the refinery as blister/anode from a **secondary smelter**, and the parse
+   booked that smelter series as a second input (`Scrap→Smelting = S_sm/eff_Sm`). Austria: 60 kt of
+   secondary smelter production inside 123 kt of secondary refined = total refined; the feed booked
+   187 kt of scrap against a 123 kt anode anchor. Per region-year the overlap is
+   `min(S_sm·eff_CFR·eff_ER, S_ref)` — 3.7 Mt in 2024, 70 Mt over 1995-2024 — and, by this ADR's
+   own algebra (`M = P/(eff_CFR·eff_ER)`), it displaced concentrate one-for-one: 3.45 Mt of mined
+   concentrate had nowhere to go in 2024. `Scrap→CFR` now carries the **direct-to-refinery** scrap
+   only, `max(0, S_ref − S_sm·eff_CFR·eff_ER)/(eff_CFR·eff_ER)`.
+2. **"Every `Smelting` series and the `Scrap→CFR` anchor are bit-for-bit unchanged."** Dated:
+   the `Scrap→CFR` anchor changed under ADR 0030 (611 region-years, −78 % world-wide); the
+   `Smelting` series did not.
+
+A third consequence was hidden in the production recipe this ADR introduced: with the Anode row
+now total refined, `icsg_intake_production`'s `Cathode P = anode_in·eff_ER + Refining/Scrap·k +
+SXEW` counted secondary refined twice at the cathode node (~4.7 Mt, 17 %, in 2024) in the `P`
+that ADR 0027's netting and ADR 0024's bound use. The term is dropped in ADR 0030.

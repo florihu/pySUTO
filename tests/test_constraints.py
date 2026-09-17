@@ -1354,11 +1354,38 @@ class TestRatioBoundBuilder:
         assert float(row["value_max"]) == pytest.approx(0.4)
         assert "_" not in row["param_id"], "param_id fills the variant slot (underscore-free)"
 
+    def test_cfr_share_uses_inferred_total_input(self):
+        """scrap_share_study.share_frame: the CFR denominator is the anode
+        entering ER ÷ eff_CFR (ADR 0021 removed the matte series), so the
+        share is direct-to-refinery scrap over the total CFR input (ADR 0030)."""
+        import importlib.util, pathlib
+        import pandas as pd
+        repo = pathlib.Path(__file__).resolve().parents[1]
+        mod_path = repo / "scripts" / "explo" / "scrap_share_study.py"
+        try:
+            spec = importlib.util.spec_from_file_location("scrap_share_study", mod_path)
+            mod = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(mod)
+        except ImportError as e:
+            pytest.skip(f"scrap_share_study not importable: {e}")
+        df = pd.DataFrame([
+            dict(Region="Germany", Year=2020, Type="Scrap", Process="Refining", Supply_Use="Use", Value=20.0),
+            dict(Region="Germany", Year=2020, Type="Anode", Process="Refining", Supply_Use="Use", Value=395.0),
+            dict(Region="Germany", Year=2021, Type="Scrap", Process="Refining", Supply_Use="Use", Value=10.0),
+            # no anode series in 2021 → no share observation, not a share of 1
+            dict(Region="Chile", Year=2020, Type="Scrap", Process="Smelting", Supply_Use="Use", Value=5.0),
+            dict(Region="Chile", Year=2020, Type="Concentrate", Process="Smelting", Supply_Use="Use", Value=95.0),
+        ])
+        fr = mod.share_frame(df, "CFR", eff={"effcfr": 0.9875})
+        assert list(fr.index) == [("Germany", 2020)]
+        assert fr["share"].iloc[0] == pytest.approx(20.0 / (395.0 / 0.9875))
+        sm = mod.share_frame(df, "Smelting", eff={"effcfr": 0.9875})
+        assert sm["share"].iloc[0] == pytest.approx(0.05)
+
 
 # ---------------------------------------------------------------------------
 # FlowBoundsBuilder
 # ---------------------------------------------------------------------------
-
 class TestFlowBoundsBuilder:
 
     def test_flow_bounds_shape(self, toy_acc):

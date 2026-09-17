@@ -508,17 +508,13 @@ def _eff_nominals() -> dict:
     return out
 
 
-def icsg_intake_production(sectors=SECTORS) -> tuple:
-    """ICSG intake ``U``, production ``P`` and the reported ``(sector, region)`` set.
-
-    Read straight from the raw ICSG rows — no model state — so this can gate a
-    feed build that produces that state, and so ``build_trade_shares`` can reuse
-    the same definitions (ADR 0024's bound needs exactly this ``P``).
+def production_recipes(mining, conc_in, scrap_sm, anode_in, scrap_cfr, sxew,
+                       cathode_use, eff) -> tuple:
+    """``(prod, use)`` per sector from the ICSG input series, all keyed (region, year).
 
         Concentrate  U = Smelting/Concentrate use       P = Mining/Concentrate supply
         Anode        U = Refining/Anode use (ADR 0021)  P = (matte + scrap into CFR) · eff_CFR
         Cathode      U = Semi + USC + MESC use          P = Refining/Anode use · eff_ER
-                                                          + Refining/Scrap use · eff_CFR · eff_ER
                                                           + SXEW/Cathode supply
         Matte        U = max(P_matte, anode use ÷ eff_CFR − scrap into CFR)
                      — no ICSG series; a converter consumes at least its own
@@ -530,6 +526,40 @@ def icsg_intake_production(sectors=SECTORS) -> tuple:
     of scrap directly, and a matte-only reading puts its anode output at 139 kt
     against the 380 kt its own refinery consumes — a secondary refiner made to
     look like a pure importer.
+
+    Cathode production carries NO second scrap term: ``anode_in`` is the total
+    refined output ÷ eff_ER (ADR 0021), so the secondary refined copper is
+    already inside it. The former ``+ Refining/Scrap · eff_CFR · eff_ER`` was
+    right only while the Anode row was primary-only, and counted secondary
+    refined twice — 17 % of world cathode production in 2024 (ADR 0030).
+    """
+    smelt_in = conc_in.add(scrap_sm, fill_value=0.0)
+    matte_p  = smelt_in * eff["Smelting"]
+    prod = {
+        "Concentrate": mining,
+        "Matte":       matte_p,
+        "Anode":       matte_p.add(scrap_cfr, fill_value=0.0) * eff["CFR"],
+        "Cathode":     (anode_in * eff["ER"]).add(sxew, fill_value=0.0),
+    }
+    use = {
+        "Concentrate": conc_in,
+        "Anode":       anode_in,
+        "Cathode":     cathode_use,
+        "Matte":       pd.concat(
+            [matte_p,
+             (anode_in / eff["CFR"]).subtract(scrap_cfr, fill_value=0.0).clip(lower=0.0)],
+            axis=1).max(axis=1),
+    }
+    return prod, use
+
+
+def icsg_intake_production(sectors=SECTORS) -> tuple:
+    """ICSG intake ``U``, production ``P`` and the reported ``(sector, region)`` set.
+
+    Read straight from the raw ICSG rows — no model state — so this can gate a
+    feed build that produces that state, and so ``build_trade_shares`` can reuse
+    the same definitions (ADR 0024's bound needs exactly this ``P``). The
+    arithmetic lives in ``production_recipes``.
     """
     fdir = _input_registries().feed.resolve("icsg")
     raw  = pd.read_csv(fdir / "values.csv")
@@ -544,32 +574,17 @@ def icsg_intake_production(sectors=SECTORS) -> tuple:
                 & (raw["Supply_Use"] == supply_use)]
         return x.groupby(["reg", "yr"])["Value"].sum()
 
-    smelt_in  = ser("Smelting", "Concentrate", "Use").add(
-        ser("Smelting", "Scrap", "Use"), fill_value=0.0)
-    anode_in  = ser("Refining", "Anode", "Use")
-    scrap_cfr = ser("Refining", "Scrap", "Use")     # ADR 0021: scrap enters CFR
-    matte_p   = smelt_in * eff["Smelting"]
-
-    prod = {
-        "Concentrate": ser("Mining", "Concentrate", "Supply"),
-        "Matte":       matte_p,
-        "Anode":       matte_p.add(scrap_cfr, fill_value=0.0) * eff["CFR"],
-        "Cathode":     (anode_in * eff["ER"])
-                       .add(ser("Refining", "Scrap", "Use") * eff["CFR"] * eff["ER"],
-                            fill_value=0.0)
-                       .add(ser("SXEW", "Cathode", "Supply"), fill_value=0.0),
-    }
-    use = {
-        "Concentrate": ser("Smelting", "Concentrate", "Use"),
-        "Anode":       anode_in,
-        "Cathode":     ser("Semi", "Cathode", "Use")
-                       .add(ser("USC", "Cathode", "Use"), fill_value=0.0)
-                       .add(ser("MESC", "Cathode", "Use"), fill_value=0.0),
-        "Matte":       pd.concat(
-            [matte_p,
-             (anode_in / eff["CFR"]).subtract(scrap_cfr, fill_value=0.0).clip(lower=0.0)],
-            axis=1).max(axis=1),
-    }
+    prod, use = production_recipes(
+        mining=ser("Mining", "Concentrate", "Supply"),
+        conc_in=ser("Smelting", "Concentrate", "Use"),
+        scrap_sm=ser("Smelting", "Scrap", "Use"),
+        anode_in=ser("Refining", "Anode", "Use"),
+        scrap_cfr=ser("Refining", "Scrap", "Use"),     # ADR 0021: scrap enters CFR
+        sxew=ser("SXEW", "Cathode", "Supply"),
+        cathode_use=ser("Semi", "Cathode", "Use")
+                    .add(ser("USC", "Cathode", "Use"), fill_value=0.0)
+                    .add(ser("MESC", "Cathode", "Use"), fill_value=0.0),
+        eff=eff)
 
     intake, production, reported = {}, {}, set()
     for s in sectors:

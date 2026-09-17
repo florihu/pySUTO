@@ -12,6 +12,7 @@ from build_baci_reexport import (  # noqa: E402
     label_row,
     net_one_hub,
     net_reexports,
+    production_recipes,
     reexport_volumes,
     screened_origins,
 )
@@ -407,3 +408,57 @@ def test_existing_leg_scaling_stays_grade_invariant():
                        {("Concentrate", "*"): 0.275, ("Concentrate", "Chile"): 0.32})
     pd.testing.assert_frame_equal(a, b)
     assert a["Value"].iloc[0] == pytest.approx(50.0)
+
+
+# ---------------------------------------------------------------------------
+# production_recipes — the ICSG arithmetic behind P and U (ADR 0021 / 0030)
+# ---------------------------------------------------------------------------
+
+_EFF = {"Smelting": 0.965, "CFR": 0.9875, "ER": 0.997}
+
+
+def _ser(kv):
+    """{(region, year): value} → the (reg, yr)-indexed Series the reader builds."""
+    idx = pd.MultiIndex.from_tuples(list(kv.keys()), names=["reg", "yr"])
+    return pd.Series(list(kv.values()), index=idx, dtype=float)
+
+
+def _recipes(P=1000.0, S=200.0, sxew=50.0, scrap_sm=100.0, conc=800.0, mining=900.0):
+    """A home refiner: total refined P+S, anode_in = (P+S)/eff_ER, direct
+    refinery scrap S/(eff_CFR·eff_ER) — the feed's own conventions."""
+    k = _EFF["CFR"] * _EFF["ER"]
+    return production_recipes(
+        mining=_ser({("Germany", "2020"): mining}),
+        conc_in=_ser({("Germany", "2020"): conc}),
+        scrap_sm=_ser({("Germany", "2020"): scrap_sm}),
+        anode_in=_ser({("Germany", "2020"): (P + S) / _EFF["ER"]}),
+        scrap_cfr=_ser({("Germany", "2020"): S / k}),
+        sxew=_ser({("Germany", "2020"): sxew}),
+        cathode_use=_ser({("Germany", "2020"): 1300.0}),
+        eff=_EFF)
+
+
+class TestProductionRecipes:
+
+    def test_cathode_production_counts_secondary_refined_once(self):
+        """anode_in is TOTAL refined ÷ eff_ER, so cathode P = P + S + SX-EW —
+        not P + 2S as the old `+ Refining/Scrap·k` term made it."""
+        prod, _ = _recipes(P=1000.0, S=200.0, sxew=50.0)
+        assert prod["Cathode"].iloc[0] == pytest.approx(1000.0 + 200.0 + 50.0)
+
+    def test_anode_production_pools_matte_and_direct_scrap(self):
+        prod, _ = _recipes(scrap_sm=100.0, conc=800.0, S=200.0)
+        k = _EFF["CFR"] * _EFF["ER"]
+        matte = (800.0 + 100.0) * _EFF["Smelting"]
+        assert prod["Matte"].iloc[0] == pytest.approx(matte)
+        assert prod["Anode"].iloc[0] == pytest.approx((matte + 200.0 / k) * _EFF["CFR"])
+
+    def test_matte_use_floor_carries_the_smelter_route(self):
+        """The converter must take at least what its anode output needs beyond
+        the direct scrap: (P+S)/(eff_CFR·eff_ER) − S/(eff_CFR·eff_ER) = P/k —
+        and at least its own smelter's matte."""
+        prod, use = _recipes(P=1000.0, S=200.0, scrap_sm=100.0, conc=800.0)
+        k = _EFF["CFR"] * _EFF["ER"]
+        assert use["Matte"].iloc[0] == pytest.approx(max(prod["Matte"].iloc[0], 1000.0 / k))
+        assert use["Concentrate"].iloc[0] == pytest.approx(800.0)
+        assert use["Cathode"].iloc[0] == pytest.approx(1300.0)

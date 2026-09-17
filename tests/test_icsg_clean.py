@@ -14,7 +14,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..",
                                 "scripts", "parse", "icsg_parse"))
-from icsg_clean import apply_input_divisors, refining_anode_rows  # noqa: E402
+from icsg_clean import apply_input_divisors, refining_anode_rows, secondary_excess  # noqa: E402
 
 _COLS = ["Region", "Type", "Year", "Value", "Process", "Supply_Use", "Unit",
          "Year_loaded_from_file"]
@@ -102,3 +102,69 @@ def test_anode_anchor_exceeds_the_old_matte_anchor_for_a_home_refiner():
     old = 300.0 / (0.9875 * 0.997)
     assert new > old
     assert np.isclose(new, 500.0 / 0.997)
+
+
+# ---------------------------------------------------------------------------
+# ADR 0030 — secondary-smelter copper enters the chain once
+# ---------------------------------------------------------------------------
+_K = 0.9875 * 0.997
+
+
+def test_refinery_scrap_is_the_direct_route_only():
+    """Austria 2024: 60 kt secondary smelter inside 123 kt secondary refined
+    (= total refined). The refinery scrap input is the difference, not S_ref."""
+    df = _frame([_row("Austria", "Smelting", "Secondary", 60.0),
+                 _row("Austria", "Refining", "Secondary", 123.0)])
+    out = apply_input_divisors(df, _EFF)
+    sc = out[(out["Process"] == "Refining") & (out["Type"] == "Secondary")]["Value"].iloc[0]
+    sm = out[(out["Process"] == "Smelting") & (out["Type"] == "Secondary")]["Value"].iloc[0]
+    an = out[out["Type"] == "Anode"]["Value"].iloc[0]
+    assert np.isclose(sc, (123.0 - 60.0 * _K) / _K)
+    assert np.isclose(sm, 60.0 / 0.965)          # smelter scrap unchanged
+    assert np.isclose(an, 123.0 / 0.997)         # total refined anchor unchanged
+    # what enters (in refined-copper terms) now equals what leaves
+    assert np.isclose(sm * 0.965 * _K + sc * _K, 123.0)
+
+
+def test_excess_smelter_route_clips_to_zero_and_is_listed():
+    """Bulgaria-shaped: smelter route above secondary refined → zero direct
+    route, and the region-year is reported, not dropped silently."""
+    df = _frame([_row("Bulgaria", "Smelting", "Secondary", 40.0),
+                 _row("Bulgaria", "Refining", "Secondary", 15.0)])
+    out = apply_input_divisors(df, _EFF)
+    sc = out[(out["Process"] == "Refining") & (out["Type"] == "Secondary")]["Value"].iloc[0]
+    assert sc == 0.0
+    ex = secondary_excess(df, _EFF)
+    assert len(ex) == 1
+    assert ex["Region"].iloc[0] == "Bulgaria" and ex["Year"].iloc[0] == 2020
+    assert np.isclose(ex["excess_kt"].iloc[0], 40.0 * _K - 15.0)
+    # a nested region-year is not listed
+    assert secondary_excess(_frame([_row("Austria", "Smelting", "Secondary", 60.0),
+                                    _row("Austria", "Refining", "Secondary", 123.0)]), _EFF).empty
+
+
+def test_subtraction_is_per_region_year():
+    df = _frame([_row("Germany", "Smelting", "Secondary", 100.0, year=2020),
+                 _row("Germany", "Refining", "Secondary", 200.0, year=2020),
+                 _row("Germany", "Smelting", "Secondary", 500.0, year=2021),
+                 _row("Germany", "Refining", "Secondary", 600.0, year=2021),
+                 _row("China",   "Smelting", "Secondary", 900.0, year=2020),
+                 _row("China",   "Refining", "Secondary", 1000.0, year=2020)])
+    out = apply_input_divisors(df, _EFF)
+    sc = out[(out["Process"] == "Refining") & (out["Type"] == "Secondary")].set_index(["Region", "Year"])["Value"]
+    assert np.isclose(sc[("Germany", 2020)], (200.0 - 100.0 * _K) / _K)
+    assert np.isclose(sc[("Germany", 2021)], (600.0 - 500.0 * _K) / _K)
+    assert np.isclose(sc[("China", 2020)], (1000.0 - 900.0 * _K) / _K)
+
+
+def test_refinery_scrap_without_smelter_row_is_unchanged():
+    """No smelter series → nothing is booked twice → the old divisor alone."""
+    df = _frame([_row("Belgium", "Refining", "Secondary", 150.0)])
+    out = apply_input_divisors(df, _EFF)
+    sc = out[(out["Process"] == "Refining") & (out["Type"] == "Secondary")]["Value"].iloc[0]
+    assert np.isclose(sc, 150.0 / _K)
+    # and a smelter series without a refined-secondary partner is untouched too
+    df2 = _frame([_row("Iran", "Smelting", "Secondary", 90.0)])
+    out2 = apply_input_divisors(df2, _EFF)
+    assert np.isclose(out2[out2["Type"] == "Secondary"]["Value"].iloc[0], 90.0 / 0.965)
+    assert secondary_excess(df2, _EFF).empty
