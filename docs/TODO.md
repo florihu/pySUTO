@@ -58,7 +58,43 @@ it is the measurement above that says so. Decide instead: a per-sector constant,
 quantile of the *gross* matrix, or a physically motivated size — something that does
 not move when the matrix it prices gets better.
 
-## THE CONCENTRATE EXPORT-MASS GAP (the new active target, 2026-09-17)
+## ROUND O — THE SECONDARY DOUBLE COUNT (the active target, found 2026-09-17)
+
+Found while writing the copper-metabolism insights REP
+(`docs/rep/analysis_opt_20260916_124721_c4d1d944_20260917_copper-metabolism-insights.md`).
+
+`scripts/parse/icsg_parse/icsg_clean.py:18-22` converts BOTH ICSG secondary
+production series into inputs — `Smelter Second.` → Scrap→Smelting and
+`Refinery Second.` → Scrap→CFR — but ICSG's secondary refined production already
+INCLUDES the copper that came through secondary smelters (blister → anode → ER).
+The two series overlap by the entire secondary-smelter output: **3,958 kt in
+2024, 74.2 Mt over 1995-2024**, against a 30-y world mine-chain deletion of
+52.9 Mt (ratio 0.71, corr 0.64).
+
+Proof: Austria (Brixlegg, 100 % secondary) — ICSG 60 kt secondary smelter inside
+123 kt secondary refined = 123 kt total; the feed books 62 + 125 = 187 kt of
+scrap against a 123 kt anode anchor; the posterior deletes the smelter scrap to
+0.1 kt. With both booked, the anode anchor can absorb 14,758 kt of concentrate
+in 2024 against 18,207 mined (gap 3,450); nested, the gap is −652.
+
+**The fix (parse level, then full chain):**
+```
+Scrap→CFR      = (S_ref − S_sm · eff_CFR · eff_ER) / (eff_CFR · eff_ER)   # direct-to-refinery only
+Scrap→Smelting = S_sm / eff_Sm                                             # unchanged
+```
+Acceptance, before any solver run: Austria's both-booked share → 1.0; the
+world `conc_absorbable` gap → ≈ 0 (`t1a_secondary_world.csv`, nested column).
+On the chain: mine-chain deletion ≪ 12.8 %; posterior secondary share → ≈ 0.17
+(ICSG); China's smelters off their scrap-band ceiling (0.40); Chile's mine
+retention up with NO change to the grade cones. List, do not clip, the
+region-years where `S_sm·k > S_ref` — they test the nesting assumption.
+Amend ADR 0021's "not a double count" sentence. Own ADR, own plan.
+
+**The export-mass gap below is the regional routing of this surplus** — the
+world needs 3-4 Mt/yr less concentrate than it mines and drops it where a hard
+cone already makes it free. Re-measure it after O.
+
+## THE CONCENTRATE EXPORT-MASS GAP (re-measure after Round O)
 
 Round N went looking for a region-resolved concentrate grade and found this
 instead. **Half of the mine-chain deletion is arithmetic, not optimisation.**
