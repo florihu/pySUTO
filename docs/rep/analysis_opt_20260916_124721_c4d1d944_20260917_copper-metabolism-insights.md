@@ -10,7 +10,7 @@ objective and gives the same headline numbers to three figures (posterior second
 0.300; 30-y mine deletion 52,896 vs 52,871 kt). Everything below is reproduced by
 `python scripts/report/copper_metabolism_insights.py [--opt <run>]`, which writes the tables,
 figures and `data.json` under `docs/rep/figs/metabolism_<run>/`.
-**Date:** 2026-09-17 · **Written for:** the project (internal REP).
+**Date:** 2026-09-17 · **Written for:** the project (internal REP). · **Interactive companion:** https://claude.ai/artifact/5wEVC6bUeMWbbyRnrU8Dhu
 
 *Reading the numbers:* **prior** = the Stage-2 aggregate the QP starts from (feeds + imputation);
 **posterior / reconciled** = the QP solution; **retention** = Σ posterior / Σ prior over an edge
@@ -162,11 +162,15 @@ less concentrate than it mines, and the QP drops it where a hard cone already ma
   reconciliation filling China's smelters with scrap up to the band ceiling as it deletes their
   concentrate imports.
 
-*Figures:* fig 1a (`fig1a_supply_stacks.png`) — refined copper by source, ICSG as published vs the
-model's prior vs the posterior, one scale; the prior over-supplies by the double count and the
-posterior meets ICSG's total by thinning the concentrate layer to 14.7 Mt against ICSG's 17.9.
-fig 1b (`fig1b_secondary_share.png`) — secondary share by region group, prior vs posterior, and
-China's smelters against their hard band. fig 1c (`fig1c_deletion_vs_double_count.png`).
+
+![Refined copper by source: ICSG as published, model prior, posterior](figs/metabolism_opt_20260916_124721_c4d1d944/fig1a_supply_stacks.png)
+*Fig 1a — refined copper by source, one scale. The prior over-supplies ICSG's total by the double count; the posterior meets it again by thinning the concentrate layer to 14.7 Mt against ICSG's 17.9.*
+
+![Secondary share by region group, prior vs posterior; China's smelters against their hard band](figs/metabolism_opt_20260916_124721_c4d1d944/fig1b_secondary_share.png)
+*Fig 1b — secondary share by region group, prior (grey) vs posterior; right: China's smelters sit on the ceiling of their hard scrap band.*
+
+![World mine-chain deletion vs the secondary double count, by year](figs/metabolism_opt_20260916_124721_c4d1d944/fig1c_deletion_vs_double_count.png)
+*Fig 1c — world mine output deleted by the reconciliation against the secondary-smelter copper booked twice.*
 
 ---
 
@@ -224,9 +228,15 @@ the world-level surplus of Insight 1 has to be discharged somewhere, then becaus
 are the softest thing in the neighbourhood (leg cv 0.069 after ADR 0017 damping against anchor
 cv 0.017 — the standing "discharge path" item).
 
-*Figures:* fig 2a (`fig2a_intake_by_origin.png`) — smelter intake by origin, 2000 vs 2024, top-6
-smelting regions. fig 2b (`fig2b_retention_vs_dependence.png`) — retention against import share.
-fig 2c (`fig2c_chile_capacity.png`) — Chile's discharge capacity against its production.
+
+![Smelter concentrate intake by origin, 2000 vs 2024](figs/metabolism_opt_20260916_124721_c4d1d944/fig2a_intake_by_origin.png)
+*Fig 2a — who smelts the world's concentrate and where it comes from, 2000 vs 2024.*
+
+![Smelter intake retained against imported share, 2020-24](figs/metabolism_opt_20260916_124721_c4d1d944/fig2b_retention_vs_dependence.png)
+*Fig 2b — intake retained (posterior/prior) against the imported share of intake; bubble area = intake.*
+
+![Chile: mine production against maximum discharge](figs/metabolism_opt_20260916_124721_c4d1d944/fig2c_chile_capacity.png)
+*Fig 2c — Chile: ICSG mine production against the most copper that can leave (0.35 × export mass + domestic intake); shaded years are hard-capped.*
 
 ---
 
@@ -276,17 +286,23 @@ recycling unable to supply more than half of it (RCR 2023 above).
   The buffers absorb cathode trade the netting does not close. This is stated as a concern, not a
   finding.
 
-*Figures:* fig 3a (`fig3a_final_use_stack.png`) — final use by region group. fig 3b
-(`fig3b_final_use_cumulative.png`) — cumulative by region with the per-capita indicator. fig 3c
-(`fig3c_stock_buffers.png`) — the stock-change sinks, posterior vs prior, and the MESC hub split.
+
+![Refined copper into final use by region group](figs/metabolism_opt_20260916_124721_c4d1d944/fig3a_final_use_stack.png)
+*Fig 3a — refined copper into final use by region group, reconciled.*
+
+![Cumulative refined copper into final use 1995-2024 by region](figs/metabolism_opt_20260916_124721_c4d1d944/fig3b_final_use_cumulative.png)
+*Fig 3b — cumulative 1995-2024 by region; per-capita is gross inflow to fabricators on 2024 population, not in-use stock.*
+
+![Stock-change sinks, posterior vs prior, and MESC by hub](figs/metabolism_opt_20260916_124721_c4d1d944/fig3c_stock_buffers.png)
+*Fig 3c — the stock-change sinks, posterior (solid) vs prior (dashed), and exchange-stock additions by country.*
 
 ---
 
 ## Overview figure
 
-fig 0 (`fig0_sankey_2024.png`) — the 2024 world system in contained copper, prior above and
-reconciled below: mine 22.8 → 18.4 Mt at milling, scrap 8.9 → 8.7 Mt, cathode 27.5 → 27.8 Mt. The
-reconciliation keeps the scrap, keeps the cathode, and takes the difference out of the mine.
+
+![World copper 2024, contained copper: prior above, reconciled below](figs/metabolism_opt_20260916_124721_c4d1d944/fig0_sankey_2024.png)
+*Fig 0 — the 2024 world system in contained copper, prior above and reconciled below: mine 22.8 → 18.4 Mt at milling, scrap 8.9 → 8.7 Mt, cathode 27.5 → 27.8 Mt. The reconciliation keeps the scrap, keeps the cathode, and takes the difference out of the mine.*
 
 ## Caveats
 
