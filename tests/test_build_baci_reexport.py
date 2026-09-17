@@ -347,3 +347,63 @@ class TestCvScaleBounds:
         old = _trade([_leg("Cathode", "Chile", "NL", 100.0)])
         new = _trade([_leg("Cathode", "Chile", "NL", 1e-12)])
         assert len(cv_scale(old, new)) == 0
+
+
+# ---- ADR 0029 plumbing: born legs are sized at their ORIGIN's grade ----
+
+from build_baci_reexport import rebuild_values  # noqa: E402
+
+
+def _raw(rows):
+    """Raw BACI rows carrying the decoded root columns rebuild_values expects."""
+    return pd.DataFrame([{
+        "Year": int(r["time"]), "Sector": 260300,
+        "Region_from": r.pop("code_from", 152), "Region_to": r.pop("code_to", 392),
+        "Value": r["mass"], "Unit": "kt",
+        "sector": r["sector"], "region_from": r["region_from"],
+        "region_to": r["region_to"], "time": r["time"],
+    } for r in rows])
+
+
+def test_born_leg_mass_uses_the_origin_grade_not_the_hub():
+    """A re-attributed leg's Mass is its CC at the ORIGIN's grade.
+
+    The netting moves tonnage from a hub back to the region that mined it, so
+    the divisor must be that region's own grade — the grade the model will read
+    the leg back with. With one scalar per sector this distinction did not
+    exist; with region grades, using the hub's would fabricate mass.
+    """
+    conc = {("Concentrate", "*"): 0.275, ("Concentrate", "Chile"): 0.32}
+    # Japan must already appear as a destination, or canonical_codes has no
+    # src code for it and the born leg is skipped.
+    raw = _raw([{"sector": "Concentrate", "region_from": "Chile",
+                 "region_to": "Spain", "time": T2015, "mass": 100.0,
+                 "code_from": 152, "code_to": 724},
+                {"sector": "Concentrate", "region_from": "Peru",
+                 "region_to": "Japan", "time": T2015, "mass": 10.0,
+                 "code_from": 604, "code_to": 392}])
+    legs_old = _trade([_leg("Concentrate", "Chile", "Spain", 32.0),
+                       _leg("Concentrate", "Peru", "Japan", 2.75)])
+    legs_new = _trade([_leg("Concentrate", "Chile", "Spain", 32.0),
+                       _leg("Concentrate", "Peru", "Japan", 2.75),
+                       _leg("Concentrate", "Chile", "Japan", 16.0)])   # born
+    out = rebuild_values(raw, legs_old, legs_new, conc)
+    japan = out[np.isclose(out["Value"], 16.0 / 0.32)]
+    assert len(japan) == 1, f"expected a leg at 16/0.32 = 50 kt, got:\n{out}"
+    # and emphatically NOT 16/0.275 = 58.2 kt
+    assert not np.isclose(out["Value"], 16.0 / 0.275).any()
+
+
+def test_existing_leg_scaling_stays_grade_invariant():
+    """The `grew` branch is a ratio of two same-keyed CC values, so the grade
+    cancels exactly — region grades must not perturb it."""
+    raw = _raw([{"sector": "Concentrate", "region_from": "Chile",
+                 "region_to": "Spain", "time": T2015, "mass": 100.0,
+                 "code_from": 152, "code_to": 724}])
+    legs_old = _trade([_leg("Concentrate", "Chile", "Spain", 32.0)])
+    legs_new = _trade([_leg("Concentrate", "Chile", "Spain", 16.0)])    # halved
+    a = rebuild_values(raw, legs_old, legs_new, {("Concentrate", "*"): 0.275})
+    b = rebuild_values(raw, legs_old, legs_new,
+                       {("Concentrate", "*"): 0.275, ("Concentrate", "Chile"): 0.32})
+    pd.testing.assert_frame_equal(a, b)
+    assert a["Value"].iloc[0] == pytest.approx(50.0)

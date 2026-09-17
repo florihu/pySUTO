@@ -100,6 +100,8 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 
+from pysuto.param_relation import conc_for
+
 sys.path.insert(0, os.path.dirname(__file__))
 
 # ---------------------------------------------------------------------------
@@ -486,9 +488,13 @@ def _source_dir(version: int) -> str:
     return src
 
 
-def _conc_by_sector() -> dict:
-    """`conc` supply nominals, the basis the trade-share fan already uses."""
-    from build_trade_shares import _conc_by_sector as _c
+def _conc_lookup() -> dict:
+    """`conc` supply nominals keyed ``(sector, exporter region)``.
+
+    The same lookup the trade-share fan uses. Keyed by the region the cargo came
+    *from*, because a traded commodity's concentration belongs to its producer.
+    """
+    from build_trade_shares import _conc_lookup as _c
     return _c()
 
 
@@ -576,7 +582,7 @@ def icsg_intake_production(sectors=SECTORS) -> tuple:
     return intake, production, reported
 
 
-def load_root_trade(src_dir: str, conc: dict) -> tuple:
+def load_root_trade(src_dir: str, conc_lookup: dict) -> tuple:
     """Raw BACI → cross-region root legs in CC, plus the raw frame and maps."""
     raw  = pd.read_csv(os.path.join(src_dir, "values.csv"))
     smap = pd.read_excel(os.path.join(src_dir, "conc.xlsx"), sheet_name="sector_map")
@@ -595,7 +601,8 @@ def load_root_trade(src_dir: str, conc: dict) -> tuple:
     # it is neither trade nor a domestic observation, so it takes no part in
     # the netting — but the rows stay in values.csv untouched.
     cross = raw[raw["region_from"] != raw["region_to"]].copy()
-    cross["cc"] = cross["Value"] * cross["sector"].map(conc)
+    cross["cc"] = cross["Value"] * conc_for(conc_lookup, cross["sector"],
+                                            cross["region_from"])
     legs = (cross.groupby(["sector", "region_from", "region_to", "time"])["cc"]
             .sum().reset_index())
     return raw, legs, s_of, r_of
@@ -620,7 +627,7 @@ def canonical_codes(raw: pd.DataFrame) -> tuple:
 
 
 def rebuild_values(raw: pd.DataFrame, legs_old: pd.DataFrame,
-                   legs_new: pd.DataFrame, conc: dict) -> pd.DataFrame:
+                   legs_new: pd.DataFrame, conc_lookup: dict) -> pd.DataFrame:
     """Apply the per-root-leg change to the raw rows.
 
     Existing rows are scaled by ``v_new / v_obs`` so the source's src-code
@@ -650,7 +657,11 @@ def rebuild_values(raw: pd.DataFrame, legs_old: pd.DataFrame,
                 continue
             rows.append({"Year": int(r.time), "Sector": HS_OF[r.sector],
                          "Region_from": a, "Region_to": z,
-                         "Value": r.cc_new / conc[r.sector], "Unit": "kt",
+                         # a born leg's mass is its CC at the ORIGIN's grade —
+                         # the grade the model will read it back with
+                         "Value": r.cc_new / float(conc_for(
+                             conc_lookup, [r.sector], [r.region_from])[0]),
+                         "Unit": "kt",
                          "sector": r.sector, "region_from": r.region_from,
                          "region_to": r.region_to, "time": r.time})
         out = pd.concat([out, pd.DataFrame(rows)], ignore_index=True)
@@ -673,9 +684,11 @@ def main(source_version: int = SOURCE_VERSION) -> None:
     print(f"   sectors    : {SECTORS}")
     src_dir = _source_dir(source_version)
 
-    conc = _conc_by_sector()
-    print(f"   conc       : {conc}")
-    raw, legs_old, _, _ = load_root_trade(src_dir, conc)
+    conc_lookup = _conc_lookup()
+    _wild = {s_: v for (s_, r_), v in conc_lookup.items() if r_ == "*"}
+    _reg = len(conc_lookup) - len(_wild)
+    print(f"   conc       : {_wild}" + (f"  (+{_reg} region-resolved)" if _reg else ""))
+    raw, legs_old, _, _ = load_root_trade(src_dir, conc_lookup)
     print(f"   raw rows   : {len(raw):,}   cross-region root legs: {len(legs_old):,}"
           f"   gross {legs_old['cc'].sum():,.0f} kt CC")
 
@@ -720,7 +733,7 @@ def main(source_version: int = SOURCE_VERSION) -> None:
           f"share>2 {(scales['cv_scale'] > 2).mean() * 100:.1f} %  "
           f"at the cap {(scales['cv_scale'] >= MAX_CV_SCALE).sum():,}")
 
-    values_new = rebuild_values(raw, legs_old, legs_new, conc)
+    values_new = rebuild_values(raw, legs_old, legs_new, conc_lookup)
     print(f"   values.csv : {len(raw):,} rows → {len(values_new):,}   "
           f"mass {raw['Value'].sum():,.0f} → {values_new['Value'].sum():,.0f} kt")
 

@@ -76,6 +76,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from pysuto.acc import AccountingStructure
 from pysuto.config import load_config
+from pysuto.param_relation import conc_for, conc_nominal_lookup
 
 # ---------------------------------------------------------------------------
 # USER CONFIGURATION
@@ -125,7 +126,7 @@ WITHHOLD_CHAIN_INCONSISTENT = False
 
 def compute_trade_share_weights(
     edges: pd.DataFrame,
-    conc_by_sector: dict[str, float],
+    conc_lookup: dict,
     baci_observed_regions: set[str] | None = None,
     usage_fallback: pd.DataFrame | None = None,
     withhold_fallback: set | None = None,
@@ -180,7 +181,9 @@ def compute_trade_share_weights(
     df = edges.copy()
     df["baci_mass"] = df["baci_mass"].fillna(0.0)
     df["is_domestic"] = df["root_region_from"] == df["root_region_to"]
-    conc = df["root_sector_from"].map(conc_by_sector)
+    # An import leg is priced with its EXPORTER's concentration: the grade is a
+    # property of what that region produced, not of where the cargo lands.
+    conc = conc_for(conc_lookup, df["root_sector_from"], df["root_region_from"])
     df["imp_cc"] = np.where(df["is_domestic"], 0.0, conc * df["baci_mass"])
 
     grp_cols = ["root_sector_from", "root_sector_to", "root_region_to", "root_time"]
@@ -241,17 +244,16 @@ def _latest_feed_froot(label: str) -> np.ndarray:
     return np.load(os.path.join(run, "result.npz"))["F_root"]
 
 
-def _conc_by_sector() -> dict[str, float]:
+def _conc_lookup() -> dict:
+    """``(traded sector, exporter region) -> conc nominal``; ``"*"`` is the fallback.
+
+    Keyed by region rather than by sector alone so that a region-resolved family
+    cannot be silently collapsed to one arbitrary row by the caller. Every row
+    is region-wildcarded today, so this resolves to one value per sector.
+    """
     inputs = _input_registries()
-    csv = inputs.params.resolve("conc") / "params.csv"
-    # delimiter-agnostic: the conc params CSV moved to comma-delimited
-    p = pd.read_csv(csv, sep=None, engine="python", comment="#", dtype=str)
-    # param_ids are underscore-free since conc v2 (naming grammar), e.g.
-    # 'concmattesupply'
-    p = p[(p["param_type"] == "concentration")
-          & (p["param_id"].str.endswith("supply"))]
-    out = {row["a_sector_from"]: float(row["value_nominal"]) for _, row in p.iterrows()}
-    return {s: out[s] for s in TRADED_SECTORS if s in out}
+    lookup = conc_nominal_lookup(inputs.params.resolve("conc") / "params.csv")
+    return {(s, r): v for (s, r), v in lookup.items() if s in TRADED_SECTORS}
 
 
 def _input_registries():
@@ -488,8 +490,10 @@ def main() -> None:
 
     acc_id = load_config().pipeline.acc_id
     acc = AccountingStructure.load(id=acc_id, storage_dir=ACC_DIR)
-    conc_by_sector = _conc_by_sector()
-    print(f"   conc: {conc_by_sector}")
+    conc_lookup = _conc_lookup()
+    _wild = {s_: v for (s_, r_), v in conc_lookup.items() if r_ == "*"}
+    _reg = len(conc_lookup) - len(_wild)
+    print(f"   conc: {_wild}" + (f"  (+{_reg} region-resolved rows)" if _reg else ""))
     icsg = _latest_feed_froot("icsg")
     baci = _latest_feed_froot("baci")
 
@@ -515,12 +519,12 @@ def main() -> None:
     production = icsg_raw_production(BOUND_DOMESTIC_SECTORS, edges)
     print(f"   production rows (raw ICSG, ADR 0027 definitions): {len(production):,} "
           f"for {BOUND_DOMESTIC_SECTORS}")
-    shares = compute_trade_share_weights(edges, conc_by_sector, observed,
+    shares = compute_trade_share_weights(edges, conc_lookup, observed,
                                          usage_raw, withhold, production)
 
     # ADR 0024 diagnostic: how many groups the production bound touched and
     # how much usage moved from the domestic leg onto the import legs.
-    unbounded = compute_trade_share_weights(edges, conc_by_sector, observed,
+    unbounded = compute_trade_share_weights(edges, conc_lookup, observed,
                                             usage_raw, withhold, None)
     dcols = ["root_sector_from", "root_sector_to", "root_region_from", "root_region_to", "root_time"]
     both = (unbounded.merge(shares, on=dcols, suffixes=("_free", "_bound")))
@@ -532,7 +536,7 @@ def main() -> None:
 
     # ADR 0018 diagnostic: which groups are emitted only because of the
     # import-free domestic fallback, and how much ICSG tonnage they carry.
-    pre = compute_trade_share_weights(edges, conc_by_sector, None, None)
+    pre = compute_trade_share_weights(edges, conc_lookup, None, None)
     gcols = ["root_sector_from", "root_sector_to", "root_region_to", "root_time"]
     new_grp = (shares[gcols].drop_duplicates()
                .merge(pre[gcols].drop_duplicates(), how="left", indicator=True))

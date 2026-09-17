@@ -23,6 +23,9 @@ get_edge_cache(acc_struct)                            Per-acc_struct edge cache
 sigma_from_row(row, nominal)                          σ via unc_type ∈ {sd, min_max, pedigree}
 float_or(val, default)                                Lenient float parse
 specificity(row)                                      Count non-wildcard A-fields
+conc_nominal_lookup(*paths)                           (sector, region) → conc nominal
+conc_sectors(lookup)                                  Sectors a lookup covers
+conc_for(lookup, sectors, regions)                    Vectorised lookup, region-wildcard fallback
 ResolvedRelation                                      Resolver output dataclass
 ParamRelationResolver(acc_struct)                     Resolver entry point
 """
@@ -129,6 +132,65 @@ def specificity(row: pd.Series) -> int:
         str(row.get(k, "*")).strip() not in WILDCARD
         for k in _A_SPEC_KEYS
     )
+
+
+def conc_nominal_lookup(*paths) -> dict:
+    """``(sector, region) -> concentration nominal`` from conc-family params CSVs.
+
+    Reads the **supply** rows — those pinning a concrete ``a_sector_from`` on the
+    Mass side — and keys each by its ``a_region_from``, or ``"*"`` for a
+    region-wildcarded row, which then serves as that sector's fallback.
+
+    The key is the region the commodity came *from*, because a traded
+    commodity's concentration is a property of what the exporter produced, not
+    of where it lands: every leg leaving a region's Flow node carries that
+    region's own value. Today every row is region-wildcarded, so the lookup
+    resolves to one value per sector and the region axis is inert; it exists so
+    that a region-resolved family can be added without a caller silently
+    collapsing it (a dict keyed on sector alone would keep one arbitrary row).
+
+    Later paths win over earlier ones for the same key, so a derived
+    region-resolved family can be layered over the hand-maintained defaults.
+    """
+    out: dict = {}
+    for path in paths:
+        if path is None:
+            continue
+        p = pd.read_csv(path, sep=None, engine="python", comment="#", dtype=str)
+        p = p[p["param_type"] == "concentration"]
+        for _, row in p.iterrows():
+            sector = str(row.get("a_sector_from", "*")).strip()
+            if sector in WILDCARD or str(row.get("a_valuation", "")).strip() != "Mass":
+                continue
+            region = str(row.get("a_region_from", "*")).strip()
+            if region in WILDCARD:
+                region = "*"
+            out[(sector, region)] = float(row["value_nominal"])
+    return out
+
+
+def conc_sectors(lookup: dict) -> set:
+    """The sectors a :func:`conc_nominal_lookup` result covers."""
+    return {s for s, _ in lookup}
+
+
+def conc_for(lookup: dict, sectors, regions) -> np.ndarray:
+    """Vectorised ``(sector, region) -> conc``, falling back to the region wildcard.
+
+    Returns NaN where the sector is absent entirely — the same behaviour a
+    sector-keyed ``Series.map`` gave, so untraded sectors still propagate NaN
+    rather than silently reading as zero.
+    """
+    sectors = np.asarray(sectors, dtype=object)
+    regions = np.asarray(regions, dtype=object)
+    if not lookup:
+        return np.full(len(sectors), np.nan)
+    s = pd.Series(lookup, dtype=float)
+    exact = s.reindex(pd.MultiIndex.from_arrays([sectors, regions])).to_numpy()
+    star = s.reindex(
+        pd.MultiIndex.from_arrays([sectors, np.full(len(sectors), "*", dtype=object)])
+    ).to_numpy()
+    return np.where(np.isnan(exact), star, exact)
 
 
 def conc_twin_map(path, resolver, into: dict | None = None) -> dict:

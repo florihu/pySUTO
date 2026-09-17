@@ -252,3 +252,45 @@ def test_damping_disabled_and_screen_overrides(tmp_path):
     _damp_leg_sigma(acc2, agg2, gamma=0.5, cv_cap=1.0, logger=_Log())
     _screen_outlier_trade_legs(acc2, agg2, _conc_csv(tmp_path), _Log())
     assert np.isclose(agg2.sigma_agg[png], 5.0 * 2000.0)
+
+
+# ---- ADR 0029 plumbing: the screen prices a leg at its exporter's grade ----
+
+def _conc_csv_by_region(tmp_path, rows):
+    """rows: (region, nominal); region "*" is the wildcard."""
+    p = tmp_path / "params_region.csv"
+    pd.DataFrame([{
+        "param_id": f"cg{r.lower().replace('*', 'star')}",
+        "param_type": "concentration", "a_sector_from": "Concentrate",
+        "a_region_from": r, "a_valuation": "Mass", "value_nominal": v,
+    } for r, v in rows]).to_csv(p, index=False)
+    return str(p)
+
+
+def test_screen_uses_each_exporters_own_grade(tmp_path):
+    """Same production and same export Mass; only the grade differs.
+
+    With one scalar per sector both exporters were judged alike. Priced at
+    their own grades, only the high-grade one crosses OUTLIER_LEG_K.
+    """
+    acc, agg = _Acc(), _Agg(10)
+    m = acc.edge_index
+
+    def set_edge(i, val, f):
+        eid = int(m[(m.index // 2 == i) & (m["valuation"] == val)]["edge_id"].iloc[0])
+        agg.f_agg[eid] = f
+        agg.coverage[eid] = True
+        return eid
+
+    set_edge(0, "CC", 100.0)                 # PNG production 100 CC
+    set_edge(1, "CC", 100.0)                 # Chile production 100 CC
+    png = set_edge(2, "Mass", 1000.0)
+    chl = set_edge(3, "Mass", 1000.0)
+
+    csv = _conc_csv_by_region(tmp_path, [("*", 0.275), ("PNG", 0.40), ("Chile", 0.20)])
+    report = _screen_outlier_trade_legs(acc, agg, csv, _Log())
+    # PNG: 1000 × 0.40 = 400 CC = 4.0× production → flagged
+    # Chile: 1000 × 0.20 = 200 CC = 2.0× production → kept
+    assert list(report["region_from"]) == ["PNG"]
+    assert np.isclose(agg.sigma_agg[png], OUTLIER_LEG_CV * 1000.0)
+    assert agg.sigma_agg[chl] == 1.0

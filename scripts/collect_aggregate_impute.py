@@ -54,7 +54,8 @@ from pysuto.config   import load_config
 from pysuto.registry import DataFeedRegistry, ImputationRunRegistry
 from pysuto.input_registry import InputRegistries
 from pysuto.collector import FeedCollector
-from pysuto.param_relation import expand_edge_index
+from pysuto.param_relation import (conc_for, conc_nominal_lookup, conc_sectors,
+                                   expand_edge_index)
 from pysuto.flow_node_balance import (K_CLOSE as UNCLOSED_K,
                                       contradicted_flow_nodes)
 from pysuto.unc import PedigreeScores
@@ -365,7 +366,8 @@ def _damp_leg_sigma(acc, agg_result, gamma, cv_cap, logger, a_ref_override=None)
                 gamma, cv_cap, n_damped)
 
 
-def _screen_outlier_trade_legs(acc, agg_result, conc_csv: str, logger):
+def _screen_outlier_trade_legs(acc, agg_result, conc_csv: str, logger,
+                               grade_csv: str | None = None):
     """σ-inflate implausible bilateral Mass legs (see OUTLIER_LEG_K above).
 
     Per (flow sector, exporter region, year): implied CC exports =
@@ -385,28 +387,24 @@ def _screen_outlier_trade_legs(acc, agg_result, conc_csv: str, logger):
     cov = np.asarray(agg_result.coverage, dtype=bool)
     f = np.nan_to_num(np.asarray(agg_result.f_agg, dtype=float))
 
-    conc_p = pd.read_csv(conc_csv, sep=None, engine="python", comment="#", dtype=str)
-    conc_p = conc_p[conc_p["param_type"] == "concentration"]
-    conc_by_sector = {
-        r["a_sector_from"]: float(r["value_nominal"])
-        for _, r in conc_p.iterrows()
-        if r["a_sector_from"] not in ("*", "", None) and r["a_valuation"] == "Mass"
-    }
+    conc_lookup = conc_nominal_lookup(*[c for c in (conc_csv, grade_csv) if c])
+    sectors = conc_sectors(conc_lookup)
 
     eid = ei["edge_id"].to_numpy()
     bilat = (cov[eid]
              & ei["entity_from"].eq("Flow").to_numpy()
              & (ei["region_from"] != ei["region_to"]).to_numpy()
              & ei["valuation"].eq("Mass").to_numpy()
-             & ei["sector_from"].isin(conc_by_sector).to_numpy())
+             & ei["sector_from"].isin(sectors).to_numpy())
     prodm = (cov[eid]
              & ei["entity_from"].eq("Process").to_numpy()
              & ei["entity_to"].eq("Flow").to_numpy()
              & ei["valuation"].eq("CC").to_numpy())
 
     legs = ei[bilat].copy()
+    # priced with the EXPORTER's concentration — the grade belongs to the origin
     legs["cc"] = f[legs["edge_id"].to_numpy()] \
-        * legs["sector_from"].map(conc_by_sector).to_numpy()
+        * conc_for(conc_lookup, legs["sector_from"], legs["region_from"])
     exp_cc = legs.groupby(["sector_from", "region_from", "time"])["cc"].sum()
     imp_cc = legs.groupby(["sector_from", "region_to", "time"])["cc"].sum()
     imp_cc.index.names = exp_cc.index.names
