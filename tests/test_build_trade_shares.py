@@ -9,7 +9,8 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 from build_trade_shares import compute_trade_share_weights  # noqa: E402
 
-CONC = {"Cathode": 0.9975}
+# (sector, region) keyed; "*" is the region wildcard (ADR 0029 plumbing)
+CONC = {("Cathode", "*"): 0.9975}
 
 
 def _edge(rf, rt, icsg, baci, sf="Cathode", st="FU", t=2010):
@@ -83,10 +84,10 @@ def test_withheld_group_does_not_get_the_domestic_fallback():
         _edge("USA",   "China", 100.0, 0.0,    sf="Matte", st="CFR"),
     ])
     key = {("Matte", "CFR", "China", 2010)}
-    assert compute_trade_share_weights(df, {"Matte": 0.525}, {"China"},
+    assert compute_trade_share_weights(df, {("Matte", "*"): 0.525}, {"China"},
                                        withhold_fallback=key).empty
     # ...and an unrelated group in the same region is untouched
-    assert not compute_trade_share_weights(df, {"Matte": 0.525}, {"China"},
+    assert not compute_trade_share_weights(df, {("Matte", "*"): 0.525}, {"China"},
                                            withhold_fallback={("Matte", "CFR",
                                                                "Peru", 2010)}).empty
 
@@ -98,7 +99,7 @@ def test_withholding_never_touches_baci_covered_groups():
         _edge("China", "China", 100.0, np.nan, sf="Matte", st="CFR"),
         _edge("USA",   "China", 100.0, 50.0,   sf="Matte", st="CFR"),
     ])
-    out = compute_trade_share_weights(df, {"Matte": 0.525}, {"China"},
+    out = compute_trade_share_weights(df, {("Matte", "*"): 0.525}, {"China"},
                                       withhold_fallback={("Matte", "CFR",
                                                           "China", 2010)})
     assert len(out) == 2
@@ -146,7 +147,7 @@ if __name__ == "__main__":
 
 # ---- ADR 0024: domestic residual bounded by the region's own production ----
 
-CONC_C = {"Concentrate": 0.275}
+CONC_C = {("Concentrate", "*"): 0.275}
 
 
 def _prod(rows):
@@ -349,3 +350,56 @@ def test_raw_production_emits_an_explicit_zero_for_a_non_producer(monkeypatch):
     assert got["Germany"] == 0.0, "a non-producer must say zero, not nothing"
     assert got["Chile"] == pytest.approx(500.0)
     assert out["root_time"].tolist() == ["2015"] * len(out), "years are strings"
+
+
+# ---- ADR 0029 plumbing: a leg is priced with its EXPORTER's concentration ----
+
+def test_each_import_leg_uses_its_own_exporters_conc():
+    """Two suppliers, two grades. The CC each contributes must use ITS grade.
+
+    Before this, one scalar per sector priced every exporter alike, so a
+    high-grade supplier's copper was understated and a low-grade one's
+    overstated — and the domestic residual, being `usage − Σ conc·Mass`, is a
+    mixed-unit difference, so normalisation cannot undo it.
+    """
+    conc = {("Concentrate", "*"): 0.275,
+            ("Concentrate", "Chile"): 0.32,
+            ("Concentrate", "Peru"): 0.24}
+    df = pd.DataFrame([
+        _edge("Japan", "Japan", 100.0, np.nan, sf="Concentrate", st="Smelting"),
+        _edge("Chile", "Japan", 0.0, 100.0,    sf="Concentrate", st="Smelting"),
+        _edge("Peru",  "Japan", 0.0, 100.0,    sf="Concentrate", st="Smelting"),
+    ])
+    out = compute_trade_share_weights(df, conc).set_index("root_region_from")
+    assert out.loc["Chile", "weight"] == pytest.approx(32.0)
+    assert out.loc["Peru", "weight"] == pytest.approx(24.0)
+    # domestic residual is usage minus BOTH legs at their own grades
+    assert out.loc["Japan", "weight"] == pytest.approx(100.0 - 32.0 - 24.0)
+
+
+def test_exporter_without_its_own_row_falls_back_to_the_wildcard():
+    conc = {("Concentrate", "*"): 0.275, ("Concentrate", "Chile"): 0.32}
+    df = pd.DataFrame([
+        _edge("Japan", "Japan", 100.0, np.nan, sf="Concentrate", st="Smelting"),
+        _edge("Chile", "Japan", 0.0, 100.0,    sf="Concentrate", st="Smelting"),
+        _edge("Mongolia", "Japan", 0.0, 100.0, sf="Concentrate", st="Smelting"),
+    ])
+    out = compute_trade_share_weights(df, conc).set_index("root_region_from")
+    assert out.loc["Chile", "weight"] == pytest.approx(32.0)
+    assert out.loc["Mongolia", "weight"] == pytest.approx(27.5)
+
+
+def test_importer_region_does_not_price_the_leg():
+    """The same cargo must cost the same CC wherever it lands."""
+    conc = {("Concentrate", "*"): 0.275, ("Concentrate", "Chile"): 0.32,
+            ("Concentrate", "Japan"): 0.20, ("Concentrate", "China"): 0.35}
+    to_japan = compute_trade_share_weights(pd.DataFrame([
+        _edge("Japan", "Japan", 100.0, np.nan, sf="Concentrate", st="Smelting"),
+        _edge("Chile", "Japan", 0.0, 100.0,    sf="Concentrate", st="Smelting"),
+    ]), conc).set_index("root_region_from")
+    to_china = compute_trade_share_weights(pd.DataFrame([
+        _edge("China", "China", 100.0, np.nan, sf="Concentrate", st="Smelting"),
+        _edge("Chile", "China", 0.0, 100.0,    sf="Concentrate", st="Smelting"),
+    ]), conc).set_index("root_region_from")
+    assert to_japan.loc["Chile", "weight"] == pytest.approx(32.0)
+    assert to_china.loc["Chile", "weight"] == pytest.approx(32.0)

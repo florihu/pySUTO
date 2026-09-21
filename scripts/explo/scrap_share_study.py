@@ -5,10 +5,15 @@ secondary (Scrap) input in the total copper-content input of each consuming
 process:
 
     Smelting:  share = Scrap/Smelting/Use / (Scrap/Smelting/Use + Concentrate/Smelting/Use)
-    CFR:       share = Scrap/Refining/Use / (Scrap/Refining/Use + Matte/Refining/Use)
+    CFR:       share = Scrap/Refining/Use / (Refining/Anode/Use ÷ eff_CFR)
 
 (the feed's ``Refining`` maps to the model's ``CFR``; all ICSG values are
-copper content). Per region the band is ``[max(0, p5−MARGIN),
+copper content). The CFR denominator is the total CFR input inferred from the
+anode leaving it: ADR 0021 moved the refined series onto the anode entering
+ER, so there is no ``Matte/Refining/Use`` series any more, and the scrap
+series is the direct-to-refinery route only (ADR 0030) — the shipped v1 bands
+predate both and their CFR floors would force the double-counted scrap back
+in (China floor 0.160 vs a direct-route share of 0.040). Per region the band is ``[max(0, p5−MARGIN),
 min(1, p95+MARGIN)]`` of the observed share series (≥ MIN_OBS observations);
 regions without a scrap series get the DEFAULT band. One params.csv row per
 (region, process) with ``agg=true`` and ``param_type="scrap_share"`` so the
@@ -45,7 +50,6 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from pysuto.acc import AccountingStructure  # noqa: E402
 
-VALUES_CSV = REPO_ROOT / "data/input/feed/icsg/current/values.csv"
 PARAMS_DIR = REPO_ROOT / "data/input/params/scrap_share/current"
 FIG_PATH = REPO_ROOT / "figs/ex/scrap_share.png"
 
@@ -67,8 +71,11 @@ PROCESSES = {
     },
     "CFR": {
         "scrap":   dict(Type="Scrap", Process="Refining", Supply_Use="Use"),
-        "primary": dict(Type="Matte", Process="Refining", Supply_Use="Use"),
-        "primary_label": "Matte/Refining/Use",
+        # total CFR input = anode leaving CFR ÷ eff_CFR; the anode entering ER
+        # (ADR 0021) is the observable closest to it
+        "total":   dict(Type="Anode", Process="Refining", Supply_Use="Use"),
+        "total_eff": "effcfr",
+        "primary_label": "Refining/Anode/Use ÷ eff_CFR",
     },
 }
 
@@ -102,20 +109,26 @@ def filter_series(df: pd.DataFrame, filt: dict, name: str) -> pd.Series:
     return df[mask].groupby(["Region", "Year"])["Value"].sum().rename(name)
 
 
-def share_frame(df: pd.DataFrame, proc: str) -> pd.DataFrame:
+def share_frame(df: pd.DataFrame, proc: str, eff: dict | None = None) -> pd.DataFrame:
     """(Region, Year) → share, on years where the scrap series is observed.
 
-    Primary counts as 0 when missing (pure-secondary smelters → share 1).
-    Zero-total years are dropped (share undefined).
+    With a ``primary`` series: primary counts as 0 when missing (pure-secondary
+    smelters → share 1). With a ``total`` series (CFR): the denominator is that
+    series ÷ ``eff[total_eff]``, and years without it are dropped. Zero-total
+    years are dropped (share undefined).
     """
     spec = PROCESSES[proc]
     scrap = filter_series(df, spec["scrap"], "scrap")
-    primary = filter_series(df, spec["primary"], "primary")
-    fr = pd.concat([scrap, primary], axis=1).dropna(subset=["scrap"])
-    fr["primary"] = fr["primary"].fillna(0.0)
-    fr["total"] = fr["scrap"] + fr["primary"]
+    if "total" in spec:
+        total = filter_series(df, spec["total"], "total") / eff[spec["total_eff"]]
+        fr = pd.concat([scrap, total], axis=1).dropna(subset=["scrap", "total"])
+    else:
+        primary = filter_series(df, spec["primary"], "primary")
+        fr = pd.concat([scrap, primary], axis=1).dropna(subset=["scrap"])
+        fr["primary"] = fr["primary"].fillna(0.0)
+        fr["total"] = fr["scrap"] + fr["primary"]
     fr = fr[fr["total"] > 0]
-    fr["share"] = fr["scrap"] / fr["total"]
+    fr["share"] = (fr["scrap"] / fr["total"]).clip(upper=1.0)
     return fr
 
 
@@ -205,14 +218,32 @@ def plot_figure(frames: dict, bands: dict) -> None:
     print(f"Figure written to {FIG_PATH.relative_to(REPO_ROOT)}")
 
 
+def _registry():
+    from pysuto.input_registry import InputRegistries
+    return InputRegistries.initialize(root=str(REPO_ROOT / "data/input"))
+
+
+def _eff_nominals(inputs) -> dict:
+    p = pd.read_csv(inputs.params.resolve("eff") / "params.csv", sep=None,
+                    engine="python", comment="#", dtype=str)
+    return {r["param_id"]: float(r["value_nominal"]) for _, r in p.iterrows()
+            if r.get("param_type") == "efficiency"}
+
+
 def main() -> None:
-    df = pd.read_csv(VALUES_CSV)
+    inputs = _registry()
+    feed_dir = inputs.feed.resolve("icsg")
+    print(f"icsg feed ← {feed_dir}")
+    df = pd.read_csv(feed_dir / "values.csv")
+    eff = _eff_nominals(inputs)
+    previous = pd.read_csv(inputs.params.resolve("scrap_share") / "params.csv", sep=";",
+                           dtype=str) if (inputs.params.resolve("scrap_share") / "params.csv").exists() else None
     acc = AccountingStructure.load(ACC_ID, storage_dir=str(ACC_DIR))
     regions = sorted(acc.node_index["region"].unique())
 
     frames, bands, rows = {}, {}, []
     for proc in PROCESSES:
-        fr = share_frame(df, proc)
+        fr = share_frame(df, proc, eff)
         b = region_bands(fr)
         frames[proc], bands[proc] = fr, b
         print(f"\n=== {proc}: {len(fr)} region-year share obs, "
@@ -228,9 +259,26 @@ def main() -> None:
                 rows.append(_build_param_row(proc, region, bl, bu,
                                              nominal=0.0, n_obs=0, own=False))
 
+    new = pd.DataFrame(rows, columns=PARAMS_COLUMNS)
+    if previous is not None:
+        # the fix (ADR 0030) touches the refinery scrap series only: every
+        # Smelting band must come out identical to the registered version
+        cols = ["param_id", "value_min", "value_max"]
+        a = new[new.a_sector_to == "Smelting"][cols].astype(str).reset_index(drop=True)
+        b = previous[previous.a_sector_to == "Smelting"][cols].astype(str).reset_index(drop=True)
+        same = a.equals(b)
+        print(f"\nSmelting bands identical to the registered version: {same}")
+        assert same, "Smelting bands changed — the feed moved more than the refinery scrap series"
+        cf = new[new.a_sector_to == "CFR"].merge(
+            previous[previous.a_sector_to == "CFR"], on="param_id", suffixes=("", "_v1"))
+        cf = cf[(cf.value_min != cf.value_min_v1) | (cf.value_max != cf.value_max_v1)]
+        print(f"CFR bands changed in {len(cf)} regions:")
+        print(cf[["a_region_to", "value_min_v1", "value_max_v1", "value_min", "value_max", "comment"]]
+              .to_string(index=False))
+
     PARAMS_DIR.mkdir(parents=True, exist_ok=True)
     out = PARAMS_DIR / "params.csv"
-    pd.DataFrame(rows, columns=PARAMS_COLUMNS).to_csv(out, sep=";", index=False)
+    new.to_csv(out, sep=";", index=False)
     print(f"\nParams written to {out.relative_to(REPO_ROOT)} ({len(rows)} rows: "
           f"{len(regions)} regions × {len(PROCESSES)} processes)")
     plot_figure(frames, bands)

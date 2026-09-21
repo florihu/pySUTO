@@ -58,7 +58,186 @@ it is the measurement above that says so. Decide instead: a per-sector constant,
 quantile of the *gross* matrix, or a physically motivated size — something that does
 not move when the matrix it prices gets better.
 
-## THE DISCHARGE PATH — why the softest thing pays (the active target)
+## ROUND O — THE SECONDARY DOUBLE COUNT (measured 2026-09-21; part of the mergeable O+P stack)
+
+Found while writing the copper-metabolism insights REP
+(`docs/rep/analysis_opt_20260916_124721_c4d1d944_20260917_copper-metabolism-insights.md`).
+
+`scripts/parse/icsg_parse/icsg_clean.py:18-22` converts BOTH ICSG secondary
+production series into inputs — `Smelter Second.` → Scrap→Smelting and
+`Refinery Second.` → Scrap→CFR — but ICSG's secondary refined production already
+INCLUDES the copper that came through secondary smelters (blister → anode → ER).
+The two series overlap by the smelter route, per region-year
+`min(S_sm·k, S_ref)`: **3,718 kt in 2024, 70.0 Mt over 1995-2024**, against a
+30-y world mine-chain deletion of 52.9 Mt (ratio 0.75, corr 0.67). In 119
+region-years (Japan, Bulgaria, Iran …, 1.99 Mt total) the smelter route exceeds
+secondary refined: clip to zero, list them. **Second instance:** the cathode
+term in `icsg_intake_production` adds `Refining/Scrap·k` on top of an
+`anode_in` that is already total refined — ~4.7 Mt (17 %) too much cathode
+production in the P that ADR 0027/0024 use.
+
+Proof: Austria (Brixlegg, 100 % secondary) — ICSG 60 kt secondary smelter inside
+123 kt secondary refined = 123 kt total; the feed books 62 + 125 = 187 kt of
+scrap against a 123 kt anode anchor; the posterior deletes the smelter scrap to
+0.1 kt. With both booked, the anode anchor can absorb 14,758 kt of concentrate
+in 2024 against 18,207 mined (gap 3,450); nested, the gap is −652.
+
+**The fix (parse level + cathode term + scrap_share v2, then full chain —
+plan grilled 2026-09-17):**
+```
+Scrap→CFR      = max(0, S_ref − S_sm · eff_CFR · eff_ER) / (eff_CFR · eff_ER)   # direct-to-refinery only
+Scrap→Smelting = S_sm / eff_Sm                                                     # unchanged
+P_Cathode      = anode_in · eff_ER + SXEW                                          # no second scrap term
+```
+`scrap_share` MUST be regenerated with it (v1 CFR floors — China 0.160,
+Germany 0.342, Austria 0.95 — sit above the post-fix direct-route shares
+0.040 / 0.126 / 0.503 and would force the scrap back in).
+Acceptance, before any solver run: Austria's both-booked share → 1.0; the
+world `conc_absorbable` gap → ≈ −0.46 Mt (`t1a_secondary_world.csv`, nested column).
+On the chain: mine-chain deletion ≪ 12.8 %; posterior secondary share → ≈ 0.17
+(ICSG); China's smelters off their scrap-band ceiling (0.40); Chile's mine
+retention up with NO change to the grade cones. List, do not clip, the
+region-years where `S_sm·k > S_ref` — they test the nesting assumption.
+Amend ADR 0021's "not a double count" sentence. Own ADR, own plan.
+
+**The export-mass gap below is the regional routing of this surplus** — the
+world needs 3-4 Mt/yr less concentrate than it mines and drops it where a hard
+cone already makes it free. Re-measure it after O.
+
+**MEASURED 2026-09-21** — run `opt_20260917_121759_c57f252b`, 30/30 Solved, against base
+`opt_20260916_124721_c4d1d944`.
+[REP](rep/analysis_opt_20260917_121759_c57f252b_20260921_roundO-secondary-double-count.md) ·
+[ADR 0030](adr/0030-secondary-smelter-copper-enters-the-chain-once.md).
+
+Feed gate: all four checks PASS (Austria 1.480 → 1.000, world gap +3,450 → −464 kt, one row class,
+107 excess region-years listed). Mine-chain deletion 52,871 → 44,197 kt; the **forced** term is flat
+(25,913 → 26,421) and the **discretionary** term falls 26,958 → **17,776 kt (−34.1 %)**. The double
+count was real.
+
+But sum-row z² **+13.3 %** (1,719,806 → 1,949,396), σ identical on all 21,729 unchanged-anchor rows,
+so it is a genuine fit loss: Slovakia's anode +64,630 alone (anchor 57 kt unchanged, posterior
+43 → 6.5 kt in all 30 y), plus Austria/Belgium, plus 146 new phantom concentrate/MF rows in Germany
+and Spain. Secondary share 0.300 → 0.257 against a prior now at 0.164; China *harder* on its 0.402
+ceiling; **Chile unchanged** (0.557 → 0.561, capped 19/30) — the Chile thesis is not supported.
+
+## ROUND P.0 + P.1 — THE SCRAP ARC (measured 2026-09-21; READY TO MERGE — user's call)
+
+Round O moved copper from a route the model anchors **by level** (`Refining/Scrap`) to one it anchors
+**only by share** (`Smelting/Scrap`: `0.95 ≤ Σ(Scrap→Smelting)/Σ(all→Smelting) ≤ 1.00`). A share band
+over an idle node is free. Correcting the earlier note: ICSG has Slovakia's smelter eating
+**46.6 kt/yr** (the ~28 figure was 2008), the prior carries it feed-backed at σ 6.8 %, and the model
+routes **0.012 kt/yr in both runs**. It is *not* prior decay — both runs are `--prior-mode cold`, so
+`f_agg` is re-asserted annually and the solver walks away annually. **A per-edge prior penalty is
+cheaper to pay than to satisfy; only a scale total prices the group.**
+
+**Built** ([ADR 0031](adr/0031-icsg-scrap-series-anchor-their-level-not-only-their-share.md)): two
+soft `sum` families, `smelterscrap` and `directrefscrap`, CC only, covered edges only, grouped on
+`(sector_to, region_to, time, valuation)`, σ via the unchanged `_scale_total_cv`. Registered
+**separately** so neither route can absorb the other. A region-year ICSG does not report gets no row
+and keeps its freedom — the family can only assert a scrap inflow, never forbid one.
+
+**MEASURED** — run `opt_20260921_090618_1ceb5eed`, 30/30 Solved.
+[REP](rep/analysis_opt_20260921_090618_1ceb5eed_20260921_roundP-scrap-level.md) ·
+[ADR 0031](adr/0031-icsg-scrap-series-anchor-their-level-not-only-their-share.md).
+
+Gate passed all six checks twice. **The family works at world scale**: posterior ÷ ICSG-reported
+scrap 1.318 → 1.191 → **1.027**; secondary share 0.300 → 0.257 → **0.220** (prior 0.164); China
+**off** its 0.402 ceiling (0.398 → 0.341); mine-chain deletion 44,197 → **38,876 kt** with the forced
+term flat, so **discretionary deletion 17,776 → 12,455 kt**; retention 0.894 → 0.906; Peru → 0.953;
+and **Chile finally moved, 0.561 → 0.578**.
+
+**But P-d fails**: common-set z² +10.8 % → **+12.3 %** (this also corrects Round O's headline — its
+regression was +10.8 %, not +13.3 %; the rest was its own new rows). The two motivating regions did
+not recover, for two *different* reasons, neither of them the missing level — see P.1.
+
+⚠ Also: ROW joins Kazakhstan above 1.05 intake retention; Cathode CC retention 0.984 → 0.966.
+
+## ROUND P.1 — DONE: the pure-secondary recipe closes (2026-09-21)
+
+Run `opt_20260921_101621_cd0c0ae2`, 30/30.
+[REP](rep/analysis_opt_20260921_101621_cd0c0ae2_20260921_roundP1-secondary-recipe.md) ·
+[ADR 0010 amendment](adr/0010-trade-first-seeding-of-bilateral-flow-process-inputs.md).
+
+P.0's diagnosis was right that Slovakia was strangled, wrong about where. Not the band (its Smelting
+ceiling is 1.000) and **not ADR 0019** — that detector needs `inflow > 1 kt` and fires on **one
+node-year in the whole model**; it is not a usable lever as written. It was **Stage 2**: the
+`NetworkImputer` gate "no known primary ⇒ stay closed" is right about a data gap but wrong for a
+100 %-secondary smelter, which has no primary *by construction* and whose input is measured on the
+scrap leg. Slovakia's chain therefore carried nothing and Stage 3 pinned `usetotout Matte` at
+`c = 0.011 kt, σ = 0.001`.
+
+Result: **Slovakia 0.10 → 0.96**, anode 7.81 → **58.53 kt** (z −50.7 → +1.37), scrap level z −58.7 →
+**−0.34**. Common-set z² **+12.4 % → +7.4 %**, below Round O's own +10.9 %. Stage-2 gate: 445 of
+854,460 edges moved (0.052 %), two regions. Every criterion passes except P-g (secondary share 0.223
+vs ≈0.17).
+
+**The stack O + P.0 + P.1 vs base:** deletion 52,871 → 38,934 kt, discretionary 26,958 → **12,523**,
+scrap fidelity 1.318 → **1.032**, invented direct scrap 7,652 → **198 kt**, pairs below 0.50 five →
+**one**, Kazakhstan's fabricated node gone. **Ready to merge — the user's call on these numbers.**
+
+## ROUND P.2 — THE scrap_share BANDS (the remaining scrap-arc item, now load-bearing)
+
+1. **Belgium/CFR** is the ONE remaining pair below 0.50 (0.17). Band-blocked, not level-blocked:
+   headroom `(node input × ceiling 0.195) ÷ reported = 0.216`, 22 of 29 years — predicted before P.0
+   and unchanged by both rounds. Honouring its 123 kt/yr needs the fire refinery to grow 4.5×.
+2. **`.clip(upper=1.0)`** in `scripts/explo/scrap_share_study.py` turns "scrap exceeds the inferred
+   total input" — a data inconsistency — into a share of exactly 1, which becomes a hard
+   `[0.95, 1.00]` floor forcing ≥95 % scrap into **Argentina and Italy**. P.1 showed this is now
+   *load-bearing*: Italy's recorded 100 %-scrap CFR made the new pure-secondary close fire there and
+   displace its primary route (prior shrank, posterior z² improved by 2,320). Do this **before** the
+   next feed change, not after.
+3. There is still **no band-width floor anywhere in the repo**. Only 6 bands have a floor ≥ 0.90
+   (Smelting: Austria, Belgium, Slovakia, UK; CFR: Argentina, Italy) — a 6-region question.
+
+Also open: **ROW** remains above 1.05 intake retention (Kazakhstan cleared in P.1).
+
+## THE CONCENTRATE EXPORT-MASS GAP (re-measure after Round O)
+
+Round N went looking for a region-resolved concentrate grade and found this
+instead. **Half of the mine-chain deletion is arithmetic, not optimisation.**
+
+Copper leaves a mine node only as domestic smelter intake or as export mass
+times a grade the hard cone caps at 0.35. So `cap = 0.35·X_mass + U` bounds what
+a region can discharge at prior-level intake — and on the shipped run
+
+```
+HARD-CAPPED region-years                      144 of 965 with production
+forced shortfall Σ max(0, P − cap)        25,913 kt CC = 49.0 % of all deletion
+   Chile   14,270 (40.6 % of its own)   ROW 7,840 (92.6 %)   Zambia 1,460 (76.5 %)
+```
+
+Chile is hard-capped in **19 of 30 years**. Its BACI concentrate export mass
+swings 12,401 (2020) → 4,723 (2021) → 4,088 (2022) → 10,269 (2023) → 4,951
+(2024) while its mine output stays flat at ~4,200 kt CC and its anode and
+cathode export lines do not move. Three checks put the defect in the **source**:
+gross v5 ≡ netted v8 for Chile every year (ADR 0027 never touched it); HS 260300
+itself drops, so it is not the sector map; and world concentrate trade excluding
+Chile is stable while Chile halves, with China's recorded imports *from Chile*
+falling 7,720 → 2,553 kt in the same step. The tonnage is absent from **both**
+sides of the bilateral matrix.
+
+This is an **input** defect, which is where all three large wins in this arc came
+from (ADR 0022 −26.6 %, ADR 0027 −19.5 %, ADR 0015). Before anything is built it
+has to answer:
+
+1. Is the hole Chile's non-reporting, and does BACI's mirror reconstruction fail
+   for HS 260300 specifically? Check the raw release for a reporter flag on
+   Chile in 2021-22 and 2024, and on Australia→China 2021 (809 → 11 kt).
+2. If the mass is unrecoverable, what is the honest repair — scale the
+   region-year's export legs to the copper ICSG says left, widen σ on them, or
+   let the mine node carry a stock? Each is a different claim about *who is
+   wrong*, and each is measurable.
+3. Does ROW's 92.6 % forced share have this cause or is it the aggregate's
+   folded internal trade (ADR 0014)? Separate it before it contaminates a repair.
+
+**Do not widen the [0.20, 0.35] band to relieve this.** It would license
+concentrate at 60-90 % Cu (that is metal), and ADR 0028 already measured what
+moving that wall does.
+
+Detector and full evidence: `scripts/explo/roundN_concentrate_grade_diag.py`,
+REP `…roundN-concentrate-grade`, ADR 0029.
+
+## THE DISCHARGE PATH — why the softest thing pays (the other half)
 
 Round M settled what the Chile diagnosis could only hypothesise. The grade bands
 do **not** cause the ore deletion; they **shape** it. Closing them relocates the
@@ -69,6 +248,9 @@ same contradiction and, on the copper side, relocates it worse:
 | base | Chile's ore-grade **ceiling** | 35 % | 0.990 |
 | + year-local ore band | Chile's concentrate **floor** | 55 % | 1.307 |
 | + narrowed conc band | **US ore** | **66 %** | **1.356** |
+
+**Now bounded at 51 %** of the mine-chain deletion: the other 49 % is the
+export-mass gap above, which no re-pricing can reach.
 
 So the question is not where the walls are, it is **why the fluid exists and
 who pays**. Chile's concentrate node is over-determined by 3,053 kt CC and the

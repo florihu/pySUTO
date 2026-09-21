@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+import pysuto.param_relation as pr
 from pysuto.param_relation import (
     A_FIELDS,
     A_PRODUCT_THRESHOLD,
@@ -329,3 +330,79 @@ class TestResolverBValuation:
         assert len(results) == 1
         assert results[0].a_edge_id == 0   # Mining→Ore/A 2020 Mass
         assert results[0].b_edge_id == 2   # Mining→Ore/A 2020 CC
+
+
+# ---------------------------------------------------------------------------
+# conc nominal lookup — (sector, region) with a region wildcard (ADR 0029)
+# ---------------------------------------------------------------------------
+
+def _conc_csv(tmp_path, rows, name="conc.csv"):
+    cols = ["param_id", "param_type", "a_sector_from", "a_region_from",
+            "a_valuation", "value_nominal"]
+    p = tmp_path / name
+    pd.DataFrame(rows, columns=cols).to_csv(p, index=False)
+    return p
+
+
+class TestConcNominalLookup:
+    def test_wildcard_row_keys_on_star(self, tmp_path):
+        p = _conc_csv(tmp_path, [
+            ["concconcentratesupply", "concentration", "Concentrate", "*", "Mass", 0.275],
+        ])
+        assert pr.conc_nominal_lookup(p) == {("Concentrate", "*"): 0.275}
+
+    def test_use_rows_and_cc_rows_are_ignored(self, tmp_path):
+        p = _conc_csv(tmp_path, [
+            ["concconcentratesupply", "concentration", "Concentrate", "*", "Mass", 0.275],
+            ["concconcentrateuse", "concentration", "*", "*", "Mass", 0.275],
+            ["notaconc", "efficiency", "Concentrate", "*", "Mass", 0.8],
+        ])
+        assert pr.conc_nominal_lookup(p) == {("Concentrate", "*"): 0.275}
+
+    def test_later_file_layers_over_earlier(self, tmp_path):
+        a = _conc_csv(tmp_path, [
+            ["concconcentratesupply", "concentration", "Concentrate", "*", "Mass", 0.275],
+        ], "a.csv")
+        b = _conc_csv(tmp_path, [
+            ["cgsupplychile2015", "concentration", "Concentrate", "Chile", "Mass", 0.32],
+        ], "b.csv")
+        out = pr.conc_nominal_lookup(a, b)
+        assert out == {("Concentrate", "*"): 0.275, ("Concentrate", "Chile"): 0.32}
+        assert pr.conc_sectors(out) == {"Concentrate"}
+
+    def test_region_rows_do_not_collapse_onto_one_survivor(self, tmp_path):
+        """The bug this keying exists to prevent: a sector-keyed dict would
+        keep whichever region row happened to come last."""
+        p = _conc_csv(tmp_path, [
+            ["a", "concentration", "Concentrate", "Chile", "Mass", 0.32],
+            ["b", "concentration", "Concentrate", "Peru", "Mass", 0.24],
+            ["c", "concentration", "Concentrate", "*", "Mass", 0.275],
+        ])
+        out = pr.conc_nominal_lookup(p)
+        assert len(out) == 3
+        assert out[("Concentrate", "Chile")] == 0.32
+        assert out[("Concentrate", "Peru")] == 0.24
+
+
+class TestConcFor:
+    LOOKUP = {("Concentrate", "*"): 0.275, ("Concentrate", "Chile"): 0.32,
+              ("Cathode", "*"): 0.9975}
+
+    def test_exact_match_beats_wildcard(self):
+        got = pr.conc_for(self.LOOKUP, ["Concentrate", "Concentrate"],
+                          ["Chile", "Peru"])
+        assert list(got) == [0.32, 0.275]
+
+    def test_unknown_sector_is_nan_not_zero(self):
+        got = pr.conc_for(self.LOOKUP, ["Scrap"], ["Chile"])
+        assert np.isnan(got[0])
+
+    def test_empty_lookup_is_all_nan(self):
+        got = pr.conc_for({}, ["Concentrate"], ["Chile"])
+        assert np.isnan(got[0])
+
+    def test_accepts_pandas_series(self):
+        got = pr.conc_for(self.LOOKUP,
+                          pd.Series(["Concentrate", "Cathode"]),
+                          pd.Series(["Chile", "Japan"]))
+        assert list(got) == [0.32, 0.9975]

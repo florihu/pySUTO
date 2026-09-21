@@ -363,6 +363,28 @@ class NetworkImputer(BaseImputer):
             S = float(sum(f[i] for i in known_PR)) + sec_sum + imp_sum
             S_src = "inputs"
             sig_S = lp_combine([sigma[i] for i in known_PR] + sec_sig + imp_sig, p)
+        elif relax_primaries and not known_PR and sec_sum > 0.0:
+            # 100 %-SECONDARY process (ADR 0010 amendment, Round P.1). The rule
+            # above keeps the gate closed with no known primary so that a pure
+            # data gap never fabricates output. But a process that is entirely
+            # scrap-fed has no primary *by construction*, and its input is not
+            # missing — it is measured, on the SEM leg. Applying the same
+            # reasoning the amendment already uses for parallel routes ("a leg
+            # still underivable at convergence means the region does not have
+            # that route"), at convergence no known primary plus a known
+            # secondary means the region has no primary route, not that its
+            # inputs are unknown.
+            # Slovakia is the case that forced this: ICSG reports ~46.6 kt/yr of
+            # scrap into its smelter and the prior carried 0 kt out for 15
+            # region-years, so `usetotout Matte` was pinned at c = 0.011 kt with
+            # σ = 0.001 and strangled the chain — the scrap level (|z| −58.7) and
+            # the BACI anode anchor (|z| −50.7) were both violated to satisfy it.
+            # Relaxed phase only, so anything derivable the ordinary way already
+            # is; `relaxed_close` below then bars filling the absent primary by
+            # subtraction, keeping that route an honest NaN gap.
+            S = sec_sum + imp_sum
+            S_src = "inputs"
+            sig_S = lp_combine(sec_sig + imp_sig, p)
         elif P is not None and not np.isnan(f[P]) and eff > _EPS:
             S = float(f[P] / eff)
             S_src = "product"

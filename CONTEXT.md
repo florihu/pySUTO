@@ -193,6 +193,22 @@ mixed-grade commodity with a single wide band `[0.40, 0.98]`, nominal 0.70, *not
 z-violation as a "bug" — it fires whenever the two feeds populating the CC and Mass sides of an edge
 disagree.
 
+**Smelter scrap · direct-to-refinery scrap.** The model's two `Scrap` inflows, named by where the
+scrap enters: **smelter scrap** feeds `Smelting` with the primary concentrate and leaves as matte;
+**direct-to-refinery scrap** feeds `CFR` with the matte and leaves as anode. ICSG reports two
+*output* classifications — **secondary smelter production** (blister/anode made from scrap) and
+**secondary refined production** (refined copper made from scrap by *either* route) — and the
+second contains the first. Direct-to-refinery scrap is therefore secondary refined *minus* the
+smelter route; in fifteen countries the two published figures are identical and the direct route
+is nil. **Direct melt** — scrap fabricators use without refining — is a third quantity, outside
+this model's boundary ([ADR 0030](docs/adr/0030-secondary-smelter-copper-enters-the-chain-once.md)).
+Since [ADR 0031](docs/adr/0031-icsg-scrap-series-anchor-their-level-not-only-their-share.md) both
+inflows are stated to the model **twice**: as a **level** (a scrap level anchor, where ICSG reports
+one) and as a **share** (the `scrap_share` band, every region). Before it only the share existed.
+_Avoid_: booking secondary refined production as a second inflow beside smelter scrap (the copper
+enters twice, and the anode anchor discharges the surplus by deleting concentrate); reading
+"secondary" as the model's SEM input class when ICSG means an output classification.
+
 **Recovery efficiency (`eff`).** The copper-recovery fraction of a Process, in **`CC`** (from the `eff`
 param) — the sibling coefficient to `conc`. A process's recovered Flow product is `eff · Σ(all CC
 inputs)` in CC; the `(1 − eff)` complement is the residual that leaves as the **SEM** residual output.
@@ -256,6 +272,17 @@ row is retired. On the allocated basis
 these are *not* physical mill-head grades (Australia ~2–3 % vs ~0.8 % head grade). _Avoid_:
 applying a recovered-basis grade to an in-situ edge (a systematic 1/eff error), or citing these
 grades against literature head grades without converting.
+
+**Concentrate grade.** The Cu mass fraction of copper concentrate — the `Concentrate` case of the
+concentration coefficient, one **global** row (0.275, band [0.20, 0.35]). Unlike an **in-situ ore
+grade** it is a *direct assay*: no allocation basis, no `eff` division, so it may be read against
+industry figures (20–35 % Cu) as it stands. It is deliberately **not** region-resolved the way ore
+grades are: measured over the region-years whose books are physically possible, the between-region
+spread is 0.0117 against the 0.0375 σ the single row already declares, and the residual that looks
+like a regional grade is a gap in the recorded export **mass**
+([ADR 0029](docs/adr/0029-the-concentrate-grade-stays-global.md)). _Avoid_: reading a region's
+implied `(P−U)/X` as its grade — where export mass is under-recorded that ratio absorbs the missing
+tonnage and returns values (0.6–0.9, and negatives elsewhere) that are not grades at all.
 
 **Grade band vs grade σ.** A `conc`-family params row's `value_min`/`value_max` are read **twice**:
 as a **hard cone** by `RatioBoundBuilder` (`value_min·Mass ≤ CC ≤ value_max·Mass`, per edge per
@@ -400,9 +427,12 @@ residuals); i.e. its process→flow edges only ≙ PIOLab *useful output* (suppl
 **Scale total** — a Type-2 **soft-sum** (`Σ aᵢ = c + ε`, free cone) whose RHS `c` is the model's
 **own prior** group-sum (`c = Σ f_agg`), used for **scale-preservation** against the homogeneous
 collapse — not to add information. "Kind-of-external" because the warm-start solve (`a₀ = f_agg` at
-t₀, `a_post(t−1)` after) never sees this fixed Stage-2 total. Two families: **supply total output**
-(per process — its process→flow useful output) and **use total output** (per flow — Σ over all
-destinations incl. final demand). Groups are classified **fabricated vs feed-backed** (per
+t₀, `a_post(t−1)` after) never sees this fixed Stage-2 total. Three families: **supply total output**
+(per process — its process→flow useful output), **use total output** (per flow — Σ over all
+destinations incl. final demand), and the **scrap level anchor** below. On a **degenerate (one-leg)
+fan** the prior group-sum coincides with the feed's own published number, and such a row then *does*
+add information — this is a consequence of the fan, not the ADR 0006 mechanism (an external totals
+file reconciled in a separate pass). Groups are classified **fabricated vs feed-backed** (per
 `agg_result.coverage`) — but both keep the same tight cv: loosening fabricated groups was tried
 and rejected, because these rows double as the counterweight to the nodata zero anchors and
 loosening them collapses the interior chain
@@ -416,6 +446,17 @@ number — see README; that mechanism was removed by
 **coherence soft-sum** (deprecated terms — see README §Glossary "control total" _Avoid_);
 reading a scale total as only a prior-preservation device — on no-data subgraphs it is also
 what holds scale against the zero anchors (ADR 0016).
+
+**Scrap level anchor** — the third **scale total** family (`smelterscrap`, `directrefscrap`): a
+soft-sum stating the **level** of *one input class* of a node — the scrap ICSG reports entering
+`Smelting` and entering `CFR` — per region-year, **CC only**, and **only where a feed observed it**.
+It is the one `sum` family whose *row existence is data-gated*, which is what makes ADR 0025's σ
+floor unconditional for it. Needed because `Scrap` is an `SB` node: `Scrap→Process` edges are in
+neither output-total family, so before [ADR 0031](docs/adr/0031-icsg-scrap-series-anchor-their-level-not-only-their-share.md)
+the only statement about them was the `scrap_share` **band**, and a share band over a node with no
+throughput is satisfied trivially. _Avoid_: calling it a **total input** (that is *all* incoming
+edges — this is one class of them); reading the **absence** of a scrap-level row as a prohibition —
+an absent row is an *unstated* level, and the edge keeps exactly the freedom it had.
 
 **Contradicted flow node** — a Flow node whose **inflow** prior (`Process→Flow`) and **outflow**
 prior (`Flow→Process` + `Flow→SB`) cannot both hold under its own **hard** mass balance. Because
@@ -487,7 +528,8 @@ reserved word for the constraint-row `type` column (see Glossary §Entity `_Avoi
 _Avoid_: using `type` for an entity kind (that is **entity**: `Process` | `Flow` | `SB`).
 
 **variant** — the second identity slot: the *role* a constraint plays within its family
-(`massbal`; `usefulsupply` / `subentity` / `supplytotout` / `usetotout` / a user csv label for `sum`;
+(`massbal`; `usefulsupply` / `subentity` / `supplytotout` / `usetotout` / `smelterscrap` /
+`directrefscrap` / a user csv label for `sum`;
 `ratioeq` / `bound` for `ratio`). _Avoid_: "name" (collides with **Sector**, "the named instance").
 
 **Node-scoped vs set-scoped constraint** — a `massbal` or node-`sum` row balances **one node**, so its
@@ -500,8 +542,9 @@ many b-side edges per `(region_to, time, valuation)` bucket (`Σb − r·Σa`), 
 numerator/denominator edge and its identity rests on the `variant` plus `region`/`valuation` group-key
 specs (`num_*`/`denom_*` are null, exactly like a set-`sum`). A set-`sum` (a csv constraint grouped
 across nodes) spans **many** edges with no single node — its identity rests on the `variant` plus
-group-key specs; by contrast the `supplytotout` / `usetotout` **scale totals** are node-`sum` rows
-(one process / one flow each) and so carry populated `sector`/`region`. _Avoid_:
+group-key specs; by contrast the `supplytotout` / `usetotout` **scale totals** — and the
+`smelterscrap` / `directrefscrap` **scrap level anchors**, which carry the *consuming* node — are
+node-`sum` rows and so carry populated `sector`/`region`. _Avoid_:
 expecting a single `sector`/`region`, or populated `num_*`/`denom_*`, on a set-sum or **set-scoped
 (agg) ratio** row (they are null there).
 

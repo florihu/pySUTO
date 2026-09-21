@@ -20,6 +20,43 @@ recipe with **no** known primary stays blocked (no fabricated zeros), and a rela
 never used to backward-fill the primary it assumed absent (that would echo the missing=0 assumption
 as an explicit 0 — the route stays an honest NaN gap, consistent with "never seeded to 0" below).
 
+**Amended 2026-09-21 — a 100 %-secondary process has no primary by construction.** The first guard
+above — "a recipe with **no** known primary stays blocked (no fabricated zeros)" — is relaxed in one
+case: when no primary is known *but a SEM secondary is*. The relaxed pass then closes the recipe on
+`S = Σ(known secondaries) + Σ(known imports)`.
+
+The guard was written against a *data gap*, and it is right about that: no known input of any kind
+must never produce output. But a wholly scrap-fed smelter has no primary **by construction**, and its
+input is not missing — it is measured, on the scrap leg. This is the same honesty argument the
+2026-09-02 amendment makes for parallel routes: at convergence, "still underivable" means *the region
+does not have that route*. Applied here, no known primary plus a known secondary means the region has
+no primary route, not that its inputs are unknown.
+
+Slovakia forced this. ICSG reports ~46.6 kt/yr of scrap into its smelter; the prior carried **0 kt
+out of it for 15 region-years** (520 kt of scrap producing nothing — the only region affected, plus
+21 small CFR region-years). Stage 3 then built `usetotout Matte/Slovakia` from that zero at
+`c = 0.011 kt, σ = 0.001`, which is a near-*hard* zero: nothing could cross the node, so Round P.0's
+feed-backed scrap level (|z| −58.7) and the BACI-backed anode anchor (|z| −50.7) were **both**
+violated to satisfy it, and Slovakia's whole secondary chain stayed collapsed. The fabricated-zero
+pin was the symptom; this gate is the cause. See the Round P.0 REP
+([analysis_opt_20260921_090618_1ceb5eed…](../rep/analysis_opt_20260921_090618_1ceb5eed_20260921_roundP-scrap-level.md) §4.1).
+
+Three guards keep the original intent intact: it fires in the **relaxed phase only**, so anything
+derivable the ordinary way already is; it requires a **known secondary** (`sec_sum > 0`), so a recipe
+with no known input of any kind still blocks — CP, which has no SEM leg, is untouched; and
+`relaxed_close` still bars using the closed output to backward-fill the primary it assumed absent, so
+the missing route stays an honest NaN gap rather than an explicit 0.
+
+**Measured** (`opt_20260921_101621_cd0c0ae2`, 30/30 Solved): **445 of 854,460 edges moved (0.052 %)**,
+in two regions. Slovakia's chain closes over 21 years — `Smelting→Matte` 0 → 714 kt CC, `Matte→CFR`
+0 → 714, `CFR→Anode` 0 → 712 — and its scrap level is then honoured at z = −0.34 (was −58.7), its
+anode at z = +1.37 (was −50.7). Common-set sum-row z² **−142,967** overall (Slovakia −122,346,
+Austria −16,989); the largest regression anywhere is China +1,371. Italy also moved in 5 years,
+unpredicted: its CFR band is `[0.950, 1.000]` from the `.clip(upper=1.0)` defect, so it is *recorded*
+as ~100 % scrap-fed and the new close displaces the primary route its chain had been using. Its prior
+shrinks and gains a negative `Cathode→USC`, but its posterior z² **improves** by 2,320. See the
+[Round P.1 REP](../rep/analysis_opt_20260921_101621_cd0c0ae2_20260921_roundP1-secondary-recipe.md).
+
 The NetworkImputer's process-recipe forward fill (`product = eff·Σinputs`,
 [network.py:365](../../src/pysuto/impute/network.py)) fires only when **every** primary input is
 known (`_RRecipe.primary` "block forward if missing", network.py:120-121). A Process is fed by

@@ -100,6 +100,8 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 
+from pysuto.param_relation import conc_for
+
 sys.path.insert(0, os.path.dirname(__file__))
 
 # ---------------------------------------------------------------------------
@@ -486,9 +488,13 @@ def _source_dir(version: int) -> str:
     return src
 
 
-def _conc_by_sector() -> dict:
-    """`conc` supply nominals, the basis the trade-share fan already uses."""
-    from build_trade_shares import _conc_by_sector as _c
+def _conc_lookup() -> dict:
+    """`conc` supply nominals keyed ``(sector, exporter region)``.
+
+    The same lookup the trade-share fan uses. Keyed by the region the cargo came
+    *from*, because a traded commodity's concentration belongs to its producer.
+    """
+    from build_trade_shares import _conc_lookup as _c
     return _c()
 
 
@@ -502,17 +508,13 @@ def _eff_nominals() -> dict:
     return out
 
 
-def icsg_intake_production(sectors=SECTORS) -> tuple:
-    """ICSG intake ``U``, production ``P`` and the reported ``(sector, region)`` set.
-
-    Read straight from the raw ICSG rows — no model state — so this can gate a
-    feed build that produces that state, and so ``build_trade_shares`` can reuse
-    the same definitions (ADR 0024's bound needs exactly this ``P``).
+def production_recipes(mining, conc_in, scrap_sm, anode_in, scrap_cfr, sxew,
+                       cathode_use, eff) -> tuple:
+    """``(prod, use)`` per sector from the ICSG input series, all keyed (region, year).
 
         Concentrate  U = Smelting/Concentrate use       P = Mining/Concentrate supply
         Anode        U = Refining/Anode use (ADR 0021)  P = (matte + scrap into CFR) · eff_CFR
         Cathode      U = Semi + USC + MESC use          P = Refining/Anode use · eff_ER
-                                                          + Refining/Scrap use · eff_CFR · eff_ER
                                                           + SXEW/Cathode supply
         Matte        U = max(P_matte, anode use ÷ eff_CFR − scrap into CFR)
                      — no ICSG series; a converter consumes at least its own
@@ -524,6 +526,40 @@ def icsg_intake_production(sectors=SECTORS) -> tuple:
     of scrap directly, and a matte-only reading puts its anode output at 139 kt
     against the 380 kt its own refinery consumes — a secondary refiner made to
     look like a pure importer.
+
+    Cathode production carries NO second scrap term: ``anode_in`` is the total
+    refined output ÷ eff_ER (ADR 0021), so the secondary refined copper is
+    already inside it. The former ``+ Refining/Scrap · eff_CFR · eff_ER`` was
+    right only while the Anode row was primary-only, and counted secondary
+    refined twice — 17 % of world cathode production in 2024 (ADR 0030).
+    """
+    smelt_in = conc_in.add(scrap_sm, fill_value=0.0)
+    matte_p  = smelt_in * eff["Smelting"]
+    prod = {
+        "Concentrate": mining,
+        "Matte":       matte_p,
+        "Anode":       matte_p.add(scrap_cfr, fill_value=0.0) * eff["CFR"],
+        "Cathode":     (anode_in * eff["ER"]).add(sxew, fill_value=0.0),
+    }
+    use = {
+        "Concentrate": conc_in,
+        "Anode":       anode_in,
+        "Cathode":     cathode_use,
+        "Matte":       pd.concat(
+            [matte_p,
+             (anode_in / eff["CFR"]).subtract(scrap_cfr, fill_value=0.0).clip(lower=0.0)],
+            axis=1).max(axis=1),
+    }
+    return prod, use
+
+
+def icsg_intake_production(sectors=SECTORS) -> tuple:
+    """ICSG intake ``U``, production ``P`` and the reported ``(sector, region)`` set.
+
+    Read straight from the raw ICSG rows — no model state — so this can gate a
+    feed build that produces that state, and so ``build_trade_shares`` can reuse
+    the same definitions (ADR 0024's bound needs exactly this ``P``). The
+    arithmetic lives in ``production_recipes``.
     """
     fdir = _input_registries().feed.resolve("icsg")
     raw  = pd.read_csv(fdir / "values.csv")
@@ -538,32 +574,17 @@ def icsg_intake_production(sectors=SECTORS) -> tuple:
                 & (raw["Supply_Use"] == supply_use)]
         return x.groupby(["reg", "yr"])["Value"].sum()
 
-    smelt_in  = ser("Smelting", "Concentrate", "Use").add(
-        ser("Smelting", "Scrap", "Use"), fill_value=0.0)
-    anode_in  = ser("Refining", "Anode", "Use")
-    scrap_cfr = ser("Refining", "Scrap", "Use")     # ADR 0021: scrap enters CFR
-    matte_p   = smelt_in * eff["Smelting"]
-
-    prod = {
-        "Concentrate": ser("Mining", "Concentrate", "Supply"),
-        "Matte":       matte_p,
-        "Anode":       matte_p.add(scrap_cfr, fill_value=0.0) * eff["CFR"],
-        "Cathode":     (anode_in * eff["ER"])
-                       .add(ser("Refining", "Scrap", "Use") * eff["CFR"] * eff["ER"],
-                            fill_value=0.0)
-                       .add(ser("SXEW", "Cathode", "Supply"), fill_value=0.0),
-    }
-    use = {
-        "Concentrate": ser("Smelting", "Concentrate", "Use"),
-        "Anode":       anode_in,
-        "Cathode":     ser("Semi", "Cathode", "Use")
-                       .add(ser("USC", "Cathode", "Use"), fill_value=0.0)
-                       .add(ser("MESC", "Cathode", "Use"), fill_value=0.0),
-        "Matte":       pd.concat(
-            [matte_p,
-             (anode_in / eff["CFR"]).subtract(scrap_cfr, fill_value=0.0).clip(lower=0.0)],
-            axis=1).max(axis=1),
-    }
+    prod, use = production_recipes(
+        mining=ser("Mining", "Concentrate", "Supply"),
+        conc_in=ser("Smelting", "Concentrate", "Use"),
+        scrap_sm=ser("Smelting", "Scrap", "Use"),
+        anode_in=ser("Refining", "Anode", "Use"),
+        scrap_cfr=ser("Refining", "Scrap", "Use"),     # ADR 0021: scrap enters CFR
+        sxew=ser("SXEW", "Cathode", "Supply"),
+        cathode_use=ser("Semi", "Cathode", "Use")
+                    .add(ser("USC", "Cathode", "Use"), fill_value=0.0)
+                    .add(ser("MESC", "Cathode", "Use"), fill_value=0.0),
+        eff=eff)
 
     intake, production, reported = {}, {}, set()
     for s in sectors:
@@ -576,7 +597,7 @@ def icsg_intake_production(sectors=SECTORS) -> tuple:
     return intake, production, reported
 
 
-def load_root_trade(src_dir: str, conc: dict) -> tuple:
+def load_root_trade(src_dir: str, conc_lookup: dict) -> tuple:
     """Raw BACI → cross-region root legs in CC, plus the raw frame and maps."""
     raw  = pd.read_csv(os.path.join(src_dir, "values.csv"))
     smap = pd.read_excel(os.path.join(src_dir, "conc.xlsx"), sheet_name="sector_map")
@@ -595,7 +616,8 @@ def load_root_trade(src_dir: str, conc: dict) -> tuple:
     # it is neither trade nor a domestic observation, so it takes no part in
     # the netting — but the rows stay in values.csv untouched.
     cross = raw[raw["region_from"] != raw["region_to"]].copy()
-    cross["cc"] = cross["Value"] * cross["sector"].map(conc)
+    cross["cc"] = cross["Value"] * conc_for(conc_lookup, cross["sector"],
+                                            cross["region_from"])
     legs = (cross.groupby(["sector", "region_from", "region_to", "time"])["cc"]
             .sum().reset_index())
     return raw, legs, s_of, r_of
@@ -620,7 +642,7 @@ def canonical_codes(raw: pd.DataFrame) -> tuple:
 
 
 def rebuild_values(raw: pd.DataFrame, legs_old: pd.DataFrame,
-                   legs_new: pd.DataFrame, conc: dict) -> pd.DataFrame:
+                   legs_new: pd.DataFrame, conc_lookup: dict) -> pd.DataFrame:
     """Apply the per-root-leg change to the raw rows.
 
     Existing rows are scaled by ``v_new / v_obs`` so the source's src-code
@@ -650,7 +672,11 @@ def rebuild_values(raw: pd.DataFrame, legs_old: pd.DataFrame,
                 continue
             rows.append({"Year": int(r.time), "Sector": HS_OF[r.sector],
                          "Region_from": a, "Region_to": z,
-                         "Value": r.cc_new / conc[r.sector], "Unit": "kt",
+                         # a born leg's mass is its CC at the ORIGIN's grade —
+                         # the grade the model will read it back with
+                         "Value": r.cc_new / float(conc_for(
+                             conc_lookup, [r.sector], [r.region_from])[0]),
+                         "Unit": "kt",
                          "sector": r.sector, "region_from": r.region_from,
                          "region_to": r.region_to, "time": r.time})
         out = pd.concat([out, pd.DataFrame(rows)], ignore_index=True)
@@ -673,9 +699,11 @@ def main(source_version: int = SOURCE_VERSION) -> None:
     print(f"   sectors    : {SECTORS}")
     src_dir = _source_dir(source_version)
 
-    conc = _conc_by_sector()
-    print(f"   conc       : {conc}")
-    raw, legs_old, _, _ = load_root_trade(src_dir, conc)
+    conc_lookup = _conc_lookup()
+    _wild = {s_: v for (s_, r_), v in conc_lookup.items() if r_ == "*"}
+    _reg = len(conc_lookup) - len(_wild)
+    print(f"   conc       : {_wild}" + (f"  (+{_reg} region-resolved)" if _reg else ""))
+    raw, legs_old, _, _ = load_root_trade(src_dir, conc_lookup)
     print(f"   raw rows   : {len(raw):,}   cross-region root legs: {len(legs_old):,}"
           f"   gross {legs_old['cc'].sum():,.0f} kt CC")
 
@@ -720,7 +748,7 @@ def main(source_version: int = SOURCE_VERSION) -> None:
           f"share>2 {(scales['cv_scale'] > 2).mean() * 100:.1f} %  "
           f"at the cap {(scales['cv_scale'] >= MAX_CV_SCALE).sum():,}")
 
-    values_new = rebuild_values(raw, legs_old, legs_new, conc)
+    values_new = rebuild_values(raw, legs_old, legs_new, conc_lookup)
     print(f"   values.csv : {len(raw):,} rows → {len(values_new):,}   "
           f"mass {raw['Value'].sum():,.0f} → {values_new['Value'].sum():,.0f} kt")
 
