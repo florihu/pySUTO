@@ -175,21 +175,100 @@ vs ≈0.17).
 scrap fidelity 1.318 → **1.032**, invented direct scrap 7,652 → **198 kt**, pairs below 0.50 five →
 **one**, Kazakhstan's fabricated node gone. **Ready to merge — the user's call on these numbers.**
 
-## ROUND P.2 — THE scrap_share BANDS (the remaining scrap-arc item, now load-bearing)
+## ROUND Q — SHIPPED 2026-09-21: one territory, one label (ADR 0032)
 
-1. **Belgium/CFR** is the ONE remaining pair below 0.50 (0.17). Band-blocked, not level-blocked:
-   headroom `(node input × ceiling 0.195) ÷ reported = 0.216`, 22 of 29 years — predicted before P.0
-   and unchanged by both rounds. Honouring its 123 kt/yr needs the fire refinery to grow 4.5×.
-2. **`.clip(upper=1.0)`** in `scripts/explo/scrap_share_study.py` turns "scrap exceeds the inferred
-   total input" — a data inconsistency — into a share of exactly 1, which becomes a hard
-   `[0.95, 1.00]` floor forcing ≥95 % scrap into **Argentina and Italy**. P.1 showed this is now
-   *load-bearing*: Italy's recorded 100 %-scrap CFR made the new pure-secondary close fire there and
-   displace its primary route (prior shrank, posterior z² improved by 2,320). Do this **before** the
-   next feed change, not after.
-3. There is still **no band-width floor anywhere in the repo**. Only 6 bands have a floor ≥ 0.90
-   (Smelting: Austria, Belgium, Slovakia, UK; CFR: Argentina, Italy) — a 6-region question.
+Run `opt_20260921_114721_de4c5cc5`, 30/30 Solved, icsg **v10**, scrap_share **v3**.
+**Common-set z² 1,844,644 → 1,698,662 — `−1.1 %` vs base.** The whole O + P.0 + P.1 + Q stack is now
+better than the model it started from; Round O's +10.9 % regression is retired. `directrefscrap` z²
+−68 %, Belgium/CFR 0.55 → 0.82 and its headroom 0.22 → 1.236, band ceilings 118 → 99, dead
+region-years 13 → **2**. Costs: total deletion +460 kt but **entirely forced** (discretionary
+12,523 → **12,435**); world scrap fidelity 1.057 → 1.076; Belgium/Smelting overshoots at 1.17;
+Kazakhstan rejoins ROW above 1.05. REP `…roundQ-one-territory`.
+
+Still open from Q: **Smelting/Austria headroom 0.596, blocked 30/30** (ceiling 1.000 — the node, not
+the band); **Belgium/Smelting at 1.17** of its ICSG level; and the `stock_bounds_study.py` bug below.
+
+## ROUND P.2 — WITHDRAWN 2026-09-21: the bands were not the defect. The FEED was. (→ Round Q)
+
+P.2 was scoped as three band items. Measurement refutes two of them and traces the third to a
+single root cause one stage upstream: **code that runs before the feed pipeline applies
+`conc.xlsx`'s `region_map` matches on the SOURCE region label where the ROOT region is meant.**
+`values.csv` holds raw source names (`Belgium-Luxembourg`, `South Korea`, `Taiwan, China`); the map
+to root names (`Belgium`, `Korea, Rep.`, `Taiwan`) is applied downstream inside `feedpipe`.
+
+### Q-a — ADR 0030's nesting subtraction skipped Belgium 1995-2013  ⚠ 2,424 kt
+
+`scripts/parse/icsg_parse/icsg_clean.py::_smelter_route` groups by `['Region','Year']`;
+`apply_input_divisors` then does `.reindex(keys).fillna(0.0)`. Belgium's `Refining/Secondary` rows
+are labelled `Belgium-Luxembourg` for 1995-2013 while its `Smelting/Secondary` rows are all labelled
+`Belgium`, so the lookup misses, `nested = 0`, and **the subtraction silently does nothing for 19 of
+Belgium's 30 years**:
+
+```
+root     source              n   years       published  corrected  overstated
+Belgium  Belgium-Luxembourg  19  1995-2013     3,321.3      897.4     2,423.9 kt
+```
+
+Validation: the corrected 2013 value is **9.9 kt** — exactly what ICSG publishes under the `Belgium`
+label in that same handover year. Egypt / Ukraine / Romania are **not** instances: they have no
+smelter series of their own, so `nested = 0` is correct for them. Nesting must happen per real
+reporting territory and never at ROW level, which would subtract Serbia's smelter from Egypt's
+refinery.
+
+**This is item 1.** Belgium/CFR's 0.17 is not a band that is too tight — it is a **reported level
+~5× too high for 19 years**, which P.0 now anchors and which the hard ceiling 0.195 is the only
+thing refusing. The band was right; the feed was wrong.
+
+### Q-b — the handover year is published under both labels and summed  (4 cells)
+
+Belgium 2013 anode 388.2 → **776.3** (the series is otherwise flat at ~390), Belgium 2013 cathode
+211 → 422, Taiwan 2013 cathode 437.5 → **875.0**. ROW's 226 multi-source cells are a genuine
+aggregate and correctly summed — `conc.xlsx` already carries the distinction in `mapping_type`
+(`aggregate` 47 / `direct` 45 / `alias` 2 / `typo` 2).
+
+### Q-c — the band study never applies the region map
+
+`scripts/explo/scrap_share_study.py` groups raw `values.csv` by source region, then looks the result
+up with `acc.node_index["region"]` (root names). **172,174 kt of series values are never seen.**
+**Korea, Rep.** (source `South Korea`) and **ROW** therefore get `DEFAULT_BAND (0.0, 0.25)` on both
+processes — Korea/Smelting's ceiling is active in 7 years, 1,061 kt. **Belgium** and **Taiwan** get
+bands computed from a partial series.
+
+### Items 2 and 3 are NOT defects — measured, closed
+
+- **`.clip(upper=1.0)`** clips by ~1e-5 relative (**6 grams on 123 kt**) on 68 CFR observations in
+  three regions, two of which (Egypt, Ukraine) are not model regions. It is float-noise cleanup on
+  `scrap == anode ÷ eff`, not a masked data inconsistency. The TODO's earlier characterisation was
+  wrong.
+- The six **`[0.95, 1.00]`** bands come from the documented `fillna(0.0)` "missing counts as 0"
+  convention (none of those six regions has a primary series at all), not from the clip. They block
+  1,023 kt of primary input that is **100 % fabricated** — zero feed-observed edges, 505 kt of it a
+  *domestic* `Concentrate→Smelting` edge in Belgium, a country with no mines. The bands are doing
+  their designed faucet-stop job. **Do not widen them.**
+- The minimum band width 0.05 is not an absent floor but the `max(0,·)` / `min(1,·)` truncation
+  halving the intended ±0.05 margin exactly at the two ends. Measurement says those narrow ends are
+  where the bands do their most useful work.
+
+### Sequencing
+
+Q-a and Q-b are **feed** fixes (full Stage 1-4 rebuild); Q-c is a **param** fix (scrap_share v3,
+Stage 3-4 only). Q-a changes the level P.0 anchors, so Q-c's bands should be rebuilt *after* it —
+otherwise Belgium's band is re-derived from the same inflated series.
 
 Also open: **ROW** remains above 1.05 intake retention (Kazakhstan cleared in P.1).
+
+### Carried out of Round Q, not fixed — the same bug in `stock_bounds_study.py`
+
+`scripts/explo/stock_bounds_study.py` is the other param study that reads a feed's raw
+`values.csv`. It clusters regions from the **source** labels and then looks each one up with
+`acc.node_index["region"]` (**root** names), so `Korea, Rep.`, `ROW`, `Belgium` and `Taiwan` fall
+through to `default_cluster` — whose comment reads "catch-all for regions absent from ICSG", and
+they are not absent, only spelled differently. Same fix as ADR 0032's Q-c: map to root regions
+when the feed is read. Deliberately left alone in Round Q so the scrap lever stays attributable;
+it changes the `stock_bounds` params and so needs its own measured round.
+
+Every other script reading a feed `values.csv` was checked and is region-map aware.
+
 
 ## THE CONCENTRATE EXPORT-MASS GAP (re-measure after Round O)
 

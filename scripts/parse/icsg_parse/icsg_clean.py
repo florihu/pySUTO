@@ -8,6 +8,8 @@ import pandas as pd
 
 CLEAN_DIR = 'data/proc/feedprep/icsg_clean'
 FEED_VALUES = 'data/input/feed/icsg/current/values.csv'
+FEED_CONC = 'data/input/feed/icsg/current/conc.xlsx'
+ROW_BUCKET = 'ROW'
 
 
 RENAME_TOT = {'Smelting': 'Primary',
@@ -52,6 +54,61 @@ def refining_anode_rows(df):
 
 def _eff_of(eff, process):
     return eff.loc[eff['Process'] == process, 'Value_median'].values[0]
+
+
+def territory_aliases(conc_path=FEED_CONC):
+    """Source labels that denote the same reporting territory → the root name.
+
+    ICSG renames territories mid-series (``Taiwan, China`` from 2013) and
+    publishes historical joint reporting under a joint label
+    (``Belgium-Luxembourg`` to 2013).  The concordance already assigns both
+    members of such a pair to one *real-country* root, so that is the test:
+    two source labels sharing a non-ROW root are one territory.
+
+    ROW is excluded deliberately.  It is the catch-all bucket for 48 countries,
+    and merging its members would nest Serbia's smelter route against Egypt's
+    refinery — nesting happens per reporting territory, never per bucket.
+    """
+    rm = (pd.read_excel(conc_path, sheet_name='region_map')
+            [['src_region', 'root_region']].drop_duplicates())
+    rm = rm[rm['root_region'] != ROW_BUCKET]
+    rm = rm[rm.groupby('root_region')['src_region'].transform('size') > 1]
+    assert rm['root_region'].isin(rm['src_region']).all(), (
+        "a territory's canonical label is not itself a source label: "
+        f"{sorted(set(rm['root_region']) - set(rm['src_region']))}")
+    return {s: r for s, r in zip(rm['src_region'], rm['root_region']) if s != r}
+
+
+def merge_territories(df, aliases):
+    """One territory, one label — before anything keys on ``Region`` (ADR 0032).
+
+    The ADR 0030 nesting subtraction looks its smelter route up by
+    ``(Region, Year)``, so a territory whose refined-secondary and smelter
+    series carry different labels was never nested: ``reindex`` missed,
+    ``fillna(0.0)`` zeroed the subtraction, and the smelter route stayed inside
+    the refinery series.  In the handover year both labels are published and the
+    feed added them.  Renaming first fixes both.
+
+    The handover rows are republications, not new measurements, so the
+    duplicate is dropped rather than summed — and a genuine disagreement
+    between the two labels raises instead of being silently resolved.
+    """
+    if not aliases:
+        return df
+    df = df.copy()
+    df['Region'] = df['Region'].replace(aliases)
+    key = ['Region', 'Type', 'Process', 'Supply_Use', 'Year']
+    dup = df[df.duplicated(subset=key, keep=False)]
+    if len(dup):
+        spread = dup.groupby(key)['Value'].agg(lambda s: s.max() - s.min())
+        print(f"one territory, two labels: {len(spread)} cells published under "
+              f"both, max spread {spread.max():.3f} kt")
+        assert spread.max() <= 0.5, (
+            "the same cell carries different values under two labels:\n"
+            f"{spread[spread > 0.5]}")
+    return (df.sort_values('Year_loaded_from_file')
+              .drop_duplicates(subset=key, keep='last')
+              .reset_index(drop=True))
 
 
 def _smelter_route(df, eff):
@@ -172,6 +229,10 @@ def cl(raw):
     for process, new_name in RENAME_TOT.items():
         m = (df['Process'] == process) & (df['Type'] == 'Total')
         df.loc[m, 'Type'] = new_name
+
+    #2b one territory, one label — must precede every step that keys on
+    #   Region: the ADR 0030 nesting subtraction and the feed's own summation
+    df = merge_territories(df, territory_aliases())
 
     #3 production → the input it consumed, marked as a Use row
     eff = read_eff()
