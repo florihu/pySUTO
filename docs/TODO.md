@@ -58,7 +58,7 @@ it is the measurement above that says so. Decide instead: a per-sector constant,
 quantile of the *gross* matrix, or a physically motivated size — something that does
 not move when the matrix it prices gets better.
 
-## ROUND O — THE SECONDARY DOUBLE COUNT (the active target, found 2026-09-17)
+## ROUND O — THE SECONDARY DOUBLE COUNT (built + measured 2026-09-21; HELD, not merged)
 
 Found while writing the copper-metabolism insights REP
 (`docs/rep/analysis_opt_20260916_124721_c4d1d944_20260917_copper-metabolism-insights.md`).
@@ -103,6 +103,41 @@ Amend ADR 0021's "not a double count" sentence. Own ADR, own plan.
 **The export-mass gap below is the regional routing of this surplus** — the
 world needs 3-4 Mt/yr less concentrate than it mines and drops it where a hard
 cone already makes it free. Re-measure it after O.
+
+**MEASURED 2026-09-21** — run `opt_20260917_121759_c57f252b`, 30/30 Solved, against base
+`opt_20260916_124721_c4d1d944`.
+[REP](rep/analysis_opt_20260917_121759_c57f252b_20260921_roundO-secondary-double-count.md) ·
+[ADR 0030](adr/0030-secondary-smelter-copper-enters-the-chain-once.md).
+
+Feed gate: all four checks PASS (Austria 1.480 → 1.000, world gap +3,450 → −464 kt, one row class,
+107 excess region-years listed). Mine-chain deletion 52,871 → 44,197 kt; the **forced** term is flat
+(25,913 → 26,421) and the **discretionary** term falls 26,958 → **17,776 kt (−34.1 %)**. The double
+count was real.
+
+But sum-row z² **+13.3 %** (1,719,806 → 1,949,396), σ identical on all 21,729 unchanged-anchor rows,
+so it is a genuine fit loss: Slovakia's anode +64,630 alone (anchor 57 kt unchanged, posterior
+43 → 6.5 kt in all 30 y), plus Austria/Belgium, plus 146 new phantom concentrate/MF rows in Germany
+and Spain. Secondary share 0.300 → 0.257 against a prior now at 0.164; China *harder* on its 0.402
+ceiling; **Chile unchanged** (0.557 → 0.561, capped 19/30) — the Chile thesis is not supported.
+
+## ROUND P — ANCHOR THE SMELTER-SCRAP LEVEL (the active target, from Round O's measurement)
+
+Round O moved copper from a route the model anchors **by level** (`Refining/Scrap`) to one it anchors
+**only by share** (`Smelting/Scrap`: `0.95 ≤ Σ(Scrap→Smelting)/Σ(all→Smelting) ≤ 1.00`). A share band
+over an idle node is free: ICSG has Slovakia's smelter eating ~28 kt/yr of scrap, the model routes
+**0.06 kt/yr in both runs**. Where the smelter node has throughput the substitution works (Germany
++0 %, Japan −2 %, China −8 % anode); where it does not the copper is lost (Belgium −21 %, Austria
+−27 %, Slovakia −79 %).
+
+1. Make ICSG `Smelting/Scrap` a **soft scale total** on `Σ(Scrap→Smelting)` per region-year — the
+   treatment `Refining/Scrap` already gets — *in addition to* the share band.
+2. Stop deriving a band from a series the same commit rewrote: `scrap_share` v2 flipped Slovakia's
+   CFR band from [0.950, 1.000] to [0.000, 0.280] because the ADR 0030 rule had just clipped the
+   series it is computed from, closing the second route too. Floor the band width, or derive the CFR
+   band from *total* secondary refinery input and let the level anchors split the routes.
+3. Re-run the chain and re-measure with `scripts/explo/roundO_secondary_diag.py`. Expect the
+   Anode/MF/Concentrate z² back and the secondary share to fall toward 0.17 on its own. Only then is
+   Round O mergeable; recheck Kazakhstan (>1.05 intake retention) and Chile's 19/30 cap there.
 
 ## THE CONCENTRATE EXPORT-MASS GAP (re-measure after Round O)
 

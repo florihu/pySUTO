@@ -1,12 +1,9 @@
 # Secondary-smelter copper enters the chain once
 
-**Status:** accepted at the feed level, **measurement pending** — Round O, 2026-09-17. The feed
-gate passed before any solver run (below); the chain result is recorded in the REP named at the
-end and summarised in *Measured*. Amends [ADR 0021](0021-icsg-refined-production-anchors-anode-into-er.md)
-(two of its statements, see its amendment) and the production recipe that ADR introduced; the
-[ADR 0027](0027-re-exports-are-re-attributed-at-feed-time.md) netting and the
-[ADR 0024](0024-fan-domestic-leg-bounded-by-own-production.md) bound consume the corrected `P`
-unchanged in form. Coupled: `scrap_share` v2. Baseline `opt_20260916_124721_c4d1d944`.
+**Status:** **feed level accepted; chain level held** — Round O, measured 2026-09-21. The parse
+rule is correct and its feed gate passes cleanly, but the measured chain ships a +13.3 % sum-row z²
+regression with a known, local cause, so the round is **not merged**. Round P (anchor the
+smelter-scrap *level*) must land first. Amends [ADR 0021](0021-icsg-refined-production-anchors-anode-into-er.md)
 
 ## Context
 
@@ -116,8 +113,47 @@ existing divisors. Noted, not changed.
 
 ## Measured
 
-*Pending — filled after run `opt_…` (label `roundO_secondary`); REP
-`docs/rep/analysis_opt_<O>_20260917_roundO-secondary-double-count.md`.*
+Run `opt_20260917_121759_c57f252b` (label `roundO_secondary`, 30/30 Solved) against base
+`opt_20260916_124721_c4d1d944`. Full evidence:
+[`docs/rep/analysis_opt_20260917_121759_c57f252b_20260921_roundO-secondary-double-count.md`](../rep/analysis_opt_20260917_121759_c57f252b_20260921_roundO-secondary-double-count.md).
+
+**The feed gate passed on all four checks** — 611 changed rows, all `Refining/Scrap/Use`; Austria's
+both-booked ratio 1.480 → **1.000** (30-y 1.00–1.00); world concentrate gap +3,450 → **−464 kt**;
+`P_Cathode`/(refined+SXEW) 1.000. 107 excess region-years (1,945 kt) listed, not silently dropped.
+
+**What the chain bought.** World MF→Concentrate retention 0.873 → **0.894**; mine-chain deletion
+52,871 → **44,197 kt** (−16.4 %). Split by the ADR 0029 detector, the *forced* term is flat
+(25,913 → 26,421 kt) and the **discretionary** term — the deletion the model chooses — falls
+26,958 → **17,776 kt (−34.1 %)**. Peru 0.884 → 0.923. That split is the strongest confirmation the
+double count was real.
+
+**What it cost.** Sum-row z² 1,719,806 → **1,949,396 (+13.3 %)**; Anode +87,939, MF +45,013,
+Concentrate +40,714. Not a σ artifact: σ is *identical* on all 21,729 unchanged-anchor sum rows.
+Slovakia's anode alone is +64,630 — its anchor never moved (57 kt, σ 0.97) while its posterior anode
+collapses ~43 → ~6.5 kt in all 30 years. Austria and Belgium carry most of the rest, and 146 *new*
+rows (+43,811) are phantom concentrate/MF totals in Germany (|z| ≈ 41) and Spain — countries with no
+mine.
+
+**Why, and what it means for this ADR.** The rule moves copper from a route the model anchors **by
+level** (`Refining/Scrap`) to one it anchors **only by share** (`Smelting/Scrap`, a band
+`0.95 ≤ Σ(Scrap→Smelting)/Σ(all→Smelting) ≤ 1.00`). A share band over an idle node is satisfied
+trivially: ICSG has Slovakia's smelter eating ~28 kt/yr of scrap, the model routes 0.06 kt/yr — in
+*both* runs. Where the smelter node has real throughput the substitution works and anode output is
+preserved (Germany +0 %, Japan −2 %, China −8 %); where it does not, the copper is lost (Belgium
+−21 %, Austria −27 %, Slovakia −79 %). Compounding it, `scrap_share` v2 — regenerated from the
+post-fix series as the plan required — flipped Slovakia's CFR band from [0.950, 1.000] to
+[0.000, 0.280], closing the other route too.
+
+**Acceptance: 0 and a′, d′, f, h pass; a partial; b, c, d, e, g fail.** Posterior secondary share
+0.300 → 0.257 against a prior the fix moved to 0.164 — the feed is now right and the model still
+overrides it. China's smelters went *harder* against their 0.402 ceiling (0.379 → 0.398). **Chile
+did not recover** (0.557 → 0.561, hard-capped 19/30): its deletion is the forced, BACI-export-mass
+kind, which this round cannot touch — the Round O thesis about Chile is not supported.
+
+**Decision: the parse rule stands, the round is held.** The defect is not in the rule; it is the
+level/share asymmetry the rule exposed. Round P: make ICSG `Smelting/Scrap` a soft scale total on
+`Σ(Scrap→Smelting)` alongside its band, and stop deriving a band from a series the same commit
+rewrote. Re-measure with the same script before merging either.
 
 ## Consequences
 
