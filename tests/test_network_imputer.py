@@ -441,6 +441,28 @@ def test_cp_pool_all_primaries_missing_still_blocks(imputer, acc):
     assert np.isnan(f[acc.eid("CP", "Cathode", "CC")])
 
 
+def test_pure_secondary_process_closes_on_scrap_alone(imputer, acc):
+    """Round P.1: a 100 %-secondary process has NO primary by construction.
+
+    Seeding only the SEM scrap leg must still close the recipe at convergence.
+    Slovakia's smelter is 100 % scrap-fed: ICSG reports ~46.6 kt/yr into it and
+    the prior carried 0 kt out of it for 15 region-years, which pinned its Matte
+    scale total at c = 0.011 kt and strangled the whole Slovak chain.
+    """
+    f, _ = _run(imputer, acc, {("Scrap", "Smelting", "CC"): 50.0})
+    assert f[acc.eid("Smelting", "Matte", "CC")] == pytest.approx(0.965 * 50.0)
+    assert f[acc.eid("Smelting", "Slag", "CC")] == pytest.approx(0.035 * 50.0)
+    # the absent primary route is never written — it stays an honest gap
+    assert np.isnan(f[acc.eid("Concentrate", "Smelting", "CC")])
+
+
+def test_process_with_neither_primary_nor_secondary_still_blocks(imputer, acc):
+    """The guard that keeps the relaxation honest: no known input of ANY kind
+    means no fabricated output (the ADR 0010 rule this amends, not replaces)."""
+    f, _ = _run(imputer, acc, {("CO", "Mining", "CC"): 100.0})
+    assert np.isnan(f[acc.eid("Smelting", "Matte", "CC")])
+
+
 def test_no_overwrite_observed(imputer, acc):
     # Observed product should not be overwritten by the recipe
     f = np.full(acc.n_edges, np.nan)
