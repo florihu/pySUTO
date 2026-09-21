@@ -120,7 +120,7 @@ so it is a genuine fit loss: Slovakia's anode +64,630 alone (anchor 57 kt unchan
 and Spain. Secondary share 0.300 → 0.257 against a prior now at 0.164; China *harder* on its 0.402
 ceiling; **Chile unchanged** (0.557 → 0.561, capped 19/30) — the Chile thesis is not supported.
 
-## ROUND P.0 — ANCHOR THE SCRAP LEVEL, BOTH ROUTES (built 2026-09-21, measurement pending)
+## ROUND P.0 — ANCHOR THE SCRAP LEVEL, BOTH ROUTES (measured 2026-09-21; HELD, not merged)
 
 Round O moved copper from a route the model anchors **by level** (`Refining/Scrap`) to one it anchors
 **only by share** (`Smelting/Scrap`: `0.95 ≤ Σ(Scrap→Smelting)/Σ(all→Smelting) ≤ 1.00`). A share band
@@ -136,27 +136,55 @@ soft `sum` families, `smelterscrap` and `directrefscrap`, CC only, covered edges
 **separately** so neither route can absorb the other. A region-year ICSG does not report gets no row
 and keeps its freedom — the family can only assert a scrap inflow, never forbid one.
 
-Remaining: prune disk, run Stage 3+4 on `imp_20260917_114838_eebe842b`, gate before the solve,
-measure with `scripts/explo/roundO_secondary_diag.py` on all three runs, write the REP. Acceptance
-and the priority rule are in the plan; **P-d (common-row-set z²) governs the merge**, and a
-P-b ✓ / P-d ✗ split is a *finding* — measured evidence that the ICSG scrap levels and the BACI
-concentrate matrix are jointly infeasible (see the export-mass gap below) — not a failure.
+**MEASURED** — run `opt_20260921_090618_1ceb5eed`, 30/30 Solved.
+[REP](rep/analysis_opt_20260921_090618_1ceb5eed_20260921_roundP-scrap-level.md) ·
+[ADR 0031](adr/0031-icsg-scrap-series-anchor-their-level-not-only-their-share.md).
 
-⚠ The sum-row population changes (+1,014 rows), so the headline totals **1,719,806** (base) and
-**1,949,396** (Round O) are no longer comparable. Compare on the common constraint_ids only.
+Gate passed all six checks twice. **The family works at world scale**: posterior ÷ ICSG-reported
+scrap 1.318 → 1.191 → **1.027**; secondary share 0.300 → 0.257 → **0.220** (prior 0.164); China
+**off** its 0.402 ceiling (0.398 → 0.341); mine-chain deletion 44,197 → **38,876 kt** with the forced
+term flat, so **discretionary deletion 17,776 → 12,455 kt**; retention 0.894 → 0.906; Peru → 0.953;
+and **Chile finally moved, 0.561 → 0.578**.
 
-## ROUND P.1 — THE scrap_share BANDS (deferred; decide after P.0 is measured)
+**But P-d fails**: common-set z² +10.8 % → **+12.3 %** (this also corrects Round O's headline — its
+regression was +10.8 %, not +13.3 %; the rest was its own new rows). The two motivating regions did
+not recover, for two *different* reasons, neither of them the missing level — see P.1.
 
-Two known defects, both deliberately left untouched so P.0's lever stays attributable:
+⚠ Also: ROW joins Kazakhstan above 1.05 intake retention; Cathode CC retention 0.984 → 0.966.
 
-1. **A band derived from a series the same commit rewrote.** `scrap_share` v2 flipped Slovakia's CFR
-   band from [0.950, 1.000] to [0.000, 0.280] because the ADR 0030 rule had just clipped the series
-   it is computed from. Floor the band width, or derive the CFR band from *total* secondary refinery
-   input and let the level anchors split the routes.
-2. **`.clip(upper=1.0)` in `scripts/explo/scrap_share_study.py`** turns "scrap exceeds the inferred
-   total input" — a data inconsistency — into a share of exactly 1, which becomes a **hard
-   `[0.95, 1.00]` floor forcing ≥95 % scrap** into Argentina's and Italy's refineries. Exclude those
-   years from the band sample instead. There is **no band-width floor anywhere in the repo**.
+## ROUND P.1 — TWO WALLS THAT ARE NOT THE LEVEL (the active target, from P.0's measurement)
+
+P.0 proved the level anchor works and is not sufficient: 42 of 44 (route, region) pairs now track
+ICSG, but Slovakia (0.10) and Belgium/CFR (0.17) did not move. **Two disjoint, measured targets.**
+
+### 1. The fabricated-zero pin — the new finding, and the sharper one
+
+Slovakia's chain is `Scrap→Smelting → Matte → CFR → Anode`. Its **Matte** `usetotout` row is pinned at
+`c = 0.011 kt, σ = 0.001`. Nothing crosses it, so in 2024 the scrap level (c 46.634, |z| **−58.7**)
+and the BACI anode anchor (c 57.190, |z| **−50.7**) are *both* violated while the near-zero pin holds
+to 0.9σ. It is a **fabricated** group — no feed covers Slovak matte — so ADR 0016 gives it the tight
+cv and ADR 0025's 0.3 kt floor deliberately does not apply (Round K measured that a *global* floor
+lets fabricated chains grow, and rejected it). This is that decision's cost, seen for the first time.
+
+Scale: **889 of 26,842** active sum rows are near-hard zeros (|c| < 1 kt, σ < 0.01; median |c| 0.032,
+median σ 0.00133), mostly Matte 171 / MF 115 / Concentrate 77 — but only **11 region-years** strangle
+a scrap anchor (639 kt of 153,415 anchored, **0.4 %**), all Slovakia (9) and Belgium (2).
+
+**Likely fix, and it is a σ question, not a new constraint:** a fabricated group whose node sits on a
+chain between two feed-backed anchors that contradict it should lose authority. [ADR
+0019](adr/0019-contradicted-flow-nodes.md)'s *contradicted flow node* machinery is exactly this shape
+and is currently **inert** (`UNCLOSED_ANCHOR_CV = None`, detector only). Start there.
+
+### 2. The scrap_share band ceiling
+
+Belgium/CFR headroom `(node input × ceiling) ÷ reported` = **0.216** (ceiling 0.195, blocked 22 of
+29 y) — predicted before the P.0 run, excluded from its acceptance, unchanged after it. Honouring
+Belgium's 123 kt/yr needs its fire refinery to grow 4.5×; no level anchor can do that. Slovakia's
+Smelting ceiling is 1.000, so the band was never its problem.
+
+Plus the two derivation defects, still untouched: `.clip(upper=1.0)` in
+`scripts/explo/scrap_share_study.py` turning a data inconsistency into a hard `[0.95, 1.00]` floor
+forcing ≥95 % scrap into Argentina and Italy, and the absence of **any** band-width floor in the repo.
 
 Only **6** bands have a floor ≥ 0.90 (Smelting: Austria, Belgium, Slovakia, UK; CFR: Argentina,
 Italy), so this is a 6-region question, not a global one.

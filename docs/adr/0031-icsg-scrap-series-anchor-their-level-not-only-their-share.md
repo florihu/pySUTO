@@ -1,7 +1,8 @@
 # The ICSG scrap series anchor their level, not only their share
 
-**Status:** accepted at the constraint level, **measurement pending** — Round P.0, 2026-09-21. The
-family is built and gated before any solve; the chain result is filled in *Measured*.
+**Status:** **accepted; the round is held** — Round P.0, measured 2026-09-21. The family is correct
+and the world honours it (posterior ÷ reported scrap 1.191 → 1.027), but the common-set sum-row z²
+rose +10.8 % → +12.3 %, so P.0 is **not merged**; it waits with Round O for P.1.
 Amends [ADR 0006](0006-scale-total-supersedes-external-control-total.md) (a third `sum` family) ·
 completes [ADR 0030](0030-secondary-smelter-copper-enters-the-chain-once.md) (the Round P it names) ·
 reuses [ADR 0016](0016-provenance-aware-sigma-on-scale-totals.md) and
@@ -108,8 +109,50 @@ ADR records that rather than glossing it.
 
 ## Measured
 
-*Pending — filled after the `roundP_scrap_level` run; REP
-`docs/rep/analysis_opt_<P>_2026MMDD_roundP-scrap-level.md`.*
+Run `opt_20260921_090618_1ceb5eed` (`roundP_scrap_level`, 30/30 Solved, `prior_mode` cold) against
+Round O and base. Full evidence:
+[`docs/rep/analysis_opt_20260921_090618_1ceb5eed_20260921_roundP-scrap-level.md`](../rep/analysis_opt_20260921_090618_1ceb5eed_20260921_roundP-scrap-level.md).
+
+**Gate:** all six checks passed, twice — 531 + 483 rows, CC only, the population re-derived
+independently from `f_agg` + coverage agreeing at 1,014, row-exists ⇔ feed-observed with zero
+mismatches either way, min active σ_c 0.3002 across all 30 years, no row spanning both routes.
+
+**The family works at world scale.** Posterior ÷ ICSG-reported scrap **1.318 (base) → 1.191 (O) →
+1.027**; region-years reported > 1 kt with a posterior under 5 % of it 79 → 46 → **28**; world
+secondary share 0.300 → 0.257 → **0.220** against a 0.164 prior; China's smelter **off** the 0.402
+band ceiling (0.398 → 0.341). Mine-chain deletion 44,197 → **38,876 kt** with the ADR 0029 forced term
+flat at 26,421, so the **discretionary** part fell 17,776 → **12,455 kt** and the forced share is now
+68 %. MF→Concentrate retention 0.894 → **0.906**; Peru 0.923 → 0.953; and **Chile moved for the first
+time in the arc**, 0.561 → **0.578**.
+
+**It fails its governing criterion.** Common-set z² (the 25,682 ids shared by all three runs — the
+only comparable basis once a round adds rows) 1,719,806 → 1,905,585 → **1,931,784**, i.e. +10.8 % →
+**+12.3 %**. The new rows carry 252,025 z² of their own (`smelterscrap` 139,104 / 531 rows, mean
+|z| ≈ 16). Anode is unchanged against Round O (+87,939 → +87,980): P.0 did not worsen it, it failed to
+fix it.
+
+**Why — and it is not the level.** The two regions that motivated the round are blocked by two
+different walls, neither of them the missing level:
+
+- **Slovakia** (9 region-years): its **Matte** node's `usetotout` is pinned at `c = 0.011 kt,
+  σ = 0.001` — a *fabricated* group, so ADR 0016 gives it the tight cv and ADR 0025's floor does not
+  apply. Nothing crosses it, so the scrap level (|z| −58.7) and the BACI anode anchor (|z| −50.7) are
+  both violated while the near-zero pin holds to 0.9σ. 889 of 26,842 active sum rows are such
+  near-hard zeros (3.3 %), but only **11 region-years** strangle a scrap anchor — 639 kt of 153,415
+  anchored, **0.4 %** — all Slovakia and Belgium.
+- **Belgium/CFR** (22 region-years): the hard `scrap_share` ceiling 0.195 admits only 0.216 of the
+  reported level. Stated before the run and excluded from acceptance for that reason; unchanged after.
+
+**Acceptance: P-a, P-c, P-e, P-h, P-i, P-j pass; P-g partial; P-b, P-d, P-f fail.** Also recorded:
+ROW joins Kazakhstan above 1.05 intake retention, and Cathode CC retention slips 0.984 → 0.966.
+
+**Decision: the family stands, the round is held.** Stating the input level is necessary and
+demonstrably works; it is not sufficient when the chain it feeds is blocked downstream. Two disjoint
+P.1 targets, both narrow and measured: the fabricated-zero pin (ADR 0019's *contradicted node*
+machinery is the right shape and is currently inert, `UNCLOSED_ANCHOR_CV = None` — a σ question, not a
+new constraint), and the `scrap_share` ceiling plus its two derivation defects. Do **not** widen these
+anchors to improve z²: at 1.027 world fidelity they state the feed correctly, and their penalty is
+where the system disagrees.
 
 ## Consequences
 
