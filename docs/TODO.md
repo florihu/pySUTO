@@ -58,7 +58,7 @@ it is the measurement above that says so. Decide instead: a per-sector constant,
 quantile of the *gross* matrix, or a physically motivated size — something that does
 not move when the matrix it prices gets better.
 
-## ROUND O — THE SECONDARY DOUBLE COUNT (built + measured 2026-09-21; HELD, not merged)
+## ROUND O — THE SECONDARY DOUBLE COUNT (measured 2026-09-21; part of the mergeable O+P stack)
 
 Found while writing the copper-metabolism insights REP
 (`docs/rep/analysis_opt_20260916_124721_c4d1d944_20260917_copper-metabolism-insights.md`).
@@ -120,7 +120,7 @@ so it is a genuine fit loss: Slovakia's anode +64,630 alone (anchor 57 kt unchan
 and Spain. Secondary share 0.300 → 0.257 against a prior now at 0.164; China *harder* on its 0.402
 ceiling; **Chile unchanged** (0.557 → 0.561, capped 19/30) — the Chile thesis is not supported.
 
-## ROUND P.0 — ANCHOR THE SCRAP LEVEL, BOTH ROUTES (measured 2026-09-21; HELD, not merged)
+## ROUND P.0 + P.1 — THE SCRAP ARC (measured 2026-09-21; READY TO MERGE — user's call)
 
 Round O moved copper from a route the model anchors **by level** (`Refining/Scrap`) to one it anchors
 **only by share** (`Smelting/Scrap`: `0.95 ≤ Σ(Scrap→Smelting)/Σ(all→Smelting) ≤ 1.00`). A share band
@@ -152,63 +152,44 @@ not recover, for two *different* reasons, neither of them the missing level — 
 
 ⚠ Also: ROW joins Kazakhstan above 1.05 intake retention; Cathode CC retention 0.984 → 0.966.
 
-## ROUND P.1 — TWO WALLS THAT ARE NOT THE LEVEL (the active target, from P.0's measurement)
+## ROUND P.1 — DONE: the pure-secondary recipe closes (2026-09-21)
 
-P.0 proved the level anchor works and is not sufficient: 42 of 44 (route, region) pairs now track
-ICSG, but Slovakia (0.10) and Belgium/CFR (0.17) did not move. **Two disjoint, measured targets.**
+Run `opt_20260921_101621_cd0c0ae2`, 30/30.
+[REP](rep/analysis_opt_20260921_101621_cd0c0ae2_20260921_roundP1-secondary-recipe.md) ·
+[ADR 0010 amendment](adr/0010-trade-first-seeding-of-bilateral-flow-process-inputs.md).
 
-### 1. The fabricated-zero pin — the new finding, and the sharper one
+P.0's diagnosis was right that Slovakia was strangled, wrong about where. Not the band (its Smelting
+ceiling is 1.000) and **not ADR 0019** — that detector needs `inflow > 1 kt` and fires on **one
+node-year in the whole model**; it is not a usable lever as written. It was **Stage 2**: the
+`NetworkImputer` gate "no known primary ⇒ stay closed" is right about a data gap but wrong for a
+100 %-secondary smelter, which has no primary *by construction* and whose input is measured on the
+scrap leg. Slovakia's chain therefore carried nothing and Stage 3 pinned `usetotout Matte` at
+`c = 0.011 kt, σ = 0.001`.
 
-Slovakia's chain is `Scrap→Smelting → Matte → CFR → Anode`. Its **Matte** `usetotout` row is pinned at
-`c = 0.011 kt, σ = 0.001`. Nothing crosses it, so in 2024 the scrap level (c 46.634, |z| **−58.7**)
-and the BACI anode anchor (c 57.190, |z| **−50.7**) are *both* violated while the near-zero pin holds
-to 0.9σ. It is a **fabricated** group — no feed covers Slovak matte — so ADR 0016 gives it the tight
-cv and ADR 0025's 0.3 kt floor deliberately does not apply (Round K measured that a *global* floor
-lets fabricated chains grow, and rejected it). This is that decision's cost, seen for the first time.
+Result: **Slovakia 0.10 → 0.96**, anode 7.81 → **58.53 kt** (z −50.7 → +1.37), scrap level z −58.7 →
+**−0.34**. Common-set z² **+12.4 % → +7.4 %**, below Round O's own +10.9 %. Stage-2 gate: 445 of
+854,460 edges moved (0.052 %), two regions. Every criterion passes except P-g (secondary share 0.223
+vs ≈0.17).
 
-Scale: **889 of 26,842** active sum rows are near-hard zeros (|c| < 1 kt, σ < 0.01; median |c| 0.032,
-median σ 0.00133), mostly Matte 171 / MF 115 / Concentrate 77 — but only **11 region-years** strangle
-a scrap anchor (639 kt of 153,415 anchored, **0.4 %**), all Slovakia (9) and Belgium (2).
+**The stack O + P.0 + P.1 vs base:** deletion 52,871 → 38,934 kt, discretionary 26,958 → **12,523**,
+scrap fidelity 1.318 → **1.032**, invented direct scrap 7,652 → **198 kt**, pairs below 0.50 five →
+**one**, Kazakhstan's fabricated node gone. **Ready to merge — the user's call on these numbers.**
 
-**Likely fix, and it is a σ question, not a new constraint:** a fabricated group whose node sits on a
-chain between two feed-backed anchors that contradict it should lose authority. [ADR
-0019](adr/0019-contradicted-flow-nodes.md)'s *contradicted flow node* machinery is exactly this shape
-and is currently **inert** (`UNCLOSED_ANCHOR_CV = None`, detector only). Start there.
+## ROUND P.2 — THE scrap_share BANDS (the remaining scrap-arc item, now load-bearing)
 
-### 2. The scrap_share band ceiling
+1. **Belgium/CFR** is the ONE remaining pair below 0.50 (0.17). Band-blocked, not level-blocked:
+   headroom `(node input × ceiling 0.195) ÷ reported = 0.216`, 22 of 29 years — predicted before P.0
+   and unchanged by both rounds. Honouring its 123 kt/yr needs the fire refinery to grow 4.5×.
+2. **`.clip(upper=1.0)`** in `scripts/explo/scrap_share_study.py` turns "scrap exceeds the inferred
+   total input" — a data inconsistency — into a share of exactly 1, which becomes a hard
+   `[0.95, 1.00]` floor forcing ≥95 % scrap into **Argentina and Italy**. P.1 showed this is now
+   *load-bearing*: Italy's recorded 100 %-scrap CFR made the new pure-secondary close fire there and
+   displace its primary route (prior shrank, posterior z² improved by 2,320). Do this **before** the
+   next feed change, not after.
+3. There is still **no band-width floor anywhere in the repo**. Only 6 bands have a floor ≥ 0.90
+   (Smelting: Austria, Belgium, Slovakia, UK; CFR: Argentina, Italy) — a 6-region question.
 
-Belgium/CFR headroom `(node input × ceiling) ÷ reported` = **0.216** (ceiling 0.195, blocked 22 of
-29 y) — predicted before the P.0 run, excluded from its acceptance, unchanged after it. Honouring
-Belgium's 123 kt/yr needs its fire refinery to grow 4.5×; no level anchor can do that. Slovakia's
-Smelting ceiling is 1.000, so the band was never its problem.
-
-Plus the two derivation defects, still untouched: `.clip(upper=1.0)` in
-`scripts/explo/scrap_share_study.py` turning a data inconsistency into a hard `[0.95, 1.00]` floor
-forcing ≥95 % scrap into Argentina and Italy, and the absence of **any** band-width floor in the repo.
-
-Only **6** bands have a floor ≥ 0.90 (Smelting: Austria, Belgium, Slovakia, UK; CFR: Argentina,
-Italy), so this is a 6-region question, not a global one.
-
-**P.1's pre-stated target, measured on the Round O posterior** —
-`(node input × band ceiling) ÷ reported level`, below 1 means the band binds before the level can:
-
-| pair | ceiling | headroom | reading |
-|---|---|---|---|
-| **CFR / Belgium** | 0.195 | **0.222** (blocked 22 of 29 y) | the **only** pair blocked by a band *ceiling*; honouring its 123 kt/yr needs the fire refinery to grow 4.5× |
-| Smelting / Austria | 1.000 | 0.608 | no ceiling — the node must grow, which P.0's anchor does |
-| Smelting / Belgium, UK; CFR / Argentina, Italy | 1.000 | 0.84–1.18 | same |
-
-Belgium/CFR is therefore **excluded from P.0's acceptance**; it cannot be fixed by a level anchor.
-
-Also for P.1: the **107 region-years where ADR 0030 asserts the direct route is nil** (Bulgaria 29,
-Iran 23, Japan 19, Korea 11). P.0's coverage gate records that positive claim as merely *unstated*,
-so the solver may re-invent a direct route there. Pinning zero was rejected for P.0 — it would
-hard-code the Bulgaria clip ADR 0030 records as wrong, and a `c = 0` group has no σ under the
-current resolver. P.0's §8 measures whether the loophole is used.
-
-Housekeeping, noticed in P.0, not changed: `run_solver.main()`'s Python default for `prior_mode` is
-`warm` while the CLI default is `cold`. `prior_mode` is now persisted in `stage_config` (it was not,
-so no run before P.0 records which it used).
+Also open: **ROW** remains above 1.05 intake retention (Kazakhstan cleared in P.1).
 
 ## THE CONCENTRATE EXPORT-MASS GAP (re-measure after Round O)
 

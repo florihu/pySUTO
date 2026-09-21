@@ -1,8 +1,11 @@
 # The ICSG scrap series anchor their level, not only their share
 
-**Status:** **accepted; the round is held** — Round P.0, measured 2026-09-21. The family is correct
-and the world honours it (posterior ÷ reported scrap 1.191 → 1.027), but the common-set sum-row z²
-rose +10.8 % → +12.3 %, so P.0 is **not merged**; it waits with Round O for P.1.
+**Status:** **accepted** — Round P.0, measured 2026-09-21; completed by P.1 the same day. The family
+is correct and the world honours it (posterior ÷ reported scrap 1.191 → **1.032**). P.0 alone left the
+common-set z² at +12.4 % because Slovakia's chain was strangled upstream in Stage 2; with the
+[ADR 0010 amendment](0010-trade-first-seeding-of-bilateral-flow-process-inputs.md) that closes
+100 %-secondary recipes, it falls to **+7.4 %** — below Round O's own +10.9 %.
+[Round P.1 REP](../rep/analysis_opt_20260921_101621_cd0c0ae2_20260921_roundP1-secondary-recipe.md).
 Amends [ADR 0006](0006-scale-total-supersedes-external-control-total.md) (a third `sum` family) ·
 completes [ADR 0030](0030-secondary-smelter-copper-enters-the-chain-once.md) (the Round P it names) ·
 reuses [ADR 0016](0016-provenance-aware-sigma-on-scale-totals.md) and
@@ -181,3 +184,15 @@ where the system disagrees.
   artifacts, so no existing run records whether it was warm or cold).
 - `data/` is gitignored, but this round changes **code only** — nothing to re-apply on a fresh
   checkout.
+
+## Completed by P.1 (2026-09-21)
+
+The two regions this ADR's measurement could not fix are resolved or explained. **Slovakia** was not
+band-blocked and not a σ problem: `NetworkImputer` never fired its 100 %-secondary recipe, so its
+chain carried nothing and Stage 3 pinned `usetotout Matte` at `c = 0.011 kt, σ = 0.001`. With the
+ADR 0010 amendment its scrap level is honoured at **z = −0.34** (was −58.7) and its anode at
+**z = +1.37** (was −50.7); the ratio goes 0.10 → **0.96**. **Belgium/CFR** remains at 0.17, blocked by
+its band ceiling exactly as predicted (headroom 0.216) — the band work, not the level.
+
+Note for future rounds: ADR 0019's contradicted-node detector requires `inflow > 1 kt` and fires on
+**one node-year in the entire model**. It is not a usable lever in its current form.

@@ -47,6 +47,16 @@ with no known input of any kind still blocks — CP, which has no SEM leg, is un
 `relaxed_close` still bars using the closed output to backward-fill the primary it assumed absent, so
 the missing route stays an honest NaN gap rather than an explicit 0.
 
+**Measured** (`opt_20260921_101621_cd0c0ae2`, 30/30 Solved): **445 of 854,460 edges moved (0.052 %)**,
+in two regions. Slovakia's chain closes over 21 years — `Smelting→Matte` 0 → 714 kt CC, `Matte→CFR`
+0 → 714, `CFR→Anode` 0 → 712 — and its scrap level is then honoured at z = −0.34 (was −58.7), its
+anode at z = +1.37 (was −50.7). Common-set sum-row z² **−142,967** overall (Slovakia −122,346,
+Austria −16,989); the largest regression anywhere is China +1,371. Italy also moved in 5 years,
+unpredicted: its CFR band is `[0.950, 1.000]` from the `.clip(upper=1.0)` defect, so it is *recorded*
+as ~100 % scrap-fed and the new close displaces the primary route its chain had been using. Its prior
+shrinks and gains a negative `Cathode→USC`, but its posterior z² **improves** by 2,320. See the
+[Round P.1 REP](../rep/analysis_opt_20260921_101621_cd0c0ae2_20260921_roundP1-secondary-recipe.md).
+
 The NetworkImputer's process-recipe forward fill (`product = eff·Σinputs`,
 [network.py:365](../../src/pysuto/impute/network.py)) fires only when **every** primary input is
 known (`_RRecipe.primary` "block forward if missing", network.py:120-121). A Process is fed by
