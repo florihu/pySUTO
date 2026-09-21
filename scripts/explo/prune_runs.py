@@ -5,6 +5,11 @@ every run a shipped round is measured on. Prints what it will do, then does it.
 
     python scripts/explo/prune_runs.py --dry-run
     python scripts/explo/prune_runs.py
+    python scripts/explo/prune_runs.py --keep-recent 5 opt_20260921_084333_d12ba597
+
+The newest `--keep-recent` (default 3) opt runs are ALWAYS kept, whatever the
+allowlist says: the allowlist is static and so is always stale with respect to
+the run someone most likely still needs. Extra run ids may be named on the CLI.
 """
 import json
 import os
@@ -31,6 +36,20 @@ def _upstream(stage, rid):
         return {}
 
 
+def _recent_opt(keep_recent: int) -> set:
+    """Always keep the newest `keep_recent` opt runs, whatever the allowlist says.
+
+    The allowlist is static and is therefore always out of date with respect to
+    a run made after it was last edited — which is exactly the run someone is
+    most likely to still need. This is the guard that makes the script safe to
+    run at any moment.
+    """
+    d = f"{ROOT}/opt"
+    runs = [r for r in os.listdir(d) if os.path.isdir(f"{d}/{r}")]
+    return set(sorted(runs, key=lambda r: os.path.getmtime(f"{d}/{r}"),
+                      reverse=True)[:keep_recent])
+
+
 def _keep_sets():
     const, imp = set(), set()
     for o in KEEP_OPT:
@@ -48,7 +67,14 @@ def _size_gb(path):
                for d, _, fs in os.walk(path) for f in fs) / 1e9
 
 
-def main(dry: bool) -> None:
+def main(dry: bool, keep_recent: int = 3, extra: set = frozenset()) -> None:
+    recent = _recent_opt(keep_recent)
+    KEEP_OPT.update(recent)
+    KEEP_OPT.update(extra)
+    print(f"protecting the {len(recent)} newest opt runs regardless of the allowlist: "
+          + ", ".join(sorted(recent)))
+    if extra:
+        print(f"protecting --keep: {', '.join(sorted(extra))}")
     keep_const, keep_imp = _keep_sets()
     keep = {"opt": KEEP_OPT, "const": keep_const, "imp": keep_imp}
     doomed = {}
@@ -83,4 +109,9 @@ def main(dry: bool) -> None:
 
 
 if __name__ == "__main__":
-    main("--dry-run" in sys.argv)
+    args = sys.argv[1:]
+    n = 3
+    if "--keep-recent" in args:
+        n = int(args[args.index("--keep-recent") + 1])
+    keep = {a for a in args if a.startswith(("opt_", "const_"))}
+    main("--dry-run" in args, keep_recent=n, extra=keep)
