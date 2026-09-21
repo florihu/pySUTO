@@ -29,6 +29,10 @@ exists to stop no-data Scrap→Process edges acting as free copper faucets
 (they are in neither scale-total sum family; see REP
 analysis_opt_20260901_080337_99aa122f_20260901_all-years-deviation-scan.md).
 
+Regions are the concordance's ROOT names, not the raw feed's source labels
+(ADR 0032) — ``South Korea`` is ``Korea, Rep.``, ``Belgium-Luxembourg`` is
+``Belgium``, and the 48 ROW members aggregate into one band.
+
 Share convention (CONTEXT.md: "SEM-secondary (Scrap — missing counts as 0)"):
 a share observation exists for every year the region's *scrap* series has a
 value; the primary series (Concentrate / Matte) counts as 0 when missing, so
@@ -100,6 +104,24 @@ def _slug(region: str) -> str:
                   .replace(",", "")
                   .replace(".", "")
                   .replace(" ", "_"))
+
+
+def to_root_regions(df: pd.DataFrame, feed_dir: Path) -> pd.DataFrame:
+    """Map the raw feed's SOURCE region labels onto the model's root regions.
+
+    ``values.csv`` carries ICSG's own labels (``South Korea``,
+    ``Belgium-Luxembourg``, ``Taiwan, China``); the model's regions are the
+    concordance's root names, and the map is applied downstream inside
+    ``feedpipe``.  Grouping the raw file by ``Region`` and then looking the
+    result up under a root name therefore matches nothing for any renamed or
+    aggregated region: Korea and ROW fell back to DEFAULT_BAND, and Belgium's
+    and Taiwan's bands were built from a partial series (ADR 0032).
+    """
+    rm = pd.read_excel(feed_dir / "conc.xlsx", sheet_name="region_map")
+    m = dict(zip(rm["src_region"], rm["root_region"]))
+    missing = sorted(set(df["Region"]) - set(m))
+    assert not missing, f"feed regions absent from region_map: {missing}"
+    return df.assign(Region=df["Region"].map(m))
 
 
 def filter_series(df: pd.DataFrame, filt: dict, name: str) -> pd.Series:
@@ -234,7 +256,7 @@ def main() -> None:
     inputs = _registry()
     feed_dir = inputs.feed.resolve("icsg")
     print(f"icsg feed ← {feed_dir}")
-    df = pd.read_csv(feed_dir / "values.csv")
+    df = to_root_regions(pd.read_csv(feed_dir / "values.csv"), feed_dir)
     eff = _eff_nominals(inputs)
     previous = pd.read_csv(inputs.params.resolve("scrap_share") / "params.csv", sep=";",
                            dtype=str) if (inputs.params.resolve("scrap_share") / "params.csv").exists() else None
@@ -261,20 +283,19 @@ def main() -> None:
 
     new = pd.DataFrame(rows, columns=PARAMS_COLUMNS)
     if previous is not None:
-        # the fix (ADR 0030) touches the refinery scrap series only: every
-        # Smelting band must come out identical to the registered version
-        cols = ["param_id", "value_min", "value_max"]
-        a = new[new.a_sector_to == "Smelting"][cols].astype(str).reset_index(drop=True)
-        b = previous[previous.a_sector_to == "Smelting"][cols].astype(str).reset_index(drop=True)
-        same = a.equals(b)
-        print(f"\nSmelting bands identical to the registered version: {same}")
-        assert same, "Smelting bands changed — the feed moved more than the refinery scrap series"
-        cf = new[new.a_sector_to == "CFR"].merge(
-            previous[previous.a_sector_to == "CFR"], on="param_id", suffixes=("", "_v1"))
-        cf = cf[(cf.value_min != cf.value_min_v1) | (cf.value_max != cf.value_max_v1)]
-        print(f"CFR bands changed in {len(cf)} regions:")
-        print(cf[["a_region_to", "value_min_v1", "value_max_v1", "value_min", "value_max", "comment"]]
-              .to_string(index=False))
+        # ADR 0032 moves bands on BOTH processes — the regions whose source
+        # label differs from their root name were never matched before — so the
+        # v1→v2 "Smelting is untouched" invariant no longer holds. Report the
+        # diff on both instead; the band that moved is the evidence.
+        for proc in ("Smelting", "CFR"):
+            cf = new[new.a_sector_to == proc].merge(
+                previous[previous.a_sector_to == proc], on="param_id", suffixes=("", "_prev"))
+            moved = (~np.isclose(cf.value_min.astype(float), cf.value_min_prev.astype(float))
+                     | ~np.isclose(cf.value_max.astype(float), cf.value_max_prev.astype(float)))
+            cf = cf[moved]
+            print(f"\n{proc} bands changed in {len(cf)} regions:")
+            print(cf[["a_region_to", "value_min_prev", "value_max_prev",
+                      "value_min", "value_max", "comment"]].to_string(index=False))
 
     PARAMS_DIR.mkdir(parents=True, exist_ok=True)
     out = PARAMS_DIR / "params.csv"

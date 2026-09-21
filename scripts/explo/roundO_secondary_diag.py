@@ -24,6 +24,8 @@ production the netting (ADR 0027) and the fan bound (ADR 0024) use. Sections:
      adds a family), status, world retention.
   8  Round P: reported vs posterior scrap level on BOTH routes; invented
      direct scrap where none is reported; band-vs-level headroom.
+  9  Round Q: the ADR 0032 feed correction as each run's feed states it, and
+     scrap_share occupancy on the band's true (all-inputs) denominator.
 
 Reads persisted run artifacts only; every upstream id comes from the run's own
 sidecar (the Round C hygiene rule).
@@ -398,6 +400,60 @@ def scrap_level_acceptance(runs: list, E: dict) -> None:
           "a ceiling of 1.000 means the node need only grow, which the anchor does.")
 
 
+def territory_and_bands(runs: list, E: dict) -> None:
+    """§9 (Round Q, ADR 0032) — one territory, one label.
+
+    Two things the earlier sections cannot show. First the feed correction
+    itself: ``_icsg`` already root-maps, so a run's own Belgium series is
+    directly comparable across feed versions, and the 1995-2013 half is where
+    the skipped ADR 0030 subtraction lived. Second, band occupancy on the
+    band's REAL denominator — §3 approximates it with ``scrap + Concentrate``,
+    but ``scrap_share`` wildcards ``a_sector_from``, so it pools *every* CC
+    input to the node. A floor that binds caps the node; a ceiling that binds
+    starves it of scrap.
+    """
+    print("\n== 9. One territory, one label (ADR 0032)")
+    print("   9a. Belgium direct-to-refinery scrap as each run's feed states it (kt CC)")
+    for lab, r in runs:
+        v = _input_version(r, "icsg")
+        s = _ser(_icsg(v), "Refining", "Scrap")
+        be = s.loc["Belgium"] if "Belgium" in s.index.get_level_values(0) else pd.Series(dtype=float)
+        early = be.loc[:2013].sum(); late = be.loc[2014:].sum()
+        an = _ser(_icsg(v), "Refining", "Anode")
+        an13 = an.get(("Belgium", 2013), float("nan"))
+        print(f"       {lab:5s} icsg v{v}: 1995-2013 {early:8.1f}   2014-2024 {late:7.1f}   "
+              f"30 y {be.sum():8.1f} | anode 2013 {an13:7.1f}")
+    print("       the pre-2014 half carried the smelter route ADR 0030 removes; "
+          "a 2013 anode near 776 is the handover year counted twice.")
+
+    print("\n   9b. scrap_share occupancy on the band's TRUE denominator (all CC inputs)")
+    for lab, r in runs:
+        cc = E[lab]
+        ver = _param_version(r, "scrap_share")
+        par = pd.read_csv(Path("data/input/params/scrap_share") / f"v{ver}" / "params.csv", sep=";")
+        rows = []
+        for proc in ("Smelting", "CFR"):
+            b = par[par.a_sector_to == proc].set_index("a_region_to")
+            den = cc[cc.sector_to == proc].groupby(["region_to", "time"]).post.sum()
+            num = (cc[(cc.sector_to == proc) & (cc.sector_from == "Scrap")]
+                   .groupby(["region_to", "time"]).post.sum())
+            for (reg, tm), d in den.items():
+                if reg not in b.index or d <= 1.0:      # 1 kt: below this the ratio is noise
+                    continue
+                n = float(num.get((reg, tm), 0.0))
+                lo, hi = float(b.loc[reg, "value_min"]), float(b.loc[reg, "value_max"])
+                rows.append(dict(proc=proc, reg=reg, sh=n / d, lo=lo, hi=hi, den=d,
+                                 on_lo=n / d <= lo + 1e-4, on_hi=n / d >= hi - 1e-4))
+        d = pd.DataFrame(rows)
+        act = d[d.on_lo | d.on_hi]
+        print(f"       {lab:5s} scrap_share v{ver}: {len(d):,} region-years with throughput, "
+              f"{int(d.on_lo.sum())} on a floor, {int(d.on_hi.sum())} on a ceiling")
+        top = (act[act.on_hi].groupby(["proc", "reg"]).agg(n=("sh", "size"), den=("den", "sum"))
+               .sort_values("den", ascending=False).head(5))
+        print("             ceilings by node size: " + ("  ".join(
+            f"{pr}/{rg} {int(v.n)}y {v.den:,.0f} kt" for (pr, rg), v in top.iterrows()) or "none"))
+
+
 def main(argv: list) -> None:
     feed_only = "--feed-only" in argv
     ids = [a for a in argv if not a.startswith("--")]
@@ -424,6 +480,7 @@ def main(argv: list) -> None:
     stock_buffers(runs, E)
     headline(runs, E)
     scrap_level_acceptance(runs, E)
+    territory_and_bands(runs, E)
 
 
 if __name__ == "__main__":

@@ -63,6 +63,18 @@ edge scope drops rows resolving to domestic addresses), see
 mapped self-trade row as a domestic observation — the china-matte case put 0.028 kt of gross mass
 next to 5,678 kt of copper content on one edge.
 
+**Reporting territory** — the real-world territory a feed's rows describe, which is *not* the same
+as the **source region label** those rows carry. A feed may rename a territory mid-series (ICSG's
+`Taiwan` → `Taiwan, China` from 2013) or publish historical joint reporting under a joint label
+(`Belgium-Luxembourg` to 2013), so one territory wears two labels across the series and, in the
+handover year, two labels on the same cell. Two source labels denote one territory exactly when the
+region map assigns them to the same **real-country root**; `ROW` is excluded, being a bucket of 48
+territories rather than one. Anything computed *before* the region map is applied — a parse rule, a
+param study reading `values.csv` — must therefore group by territory, not by label. _Avoid_: reading
+a handover-year pair as two measurements. It is one measurement republished, so adding the two
+doubles the cell, and a rule keyed on the label silently skips the territory whose two series are
+labelled differently ([ADR 0032](docs/adr/0032-one-territory-one-label.md)).
+
 **Boundary topology** *(referenced by [ADR 0001](docs/adr/0001-replace-coherence-sum-eq-with-bilateral-anchoring.md); to be expanded)* —
 the open System-Boundary (SB) endpoints where flows terminate, so prior disagreement there does
 not create feasibility conflicts.

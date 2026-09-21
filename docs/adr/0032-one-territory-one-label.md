@@ -1,0 +1,155 @@
+# One territory, one label
+
+**Status:** accepted — Round Q, 2026-09-21. Completes
+[ADR 0030](0030-secondary-smelter-copper-enters-the-chain-once.md), whose nesting subtraction was
+silently skipped for 19 of Belgium's 30 years. Corrects the Round P.2 scope recorded in
+[TODO](../TODO.md).
+
+## Context
+
+`data/input/feed/<id>/v<n>/values.csv` carries the **source** region labels a feed publishes. The
+concordance `conc.xlsx::region_map` maps them onto the model's **root** regions, and that map is
+applied downstream inside `feedpipe`. Everything that runs *before* the feed pipeline — the parse
+in `scripts/parse/icsg_parse/`, and any study reading `values.csv` directly — therefore sees source
+labels, not root regions.
+
+ICSG does not use one label per territory for all 30 years. It **renames** a territory mid-series
+(`Taiwan` → `Taiwan, China` from 2013) and publishes **historical joint reporting** under a joint
+label (`Belgium-Luxembourg` to 2013, `Belgium` from 2013). In the handover year both labels appear,
+carrying the same numbers.
+
+Three things went wrong, all from the same cause.
+
+**The nesting subtraction was skipped.** `icsg_clean.py::_smelter_route` groups by `['Region','Year']`
+and `apply_input_divisors` does `.reindex(keys).fillna(0.0)`. Belgium's `Refining/Secondary` rows are
+labelled `Belgium-Luxembourg` for 1995–2013 while its `Smelting/Secondary` rows are all labelled
+`Belgium`, so the lookup missed, `nested = 0`, and ADR 0030's correction did nothing:
+
+| root | source | n | years | published | corrected | overstated |
+|---|---|---|---|---|---|---|
+| Belgium | Belgium-Luxembourg | 19 | 1995–2013 | 3,331.1 | 897.4 | **2,433.8 kt** |
+
+The published series jumps from ~160 kt/yr to ~18 kt/yr at the 2013 handover — a discontinuity with
+no physical cause. After the fix it runs 13.3 · 11.8 · 46.9 … 9.9 into 18.4 · 13.9 · 7.3 · 39.1:
+**continuous**. The corrected 2013 value is 9.9 kt, exactly what ICSG publishes under the `Belgium`
+label in that same year.
+
+Egypt, Ukraine and Romania are **not** instances. They have no smelter series of their own, so
+`nested = 0` is correct for them; their whole refined-secondary series is the direct route.
+
+**The handover year was summed.** Both labels map to one root, so `feedpipe` added them: Belgium 2013
+anode into ER **388.2 → 776.3** in a series otherwise flat at ~390, Belgium 2013 cathode 211 → 422,
+Taiwan 2013 cathode **437.5 → 875.0**. Four cells feed-wide. At the raw level the two labels agree to
+within 0.03 kt, so these are republications, not measurements.
+
+**The band study never mapped at all.** `scripts/explo/scrap_share_study.py` groups raw `values.csv`
+by source region and looks the result up with `acc.node_index["region"]`. **172,174 kt of series
+values were never seen.** `Korea, Rep.` (source `South Korea`) and `ROW` (48 sources) fell back to
+`DEFAULT_BAND (0.0, 0.25)` — Korea/Smelting's ceiling is active in 7 region-years, 1,061 kt — and
+`Belgium` and `Taiwan` got bands built from a partial series.
+
+## Decision
+
+**Two source labels that denote the same reporting territory are merged to one canonical label
+before anything keys on `Region`.** The concordance already states which pairs those are: both
+members are assigned to the same **non-ROW** root. That is the test.
+
+- `territory_aliases()` reads `region_map`, drops `ROW`, and returns the source→root renames for
+  every root with more than one source. It asserts the root name is itself one of the sources, so a
+  label is never invented.
+- `merge_territories()` applies the renames, then drops the handover-year duplicate — asserting the
+  two labels agree to within 0.5 kt first, so a genuine conflict raises instead of being silently
+  resolved by `drop_duplicates`.
+- It is called in `cl()` **before** `secondary_excess` and `apply_input_divisors`.
+- `scrap_share_study.py` maps to root regions when it reads the feed, and asserts every source
+  region has a map entry.
+
+**ROW is excluded, deliberately.** It is the catch-all bucket for 48 countries, not a territory.
+Merging its members would nest Serbia's smelter route against Egypt's refinery. Nesting happens per
+reporting territory; aggregation into ROW happens afterwards, in the feed pipeline, where it belongs.
+
+## Consequences
+
+- Belgium's direct-to-refinery scrap falls 3,579 → 1,145 kt over 30 years. 2014–2024 is byte-identical;
+  the entire change is 1995–2013.
+- **Round P.2's premise is withdrawn.** Belgium/CFR's posterior ÷ reported of 0.17 was never a band
+  that is too tight — the *reported level* was ~5× too high for 19 years, [ADR 0031](0031-icsg-scrap-series-anchor-their-level-not-only-their-share.md)
+  anchored it there, and the hard ceiling 0.195 was the only thing refusing it. The band was right;
+  the feed was wrong.
+- Belgium now appears in `icsg_secondary_excess.csv` for one region-year (16 kt), clipped to a zero
+  direct route and listed — the ADR 0030 reporting path, working as designed.
+- `scrap_share` bands move on **both** processes, so the v1→v2 guard asserting "Smelting is untouched"
+  no longer holds and is replaced by a diff report on both.
+
+### Considered and rejected
+
+- **Merging on `mapping_type`.** `conc.xlsx` types `Taiwan, China` as `alias` but `Belgium-Luxembourg`
+  as `aggregate` (with `mapping_confidence: medium`), the same type as the 47 ROW entries. The type
+  column does not separate "same territory" from "bucket member"; the non-ROW root test does.
+- **Merging at root level, i.e. nesting on the mapped region.** That would nest across ROW's 48
+  members and is wrong for exactly the reason Egypt/Ukraine/Romania are not instances.
+- **Summing the handover year, or averaging it.** The two labels agree to 0.03 kt; there is one
+  measurement, published twice.
+- **Fixing only the band study (Q-c alone).** The bands would then be re-derived from the same
+  inflated Belgium series. The feed fix has to land first.
+- **Widening the Belgium/CFR band instead.** [ADR 0028](0028-grade-sigma-is-stated-not-derived-from-the-band.md)
+  measured what moving a hard wall does: it relocates the deletion. The band was carrying a real
+  defect; removing the defect is the fix.
+
+### Measured
+
+Run `opt_20260921_114721_de4c5cc5` (30/30 Solved, `prior_mode` cold), chain
+`imp_20260921_112949_8ac29fdd` → `const_20260921_113447_9c8ccc38`, icsg **v10**, scrap_share **v3**.
+Against P.1 `opt_20260921_101621_cd0c0ae2`, Round O `opt_20260917_121759_c57f252b`, base
+`opt_20260916_124721_c4d1d944`.
+
+**The arc goes below base.** Common-set sum-row z²:
+
+| | base | O | P.1 | **Q** |
+|---|---|---|---|---|
+| common-set z² | 1,718,085 | 1,905,519 (+10.9 %) | 1,844,644 (+7.4 %) | **1,698,662 (−1.1 %)** |
+| `directrefscrap` z² | — | — | 69,200 | **21,833** (−68 %) |
+| `smelterscrap` z² | — | — | 85,313 | **57,783** (−32 %) |
+
+The anchor family got cheaper to satisfy because the level it asserts is now right. By sector on the
+common set, base → Q: Anode −38,703, CFR −36,722, Cathode −14,657, Matte −8,662 against
+Ore +40,678, MF +28,113, Concentrate +20,548 — the fit moved onto the refinery chain and off the
+mine chain.
+
+**The feed lineage, as each run's own feed states Belgium's direct-refinery scrap:**
+
+| run | icsg | 1995–2013 | 2014–2024 | anode 2013 |
+|---|---|---|---|---|
+| base | v8 | 3,481.7 | 1,713.5 | 776.3 |
+| O, P.1 | v9 | 3,331.1 | 247.9 | 776.3 |
+| **Q** | **v10** | **897.4** | 247.9 | **388.2** |
+
+ADR 0030 (v9) fixed 2014–2024 and left 1995–2013 almost untouched. ADR 0032 (v10) fixed the rest.
+
+**Stage 2 was surgical:** 331 of 854,460 edges moved (0.039 %), **zero coverage flips**;
+`Scrap→CFR` CC moved in Belgium and nowhere else, by −2,433.8 kt across exactly 19 edges. Its Mass
+twin moved −3,476.8 = −2,433.8 / 0.70, the `conc` nominal to the decimal. Stage 3 added 36 rows and
+removed none: `supplytotout MF_Belgium`, 18 years × 2 valuations, previously below `min_abs_c`.
+
+**Bands and levels:**
+
+| | base | O | P.1 | Q |
+|---|---|---|---|---|
+| Belgium/CFR posterior ÷ reported* | 1.89 | 0.56 | 0.55 | **0.82** |
+| Belgium/CFR band headroom | — | 0.22 | 0.22 | **1.236** |
+| Belgium/CFR years blocked by the ceiling | — | 22 | 22 | **9** |
+| Korea/Smelting ceiling | — | — | 7 y, 4,246 kt | **1 y, 604 kt** |
+| region-years on a band ceiling | 129 | 170 | 118 | **99** |
+| reported > 1 kt but posterior < 5 % of it | 75 | 44 | 13 | **2** |
+| pairs below 0.50 of 44 | 5 | 1 | 0 | **0** |
+
+*all four columns use Q's corrected feed as the reference, so they are like-for-like; the 0.17
+recorded for P.1 in the earlier TODO was P.1's posterior against P.1's own inflated level.
+
+**Costs, stated plainly.** Mine-chain deletion rose 38,934 → 39,394 kt, but entirely in the **forced**
+term (26,411 → 26,959): Belgium's chain now demands concentrate the BACI matrix cannot source, which
+is ADR 0029's open item, not a Q effect. The **discretionary** term — what the model chooses — fell
+12,523 → **12,435**. World scrap fidelity slipped 1.057 → 1.076 and Belgium/Smelting overshoots its
+ICSG level at 1.17, both because the copper removed from the direct route reappears on the smelter
+route. `Kazakhstan` rejoins `ROW` above 1.05 intake retention, having cleared in P.1. World secondary
+share is unchanged at 0.223 against a 0.164 prior.

@@ -1,9 +1,15 @@
 # Secondary-smelter copper enters the chain once
 
-**Status:** **feed level accepted; chain level held** — Round O, measured 2026-09-21. The parse
-rule is correct and its feed gate passes cleanly, but the measured chain ships a +13.3 % sum-row z²
-regression with a known, local cause, so the round is **not merged**. Round P (anchor the
-smelter-scrap *level*) must land first. Amends [ADR 0021](0021-icsg-refined-production-anchors-anode-into-er.md)
+**Status:** **accepted** — Round O, measured 2026-09-21; **merged** with Rounds N–P as `683ab31`
+once [ADR 0031](0031-icsg-scrap-series-anchor-their-level-not-only-their-share.md) anchored the
+smelter-scrap *level* and the ADR 0010 amendment closed the pure-secondary recipe (common-set z²
++10.9 % → +7.4 %). Amends [ADR 0021](0021-icsg-refined-production-anchors-anode-into-er.md).
+
+> ⚠ **This rule shipped incomplete and nothing caught it.** The subtraction below keys on
+> `(Region, Year)` using the feed's **source** region label, so it silently did nothing for any
+> territory whose two series are labelled differently — **19 of Belgium's 30 years, 2,434 kt**. Its
+> tests passed and its feed gate passed. Completed by
+> [ADR 0032](0032-one-territory-one-label.md), which took the arc to **−1.1 % vs base**.
 
 ## Context
 

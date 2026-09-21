@@ -11,10 +11,12 @@ import sys
 
 import numpy as np
 import pandas as pd
+import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..",
                                 "scripts", "parse", "icsg_parse"))
-from icsg_clean import apply_input_divisors, refining_anode_rows, secondary_excess  # noqa: E402
+from icsg_clean import (apply_input_divisors, merge_territories,  # noqa: E402
+                        refining_anode_rows, secondary_excess, territory_aliases)
 
 _COLS = ["Region", "Type", "Year", "Value", "Process", "Supply_Use", "Unit",
          "Year_loaded_from_file"]
@@ -168,3 +170,73 @@ def test_refinery_scrap_without_smelter_row_is_unchanged():
     out2 = apply_input_divisors(df2, _EFF)
     assert np.isclose(out2[out2["Type"] == "Secondary"]["Value"].iloc[0], 90.0 / 0.965)
     assert secondary_excess(df2, _EFF).empty
+
+
+# ---------------------------------------------------------------------------
+# One territory, one label (ADR 0032)
+# ---------------------------------------------------------------------------
+# ICSG renames territories mid-series ("Taiwan, China" from 2013) and publishes
+# historical joint reporting under a joint label ("Belgium-Luxembourg" to 2013).
+# The ADR 0030 nesting subtraction keys on (Region, Year), so a region whose two
+# series carry different labels was never nested at all.
+
+def _aliases():
+    return {"Belgium-Luxembourg": "Belgium", "Taiwan, China": "Taiwan"}
+
+
+def test_two_labels_for_one_territory_are_merged_before_nesting():
+    """Belgium 1995-2013: the refined-secondary row is labelled
+    Belgium-Luxembourg while the smelter row is labelled Belgium, so the
+    subtraction found nothing to subtract and left the smelter route inside."""
+    df = _frame([_row("Belgium-Luxembourg", "Refining", "Secondary", 158.0),
+                 _row("Belgium",            "Smelting", "Secondary", 150.6)])
+    out = apply_input_divisors(merge_territories(df, _aliases()), _EFF)
+    sc = out[(out["Process"] == "Refining") & (out["Type"] == "Secondary")]["Value"].iloc[0]
+    assert np.isclose(sc, (158.0 - 150.6 * _K) / _K)
+    # without the merge the subtraction is skipped entirely
+    bug = apply_input_divisors(df, _EFF)
+    assert np.isclose(bug[(bug["Process"] == "Refining")
+                          & (bug["Type"] == "Secondary")]["Value"].iloc[0], 158.0 / _K)
+
+
+def test_merged_rows_carry_the_root_label():
+    df = _frame([_row("Belgium-Luxembourg", "Refining", "Secondary", 158.0),
+                 _row("Taiwan, China",      "Cathode",  "Cathode",   437.5)])
+    out = merge_territories(df, _aliases())
+    assert set(out["Region"]) == {"Belgium", "Taiwan"}
+
+
+def test_handover_year_published_under_both_labels_is_not_summed():
+    """2013 is republished under the new label; the feed used to add the two."""
+    df = _frame([_row("Belgium",            "Refining", "Primary", 229.0, year=2013),
+                 _row("Belgium-Luxembourg", "Refining", "Primary", 229.0, year=2013)])
+    out = merge_territories(df, _aliases())
+    assert len(out) == 1
+    assert np.isclose(out["Value"].iloc[0], 229.0)
+
+
+def test_a_genuine_conflict_between_the_two_labels_is_not_silently_dropped():
+    df = _frame([_row("Belgium",            "Refining", "Primary", 9.9,   year=2013),
+                 _row("Belgium-Luxembourg", "Refining", "Primary", 160.5, year=2013)])
+    with pytest.raises(AssertionError, match="two labels"):
+        merge_territories(df, _aliases())
+
+
+def test_row_members_are_never_merged():
+    """ROW is a bucket of 48 countries, not a territory: merging it would nest
+    Serbia's smelter route against Egypt's refinery."""
+    df = _frame([_row("Egypt",  "Refining", "Secondary", 4.1),
+                 _row("Serbia", "Smelting", "Secondary", 80.0)])
+    out = apply_input_divisors(merge_territories(df, _aliases()), _EFF)
+    sc = out[(out["Process"] == "Refining") & (out["Type"] == "Secondary")]["Value"].iloc[0]
+    assert np.isclose(sc, 4.1 / _K)          # Egypt keeps its whole series
+
+
+def test_territory_aliases_reads_the_concordance_and_excludes_row():
+    a = territory_aliases()
+    assert a == {"Belgium-Luxembourg": "Belgium", "Taiwan, China": "Taiwan"}
+
+
+def test_merge_is_a_no_op_without_aliases():
+    df = _frame([_row("Chile", "Refining", "Primary", 100.0)])
+    pd.testing.assert_frame_equal(merge_territories(df, {}), df)
