@@ -21,6 +21,22 @@ Constraint types (registered in order)
                               the warm-start (a₀=f_agg at t₀, a_post(t-1) after)
                               solve never sees this fixed Stage-2 total. See
                               ADR 0006.
+2b Soft sum — scrap LEVEL      — SumConstraintBuilder.from_mask_anchor, two
+   ANCHOR                        families, CC only, COVERED edges only, grouped
+                              by (sector_to, region_to, time, valuation):
+                                • smelter scrap      Σ(Scrap→Smelting) = the
+                                  level ICSG reports in Smelting/Scrap/Use;
+                                • direct-to-refinery Σ(Scrap→CFR) = the level
+                                  scrap                ICSG reports in
+                                                       Refining/Scrap/Use.
+                              `Scrap` is SB, so these edges are in NEITHER
+                              family above and had no scale row at all; the
+                              scrap_share band (7b) states only a *share*, which
+                              an idle node satisfies trivially. Registered
+                              SEPARATELY so each route is anchored at its own
+                              level, not just their sum. A region-year ICSG does
+                              not report gets no row and keeps its freedom.
+                              SCRAP_LEVEL_ANCHOR, ADR 0031.
 3  Soft ratio — concentration  — RatioConstraintBuilder (conc/params.csv)
 3b Soft ratio — ore grade      — RatioConstraintBuilder (ore_grade/params.csv,
                                  region×year in-situ CO/Ore grades; owns the
@@ -238,6 +254,12 @@ STOCK_BOUNDS_MODE = "soft"
 # Deliberately hard-only (no soft centre row): a soft pull toward median·inputs
 # would fight the NODATA_ANCHOR_CV zero anchor on no-data regions.
 SCRAP_SHARE_MODE = "hard"
+# Scrap LEVEL anchors (Round P, ADR 0031). The band above states a *share*; a
+# share band over a node with no throughput is satisfied trivially, so the level
+# ICSG reports was never stated anywhere in Stage 3 (the faucet note above is the
+# same gap seen from the other side). False restores the Round O configuration
+# for an A/B. See section 2b of main().
+SCRAP_LEVEL_ANCHOR = True
 
 _log = get_logger("init_copper_constraints")
 
@@ -365,6 +387,77 @@ def main(imp_run_id: str, label: str) -> None:
         sigma_cv_resolver = _scale_total_cv,
     ))
 
+    # 2b. Soft sum — ICSG SCRAP LEVEL anchors (Round P, ADR 0031).
+    #     `Scrap` is an SB node, so `Scrap→Process` edges match NEITHER family
+    #     above (supply needs entity_from=Process, use needs entity_from=Flow).
+    #     ICSG's `Smelting/Scrap/Use` and `Refining/Scrap/Use` therefore entered
+    #     Stage 2 as feed-backed edge observations and then had NO scale row at
+    #     all: every Stage-3 statement touching them (massbal's zero cone, the
+    #     conc CC/Mass ratio, eff, the scrap_share band) is scale-INVARIANT, so a
+    #     whole secondary chain can shrink toward zero for the price of one
+    #     edge's prior penalty — Slovakia's smelter scrap 46.6 → 0.012 kt/yr and
+    #     its anode 43 → 6.5 kt against an unchanged 57 kt anchor (|z| 14 → 52).
+    #     The prior does not decay: these runs are `--prior-mode cold`, so a₀ is
+    #     re-asserted from f_agg every year and the solver walks away every year
+    #     regardless. A per-edge penalty is simply cheaper to pay than to
+    #     satisfy; only a scale total prices the GROUP rather than the edge.
+    #     ADR 0030 §Measured is the evidence; this closes the level/share gap it
+    #     exposed and is what makes Round O mergeable.
+    #
+    #     TWO registrations, not one. Both routes share sector_from="Scrap", so a
+    #     single mask grouped on the scrap side would anchor only their SUM and
+    #     leave the solver free to move copper between the smelter and the
+    #     refinery route — the exact substitution ADR 0030 constrained. Grouped
+    #     on `sector_to`, so row_meta.sector is the CONSUMING node. These are
+    #     *scrap level anchors*, NOT input totals: CONTEXT.md reserves "total
+    #     input" for ALL incoming edges, and these sum one input class.
+    #
+    #     Scoped to CC and to COVERED edges:
+    #       • CC only — the Mass twin is network_mass_twin-derived and carries no
+    #         independent information (0 of the Mass scrap edges are covered;
+    #         CC/Mass is the 0.70 conc nominal on every pair). Anchoring it too
+    #         would pin the scrap grade to exactly 0.70 and void ADR 0012's
+    #         single wide [0.40, 0.98] band — and it would be *stiffer* than its
+    #         CC twin, since fabricated groups keep the tight cv with no ADR 0025
+    #         floor. The concscrapsupply ratio already ties the twin.
+    #       • covered only — the row asserts a level ICSG REPORTED, and it makes
+    #         every group 100 % feed-backed so ADR 0025's 0.3 kt floor applies
+    #         unconditionally. A plain |c|>0 mask would add the time_linear
+    #         region-years as FABRICATED, un-floored pins (a 0.068 kt anchor
+    #         priced at ±0.68 t).
+    #     A region-year ICSG does not report gets NO row and stays exactly as
+    #     free as before (from_mask_anchor's |c| ≤ min_abs_c skip is
+    #     belt-and-braces; the coverage mask already excludes it). This family
+    #     can only ever ASSERT a scrap inflow into Smelting or CFR, never forbid
+    #     one. Known gap, deliberately left to P.1: where ADR 0030's nesting
+    #     clipped the direct route to nil the claim is positive ("no direct
+    #     route") but is recorded here as merely unstated.
+    #     σ_c: `_scale_total_cv` unchanged. Its ADR 0019 branch is inert here
+    #     (UNCLOSED_ANCHOR_CV is None, and it targets Matte usetotout rows).
+    _scrap_cc = ((ei_exp["sector_from"].eq("Scrap")
+                  & ei_exp["valuation"].eq("CC")).to_numpy() & _cov)
+    smelter_scrap_mask   = _scrap_cc & ei_exp["sector_to"].eq("Smelting").to_numpy()
+    directref_scrap_mask = _scrap_cc & ei_exp["sector_to"].eq("CFR").to_numpy()
+    SCRAP_GROUP_KEYS = ("sector_to", "region_to", "time", "valuation")
+
+    if SCRAP_LEVEL_ANCHOR:
+        _log.info("Registering SumConstraintBuilder — ICSG scrap-level anchors "
+                  "(smelter scrap %d edges, direct-to-refinery scrap %d edges)",
+                  int(smelter_scrap_mask.sum()), int(directref_scrap_mask.sum()))
+        for _mask, _prefix in ((smelter_scrap_mask,   "smelterscrap"),
+                               (directref_scrap_mask, "directrefscrap")):
+            engine.register(SumConstraintBuilder.from_mask_anchor(
+                acc,
+                mask          = _mask,
+                anchor_values = f_agg,
+                group_keys    = SCRAP_GROUP_KEYS,
+                sigma_cv      = ANCHOR_CV,
+                id_prefix     = _prefix,
+                sigma_cv_resolver = _scale_total_cv,
+            ))
+    else:
+        _log.info("SCRAP_LEVEL_ANCHOR off — scrap levels unstated (Round O config)")
+
     # 3–7. CSV-fed soft ratio + hard ratio-bound builders.
     #      Two builders may consume the same params_id (e.g. 'conc' → both
     #      RatioConstraintBuilder and RatioBoundBuilder).  stock_bounds joins
@@ -454,6 +547,7 @@ def main(imp_run_id: str, label: str) -> None:
             "feed_share_observed":  FEED_SHARE_OBSERVED,
             "stock_bounds_mode": STOCK_BOUNDS_MODE,
             "scrap_share_mode":  SCRAP_SHARE_MODE,
+            "scrap_level_anchor": SCRAP_LEVEL_ANCHOR,
         },
     )
 

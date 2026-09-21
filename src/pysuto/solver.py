@@ -917,6 +917,7 @@ class ClarabelSolver:
         output_dir: Optional[str] = None,
         const_run_id: Optional[str] = None,
         label:      str = "",
+        stage_config: Optional[dict] = None,
     ) -> str:
         """Delegate to :class:`OptimRunRegistry`.
 
@@ -925,7 +926,15 @@ class ClarabelSolver:
         ``output_dir`` overrides the solver's own ``self._opt_registry``
         target — useful for tests pinning to a tmpdir. The newly minted
         *output* id is returned and starts with ``opt_``.
+
+        ``stage_config`` records how the solve was configured. ``prior_mode``
+        in particular is not recoverable from the artifacts, so a run that
+        omits it cannot be compared to another on that axis (Round P, G5); it
+        defaults to this solver's own ``prior_mode`` when the caller passes
+        nothing.
         """
+        stage_config = ({"prior_mode": self.prior_mode}
+                        if stage_config is None else stage_config)
         const_id = const_run_id or run_id
         registry = OptimRunRegistry(output_dir) if output_dir else self._opt_registry
         opt_run_id = registry.register(
@@ -934,6 +943,7 @@ class ClarabelSolver:
                 "inputs":   {},
                 "upstream": {"const_run_id": const_id},
             },
+            stage_config = stage_config,
             label = label,
         )
         logger.info("OptimRun '%s' persisted to %s",

@@ -4,7 +4,7 @@ roundO_secondary_diag.py
 Round O measurement: **secondary-smelter copper enters the chain once** (ADR 0030).
 
     python scripts/explo/roundO_secondary_diag.py --feed-only <opt_base>
-    python scripts/explo/roundO_secondary_diag.py <opt_base> <opt_O>
+    python scripts/explo/roundO_secondary_diag.py <opt_base> <opt_O> [<opt_P> ...]
 
 ICSG's secondary *refined* production contains the copper that reached the
 refinery from a secondary smelter, and the parse booked both series as inputs;
@@ -20,7 +20,10 @@ production the netting (ADR 0027) and the fan bound (ADR 0024) use. Sections:
   4  Mine chain: retention, who pays, trade-dependent vs self-sufficient.
   5  Export-mass gap re-measured (ADR 0029's detector).
   6  Stock-change buffers.
-  7  Sum-row z², status, world retention.
+  7  Sum-row z² on the COMMON row set (the population changes when a round
+     adds a family), status, world retention.
+  8  Round P: reported vs posterior scrap level on BOTH routes; invented
+     direct scrap where none is reported; band-vs-level headroom.
 
 Reads persisted run artifacts only; every upstream id comes from the run's own
 sidecar (the Round C hygiene rule).
@@ -270,18 +273,129 @@ def stock_buffers(runs: list, E: dict) -> None:
 
 
 def headline(runs: list, E: dict) -> None:
+    """§7. Sum-row z² — on the COMMON row set, because the population changes.
+
+    Round P (ADR 0031) adds ~1,014 scrap-level rows, so a sum-row z² *total* is
+    not comparable across a round that adds a constraint family: the documented
+    baselines (base 1,719,806 / Round O 1,949,396) are totals over a different
+    row set. Three numbers, three different questions:
+      common     — constraint_ids present in EVERY run: did the fit improve?
+      only-here  — what the new rows themselves cost, by variant.
+      total      — bookkeeping only, explicitly non-comparable.
+    """
     print("\n== 7. Sum-row z², status, world retention")
     S = {lab: L._sums(r) for lab, r in runs}
-    base = S[runs[0][0]].z2.sum()
+    common = set.intersection(*(set(S[lab]["constraint_id"]) for lab, _ in runs))
+    b0   = S[runs[0][0]]
+    tot0 = b0.z2.sum()
+    com0 = b0[b0.constraint_id.isin(common)].z2.sum()
     for lab, r in runs:
-        z = S[lab].z2.sum()
-        print(f"   {lab:5s} {r}  {L._status(r)}  sum-row z² {z:,.0f} ({(z/base-1)*100:+.1f} % vs base)  "
-              + "  ".join(f"{k} {v:.3f}" for k, v in L._world_retention(E[lab]).items()))
+        d   = S[lab]
+        inc = d.constraint_id.isin(common)
+        z, zc, zn = d.z2.sum(), d[inc].z2.sum(), d[~inc].z2.sum()
+        print(f"   {lab:5s} {r}  {L._status(r)}")
+        print(f"         rows {len(d):,} (common {int(inc.sum()):,}, only-here "
+              f"{int((~inc).sum()):,})   total z² {z:,.0f} ({(z / tot0 - 1) * 100:+.1f} %, "
+              f"NOT comparable across a row-set change)")
+        print(f"         **COMMON-SET z² {zc:,.0f} ({(zc / com0 - 1) * 100:+.1f} %)**   "
+              f"only-here z² {zn:,.0f}")
+        print("         " + "  ".join(f"{k} {v:.3f}"
+                                      for k, v in L._world_retention(E[lab]).items()))
     if len(runs) > 1:
-        a = S[runs[0][0]].groupby("sector").z2.sum(); b = S[runs[-1][0]].groupby("sector").z2.sum()
-        d = (b - a).sort_values()
-        print("   z² by sector, largest moves: " + ", ".join(f"{k} {v:+,.0f}" for k, v in
-              pd.concat([d.head(4), d.tail(3)]).items()))
+        a = S[runs[0][0]]; c = S[runs[-1][0]]
+        ga = a[a.constraint_id.isin(common)].groupby("sector").z2.sum()
+        gc = c[c.constraint_id.isin(common)].groupby("sector").z2.sum()
+        d  = (gc - ga).sort_values()
+        print("   z² by sector ON THE COMMON SET, largest moves: " + ", ".join(
+            f"{k} {v:+,.0f}" for k, v in pd.concat([d.head(4), d.tail(3)]).items()))
+        for lab, _ in runs[1:]:
+            new_rows = S[lab][~S[lab].constraint_id.isin(common)]
+            if len(new_rows):
+                print(f"   {lab}: rows only here, z² by variant: " + ", ".join(
+                    f"{v} {row['sum']:,.0f} ({int(row['size']):,} rows)"
+                    for v, row in
+                    new_rows.groupby("variant").z2.agg(["sum", "size"]).iterrows()))
+
+
+def _reported_scrap(opt: str, E_cc: pd.DataFrame) -> pd.DataFrame:
+    """The scrap level each feed actually observed, per (route, region, year).
+
+    Coverage is the pre-imputation "did a feed see this edge?" flag, so this is
+    exactly the population ADR 0031 anchors — imputed fills are excluded.
+    """
+    imp = L._chain(opt)[1]
+    z   = np.load(ROOT / "imp" / imp / "agg_result.npz", allow_pickle=True)
+    f   = np.nan_to_num(np.asarray(z["f_agg"], dtype=float))
+    cov = np.asarray(z["coverage"], dtype=bool)
+    e   = E_cc[["edge_id", "sector_from", "sector_to", "region_to", "time"]].drop_duplicates()
+    e   = e[e.sector_from.eq("Scrap") & e.sector_to.isin(["Smelting", "CFR"])].copy()
+    e["rep"] = f[e.edge_id.values]
+    e["cov"] = cov[e.edge_id.values]
+    return e.rename(columns={"sector_to": "route", "region_to": "reg"})
+
+
+def scrap_level_acceptance(runs: list, E: dict) -> None:
+    """§8 (Round P, ADR 0031) — "Smelting & Refining are still modelled with
+    scrap inflow", as a falsifiable check on BOTH routes."""
+    print("\n== 8. Scrap level: ICSG reported vs posterior, BOTH routes (kt CC, 30 y)")
+    ref = _reported_scrap(runs[-1][1], E[runs[-1][0]])
+    obs = ref[ref["cov"] & (ref.rep.abs() > 1e-9)][["edge_id", "route", "reg", "time", "rep"]]
+    out = {}
+    for lab, _ in runs:
+        m = E[lab].merge(obs, on="edge_id")
+        g = m.groupby(["route", "reg"]).agg(n=("rep", "size"), rep=("rep", "sum"),
+                                            post=("post", "sum"))
+        g["ratio"] = g.post / g.rep
+        out[lab] = g
+    print(pd.concat({lab: out[lab][["rep", "post", "ratio"]] for lab in out},
+                    axis=1).round(2).to_string())
+    for lab, _ in runs:
+        g = out[lab]
+        lo50 = sorted(g.index[g.ratio < 0.50].tolist())
+        lo05 = sorted(g.index[g.ratio < 0.05].tolist())
+        print(f"   {lab:5s} world post/reported {g.post.sum() / g.rep.sum():.3f} | "
+              f"below 0.50: {len(lo50)} of {len(g)} {lo50} | "
+              f"**below 0.05 (route closed): {len(lo05)} {lo05}**")
+        m = E[lab].merge(obs, on="edge_id")
+        dead = m[(m.rep > 1.0) & (m.post < 0.05 * m.rep)]
+        print(f"         region-years reported > 1 kt but posterior < 5 % of it: {len(dead)}"
+              + (f"  {dead.groupby(['route', 'reg']).size().to_dict()}" if len(dead) else ""))
+        up   = float((g.post - g.rep).clip(lower=0).sum())
+        down = float((g.rep - g.post).clip(lower=0).sum())
+        print(f"         pushed UP {up:,.0f} kt / pushed DOWN {down:,.0f} kt "
+              f"(direction of the secondary-share move)")
+
+    # 8b. Where the direct route is NOT reported: anything there is invented.
+    print("\n   8b. Direct route where ICSG reports a SMELTER route but no direct one")
+    sm = set(zip(obs[obs.route.eq("Smelting")].reg, obs[obs.route.eq("Smelting")].time))
+    unrep = ref[ref.route.eq("CFR") & ~(ref["cov"] & (ref.rep.abs() > 1e-9))]
+    unrep = unrep[[(r.reg, r.time) in sm for r in unrep.itertuples()]]
+    print(f"       {len(unrep)} region-years (ADR 0030's nil-route gap is inside this set)")
+    for lab, _ in runs:
+        m = E[lab].merge(unrep[["edge_id", "reg"]], on="edge_id")
+        tot = m.post.sum()
+        top = m.groupby("reg").post.sum().sort_values(ascending=False).head(5)
+        print(f"       {lab:5s} invented direct scrap {tot:,.0f} kt | top: "
+              + ", ".join(f"{k} {v:,.0f}" for k, v in top.items()))
+
+    # 8c. Can the hard band even accommodate the anchored level?
+    print("\n   8c. Band-vs-level headroom (posterior node input x ceiling) / reported")
+    par = pd.read_csv("data/input/params/scrap_share/current/params.csv", sep=";")
+    par["route"] = np.where(par.a_sector_to.eq("Smelting"), "Smelting", "CFR")
+    bu = par.set_index(["route", "a_region_to"]).value_max
+    lab, _ = runs[-1]
+    tin = (E[lab][E[lab].sector_to.isin(["Smelting", "CFR"])]
+           .groupby(["sector_to", "region_to", "time"]).post.sum()
+           .rename_axis(["route", "reg", "time"]).rename("tin"))
+    d = obs.merge(tin, on=["route", "reg", "time"], how="left")
+    d["bu"] = [bu.get((r.route, r.reg), np.nan) for r in d.itertuples()]
+    d["blocked"] = d.rep > d.tin * d.bu * 1.001
+    g = d.groupby(["route", "reg"]).agg(rep=("rep", "sum"), tin=("tin", "sum"),
+                                        bu=("bu", "first"), blocked=("blocked", "sum"))
+    g["headroom"] = (g.tin * g.bu) / g.rep
+    print(g[g.headroom < 1.5].sort_values("headroom").round(3).to_string())
+    print("       headroom < 1 => the hard band binds before the level can be met; "
+          "a ceiling of 1.000 means the node need only grow, which the anchor does.")
 
 
 def main(argv: list) -> None:
@@ -289,10 +403,12 @@ def main(argv: list) -> None:
     ids = [a for a in argv if not a.startswith("--")]
     print("=" * 78)
     print("Round O — secondary-smelter copper enters the chain once   (ADR 0030)")
+    print("Round P — the ICSG scrap series anchor their level           (ADR 0031)")
     feed_gate(ids[0])
     if feed_only or len(ids) < 2:
         return
-    runs = [("base", ids[0]), ("O", ids[1])]
+    LABELS = ["base", "O", "P", "Q", "R"]
+    runs = [(LABELS[i] if i < len(LABELS) else f"r{i}", rid) for i, rid in enumerate(ids)]
     E = {lab: M.load_run(r) for lab, r in runs}
     E = {lab: e[e.valuation == "CC"] for lab, e in E.items()}
     from pysuto.acc import AccountingStructure
@@ -307,6 +423,7 @@ def main(argv: list) -> None:
     export_mass_gap(runs)
     stock_buffers(runs, E)
     headline(runs, E)
+    scrap_level_acceptance(runs, E)
 
 
 if __name__ == "__main__":

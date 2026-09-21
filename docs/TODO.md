@@ -120,24 +120,67 @@ so it is a genuine fit loss: Slovakia's anode +64,630 alone (anchor 57 kt unchan
 and Spain. Secondary share 0.300 → 0.257 against a prior now at 0.164; China *harder* on its 0.402
 ceiling; **Chile unchanged** (0.557 → 0.561, capped 19/30) — the Chile thesis is not supported.
 
-## ROUND P — ANCHOR THE SMELTER-SCRAP LEVEL (the active target, from Round O's measurement)
+## ROUND P.0 — ANCHOR THE SCRAP LEVEL, BOTH ROUTES (built 2026-09-21, measurement pending)
 
 Round O moved copper from a route the model anchors **by level** (`Refining/Scrap`) to one it anchors
 **only by share** (`Smelting/Scrap`: `0.95 ≤ Σ(Scrap→Smelting)/Σ(all→Smelting) ≤ 1.00`). A share band
-over an idle node is free: ICSG has Slovakia's smelter eating ~28 kt/yr of scrap, the model routes
-**0.06 kt/yr in both runs**. Where the smelter node has throughput the substitution works (Germany
-+0 %, Japan −2 %, China −8 % anode); where it does not the copper is lost (Belgium −21 %, Austria
-−27 %, Slovakia −79 %).
+over an idle node is free. Correcting the earlier note: ICSG has Slovakia's smelter eating
+**46.6 kt/yr** (the ~28 figure was 2008), the prior carries it feed-backed at σ 6.8 %, and the model
+routes **0.012 kt/yr in both runs**. It is *not* prior decay — both runs are `--prior-mode cold`, so
+`f_agg` is re-asserted annually and the solver walks away annually. **A per-edge prior penalty is
+cheaper to pay than to satisfy; only a scale total prices the group.**
 
-1. Make ICSG `Smelting/Scrap` a **soft scale total** on `Σ(Scrap→Smelting)` per region-year — the
-   treatment `Refining/Scrap` already gets — *in addition to* the share band.
-2. Stop deriving a band from a series the same commit rewrote: `scrap_share` v2 flipped Slovakia's
-   CFR band from [0.950, 1.000] to [0.000, 0.280] because the ADR 0030 rule had just clipped the
-   series it is computed from, closing the second route too. Floor the band width, or derive the CFR
-   band from *total* secondary refinery input and let the level anchors split the routes.
-3. Re-run the chain and re-measure with `scripts/explo/roundO_secondary_diag.py`. Expect the
-   Anode/MF/Concentrate z² back and the secondary share to fall toward 0.17 on its own. Only then is
-   Round O mergeable; recheck Kazakhstan (>1.05 intake retention) and Chile's 19/30 cap there.
+**Built** ([ADR 0031](adr/0031-icsg-scrap-series-anchor-their-level-not-only-their-share.md)): two
+soft `sum` families, `smelterscrap` and `directrefscrap`, CC only, covered edges only, grouped on
+`(sector_to, region_to, time, valuation)`, σ via the unchanged `_scale_total_cv`. Registered
+**separately** so neither route can absorb the other. A region-year ICSG does not report gets no row
+and keeps its freedom — the family can only assert a scrap inflow, never forbid one.
+
+Remaining: prune disk, run Stage 3+4 on `imp_20260917_114838_eebe842b`, gate before the solve,
+measure with `scripts/explo/roundO_secondary_diag.py` on all three runs, write the REP. Acceptance
+and the priority rule are in the plan; **P-d (common-row-set z²) governs the merge**, and a
+P-b ✓ / P-d ✗ split is a *finding* — measured evidence that the ICSG scrap levels and the BACI
+concentrate matrix are jointly infeasible (see the export-mass gap below) — not a failure.
+
+⚠ The sum-row population changes (+1,014 rows), so the headline totals **1,719,806** (base) and
+**1,949,396** (Round O) are no longer comparable. Compare on the common constraint_ids only.
+
+## ROUND P.1 — THE scrap_share BANDS (deferred; decide after P.0 is measured)
+
+Two known defects, both deliberately left untouched so P.0's lever stays attributable:
+
+1. **A band derived from a series the same commit rewrote.** `scrap_share` v2 flipped Slovakia's CFR
+   band from [0.950, 1.000] to [0.000, 0.280] because the ADR 0030 rule had just clipped the series
+   it is computed from. Floor the band width, or derive the CFR band from *total* secondary refinery
+   input and let the level anchors split the routes.
+2. **`.clip(upper=1.0)` in `scripts/explo/scrap_share_study.py`** turns "scrap exceeds the inferred
+   total input" — a data inconsistency — into a share of exactly 1, which becomes a **hard
+   `[0.95, 1.00]` floor forcing ≥95 % scrap** into Argentina's and Italy's refineries. Exclude those
+   years from the band sample instead. There is **no band-width floor anywhere in the repo**.
+
+Only **6** bands have a floor ≥ 0.90 (Smelting: Austria, Belgium, Slovakia, UK; CFR: Argentina,
+Italy), so this is a 6-region question, not a global one.
+
+**P.1's pre-stated target, measured on the Round O posterior** —
+`(node input × band ceiling) ÷ reported level`, below 1 means the band binds before the level can:
+
+| pair | ceiling | headroom | reading |
+|---|---|---|---|
+| **CFR / Belgium** | 0.195 | **0.222** (blocked 22 of 29 y) | the **only** pair blocked by a band *ceiling*; honouring its 123 kt/yr needs the fire refinery to grow 4.5× |
+| Smelting / Austria | 1.000 | 0.608 | no ceiling — the node must grow, which P.0's anchor does |
+| Smelting / Belgium, UK; CFR / Argentina, Italy | 1.000 | 0.84–1.18 | same |
+
+Belgium/CFR is therefore **excluded from P.0's acceptance**; it cannot be fixed by a level anchor.
+
+Also for P.1: the **107 region-years where ADR 0030 asserts the direct route is nil** (Bulgaria 29,
+Iran 23, Japan 19, Korea 11). P.0's coverage gate records that positive claim as merely *unstated*,
+so the solver may re-invent a direct route there. Pinning zero was rejected for P.0 — it would
+hard-code the Bulgaria clip ADR 0030 records as wrong, and a `c = 0` group has no σ under the
+current resolver. P.0's §8 measures whether the loophole is used.
+
+Housekeeping, noticed in P.0, not changed: `run_solver.main()`'s Python default for `prior_mode` is
+`warm` while the CLI default is `cold`. `prior_mode` is now persisted in `stage_config` (it was not,
+so no run before P.0 records which it used).
 
 ## THE CONCENTRATE EXPORT-MASS GAP (re-measure after Round O)
 

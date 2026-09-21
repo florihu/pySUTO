@@ -2123,6 +2123,274 @@ class TestSupplyUseScaleTotal:
 
 
 # ---------------------------------------------------------------------------
+# Scrap level anchors (Round P, ADR 0031)
+# ---------------------------------------------------------------------------
+
+def _make_scrap_acc():
+    """Minimal acc for the scrap level anchors: both scrap routes in region A
+    (smelter + direct-to-refinery) plus a non-scrap input (Concentrate→Smelting)
+    so one route is distinguishable from the node's total input, and a region B
+    whose Scrap→CFR edge EXISTS but was never observed by a feed."""
+    from pysuto.acc import AccountingStructure
+    import logging
+    acc = AccountingStructure.__new__(AccountingStructure)
+    acc.logger = logging.getLogger("test_scrap_acc")
+    acc.id = "toyscrap"
+    acc.node_index = pd.DataFrame(
+        [
+            ("Scrap",       "SB",      "A"),   # 0
+            ("Smelting",    "Process", "A"),   # 1
+            ("CFR",         "Process", "A"),   # 2
+            ("Concentrate", "Flow",    "A"),   # 3
+            ("Scrap",       "SB",      "B"),   # 4
+            ("Smelting",    "Process", "B"),   # 5
+            ("CFR",         "Process", "B"),   # 6
+        ],
+        columns=["sector", "entity", "region"],
+    )
+    acc.n_nodes    = 7
+    acc.time_range = ["2020", "2021"]
+    acc.valuation  = ["Mass", "CC"]
+    legs = [(0, 1), (0, 2), (3, 1), (4, 5), (4, 6)]
+    rows, eid = [], 0
+    for t in acc.time_range:
+        for val in acc.valuation:
+            for frm, to in legs:
+                rows.append({"edge_id": eid, "from_id": frm, "to_id": to,
+                             "time": t, "valuation": val})
+                eid += 1
+    acc.edge_index = pd.DataFrame(rows)
+    acc.n_edges = eid
+    return acc
+
+
+def _scrap_f_and_cov(acc):
+    """f_agg and the pre-imputation coverage flag for ``_make_scrap_acc``.
+
+    Region A reports both routes; region B reports only its smelter route and
+    its Scrap→CFR edge is an uncovered flat-prior zero (Slovakia post-2003).
+    Mass twins carry a conc-derived value and are never feed-observed — as in
+    the real run, where 0 of the 2,820 Mass scrap edges are covered.
+    """
+    cc  = {(0, 1): 46.634, (0, 2): 12.0, (3, 1): 100.0, (4, 5): 5.0, (4, 6): 0.0}
+    f   = np.zeros(acc.n_edges)
+    cov = np.zeros(acc.n_edges, dtype=bool)
+    for r in acc.edge_index.itertuples():
+        v = cc[(r.from_id, r.to_id)]
+        f[r.edge_id] = v if r.valuation == "CC" else v / 0.7
+        cov[r.edge_id] = bool(r.valuation == "CC" and r.from_id in (0, 4)
+                              and not (r.from_id == 4 and r.to_id == 6))
+    return f, cov
+
+
+class TestScrapLevelAnchor:
+    """ICSG scrap LEVEL anchors (Round P, ADR 0031): one soft-sum row per
+    (consuming node, region, year) over the CC scrap legs a feed observed.
+
+    `Scrap` is an SB node, so `Scrap→Process` edges match neither scale-total
+    mask — until this family nothing in Stage 3 stated their level. Mirrors the
+    wiring in scripts/constraints.py."""
+
+    GROUP_KEYS = ("sector_to", "region_to", "time", "valuation")
+    CV = 0.01
+
+    @staticmethod
+    def _masks(acc, cov):
+        """Rebuild the driver's two masks so this test tracks constraints.py."""
+        from pysuto.param_relation import expand_edge_index
+        ei = expand_edge_index(acc.edge_index, acc.node_index)
+        scrap_cc = ((ei["sector_from"].eq("Scrap")
+                     & ei["valuation"].eq("CC")).to_numpy() & cov)
+        smelt = scrap_cc & ei["sector_to"].eq("Smelting").to_numpy()
+        cfr   = scrap_cc & ei["sector_to"].eq("CFR").to_numpy()
+        return smelt, cfr
+
+    def _build(self, acc, f, mask, prefix, resolver=None):
+        from pysuto.constraints import SumConstraintBuilder
+        return SumConstraintBuilder.from_mask_anchor(
+            acc, mask=mask, anchor_values=f, group_keys=self.GROUP_KEYS,
+            sigma_cv=self.CV, id_prefix=prefix, sigma_cv_resolver=resolver,
+        ).build_static(acc)
+
+    @staticmethod
+    def _edges(acc, frm, to):
+        e = acc.edge_index
+        return set(e[(e.from_id == frm) & (e.to_id == to)].edge_id.tolist())
+
+    def test_smelter_scrap_row_per_region_year_valuation(self):
+        acc = _make_scrap_acc()
+        f, cov = _scrap_f_and_cov(acc)
+        smelt, _ = self._masks(acc, cov)
+        block = self._build(acc, f, smelt, "smelterscrap")
+        rm = block.row_meta
+
+        # A and B each report a smelter route, in both years → 4 rows, CC only
+        assert block.G_rows.shape[0] == 4
+        assert (rm["type"] == "sum").all()
+        assert (rm["variant"] == "smelterscrap").all()
+        assert (rm["cone_type"] == "free").all()
+        assert (~rm["is_hard"].astype(bool)).all()
+        assert (rm["sector"] == "Smelting").all()
+        assert set(rm["region"]) == {"A", "B"}
+        assert set(rm["valuation"]) == {"CC"}
+
+        G = block.G_rows.toarray()
+        touched = set(np.flatnonzero(G.any(axis=0)).tolist())
+        # the non-scrap input into the SAME node is excluded
+        assert touched & self._edges(acc, 3, 1) == set()
+        for i, c in enumerate(block.c):
+            eids = np.flatnonzero(G[i] != 0.0)
+            assert np.allclose(G[i, eids], 1.0)
+            assert np.isclose(c, f[eids].sum())
+
+    def test_directref_scrap_row_per_region_year_valuation(self):
+        acc = _make_scrap_acc()
+        f, cov = _scrap_f_and_cov(acc)
+        _, cfr = self._masks(acc, cov)
+        block = self._build(acc, f, cfr, "directrefscrap")
+        rm = block.row_meta
+
+        # only region A reports a direct route → 2 rows
+        assert block.G_rows.shape[0] == 2
+        assert (rm["variant"] == "directrefscrap").all()
+        assert (rm["sector"] == "CFR").all()
+        assert set(rm["region"]) == {"A"}
+        assert np.allclose(block.c, 12.0)
+
+    def test_routes_do_not_collapse_into_one_row(self):
+        """Two registrations, not one: a single mask grouped on the scrap side
+        would anchor only the routes' SUM and license the smelter↔refinery
+        substitution ADR 0030 constrained."""
+        from pysuto.constraints import SumConstraintBuilder
+        acc = _make_scrap_acc()
+        f, cov = _scrap_f_and_cov(acc)
+        smelt, cfr = self._masks(acc, cov)
+
+        bs = self._build(acc, f, smelt, "smelterscrap")
+        bc = self._build(acc, f, cfr, "directrefscrap")
+        a20_s = [i for i, r in bs.row_meta.iterrows()
+                 if r["region"] == "A" and str(r["time"]) == "2020"]
+        a20_c = [i for i, r in bc.row_meta.iterrows()
+                 if r["region"] == "A" and str(r["time"]) == "2020"]
+        assert len(a20_s) == 1 and len(a20_c) == 1
+        assert np.isclose(bs.c[a20_s[0]], 46.634)
+        assert np.isclose(bc.c[a20_c[0]], 12.0)
+        cols_s = set(np.flatnonzero(bs.G_rows.toarray()[a20_s[0]] != 0.0).tolist())
+        cols_c = set(np.flatnonzero(bc.G_rows.toarray()[a20_c[0]] != 0.0).tolist())
+        assert cols_s and cols_c and cols_s.isdisjoint(cols_c)
+
+        # the contrast: grouped on the scrap side the two routes become ONE row
+        merged = SumConstraintBuilder.from_mask_anchor(
+            acc, mask=(smelt | cfr), anchor_values=f,
+            group_keys=("sector_from", "region_from", "time", "valuation"),
+            sigma_cv=self.CV, id_prefix="scrapout",
+        ).build_static(acc)
+        m20 = [i for i, r in merged.row_meta.iterrows()
+               if r["region"] == "A" and str(r["time"]) == "2020"]
+        assert len(m20) == 1
+        assert np.isclose(merged.c[m20[0]], 46.634 + 12.0)
+
+    def test_unreported_region_year_gets_no_row(self):
+        """The 'still modelled with scrap inflow' guarantee: where no feed
+        observed a level, the family emits NO row and the edge keeps exactly the
+        freedom it had. An absent row is an unstated level, not a prohibition."""
+        acc = _make_scrap_acc()
+        f, cov = _scrap_f_and_cov(acc)
+        _, cfr = self._masks(acc, cov)
+        block = self._build(acc, f, cfr, "directrefscrap")
+
+        assert "B" not in set(block.row_meta["region"])
+        touched = set(np.flatnonzero(block.G_rows.toarray().any(axis=0)).tolist())
+        assert touched & self._edges(acc, 4, 6) == set()
+
+    def test_uncovered_edge_is_not_anchored(self):
+        """The coverage gate, not just the |c| ≈ 0 skip: an edge with a real
+        f_agg but no feed observation gets no row."""
+        acc = _make_scrap_acc()
+        f, cov = _scrap_f_and_cov(acc)
+        drop = min(e for e in self._edges(acc, 0, 2)
+                   if cov[e] and acc.edge_index.loc[e, "time"] == "2020")
+        cov2 = cov.copy()
+        cov2[drop] = False
+
+        _, cfr_a = self._masks(acc, cov)
+        _, cfr_b = self._masks(acc, cov2)
+        before = self._build(acc, f, cfr_a, "directrefscrap")
+        after  = self._build(acc, f, cfr_b, "directrefscrap")
+
+        assert before.G_rows.shape[0] == 2 and after.G_rows.shape[0] == 1
+        assert str(after.row_meta["time"].iloc[0]) == "2021"
+
+    def test_every_row_is_feed_backed_so_the_adr0025_floor_applies(self):
+        """Because the mask is coverage-gated every group is 100 % feed-backed,
+        so ADR 0025's 0.3 kt floor applies unconditionally and the fabricated
+        branch is never taken."""
+        import os
+        import sys
+        sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+        from constraints import scale_total_cv, SCALE_TOTAL_ABS_FLOOR
+        acc = _make_scrap_acc()
+        f, cov = _scrap_f_and_cov(acc)
+        absf = np.abs(f)
+        seen = []
+
+        def _resolver(key_map, edge_ids):
+            ids = np.asarray(edge_ids, dtype=int)
+            tot = absf[ids].sum()
+            feed_share = absf[ids[cov[ids]]].sum() / tot
+            seen.append(feed_share)
+            return scale_total_cv(feed_share, abs(float(f[ids].sum())))
+
+        smelt, cfr = self._masks(acc, cov)
+        for mask, prefix in ((smelt, "smelterscrap"), (cfr, "directrefscrap")):
+            block = self._build(acc, f, mask, prefix, resolver=_resolver)
+            assert np.all(block.sigma_c >= SCALE_TOTAL_ABS_FLOOR - 1e-12)
+        assert seen and all(s == pytest.approx(1.0) for s in seen)
+
+    def test_mass_valuation_is_not_anchored(self):
+        """ADR 0012: the Mass twin carries no feed information (CC/Mass is the
+        conc nominal restated), and pinning both legs would collapse the wide
+        [0.40, 0.98] scrap-grade band to a point."""
+        acc = _make_scrap_acc()
+        f, cov = _scrap_f_and_cov(acc)
+        mass_edges = set(acc.edge_index[acc.edge_index.valuation.eq("Mass")]
+                         .edge_id.tolist())
+        for mask, prefix in zip(self._masks(acc, cov),
+                                ("smelterscrap", "directrefscrap")):
+            block = self._build(acc, f, mask, prefix)
+            assert "Mass" not in set(block.row_meta["valuation"])
+            touched = set(np.flatnonzero(
+                block.G_rows.toarray().any(axis=0)).tolist())
+            assert touched & mass_edges == set()
+
+    def test_scrap_anchor_year_locked(self):
+        from pysuto.constraints import SumConstraintBuilder, SIGMA_C_INACTIVE
+        acc = _make_scrap_acc()
+        f, cov = _scrap_f_and_cov(acc)
+        smelt, _ = self._masks(acc, cov)
+        builder = SumConstraintBuilder.from_mask_anchor(
+            acc, mask=smelt, anchor_values=f, group_keys=self.GROUP_KEYS,
+            sigma_cv=self.CV, id_prefix="smelterscrap",
+        )
+        block = builder.build_static(acc)
+        zeros = np.zeros(acc.n_edges)
+        b20   = builder.build_dynamic(acc, zeros, zeros, "2020")
+        is2021 = (block.row_meta["time"].astype(str) == "2021").to_numpy()
+        assert np.allclose(b20.sigma_c[is2021], SIGMA_C_INACTIVE)
+        assert np.allclose(b20.sigma_c[~is2021], block.sigma_c[~is2021])
+
+    def test_constraint_id_grammar(self):
+        acc = _make_scrap_acc()
+        f, cov = _scrap_f_and_cov(acc)
+        smelt, cfr = self._masks(acc, cov)
+        ids = set(self._build(acc, f, smelt, "smelterscrap").row_meta["constraint_id"])
+        ids |= set(self._build(acc, f, cfr, "directrefscrap").row_meta["constraint_id"])
+        assert "sum_smelterscrap_Smelting_A_CC_2020" in ids
+        assert "sum_smelterscrap_Smelting_B_CC_2021" in ids
+        assert "sum_directrefscrap_CFR_A_CC_2020" in ids
+
+
+# ---------------------------------------------------------------------------
 # No-data ("flat-prior") σ_a magnitude anchor
 # ---------------------------------------------------------------------------
 

@@ -487,7 +487,7 @@ Defaults: $\mathrm{CV}_a^\mathrm{min} = \mathrm{CV}_c^\mathrm{min} = 0.05$, $\si
 - **`RatioBoundBuilder`** — type 4 (`.from_csv(...)`).
 - **`FlowBoundsBuilder`** — type 5 (only edges with non-default bounds produce rows).
 - **`ConstraintBlock`** — internal container for one builder's rows.
-- **`ConstraintRun`** — bundle of `G`, `row_meta`, `a0`, `sigma_a`, `u`, `l`, `timestep_data[t] = {"c", "sigma_c"}`. `row_meta` carries a uniform column set across all builders (`pysuto.constraints.naming.ROW_META_COLS`): `[constraint_id, type, variant, is_hard, cone_type, time, valuation, sector, region, entity, entity_sub, ratio_kind, bound_dir, num_*/denom_* (ratio numerator/denominator decode)]`. Every `constraint_id` follows the grammar **`{type}_{variant}_{specs}_{year}`** where `type ∈ {massbal, sum, ratio}` and `variant` is the role within the family (`usefulsupply`/`subentity`/`supplytotout`/`usetotout`/csv-label for sum, `ratioeq`/`bound` for ratio, or a user `param_id`). The id is a unique **display key — never parse it; read the columns** (see [CONTEXT.md](CONTEXT.md) §"Constraint identity"). The `time` column is the year the row belongs to (the final id token; set at spec construction by each builder) or `None` for time-agnostic rows (e.g. wildcard CSV constraints), whose id ends in `_na`. When every row's non-zeros lie inside its own time bucket (the **no cross-time coupling** invariant), the engine also stores a per-t partition `G_blocks[t]` / `edge_cols_by_t[t]` (persisted under `blocks/`); Stage 4's block solver consumes it to solve one ~30× smaller QP per year.
+- **`ConstraintRun`** — bundle of `G`, `row_meta`, `a0`, `sigma_a`, `u`, `l`, `timestep_data[t] = {"c", "sigma_c"}`. `row_meta` carries a uniform column set across all builders (`pysuto.constraints.naming.ROW_META_COLS`): `[constraint_id, type, variant, is_hard, cone_type, time, valuation, sector, region, entity, entity_sub, ratio_kind, bound_dir, num_*/denom_* (ratio numerator/denominator decode)]`. Every `constraint_id` follows the grammar **`{type}_{variant}_{specs}_{year}`** where `type ∈ {massbal, sum, ratio}` and `variant` is the role within the family (`usefulsupply`/`subentity`/`supplytotout`/`usetotout`/`smelterscrap`/`directrefscrap`/csv-label for sum, `ratioeq`/`bound` for ratio, or a user `param_id`). The id is a unique **display key — never parse it; read the columns** (see [CONTEXT.md](CONTEXT.md) §"Constraint identity"). The `time` column is the year the row belongs to (the final id token; set at spec construction by each builder) or `None` for time-agnostic rows (e.g. wildcard CSV constraints), whose id ends in `_na`. When every row's non-zeros lie inside its own time bucket (the **no cross-time coupling** invariant), the engine also stores a per-t partition `G_blocks[t]` / `edge_cols_by_t[t]` (persisted under `blocks/`); Stage 4's block solver consumes it to solve one ~30× smaller QP per year.
 - **`ConstraintRunRegistry`** — disk layout under `data/proc/const/{run_id}/` (G.npz, row_meta.parquet, a0.npy, sigma_a.npy, u.npy, l.npy, `timesteps/t_{year}.npz`).
 
 #### Key parameters
@@ -1202,9 +1202,12 @@ _Avoid_: "anchor", "coherence soft-sum" (both removed mechanisms).
 A Type-2 **soft-sum** constraint (`Σ aᵢ = c + ε`, free cone) whose RHS `c` is the model's **own**
 prior group-sum (`c = Σ f_agg`), used to **preserve total-output scale** against the homogeneous
 collapse — *not* to add information (that distinguishes it from a **control total**, whose RHS is
-*external*). Two families, both 0-excluded and year-locked per valuation: **supply total output**
+*external*). Three families, all 0-excluded and year-locked per valuation: **supply total output**
 (per process — its process→flow useful output) and **use total output** (per flow — `Σ` over all
-destinations incl. final demand); `variant ∈ {supplytotout, usetotout}`. "Kind-of-external" because
+destinations incl. final demand), plus the **scrap level anchor** — the level of one input
+class of a node (ICSG's scrap into `Smelting` / into `CFR`), CC only and only where a feed
+observed it ([ADR 0031](docs/adr/0031-icsg-scrap-series-anchor-their-level-not-only-their-share.md));
+`variant ∈ {supplytotout, usetotout, smelterscrap, directrefscrap}`. "Kind-of-external" because
 the warm-start prior (`a₀ = f_agg` at t₀, `a_post(t−1)` after) never sees this fixed Stage-2 total.
 See [ADR 0006](docs/adr/0006-scale-total-supersedes-external-control-total.md).
 _Avoid_: "control total" (external RHS), "anchor", "coherence soft-sum".
