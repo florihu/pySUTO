@@ -277,41 +277,68 @@ def build_F_src(raw_df: pd.DataFrame, ct: ConcordanceTable) -> np.ndarray:
     return F_src
 
 
-def load_reexport_cv_scale(acc) -> np.ndarray | None:
-    """Per-root-edge CV multiplier for ADR 0027's re-attributed legs.
+MAX_CV_SCALE = 5.0   # ADR 0027's cap; past ~4.8 ADR 0017's damping ceiling
+                     # (cv 1.0 on a ~0.209 pedigree) makes further inflation inert
 
-    ``build_baci_reexport.py`` writes ``reexport_cv_scale.csv`` beside
-    ``values.csv``; each row is one root leg (sector, from-region, to-region,
-    year) and the factor by which its σ must grow because part of its value is
-    an inference rather than an observation. The factor is applied to **every**
-    cross-region Flow-origin edge of that leg in both valuations — for cathode
-    that is the FU/USC/MESC triplet, which the feed's own fan splits 98/1/1.
+# Per-root-edge σ multipliers, applied through the one ``cv_root_scale`` seam
+# ADR 0003's ROW penalty already uses. Each file is one root leg per row
+# (sector, from-region, to-region, year) and the factor by which that leg's σ
+# must grow because part of it is an inference rather than an observation.
+CV_SCALE_FILES = {
+    "reexport_cv_scale.csv": "ADR 0027 re-attributed legs",
+    "quantity_cv_scale.csv": "ADR 0033 reconstructed quantities",
+}
 
-    Returns ``None`` when the file is absent (an un-netted feed version), so the
-    build is bit-identical to before ADR 0027.
+
+def load_cv_scales(acc) -> np.ndarray | None:
+    """Combined per-root-edge CV multiplier from every scale file present.
+
+    The factors **multiply**: 3,593 of 6,706 Concentrate legs carry an ADR 0027
+    re-export scale, and the ADR 0033 reconstruction lands on many of the same
+    legs, so assigning would silently undo the netting's σ on every overlap.
+    The *product* is capped at ``MAX_CV_SCALE`` rather than each factor, so two
+    corrections cannot compound past the point where ADR 0017's damping ceiling
+    makes them inert.
+
+    Each factor is applied to **every** cross-region Flow-origin edge of that
+    leg in both valuations — for cathode that is the FU/USC/MESC triplet, which
+    the feed's own fan splits 98/1/1.
+
+    Returns ``None`` when no file is present, so the build is bit-identical to
+    a feed that has been through neither transformation.
     """
-    path = os.path.join(os.path.dirname(RAW_DATA), "reexport_cv_scale.csv")
-    if not os.path.isfile(path):
-        logger.info("   reexport cv scale: none (feed is not netted)")
-        return None
     from pysuto.param_relation import expand_edge_index
 
-    df = pd.read_csv(path)
+    found = {n: os.path.join(os.path.dirname(RAW_DATA), n)
+             for n in CV_SCALE_FILES if os.path.isfile(
+                 os.path.join(os.path.dirname(RAW_DATA), n))}
+    if not found:
+        logger.info("   cv scales: none (feed is neither netted nor reconstructed)")
+        return None
+
     ei = expand_edge_index(acc.edge_index, acc.node_index)
     ei = ei[(ei["region_from"] != ei["region_to"])
             & (ei["entity_from"] == "Flow")].copy()
     ei["root_time"] = ei["time"].astype(str)
-    df["root_time"] = df["time"].astype(str)
-    j = ei.merge(
-        df[["sector", "region_from", "region_to", "root_time", "cv_scale"]],
-        left_on=["sector_from", "region_from", "region_to", "root_time"],
-        right_on=["sector", "region_from", "region_to", "root_time"],
-        how="inner")
+
     scale = np.ones(len(acc.edge_index), dtype=float)
-    scale[j["edge_id"].to_numpy(dtype=int)] = j["cv_scale"].to_numpy(dtype=float)
-    logger.info("   reexport cv scale: %d root legs → %d edges scaled "
-                "(median %.3f, max %.1f)", len(df), len(j),
-                float(j["cv_scale"].median()), float(j["cv_scale"].max()))
+    for name, path in found.items():
+        df = pd.read_csv(path)
+        df["root_time"] = df["time"].astype(str)
+        j = ei.merge(
+            df[["sector", "region_from", "region_to", "root_time", "cv_scale"]],
+            left_on=["sector_from", "region_from", "region_to", "root_time"],
+            right_on=["sector", "region_from", "region_to", "root_time"],
+            how="inner")
+        ids = j["edge_id"].to_numpy(dtype=int)
+        scale[ids] *= j["cv_scale"].to_numpy(dtype=float)
+        logger.info("   cv scale %-24s %s: %d root legs → %d edges "
+                    "(median %.3f, max %.1f)", name, CV_SCALE_FILES[name],
+                    len(df), len(j), float(j["cv_scale"].median()),
+                    float(j["cv_scale"].max()))
+    np.clip(scale, 1.0, MAX_CV_SCALE, out=scale)
+    logger.info("   cv scale combined: %d edges scaled, max %.2f",
+                int((scale > 1.0).sum()), float(scale.max()))
     return scale
 
 
@@ -320,7 +347,7 @@ def propagate(wm: WeightMatrix, F_src: np.ndarray, meta: DataFeedMetadata, acc):
     logger.info("D  Propagating uncertainty")
     return propagate_with_row_penalty(
         wm, F_src, meta, acc,
-        cv_root_scale_extra=load_reexport_cv_scale(acc))
+        cv_root_scale_extra=load_cv_scales(acc))
 
 
 # ===========================================================================

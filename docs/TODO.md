@@ -175,6 +175,39 @@ vs ≈0.17).
 scrap fidelity 1.318 → **1.032**, invented direct scrap 7,652 → **198 kt**, pairs below 0.50 five →
 **one**, Kazakhstan's fabricated node gone. **Ready to merge — the user's call on these numbers.**
 
+## ROUND R — SHIPPED 2026-09-22: BACI's quantity contradicts its own value (ADR 0033)
+
+Run `opt_20260922_092530_f21bdbe7`, 30/30 Solved, baci **v11** (gross v10 reconstructed, then
+ADR 0027 re-netted on it). **ADR 0029's forced deletion 26,959 → 12,315 kt CC (−54 %)**, its share
+68.4 % → **33.5 %**; **Chile forced 14,270 → 295** (40.6 % of its deletion → **1.0 %**), hard-capped
+19 → **5** years, retention 0.574 → **0.617**. z² +0.4 % (still −0.7 % vs base). REP
+`…roundR-quantity-reconstruction`.
+
+**Read it precisely: the round reclassifies more than it reduces.** Deletion falls only
+39,394 → 36,807 kt (−6.6 %); ~14,600 kt CC moves **forced → discretionary** (12,435 → 24,492). The
+arithmetic wall is gone; a fit problem is left in its place, which is the kind this project's levers
+can address. Scoring **Q's own posterior** against the corrected feed already gives 12,339, so the
+ceiling rises mechanically — the run's contribution is showing the model *uses* the headroom.
+
+The **pre-registered null held**: ROW 7,576 → 7,589 and Zambia 1,418 → 1,452, both predicted not to
+move because neither is value-flagged.
+
+### Now the largest open item: ROW, 7,589 kt CC = 62 % of the remaining forced term
+
+98.9 % of ROW's own deletion is forced, and ADR 0033 does **not** explain it — that was predicted
+and confirmed. [ADR 0014](adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)'s folded
+internal trade is the standing candidate: ROW aggregates 186 BACI source regions, so trade *between*
+its members folds onto domestic addresses and is dropped as mapped self-trade, which would remove
+export mass exactly where the detector says mass is missing. Untested.
+
+Also open from R:
+1. **Belgium newly hard-capped**, 1,029 kt CC forced against 300 deleted (343 %) — and Belgium has
+   no mines. This is Round Q's fabricated domestic `Concentrate→Smelting` edge (505 kt, zero
+   feed-observed) surfacing in ADR 0029's detector.
+2. **Chile's deletion is now 29,410 kt and 99 % discretionary** — the first time that can be said.
+3. **R.1**: the same value/quantity test on matte, anode and cathode. The detector already takes a
+   sector table; only concentrate mass enters `cap`, so the others could not have moved R-a.
+
 ## ROUND Q — SHIPPED 2026-09-21: one territory, one label (ADR 0032)
 
 Run `opt_20260921_114721_de4c5cc5`, 30/30 Solved, icsg **v10**, scrap_share **v3**.
@@ -299,9 +332,12 @@ This is an **input** defect, which is where all three large wins in this arc cam
 from (ADR 0022 −26.6 %, ADR 0027 −19.5 %, ADR 0015). Before anything is built it
 has to answer:
 
-1. Is the hole Chile's non-reporting, and does BACI's mirror reconstruction fail
-   for HS 260300 specifically? Check the raw release for a reporter flag on
-   Chile in 2021-22 and 2024, and on Australia→China 2021 (809 → 11 kt).
+1. ~~Is the hole Chile's non-reporting…~~ **ANSWERED 2026-09-22, ADR 0033.** Neither: BACI's
+   *value* field is intact and agrees with ICSG in every year; its *quantity* field is the broken
+   one, and the mass is recoverable from the value. Both vintages agree, so it is not a release
+   artifact. ⚠ **Australia→China is NOT a defect** — 808 kt (2020) → 11.4 (2021) → 0.0 (2022) →
+   325 (2024), identical in V202501 and V202601. That is China's 2020 halt on Australian copper
+   concentrate and the 2024 thaw: real trade, wrongly listed here as a suspicious signature.
 2. If the mass is unrecoverable, what is the honest repair — scale the
    region-year's export legs to the copper ICSG says left, widen σ on them, or
    let the mine node carry a stock? Each is a different claim about *who is
