@@ -208,10 +208,10 @@ def remove_total_if_specific_exists(df):
 
 
 def main(ys=[2005, 2014, 2023, 2025],
-         of=r'data/proc/datafeed/icsg_clean'):
+         of=r'data/proc/feedprep/icsg_clean'):
 
     ps, ss, fs = [], [], []
-    base = r'data/proc/datafeed/icsg_clean'
+    base = r'data/proc/feedprep/icsg_clean'
 
     for y in ys:
 

@@ -175,6 +175,62 @@ vs ≈0.17).
 scrap fidelity 1.318 → **1.032**, invented direct scrap 7,652 → **198 kt**, pairs below 0.50 five →
 **one**, Kazakhstan's fabricated node gone. **Ready to merge — the user's call on these numbers.**
 
+## ROUND S — SHIPPED 2026-09-22: ROW's forced deletion was phantom production (ADR 0035)
+
+Run `opt_20260922_104430_60dbadb2`, 30/30 Solved, icsg **v11**. **ROW forced 7,589 → exactly 0**,
+hard-capped years 10 → 0; ADR 0029's forced term **12,315 → 4,723 kt CC (−62 %)**, share 33.5 % →
+**17.7 %**; mine deletion 36,807 → **26,742 (−27 %)**; common-set z² **1,661,859 = −3.3 % vs base**,
+the best of the whole arc. World MF→Concentrate retention 0.912 → **0.934**. REP
+`…roundS-mine-total-misattribution`.
+
+**Cause:** the ICSG 2014 yearbook types a country's name on the *middle* row of its three-row block,
+so `bfill` carried each block's `Total` row onto the *next* country. Australia's mine total became
+`Azerbeijan`'s (899 kt/yr against the real 0.3–2.6), Russia's became `Saudi Arabia`'s, Kazakhstan's
+`Laos`, Congo D.R.'s `Cyprus`. **16 rows, 11,558 kt CC of production that never existed**, all inside
+ROW, all 2004–2013 — precisely the window ROW is forced in.
+
+**The null held to the kilotonne:** Chile 295, Zambia 1,452, Congo D.R. 880 all unchanged. The whole
+−7,592 kt is ROW.
+
+**The reframing this settles.** The prior falls 11,559 kt and deletion falls 10,065 — **87 % of the
+phantom mass was going straight into the deletion ledger.** `Σ max(0, P − cap)` is partly the model
+*correctly refusing phantom input*; where `P` is phantom, deleting it is the right answer and the
+fix is to remove the input, not relieve the constraint. R recovered mass genuinely missing; S removes
+mass that was never there.
+
+**[ADR 0014](adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)'s folded-internal-trade
+hypothesis is REFUTED**, not merely unused: 5,034 kt available against 21,683 needed (23 %), and
+inside an aggregate a member's export is another's import, so dropping both is correct.
+
+Now the largest forced items: **Zambia 1,452** (79.6 % of its own deletion), **Belgium 1,029** against
+299 deleted (344 %, and Belgium has no mines — Round Q's fabricated domestic `Concentrate→Smelting`
+edge), **Congo, D.R. 880** against 605 (146 %).
+
+## OPEN, out of Round S — two defects found in the ICSG parse, deliberately NOT fixed
+
+**1. `process_icsg.py` collapses three stock series onto one key, and picks the survivor at
+random.** `RENAME_DICT` maps `PMC_Consumers`, `PMC_Merchants` and `PMC_Government` all to `USC`, so
+they share the key `(Region, Cathode, Year, USC, Use)`. The collision is resolved by
+`drop_duplicates(keep='last')` after `combined.sort_values("Year_loaded_from_file")` — pandas'
+default sort is **quicksort, which is not stable**, so which of the three survives depends on row
+order and changes whenever the row count does. **53 keys collide** (51 doubles, 2 triples).
+
+Two things are wrong and they are separable:
+- *The non-determinism.* One word, `kind="mergesort"`. Round S removed 16 rows and that reshuffled
+  **7** Japan USC values (≤ 14 kt each, listed in the REP). Stabilising the sort was tested and
+  rejected for Round S because it flips **21** values instead of 7 — it fixes future attribution at
+  the cost of a larger one-off baseline move, which belongs in its own round.
+- *The collapse itself.* Keeping one of Consumers / Merchants / Government and discarding the other
+  two is almost certainly wrong — `USC` should be their **sum**. That is a modelling decision, not a
+  parse repair, so it is not Round S's to make.
+
+**2. Three more files in the ICSG parse stage are still dead.** Round S revived `icsg_2014.py`,
+`icsg_comb.py` and `process_icsg.py` because the chain had to run. `icsg_2005.py`, `icsg_2023f.py`
+and `icsg_cap.py` carry the identical two breakages — `from pysuto.util import` (renamed to
+`pysuto.utils`) and `out_folder = 'data/proc/datafeed/icsg_clean'` (renamed to
+`data/proc/feedprep/`). Their outputs are checked in and unaffected, so nothing is blocked today,
+but the stage cannot be rebuilt from the raw yearbooks until they are repaired. Mechanical.
+
 ## ROUND R — SHIPPED 2026-09-22: BACI's quantity contradicts its own value (ADR 0033)
 
 Run `opt_20260922_092530_f21bdbe7`, 30/30 Solved, baci **v11** (gross v10 reconstructed, then
@@ -192,13 +248,11 @@ ceiling rises mechanically — the run's contribution is showing the model *uses
 The **pre-registered null held**: ROW 7,576 → 7,589 and Zambia 1,418 → 1,452, both predicted not to
 move because neither is value-flagged.
 
-### Now the largest open item: ROW, 7,589 kt CC = 62 % of the remaining forced term
+### ~~Now the largest open item: ROW, 7,589 kt CC = 62 % of the remaining forced term~~ — CLOSED by Round S
 
 98.9 % of ROW's own deletion is forced, and ADR 0033 does **not** explain it — that was predicted
-and confirmed. [ADR 0014](adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)'s folded
-internal trade is the standing candidate: ROW aggregates 186 BACI source regions, so trade *between*
-its members folds onto domestic addresses and is dropped as mapped self-trade, which would remove
-export mass exactly where the detector says mass is missing. Untested.
+and confirmed. The ADR 0014 folded-internal-trade candidate was **tested and refuted**; the cause is
+phantom mine production from an ICSG 2014 parse bug. See Round S / [ADR 0035](adr/0035-the-yearbooks-label-is-not-on-the-row-it-owns.md).
 
 Also open from R:
 1. **Belgium newly hard-capped**, 1,029 kt CC forced against 300 deleted (343 %) — and Belgium has

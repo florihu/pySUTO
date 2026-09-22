@@ -4,13 +4,13 @@ import re
 import os
 
 
-from pysuto.util import get_path
+from pysuto.utils import get_path
 from pysuto.logging import get_logger
 
 
 
 logger = get_logger(__name__)
-out_folder = r'data/proc/datafeed/icsg_clean'
+out_folder = r'data/proc/feedprep/icsg_clean'
 
 
 def clean_flows(df_init, sheet, process, flow_type, rename_dict):
@@ -48,12 +48,27 @@ def clean_flows(df_init, sheet, process, flow_type, rename_dict):
     df = df.rename(columns=dict(zip(cols_old, cols_new)))
     df = df.rename(columns=rename_dict)
 
-    # ── 5. drop aggregated / regional total rows ──────────────────────────────
+    # ── 5. fill region (labels sit inside a block, not at its top) ────────────
+    # In the mine table a country with two source types occupies three rows and
+    # its name is typed on the MIDDLE one:
+    #     (blank)     Concentrates   795.8
+    #     Australia   SX-EW           58.3
+    #     (blank)     Total          854.1
+    # so bfill reaches the right label from the Concentrates row but carries the
+    # Total row onto the NEXT country.  A Total row closes its own block, so it
+    # takes the label at or above it instead.
+    #
+    # This must run BEFORE the aggregate rows are dropped: the sheet's own
+    # WORLD / TOTALS block is shaped the same way, and with its labels already
+    # removed its grand total would attach to whichever country stood above it.
+    region = df['Region'].replace('', np.nan)
+    is_total = df['Type'].astype(str).str.strip().str.lower().isin(('total',
+                                                                   'totall'))
+    df['Region'] = region.ffill().where(is_total, region.bfill())
+
+    # ── 6. drop aggregated / regional total rows ──────────────────────────────
     AGG_PATTERN = r'\b(TOTALS?|WORLD|Other|EUROPEAN|EU|By|Totall)\b'
     df = df[~df['Region'].astype(str).str.contains(AGG_PATTERN, case=False, na=False)]
-
-    # ── 6. forward-fill region (merged cells) ─────────────────────────────────
-    df['Region'] = df['Region'].replace('', np.nan).bfill()
 
     # ── 7. normalise Type labels ──────────────────────────────────────────────
     FLOW_RENAME = {
