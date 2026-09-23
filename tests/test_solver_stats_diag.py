@@ -208,3 +208,118 @@ def test_write_emits_pair_per_year(tmp_path):
         assert pd.read_csv(p).shape[0] > 0
     edges = pd.read_csv(paths[0])
     assert "edge_id" in edges.columns                # index=False: ids are columns
+
+
+# ---------------------------------------------------------------------------
+# All-years frames (the figure data layer) — same numbers as the tables
+# ---------------------------------------------------------------------------
+
+class ResWithResid(ResStub):
+    residuals = np.array([4.0, 1.0, 1e-9, 0.0])          # true G·a*−c, also on the hard row
+
+
+class Res96WithResid(Res96Stub):
+    residuals = np.array([0.0, 0.0, 0.0, 2.0])
+
+
+class WarmRes(ResStub):
+    """Legacy full-length per-period prior: e0 moved to 11 (a0 was 10)."""
+    a_prior = np.array([11, 0, 5, 3, 7, 0, 8, 9, 0], dtype=float)
+    cols_t = None
+
+
+@pytest.fixture
+def frames_diag():
+    return SolverStatsDiagnostic(
+        {"1995": ResWithResid(), "1996": Res96WithResid()}, CRStub(), AccStub(), years="all",
+    )
+
+
+def test_constraint_frame_extends_the_tables(frames_diag):
+    cf = frames_diag.constraint_frame()
+    assert len(cf) == 4
+    for extra in ("year", "identity", "label", "lhs_prior_t", "resid_solver"):
+        assert extra in cf.columns
+    for y in ("1995", "1996"):
+        sl = cf[cf.year == y].reset_index(drop=True)
+        tbl = frames_diag.constraint_table(y)
+        assert list(tbl.columns) == _CONST_COLS
+        pd.testing.assert_frame_equal(sl[_CONST_COLS].astype(tbl.dtypes.to_dict()), tbl, check_dtype=False)
+
+
+def test_constraint_frame_identity_is_cross_year_and_from_columns(frames_diag):
+    cf = frames_diag.constraint_frame().set_index("constraint_id")
+    # sumA (1995) and sumB (1996) share every identity column → one identity
+    assert cf.loc["sumA", "identity"] == cf.loc["sumB", "identity"]
+    assert cf.loc["sumA", "identity"] != cf.loc["ratioA", "identity"] != cf.loc["mbA", "identity"]
+    assert (cf["identity"] >= 0).all()
+    assert cf.loc["sumA", "label"] == "sum anchor Mass"      # no sector/region columns in the stub
+
+
+def test_constraint_frame_resid_solver_comes_from_results(frames_diag):
+    cf = frames_diag.constraint_frame().set_index("constraint_id")
+    assert cf.loc["mbA", "residual"] == 0.0                  # c_star = c on the hard row
+    assert cf.loc["mbA", "resid_solver"] == pytest.approx(1e-9)
+    assert cf.loc["sumB", "resid_solver"] == pytest.approx(2.0)
+
+
+def test_constraint_frame_lhs_prior_t_cold_equals_lhs_prior(frames_diag):
+    cf = frames_diag.constraint_frame()
+    np.testing.assert_allclose(cf["lhs_prior_t"], cf["lhs_prior"])
+
+
+def test_constraint_frame_lhs_prior_t_warm_differs():
+    d = SolverStatsDiagnostic({"1995": WarmRes(), "1996": Res96Stub()}, CRStub(), AccStub(), years="all")
+    cf = d.constraint_frame().set_index("constraint_id")
+    assert cf.loc["sumA", "lhs_prior"] == pytest.approx(25.0)      # G·a0 (CSV column, frozen)
+    assert cf.loc["sumA", "lhs_prior_t"] == pytest.approx(26.0)    # G·a_prior(1995)
+    e = d.edge_table("1995").set_index("edge_id")
+    assert e.loc[0, "a_prior"] == 11.0 and e.loc[0, "defect"] == pytest.approx(1.0)
+
+
+def test_constraint_frame_unidentified_rows_get_minus_one():
+    class CRDup(CRStub):
+        row_meta = pd.DataFrame([
+            {"constraint_id": "sumA",  "type": "sum",   "variant": "anchor", "cone_type": "free", "time": "1995", "valuation": "Mass"},
+            {"constraint_id": "effA",  "type": "ratio", "variant": "effx",   "cone_type": "free", "time": "1995", "valuation": "CC"},
+            {"constraint_id": "mbA",   "type": "massbal", "variant": "massbal", "cone_type": "zero", "time": "1995", "valuation": "Mass"},
+            {"constraint_id": "effB",  "type": "ratio", "variant": "effx",   "cone_type": "free", "time": "1995", "valuation": "CC"},
+        ])
+    d = SolverStatsDiagnostic({"1995": ResWithResid()}, CRDup(), AccStub(), years="all")
+    cf = d.constraint_frame().set_index("constraint_id")
+    assert cf.loc["effA", "identity"] == -1 and cf.loc["effB", "identity"] == -1
+    assert cf.loc["sumA", "identity"] >= 0 and cf.loc["mbA", "identity"] >= 0
+    assert cf.loc["effA", "label"].startswith("(unidentified)")
+
+
+def test_edge_frame_identity_and_label(frames_diag):
+    ef = frames_diag.edge_frame().set_index("edge_id")
+    assert set(ef["year"]) == {"1995", "1996"}
+    # e0 (1995) and e7 (1996) are the same Mining/A→Cathode/A Mass edge across years
+    assert ef.loc[0, "identity"] == ef.loc[7, "identity"]
+    assert ef.loc[0, "identity"] != ef.loc[6, "identity"]         # CC twin is another identity
+    assert ef.loc[0, "label"] == "Mining|A→Cathode|A|Mass"
+    for y in ("1995", "1996"):
+        sl = ef[ef.year == y].reset_index()
+        tbl = frames_diag.edge_table(y)
+        pd.testing.assert_frame_equal(sl[_EDGE_COLS], tbl)
+
+
+def test_acc_none_disables_only_the_edge_side():
+    d = SolverStatsDiagnostic({"1995": ResWithResid()}, CRStub(), None, years="all")
+    assert d.edge_frame() is None
+    with pytest.raises(RuntimeError, match="edge_meta"):
+        d.edge_table("1995")
+    assert len(d.constraint_frame()) == 3
+
+
+def test_write_rankings_emits_one_csv_per_family(frames_diag, tmp_path):
+    paths = frames_diag.write_rankings(str(tmp_path))
+    names = sorted(p.split("/")[-1] for p in paths)
+    assert names == ["ranking_edges.csv", "ranking_soft_ratios.csv", "ranking_sum_rows.csv"]
+    r = pd.read_csv(tmp_path / "ranking_sum_rows.csv")
+    assert list(r.columns)[:6] == ["rank", "identity", "label", "sector_key", "zsq", "share"]
+    assert len(r) == 1                                            # sumA/sumB = one identity
+    assert r.iloc[0]["n_years"] == 2
+    suffixed = frames_diag.write_rankings(str(tmp_path), regions=["A"], suffix="__a")
+    assert all(p.endswith("__a.csv") for p in suffixed)

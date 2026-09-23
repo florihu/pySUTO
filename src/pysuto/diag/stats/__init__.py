@@ -10,11 +10,18 @@ Groups the stats-table diagnostics and their shared builders:
 * :class:`ConstStatsDiagnostic`  (``const.py``)  — Stage 3: prior row-level
                                                     constraint table (lhs_prior = G·a0).
 * :class:`SolverStatsDiagnostic` (``solver.py``) — Stage 4: row-level edge table
-                                                    (defect a*−a₀) + constraint table
-                                                    (lhs_prior + lhs_post = c_star).
+                                                    (defect a*−a_prior) + constraint
+                                                    table (lhs_prior + lhs_post =
+                                                    c_star), and the cached all-years
+                                                    frames behind ``SolverDiag``.
+* ``objective.py``                               — Stage 4: stateless objective-share
+                                                    builders (family frames, Σz² by
+                                                    sector key, identity ranking,
+                                                    z profiles, objective decomposition).
 
-The shared, stateless builders (:func:`grouped_stats`, :func:`constraint_table`)
-live in ``_core.py`` and are the DRY seam across all three. ``StatsDiagnostic`` also
+The shared, stateless builders (:func:`grouped_stats`, :func:`constraint_table`,
+:func:`sector_totals`, :func:`boundary_edges`, :func:`filter_regions`) live in
+``_core.py`` and are the DRY seam across all three. ``StatsDiagnostic`` also
 composes :class:`CoverageDiagnostic` (reuses its per-edge frame + ``has_val``).
 """
 
