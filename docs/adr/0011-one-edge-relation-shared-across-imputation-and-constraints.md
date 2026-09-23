@@ -1,6 +1,10 @@
 # One EdgeRelation representation shared across Stage-2 imputation and Stage-3 constraints
 
-**Status:** proposed
+**Status:** accepted 2026-09-22 (amended: sequential single-unknown fixpoint, not a MAP solve;
+writer scope = permission, cascade order = precedence, scopes may overlap; N-product recipes close
+by sum with one unknown; scale totals and hard bounds are emit-only relations; see
+[issue #26](https://github.com/florihu/pySUTO/issues/26) §2 and the `Relation` / `Writer scope`
+entries in [CONTEXT.md](../../CONTEXT.md))
 
 Stage-2 imputation and Stage-3 constraint-building are **two independent enumerations of the same
 edge-relation network**, and the duplication is a recurring source of drift:
