@@ -32,8 +32,9 @@ class PsutRunRegistry(BaseOutputRegistry):
             └── timesteps/
                 └── t_{period}.parquet   ← the tidy rows of that period
 
-    ``stage_config`` records the valuations, the primary valuation and the
-    blocks materialised; ``stage_summary.per_timestep`` the row count and the
+    ``stage_config`` records the valuations, the primary valuation, the
+    blocks materialised and the aggregation steps applied (empty for the
+    structure's own resolution); ``stage_summary.per_timestep`` the row count and the
     value total per valuation and block, so ``load_sidecar`` alone says what a
     run holds. ``parents.upstream``
     carries ``opt_run_id`` (and ``const_run_id``), ``parents.inputs.acc``
@@ -89,6 +90,7 @@ class PsutRunRegistry(BaseOutputRegistry):
             "valuations": list(psut.valuations),
             "primary":    psut.primary,
             "blocks":     sorted(psut.table["block"].unique().tolist()),
+            "aggregation": list(psut.aggregation),
         }
         summary = (stage_summary or {}) | {"timesteps": periods}
         if "per_timestep" not in summary:
@@ -139,6 +141,7 @@ class PsutRunRegistry(BaseOutputRegistry):
             acc_id       = str(parents.get("inputs", {}).get("acc", {}).get("id", "")),
             opt_run_id   = parents.get("upstream", {}).get("opt_run_id"),
             const_run_id = parents.get("upstream", {}).get("const_run_id"),
+            aggregation  = list(config.get("aggregation") or []),
         )
 
     def load_sidecar(self, run_id: str) -> dict:

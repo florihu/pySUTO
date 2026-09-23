@@ -1,7 +1,7 @@
 """
 test_psut.py
 ============
-Stage 6 · Slices 1–2 — the tidy-canonical PSUT (issues #18, #19; ADR 0037).
+Stage 6 · Slices 1–3 — the tidy-canonical PSUT (issues #18, #19, #24; ADR 0037).
 
 Fixture topology (psut_toy_acc)
 -------------------------------
@@ -15,10 +15,11 @@ Regions A and B carry a two-process chain; region C has nodes but no edges
   Scrap/SB/A  →  Smelting/Process/A     (O)
   Smelting/Process/r  →  Cathode/Flow/r (S)
   Smelting/Process/r  →  Slag/SB/r      (P)
-  Cathode/Flow/r  →  Use/SB/r           (Y)
+  Cathode/Flow/r  →  Use/SB/r           (Y, domestic)
+  Cathode/Flow/B  →  Use/SB/A           (Y, cross-region)
 
-14 edges per (period, valuation) × periods 2020, 2021 × valuations Mass, CC
-= 56 edges. CC values (2020; 2021 = ×1.1; Mass = ×3) are chosen so every
+15 edges per (period, valuation) × periods 2020, 2021 × valuations Mass, CC
+= 60 edges. CC values (2020; 2021 = ×1.1; Mass = ×3) are chosen so every
 Process and Flow node balances exactly from the table alone.
 """
 
@@ -75,10 +76,11 @@ EDGES = [
     (9, 10,  "U",  40.0),
     (10, 11, "S",  36.0),
     (10, 12, "P",   4.0),
-    (11, 13, "Y",  36.0),
+    (11, 13, "Y",  30.0),
+    (11, 6,  "Y",   6.0),      # cross-region final use B → A
 ]
 N_PER_SLICE = len(EDGES)
-BLOCK_SIZES = {"S": 4, "U": 3, "Y": 2, "E": 2, "O": 1, "P": 2}
+BLOCK_SIZES = {"S": 4, "U": 3, "Y": 3, "E": 2, "O": 1, "P": 2}
 CC_TOTALS_2020 = {"S": 311.0, "U": 160.0, "Y": 151.0, "E": 160.0, "O": 5.0, "P": 14.0}
 
 
@@ -260,6 +262,8 @@ def test_views_hold_the_solved_values(psut):
     assert U.loc[("B", "Ore"), ("A", "Smelting")] == 20.0        # cross-region use
     assert U.loc[("A", "Ore"), ("B", "Smelting")] == 0.0          # no such edge
     assert Y.loc[("A", "Cathode"), ("A", "Use")] == 115.0
+    assert Y.loc[("B", "Cathode"), ("B", "Use")] == 30.0
+    assert Y.loc[("B", "Cathode"), ("A", "Use")] == 6.0          # cross-region final use
     assert E.loc[("A", "Nature"), ("A", "Mining")] == 100.0
     assert O.loc[("A", "Scrap"), ("A", "Smelting")] == 5.0
     assert P.loc[("B", "Smelting"), ("B", "Slag")] == 4.0
@@ -394,7 +398,8 @@ def test_registry_round_trip(tmp_path, psut):
     sidecar = reg.load_sidecar(run_id)
     assert sidecar["parents"]["upstream"]["opt_run_id"] == "opt_x"
     assert sidecar["stage_config"] == {"valuations": ["Mass", "CC"], "primary": "CC",
-                                       "blocks": ["E", "O", "P", "S", "U", "Y"]}
+                                       "blocks": ["E", "O", "P", "S", "U", "Y"],
+                                       "aggregation": []}
     assert sidecar["stage_summary"]["timesteps"] == ["2020", "2021"]
     per_t = sidecar["stage_summary"]["per_timestep"]["2020"]
     assert per_t["n_rows"] == 2 * N_PER_SLICE
@@ -524,3 +529,117 @@ def test_cli_writes_one_parquet_per_period(tmp_path, monkeypatch, toy_acc, F, pa
     assert sidecar["parents"]["inputs"]["acc"]["id"] == "toy"
     assert sidecar["label"] == "cli"
     assert sidecar["stage_config"]["primary"] == "CC"
+
+
+# ---------------------------------------------------------------------------
+# 9) Aggregation — a pushforward on the table (issue #24)
+# ---------------------------------------------------------------------------
+
+def _totals(p):
+    return p.table.groupby(["period", "valuation", "block"])["val"].sum().sort_index()
+
+
+def test_aggregate_world_conserves_totals_and_keeps_periods(psut):
+    w = psut.aggregate(region="World")
+    assert w.periods() == psut.periods()                       # time is never aggregated
+    pd.testing.assert_series_equal(_totals(w), _totals(psut))  # per-period totals conserved
+    assert set(w.table["from_region"]) == set(w.table["to_region"]) == {"World"}
+    assert "edge_id" not in w.table.columns
+    assert set(w.nodes["region"]) == {"World"}
+    assert not w.nodes.duplicated(["sector", "entity", "region"]).any()
+    S, U = w.S("2020"), w.U("2020")
+    assert S.shape == (2, 2) and U.shape == (2, 2)
+    assert S.loc[("World", "Mining"), ("World", "Ore")] == 160.0
+    assert U.loc[("World", "Ore"), ("World", "Smelting")] == 160.0
+    assert w.Y("2020").loc[("World", "Cathode"), ("World", "Use")] == 151.0
+    assert w.at(2021).E().to_numpy().sum() == pytest.approx(160.0 * 1.1)
+    assert (w.valuations, w.primary, w.acc_id) == (["Mass", "CC"], "CC", "toy")
+    assert w.aggregation == [{"region": "World", "sector": None, "keep_crossings": False}]
+    assert "aggregation=1 step(s)" in repr(w)
+
+
+def test_aggregate_relabels_both_facets(psut):
+    w = psut.aggregate(region={"A": "AB", "B": "AB"})          # C keeps its name
+    assert set(w.table["from_region"]) == {"AB"} and set(w.table["to_region"]) == {"AB"}
+    assert w.U("2020").loc[("AB", "Ore"), ("AB", "Smelting")] == 160.0   # B→A use folded in
+    assert ("C", "Mining") in w.S("2020").index                          # unmapped label survives
+    assert w.aggregation[0]["region"] == {"A": "AB", "B": "AB"}
+
+
+def test_aggregate_is_idempotent_and_commutes(psut):
+    m = {"Ore": "Intermediate", "Cathode": "Intermediate"}    # two Flow sectors: one kind
+    w1 = psut.aggregate(region="World")
+    pd.testing.assert_frame_equal(w1.aggregate(region="World").table, w1.table)
+    a = psut.aggregate(region="World").aggregate(sector=m).table
+    b = psut.aggregate(sector=m).aggregate(region="World").table
+    c = psut.aggregate(region="World", sector=m).table
+    pd.testing.assert_frame_equal(a, b)
+    pd.testing.assert_frame_equal(a, c)
+    assert "Intermediate" in set(c["to_sector"]) and "Ore" not in set(c["to_sector"])
+    pd.testing.assert_series_equal(_totals(psut.aggregate(sector=m)), _totals(psut))
+    assert psut.aggregate(sector=m).S("2020").shape == (6, 3)   # 3 regions × 1 merged flow
+
+
+def test_keep_crossings_records_the_realized_trade(psut):
+    raw = psut.table
+    crossed_mass = (raw[raw["from_region"] != raw["to_region"]]
+                    .groupby(["period", "valuation"])["val"].sum())
+    w = psut.aggregate(region="World", keep_crossings=True)
+    assert "region_crossed" in w.table.columns
+    got = w.table[w.table["region_crossed"]].groupby(["period", "valuation"])["val"].sum()
+    pd.testing.assert_series_equal(got, crossed_mass)
+    assert crossed_mass[("2020", "CC")] == pytest.approx(26.0)        # U 20 + Y 6
+    # the split is a distinct row per block; the views sum it back
+    u = w.table[(w.table["block"] == "U") & (w.table["period"] == "2020")
+                & (w.table["valuation"] == "CC")]
+    assert u.set_index("region_crossed")["val"].to_dict() == {False: 140.0, True: 20.0}
+    assert w.U("2020").loc[("World", "Ore"), ("World", "Smelting")] == 160.0
+    assert not w.table.loc[w.table["block"].isin(["S", "E", "O", "P"]), "region_crossed"].any()
+    pd.testing.assert_series_equal(_totals(w), _totals(psut))
+    # the stamp is taken at the finest resolution ever seen: a two-step collapse keeps it
+    two = (psut.aggregate(region={"A": "AB", "B": "AB"}, keep_crossings=True)
+               .aggregate(region="World"))
+    got2 = two.table[two.table["region_crossed"]].groupby(["period", "valuation"])["val"].sum()
+    pd.testing.assert_series_equal(got2, crossed_mass)
+    pd.testing.assert_frame_equal(w.aggregate(region="World", keep_crossings=True).table, w.table)
+
+
+def test_aggregate_never_merges_blocks_valuations_or_periods(psut):
+    w = psut.aggregate(region="World")
+    assert (w.table.groupby(["period", "valuation"]).size() == 7).all()   # S2 U1 Y1 E1 O1 P1
+    rows = (w.table.query("period == '2020' and valuation == 'CC'")
+              .set_index(["block", "from_sector", "to_sector"])["val"])
+    assert rows[("S", "Mining", "Ore")] == 160.0 and rows[("U", "Ore", "Smelting")] == 160.0
+    assert len(w.table.query("valuation == 'Mass'")) == len(w.table.query("valuation == 'CC'")) == 14
+    wc = psut.aggregate(region="World", keep_crossings=True)
+    assert (wc.table.groupby(["period", "valuation"]).size() == 9).all()  # U and Y split
+
+
+def test_aggregate_rejects_bad_maps(psut):
+    with pytest.raises(KeyError, match="do not exist"):
+        psut.aggregate(region={"Atlantis": "World"})
+    with pytest.raises(TypeError, match="sector= must be a mapping"):
+        psut.aggregate(sector="All")
+    with pytest.raises(ValueError, match="different entity kinds"):
+        psut.aggregate(sector={"Scrap": "Ore"})                 # SB·SEM into a Flow
+    with pytest.raises(ValueError, match="different entity kinds"):
+        psut.aggregate(sector={"Nature": "Slag"})               # SB·Nature into SB·SEM
+    with pytest.raises(ValueError, match="nothing to aggregate"):
+        psut.aggregate()
+
+
+def test_aggregated_psut_round_trips_through_registry(tmp_path, psut):
+    from pysuto.registry import PsutRunRegistry
+    w = psut.aggregate(region="World", keep_crossings=True)
+    reg = PsutRunRegistry(str(tmp_path / "psut"))
+    run_id = reg.register(w, parents={"inputs": {}, "upstream": {}})
+    sidecar = reg.load_sidecar(run_id)
+    assert sidecar["stage_config"]["aggregation"] == [
+        {"region": "World", "sector": None, "keep_crossings": True}]
+    loaded = reg.load(run_id)
+    pd.testing.assert_frame_equal(loaded.table, w.table)
+    pd.testing.assert_frame_equal(loaded.nodes, w.nodes)
+    assert loaded.aggregation == w.aggregation
+    rc = loaded.realized_conc("2020")
+    assert "region_crossed" in rc.columns and len(rc) == 9
+    np.testing.assert_allclose(rc["conc"].to_numpy(), 1.0 / 3.0)

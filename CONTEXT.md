@@ -573,6 +573,15 @@ loaded structure's `supply` mask also holds `P`, its `use` mask `E` and `O`).
 its structure in one table, and the realized `conc` is the ratio of two of them. _Avoid_: reading the structure's
 first-listed valuation (`Mass`) as the default; one PSUT per valuation.
 
+**Aggregation (pushforward)** — region/sector aggregation of a PSUT as a *pushforward* of the tidy table: one
+concordance map per dimension (`region`, `sector`) applied **symmetrically to both facets** (`from_`, `to_`),
+then a sum over every key column — `period`, `valuation`, `block` and the entity kinds stay in the key, so
+nothing merges across them and **time is never summed**; a sector map may only merge sectors of one entity kind.
+`region_crossed` is stamped **before** the relabel, at the finest resolution ever seen (a two-step collapse keeps
+the country-level stamp), so the realized traded share survives a World collapse. `edge_id` does not survive.
+_Avoid_: summing `period`; reading `region_crossed` at the aggregated resolution (it is the root-resolution
+crossing); a one-label `sector` collapse (it would merge Process with Flow).
+
 **PIOT (physical input-output table)** — a **symmetric** (square) physical IO table derived from a PSUT by a
 chosen **construct** (below). The **product-by-product** PIOT (commodity×commodity) is the analytic primary —
 technical coefficients `A`, core flows `Z`, total requirements `L`, for footprints; the **industry-by-industry**

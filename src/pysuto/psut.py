@@ -40,8 +40,13 @@ Construction contract
   is mapped to global edge ids through ``cols_t``.
 
 Time is a column of the table, never aggregated: :meth:`PSUT.periods`,
-:meth:`PSUT.latest` and :meth:`PSUT.at` select it. Persistence lives in
-:class:`pysuto.registry.PsutRunRegistry`.
+:meth:`PSUT.latest` and :meth:`PSUT.at` select it. Region/sector
+**aggregation** is a pushforward on the table (:meth:`PSUT.aggregate`, issue
+#24): one concordance map per dimension applied to both facets, then a sum
+over every key column — ``period``, ``valuation``, ``block`` and the entity
+kinds never merge; ``keep_crossings=True`` stamps ``region_crossed`` before
+the relabel so the realized traded share survives a World collapse.
+Persistence lives in :class:`pysuto.registry.PsutRunRegistry`.
 """
 from __future__ import annotations
 
@@ -181,6 +186,10 @@ class PSUT:
         Every valuation in the table, and the one the views default to.
     acc_id, opt_run_id, const_run_id
         Provenance; the run ids are ``None`` for an in-memory handoff.
+    aggregation : list
+        The :meth:`aggregate` calls applied so far, oldest first; empty for
+        the structure's own resolution. After an aggregation the table has no
+        ``edge_id`` and may carry ``region_crossed``.
     """
 
     def __init__(
@@ -193,6 +202,7 @@ class PSUT:
         acc_id:       str = "",
         opt_run_id:   Optional[str] = None,
         const_run_id: Optional[str] = None,
+        aggregation:  Optional[list] = None,
     ) -> None:
         if primary not in valuations:
             raise ValueError(f"primary {primary!r} is not one of {list(valuations)}")
@@ -203,6 +213,7 @@ class PSUT:
         self.acc_id       = acc_id
         self.opt_run_id   = opt_run_id
         self.const_run_id = const_run_id
+        self.aggregation  = list(aggregation or [])
 
     # ------------------------------------------------------------------
     # Construction
@@ -355,6 +366,7 @@ class PSUT:
             acc_id       = self.acc_id,
             opt_run_id   = self.opt_run_id,
             const_run_id = self.const_run_id,
+            aggregation  = self.aggregation,
         )
 
     def _resolve(self, period, valuation) -> tuple:
@@ -365,6 +377,99 @@ class PSUT:
         if valuation not in self.valuations:
             raise KeyError(f"valuation {valuation!r} not in PSUT: {self.valuations}")
         return period, valuation
+
+    # ------------------------------------------------------------------
+    # Aggregation — a pushforward on the table (issue #24)
+    # ------------------------------------------------------------------
+
+    def aggregate(self, region=None, sector=None, *,
+                  keep_crossings: bool = False) -> "PSUT":
+        """Region/sector aggregation as a pushforward on the tidy table.
+
+        ``region`` and ``sector`` are concordance maps ``{old_label: new_label}``
+        applied to **both** the ``from_`` and the ``to_`` facet; a label absent
+        from a map keeps its name, a key naming no existing label raises.
+        ``region`` may also be one string, which collapses every region to that
+        label (``'World'``). A sector map may only merge sectors of one entity
+        kind (and boundary category), so a sector still names one kind.
+
+        Rows are then summed over every key column: ``period``, ``valuation``,
+        ``block`` and the entity kinds stay in the key, so nothing merges across
+        them and time is never aggregated. ``edge_id`` does not survive.
+
+        ``keep_crossings=True`` stamps ``region_crossed`` — ``from_region !=
+        to_region`` at the resolution *before* this relabel, OR-ed with any
+        earlier stamp — into the key, so the realized traded share survives a
+        region collapse (CONTEXT "Traded (realized) vs tradable"). Returns a
+        new PSUT; the call is appended to :attr:`aggregation`.
+        """
+        if region is None and sector is None and not keep_crossings:
+            raise ValueError(
+                "nothing to aggregate: give region=, sector= or keep_crossings=True"
+            )
+        tbl   = self.table.copy()
+        nodes = self.nodes.copy()
+
+        if keep_crossings:
+            crossed = tbl["from_region"].to_numpy() != tbl["to_region"].to_numpy()
+            if "region_crossed" in tbl.columns:
+                crossed |= tbl["region_crossed"].to_numpy(dtype=bool)
+            tbl["region_crossed"] = crossed
+
+        region_map = self._coerce_map(region, "region", nodes["region"])
+        sector_map = self._coerce_map(sector, "sector", nodes["sector"])
+        for col in ("from_region", "to_region"):
+            tbl[col] = tbl[col].map(lambda x: region_map.get(x, x))
+        for col in ("from_sector", "to_sector"):
+            tbl[col] = tbl[col].map(lambda x: sector_map.get(x, x))
+        nodes["region"] = nodes["region"].map(lambda x: region_map.get(x, x))
+        nodes["sector"] = nodes["sector"].map(lambda x: sector_map.get(x, x))
+        nodes = nodes.drop_duplicates(ignore_index=True)
+
+        kinds = nodes[["sector", "entity", "entity_sub"]].drop_duplicates()
+        clash = kinds[kinds.duplicated("sector", keep=False)].sort_values("sector")
+        if not clash.empty:
+            raise ValueError(
+                "sector map merges different entity kinds — a sector must name one kind: "
+                + "; ".join(f"{r.sector}: {r.entity}/{r.entity_sub}" for r in clash.itertuples())
+            )
+
+        key = [c for c in tbl.columns if c not in ("edge_id", "val")]
+        out = (tbl.groupby(key, sort=False, dropna=False)["val"].sum()
+                  .reset_index()
+                  .sort_values(key, ignore_index=True))
+        step = {
+            "region":         region if (region is None or isinstance(region, str)) else dict(region),
+            "sector":         None if sector is None else dict(sector),
+            "keep_crossings": bool(keep_crossings),
+        }
+        return PSUT(
+            out, nodes,
+            valuations   = self.valuations,
+            primary      = self.primary,
+            acc_id       = self.acc_id,
+            opt_run_id   = self.opt_run_id,
+            const_run_id = self.const_run_id,
+            aggregation  = self.aggregation + [step],
+        )
+
+    @staticmethod
+    def _coerce_map(spec, dim: str, labels: pd.Series) -> dict:
+        if spec is None:
+            return {}
+        present = set(labels.unique().tolist())
+        if isinstance(spec, str):
+            if dim != "region":
+                raise TypeError(
+                    "sector= must be a mapping {old: new}; a one-label collapse "
+                    "would merge entity kinds"
+                )
+            return {lab: spec for lab in present}
+        spec = dict(spec)
+        unknown = sorted(set(spec) - present)
+        if unknown:
+            raise KeyError(f"{dim} map names labels that do not exist: {unknown}")
+        return spec
 
     # ------------------------------------------------------------------
     # Block views — pivots of the table on the node universe
@@ -484,6 +589,7 @@ class PSUT:
         span = f"{p[0]}..{p[-1]} ({len(p)})" if p else "none"
         counts = (self.table[self.table["valuation"] == self.primary]["block"]
                     .value_counts().sort_index().to_dict())
+        agg = f", aggregation={len(self.aggregation)} step(s)" if self.aggregation else ""
         return (f"PSUT(acc={self.acc_id!r}, valuations={self.valuations}, "
                 f"primary={self.primary!r}, periods={span}, rows={len(self.table)}, "
-                f"blocks[{self.primary}]={counts})")
+                f"blocks[{self.primary}]={counts}{agg})")
