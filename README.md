@@ -794,7 +794,7 @@ Downstream of the solver: **materialise** the solved edge vector `a*` (`OptimRes
 | [solver.py](src/pysuto/solver.py) | `ClarabelSolver`, `OptimResult` | σ-weighted QP via Clarabel; warm-start across timesteps. |
 | [uncprop.py](src/pysuto/uncprop.py) | `BaseUncProp`, `KalmanUncProp`, `UncPropResult`, `UncPropTimestep` | Stage-5 posterior uncertainty via sparse Cholesky; persists to `data/proc/uncprop/` via `UncPropRunRegistry`. |
 | [_conditioning.py](src/pysuto/_conditioning.py) | `condition_prior`, `condition_sigma_c` | Shared σ_a / σ_c conditioning rules — guarantees uncprop sees the same effective prior the solver did. |
-| [diag/](src/pysuto/diag/) | `FeedDiagnostics`, `AggDiagnostic`, `ImpDiagnostic`, `ConstDiagnostic`, `OptimDiagnostics`, `SolverDiag` | Cross-stage diagnostic plot suites. **Subpackage layout:** `feed.py`, `agg.py`, `imp.py`, `const.py`, `optim.py`, `solver.py`, `_plot.py`. |
+| [diag/](src/pysuto/diag/) | `FeedDiagnostics`, `AggDiagnostic`, `ImpDiagnostic`, `ConstDiagnostic`, `SolverDiag`; `stats/`: `CoverageDiagnostic`, `StatsDiagnostic`, `ConstStatsDiagnostic`, `SolverStatsDiagnostic` | Cross-stage diagnostic plot suites (figures) and row-level stats tables (CSVs). **Subpackage layout:** `feed.py`, `agg.py`, `imp.py`, `const.py`, `solver.py`, `_plot.py`, `stats/{_core,coverage,val,const,solver,objective}.py`. |
 
 ---
 
@@ -1093,13 +1093,19 @@ pysuto/
 │                          UncPropResult · UncPropTimestep                   │
 │                                                                            │
 └── diag/                  FeedDiagnostics · AggDiagnostic · ImpDiagnostic  ─┐
-    ├── feed.py             ConstDiagnostic · OptimDiagnostics · SolverDiag   │
+    ├── feed.py             ConstDiagnostic · SolverDiag                      │
     ├── agg.py                                                                │
     ├── imp.py                                                                │
     ├── const.py                                                              │
-    ├── optim.py                                                              │
     ├── solver.py                                                             │
-    └── _plot.py                                                            ─┘
+    ├── _plot.py                                                              │
+    └── stats/             CoverageDiagnostic · StatsDiagnostic               │
+        ├── _core.py        ConstStatsDiagnostic · SolverStatsDiagnostic      │
+        ├── coverage.py     + objective.py (objective share / decomposition,  │
+        ├── val.py            identity ranking — stateless builders)          │
+        ├── const.py                                                          │
+        ├── solver.py                                                         │
+        └── objective.py                                                    ─┘
 ```
 
 **Import direction is strictly one-way:**
@@ -1167,9 +1173,7 @@ pip install -e .
 pytest tests/ -v
 ```
 
-**Core dependencies (from `pyproject.toml`):** `numpy`, `pandas`, `scipy`, `pyarrow`, `clarabel`.
-
-**Implicit optional:** `matplotlib` — required only by [diag/](src/pysuto/diag/) for plotting; not listed in `pyproject.toml`.
+**Core dependencies (from `pyproject.toml`):** `numpy`, `pandas`, `scipy`, `pyarrow`, `clarabel`, `pyyaml`, `matplotlib` (the last is used only by [diag/](src/pysuto/diag/) for plotting).
 
 ---
 

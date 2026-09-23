@@ -18,9 +18,10 @@ Public surface (re-exported here so call sites can keep using
                                 constraint residuals ε₀ = c − G·a₀.
 * :class:`ConstStatsDiagnostic`— Stage 3: prior row-level constraint CSV
                                 (lhs_prior = G·a₀ per constraint_id, all rows).
-* :class:`OptimDiagnostics`  — Stage 4: optimisation residuals, σ_opt vs σ_agg,
-                                convergence across timesteps.
-* :class:`SolverDiag`        — Stage 4: solver-side residual/objective plots.
+* :class:`SolverDiag`        — Stage 4: the opt-run figure portfolio — solver
+                                health, convergence traces, objective
+                                decomposition, objective share by sector /
+                                identity, sector totals + retention, rocket.
 * :class:`SolverStatsDiagnostic`— Stage 4: post-solve row-level CSVs (per-edge
                                 defect a*−a₀; per-constraint lhs_prior/lhs_post).
 
@@ -37,7 +38,6 @@ Design conventions
 
 from .feed     import FeedDiagnostics
 from .imp      import ImpDiagnostic, ownership_violations
-from .optim    import OptimDiagnostics
 from .const    import ConstDiagnostic
 from .agg      import AggDiagnostic
 from .solver   import SolverDiag
@@ -55,7 +55,6 @@ __all__ = [
     "CoverageDiagnostic",
     "StatsDiagnostic",
     "ConstStatsDiagnostic",
-    "OptimDiagnostics",
     "ConstDiagnostic",
     "AggDiagnostic",
     "SolverDiag",

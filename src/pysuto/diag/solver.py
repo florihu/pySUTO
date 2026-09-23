@@ -504,7 +504,7 @@ class SolverDiag:
 
         # ── Build markdown ─────────────────────────────────────────────
         lines = [
-            f"# Provenance: {self.label or tag}",
+            f"# Provenance: {self.label or self._opt_run_id or 'unlabeled'}",
             "",
             f"Generated: {now}",
             "",
