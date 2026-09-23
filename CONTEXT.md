@@ -560,6 +560,13 @@ output), use `U`, final use `Y`, plus boundary blocks nature-input `E`, SEM-inpu
 **valueless** graph a "PSUT" (the bare graph is the **SUT**); "SUT" for a numeric realisation (long or matrix);
 reading "PSUT" as *matrices only* (the matrices are one view; the tidy table is the canonical other).
 
+**Block** — the PSUT quadrant a directed edge belongs to, read off its endpoint entity kinds (and, for
+the boundary blocks, the `SB` node's boundary role): `S` Process→Flow, `U` Flow→Process, `Y` Flow→SB·FD,
+`E` SB·Nature→Process, `O` SB·SEM→Process, `P` Process→SB·SEM. Every admissible edge lands in exactly one
+block; the tidy table carries it as the `block` column and each matrix view is one block's pivot. _Avoid_:
+"mask" for a block — the `supply`/`use` **masks** are rule-derived edge selections that straddle blocks (a
+loaded structure's `supply` mask also holds `P`, its `use` mask `E` and `O`).
+
 **PIOT (physical input-output table)** — a **symmetric** (square) physical IO table derived from a PSUT by a
 chosen **construct** (below). The **product-by-product** PIOT (commodity×commodity) is the analytic primary —
 technical coefficients `A`, core flows `Z`, total requirements `L`, for footprints; the **industry-by-industry**

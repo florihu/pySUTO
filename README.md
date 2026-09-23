@@ -17,7 +17,7 @@ A modular Python framework for constructing, reconciling, and propagating uncert
    - [Stage 3 — Constraint building](#stage-3--constraint-building)
    - [Stage 4 — Solver](#stage-4--solver)
    - [Stage 5 — Posterior uncertainty propagation](#stage-5--posterior-uncertainty-propagation)
-   - [Stage 6 — PSUT/PIOT builder (planned)](#stage-6--psutpiot-builder-planned)
+   - [Stage 6 — PSUT/PIOT builder (in progress)](#stage-6--psutpiot-builder-in-progress)
 3. [Module reference](#module-reference)
 4. [Workflow](#workflow)
 5. [File structure](#file-structure)
@@ -98,10 +98,10 @@ The package is organised into **five sequential stages**: datafeed assembly (per
        │  opt_run_id
        ▼
 ┌────────────────────────────────────────────────────────────────────────┐
-│  STAGE 6 — PSUT/PIOT builder   ·   scripts/psut.py      (PLANNED)      │
-│  build_psut → build_piot → indicators (per period · valuation)         │
-│  in  : OptimRun (a* = F_opt) + AccountingStructure                     │
-│  out : PSUT(S·U·Y·E·O·P) · gPIOT(A·Z·L) · footprints → registry        │
+│  STAGE 6 — PSUT/PIOT builder   ·   scripts/psut.py      (SLICE 1)      │
+│  PSUT.from_opt_run → tidy edge table → S/U views  (PIOT: planned)      │
+│  in  : OptimRun (a* = F_opt) + AccountingStructure via provenance      │
+│  out : PSUT tidy table per period (S·U now; Y·E·O·P · gPIOT planned)   │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -765,9 +765,24 @@ The v1 module is **bound-blind**: at edges where `a* = l` with positive dual, th
 
 See [`docs/rep/plans/stage5_uncprop_integration_plan.md`](docs/rep/plans/stage5_uncprop_integration_plan.md) for the full integration plan and the v1 scope cuts.
 
-### Stage 6 — PSUT/PIOT builder *(planned)*
+### Stage 6 — PSUT/PIOT builder *(in progress)*
 
 Downstream of the solver: **materialise** the solved edge vector `a*` (`OptimResult.F_opt`) as numeric **physical supply-use tables (PSUT)** — supply `S`, use `U`, final use `Y`, plus boundary blocks `E`/`O`/`P` — per period and per valuation (`CC`, `Mass`), reusing the existing supply/use masks and `entity_sub`. From each PSUT it builds the symmetric **physical input-output table (PIOT)** following PIOLab (Wieland et al. 2022) and Suh (2004) — by-products endogenised as negative inputs, then `A`, `Z`, `L = (I−A)⁻¹` over a full **MRIO** (region × flow) — and ships the classical analytics: footprints / embodied flows, embodied bilateral trade, ew-MFA headline indicators, and multipliers / SDA. v1 is point-estimate only (Stage-5 σ propagation deferred). Rationale and the deliberate *no pySUT / pymrio dependency* are recorded in [ADR 0007](docs/adr/0007-downstream-psut-piot-follows-piolab-suh-no-external-io-lib.md).
+
+**What exists — Slice 1 ([#18](https://github.com/florihu/pySUTO/issues/18)).** [psut.py](src/pysuto/psut.py) ships the **tidy-canonical `PSUT`** ([ADR 0037](docs/adr/0037-psut-piot-two-classes-piot-is-a-construct-family.md)): one row per directed edge per (period, valuation), every row classified into its **block**, with the block matrices as pivot *views* labelled from the accounting structure's node index — identical labels in every period. Slice 1 materialises the `S` (Process→Flow) and `U` (Flow→Process) blocks for one valuation; the boundary blocks (#19), region/sector aggregation (#24) and `to_piot` + the Sankey (#25) extend the same table.
+
+- **`PSUT.from_opt_run(opt_run_id, timesteps=None, valuation="CC")`** — loads every timestep of a persisted run, resolves the `AccountingStructure` through provenance (opt sidecar → `const_run_id` → const sidecar → `acc` id) and places the year-local `F_opt` on global edge ids via `cols_t`.
+- **`PSUT.from_results(results, acc)`** — in-memory handoff; `results` is the solver's `dict[timestep, OptimResult]`, typed by the `OptimResultsLike` protocol (`timestep`, `F_opt`, `cols_t`), so the PSUT never depends on `OptimResult` internals.
+- **Views and selection** — `S(period)`, `U(period)` (default: the latest period); `periods()`, `latest()`, `at(period)`. Time is a column of the table and is never aggregated.
+- **Persistence** — `PsutRunRegistry` writes `data/proc/psut/<psut_run_id>/timesteps/t_<period>.parquet` + `nodes.parquet` with `parents.upstream.opt_run_id`; `scripts/psut.py <opt_run_id>` is the one-command CLI.
+
+```python
+from pysuto.psut import PSUT
+psut = PSUT.from_opt_run("opt_20260922_121256_d4394c0a")   # all periods, CC
+S = psut.S("2020")            # (region, process) × (region, flow)
+U = psut.at(2020).U()         # (region, flow) × (region, process)
+trade = psut.table.query("block == 'U' and from_region != to_region")   # realised cross-region use
+```
 
 ---
 
@@ -783,7 +798,7 @@ Downstream of the solver: **materialise** the solved edge vector `a*` (`OptimRes
 | [feedpipe.py](src/pysuto/feedpipe.py) | `run_feed_pipeline`, `step_A_read_metadata`/`_B_build_concordance`/`_C_build_weight_matrix`/`_D_apply_and_propagate`, `register_feed` | Stage 1 orchestration. |
 | [unc.py](src/pysuto/unc.py) | `PedigreeScores`, `UncertaintyMixin`, `PropagationResult` | Pedigree→CV (Laner et al.); Lp / power-mean propagation through `W`. |
 | [meta.py](src/pysuto/meta.py) | `DataFeedMetadata` | Parses the Excel sidecar. |
-| [registry/](src/pysuto/registry/) | `BaseOutputRegistry`, `DataFeedRegistry`, `ImputationRunRegistry`, `ConstraintRunRegistry`, `OptimRunRegistry`, `UncPropRunRegistry`, `_RegistryEntry`, `make_run_id`, `build_sidecar` | Harmonized output registries (Stages 1–5); shared run-id pattern + sidecar schema. **Subpackage layout:** `base.py`, `feed.py`, `imputation.py`, `constraint.py`, `optim.py`, `uncprop.py`, `_sidecar.py`. |
+| [registry/](src/pysuto/registry/) | `BaseOutputRegistry`, `DataFeedRegistry`, `ImputationRunRegistry`, `ConstraintRunRegistry`, `OptimRunRegistry`, `UncPropRunRegistry`, `PsutRunRegistry`, `_RegistryEntry`, `make_run_id`, `build_sidecar` | Harmonized output registries (Stages 1–6); shared run-id pattern + sidecar schema. **Subpackage layout:** `base.py`, `feed.py`, `imputation.py`, `constraint.py`, `optim.py`, `uncprop.py`, `psut.py`, `_sidecar.py`. |
 | [input_registry.py](src/pysuto/input_registry.py) | `InputRegistry`, `InputRegistries` | Per-kind versioned snapshot store for `feed`, `acc`, `params` inputs; hardlink dedup; auto-bump on content-hash change. |
 | [utils.py](src/pysuto/utils.py) | `_NpEncoder`, io helpers | JSON serialisation, numpy-safe dump/load. |
 | [logging.py](src/pysuto/logging.py) | `get_logger` | Structured run logging. |
@@ -793,6 +808,7 @@ Downstream of the solver: **materialise** the solved edge vector `a*` (`OptimRes
 | [constraints/](src/pysuto/constraints/) | `ConstraintEngine`, `BaseConstraintBuilder`, `MassBalanceBuilder`, `SumConstraintBuilder`, `RatioConstraintBuilder`, `RatioBoundBuilder`, `FlowBoundsBuilder`, `ConstraintBlock`, `ConstraintRun` | Plugin constraint pipeline; persists to `data/proc/const/` via `ConstraintRunRegistry` (lives in [registry/](src/pysuto/registry/)). **Subpackage layout:** `engine.py`, `base.py`, `mass_balance.py`, `sum.py`, `ratio.py`, `flow_bound.py`, `run.py`. |
 | [solver.py](src/pysuto/solver.py) | `ClarabelSolver`, `OptimResult` | σ-weighted QP via Clarabel; warm-start across timesteps. |
 | [uncprop.py](src/pysuto/uncprop.py) | `BaseUncProp`, `KalmanUncProp`, `UncPropResult`, `UncPropTimestep` | Stage-5 posterior uncertainty via sparse Cholesky; persists to `data/proc/uncprop/` via `UncPropRunRegistry`. |
+| [psut.py](src/pysuto/psut.py) | `PSUT`, `OptimResultsLike`, `classify_blocks` | Stage-6 tidy-canonical PSUT: `from_opt_run` / `from_results`, `S`/`U` pivot views, period selection (`periods`, `latest`, `at`); persists to `data/proc/psut/` via `PsutRunRegistry`. |
 | [_conditioning.py](src/pysuto/_conditioning.py) | `condition_prior`, `condition_sigma_c` | Shared σ_a / σ_c conditioning rules — guarantees uncprop sees the same effective prior the solver did. |
 | [diag/](src/pysuto/diag/) | `FeedDiagnostics`, `AggDiagnostic`, `ImpDiagnostic`, `ConstDiagnostic`, `OptimDiagnostics`, `SolverDiag` | Cross-stage diagnostic plot suites. **Subpackage layout:** `feed.py`, `agg.py`, `imp.py`, `const.py`, `optim.py`, `solver.py`, `_plot.py`. |
 
@@ -1057,9 +1073,10 @@ pysuto/
 │   ├── base.py             ImputationRunRegistry · ConstraintRunRegistry    │
 │   ├── feed.py             OptimRunRegistry · UncPropRunRegistry            │
 │   ├── imputation.py       _RegistryEntry · make_run_id · build_sidecar     │
-│   ├── constraint.py                                                        │
+│   ├── constraint.py       PsutRunRegistry                                  │
 │   ├── optim.py                                                             │
 │   ├── uncprop.py                                                           │
+│   ├── psut.py                                                              │
 │   └── _sidecar.py                                                          │
 ├── input_registry.py      InputRegistry · InputRegistries                  │  Stages 0–5
 ├── _conditioning.py       condition_prior · condition_sigma_c              │
@@ -1092,6 +1109,9 @@ pysuto/
 ├── uncprop.py             BaseUncProp · KalmanUncProp                     ─┐ Stage 5
 │                          UncPropResult · UncPropTimestep                   │
 │                                                                            │
+├── psut.py                PSUT · OptimResultsLike · classify_blocks       ─┐ Stage 6
+│                          tidy edge table · S/U views · from_opt_run        │
+│                                                                            │
 └── diag/                  FeedDiagnostics · AggDiagnostic · ImpDiagnostic  ─┐
     ├── feed.py             ConstDiagnostic · OptimDiagnostics · SolverDiag   │
     ├── agg.py                                                                │
@@ -1110,6 +1130,7 @@ unc  ─────────────────────────
 meta  →  registry
 collector  →  agg  →  impute  →  constraints  →  solver  →  uncprop
 _conditioning  ←  solver, uncprop          (shared σ-conditioning helper)
+psut           ←  acc, registry            (Stage 6 — reads a persisted opt run)
 diag           ──── consumer; never imported into the data layer
 utils / logging  ←  imported by any layer, import nothing from pysuto
 ```
@@ -1138,6 +1159,7 @@ Each layer has a dedicated test file in `tests/`. Shared fixtures live in `conft
 | [test_solver.py](tests/test_solver.py) | Clarabel transform, feasibility pre-check, warm-start, per-timestep solve |
 | [test_solver_diag.py](tests/test_solver_diag.py) | `SolverDiag` plot smoke test |
 | [test_uncprop.py](tests/test_uncprop.py) | `KalmanUncProp` closed-form 2×2, PSD/monotonicity, Byron limit, CHOLMOD symbolic-factor reuse, registry round-trip, CI clipping, end-to-end `compute(opt_run_id)` |
+| [test_psut.py](tests/test_psut.py) | Stage 6 Slice 1: block decomposition, node-universe labels, per-node balance, year-local `cols_t` mapping, period selection, `PsutRunRegistry` round-trip, `from_opt_run` provenance chain, CLI ([ADR 0037](docs/adr/0037-psut-piot-two-classes-piot-is-a-construct-family.md)) |
 
 **Parse-stage tests** — these guard the Stage-1 readers, where a source-format quirk is
 indistinguishable from real data once it reaches the model:
@@ -1154,7 +1176,7 @@ indistinguishable from real data once it reaches the model:
 The two tables above cover the core layers and the parse stage; `tests/` holds further modules for
 diagnostics, params and helpers not itemised here.
 
-Run with `pytest tests/ -v` — **1,014 passing, 1 skipped** as of the Round T merge.
+Run with `pytest tests/ -v` — **1,029 passing, 1 skipped** as of Stage 6 Slice 1 (in a git worktree, prefix with `PYTHONPATH=src`: the conda env's editable install points at the main checkout).
 
 ---
 
