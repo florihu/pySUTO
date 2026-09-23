@@ -206,6 +206,57 @@ Now the largest forced items: **Zambia 1,452** (79.6 % of its own deletion), **B
 299 deleted (344 %, and Belgium has no mines — Round Q's fabricated domestic `Concentrate→Smelting`
 edge), **Congo, D.R. 880** against 605 (146 %).
 
+## ROUND T — SHIPPED 2026-09-22: a renamed type is a second stream (ADR 0036) + the build order
+
+Run `opt_20260922_121256_d4394c0a`, 30/30 Solved, icsg **v12**, **trade_shares v21**. Two levers,
+separately measured — see REP `…roundT-renamed-type-collision`.
+
+**T (the code fix, weights held at v20):** `REN_TYPE` folds `Low-grade` smelter feed into `Primary`,
+leaving two rows of one vintage sharing a key; the cross-vintage dedup kept the 20.0 and discarded
+the 280.1, losing **1,038 kt of Zambian primary smelting** 2004-2007. Rows folded onto one key
+*within* a vintage now sum. **Zambia forced 1,452 → 399 (−73 %)**, model forced **4,723 → 3,670
+(−22 %)**, z² −3.3 % → −3.4 % vs base.
+
+**T′ (the weights, code held constant):** `build_trade_shares.py` had not run since 2026-09-17, so
+Rounds Q, R, S and T fanned their ICSG rows with weights built before their own feed corrections.
+Rebuilding v20 → v21 moved **21,709 kt CC** onto import legs and gave **forced 3,670 → 3,013**,
+**z² −3.4 % → −9.6 % vs base** — more than Rounds S and T combined, from running the pipeline in its
+documented order. Operator error, not a model defect. The arc stays internally consistent (every run
+from O onward used v20), so the rounds' relative results stand.
+
+**Forced term now 3,013 kt CC = 12.1 % of deletion**, the lowest of the arc. Largest items:
+Congo D.R. 880 (coverage gap, not tractable by ADR 0033 — its 2014 hole is low in value too),
+Zambia 399, Belgium 371 (was 1,029 on v20), Chile 295.
+
+**The fabricated mine face, re-measured:** 1,386 → **845 kt CC** posterior. The ADR 0024 bound took
+39 % of it once recomputed (Belgium 720 → 309, Germany 261 → 127) but **Italy 163, Japan 114,
+Korea 60, Austria 35 did not move at all** — the bound cannot reach a fabrication upstream of the
+production it measures. **That residue is the next lever.**
+
+## OPEN, out of Round T — nothing enforces the documented build order
+
+`README` §"Two preprocessing scripts run before the feed pipelines" requires
+`scripts/build_trade_shares.py` to run **before** `scripts/icsg_feed.py`: `icsg_feed` consumes the
+weights (`TRADE_SHARES_ID`, `load_trade_shares`) to fan ICSG's single-endpoint rows, and
+`build_trade_shares` in turn reads the ICSG feed's own production through `icsg_intake_production`
+for the [ADR 0024](adr/0024-fan-domestic-leg-bounded-by-own-production.md) domestic bound. Change
+the ICSG feed without rebuilding and the bound is applied against the *previous* production.
+
+**It happened**, for four rounds (Q, R, S, T — all on `trade_shares` v20, built 2026-09-17), and
+cost **6.2 percentage points of fit**. Rebuilding to v21 changed **6,242 weights**, dropped 47, and
+moved **21,709 kt CC** from domestic residual onto import legs; Belgium's domestic anode leg fell
+3,219.7 → 2,250.5 (**−30 %**). Nothing detects it: `icsg_feed.py` loads whatever version is
+registered and prints it, with no check that it post-dates the `values.csv` being fanned.
+
+**Candidate guard:** compare the registered `trade_shares` build time against the version/mtime of
+`data/input/feed/icsg/current/values.csv` and refuse (or loudly warn) when the weights are older.
+Cheap, and it converts a silent ordering error into a stop. Not built — it was not Round T's lever,
+but on this evidence it is earned.
+
+Related: the same ordering applies to `build_baci_reexport.py` → `baci_feed.py`, and
+`build_trade_shares` also reads the **netted BACI** feed, so a BACI change (Round R) should trigger
+a rebuild too.
+
 ## OPEN, out of Round S — two defects found in the ICSG parse, deliberately NOT fixed
 
 **1. `process_icsg.py` collapses three stock series onto one key, and picks the survivor at
