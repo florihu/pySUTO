@@ -296,12 +296,14 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
             if p.get("agg"):
                 # Σ b (coeff +1) − r·Σ a (coeff −r) into one row; set-scoped, so
                 # num_*/denom_* stay None (no single numerator/denominator edge).
+                # The bucket's region is the row's group key and is carried as
+                # a column, so the cross-year identity never needs the id.
                 for ei in p["edge_i_list"]:
                     rows_list.append(row_id); cols_list.append(ei); vals_list.append(1.0)
                 for ej in p["edge_j_list"]:
                     rows_list.append(row_id); cols_list.append(ej); vals_list.append(-p["r"])
                 valuation = p["valuation"]
-                struct = {}
+                struct = {"region": p["region"]}
             else:
                 rows_list += [row_id, row_id]
                 cols_list += [p["edge_i"], p["edge_j"]]
@@ -531,11 +533,12 @@ class RatioBoundBuilder(BaseConstraintBuilder):
                 ej_list = br["edge_j_list"]   # numerator edges (a)
                 t_row   = br["time"]
                 valuation   = br["valuation"]
-                # set-scoped: no single edge. Region is in the id so a shared
-                # variant (e.g. one eff param across regions) stays unique per
-                # (region, valuation, year).
+                # set-scoped: no single edge. Region is in the id (so a shared
+                # variant, e.g. one eff param across regions, stays unique per
+                # (region, valuation, year)) AND in the `region` column, which
+                # is what identifies the row across years; num_*/denom_* stay None.
                 spec_tokens = (_safe(br["region"], field="region"), valuation)
-                struct_cols = {}                      # num_*/denom_* stay None
+                struct_cols = {"region": br["region"]}
             else:
                 ei_list = [br["edge_i"]]
                 ej_list = [br["edge_j"]]

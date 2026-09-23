@@ -849,6 +849,10 @@ class TestRatioConstraintBuilder:
         # set-scoped: no single numerator/denominator edge
         assert rm["num_sector_from"].isna().all()
         assert rm["denom_sector_from"].isna().all()
+        # ... but the bucket region is a column (the cross-year identity of a
+        # set-scoped row is variant + region + valuation, read from columns)
+        assert rm["region"].notna().all()
+        assert set(rm["region"]) == {"A", "B"}
         assert (rm["cone_type"] == "free").all() and (~rm["is_hard"]).all()
         assert np.allclose(block.sigma_c, 0.05)
         assert np.all(block.c == 0.0)
@@ -1224,6 +1228,7 @@ class TestRatioBoundBuilder:
             })
         block = RatioBoundBuilder.from_csv(str(path), toy_acc).build_static(toy_acc)
         assert block.G_rows.shape[0] == 2, "one (region,time,val) bucket × (upper, lower)"
+        assert (block.row_meta["region"] == "A").all()   # set-scoped: region carried as a column
         G = block.G_rows.toarray()
         stock_col, denom_col = 4, 0   # eid 4 = Mining/A→Waste/A 2020; eid 0 = Mining/A→Ore/A 2020
         upper, lower = G[0], G[1]
