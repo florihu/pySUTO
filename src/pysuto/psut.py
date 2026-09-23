@@ -46,7 +46,8 @@ Time is a column of the table, never aggregated: :meth:`PSUT.periods`,
 over every key column — ``period``, ``valuation``, ``block`` and the entity
 kinds never merge; ``keep_crossings=True`` stamps ``region_crossed`` before
 the relabel so the realized traded share survives a World collapse.
-Persistence lives in :class:`pysuto.registry.PsutRunRegistry`.
+Persistence lives in :class:`pysuto.registry.PsutRunRegistry`; the supply-use
+Sankey is :meth:`PSUT.sankey`, a thin delegate to :mod:`pysuto.diag.psut`.
 """
 from __future__ import annotations
 
@@ -369,7 +370,9 @@ class PSUT:
             aggregation  = self.aggregation,
         )
 
-    def _resolve(self, period, valuation) -> tuple:
+    def resolve(self, period=None, valuation=None) -> tuple:
+        """``(period, valuation)`` with the defaults applied — the latest period,
+        the primary valuation — and both validated against the table."""
         period = self.latest() if period is None else str(period)
         if period not in self.periods():
             raise KeyError(f"period {period!r} not in PSUT: {self.periods()}")
@@ -481,7 +484,7 @@ class PSUT:
         :meth:`latest`; ``valuation=None`` means :attr:`primary`."""
         if name not in _ROW_COL:
             raise KeyError(f"unknown block {name!r}; blocks are {BLOCKS}")
-        period, valuation = self._resolve(period, valuation)
+        period, valuation = self.resolve(period, valuation)
         (r_ent, r_sub, r_name), (c_ent, c_sub, c_name) = _ROW_COL[name]
         row_idx = self._labels(r_ent, r_sub, r_name)
         col_idx = self._labels(c_ent, c_sub, c_name)
@@ -583,6 +586,24 @@ class PSUT:
         nz = d != 0
         out["conc"] = np.where(nz, n / np.where(nz, d, 1.0), np.nan)
         return out
+
+    # ------------------------------------------------------------------
+    # Figures — thin delegates; the plotting code lives in diag (ADR 0037 §1)
+    # ------------------------------------------------------------------
+
+    def sankey(self, period=None, valuation=None, **spec):
+        """The bipartite supply-use Sankey of one (period, valuation) as a
+        Plotly figure: processes and commodities as nodes, the S/U rows as
+        links, the boundary blocks as their own nodes, and every
+        border-crossing use / final-use flow (``region_crossed`` after
+        ``aggregate(..., keep_crossings=True)``, or distinct regions) as a
+        separate traded link. Further keywords fill
+        :class:`pysuto.diag.psut.SankeySpec` (``title``, ``min_val``,
+        ``split_traded``, ``unit``). Plotly is imported here, not at module
+        level; the tables behind the figure are
+        :func:`pysuto.diag.psut.sankey_tables`."""
+        from .diag.psut import SankeySpec, sankey_figure   # lazy: consumer layer
+        return sankey_figure(self, SankeySpec(period=period, valuation=valuation, **spec))
 
     def __repr__(self) -> str:
         p = self.periods()

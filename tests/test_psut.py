@@ -1,7 +1,7 @@
 """
 test_psut.py
 ============
-Stage 6 · Slices 1–3 — the tidy-canonical PSUT (issues #18, #19, #24; ADR 0037).
+Stage 6 · Slices 1–4 — the tidy-canonical PSUT and its Sankey (issues #18, #19, #24; ADR 0037).
 
 Fixture topology (psut_toy_acc)
 -------------------------------
@@ -643,3 +643,104 @@ def test_aggregated_psut_round_trips_through_registry(tmp_path, psut):
     rc = loaded.realized_conc("2020")
     assert "region_crossed" in rc.columns and len(rc) == 9
     np.testing.assert_allclose(rc["conc"].to_numpy(), 1.0 / 3.0)
+
+
+# ---------------------------------------------------------------------------
+# 10) Supply-use Sankey (ADR 0037 §1) — pure tables, then a headless figure
+# ---------------------------------------------------------------------------
+
+def test_sankey_tables_reconcile_with_the_table(psut):
+    from pysuto.diag.psut import SankeySpec, sankey_tables
+    w = psut.aggregate(region="World", keep_crossings=True)
+    nodes, links = sankey_tables(w, SankeySpec(period="2020"))
+    # every link value comes from the table: per-block sums match the 2020 CC totals
+    assert links.groupby("block")["value"].sum().to_dict() == pytest.approx(CC_TOTALS_2020)
+    # one node per (region, sector), labelled by the sector alone after the World collapse
+    assert nodes["label"].is_unique
+    assert set(nodes["label"]) == {"Nature", "Scrap", "Mining", "Smelting", "Ore", "Cathode", "Use", "Slag"}
+    kind = nodes.set_index("label")["kind"].to_dict()
+    assert kind["Nature"] == "input" and kind["Scrap"] == "input"
+    assert kind["Use"] == "final_demand" and kind["Slag"] == "residual"
+    assert kind["Mining"] == "process" and kind["Ore"] == "flow"
+    assert nodes["node"].tolist() == list(range(len(nodes)))
+    # border-crossing use and final use are their own traded links, coloured apart
+    traded = links[links["traded"]]
+    assert traded.set_index("block")["value"].to_dict() == {"U": 20.0, "Y": 6.0}
+    assert set(traded["cls"]) == {"traded"}
+    assert not set(traded["color"]) & set(links.loc[~links["traded"], "color"])
+    assert (links.loc[links["block"] == "S", "cls"] == "supply").all()
+    assert links.loc[links["block"] == "E", "cls"].iloc[0] == "boundary in"
+    assert "U · traded" in set(links["hover"]) and "S · supply" in set(links["hover"])
+    # node totals reconcile: every process node balances through its links
+    idx = nodes.set_index("label")["node"]
+    for proc in ("Mining", "Smelting"):
+        n = idx[proc]
+        assert (links.loc[links["target"] == n, "value"].sum()
+                == pytest.approx(links.loc[links["source"] == n, "value"].sum()))
+    assert len(links) == 9                                  # S2 U2 Y2 E1 O1 P1
+
+
+def test_sankey_figure_headless(psut):
+    pytest.importorskip("plotly")
+    w = psut.aggregate(region="World", keep_crossings=True)
+    fig = w.sankey("2020")
+    d = fig.to_dict()
+    sk = d["data"][0]
+    assert sk["type"] == "sankey"
+    assert len(sk["link"]["value"]) == 9 and len(sk["node"]["label"]) == 8
+    assert sum(sk["link"]["value"]) == pytest.approx(sum(CC_TOTALS_2020.values()))
+    assert len(set(sk["link"]["color"])) == 5               # S and U share the chain colour
+    assert len(sk["node"]["x"]) == 8 and len(sk["node"]["y"]) == 8   # depth layout supplied positions
+    x = dict(zip(sk["node"]["label"], sk["node"]["x"]))
+    assert x["Nature"] < x["Mining"] < x["Ore"] < x["Smelting"] < x["Cathode"] < x["Use"]
+    assert x["Scrap"] < x["Smelting"] and x["Slag"] > x["Smelting"] and x["Slag"] < x["Use"]
+    assert "x" not in w.sankey("2020", layout="auto").to_dict()["data"][0]["node"]
+    with pytest.raises(ValueError, match="layout"):
+        w.sankey("2020", layout="bogus")
+    title = d["layout"]["title"]["text"]
+    assert "2020" in title and "CC" in title and "World" in title and "traded" in title
+    # defaults: the latest period and the primary valuation; overrides
+    assert "2021" in w.sankey().to_dict()["layout"]["title"]["text"]
+    mass = w.sankey("2020", "Mass").to_dict()["data"][0]["link"]["value"]
+    assert sum(mass) == pytest.approx(3 * sum(CC_TOTALS_2020.values()))
+    assert w.sankey("2020", title="custom").to_dict()["layout"]["title"]["text"] == "custom"
+    with pytest.raises(KeyError):
+        w.sankey("1999")
+
+
+def test_sankey_multi_region_labels_and_min_val(psut):
+    from pysuto.diag.psut import SankeySpec, sankey_tables
+    nodes, links = sankey_tables(psut, SankeySpec(period="2020"))
+    labels = set(nodes["label"])
+    assert {"B · Ore", "A · Smelting", "A · Nature", "B · Use"} <= labels
+    assert not nodes["label"].str.startswith("C ·").any()  # region C has no links → no node
+    idx = nodes.set_index("label")["node"]
+    cross = links[(links["source"] == idx["B · Ore"]) & (links["target"] == idx["A · Smelting"])]
+    assert len(cross) == 1 and bool(cross["traded"].iloc[0]) and cross["value"].iloc[0] == 20.0
+    assert len(links) == N_PER_SLICE                        # one link per raw edge
+    # split_traded=False keeps the link but drops the class
+    _, plain = sankey_tables(psut, SankeySpec(period="2020", split_traded=False))
+    assert not plain["traded"].any() and len(plain) == N_PER_SLICE
+    # min_val drops small links and the nodes they leave unconnected
+    nodes2, links2 = sankey_tables(psut, SankeySpec(period="2020", min_val=10.0))
+    assert links2["value"].min() >= 10.0 and len(links2) == N_PER_SLICE - 3   # O 5, P 4, Y 6
+    assert "B · Slag" not in set(nodes2["label"]) and "A · Scrap" not in set(nodes2["label"])
+
+
+def test_cli_writes_sankey_html(tmp_path, monkeypatch, toy_acc, F, patched_acc_load):
+    pytest.importorskip("plotly")
+    opt_id, _, _ = _persist_opt_chain(tmp_path, toy_acc, F)
+    monkeypatch.chdir(tmp_path)
+
+    mod_path = os.path.join(os.path.dirname(__file__), "..", "scripts", "psut.py")
+    spec = importlib.util.spec_from_file_location("psut_cli_sankey", mod_path)
+    cli = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cli)
+
+    run_id = cli.main(opt_id, data_dir=str(tmp_path), sankey=["2020", "2021"])
+    run_dir = tmp_path / "proc" / "psut" / run_id
+    for t in PERIODS:
+        html = run_dir / f"sankey_World_{t}_CC.html"
+        assert html.exists() and "sankey" in html.read_text()[:200000]
+    run_id2 = cli.main(opt_id, data_dir=str(tmp_path), sankey=[])   # flag alone → latest
+    assert (tmp_path / "proc" / "psut" / run_id2 / "sankey_World_2021_CC.html").exists()

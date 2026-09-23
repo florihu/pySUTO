@@ -23,6 +23,9 @@ Public surface (re-exported here so call sites can keep using
 * :class:`SolverDiag`        — Stage 4: solver-side residual/objective plots.
 * :class:`SolverStatsDiagnostic`— Stage 4: post-solve row-level CSVs (per-edge
                                 defect a*−a₀; per-constraint lhs_prior/lhs_post).
+* :func:`sankey_figure` / :func:`sankey_tables` / :class:`SankeySpec`
+                             — Stage 6: the bipartite supply-use Sankey of a
+                                PSUT (Plotly, imported lazily).
 
 Design conventions
 ------------------
@@ -41,6 +44,7 @@ from .optim    import OptimDiagnostics
 from .const    import ConstDiagnostic
 from .agg      import AggDiagnostic
 from .solver   import SolverDiag
+from .psut     import SankeySpec, sankey_figure, sankey_tables
 from .stats    import (
     CoverageDiagnostic,
     StatsDiagnostic,
@@ -60,4 +64,7 @@ __all__ = [
     "AggDiagnostic",
     "SolverDiag",
     "SolverStatsDiagnostic",
+    "SankeySpec",
+    "sankey_figure",
+    "sankey_tables",
 ]

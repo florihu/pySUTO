@@ -582,6 +582,14 @@ the country-level stamp), so the realized traded share survives a World collapse
 _Avoid_: summing `period`; reading `region_crossed` at the aggregated resolution (it is the root-resolution
 crossing); a one-label `sector` collapse (it would merge Process with Flow).
 
+**Supply-use Sankey** — the bipartite Sankey drawn *directly* from a PSUT: processes **and** commodities are
+nodes, the `S`/`U` rows are links, the boundary blocks attach as links to their own `SB` nodes (inputs `E`/`O`
+on the left, outputs `P`/`W`/`Y` on the right), and a border-crossing `U`/`Y` flow is its own **traded** link
+(from `region_crossed`, or from distinct regions). Needs no construct. In copper it carries the same numbers as
+the process-network Sankey — `D` is the identity (ADR 0037 §1) — with the commodity nodes shown rather than
+contracted into edge labels. _Avoid_: "process network" for it (that is the PIOT's contracted view);
+reading a node's total as throughput of anything but that (period, valuation).
+
 **PIOT (physical input-output table)** — a **symmetric** (square) physical IO table derived from a PSUT by a
 chosen **construct** (below). The **product-by-product** PIOT (commodity×commodity) is the analytic primary —
 technical coefficients `A`, core flows `Z`, total requirements `L`, for footprints; the **industry-by-industry**

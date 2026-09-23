@@ -14,11 +14,14 @@ Pipeline
 2  PsutRunRegistry.register(psut, parents=..., label=...) — writes
    timesteps/t_<period>.parquet + nodes.parquet + the harmonized sidecar with
    parents.upstream.opt_run_id
+3  --sankey [PERIOD ...] — collapse to World (keep_crossings=True) and write
+   the supply-use Sankey HTML per period into the run dir
 
 Usage::
 
     python scripts/psut.py <opt_run_id> [--label LABEL] [--primary CC]
                            [--timesteps 2020 2021 ...] [--data-dir data]
+                           [--sankey [2020 2024 ...]]
 """
 
 from __future__ import annotations
@@ -52,6 +55,7 @@ def main(
     primary:    str = PRIMARY,
     timesteps:  list | None = None,
     data_dir:   str = DATA_DIR,
+    sankey:     list | None = None,      # periods to draw; [] → the latest
 ) -> str:
     os.makedirs("logs", exist_ok=True)
     add_run_handler(f"logs/init_psut_{datetime.now():%Y%m%d_%H%M%S}.log")
@@ -81,6 +85,15 @@ def main(
     )
 
     _log.info("PsutRun '%s' persisted under %s  %r", psut_run_id, registry.storage_dir, psut)
+
+    if sankey is not None:
+        world = psut.aggregate(region="World", keep_crossings=True)
+        for period in (sankey or [world.latest()]):
+            fig  = world.sankey(period)
+            path = os.path.join(registry.storage_dir, psut_run_id,
+                                f"sankey_World_{period}_{primary}.html")
+            fig.write_html(path, include_plotlyjs="cdn")
+            _log.info("Sankey → %s", path)
     _log.info("=== init_psut DONE ===")
     return psut_run_id
 
@@ -97,5 +110,8 @@ if __name__ == "__main__":
                         help="Subset of timestep labels (default: every timestep of the run).")
     parser.add_argument("--data-dir", default=DATA_DIR,
                         help=f"Data root holding proc/opt, proc/const, proc/acc (default {DATA_DIR!r}).")
+    parser.add_argument("--sankey", nargs="*", default=None, metavar="PERIOD",
+                        help="Write the World supply-use Sankey HTML into the run dir for these "
+                             "periods (flag without values: the latest period).")
     args = parser.parse_args()
-    main(args.opt_run_id, args.label, args.primary, args.timesteps, args.data_dir)
+    main(args.opt_run_id, args.label, args.primary, args.timesteps, args.data_dir, args.sankey)
