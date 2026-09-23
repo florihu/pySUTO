@@ -464,6 +464,14 @@ _Avoid_ also: flagging a single leg inside a year whose *aggregate* fraction is 
 aggregate is the level at which production statistics can license the claim, and lifting a leg
 below it fabricates mass.
 
+**Traded (realized) vs tradable; `region_crossed`.** **Tradable** is a *sector capacity* — the four ICSG-fanned
+sectors (Cathode, Concentrate, Anode, Matte) whose Use edges *may* cross regions (above). **Traded / inter-regional**
+is a *realized* per-edge property — the Use edge actually crossed a border (`region_from != region_to`) — captured
+as the boolean **`region_crossed`**, stamped before a region collapse (`keep_crossings`) so it survives aggregation.
+Supply edges are always same-region, so only tradable-sector Use edges can be `region_crossed`. The
+production-network Sankey's **traded-flow share** is this *realized* split. _Avoid_: reading "traded share" as the
+*tradable-sector* fraction — it is the realized inter-regional fraction.
+
 ## Total-output / scale-total vocabulary
 
 **Total output** — of a process or flow, the sum of **all its outgoing edges** (incl. waste, final
@@ -543,15 +551,36 @@ second side, and double anchoring is the over-constraint
 
 ## Downstream PSUT / PIOT vocabulary
 
-**PSUT (physical supply-use table)** — the **materialised numeric** supply/use matrices for *one period and
-one valuation*, derived from the solved edge vector `a*`: supply `S` (useful output), use `U`, final use `Y`,
-plus boundary blocks nature-input `E`, SEM-input `O`, SEM-output `P`. The Process+Flow **SUT** is the *graph*;
-the **PSUT** is its matrix realisation. _Avoid_: calling the edge graph a "PSUT" (the graph is the **SUT**);
-"SUT" for the numeric matrices.
+**PSUT (physical supply-use table)** — the **materialised numeric** supply-use flows for *one period and
+one valuation*, derived from the solved edge vector `a*`. **Shape-agnostic**: its canonical form is a **tidy
+edge table** (one row per directed edge, carrying its `val`), and the block matrices — supply `S` (useful
+output), use `U`, final use `Y`, plus boundary blocks nature-input `E`, SEM-input `O`, SEM-output `P` — are
+**derived pivot views** of that same PSUT. The valueless Process+Flow **SUT** is the *graph* (the
+`AccountingStructure` topology); a PSUT is that graph **carrying solved values**. _Avoid_: calling the
+**valueless** graph a "PSUT" (the bare graph is the **SUT**); "SUT" for a numeric realisation (long or matrix);
+reading "PSUT" as *matrices only* (the matrices are one view; the tidy table is the canonical other).
 
-**PIOT (physical input-output table)** — the **symmetric** product-by-product table derived from a PSUT by
-endogenising by-products as negative inputs (Suh 2004): technical coefficients `A`, core flows `Z`, total
-requirements `L`. _Avoid_: conflating with the rectangular **PSUT** (a PIOT is square).
+**PIOT (physical input-output table)** — a **symmetric** (square) physical IO table derived from a PSUT by a
+chosen **construct** (below). The **product-by-product** PIOT (commodity×commodity) is the analytic primary —
+technical coefficients `A`, core flows `Z`, total requirements `L`, for footprints; the **industry-by-industry**
+(process×process) PIOT is the **process network** (below). _Avoid_: conflating with the rectangular **PSUT** (a
+PIOT is square); reading "PIOT" as *product-by-product only* (it is a construct **family**).
+
+**Construct** — the SUT→PIOT transformation choice, on **two orthogonal axes**. **(1) Table shape**
+(Miller & Blair ch. 5 / Eurostat): **product-by-product** (commodity×commodity) vs **industry-by-industry**
+(process×process), the latter via the **market-share** rule (`D = S·q̂⁻¹`, fixed-product-sales). **(2) By-product
+method** — meaningful *only* on the analytic product-by-product PIOT (Altimiras-Martin 2014): **Suh** (2004)
+endogenises disposals-to-nature as **negative input coefficients**, *altering* `A`/`L` (the PIOLab/Wieland choice,
+project primary); **Xu–Zhang** (2009) leaves the table intact via a modified multiplier. _Avoid_: conflating the
+axes — **market-share** is a *shape*, **Suh** is a *by-product method*.
+
+**Process network** — the **industry-by-industry** PIOT in tidy/graph form: **processes are nodes, commodity
+flows are edges**; each edge `p→q` carries commodity `f` at value `D[p,f]·U[f,q]` (market-share allocation of
+`q`'s use of `f` back to its producers `p`). Boundary blocks attach as edges to boundary pseudo-nodes (`Nature`,
+`FD`, SEM-in, SEM-out); **disposals-to-nature** (`P` residual outputs) are **final outputs, never inter-process
+edges** — allocation does not apply to them (Altimiras-Martin 2014, fn. 3). The substrate of the production-network
+**Sankey**. _Avoid_: calling it a "PIOT" unqualified (defaults to product-by-product); drawing the supply legs `S`
+as their own edges (they only attribute producers).
 
 **gPIOT** — the full **multi-regional** PIOT over (region × flow), whose `L` traces embodied/indirect flows
 across borders. _Avoid_: "global PIOT" for a single-region table.
