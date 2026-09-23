@@ -123,7 +123,7 @@ inflated.
 
 1. **Nothing enforces the build order.** `icsg_feed.py` loads whatever `trade_shares` version is
    registered and prints it, with no check that it post-dates the `values.csv` being fanned. The
-   candidate guard is in [TODO](../TODO.md); on this evidence it is earned.
+   candidate guard is in [TODO](../../TODO.md); on this evidence it is earned.
 2. **845 kt CC of fabricated mine face**, targets Italy / Japan / Korea / Austria.
 3. **Congo D.R., 880 kt CC** — coverage gap, parked.
 4. **Q and R's published figures** were measured on v20 built before their own feed changes. The

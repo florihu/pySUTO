@@ -106,8 +106,8 @@ cone already makes it free. Re-measure it after O.
 
 **MEASURED 2026-09-21** — run `opt_20260917_121759_c57f252b`, 30/30 Solved, against base
 `opt_20260916_124721_c4d1d944`.
-[REP](rep/analysis_opt_20260917_121759_c57f252b_20260921_roundO-secondary-double-count.md) ·
-[ADR 0030](adr/0030-secondary-smelter-copper-enters-the-chain-once.md).
+[REP](docs/rep/analysis_opt_20260917_121759_c57f252b_20260921_roundO-secondary-double-count.md) ·
+[ADR 0030](docs/adr/0030-secondary-smelter-copper-enters-the-chain-once.md).
 
 Feed gate: all four checks PASS (Austria 1.480 → 1.000, world gap +3,450 → −464 kt, one row class,
 107 excess region-years listed). Mine-chain deletion 52,871 → 44,197 kt; the **forced** term is flat
@@ -130,15 +130,15 @@ routes **0.012 kt/yr in both runs**. It is *not* prior decay — both runs are `
 `f_agg` is re-asserted annually and the solver walks away annually. **A per-edge prior penalty is
 cheaper to pay than to satisfy; only a scale total prices the group.**
 
-**Built** ([ADR 0031](adr/0031-icsg-scrap-series-anchor-their-level-not-only-their-share.md)): two
+**Built** ([ADR 0031](docs/adr/0031-icsg-scrap-series-anchor-their-level-not-only-their-share.md)): two
 soft `sum` families, `smelterscrap` and `directrefscrap`, CC only, covered edges only, grouped on
 `(sector_to, region_to, time, valuation)`, σ via the unchanged `_scale_total_cv`. Registered
 **separately** so neither route can absorb the other. A region-year ICSG does not report gets no row
 and keeps its freedom — the family can only assert a scrap inflow, never forbid one.
 
 **MEASURED** — run `opt_20260921_090618_1ceb5eed`, 30/30 Solved.
-[REP](rep/analysis_opt_20260921_090618_1ceb5eed_20260921_roundP-scrap-level.md) ·
-[ADR 0031](adr/0031-icsg-scrap-series-anchor-their-level-not-only-their-share.md).
+[REP](docs/rep/analysis_opt_20260921_090618_1ceb5eed_20260921_roundP-scrap-level.md) ·
+[ADR 0031](docs/adr/0031-icsg-scrap-series-anchor-their-level-not-only-their-share.md).
 
 Gate passed all six checks twice. **The family works at world scale**: posterior ÷ ICSG-reported
 scrap 1.318 → 1.191 → **1.027**; secondary share 0.300 → 0.257 → **0.220** (prior 0.164); China
@@ -155,8 +155,8 @@ not recover, for two *different* reasons, neither of them the missing level — 
 ## ROUND P.1 — DONE: the pure-secondary recipe closes (2026-09-21)
 
 Run `opt_20260921_101621_cd0c0ae2`, 30/30.
-[REP](rep/analysis_opt_20260921_101621_cd0c0ae2_20260921_roundP1-secondary-recipe.md) ·
-[ADR 0010 amendment](adr/0010-trade-first-seeding-of-bilateral-flow-process-inputs.md).
+[REP](docs/rep/analysis_opt_20260921_101621_cd0c0ae2_20260921_roundP1-secondary-recipe.md) ·
+[ADR 0010 amendment](docs/adr/0010-trade-first-seeding-of-bilateral-flow-process-inputs.md).
 
 P.0's diagnosis was right that Slovakia was strangled, wrong about where. Not the band (its Smelting
 ceiling is 1.000) and **not ADR 0019** — that detector needs `inflow > 1 kt` and fires on **one
@@ -198,7 +198,7 @@ phantom mass was going straight into the deletion ledger.** `Σ max(0, P − cap
 fix is to remove the input, not relieve the constraint. R recovered mass genuinely missing; S removes
 mass that was never there.
 
-**[ADR 0014](adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)'s folded-internal-trade
+**[ADR 0014](docs/adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)'s folded-internal-trade
 hypothesis is REFUTED**, not merely unused: 5,034 kt available against 21,683 needed (23 %), and
 inside an aggregate a member's export is another's import, so dropping both is correct.
 
@@ -239,7 +239,7 @@ production it measures. **That residue is the next lever.**
 `scripts/build_trade_shares.py` to run **before** `scripts/icsg_feed.py`: `icsg_feed` consumes the
 weights (`TRADE_SHARES_ID`, `load_trade_shares`) to fan ICSG's single-endpoint rows, and
 `build_trade_shares` in turn reads the ICSG feed's own production through `icsg_intake_production`
-for the [ADR 0024](adr/0024-fan-domestic-leg-bounded-by-own-production.md) domestic bound. Change
+for the [ADR 0024](docs/adr/0024-fan-domestic-leg-bounded-by-own-production.md) domestic bound. Change
 the ICSG feed without rebuilding and the bound is applied against the *previous* production.
 
 **It happened**, for four rounds (Q, R, S, T — all on `trade_shares` v20, built 2026-09-17), and
@@ -303,7 +303,7 @@ move because neither is value-flagged.
 
 98.9 % of ROW's own deletion is forced, and ADR 0033 does **not** explain it — that was predicted
 and confirmed. The ADR 0014 folded-internal-trade candidate was **tested and refuted**; the cause is
-phantom mine production from an ICSG 2014 parse bug. See Round S / [ADR 0035](adr/0035-the-yearbooks-label-is-not-on-the-row-it-owns.md).
+phantom mine production from an ICSG 2014 parse bug. See Round S / [ADR 0035](docs/adr/0035-the-yearbooks-label-is-not-on-the-row-it-owns.md).
 
 Also open from R:
 1. **Belgium newly hard-capped**, 1,029 kt CC forced against 300 deleted (343 %) — and Belgium has

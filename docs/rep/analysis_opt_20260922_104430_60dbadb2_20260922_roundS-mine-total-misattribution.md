@@ -113,7 +113,7 @@ as a source-level input gate (fails for aggregate members — `X` is known only 
    still wrote to `data/proc/datafeed/`, renamed to `feedprep/`; `process_icsg.py` carried absolute
    `/mnt/nfs_fineprint/` paths. The stage had not run since March. Only the three files the chain
    needs were repaired; `icsg_2005.py`, `icsg_2023f.py` and `icsg_cap.py` carry the same two
-   breakages and are left alone, recorded in [TODO](../TODO.md).
+   breakages and are left alone, recorded in [TODO](../../TODO.md).
 2. **Seven Japan stock values move and they are not ours.** `process_icsg.py` collapses
    `PMC_Consumers`, `PMC_Merchants` and `PMC_Government` onto one `USC` key and breaks the tie with
    `drop_duplicates(keep='last')` after an **unstable** `sort_values`; 53 keys collide. Removing 16

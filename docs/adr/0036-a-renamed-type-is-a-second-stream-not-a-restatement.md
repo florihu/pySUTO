@@ -83,7 +83,7 @@ untouched for the dedup to resolve, exactly as before. Zambia 2004 becomes 280.1
   vintage key is what separates the two cases, and the test pins that.
 - **Stabilise the sort so `keep='last'` is at least deterministic.** Treats the symptom. A
   deterministic choice between two streams is still the wrong arithmetic — and the same unstable
-  sort in `process_icsg.py` remains open in [TODO](../TODO.md) for its own reasons.
+  sort in `process_icsg.py` remains open in [TODO](../../TODO.md) for its own reasons.
 - **Assert that no key collides within a vintage.** Would have caught this, but it fails the build
   on `Thailand 6/`, which is harmless, and offers no repair. The sum both fixes and documents.
 
@@ -117,4 +117,4 @@ otherwise identical chain (`opt_20260922_121256_d4394c0a`) that alone takes **Be
 vs base** — a larger gain than Rounds S and T together, from running the pipeline in its documented
 order. The arc stays internally consistent (every run from O onward used v20), so the rounds'
 relative results stand; what was stale is the bound's view of production. Recorded in
-[TODO](../TODO.md), together with a candidate guard.
+[TODO](../../TODO.md), together with a candidate guard.

@@ -113,7 +113,7 @@ with `drop_duplicates(keep='last')` after an **unstable** `sort_values`. 53 keys
 7 of them (Japan USC, ≤ 14 kt each). Stabilising the sort was tested and **rejected**: it makes the
 round attributable but flips 21 values instead of 7, contaminating the baseline more, and the
 collapse itself is a separate defect — USC should almost certainly be the sum of the three series,
-which is a modelling decision, not a parse repair. Recorded in [TODO](../TODO.md).
+which is a modelling decision, not a parse repair. Recorded in [TODO](../../TODO.md).
 
 **The `Mining/Total` route is now unused for the 2014 vintage.** `RENAME_TOT`'s
 `('Mining','Total') → 'Concentrate'` mapping stays: it is still correct for a country that genuinely
