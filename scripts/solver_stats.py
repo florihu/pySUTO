@@ -37,7 +37,6 @@ DEFAULT_OPT_RUN_ID = "opt_20260611_075036_6d2e540f"
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from pysuto.acc     import AccountingStructure
 from pysuto.diag    import SolverDiag, SolverStatsDiagnostic
 from pysuto.logging import get_logger, add_run_handler
 
@@ -56,7 +55,7 @@ def main(opt_run_id: str, years) -> None:
         output_dir = OUTPUT_DIR,
         const_dir  = CONST_DIR,
     )
-    acc = AccountingStructure.load(diag.constraint_run.acc_id)
+    acc = diag.acc   # loaded once, lazily, from the const run's acc_id
 
     diag_dir = os.path.join(OUTPUT_DIR, opt_run_id, "diag")
     stats = SolverStatsDiagnostic(diag.results, diag.constraint_run, acc, years=years)

@@ -11,8 +11,8 @@ Pipeline
 3  Solve every timestep with the warm-start prior  a_prior(t) = a_post(t-1)
    (prior_mode='warm', the ClarabelSolver default)
 4  Persist OptimResults to data/proc/opt/<opt_run_id>/
-5  Render a diagnostics subset and initialise the solver stats module
-   (per-year edge/constraint CSVs) under data/proc/opt/<opt_run_id>/diag/
+5  Render the SolverDiag portfolio (12 figures + ranking CSVs + provenance)
+   and the per-year edge/constraint CSVs under data/proc/opt/<opt_run_id>/diag/
 
 Usage::
 
@@ -56,7 +56,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from pysuto.acc     import AccountingStructure
 from pysuto.solver  import ClarabelSolver
-from pysuto.diag    import SolverDiag, SolverStatsDiagnostic
+from pysuto.diag    import SolverDiag
 from pysuto.logging import get_logger, add_run_handler
 
 _log = get_logger("init_run_solver")
@@ -114,18 +114,16 @@ def main(const_run_id: str, label: str = "", prior_mode: str = "warm") -> None:
     const_run = solver.load_run(const_run_id)
     diag_dir  = os.path.join(OUTPUT_DIR, optim_run_id, "diag")
 
-    diag = SolverDiag(results, const_run, label=label or optim_run_id)
+    # One AccountingStructure for figures and CSVs (loading it is the expensive
+    # step); the diag's stats object owns the all-years frames both read from.
+    acc  = AccountingStructure.load(const_run.acc_id)
+    diag = SolverDiag(results, const_run, label=label or optim_run_id, acc=acc)
     diag.summary()
-    diag.plot(odir=diag_dir,
-              plot_ids=["SD-R-01", "SD-R-08", "SD-R-09",
-                        "SD-T-05", "SD-T-07", "SD-T-10", "SD-T-11"])
+    diag.plot(odir=diag_dir)
 
-    # Initialise the solver stats module as part of the run: per-year edge
-    # (defect) and constraint (residual) row-level CSVs. Use diag.results — the
-    # reassembled global-length vectors the stats tables expect (raw solver
-    # results are year-local slices).
-    acc = AccountingStructure.load(const_run.acc_id)
-    SolverStatsDiagnostic(diag.results, const_run, acc, years="all").write(diag_dir)
+    # Per-year edge (defect) and constraint (residual) row-level CSVs for every
+    # year, from the same frames the figures were drawn from.
+    diag.stats.write(diag_dir)
 
     _log.info("=== init_run_solver DONE ===")
 
