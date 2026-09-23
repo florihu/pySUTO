@@ -175,6 +175,50 @@ cross-cutting (import nothing from the data layer):
 
 **Two preprocessing scripts run before the feed pipelines and write into the input registry, so their order matters:** `scripts/build_baci_reexport.py` reads the registered gross BACI version and writes a **netted** one — re-exported tonnage re-attributed from the hub to its true origin and destination, with a residual ledger beside it ([ADR 0027](docs/adr/0027-re-exports-are-re-attributed-at-feed-time.md)) — and must run before `scripts/baci_feed.py`; `scripts/build_trade_shares.py` then builds the ICSG fan weights from that netted matrix ([ADR 0002](docs/adr/0002-single-endpoint-rows-fan-out-not-replicate.md) option D, [ADR 0024](docs/adr/0024-fan-domestic-leg-bounded-by-own-production.md)) and must run before `scripts/icsg_feed.py`.
 
+> **⚠ Any change to the ICSG *or* BACI feed invalidates the trade-share weights — rebuild them.**
+> `build_trade_shares.py` reads both: the netted BACI matrix *and* the ICSG feed's own production
+> (`icsg_intake_production`), which is what the [ADR 0024](docs/adr/0024-fan-domestic-leg-bounded-by-own-production.md)
+> domestic bound is computed against. Fan ICSG with stale weights and that bound is applied to the
+> *previous* release's production, silently. Nothing detects it — `icsg_feed.py` loads whatever
+> version is registered and prints it, with no check that it post-dates the `values.csv` it is
+> fanning. This happened for four consecutive rounds and cost 6.2 percentage points of sum-row z²;
+> rebuilding alone moved 21,709 kt CC from domestic residual onto import legs. The full order after
+> a feed change is:
+>
+> ```
+> parse → <feed>_clean.py --to-feed → build_baci_reexport.py → baci_feed.py
+>                                   → build_trade_shares.py  → icsg_feed.py → Stage 2
+> ```
+>
+> Check which weights a run used: `data/proc/feed/registry/<feed_id>/metadata.json` →
+> `trade_shares.version`.
+
+#### The parse layer (`scripts/parse/`)
+
+Upstream of the feed pipelines, one reader per source turns a published release into the tidy
+`values.csv` a feed consumes. It is worth naming explicitly: a source-format quirk that survives the
+parse is indistinguishable from real data by the time it reaches the solver, and three of the last
+four correctness rounds were defects here rather than in the model.
+
+| | chain | writes |
+|---|---|---|
+| **ICSG** | `icsg_{2005,2014,2023f}.py` (one per yearbook vintage) → `icsg_comb.py` (combine vintages) → `process_icsg.py` (stock NAS + merge) → `icsg_clean.py --to-feed` | `data/input/feed/icsg/current/values.csv` |
+| **BACI** | `baci_parse/baci_parse_feed.py` | `data/input/feed/baci/v0/values.csv` + `quantity_recon.csv`, `quantity_cv_scale.csv` |
+
+Two behaviours a reader should not have to discover from the code:
+
+- **A row's [vintage](CONTEXT.md) decides precedence, but only across releases.** ICSG publishes the
+  same series in successive yearbooks; a later vintage restates an earlier one, so rows sharing a key
+  are resolved newest-wins. Two rows of *one* vintage sharing a key are two different streams folded
+  together by a rename and are **summed**, not deduplicated
+  ([ADR 0036](docs/adr/0036-a-renamed-type-is-a-second-stream-not-a-restatement.md)).
+- **The BACI parse overrides its source's published quantity on flagged legs.** HS 740311 is
+  ~99.99 % Cu, so its unit value *is* the copper price in the same release; a concentrate leg whose
+  value-implied Cu fraction leaves the physical band is reconstructed from its intact value
+  (`q = v / (P_cu · g_ref)`), and the inference is carried in σ through a sidecar. Every flagged leg
+  ships in `quantity_recon.csv` so the override is auditable leg by leg
+  ([ADR 0033](docs/adr/0033-baci-quantity-contradicts-its-own-value.md)).
+
 #### Math
 
 ##### Pedigree → coefficient of variation
@@ -1095,7 +1139,22 @@ Each layer has a dedicated test file in `tests/`. Shared fixtures live in `conft
 | [test_solver_diag.py](tests/test_solver_diag.py) | `SolverDiag` plot smoke test |
 | [test_uncprop.py](tests/test_uncprop.py) | `KalmanUncProp` closed-form 2×2, PSD/monotonicity, Byron limit, CHOLMOD symbolic-factor reuse, registry round-trip, CI clipping, end-to-end `compute(opt_run_id)` |
 
-Run with `pytest tests/ -v`.
+**Parse-stage tests** — these guard the Stage-1 readers, where a source-format quirk is
+indistinguishable from real data once it reaches the model:
+
+| Test file | Scope |
+|---|---|
+| [test_icsg_clean.py](tests/test_icsg_clean.py) | ADR 0021 anode placement, secondary-excess clipping, input divisors; `territory_aliases` / `merge_territories` ([ADR 0032](docs/adr/0032-one-territory-one-label.md)) |
+| [test_icsg_2014_region_fill.py](tests/test_icsg_2014_region_fill.py) | Which country a row belongs to when the yearbook's label sits on the middle row of its block, and the sheet's own WORLD/TOTALS block ([ADR 0035](docs/adr/0035-the-yearbooks-label-is-not-on-the-row-it-owns.md)) |
+| [test_icsg_comb_renamed_collisions.py](tests/test_icsg_comb_renamed_collisions.py) | Rows a rename folds onto one key sum *within* a vintage; a cross-vintage restatement is left to the dedup ([ADR 0036](docs/adr/0036-a-renamed-type-is-a-second-stream-not-a-restatement.md)) |
+| [test_baci_quantity_recon.py](tests/test_baci_quantity_recon.py) | Value-implied Cu fraction detector, its two gates, `g_ref` calibration, σ scale composition across sidecar files ([ADR 0033](docs/adr/0033-baci-quantity-contradicts-its-own-value.md)) |
+| [test_build_baci_reexport.py](tests/test_build_baci_reexport.py) | Re-export netting and its residual ledger ([ADR 0027](docs/adr/0027-re-exports-are-re-attributed-at-feed-time.md)) |
+| [test_build_trade_shares.py](tests/test_build_trade_shares.py) | Fan weights and the ADR 0024 domestic bound |
+
+The two tables above cover the core layers and the parse stage; `tests/` holds further modules for
+diagnostics, params and helpers not itemised here.
+
+Run with `pytest tests/ -v` — **1,014 passing, 1 skipped** as of the Round T merge.
 
 ---
 

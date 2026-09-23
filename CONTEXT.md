@@ -601,3 +601,31 @@ term in the Stage-2 FlatPrior (imputed edges). See
 **Flagged ambiguity — "row".** Three distinct meanings live in this codebase: (1) **ROW** the
 region / the `row` mask; (2) a DataFrame row; (3) a constraint `row_meta` row. In feed, mask and
 penalty contexts, "row" always means **ROW** (Rest of World).
+**Vintage** — the release a feed row came from, when a source publishes the same series
+repeatedly (ICSG's 1995, 2005, 2014, 2023 and 2025 yearbooks; BACI's annual releases). A later
+vintage **restates** an earlier one, so rows sharing a key are resolved by keeping the newest.
+That rule is only sound *between* vintages: two rows of **one** vintage sharing a key are two
+different **streams** of the same quantity — a source category folded onto another by a rename,
+such as ICSG's `Low-grade` smelter feed folded into `Primary` — and they **sum**. _Avoid_:
+resolving a same-vintage collision as a restatement. One stream then silently replaces the other
+rather than adding to it, and which one survives depends on row order
+([ADR 0036](docs/adr/0036-a-renamed-type-is-a-second-stream-not-a-restatement.md)). _Avoid_ also:
+reading a vintage as a *time* coordinate — it labels the publication, not the year observed; one
+vintage carries many observation years.
+
+**Forced vs discretionary deletion** — the split of a node's prior-to-posterior mass loss into the
+part no optimiser could have avoided and the part it chose. Copper leaves a mine node only as
+domestic smelter intake `U` or as export mass `X` times a grade the hard cone caps at 0.35, so
+`cap = 0.35·X + U` bounds its discharge and `Σ max(0, P − cap)` is **forced** — arithmetic, not
+optimisation. The remainder is **discretionary**: the solver could have kept it and priced the
+disagreement elsewhere. The distinction says which lever can move a number: σ, anchor placement
+and pricing reach only the discretionary part, while the forced part moves only when `X`, `U` or
+`P` themselves change ([ADR 0029](docs/adr/0029-the-concentrate-grade-stays-global.md)). _Avoid_:
+reading a forced term as a defect to be relieved. Where `P` is phantom — production the source
+never had — deleting it is the *correct* answer, and the repair is to remove the input rather than
+loosen the constraint
+([ADR 0035](docs/adr/0035-the-yearbooks-label-is-not-on-the-row-it-owns.md)). _Avoid_ also: reading
+a forced term larger than the realised deletion as a contradiction — `cap` is evaluated at
+prior-level intake, and a region that substitutes scrap or imported anode escapes a ceiling the
+formula cannot see.
+
