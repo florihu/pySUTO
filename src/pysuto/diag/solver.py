@@ -756,8 +756,9 @@ class SolverDiag:
             return ""
         return "__" + "-".join(_slug(r) for r in regions)
 
-    def _title(self, base: str, regions=None) -> str:
-        t = f"{base}  —  {self.label}" if self.label else base
+    def _title(self, base: str, regions=None, hue=None) -> str:
+        label = " vs ".join(str(l) for l, _, _ in hue) if hue else self.label
+        t = f"{base}  —  {label}" if label else base
         if regions:
             t += f"  ·  regions: {', '.join(str(r) for r in regions)}"
         return t
@@ -1004,7 +1005,7 @@ class SolverDiag:
         runs = hue if hue else [(self.label or "run", self, _C["blue"])]
         fig, axes = plt.subplots(4, 1, figsize=(13, 9.5), sharex=True,
                                  gridspec_kw={"height_ratios": [0.5 + 0.15 * len(runs), 1, 1, 1.4]})
-        fig.suptitle(self._title("Solver health (SD-R-01)"), fontsize=13, fontweight="bold")
+        fig.suptitle(self._title("Solver health (SD-R-01)", hue=hue), fontsize=13, fontweight="bold")
         x_master = self._ts_index()
 
         for k, (lbl, dg, color) in enumerate(runs):
@@ -1057,7 +1058,7 @@ class SolverDiag:
             return self._placeholder("SD-R-11: no frames available (acc / row_meta missing)", regions)
 
         fig, axes = plt.subplots(3, 1, figsize=(13, 10), sharex=True)
-        fig.suptitle(self._title("Objective decomposition (SD-R-11)", regions),
+        fig.suptitle(self._title("Objective decomposition (SD-R-11)", regions, hue=hue),
                      fontsize=13, fontweight="bold")
         for lbl, dg, color, dec in decs:
             if dec is None:
@@ -1161,7 +1162,7 @@ class SolverDiag:
         host = runs[0][1]
         fig, axes = plt.subplots(1, len(FAMILIES), figsize=(6 * len(FAMILIES), 7.5), squeeze=False)
         axes = axes[0]
-        fig.suptitle(self._title("Objective share by sector key (SD-R-13)", regions),
+        fig.suptitle(self._title("Objective share by sector key (SD-R-13)", regions, hue=hue),
                      fontsize=13, fontweight="bold")
         drew_any = False
         for j, fam in enumerate(FAMILIES):
