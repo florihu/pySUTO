@@ -10,14 +10,14 @@ Pipeline
 1  PSUT.from_opt_run(opt_run_id, ...) — resolves the AccountingStructure via
    provenance (opt sidecar → const sidecar → acc id), maps year-local F_opt to
    global edge ids through cols_t and classifies every edge into its block
-   (Slice 1: S and U, one valuation)
+   (S, U, Y, E, O, P; every valuation, ``primary`` = the default for views)
 2  PsutRunRegistry.register(psut, parents=..., label=...) — writes
    timesteps/t_<period>.parquet + nodes.parquet + the harmonized sidecar with
    parents.upstream.opt_run_id
 
 Usage::
 
-    python scripts/psut.py <opt_run_id> [--label LABEL] [--valuation CC]
+    python scripts/psut.py <opt_run_id> [--label LABEL] [--primary CC]
                            [--timesteps 2020 2021 ...] [--data-dir data]
 """
 
@@ -32,7 +32,7 @@ from datetime import datetime
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
 DATA_DIR  = "data"          # holds proc/opt, proc/const, proc/acc; output → proc/psut
-VALUATION = "CC"
+PRIMARY   = "CC"          # valuation the PSUT views default to; every valuation is loaded
 # ---------------------------------------------------------------------------
 # END USER CONFIGURATION
 # ---------------------------------------------------------------------------
@@ -49,7 +49,7 @@ _log = get_logger("init_psut")
 def main(
     opt_run_id: str,
     label:      str = "",
-    valuation:  str = VALUATION,
+    primary:    str = PRIMARY,
     timesteps:  list | None = None,
     data_dir:   str = DATA_DIR,
 ) -> str:
@@ -57,14 +57,14 @@ def main(
     add_run_handler(f"logs/init_psut_{datetime.now():%Y%m%d_%H%M%S}.log")
 
     _log.info("=== init_psut START ===")
-    _log.info("opt_run_id=%s  valuation=%s  timesteps=%s  data_dir=%s",
-              opt_run_id, valuation, timesteps or "all", data_dir)
+    _log.info("opt_run_id=%s  primary=%s  timesteps=%s  data_dir=%s",
+              opt_run_id, primary, timesteps or "all", data_dir)
 
     proc = os.path.join(data_dir, "proc")
     psut = PSUT.from_opt_run(
         opt_run_id,
         timesteps = timesteps,
-        valuation = valuation,
+        primary   = primary,
         opt_dir   = os.path.join(proc, "opt"),
         const_dir = os.path.join(proc, "const"),
         acc_dir   = os.path.join(proc, "acc"),
@@ -91,10 +91,11 @@ if __name__ == "__main__":
     )
     parser.add_argument("opt_run_id", help="OptimRun ID from data/proc/opt/.")
     parser.add_argument("--label", default="", help="Optional label for the psut run sidecar.")
-    parser.add_argument("--valuation", default=VALUATION, help=f"Valuation to materialise (default {VALUATION}).")
+    parser.add_argument("--primary", default=PRIMARY,
+                        help=f"Valuation the views default to; every valuation is loaded (default {PRIMARY}).")
     parser.add_argument("--timesteps", nargs="+", default=None,
                         help="Subset of timestep labels (default: every timestep of the run).")
     parser.add_argument("--data-dir", default=DATA_DIR,
                         help=f"Data root holding proc/opt, proc/const, proc/acc (default {DATA_DIR!r}).")
     args = parser.parse_args()
-    main(args.opt_run_id, args.label, args.valuation, args.timesteps, args.data_dir)
+    main(args.opt_run_id, args.label, args.primary, args.timesteps, args.data_dir)

@@ -98,10 +98,10 @@ The package is organised into **five sequential stages**: datafeed assembly (per
        │  opt_run_id
        ▼
 ┌────────────────────────────────────────────────────────────────────────┐
-│  STAGE 6 — PSUT/PIOT builder   ·   scripts/psut.py      (SLICE 1)      │
-│  PSUT.from_opt_run → tidy edge table → S/U views  (PIOT: planned)      │
+│  STAGE 6 — PSUT/PIOT builder   ·   scripts/psut.py      (SLICES 1-2)   │
+│  PSUT.from_opt_run → tidy edge table → 6 block views  (PIOT planned)   │
 │  in  : OptimRun (a* = F_opt) + AccountingStructure via provenance      │
-│  out : PSUT tidy table per period (S·U now; Y·E·O·P · gPIOT planned)   │
+│  out : PSUT tidy table · all valuations · 6 blocks   (gPIOT planned)   │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -769,19 +769,21 @@ See [`docs/rep/plans/stage5_uncprop_integration_plan.md`](docs/rep/plans/stage5_
 
 Downstream of the solver: **materialise** the solved edge vector `a*` (`OptimResult.F_opt`) as numeric **physical supply-use tables (PSUT)** — supply `S`, use `U`, final use `Y`, plus boundary blocks `E`/`O`/`P` — per period and per valuation (`CC`, `Mass`), reusing the existing supply/use masks and `entity_sub`. From each PSUT it builds the symmetric **physical input-output table (PIOT)** following PIOLab (Wieland et al. 2022) and Suh (2004) — by-products endogenised as negative inputs, then `A`, `Z`, `L = (I−A)⁻¹` over a full **MRIO** (region × flow) — and ships the classical analytics: footprints / embodied flows, embodied bilateral trade, ew-MFA headline indicators, and multipliers / SDA. v1 is point-estimate only (Stage-5 σ propagation deferred). Rationale and the deliberate *no pySUT / pymrio dependency* are recorded in [ADR 0007](docs/adr/0007-downstream-psut-piot-follows-piolab-suh-no-external-io-lib.md).
 
-**What exists — Slice 1 ([#18](https://github.com/florihu/pySUTO/issues/18)).** [psut.py](src/pysuto/psut.py) ships the **tidy-canonical `PSUT`** ([ADR 0037](docs/adr/0037-psut-piot-two-classes-piot-is-a-construct-family.md)): one row per directed edge per (period, valuation), every row classified into its **block**, with the block matrices as pivot *views* labelled from the accounting structure's node index — identical labels in every period. Slice 1 materialises the `S` (Process→Flow) and `U` (Flow→Process) blocks for one valuation; the boundary blocks (#19), region/sector aggregation (#24) and `to_piot` + the Sankey (#25) extend the same table.
+**What exists — Slices 1–2 ([#18](https://github.com/florihu/pySUTO/issues/18), [#19](https://github.com/florihu/pySUTO/issues/19)).** [psut.py](src/pysuto/psut.py) ships the **tidy-canonical `PSUT`** ([ADR 0037](docs/adr/0037-psut-piot-two-classes-piot-is-a-construct-family.md)): one row per directed edge per (period, valuation), every row classified into its **block** — `S` Process→Flow, `U` Flow→Process, `Y` Flow→SB·FD, `E` SB·Nature→Process, `O` SB·SEM→Process, `P` Process→SB·SEM, and `W` Process→SB·Nature (empty in copper); an edge outside that taxonomy raises — with the block matrices as pivot *views* labelled from the accounting structure's node index, identical in every period. The table carries **every** valuation; `primary` (`CC`) is the one the views default to. Region/sector aggregation (#24), the supply-use Sankey and `to_piot` (#25) extend the same table; the decisions behind that order are in ADR 0037.
 
-- **`PSUT.from_opt_run(opt_run_id, timesteps=None, valuation="CC")`** — loads every timestep of a persisted run, resolves the `AccountingStructure` through provenance (opt sidecar → `const_run_id` → const sidecar → `acc` id) and places the year-local `F_opt` on global edge ids via `cols_t`.
-- **`PSUT.from_results(results, acc)`** — in-memory handoff; `results` is the solver's `dict[timestep, OptimResult]`, typed by the `OptimResultsLike` protocol (`timestep`, `F_opt`, `cols_t`), so the PSUT never depends on `OptimResult` internals.
-- **Views and selection** — `S(period)`, `U(period)` (default: the latest period); `periods()`, `latest()`, `at(period)`. Time is a column of the table and is never aggregated.
-- **Persistence** — `PsutRunRegistry` writes `data/proc/psut/<psut_run_id>/timesteps/t_<period>.parquet` + `nodes.parquet` with `parents.upstream.opt_run_id`; `scripts/psut.py <opt_run_id>` is the one-command CLI.
+- **`PSUT.from_opt_run(opt_run_id, timesteps=None, primary="CC")`** — loads every timestep and every valuation of a persisted run, resolves the `AccountingStructure` through provenance (opt sidecar → `const_run_id` → const sidecar → `acc` id) and places the year-local `F_opt` on global edge ids via `cols_t`.
+- **`PSUT.from_results(results, acc, primary="CC")`** — in-memory handoff; `results` is the solver's `dict[timestep, OptimResult]`, typed by the `OptimResultsLike` protocol (`timestep`, `F_opt`, `cols_t`), so the PSUT never depends on `OptimResult` internals.
+- **Views and selection** — `S`, `U`, `Y`, `E`, `O`, `P`, `W` (or `block(name)`), each taking `(period=None, valuation=None)` and defaulting to the latest period and the primary valuation; boundary levels are named by role (`nature`, `secondary`, `final_demand`); `realized_conc()` is the per-edge `CC/Mass` ratio joined on the edge template; `periods()`, `latest()`, `at(period)`. Time is a column of the table and is never aggregated.
+- **Persistence** — `PsutRunRegistry` writes `data/proc/psut/<psut_run_id>/timesteps/t_<period>.parquet` + `nodes.parquet` with `parents.upstream.opt_run_id`, and records `valuations`, `primary` and the blocks in the sidecar; `scripts/psut.py <opt_run_id> [--primary CC]` is the one-command CLI.
 
 ```python
 from pysuto.psut import PSUT
 psut = PSUT.from_opt_run("opt_20260922_121256_d4394c0a")   # all periods, CC
-S = psut.S("2020")            # (region, process) × (region, flow)
-U = psut.at(2020).U()         # (region, flow) × (region, process)
-trade = psut.table.query("block == 'U' and from_region != to_region")   # realised cross-region use
+S = psut.S("2020")            # (region, process) × (region, flow), primary valuation CC
+U = psut.at(2020).U("Mass")   # (region, flow) × (region, process), gross tonnes
+Y = psut.Y("2020")            # (region, flow) × (region, final_demand)
+grade = psut.realized_conc("2020").query("block == 'S' and to_sector == 'Ore'")   # ex-post ore grade
+trade = psut.table.query("block in ('U', 'Y') and from_region != to_region")      # realised cross-region flows
 ```
 
 ---
@@ -808,7 +810,7 @@ trade = psut.table.query("block == 'U' and from_region != to_region")   # realis
 | [constraints/](src/pysuto/constraints/) | `ConstraintEngine`, `BaseConstraintBuilder`, `MassBalanceBuilder`, `SumConstraintBuilder`, `RatioConstraintBuilder`, `RatioBoundBuilder`, `FlowBoundsBuilder`, `ConstraintBlock`, `ConstraintRun` | Plugin constraint pipeline; persists to `data/proc/const/` via `ConstraintRunRegistry` (lives in [registry/](src/pysuto/registry/)). **Subpackage layout:** `engine.py`, `base.py`, `mass_balance.py`, `sum.py`, `ratio.py`, `flow_bound.py`, `run.py`. |
 | [solver.py](src/pysuto/solver.py) | `ClarabelSolver`, `OptimResult` | σ-weighted QP via Clarabel; warm-start across timesteps. |
 | [uncprop.py](src/pysuto/uncprop.py) | `BaseUncProp`, `KalmanUncProp`, `UncPropResult`, `UncPropTimestep` | Stage-5 posterior uncertainty via sparse Cholesky; persists to `data/proc/uncprop/` via `UncPropRunRegistry`. |
-| [psut.py](src/pysuto/psut.py) | `PSUT`, `OptimResultsLike`, `classify_blocks` | Stage-6 tidy-canonical PSUT: `from_opt_run` / `from_results`, `S`/`U` pivot views, period selection (`periods`, `latest`, `at`); persists to `data/proc/psut/` via `PsutRunRegistry`. |
+| [psut.py](src/pysuto/psut.py) | `PSUT`, `OptimResultsLike`, `classify_blocks`, `BLOCKS` | Stage-6 tidy-canonical PSUT: `from_opt_run` / `from_results`, block views `S`/`U`/`Y`/`E`/`O`/`P`/`W`, `realized_conc`, period selection (`periods`, `latest`, `at`); every valuation in one table with a `primary`; persists to `data/proc/psut/` via `PsutRunRegistry`. |
 | [_conditioning.py](src/pysuto/_conditioning.py) | `condition_prior`, `condition_sigma_c` | Shared σ_a / σ_c conditioning rules — guarantees uncprop sees the same effective prior the solver did. |
 | [diag/](src/pysuto/diag/) | `FeedDiagnostics`, `AggDiagnostic`, `ImpDiagnostic`, `ConstDiagnostic`, `OptimDiagnostics`, `SolverDiag` | Cross-stage diagnostic plot suites. **Subpackage layout:** `feed.py`, `agg.py`, `imp.py`, `const.py`, `optim.py`, `solver.py`, `_plot.py`. |
 
@@ -1110,7 +1112,7 @@ pysuto/
 │                          UncPropResult · UncPropTimestep                   │
 │                                                                            │
 ├── psut.py                PSUT · OptimResultsLike · classify_blocks       ─┐ Stage 6
-│                          tidy edge table · S/U views · from_opt_run        │
+│                          tidy edge table · block views · realized_conc      │
 │                                                                            │
 └── diag/                  FeedDiagnostics · AggDiagnostic · ImpDiagnostic  ─┐
     ├── feed.py             ConstDiagnostic · OptimDiagnostics · SolverDiag   │
@@ -1159,7 +1161,7 @@ Each layer has a dedicated test file in `tests/`. Shared fixtures live in `conft
 | [test_solver.py](tests/test_solver.py) | Clarabel transform, feasibility pre-check, warm-start, per-timestep solve |
 | [test_solver_diag.py](tests/test_solver_diag.py) | `SolverDiag` plot smoke test |
 | [test_uncprop.py](tests/test_uncprop.py) | `KalmanUncProp` closed-form 2×2, PSD/monotonicity, Byron limit, CHOLMOD symbolic-factor reuse, registry round-trip, CI clipping, end-to-end `compute(opt_run_id)` |
-| [test_psut.py](tests/test_psut.py) | Stage 6 Slice 1: block decomposition, node-universe labels, per-node balance, year-local `cols_t` mapping, period selection, `PsutRunRegistry` round-trip, `from_opt_run` provenance chain, CLI ([ADR 0037](docs/adr/0037-psut-piot-two-classes-piot-is-a-construct-family.md)) |
+| [test_psut.py](tests/test_psut.py) | Stage 6 Slices 1–2: six-block decomposition (an unclassifiable edge raises), node-universe labels with role-named levels, per-node balance from the table alone, every valuation with a primary, `realized_conc`, year-local `cols_t` mapping, period selection, `PsutRunRegistry` round-trip incl. Slice-1 sidecars, `from_opt_run` provenance chain, CLI ([ADR 0037](docs/adr/0037-psut-piot-two-classes-piot-is-a-construct-family.md)) |
 
 **Parse-stage tests** — these guard the Stage-1 readers, where a source-format quirk is
 indistinguishable from real data once it reaches the model:
@@ -1176,7 +1178,7 @@ indistinguishable from real data once it reaches the model:
 The two tables above cover the core layers and the parse stage; `tests/` holds further modules for
 diagnostics, params and helpers not itemised here.
 
-Run with `pytest tests/ -v` — **1,029 passing, 1 skipped** as of Stage 6 Slice 1 (in a git worktree, prefix with `PYTHONPATH=src`: the conda env's editable install points at the main checkout).
+Run with `pytest tests/ -v` — **1,035 passing, 1 skipped** as of Stage 6 Slice 2 (in a git worktree, prefix with `PYTHONPATH=src`: the conda env's editable install points at the main checkout).
 
 ---
 

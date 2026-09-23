@@ -32,9 +32,10 @@ class PsutRunRegistry(BaseOutputRegistry):
             └── timesteps/
                 └── t_{period}.parquet   ← the tidy rows of that period
 
-    ``stage_config`` records the valuation and the blocks materialised;
-    ``stage_summary.per_timestep`` the row count and value total per block,
-    so ``load_sidecar`` alone says what a run holds. ``parents.upstream``
+    ``stage_config`` records the valuations, the primary valuation and the
+    blocks materialised; ``stage_summary.per_timestep`` the row count and the
+    value total per valuation and block, so ``load_sidecar`` alone says what a
+    run holds. ``parents.upstream``
     carries ``opt_run_id`` (and ``const_run_id``), ``parents.inputs.acc``
     the accounting structure id.
     """
@@ -76,15 +77,18 @@ class PsutRunRegistry(BaseOutputRegistry):
             rows.to_parquet(os.path.join(ts_dir, f"t_{t}.parquet"), index=False)
             per_timestep[t] = {
                 "n_rows":       int(len(rows)),
-                "val_by_block": {b: float(v) for b, v in
-                                 rows.groupby("block")["val"].sum().items()},
+                "val_by_block": {
+                    v: {b: float(x) for b, x in g.groupby("block")["val"].sum().items()}
+                    for v, g in rows.groupby("valuation")
+                },
             }
         psut.nodes.to_parquet(os.path.join(run_dir, "nodes.parquet"), index=False)
 
         # ── 2. config + summary ───────────────────────────────────────
         config  = (stage_config or {}) | {
-            "valuation": psut.valuation,
-            "blocks":    sorted(psut.table["block"].unique().tolist()),
+            "valuations": list(psut.valuations),
+            "primary":    psut.primary,
+            "blocks":     sorted(psut.table["block"].unique().tolist()),
         }
         summary = (stage_summary or {}) | {"timesteps": periods}
         if "per_timestep" not in summary:
@@ -124,10 +128,14 @@ class PsutRunRegistry(BaseOutputRegistry):
                   for t in summary.get("timesteps", [])]
         nodes  = pd.read_parquet(os.path.join(run_dir, "nodes.parquet"))
 
+        # Slice-1 sidecars (one valuation) carried a single ``valuation`` key.
+        valuations = list(config.get("valuations") or [config.get("valuation", "")])
+        primary    = str(config.get("primary") or valuations[0])
         return PSUT(
             pd.concat(frames, ignore_index=True),
             nodes,
-            valuation    = str(config.get("valuation", "")),
+            valuations   = valuations,
+            primary      = primary,
             acc_id       = str(parents.get("inputs", {}).get("acc", {}).get("id", "")),
             opt_run_id   = parents.get("upstream", {}).get("opt_run_id"),
             const_run_id = parents.get("upstream", {}).get("const_run_id"),

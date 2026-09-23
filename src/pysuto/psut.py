@@ -6,14 +6,29 @@ Stage 6 — the physical supply-use table (PSUT), tidy-canonical.
 A :class:`PSUT` is the solved edge vector ``a*`` of one or more periods carried
 as a **tidy edge table** — one row per directed edge per (period, valuation),
 every row classified into a PSUT **block** — together with the node label
-universe of the accounting structure it came from. The block matrices ``S``
-(Process→Flow, supply) and ``U`` (Flow→Process, use) are pivot *views* of that
-table, reindexed onto the node universe so their labels are identical across
-periods (issue #18, ADR 0037).
+universe of the accounting structure it came from. The block matrices are
+pivot *views* of that table, reindexed onto the node universe so their labels
+are identical across periods (issues #18/#19, ADR 0037).
 
-Slice 1 (issue #18) materialises the ``S`` and ``U`` blocks for one valuation.
-The boundary blocks ``Y``/``E``/``O``/``P`` (#19), region/sector aggregation
-(#24) and ``to_piot`` (#25) extend the same table.
+Blocks (PIOLab / ADR 0007), read off the endpoint entity kinds and, for the
+boundary blocks, the ``SB`` node's ``entity_sub``::
+
+    S  Process   → Flow         supply (useful output)
+    U  Flow      → Process      use
+    Y  Flow      → SB·FD        final use
+    E  SB·Nature → Process      nature input
+    O  SB·SEM    → Process      secondary input
+    P  Process   → SB·SEM       residual output
+    W  Process   → SB·Nature    discard to nature (empty in copper)
+
+Every admissible edge lands in exactly one block; an edge outside this table
+is an error, never a silent omission. The boundary labels ``Nature`` / ``SEM``
+/ ``FD`` are read in one place, :func:`classify_blocks` — the site to switch
+to ``acc.roles`` when issue #26 §1 (ADR 0034) lands.
+
+The table carries **every** valuation of the structure; ``primary`` (copper:
+``CC``) is the valuation the views default to, and :meth:`PSUT.realized_conc`
+is the ratio of two valuations from the same table.
 
 Construction contract
 ---------------------
@@ -56,11 +71,30 @@ class OptimResultsLike(Protocol):
     cols_t:   Optional[np.ndarray]
 
 
-# block ← (from_entity, to_entity). Slice 1 carries the two core blocks; #19
-# adds the boundary blocks, which also need the SB node's entity_sub.
-_BLOCK_OF_ENTITY_PAIR = {
-    ("Process", "Flow"): "S",
-    ("Flow", "Process"): "U",
+# block ← (from_entity, from_entity_sub, to_entity, to_entity_sub); None = any.
+# The boundary labels are the copper case's entity_sub values (ADR 0037 §2).
+_BLOCK_RULES = (
+    ("S", "Process", None,     "Flow",    None),
+    ("U", "Flow",    None,     "Process", None),
+    ("Y", "Flow",    None,     "SB",      "FD"),
+    ("E", "SB",      "Nature", "Process", None),
+    ("O", "SB",      "SEM",    "Process", None),
+    ("P", "Process", None,     "SB",      "SEM"),
+    ("W", "Process", None,     "SB",      "Nature"),
+)
+BLOCKS = tuple(rule[0] for rule in _BLOCK_RULES)
+
+# (entity, entity_sub, level name) of each block's row and column labels. The
+# level names are the framework's role words (CONTEXT "Role"); the labels are
+# the case's sectors.
+_ROW_COL = {
+    "S": (("Process", None, "process"),   ("Flow", None, "flow")),
+    "U": (("Flow", None, "flow"),         ("Process", None, "process")),
+    "Y": (("Flow", None, "flow"),         ("SB", "FD", "final_demand")),
+    "E": (("SB", "Nature", "nature"),     ("Process", None, "process")),
+    "O": (("SB", "SEM", "secondary"),     ("Process", None, "process")),
+    "P": (("Process", None, "process"),   ("SB", "SEM", "secondary")),
+    "W": (("Process", None, "process"),   ("SB", "Nature", "nature")),
 }
 
 _TABLE_COLUMNS = [
@@ -73,15 +107,36 @@ _TABLE_COLUMNS = [
 _NODE_COLUMNS = ["sector", "entity", "region", "entity_sub"]
 
 
+def _entity_sub(edge_meta: pd.DataFrame, col: str) -> np.ndarray:
+    if col in edge_meta.columns:
+        return edge_meta[col].to_numpy(dtype=object)
+    return np.full(len(edge_meta), None, dtype=object)
+
+
 def classify_blocks(edge_meta: pd.DataFrame) -> pd.Series:
-    """Block label (``S``/``U``) per row of ``edge_meta``; ``None`` for every
-    edge outside the blocks this slice materialises."""
+    """Block label per row of ``edge_meta``; ``None`` for an edge no rule matches."""
     fe = edge_meta["from_entity"].to_numpy()
     te = edge_meta["to_entity"].to_numpy()
+    fs = _entity_sub(edge_meta, "from_entity_sub")
+    ts = _entity_sub(edge_meta, "to_entity_sub")
     block = pd.Series([None] * len(edge_meta), index=edge_meta.index, dtype=object)
-    for (f, t), label in _BLOCK_OF_ENTITY_PAIR.items():
-        block[(fe == f) & (te == t)] = label
+    for label, f_ent, f_sub, t_ent, t_sub in _BLOCK_RULES:
+        m = (fe == f_ent) & (te == t_ent)
+        if f_sub is not None:
+            m &= (fs == f_sub)
+        if t_sub is not None:
+            m &= (ts == t_sub)
+        block[m] = label
     return block
+
+
+def _unclassified_report(edge_meta: pd.DataFrame, block: pd.Series) -> str:
+    bad  = edge_meta[block.isna().to_numpy()]
+    cols = [c for c in ("from_entity", "from_entity_sub", "to_entity", "to_entity_sub")
+            if c in bad.columns]
+    counts = bad.groupby(cols, dropna=False).size()
+    return "; ".join(f"{tuple(k) if isinstance(k, tuple) else (k,)}: {n} edge(s)"
+                     for k, n in counts.items())
 
 
 def _period_values(res: OptimResultsLike, positions: np.ndarray,
@@ -105,13 +160,13 @@ def _period_values(res: OptimResultsLike, positions: np.ndarray,
     if (where < 0).any():
         raise ValueError(
             f"timestep {res.timestep!r}: {int((where < 0).sum())} of its "
-            f"{len(positions)} supply/use edges are not covered by cols_t"
+            f"{len(positions)} edges are not covered by cols_t"
         )
     return F[where]
 
 
 class PSUT:
-    """Tidy physical supply-use table of one valuation over one or more periods.
+    """Tidy physical supply-use table over one or more periods, every valuation.
 
     Attributes
     ----------
@@ -122,7 +177,9 @@ class PSUT:
     nodes : DataFrame
         The node universe (``sector, entity, region, entity_sub``) the block
         views are labelled from.
-    valuation, acc_id, opt_run_id, const_run_id
+    valuations, primary
+        Every valuation in the table, and the one the views default to.
+    acc_id, opt_run_id, const_run_id
         Provenance; the run ids are ``None`` for an in-memory handoff.
     """
 
@@ -131,14 +188,18 @@ class PSUT:
         table: pd.DataFrame,
         nodes: pd.DataFrame,
         *,
-        valuation:    str,
+        valuations:   Sequence[str],
+        primary:      str,
         acc_id:       str = "",
         opt_run_id:   Optional[str] = None,
         const_run_id: Optional[str] = None,
     ) -> None:
+        if primary not in valuations:
+            raise ValueError(f"primary {primary!r} is not one of {list(valuations)}")
         self.table        = table.reset_index(drop=True)
         self.nodes        = nodes.reset_index(drop=True)
-        self.valuation    = valuation
+        self.valuations   = list(valuations)
+        self.primary      = primary
         self.acc_id       = acc_id
         self.opt_run_id   = opt_run_id
         self.const_run_id = const_run_id
@@ -153,31 +214,34 @@ class PSUT:
         results: Mapping[str, OptimResultsLike],
         acc: AccountingStructure,
         *,
-        valuation: str = "CC",
+        primary: str = "CC",
     ) -> "PSUT":
         """Build from ``{timestep: result}`` (the solver's output shape).
 
         Each result's ``F_opt`` is placed on global edge ids — through
         ``cols_t`` on the block path, positionally on the legacy path — and
-        every supply/use edge of ``valuation`` in that timestep becomes one
-        row. Any other edge (boundary blocks, the other valuation) is left
-        out of this slice.
+        every edge of that timestep, in every valuation, becomes one row
+        carrying its block. An edge no block rule matches raises.
         """
-        if valuation not in acc.valuation:
+        if primary not in acc.valuation:
             raise ValueError(
-                f"valuation {valuation!r} is not one of {acc.valuation} "
+                f"primary {primary!r} is not one of {acc.valuation} "
                 f"(accounting structure {acc.id!r})"
             )
         if not results:
             raise ValueError("results is empty — nothing to materialise")
 
-        meta     = acc.edge_meta
-        block    = classify_blocks(meta)
-        in_scope = block.notna().to_numpy() & (meta["valuation"].to_numpy() == valuation)
-        time     = meta["time"].to_numpy()
-        keep     = ["edge_id", "valuation",
-                    "from_region", "from_sector", "from_entity",
-                    "to_region", "to_sector", "to_entity"]
+        meta  = acc.edge_meta
+        block = classify_blocks(meta)
+        if block.isna().any():
+            raise ValueError(
+                "edges outside the PSUT block taxonomy — (from_entity, from_entity_sub, "
+                f"to_entity, to_entity_sub): {_unclassified_report(meta, block)}"
+            )
+        time = meta["time"].to_numpy()
+        keep = ["edge_id", "valuation",
+                "from_region", "from_sector", "from_entity",
+                "to_region", "to_sector", "to_entity"]
 
         frames = []
         for t, res in results.items():
@@ -186,7 +250,7 @@ class PSUT:
                 raise ValueError(
                     f"results key {t!r} holds a result for timestep {res.timestep!r}"
                 )
-            positions = np.flatnonzero(in_scope & (time == t))
+            positions = np.flatnonzero(time == t)
             frame = meta.iloc[positions][keep].copy()
             frame.insert(0, "period", t)
             frame.insert(2, "block", block.iloc[positions].to_numpy())
@@ -194,28 +258,30 @@ class PSUT:
             frames.append(frame[_TABLE_COLUMNS])
 
         table = (pd.concat(frames, ignore_index=True)
-                   .sort_values(["period", "block", "edge_id"], ignore_index=True))
+                   .sort_values(["period", "valuation", "block", "edge_id"],
+                                ignore_index=True))
         nodes = acc.node_index.copy()
         if "entity_sub" not in nodes.columns:
             nodes["entity_sub"] = None
         nodes = nodes[_NODE_COLUMNS]
 
-        counts = table["block"].value_counts().to_dict()
+        counts = (table[table["valuation"] == primary]["block"]
+                    .value_counts().sort_index().to_dict())
         logger.info(
-            "PSUT %s/%s: %d timestep(s), %d rows (%s) of %d in-scope edges per period",
-            acc.id, valuation, len(frames), len(table),
-            ", ".join(f"{b}={n}" for b, n in sorted(counts.items())),
-            int(in_scope.sum()) // max(len(acc.time_range), 1),
+            "PSUT %s: %d timestep(s) × %s, %d rows; per period in %s: %s",
+            acc.id, len(frames), list(acc.valuation), len(table), primary,
+            ", ".join(f"{b}={n // len(frames)}" for b, n in counts.items()),
         )
-        return cls(table, nodes, valuation=valuation, acc_id=acc.id)
+        return cls(table, nodes, valuations=list(acc.valuation), primary=primary,
+                   acc_id=acc.id)
 
     @classmethod
     def from_opt_run(
         cls,
         opt_run_id: str,
         timesteps: Optional[Sequence] = None,
-        valuation: str = "CC",
         *,
+        primary:   str = "CC",
         opt_dir:   str = "data/proc/opt",
         const_dir: str = "data/proc/const",
         acc_dir:   str = "data/proc/acc",
@@ -258,7 +324,7 @@ class PSUT:
                 )
             results = {t: results[t] for t in wanted}
 
-        psut = cls.from_results(results, acc, valuation=valuation)
+        psut = cls.from_results(results, acc, primary=primary)
         psut.opt_run_id   = opt_run_id
         psut.const_run_id = const_run_id
         return psut
@@ -284,40 +350,39 @@ class PSUT:
     def _with_table(self, table: pd.DataFrame) -> "PSUT":
         return PSUT(
             table, self.nodes,
-            valuation    = self.valuation,
+            valuations   = self.valuations,
+            primary      = self.primary,
             acc_id       = self.acc_id,
             opt_run_id   = self.opt_run_id,
             const_run_id = self.const_run_id,
         )
 
+    def _resolve(self, period, valuation) -> tuple:
+        period = self.latest() if period is None else str(period)
+        if period not in self.periods():
+            raise KeyError(f"period {period!r} not in PSUT: {self.periods()}")
+        valuation = self.primary if valuation is None else valuation
+        if valuation not in self.valuations:
+            raise KeyError(f"valuation {valuation!r} not in PSUT: {self.valuations}")
+        return period, valuation
+
     # ------------------------------------------------------------------
     # Block views — pivots of the table on the node universe
     # ------------------------------------------------------------------
 
-    def S(self, period=None) -> pd.DataFrame:
-        """Supply block of one period: rows ``(region, process)``, columns
-        ``(region, flow)``. ``period=None`` means :meth:`latest`."""
-        return self._block_view("S", period, ("Process", "process"), ("Flow", "flow"))
-
-    def U(self, period=None) -> pd.DataFrame:
-        """Use block of one period: rows ``(region, flow)``, columns
-        ``(region, process)``. ``period=None`` means :meth:`latest`."""
-        return self._block_view("U", period, ("Flow", "flow"), ("Process", "process"))
-
-    def _labels(self, entity: str, name: str) -> pd.MultiIndex:
-        n = (self.nodes[self.nodes["entity"] == entity]
-                 .sort_values(["region", "sector"]))
-        return pd.MultiIndex.from_arrays(
-            [n["region"].to_numpy(), n["sector"].to_numpy()], names=["region", name]
-        )
-
-    def _block_view(self, block, period, rows, cols) -> pd.DataFrame:
-        period  = self.latest() if period is None else str(period)
-        if period not in self.periods():
-            raise KeyError(f"period {period!r} not in PSUT: {self.periods()}")
-        row_idx = self._labels(*rows)
-        col_idx = self._labels(*cols)
-        sub = self.table[(self.table["block"] == block) & (self.table["period"] == period)]
+    def block(self, name: str, period=None, valuation=None) -> pd.DataFrame:
+        """One block of one (period, valuation) as a labelled matrix, rows and
+        columns reindexed on the node universe. ``period=None`` means
+        :meth:`latest`; ``valuation=None`` means :attr:`primary`."""
+        if name not in _ROW_COL:
+            raise KeyError(f"unknown block {name!r}; blocks are {BLOCKS}")
+        period, valuation = self._resolve(period, valuation)
+        (r_ent, r_sub, r_name), (c_ent, c_sub, c_name) = _ROW_COL[name]
+        row_idx = self._labels(r_ent, r_sub, r_name)
+        col_idx = self._labels(c_ent, c_sub, c_name)
+        tbl = self.table
+        sub = tbl[(tbl["block"] == name) & (tbl["period"] == period)
+                  & (tbl["valuation"] == valuation)]
         if sub.empty:
             return pd.DataFrame(0.0, index=row_idx, columns=col_idx)
         m = sub.pivot_table(
@@ -329,9 +394,96 @@ class PSUT:
         m.columns.names = col_idx.names
         return m.astype(float)
 
+    def S(self, period=None, valuation=None) -> pd.DataFrame:
+        """Supply: rows ``(region, process)``, columns ``(region, flow)``."""
+        return self.block("S", period, valuation)
+
+    def U(self, period=None, valuation=None) -> pd.DataFrame:
+        """Use: rows ``(region, flow)``, columns ``(region, process)``."""
+        return self.block("U", period, valuation)
+
+    def Y(self, period=None, valuation=None) -> pd.DataFrame:
+        """Final use: rows ``(region, flow)``, columns ``(region, final_demand)``."""
+        return self.block("Y", period, valuation)
+
+    def E(self, period=None, valuation=None) -> pd.DataFrame:
+        """Nature input: rows ``(region, nature)``, columns ``(region, process)``."""
+        return self.block("E", period, valuation)
+
+    def O(self, period=None, valuation=None) -> pd.DataFrame:
+        """Secondary input: rows ``(region, secondary)``, columns ``(region, process)``."""
+        return self.block("O", period, valuation)
+
+    def P(self, period=None, valuation=None) -> pd.DataFrame:
+        """Residual output: rows ``(region, process)``, columns ``(region, secondary)``."""
+        return self.block("P", period, valuation)
+
+    def W(self, period=None, valuation=None) -> pd.DataFrame:
+        """Discard to nature: rows ``(region, process)``, columns ``(region, nature)``."""
+        return self.block("W", period, valuation)
+
+    def _labels(self, entity: str, sub: Optional[str], name: str) -> pd.MultiIndex:
+        n = self.nodes[self.nodes["entity"] == entity]
+        if sub is not None:
+            n = n[n["entity_sub"] == sub]
+        n = n.sort_values(["region", "sector"])
+        return pd.MultiIndex.from_arrays(
+            [n["region"].to_numpy(), n["sector"].to_numpy()], names=["region", name]
+        )
+
+    # ------------------------------------------------------------------
+    # Realized concentration — the ratio of two valuations, per edge
+    # ------------------------------------------------------------------
+
+    def realized_conc(self, period=None, *, numerator: Optional[str] = None,
+                      denominator: Optional[str] = None) -> pd.DataFrame:
+        """Per-edge ratio of two valuations: the *ex-post* concentration
+        ``CC/Mass`` of the materialised flows (CONTEXT "Realized conc"), to be
+        read against the parametric ``conc``. One row per (period, edge
+        template) with ``val_<numerator>``, ``val_<denominator>`` and ``conc``
+        (NaN where the denominator is zero). ``period=None`` means every
+        period; the numerator defaults to :attr:`primary`, the denominator to
+        the only other valuation. The ratio of two near-zero flows is noise
+        (the solver's concentration rows are soft, and a tiny flow can carry
+        ``CC > Mass`` at negligible cost) — filter on ``val_<denominator>``
+        before reading grades."""
+        num = self.primary if numerator is None else numerator
+        if denominator is None:
+            others = [v for v in self.valuations if v != num]
+            if len(others) != 1:
+                raise ValueError(
+                    f"denominator= is required: the PSUT holds {self.valuations}"
+                )
+            den = others[0]
+        else:
+            den = denominator
+        for v in (num, den):
+            if v not in self.valuations:
+                raise KeyError(f"valuation {v!r} not in PSUT: {self.valuations}")
+        if num == den:
+            raise ValueError("numerator and denominator are the same valuation")
+
+        sub = self.table
+        if period is not None:
+            period = str(period)
+            if period not in self.periods():
+                raise KeyError(f"period {period!r} not in PSUT: {self.periods()}")
+            sub = sub[sub["period"] == period]
+        key = [c for c in sub.columns if c not in ("valuation", "edge_id", "val")]
+        a = sub[sub["valuation"] == num].set_index(key)["val"].rename(f"val_{num}")
+        b = sub[sub["valuation"] == den].set_index(key)["val"].rename(f"val_{den}")
+        out = pd.concat([a, b], axis=1).reset_index()
+        n = out[f"val_{num}"].to_numpy(dtype=float)
+        d = out[f"val_{den}"].to_numpy(dtype=float)
+        nz = d != 0
+        out["conc"] = np.where(nz, n / np.where(nz, d, 1.0), np.nan)
+        return out
+
     def __repr__(self) -> str:
         p = self.periods()
         span = f"{p[0]}..{p[-1]} ({len(p)})" if p else "none"
-        counts = self.table["block"].value_counts().sort_index().to_dict()
-        return (f"PSUT(acc={self.acc_id!r}, valuation={self.valuation!r}, "
-                f"periods={span}, rows={len(self.table)}, blocks={counts})")
+        counts = (self.table[self.table["valuation"] == self.primary]["block"]
+                    .value_counts().sort_index().to_dict())
+        return (f"PSUT(acc={self.acc_id!r}, valuations={self.valuations}, "
+                f"primary={self.primary!r}, periods={span}, rows={len(self.table)}, "
+                f"blocks[{self.primary}]={counts})")
