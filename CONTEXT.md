@@ -468,8 +468,9 @@ below it fabricates mass.
 sectors (Cathode, Concentrate, Anode, Matte) whose Use edges *may* cross regions (above). **Traded / inter-regional**
 is a *realized* per-edge property — the Use edge actually crossed a border (`region_from != region_to`) — captured
 as the boolean **`region_crossed`**, stamped before a region collapse (`keep_crossings`) so it survives aggregation.
-Supply edges are always same-region, so only tradable-sector Use edges can be `region_crossed`. The
-production-network Sankey's **traded-flow share** is this *realized* split. _Avoid_: reading "traded share" as the
+Supply edges are always same-region; **Use** edges *and* **final-use (`Y`) edges** can be `region_crossed` — in
+copper 6,486 of 6,627 `Y` edges cross regions in 2020 (cathode into foreign final use), as many as the `U`
+edges do. A Sankey's **traded-flow share** is this *realized* split. _Avoid_: reading "traded share" as the
 *tradable-sector* fraction — it is the realized inter-regional fraction.
 
 ## Total-output / scale-total vocabulary
@@ -566,6 +567,11 @@ the boundary blocks, the `SB` node's boundary role): `S` Process→Flow, `U` Flo
 block; the tidy table carries it as the `block` column and each matrix view is one block's pivot. _Avoid_:
 "mask" for a block — the `supply`/`use` **masks** are rule-derived edge selections that straddle blocks (a
 loaded structure's `supply` mask also holds `P`, its `use` mask `E` and `O`).
+
+**Primary valuation** — the valuation a multi-valuation PSUT's views and plots default to (`primary`; copper:
+`CC`, the `content` role once ADR 0034 lands); `valuation=` overrides it. A PSUT carries **every** valuation of
+its structure in one table, and the realized `conc` is the ratio of two of them. _Avoid_: reading the structure's
+first-listed valuation (`Mass`) as the default; one PSUT per valuation.
 
 **PIOT (physical input-output table)** — a **symmetric** (square) physical IO table derived from a PSUT by a
 chosen **construct** (below). The **product-by-product** PIOT (commodity×commodity) is the analytic primary —
