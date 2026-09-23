@@ -98,10 +98,10 @@ The package is organised into **five sequential stages**: datafeed assembly (per
        │  opt_run_id
        ▼
 ┌────────────────────────────────────────────────────────────────────────┐
-│  STAGE 6 — PSUT/PIOT builder   ·   scripts/psut.py      (SLICES 1-4)   │
-│  PSUT.from_opt_run → tidy table → 6 block views · aggregate · sankey   │
+│  STAGE 6 — PSUT/PIOT builder   ·   scripts/psut.py      (SLICES 1-5)   │
+│  PSUT: blocks · aggregate · sankey · to_piot('market_share') → PIOT.Z  │
 │  in  : OptimRun (a* = F_opt) + AccountingStructure via provenance      │
-│  out : PSUT tidy table · all valuations · 6 blocks   (gPIOT planned)   │
+│  out : PSUT table · PIOT Z · figs/psut/ Sankeys  (A·L·footprint later) │
 └────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -769,14 +769,15 @@ See [`docs/rep/plans/stage5_uncprop_integration_plan.md`](docs/rep/plans/stage5_
 
 Downstream of the solver: **materialise** the solved edge vector `a*` (`OptimResult.F_opt`) as numeric **physical supply-use tables (PSUT)** — supply `S`, use `U`, final use `Y`, plus boundary blocks `E`/`O`/`P` — per period and per valuation (`CC`, `Mass`), reusing the existing supply/use masks and `entity_sub`. From each PSUT it builds the symmetric **physical input-output table (PIOT)** following PIOLab (Wieland et al. 2022) and Suh (2004) — by-products endogenised as negative inputs, then `A`, `Z`, `L = (I−A)⁻¹` over a full **MRIO** (region × flow) — and ships the classical analytics: footprints / embodied flows, embodied bilateral trade, ew-MFA headline indicators, and multipliers / SDA. v1 is point-estimate only (Stage-5 σ propagation deferred). Rationale and the deliberate *no pySUT / pymrio dependency* are recorded in [ADR 0007](docs/adr/0007-downstream-psut-piot-follows-piolab-suh-no-external-io-lib.md).
 
-**What exists — Slices 1–4 ([#18](https://github.com/florihu/pySUTO/issues/18), [#19](https://github.com/florihu/pySUTO/issues/19), [#24](https://github.com/florihu/pySUTO/issues/24), and the supply-use Sankey of [ADR 0037 §1](docs/adr/0037-psut-piot-two-classes-piot-is-a-construct-family.md)).** [psut.py](src/pysuto/psut.py) ships the **tidy-canonical `PSUT`** ([ADR 0037](docs/adr/0037-psut-piot-two-classes-piot-is-a-construct-family.md)): one row per directed edge per (period, valuation), every row classified into its **block** — `S` Process→Flow, `U` Flow→Process, `Y` Flow→SB·FD, `E` SB·Nature→Process, `O` SB·SEM→Process, `P` Process→SB·SEM, and `W` Process→SB·Nature (empty in copper); an edge outside that taxonomy raises — with the block matrices as pivot *views* labelled from the accounting structure's node index, identical in every period. The table carries **every** valuation; `primary` (`CC`) is the one the views default to. `to_piot` and the process-network Sankey (#25) extend the same table; the decisions behind that order are in ADR 0037.
+**What exists — Slices 1–5 ([#18](https://github.com/florihu/pySUTO/issues/18), [#19](https://github.com/florihu/pySUTO/issues/19), [#24](https://github.com/florihu/pySUTO/issues/24), the supply-use Sankey of [ADR 0037 §1](docs/adr/0037-psut-piot-two-classes-piot-is-a-construct-family.md), and [#25](https://github.com/florihu/pySUTO/issues/25)).** [psut.py](src/pysuto/psut.py) ships the **tidy-canonical `PSUT`** ([ADR 0037](docs/adr/0037-psut-piot-two-classes-piot-is-a-construct-family.md)): one row per directed edge per (period, valuation), every row classified into its **block** — `S` Process→Flow, `U` Flow→Process, `Y` Flow→SB·FD, `E` SB·Nature→Process, `O` SB·SEM→Process, `P` Process→SB·SEM, and `W` Process→SB·Nature (empty in copper); an edge outside that taxonomy raises — with the block matrices as pivot *views* labelled from the accounting structure's node index, identical in every period. The table carries **every** valuation; `primary` (`CC`) is the one the views default to. The product-by-product construct, `A`/`L` and the footprints (#20–22) extend the same `to_piot` surface; the decisions behind that order are in ADR 0037.
 
 - **`PSUT.from_opt_run(opt_run_id, timesteps=None, primary="CC")`** — loads every timestep and every valuation of a persisted run, resolves the `AccountingStructure` through provenance (opt sidecar → `const_run_id` → const sidecar → `acc` id) and places the year-local `F_opt` on global edge ids via `cols_t`.
 - **`PSUT.from_results(results, acc, primary="CC")`** — in-memory handoff; `results` is the solver's `dict[timestep, OptimResult]`, typed by the `OptimResultsLike` protocol (`timestep`, `F_opt`, `cols_t`), so the PSUT never depends on `OptimResult` internals.
 - **Views and selection** — `S`, `U`, `Y`, `E`, `O`, `P`, `W` (or `block(name)`), each taking `(period=None, valuation=None)` and defaulting to the latest period and the primary valuation; boundary levels are named by role (`nature`, `secondary`, `final_demand`); `realized_conc()` is the per-edge `CC/Mass` ratio joined on the edge template; `periods()`, `latest()`, `at(period)`. Time is a column of the table and is never aggregated.
 - **Aggregation** — `aggregate(region=<map|'World'>, sector=<map>, keep_crossings=False)` is a pushforward on the table: the maps apply to both facets, rows are summed over every key column (`period`, `valuation`, `block` and the entity kinds never merge; a sector map may only merge one entity kind), and `keep_crossings=True` stamps `region_crossed` before the relabel so the realized traded share survives a World collapse. Chainable; the steps are recorded in the sidecar.
 - **Supply-use Sankey** — `psut.sankey(period=None, valuation=None, **spec)` returns a Plotly figure: processes and commodities as nodes, the S/U rows as links, boundary blocks as their own nodes, border-crossing use / final-use flows as separate traded links; `min_val`, `split_traded`, `title`, `unit`, `layout` fill a `SankeySpec`; nodes are placed by longest-path depth so residual and input nodes sit beside their process. The plotting code lives in [diag/psut.py](src/pysuto/diag/psut.py) (`sankey_tables` is the pure-pandas half), imported lazily — the data class never imports Plotly at module level.
-- **Persistence** — `PsutRunRegistry` writes `data/proc/psut/<psut_run_id>/timesteps/t_<period>.parquet` + `nodes.parquet` with `parents.upstream.opt_run_id`, and records `valuations`, `primary` and the blocks in the sidecar; `scripts/psut.py <opt_run_id> [--primary CC] [--sankey 2020 2024]` is the one-command CLI, the flag writing `sankey_World_<period>_<valuation>.html` into the run dir.
+- **PIOT** — `psut.to_piot('market_share', level='Z')` returns a [`PIOT`](src/pysuto/piot.py), a derived view that is never persisted: the **process network** under the market-share construct (`D = S·q̂⁻¹`; every use row `f → q` becomes edges `p → q` carrying `f` at `D[p,f]·U[f,q]`, every final-use row `p → d` likewise, boundary rows carried as they are, `region_crossed` travelling along), with `Z()` (process × process), `D()` (the shares) and the process-network `sankey()` through the same renderer. `suh_product`, levels `A`/`L` and `footprint` raise `NotImplementedError` until #20–22.
+- **Persistence** — `PsutRunRegistry` writes `data/proc/psut/<psut_run_id>/timesteps/t_<period>.parquet` + `nodes.parquet` with `parents.upstream.opt_run_id`, and records `valuations`, `primary` and the blocks in the sidecar; `scripts/psut.py <opt_run_id> [--primary CC] [--sankey 2020 2024] [--figs-dir figs/psut] [--no-png]` is the one-command CLI, the flag writing both Sankeys per period — `sankey_supply_use_World_<period>_<valuation>.html` and `sankey_process_network_…` — plus a PNG when kaleido can render, under `figs/psut/`.
 
 ```python
 from pysuto.psut import PSUT
@@ -788,6 +789,9 @@ grade = psut.realized_conc("2020").query("block == 'S' and to_sector == 'Ore'") 
 trade = psut.table.query("block in ('U', 'Y') and from_region != to_region")      # realised cross-region flows
 world = psut.aggregate(region="World", keep_crossings=True)   # one node per sector; traded vs domestic survive
 world.sankey("2020").write_html("copper_sankey_2020.html")     # the global supply-use Sankey
+piot = world.to_piot("market_share", level="Z")                # the process network
+Z = piot.Z("2020")                                             # (region, process) × (region, process)
+piot.sankey("2020").write_html("copper_process_network_2020.html")
 ```
 
 ---
@@ -814,7 +818,8 @@ world.sankey("2020").write_html("copper_sankey_2020.html")     # the global supp
 | [constraints/](src/pysuto/constraints/) | `ConstraintEngine`, `BaseConstraintBuilder`, `MassBalanceBuilder`, `SumConstraintBuilder`, `RatioConstraintBuilder`, `RatioBoundBuilder`, `FlowBoundsBuilder`, `ConstraintBlock`, `ConstraintRun` | Plugin constraint pipeline; persists to `data/proc/const/` via `ConstraintRunRegistry` (lives in [registry/](src/pysuto/registry/)). **Subpackage layout:** `engine.py`, `base.py`, `mass_balance.py`, `sum.py`, `ratio.py`, `flow_bound.py`, `run.py`. |
 | [solver.py](src/pysuto/solver.py) | `ClarabelSolver`, `OptimResult` | σ-weighted QP via Clarabel; warm-start across timesteps. |
 | [uncprop.py](src/pysuto/uncprop.py) | `BaseUncProp`, `KalmanUncProp`, `UncPropResult`, `UncPropTimestep` | Stage-5 posterior uncertainty via sparse Cholesky; persists to `data/proc/uncprop/` via `UncPropRunRegistry`. |
-| [psut.py](src/pysuto/psut.py) | `PSUT`, `OptimResultsLike`, `classify_blocks`, `BLOCKS` | Stage-6 tidy-canonical PSUT: `from_opt_run` / `from_results`, block views `S`/`U`/`Y`/`E`/`O`/`P`/`W`, `realized_conc`, `aggregate` (region/sector pushforward with `region_crossed`), `sankey` (thin delegate to `diag.psut`), period selection (`periods`, `latest`, `at`); every valuation in one table with a `primary`; persists to `data/proc/psut/` via `PsutRunRegistry`. |
+| [psut.py](src/pysuto/psut.py) | `PSUT`, `OptimResultsLike`, `classify_blocks`, `BLOCKS` | Stage-6 tidy-canonical PSUT: `from_opt_run` / `from_results`, block views `S`/`U`/`Y`/`E`/`O`/`P`/`W`, `realized_conc`, `aggregate` (region/sector pushforward with `region_crossed`), `sankey` (thin delegate to `diag.psut`), `to_piot`, period selection (`periods`, `latest`, `at`); every valuation in one table with a `primary`; persists to `data/proc/psut/` via `PsutRunRegistry`. |
+| [piot.py](src/pysuto/piot.py) | `PIOT`, `market_share_network`, `market_shares`, `CONSTRUCTS`, `LEVELS` | Stage-6 PIOT as a construct family: the market-share process network at level `Z` (`Z()`, `D()`, process-network `sankey()`); `suh_product`, `A`/`L`, `footprint` are stubs until #20–22. A derived view of a PSUT, never persisted. |
 | [_conditioning.py](src/pysuto/_conditioning.py) | `condition_prior`, `condition_sigma_c` | Shared σ_a / σ_c conditioning rules — guarantees uncprop sees the same effective prior the solver did. |
 | [diag/](src/pysuto/diag/) | `FeedDiagnostics`, `AggDiagnostic`, `ImpDiagnostic`, `ConstDiagnostic`, `OptimDiagnostics`, `SolverDiag`, `sankey_figure`, `sankey_tables`, `SankeySpec` | Cross-stage diagnostic plot suites; Stage-6 supply-use Sankey (Plotly, lazy). **Subpackage layout:** `feed.py`, `agg.py`, `imp.py`, `const.py`, `optim.py`, `solver.py`, `psut.py`, `_plot.py`. |
 
@@ -1117,6 +1122,7 @@ pysuto/
 │                                                                            │
 ├── psut.py                PSUT · OptimResultsLike · classify_blocks       ─┐ Stage 6
 │                          tidy table · block views · realized_conc · aggregate     │
+├── piot.py                PIOT · market_share_network · market_shares       │
 │                                                                            │
 └── diag/                  FeedDiagnostics · AggDiagnostic · ImpDiagnostic  ─┐
     ├── feed.py             ConstDiagnostic · OptimDiagnostics · SolverDiag   │
@@ -1138,6 +1144,7 @@ meta  →  registry
 collector  →  agg  →  impute  →  constraints  →  solver  →  uncprop
 _conditioning  ←  solver, uncprop          (shared σ-conditioning helper)
 psut           ←  acc, registry            (Stage 6 — reads a persisted opt run)
+piot           ←  psut                     (Stage 6 — a derived view of a PSUT)
 diag           ──── consumer; never imported into the data layer
 utils / logging  ←  imported by any layer, import nothing from pysuto
 ```
@@ -1167,6 +1174,7 @@ Each layer has a dedicated test file in `tests/`. Shared fixtures live in `conft
 | [test_solver_diag.py](tests/test_solver_diag.py) | `SolverDiag` plot smoke test |
 | [test_uncprop.py](tests/test_uncprop.py) | `KalmanUncProp` closed-form 2×2, PSD/monotonicity, Byron limit, CHOLMOD symbolic-factor reuse, registry round-trip, CI clipping, end-to-end `compute(opt_run_id)` |
 | [test_psut.py](tests/test_psut.py) | Stage 6 Slices 1–2: six-block decomposition (an unclassifiable edge raises), node-universe labels with role-named levels, per-node balance from the table alone, every valuation with a primary, `realized_conc`, year-local `cols_t` mapping, period selection, `PsutRunRegistry` round-trip incl. Slice-1 sidecars, `from_opt_run` provenance chain, CLI; region/sector aggregation (conservation, symmetry, idempotence, commutation, `region_crossed` at root resolution, entity-kind clash); supply-use Sankey tables reconcile with the table, headless Plotly figure, multi-region labels, `min_val`, CLI `--sankey` ([ADR 0037](docs/adr/0037-psut-piot-two-classes-piot-is-a-construct-family.md)) |
+| [test_piot.py](tests/test_piot.py) | Stage 6 Slice 5: identity edges for single producers, the market-share split between two producers, conservation of every producer's supply and of every block total, the traded split carried onto the network, stub constructs/levels, the process-network Sankey agreeing with the supply-use one on boundary totals |
 
 **Parse-stage tests** — these guard the Stage-1 readers, where a source-format quirk is
 indistinguishable from real data once it reaches the model:
@@ -1183,7 +1191,7 @@ indistinguishable from real data once it reaches the model:
 The two tables above cover the core layers and the parse stage; `tests/` holds further modules for
 diagnostics, params and helpers not itemised here.
 
-Run with `pytest tests/ -v` — **1,046 passing, 1 skipped** as of Stage 6 Slice 4 (in a git worktree, prefix with `PYTHONPATH=src`: the conda env's editable install points at the main checkout).
+Run with `pytest tests/ -v` — **1,053 passing, 1 skipped** as of Stage 6 Slice 5 (in a git worktree, prefix with `PYTHONPATH=src`: the conda env's editable install points at the main checkout).
 
 ---
 

@@ -47,7 +47,8 @@ over every key column — ``period``, ``valuation``, ``block`` and the entity
 kinds never merge; ``keep_crossings=True`` stamps ``region_crossed`` before
 the relabel so the realized traded share survives a World collapse.
 Persistence lives in :class:`pysuto.registry.PsutRunRegistry`; the supply-use
-Sankey is :meth:`PSUT.sankey`, a thin delegate to :mod:`pysuto.diag.psut`.
+Sankey is :meth:`PSUT.sankey`, a thin delegate to :mod:`pysuto.diag.psut`;
+the input-output side is :meth:`PSUT.to_piot` (:mod:`pysuto.piot`).
 """
 from __future__ import annotations
 
@@ -171,7 +172,51 @@ def _period_values(res: OptimResultsLike, positions: np.ndarray,
     return F[where]
 
 
-class PSUT:
+class _TidyView:
+    """What :class:`PSUT` and :class:`~pysuto.piot.PIOT` share: a tidy
+    ``table`` with ``period`` and ``valuation`` columns, the ``valuations``
+    present, the ``primary`` one, period selection, and a Sankey drawn by
+    :mod:`pysuto.diag.psut`."""
+
+    table:      pd.DataFrame
+    valuations: list
+    primary:    str
+    _figure_name = "Sankey"
+
+    def periods(self) -> list:
+        """Sorted period labels present in the table."""
+        return sorted(self.table["period"].unique().tolist())
+
+    def latest(self) -> str:
+        return self.periods()[-1]
+
+    def resolve(self, period=None, valuation=None) -> tuple:
+        """``(period, valuation)`` with the defaults applied — the latest period,
+        the primary valuation — and both validated against the table."""
+        period = self.latest() if period is None else str(period)
+        if period not in self.periods():
+            raise KeyError(f"period {period!r} not in {type(self).__name__}: {self.periods()}")
+        valuation = self.primary if valuation is None else valuation
+        if valuation not in self.valuations:
+            raise KeyError(f"valuation {valuation!r} not in {type(self).__name__}: {self.valuations}")
+        return period, valuation
+
+    def sankey(self, period=None, valuation=None, **spec):
+        """One (period, valuation) of this table as a Plotly Sankey: for a PSUT
+        the bipartite supply-use view (processes and commodities as nodes,
+        the S/U rows as links), for a PIOT the process network; boundary
+        blocks are their own nodes and every border-crossing flow
+        (``region_crossed`` after ``aggregate(..., keep_crossings=True)``, or
+        distinct regions) is a separate traded link. Further keywords fill
+        :class:`pysuto.diag.psut.SankeySpec` (``title``, ``min_val``,
+        ``split_traded``, ``unit``, ``layout``). Plotly is imported there,
+        not here; the tables behind the figure are
+        :func:`pysuto.diag.psut.sankey_tables`."""
+        from .diag.psut import SankeySpec, sankey_figure   # lazy: consumer layer
+        return sankey_figure(self, SankeySpec(period=period, valuation=valuation, **spec))
+
+
+class PSUT(_TidyView):
     """Tidy physical supply-use table over one or more periods, every valuation.
 
     Attributes
@@ -341,16 +386,11 @@ class PSUT:
         psut.const_run_id = const_run_id
         return psut
 
+    _figure_name = "supply-use Sankey"
+
     # ------------------------------------------------------------------
     # Time selection — period is carried, never aggregated
     # ------------------------------------------------------------------
-
-    def periods(self) -> list:
-        """Sorted period labels present in the table."""
-        return sorted(self.table["period"].unique().tolist())
-
-    def latest(self) -> str:
-        return self.periods()[-1]
 
     def at(self, period) -> "PSUT":
         """The rows of one period, as a new PSUT."""
@@ -369,17 +409,6 @@ class PSUT:
             const_run_id = self.const_run_id,
             aggregation  = self.aggregation,
         )
-
-    def resolve(self, period=None, valuation=None) -> tuple:
-        """``(period, valuation)`` with the defaults applied — the latest period,
-        the primary valuation — and both validated against the table."""
-        period = self.latest() if period is None else str(period)
-        if period not in self.periods():
-            raise KeyError(f"period {period!r} not in PSUT: {self.periods()}")
-        valuation = self.primary if valuation is None else valuation
-        if valuation not in self.valuations:
-            raise KeyError(f"valuation {valuation!r} not in PSUT: {self.valuations}")
-        return period, valuation
 
     # ------------------------------------------------------------------
     # Aggregation — a pushforward on the table (issue #24)
@@ -588,22 +617,18 @@ class PSUT:
         return out
 
     # ------------------------------------------------------------------
-    # Figures — thin delegates; the plotting code lives in diag (ADR 0037 §1)
+    # The input-output side (ADR 0037): a derived view, never persisted
     # ------------------------------------------------------------------
 
-    def sankey(self, period=None, valuation=None, **spec):
-        """The bipartite supply-use Sankey of one (period, valuation) as a
-        Plotly figure: processes and commodities as nodes, the S/U rows as
-        links, the boundary blocks as their own nodes, and every
-        border-crossing use / final-use flow (``region_crossed`` after
-        ``aggregate(..., keep_crossings=True)``, or distinct regions) as a
-        separate traded link. Further keywords fill
-        :class:`pysuto.diag.psut.SankeySpec` (``title``, ``min_val``,
-        ``split_traded``, ``unit``). Plotly is imported here, not at module
-        level; the tables behind the figure are
-        :func:`pysuto.diag.psut.sankey_tables`."""
-        from .diag.psut import SankeySpec, sankey_figure   # lazy: consumer layer
-        return sankey_figure(self, SankeySpec(period=period, valuation=valuation, **spec))
+    def to_piot(self, construct: str = "market_share", level: str = "Z"):
+        """This table's input-output side: a :class:`~pysuto.piot.PIOT` built
+        by ``construct`` up to ``level``. Slice 5 ships the market-share
+        (industry-by-industry) construct at level ``'Z'`` — the process
+        network, with ``Z()``, ``D()`` and the process-network ``sankey()``;
+        ``'suh_product'`` and the levels ``'A'``/``'L'`` raise
+        ``NotImplementedError`` until issue #20."""
+        from .piot import PIOT                              # lazy: piot imports psut
+        return PIOT.from_psut(self, construct=construct, level=level)
 
     def __repr__(self) -> str:
         p = self.periods()

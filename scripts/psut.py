@@ -14,14 +14,16 @@ Pipeline
 2  PsutRunRegistry.register(psut, parents=..., label=...) — writes
    timesteps/t_<period>.parquet + nodes.parquet + the harmonized sidecar with
    parents.upstream.opt_run_id
-3  --sankey [PERIOD ...] — collapse to World (keep_crossings=True) and write
-   the supply-use Sankey HTML per period into the run dir
+3  --sankey [PERIOD ...] — collapse to World (keep_crossings=True), build the
+   market-share PIOT, and write both Sankeys per period — the supply-use
+   Sankey of the PSUT and the process-network Sankey of the PIOT — as HTML
+   (+ PNG when kaleido can render) under figs/psut/
 
 Usage::
 
     python scripts/psut.py <opt_run_id> [--label LABEL] [--primary CC]
                            [--timesteps 2020 2021 ...] [--data-dir data]
-                           [--sankey [2020 2024 ...]]
+                           [--sankey [2020 2024 ...]] [--figs-dir figs/psut] [--no-png]
 """
 
 from __future__ import annotations
@@ -36,6 +38,7 @@ from datetime import datetime
 # ---------------------------------------------------------------------------
 DATA_DIR  = "data"          # holds proc/opt, proc/const, proc/acc; output → proc/psut
 PRIMARY   = "CC"          # valuation the PSUT views default to; every valuation is loaded
+FIGS_DIR  = os.path.join("figs", "psut")   # where --sankey writes its figures
 # ---------------------------------------------------------------------------
 # END USER CONFIGURATION
 # ---------------------------------------------------------------------------
@@ -56,6 +59,8 @@ def main(
     timesteps:  list | None = None,
     data_dir:   str = DATA_DIR,
     sankey:     list | None = None,      # periods to draw; [] → the latest
+    figs_dir:   str = FIGS_DIR,
+    png:        bool = True,             # also a static PNG per figure, when kaleido can render
 ) -> str:
     os.makedirs("logs", exist_ok=True)
     add_run_handler(f"logs/init_psut_{datetime.now():%Y%m%d_%H%M%S}.log")
@@ -88,14 +93,27 @@ def main(
 
     if sankey is not None:
         world = psut.aggregate(region="World", keep_crossings=True)
+        piot  = world.to_piot("market_share", level="Z")
+        os.makedirs(figs_dir, exist_ok=True)
         for period in (sankey or [world.latest()]):
-            fig  = world.sankey(period)
-            path = os.path.join(registry.storage_dir, psut_run_id,
-                                f"sankey_World_{period}_{primary}.html")
-            fig.write_html(path, include_plotlyjs="cdn")
-            _log.info("Sankey → %s", path)
+            for name, view in (("supply_use", world), ("process_network", piot)):
+                fig  = view.sankey(period)
+                stem = os.path.join(figs_dir, f"sankey_{name}_World_{period}_{primary}")
+                fig.write_html(stem + ".html", include_plotlyjs="cdn")
+                _log.info("Sankey → %s.html", stem)
+                if png:
+                    _write_png(fig, stem + ".png")
     _log.info("=== init_psut DONE ===")
     return psut_run_id
+
+
+def _write_png(fig, path: str) -> None:
+    """A static copy when kaleido (and its browser) can render; otherwise a note."""
+    try:
+        fig.write_image(path, width=1400, height=800, scale=1.5)
+        _log.info("Sankey → %s", path)
+    except Exception as exc:                    # kaleido missing or no browser: the HTML stands
+        _log.warning("PNG skipped for %s (%s: %s)", path, type(exc).__name__, str(exc)[:120])
 
 
 if __name__ == "__main__":
@@ -111,7 +129,12 @@ if __name__ == "__main__":
     parser.add_argument("--data-dir", default=DATA_DIR,
                         help=f"Data root holding proc/opt, proc/const, proc/acc (default {DATA_DIR!r}).")
     parser.add_argument("--sankey", nargs="*", default=None, metavar="PERIOD",
-                        help="Write the World supply-use Sankey HTML into the run dir for these "
+                        help="Write the World supply-use and process-network Sankeys for these "
                              "periods (flag without values: the latest period).")
+    parser.add_argument("--figs-dir", default=FIGS_DIR,
+                        help=f"Directory for the Sankey HTML/PNG files (default {FIGS_DIR!r}).")
+    parser.add_argument("--no-png", action="store_true",
+                        help="Skip the static PNG copies (needs kaleido and a browser).")
     args = parser.parse_args()
-    main(args.opt_run_id, args.label, args.primary, args.timesteps, args.data_dir, args.sankey)
+    main(args.opt_run_id, args.label, args.primary, args.timesteps, args.data_dir,
+         args.sankey, args.figs_dir, not args.no_png)

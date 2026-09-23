@@ -609,8 +609,10 @@ flows are edges**; each edge `p→q` carries commodity `f` at value `D[p,f]·U[f
 `q`'s use of `f` back to its producers `p`). Boundary blocks attach as edges to boundary pseudo-nodes (`Nature`,
 `FD`, SEM-in, SEM-out); **disposals-to-nature** (`P` residual outputs) are **final outputs, never inter-process
 edges** — allocation does not apply to them (Altimiras-Martin 2014, fn. 3). The substrate of the production-network
-**Sankey**. _Avoid_: calling it a "PIOT" unqualified (defaults to product-by-product); drawing the supply legs `S`
-as their own edges (they only attribute producers).
+**Sankey**. Built by `PSUT.to_piot('market_share', level='Z')` as a tidy edge table (`block ∈ {Z, Y, E, O, P, W}`,
+`Z` = inter-process; each edge names its `commodity`; `region_crossed` travels with the row it came from), with
+`Z()` the process-by-process pivot and `D()` the shares. _Avoid_: calling it a "PIOT" unqualified (defaults to
+product-by-product); drawing the supply legs `S` as their own edges (they only attribute producers).
 
 **gPIOT** — the full **multi-regional** PIOT over (region × flow), whose `L` traces embodied/indirect flows
 across borders. _Avoid_: "global PIOT" for a single-region table.

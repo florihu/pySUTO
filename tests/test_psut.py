@@ -737,10 +737,12 @@ def test_cli_writes_sankey_html(tmp_path, monkeypatch, toy_acc, F, patched_acc_l
     cli = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(cli)
 
-    run_id = cli.main(opt_id, data_dir=str(tmp_path), sankey=["2020", "2021"])
-    run_dir = tmp_path / "proc" / "psut" / run_id
+    figs = tmp_path / "figs"
+    cli.main(opt_id, data_dir=str(tmp_path), sankey=["2020", "2021"], figs_dir=str(figs), png=False)
     for t in PERIODS:
-        html = run_dir / f"sankey_World_{t}_CC.html"
-        assert html.exists() and "sankey" in html.read_text()[:200000]
-    run_id2 = cli.main(opt_id, data_dir=str(tmp_path), sankey=[])   # flag alone → latest
-    assert (tmp_path / "proc" / "psut" / run_id2 / "sankey_World_2021_CC.html").exists()
+        for name in ("supply_use", "process_network"):
+            html = figs / f"sankey_{name}_World_{t}_CC.html"
+            assert html.exists() and "sankey" in html.read_text()[:200000]
+    assert not list(figs.glob("*.png"))                                 # png=False
+    cli.main(opt_id, data_dir=str(tmp_path), sankey=[], figs_dir=str(figs), png=False)   # flag alone → latest
+    assert (figs / "sankey_supply_use_World_2021_CC.html").exists()

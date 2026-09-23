@@ -2,9 +2,12 @@
 psut.py
 =======
 Stage-6 figures — the bipartite **supply-use Sankey** of a
-:class:`~pysuto.psut.PSUT` (ADR 0037 §1).
+:class:`~pysuto.psut.PSUT` and the **process-network Sankey** of a
+:class:`~pysuto.piot.PIOT` (ADR 0037 §1), one renderer for both.
 
-Processes and commodities are the nodes, the ``S`` and ``U`` rows the links;
+For a PSUT, processes and commodities are the nodes and the ``S`` and ``U``
+rows the links; for a PIOT the nodes are processes and the ``Z`` edges carry
+the commodity in their hover text. In both,
 the boundary blocks attach as links to their own SB nodes — inputs ``E``/``O``
 entering on the left, outputs ``P``/``W``/``Y`` leaving on the right. A use or
 final-use flow that crosses a border — ``region_crossed`` after
@@ -37,7 +40,7 @@ import pandas as pd
 from ._plot import _C
 
 if TYPE_CHECKING:                                  # no data-layer import at runtime
-    from pysuto.psut import PSUT
+    from pysuto.psut import _TidyView
 
 
 @dataclass(frozen=True)
@@ -94,7 +97,7 @@ LINK_COLOR = {
     "final use":   _rgba(_C["purple"], 0.40),
     "residual":    _rgba(_C["grey"],   0.45),
 }
-_LINK_CLASS = {"S": "supply", "U": "use", "E": "boundary in", "O": "boundary in",
+_LINK_CLASS = {"S": "supply", "U": "use", "Z": "use", "E": "boundary in", "O": "boundary in",
                "Y": "final use", "P": "residual", "W": "residual"}
 _SB_KIND    = {"E": "input", "O": "input", "Y": "final_demand", "P": "residual", "W": "residual"}
 _KIND_RANK  = {"input": 0, "process": 1, "flow": 2, "final_demand": 3, "residual": 4}
@@ -108,18 +111,20 @@ def _node_kind(entity: str, block: str) -> str:
     return _SB_KIND[block]
 
 
-def sankey_tables(psut: "PSUT", spec: Optional[SankeySpec] = None
+def sankey_tables(view: "_TidyView", spec: Optional[SankeySpec] = None
                   ) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """The nodes and links behind :func:`sankey_figure`, as two DataFrames.
+    """The nodes and links behind :func:`sankey_figure`, as two DataFrames,
+    for a PSUT or a PIOT.
 
     ``nodes``: ``node, region, sector, entity, kind, label, color`` — ``node``
     is the 0-based index the links refer to. ``links``: ``source, target,
-    value, block, traded, cls, color, hover``. Links below ``spec.min_val`` are
-    dropped, and so is every node left without a link.
+    value, block, traded, cls, color, hover`` (plus ``commodity`` for a PIOT,
+    one link per commodity). Links below ``spec.min_val`` are dropped, and so
+    is every node left without a link.
     """
     spec = spec or SankeySpec()
-    period, valuation = psut.resolve(spec.period, spec.valuation)
-    tbl = psut.table
+    period, valuation = view.resolve(spec.period, spec.valuation)
+    tbl = view.table
     tbl = tbl[(tbl["period"] == period) & (tbl["valuation"] == valuation)]
 
     crossed = tbl["from_region"].to_numpy() != tbl["to_region"].to_numpy()
@@ -127,8 +132,10 @@ def sankey_tables(psut: "PSUT", spec: Optional[SankeySpec] = None
         crossed = crossed | tbl["region_crossed"].to_numpy(dtype=bool)
     traded = crossed if spec.split_traded else np.zeros(len(tbl), dtype=bool)
 
+    has_commodity = "commodity" in tbl.columns
     key = ["block", "from_region", "from_sector", "from_entity",
-           "to_region", "to_sector", "to_entity", "traded"]
+           "to_region", "to_sector", "to_entity", "traded"] \
+          + (["commodity"] if has_commodity else [])
     links = (tbl.assign(traded=traded)
                 .groupby(key, sort=False)["val"].sum()
                 .reset_index()
@@ -146,7 +153,7 @@ def sankey_tables(psut: "PSUT", spec: Optional[SankeySpec] = None
                  .assign(rank=lambda d: d["kind"].map(_KIND_RANK))
                  .sort_values(["rank", "region", "sector"], ignore_index=True)
                  .drop(columns=["block", "rank"]))
-    multi = psut.nodes["region"].nunique() > 1
+    multi = view.nodes["region"].nunique() > 1
     nodes.insert(0, "node", np.arange(len(nodes)))
     nodes["label"] = [f"{r} · {s}" if multi else s
                       for r, s in zip(nodes["region"], nodes["sector"])]
@@ -158,8 +165,12 @@ def sankey_tables(psut: "PSUT", spec: Optional[SankeySpec] = None
     links["cls"]    = links["block"].map(_LINK_CLASS).where(~links["traded"], "traded")
     links["color"]  = links["cls"].map(LINK_COLOR)
     links["hover"]  = links["block"] + " · " + links["cls"]
+    out_cols = ["source", "target", "value", "block", "traded", "cls", "color", "hover"]
+    if has_commodity:
+        links["hover"] = links["hover"] + " · " + links["commodity"].astype(str)
+        out_cols.append("commodity")
     return (nodes[["node", "region", "sector", "entity", "kind", "label", "color"]],
-            links[["source", "target", "value", "block", "traded", "cls", "color", "hover"]])
+            links[out_cols])
 
 
 def _positions(nodes: pd.DataFrame, links: pd.DataFrame):
@@ -216,31 +227,35 @@ def _positions(nodes: pd.DataFrame, links: pd.DataFrame):
     return x, np.clip(y, 0.02, 0.98)
 
 
-def _default_title(psut: "PSUT", period: str, valuation: str, unit: str) -> str:
-    where = ", ".join(str(step["region"]) for step in psut.aggregation
+def _default_title(view: "_TidyView", period: str, valuation: str, unit: str,
+                   classes=None) -> str:
+    where = ", ".join(str(step["region"]) for step in getattr(view, "aggregation", [])
                       if isinstance(step.get("region"), str))
-    head = " · ".join(x for x in (psut.acc_id or "PSUT", where, period, f"{valuation} [{unit}]") if x)
-    run  = psut.opt_run_id or "in-memory"
+    head = " · ".join(x for x in (getattr(view, "acc_id", "") or type(view).__name__,
+                                  where, period, f"{valuation} [{unit}]") if x)
+    run  = getattr(view, "opt_run_id", None) or "in-memory"
     key  = " · ".join(f'<span style="color:{LINK_COLOR[c].replace("rgba", "rgb").rsplit(",", 1)[0]})">{c}</span>'
-                      for c in LINK_COLOR)
-    return f"{head} — supply-use Sankey<br><sup>{run} · links: {key}</sup>"
+                      for c in LINK_COLOR if classes is None or c in classes)
+    return f"{head} — {getattr(view, '_figure_name', 'Sankey')}<br><sup>{run} · links: {key}</sup>"
 
 
-def sankey_figure(psut: "PSUT", spec: Optional[SankeySpec] = None):
-    """Plotly figure of the supply-use Sankey described by ``spec``.
+def sankey_figure(view: "_TidyView", spec: Optional[SankeySpec] = None):
+    """Plotly figure of the Sankey described by ``spec`` — the supply-use
+    Sankey of a PSUT or the process-network Sankey of a PIOT.
 
-    Processes and commodities are nodes, the S/U rows links, the boundary
-    blocks links to their SB nodes; border-crossing use / final-use flows are
-    separate traded links. Hover text carries the value and the link class.
+    Boundary blocks are links to their SB nodes; border-crossing use /
+    final-use flows are separate traded links. Hover text carries the value,
+    the link class and, for a PIOT, the commodity.
     """
     import plotly.graph_objects as go            # lazy: no plotting import at module level
 
     spec = spec or SankeySpec()
     if spec.layout not in ("depth", "auto"):
         raise ValueError(f"layout must be 'depth' or 'auto', got {spec.layout!r}")
-    nodes, links = sankey_tables(psut, spec)
-    period, valuation = psut.resolve(spec.period, spec.valuation)
-    title = spec.title or _default_title(psut, period, valuation, spec.unit)
+    nodes, links = sankey_tables(view, spec)
+    period, valuation = view.resolve(spec.period, spec.valuation)
+    title = spec.title or _default_title(view, period, valuation, spec.unit,
+                                         classes=set(links["cls"]))
 
     node = dict(
         label=nodes["label"].tolist(),
