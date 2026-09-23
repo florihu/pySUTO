@@ -207,11 +207,25 @@ def remove_total_if_specific_exists(df):
     return df.reset_index(drop=True)
 
 
+def sum_renamed_collisions(f, f_key):
+    """Rows of ONE vintage that REN_TYPE folded onto the same key are summed.
+
+    'Low-grade' smelter feed is renamed to 'Primary', so a region reporting both
+    ends up with two rows sharing (Region, Type, Process, Supply_Use, Year).
+    They are two feed streams of one process, so they add.  The cross-vintage
+    dedup that follows cannot tell them from a restatement and dropped one,
+    reading Zambia's primary smelter 2004-2007 as 20 / 10 / 10 / 1.8 kt instead
+    of 280 / 245 / 290 / 224 while its mines produced 320-350.
+    """
+    return f.groupby(f_key + ['Year_loaded_from_file'], as_index=False,
+                     dropna=False)['Value'].sum()[f.columns]
+
+
 def main(ys=[2005, 2014, 2023, 2025],
-         of=r'data/proc/datafeed/icsg_clean'):
+         of=r'data/proc/feedprep/icsg_clean'):
 
     ps, ss, fs = [], [], []
-    base = r'data/proc/datafeed/icsg_clean'
+    base = r'data/proc/feedprep/icsg_clean'
 
     for y in ys:
 
@@ -258,6 +272,8 @@ def main(ys=[2005, 2014, 2023, 2025],
         .drop_duplicates(subset=s_key, keep='last')
         .reset_index(drop=True)
     )
+
+    f = sum_renamed_collisions(f, f_key)
 
     f = (
         f.sort_values('Year_loaded_from_file')

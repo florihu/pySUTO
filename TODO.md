@@ -106,8 +106,8 @@ cone already makes it free. Re-measure it after O.
 
 **MEASURED 2026-09-21** — run `opt_20260917_121759_c57f252b`, 30/30 Solved, against base
 `opt_20260916_124721_c4d1d944`.
-[REP](rep/analysis_opt_20260917_121759_c57f252b_20260921_roundO-secondary-double-count.md) ·
-[ADR 0030](adr/0030-secondary-smelter-copper-enters-the-chain-once.md).
+[REP](docs/rep/analysis_opt_20260917_121759_c57f252b_20260921_roundO-secondary-double-count.md) ·
+[ADR 0030](docs/adr/0030-secondary-smelter-copper-enters-the-chain-once.md).
 
 Feed gate: all four checks PASS (Austria 1.480 → 1.000, world gap +3,450 → −464 kt, one row class,
 107 excess region-years listed). Mine-chain deletion 52,871 → 44,197 kt; the **forced** term is flat
@@ -130,15 +130,15 @@ routes **0.012 kt/yr in both runs**. It is *not* prior decay — both runs are `
 `f_agg` is re-asserted annually and the solver walks away annually. **A per-edge prior penalty is
 cheaper to pay than to satisfy; only a scale total prices the group.**
 
-**Built** ([ADR 0031](adr/0031-icsg-scrap-series-anchor-their-level-not-only-their-share.md)): two
+**Built** ([ADR 0031](docs/adr/0031-icsg-scrap-series-anchor-their-level-not-only-their-share.md)): two
 soft `sum` families, `smelterscrap` and `directrefscrap`, CC only, covered edges only, grouped on
 `(sector_to, region_to, time, valuation)`, σ via the unchanged `_scale_total_cv`. Registered
 **separately** so neither route can absorb the other. A region-year ICSG does not report gets no row
 and keeps its freedom — the family can only assert a scrap inflow, never forbid one.
 
 **MEASURED** — run `opt_20260921_090618_1ceb5eed`, 30/30 Solved.
-[REP](rep/analysis_opt_20260921_090618_1ceb5eed_20260921_roundP-scrap-level.md) ·
-[ADR 0031](adr/0031-icsg-scrap-series-anchor-their-level-not-only-their-share.md).
+[REP](docs/rep/analysis_opt_20260921_090618_1ceb5eed_20260921_roundP-scrap-level.md) ·
+[ADR 0031](docs/adr/0031-icsg-scrap-series-anchor-their-level-not-only-their-share.md).
 
 Gate passed all six checks twice. **The family works at world scale**: posterior ÷ ICSG-reported
 scrap 1.318 → 1.191 → **1.027**; secondary share 0.300 → 0.257 → **0.220** (prior 0.164); China
@@ -155,8 +155,8 @@ not recover, for two *different* reasons, neither of them the missing level — 
 ## ROUND P.1 — DONE: the pure-secondary recipe closes (2026-09-21)
 
 Run `opt_20260921_101621_cd0c0ae2`, 30/30.
-[REP](rep/analysis_opt_20260921_101621_cd0c0ae2_20260921_roundP1-secondary-recipe.md) ·
-[ADR 0010 amendment](adr/0010-trade-first-seeding-of-bilateral-flow-process-inputs.md).
+[REP](docs/rep/analysis_opt_20260921_101621_cd0c0ae2_20260921_roundP1-secondary-recipe.md) ·
+[ADR 0010 amendment](docs/adr/0010-trade-first-seeding-of-bilateral-flow-process-inputs.md).
 
 P.0's diagnosis was right that Slovakia was strangled, wrong about where. Not the band (its Smelting
 ceiling is 1.000) and **not ADR 0019** — that detector needs `inflow > 1 kt` and fires on **one
@@ -174,6 +174,144 @@ vs ≈0.17).
 **The stack O + P.0 + P.1 vs base:** deletion 52,871 → 38,934 kt, discretionary 26,958 → **12,523**,
 scrap fidelity 1.318 → **1.032**, invented direct scrap 7,652 → **198 kt**, pairs below 0.50 five →
 **one**, Kazakhstan's fabricated node gone. **Ready to merge — the user's call on these numbers.**
+
+## ROUND S — SHIPPED 2026-09-22: ROW's forced deletion was phantom production (ADR 0035)
+
+Run `opt_20260922_104430_60dbadb2`, 30/30 Solved, icsg **v11**. **ROW forced 7,589 → exactly 0**,
+hard-capped years 10 → 0; ADR 0029's forced term **12,315 → 4,723 kt CC (−62 %)**, share 33.5 % →
+**17.7 %**; mine deletion 36,807 → **26,742 (−27 %)**; common-set z² **1,661,859 = −3.3 % vs base**,
+the best of the whole arc. World MF→Concentrate retention 0.912 → **0.934**. REP
+`…roundS-mine-total-misattribution`.
+
+**Cause:** the ICSG 2014 yearbook types a country's name on the *middle* row of its three-row block,
+so `bfill` carried each block's `Total` row onto the *next* country. Australia's mine total became
+`Azerbeijan`'s (899 kt/yr against the real 0.3–2.6), Russia's became `Saudi Arabia`'s, Kazakhstan's
+`Laos`, Congo D.R.'s `Cyprus`. **16 rows, 11,558 kt CC of production that never existed**, all inside
+ROW, all 2004–2013 — precisely the window ROW is forced in.
+
+**The null held to the kilotonne:** Chile 295, Zambia 1,452, Congo D.R. 880 all unchanged. The whole
+−7,592 kt is ROW.
+
+**The reframing this settles.** The prior falls 11,559 kt and deletion falls 10,065 — **87 % of the
+phantom mass was going straight into the deletion ledger.** `Σ max(0, P − cap)` is partly the model
+*correctly refusing phantom input*; where `P` is phantom, deleting it is the right answer and the
+fix is to remove the input, not relieve the constraint. R recovered mass genuinely missing; S removes
+mass that was never there.
+
+**[ADR 0014](docs/adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)'s folded-internal-trade
+hypothesis is REFUTED**, not merely unused: 5,034 kt available against 21,683 needed (23 %), and
+inside an aggregate a member's export is another's import, so dropping both is correct.
+
+Now the largest forced items: **Zambia 1,452** (79.6 % of its own deletion), **Belgium 1,029** against
+299 deleted (344 %, and Belgium has no mines — Round Q's fabricated domestic `Concentrate→Smelting`
+edge), **Congo, D.R. 880** against 605 (146 %).
+
+## ROUND T — SHIPPED 2026-09-22: a renamed type is a second stream (ADR 0036) + the build order
+
+Run `opt_20260922_121256_d4394c0a`, 30/30 Solved, icsg **v12**, **trade_shares v21**. Two levers,
+separately measured — see REP `…roundT-renamed-type-collision`.
+
+**T (the code fix, weights held at v20):** `REN_TYPE` folds `Low-grade` smelter feed into `Primary`,
+leaving two rows of one vintage sharing a key; the cross-vintage dedup kept the 20.0 and discarded
+the 280.1, losing **1,038 kt of Zambian primary smelting** 2004-2007. Rows folded onto one key
+*within* a vintage now sum. **Zambia forced 1,452 → 399 (−73 %)**, model forced **4,723 → 3,670
+(−22 %)**, z² −3.3 % → −3.4 % vs base.
+
+**T′ (the weights, code held constant):** `build_trade_shares.py` had not run since 2026-09-17, so
+Rounds Q, R, S and T fanned their ICSG rows with weights built before their own feed corrections.
+Rebuilding v20 → v21 moved **21,709 kt CC** onto import legs and gave **forced 3,670 → 3,013**,
+**z² −3.4 % → −9.6 % vs base** — more than Rounds S and T combined, from running the pipeline in its
+documented order. Operator error, not a model defect. The arc stays internally consistent (every run
+from O onward used v20), so the rounds' relative results stand.
+
+**Forced term now 3,013 kt CC = 12.1 % of deletion**, the lowest of the arc. Largest items:
+Congo D.R. 880 (coverage gap, not tractable by ADR 0033 — its 2014 hole is low in value too),
+Zambia 399, Belgium 371 (was 1,029 on v20), Chile 295.
+
+**The fabricated mine face, re-measured:** 1,386 → **845 kt CC** posterior. The ADR 0024 bound took
+39 % of it once recomputed (Belgium 720 → 309, Germany 261 → 127) but **Italy 163, Japan 114,
+Korea 60, Austria 35 did not move at all** — the bound cannot reach a fabrication upstream of the
+production it measures. **That residue is the next lever.**
+
+## OPEN, out of Round T — nothing enforces the documented build order
+
+`README` §"Two preprocessing scripts run before the feed pipelines" requires
+`scripts/build_trade_shares.py` to run **before** `scripts/icsg_feed.py`: `icsg_feed` consumes the
+weights (`TRADE_SHARES_ID`, `load_trade_shares`) to fan ICSG's single-endpoint rows, and
+`build_trade_shares` in turn reads the ICSG feed's own production through `icsg_intake_production`
+for the [ADR 0024](docs/adr/0024-fan-domestic-leg-bounded-by-own-production.md) domestic bound. Change
+the ICSG feed without rebuilding and the bound is applied against the *previous* production.
+
+**It happened**, for four rounds (Q, R, S, T — all on `trade_shares` v20, built 2026-09-17), and
+cost **6.2 percentage points of fit**. Rebuilding to v21 changed **6,242 weights**, dropped 47, and
+moved **21,709 kt CC** from domestic residual onto import legs; Belgium's domestic anode leg fell
+3,219.7 → 2,250.5 (**−30 %**). Nothing detects it: `icsg_feed.py` loads whatever version is
+registered and prints it, with no check that it post-dates the `values.csv` being fanned.
+
+**Candidate guard:** compare the registered `trade_shares` build time against the version/mtime of
+`data/input/feed/icsg/current/values.csv` and refuse (or loudly warn) when the weights are older.
+Cheap, and it converts a silent ordering error into a stop. Not built — it was not Round T's lever,
+but on this evidence it is earned.
+
+Related: the same ordering applies to `build_baci_reexport.py` → `baci_feed.py`, and
+`build_trade_shares` also reads the **netted BACI** feed, so a BACI change (Round R) should trigger
+a rebuild too.
+
+## OPEN, out of Round S — two defects found in the ICSG parse, deliberately NOT fixed
+
+**1. `process_icsg.py` collapses three stock series onto one key, and picks the survivor at
+random.** `RENAME_DICT` maps `PMC_Consumers`, `PMC_Merchants` and `PMC_Government` all to `USC`, so
+they share the key `(Region, Cathode, Year, USC, Use)`. The collision is resolved by
+`drop_duplicates(keep='last')` after `combined.sort_values("Year_loaded_from_file")` — pandas'
+default sort is **quicksort, which is not stable**, so which of the three survives depends on row
+order and changes whenever the row count does. **53 keys collide** (51 doubles, 2 triples).
+
+Two things are wrong and they are separable:
+- *The non-determinism.* One word, `kind="mergesort"`. Round S removed 16 rows and that reshuffled
+  **7** Japan USC values (≤ 14 kt each, listed in the REP). Stabilising the sort was tested and
+  rejected for Round S because it flips **21** values instead of 7 — it fixes future attribution at
+  the cost of a larger one-off baseline move, which belongs in its own round.
+- *The collapse itself.* Keeping one of Consumers / Merchants / Government and discarding the other
+  two is almost certainly wrong — `USC` should be their **sum**. That is a modelling decision, not a
+  parse repair, so it is not Round S's to make.
+
+**2. Three more files in the ICSG parse stage are still dead.** Round S revived `icsg_2014.py`,
+`icsg_comb.py` and `process_icsg.py` because the chain had to run. `icsg_2005.py`, `icsg_2023f.py`
+and `icsg_cap.py` carry the identical two breakages — `from pysuto.util import` (renamed to
+`pysuto.utils`) and `out_folder = 'data/proc/datafeed/icsg_clean'` (renamed to
+`data/proc/feedprep/`). Their outputs are checked in and unaffected, so nothing is blocked today,
+but the stage cannot be rebuilt from the raw yearbooks until they are repaired. Mechanical.
+
+## ROUND R — SHIPPED 2026-09-22: BACI's quantity contradicts its own value (ADR 0033)
+
+Run `opt_20260922_092530_f21bdbe7`, 30/30 Solved, baci **v11** (gross v10 reconstructed, then
+ADR 0027 re-netted on it). **ADR 0029's forced deletion 26,959 → 12,315 kt CC (−54 %)**, its share
+68.4 % → **33.5 %**; **Chile forced 14,270 → 295** (40.6 % of its deletion → **1.0 %**), hard-capped
+19 → **5** years, retention 0.574 → **0.617**. z² +0.4 % (still −0.7 % vs base). REP
+`…roundR-quantity-reconstruction`.
+
+**Read it precisely: the round reclassifies more than it reduces.** Deletion falls only
+39,394 → 36,807 kt (−6.6 %); ~14,600 kt CC moves **forced → discretionary** (12,435 → 24,492). The
+arithmetic wall is gone; a fit problem is left in its place, which is the kind this project's levers
+can address. Scoring **Q's own posterior** against the corrected feed already gives 12,339, so the
+ceiling rises mechanically — the run's contribution is showing the model *uses* the headroom.
+
+The **pre-registered null held**: ROW 7,576 → 7,589 and Zambia 1,418 → 1,452, both predicted not to
+move because neither is value-flagged.
+
+### ~~Now the largest open item: ROW, 7,589 kt CC = 62 % of the remaining forced term~~ — CLOSED by Round S
+
+98.9 % of ROW's own deletion is forced, and ADR 0033 does **not** explain it — that was predicted
+and confirmed. The ADR 0014 folded-internal-trade candidate was **tested and refuted**; the cause is
+phantom mine production from an ICSG 2014 parse bug. See Round S / [ADR 0035](docs/adr/0035-the-yearbooks-label-is-not-on-the-row-it-owns.md).
+
+Also open from R:
+1. **Belgium newly hard-capped**, 1,029 kt CC forced against 300 deleted (343 %) — and Belgium has
+   no mines. This is Round Q's fabricated domestic `Concentrate→Smelting` edge (505 kt, zero
+   feed-observed) surfacing in ADR 0029's detector.
+2. **Chile's deletion is now 29,410 kt and 99 % discretionary** — the first time that can be said.
+3. **R.1**: the same value/quantity test on matte, anode and cathode. The detector already takes a
+   sector table; only concentrate mass enters `cap`, so the others could not have moved R-a.
 
 ## ROUND Q — SHIPPED 2026-09-21: one territory, one label (ADR 0032)
 
@@ -299,9 +437,12 @@ This is an **input** defect, which is where all three large wins in this arc cam
 from (ADR 0022 −26.6 %, ADR 0027 −19.5 %, ADR 0015). Before anything is built it
 has to answer:
 
-1. Is the hole Chile's non-reporting, and does BACI's mirror reconstruction fail
-   for HS 260300 specifically? Check the raw release for a reporter flag on
-   Chile in 2021-22 and 2024, and on Australia→China 2021 (809 → 11 kt).
+1. ~~Is the hole Chile's non-reporting…~~ **ANSWERED 2026-09-22, ADR 0033.** Neither: BACI's
+   *value* field is intact and agrees with ICSG in every year; its *quantity* field is the broken
+   one, and the mass is recoverable from the value. Both vintages agree, so it is not a release
+   artifact. ⚠ **Australia→China is NOT a defect** — 808 kt (2020) → 11.4 (2021) → 0.0 (2022) →
+   325 (2024), identical in V202501 and V202601. That is China's 2020 halt on Australian copper
+   concentrate and the 2024 thaw: real trade, wrongly listed here as a suspicious signature.
 2. If the mass is unrecoverable, what is the honest repair — scale the
    region-year's export legs to the copper ICSG says left, widen σ on them, or
    let the mine node carry a stock? Each is a different claim about *who is

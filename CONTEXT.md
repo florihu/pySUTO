@@ -423,6 +423,19 @@ interpolation anchor. _Avoid_: reading an absent bilateral cell as a gap; before
 unscoped interpolator invented 9,215 Mass legs / 20,252 kt of trade, 75 % of which survived into
 the posterior.
 
+**Value-implied Cu fraction** — `unit_value(product) / unit_value(cathode)` within one trade
+feed, one year. Refined cathode is ~99.99 % Cu, so its unit value *is* the copper price on that
+feed's own terms, and the ratio is what the product's recorded value implies about its recorded
+mass. It is a **consistency check between a feed's two fields**, not a property of the material:
+where it leaves the physical band the *quantity* is the field in doubt, because the value can be
+checked independently against production statistics. _Avoid_: reading it as a grade — the same
+_Avoid_ the **Concentrate grade** entry already carries for `(P−U)/X`, and for the same reason. A
+fraction of 0.6–0.9 is not a 60–90 % concentrate; it is a statement that the recorded mass is two to
+three times too small ([ADR 0033](docs/adr/0033-baci-quantity-contradicts-its-own-value.md)).
+_Avoid_ also: flagging a single leg inside a year whose *aggregate* fraction is in band — the
+aggregate is the level at which production statistics can license the claim, and lifting a leg
+below it fabricates mass.
+
 ## Total-output / scale-total vocabulary
 
 **Total output** — of a process or flow, the sum of **all its outgoing edges** (incl. waste, final

@@ -21,8 +21,8 @@ import pandas as pd
 import numpy as np
  
 # -- 1. Load raw data ----------------------------------------------------------
-flows_raw  = pd.read_csv("/mnt/nfs_fineprint/tmp/PYSUT/pySUTO/data/proc/datafeed/icsg_clean/icsg_flows.csv")
-stocks_raw = pd.read_csv("/mnt/nfs_fineprint/tmp/PYSUT/pySUTO/data/proc/datafeed/icsg_clean/icsg_stocks.csv")
+flows_raw  = pd.read_csv("data/proc/feedprep/icsg_clean/icsg_flows.csv")
+stocks_raw = pd.read_csv("data/proc/feedprep/icsg_clean/icsg_stocks.csv")
  
 print(f"Loaded stocks: {stocks_raw.shape}  |  flows: {flows_raw.shape}")
  
@@ -122,7 +122,7 @@ print(f"Supply_Use values: {combined['Supply_Use'].unique()}")
 print(f"Year range:        {combined['Year'].min()} - {combined['Year'].max()}")
  
 # -- 6. Save outputs -----------------------------------------------------------
-out_dir = "/mnt/nfs_fineprint/tmp/PYSUT/pySUTO/data/proc/datafeed/icsg_clean"
+out_dir = "data/proc/feedprep/icsg_clean"
  
 nas_mapped.to_csv(f"{out_dir}/icsg_stocks.csv", index=False)
 print(f"\nSaved: {out_dir}/icsg_stocks.csv  ({len(nas_mapped)} rows)")

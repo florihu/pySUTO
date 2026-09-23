@@ -94,6 +94,7 @@ import argparse
 import hashlib
 import json
 import os
+import shutil
 import sys
 from collections import defaultdict
 
@@ -771,6 +772,14 @@ def main(source_version: int = SOURCE_VERSION) -> None:
         .query("abs(delta) > 1e-9") \
         .to_csv(os.path.join(OUT_DIR, "reexport_legs.csv"), index=False)
     scales.to_csv(os.path.join(OUT_DIR, "reexport_cv_scale.csv"), index=False)
+    # ADR 0033's σ multiplier is produced by the parse, one stage further up,
+    # and rides the same cv_root_scale seam — so it has to travel with the
+    # netted feed rather than being left behind in the source version.
+    qsrc = os.path.join(src_dir, "quantity_cv_scale.csv")
+    if os.path.isfile(qsrc) and os.path.abspath(qsrc) != os.path.abspath(
+            os.path.join(OUT_DIR, "quantity_cv_scale.csv")):
+        shutil.copyfile(qsrc, os.path.join(OUT_DIR, "quantity_cv_scale.csv"))
+        print(f"   carried forward quantity_cv_scale.csv from {src_dir}")
     print(f"\n   wrote values.csv + 3 ledgers → {OUT_DIR}")
 
     entry = _input_registries().feed.entry(FEED_ID)
