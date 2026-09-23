@@ -629,7 +629,7 @@ Each per-t `OptimResult` therefore persists **only that period's solved values**
 - **`ClarabelSolver`** ([solver.py](src/pysuto/solver.py)) — `.load_run(run_id)`, `.feasibility_check(run, t_label)`, `.solve_all(run_id, timesteps=…)`, `.persist(run_id, results, output_dir, …)`.
 - **`OptimResult`** ([solver.py](src/pysuto/solver.py)) — per-timestep dataclass: `F_opt`, `eps_opt`, `c_star`, `residuals`, `objective`, `iterations`, `solve_time_s`, `solver_status`, `convergence`, optional `iter_history`, plus `cols_t` / `rows_t` (block path: the global indices the year-local `F_opt` / `residuals` slices live on; `None` on the legacy path).
 
-Solver diagnostics live in [diag/](src/pysuto/diag/) (`SolverDiag`); see the module docstring for the full plot catalogue. Posterior uncertainty (`σ_a*`, confidence intervals) is produced by [Stage 5](#stage-5--posterior-uncertainty-propagation) (`KalmanUncProp` in [uncprop.py](src/pysuto/uncprop.py)).
+Solver diagnostics live in [diag/](src/pysuto/diag/) (`SolverDiag`, 12 figures: solver health and per-iteration convergence traces, the objective decomposition Σz² per family, objective share by sector key and by identity with z-profiles, sector totals with retention, and the prior-vs-posterior rocket — the module docstring is the catalogue; `plot(regions=[…])` restricts a portfolio to one region). `plot()` also writes `ranking_<family>.csv` (identity rankings by objective share) and `provenance.md`; `SolverStatsDiagnostic` writes the per-year `edges_<year>.csv` / `constraints_<year>.csv` from the same all-years frames the figures read, so tables and figures agree by construction. Posterior uncertainty (`σ_a*`, confidence intervals) is produced by [Stage 5](#stage-5--posterior-uncertainty-propagation) (`KalmanUncProp` in [uncprop.py](src/pysuto/uncprop.py)).
 
 #### Key parameters
 
@@ -1142,7 +1142,9 @@ Each layer has a dedicated test file in `tests/`. Shared fixtures live in `conft
 | [test_trade_imputer.py](tests/test_trade_imputer.py) | TradeImputer cross-region CC trade-seed + trade→network handoff reviving ER→CER→CP; ownership-partition diagnostic |
 | [test_constraints.py](tests/test_constraints.py) | All five constraint builders; `G` time-invariance; `ConstraintRunRegistry` round-trip |
 | [test_solver.py](tests/test_solver.py) | Clarabel transform, feasibility pre-check, warm-start, per-timestep solve |
-| [test_solver_diag.py](tests/test_solver_diag.py) | `SolverDiag` plot smoke test |
+| [test_solver_diag.py](tests/test_solver_diag.py) | `SolverDiag` 12-figure portfolio smoke test (toy placeholders + block run with real edges), `regions=` filter, `compare()`, worst-Σz² year |
+| [test_solver_stats_diag.py](tests/test_solver_stats_diag.py) | `SolverStatsDiagnostic` per-year CSV schemas, all-years frames (identity, `lhs_prior_t`, `resid_solver`, warm prior), ranking CSVs |
+| [test_objective_stats.py](tests/test_objective_stats.py) | objective-share builders (family frames, Σz² by key, identity ranking, z profiles, objective decomposition), sector totals / retention, boundary edges |
 | [test_uncprop.py](tests/test_uncprop.py) | `KalmanUncProp` closed-form 2×2, PSD/monotonicity, Byron limit, CHOLMOD symbolic-factor reuse, registry round-trip, CI clipping, end-to-end `compute(opt_run_id)` |
 
 **Parse-stage tests** — these guard the Stage-1 readers, where a source-format quirk is
