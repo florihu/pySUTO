@@ -239,10 +239,12 @@ rows. Always read from columns; a row whose columns do not single it out within 
 identity (it still counts in every total). _Avoid_: stripping the year off a `constraint_id` (see
 `constraint_id`: a key for reading, never parsing).
 
-**Retention** — `Σa* / Σa_prior` over a set of edges (a sector-year, a node, a region): `1` keeps
-the prior scale, `< 1` is deletion, `> 1` inflation (second row of SD-R-08 / 09 / 10). The
-complement of the deletion in **forced vs discretionary deletion**. _Avoid_: "adaptation",
-"recovery", "survival".
+**Retention** — the share `Σa* / Σa_prior` computed **by category**: the posterior sum over the
+edges of one category in one year (a sector, a node, a region, an SB class — always name the
+category) divided by the prior sum over the same edges. It is a dimensionless share of the prior
+mass: `1` keeps the prior scale, `< 1` is deletion, `> 1` inflation (second row of SD-R-08 / 09 /
+10, per sector and year). The complement of the deletion in **forced vs discretionary deletion**.
+_Avoid_: "adaptation", "recovery", "survival"; a retention quoted without its category and year.
 
 ## Feed valuation & trade-share vocabulary
 
