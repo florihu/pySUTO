@@ -40,8 +40,7 @@ Run scope (x = year):
 Timestep scope (columns = first / worst-``Σz²`` / last year):
 
 * **SD-T-07** ``sd_t_07_rocket`` — c-space (``G·a_prior(t)`` vs ``c*`` on sum
-  rows) and a-space (``a_prior(t)`` vs ``a*``) log–log scatters, colour ``|z|``,
-  top-10 identities labelled.
+  rows) and a-space (``a_prior(t)`` vs ``a*``) log–log scatters, colour ``|z|``.
 
 ``plot(regions=[...])`` renders the same portfolio restricted to edges / rows
 touching those regions (filename suffix ``__<region>``); ``plot()`` also writes
@@ -78,7 +77,6 @@ _MAX_SERIES  = 8      # categorical hues per panel; the tail folds into "other"
 _TOP_KEYS    = 20     # sector keys shown in SD-R-13
 _TOP_IDS     = 25     # identities shown in SD-R-14
 _N_PROFILES  = 12     # identities profiled in SD-R-15
-_N_ROCKET_LABELS = 10
 # entity_sub tie-break for the SB legend order (label literals — see ADR 0034;
 # only an ordering hint, never a filter).
 _BOUNDARY_FAMILY_ORDER = {"Nature": 0, "SEM": 1, "FD": 2}
@@ -1322,8 +1320,7 @@ class SolverDiag:
         row a: ``log10 |a_prior(t)|`` vs ``log10 |a*|`` on the year's edges.
         Values are floored at ``_LOG_FLOOR`` before the log so a handful of
         numerical zeros cannot squash the populated decades; colour = ``|z|``
-        (sequential, log scale, clipped to [1e-2, 1e2]); the top identities of
-        the family are labelled where they appear.
+        (sequential, log scale, clipped to [1e-2, 1e2]).
         """
         import matplotlib.pyplot as plt
         from matplotlib.colors import LogNorm
@@ -1352,15 +1349,13 @@ class SolverDiag:
                                       ha="center", va="center", color=_C["grey"])
                     _apply_modern_style(axes[r][col])
                 continue
-            top = rank_identities(fam, top=_N_ROCKET_LABELS)
-            top_ids = set(top["identity"].tolist()) if top is not None and not top.empty else set()
             per_year, lo, hi = {}, np.inf, -np.inf
             for t in ts_triple:
                 sub = fam[fam["year"] == str(t)]
                 xs = np.log10(np.maximum(np.abs(sub[xcol].to_numpy(dtype=float)), _LOG_FLOOR))
                 ys = np.log10(np.maximum(np.abs(sub[ycol].to_numpy(dtype=float)), _LOG_FLOOR))
                 zz = np.abs(sub["z"].to_numpy(dtype=float))
-                per_year[t] = (sub, xs, ys, zz)
+                per_year[t] = (xs, ys, zz)
                 if xs.size:
                     lo = min(lo, float(np.nanmin(xs)), float(np.nanmin(ys)))
                     hi = max(hi, float(np.nanmax(xs)), float(np.nanmax(ys)))
@@ -1369,7 +1364,7 @@ class SolverDiag:
             pad = 0.3
             for col, t in enumerate(ts_triple):
                 ax = axes[r][col]
-                sub, xs, ys, zz = per_year[t]
+                xs, ys, zz = per_year[t]
                 ok = np.isfinite(zz)
                 sc = None
                 if ok.any():
@@ -1380,12 +1375,6 @@ class SolverDiag:
                 ax.plot([lo - pad, hi + pad], [lo - pad, hi + pad], color=_C["grey"], lw=0.9, ls="--")
                 ax.set_xlim(lo - pad, hi + pad)
                 ax.set_ylim(lo - pad, hi + pad)
-                if top_ids:
-                    m = sub["identity"].isin(top_ids).to_numpy()
-                    for xi, yi, lab in zip(xs[m], ys[m], sub["label"].to_numpy()[m]):
-                        ax.annotate(_short(str(lab).replace("|", "·"), 30), (xi, yi),
-                                    xytext=(3, 3), textcoords="offset points",
-                                    fontsize=6, color=_C["navy"])
                 if sc is not None and col == len(ts_triple) - 1:
                     fig.colorbar(sc, ax=ax, pad=0.02, fraction=0.05, label="|z|")
                 ax.set_xlabel(xlab, fontsize=8)

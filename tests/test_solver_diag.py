@@ -222,6 +222,13 @@ class TestBlockRunDiag:
         assert str(worst) == dec["zsq_total"].idxmax()
         assert (str(first), str(last)) == ("2020", "2021")
 
+    def test_rocket_has_no_identity_labels(self, tmp_path, monkeypatch):
+        from matplotlib.text import Annotation
+        from pysuto.diag import SolverDiag
+        results, cr, acc = _solve_block_run(tmp_path, monkeypatch)
+        fig = SolverDiag(results, cr, label="block", acc=acc)._fig_rocket()
+        assert not any(isinstance(t, Annotation) for ax in fig.axes for t in ax.texts)
+
     def test_regions_filter_suffixes_outputs(self, tmp_path, monkeypatch):
         from pysuto.diag import SolverDiag
         results, cr, acc = _solve_block_run(tmp_path, monkeypatch)
