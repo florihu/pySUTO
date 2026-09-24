@@ -1,17 +1,19 @@
 """
 solve_diag.py
 =============
-Stage 4-diag driver: render the full SolverDiag portfolio for a persisted
-opt run.
+Stage 4-diag driver: render the full SolverDiag portfolio (12 figures +
+``ranking_<family>.csv`` + ``provenance.md``) for a persisted opt run, plus the
+per-year edge/constraint CSVs for the first year.
 
 The constraint run is resolved from the opt run's sidecar
 (``parents.upstream.const_run_id``), so only ``opt_run_id`` is required.
 
 Usage::
 
-    python scripts/solve_diag.py <opt_run_id> [--label LABEL]
+    python scripts/solve_diag.py <opt_run_id> [--label LABEL] [--regions Chile Zambia]
 
-Figures land in ``data/proc/opt/<opt_run_id>/diag/``.
+Figures land in ``data/proc/opt/<opt_run_id>/diag/`` (``--regions`` adds a
+``__<region>`` suffix and restricts the sector / objective-share / rocket figures).
 """
 
 from __future__ import annotations
@@ -35,14 +37,13 @@ TIMESTEPS  = None              # None → all timesteps; or e.g. (1995, 2010, 20
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from pysuto.acc     import AccountingStructure
 from pysuto.diag    import SolverDiag, SolverStatsDiagnostic
 from pysuto.logging import get_logger, add_run_handler
 
 _log = get_logger("init_solve_diag")
 
 
-def main(opt_run_id: str, label: str = "") -> None:
+def main(opt_run_id: str, label: str = "", regions=None) -> None:
     os.makedirs("logs", exist_ok=True)
     add_run_handler(f"logs/init_solve_diag_{datetime.now():%Y%m%d_%H%M%S}.log")
 
@@ -57,13 +58,13 @@ def main(opt_run_id: str, label: str = "") -> None:
     )
 
     diag.summary()
-    paths = diag.plot(timesteps=TIMESTEPS)
-
+    paths = diag.plot(timesteps=TIMESTEPS, regions=regions)
     diag_dir = os.path.join(OUTPUT_DIR, opt_run_id, "diag")
-    _log.info("Wrote %d figures to %s", len(paths), diag_dir)
+    _log.info("Wrote %d files to %s", len(paths), diag_dir)
 
-    acc = AccountingStructure.load(diag.constraint_run.acc_id)
-    SolverStatsDiagnostic(diag.results, diag.constraint_run, acc, years=("1995",)).write(diag_dir)
+    # The AccountingStructure was loaded once, lazily, by the figures (`diag.acc`);
+    # the per-year CSVs reuse it.
+    SolverStatsDiagnostic(diag.results, diag.constraint_run, diag.acc, years=("1995",)).write(diag_dir)
 
     _log.info("=== init_solve_diag DONE ===")
 
@@ -81,5 +82,10 @@ if __name__ == "__main__":
         "--label", default="",
         help="Optional display label for figures (defaults to opt_run_id).",
     )
+    parser.add_argument(
+        "--regions", nargs="*", default=None,
+        help="Restrict the sector / objective-share / rocket figures to edges and "
+             "rows touching these regions (filenames get a __<region> suffix).",
+    )
     args = parser.parse_args()
-    main(args.opt_run_id, args.label)
+    main(args.opt_run_id, args.label, args.regions or None)

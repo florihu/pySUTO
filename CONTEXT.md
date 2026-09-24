@@ -168,15 +168,14 @@ factorisation across timesteps via `solver.update()`. _Avoid_: conflating the tw
 that selects KKT reuse was historically also called `warm_start`.
 
 **Defect** — the per-**edge** prior departure `a* − a_prior` (solved value minus the warm-start
-prior, `a_prior` above). Plotted per period by SD-T-05 (prior vs posterior magnitude), SD-T-07
-(prior-vs-posterior rocket) and SD-T-10 (per-year boxplot of `log10|defect|`), by SD-T-09
-(`|a*−a_prior|` by from/to sector/region), and tabulated row-level by `SolverStatsDiagnostic`
-(`edges_<year>.csv`, columns `defect` / `defect_abs` / `z`). Its standardised form is
-`z = (a*−a_prior)/σ_a` (SD-T-03). _Avoid_: calling the defect a "residual" — that term is
-reserved (below).
+prior, `a_prior` above). Plotted by SD-T-07 (the a-space rocket, `a_prior(t)` vs `a*`), ranked
+by **objective share** in SD-R-13 / SD-R-14 / SD-R-15a (the edge-defect family), and tabulated
+row-level by `SolverStatsDiagnostic` (`edges_<year>.csv`, columns `defect` / `defect_abs` / `z`).
+Its standardised form is `z = (a*−a_prior)/σ_a`. _Avoid_: calling the defect a "residual" — that
+term is reserved (below).
 
-**Residual** — the per-**constraint-row** delta `G·a − c` (`OptimResult.residuals`; SD-T-01
-"Constraint-residual digest", SD-R-02 mass-balance leakage). Its feasible range depends on the
+**Residual** — the per-**constraint-row** delta `G·a − c` (`OptimResult.residuals`; its hard
+mass-balance maximum per year is the middle panel of SD-R-11). Its feasible range depends on the
 row's cone: **≈ 0 on hard *equalities*** (`zero` cone — mass balance); **`≤ 0` on hard *bounds***
 (`nonneg` cone — ratio/flow bounds, since feasibility is `G·a ≤ c`), where a *negative* residual
 is healthy **slack** (distance below the limit), not a violation, and only a *positive* residual
@@ -206,14 +205,46 @@ table pair (hard + soft rows; `type` / `cone_type` columns carry the family for 
 `constraints_prior_<year>.csv` at the constraint stage (`ConstStatsDiagnostic`) and
 `constraints_<year>.csv` at the solver stage (`SolverStatsDiagnostic`). **`lhs_prior` = G·a0**
 means the same thing in *both* files; **`lhs_post` = c_star = G·a*** exists only post-solve.
-`residual` / `z = residual/σ_c` (SD-T-02) are the *stage's achieved* residual — `lhs_prior − c`
-at the constraint stage, `lhs_post − c` (= the slack `eps` on a soft row) at the solver stage;
-`z` is NaN on hard rows (`σ_c = 0`). _Avoid_: reading a large `|z|` as a failure on its own — a
-soft row is *meant* to absorb disagreement; `|z|` just measures it in units of the row's
-tolerance `σ_c`. _Avoid_: an unqualified `lhs` column — the files qualify every LHS as
+`residual` / `z = residual/σ_c` (ranked by **objective share** in SD-R-13 / 14 / 15b-c) are the
+*stage's achieved* residual — `lhs_prior − c` at the constraint stage, `lhs_post − c` (= the slack
+`eps` on a soft row) at the solver stage; `z` is NaN on hard rows (`σ_c = 0`). _Avoid_: reading a
+large `|z|` as a failure on its own — a soft row is *meant* to absorb disagreement; `|z|` just
+measures it in units of the row's tolerance `σ_c`. _Avoid_: reading the solver-stage `residual`
+on a **hard** row as the **residual** above — `c_star = c` there by construction, so the column
+is identically 0; the hard residual lives in `OptimResult.residuals` (frame column
+`resid_solver`). _Avoid_: an unqualified `lhs` column — the files qualify every LHS as
 `lhs_prior` / `lhs_post` so no column changes meaning between stages. _Note_: `ConstDiagnostic`
 plots the same prior quantity under the opposite sign (`eps0 = c − G·a0`); the table follows
 the reserved `G·a − c` sign.
+
+**Objective share** — one item's `z²` (an edge's defect or a soft row's residual, standardised)
+divided by the `Σz²` of its family or of the whole run. The QP objective *is* `Σz²` over edges plus
+soft rows, so the share is what that item cost the optimiser. Ranked per **identity** over all
+years by `SolverDiag` (SD-R-13 by sector key, SD-R-14 top identities, SD-R-15 z profiles) and
+tabulated in `ranking_<family>.csv`; three families: edge defects, sum-row residuals (`type =
+sum`, all soft), soft-ratio residuals (`type = ratio`, free cone). _Avoid_: "deviation" (say defect
+or residual), "violation" (a soft row is meant to absorb disagreement — see Constraint table),
+"fit".
+
+**Objective decomposition** — the per-year split of `Σz²` into the three families, drawn with the
+max hard mass-balance `|G·a* − c|` (SD-R-11). _Avoid_: reading the Clarabel `objective` in the opt
+sidecar as this quantity — it is `½xᵀPx + qᵀx` without the constant term and is negative.
+
+**Identity (cross-year)** — the key under which one edge or one constraint row recurs across
+years. For an edge: the **edge template** `(from_id, to_id, valuation)`. For a row: the tuple of
+its `row_meta` columns other than `constraint_id` and `time` — `(variant, sector, region,
+valuation, …)` node-scoped, the `num_*`/`denom_*` endpoints pair-scoped, `(variant, region,
+valuation)` set-scoped, with `cone_type`/`bound_dir` telling a pair's soft row from its two band
+rows. Always read from columns; a row whose columns do not single it out within its year has no
+identity (it still counts in every total). _Avoid_: stripping the year off a `constraint_id` (see
+`constraint_id`: a key for reading, never parsing).
+
+**Retention** — the share `Σa* / Σa_prior` computed **by category**: the posterior sum over the
+edges of one category in one year (a sector, a node, a region, an SB class — always name the
+category) divided by the prior sum over the same edges. It is a dimensionless share of the prior
+mass: `1` keeps the prior scale, `< 1` is deletion, `> 1` inflation (second row of SD-R-08 / 09 /
+10, per sector and year). The complement of the deletion in **forced vs discretionary deletion**.
+_Avoid_: "adaptation", "recovery", "survival"; a retention quoted without its category and year.
 
 ## Feed valuation & trade-share vocabulary
 

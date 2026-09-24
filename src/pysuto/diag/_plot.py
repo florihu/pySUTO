@@ -27,6 +27,14 @@ _C = {
     "navy":   "#2C3E50",
 }
 
+# Categorical palette for series that carry an *identity* (one line per sector).
+# Eight fixed slots in fixed order — a panel never shows more than eight series
+# (the tail folds into "other", drawn grey). Validated colour-blind safe on a
+# light surface (adjacent-pair CVD ΔE ≥ 9, chroma ≥ 0.1) with the dataviz
+# skill's validate_palette.js; `_C` above is for run / status / family roles.
+_CAT8 = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100",
+         "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
+
 
 def _savefig(fig, path: str, dpi: int = 150) -> str:
     """Save figure to *path*, creating parent dirs as needed."""

@@ -6,7 +6,13 @@ returned DataFrame includes ``type``, ``is_hard``, ``cone_type``, ``time``
 columns — handy for stratifying by constraint family.
 
 z is defined as ``(G @ F_opt - c) / sigma_c`` for ``sigma_c > 0`` and
-returned as NaN for hard rows (sigma_c == 0).
+returned as NaN for hard rows (sigma_c == 0). Only the rows of timestep ``t``
+are returned.
+
+Block-path runs (every run since the year-local fix) store ``F_opt`` as the
+year's slice over ``cols_t`` (shape ``(E_t,)``), not a full ``(N_edges,)``
+vector; it is scattered to global length before the product with ``G``.
+Legacy full-vector runs (``cols_t`` absent) are handled as before.
 
 Usage::
 
@@ -23,6 +29,20 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 from scipy import sparse
+
+
+def _year_local_index(t_opt):
+    """``(cols_t, rows_t)`` of a block-path npz, or ``(None, None)`` for a
+    legacy full-vector run (key absent or stored as a pickled ``None``)."""
+    if "cols_t" not in t_opt.files:
+        return None, None
+    try:
+        cols, rows = t_opt["cols_t"], t_opt["rows_t"]
+    except ValueError:          # object array (None) → needs allow_pickle → legacy
+        return None, None
+    if np.ndim(cols) == 0:
+        return None, None
+    return np.asarray(cols, dtype=int), np.asarray(rows, dtype=int)
 
 
 def compute_z(const_dir: str | Path, opt_dir: str | Path, t: str) -> pd.DataFrame:
@@ -56,14 +76,26 @@ def compute_z(const_dir: str | Path, opt_dir: str | Path, t: str) -> pd.DataFram
     t_opt = np.load(opt_dir / "timesteps" / f"t_{t}.npz")
     F_opt = t_opt["F_opt"]
 
-    Ga = G @ F_opt
+    cols_t, rows_t = _year_local_index(t_opt)
+    if cols_t is not None:
+        # block path: scatter the year-local slice into a global vector
+        F = np.zeros(G.shape[1])
+        F[cols_t] = F_opt
+        rows = rows_t
+    else:
+        F = F_opt
+        rows = np.flatnonzero(row_meta["time"].astype(str).to_numpy() == str(t))
+
+    Ga = np.asarray(G @ F).ravel()[rows]
+    c = np.asarray(c, dtype=float)[rows]
+    sigma_c = np.asarray(sigma_c, dtype=float)[rows]
     residual = Ga - c
 
     with np.errstate(divide="ignore", invalid="ignore"):
         z = np.where(sigma_c > 0, residual / sigma_c, np.nan)
 
-    df = row_meta.copy()
-    df.insert(0, "row_idx", np.arange(len(df)))
+    df = row_meta.iloc[rows].copy().reset_index(drop=True)
+    df.insert(0, "row_idx", rows)
     df["c"] = c
     df["sigma_c"] = sigma_c
     df["Ga"] = Ga

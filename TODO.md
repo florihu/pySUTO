@@ -28,13 +28,11 @@
 3. Analysis
 
 
-# Improve solver diag
+# Improve solver diag — DONE 2026-09-23 (SolverDiag portfolio revision, branch diag/opt-portfolio-revision)
 
-What do i want to analyse
-
-1. General convergence analysis of solver
-2. Aanlysis of a*(t)-a(t-1) and z scores -> which were the most changed - outliers
-3. c*(t)-c_0(t) which constraints were tha
+1. General convergence analysis of solver        → SD-R-01 (health), SD-R-12 (per-iteration traces), SD-R-11 (objective decomposition)
+2. Most-changed a, z outliers                    → SD-R-13 / SD-R-14 / SD-R-15a (edge defects by objective share), SD-T-07 a-space
+3. c*(t)−c₀(t): which constraints moved          → SD-R-13 / SD-R-14 / SD-R-15b-c (sum-row and soft-ratio residuals); `ranking_<family>.csv`
 # OPEN (2026-09-16, out of Round L)
 
 ## ADR 0017's reference leg size drifts with the population it prices

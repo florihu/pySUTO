@@ -4,10 +4,14 @@ test_solver_diag.py
 Smoke tests for :class:`pysuto.diag.SolverDiag`.
 
 The class is purely observational, so the tests focus on:
-  1. all 16 figures are produced from a live ``results`` dict + ConstraintRun
+  1. the 12-figure portfolio is produced from a live ``results`` dict + ConstraintRun
+     (toy fixtures without an accounting structure render placeholders, never fail)
   2. ``from_opt_id`` round-trip reconstructs the same set of figures from disk
   3. ``summary()`` returns a non-empty string mentioning the worst-ε timestep
-  4. ``compare()`` only renders the 5 hueable plots and rejects unhueable IDs
+  4. ``compare()`` only renders the hueable plots and rejects unhueable IDs
+  5. ``regions=`` suffixes the filenames and the ranking CSVs
+  6. the block-run (year-local) path with an injected acc exercises the real
+     sector / identity figures and picks the worst-Σz² year for the rocket
 """
 
 from __future__ import annotations
@@ -23,6 +27,23 @@ import pytest
 
 # Reuse the toy fixture pattern from test_solver.py
 from test_solver import _make_toy_run  # type: ignore
+
+N_FIGURES = 12
+STEMS = [
+    "sd_r_01_solver_health",
+    "sd_r_08_useful_output",
+    "sd_r_09_flow_total_output",
+    "sd_r_10_boundary_flows",
+    "sd_r_11_objective_decomposition",
+    "sd_r_12_convergence_traces",
+    "sd_r_13_objective_share_by_sector",
+    "sd_r_14_top_identities",
+    "sd_r_15a_profiles_edges",
+    "sd_r_15b_profiles_sum_rows",
+    "sd_r_15c_profiles_soft_ratios",
+    "sd_t_07_rocket",
+]
+HUEABLE = ["SD-R-01", "SD-R-11", "SD-R-13"]
 
 
 @pytest.fixture
@@ -47,9 +68,9 @@ class TestPlotPortfolio:
         results, run = toy_results
         diag = SolverDiag(results, run, label="toy")
         paths = diag.plot(odir=str(tmp_path))
-        # 10 run-scope (SD-R-01..10) + 15 timestep-scope (SD-T-01..06, 07, 08a, 08b,
-        # 09a..09d, 10, 11) + 1 provenance .md  ⇒  25 PNGs + 1 .md = 26 paths
-        assert len(paths) == 26
+        # 12 PNGs + 1 provenance .md; the toy has no acc and no typed row_meta,
+        # so no ranking CSVs are written (frames are None).
+        assert len(paths) == N_FIGURES + 1
         for p in paths:
             assert os.path.exists(p)
             if p.endswith(".png"):
@@ -60,15 +81,25 @@ class TestPlotPortfolio:
         results, run = toy_results
         SolverDiag(results, run, label="toy").plot(odir=str(tmp_path))
         names = {os.path.basename(p) for p in os.listdir(tmp_path)}
-        assert "sd_r_01_solver_health.png" in names
-        assert "sd_r_06_f_evolution.png" in names
-        assert "sd_r_07_time_hued.png" in names
-        assert "sd_r_08_process_outputs.png" in names
-        assert "sd_r_09_flow_outputs.png" in names
-        assert "sd_t_06_cstar_vs_c.png" in names
-        assert "sd_t_07_rocket.png" in names
-        assert "sd_t_08a_eps_heatmap_ratio.png" in names
-        assert "sd_t_08b_eps_heatmap_sum.png" in names
+        for stem in STEMS:
+            assert f"{stem}.png" in names
+
+    def test_toy_frames_are_none_but_portfolio_complete(self, toy_results, tmp_path):
+        from pysuto.diag import SolverDiag
+        results, run = toy_results
+        diag = SolverDiag(results, run, label="toy")
+        assert diag.acc is None
+        assert diag.stats.edge_frame() is None
+        assert diag.stats.constraint_frame() is None          # row_meta lacks time/type
+        assert diag._decomposition() is None
+        pngs = [p for p in diag.plot(odir=str(tmp_path)) if p.endswith(".png")]
+        assert len(pngs) == N_FIGURES
+
+    def test_empty_label_does_not_crash_provenance(self, toy_results, tmp_path):
+        from pysuto.diag import SolverDiag
+        results, run = toy_results
+        paths = SolverDiag(results, run).plot(odir=str(tmp_path), plot_ids=["SD-R-01"])
+        assert any(p.endswith("provenance.md") for p in paths)
 
 
 # ---------------------------------------------------------------------------
@@ -82,11 +113,7 @@ class TestSummary:
         results, run = toy_results
         diag = SolverDiag(results, run, label="toy")
         text = diag.summary()
-        # Both timestep labels appear in the run; the worst-ε one should be in
-        # the summary's "worst ε" line.
         assert "worst ε" in text
-        # Either toy timestep is acceptable here — we just verify the line
-        # exists and references one of the actual labels.
         assert any(t in text for t in run.timestep_data.keys())
 
 
@@ -107,10 +134,8 @@ class TestFromOptId:
         const_dir = tmp_path / "const"
         const_dir.mkdir()
 
-        # Register the toy ConstraintRun so from_opt_id can load it
         ConstraintRunRegistry(str(const_dir)).register(run)
 
-        # Persist results — produces {opt_dir}/registry.json + per-timestep .npz
         s = ClarabelSolver(const_dir="unused", verbose_first_solve=False)
         opt_run_id = s.persist(
             run_id     = run.run_id,
@@ -119,28 +144,26 @@ class TestFromOptId:
             const_run_id = run.run_id,
         )
 
-        # Reconstruct & plot
         diag = SolverDiag.from_opt_id(
             opt_run_id,
             output_dir = str(opt_dir),
             const_dir  = str(const_dir),
         )
         paths = diag.plot()  # default odir = {opt_dir}/{opt_run_id}/diag
-        assert len(paths) == 26  # 25 PNGs + 1 provenance .md
+        assert len(paths) == N_FIGURES + 1
         for p in paths:
             assert os.path.exists(p)
-        # Confirm the default odir is the run-local diag folder
         expected = str(opt_dir / opt_run_id / "diag")
         assert all(p.startswith(expected) for p in paths)
 
 
 # ---------------------------------------------------------------------------
-# 3b. Year-local (block-path) results
+# 3b. Year-local (block-path) results — the only fixture with real edge labels
 # ---------------------------------------------------------------------------
 
 def _solve_block_run(tmp_path, monkeypatch):
     """Build an engine ConstraintRun (G_blocks populated) and solve it →
-    year-local OptimResults + the ConstraintRun."""
+    year-local OptimResults + the ConstraintRun + the in-memory acc."""
     from test_constraints import _make_toy_acc, _make_toy_agg_result
     from pysuto.constraints import ConstraintEngine, MassBalanceBuilder
     from pysuto.solver import ClarabelSolver
@@ -153,7 +176,7 @@ def _solve_block_run(tmp_path, monkeypatch):
 
     s = ClarabelSolver(const_dir=str(tmp_path / "const"), verbose_first_solve=False)
     monkeypatch.setattr(s, "load_run", lambda _rid: cr)
-    return s.solve_all(cr.run_id), cr
+    return s.solve_all(cr.run_id), cr, acc
 
 
 class TestBlockRunDiag:
@@ -165,26 +188,53 @@ class TestBlockRunDiag:
         import re
         from pysuto.diag import SolverDiag
 
-        results, cr = _solve_block_run(tmp_path, monkeypatch)
-        # Sanity: results really are year-local.
+        results, cr, acc = _solve_block_run(tmp_path, monkeypatch)
         assert all(r.cols_t is not None for r in results.values())
 
-        diag = SolverDiag(results, cr, label="block")
+        diag = SolverDiag(results, cr, label="block", acc=acc)
         text = diag.summary()
         m = re.search(r"mass-balance rows:\s*([0-9.eE+-]+)", text)
         assert m, text
         assert float(m.group(1)) < 1e-6, text
 
     def test_full_portfolio_renders_from_year_local(self, tmp_path, monkeypatch):
-        """Every figure renders from year-local results without shape errors."""
+        """Every figure renders from year-local results; with the acc injected
+        the frames exist, so one ranking CSV per family is written too."""
         from pysuto.diag import SolverDiag
-        results, cr = _solve_block_run(tmp_path, monkeypatch)
-        paths = SolverDiag(results, cr, label="block").plot(
-            odir=str(tmp_path / "diag"),
-        )
-        assert len(paths) == 26
+        results, cr, acc = _solve_block_run(tmp_path, monkeypatch)
+        diag = SolverDiag(results, cr, label="block", acc=acc)
+        paths = diag.plot(odir=str(tmp_path / "diag"))
+        assert len(paths) == N_FIGURES + 3 + 1
         for p in paths:
             assert os.path.exists(p)
+        names = {os.path.basename(p) for p in paths}
+        assert {"ranking_edges.csv", "ranking_sum_rows.csv", "ranking_soft_ratios.csv"} <= names
+        # the edge frame is real here: the sector figures are not placeholders
+        assert os.path.getsize(tmp_path / "diag" / "sd_r_08_useful_output.png") > 20_000
+
+    def test_worst_year_is_argmax_of_zsq_total(self, tmp_path, monkeypatch):
+        from pysuto.diag import SolverDiag
+        results, cr, acc = _solve_block_run(tmp_path, monkeypatch)
+        diag = SolverDiag(results, cr, label="block", acc=acc)
+        dec = diag._decomposition().set_index("year")
+        assert dec["zsq_edges"].notna().all()
+        first, worst, last = diag._resolve_timesteps(None)
+        assert str(worst) == dec["zsq_total"].idxmax()
+        assert (str(first), str(last)) == ("2020", "2021")
+
+    def test_regions_filter_suffixes_outputs(self, tmp_path, monkeypatch):
+        from pysuto.diag import SolverDiag
+        results, cr, acc = _solve_block_run(tmp_path, monkeypatch)
+        diag = SolverDiag(results, cr, label="block", acc=acc)
+        paths = diag.plot(odir=str(tmp_path / "diag"), regions=["A"],
+                          plot_ids=["SD-R-08", "SD-R-13", "SD-T-07"])
+        names = sorted(os.path.basename(p) for p in paths)
+        assert "sd_r_08_useful_output__a.png" in names
+        assert "sd_r_13_objective_share_by_sector__a.png" in names
+        assert "sd_t_07_rocket__a.png" in names
+        assert "ranking_edges__a.csv" in names
+        assert diag._family("edges", regions=["A"])["from_region"].isin(["A"]).any()
+        assert len(diag._family("edges", regions=["A"])) < len(diag._family("edges"))
 
 
 # ---------------------------------------------------------------------------
@@ -202,11 +252,9 @@ class TestCompare:
             {"a": d1, "b": d2},
             odir=str(tmp_path),
         )
-        assert len(paths) == 5  # SD-R-01..05
+        assert len(paths) == len(HUEABLE)
         names = {os.path.basename(p) for p in paths}
-        # No SD-R-07 in compare output
-        assert not any("sd_r_07" in n for n in names)
-        # No SD-T-* in compare output
+        assert not any("sd_r_14" in n for n in names)
         assert not any("sd_t_" in n for n in names)
 
     def test_compare_rejects_non_hueable_ids(self, toy_results, tmp_path):
@@ -217,8 +265,17 @@ class TestCompare:
             SolverDiag.compare(
                 {"a": d1},
                 odir=str(tmp_path),
-                plot_ids=["SD-R-07"],  # not hueable
+                plot_ids=["SD-T-07"],  # not hueable
             )
+
+    def test_compare_block_runs_with_regions(self, tmp_path, monkeypatch):
+        from pysuto.diag import SolverDiag
+        results, cr, acc = _solve_block_run(tmp_path, monkeypatch)
+        d1 = SolverDiag(results, cr, label="a", acc=acc)
+        d2 = SolverDiag(results, cr, label="b", acc=acc)
+        paths = SolverDiag.compare({"a": d1, "b": d2}, odir=str(tmp_path / "cmp"), regions=["A"])
+        assert len(paths) == len(HUEABLE)
+        assert all(os.path.basename(p).endswith("__a.png") for p in paths)
 
 
 # ---------------------------------------------------------------------------
@@ -232,14 +289,13 @@ class TestPlotSelection:
         results, run = toy_results
         diag = SolverDiag(results, run, label="toy")
         paths = diag.plot(odir=str(tmp_path),
-                          plot_ids=["SD-R-01", "SD-T-05", "SD-T-07"])
+                          plot_ids=["SD-R-01", "SD-R-12", "SD-T-07"])
         pngs = sorted(os.path.basename(p) for p in paths if p.endswith(".png"))
         assert pngs == sorted([
             "sd_r_01_solver_health.png",
-            "sd_t_05_distribution_of_a.png",
+            "sd_r_12_convergence_traces.png",
             "sd_t_07_rocket.png",
         ])
-        # No other figure leaked onto disk
         on_disk = {n for n in os.listdir(tmp_path) if n.endswith(".png")}
         assert on_disk == set(pngs)
 
@@ -247,13 +303,12 @@ class TestPlotSelection:
         from pysuto.diag import SolverDiag
         results, run = toy_results
         diag = SolverDiag(results, run, label="toy")
-        # Pass ids in reverse registry order; output must still follow registry order.
         paths = diag.plot(odir=str(tmp_path),
-                          plot_ids=["SD-T-07", "SD-T-05", "SD-R-01"])
+                          plot_ids=["SD-T-07", "SD-R-12", "SD-R-01"])
         pngs = [os.path.basename(p) for p in paths if p.endswith(".png")]
         assert pngs == [
             "sd_r_01_solver_health.png",
-            "sd_t_05_distribution_of_a.png",
+            "sd_r_12_convergence_traces.png",
             "sd_t_07_rocket.png",
         ]
 
@@ -270,6 +325,11 @@ class TestPlotSelection:
 # ---------------------------------------------------------------------------
 
 class TestRegistry:
+
+    def test_registry_is_the_portfolio(self):
+        from pysuto.diag import SolverDiag
+        assert [s.filename for s in SolverDiag.PLOTS.values()] == STEMS
+        assert [pid for pid, s in SolverDiag.PLOTS.items() if s.hueable] == HUEABLE
 
     def test_every_spec_method_exists(self):
         from pysuto.diag import SolverDiag

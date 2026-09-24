@@ -78,15 +78,26 @@ c, sigma_c = t_data["c"], t_data["sigma_c"]
 data/proc/opt/<opt_run_id>/
 ├── metadata.json
 ├── timesteps/
-│   └── t_<year>.npz         # per-t: F_opt, eps_opt, c_star, residuals
-└── diag/
+│   └── t_<year>.npz         # per-t: F_opt, a_prior, cols_t, rows_t, eps_opt, c_star, residuals, iter_history
+└── diag/                    # SolverDiag figures sd_*.png, ranking_<family>.csv, provenance.md,
+                             # edges_<year>.csv / constraints_<year>.csv (SolverStatsDiagnostic)
 ```
 
-`t_<year>.npz` keys:
-- `F_opt` — `(N_edges,)` — optimised flow.
-- `eps_opt` — `(n_free,)` — slack on free rows (in row-meta order, filtered to cone_type=free).
-- `c_star` — `(M,)` — `G @ F_opt`.
-- `residuals` — `(M,)` — `G @ F_opt - c` (sign-aware).
+`t_<year>.npz` keys — **block path** (every run since the year-local fix; `cols_t` is the
+schema discriminator):
+- `F_opt` — `(E_t,)` — optimised flow over the year's edges `cols_t` — a **year-local slice**,
+  not `(N_edges,)`. Global edge `e` is `F_opt[np.searchsorted(cols_t, e)]`, or scatter
+  `F = zeros(E); F[cols_t] = F_opt` before any product with `G`.
+- `a_prior` — `(E_t,)` — the prior the objective used for the year (cold: `f_agg(t)`; warm: `a_post(t−1)`).
+- `cols_t` / `rows_t` — `(E_t,)` / `(M_t,)` int64 — global edge / row indices of the slices.
+- `eps_opt` — `(n_free_t,)` — slack on the year's free rows.
+- `c_star` — `(M_t,)` — `c + ε` over `rows_t`: equals `G @ F_opt` on soft rows and **`c` itself on
+  hard rows** (so a `c_star − c` "residual" is identically 0 there).
+- `residuals` — `(M_t,)` — `G @ F_opt - c` over `rows_t` (sign-aware; the true hard-row residual).
+- `iter_history` — structured array (`iter, cost_primal, cost_dual, gap_abs, res_primal, res_dual,
+  ktratio, mu, step_length`), one record per Clarabel iteration.
+
+Legacy full-vector runs (empty `G_blocks`) store `(N_edges,)` / `(M,)` vectors with `cols_t = rows_t = None`.
 
 Solver telemetry per timestep lives in the sidecar `stage_summary.per_timestep[year]`:
 `objective, iterations, solve_time_s, solver_status, convergence` (Clarabel dict).

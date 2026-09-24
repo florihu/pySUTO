@@ -57,7 +57,7 @@ Always table-format these numbers in the report. The user reads the tables first
 
 Pick the worst case from Step 3 (e.g., one edge at one timestep). Trace it stage by stage backwards:
 
-1. `F_opt[edge]` in `data/proc/opt/<run>/timesteps/t_<year>.npz`.
+1. `F_opt` in `data/proc/opt/<run>/timesteps/t_<year>.npz` — year-local on block runs: the value of global edge `edge` is `F_opt[np.searchsorted(cols_t, edge)]` (legacy full-vector runs: `F_opt[edge]`).
 2. `a₀[edge]`, `σ_a[edge]` in `data/proc/const/<const_run>/a0.npy`, `sigma_a.npy`.
 3. Which rows of `G` reference that edge column? Filter `row_meta.parquet` by joining on the nonzero indices of `G[:, edge]`. List `(constraint_id, type, is_hard, c(t), σ_c(t))` for those rows.
 4. Was `a₀` populated from `f_agg` (a real observation) or from `FlatPriorImputer` (the cascade fallback)? Check `imputation_log.parquet` for `edge_id == edge`. If the log has no row, it came in via `f_agg` itself — look at `agg_result.npz` `F[:, edge]` to see which feed contributed.

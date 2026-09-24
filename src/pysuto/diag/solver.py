@@ -1,40 +1,87 @@
 """
 solver.py
 =========
-``SolverDiag`` — Stage 4 solver-side diagnostic suite.
+``SolverDiag`` — the Stage-4 (opt run) figure portfolio.
 
-Owns its own colour palette and styling helper because it renders a
-much wider plot surface than the other diagnostics.
+Every number is read from the all-years frames of
+:class:`pysuto.diag.stats.SolverStatsDiagnostic` (edge frame, constraint frame),
+so the figures and the per-year ``edges_<year>.csv`` / ``constraints_<year>.csv``
+agree by construction. Vocabulary follows CONTEXT.md: **defect** = ``a*−a_prior``
+per edge; **residual** = ``G·a−c`` per row; **objective share** = an item's ``z²``
+over its family's ``Σz²`` (the QP objective *is* ``Σz²``); **identity** = the
+cross-year key of an edge (template) or a row (``row_meta`` columns);
+**retention** = ``Σa*/Σa_prior`` over a set of edges.
+
+Plot catalogue — :attr:`SolverDiag.PLOTS` is the registry (ids are stable)
+---------------------------------------------------------------------------
+Run scope (x = year):
+
+* **SD-R-01** ``sd_r_01_solver_health`` — status strip, iterations, solve time,
+  final KKT residuals (``res_primal``, ``res_dual``, ``gap_rel``).      [hueable]
+* **SD-R-08** ``sd_r_08_useful_output`` — useful output (Process→Flow) by
+  process sector: ``Σa*(t)`` vs ``Σa_prior(t)`` and retention; one column per
+  valuation.
+* **SD-R-09** ``sd_r_09_flow_total_output`` — total output by flow sector
+  (Flow→Process + Flow→SB final demand, the ``usetotout`` group); same layout.
+* **SD-R-10** ``sd_r_10_boundary_flows`` — SB-input and SB-output totals and
+  retention by SB sector.
+* **SD-R-11** ``sd_r_11_objective_decomposition`` — ``Σz²`` per family (edge
+  defects / sum-row residuals / soft-ratio residuals) per year, max hard
+  mass-balance ``|G·a*−c|``, share of ``|z| > 3``.                    [hueable]
+* **SD-R-12** ``sd_r_12_convergence_traces`` — Clarabel per-iteration traces,
+  one line per year.
+* **SD-R-13** ``sd_r_13_objective_share_by_sector`` — objective share per
+  sector key, per family.                                              [hueable]
+* **SD-R-14** ``sd_r_14_top_identities`` — top-25 identities per family by
+  ``Σ_t z²``, annotated with ``Σ_t|Δ|``.
+* **SD-R-15a/b/c** ``sd_r_15{a,b,c}_profiles_{edges,sum_rows,soft_ratios}`` —
+  ``z_t`` over years for the top-12 identities of each family.
+
+Timestep scope (columns = first / worst-``Σz²`` / last year):
+
+* **SD-T-07** ``sd_t_07_rocket`` — c-space (``G·a_prior(t)`` vs ``c*`` on sum
+  rows) and a-space (``a_prior(t)`` vs ``a*``) log–log scatters, colour ``|z|``,
+  top-10 identities labelled.
+
+``plot(regions=[...])`` renders the same portfolio restricted to edges / rows
+touching those regions (filename suffix ``__<region>``); ``plot()`` also writes
+``ranking_<family>.csv`` (the full identity ranking) next to the figures.
 """
 
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import replace
-from typing import Any, NamedTuple, Optional
+from typing import NamedTuple, Optional
 
 import numpy as np
 import pandas as pd
 
-from ._plot import _C, _grouped_box_grid, _savefig
-
-
-_TYPE_COLORS = {
-    "mass_balance": _C["navy"],     # Type 1 (hard equality)
-    "sum_eq":       _C["blue"],     # Type 2 (soft sum)
-    "ratio_eq":     _C["purple"],   # Type 3 (soft ratio)
-    "ratio_bound":  _C["orange"],   # Type 4 (hard ratio bound)
-    "flow_bound":   _C["green"],    # Type 5 (hard flow bound — synthetic, from u/l)
-}
-
-# Display labels for the ratio_bound sub-kinds (sourced from params_id upstream).
-# stock_bounds is rendered as "stock share" in figure titles/legends.
-_RATIO_KIND_LABELS = {"conc": "conc", "eff": "eff", "stock_bounds": "stock share"}
-_RATIO_KINDS_ORDER = ("conc", "eff", "stock_bounds")
-_BOUND_DIRS_ORDER  = ("upper", "lower")
+from ._plot import _C, _CAT8, _savefig
+from .stats._core import boundary_edges, filter_regions, sector_totals
+from .stats.objective import (
+    FAMILIES, FAMILY_LABELS, family_frame, objective_decomposition, profiles,
+    rank_identities, share_by_key,
+)
+from .stats.solver import SolverStatsDiagnostic
 
 # Hue palette for SolverDiag.compare(). Order matters: first run gets blue.
 _HUE_PALETTE = ["blue", "orange", "green", "purple", "red", "navy"]
+# One colour / linestyle per objective family (single-run SD-R-11, SD-R-15).
+_FAMILY_COLOR = {"edges": _C["blue"], "sum_rows": _C["orange"], "soft_ratios": _C["purple"]}
+_FAMILY_LS    = {"edges": "-",        "sum_rows": "--",         "soft_ratios": ":"}
+_STATUS_COLOR = {"Solved": _C["green"], "AlmostSolved": _C["orange"]}   # anything else: red
+
+_LOG_FLOOR   = 1e-6   # values are floored here before log10 (rocket axes)
+_MAX_SERIES  = 8      # categorical hues per panel; the tail folds into "other"
+_TOP_KEYS    = 20     # sector keys shown in SD-R-13
+_TOP_IDS     = 25     # identities shown in SD-R-14
+_N_PROFILES  = 12     # identities profiled in SD-R-15
+_N_ROCKET_LABELS = 10
+# entity_sub tie-break for the SB legend order (label literals — see ADR 0034;
+# only an ordering hint, never a filter).
+_BOUNDARY_FAMILY_ORDER = {"Nature": 0, "SEM": 1, "FD": 2}
 
 
 class PlotSpec(NamedTuple):
@@ -43,8 +90,7 @@ class PlotSpec(NamedTuple):
     ``method`` is the ``_fig_*`` entrypoint (each returns exactly one Figure),
     ``filename`` the PNG stem (``.png`` appended at save), ``desc`` a one-line
     explanation, and ``hueable`` whether the fig can be overlaid in
-    :meth:`SolverDiag.compare` (excludes per-edge SD-R-07 and the SD-T-*
-    cross-sections, whose semantics differ across runs).
+    :meth:`SolverDiag.compare`.
     """
 
     method:   str
@@ -60,9 +106,18 @@ def _apply_modern_style(ax) -> None:
     ax.grid(alpha=0.25)
 
 
+def _slug(text) -> str:
+    return re.sub(r"[^A-Za-z0-9]+", "_", str(text)).strip("_").lower()
+
+
+def _short(text, n: int = 45) -> str:
+    s = str(text)
+    return s if len(s) <= n else s[: n - 1] + "…"
+
+
 class SolverDiag:
     """
-    Stage 3b solver diagnostics — runs after ``ClarabelSolver.solve_all()``.
+    Stage-4 solver diagnostics — runs after ``ClarabelSolver.solve_all()``.
 
     Two construction modes:
 
@@ -86,57 +141,43 @@ class SolverDiag:
         a0, sigma_a, u, l, and per-timestep c / sigma_c.
     label : str
         Optional label for figure titles and output filenames.
-    sigma_opt : dict[str, np.ndarray] | None
-        Optional per-timestep σ_opt (= sigma_a_star from
-        :class:`pysuto.uncprop.KalmanUncProp`) — when provided unlocks
-        the σ_opt / σ_a panel in SD-T-03.
+    acc : AccountingStructure | None
+        The accounting structure (edge labels, edge templates). Pass it when
+        the caller already holds it — loading ``copper`` costs several GB —
+        otherwise it is loaded lazily from ``constraint_run.acc_id``; when that
+        fails the edge-based figures render placeholders.
     """
 
     # ---- Plot registry — single source of truth (insertion order = render order) ----
     # Add an entry here whenever a new _fig_* method is implemented.
     PLOTS: "dict[str, PlotSpec]" = {
-        "SD-R-01":  PlotSpec("_fig_solver_health",    "sd_r_01_solver_health",     "Solver health: objective, iterations, solve time, KKT residuals", hueable=True),
-        "SD-R-02":  PlotSpec("_fig_mass_balance",     "sd_r_02_mass_balance",      "Mass-balance leakage: max|·| and L2 of residuals over t", hueable=True),
-        "SD-R-03":  PlotSpec("_fig_soft_slack",       "sd_r_03_soft_slack",        "Soft-slack stress: ε norms + fraction above 3·σ_c", hueable=True),
-        "SD-R-04":  PlotSpec("_fig_hard_active",      "sd_r_04_hard_active",       "Hard-inequality activity by kind/direction", hueable=True),
-        "SD-R-05":  PlotSpec("_fig_warmstart_delta",  "sd_r_05_warmstart_delta",   "Warm-start delta: L∞/L2/relative-L2 between consecutive solutions", hueable=True),
-        "SD-R-06":  PlotSpec("_fig_f_evolution",      "sd_r_06_f_evolution",       "F*(t) evolution: heatmap + top-variable edge lines"),
-        "SD-R-07":  PlotSpec("_fig_time_hued",        "sd_r_07_time_hued",         "Time-hued histograms of c* and |ε_opt|"),
-        "SD-R-08":  PlotSpec("_fig_process_outputs",  "sd_r_08_process_outputs",   "Process-entity outputs, stacked area by sector"),
-        "SD-R-09":  PlotSpec("_fig_flow_outputs",     "sd_r_09_flow_outputs",      "Flow-entity outputs, stacked area by sector"),
-        "SD-R-10":  PlotSpec("_fig_boundary_flows",   "sd_r_10_boundary_flows",    "System-boundary edge totals by sector: Σa* over SB edges, 2×2 (valuation × direction)"),
-        "SD-T-01":  PlotSpec("_fig_residual_digest",    "sd_t_01_residual_digest",    "Residual digest: log10|x| histograms by constraint type"),
-        "SD-T-02":  PlotSpec("_fig_zscore_soft",        "sd_t_02_zscore_soft",        "Soft-slack z-scores (ε/σ_c) histograms"),
-        "SD-T-03":  PlotSpec("_fig_solution_vs_prior",  "sd_t_03_solution_vs_prior",  "Solution magnitude + z-score + σ_opt/σ_a panels"),
-        "SD-T-04":  PlotSpec("_fig_binding_rate",       "sd_t_04_binding_rate",       "Per-type binding-rate distributions"),
-        "SD-T-05":  PlotSpec("_fig_solution_magnitude", "sd_t_05_distribution_of_a",  "Distribution of a (per period): log10|a_prior(t)| and log10|a*(t)|, sliced to the year's edges"),
-        "SD-T-06":  PlotSpec("_fig_cstar_vs_c",         "sd_t_06_cstar_vs_c",         "c*−c and relative-change histograms on soft rows"),
-        "SD-T-07":  PlotSpec("_fig_rocket",             "sd_t_07_rocket",             "Rocket: per-period log–log scatters of a_prior(t) vs a*(t) on key row families"),
-        "SD-T-08a": PlotSpec("_fig_eps_heatmap_ratio",  "sd_t_08a_eps_heatmap_ratio", "ratio_eq realized-ratio heatmap, top-50 by log10-range"),
-        "SD-T-08b": PlotSpec("_fig_eps_heatmap_sum",    "sd_t_08b_eps_heatmap_sum",   "sum_eq ε heatmap, top-50 nodes by log10-range"),
-        "SD-T-09a": PlotSpec("_fig_prior_departure_from_sector", "sd_t_09a_prior_dep_from_sector", "|a*−a₀| by from-sector"),
-        "SD-T-09b": PlotSpec("_fig_prior_departure_to_sector",   "sd_t_09b_prior_dep_to_sector",   "|a*−a₀| by to-sector"),
-        "SD-T-09c": PlotSpec("_fig_prior_departure_from_region", "sd_t_09c_prior_dep_from_region", "|a*−a₀| by from-region (mining highlighted)"),
-        "SD-T-09d": PlotSpec("_fig_prior_departure_to_region",   "sd_t_09d_prior_dep_to_region",   "|a*−a₀| by to-region (mining highlighted)"),
-        "SD-T-10":  PlotSpec("_fig_defect_over_time",   "sd_t_10_defect_time",        "Defect over time: per-year boxplot of log10|a*−a_prior|"),
-        "SD-T-11":  PlotSpec("_fig_constraint_residuals", "sd_t_11_constraint_residuals", "Per-year boxplots of log10|residual| — parametric-soft & supply/use-total constraints"),
+        "SD-R-01":  PlotSpec("_fig_solver_health",           "sd_r_01_solver_health",            "Solver health: status strip, iterations, solve time, final KKT residuals per year", hueable=True),
+        "SD-R-08":  PlotSpec("_fig_useful_output",           "sd_r_08_useful_output",            "Useful output (Process→Flow) by process sector: Σa*(t) vs Σa_prior(t) + retention, cols = valuation"),
+        "SD-R-09":  PlotSpec("_fig_flow_total_output",       "sd_r_09_flow_total_output",        "Total output by flow sector (Flow→Process + Flow→SB): Σa*(t) vs Σa_prior(t) + retention, cols = valuation"),
+        "SD-R-10":  PlotSpec("_fig_boundary_flows",          "sd_r_10_boundary_flows",           "System-boundary totals by SB sector: SB-input and SB-output Σa* vs Σa_prior + retention, cols = valuation"),
+        "SD-R-11":  PlotSpec("_fig_objective_decomposition", "sd_r_11_objective_decomposition",  "Objective decomposition per year: Σz² edge defects / sum-row residuals / soft-ratio residuals, max hard mass-balance |G·a*−c|, share |z|>3", hueable=True),
+        "SD-R-12":  PlotSpec("_fig_convergence_traces",      "sd_r_12_convergence_traces",       "Clarabel per-iteration traces (res_primal, res_dual, gap_abs, step_length), one line per year"),
+        "SD-R-13":  PlotSpec("_fig_objective_share_by_sector", "sd_r_13_objective_share_by_sector", "Objective share per sector key, per family (edges: from→to sector; sum rows: sector; soft ratios: numerator from→to sector)", hueable=True),
+        "SD-R-14":  PlotSpec("_fig_top_identities",          "sd_r_14_top_identities",           "Top-25 identities per family ranked by Σ_t z², annotated with Σ_t|Δ| in kt"),
+        "SD-R-15a": PlotSpec("_fig_profiles_edges",          "sd_r_15a_profiles_edges",          "z_t over years for the top-12 edge identities (cross-year template)"),
+        "SD-R-15b": PlotSpec("_fig_profiles_sum_rows",       "sd_r_15b_profiles_sum_rows",       "z_t over years for the top-12 sum-row identities"),
+        "SD-R-15c": PlotSpec("_fig_profiles_soft_ratios",    "sd_r_15c_profiles_soft_ratios",    "z_t over years for the top-12 soft-ratio identities"),
+        "SD-T-07":  PlotSpec("_fig_rocket",                  "sd_t_07_rocket",                   "Rocket: c-space (G·a_prior(t) vs c*, sum rows) and a-space (a_prior(t) vs a*) at first / worst-Σz² / last year, colour |z|"),
     }
 
-    def __init__(
-        self,
-        results,
-        constraint_run,
-        label: str = "",
-        sigma_opt: Optional[dict] = None,
-    ) -> None:
-        # Ordered list of timestep labels = key order in results dict
-        self.label         = label
-        self._results      = self._reassemble_if_year_local(
-            dict(results), constraint_run,
-        )
-        self._timesteps    = list(self._results.keys())
-        self._const_run    = constraint_run
-        self._sigma_opt    = dict(sigma_opt) if sigma_opt else None
+    def __init__(self, results, constraint_run, label: str = "", acc=None) -> None:
+        self.label      = label
+        self._results   = self._reassemble_if_year_local(dict(results), constraint_run)
+        self._timesteps = list(self._results.keys())      # original keys (str on disk)
+        self._years     = [str(t) for t in self._timesteps]
+        self._const_run = constraint_run
+
+        # Accounting structure: injected, or loaded lazily on first use.
+        self._acc          = acc
+        self._acc_resolved = acc is not None
+        self._stats_obj: Optional[SolverStatsDiagnostic] = None
+        self._fam_cache: dict = {}
+        self._dec_cache: dict = {}
 
         # Default odir cache — populated by from_opt_id; None for live mode
         self._default_odir: Optional[str] = None
@@ -147,12 +188,11 @@ class SolverDiag:
         self._imp_index_entry: Optional[dict] = None
         self._feed_entries:    Optional[list] = None
 
-        # Pre-compute row classification & masks once
+        # Row classification (mass-balance rows for summary()) and the ε-norm
+        # fallback for the worst year when no frames are available.
         self._row_info = self._classify_rows(constraint_run)
-
-        # Pre-compute per-timestep ||eps||_2 for t_worst selection
         self._eps_norms = {
-            t: float(np.linalg.norm(self._results[t].eps_opt))
+            t: float(np.linalg.norm(np.asarray(self._results[t].eps_opt, dtype=float)))
             for t in self._timesteps
         }
 
@@ -166,16 +206,37 @@ class SolverDiag:
         """The ``ConstraintRun`` this diag was built from."""
         return self._const_run
 
+    @property
+    def acc(self):
+        """The ``AccountingStructure`` (injected or lazily loaded); ``None`` when
+        it cannot be loaded (toy fixtures)."""
+        if not self._acc_resolved:
+            self._acc_resolved = True
+            try:
+                from pysuto.acc import AccountingStructure
+                self._acc = AccountingStructure.load(self._const_run.acc_id)
+            except Exception:
+                self._acc = None
+        return self._acc
+
+    @property
+    def stats(self) -> SolverStatsDiagnostic:
+        """The stats object owning the all-years frames (built once)."""
+        if self._stats_obj is None:
+            self._stats_obj = SolverStatsDiagnostic(
+                self._results, self._const_run, self.acc, years="all",
+            )
+        return self._stats_obj
+
     @staticmethod
     def _reassemble_if_year_local(results: dict, constraint_run) -> dict:
         """Block-path (year-local) results store only each period's solved
         slice (F_opt over cols_t, residuals/c_star over rows_t). Scatter the
         pieces back into one complete F (E,) and one complete residuals/c_star
         (M,) — each edge/row belongs to exactly one period, so the assembled
-        vectors are the true, placeholder-free solution. Every existing
-        global-index figure then works unchanged. Legacy (full-vector) results
-        are returned untouched. cols_t/rows_t are retained so per-period figures
-        can slice the complete vector to a single year."""
+        vectors are the true, placeholder-free solution. Legacy (full-vector)
+        results are returned untouched. cols_t/rows_t are retained so the
+        per-period prior can be re-sliced."""
         if not any(getattr(r, "cols_t", None) is not None for r in results.values()):
             return results
 
@@ -214,6 +275,7 @@ class SolverDiag:
         imp_dir:    str = "data/proc/imp",
         feed_dir:   str = "data/proc/feeds",
         label:      str = "",
+        acc=None,
     ) -> "SolverDiag":
         """Reconstruct results + ConstraintRun from disk."""
         # Local import to keep diag.py at the leaf of the import graph for
@@ -236,7 +298,7 @@ class SolverDiag:
         const_run = ConstraintRunRegistry(const_dir).load(const_run_id)
         warn_if_prefix_block_run(results, const_run)
 
-        instance = cls(results, const_run, label=label or opt_run_id)
+        instance = cls(results, const_run, label=label or opt_run_id, acc=acc)
         instance._default_odir = os.path.join(output_dir, opt_run_id, "diag")
 
         # Populate provenance chain
@@ -280,13 +342,11 @@ class SolverDiag:
     @staticmethod
     def _classify_rows(const_run) -> dict:
         """
-        Pre-compute masks over row_meta for quick filtering across figures.
+        Pre-compute masks over row_meta for quick filtering.
 
-        Returns dict with int-array indices keyed by the legacy display
-        buckets the figures use:
-            'mass_balance', 'sum_eq', 'ratio_eq', 'ratio_bound',
-            'zero', 'free', 'nonneg'
-        and a string array 'type_of_row' parallel to row_meta.
+        Returns dict with int-array indices keyed by the display buckets
+        'mass_balance', 'sum_eq', 'ratio_eq', 'ratio_bound', 'zero', 'free',
+        'nonneg' and a string array 'type_of_row' parallel to row_meta.
 
         These buckets are derived from the canonical row_meta family column
         ``type`` ∈ {massbal, sum, ratio} plus ``cone_type`` (which splits ratio
@@ -298,8 +358,6 @@ class SolverDiag:
 
         if "type" in rm.columns:
             fam = rm["type"].astype(str).to_numpy()
-            # Map the 3 canonical families (+cone) onto the legacy buckets.
-            # Legacy values pass through unchanged (robust to old fixtures).
             tp = fam.astype(object).copy()
             tp[fam == "massbal"] = "mass_balance"
             tp[fam == "sum"]     = "sum_eq"
@@ -312,11 +370,11 @@ class SolverDiag:
             is_hard = rm["is_hard"].to_numpy() if "is_hard" in rm.columns else np.zeros(len(rm), dtype=bool)
             tp = np.full(len(rm), "unknown", dtype=object)
             tp[(ct == "zero")   & is_hard] = "mass_balance"
-            tp[(ct == "free")  & ~is_hard] = "sum_eq"           # plausible default
+            tp[(ct == "free")  & ~is_hard] = "sum_eq"
             tp[(ct == "nonneg") & is_hard] = "ratio_bound"
             tp = tp.astype(str)
 
-        info = {
+        return {
             "type_of_row": tp,
             "cone_of_row": ct,
             "mass_balance": np.where(tp == "mass_balance")[0],
@@ -327,32 +385,64 @@ class SolverDiag:
             "free":         np.where(ct == "free")[0],
             "nonneg":       np.where(ct == "nonneg")[0],
         }
-        groups: dict[tuple[str, str], np.ndarray] = {}
-        if "ratio_kind" in rm.columns and "bound_dir" in rm.columns:
-            rk = rm["ratio_kind"].astype(str).to_numpy()
-            bd = rm["bound_dir"].astype(str).to_numpy()
-            is_rb = (tp == "ratio_bound")
-            for kind in _RATIO_KINDS_ORDER:
-                for direction in _BOUND_DIRS_ORDER:
-                    mask = is_rb & (rk == kind) & (bd == direction)
-                    groups[(kind, direction)] = np.where(mask)[0]
-        info["ratio_bound_groups"] = groups
-        return info
 
-    def _t_worst(self) -> str:
-        """Timestep with largest ||eps||_2."""
+    # ------------------------------------------------------------------
+    # Frames, families, decomposition (cached)
+    # ------------------------------------------------------------------
+
+    def _edge_frame(self):
+        return self.stats.edge_frame()
+
+    def _constraint_frame(self):
+        return self.stats.constraint_frame()
+
+    @staticmethod
+    def _rkey(regions):
+        return tuple(str(r) for r in regions) if regions else None
+
+    def _family(self, fam: str, regions=None):
+        """Harmonised family frame (cached per family × region filter)."""
+        key = (fam, self._rkey(regions))
+        if key not in self._fam_cache:
+            self._fam_cache[key] = family_frame(
+                self._edge_frame(), self._constraint_frame(), fam, regions=regions,
+            )
+        return self._fam_cache[key]
+
+    def _decomposition(self, regions=None):
+        """Per-year objective decomposition (cached per region filter); ``None``
+        when neither frame is available."""
+        key = self._rkey(regions)
+        if key not in self._dec_cache:
+            ef, cf = self._edge_frame(), self._constraint_frame()
+            if ef is None and cf is None:
+                self._dec_cache[key] = None
+            else:
+                self._dec_cache[key] = objective_decomposition(
+                    ef, cf, years=self._years, regions=regions,
+                )
+        return self._dec_cache[key]
+
+    def _key_for_year(self, year: str):
+        """The results-dict key whose ``str()`` is ``year``."""
+        for t in self._timesteps:
+            if str(t) == str(year):
+                return t
+        raise KeyError(year)
+
+    def _t_worst(self, regions=None):
+        """Year with the largest total Σz² (objective decomposition); falls back
+        to the largest ‖ε‖₂ when no frame is available."""
+        dec = self._decomposition(regions)
+        if dec is not None and dec["zsq_total"].notna().any():
+            y = dec.set_index("year")["zsq_total"].idxmax()
+            return self._key_for_year(y)
         return max(self._eps_norms, key=self._eps_norms.get)
 
-    def _t_median(self) -> str:
-        """Chronological middle timestep (index T//2)."""
-        return self._timesteps[len(self._timesteps) // 2]
-
-    def _resolve_timesteps(self, timesteps) -> tuple[str, str, str]:
+    def _resolve_timesteps(self, timesteps, regions=None) -> tuple:
+        """Default triple = (first, worst-Σz², last)."""
         if timesteps is None:
-            ts_min = self._timesteps[0]
-            ts_max = self._timesteps[-1]
-            ts_mid = self._t_median()
-            return ts_min, ts_mid, ts_max
+            return self._timesteps[0], self._t_worst(regions), self._timesteps[-1]
         if len(timesteps) != 3:
             raise ValueError(f"timesteps must be a triple, got {timesteps!r}")
         # Coerce to str: timestep keys are stored as strings on disk
@@ -360,7 +450,7 @@ class SolverDiag:
         for t in coerced:
             if t not in self._results:
                 raise KeyError(f"timestep '{t}' not in results")
-        return coerced  # type: ignore[return-value]
+        return coerced
 
     # ------------------------------------------------------------------
     # Public interface
@@ -374,9 +464,6 @@ class SolverDiag:
         n_almost = sum(s == "AlmostSolved" for s in statuses)
         total_iter = sum(self._results[t].iterations for t in self._timesteps)
         total_time = sum(self._results[t].solve_time_s for t in self._timesteps)
-
-        worst_t = self._t_worst()
-        worst_eps = self._eps_norms[worst_t]
 
         rinfo = self._row_info
         n_mb   = len(rinfo["mass_balance"])
@@ -397,7 +484,17 @@ class SolverDiag:
         lines.append(f"  timesteps : {n}  (solved={n_solved}, almost={n_almost})")
         lines.append(f"  KKT       : total_iter={total_iter}  total_time={total_time:.2f}s")
         lines.append(f"  rows      : mass_balance={n_mb}  soft={n_soft}  ratio_bound={n_rb}")
-        lines.append(f"  worst ε   : t={worst_t}  ‖ε‖₂={worst_eps:.3e}")
+        dec = self._decomposition()
+        if dec is not None and dec["zsq_total"].notna().any():
+            tot = dec[[f"zsq_{f}" for f in FAMILIES]].sum(min_count=1)
+            worst = self._t_worst()
+            lines.append(
+                "  objective : Σz² "
+                + "  ".join(f"{f}={tot[f'zsq_{f}']:.4g}" for f in FAMILIES)
+                + f"  (worst year t={worst})"
+            )
+        worst_eps = max(self._eps_norms, key=self._eps_norms.get)
+        lines.append(f"  worst ε   : t={worst_eps}  ‖ε‖₂={self._eps_norms[worst_eps]:.3e}")
         lines.append(f"  max |Gx-c| on mass-balance rows: {mb_max:.3e}")
         text = "\n".join(lines)
         print(text)
@@ -410,8 +507,9 @@ class SolverDiag:
         show: bool = False,
         dpi:  int  = 150,
         plot_ids: Optional[list] = None,
+        regions: Optional[list] = None,
     ) -> list[str]:
-        """Render figures from the :attr:`PLOTS` registry.
+        """Render figures from the :attr:`PLOTS` registry (+ ranking CSVs + provenance).
 
         Parameters
         ----------
@@ -419,12 +517,16 @@ class SolverDiag:
             Output directory. If None, defaults to ``{output_dir}/{opt_run_id}/diag``
             when this instance came from ``from_opt_id``; otherwise required.
         timesteps : tuple[str, str, str] | None
-            (t_min_col, t_mid_col, t_max_col) for cross-section figures. If None,
-            defaults to (first, worst-ε, last).
+            Columns of the timestep-scope figures (the rocket). ``None`` →
+            ``(first, worst-Σz², last)``.
         plot_ids : list[str] | None
             Subset of registry ids to render. ``None`` (default) renders every
             registered figure. Figures always render in canonical registry order
             regardless of the order given here. An unknown id raises ``ValueError``.
+        regions : list[str] | None
+            Restrict the sector totals, objective-share and rocket figures to
+            edges / rows touching these regions; filenames get a ``__<region>``
+            suffix. Solver-mechanics figures (SD-R-01, SD-R-12) ignore it.
         """
         import matplotlib.pyplot as plt  # noqa: F401 — pre-import for backend setup
         if odir is None:
@@ -443,18 +545,22 @@ class SolverDiag:
                 f"Unknown plot_ids {sorted(unknown)}. Valid ids: {list(self.PLOTS)}"
             )
 
-        ts_triple = self._resolve_timesteps(timesteps)
+        ts_triple = self._resolve_timesteps(timesteps, regions)
+        suffix = self._region_suffix(regions)
 
         paths: list[str] = []
         for pid, spec in self.PLOTS.items():        # canonical registry order
             if pid not in selected:
                 continue
-            fig = getattr(self, spec.method)(hue=None, timesteps=ts_triple)
-            p = _savefig(fig, os.path.join(odir, f"{spec.filename}.png"), dpi=dpi)
+            fig = getattr(self, spec.method)(hue=None, timesteps=ts_triple, regions=regions)
+            p = _savefig(fig, os.path.join(odir, f"{spec.filename}{suffix}.png"), dpi=dpi)
             print(f"   {pid}  → {p}  ✓")
             paths.append(p)
             if not show:
                 import matplotlib.pyplot as plt; plt.close(fig)
+
+        # The identity rankings behind SD-R-13/14/15 — one CSV per family.
+        paths += self.stats.write_rankings(odir, regions=regions, suffix=suffix)
 
         # Provenance is run lineage, not a figure — always appended (no-op in live mode).
         prov_path = self._write_provenance(odir)
@@ -468,7 +574,7 @@ class SolverDiag:
     # ------------------------------------------------------------------
 
     def _write_provenance(self, odir: str) -> Optional[str]:
-        """Write {label}_provenance.md to *odir* and print a compact tree to stdout."""
+        """Write provenance.md to *odir* and print a compact tree to stdout."""
         from datetime import datetime as _dt
 
         out_path  = os.path.join(odir, "provenance.md")
@@ -504,7 +610,7 @@ class SolverDiag:
 
         # ── Build markdown ─────────────────────────────────────────────
         lines = [
-            f"# Provenance: {self.label or tag}",
+            f"# Provenance: {self.label or self._opt_run_id or 'unlabeled'}",
             "",
             f"Generated: {now}",
             "",
@@ -572,6 +678,7 @@ class SolverDiag:
         plot_ids: Optional[list] = None,
         label: str = "compare",
         dpi:   int = 150,
+        regions: Optional[list] = None,
     ) -> list[str]:
         """
         Overlay run-scope diagnostics from multiple SolverDiag instances.
@@ -581,10 +688,12 @@ class SolverDiag:
         diags : dict[str, SolverDiag]
             ``{hue_label: diag}`` — up to 6 entries recommended (palette size).
         odir : str
-            Output directory. Files land at ``{odir}/{label}_{plot_id}.png``.
+            Output directory. Files land at ``{odir}/{label}_{stem}{suffix}.png``.
         plot_ids : list[str] | None
             Subset of hueable ids to render. Default is every hueable id in
             :attr:`PLOTS`.
+        regions : list[str] | None
+            Same region filter as :meth:`plot`.
         """
         if not diags:
             raise ValueError("compare() requires at least one diag")
@@ -607,18 +716,19 @@ class SolverDiag:
 
         # Render using the first diag as host; each method accepts hue=[(label,diag,color),...]
         host = next(iter(diags.values()))
+        suffix = cls._region_suffix(regions)
         paths: list[str] = []
         for pid in plot_ids:
             spec = cls.PLOTS[pid]
-            fig = getattr(host, spec.method)(hue=hue)
-            p = _savefig(fig, os.path.join(odir, f"{label}_{spec.filename}.png"), dpi=dpi)
+            fig = getattr(host, spec.method)(hue=hue, timesteps=None, regions=regions)
+            p = _savefig(fig, os.path.join(odir, f"{label}_{spec.filename}{suffix}.png"), dpi=dpi)
             print(f"   {pid} (compare) → {p}  ✓")
             paths.append(p)
             import matplotlib.pyplot as plt; plt.close(fig)
         return paths
 
     # ==================================================================
-    # Internal: data extractors  (used by figure methods)
+    # Internal: small helpers shared by the figures
     # ==================================================================
 
     def _ts_index(self) -> np.ndarray:
@@ -631,7 +741,7 @@ class SolverDiag:
     def _conv_series(self, key: str) -> np.ndarray:
         """Pull ``OptimResult.convergence[key]`` over time."""
         return np.array(
-            [float(self._results[t].convergence.get(key, np.nan))
+            [float((self._results[t].convergence or {}).get(key, np.nan))
              for t in self._timesteps]
         )
 
@@ -640,62 +750,269 @@ class SolverDiag:
             [float(getattr(self._results[t], attr)) for t in self._timesteps]
         )
 
-    def _mb_residuals(self, t: str) -> np.ndarray:
-        idx = self._row_info["mass_balance"]
-        if idx.size == 0:
-            return np.zeros(0)
-        return self._results[t].residuals[idx]
+    @staticmethod
+    def _region_suffix(regions) -> str:
+        if not regions:
+            return ""
+        return "__" + "-".join(_slug(r) for r in regions)
 
-    def _eps_for_type(self, t: str, type_key: str) -> np.ndarray:
-        """ε values for soft rows of a given type (sum_eq or ratio_eq)."""
-        idx = self._row_info[type_key]
-        if idx.size == 0:
-            return np.zeros(0)
-        # eps_opt is in free-cone row order (length n_free); but residuals
-        # are in original row order, so derive ε from c_star - c.
-        c   = np.asarray(self._const_run.timestep_data[t]["c"])
-        eps = self._results[t].c_star - c
-        return eps[idx]
+    def _title(self, base: str, regions=None, hue=None) -> str:
+        label = " vs ".join(str(l) for l, _, _ in hue) if hue else self.label
+        t = f"{base}  —  {label}" if label else base
+        if regions:
+            t += f"  ·  regions: {', '.join(str(r) for r in regions)}"
+        return t
 
-    def _sigma_c_for_type(self, t: str, type_key: str) -> np.ndarray:
-        idx = self._row_info[type_key]
-        if idx.size == 0:
-            return np.zeros(0)
-        sc = np.asarray(self._const_run.timestep_data[t]["sigma_c"])
-        return sc[idx]
+    def _placeholder(self, text: str, regions=None):
+        """A figure carrying only a title — used when the data behind a figure
+        is unavailable (no acc, toy row_meta) so the portfolio stays complete."""
+        import matplotlib.pyplot as plt
+        fig = plt.figure(figsize=(8, 3))
+        fig.suptitle(self._title(text, regions), fontsize=12)
+        return fig
 
-    def _nonneg_slack(self, t: str) -> np.ndarray:
-        """s = c - G·a for nonneg-cone rows (slack ≥ 0 ⇔ constraint satisfied)."""
-        idx = self._row_info["nonneg"]
-        if idx.size == 0:
-            return np.zeros(0)
-        return -self._results[t].residuals[idx]  # s = c - Gx = -(Gx - c)
+    def _set_year_xticks(self, ax, every: int = 1) -> None:
+        x = self._ts_index()
+        ax.set_xticks(x[::every])
+        ax.set_xticklabels(self._ts_labels_for_xticks()[::every], rotation=45, ha="right", fontsize=8)
 
-    def _flow_bound_slack(self, t: str) -> tuple[np.ndarray, np.ndarray]:
-        """Flow-bound slacks (u_i - a_i, a_i - l_i) over all edges."""
-        F = self._results[t].F_opt
-        u = np.asarray(self._const_run.u, dtype=float)
-        l = np.asarray(self._const_run.l, dtype=float)
-        return (u - F), (F - l)
+    @staticmethod
+    def _valuations(frame) -> list[str]:
+        """Valuation labels present in a frame (sorted — no label literals)."""
+        return sorted(frame["valuation"].dropna().astype(str).unique().tolist())
 
-    # ==================================================================
-    # Figures — Scope 1 (run-scope)
-    # ==================================================================
+    @staticmethod
+    def _series_colors(names) -> dict:
+        """Stable colour per series name: slots of the validated categorical
+        palette in sorted-name order; ``"other"`` is always grey."""
+        named = sorted(n for n in names if n != "other")
+        colors = {n: _CAT8[i % len(_CAT8)] for i, n in enumerate(named)}
+        colors["other"] = _C["grey"]
+        return colors
 
-    def _fig_solver_health(self, *, hue=None, timesteps=None):
-        """SD-R-01: 4 stacked panels."""
+    # ------------------------------------------------------------------
+    # Sector totals machinery (SD-R-08 / 09 / 10)
+    # ------------------------------------------------------------------
+
+    @staticmethod
+    def _named_groups(tot: pd.DataFrame, order_hint=None) -> list:
+        """Groups that get their own line, by mean |Σa*| descending; when more
+        than ``_MAX_SERIES`` exist the top ``_MAX_SERIES − 1`` are named and
+        the rest fold into ``"other"``. ``order_hint`` (dict name → rank) is
+        applied first (SB family order)."""
+        mag = tot.groupby("group", observed=True)["sum_post"].apply(lambda s: float(np.nanmean(np.abs(s))))
+        mag = mag.fillna(0.0)
+        keys = sorted(mag.index, key=lambda g: ((order_hint or {}).get(g, 0), -mag[g]))
+        if len(keys) > _MAX_SERIES:
+            by_mag = sorted(mag.index, key=lambda g: -mag[g])[: _MAX_SERIES - 1]
+            keys = [g for g in keys if g in set(by_mag)]
+        return keys
+
+    @staticmethod
+    def _fold_groups(tot: pd.DataFrame, named) -> pd.DataFrame:
+        """Sum every group not in ``named`` into ``"other"`` per (valuation, year)."""
+        named = set(named)
+        if tot["group"].isin(named).all():
+            return tot
+        t = tot.copy()
+        t["group"] = np.where(t["group"].isin(named), t["group"], "other")
+        g = (t.groupby(["group", "valuation", "year"], sort=False)[["sum_post", "sum_prior"]]
+              .sum(min_count=1).reset_index())
+        sp = g["sum_prior"].to_numpy(dtype=float)
+        with np.errstate(divide="ignore", invalid="ignore"):
+            g["retention"] = np.where(sp > 0, g["sum_post"].to_numpy(dtype=float) / sp, np.nan)
+        return g
+
+    def _totals_data(self, world_edges, group_col: str, regions=None, order_hint=None):
+        """(valuations, folded totals, ordered groups, colours) for one edge
+        subset. The named set and the colours come from the *world* view so a
+        region filter never repaints a sector."""
+        vals = self._valuations(world_edges)
+        world = sector_totals(world_edges, group_col, years=self._years, valuations=vals)
+        named = self._named_groups(world, order_hint)
+        colors = self._series_colors(named)
+        edges = filter_regions(world_edges, ("from_region", "to_region"), regions)
+        if edges.empty:
+            return vals, None, [], colors
+        tot = self._fold_groups(sector_totals(edges, group_col, years=self._years, valuations=vals), named)
+        groups = [g for g in named if g in set(tot["group"])]
+        if "other" in set(tot["group"]):
+            groups.append("other")
+        return vals, tot, groups, colors
+
+    def _draw_totals_rows(self, ax_top, ax_bot, vals, tot, groups, colors, unit="kt") -> None:
+        """Fill one (totals, retention) row pair: ``ax_top[c]`` / ``ax_bot[c]``
+        per valuation ``vals[c]``."""
+        x = self._ts_index()
+        for c, V in enumerate(vals):
+            at, ab = ax_top[c], ax_bot[c]
+            sub = tot[tot["valuation"] == V] if tot is not None else None
+            if sub is None or sub.empty:
+                at.text(0.5, 0.5, "n=0", transform=at.transAxes, ha="center", va="center",
+                        fontsize=9, color=_C["grey"])
+            else:
+                rmax = 1.0
+                vals_seen = []
+                for g in groups:
+                    s = sub[sub["group"] == g].set_index("year").reindex(self._years)
+                    if s["sum_post"].notna().sum() == 0 and s["sum_prior"].notna().sum() == 0:
+                        continue
+                    col = colors.get(g, _C["grey"])
+                    post, prior = s["sum_post"].to_numpy(dtype=float), s["sum_prior"].to_numpy(dtype=float)
+                    at.plot(x, post, color=col, lw=1.6, label=g)
+                    at.plot(x, prior, color=col, lw=1.1, ls="--", alpha=0.7)
+                    vals_seen.append(post); vals_seen.append(prior)
+                    r = s["retention"].to_numpy(dtype=float)
+                    ab.plot(x, r, color=col, lw=1.6, label=g)
+                    if np.isfinite(r).any():
+                        rmax = max(rmax, float(np.nanmax(r)))
+                allv = np.concatenate(vals_seen) if vals_seen else np.array([1.0])
+                allv = allv[np.isfinite(allv)]
+                if allv.size and (allv <= 0).any():
+                    # signed series (net stock changes): symlog keeps sign and zeros readable
+                    pos = allv[allv > 0]
+                    lin = 10 ** np.floor(np.log10(pos.min())) if pos.size else 1.0
+                    at.set_yscale("symlog", linthresh=max(float(lin), 1e-3))
+                else:
+                    at.set_yscale("log")
+                ab.set_ylim(0, min(max(1.5, rmax * 1.05), 5.0))
+            ab.axhline(1.0, color=_C["grey"], lw=1.0, ls="--")
+            at.set_title(f"valuation = {V}", loc="left", fontsize=10)
+            if c == 0:
+                at.set_ylabel(f"Σ a* (solid) · Σ a_prior (dashed) [{unit}]")
+                ab.set_ylabel("retention Σa*/Σa_prior")
+            _apply_modern_style(at)
+            _apply_modern_style(ab)
+
+    def _totals_legend(self, fig, groups, colors, loc_rect=(0, 0, 0.87, 0.95)) -> None:
+        from matplotlib.lines import Line2D
+        handles = [Line2D([0], [0], color=colors.get(g, _C["grey"]), lw=1.8, label=g) for g in groups]
+        handles.append(Line2D([0], [0], color=_C["navy"], lw=1.6, label="posterior a*(t)"))
+        handles.append(Line2D([0], [0], color=_C["navy"], lw=1.1, ls="--", alpha=0.7, label="prior a_prior(t)"))
+        fig.legend(handles=handles, loc="center right", fontsize=7, frameon=False,
+                   bbox_to_anchor=(1.0, 0.5))
+        fig.tight_layout(rect=list(loc_rect))
+
+    def _fig_totals_by_sector(self, *, subset, fig_id: str, title: str, regions=None):
+        """Shared body of SD-R-08 / SD-R-09: 2 rows (Σ totals, retention) ×
+        valuation columns for one edge subset grouped by ``from_sector``."""
         import matplotlib.pyplot as plt
 
-        fig, axes = plt.subplots(4, 1, figsize=(13, 9), sharex=True)
-        fig.suptitle(self._title("Solver health (SD-R-01)"), fontsize=13, fontweight="bold")
+        if subset is None:
+            return self._placeholder(f"{fig_id}: edge frame unavailable (acc data missing)", regions)
+        if subset.empty:
+            return self._placeholder(f"{fig_id}: no edges in this subset", regions)
+        vals, tot, groups, colors = self._totals_data(subset, "from_sector", regions)
+        fig, axes = plt.subplots(2, len(vals), figsize=(6.5 * len(vals) + 1.5, 8.5),
+                                 sharex=True, squeeze=False)
+        fig.suptitle(self._title(f"{title} ({fig_id})", regions), fontsize=13, fontweight="bold")
+        self._draw_totals_rows(axes[0], axes[1], vals, tot, groups, colors)
+        for c in range(len(vals)):
+            self._set_year_xticks(axes[1][c])
+            axes[1][c].set_xlabel("year")
+        self._totals_legend(fig, groups, colors)
+        return fig
+
+    def _fig_useful_output(self, *, hue=None, timesteps=None, regions=None):
+        """SD-R-08: useful output (Process→Flow) by process sector."""
+        ef = self._edge_frame()
+        subset = None
+        if ef is not None:
+            if not {"from_entity", "to_entity"} <= set(ef.columns):
+                return self._placeholder("SD-R-08: edge frame lacks entity columns", regions)
+            subset = ef[(ef["from_entity"].astype(str) == "Process")
+                        & (ef["to_entity"].astype(str) == "Flow")]
+        return self._fig_totals_by_sector(
+            subset=subset, fig_id="SD-R-08",
+            title="Useful output (Process→Flow) by process sector", regions=regions,
+        )
+
+    def _fig_flow_total_output(self, *, hue=None, timesteps=None, regions=None):
+        """SD-R-09: total output by flow sector (Flow→Process + Flow→SB)."""
+        ef = self._edge_frame()
+        subset = None
+        if ef is not None:
+            if "from_entity" not in ef.columns:
+                return self._placeholder("SD-R-09: edge frame lacks entity columns", regions)
+            subset = ef[ef["from_entity"].astype(str) == "Flow"]
+        return self._fig_totals_by_sector(
+            subset=subset, fig_id="SD-R-09",
+            title="Total output by flow sector (Flow→Process + Flow→SB)", regions=regions,
+        )
+
+    def _fig_boundary_flows(self, *, hue=None, timesteps=None, regions=None):
+        """SD-R-10: SB-input / SB-output totals and retention by SB sector."""
+        import matplotlib.pyplot as plt
+
+        ef = self._edge_frame()
+        if ef is None:
+            return self._placeholder("SD-R-10: edge frame unavailable (acc data missing)", regions)
+        if not {"from_entity", "to_entity"} <= set(ef.columns):
+            return self._placeholder("SD-R-10: edge frame lacks entity columns", regions)
+        be = boundary_edges(ef)
+        if be.empty:
+            return self._placeholder("SD-R-10: no system-boundary edges present", regions)
+
+        directions = [("sb_input", "SB-input (entity_from = SB)"),
+                      ("sb_output", "SB-output (entity_to = SB, incl. final demand)")]
+        prepared = []
+        for key, dlabel in directions:
+            sub = be[be["direction"] == key]
+            if sub.empty:
+                prepared.append((dlabel, None, None, [], {}))
+                continue
+            fam_of = (sub.drop_duplicates("sb_sector").set_index("sb_sector")["sb_entity_sub"]
+                         .astype(str).to_dict())
+            hint = {s: _BOUNDARY_FAMILY_ORDER.get(f, 99) for s, f in fam_of.items()}
+            prepared.append((dlabel,) + self._totals_data(sub, "sb_sector", regions, order_hint=hint))
+
+        vals = next((p[1] for p in prepared if p[1] is not None), None)
+        if vals is None:
+            return self._placeholder("SD-R-10: no system-boundary edges present", regions)
+        fig, axes = plt.subplots(4, len(vals), figsize=(6.5 * len(vals) + 1.5, 15),
+                                 sharex=True, squeeze=False)
+        fig.suptitle(self._title("System-boundary totals by SB sector (SD-R-10)", regions),
+                     fontsize=13, fontweight="bold")
+        all_groups: list = []
+        all_colors: dict = {}
+        for d, (dlabel, dvals, tot, groups, colors) in enumerate(prepared):
+            top, bot = axes[2 * d], axes[2 * d + 1]
+            if dvals is None:
+                for c in range(len(vals)):
+                    top[c].text(0.5, 0.5, "n=0", transform=top[c].transAxes, ha="center",
+                                va="center", fontsize=9, color=_C["grey"])
+            else:
+                self._draw_totals_rows(top, bot, dvals, tot, groups, colors)
+            for c in range(len(vals)):
+                top[c].set_title(f"{dlabel} · valuation = {vals[c]}", loc="left", fontsize=10)
+            all_groups += [g for g in groups if g not in all_groups]
+            all_colors.update(colors)
+        for c in range(len(vals)):
+            self._set_year_xticks(axes[-1][c])
+            axes[-1][c].set_xlabel("year")
+        self._totals_legend(fig, all_groups, all_colors)
+        return fig
+
+    # ------------------------------------------------------------------
+    # Solver performance (SD-R-01 / 11 / 12)
+    # ------------------------------------------------------------------
+
+    def _fig_solver_health(self, *, hue=None, timesteps=None, regions=None):
+        """SD-R-01: status strip + iterations + solve time + final KKT residuals."""
+        import matplotlib.pyplot as plt
+        from matplotlib.lines import Line2D
 
         runs = hue if hue else [(self.label or "run", self, _C["blue"])]
+        fig, axes = plt.subplots(4, 1, figsize=(13, 9.5), sharex=True,
+                                 gridspec_kw={"height_ratios": [0.5 + 0.15 * len(runs), 1, 1, 1.4]})
+        fig.suptitle(self._title("Solver health (SD-R-01)", hue=hue), fontsize=13, fontweight="bold")
         x_master = self._ts_index()
 
-        for lbl, dg, color in runs:
+        for k, (lbl, dg, color) in enumerate(runs):
             x = dg._ts_index()
-            axes[0].plot(x, dg._scalar_series("objective"),
-                         color=color, lw=1.6, marker="o", ms=3, label=lbl)
+            statuses = [str(dg._results[t].solver_status) for t in dg._timesteps]
+            cols = [_STATUS_COLOR.get(s, _C["red"]) for s in statuses]
+            axes[0].scatter(x, np.full(len(x), k), c=cols, s=42, marker="s", edgecolors="none")
             axes[1].plot(x, dg._scalar_series("iterations"),
                          color=color, lw=1.6, marker="o", ms=3, label=lbl)
             axes[2].plot(x, dg._scalar_series("solve_time_s"),
@@ -704,1741 +1021,381 @@ class SolverDiag:
                              color=color, lw=1.4, ls="-",  label=f"{lbl}: res_primal")
             axes[3].semilogy(x, np.maximum(dg._conv_series("res_dual"),   1e-16),
                              color=color, lw=1.4, ls="--", label=f"{lbl}: res_dual")
-            axes[3].semilogy(x, np.maximum(dg._conv_series("gap_abs"),    1e-16),
-                             color=color, lw=1.4, ls=":",  label=f"{lbl}: gap_abs")
+            axes[3].semilogy(x, np.maximum(dg._conv_series("gap_rel"),    1e-16),
+                             color=color, lw=1.4, ls=":",  label=f"{lbl}: gap_rel")
 
-        axes[0].set_ylabel("objective");      axes[0].set_title("Objective", loc="left", fontsize=10)
+        axes[0].set_yticks(range(len(runs)))
+        axes[0].set_yticklabels([lbl for lbl, _, _ in runs], fontsize=8)
+        axes[0].set_ylim(-0.6, len(runs) - 0.4)
+        axes[0].set_title("Status", loc="left", fontsize=10)
+        status_handles = [Line2D([0], [0], marker="s", ls="", color=c, ms=7, label=s)
+                          for s, c in list(_STATUS_COLOR.items()) + [("other", _C["red"])]]
+        axes[0].legend(handles=status_handles, fontsize=7, frameon=False, loc="upper right", ncol=3)
         axes[1].set_ylabel("iterations");     axes[1].set_title("Iterations", loc="left", fontsize=10)
         axes[2].set_ylabel("solve_time (s)"); axes[2].set_title("Solve time", loc="left", fontsize=10)
-        axes[3].set_ylabel("residual");       axes[3].set_title("Final KKT residuals", loc="left", fontsize=10)
-        axes[3].axhspan(1e-9, 1e-7, color=_C["grey"], alpha=0.10)  # tolerance band
+        axes[3].set_ylabel("residual");       axes[3].set_title("Final KKT residuals (res_primal, res_dual, gap_rel)", loc="left", fontsize=10)
+        axes[3].axhspan(1e-9, 1e-7, color=_C["grey"], alpha=0.10)  # Clarabel default feasibility band
 
         for ax in axes:
             _apply_modern_style(ax)
+        axes[0].grid(False)
         axes[-1].set_xticks(x_master)
         axes[-1].set_xticklabels(self._ts_labels_for_xticks(), rotation=45, ha="right", fontsize=8)
-        axes[-1].set_xlabel("timestep")
-
-        if hue or len(runs) > 1:
-            axes[3].legend(fontsize=7, ncol=min(3, len(runs)*3), frameon=False, loc="upper right")
-        else:
-            axes[3].legend(fontsize=8, frameon=False, loc="upper right")
+        axes[-1].set_xlabel("year")
+        axes[3].legend(fontsize=7, ncol=min(3, len(runs) * 3), frameon=False, loc="center right")
+        if len(runs) > 1:
+            axes[1].legend(fontsize=7, frameon=False, loc="upper right")
         fig.tight_layout(rect=[0, 0, 1, 0.96])
         return fig
 
-    def _fig_mass_balance(self, *, hue=None, timesteps=None):
-        """SD-R-02: max/L2 of mass-balance residual per timestep (semilogy)."""
+    def _fig_objective_decomposition(self, *, hue=None, timesteps=None, regions=None):
+        """SD-R-11: Σz² per family per year, max hard mass-balance |G·a*−c|, share |z|>3."""
         import matplotlib.pyplot as plt
-
-        fig, ax = plt.subplots(1, 1, figsize=(13, 5))
-        fig.suptitle(self._title("Mass-balance leakage (SD-R-02)"),
-                     fontsize=13, fontweight="bold")
-
-        runs = hue if hue else [(self.label or "run", self, _C["navy"])]
-        for lbl, dg, color in runs:
-            x = dg._ts_index()
-            mx = np.array([float(np.max(np.abs(dg._mb_residuals(t)))) if dg._mb_residuals(t).size else np.nan
-                           for t in dg._timesteps])
-            l2 = np.array([float(np.linalg.norm(dg._mb_residuals(t)))
-                           for t in dg._timesteps])
-            ax.semilogy(x, np.maximum(mx, 1e-16),
-                        color=color, lw=1.6, marker="o", ms=3, ls="-",  label=f"{lbl}: max|·|")
-            ax.semilogy(x, np.maximum(l2, 1e-16),
-                        color=color, lw=1.4, marker="s", ms=3, ls="--", label=f"{lbl}: ‖·‖₂")
-
-        ax.axhspan(1e-9, 1e-7, color=_C["grey"], alpha=0.10, label="solver tol band")
-        ax.set_xticks(self._ts_index())
-        ax.set_xticklabels(self._ts_labels_for_xticks(), rotation=45, ha="right", fontsize=8)
-        ax.set_xlabel("timestep")
-        ax.set_ylabel("|G·a − c| on hard balance rows")
-        _apply_modern_style(ax)
-        ax.legend(fontsize=8, frameon=False, loc="upper right",
-                  ncol=max(1, len(runs)))
-        fig.tight_layout(rect=[0, 0, 1, 0.94])
-        return fig
-
-    def _fig_soft_slack(self, *, hue=None, timesteps=None):
-        """SD-R-03: ε norms + fraction of soft rows with |ε| > 3·σ_c."""
-        import matplotlib.pyplot as plt
-
-        fig, axes = plt.subplots(2, 1, figsize=(13, 7), sharex=True)
-        fig.suptitle(self._title("Soft-slack stress (SD-R-03)"),
-                     fontsize=13, fontweight="bold")
 
         runs = hue if hue else [(self.label or "run", self, _C["blue"])]
+        decs = [(lbl, dg, color, dg._decomposition(regions)) for lbl, dg, color in runs]
+        if all(d is None for _, _, _, d in decs):
+            return self._placeholder("SD-R-11: no frames available (acc / row_meta missing)", regions)
 
-        for lbl, dg, color in runs:
+        fig, axes = plt.subplots(3, 1, figsize=(13, 10), sharex=True)
+        fig.suptitle(self._title("Objective decomposition (SD-R-11)", regions, hue=hue),
+                     fontsize=13, fontweight="bold")
+        for lbl, dg, color, dec in decs:
+            if dec is None:
+                continue
+            d = dec.set_index("year").reindex(dg._years)
             x = dg._ts_index()
-            # Panel A: ||eps||_inf, ||eps||_2, median |eps|
-            eps_inf = np.array([float(np.max(np.abs(dg._results[t].eps_opt))) if dg._results[t].eps_opt.size else np.nan
-                                for t in dg._timesteps])
-            eps_l2  = np.array([float(np.linalg.norm(dg._results[t].eps_opt))
-                                for t in dg._timesteps])
-            eps_med = np.array([float(np.median(np.abs(dg._results[t].eps_opt))) if dg._results[t].eps_opt.size else np.nan
-                                for t in dg._timesteps])
-            eps_max = np.array([float(np.max(np.abs(dg._results[t].eps_opt))) if dg._results[t].eps_opt.size else np.nan
-                                for t in dg._timesteps])
-            axes[0].semilogy(x, np.maximum(eps_inf, 1e-16), color=color, lw=1.6, ls="-",  marker="o", ms=3, label=f"{lbl}: ‖ε‖∞")
-            axes[0].semilogy(x, np.maximum(eps_l2,  1e-16), color=color, lw=1.4, ls="--", marker="s", ms=3, label=f"{lbl}: ‖ε‖₂")
-            axes[0].semilogy(x, np.maximum(eps_med, 1e-16), color=color, lw=1.2, ls=":",  marker="^", ms=3, label=f"{lbl}: median|ε|")
-            axes[0].semilogy(x, np.maximum(eps_max, 1e-16), color=color, lw=1.0, ls="-.", marker="D", ms=3, label=f"{lbl}: max|ε|")
+            for fam in FAMILIES:
+                col = color if hue else _FAMILY_COLOR[fam]
+                name = f"{lbl}: {FAMILY_LABELS[fam]}" if hue else FAMILY_LABELS[fam]
+                axes[0].semilogy(x, d[f"zsq_{fam}"].clip(lower=1e-12).to_numpy(dtype=float),
+                                 color=col, ls=_FAMILY_LS[fam], lw=1.6, label=name)
+                axes[2].plot(x, d[f"share_gt3_{fam}"].to_numpy(dtype=float),
+                             color=col, ls=_FAMILY_LS[fam], lw=1.6, label=name)
+            axes[0].semilogy(x, d["zsq_total"].clip(lower=1e-12).to_numpy(dtype=float),
+                             color=color if hue else _C["navy"], lw=2.2, alpha=0.9,
+                             label=f"{lbl}: total" if hue else "total")
+            axes[1].semilogy(x, d["max_abs_resid_massbal"].clip(lower=1e-16).to_numpy(dtype=float),
+                             color=color, lw=1.6, marker="o", ms=3, label=lbl)
 
-            # Panel B: fraction of soft rows with |eps| > 3 sigma_c
-            if hue is None:
-                # No hue → split by constraint type
-                for tkey, tcol_key in [("sum_eq", "blue"), ("ratio_eq", "purple")]:
-                    frac = np.array([dg._frac_above_3sigma(t, tkey) for t in dg._timesteps])
-                    axes[1].plot(x, frac, color=_C[tcol_key], lw=1.6, marker="o", ms=3,
-                                 label=tkey)
-            else:
-                # Hued → aggregate over both soft types
-                frac = np.array([
-                    dg._frac_above_3sigma(t, None)  # combined
-                    for t in dg._timesteps
-                ])
-                axes[1].plot(x, frac, color=color, lw=1.6, marker="o", ms=3, label=lbl)
-
-        axes[0].set_ylabel("|ε|")
-        axes[0].set_title("ε norms over time", loc="left", fontsize=10)
-        axes[1].set_ylabel("fraction |ε| > 3·σ_c")
-        axes[1].set_ylim(-0.02, 1.02)
-        axes[1].set_title("Fraction of soft rows breaching 3σ_c", loc="left", fontsize=10)
-
+        axes[0].set_ylabel("Σz² (objective)")
+        axes[0].set_title("Σz² per family — edge defects · sum-row residuals · soft-ratio residuals", loc="left", fontsize=10)
+        axes[1].set_ylabel("max |G·a* − c|")
+        axes[1].set_title("Max hard mass-balance residual", loc="left", fontsize=10)
+        axes[1].axhspan(1e-9, 1e-7, color=_C["grey"], alpha=0.10)
+        axes[2].set_ylabel("share of rows with |z| > 3")
+        axes[2].set_title("Share |z| > 3 per family (priced disagreement, not violation)", loc="left", fontsize=10)
+        axes[2].set_ylim(0, 1)
         for ax in axes:
             _apply_modern_style(ax)
-        axes[1].set_xticks(self._ts_index())
-        axes[1].set_xticklabels(self._ts_labels_for_xticks(), rotation=45, ha="right", fontsize=8)
-        axes[1].set_xlabel("timestep")
-        axes[0].legend(fontsize=7, frameon=False, loc="upper right",
-                       ncol=max(1, len(runs)))
-        axes[1].legend(fontsize=8, frameon=False, loc="upper right")
-        fig.tight_layout(rect=[0, 0, 1, 0.95])
-        return fig
-
-    def _frac_above_3sigma(self, t: str, type_key: Optional[str]) -> float:
-        """Helper: fraction of soft rows with |ε| > 3 σ_c (one or all soft types)."""
-        if type_key is None:
-            eps   = np.concatenate([self._eps_for_type(t, "sum_eq"), self._eps_for_type(t, "ratio_eq")])
-            sigma = np.concatenate([self._sigma_c_for_type(t, "sum_eq"), self._sigma_c_for_type(t, "ratio_eq")])
-        else:
-            eps   = self._eps_for_type(t, type_key)
-            sigma = self._sigma_c_for_type(t, type_key)
-        if eps.size == 0:
-            return float("nan")
-        # Avoid div-by-zero
-        sig = np.where(sigma > 0, sigma, np.inf)
-        return float(np.mean(np.abs(eps) > 3.0 * sig))
-
-    def _fig_hard_active(self, *, hue=None, timesteps=None):
-        """SD-R-04: active Type-4 ratio bounds, split by (ratio_kind × bound_dir).
-
-        3×2 grid: rows = conc/eff/share, cols = upper/lower. Each cell shows
-        the fraction of rows of that (kind, dir) bucket that are active
-        (slack within solver tolerance) over time.
-        """
-        import matplotlib.pyplot as plt
-
-        n_rows = len(_RATIO_KINDS_ORDER)
-        n_cols = len(_BOUND_DIRS_ORDER)
-        fig, axes = plt.subplots(n_rows, n_cols, figsize=(13, 8.5), sharex=True)
-        fig.suptitle(self._title("Hard ratio-bound activity (SD-R-04)"),
-                     fontsize=13, fontweight="bold")
-
-        runs = hue if hue else [(self.label or "run", self, _C["orange"])]
-        tol = 1e-7  # solver eps_abs by default
-
-        for lbl, dg, color in runs:
-            x = dg._ts_index()
-            groups = dg._row_info.get("ratio_bound_groups", {})
-            for r, kind in enumerate(_RATIO_KINDS_ORDER):
-                for c, direction in enumerate(_BOUND_DIRS_ORDER):
-                    ax = axes[r, c]
-                    idx = groups.get((kind, direction), np.array([], dtype=int))
-                    n = idx.size
-                    if n:
-                        frac = np.array([
-                            np.sum(np.abs(-dg._results[t].residuals[idx]) <= tol) / n
-                            for t in dg._timesteps
-                        ])
-                    else:
-                        frac = np.zeros(len(dg._timesteps))
-                    ax.plot(x, frac, color=color, lw=1.6, marker="o", ms=3.5, label=lbl)
-
-        for r, kind in enumerate(_RATIO_KINDS_ORDER):
-            for c, direction in enumerate(_BOUND_DIRS_ORDER):
-                ax = axes[r, c]
-                n = self._row_info.get("ratio_bound_groups", {}).get(
-                    (kind, direction), np.array([], dtype=int)).size
-                label = _RATIO_KIND_LABELS.get(kind, kind)
-                ax.set_title(f"{label} · {direction}  (n={n})",
-                             loc="left", fontsize=9)
-                ax.set_ylim(-0.01, 1.05)
-                if c == 0:
-                    ax.set_ylabel("active fraction")
-                _apply_modern_style(ax)
-
-        for c in range(n_cols):
-            axes[-1, c].set_xticks(self._ts_index())
-            axes[-1, c].set_xticklabels(self._ts_labels_for_xticks(),
-                                       rotation=45, ha="right", fontsize=8)
-            axes[-1, c].set_xlabel("timestep")
-
-        if hue is not None:
-            axes[0, 0].legend(fontsize=8, frameon=False, loc="upper right")
-        fig.tight_layout(rect=[0, 0, 1, 0.95])
-        return fig
-
-    def _fig_warmstart_delta(self, *, hue=None, timesteps=None):
-        """SD-R-05: consecutive ||a*(t) − a*(t-1)|| over time."""
-        import matplotlib.pyplot as plt
-
-        fig, ax = plt.subplots(1, 1, figsize=(13, 6))
-        fig.suptitle(self._title("Warm-start delta (SD-R-05)"),
-                     fontsize=13, fontweight="bold")
-
-        runs = hue if hue else [(self.label or "run", self, _C["green"])]
-
-        for lbl, dg, color in runs:
-            ts = dg._timesteps
-            if len(ts) < 2:
-                ax.text(0.5, 0.5, "Need ≥ 2 timesteps for warm-start delta",
-                        transform=ax.transAxes, ha="center", color=_C["grey"])
-                continue
-            l_inf, l_2, l_rel = [], [], []
-            for i in range(1, len(ts)):
-                F   = dg._results[ts[i]].F_opt
-                Fm1 = dg._results[ts[i-1]].F_opt
-                d   = F - Fm1
-                l_inf.append(float(np.max(np.abs(d))))
-                l_2.append(float(np.linalg.norm(d)))
-                denom = max(float(np.linalg.norm(Fm1)), 1e-16)
-                l_rel.append(float(np.linalg.norm(d) / denom))
-            x = np.arange(1, len(ts))
-            ax.semilogy(x, np.maximum(l_inf, 1e-16), color=color, lw=1.5, ls="-",  marker="o", ms=3, label=f"{lbl}: L∞")
-            ax.semilogy(x, np.maximum(l_2,   1e-16), color=color, lw=1.4, ls="--", marker="s", ms=3, label=f"{lbl}: L₂")
-            ax.semilogy(x, np.maximum(l_rel, 1e-16), color=color, lw=1.3, ls=":",  marker="^", ms=3, label=f"{lbl}: rel L₂")
-
-        ax.set_xticks(self._ts_index())
-        ax.set_xticklabels(self._ts_labels_for_xticks(), rotation=45, ha="right", fontsize=8)
-        ax.set_xlabel("timestep")
-        ax.set_ylabel("‖a*(t) − a*(t−1)‖")
-        _apply_modern_style(ax)
-        ax.legend(fontsize=7, frameon=False, loc="upper right",
-                  ncol=max(1, len(runs)))
-        fig.tight_layout(rect=[0, 0, 1, 0.94])
-        return fig
-
-    def _fig_f_evolution(self, *, hue=None, timesteps=None):
-        """SD-R-06: heatmap of F*(t) for top-K most-variable edges + top-10 lines."""
-        import matplotlib.pyplot as plt
-        from matplotlib.colors import SymLogNorm
-
-        K = 200
-        F = np.stack([self._results[t].F_opt for t in self._timesteps], axis=1)
-        # Variability per edge: range across time on log-magnitude.
-        with np.errstate(divide="ignore", invalid="ignore"):
-            log_abs = np.log10(np.abs(F) + 1e-20)
-        var_per_edge = log_abs.max(axis=1) - log_abs.min(axis=1)
-        order = np.argsort(-var_per_edge)
-        top = order[:min(K, F.shape[0])]
-        F_top = F[top]
-
-        fig, axes = plt.subplots(2, 1, figsize=(13, 9),
-                                 gridspec_kw={"height_ratios": [3, 2]})
-        fig.suptitle(self._title("F*(t) evolution (SD-R-06)"),
-                     fontsize=13, fontweight="bold")
-
-        # Panel A: heatmap (edges × time)
-        ax = axes[0]
-        vmax = max(1e-12, float(np.nanmax(np.abs(F_top))) if F_top.size else 1.0)
-        norm = SymLogNorm(linthresh=max(1e-9, vmax * 1e-9), vmin=-vmax, vmax=vmax, base=10)
-        im = ax.imshow(F_top, aspect="auto", cmap="RdBu_r", norm=norm,
-                       interpolation="nearest")
-        ax.set_xticks(self._ts_index())
-        ax.set_xticklabels(self._ts_labels_for_xticks(), rotation=45, ha="right", fontsize=8)
-        ax.set_ylabel(f"top-{F_top.shape[0]} variable edges (idx-sorted by range)")
-        ax.set_title("Per-edge time evolution (symlog colour)", loc="left", fontsize=10)
-        cbar = fig.colorbar(im, ax=ax, pad=0.01, fraction=0.04)
-        cbar.set_label("F*")
-
-        # Panel B: top-10 most-variable edges as labelled lines (symlog y)
-        ax = axes[1]
-        cmap = plt.get_cmap("tab10")
-        n_top = min(10, F_top.shape[0])
-        F_panel = F[top[:n_top]]
-        for k in range(n_top):
-            ax.plot(self._ts_index(), F_panel[k], lw=1.8, marker="o", ms=3,
-                    color=cmap(k % 10), label=f"edge {int(top[k])}")
-        # symlog y so sign is preserved while spanning many orders of magnitude
-        abs_vals = np.abs(F_panel[F_panel != 0])
-        linthresh = float(np.nanpercentile(abs_vals, 5)) if abs_vals.size else 1e-9
-        linthresh = max(linthresh, 1e-9)
-        ax.set_yscale("symlog", linthresh=linthresh)
-        ax.set_xticks(self._ts_index())
-        ax.set_xticklabels(self._ts_labels_for_xticks(), rotation=45, ha="right", fontsize=8)
-        ax.set_xlabel("timestep")
-        ax.set_ylabel("F* (symlog)")
-        ax.set_title("Top-10 most-variable edges (symlog y)", loc="left", fontsize=10)
-        ax.text(0.99, 0.02, "symlog scale", transform=ax.transAxes,
-                ha="right", va="bottom", fontsize=7, color=_C["grey"])
-        _apply_modern_style(ax)
-        ax.legend(fontsize=7, frameon=False, loc="best")
+        axes[0].legend(fontsize=7, frameon=False, loc="upper left", ncol=2 if hue else 1)
+        if hue:
+            axes[1].legend(fontsize=7, frameon=False, loc="upper right")
+        self._set_year_xticks(axes[-1])
+        axes[-1].set_xlabel("year")
         fig.tight_layout(rect=[0, 0, 1, 0.96])
         return fig
 
-    # ==================================================================
-    # Figures — Scope 2 (per-timestep cross-section)
-    # ==================================================================
-
-    def _make_xsection(self, n_rows: int, title: str):
-        """Helper: build a (n_rows × 3) cross-section figure skeleton."""
+    def _fig_convergence_traces(self, *, hue=None, timesteps=None, regions=None):
+        """SD-R-12: Clarabel per-iteration traces, one line per year."""
         import matplotlib.pyplot as plt
-        fig, axes = plt.subplots(n_rows, 3,
-                                 figsize=(14, max(3.0, 2.8 * n_rows)),
-                                 squeeze=False)
-        fig.suptitle(self._title(title), fontsize=13, fontweight="bold")
-        return fig, axes
-
-    @staticmethod
-    def _row_label(ax, text: str) -> None:
-        """Left-side row caption that does not collide with histogram bars."""
-        ax.set_ylabel(text, fontsize=9, labelpad=8)
-
-    def _period_prior_post(self, t):
-        """Year-local ``(a_prior(t), a_post(t))`` over the year's edges (cols_t).
-
-        Posterior is the reassembled ``F_opt`` sliced to ``cols_t``; prior is the
-        per-period ``a_prior`` the solver stored (warm = ``a_post(t-1)``, cold =
-        ``f_agg(t)``). Falls back to the global cold prior ``a_prior_global``
-        sliced to the year for runs predating the warm-start fix (no a_prior).
-        """
-        r    = self._results[t]
-        cols = r.cols_t
-        if cols is None:  # legacy full-vector path: a_prior is already full-length
-            post  = np.asarray(r.F_opt, dtype=float)
-            prior = (np.asarray(r.a_prior, dtype=float) if r.a_prior is not None
-                     else np.asarray(self._const_run.a_prior_global, dtype=float))
-            return prior, post
-        post = np.asarray(r.F_opt, dtype=float)[cols]
-        if r.a_prior is not None:
-            prior = np.asarray(r.a_prior, dtype=float)
-        else:
-            prior = np.asarray(self._const_run.a_prior_global, dtype=float)[cols]
-        return prior, post
-
-    def _ap_global(self, t) -> np.ndarray:
-        """Year-t prior scattered into a global (E,) vector (zero off year t).
-
-        Lets the constraint LHS ``G·a_prior(t)`` be formed against the full G
-        (its year-t rows touch only year-t columns)."""
-        prior, _ = self._period_prior_post(t)
-        r = self._results[t]
-        if r.cols_t is None:
-            return np.asarray(prior, dtype=float)
-        out = np.zeros(self._const_run.G.shape[1], dtype=float)
-        out[r.cols_t] = prior
-        return out
-
-    @staticmethod
-    def _hist_log10_abs(ax, data, bin_edges, color, *, quantiles=True) -> None:
-        """Histogram of ``log10|data|`` (zeros dropped) with an ``n=`` footer and
-        optional p50/p95/p99 guide lines."""
-        v = np.abs(np.asarray(data, dtype=float))
-        v = v[v > 0]
-        if v.size == 0:
-            ax.text(0.5, 0.5, "n=0", transform=ax.transAxes,
-                    ha="center", va="center", fontsize=8, color=_C["grey"])
-            _apply_modern_style(ax)
-            return
-        lv = np.log10(v)
-        ax.hist(lv, bins=bin_edges, color=color, alpha=0.55,
-                edgecolor=color, linewidth=0.6)
-        if quantiles:
-            for q, lbl, cq in ((50, "p50", _C["navy"]),
-                               (95, "p95", _C["orange"]),
-                               (99, "p99", _C["red"])):
-                val = float(np.percentile(lv, q))
-                ax.axvline(val, color=cq, lw=1.1, ls="--", alpha=0.8)
-                ax.text(val, ax.get_ylim()[1] * 0.95 if ax.get_ylim()[1] > 0 else 1.0,
-                        lbl, rotation=90, fontsize=7, va="top", ha="right", color=cq)
-        ax.text(0.99, 0.97, f"n={v.size}", transform=ax.transAxes,
-                ha="right", va="top", fontsize=7, color=_C["grey"])
-        _apply_modern_style(ax)
-
-    @staticmethod
-    def _hist_with_footer(ax, data: np.ndarray, color: str, *, symlog: bool = False,
-                          bins: int = 40, ref_lines: tuple = (),
-                          linthresh: Optional[float] = None) -> None:
-        """Shared histogram-cell renderer with summary footer in the axes.
-
-        When ``symlog`` is True, edges are spaced logarithmically on |data|
-        with a linear band of width ``linthresh`` around zero, so a single
-        outlier no longer collapses the bulk into one visual bin.
-        """
-        finite = data[np.isfinite(data)]
-        if finite.size == 0:
-            ax.text(0.5, 0.5, "n=0", transform=ax.transAxes,
-                    ha="center", va="center", fontsize=8, color=_C["grey"])
-            _apply_modern_style(ax)
-            return
-
-        if symlog:
-            abs_finite = np.abs(finite)
-            nonzero = abs_finite[abs_finite > 0]
-            if nonzero.size == 0:
-                edges = np.linspace(-1, 1, bins + 1)
-                lt = 1e-9
-            else:
-                if linthresh is None:
-                    lt = max(np.percentile(nonzero, 5), nonzero.max() * 1e-9, 1e-15)
-                else:
-                    lt = float(linthresh)
-                hi = max(nonzero.max(), lt * 10)
-                log_hi = np.log10(hi)
-                log_lo = np.log10(lt)
-                n_log = max(2, bins // 2)
-                pos = np.logspace(log_lo, log_hi, n_log + 1)
-                # Include the linear band [-lt, 0, lt] as explicit bins so
-                # near-zero values don't collapse into the first log bin.
-                edges = np.concatenate([-pos[::-1], [-lt, 0.0, lt], pos[1:]])
-                edges = np.unique(edges)  # deduplicate ±lt at boundary
-            ax.hist(finite, bins=edges, color=color, alpha=0.55,
-                    edgecolor=color, linewidth=0.6)
-            ax.set_xscale("symlog", linthresh=lt)
-            # Limit tick density on symlog (decades only, ≤6 majors)
-            from matplotlib.ticker import LogLocator, SymmetricalLogLocator
-            ax.xaxis.set_major_locator(
-                SymmetricalLogLocator(base=10.0, linthresh=lt, subs=[1.0])
-            )
-            ax.xaxis.set_minor_locator(
-                SymmetricalLogLocator(base=10.0, linthresh=lt,
-                                      subs=np.arange(2, 10) * 0.1)
-            )
-        else:
-            ax.hist(finite, bins=bins, color=color, alpha=0.55,
-                    edgecolor=color, linewidth=0.6)
-
-        for r in ref_lines:
-            ax.axvline(r, color=_C["grey"], lw=0.8, ls="--", alpha=0.7)
-        _apply_modern_style(ax)
-
-        footer = (f"n={finite.size}  med={np.median(finite):.2e}  "
-                  f"p95={np.percentile(np.abs(finite), 95):.2e}  "
-                  f"max={np.max(np.abs(finite)):.2e}")
-        ax.text(0.99, 0.97, footer, transform=ax.transAxes,
-                ha="right", va="top", fontsize=7, color=_C["grey"])
-        ax.tick_params(axis="x", labelsize=7)
-        # Prune labels to every other major tick if still crowded.
-        labels = ax.get_xticklabels()
-        if len(labels) > 8:
-            for i, lab in enumerate(labels):
-                if i % 2:
-                    lab.set_visible(False)
-
-    @staticmethod
-    def _hist_logabs_signed(ax, data: np.ndarray, *, bins: int = 40,
-                            ref_lines_abs: tuple = (),
-                            pos_color: str = None, neg_color: str = None) -> None:
-        """Histogram of log10|x| with positive/negative values rendered in
-        different colours on the same axis — replaces symlog for signed data.
-
-        ``ref_lines_abs`` are positive thresholds (e.g. (1, 3) for z-scores);
-        each is drawn as a vertical line at log10(threshold).
-        """
-        pos_color = pos_color or _C["blue"]
-        neg_color = neg_color or _C["red"]
-        finite = data[np.isfinite(data)]
-        if finite.size == 0:
-            ax.text(0.5, 0.5, "n=0", transform=ax.transAxes,
-                    ha="center", va="center", fontsize=8, color=_C["grey"])
-            _apply_modern_style(ax)
-            return
-
-        pos = finite[finite > 0]
-        neg = -finite[finite < 0]  # magnitudes only
-        nonzero_abs = np.concatenate([pos, neg])
-        nonzero_abs = nonzero_abs[nonzero_abs > 0]
-        if nonzero_abs.size == 0:
-            ax.text(0.5, 0.5, "all zero", transform=ax.transAxes,
-                    ha="center", va="center", fontsize=8, color=_C["grey"])
-            _apply_modern_style(ax)
-            return
-
-        lo = float(np.log10(nonzero_abs.min()))
-        hi = float(np.log10(nonzero_abs.max()))
-        if hi <= lo:
-            hi = lo + 1.0
-        edges = np.linspace(lo, hi, bins + 1)
-
-        if pos.size:
-            ax.hist(np.log10(pos), bins=edges, color=pos_color, alpha=0.45,
-                    edgecolor=pos_color, linewidth=0.6, histtype="stepfilled",
-                    label=f"x>0 (n={pos.size})")
-        if neg.size:
-            ax.hist(np.log10(neg), bins=edges, color=neg_color, alpha=0.45,
-                    edgecolor=neg_color, linewidth=0.6, histtype="stepfilled",
-                    label=f"x<0 (n={neg.size})")
-
-        for r in ref_lines_abs:
-            if r > 0:
-                ax.axvline(np.log10(r), color=_C["grey"], lw=0.8, ls="--", alpha=0.7)
-
-        _apply_modern_style(ax)
-        n_zero = int(np.sum(finite == 0))
-        footer = (f"n={finite.size}  +={pos.size}  −={neg.size}"
-                  + (f"  z={n_zero}" if n_zero else "")
-                  + f"  max|x|={np.max(np.abs(finite)):.2e}")
-        ax.text(0.99, 0.97, footer, transform=ax.transAxes,
-                ha="right", va="top", fontsize=7, color=_C["grey"])
-        if pos.size or neg.size:
-            ax.legend(fontsize=6, frameon=False, loc="upper left")
-        ax.tick_params(axis="x", labelsize=7)
-        ax.set_xlabel("log₁₀ |x|", fontsize=8)
-
-    def _fig_residual_digest(self, *, hue=None, timesteps=None):
-        """SD-T-01: 5 rows × 3 cols of constraint-residual histograms.
-
-        log₁₀|x| with sign overlay (pos = blue, neg = red) for every row.
-        """
-        ts_triple = self._resolve_timesteps(timesteps)
-        fig, axes = self._make_xsection(5, "Constraint-residual digest (SD-T-01)")
-
-        row_specs = [
-            ("Type-1 mass-balance Gx",  "mass_balance"),
-            ("Type-2 soft-sum ε",       "sum_eq"),
-            ("Type-3 soft-ratio ε",     "ratio_eq"),
-            ("Type-4 ratio-bound slack", "ratio_bound"),
-            ("Type-5 flow-bound slack",  None),
-        ]
-
-        for col, t in enumerate(ts_triple):
-            for row, (rlabel, key) in enumerate(row_specs):
-                ax = axes[row, col]
-                if key == "mass_balance":
-                    data = self._mb_residuals(t)
-                elif key in ("sum_eq", "ratio_eq"):
-                    data = self._eps_for_type(t, key)
-                elif key == "ratio_bound":
-                    idx = self._row_info["ratio_bound"]
-                    data = -self._results[t].residuals[idx] if idx.size else np.zeros(0)
-                else:
-                    s_u, s_l = self._flow_bound_slack(t)
-                    data = np.concatenate([s_u, s_l])
-                self._hist_logabs_signed(ax, data, bins=40)
-                if col == 0:
-                    self._row_label(ax, rlabel)
-                if row == 0:
-                    ax.set_title(self._col_title(t, ts_triple), fontsize=10, fontweight="bold")
-
-        fig.tight_layout(rect=[0, 0, 1, 0.96])
-        return fig
-
-    def _fig_zscore_soft(self, *, hue=None, timesteps=None):
-        """SD-T-02: 2 rows × 3 cols of ε/σ_c z-scores for soft constraints.
-
-        log₁₀|z| with sign as colour overlay (pos = blue, neg = red). Vertical
-        guides at log₁₀(1) and log₁₀(3) mark the ±1σ / ±3σ thresholds.
-        """
-        ts_triple = self._resolve_timesteps(timesteps)
-        fig, axes = self._make_xsection(2, "Soft-slack z-scores (SD-T-02)")
-
-        for col, t in enumerate(ts_triple):
-            for row, (rlabel, key) in enumerate([
-                ("Type-2 ε/σ_c (sum_eq)",   "sum_eq"),
-                ("Type-3 ε/σ_c (ratio_eq)", "ratio_eq"),
-            ]):
-                ax = axes[row, col]
-                eps = self._eps_for_type(t, key)
-                sig = self._sigma_c_for_type(t, key)
-                with np.errstate(divide="ignore", invalid="ignore"):
-                    z = np.where(sig > 0, eps / sig, np.nan)
-                self._hist_logabs_signed(
-                    ax, z[np.isfinite(z)], bins=40, ref_lines_abs=(1, 3),
-                )
-                if col == 0:
-                    self._row_label(ax, rlabel)
-                if row == 0:
-                    ax.set_title(self._col_title(t, ts_triple), fontsize=10, fontweight="bold")
-
-        fig.tight_layout(rect=[0, 0, 1, 0.96])
-        return fig
-
-    def _fig_solution_vs_prior(self, *, hue=None, timesteps=None):
-        """SD-T-03: (a*-a0)/σ_a, (a*-a0)/|a0|, σ_opt/σ_a (cond.).
-
-        Signed rows (z-score, relative change) use log₁₀|x| with sign overlay
-        (pos = blue, neg = red). σ_opt/σ_a is unsigned positive, plotted log₁₀.
-        """
-        ts_triple = self._resolve_timesteps(timesteps)
-        n_rows = 3 if self._sigma_opt else 2
-        fig, axes = self._make_xsection(n_rows, "Solution vs prior (SD-T-03)")
-
-        a0  = np.asarray(self._const_run.a0, dtype=float)
-        sa  = np.asarray(self._const_run.sigma_a, dtype=float)
-        sa_safe = np.where(sa > 0, sa, np.inf)
-        a0_safe = np.where(np.abs(a0) > 0, np.abs(a0), np.inf)
-
-        for col, t in enumerate(ts_triple):
-            F = self._results[t].F_opt
-            # Row 1: z-score (signed) → log10|z| with sign overlay
-            z = (F - a0) / sa_safe
-            self._hist_logabs_signed(axes[0, col], z, bins=40,
-                                      ref_lines_abs=(1, 3))
-            # Row 2: relative change (signed) → log10|rel| with sign overlay
-            rel = (F - a0) / a0_safe
-            self._hist_logabs_signed(axes[1, col], rel, bins=40,
-                                      ref_lines_abs=(1.0,))
-            # Row 3: sigma_opt / sigma_a (positive, unsigned)
-            if self._sigma_opt is not None and t in self._sigma_opt:
-                so = np.asarray(self._sigma_opt[t], dtype=float)
-                ratio = np.where(sa > 0, so / sa_safe, np.nan)
-                self._hist_logabs_signed(axes[2, col], ratio, bins=40,
-                                          ref_lines_abs=(1.0,))
-
-            if col == 0:
-                self._row_label(axes[0, col], "(a* − a₀)/σ_a")
-                self._row_label(axes[1, col], "(a* − a₀)/|a₀|")
-                if n_rows == 3:
-                    self._row_label(axes[2, col], "σ_opt/σ_a")
-            axes[0, col].set_title(self._col_title(t, ts_triple),
-                                   fontsize=10, fontweight="bold")
-
-        fig.tight_layout(rect=[0, 0, 1, 0.96])
-        return fig
-
-    def _fig_binding_rate(self, *, hue=None, timesteps=None):
-        """SD-T-04: 2 rows × 3 cols of binding-rate distributions.
-
-        log₁₀|expression| with sign overlay (neg = slack/good, pos = violation).
-        """
-        ts_triple = self._resolve_timesteps(timesteps)
-        fig, axes = self._make_xsection(2, "Per-type binding rate (SD-T-04)")
-
-        for col, t in enumerate(ts_triple):
-            # Row 1: Type-4 ratio-bound expressions (Gx - c sign convention:
-            # negative ⇒ slack; positive ⇒ violation)
-            idx = self._row_info["ratio_bound"]
-            v_rb = self._results[t].residuals[idx] if idx.size else np.zeros(0)
-            self._hist_logabs_signed(axes[0, col], v_rb, bins=40)
-
-            # Row 2: Type-5 flow-bound expressions (F - u and l - F).
-            # Negative = slack (good); positive = violation.
-            s_u, s_l = self._flow_bound_slack(t)
-            v_fb = np.concatenate([-s_u, -s_l])
-            self._hist_logabs_signed(axes[1, col], v_fb, bins=40)
-
-            if col == 0:
-                self._row_label(axes[0, col], "Type-4: a_i − r·a_j")
-                self._row_label(axes[1, col], "Type-5: F − u, l − F")
-            axes[0, col].set_title(self._col_title(t, ts_triple),
-                                   fontsize=10, fontweight="bold")
-
-        fig.tight_layout(rect=[0, 0, 1, 0.96])
-        return fig
-
-    def _fig_solution_magnitude(self, *, hue=None, timesteps=None):
-        """SD-T-05: per-period prior vs posterior magnitude.
-
-        Row 0: log₁₀|a_prior(t)| (the warm-start prior actually used that year).
-        Row 1: log₁₀|a*(t)|       (the posterior).
-        Each panel is sliced to the year's own edges (cols_t), so the ``n=``
-        footer is that year's edge count — not the pooled multi-year vector.
-        """
-        ts_triple = self._resolve_timesteps(timesteps)
-        fig, axes = self._make_xsection(2, "Distribution of a (SD-T-05)")
-
-        priors = {t: self._period_prior_post(t)[0] for t in ts_triple}
-        posts  = {t: self._period_prior_post(t)[1] for t in ts_triple}
-
-        def _edges(vmaps):
-            allv = np.concatenate([np.abs(v) for v in vmaps.values()])
-            allv = allv[allv > 0]
-            if allv.size:
-                return np.linspace(np.log10(allv.min()), np.log10(allv.max()), 41)
-            return np.linspace(-1.0, 1.0, 41)
-
-        be_prior = _edges(priors)
-        be_post  = _edges(posts)
-
-        for col, t in enumerate(ts_triple):
-            # ---- Row 0: prior log₁₀|a_prior(t)| ----
-            ax = axes[0, col]
-            self._hist_log10_abs(ax, priors[t], be_prior, _C["orange"])
-            ax.set_xlabel("log₁₀ |a_prior(t)|  (log₁₀-transformed)", fontsize=8)
-            if col == 0:
-                self._row_label(ax, "prior — log₁₀|a_prior|")
-            ax.set_title(self._col_title(t, ts_triple), fontsize=10, fontweight="bold")
-
-            # ---- Row 1: posterior log₁₀|a*(t)| ----
-            ax = axes[1, col]
-            self._hist_log10_abs(ax, posts[t], be_post, _C["blue"])
-            ax.set_xlabel("log₁₀ |a*(t)|  (log₁₀-transformed)", fontsize=8)
-            if col == 0:
-                self._row_label(ax, "posterior — log₁₀|a*|")
-
-        fig.tight_layout(rect=[0, 0, 1, 0.96])
-        return fig
-
-    def _fig_cstar_vs_c(self, *, hue=None, timesteps=None):
-        """SD-T-06: c*-c and (c*-c)/(|c|+δ) histograms on soft rows.
-
-        log₁₀|x| with sign overlay (pos = blue, neg = red). For the relative
-        row, log₁₀(1) is marked to show "100% of c" departure.
-        """
-        ts_triple = self._resolve_timesteps(timesteps)
-        fig, axes = self._make_xsection(2, "c* vs c on soft rows (SD-T-06)")
-
-        # Soft rows = sum_eq ∪ ratio_eq
-        soft_idx = np.concatenate([self._row_info["sum_eq"], self._row_info["ratio_eq"]])
-
-        for col, t in enumerate(ts_triple):
-            if soft_idx.size:
-                c       = np.asarray(self._const_run.timestep_data[t]["c"])[soft_idx]
-                cstar   = self._results[t].c_star[soft_idx]
-                eps     = cstar - c
-                rel_eps = eps / (np.abs(c) + 1e-12)
-            else:
-                eps     = np.zeros(0)
-                rel_eps = np.zeros(0)
-
-            self._hist_logabs_signed(axes[0, col], eps, bins=40)
-            self._hist_logabs_signed(axes[1, col], rel_eps, bins=40,
-                                      ref_lines_abs=(1.0,))
-
-            if col == 0:
-                self._row_label(axes[0, col], "c* − c")
-                self._row_label(axes[1, col], "(c* − c) / (|c| + δ)")
-            axes[0, col].set_title(self._col_title(t, ts_triple),
-                                   fontsize=10, fontweight="bold")
-
-        fig.tight_layout(rect=[0, 0, 1, 0.96])
-        return fig
-
-    def _fig_rocket(self, *, hue=None, timesteps=None):
-        """SD-T-07: per-period log–log scatter 'rocket' plots — a_prior(t) vs a*(t).
-
-        The prior is the warm-start prior the solver actually used that year
-        (``a_prior(t)`` = ``a_post(t-1)`` under prior_mode='warm', cold seed
-        f_agg at t0), scattered to global where multiplied through G. Each column
-        is one timestep and is restricted to that year's edges/rows.
-
-        Row 1: log10|G·a_prior(t)| (x) vs log10|c*| (y) on sum_eq rows.
-               Colour = |ε|/σ_c (z-score); viridis LogNorm.
-        Row 2: log10|ε₀| (x) vs log10|ε_opt| (y) on soft (free-cone) rows,
-               where ε₀ = G_free · a_prior(t) − c_free(t).
-               Colour = |ε_opt|/σ_c (z-score); viridis LogNorm.
-        Row 3: log10|a_prior(t)| (x) vs log10|a*(t)| (y) over the year's edges.
-               Colour = |a*−a_prior|/σ_a; viridis LogNorm.
-        Diagonal y=x = perfect agreement.
-        """
-        import matplotlib.pyplot as plt
-        from matplotlib.colors import LogNorm, Normalize
-
-        ts_triple = self._resolve_timesteps(timesteps)
-        fig, axes = self._make_xsection(3, "Rocket scatter (SD-T-07)")
-        cmap = plt.get_cmap("viridis")
-
-        # Row 1: sum_eq only
-        se_idx = self._row_info["sum_eq"]
-
-        # Per-period prior scattered to global (E,) — zero off the year's edges.
-        prior_for = {t: self._ap_global(t) for t in ts_triple}
-
-        sa = np.asarray(self._const_run.sigma_a, dtype=float)
-        sa_safe = np.where(sa > 0, sa, np.inf)
-
-        def _logabs(x: np.ndarray) -> np.ndarray:
-            v = np.abs(np.asarray(x, dtype=float))
-            v = v[v > 0]
-            return np.log10(v) if v.size else np.array([0.0])
-
-        # Row 1 x-axis is c_prior(t) = G_sum_eq · a*(t-1); shared limits across cols
-        G_se = self._const_run.G[se_idx, :] if se_idx.size else None
-        if se_idx.size and G_se is not None:
-            cprior_all = np.concatenate(
-                [np.asarray(G_se @ prior_for[t]) for t in ts_triple])
-            cstars_all = np.concatenate(
-                [self._results[t].c_star[se_idx] for t in ts_triple])
-            all_r1 = np.concatenate([_logabs(cprior_all), _logabs(cstars_all)])
-            r1_lo = float(all_r1.min()) if all_r1.size else -1.0
-            r1_hi = float(all_r1.max()) if all_r1.size else 1.0
-        else:
-            r1_lo, r1_hi = -1.0, 1.0
-
-        a0_all = np.concatenate([np.abs(prior_for[t]) for t in ts_triple])
-        ax_all = np.concatenate([np.abs(self._results[t].F_opt) for t in ts_triple])
-        all_r2 = np.concatenate([_logabs(a0_all), _logabs(ax_all)])
-        r2_lo = float(all_r2.min()) if all_r2.size else -1.0
-        r2_hi = float(all_r2.max()) if all_r2.size else 1.0
-
-        # Colour normalisation for row 1: |ε|/σ_c on sum_eq, shared across cols
-        if se_idx.size:
-            z_all = np.concatenate([
-                np.abs(self._eps_for_type(t, "sum_eq")) /
-                np.where(self._sigma_c_for_type(t, "sum_eq") > 0,
-                         self._sigma_c_for_type(t, "sum_eq"), np.inf)
-                for t in ts_triple
-            ])
-            z_all = z_all[np.isfinite(z_all) & (z_all > 0)]
-            znorm = LogNorm(vmin=max(z_all.min(), 1e-6), vmax=z_all.max()) if z_all.size else Normalize(0, 1)
-        else:
-            znorm = Normalize(0, 1)
-
-        dpa_all = np.concatenate([
-            np.abs(self._results[t].F_opt - prior_for[t]) / sa_safe
-            for t in ts_triple
-        ])
-        dpa_all = dpa_all[np.isfinite(dpa_all) & (dpa_all > 0)]
-        anorm = LogNorm(vmin=max(dpa_all.min(), 1e-6), vmax=dpa_all.max()) if dpa_all.size else Normalize(0, 1)
-
-        # ε₀ vs ε_opt limits: free-cone rows only
-        free_idx = self._row_info["free"]
-
-        def _eps0_for_t(t):
-            """Pre-optimisation soft-row residual: G_free @ a*(t-1) - c_free(t)."""
-            if not free_idx.size:
-                return np.zeros(0)
-            G_free = self._const_run.G[free_idx, :]
-            c_free = np.asarray(self._const_run.timestep_data[t]["c"])[free_idx]
-            return G_free @ prior_for[t] - c_free
-
-        def _z_free_for_t(t):
-            """|ε_opt|/σ_c on free-cone rows (LogNorm colour for row 2)."""
-            if not free_idx.size:
-                return np.zeros(0)
-            eps_opt = np.asarray(self._results[t].eps_opt, dtype=float)
-            sig_all = np.asarray(self._const_run.timestep_data[t]["sigma_c"], dtype=float)
-            sig_free = sig_all[free_idx][:len(eps_opt)]
-            sig_safe = np.where(sig_free > 0, sig_free, np.inf)
-            return np.abs(eps_opt) / sig_safe
-
-        eps0_all_vals = np.concatenate(
-            [np.abs(_eps0_for_t(t)) for t in ts_triple]
-        )
-        eps0_all_vals = eps0_all_vals[eps0_all_vals > 0]
-        epsopt_all_vals = np.concatenate(
-            [np.abs(self._results[t].eps_opt) for t in ts_triple]
-        )
-        epsopt_all_vals = epsopt_all_vals[epsopt_all_vals > 0]
-
-        if eps0_all_vals.size and epsopt_all_vals.size:
-            r2_eps_lo = float(min(np.log10(eps0_all_vals.min()),
-                                  np.log10(epsopt_all_vals.min())))
-            r2_eps_hi = float(max(np.log10(eps0_all_vals.max()),
-                                  np.log10(epsopt_all_vals.max())))
-        else:
-            r2_eps_lo, r2_eps_hi = -9.0, 0.0
-
-        # Colour normalisation for row 2: |ε_opt|/σ_c on free-cone rows
-        z_free_all = np.concatenate([_z_free_for_t(t) for t in ts_triple])
-        z_free_all = z_free_all[np.isfinite(z_free_all) & (z_free_all > 0)]
-        z_free_norm = (LogNorm(vmin=max(z_free_all.min(), 1e-6), vmax=z_free_all.max())
-                       if z_free_all.size else Normalize(0, 1))
-
-        for col, t in enumerate(ts_triple):
-            # ---- Row 1: G·a*(t-1) vs c* on sum_eq rows, coloured by |ε|/σ_c ----
-            ax = axes[0, col]
-            if se_idx.size and G_se is not None:
-                c_prior = np.abs(np.asarray(G_se @ prior_for[t], dtype=float))
-                cstar   = np.abs(self._results[t].c_star[se_idx])
-                eps     = self._eps_for_type(t, "sum_eq")
-                sig     = self._sigma_c_for_type(t, "sum_eq")
-                z       = np.abs(eps) / np.where(sig > 0, sig, np.inf)
-                m       = (c_prior > 0) & (cstar > 0) & np.isfinite(z)
-                if m.any():
-                    sc = ax.scatter(np.log10(c_prior[m]), np.log10(cstar[m]),
-                                    c=z[m], cmap=cmap, norm=znorm,
-                                    s=10, alpha=0.7, edgecolors="none")
-                    if col == 2:  # colorbar on last column
-                        fig.colorbar(sc, ax=ax, pad=0.02, fraction=0.05,
-                                     label="|ε|/σ_c")
-            lo, hi = r1_lo, r1_hi
-            ax.plot([lo, hi], [lo, hi], color=_C["grey"], lw=0.9, ls="--")
-            ax.set_xlim(lo, hi); ax.set_ylim(lo, hi)
-            ax.set_xlabel("log₁₀ |G·a_prior(t)|", fontsize=8)
-            _apply_modern_style(ax)
-            if col == 0:
-                self._row_label(ax, "log₁₀ |c*|")
-            ax.set_title(self._col_title(t, ts_triple),
-                         fontsize=10, fontweight="bold")
-
-            # ---- Row 2: ε₀ vs ε_opt on free-cone rows, coloured by |ε_opt|/σ_c ----
-            ax = axes[1, col]
-            eps0_t   = np.abs(_eps0_for_t(t))
-            epsopt_t = np.abs(self._results[t].eps_opt)
-            zfree_t  = _z_free_for_t(t)
-            # Match lengths (eps_opt is already free-cone order; eps0 built from free_idx)
-            n_min = min(len(eps0_t), len(epsopt_t), len(zfree_t))
-            eps0_t   = eps0_t[:n_min]
-            epsopt_t = epsopt_t[:n_min]
-            zfree_t  = zfree_t[:n_min]
-            m2 = (eps0_t > 0) & (epsopt_t > 0) & np.isfinite(zfree_t)
-            if m2.any():
-                sc3 = ax.scatter(np.log10(eps0_t[m2]), np.log10(epsopt_t[m2]),
-                                 c=zfree_t[m2], cmap=cmap, norm=z_free_norm,
-                                 s=8, alpha=0.6, edgecolors="none")
-                if col == 2:
-                    fig.colorbar(sc3, ax=ax, pad=0.02, fraction=0.05,
-                                 label="|ε_opt|/σ_c")
-            lo2, hi2 = r2_eps_lo, r2_eps_hi
-            ax.plot([lo2, hi2], [lo2, hi2], color=_C["grey"], lw=0.9, ls="--")
-            ax.set_xlim(lo2, hi2); ax.set_ylim(lo2, hi2)
-            ax.set_xlabel("log₁₀ |ε₀ = G·a_prior(t) − c|", fontsize=8)
-            _apply_modern_style(ax)
-            if col == 0:
-                self._row_label(ax, "log₁₀ |ε_opt|")
-
-            # ---- Row 3: a₀(t) vs a* over all edges, coloured by |a*−a₀|/σ_a ----
-            ax = axes[2, col]
-            a0    = np.abs(prior_for[t])
-            astar = np.abs(self._results[t].F_opt)
-            dp    = np.abs(self._results[t].F_opt - prior_for[t]) / sa_safe
-            m = (a0 > 0) & (astar > 0) & np.isfinite(dp)
-            if m.any():
-                sc2 = ax.scatter(np.log10(a0[m]), np.log10(astar[m]),
-                                 c=dp[m], cmap=cmap, norm=anorm,
-                                 s=8, alpha=0.5, edgecolors="none")
-                if col == 2:
-                    fig.colorbar(sc2, ax=ax, pad=0.02, fraction=0.05,
-                                 label="|a*−a_prior|/σ_a")
-            lo, hi = r2_lo, r2_hi
-            ax.plot([lo, hi], [lo, hi], color=_C["grey"], lw=0.9, ls="--")
-            ax.set_xlim(lo, hi); ax.set_ylim(lo, hi)
-            ax.set_xlabel("log₁₀ |a_prior(t)|  (log₁₀-transformed)", fontsize=8)
-            _apply_modern_style(ax)
-            if col == 0:
-                self._row_label(ax, "log₁₀ |a*|")
-
-        fig.tight_layout(rect=[0, 0, 1, 0.96])
-        return fig
-
-    @staticmethod
-    def _box_per_year(ax, data, positions, color, *, width=0.6):
-        """Boxplot one series across years; empty years render as a gap."""
-        bp = ax.boxplot([d if len(d) else [np.nan] for d in data],
-                        positions=positions, widths=width, showfliers=False,
-                        patch_artist=True)
-        for box in bp["boxes"]:
-            box.set(facecolor=color, alpha=0.5, edgecolor=color)
-        for med in bp["medians"]:
-            med.set(color=_C["navy"], linewidth=1.1)
-        for whisk in bp["whiskers"]:
-            whisk.set(color=color, alpha=0.8)
-        for cap in bp["caps"]:
-            cap.set(color=color, alpha=0.8)
-        return bp
-
-    def _fig_defect_over_time(self, *, hue=None, timesteps=None):
-        """SD-T-10: per-year boxplot of log10|defect(t)| over time.
-
-        defect(t) = a*(t) − a_prior(t) — the per-period prior departure, one box
-        per solved year on a shared time axis.
-        """
-        import matplotlib.pyplot as plt
-        ts   = list(self._timesteps)
-        data = []
-        for t in ts:
-            prior, post = self._period_prior_post(t)
-            d = np.abs(np.asarray(post, dtype=float) - np.asarray(prior, dtype=float))
-            d = d[d > 0]
-            data.append(np.log10(d) if d.size else np.array([]))
-
-        fig, ax = plt.subplots(figsize=(max(8.0, 0.42 * len(ts)), 4.2))
-        fig.suptitle(self._title("Defect over time (SD-T-10)"),
-                     fontsize=13, fontweight="bold")
-        positions = np.arange(len(ts))
-        self._box_per_year(ax, data, positions, _C["blue"])
-        ax.set_xticks(positions)
-        ax.set_xticklabels([str(t) for t in ts], rotation=45, ha="right", fontsize=8)
-        ax.set_xlabel("timestep")
-        ax.set_ylabel("log₁₀ |a*(t) − a_prior(t)|")
-        _apply_modern_style(ax)
-        fig.tight_layout(rect=[0, 0, 1, 0.95])
-        return fig
-
-    def _fig_constraint_residuals(self, *, hue=None, timesteps=None):
-        """SD-T-11: per-year boxplots of log10|residual| (residual = G·a* − c).
-
-        Panel A — parametric-soft constraints (type=ratio, free cone): the
-        conc/eff ratio rows whose RHS comes from parameters.
-        Panel B — supply-total and use-total *scale totals*
-        (variant ∈ {supplytotout, usetotout}) as two box series per year.
-        """
-        import matplotlib.pyplot as plt
-        from matplotlib.patches import Patch
-
-        rm = self._const_run.row_meta
-        n  = len(rm)
-
-        def _col(name):
-            return (rm[name].astype(str).to_numpy() if name in rm.columns
-                    else np.array([""] * n))
-
-        typ, cone, var, row_time = (_col("type"), _col("cone_type"),
-                                    _col("variant"), _col("time"))
-        param_soft = (typ == "ratio") & (cone == "free")
-        supply_tot = (var == "supplytotout")
-        use_tot    = (var == "usetotout")
-
-        ts        = list(self._timesteps)
-        positions = np.arange(len(ts))
-
-        def _resid_logabs(mask, t):
-            idx = np.where(mask & (row_time == str(t)))[0]
-            if idx.size == 0:
-                return np.array([])
-            r = np.abs(np.asarray(self._results[t].residuals, dtype=float)[idx])
-            r = r[r > 0]
-            return np.log10(r) if r.size else np.array([])
-
-        fig, axes = plt.subplots(1, 2, figsize=(max(12.0, 0.6 * len(ts)), 4.6))
-        fig.suptitle(self._title("Constraint residuals over time (SD-T-11)"),
-                     fontsize=13, fontweight="bold")
-
-        # Panel A: parametric soft
-        axA = axes[0]
-        self._box_per_year(axA, [_resid_logabs(param_soft, t) for t in ts],
-                           positions, _C["purple"])
-        axA.set_title("parametric soft (ratio, free cone)", fontsize=10, fontweight="bold")
-        axA.set_xticks(positions)
-        axA.set_xticklabels([str(t) for t in ts], rotation=45, ha="right", fontsize=7)
-        axA.set_xlabel("timestep")
-        axA.set_ylabel("log₁₀ |residual = G·a* − c|")
-        _apply_modern_style(axA)
-
-        # Panel B: supply-total vs use-total (two series)
-        axB = axes[1]
-        w = 0.34
-        self._box_per_year(axB, [_resid_logabs(supply_tot, t) for t in ts],
-                           positions - w / 1.6, _C["green"], width=w)
-        self._box_per_year(axB, [_resid_logabs(use_tot, t) for t in ts],
-                           positions + w / 1.6, _C["orange"], width=w)
-        axB.set_title("supply-total vs use-total scale totals", fontsize=10, fontweight="bold")
-        axB.set_xticks(positions)
-        axB.set_xticklabels([str(t) for t in ts], rotation=45, ha="right", fontsize=7)
-        axB.set_xlabel("timestep")
-        axB.set_ylabel("log₁₀ |residual|")
-        axB.legend(handles=[Patch(facecolor=_C["green"], alpha=0.5, label="supply total"),
-                            Patch(facecolor=_C["orange"], alpha=0.5, label="use total")],
-                   fontsize=7, frameon=False, loc="upper right")
-        _apply_modern_style(axB)
-
-        fig.tight_layout(rect=[0, 0, 1, 0.94])
-        return fig
-
-    def _fig_time_hued(self, *, hue=None, timesteps=None):
-        """SD-R-07: histograms of c*(soft) and |ε_opt| hued by timestep.
-
-        Two stacked panels — the |a*| distribution panel was removed because
-        SD-T-05 row 0 already covers it at the three-timestep cross-section
-        granularity. Each timestep is rendered as a step-histogram with
-        viridis-coloured outline so the temporal gradient is visible.
-        Not hueable across runs.
-        """
-        import matplotlib.pyplot as plt
-
-        del hue  # Not used: per-timestep hue is built-in.
-        fig, axes = plt.subplots(2, 1, figsize=(13, 8))
-        fig.suptitle(self._title("Time-hued c* and |ε_opt| (SD-R-07)"),
-                     fontsize=13, fontweight="bold")
-
-        cmap = plt.get_cmap("viridis")
-        T = len(self._timesteps)
-
-        # --- Panel A: c* on soft rows
-        ax = axes[0]
-        soft_idx = np.concatenate([self._row_info["sum_eq"],
-                                   self._row_info["ratio_eq"]])
-        if soft_idx.size:
-            C_all = np.concatenate(
-                [np.abs(self._results[t].c_star[soft_idx])
-                 for t in self._timesteps]
-            )
-            C_all = C_all[C_all > 0]
-            if C_all.size:
-                lo, hi = np.log10(C_all.min()), np.log10(C_all.max())
-            else:
-                lo, hi = -1.0, 1.0
-            bin_edges = np.linspace(lo, hi, 41)
-            for i, t in enumerate(self._timesteps):
-                cstar = np.abs(self._results[t].c_star[soft_idx])
-                cstar = cstar[cstar > 0]
-                if cstar.size == 0:
+        from matplotlib.cm import ScalarMappable
+        from matplotlib.colors import ListedColormap, Normalize
+
+        hist = []
+        for t in self._timesteps:
+            h = getattr(self._results[t], "iter_history", None)
+            if h is not None and len(h) > 0:
+                hist.append((t, h))
+        if not hist:
+            return self._placeholder("SD-R-12: no iteration history persisted for this run")
+
+        n = len(hist)
+        ramp = plt.get_cmap("Blues")(np.linspace(0.35, 1.0, n))     # one hue, light → dark
+        panels = [("res_primal", "primal residual", True), ("res_dual", "dual residual", True),
+                  ("gap_abs", "absolute gap", True), ("step_length", "step length", False)]
+        fig, axes = plt.subplots(2, 2, figsize=(13, 8.5))
+        fig.suptitle(self._title("Convergence traces per year (SD-R-12)"), fontsize=13, fontweight="bold")
+        for ax, (key, name, log) in zip(axes.flat, panels):
+            for i, (t, h) in enumerate(hist):
+                try:
+                    it = np.asarray(h["iter"], dtype=float)
+                    y  = np.asarray(h[key], dtype=float)
+                except (KeyError, ValueError, IndexError):
                     continue
-                color = cmap(i / max(T - 1, 1))
-                ax.hist(np.log10(cstar), bins=bin_edges, histtype="step",
-                        color=color, lw=1.1, alpha=0.85)
-            ax.set_xlabel("log₁₀ |c*| on soft rows")
-        else:
-            ax.text(0.5, 0.5, "no soft rows", transform=ax.transAxes,
-                    ha="center", va="center", color=_C["grey"])
-        ax.set_ylabel("count")
-        ax.set_title("Per-timestep c* on soft rows (hue = time)",
-                     loc="left", fontsize=10)
-        _apply_modern_style(ax)
-
-        # --- Panel B: log10|ε_opt| over all soft-row slacks
-        ax = axes[1]
-        eps_all = np.concatenate(
-            [np.abs(self._results[t].eps_opt) for t in self._timesteps]
-        )
-        eps_pos = eps_all[eps_all > 0]
-        if eps_pos.size:
-            lo, hi = np.log10(eps_pos.min()), np.log10(eps_pos.max())
-        else:
-            lo, hi = -1.0, 1.0
-        bin_edges = np.linspace(lo, hi, 41)
-        for i, t in enumerate(self._timesteps):
-            eps_t = np.abs(self._results[t].eps_opt)
-            eps_t = eps_t[eps_t > 0]
-            if eps_t.size == 0:
-                continue
-            color = cmap(i / max(T - 1, 1))
-            ax.hist(np.log10(eps_t), bins=bin_edges, histtype="step",
-                    color=color, lw=1.1, alpha=0.85)
-        ax.set_xlabel("log₁₀ |ε_opt|  (log₁₀-transformed)")
-        ax.set_ylabel("count")
-        ax.set_title("Per-timestep |ε_opt| distribution (hue = time)",
-                     loc="left", fontsize=10)
-        _apply_modern_style(ax)
-
-        fig.tight_layout(rect=[0, 0, 0.93, 0.95])
-
-        # Shared colorbar — add AFTER tight_layout to keep matplotlib quiet.
-        sm = plt.cm.ScalarMappable(cmap=cmap,
-                                   norm=plt.Normalize(vmin=0, vmax=max(T - 1, 1)))
-        sm.set_array([])
-        cbar = fig.colorbar(sm, ax=axes.tolist(), pad=0.01, fraction=0.025)
-        n_ticks = min(6, T)
-        tick_idx = np.linspace(0, T - 1, n_ticks, dtype=int)
-        cbar.set_ticks(tick_idx)
-        cbar.set_ticklabels([str(self._timesteps[i]) for i in tick_idx])
-        cbar.set_label("timestep")
-        return fig
-
-    @staticmethod
-    def _draw_eps_heatmap_pair(fig, ax_abs, ax_z, eps_mat, z_mat, ts_labels, row_labels):
-        """Render one pair of heatmaps (log₁₀|ε| left, log₁₀(|ε|/σ_c) right)."""
-        T = eps_mat.shape[1]
-        n_rows = eps_mat.shape[0]
-        kw = dict(aspect="auto", interpolation="nearest")
-
-        with np.errstate(divide="ignore", invalid="ignore"):
-            log_mat = np.where(eps_mat > 0, np.log10(eps_mat), np.nan)
-            log_z   = np.where(z_mat   > 0, np.log10(np.maximum(z_mat, 1e-12)), np.nan)
-
-        vmin_a = np.nanmin(log_mat) if np.any(np.isfinite(log_mat)) else -9
-        vmax_a = np.nanmax(log_mat) if np.any(np.isfinite(log_mat)) else 0
-        im1 = ax_abs.imshow(log_mat, cmap="YlOrRd", vmin=vmin_a, vmax=vmax_a, **kw)
-        fig.colorbar(im1, ax=ax_abs, pad=0.01, fraction=0.04, label="log₁₀|ε|  (log₁₀-transformed)")
-        ax_abs.set_xticks(range(T))
-        ax_abs.set_xticklabels(ts_labels, rotation=45, ha="right", fontsize=7)
-        ax_abs.set_yticks(range(n_rows))
-        ax_abs.set_yticklabels(row_labels, fontsize=8)
-
-        vmin_lz = np.nanmin(log_z) if np.any(np.isfinite(log_z)) else -3
-        vmax_lz = np.nanmax(log_z) if np.any(np.isfinite(log_z)) else 3
-        im2 = ax_z.imshow(log_z, cmap="YlOrRd", vmin=vmin_lz, vmax=vmax_lz, **kw)
-        fig.colorbar(im2, ax=ax_z, pad=0.01, fraction=0.04, label="log₁₀(|ε|/σ_c)  (log₁₀-transformed)")
-        ax_z.set_xticks(range(T))
-        ax_z.set_xticklabels(ts_labels, rotation=45, ha="right", fontsize=7)
-        ax_z.set_yticks(range(n_rows))
-        ax_z.set_yticklabels(row_labels, fontsize=8)
-
-    def _fig_eps_heatmap_ratio(self, *, hue=None, timesteps=None):
-        """SD-T-08a: ratio_eq realized-ratio heatmap — top-50 by log10-range across t.
-
-        Each row shows ``log10(realized_ratio)`` where realized_ratio =
-        ``a*[edge_i] / a*[edge_j]`` per ratio_eq constraint row (the G row reads
-        ``1·a[edge_i] − r·a[edge_j] = 0`` so this is the realized analogue of r).
-        Row selection: top-50 by ``log10(max) − log10(min)`` of realized_ratio
-        across all timesteps (same variability metric as SD-R-06).
-        """
-        import matplotlib.pyplot as plt
-
-        K = 50
-        T = len(self._timesteps)
-        ts_labels = [str(t) for t in self._timesteps]
-        rm = self._const_run.row_meta
-        ri = self._row_info
-
-        re_idx = ri["ratio_eq"]
-        if re_idx.size == 0:
-            fig = plt.figure(figsize=(8, 3))
-            fig.suptitle(self._title("ratio_eq realized-ratio heatmap (SD-T-08a) — no rows"),
-                         fontsize=12)
-            return fig
-
-        # Extract (edge_i, edge_j) per ratio_eq row from G:
-        #   row coefficients are [+1 at edge_i, -r at edge_j] by construction.
-        G_re = self._const_run.G[re_idx, :].tocsr()
-        n_re = G_re.shape[0]
-        edge_i_arr = np.full(n_re, -1, dtype=np.int64)
-        edge_j_arr = np.full(n_re, -1, dtype=np.int64)
-        for i in range(n_re):
-            r = G_re.getrow(i)
-            cols, vals = r.indices, r.data
-            if cols.size == 0:
-                continue
-            pos = cols[vals > 0]
-            neg = cols[vals < 0]
-            if pos.size and neg.size:
-                edge_i_arr[i] = int(pos[0])
-                edge_j_arr[i] = int(neg[0])
-
-        valid = (edge_i_arr >= 0) & (edge_j_arr >= 0)
-
-        # Per-row realized ratio across all timesteps: r_realized[row, t] = a*[edge_i]/a*[edge_j]
-        ratio_mat_all = np.full((n_re, T), np.nan)
-        for col_i, t in enumerate(self._timesteps):
-            F_t = self._results[t].F_opt
-            with np.errstate(divide="ignore", invalid="ignore"):
-                num = np.where(valid, F_t[edge_i_arr.clip(min=0)], np.nan)
-                den = np.where(valid, F_t[edge_j_arr.clip(min=0)], np.nan)
-                ratio_mat_all[:, col_i] = num / den
-
-        # Rank by log10-range of the realized ratio across timesteps
-        abs_ratio = np.abs(ratio_mat_all)
-        with np.errstate(divide="ignore", invalid="ignore"):
-            log_abs = np.where(abs_ratio > 0, np.log10(abs_ratio), np.nan)
-        rng = np.nanmax(log_abs, axis=1) - np.nanmin(log_abs, axis=1)
-        # Rows with no finite values get -inf and end up at the bottom of the sort
-        rng = np.where(np.isfinite(rng), rng, -np.inf)
-        order = np.argsort(-rng)[:K]
-        n_top = int(np.sum(rng[order] > -np.inf))
-        order = order[:n_top] if n_top else order[:0]
-
-        row_labels = [str(rm.iloc[re_idx[i]]["constraint_id"]) for i in order]
-        ratio_mat = ratio_mat_all[order, :]
-        with np.errstate(divide="ignore", invalid="ignore"):
-            log_mat = np.where(np.abs(ratio_mat) > 0,
-                               np.log10(np.abs(ratio_mat)), np.nan)
-
-        fig_h = max(6.0, 0.28 * len(order) + 2.0)
-        fig = plt.figure(figsize=(11, fig_h))
-        fig.suptitle(self._title(f"ratio_eq realized-ratio heatmap — top-{len(order)} (SD-T-08a)"),
-                     fontsize=13, fontweight="bold")
-
-        from matplotlib.gridspec import GridSpec
-        gs = GridSpec(1, 1, figure=fig, top=0.88, bottom=0.15, left=0.28, right=0.92)
-        ax = fig.add_subplot(gs[0, 0])
-        ax.set_title("log₁₀ |a*[edge_i] / a*[edge_j]|", fontsize=10)
-        kw = dict(aspect="auto", interpolation="nearest")
-        if log_mat.size:
-            vmin = np.nanmin(log_mat) if np.any(np.isfinite(log_mat)) else -3
-            vmax = np.nanmax(log_mat) if np.any(np.isfinite(log_mat)) else 3
-            im = ax.imshow(log_mat, cmap="YlOrRd", vmin=vmin, vmax=vmax, **kw)
-            fig.colorbar(im, ax=ax, pad=0.01, fraction=0.04,
-                         label="log₁₀ |realized ratio|")
-        ax.set_xticks(range(T))
-        ax.set_xticklabels(ts_labels, rotation=45, ha="right", fontsize=7)
-        ax.set_yticks(range(len(row_labels)))
-        ax.set_yticklabels(row_labels, fontsize=8)
-        return fig
-
-    def _fig_eps_heatmap_sum(self, *, hue=None, timesteps=None):
-        """SD-T-08b: sum_eq ε heatmap — top-50 nodes by log10-range of |ε| across t."""
-        import matplotlib.pyplot as plt
-        import re as _re
-
-        K = 50
-        T = len(self._timesteps)
-        ts_labels = [str(t) for t in self._timesteps]
-        rm = self._const_run.row_meta
-        ri = self._row_info
-
-        se_cids_all = rm.iloc[ri["sum_eq"]]["constraint_id"].to_numpy()
-        nodes_all   = np.array([_re.sub(r"_t\d{4}$", "", c) for c in se_cids_all])
-        unique_nodes = np.unique(nodes_all)
-
-        # Rank nodes by log10-range of mean|ε| across ALL timesteps
-        node_eps_t: dict = {}
-        for node in unique_nodes:
-            node_mask = nodes_all == node
-            vals = []
-            for t in self._timesteps:
-                eps_t = np.abs(self._eps_for_type(t, "sum_eq"))
-                vals.append(float(eps_t[node_mask].mean()) if node_mask.any() else 0.0)
-            node_eps_t[node] = np.asarray(vals, dtype=float)
-
-        def _log10_range(arr: np.ndarray) -> float:
-            pos = arr[arr > 0]
-            if pos.size < 2:
-                return -np.inf
-            return float(np.log10(pos.max()) - np.log10(pos.min()))
-
-        node_var = {n: _log10_range(node_eps_t[n]) for n in unique_nodes}
-        se_sorted_all = sorted(node_var, key=node_var.get, reverse=True)
-        se_sorted = [n for n in se_sorted_all if node_var[n] > -np.inf][:K]
-
-        # Decode node keys → human labels
-        try:
-            from pysuto.acc import AccountingStructure
-            _acc = AccountingStructure.load(self._const_run.acc_id)
-            def _get_label(node_key: str) -> str:
-                m = _re.search(r"node(\d+)$", node_key)
-                if m is None:
-                    return node_key
-                sector, entity, region = _acc.decode_node(int(m.group(1)))
-                return f"{sector}|{region}"
-        except Exception:
-            def _get_label(node_key: str) -> str:
-                return node_key
-
-        se_labels = [_get_label(n) for n in se_sorted]
-        n_se = len(se_sorted)
-
-        eps_mat = np.full((n_se, T), np.nan)
-        z_mat   = np.full((n_se, T), np.nan)
-        for col_i, t in enumerate(self._timesteps):
-            eps_t   = np.abs(self._eps_for_type(t, "sum_eq"))
-            sigma_t = self._sigma_c_for_type(t, "sum_eq")
-            cids_t  = rm.iloc[ri["sum_eq"]]["constraint_id"].to_numpy()
-            nds_t   = np.array([_re.sub(r"_t\d{4}$", "", c) for c in cids_t])
-            for row_i, node in enumerate(se_sorted):
-                mask = nds_t == node
-                if not mask.any():
-                    continue
-                ev = eps_t[mask]
-                sv = sigma_t[mask]
-                eps_mat[row_i, col_i] = ev.mean()
-                safe_sv = np.where(sv > 0, sv, np.inf)
-                z_mat[row_i, col_i]   = (ev / safe_sv).mean()
-
-        fig_h = max(6.0, 0.28 * n_se + 2.0)
-        fig = plt.figure(figsize=(18, fig_h))
-        fig.suptitle(self._title(f"sum_eq ε heatmap — top-{n_se} nodes (SD-T-08b)"),
-                     fontsize=13, fontweight="bold")
-
-        from matplotlib.gridspec import GridSpec
-        gs = GridSpec(1, 2, figure=fig, wspace=0.35,
-                      top=0.88, bottom=0.15, left=0.28, right=0.96)
-        ax_abs = fig.add_subplot(gs[0, 0])
-        ax_z   = fig.add_subplot(gs[0, 1])
-        ax_abs.set_title("log₁₀|ε|", fontsize=10)
-        ax_z.set_title("log₁₀(|ε|/σ_c)", fontsize=10)
-        self._draw_eps_heatmap_pair(fig, ax_abs, ax_z, eps_mat, z_mat, ts_labels, se_labels)
-        return fig
-
-    # ------------------------------------------------------------------
-    # SD-T-09 — |a* − a₀| distribution by edge metadata
-    #   2×2 grid per group_col: rows = (first_t, last_t), cols = (Mass, CC).
-    #   a₀ is the stage-3 prior (const_run.a0), fixed across both rows.
-    # ------------------------------------------------------------------
-
-    _MINING_REGION_HIGHLIGHT = ("ROW", "Australia", "Chile", "China", "Peru", "Congo, D.R.")
-    _SD_T_09_VALUATIONS = ("Mass", "CC")
-
-    def _edge_meta(self) -> "pd.DataFrame | None":  # type: ignore[name-defined]
-        """Cached AccountingStructure.edge_meta. Returns None if the underlying
-        AccountingStructure cannot be loaded (e.g. toy fixtures).
-        """
-        if hasattr(self, "_edge_meta_cache"):
-            return self._edge_meta_cache
-        try:
-            from pysuto.acc import AccountingStructure
-            acc = AccountingStructure.load(self._const_run.acc_id)
-            self._edge_meta_cache = acc.edge_meta.reset_index(drop=True)
-        except Exception:
-            self._edge_meta_cache = None
-        return self._edge_meta_cache
-
-    def _fig_prior_departure_box(self, group_col: str, title_suffix: str,
-                                  *, highlight: tuple = (),
-                                  fig_id: str = ""):
-        """SD-T-09 figure: 2×2 grid (year × valuation) boxplot of
-        log₁₀|a*(Y) − a₀(stage-3)| grouped by ``group_col``.
-
-        Categories share a global x-axis order derived from the pooled median
-        across all four cells, sorted descending. Highlighted categories use
-        distinct tab10 face colours; others render grey at low alpha.
-        """
-        import matplotlib.pyplot as plt
-
-        em = self._edge_meta()
-        if em is None:
-            fig = plt.figure(figsize=(8, 3))
-            fig.suptitle(self._title(f"{fig_id}: edge_index unavailable (acc data missing)"),
-                         fontsize=12)
-            return fig
-        if group_col not in em.columns:
-            fig = plt.figure(figsize=(8, 3))
-            fig.suptitle(self._title(f"{fig_id}: column '{group_col}' missing from edge_meta"),
-                         fontsize=12)
-            return fig
-        if not self._timesteps:
-            fig = plt.figure(figsize=(8, 3))
-            fig.suptitle(self._title(f"{fig_id}: no timesteps in run"),
-                         fontsize=12)
-            return fig
-
-        years = [self._timesteps[0]]
-        if len(self._timesteps) > 1:
-            years.append(self._timesteps[-1])
-        valuations = list(self._SD_T_09_VALUATIONS)
-
-        a0 = np.asarray(self._const_run.a0, dtype=float)
-        em_time = em["time"].astype(str).to_numpy()
-        em_val  = em["valuation"].astype(str).to_numpy()
-        em_lbl  = em[group_col].astype(str).to_numpy()
-
-        # Per-cell (Y, V) bucket: dict[(Y, V)] -> (labels_arr, log_delta_arr)
-        cells: dict = {}
-        for Y in years:
-            F = np.asarray(self._results[Y].F_opt, dtype=float)
-            delta_all = np.abs(F - a0)
-            for V in valuations:
-                mask = (em_time == str(Y)) & (em_val == V)
-                d = delta_all[mask]
-                with np.errstate(divide="ignore", invalid="ignore"):
-                    log_d = np.where(d > 0, np.log10(d), np.nan)
-                lbl = em_lbl[mask]
-                finite = np.isfinite(log_d)
-                cells[(Y, V)] = (lbl[finite], log_d[finite])
-
-        return _grouped_box_grid(
-            cells=cells, row_keys=years, col_keys=valuations,
-            group_label=title_suffix, y_label="log₁₀ |a* − a₀|",
-            suptitle=self._title(f"|a* − a₀| by {title_suffix} ({fig_id})"),
-            highlight=highlight, cell_title=lambda Y, V: f"{Y} · {V}",
-        )
-
-    def _fig_prior_departure_from_sector(self, *, hue=None, timesteps=None):
-        """SD-T-09a: |a*−a₀| boxplot grouped by from_sector (2×2 year × val)."""
-        return self._fig_prior_departure_box(
-            "from_sector", "from-sector", fig_id="SD-T-09a",
-        )
-
-    def _fig_prior_departure_to_sector(self, *, hue=None, timesteps=None):
-        """SD-T-09b: |a*−a₀| boxplot grouped by to_sector (2×2 year × val)."""
-        return self._fig_prior_departure_box(
-            "to_sector", "to-sector", fig_id="SD-T-09b",
-        )
-
-    def _fig_prior_departure_from_region(self, *, hue=None, timesteps=None):
-        """SD-T-09c: |a*−a₀| boxplot grouped by from_region; ROW + 5 mining highlighted."""
-        return self._fig_prior_departure_box(
-            "from_region", "from-region", fig_id="SD-T-09c",
-            highlight=self._MINING_REGION_HIGHLIGHT,
-        )
-
-    def _fig_prior_departure_to_region(self, *, hue=None, timesteps=None):
-        """SD-T-09d: |a*−a₀| boxplot grouped by to_region; ROW + 5 mining highlighted."""
-        return self._fig_prior_departure_box(
-            "to_region", "to-region", fig_id="SD-T-09d",
-            highlight=self._MINING_REGION_HIGHLIGHT,
-        )
-
-    # ------------------------------------------------------------------
-    # SD-R-08 / SD-R-09 — entity-output stacked area by sector
-    # ------------------------------------------------------------------
-
-    def _fig_entity_outputs(self, *, from_entity: str, fig_id: str,
-                             title_phrase: str):
-        """Line plot of Σ a* across outgoing edges of ``from_entity``,
-        grouped by from_sector. Two panels: cols = (Mass, CC). x = timestep.
-        One line per sector.
-        """
-        import matplotlib.pyplot as plt
-
-        em = self._edge_meta()
-        if em is None:
-            fig = plt.figure(figsize=(8, 3))
-            fig.suptitle(self._title(f"{fig_id}: edge_index unavailable (acc data missing)"),
-                         fontsize=12)
-            return fig
-
-        required = {"from_entity", "from_sector", "time", "valuation"}
-        missing = required - set(em.columns)
-        if missing:
-            fig = plt.figure(figsize=(8, 3))
-            fig.suptitle(self._title(f"{fig_id}: edge_meta missing columns {missing}"),
-                         fontsize=12)
-            return fig
-
-        em_fe   = em["from_entity"].astype(str).to_numpy()
-        em_fs   = em["from_sector"].astype(str).to_numpy()
-        em_time = em["time"].astype(str).to_numpy()
-        em_val  = em["valuation"].astype(str).to_numpy()
-
-        entity_mask = (em_fe == from_entity)
-        if not entity_mask.any():
-            fig = plt.figure(figsize=(8, 3))
-            fig.suptitle(self._title(
-                f"{fig_id}: no edges with from_entity={from_entity!r}"),
-                         fontsize=12)
-            return fig
-
-        sectors = sorted({s for s in em_fs[entity_mask]})
-        valuations = list(self._SD_T_09_VALUATIONS)
-        ts = self._timesteps
-        first_t = str(ts[0]) if ts else None
-        a0 = np.asarray(self._const_run.a0, dtype=float)
-
-        # Build [n_sectors × n_timesteps] sum matrix per valuation, plus
-        # the constant a₀-at-first-year reference per sector per valuation.
-        per_val: dict = {}
-        ref_first: dict = {}
-        for V in valuations:
-            mat = np.zeros((len(sectors), len(ts)), dtype=float)
-            for j, t in enumerate(ts):
-                F = np.asarray(self._results[t].F_opt, dtype=float)
-                cell_mask = entity_mask & (em_time == str(t)) & (em_val == V)
-                if not cell_mask.any():
-                    continue
-                fs_cell = em_fs[cell_mask]
-                F_cell  = F[cell_mask]
-                for i, S in enumerate(sectors):
-                    mat[i, j] = float(np.sum(F_cell[fs_cell == S]))
-            per_val[V] = mat
-
-            ref = np.zeros(len(sectors), dtype=float)
-            if first_t is not None:
-                ref_mask = entity_mask & (em_time == first_t) & (em_val == V)
-                if ref_mask.any():
-                    fs_ref = em_fs[ref_mask]
-                    a0_ref = a0[ref_mask]
-                    for i, S in enumerate(sectors):
-                        ref[i] = float(np.sum(a0_ref[fs_ref == S]))
-            ref_first[V] = ref
-
-        # Line order = sectors sorted by mean magnitude descending (legend top-down)
-        pooled = sum(np.abs(per_val[V]).mean(axis=1) for V in valuations)
-        order = np.argsort(-pooled)
-        sectors_ord = [sectors[i] for i in order]
-
-        tab20 = plt.get_cmap("tab20").colors
-        color_for = {S: tab20[i % 20] for i, S in enumerate(sectors_ord)}
-
-        fig, axes = plt.subplots(
-            1, len(valuations),
-            figsize=(13, 5.5),
-            sharex=True, squeeze=False,
-        )
-        axes = axes[0]
-        fig.suptitle(self._title(f"{title_phrase} ({fig_id})"),
-                     fontsize=13, fontweight="bold")
-
-        x = np.arange(len(ts))
-        for c, V in enumerate(valuations):
-            ax = axes[c]
-            mat = per_val[V]
-            ref = ref_first[V]
-            for i, S in enumerate(sectors_ord):
-                ax.plot(x, mat[order[i]], color=color_for[S], lw=1.5,
-                        label=S, alpha=0.9)
-                ax.hlines(ref[order[i]], xmin=x[0], xmax=x[-1],
-                          colors=color_for[S], linestyles="--",
-                          lw=1.0, alpha=0.6)
-            ax.set_title(f"valuation = {V}", loc="left", fontsize=10)
-            ax.set_xticks(x)
-            ax.set_xticklabels([str(t) for t in ts], rotation=45, ha="right", fontsize=8)
-            ax.set_xlabel("timestep")
-            ax.set_yscale("log")
-            if c == 0:
-                ax.set_ylabel("Σ a* across outputs [tonnes]")
-            _apply_modern_style(ax)
-        # Generic dashed-reference entry in legend
-        axes[0].plot([], [], color=_C["grey"], ls="--", lw=1.0,
-                     label=f"a₀ ({first_t})" if first_t else "a₀")
-
-        # Single legend on the right
-        handles, labels = axes[0].get_legend_handles_labels()
-        fig.legend(handles, labels, loc="center right",
-                   fontsize=7, frameon=False, ncol=1,
-                   bbox_to_anchor=(1.0, 0.5))
-        fig.tight_layout(rect=[0, 0, 0.88, 0.95])
-        return fig
-
-    def _fig_process_outputs(self, *, hue=None, timesteps=None):
-        """SD-R-08: Σ supply-edge a* by from_sector, stacked area per valuation."""
-        return self._fig_entity_outputs(
-            from_entity="Process",
-            fig_id="SD-R-08",
-            title_phrase="Process-entity outputs (supply edges) by sector",
-        )
-
-    def _fig_flow_outputs(self, *, hue=None, timesteps=None):
-        """SD-R-09: Σ use-edge a* by from_sector, stacked area per valuation."""
-        return self._fig_entity_outputs(
-            from_entity="Flow",
-            fig_id="SD-R-09",
-            title_phrase="Flow-entity outputs (use edges) by sector",
-        )
-
-    # ------------------------------------------------------------------
-    # SD-R-10 — system-boundary edge totals by SB-node sector
-    #   2×2 grid: rows = valuation (Mass, CC), cols = direction
-    #   (from SB · inputs / to SB · outputs). One line per SB-node sector,
-    #   pooled over regions; a₀ is the stage-3 prior (const_run.a0).
-    # ------------------------------------------------------------------
-
-    _BOUNDARY_FAMILY_ORDER = {"Nature": 0, "SEM": 1, "FD": 2}
-
-    def _fig_boundary_flows(self, *, hue=None, timesteps=None):
-        """SD-R-10: Σ a* over system-boundary edges (exactly one SB endpoint),
-        grouped by the SB-node sector. Two columns: from-SB inputs / to-SB
-        outputs; two rows: Mass / CC. One line per sector, summed across
-        regions; sectors ordered by entity_sub family (Nature→SEM→FD) then
-        magnitude; dashed line = a₀ (stage-3 prior) at the first timestep.
-        """
-        import matplotlib.pyplot as plt
-
-        em = self._edge_meta()
-        if em is None:
-            fig = plt.figure(figsize=(8, 3))
-            fig.suptitle(self._title("SD-R-10: edge_index unavailable (acc data missing)"),
-                         fontsize=12)
-            return fig
-
-        required = {"from_entity", "to_entity", "from_sector", "to_sector",
-                    "from_entity_sub", "to_entity_sub", "time", "valuation"}
-        missing = required - set(em.columns)
-        if missing:
-            fig = plt.figure(figsize=(8, 3))
-            fig.suptitle(self._title(f"SD-R-10: edge_meta missing columns {missing}"),
-                         fontsize=12)
-            return fig
-
-        em_fe   = em["from_entity"].astype(str).to_numpy()
-        em_te   = em["to_entity"].astype(str).to_numpy()
-        em_fs   = em["from_sector"].astype(str).to_numpy()
-        em_ts   = em["to_sector"].astype(str).to_numpy()
-        em_fsub = em["from_entity_sub"].astype(str).to_numpy()
-        em_tsub = em["to_entity_sub"].astype(str).to_numpy()
-        em_time = em["time"].astype(str).to_numpy()
-        em_val  = em["valuation"].astype(str).to_numpy()
-
-        boundary = (em_fe == "SB") ^ (em_te == "SB")   # exactly one SB endpoint
-        if not boundary.any():
-            fig = plt.figure(figsize=(8, 3))
-            fig.suptitle(self._title("SD-R-10: no system-boundary edges present"),
-                         fontsize=12)
-            return fig
-
-        # direction → (column title, edge mask, SB-node sector, SB-node entity_sub)
-        directions = [
-            ("from SB · inputs",                     boundary & (em_fe == "SB"), em_fs, em_fsub),
-            ("to SB · outputs (incl. final demand)", boundary & (em_te == "SB"), em_ts, em_tsub),
-        ]
-        valuations = list(self._SD_T_09_VALUATIONS)   # ("Mass", "CC")
-        ts = self._timesteps
-        first_t = str(ts[0]) if ts else None
-        a0 = np.asarray(self._const_run.a0, dtype=float)
-        x = np.arange(len(ts))
-
-        # Per direction: ordered sector list + [n_sec × n_ts] sum matrix per
-        # valuation + first-year a₀ reference per sector per valuation.
-        prepared: list = []
-        all_sectors: set = set()
-        for dlabel, dmask, sec_arr, sub_arr in directions:
-            sectors = sorted({s for s in sec_arr[dmask]})
-            fam_of = {}
-            for s in sectors:
-                subs = sub_arr[dmask & (sec_arr == s)]
-                fam_of[s] = str(subs[0]) if len(subs) else ""
-
-            per_val: dict = {}
-            ref_val: dict = {}
-            for V in valuations:
-                mat = np.zeros((len(sectors), len(ts)), dtype=float)
-                for j, t in enumerate(ts):
-                    F = np.asarray(self._results[t].F_opt, dtype=float)
-                    cell = dmask & (em_time == str(t)) & (em_val == V)
-                    if not cell.any():
-                        continue
-                    sec_cell = sec_arr[cell]
-                    F_cell   = F[cell]
-                    for i, S in enumerate(sectors):
-                        mat[i, j] = float(np.sum(F_cell[sec_cell == S]))
-                per_val[V] = mat
-
-                ref = np.zeros(len(sectors), dtype=float)
-                if first_t is not None:
-                    rmask = dmask & (em_time == first_t) & (em_val == V)
-                    if rmask.any():
-                        sec_r = sec_arr[rmask]
-                        a0_r  = a0[rmask]
-                        for i, S in enumerate(sectors):
-                            ref[i] = float(np.sum(a0_r[sec_r == S]))
-                ref_val[V] = ref
-
-            # order: entity_sub family (Nature→SEM→FD), then mean magnitude desc
-            pooled = sum(np.abs(per_val[V]).mean(axis=1) for V in valuations)
-            order = sorted(
-                range(len(sectors)),
-                key=lambda i: (self._BOUNDARY_FAMILY_ORDER.get(fam_of[sectors[i]], 99),
-                               -pooled[i]),
-            )
-            prepared.append({
-                "label":   dlabel,
-                "sectors": [sectors[i] for i in order],
-                "per_val": {V: per_val[V][order] for V in valuations},
-                "ref_val": {V: ref_val[V][order] for V in valuations},
-            })
-            all_sectors.update(sectors)
-
-        # one stable colour per SB-node sector across both columns / rows
-        tab20 = plt.get_cmap("tab20").colors
-        color_for = {S: tab20[i % 20] for i, S in enumerate(sorted(all_sectors))}
-
-        fig, axes = plt.subplots(
-            len(valuations), len(directions),
-            figsize=(13, 9),
-            sharex=True, squeeze=False,
-        )
-        fig.suptitle(self._title("System-boundary edge totals by sector (SD-R-10)"),
-                     fontsize=13, fontweight="bold")
-
-        for r, V in enumerate(valuations):
-            for c, prep in enumerate(prepared):
-                ax = axes[r][c]
-                mat = prep["per_val"][V]
-                ref = prep["ref_val"][V]
-                for i, S in enumerate(prep["sectors"]):
-                    ax.plot(x, mat[i], color=color_for[S], lw=1.5,
-                            label=S, alpha=0.9)
-                    ax.hlines(ref[i], xmin=x[0], xmax=x[-1],
-                              colors=color_for[S], linestyles="--",
-                              lw=1.0, alpha=0.6)
-                ax.set_title(f"{prep['label']} · {V}", loc="left", fontsize=10)
-                ax.set_xticks(x)
-                ax.set_xticklabels([str(t) for t in ts], rotation=45, ha="right", fontsize=8)
-                if r == len(valuations) - 1:
-                    ax.set_xlabel("timestep")
+                if log:
+                    y = np.maximum(y, 1e-16)
+                ax.plot(it, y, color=ramp[i], lw=1.2, marker="o" if len(it) == 1 else None, ms=4)
+            if log:
                 ax.set_yscale("log")
-                if c == 0:
-                    unit = "t" if V == "Mass" else "t Cu"
-                    ax.set_ylabel(f"Σ a* over SB edges [{unit}]")
-                _apply_modern_style(ax)
-
-        # generic dashed-reference entry, placed on the last axis so it sorts last
-        axes[-1][-1].plot([], [], color=_C["grey"], ls="--", lw=1.0,
-                          label=f"a₀ ({first_t})" if first_t else "a₀")
-
-        # single legend on the right, deduped across all axes
-        handles, labels = [], []
-        seen: set = set()
-        for row in axes:
-            for ax in row:
-                for h, l in zip(*ax.get_legend_handles_labels()):
-                    if l not in seen:
-                        seen.add(l)
-                        handles.append(h)
-                        labels.append(l)
-        fig.legend(handles, labels, loc="center right",
-                   fontsize=7, frameon=False, ncol=1,
-                   bbox_to_anchor=(1.0, 0.5))
-        fig.tight_layout(rect=[0, 0, 0.88, 0.95])
+            ax.set_title(name, loc="left", fontsize=10)
+            ax.set_xlabel("iteration")
+            _apply_modern_style(ax)
+        sm = ScalarMappable(norm=Normalize(0, max(n - 1, 1)), cmap=ListedColormap(ramp))
+        cbar = fig.colorbar(sm, ax=axes.ravel().tolist(), pad=0.02, fraction=0.03)
+        ticks = sorted({0, n // 2, n - 1})
+        cbar.set_ticks(ticks)
+        cbar.set_ticklabels([str(hist[i][0]) for i in ticks])
+        cbar.set_label("year")
         return fig
 
     # ------------------------------------------------------------------
-    # Title helpers
+    # Objective share (SD-R-13 / 14 / 15)
     # ------------------------------------------------------------------
 
-    def _title(self, base: str) -> str:
-        return f"{base}  —  {self.label}" if self.label else base
+    @staticmethod
+    def _dot_rank(ax, y, x, color, label=None, size=48):
+        """One ranked dot series with hairline stems from the axis minimum."""
+        ax.scatter(x, y, s=size, color=color, zorder=3, edgecolors="none", label=label)
 
     @staticmethod
-    def _col_title(t: str, triple: tuple) -> str:
-        return str(t)
+    def _n_unidentified(fam) -> int:
+        if fam is None or fam.empty:
+            return 0
+        return int((fam["identity"].to_numpy() < 0).sum())
+
+    def _fig_objective_share_by_sector(self, *, hue=None, timesteps=None, regions=None):
+        """SD-R-13: objective share per sector key, one panel per family."""
+        import matplotlib.pyplot as plt
+
+        runs = hue if hue else [(self.label or "run", self, _C["blue"])]
+        host = runs[0][1]
+        fig, axes = plt.subplots(1, len(FAMILIES), figsize=(6 * len(FAMILIES), 7.5), squeeze=False)
+        axes = axes[0]
+        fig.suptitle(self._title("Objective share by sector key (SD-R-13)", regions, hue=hue),
+                     fontsize=13, fontweight="bold")
+        drew_any = False
+        for j, fam in enumerate(FAMILIES):
+            ax = axes[j]
+            host_fam = host._family(fam, regions)
+            host_share = share_by_key(host_fam, top=_TOP_KEYS)
+            if host_share is None or host_share.empty:
+                ax.text(0.5, 0.5, "no rows", transform=ax.transAxes, ha="center", va="center", color=_C["grey"])
+                ax.set_title(FAMILY_LABELS[fam], loc="left", fontsize=10)
+                _apply_modern_style(ax)
+                continue
+            drew_any = True
+            keys = list(host_share["sector_key"])
+            ys = np.arange(len(keys))[::-1].astype(float)
+            n_runs = len(runs)
+            xmin = 1.0
+            for k, (lbl, dg, color) in enumerate(runs):
+                s = share_by_key(dg._family(fam, regions))
+                if s is None or s.empty:
+                    continue
+                s = s.set_index("sector_key")["share"]
+                named = [kk for kk in keys if kk != "other"]
+                shares = np.array([float(s.get(kk, 0.0)) for kk in named])
+                if "other" in keys:
+                    shares = np.append(shares, max(1.0 - shares.sum(), 0.0))
+                pos = shares > 0
+                xmin = min(xmin, float(shares[pos].min())) if pos.any() else xmin
+                off = (k - (n_runs - 1) / 2) * 0.28 if n_runs > 1 else 0.0
+                ax.hlines(ys[pos] + off, 1e-12, shares[pos], color=_C["grey"], lw=0.8, alpha=0.6)
+                self._dot_rank(ax, ys[pos] + off, shares[pos], color, label=lbl if hue else None)
+            lo = max(xmin / 3, 1e-6)
+            ax.set_xscale("log")
+            ax.set_xlim(lo, 1.0)
+            ax.set_yticks(ys)
+            ax.set_yticklabels([_short(kk, 32) for kk in keys], fontsize=8)
+            ax.set_ylim(-0.8, len(keys) - 0.2)
+            ax.set_xlabel("objective share of the family (log)")
+            total = float(np.nansum(host_fam["z"].to_numpy(dtype=float) ** 2)) if host_fam is not None else 0.0
+            ax.set_title(f"{FAMILY_LABELS[fam]} · Σz² = {total:.4g}", loc="left", fontsize=10)
+            n_unid = self._n_unidentified(host_fam)
+            if n_unid:
+                ax.text(0.0, -0.14, f"{n_unid:,} rows without identity (in totals; keyed by variant)",
+                        transform=ax.transAxes, fontsize=7, color=_C["grey"])
+            _apply_modern_style(ax)
+        if not drew_any:
+            plt.close(fig)
+            return self._placeholder("SD-R-13: no frames available (acc / row_meta missing)", regions)
+        if hue:
+            axes[0].legend(fontsize=7, frameon=False, loc="lower right")
+        fig.tight_layout(rect=[0, 0.04, 1, 0.95])
+        return fig
+
+    def _fig_top_identities(self, *, hue=None, timesteps=None, regions=None):
+        """SD-R-14: top identities per family by Σ_t z², annotated with Σ_t|Δ|."""
+        import matplotlib.pyplot as plt
+
+        fig, axes = plt.subplots(1, len(FAMILIES), figsize=(7.5 * len(FAMILIES), 9.5), squeeze=False)
+        axes = axes[0]
+        fig.suptitle(self._title(f"Top {_TOP_IDS} identities by Σ_t z² (SD-R-14)", regions),
+                     fontsize=13, fontweight="bold")
+        drew_any = False
+        for j, fam in enumerate(FAMILIES):
+            ax = axes[j]
+            f = self._family(fam, regions)
+            r = rank_identities(f, top=_TOP_IDS) if f is not None else None
+            if r is None or r.empty:
+                ax.text(0.5, 0.5, "no rows", transform=ax.transAxes, ha="center", va="center", color=_C["grey"])
+                ax.set_title(FAMILY_LABELS[fam], loc="left", fontsize=10)
+                _apply_modern_style(ax)
+                continue
+            drew_any = True
+            ys = np.arange(len(r))[::-1].astype(float)
+            x = np.maximum(r["share"].to_numpy(dtype=float), 1e-12)
+            lo = max(float(x.min()) / 3, 1e-6)
+            ax.hlines(ys, 1e-12, x, color=_C["grey"], lw=0.8, alpha=0.6)
+            self._dot_rank(ax, ys, x, _FAMILY_COLOR[fam])
+            for yi, xi, row in zip(ys, x, r.itertuples(index=False)):
+                ax.text(xi * 1.15, yi,
+                        f"{row.sum_abs_delta:,.0f} kt · {row.n_years}y · max|z| {row.z_absmax:.1f} ({row.year_absmax})",
+                        va="center", fontsize=6.5, color=_C["grey"])
+            ax.set_xscale("log")
+            ax.set_xlim(lo, 1.0)
+            ax.set_yticks(ys)
+            ax.set_yticklabels([_short(l, 45) for l in r["label"]], fontsize=7.5)
+            ax.set_ylim(-0.8, len(r) - 0.2)
+            ax.set_xlabel("objective share of the family (log)")
+            ax.set_title(f"{FAMILY_LABELS[fam]} · Σz² = {r.attrs.get('zsq_total', float('nan')):.4g}",
+                         loc="left", fontsize=10)
+            n_unid = r.attrs.get("n_unidentified", 0)
+            if n_unid:
+                ax.text(0.0, -0.10, f"{n_unid:,} rows without identity excluded from the ranking",
+                        transform=ax.transAxes, fontsize=7, color=_C["grey"])
+            _apply_modern_style(ax)
+        if not drew_any:
+            plt.close(fig)
+            return self._placeholder("SD-R-14: no frames available (acc / row_meta missing)", regions)
+        fig.tight_layout(rect=[0, 0.04, 1, 0.95])
+        return fig
+
+    def _fig_identity_profiles(self, family: str, fig_id: str, regions=None):
+        """Shared body of SD-R-15a/b/c: z_t over years for the top identities."""
+        import matplotlib.pyplot as plt
+
+        f = self._family(family, regions)
+        r = rank_identities(f, top=_N_PROFILES) if f is not None else None
+        if r is None or r.empty:
+            return self._placeholder(f"{fig_id}: no {FAMILY_LABELS[family]} available", regions)
+        P = profiles(f, r["identity"].tolist(), years=self._years)
+        ncols, nrows = 4, int(np.ceil(len(r) / 4))
+        fig, axes = plt.subplots(nrows, ncols, figsize=(16, 3.0 * nrows + 1), sharex=True, sharey=True,
+                                 squeeze=False)
+        fig.suptitle(self._title(f"z over years — top {len(r)} {FAMILY_LABELS[family]} ({fig_id})", regions),
+                     fontsize=13, fontweight="bold")
+        x = self._ts_index()
+        for i, row in enumerate(r.itertuples(index=False)):
+            ax = axes.flat[i]
+            z = P.loc[row.identity].to_numpy(dtype=float)
+            ax.axhline(0, color=_C["grey"], lw=0.8)
+            ax.axhline(3, color=_C["grey"], lw=0.8, ls="--")
+            ax.axhline(-3, color=_C["grey"], lw=0.8, ls="--")
+            ax.plot(x, z, color=_FAMILY_COLOR[family], lw=1.6, marker="o", ms=3)
+            ax.set_yscale("symlog", linthresh=1.0)
+            ax.set_title(f"#{row.rank} {_short(row.label, 38)} · {100 * row.share:.1f} %",
+                         loc="left", fontsize=8.5)
+            _apply_modern_style(ax)
+        for ax in axes.flat[len(r):]:
+            ax.set_visible(False)
+        step = max(1, len(x) // 6)
+        for c in range(ncols):
+            ax = axes[-1][c]
+            ax.set_xticks(x[::step])
+            ax.set_xticklabels(self._ts_labels_for_xticks()[::step], rotation=45, ha="right", fontsize=7)
+        axes[0][0].set_ylabel("z (symlog)")
+        fig.tight_layout(rect=[0, 0, 1, 0.95])
+        return fig
+
+    def _fig_profiles_edges(self, *, hue=None, timesteps=None, regions=None):
+        """SD-R-15a."""
+        return self._fig_identity_profiles("edges", "SD-R-15a", regions)
+
+    def _fig_profiles_sum_rows(self, *, hue=None, timesteps=None, regions=None):
+        """SD-R-15b."""
+        return self._fig_identity_profiles("sum_rows", "SD-R-15b", regions)
+
+    def _fig_profiles_soft_ratios(self, *, hue=None, timesteps=None, regions=None):
+        """SD-R-15c."""
+        return self._fig_identity_profiles("soft_ratios", "SD-R-15c", regions)
+
+    # ------------------------------------------------------------------
+    # Rocket (SD-T-07)
+    # ------------------------------------------------------------------
+
+    def _fig_rocket(self, *, hue=None, timesteps=None, regions=None):
+        """SD-T-07: prior vs posterior log–log scatters at three years.
+
+        Row c: ``log10 |G·a_prior(t)|`` vs ``log10 |c*|`` on sum rows;
+        row a: ``log10 |a_prior(t)|`` vs ``log10 |a*|`` on the year's edges.
+        Values are floored at ``_LOG_FLOOR`` before the log so a handful of
+        numerical zeros cannot squash the populated decades; colour = ``|z|``
+        (sequential, log scale, clipped to [1e-2, 1e2]); the top identities of
+        the family are labelled where they appear.
+        """
+        import matplotlib.pyplot as plt
+        from matplotlib.colors import LogNorm
+
+        ts_triple = self._resolve_timesteps(timesteps, regions)
+        specs = [
+            ("c-space · sum rows", self._family("sum_rows", regions), "lhs_prior_t", "lhs_post",
+             "log₁₀ |G·a_prior(t)|", "log₁₀ |c*|"),
+            ("a-space · edges", self._family("edges", regions), "a_prior", "a_post",
+             "log₁₀ |a_prior(t)|", "log₁₀ |a*|"),
+        ]
+        if all(fam is None for _, fam, *_ in specs):
+            return self._placeholder("SD-T-07: no frames available (acc / row_meta missing)", regions)
+
+        fig, axes = plt.subplots(2, 3, figsize=(16, 9.5), squeeze=False)
+        fig.suptitle(self._title("Rocket: prior vs posterior, colour |z| (SD-T-07)", regions),
+                     fontsize=13, fontweight="bold")
+        cmap = plt.get_cmap("YlOrRd")
+        norm = LogNorm(vmin=1e-2, vmax=1e2, clip=True)
+        worst = ts_triple[1]
+
+        for r, (name, fam, xcol, ycol, xlab, ylab) in enumerate(specs):
+            if fam is None or fam.empty or xcol not in fam.columns:
+                for col in range(3):
+                    axes[r][col].text(0.5, 0.5, f"{name}: no rows", transform=axes[r][col].transAxes,
+                                      ha="center", va="center", color=_C["grey"])
+                    _apply_modern_style(axes[r][col])
+                continue
+            top = rank_identities(fam, top=_N_ROCKET_LABELS)
+            top_ids = set(top["identity"].tolist()) if top is not None and not top.empty else set()
+            per_year, lo, hi = {}, np.inf, -np.inf
+            for t in ts_triple:
+                sub = fam[fam["year"] == str(t)]
+                xs = np.log10(np.maximum(np.abs(sub[xcol].to_numpy(dtype=float)), _LOG_FLOOR))
+                ys = np.log10(np.maximum(np.abs(sub[ycol].to_numpy(dtype=float)), _LOG_FLOOR))
+                zz = np.abs(sub["z"].to_numpy(dtype=float))
+                per_year[t] = (sub, xs, ys, zz)
+                if xs.size:
+                    lo = min(lo, float(np.nanmin(xs)), float(np.nanmin(ys)))
+                    hi = max(hi, float(np.nanmax(xs)), float(np.nanmax(ys)))
+            if not np.isfinite(lo) or not np.isfinite(hi):
+                lo, hi = np.log10(_LOG_FLOOR), 6.0
+            pad = 0.3
+            for col, t in enumerate(ts_triple):
+                ax = axes[r][col]
+                sub, xs, ys, zz = per_year[t]
+                ok = np.isfinite(zz)
+                sc = None
+                if ok.any():
+                    sc = ax.scatter(xs[ok], ys[ok], c=zz[ok], cmap=cmap, norm=norm,
+                                    s=8, alpha=0.65, edgecolors="none")
+                if (~ok).any():   # σ = 0 → z undefined: grey
+                    ax.scatter(xs[~ok], ys[~ok], color=_C["grey"], s=6, alpha=0.4, edgecolors="none")
+                ax.plot([lo - pad, hi + pad], [lo - pad, hi + pad], color=_C["grey"], lw=0.9, ls="--")
+                ax.set_xlim(lo - pad, hi + pad)
+                ax.set_ylim(lo - pad, hi + pad)
+                if top_ids:
+                    m = sub["identity"].isin(top_ids).to_numpy()
+                    for xi, yi, lab in zip(xs[m], ys[m], sub["label"].to_numpy()[m]):
+                        ax.annotate(_short(str(lab).replace("|", "·"), 30), (xi, yi),
+                                    xytext=(3, 3), textcoords="offset points",
+                                    fontsize=6, color=_C["navy"])
+                if sc is not None and col == len(ts_triple) - 1:
+                    fig.colorbar(sc, ax=ax, pad=0.02, fraction=0.05, label="|z|")
+                ax.set_xlabel(xlab, fontsize=8)
+                if col == 0:
+                    ax.set_ylabel(ylab)
+                if r == 0:
+                    tag = "  · worst Σz²" if (timesteps is None and t == worst and col == 1) else ""
+                    ax.set_title(f"{t}{tag}", fontsize=10, fontweight="bold")
+                ax.text(0.02, 0.97, f"{name} · n={int(ok.sum() + (~ok).sum())}",
+                        transform=ax.transAxes, fontsize=8, color=_C["grey"], va="top")
+                _apply_modern_style(ax)
+        fig.tight_layout(rect=[0, 0, 1, 0.96])
+        return fig
