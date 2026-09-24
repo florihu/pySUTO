@@ -1,8 +1,10 @@
 """
 test_piot.py
 ============
-Stage 6 · Slice 5 — the PIOT as a construct family: the market-share process
-network at level 'Z' (issue #25, ADR 0037). The toy chain is test_psut's.
+Stage 6 · Slices 5–6 — the PIOT as a construct family: the market-share process
+network at level 'Z' (issue #25, ADR 0037), then levels A/L with footprints,
+embodied trade (#21) and the ew-MFA indicators, multipliers and SDA (#22).
+The toy chain is test_psut's.
 """
 
 from __future__ import annotations
@@ -142,24 +144,23 @@ def test_allocation_conserves_every_producers_supply(psut):
 # 4) The family's other members are stubs, loudly
 # ---------------------------------------------------------------------------
 
-def test_other_constructs_and_levels_are_stubs(psut):
+def test_other_construct_is_a_stub_and_levels_gate_the_calculus(psut):
     with pytest.raises(NotImplementedError, match="#20"):
         psut.to_piot("suh_product")
-    with pytest.raises(NotImplementedError, match="#20"):
-        psut.to_piot(level="A")
-    with pytest.raises(NotImplementedError, match="#20"):
-        psut.to_piot(level="L")
     with pytest.raises(ValueError, match="construct"):
         psut.to_piot("bogus")
     with pytest.raises(ValueError, match="level"):
         psut.to_piot(level="Q")
-    piot = psut.to_piot()
-    with pytest.raises(NotImplementedError):
-        piot.A()
-    with pytest.raises(NotImplementedError):
-        piot.L()
-    with pytest.raises(NotImplementedError):
-        piot.footprint()
+    z = psut.to_piot()                                   # level Z: no coefficients
+    with pytest.raises(ValueError, match="level 'A'"):
+        z.A()
+    with pytest.raises(ValueError, match="level 'L'"):
+        z.footprint()
+    a = psut.to_piot(level="A")
+    assert a.A("2020").shape == (6, 6)
+    with pytest.raises(ValueError, match="level 'L'"):
+        a.L()
+    assert psut.to_piot(level="L").L("2020").shape == (6, 6)
 
 
 def test_periods_and_resolve(psut):
@@ -196,3 +197,103 @@ def test_process_network_sankey(world):
         assert (links.loc[links["block"] == block, "value"].sum()
                 == pytest.approx(psut_links.loc[psut_links["block"] == block, "value"].sum()))
     assert CC_TOTALS_2020["S"] == 311.0                          # the toy's supply, for the record
+
+
+# ---------------------------------------------------------------------------
+# 6) Levels A and L: x = Z·1 + y, A = Z·x̂⁻¹, L·y = x
+# ---------------------------------------------------------------------------
+
+def test_leontief_identities_on_the_world_toy(world):
+    piot = world.to_piot(level="L")
+    x, y = piot.x("2020"), piot.y("2020")
+    assert x.to_dict() == {("World", "Mining"): 160.0, ("World", "Smelting"): 151.0}
+    assert y.to_dict() == {("World", "Mining"): 0.0, ("World", "Smelting"): 151.0}
+    A = piot.A("2020")
+    assert A.loc[("World", "Mining"), ("World", "Smelting")] == pytest.approx(160.0 / 151.0)
+    assert A.to_numpy().sum() == pytest.approx(160.0 / 151.0)     # the only non-zero coefficient
+    L = piot.L("2020")
+    np.testing.assert_allclose((np.eye(2) - A.to_numpy()) @ L.to_numpy(), np.eye(2), atol=1e-12)
+    np.testing.assert_allclose(L.to_numpy() @ y.to_numpy(), x.to_numpy(), atol=1e-9)
+    assert piot.y("2020", by="fd").shape == (2, 1) and piot.y("2020", by="fd").columns.names == ["region", "final_demand"]
+    assert piot.L("2020") is piot.L("2020")                       # cached
+
+
+def test_leontief_identities_on_the_three_region_toy(psut):
+    piot = psut.to_piot(level="L")
+    for period in PERIODS:
+        for valuation in VALUATIONS:
+            A, L = piot.A(period, valuation), piot.L(period, valuation)
+            x, y = piot.x(period, valuation), piot.y(period, valuation)
+            np.testing.assert_allclose(L.to_numpy() @ y.to_numpy(), x.to_numpy(), atol=1e-9)
+            np.testing.assert_allclose(A.to_numpy() @ x.to_numpy() + y.to_numpy(), x.to_numpy(), atol=1e-9)
+            assert (A.loc[:, "C"] == 0).all().all()               # no output → zero column
+            assert L.loc[("C", "Mining"), ("C", "Mining")] == 1.0
+    A = piot.A("2020")
+    assert A.loc[("B", "Mining"), ("A", "Smelting")] == pytest.approx(20.0 / 115.0)   # ore from B per unit of Smelting/A
+
+
+# ---------------------------------------------------------------------------
+# 7) Footprints and embodied trade (#21)
+# ---------------------------------------------------------------------------
+
+def test_footprint_sums_to_total_extraction(psut):
+    piot = psut.to_piot(level="L")
+    e = piot.intensity("E", "2020")
+    assert e[("A", "Mining")] == 1.0 and e[("B", "Mining")] == 1.0 and e[("A", "Smelting")] == 0.0
+    fp = piot.footprint("E", "2020")
+    assert fp.index.names == ["region", "final_demand"]
+    assert fp[("A", "Use")] == pytest.approx(100.0 + 20.0 + 6.0 * 40.0 / 36.0)
+    assert fp[("B", "Use")] == pytest.approx(30.0 * 40.0 / 36.0)
+    assert fp.sum() == pytest.approx(160.0)                       # Σ e·L·y = Σ e·x = total E
+    assert piot.footprint("E", "2020", by=None) == pytest.approx(160.0)
+    assert piot.footprint("E", "2020", by="region").to_dict() == pytest.approx(
+        {"A": 126.0 + 2.0 / 3.0, "B": 33.0 + 1.0 / 3.0})
+    assert piot.footprint("O", "2020", by=None) == pytest.approx(5.0)   # the scrap input, too
+    with pytest.raises(ValueError, match="extension"):
+        piot.intensity("S")
+
+
+def test_embodied_trade_rows_are_extraction_and_columns_are_rmc(psut):
+    piot = psut.to_piot(level="L")
+    M = piot.embodied_trade("E", "2020")
+    assert list(M.index) == ["A", "B", "C"] and list(M.columns) == ["A", "B"]
+    assert M.loc["A", "A"] == pytest.approx(100.0)
+    assert M.loc["B", "A"] == pytest.approx(20.0 + 6.0 * 40.0 / 36.0)
+    assert M.loc["B", "B"] == pytest.approx(30.0 * 40.0 / 36.0)
+    assert M.loc["C"].sum() == 0.0
+    pd.testing.assert_series_equal(M.sum(axis=1).rename(None), pd.Series({"A": 100.0, "B": 60.0, "C": 0.0}), check_names=False)
+    pd.testing.assert_series_equal(M.sum(axis=0), piot.footprint("E", "2020", by="region"), check_names=False)
+
+
+# ---------------------------------------------------------------------------
+# 8) ew-MFA indicators, multipliers, SDA (#22)
+# ---------------------------------------------------------------------------
+
+def test_ew_mfa_identities(psut):
+    piot = psut.to_piot(level="L")
+    m = piot.ew_mfa("2020")
+    assert list(m.index) == ["A", "B", "C"]
+    assert m.loc["A", "DE"] == 100.0 and m.loc["B", "DE"] == 60.0 and m.loc["C", "DE"] == 0.0
+    assert m.loc["A", "imports"] == pytest.approx(26.0) and m.loc["A", "exports"] == 0.0   # ore 20 + cathode 6
+    assert m.loc["B", "exports"] == pytest.approx(26.0) and m.loc["B", "imports"] == 0.0
+    pd.testing.assert_series_equal(m["DMI"], m["DE"] + m["imports"], check_names=False)
+    pd.testing.assert_series_equal(m["DMC"], m["DMI"] - m["exports"], check_names=False)
+    pd.testing.assert_series_equal(m["PTB"], m["imports"] - m["exports"], check_names=False)
+    assert m.loc["B", "DMC"] == pytest.approx(34.0) and m.loc["B", "RMC"] == pytest.approx(33.0 + 1.0 / 3.0)
+    assert m["RMC"].sum() == pytest.approx(m["DE"].sum())          # closed world
+    # World collapse with crossings: traded rows count as both import and export
+    w = psut.aggregate(region="World", keep_crossings=True).to_piot(level="L").ew_mfa("2020")
+    assert w.loc["World", "imports"] == w.loc["World", "exports"] == pytest.approx(26.0)
+    assert w.loc["World", "DMC"] == w.loc["World", "DE"] == w.loc["World", "RMC"] == pytest.approx(160.0)
+
+
+def test_multipliers_and_sda(psut):
+    piot = psut.to_piot(level="L")
+    mult = piot.multipliers("2020")
+    assert mult[("A", "Smelting")] == pytest.approx(1.0 + 100.0 / 115.0 + 20.0 / 115.0)
+    assert mult[("A", "Mining")] == 1.0 and mult[("C", "Mining")] == 1.0
+    d = piot.sda("2020", "2021")                                  # 2021 = 1.1 × 2020: same technology
+    np.testing.assert_allclose(d["technology"].to_numpy(), 0.0, atol=1e-9)
+    np.testing.assert_allclose(d["final_demand"].to_numpy(), d["dx"].to_numpy(), atol=1e-9)
+    np.testing.assert_allclose(d["dx"].to_numpy(), 0.1 * piot.x("2020").to_numpy(), atol=1e-9)
+    assert d.loc[("A", "Smelting"), "x_b"] == pytest.approx(115.0 * 1.1)

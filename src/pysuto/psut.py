@@ -114,6 +114,18 @@ _TABLE_COLUMNS = [
 _NODE_COLUMNS = ["sector", "entity", "region", "entity_sub"]
 
 
+def boundary_labels(nodes: pd.DataFrame, block: str) -> pd.MultiIndex:
+    """The ``(region, sector)`` labels of the SB nodes a boundary block
+    touches — ``Y`` → final demand, ``E``/``W`` → nature, ``O``/``P`` →
+    secondary — read from the same rules as :func:`classify_blocks`."""
+    side = 1 if block in ("Y", "P", "W") else 0
+    ent, sub, name = _ROW_COL[block][side]
+    n = nodes[(nodes["entity"] == ent) & (nodes["entity_sub"] == sub)].sort_values(["region", "sector"])
+    return pd.MultiIndex.from_arrays(
+        [n["region"].to_numpy(), n["sector"].to_numpy()], names=["region", name]
+    )
+
+
 def _entity_sub(edge_meta: pd.DataFrame, col: str) -> np.ndarray:
     if col in edge_meta.columns:
         return edge_meta[col].to_numpy(dtype=object)

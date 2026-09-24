@@ -626,6 +626,18 @@ indirect) output. _Avoid_: "multiplier" (a multiplier is a row/column sum of `L`
 **Footprint** — a **consumption-based** indicator: the boundary input (extraction) embodied in a vector of
 final demand. _Avoid_: "direct/apparent" use (a footprint is the indirect/embodied counterpart).
 
+**Embodied bilateral trade** — the footprint resolved on both ends: rows the region where the boundary input
+enters (extraction), columns the region whose final demand embodies it (`Σ_{p∈r} e_p L[p,q] Y[q,d∈s]`); row sums
+are each region's extraction, column sums its **RMC**. _Avoid_: reading it as physical trade (that is the `Z`/`Y`
+edges crossing a border).
+
+**ew-MFA headline indicators** — per region and period, in the table's unit: **DE** (domestic extraction, the `E`
+block into the region's processes), **imports** / **exports** (network edges crossing into / out of the region;
+`region_crossed` rows of a collapsed table count as both), **PTB** `= imports − exports`, **DMI** `= DE + imports`,
+**DMC** `= DMI − exports`, **RMC** (raw-material consumption, the extraction footprint of the region's final demand).
+Over a closed world `Σ RMC = Σ DE`. _Avoid_: comparing DMC (territorial, gross trade) with RMC (consumption-based,
+embodied) as if they measured the same thing.
+
 **Realized `conc`** — the *ex-post* concentration `CC/Mass` of an edge in the materialised PSUT, versus the
 parametric **concentration coefficient** input; the gap is solver slack. Ore grade is the Ore-sector instance.
 _Avoid_: reading a realized≠parametric gap as an error (cf. the `conc_*_supply` z-violation — it is absorbed slack).
