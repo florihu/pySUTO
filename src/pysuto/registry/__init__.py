@@ -9,6 +9,8 @@ Public surface (re-exported here so call sites can keep using
 * :class:`ImputationRunRegistry`  — Stage 2
 * :class:`ConstraintRunRegistry`  — Stage 3
 * :class:`OptimRunRegistry`       — Stage 4
+* :class:`UncPropRunRegistry`     — Stage 5
+* :class:`PsutRunRegistry`        — Stage 6
 * :class:`_RegistryEntry`         — trimmed index row
 * :func:`make_run_id`             — ``{stage}_{ts}_{code}`` minter
 * :func:`build_sidecar`           — per-run ``metadata.json`` payload builder
@@ -37,6 +39,7 @@ from .imputation   import ImputationRunRegistry
 from .constraint   import ConstraintRunRegistry
 from .optim        import OptimRunRegistry
 from .uncprop      import UncPropRunRegistry
+from .psut         import PsutRunRegistry
 
 __all__ = [
     "BaseOutputRegistry",
@@ -45,6 +48,7 @@ __all__ = [
     "ConstraintRunRegistry",
     "OptimRunRegistry",
     "UncPropRunRegistry",
+    "PsutRunRegistry",
     "DataFeedMetadata",
     "_RegistryEntry",
     "_NpEncoder",
