@@ -80,7 +80,8 @@ data/proc/opt/<opt_run_id>/
 ├── timesteps/
 │   └── t_<year>.npz         # per-t: F_opt, a_prior, cols_t, rows_t, eps_opt, c_star, residuals, iter_history
 └── diag/                    # SolverDiag figures sd_*.png, ranking_<family>.csv, provenance.md,
-                             # edges_<year>.csv / constraints_<year>.csv (SolverStatsDiagnostic)
+                             # edges_<year>.csv / constraints_<year>.csv only when written on
+                             # demand: scripts/solver_stats.py <opt_run_id> --years …
 ```
 
 `t_<year>.npz` keys — **block path** (every run since the year-local fix; `cols_t` is the

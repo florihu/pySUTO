@@ -2,8 +2,8 @@
 solve_diag.py
 =============
 Stage 4-diag driver: render the full SolverDiag portfolio (12 figures +
-``ranking_<family>.csv`` + ``provenance.md``) for a persisted opt run, plus the
-per-year edge/constraint CSVs for the first year.
+``ranking_<family>.csv`` + ``provenance.md``) for a persisted opt run. Per-year
+edge/constraint CSVs are written on demand by ``scripts/solver_stats.py``.
 
 The constraint run is resolved from the opt run's sidecar
 (``parents.upstream.const_run_id``), so only ``opt_run_id`` is required.
@@ -37,7 +37,7 @@ TIMESTEPS  = None              # None → all timesteps; or e.g. (1995, 2010, 20
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from pysuto.diag    import SolverDiag, SolverStatsDiagnostic
+from pysuto.diag    import SolverDiag
 from pysuto.logging import get_logger, add_run_handler
 
 _log = get_logger("init_solve_diag")
@@ -61,10 +61,6 @@ def main(opt_run_id: str, label: str = "", regions=None) -> None:
     paths = diag.plot(timesteps=TIMESTEPS, regions=regions)
     diag_dir = os.path.join(OUTPUT_DIR, opt_run_id, "diag")
     _log.info("Wrote %d files to %s", len(paths), diag_dir)
-
-    # The AccountingStructure was loaded once, lazily, by the figures (`diag.acc`);
-    # the per-year CSVs reuse it.
-    SolverStatsDiagnostic(diag.results, diag.constraint_run, diag.acc, years=("1995",)).write(diag_dir)
 
     _log.info("=== init_solve_diag DONE ===")
 
