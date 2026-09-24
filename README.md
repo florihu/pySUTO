@@ -1133,7 +1133,7 @@ pysuto/
     ├── imp.py                                                                │
     ├── const.py                                                              │
     ├── solver.py                                                             │
-    ├── psut.py                                                              │
+    ├── psut.py                                                               │
     ├── _plot.py                                                              │
     └── stats/             CoverageDiagnostic · StatsDiagnostic               │
         ├── _core.py        ConstStatsDiagnostic · SolverStatsDiagnostic      │
