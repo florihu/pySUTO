@@ -31,9 +31,24 @@ _C = {
 # Eight fixed slots in fixed order — a panel never shows more than eight series
 # (the tail folds into "other", drawn grey). Validated colour-blind safe on a
 # light surface (adjacent-pair CVD ΔE ≥ 9, chroma ≥ 0.1) with the dataviz
-# skill's validate_palette.js; `_C` above is for run / status / family roles.
+# skill's validate_palette.js. SolverDiag draws only from this palette (below);
+# `_C` above remains the role palette of the other stage diagnostics.
 _CAT8 = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100",
          "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
+
+# The same palette's one-hue sequential ramp (blue, light → dark) for ordered
+# magnitudes; it starts at step 250 so the lightest mark still clears 2:1 on white.
+_SEQ_BLUE = ["#86b6ef", "#6da7ec", "#5598e7", "#3987e5", "#2a78d6",
+             "#256abf", "#1c5cab", "#184f95", "#104281", "#0d366b"]
+# Its fixed status colours (distinct from the categorical slots) and ink.
+_STATUS = {"good": "#0ca30c", "warning": "#fab219", "critical": "#d03b3b"}
+_INK    = {"primary": "#0b0b0b", "muted": "#898781"}
+
+
+def _seq_cmap():
+    """``_SEQ_BLUE`` as a matplotlib colormap (light → dark)."""
+    from matplotlib.colors import LinearSegmentedColormap
+    return LinearSegmentedColormap.from_list("seq_blue", _SEQ_BLUE)
 
 
 def _savefig(fig, path: str, dpi: int = 150) -> str:
