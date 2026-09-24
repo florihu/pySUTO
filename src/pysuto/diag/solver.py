@@ -1109,7 +1109,7 @@ class SolverDiag:
             return self._placeholder("SD-R-12: no iteration history persisted for this run")
 
         n = len(hist)
-        ramp = _seq_cmap()(np.linspace(0, 1, n))     # one hue, light → dark
+        ramp = _seq_cmap()(np.linspace(0, 1, n))
         panels = [("res_primal", "primal residual", True), ("res_dual", "dual residual", True),
                   ("gap_abs", "absolute gap", True), ("step_length", "step length", False)]
         fig, axes = plt.subplots(2, 2, figsize=(13, 8.5))
