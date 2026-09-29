@@ -1,33 +1,62 @@
 % Method section of the pySUTO model paper.
-% Compiled via main.tex (\input); FIG1 is drawn inline in TikZ below.
-% Word budgets (approx.): Architecture 180 / Uncertainty 180 / S1 260 / S2 360
-% / S3 300 / S4 280 / S5 180 / Software 140  ->  ~1880 total.
+% Compiled via main.tex (\input); Figures 1 and 2 are drawn inline in TikZ.
+% Structure: 3.1 framework (six stages, each closing with its copper instance)
+% / 3.2 application to copper / 3.3 evaluation / 3.4 availability.
+% Word budgets (approx.): 3.1 1,400 / 3.2 1,250 / 3.3 250 / 3.4 150.
+% Every number is from the reference chain
+%   opt_20260922_121256_d4394c0a <- const_20260922_120030_24cf1571
+%   <- imp_20260922_115534_896bfd10
+%   <- feed_icsg_20260922_115241_eb9cb9ff (icsg v12, trade_shares v21),
+%      feed_baci_20260922_090456_cdcb4c41 (baci v11),
+%      feed_crude_ore_20260603_095651_558f7369 (crude_ore v3);
+%   acc copper v3; params conc v8, eff v3, ore_grade v7, stock_bounds v4,
+%   scrap_share v3,
+% re-derived from the run sidecars and arrays on 2026-09-24. No Stage-5
+% (posterior) number is quoted: none exists for the copper chain (issue #27).
+% "ADR nnnn" points to docs/adr/ in the repository and to SI Table S13.
+%
+% Positioning paragraph (state of the art) moved out of Method on 2026-09-24;
+% it belongs in the Introduction:
+%   This design joins two strands that industrial ecology software has kept
+%   separate. System-definition frameworks such as ODYM (Pauliuk & Heeren
+%   2020) and the general socioeconomic-metabolism data model (Pauliuk et al.
+%   2019) structure material-system data but do not reconcile it; the
+%   constrained-balancing lineage of AISHA, large-scale matrix balancing and
+%   the PIOLab (Geschke et al. 2011, 2019; Lenzen et al. 2009; Wieland et al.
+%   2022) reconciles large accounts but does not carry per-source data quality
+%   through to the result. pySUTO does both by treating sigma as a first-class
+%   artifact of every stage, and reaches the physical input-output table
+%   (Suh 2004; Wieland et al. 2022) only at the end, as a derived view of the
+%   reconciled account.
 
 \section{Method}\label{sec:method}
 
-\subsection{Architecture}\label{sec:arch}
+Section~\ref{sec:framework} describes pySUTO, the generic framework, stage by
+stage, each stage closing with what it does to the copper account;
+Section~\ref{sec:application} gives the copper parametrisation and the
+modelling decisions a reader needs in order to interpret the results;
+Section~\ref{sec:evaluation} defines the quantities the Results report;
+Section~\ref{sec:availability} states what is available for replication.
+
+\subsection{The pySUTO framework}\label{sec:framework}
+
+\subsubsection{Architecture}\label{sec:arch}
 
 pySUTO organises the compilation and reconciliation of physical supply--use
-tables into five sequential stages (Figure~\ref{fig:pipeline}): datafeed
-assembly, aggregation and imputation, constraint building, constrained
-optimisation, and posterior uncertainty propagation. Each stage consumes the
+tables into six sequential stages (Figure~\ref{fig:pipeline}): datafeed
+assembly, aggregation and imputation, constraint building, per-year
+constrained optimisation, posterior uncertainty propagation, and the
+derivation of supply--use and input--output views. Each stage consumes the
 persisted output of its predecessor and writes a registered run of its own,
 and the quantity exchanged at every interface is the same: for each
 \emph{edge} --- one directed flow between two nodes of the accounting graph,
-resolved by period and valuation --- a value together with its standard
-deviation $\sigma$. Stage~1 runs once per source; all later stages operate on
-the combined edge set. In the copper application, three feeds populate
-28{,}482 edges per year across 47 regions and two valuations over 1995--2024.
-
-This design joins two strands that industrial ecology software has kept
-separate. System-definition frameworks such as ODYM
-\citep{pauliuk2020odym} and the general socioeconomic-metabolism data model
-\citep{pauliuk2019datamodel} structure material-system data but do not
-reconcile it; the constrained-balancing lineage of AISHA, large-scale matrix
-balancing, and the PIOLab \citep{geschke2011aisha, lenzen2009matrix,
-wieland2022piolab} reconciles large accounts but does not carry per-source
-data quality through to the result. pySUTO does both by treating $\sigma$ as
-a first-class artifact of every stage.
+resolved by period and valuation --- a value with its standard deviation
+$\sigma$. No transformation may drop $\sigma$; that is what distinguishes
+the framework from system-definition tools that do not reconcile
+\citep{pauliuk2020odym} and from balancing tools that do not carry
+per-source quality through \citep{lenzen2009matrix, wieland2022piolab}. The
+copper graph has 1{,}081 nodes (23 sectors in 47 regions), two valuations and
+30 years: 14{,}241 edges per valuation and year, 854{,}460 in all.
 
 \begin{figure}[t]
 \centering
@@ -39,216 +68,165 @@ a first-class artifact of every stage.
   flow/.style={-{Stealth[length=2.5mm]}, thick}]
 \node[stage] (s1) {\textbf{1 Datafeed}\\[1pt]\scriptsize concordance $W$;\\
   \scriptsize pedigree $\to \sigma$};
-\node[stage, right=11mm of s1] (s2) {\textbf{2 Aggregate \& impute}\\[1pt]
+\node[stage, right=9mm of s1] (s2) {\textbf{2 Aggregate \& impute}\\[1pt]
   \scriptsize inverse variance;\\ \scriptsize imputer cascade};
-\node[stage, right=11mm of s2] (s3) {\textbf{3 Constraints}\\[1pt]
+\node[stage, right=9mm of s2] (s3) {\textbf{3 Constraints}\\[1pt]
   \scriptsize hard/soft rows;\\ \scriptsize prior conditioning};
-\node[stage, right=11mm of s3] (s4) {\textbf{4 Solver}\\[1pt]
+\node[stage, right=9mm of s3] (s4) {\textbf{4 Solver}\\[1pt]
   \scriptsize per-year QP, Eq.~(\ref{eq:qp});\\ \scriptsize interior point};
-\node[stage, right=11mm of s4] (s5) {\textbf{5 Posterior}\\[1pt]
-  \scriptsize GLS update, Eq.~(\ref{eq:posterior});\\ \scriptsize intervals};
+\node[stage, dashed, right=9mm of s4] (s5) {\textbf{5 Posterior}\\[1pt]
+  \scriptsize GLS update, Eq.~(\ref{eq:posterior});\\
+  \scriptsize not run on copper};
+\node[stage, right=9mm of s5] (s6) {\textbf{6 PSUT / PIOT}\\[1pt]
+  \scriptsize blocks $S,U,Y,E,O,P$;\\ \scriptsize $D$, $Z$, $A$, $L$};
 \draw[flow] (s1) -- node[art, above]{$(F_k,\sigma_k)$\\ per feed} (s2);
 \draw[flow] (s2) -- node[art, above]{$f_{\mathrm{agg}},\sigma_{\mathrm{agg}}$\\
   coverage, log} (s3);
 \draw[flow] (s3) -- node[art, above]{$G, c(t), \sigma_c(t)$\\
   $a_0, \sigma_a, [l,u]$} (s4);
-\draw[flow] (s4) -- node[art, above]{$a^*\!(t), \varepsilon^*\!(t)$\\
+\draw[flow, dashed] (s4) -- node[art, above]{$a^*\!(t), \varepsilon^*\!(t)$\\
   residuals} (s5);
+\draw[flow] (s4.north) -- ++(0,7mm) -| (s6.north);
+\node[art, above=8mm of s5] {$a^*\!(t)$ per year and valuation};
 \node[draw, rounded corners, fill=black!4, inner sep=5pt, align=center,
-      text width=157mm, below=9mm of s3] (reg)
-  {\scriptsize Input registry: SHA-256-versioned feeds $\cdot$ accounting
-   structure $\cdot$ parameters \quad$\vert$\quad per-run provenance sidecars:
-   input versions $\cdot$ upstream run IDs $\cdot$ full configuration};
-\foreach \s in {s1,s2,s3,s4,s5}
+      text width=196mm, below=9mm of s3, xshift=17.5mm] (reg)
+  {\scriptsize Input registry (feeds $\cdot$ accounting structure $\cdot$
+   parameters $\cdot$ masks), SHA-256-versioned \quad$\vert$\quad per-run
+   provenance sidecars: input versions $\cdot$ upstream run ids $\cdot$ full
+   configuration $\cdot$ summary statistics};
+\foreach \s in {s1,s2,s3,s4,s5,s6}
   \draw[dashed, {Stealth[length=2mm]}-{Stealth[length=2mm]}]
     (\s.south) -- (\s.south |- reg.north);
+\node[draw, rounded corners, fill=black!4, inner sep=5pt, align=center,
+      text width=196mm, below=4mm of reg] (build)
+  {\scriptsize Copper feed build order (Stage 1; load-bearing, not enforced):
+   parse $\to$ re-export netting $\to$ BACI feed $\to$ trade shares $\to$
+   ICSG feed $\to$ ore grades $\to$ Stage 2};
 \end{tikzpicture}}
-\caption{The pySUTO pipeline. Five sequential stages transform per-source raw
-data into reconciled flows with posterior uncertainties; every inter-stage
-artifact carries values and standard deviations together. Solid arrows show
-the data artifacts handed between stages; the substrate (dashed) is the
-content-hashed input registry and the per-run provenance sidecars that link
-every result to exact input versions, upstream runs, and configuration.
-Outputs $a^*\!(t)$ are the reconciled flows of year $t$; the posterior stage
-adds $\sigma_{a^*}$ and confidence intervals.}
+\caption{The pySUTO pipeline. Six sequential stages transform per-source raw
+data into reconciled flows and derived tables; every inter-stage artifact
+carries values and standard deviations together. Solid arrows show the data
+artifacts handed between stages; Stage~6 reads the reconciled flows $a^*$ of
+Stage~4 directly. Stage~5 (dashed) is implemented and tested but has not
+been executed on the copper chain (Section~\ref{sec:stage5}). The substrate
+is the content-hashed input registry and the per-run provenance sidecars
+that link every result to exact input versions, upstream runs and
+configuration; the bottom strip is the copper-specific feed build order.}
 \label{fig:pipeline}
 \end{figure}
 
-\subsection{Uncertainty treatment}\label{sec:uncertainty}
+\subsubsection{Uncertainty treatment}\label{sec:uncertainty}
 
-Uncertainty enters once, at the source, and is then only transformed. Each
-feed is scored on five data-quality indicators --- reliability, completeness,
-and temporal, geographical, and other correlation --- and the scores are
-translated into per-indicator coefficients of variation (CVs) with the
-exponential model of \citet{laner2016}, in the pedigree tradition of
-\citet{weidema1996pedigree}; their quadrature sum is the feed's CV
-(coefficients in Supporting Information~S1). From this point, no
-transformation may drop $\sigma$.
-
-All subsequent $\sigma$ arithmetic instantiates a single composition rule,
-the power-mean combiner
+Uncertainty enters once, at the source. Each feed is scored on five
+data-quality indicators --- reliability, completeness, and temporal,
+geographical and other correlation --- on a four-point scale; the scores map
+to coefficients of variation (CV) through the exponential model of
+\citet{laner2016}, in the pedigree tradition of \citet{weidema1996pedigree},
+and their quadrature sum is the feed's CV (SI~S2). Every later $\sigma$
+operation instantiates one composition rule, the power-mean combiner
 \begin{equation}
 \sigma_{\oplus} \;=\; \Bigl(\sum\nolimits_k \lvert w_k\,
 \sigma_k\rvert^{\,p}\Bigr)^{1/p},
 \label{eq:lp}
 \end{equation}
 which merges weighted contributions $w_k \sigma_k$ into one standard
-deviation. At $p=2$, Eq.~\eqref{eq:lp} is the Gaussian quadrature of
-independent errors; pySUTO's default $p=1.3$ (configurable) deliberately
-grants less diversification credit, because the many contributions that meet
-on one edge --- parallel sources, fanned-in sub-flows --- rarely err
-independently. For $p \ge 1$ the rule preserves a useful invariant: relative
-uncertainty never grows under mass-preserving aggregation or disaggregation.
-The stage descriptions below state where Eq.~\eqref{eq:lp} fires and with
-which weights; Stage~5 then converts the accumulated prior $\sigma$ into
-posterior uncertainty.
+deviation. At $p=2$ it is the Gaussian quadrature of independent errors;
+pySUTO uses $p=1.3$ throughout, which grants less diversification credit
+because the contributions that meet on one edge --- parallel sources,
+fanned-in sub-flows, chained imputations --- rarely err independently. For
+$p \ge 1$ relative uncertainty never grows under mass-preserving aggregation
+or disaggregation (SI~S2).
 
-\subsection{Stage 1: Datafeed assembly}\label{sec:stage1}
+\subsubsection{Stage 1: Datafeed assembly}\label{sec:stage1}
 
-Each source enters through its own concordance. Raw records are first cast as
-directed source edges, then projected onto the root accounting structure by a
+Each source enters through its own concordance: raw records are cast as
+directed source edges and projected onto the root accounting structure by a
 sparse weight matrix $W$, $f_{\mathrm{root}} = W^{\top} f_{\mathrm{src}}$,
 whose outgoing weights sum to one per source edge so that every fan-out
-conserves mass. Where the split of an aggregate onto root edges is known --- for example,
-from bilateral trade shares --- those shares override the uniform weights. A fan with no split information is not
-distributed at all: a uniform $1/N$ allocation would fabricate bilateral
-structure the source does not contain, so the record is left undistributed
-and its information enters later as a constraint. The projection is guarded
---- total mass must be conserved to within 1\%, and a raw record fanning
-onto several root edges is counted once, never replicated.
+conserves mass (a guard rejects a projection off the matched raw total by
+more than 1\%). A record that names only one endpoint is fanned across the
+matching root edges by external split information --- for copper, bilateral
+trade shares --- and never by a uniform $1/N$ split, which would fabricate
+structure the source does not contain (ADR~0008). The feed's pedigree CV
+attaches here, re-scored at the worst geographical level on edges touching
+the rest-of-world aggregate (ADR~0003), and propagates through $W$ in CV form
+by Eq.~\eqref{eq:lp} with the value shares of the contributing source edges
+as weights: fan-in diversifies, fan-out leaves the CV unchanged. For copper,
+three feeds leave Stage~1 (Table~\ref{tab:sources}): ICSG industry
+statistics, scored $(2,1,1,1,1)$, CV~0.068 (0.217 on the 4{,}597
+rest-of-world edges); BACI bilateral trade, $(3,2,1,1,2)$, CV~0.209 (0.294
+on 9{,}148 edges); and crude-ore extraction, $(2,3,2,2,2)$, CV~0.104 (0.230
+on 28 edges).
 
-One source is adjusted before it enters. Bilateral trade statistics record
-gross border crossings, so a consignment that is imported into a warehouse or
-merchanting economy and re-exported unchanged is counted twice, and the second
-crossing asks the accounts for domestic production the exporting region does
-not have. We re-attribute that tonnage at feed time. For each product,
-region and year we read four observed quantities in copper content ---
-imports $I$ and exports $X$ from the trade matrix, intake $U$ and production
-$P$ from the industry statistics --- and net the re-exported volume
-\begin{equation}
-T = \min\bigl(X,\, I,\, \max(R, E)\bigr), \qquad
-R = \max(0,\, I-U), \qquad
-E = \max(0,\, X-P),
-\label{eq:reexport}
-\end{equation}
-where $R$ is the surplus-import reading of the same physical fact (what the
-region imported and did not use) and $E$ the uncovered-export reading (what it
-exported and could not have produced), domestic production being taken to
-supply exports first. The volume is
-removed from both of the hub's legs and added to the direct origin--destination
-legs in proportion to the observed inbound and outbound shares; a pair whose
-two ends coincide is a re-import and is dropped. The caps $T \le X$ and
-$T \le I$ make the rule inert for producers with thin industry rows, which
-are never netted. Adjusted legs carry a compounded uncertainty,
-$\sigma_{\mathrm{new}} = \mathrm{CV}\sqrt{v_{\mathrm{obs}}^{2} +
-2\Delta^{2}}$, floored so that no netting step can make a leg more certain
-than its pedigree. Tonnage that arrives at a region and has no recorded
-outbound leg cannot be re-attributed from trade data alone; it is retained,
-labelled in a residual ledger, and left for the reconciliation to judge.
-
-The feed's pedigree CV (Section~\ref{sec:uncertainty}) attaches at this
-point, with one penalty: edges touching an aggregate rest-of-world region are
-re-scored at the worst geographical-correlation level, since such composites
-inherit the weakest regional attribution.
-
-Uncertainty then propagates through $W$ in CV form, by
-Eq.~\eqref{eq:lp} with the value shares $\omega_{ij}$ of the contributing
-source edges as weights:
-$\mathrm{CV}_{\mathrm{root},j} = \mathrm{CV}_{\mathrm{src}}
-(\sum_i \omega_{ij}^{\,p})^{1/p}$. Because the shares sum to one, fan-in
-diversifies ($\mathrm{CV}_{\mathrm{root}} \le \mathrm{CV}_{\mathrm{src}}$ for
-$p \ge 1$) while fan-out leaves the CV unchanged. Stage~1 ends with one
-root-aligned pair $(F_k, \sigma_k)$ per feed $k$ in the feed registry ---
-for copper: industry statistics reported in metal content, bilateral trade
-in gross mass net of re-exports, and national crude-ore extraction.
-
-\subsection{Stage 2: Aggregation and imputation}\label{sec:stage2}
+\subsubsection{Stage 2: Aggregation and imputation}\label{sec:stage2}
 
 Where several feeds observe the same edge, their values are combined by
-inverse variance: weights $\Omega_{kj} = \sigma_{kj}^{-2} / \sum_k
-\sigma_{kj}^{-2}$ give the aggregate $f_{\mathrm{agg},j} = \sum_k \Omega_{kj}
-F_{kj}$, and its $\sigma_{\mathrm{agg}}$ follows from Eq.~\eqref{eq:lp} with
-weights $\Omega_{kj}$. At $p=2$ this is the classical minimum-variance
-combination of independent estimates; the default $p=1.3$ keeps the aggregate
-deliberately more cautious. A coverage mask records which edges any feed
-observed.
+inverse variance, the aggregate's $\sigma$ following from Eq.~\eqref{eq:lp}
+with the precision weights (SI~S3); a coverage mask records which edges any
+feed observed. Bilateral trade legs then receive a size-damped $\sigma =
+\mathrm{CV}\, a_{\mathrm{ref}}^{\,1-\gamma} a^{\gamma}$, $\gamma = 0.5$,
+around a fixed per-product reference size, because a size-blind CV makes the
+largest legs the cheapest to delete per tonne (ADR~0017). In the copper run
+62{,}295 edges (7.29\%) are feed-observed: 24{,}787 in copper content from
+ICSG, 36{,}643 in gross mass from BACI, 865 from the ore series.
 
-The uncovered edges are filled by an imputation engine that runs plugin
-imputers in two phases: a \emph{cascade}, swept repeatedly in fixed order
-until a full sweep fills no new edge, and a single \emph{terminal} pass. The
-cascade seeds bilateral trade legs, closes process recipes, applies parameter
-relations, and evaluates formula splits. Fills are write-once, and every fill is logged
-with its method, source edges, and coefficients --- the imputation provenance
-of each edge.
+The uncovered edges are filled by plugin imputers in two phases: a
+\emph{cascade}, swept in fixed order until a full sweep fills no new edge,
+and a single \emph{terminal} pass (rules in SI~S3). The cascade seeds
+bilateral import legs in copper content from their observed gross-mass twin
+($f_{\mathrm{CC}} = \mathit{conc} \cdot f_{\mathrm{Mass}}$), closes
+process recipes --- a process's product equals its recovery efficiency times
+its pooled inputs, secondary inputs and imports included, and its residual
+output receives the complement --- and applies the concentration, ore-grade
+and efficiency relations in reverse where only the downstream side is
+observed, with a regularised sensitivity that damps the inversion of
+near-zero coefficients. The terminal pass interpolates linearly in time on
+within-region edges only, because a bilateral trade matrix is complete by
+construction and a partner pair absent in one year is an observed zero, not
+a gap (ADR~0026); seeds zero-mean stock-change priors scaled by observed
+stock-change bands; and gives every still-empty edge a flat prior, value
+zero with $\sigma = 10^{6}$, a noisy zero re-anchored in Stage~3. Fills are
+write-once and logged with method, source edges and coefficients. In the
+copper run the cascade converges in two passes; relational and temporal
+imputation extend informative priors to 78{,}341 edges (9.17\%, mostly by
+recipe closure and stock-change seeds; SI~S12), and 713{,}824 edges
+(83.5\%) carry the flat prior.
 
-Two cascade members do most of the work. The trade imputer converts observed
-gross-mass trade into metal content through the concentration relation
-$f_{\mathrm{CC}} = \mathit{conc} \cdot f_{\mathrm{Mass}}$. The network
-imputer traverses process recipes: a process's product equals its recovery
-efficiency times its pooled inputs (secondary inputs and imports included),
-its residual output receives the complement $(1-\mathit{eff})$, and known
-totals propagate to the single missing edge of a node balance; each filled
-content edge also seeds its mass twin. The parametric imputers apply the same
-relations in reverse where only the downstream side is observed, damping the
-inversion of near-zero coefficients (an ore grade of $0.01$ would otherwise
-amplify $\sigma$ a hundredfold) with a regularised sensitivity
-(Supporting Information~S2). All imputed $\sigma$ compose via
-Eq.~\eqref{eq:lp}.
+\subsubsection{Stage 3: Constraint building}\label{sec:stage3}
 
-The terminal pass interpolates remaining gaps in time, with $\sigma$ inflated
-per gap year; seeds zero-mean stock-change priors scaled by observed
-stock-change bands; and assigns every still-empty edge a flat prior --- value
-zero with $\sigma = 10^{6}$, a noisy zero re-anchored in Stage~3
-(a magnitude-aware flat-prior mode is available as an alternative). Temporal
-interpolation is scoped to within-region edges. A bilateral trade matrix is
-complete by construction, so a partner pair absent in one year is an observed
-zero and not a gap; interpolating it would manufacture trade the source
-denies, and the missing route is left to the flat prior instead. In the
-copper application the cascade converges in two passes: 7.3\% of the
-854{,}460 edges are feed-observed, relational and temporal imputation extend
-informative priors to a further 9.1\%, and the remaining 83.6\% carry flat
-priors.
+The aggregated prior is next confronted with what must, and what should,
+hold. Builder plugins emit rows of a sparse matrix $G$, each with its year,
+target $c(t)$ and target uncertainty $\sigma_c(t)$: \emph{hard} rows must
+hold exactly, \emph{soft} rows may be violated at a cost weighted by
+$\sigma_c^{-2}$, in the $\sigma$-weighted-residual tradition of
+accounting-matrix reconciliation \citep{byron1978, vanderploeg1982,
+lenzen2009matrix} and of data reconciliation in material flow analysis
+\citep{cencic2008stan}. The copper configuration registers, in build order
+(SI~S4): hard mass balances per process and product node, region, year and
+valuation; soft \emph{scale totals} that tie each node's total output to its
+own aggregated prior --- self-anchored, adding no information but preserving
+the prior's scale against homogeneous shrinkage (ADR~0006) --- with
+$\sigma_c = \max(0.01\,|c|,\ 0.3\ \mathrm{kt})$ on feed-backed groups
+(ADR~0025); soft level anchors on the observed scrap inputs of smelters and
+refineries (ADR~0031); soft ratio rows for concentration, in-situ ore grade
+and recovery efficiency, the last pooling all inputs of a process; hard
+one-sided bands on the same ratios and on regional scrap shares; soft
+zero-centred net-stock rows; and per-edge bounds $[l,u]$, stored but not
+part of the optimisation. Prior $\sigma_a$ is then floored through
+Eq.~\eqref{eq:lp}, and the noisy zeros are re-anchored: at $\sigma = 10^{6}$
+their prior pull is nil, so the solver could route arbitrary mass through
+data-free subgraphs; the anchor sets their $\sigma$ to 5\% of the median
+prior magnitude among their sector--valuation siblings, exempting the
+extraction chain and the residual outputs whose magnitude a relation
+determines (ADR~0013). A build-time check verifies that no row couples
+different years, so $G$ partitions into yearly blocks. For copper this
+yields 1{,}365{,}461 rows, 45{,}416--45{,}584 per year: 903{,}502 hard
+(39{,}480 mass balances, 864{,}022 bands) and 461{,}959 soft (27{,}128 scale
+totals and scrap anchors, 434{,}831 ratio rows).
 
-\subsection{Stage 3: Constraint building}\label{sec:stage3}
+\subsubsection{Stage 4: Solver}\label{sec:stage4}
 
-The aggregated prior is next confronted with what must, and what should, hold.
-Constraint builders --- plugins like the imputers --- emit rows of a sparse
-matrix $G$, each row carrying its year, its target $c(t)$, and a target
-uncertainty $\sigma_c(t)$. \emph{Hard} rows must hold exactly; \emph{soft}
-rows may be violated at a cost weighted by $\sigma_c^{-2}$, in the
-$\sigma$-weighted-residual tradition of accounting-matrix reconciliation
-\citep{byron1978, vanderploeg1982, lenzen2009matrix} and of data
-reconciliation in material flow analysis \citep{cencic2008stan}.
-
-The reference configuration registers five families. Hard mass balances
-enforce supply\,$=$\,use per node, region, year, and valuation, with
-system-boundary nodes exempt. Soft \emph{scale totals} tie each total-output
-group to its own aggregated sum ($\sigma_c = 0.01\,|c|$); their targets are
-self-anchored, adding no external information but preserving the prior's
-scale against homogeneous shrinkage of the solution. Soft ratio rows impose
-concentration and recovery-efficiency relations (efficiency rows pool all
-inputs of a process), their parameter uncertainty rescaled to flow space by a
-Gauss--Newton linearisation at the prior; zero-centred net-stock rows bound
-stock changes within observed bands. Hard one-sided band rows cap
-concentration, efficiency, and scrap-share ratios. Per-edge bounds $[l,u]$
-are stored but are not part of the optimisation
-(Section~\ref{sec:stage4}). For copper this yields ${\approx}45{,}900$ rows
-per year, 1.38 million in total.
-
-Two conditioning steps close the stage. Prior $\sigma_a$ is floored through
-Eq.~\eqref{eq:lp} with a relative and an absolute term, and edges that arrive
-as noisy zeros are re-anchored: at $\sigma = 10^{6}$ their prior pull is
-${\approx}\,0$, so the solver could route arbitrary mass through data-free
-subgraphs. The anchor sets their $\sigma$ to 5\% of the median prior
-magnitude among their sector--valuation siblings --- a soft pull toward zero
-at a sector-appropriate scale --- exempting sectors whose magnitude is
-structurally determined by a ratio or balance relation rather than by data.
-A final check verifies that no row couples different years, so $G$ partitions
-into independent per-year blocks.
-
-\subsection{Stage 4: Solver}\label{sec:stage4}
-
-Each year is reconciled by a quadratic program over the flows $a$ and the
+Each year is reconciled by one quadratic program over the flows $a$ and the
 soft residuals $\varepsilon$,
 \begin{equation}
 \min_{a,\;\varepsilon}\;
@@ -263,33 +241,24 @@ G_b\, a \le c_b,
 where $a_0$ is the prior, $\Sigma_a = \mathrm{diag}(\sigma_a^2)$ and
 $\Sigma_c = \mathrm{diag}(\sigma_c^2)$ carry the accumulated uncertainties as
 inverse-variance weights, and the rows of $G$ split into soft equalities
-($G_s$), hard balances ($G_h$), and hard bands ($G_b$), with $c = c(t)$.
-The problem is solved by Clarabel, an interior-point solver for conic
-programs with quadratic objectives \citep{goulart2024clarabel}; the three row
-groups map onto two zero cones and one nonnegative cone (Supporting
-Information~S4).
+($G_s$), hard balances ($G_h$) and hard bands ($G_b$), with $c = c(t)$.
+Clarabel, an interior-point solver for conic programs with quadratic
+objectives \citep{goulart2024clarabel}, solves it with the three row groups
+on two zero cones and one non-negative cone (SI~S5). Eq.~\eqref{eq:qp}
+contains no bound constraints, by design: a data conflict should surface as
+a visible residual, not vanish silently at a bound; the stored $[l,u]$ act
+only in a pre-solve feasibility probe of the hard subsystem, which on
+failure reports the most violated rows. The design has a cost the copper
+results show: residual outputs in gross mass --- waste rock, tailings ---
+carry neither anchor nor bound, so the solver may drive them negative to
+relieve a mass balance. Over 1995--2024 the world waste-rock output has a
+prior of $+292{,}395$~kt and a posterior of $-257{,}667$~kt, and 1{,}108
+mass edges of the mine chain sit more than 1~kt below their lower bound
+(issue~\#28). The shipped run uses the cold prior $a_0(t) =
+f_{\mathrm{agg}}(t)$; all 30 copper years solve to full accuracy in 25--39
+iterations and 5.8--8.5~s each, 188~s in all.
 
-Eq.~\eqref{eq:qp} contains no bound constraints. Non-negativity is induced
-rather than imposed --- by the zero-anchored priors and the hard bands ---
-so that a data conflict surfaces as a visible residual instead of being
-absorbed silently at a bound. The stored $[l,u]$ act only twice: in a
-pre-solve feasibility probe of the hard subsystem, which on failure reports
-the most violated rows and thereby turns infeasibility into a data
-diagnostic, and in the interval clipping of Stage~5.
-
-Before each solve, $\sigma_a$ is clipped to a fixed dynamic range by a
-conditioning rule shared with Stage~5, so that solver and posterior see the
-same effective prior. The year blocks solve independently (for copper,
-28{,}482 edges by ${\approx}45{,}900$ rows each, in place of one monolithic
-system). The executed default is a cold prior,
-$a_0(t) = f_{\mathrm{agg}}(t)$; chaining
-the previous optimum, $a_0(t) = a^*(t{-}1)$, is available as a warm
-alternative. Independently of the prior choice, the solver's KKT
-factorisation is reused across years whose block structure is identical.
-Each solve returns the reconciled flows $a^*(t)$, the residuals
-$\varepsilon^*(t)$, and per-row diagnostics.
-
-\subsection{Stage 5: Posterior uncertainty propagation}\label{sec:stage5}
+\subsubsection{Stage 5: Posterior uncertainty propagation}\label{sec:stage5}
 
 The optimum $a^*$ is a point estimate; Stage~5 restores its distribution.
 Modelling the prior as Gaussian with covariance $\Sigma_a$ and the
@@ -304,36 +273,478 @@ posterior covariance
 \end{equation}
 the generalised-least-squares update of the reconciliation lineage
 \citep{byron1978, vanderploeg1982}. Only the marginal variances are
-extracted, via one sparse Cholesky factorisation $S = LL^{\top}$ per year
-with $\sigma^2_{a^*\!,i} = \sigma^2_{a,i}\,(1 - \sigma^2_{a,i}
-\|L^{-1} g_i\|_2^2)$; intervals $a^*_i \pm z\,\sigma_{a^*\!,i}$ are clipped
-to $[l_i, u_i]$. Hard-balanced edges obtain zero-width intervals --- the
-correct limit, not an artefact. Three invariants are enforced by tests:
-posterior variance never exceeds prior variance, the update stays positive
-semidefinite, and as $\Sigma_c \to 0$ it recovers the hard-constraints-only
-reduction of \citet{byron1978}. Two qualifications remain: the update is the
-linear-Gaussian approximation of the true posterior, and it is blind to the
-bounds, so $\sigma_{a^*}$ overestimates uncertainty where the solution rests
-on them. The posterior thereby makes explicit which parts of the account are
-fixed by structure and which remain limited by data --- the information a
-point estimate alone cannot convey.
+extracted, by one sparse Cholesky factorisation of $S$ per year; intervals
+$a^*_i \pm z\,\sigma_{a^*\!,i}$ are clipped to $[l_i, u_i]$ (SI~S6). Tests
+enforce monotone shrinkage, positive semidefiniteness and the hard-only
+limit of \citet{byron1978}. The stage has, however, not been executed on the
+copper chain: the implementation assigns zero variance to every hard row,
+including the 864{,}022 one-sided band rows, so $S$ has more zero-variance
+rows per year than there are edges and is singular. An active-set treatment
+--- only bands that bind at $a^*$ count as equalities --- is the required
+amendment (issue~\#27); no posterior number is reported in this paper.
 
-\subsubsection{Software architecture and reproducibility}\label{sec:software}
+\subsubsection{Stage 6: Supply--use and input--output views}\label{sec:stage6}
 
-Every number above is reproducible from the repository. Inputs live in a
-content-hashed registry: load-bearing files are SHA-256-hashed, any change
-creates a new immutable version, and runs may pin old ones. Each stage writes
-its outputs under a timestamped run identifier with a sidecar recording the
-exact input versions, the upstream run identifiers, and every configuration
-knob --- a provenance chain from raw feed to posterior interval that is
-enforced, not merely recorded: a stage refuses inputs built against a
-different accounting-structure version \citep{pauliuk2024traceability,
-stodden2014best, wilkinson2016fair}.
+Stage~6 materialises $a^*$ as a tidy physical supply--use table, every edge
+of a period and valuation classified into a supply, use or final-use block
+or a boundary block (extraction, secondary input, residual output);
+aggregation over regions and sectors is a pushforward of that table that
+preserves border crossings. The physical input--output table is a derived
+view built on demand (ADR~0037): the market-share construct $D =
+S\,\hat{q}^{-1}$ turns each use of a product into an edge between its
+producer and its consumer \citep{millerblair2009}, and the
+industry-by-industry calculus --- $Z$, $A = Z\hat{x}^{-1}$, $L = (I-A)^{-1}$,
+footprints $e\,L\,\hat{y}$, embodied trade, economy-wide MFA indicators,
+multipliers and structural decomposition --- follows \citet{wieland2022piolab}
+and \citet{suh2004pio}, residual outputs being final outputs
+\citep{altimirasmartin2014piot}. With one producer per product, as in
+copper, this coincides with the product-by-product construct. Stage~6
+propagates point estimates only.
 
-The package comprises ${\sim}19{,}000$ lines of Python in 60 modules with 839
-tests, strictly layered imports (domain $\to$ pipeline $\to$ diagnostics),
-and two extension seams --- imputers and constraint builders subclass a
-common interface --- following the field's call for transparent, reusable
-model software \citep{pauliuk2015transparency, pauliuk2020cumulative}. It builds on the scientific
-Python stack and Clarabel, with an optional sparse-Cholesky accelerator for
-Stage~5.
+\subsubsection{Implementation and provenance}\label{sec:software}
+
+Every number above is reproducible from the repository. Inputs of four
+kinds --- feeds, accounting structure, parameter tables and masks --- live
+in a content-hashed registry: load-bearing files are SHA-256-hashed, any
+change creates a new immutable version, and runs may pin old ones. Each stage
+writes its outputs under a run identifier with a sidecar recording the exact
+input versions, the upstream run identifiers, every configuration knob and
+summary statistics, so that the chain from raw feed to table is
+reconstructable from any run directory \citep{pauliuk2024traceability,
+stodden2014best, wilkinson2016fair}. The package comprises 20{,}421 lines of
+Python in 59 modules with 1{,}092 tests and four extension seams --- feeds,
+imputers, constraint builders and posterior propagators subclass a common
+interface \citep{pauliuk2015transparency, pauliuk2020cumulative}.
+
+\subsection{Application to the global copper supply chain}\label{sec:application}
+
+The framework is parametrised for copper by an accounting structure, three
+data feeds with their pre-processing, six parameter tables and a set of
+modelling decisions, each recorded in the repository as an architecture
+decision record (ADR) with the measurement that motivated it; SI~S11 lists
+all 37.
+
+\subsubsection{System definition}\label{sec:system}
+
+The account (Figure~\ref{fig:system}, SI~S8) has 23 sectors in each of 47
+regions: seven processes from mining to a cathode pool, seven products from
+ore to cathode, and nine boundary nodes --- crude ore in the ground on the
+extraction side; waste rock, tailings, slag, scrap and producer stock change
+on the socio-economic side; final use (semis fabrication) and user and
+exchange stock changes as final demand. The 27 sector pairs of the process
+chain define the edges. Four products are traded --- concentrate, matte,
+anode and cathode --- so their six use pairs exist between every ordered
+pair of regions; the other 21 pairs exist within a region only. Every edge
+exists in gross mass (kt) and in contained copper (kt~CC), linked per product
+by a concentration coefficient; only the three stock-change edges may be
+negative. The 46 named regions cover every producer the ICSG reports
+separately; a rest-of-world region absorbs 48 ICSG labels and 186 BACI
+partner codes, among them ``Other Asia, not elsewhere specified'', so that
+Taiwan is a named region without trade data. The period is 1995--2024.
+
+\begin{figure}[t]
+\centering
+\resizebox{\textwidth}{!}{%
+\begin{tikzpicture}[font=\scriptsize,
+  proc/.style={draw, fill=black!10, align=center, minimum height=7mm, inner sep=2pt},
+  prod/.style={draw, rounded corners=2pt, fill=white, align=center, minimum height=7mm, inner sep=2pt},
+  sb/.style={draw, dashed, align=center, minimum height=7mm, inner sep=2pt},
+  dom/.style={-{Stealth[length=2mm]}, thick},
+  trd/.style={-{Stealth[length=2mm]}, thick, double},
+  lab/.style={font=\tiny, fill=white, inner sep=1pt}]
+% pyrometallurgical route, y = 0
+\node[sb]   (co)   at (0,0)    {CO\\[-1pt]\tiny crude ore};
+\node[proc] (mn)   at (2,0)    {Mining};
+\node[prod] (ore)  at (4,0)    {Ore\\[-1pt]\tiny $g$: region$\times$year};
+\node[proc] (mf)   at (6,0)    {MF\\[-1pt]\tiny $\eta{=}0.80$};
+\node[prod] (conc) at (8.3,0)  {Concentrate\\[-1pt]\tiny $c{=}0.275$};
+\node[proc] (sm)   at (10.6,0) {Smelting\\[-1pt]\tiny $\eta{=}0.965$};
+\node[prod] (mt)   at (12.8,0) {Matte\\[-1pt]\tiny $c{=}0.525$};
+\node[proc] (cfr)  at (14.8,0) {CFR\\[-1pt]\tiny $\eta{=}0.9875$};
+\node[prod] (an)   at (16.8,0) {Anode\\[-1pt]\tiny $c{=}0.94$};
+\node[proc] (er)   at (18.8,0) {ER\\[-1pt]\tiny $\eta{=}0.997$};
+\node[prod] (cer)  at (20.8,0) {CER\\[-1pt]\tiny $c{=}0.9975$};
+\node[proc] (cp)   at (22.8,0) {CP};
+\node[prod] (cat)  at (24.8,0) {Cathode\\[-1pt]\tiny $c{=}0.9975$};
+\node[sb]   (fu)   at (27,0)   {FU\\[-1pt]\tiny semis};
+% secondary input and final-demand stocks
+\node[sb]   (scr)  at (12.8,1.8) {Scrap\\[-1pt]\tiny $c{=}0.70$};
+\node[sb]   (mesc) at (27,1.8)   {MESC};
+\node[sb]   (usc)  at (27,-1.8)  {USC};
+% residual outputs, y = -1.8
+\node[sb]   (wr)   at (2,-1.8)    {WR\\[-1pt]\tiny waste rock};
+\node[sb]   (tail) at (6,-1.8)    {Tailings};
+\node[sb]   (slag) at (16.8,-1.8) {Slag\\[-1pt]\tiny $c{=}0.0275$};
+\node[sb]   (psc)  at (22.8,-1.8) {PSC};
+% hydrometallurgical route, y = -3.4
+\node[proc] (sx)   at (10.6,-3.4) {SXEW\\[-1pt]\tiny $\eta{=}0.725$};
+\node[prod] (csx)  at (20.8,-3.4) {CSXEW\\[-1pt]\tiny $c{=}0.9975$};
+% edges
+\draw[dom] (co) -- (mn);
+\draw[dom] (mn) -- (ore);
+\draw[dom] (ore) -- (mf);
+\draw[dom] (mf) -- (conc);
+\draw[trd] (conc) -- (sm);
+\draw[dom] (sm) -- (mt);
+\draw[trd] (mt) -- (cfr);
+\draw[dom] (cfr) -- (an);
+\draw[trd] (an) -- (er);
+\draw[dom] (er) -- (cer);
+\draw[dom] (cer) -- (cp);
+\draw[dom] (cp) -- (cat);
+\draw[trd] (cat) -- (fu);
+\draw[trd] (cat) -- node[lab]{$\pm$} (mesc);
+\draw[trd] (cat) -- node[lab]{$\pm$} (usc);
+\draw[dom] (ore) -- node[lab]{$\dagger$} (sx);
+\draw[dom] (sx) -- (csx);
+\draw[dom] (csx) -- (cp);
+\draw[dom] (scr) -- (sm);
+\draw[dom] (scr) -- (cfr);
+\draw[dom] (mn) -- node[lab]{$\dagger$} (wr);
+\draw[dom] (mf) -- node[lab]{$\dagger$} (tail);
+\draw[dom] (sx) -- node[lab]{$\dagger$} (tail);
+\draw[dom] (sm) -- (slag);
+\draw[dom] (cfr) -- (slag);
+\draw[dom] (er) -- (slag);
+\draw[dom] (cp) -- node[lab]{$\pm$} (psc);
+\end{tikzpicture}}
+\caption{System definition of the copper account, one region shown. Grey
+rectangles are processes (with their nominal recovery efficiency $\eta$),
+rounded boxes products (with their nominal copper content $c$; the ore grade
+$g$ is region- and year-specific), dashed boxes boundary nodes: crude ore in
+the ground (extraction), waste rock, tailings, slag, scrap and producer stock
+change (socio-economic side), and final use and the two stock changes (final
+demand). The 27 arrows are the sector pairs; double arrows mark the four
+traded products, whose six use pairs exist between all $47 \times 47$
+regions, single arrows exist within each of the 47 regions. $\pm$ marks the
+three edges that may be negative; $\dagger$ marks the residual mass edges
+that the bound-free optimisation can drive negative
+(Section~\ref{sec:stage4}). Every edge exists in gross mass and in copper
+content: 14{,}241 edges per valuation and year, 854{,}460 over 1995--2024.}
+\label{fig:system}
+\end{figure}
+
+\subsubsection{Data sources}\label{sec:sources}
+
+Three sources feed the account (Table~\ref{tab:sources}). Industry
+statistics come from four editions of the ICSG yearbook
+\citep{icsg2005yearbook, icsg2014yearbook, icsg2023yearbook,
+icsg2025yearbook}, combined newest-wins where they overlap: mine, smelter
+and refinery production, refined usage, secondary feed and stock changes, in
+copper content. Bilateral trade comes from BACI HS92, release V202601
+\citep{gaulier2010baci, cepii2026baci}, for concentrate (HS~260300), matte
+(740110, 740120), anode (740200) and cathode (740311), in gross mass, on
+cross-region edges only (ADR~0014). Crude-ore extraction comes from the
+materialflows.net series \citep{kroiss2024crudeore}, a price-allocated ore
+mass to 2022, so every ore grade in the model is on the allocated basis, not
+a mill-head grade (ADR~0015); after 2022 the last grade is carried forward
+and the ore mass follows production (ADR~0023). No further source enters.
+
+\begin{table}[t]
+\centering\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}p{1.7cm}p{3.0cm}p{2.8cm}p{1.1cm}p{2.3cm}p{4.5cm}@{}}
+\toprule
+Feed (version) & Source and release & Quantity, valuation, edges & Years &
+Pedigree $(R,C,T,G,O)$ $\to$ CV & Pre-processing (ADR) \\
+\midrule
+ICSG (v12) & Copper Bulletin Yearbooks 2005, 2014, 2023 and 2025; the newest
+edition wins where they overlap & mine, smelter and refinery production,
+refined usage, secondary feed, stock changes; kt~Cu $\to$ CC; 24{,}787 edges
+& 1995--2024 & $(2,1,1,1,1) \to 0.068$; 0.217 on 4{,}597 ROW edges & row-label
+fix (0035), rename collisions summed (0036), one territory one label (0032),
+SX-EW counted once, production $\to$ consumed input (0021, 0030), usage
+fanned by trade shares (0002, 0024, 0018), unweighted fans undistributed
+(0008) \\[2pt]
+BACI (v11) & CEPII BACI HS92 V202601 (January 2026); HS6 260300, 740110,
+740120, 740200, 740311 & bilateral trade in tonnes $\to$ kt gross mass;
+36{,}643 edges & 1995--2024 & $(3,2,1,1,2) \to 0.209$; 0.294 on 9{,}148 ROW
+edges & zero-quantity rows dropped; quantity rebuilt from value on 881 legs
+(0033); re-exports netted (0027); cross-region edges only (0014) \\[2pt]
+Crude ore (v3) & materialflows.net, global crude metal ore extraction
+1970--2022, price-allocated & ore mass in tonnes $\to$ kt on CO$\to$Mining;
+865 edges & 1995--2022 & $(2,3,2,2,2) \to 0.104$; 0.230 on 28 ROW edges &
+allocated basis (0015); grade carried to 2023--24 (0023) \\
+\midrule
+\multicolumn{6}{@{}l}{\emph{Derived tables (parameter registry)}} \\
+Trade shares (v21) & netted BACI $\times$ concentration; ICSG production &
+fan weights per product, consumer and year; 133{,}292 rows & 1995--2024 &
+--- & import leg $=$ conc $\cdot$ mass; domestic leg $=$ usage $-$ imports,
+capped at own production (0024) \\[2pt]
+Ore grade (v7) & ICSG production $\div$ allocated ore mass & in-situ grade,
+887 region-years, 35 regions & 1995--2024 & sd $=$ envelope$/4$ & series
+envelope $\pm10\%$ as hard band, $\pm20\%$ for carried years (0015, 0023,
+0028) \\[2pt]
+Scrap share (v3) & ICSG scrap and concentrate feed & 94 hard bands (smelting
+and CFR $\times$ 47 regions) & 1995--2024 & --- & $[p_5 - 0.05,\ p_{95} +
+0.05]$ of the ICSG share where a series exists (44), $[0, 0.25]$ otherwise \\[2pt]
+Stock bounds (v4) & ICSG stock series & 141 soft bands (PSC, USC, MESC
+$\times$ 47) & 1995--2024 & $\sigma = p_{95}/1.645$ & net stock change over
+throughput; hub cluster for the Netherlands, Singapore and the United Kingdom \\[2pt]
+Concentration (v8), efficiency (v3) & \citet{schlesinger2022extractive,
+davenport2002extractive} & 15 concentration, 5 recovery and 1 stripping-ratio
+rows & all & sd, or range$/4$ & pooled recoveries (0005, 0022); one scrap
+commodity (0012) \\
+\bottomrule
+\end{tabular}
+\caption{Data sources of the copper application and the tables derived from
+them. Pedigree scores are reliability, completeness, temporal, geographical
+and other correlation on a 1--4 scale (all sensitivities medium); the CV
+after the arrow is the feed's, the second value the rest-of-world-penalised
+CV and the number of edges it applies to. Edge counts are feed-observed
+edges over 1995--2024. Versions are those of the reference chain; ADR
+numbers refer to the repository's decision records (SI~S11).}
+\label{tab:sources}
+\end{table}
+
+\subsubsection{Industry statistics: parsing and pre-processing}\label{sec:icsg}
+
+Three defects of the yearbooks were found by the reconciliation and fixed at
+the input, never by loosening a constraint (SI~S9). In the 2014 edition the
+country name sits on the middle row of a block, so a naive parse handed each
+block's total to the next country: 16 rows and 11{,}558~kt~CC of mine
+production that never existed (ADR~0035). A type renamed between editions is
+a second stream, not a restatement; summing instead of deduplicating
+restored 1{,}038~kt of Zambian primary smelting in 2004--07 (ADR~0036). And
+one territory carries one label before any region-keyed step (ADR~0032).
+Production is then converted into the input it consumed, because the account
+books flows into a process: smelter output divided by the smelting recovery
+becomes concentrate and scrap into smelting, refined output divided by the
+electrolytic recovery becomes anode into refining (ADR~0021). The secondary
+series required care: secondary refined production already contains the
+copper that came through secondary smelters, and booking both ICSG series
+counted 70~Mt of scrap twice over 30 years; direct-to-refinery scrap is
+therefore $\max\bigl(0,\, S_{\mathrm{ref}} -
+S_{\mathrm{sm}}\,\eta_{\mathrm{CFR}} \eta_{\mathrm{ER}}\bigr)/
+(\eta_{\mathrm{CFR}}\eta_{\mathrm{ER}})$, so secondary copper enters the
+chain once (ADR~0030). Finally, ICSG usage names only the consumer; each
+such record is fanned across supplying regions by trade shares built from
+the netted BACI matrix, with the domestic leg capped at the region's own
+production (ADR~0024).
+
+\subsubsection{Trade statistics: reconstruction and re-export netting}\label{sec:baci}
+
+Two defects of the trade matrix are corrected before it enters. First,
+BACI's quantity field contradicts its own value field on a set of
+concentrate legs: with the cathode unit value of the same release as the
+copper price, the value-implied copper fraction exceeds the physical band.
+Where both the leg and the exporter-year imply more than 35\% copper and the
+leg is at least 1~kt, the quantity is rebuilt from the intact value, $q =
+v/(P_{\mathrm{Cu}}\, g_{\mathrm{ref}})$, and the inference is carried in
+$\sigma$: 881 of 18{,}141 legs, 54 exporters, 82{,}320~kt of export mass over
+30 years, 58{,}517 of them Chilean (ADR~0033). Second, bilateral statistics
+record gross border crossings, so a consignment re-exported unchanged
+through a warehouse economy is counted twice, and the second crossing asks
+the account for production the hub does not have. For each product, hub and
+year we read imports $I$ and exports $X$ from the trade matrix and intake $U$
+and production $P$ from the industry statistics, all in copper content, and
+net the re-exported volume
+\begin{equation}
+T = \min\bigl(X,\, I,\, \max(R, E)\bigr), \qquad
+R = \max(0,\, I-U), \qquad
+E = \max(0,\, X-P),
+\label{eq:reexport}
+\end{equation}
+where $R$ is the surplus-import reading of the same physical fact and $E$
+the uncovered-export reading, domestic production being taken to supply
+exports first. $T$ is moved from the hub's legs to the direct
+origin--destination legs in proportion to the observed inbound and outbound
+shares; re-imports are dropped, the rest-of-world aggregate is never a hub,
+and the caps $T \le X$ and $T \le I$ leave producers with thin industry rows
+untouched. Over 1995--2024 the rule moves 11{,}028~kt~CC; arrivals without
+a recorded outbound leg stay in a residual ledger for the reconciliation to
+judge (ADR~0027, SI~S9).
+
+\subsubsection{Ore grade and feed build order}\label{sec:grade}
+
+Ore is coupled to concentrate through a region-by-year in-situ grade, $g =
+(\mathrm{Conc}_{\mathrm{CC}}/\eta_{\mathrm{MF}} +
+\mathrm{SXEW}_{\mathrm{CC}}/\eta_{\mathrm{SXEW}})$ over the allocated ore
+mass, stated for 887 region-years in 35 mining regions (median 1.12\%,
+10th--90th percentiles 0.61--2.47\%); its hard band is the region's series
+envelope widened by 10\%, and its $\sigma$ is stated separately from the
+band (ADR~0028). The feeds are built in a fixed order
+(Figure~\ref{fig:pipeline}): parse, re-export netting, the BACI feed, the
+trade shares, the ICSG feed, the ore grades, then Stage~2. The order is
+load-bearing --- the trade shares read the netted matrix and the ICSG feed's
+own production --- and nothing enforces it; one skipped rebuild cost 6.2
+percentage points of objective. The shipped chain itself carries two stale
+derived inputs, an ore-grade table and a netted matrix built before the last
+two yearbook corrections, which the next rebuild replaces (issue~\#30).
+
+\subsubsection{Parameters}\label{sec:params}
+
+Six parameter tables carry the physics (SI~S10). Concentrations are global:
+concentrate 0.275 with $\sigma$ 0.0375 and hard band $[0.20, 0.35]$, matte
+0.525 $[0.30, 0.75]$, anode 0.94 $[0.90, 0.98]$, cathodes 0.9975
+$[0.995, 1.0]$, slag 0.0275, and scrap as one blended commodity, 0.70 in
+$[0.40, 0.98]$, because two grade classes on one node would give the solver
+a free switch (ADR~0012). Recovery efficiencies are the medians of the
+literature ranges \citep{schlesinger2022extractive,
+davenport2002extractive}: flotation 0.80 $[0.70, 0.90]$, leaching 0.725
+$[0.60, 0.85]$, smelting 0.965 $[0.95, 0.98]$, converting and fire refining
+0.9875 $[0.98, 0.995]$ and electrolytic refining 0.997 $[0.995, 0.999]$. The
+last three are \emph{pooled}: a smelter's ratio row relates its matte to
+concentrate and scrap from every origin, a refinery's relates its cathode to
+anode from every source region (ADR~0005, 0022). Before refining was pooled,
+imported anode was not an input of any recipe and the solver deleted 96\% of
+the observed anode trade rather than violate the node; pooling cut the
+scale-total objective by 26.4\% in one step, the largest single improvement
+of the study. Per-region scrap-share bands are the 5th--95th percentiles of
+the ICSG share widened by 0.05; net-stock rows are bounded at the 95th
+percentile of observed stock change over throughput (USC 2.4\%, PSC 5.0\%,
+MESC 10.1\%; 910\% for the exchange hubs Netherlands, Singapore and United
+Kingdom). One property of the $\sigma$ scaling must be stated: the soft
+ratio rows read the parameter $\sigma$, given in ratio units, as a relative
+$\sigma$, so the concentrate row is weighted at 3.75\% rather than the
+13.6\% the table implies (issue~\#29).
+
+\subsubsection{Critical modelling choices}\label{sec:choices}
+
+Table~\ref{tab:choices} collects the choices a reader needs in order to
+interpret the results, each with the alternative that was measured and
+rejected. Three deserve a sentence. Scale totals are self-anchored, not
+external control totals: the yearbook figures enter as edge observations with
+their pedigree $\sigma$, and no total outranks them (ADR~0006); their 0.3~kt
+floor applies to feed-backed totals only, because a global floor let
+fabricated small chains grow and cut Chile's concentrate export retention by
+8 percentage points (ADR~0025). $\sigma$ is never loosened to repair a
+contradiction between sources: loosening the fabricated totals collapsed
+world ore retention from 0.66 to 0.41, and loosening contradicted nodes
+repriced the disagreement while 0.46\% of the mass moved (ADR~0016, 0019);
+the input is fixed instead. And the concentrate grade stays global, because
+the between-region signal (sd 0.0117) is a third of the $\sigma$ the single
+row already carries, and half of the deletion a regional grade was meant to
+relieve is forced by missing export mass, which no grade can repair
+(ADR~0029).
+
+\begin{table}[t]
+\centering\footnotesize
+\setlength{\tabcolsep}{3pt}
+\begin{tabular}{@{}p{3.2cm}p{5.1cm}p{5.9cm}p{1.2cm}@{}}
+\toprule
+Choice & What it does to the copper account & Alternative rejected, and what
+measured it & ADR \\
+\midrule
+Recovery efficiencies pooled over all inputs of a process & smelter and
+refinery recipes close on concentrate plus scrap, and on anode from every
+source region; one soft ratio row and one hard band per node & per-route
+rows: imported anode was no recipe input and 96\% of observed anode trade was
+deleted; pooling cut the scale-total objective by 26.4\% & 0005, 0022 \\[2pt]
+Scale totals self-anchored to the Stage-2 prior & each node's total output
+keeps its prior scale; no external total outranks the edge observations &
+external control totals: covered seven hand-listed families and left every
+other node to collapse & 0006 \\[2pt]
+0.3~kt $\sigma$ floor on feed-backed totals only & totals below 30~kt cannot
+be known better than the feeds report them; fabricated totals keep 1\% &
+global floor: small fabricated chains grew ($p_{90}$ posterior/prior 1.06
+$\to$ 2.33), Chile concentrate export retention 0.601 $\to$ 0.523 & 0025 \\[2pt]
+Unweighted fans undistributed; domestic leg capped at own production & a
+usage record without trade shares is left to imputation; a fan's domestic leg
+cannot exceed the region's production, the rest goes to import legs &
+uniform $1/N$ split: fabricated partner structure; uncapped domestic leg:
+India concentrate cell 112{,}955 $z^2$ $\to$ 12{,}353 & 0008, 0018,
+0024 \\[2pt]
+No-data anchor at 5\% of the sibling median & noisy zeros are pulled softly
+to zero at a sector-appropriate scale; a hard balance can still force flow
+at visible cost & free noisy zero: arbitrary mass routed through data-free
+subgraphs; a hard zero pin is inert in the bound-free QP & 0013 \\[2pt]
+Scrap is one blended commodity, 0.70 in $[0.40, 0.98]$ & one hard grade band
+per commodity & two grade classes on one node: the solver switches freely
+between them & 0012, 0028 \\[2pt]
+Region$\times$year in-situ grades on the allocated-ore basis, carried past
+2022; $\sigma$ stated, not band-derived; concentrate grade global & ore and
+concentrate are coupled per region and year; 2.5~Mt/yr of ore restored in
+2023--24; grades are allocated, not mill-head, grades & global 1\% grade
+(Chile 1.66\%, impossible); truncating ore at 2022; year-local and narrowed
+bands (they relocate the deletion); regional concentrate grade (no signal: sd
+0.0117 against $\sigma$ 0.0375) & 0015, 0023, 0028, 0029 \\[2pt]
+Bilateral legs never time-interpolated & a partner pair absent in a year is an
+observed zero & interpolation invented 20{,}252~kt of trade, 15{,}266~kt of
+which the solver kept & 0026 \\[2pt]
+Re-exports re-attributed at feed time & hub crossings become
+origin--destination legs; 11{,}028~kt~CC moved; hub-class objective $-77\%$ &
+leaving hubs: phantom refineries in Germany, Korea, France and Portugal;
+shipped over a failed Chile/Peru retention check (0.636 $\to$ 0.574) &
+0027 \\[2pt]
+Size-damped leg $\sigma$ ($\gamma = 0.5$) & large legs relatively tighter,
+small legs looser; the biggest legs stop being the cheapest to delete &
+size-blind CV: deleted share rose with leg size; $\gamma = 0.7$ measured and
+not adopted; an unpinned reference size measured 1.7\% worse & 0017 \\[2pt]
+$\sigma$ never loosened to repair a contradiction; defects fixed at the input
+& the yearbook and trade defects above are corrected before the feeds enter &
+loosening fabricated totals: world ore retention 0.66 $\to$ 0.41; loosening
+contradicted nodes: 0.46\% of mass moved, collapses untouched & 0016, 0019,
+0030, 0032, 0033, 0035, 0036 \\[2pt]
+PIOT as a derived view under the market-share construct & the input--output
+table is computed from the reconciled PSUT on demand and never persisted &
+an external IO-library dependency; persisting a second table class & 0007,
+0037 \\
+\bottomrule
+\end{tabular}
+\caption{Critical modelling choices of the copper application, in pipeline
+order, with the alternative that was measured and rejected. Objective
+figures are scale-total $\sum z^2$ over 30 years unless stated; retention
+is $\sum a^*/\sum a_{\mathrm{prior}}$ of the named category
+(Section~\ref{sec:evaluation}). The full list of 37 decisions with their
+evidence runs is SI~Table~S13.}
+\label{tab:choices}
+\end{table}
+
+\subsubsection{Limitations of the application}\label{sec:limits}
+
+Six limitations stand. Taiwan carries no trade because BACI folds it into an
+aggregate partner, so its usage records (15.9~Mt~CC over the period) stay
+undistributed. Mine output is booked in five countries that mine no copper
+(845~kt~CC over the period), an artefact of recipe closure on refined output.
+Where two ICSG anchors disagree, the solver pays with trade and ore, because
+a trade leg's CV (0.069 at the median leg) exceeds an anchor's (0.017).
+Stage~5 has not run (issue~\#27), the residual mass edges act as signed
+slack (issue~\#28), the ratio-row $\sigma$ scaling departs from the tables
+(issue~\#29), and two derived inputs are stale (issue~\#30). Stage~6
+carries point estimates only.
+
+\subsection{Evaluation}\label{sec:evaluation}
+
+Each run is judged with a fixed set of quantities (formulas in SI~S13). The
+\emph{defect} of an edge is $a^* - a_{\mathrm{prior}}$, standardised as $z =
+(a^* - a_{\mathrm{prior}})/\sigma_a$; the \emph{residual} of a soft row is
+its slack $\varepsilon$, standardised as $z = \varepsilon/\sigma_c$. The
+objective of Eq.~\eqref{eq:qp} is $\sum z^2$ over edges and soft rows, so an
+item's \emph{objective share} $z^2/\sum z^2$ within its family --- edge
+defects, scale-total residuals, soft-ratio residuals --- is what it cost the
+optimiser; the ranking of identities by share across years is the primary
+defect diagnostic. \emph{Retention} is $\sum a^*/\sum a_{\mathrm{prior}}$
+over the edges of one category in one valuation and year: 1 keeps the prior
+scale, below 1 is deletion. Deletion at a mine node splits into a
+\emph{forced} part, $\sum \max(0,\, P - 0.35X - U)$, which no optimiser
+could avoid because copper leaves the node only as domestic intake $U$ or as
+export mass $X$ at a grade capped at 0.35, and a \emph{discretionary}
+remainder that $\sigma$ and anchoring can move. Runs are compared on a
+\emph{common set}, $\sum z^2$ over the scale-total rows present in every run
+compared, over all 30 years. Every change is one round, one ADR and one
+report, measured against its predecessor and the base run of the study; a
+$\sigma$ or repricing change ships only under a stop rule --- objective by
+anchor band, mass moved, world retention of ore, concentrate and cathode not
+falling by more than 0.01, the posterior-to-prior mass ratio of small nodes
+within 0.05, and the concentrate export retention of Chile, Peru and
+Indonesia within 0.01. On the shipped run the common-set objective is
+1{,}552{,}144, 9.6\% below the base; 24{,}884~kt~CC of mine output is
+deleted over 30 years, 3{,}013 of them (12.1\%) forced; world concentrate
+retention is 0.938; and 132 region-years sit on the export-grade cap.
+
+\subsection{Data and code availability}\label{sec:availability}
+
+pySUTO is developed at \url{https://github.com/florihu/pySUTO} and will be
+archived with a DOI at Zenodo at submission [DOI and licence to be
+inserted]. The archive includes the parse and feed scripts, the accounting
+structure, the parameter tables and every run of the reference chain --- the
+three feed runs, the imputation, constraint and optimisation runs with their
+sidecars, priors, $\sigma$, constraint tables and results --- so that every
+number in this paper can be recomputed or traced to a file. BACI is open
+data and is cited; the ICSG yearbook tables and the S\&P-derived ore
+allocation are licensed and are not redistributed, but the published parse
+scripts rebuild the feeds from the originals. The scrap-share, stock-change
+and ore-grade tables are statistics derived from those sources, and their
+release is subject to the same licence check. The study uses published
+statistics only and involved no human participants.
