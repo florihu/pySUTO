@@ -1,0 +1,412 @@
+{
+  "opt_run_id": "opt_20260930_092111_e3e0677d",
+  "psut_run_id": "psut_20260930_094136_9621771b",
+  "tolerance_pair": [
+    "opt_20260916_124721_c4d1d944",
+    "opt_20260930_093914_523d57d7"
+  ],
+  "n_rows": 1952021,
+  "n_edges": 28482,
+  "zsq_total_30y": 3433212.2969831657,
+  "zsq_by_family_30y": {
+    "edges": 1868436.5783651902,
+    "sum_rows": 1497776.6340717028,
+    "soft_ratios": 66999.08454627276
+  },
+  "max_hard_residual_kt": 1.7120308453539104e-07,
+  "share_gt3": {
+    "edges": {
+      "min": 0.003862088336493224,
+      "max": 0.02422582683800295,
+      "mean": 0.01009058352643775
+    },
+    "sum_rows": {
+      "min": 0.19112627986348124,
+      "max": 0.31756756756756754,
+      "mean": 0.24767218963770307
+    },
+    "soft_ratios": {
+      "min": 0.001315880601149664,
+      "max": 0.0037388354220037386,
+      "mean": 0.0025101481639410303
+    }
+  },
+  "edge_share_top": {
+    "Cathode\u2192FU": 0.5278,
+    "Anode\u2192ER": 0.3215,
+    "Concentrate\u2192Smelting": 0.0457,
+    "Matte\u2192CFR": 0.0406,
+    "ER\u2192CER": 0.0157,
+    "SXEW\u2192CSXEW": 0.0068,
+    "Cathode\u2192MESC": 0.0054,
+    "Scrap\u2192CFR": 0.0049,
+    "other": 0.0316
+  },
+  "sum_share_top": {
+    "Cathode": 0.2205,
+    "Concentrate": 0.1485,
+    "MF": 0.0971,
+    "Smelting": 0.0879,
+    "Anode": 0.0869,
+    "Ore": 0.0643,
+    "Matte": 0.0606,
+    "CP": 0.0568,
+    "other": 0.1774
+  },
+  "hub_regions": [
+    "France",
+    "Greece",
+    "Luxembourg",
+    "Malaysia",
+    "Mauritania",
+    "Netherlands",
+    "Panama",
+    "Papua New Guinea",
+    "Portugal",
+    "Singapore",
+    "Switzerland",
+    "Taiwan",
+    "United Arab Emirates"
+  ],
+  "hub_share": {
+    "cross_region": 0.9248284169487099,
+    "hub": 0.7130863254071346
+  },
+  "retention_30y": {
+    "CO\u2192Mining Mass": 0.8619,
+    "MF\u2192Concentrate CC": 0.9918,
+    "Concentrate\u2192Smelting CC": 0.9428,
+    "Anode\u2192ER CC": 0.9765,
+    "CP\u2192Cathode CC": 0.994,
+    "Cathode\u2192FU CC": 0.9298,
+    "Scrap\u2192Smelting CC": 1.0148,
+    "Smelting\u2192Matte CC": 0.964,
+    "Scrap\u2192CFR CC": 1.0243
+  },
+  "chile_export_retention_2010_19": 0.9787529977003987,
+  "a4_years_both": 4,
+  "a4_years_cathode_concentrate": 6,
+  "a4_years_concentrate_ore": 26,
+  "tolerance_pair_retention": {
+    "CO\u2192Mining Mass": {
+      "old": 0.7793,
+      "new": 0.8606,
+      "delta": 0.0814,
+      "abs_delta": 0.0814
+    },
+    "MF\u2192Concentrate CC": {
+      "old": 0.8725,
+      "new": 0.9303,
+      "delta": 0.0577,
+      "abs_delta": 0.0577
+    },
+    "Concentrate\u2192Smelting CC": {
+      "old": 0.8559,
+      "new": 0.9125,
+      "delta": 0.0566,
+      "abs_delta": 0.0566
+    },
+    "Anode\u2192ER CC": {
+      "old": 0.9896,
+      "new": 0.9952,
+      "delta": 0.0056,
+      "abs_delta": 0.0056
+    },
+    "CP\u2192Cathode CC": {
+      "old": 1.0029,
+      "new": 1.0107,
+      "delta": 0.0079,
+      "abs_delta": 0.0079
+    },
+    "Cathode\u2192FU CC": {
+      "old": 0.9376,
+      "new": 0.9443,
+      "delta": 0.0067,
+      "abs_delta": 0.0067
+    },
+    "Scrap\u2192Smelting CC": {
+      "old": 0.9952,
+      "new": 0.7718,
+      "delta": -0.2235,
+      "abs_delta": 0.2235
+    },
+    "Smelting\u2192Matte CC": {
+      "old": 0.9226,
+      "new": 0.935,
+      "delta": 0.0124,
+      "abs_delta": 0.0124
+    },
+    "Scrap\u2192CFR CC": {
+      "old": 0.7356,
+      "new": 0.7054,
+      "delta": -0.0302,
+      "abs_delta": 0.0302
+    }
+  },
+  "tolerance_pair_chile_export": [
+    0.5738674358081483,
+    0.893112785377252
+  ],
+  "secondary_pooled_2020_24": {
+    "Chile+Peru": {
+      "prior": 0.0,
+      "post": 0.0003
+    },
+    "China": {
+      "prior": 0.2269,
+      "post": 0.2656
+    },
+    "EU-14": {
+      "prior": 0.3709,
+      "post": 0.3645
+    },
+    "India": {
+      "prior": 0.0045,
+      "post": 0.0171
+    },
+    "JP/KR/TW": {
+      "prior": 0.2389,
+      "post": 0.2556
+    },
+    "Rest": {
+      "prior": 0.0578,
+      "post": 0.0642
+    },
+    "United States": {
+      "prior": 0.0458,
+      "post": 0.0461
+    },
+    "World": {
+      "prior": 0.164,
+      "post": 0.1812
+    }
+  },
+  "icsg_input_share_pooled": 0.16541445702311167,
+  "icsg_published_share": {
+    "1995": 0.1801,
+    "2010": 0.1771,
+    "2020": 0.1603,
+    "2024": 0.1783
+  },
+  "world_secondary_2024": {
+    "prior": 0.17053521448124212,
+    "post": 0.18877616687950835
+  },
+  "hhi_2024": {
+    "mining_prior": {
+      "upper": 0.1116,
+      "lower": 0.1099,
+      "row_share": 0.0406,
+      "top": "Chile",
+      "top_share": 0.2399
+    },
+    "mining_post": {
+      "upper": 0.1032,
+      "lower": 0.1015,
+      "row_share": 0.0412,
+      "top": "Chile",
+      "top_share": 0.207
+    },
+    "smelting_prior": {
+      "upper": 0.2859,
+      "lower": 0.2854,
+      "row_share": 0.021,
+      "top": "China",
+      "top_share": 0.5214
+    },
+    "smelting_post": {
+      "upper": 0.2737,
+      "lower": 0.2732,
+      "row_share": 0.0226,
+      "top": "China",
+      "top_share": 0.5086
+    },
+    "refining_prior": {
+      "upper": 0.2281,
+      "lower": 0.2277,
+      "row_share": 0.0188,
+      "top": "China",
+      "top_share": 0.4526
+    },
+    "refining_post": {
+      "upper": 0.2214,
+      "lower": 0.2211,
+      "row_share": 0.0195,
+      "top": "China",
+      "top_share": 0.4433
+    },
+    "use_prior": {
+      "upper": 0.3092,
+      "lower": 0.3057,
+      "row_share": 0.0595,
+      "top": "China",
+      "top_share": 0.5394
+    },
+    "use_post": {
+      "upper": 0.3417,
+      "lower": 0.3378,
+      "row_share": 0.0626,
+      "top": "China",
+      "top_share": 0.5729
+    }
+  },
+  "hhi_1995_post": {
+    "mining": 0.1205,
+    "smelting": 0.0833,
+    "refining": 0.0926,
+    "use": 0.1031
+  },
+  "partners_2024": {
+    "Chile_export": {
+      "China": 0.5277,
+      "EU-14": 0.0805,
+      "India": 0.0293,
+      "JP/KR/TW": 0.1465,
+      "Rest": 0.0935,
+      "United States": 0.1226
+    },
+    "Peru_export": {
+      "China": 0.699,
+      "EU-14": 0.099,
+      "India": 0.0133,
+      "JP/KR/TW": 0.1048,
+      "Rest": 0.0619,
+      "United States": 0.022
+    },
+    "China_import": {
+      "Chile": 0.2374,
+      "Congo, D.R.": 0.1662,
+      "Kazakhstan": 0.0598,
+      "Mexico": 0.0401,
+      "Peru": 0.1724,
+      "Rest": 0.3241
+    }
+  },
+  "partners_1995": {
+    "Chile_export": {
+      "China": 0.0348,
+      "EU-14": 0.2282,
+      "India": 0.0111,
+      "JP/KR/TW": 0.303,
+      "Rest": 0.3327,
+      "United States": 0.0901
+    },
+    "Peru_export": {
+      "China": 0.0589,
+      "EU-14": 0.1872,
+      "India": 0.0,
+      "JP/KR/TW": 0.2298,
+      "Rest": 0.439,
+      "United States": 0.0851
+    },
+    "China_import": {
+      "Chile": 0.1977,
+      "Congo, D.R.": 0.0,
+      "Kazakhstan": 0.0025,
+      "Mexico": 0.0002,
+      "Peru": 0.0633,
+      "Rest": 0.7363
+    }
+  },
+  "trade_totals_kt": {
+    "Chile_export": {
+      "1995": 2125.595824506104,
+      "2024": 5112.4410823736225
+    },
+    "Peru_export": {
+      "1995": 403.0529705953384,
+      "2024": 2802.6614290392426
+    },
+    "China_import": {
+      "1995": 374.57027983356863,
+      "2024": 11365.445139935988
+    }
+  },
+  "embodied_period": "2024",
+  "embodied_china_from_chile_peru_kt": 5534.309952872001,
+  "direct_conc_china_from_chile_peru_kt": 3932.0706697896694,
+  "embodied_ratio": 1.407479777866769,
+  "china_footprint_kt": 15255.880839916465,
+  "china_domestic_extraction_kt": 1669.5664961965745,
+  "china_footprint_origins": {
+    "Chile": 3128.1,
+    "Congo, D.R.": 2683.5,
+    "Peru": 2406.2,
+    "China": 1621.3,
+    "Kazakhstan": 818.0,
+    "ROW": 784.6,
+    "Mexico": 578.0,
+    "Zambia": 473.6
+  },
+  "world_extraction_kt": 28481.951222200307,
+  "chile_share_to_china": {
+    "1995": 0.034840824455062445,
+    "2024": 0.527705287401227
+  },
+  "ledger": [
+    {
+      "id": "A1",
+      "expectation": "every hard identity closes",
+      "metric": "max |G\u00b7a* \u2212 c| over hard mass balances, all years",
+      "threshold": "< 1e-06 kt",
+      "value": "1.7e-07 kt",
+      "outcome": "PASS"
+    },
+    {
+      "id": "A2",
+      "expectation": "compatibility is family-specific",
+      "metric": "share of rows with |z| > 3 per year: edges below, scale totals above",
+      "threshold": "edges < 0.05 and scale totals > 0.20, every year",
+      "value": "edges 0.004\u20130.024 (30/30 yr); scale totals 0.191\u20130.318 (27/30 yr)",
+      "outcome": "FAIL"
+    },
+    {
+      "id": "A3",
+      "expectation": "the adjustment localises on transit trade",
+      "metric": "share of edge \u03a3z\u00b2 on cross-region legs into merchant hubs (no ICSG processing)",
+      "threshold": "\u2265 0.50",
+      "value": "0.713 (all cross-region legs 0.925)",
+      "outcome": "PASS"
+    },
+    {
+      "id": "A4",
+      "expectation": "the adjustment grows upstream",
+      "metric": "retention Cathode CC > Concentrate CC > Ore Mass, gap per step, years passing",
+      "threshold": "\u2265 0.02 per step in \u2265 25 of 30 years",
+      "value": "4/30 years both steps (cathode\u2013concentrate 6, concentrate\u2013ore 26)",
+      "outcome": "FAIL"
+    },
+    {
+      "id": "A5",
+      "expectation": "termination accuracy does not move the answer",
+      "metric": "|\u0394 retention| per stage, base run at gap_rel 1e-3 vs 1e-6, 30-year pool",
+      "threshold": "< 0.02 every stage",
+      "value": "4/9 stages within; max 0.223 (Scrap\u2192Smelting CC)",
+      "outcome": "FAIL"
+    },
+    {
+      "id": "B1",
+      "expectation": "secondary share: fidelity and regional order",
+      "metric": "input-side share, pooled 2020\u201324: |world posterior \u2212 ICSG-implied|; EU-14 > China > US; EU-14 / world",
+      "threshold": "< 0.02; order holds; \u2265 2\u00d7",
+      "value": "|0.181 \u2212 0.165| = 0.016; EU-14 0.364 > China 0.266 > US 0.046; 2.01\u00d7",
+      "outcome": "PASS"
+    },
+    {
+      "id": "B2",
+      "expectation": "concentration rises downstream and is reconciliation-invariant",
+      "metric": "HHI (ROW as one region) 2024 posterior per step; |HHI_post \u2212 HHI_prior| per step",
+      "threshold": "refining, use > mining and > 0.25; mining < 0.15; |\u0394| < 0.01",
+      "value": "HHI mining 0.103, smelting 0.274, refining 0.221, use 0.342; |\u0394| max 0.032 (use)",
+      "outcome": "FAIL"
+    },
+    {
+      "id": "B3",
+      "expectation": "embodied exceeds direct; Chile's exports turned to China",
+      "metric": "China's embodied mined Cu from Chile+Peru / direct concentrate imports from them, 2024; Chile's export share to China 1995 and 2024",
+      "threshold": "\u2265 1.10; < 0.10 \u2192 > 0.50",
+      "value": "5,534 / 3,932 kt CC = 1.41; 0.035 \u2192 0.528",
+      "outcome": "PASS"
+    }
+  ]
+}

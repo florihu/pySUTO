@@ -1,0 +1,17 @@
+step,year,val,hhi_upper,hhi_lower,row_share,top_region,top_share
+mining,1995,prior,0.1157,0.1143,0.0368,Chile,0.2438
+mining,1995,post,0.1205,0.1191,0.0378,Chile,0.261
+mining,2024,prior,0.1116,0.1099,0.0406,Chile,0.2399
+mining,2024,post,0.1032,0.1015,0.0412,Chile,0.207
+smelting,1995,prior,0.0756,0.0736,0.044,United States,0.1539
+smelting,1995,post,0.0833,0.0821,0.0358,United States,0.1635
+smelting,2024,prior,0.2859,0.2854,0.021,China,0.5214
+smelting,2024,post,0.2737,0.2732,0.0226,China,0.5086
+refining,1995,prior,0.093,0.0908,0.047,United States,0.202
+refining,1995,post,0.0926,0.0908,0.0424,United States,0.2001
+refining,2024,prior,0.2281,0.2277,0.0188,China,0.4526
+refining,2024,post,0.2214,0.2211,0.0195,China,0.4433
+use,1995,prior,0.0956,0.0903,0.0726,United States,0.2173
+use,1995,post,0.1031,0.0957,0.0859,United States,0.2283
+use,2024,prior,0.3092,0.3057,0.0595,China,0.5394
+use,2024,post,0.3417,0.3378,0.0626,China,0.5729
