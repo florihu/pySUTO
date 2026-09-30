@@ -95,9 +95,9 @@ ALPHA_MIN_REG = 0.05     # inverse-multiplier effective-sensitivity floor
 # full sweep fills no new edges). Safety cap on passes (chain depth ≈ 8).
 CASCADE_MAX_ITER = 10
 
-# NetworkImputer — waste-rock mass as a ratio of ore output (WR_Mass = k·Ore_Mass).
-# The ratio (k) is now a parameter: the `stripping_ratio` row in the eff params
-# CSV (param_type=stripping_ratio), so it is no longer hard-coded here. A direct
+# NetworkImputer — waste rock is a satellite mass flow outside the Mining balance
+# (ADR 0038), fixed in Stage 3 by the hard stripping relation WR_Mass = k·Ore_Mass
+# (the `stripping_ratio` params family); the imputer leaves it to the flat prior. A direct
 # ratio avoids the CO_Mass − Ore_Mass residual going negative when a region's
 # ore_grade exceeds the flat conc_ore.
 

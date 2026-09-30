@@ -851,8 +851,11 @@ class AccountingStructure:
     def _load_masks_file(self, path: Optional[str]) -> None:
         """Load acc-local ``masks.csv`` if present and merge into ``self.masks``.
 
-        Called once at the end of ``__init__``. Missing file is a no-op.
+        Called once at the end of ``__init__``. Missing file is a no-op. The names
+        are recorded in ``user_mask_names`` so :meth:`save` can persist them —
+        :meth:`load` never sees ``masks.csv`` again.
         """
+        self.user_mask_names: list[str] = []
         if path is None or not os.path.exists(path):
             return
         from pysuto.masks import MaskRuleSet
@@ -865,6 +868,7 @@ class AccountingStructure:
             if name in self.masks:
                 self.logger.warning("masks.csv: overriding built-in mask %r", name)
             self.masks[name] = arr
+            self.user_mask_names.append(name)
 
     # ------------------------------------------------------------------
     # Convenience properties for ConstraintBuilder
@@ -1233,6 +1237,14 @@ class AccountingStructure:
         np.save(os.path.join(path, "bounds_l.npy"), self.bounds.l)
         np.save(os.path.join(path, "bounds_u.npy"), self.bounds.u)
 
+        # acc-local user masks (masks.csv) — load() rebuilds only the structural
+        # masks, so without this file a user mask silently vanishes after load.
+        masks_path = os.path.join(path, "masks_user.npz")
+        if self.user_mask_names:
+            np.savez(masks_path, **{n: self.masks[n] for n in self.user_mask_names})
+        elif os.path.exists(masks_path):
+            os.remove(masks_path)  # a stale file would resurrect removed masks
+
         meta = {
             "time_range": self.time_range,
             "valuation":  self.valuation,
@@ -1310,4 +1322,20 @@ class AccountingStructure:
             obj.valuation, bounds.n_exceptions,
         )
         obj._build_edge_masks()
+
+        obj.user_mask_names = []
+        masks_path = os.path.join(path, "masks_user.npz")
+        if os.path.exists(masks_path):
+            with np.load(masks_path) as z:
+                for name in z.files:
+                    arr = z[name]
+                    if arr.shape != (obj.n_edges,):
+                        raise ValueError(
+                            f"masks_user.npz: mask {name!r} has shape {arr.shape}, "
+                            f"expected ({obj.n_edges},) — rebuild the structure "
+                            f"with scripts/acc.py"
+                        )
+                    obj.masks[name] = arr.astype(bool)
+                    obj.user_mask_names.append(name)
+            obj.logger.info("   user masks restored: %s", ", ".join(obj.user_mask_names))
         return obj

@@ -115,6 +115,14 @@ _Avoid_: conflating `entity_sub` with **entity** (only `Process` | `Flow` | `SB`
 (Nature/SEM/FD) and the **sector** of the SB node (`CO`, `Slag`, `FU`, …, the finer per-commodity
 grain), so name the grain you mean.
 
+**Satellite flow** — an edge of the accounting structure that carries a calculated value but is
+excluded from its source node's mass balance by the `massbal_scope` mask (acc `masks.csv`). In
+copper: `Mining → WR` (waste rock), mass `k·Ore` from the stripping ratio, copper content zero; its
+mass enters Mining from nature without an input edge (unused extraction lies outside the crude-ore
+feed), so the reported PSUT does not balance Mining in gross mass by exactly the waste rock. See
+[ADR 0038](docs/adr/0038-waste-rock-is-a-satellite-mass-flow.md). _Avoid_: "residual output" (a
+residual output closes its node's balance; a satellite never does) and "slack".
+
 ## Coverage & val vocabulary
 
 **Value (`val`)** — *a value of an edge*: the post-imputation `f_agg` on a root edge.
@@ -183,6 +191,16 @@ is a breach; **`= ε`, the slack, on a soft (free) row** (see README §"Cone ord
 _Avoid_: (1) reading a large-negative residual on a `nonneg` bound as a violation — it is slack
 (a misread that once produced a phantom "inverted bound" diagnosis); (2) conflating with
 **defect** — residual is per-constraint, defect is per-edge.
+
+**Structural lower bound** — the per-edge `l` of the accounting structure (`acc.bounds.l`): 0 on
+every edge except the signed stock-change edges (`Cathode→USC`, `Cathode→MESC`, `CP→PSC`), whose
+`l` is −1e6. Since [ADR 0039](docs/adr/0039-flow-lower-bounds-are-enforced-in-the-qp.md) each
+`l = 0` enters the QP as one hard `nonneg` row `−a ≤ 0` (type `bound`, variant `lower`). _Avoid_:
+reading `ConstraintRun.l` as the structural bound — Stage 3 overwrites it with the prior box and the
+**zero pin** (`l = u = 0` on no-data edges, [ADR 0013](docs/adr/0013-no-data-flat-prior-anchor.md)),
+and those boxes, like every upper bound `u`, reach only the feasibility pre-check. Before ADR 0039
+no bound reached the QP, so `l ≤ a ≤ u` in older REPs and the README describes the probe, not the
+solve.
 
 **Forced vs discretionary deletion** — the split of a node's prior-to-posterior mass loss into the
 part no optimiser could have avoided and the part it chose. Copper leaves a mine node only as

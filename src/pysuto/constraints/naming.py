@@ -8,9 +8,9 @@ Grammar::
 
     constraint_id = {type}_{variant}_{specs...}_{year}
 
-* **type** ∈ {``massbal``, ``sum``, ``ratio``} — the constraint family.
+* **type** ∈ {``massbal``, ``sum``, ``ratio``, ``bound``} — the constraint family.
 * **variant** — the role within the family (``massbal``, ``usefulsupply``,
-  ``subentity``, ``anchor``, a user csv label, ``ratioeq``, ``bound``).
+  ``subentity``, ``anchor``, a user csv label, ``ratioeq``, ``bound``, ``lower``).
 * **specs** — type-specific human-readable fields (sector/region/valuation, or a
   rendered edge), never integer node/edge ids.
 * **year** — always the final token; ``na`` when the row is time-agnostic.
@@ -31,6 +31,7 @@ import numpy as np
 TYPE_MASSBAL = "massbal"
 TYPE_SUM     = "sum"
 TYPE_RATIO   = "ratio"
+TYPE_BOUND   = "bound"
 
 
 class ConstraintIdError(ValueError):

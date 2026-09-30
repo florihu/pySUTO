@@ -220,6 +220,24 @@ def _validate_ratio_bounds(G: sp.spmatrix, row_meta: pd.DataFrame) -> None:
 # =============================================================================
 
 
+def nodata_exempt_mask(acc, exclude_sectors, data_aware_sectors, region_years) -> np.ndarray:
+    """Per-edge exemption from the no-data σ anchor (ADR 0013 amendment 3).
+
+    An edge touching ``exclude_sectors`` (either endpoint) is spared, except that
+    one touching ``data_aware_sectors`` is spared only where its
+    ``(from_region, time)`` is in ``region_years`` — the region-years in which a
+    relation actually sets its magnitude. Elsewhere a zero prior means "no flow",
+    and the anchor applies. ``region_years`` holds ``(region, time)`` string pairs.
+    """
+    em = acc.edge_meta
+    fs, ts = em["from_sector"].to_numpy(), em["to_sector"].to_numpy()
+    spared = np.isin(fs, list(exclude_sectors)) | np.isin(ts, list(exclude_sectors))
+    aware = np.isin(fs, list(data_aware_sectors)) | np.isin(ts, list(data_aware_sectors))
+    keys = zip(em["from_region"].astype(str), em["time"].astype(str))
+    listed = np.fromiter((k in region_years for k in keys), dtype=bool, count=len(em))
+    return spared & (~aware | listed)
+
+
 class ConstraintEngine:
     """
     Orchestrates an ordered list of BaseConstraintBuilder instances.
@@ -253,6 +271,7 @@ class ConstraintEngine:
         nodata_anchor_cv: float = 0.3,
         nodata_anchor_exclude_sectors: tuple = ("CO", "Mining", "Ore", "WR", "Tailings"),
         nodata_anchor_flat_threshold: float = 1e5,
+        nodata_anchor_exempt_mask: Optional[np.ndarray] = None,
         pin_flat_prior_zeros: bool = False,
         pin_exclude_sectors: tuple = ("CO", "Mining", "Ore", "WR", "Tailings", "Slag", "PSC"),
     ):
@@ -268,6 +287,11 @@ class ConstraintEngine:
         self._nodata_anchor_cv  = float(nodata_anchor_cv)
         self._nodata_anchor_exclude = tuple(nodata_anchor_exclude_sectors)
         self._nodata_anchor_flat_threshold = float(nodata_anchor_flat_threshold)
+        # Per-edge exemption from the no-data anchor (ADR 0013 amendment 3); None
+        # keeps the sector rule of nodata_anchor_exclude_sectors.
+        self._nodata_anchor_exempt_mask = (
+            None if nodata_anchor_exempt_mask is None
+            else np.asarray(nodata_anchor_exempt_mask, dtype=bool))
         self._pin_flat_prior_zeros = bool(pin_flat_prior_zeros)
         self._pin_exclude_sectors  = tuple(pin_exclude_sectors)
 
@@ -306,7 +330,7 @@ class ConstraintEngine:
         )
         return l_new, u_new
 
-    def _nodata_target_mask(self, a0, sigma_raw, acc, exclude_sectors):
+    def _nodata_target_mask(self, a0, sigma_raw, acc, exclude_sectors, exempt_mask=None):
         """Boolean mask of no-data ("flat-prior") edges outside an exclusion set.
 
         A no-data edge has ``|a₀| < 1e-9`` and σ still at the FlatPrior
@@ -317,13 +341,23 @@ class ConstraintEngine:
         which ``a₀ = 0`` means "value comes from the relation", not "no flow".
         Computed on the *raw* σ (before Lp regularization / the no-data anchor,
         which overwrite σ on exactly these edges). Shared by the soft σ anchor
-        and the hard flat-prior-zero pin (different exclusion sets). See ADR 0013.
+        and the hard flat-prior-zero pin (different exclusion sets). A per-edge
+        ``exempt_mask`` replaces the sector rule (ADR 0013 amendment 3: the
+        extraction chain is spared only where a relation sets its magnitude).
+        See ADR 0013.
         """
-        em          = acc.edge_meta
-        from_sector = em["from_sector"].to_numpy()
-        to_sector   = em["to_sector"].to_numpy()
-        excl        = np.asarray(exclude_sectors, dtype=object)
-        is_excluded = np.isin(from_sector, excl) | np.isin(to_sector, excl)
+        if exempt_mask is not None:
+            if exempt_mask.shape != (len(a0),):
+                raise ValueError(
+                    f"no-data anchor exempt mask has shape {exempt_mask.shape}, "
+                    f"expected ({len(a0)},)")
+            is_excluded = exempt_mask
+        else:
+            em          = acc.edge_meta
+            from_sector = em["from_sector"].to_numpy()
+            to_sector   = em["to_sector"].to_numpy()
+            excl        = np.asarray(exclude_sectors, dtype=object)
+            is_excluded = np.isin(from_sector, excl) | np.isin(to_sector, excl)
         nodata      = (np.abs(a0) < 1e-9) & (sigma_raw >= self._nodata_anchor_flat_threshold)
         return nodata & ~is_excluded
 
@@ -357,7 +391,8 @@ class ConstraintEngine:
         from_sector = em["from_sector"].to_numpy()
         valuation   = em["valuation"].to_numpy()
 
-        target = self._nodata_target_mask(a0, sigma_a, acc, self._nodata_anchor_exclude)
+        target = self._nodata_target_mask(a0, sigma_a, acc, self._nodata_anchor_exclude,
+                                          exempt_mask=self._nodata_anchor_exempt_mask)
         if not target.any():
             _log.info("no-data σ_a anchor (cv=%.2f): 0 edges matched", cv)
             return sigma_a

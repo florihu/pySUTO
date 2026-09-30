@@ -128,7 +128,6 @@ class _RRecipe:
     eff_sig: float
     eff_eps: float
     eff_param_id: str | None
-    special: str | None  # "stripping_ratio" for Mining, else None
 
 
 # ---------------------------------------------------------------------------
@@ -147,7 +146,6 @@ class NetworkImputer(BaseImputer):
         q: float = 3.0,
         alpha_min: float = 0.05,
         cv_cap: float = 1.5,
-        stripping_ratio: float = 2.0,
         id: str | None = None,
     ) -> None:
         self.id = id or type(self).__name__
@@ -158,22 +156,14 @@ class NetworkImputer(BaseImputer):
         self.q = float(q)
         self.alpha_min = float(alpha_min)
         self.cv_cap = float(cv_cap)
-        # Mining Mass close: waste-rock Mass is the clipped input−output residual
-        # WR_Mass = max(0, CO_Mass − Ore_Mass) (Ore stays grade-anchored), so the hard
-        # Mining Mass balance holds in the seed without fabricating phantom mass. WR is a
-        # free slack excluded from the scale total (ADR 0006); the stripping ratio is NOT
-        # used by the imputer anymore — it survives only as the soft `ratio` constraint
-        # (built independently in Stage 3 from the eff CSV). See ASSUMPTIONS.md. This
-        # constructor value is retained as the documented model default.
-        self.stripping_ratio = float(stripping_ratio)
+        # Waste rock (Mining→WR) is a satellite mass flow (ADR 0038): outside the Mining
+        # balance and fixed in Stage 3 by the hard stripping relation WR = k·Ore, so the
+        # imputer never writes it.
         # populated by prepare()
         self._recipes: list[_RRecipe] = []
         self._relaxed_fills: set[int] = set()
         self._flow_nodes: list[tuple[tuple[int, ...], tuple[int, ...]]] = []
         self._cc_to_mass: dict[int, tuple[int, float, float]] = {}
-        # structural CC→Mass edge twin (same from/to/time), conc-independent — locates the
-        # WR Mass edge whose conc=0 keeps it out of the conc twin map above.
-        self._cc_to_mass_struct: dict[int, int] = {}
         self._same_region: np.ndarray | None = None
         self._lower: np.ndarray | None = None  # per-edge bounds (for in-imputer clipping)
         self._upper: np.ndarray | None = None
@@ -210,15 +200,6 @@ class NetworkImputer(BaseImputer):
         if self._ore_grade_csv:
             conc_twin_map(self._ore_grade_csv, resolver, self._cc_to_mass)
 
-        # Structural CC->Mass edge twin (same from/to/time), independent of conc — the
-        # conc twin map drops conc=0 edges, so the WR (copperless) Mass edge needs this
-        # to be located for the Mining WR = CO − Ore residual fill.
-        cc_e   = em[em["valuation"] == "CC"][["from_id", "to_id", "time", "edge_id"]]
-        mass_e = em[em["valuation"] == "Mass"][["from_id", "to_id", "time", "edge_id"]]
-        pair = cc_e.merge(mass_e, on=["from_id", "to_id", "time"], suffixes=("_cc", "_mass"))
-        self._cc_to_mass_struct = dict(zip(pair["edge_id_cc"].to_numpy(),
-                                           pair["edge_id_mass"].to_numpy()))
-
         # product CC edge -> (eff, σ_eff, ε, param_id)
         product_eff = self._load_eff_map(self._eff_csv, resolver)
 
@@ -240,11 +221,10 @@ class NetworkImputer(BaseImputer):
             # are pooled-when-known / 0-when-missing and never block (ADR 0010).
             primary = tuple(i for i in non_sem if reg_from.get(i) == reg_to.get(i))
             bilateral_import = tuple(i for i in non_sem if reg_from.get(i) != reg_to.get(i))
-            special = "stripping_ratio" if rec.process_sector == "Mining" else None
             self._recipes.append(
                 _RRecipe(rec.inputs, primary, secondary, bilateral_import,
                          rec.product, rec.wastes,
-                         float(eff), float(eff_sig), float(eff_eps), pid, special)
+                         float(eff), float(eff_sig), float(eff_eps), pid)
             )
 
         # Flow-node CC balances: (incoming supply edges, outgoing use edges)
@@ -254,8 +234,8 @@ class NetworkImputer(BaseImputer):
         df = pd.read_csv(path, sep=None, engine="python", comment="#", dtype=str)
         df = df.dropna(subset=["param_id"])
         df = df[~df["param_id"].str.startswith("#")]
-        # Recovery-efficiency rows only; the stripping_ratio row (a Mass output
-        # ratio, not a CC recovery fraction) lives in the same file and must not
+        # Recovery-efficiency rows only: any other process ratio (the stripping
+        # ratio, a Mass output ratio with its own file since ADR 0038) must not
         # pollute the eff map. Filter by param_type, not by a magic param_id.
         df = df[df["param_type"].astype(str).str.strip() == "efficiency"]
         best: dict[int, tuple] = {}  # product_cc -> (eff, σ, ε, param_id, specificity)
@@ -466,26 +446,9 @@ class NetworkImputer(BaseImputer):
                 self._w(m, f_m, s_m, f, sigma, entries, step,
                         "network_mass_twin", [cc], [1.0 / conc], None)
 
-        # ---- Mining: WR_Mass = CO_Mass − Ore_Mass (mass-balance residual) ----
-        # Ore stays grade-anchored; WR is the clipped input−output residual that closes
-        # the hard Mining Mass balance in the seed. _w clips to [0,u] and widens σ on the
-        # clip, so positive-delta regions get WR=CO−Ore (seed residual→0) and negative-delta
-        # (grade-implied Ore > crude_ore CO) get WR=0. WR is a free slack excluded from the
-        # scale total (ADR 0006); the stripping ratio survives only as the soft constraint.
-        # See ASSUMPTIONS.md. WR's conc=0 keeps it out of _cc_to_mass, so locate it
-        # structurally (same from/to/time).
-        if rec.special == "stripping_ratio" and rec.product is not None and rec.wastes:
-            co_cc = rec.primary[0] if rec.primary else (rec.inputs[0] if rec.inputs else None)
-            co_twin = self._cc_to_mass.get(co_cc) if co_cc is not None else None
-            ore_twin = self._cc_to_mass.get(rec.product)
-            wr_m = self._cc_to_mass_struct.get(rec.wastes[0])
-            if co_twin and ore_twin and wr_m is not None:
-                co_m, ore_m = co_twin[0], ore_twin[0]
-                if np.isnan(f[wr_m]) and not np.isnan(f[co_m]) and not np.isnan(f[ore_m]):
-                    f_wr = float(f[co_m] - f[ore_m])
-                    s_wr = lp_combine([sigma[co_m], sigma[ore_m]], p)
-                    self._w(wr_m, f_wr, s_wr, f, sigma, entries, step,
-                            "network_balance", [co_m, ore_m], [1.0, -1.0], None)
+        # Waste rock (Mining→WR Mass) is never written here: it is a satellite mass flow
+        # outside the Mining balance, fixed in Stage 3 by the hard stripping relation
+        # WR = k·Ore (ADR 0038), so it keeps the flat prior and no information of its own.
 
     def _do_flow_balance(self, inc, out, f, sigma, entries, step) -> None:
         """Flow-node CC balance: Σ(supply in) = Σ(uses out); fill a lone gap."""

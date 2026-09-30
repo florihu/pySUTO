@@ -183,6 +183,19 @@ class TestMassBalanceBuilder:
         assert (block.row_meta["cone_type"] == "zero").all()
         assert block.row_meta["is_hard"].all()
 
+    def test_mass_balance_mask_excludes_edges(self, toy_acc):
+        """A mask drops edges from every balance row without dropping the rows —
+        ADR 0038 takes Mining→WR out of the Mining balance this way."""
+        from pysuto.constraints import MassBalanceBuilder
+        waste = [4, 9]                                   # Mining/A → Waste/SB, both years
+        toy_acc.masks["massbal_scope"] = ~np.isin(np.arange(toy_acc.n_edges), waste)
+        full   = MassBalanceBuilder().build_static(toy_acc).G_rows.toarray()
+        masked = MassBalanceBuilder(mask="massbal_scope").build_static(toy_acc).G_rows.toarray()
+        assert masked.shape == full.shape
+        assert full[:, waste].any() and not masked[:, waste].any()
+        keep = np.setdiff1d(np.arange(toy_acc.n_edges), waste)
+        np.testing.assert_array_equal(masked[:, keep], full[:, keep])
+
     def test_mass_balance_n_rows(self, toy_acc):
         """Expect one G row per balanced node per timestep (4 nodes × 2 times = 8)."""
         from pysuto.constraints import MassBalanceBuilder
@@ -971,6 +984,35 @@ class TestRatioConstraintBuilder:
         assert -2.0 in row               # −2 on Ore (denominator)
         assert (block.row_meta["num_sector_from"] == "Mining").all()   # pair-scoped
 
+    def test_ratio_hard_mode_emits_equalities(self, toy_acc, tmp_path):
+        """hard=True (ADR 0038): the stripping relation becomes zero-cone
+        equalities with σ_c = 0 in every year — no σ scaling, no deactivation."""
+        import csv
+        from pysuto.constraints import RatioConstraintBuilder
+        path = str(tmp_path / "strip.csv")
+        fields = ["param_id", "param_type",
+                  "a_sector_from", "a_entity_from", "a_region_from",
+                  "a_sector_to", "a_entity_to", "a_region_to", "a_time", "a_valuation",
+                  "b_sector_from", "b_entity_from", "b_region_from",
+                  "b_sector_to", "b_entity_to", "b_region_to", "b_time", "b_valuation",
+                  "value_nominal", "unc_type", "value_sd"]
+        with open(path, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=fields)
+            w.writeheader()
+            w.writerow(dict(zip(fields, [
+                "strippingratio", "stripping_ratio",
+                "Mining", "Process", "A", "Ore", "Flow", "A", "*", "Mass",
+                "Mining", "Process", "same", "Waste", "SB", "same", "same", "same",
+                "2.0", "sd", "0.5"])))
+        builder = RatioConstraintBuilder.from_csv(path, toy_acc, hard=True)
+        static  = builder.build_static(toy_acc)
+        assert (static.row_meta["cone_type"] == "zero").all()
+        assert static.row_meta["is_hard"].all()
+        np.testing.assert_array_equal(static.sigma_c, 0.0)
+        dyn = builder.build_dynamic(toy_acc, np.ones(toy_acc.n_edges), None, "2020")
+        np.testing.assert_array_equal(dyn.sigma_c, 0.0)      # other year stays active
+        np.testing.assert_array_equal(dyn.c, 0.0)
+
     def test_ratio_sigma_c_scaled_symmetrically(self, toy_acc, tmp_path):
         """build_dynamic rescales σ_r to flow space:
         σ_c = max(σ_r, rel_floor)·max(Σ|f_num|, r·Σ|f_denom|, abs_floor)."""
@@ -1398,12 +1440,28 @@ class TestFlowBoundsBuilder:
         assert toy_acc.bounds.u.shape == (toy_acc.n_edges,)
         assert toy_acc.bounds.l.shape == (toy_acc.n_edges,)
 
-    def test_flow_bounds_no_g_rows(self, toy_acc):
-        """FlowBoundsBuilder produces no G rows; bounds live in ConstraintRun.u/.l."""
+    def test_rows_for_zero_lower_bounds_only(self, toy_acc):
+        """ADR 0039: one hard row −a ≤ 0 per edge with structural l = 0; a signed
+        edge (l < 0) gets none, and the upper bound on edge 0 emits nothing."""
         from pysuto.constraints import FlowBoundsBuilder
+        toy_acc.bounds.l = toy_acc.bounds.l.copy()
+        toy_acc.bounds.l[4] = -1e6
         block = FlowBoundsBuilder().build_static(toy_acc)
-        assert block.G_rows.shape[0] == 0, \
-            f"Expected 0 G rows (bounds stored separately); got {block.G_rows.shape[0]}"
+        G = block.G_rows.toarray()
+        assert G.shape == (toy_acc.n_edges - 1, toy_acc.n_edges)
+        assert not G[:, 4].any()
+        np.testing.assert_array_equal(np.delete(G.sum(axis=0), 4), -1.0)
+        rm = block.row_meta
+        assert (rm["type"] == "bound").all() and (rm["cone_type"] == "nonneg").all()
+        assert rm["is_hard"].all() and rm["constraint_id"].is_unique
+        np.testing.assert_array_equal(block.c, 0.0)
+        np.testing.assert_array_equal(block.sigma_c, 0.0)
+
+    def test_disabled_builder_emits_no_rows(self, toy_acc):
+        """enforce_lower=False keeps the pre-ADR-0039 no-op."""
+        from pysuto.constraints import FlowBoundsBuilder
+        block = FlowBoundsBuilder(enforce_lower=False).build_static(toy_acc)
+        assert block.G_rows.shape[0] == 0
 
     def test_flow_bounds_carried_in_run(self, toy_acc, toy_agg_result):
         """ConstraintEngine.run() carries non-default bounds in cr.u / cr.l."""
@@ -2461,6 +2519,60 @@ class TestNodataSigmaAnchor:
         sigma_a = np.array([  5.0, 50.0, 1e6])             # e1 σ below 1e5 threshold
         out = eng._anchor_nodata_sigma(a0, sigma_a, acc)
         assert out[1] == 50.0                              # untouched (not a fallback σ)
+
+    def test_exempt_mask_replaces_the_sector_rule(self):
+        """ADR 0013 amendment 3: a per-edge exemption mask decides which no-data
+        edges the anchor spares; an extraction edge it does not spare (a
+        non-mining region-year) is anchored like any other."""
+        from pysuto.constraints import ConstraintEngine
+        acc = _make_anchor_acc()
+        a0      = np.array([100.0, 0.0, 0.0])
+        sigma_a = np.array([  5.0, 1e6, 1e6])
+        spare  = ConstraintEngine(acc_struct=acc,
+                                  nodata_anchor_exempt_mask=np.array([False, False, True]))
+        anchor = ConstraintEngine(acc_struct=acc,
+                                  nodata_anchor_exempt_mask=np.zeros(3, dtype=bool))
+        assert spare._anchor_nodata_sigma(a0, sigma_a, acc)[2] == 1e6
+        # no anchored Mining sibling → the global anchored median (100) sets the scale
+        assert anchor._anchor_nodata_sigma(a0, sigma_a, acc)[2] == pytest.approx(0.3 * 100.0)
+
+    def test_exempt_mask_of_wrong_length_raises(self):
+        from pysuto.constraints import ConstraintEngine
+        acc = _make_anchor_acc()
+        eng = ConstraintEngine(acc_struct=acc, nodata_anchor_exempt_mask=np.zeros(2, dtype=bool))
+        with pytest.raises(ValueError, match="exempt"):
+            eng._anchor_nodata_sigma(np.array([100.0, 0.0, 0.0]),
+                                     np.array([5.0, 1e6, 1e6]), acc)
+
+
+class TestNodataExemptMask:
+    """``nodata_exempt_mask`` (ADR 0013 amendment 3): the sector rule, except
+    that data-aware sectors are spared only in listed region-years."""
+
+    def _acc(self):
+        from pysuto.acc import AccountingStructure
+        acc = AccountingStructure.__new__(AccountingStructure)
+        acc.node_index = pd.DataFrame(
+            [("CO", "SB", "A"), ("Mining", "Process", "A"),
+             ("CO", "SB", "B"), ("Mining", "Process", "B"),
+             ("Smelting", "Process", "B"), ("Slag", "SB", "B")],
+            columns=["sector", "entity", "region"],
+        )
+        acc.edge_index = pd.DataFrame([
+            {"edge_id": 0, "from_id": 0, "to_id": 1, "time": "2020", "valuation": "Mass"},  # CO→Mining A
+            {"edge_id": 1, "from_id": 2, "to_id": 3, "time": "2020", "valuation": "Mass"},  # CO→Mining B
+            {"edge_id": 2, "from_id": 4, "to_id": 5, "time": "2020", "valuation": "Mass"},  # Smelting→Slag B
+        ])
+        acc.n_edges = 3
+        return acc
+
+    def test_data_aware_sectors_follow_the_region_years(self):
+        from pysuto.constraints.engine import nodata_exempt_mask
+        m = nodata_exempt_mask(self._acc(), exclude_sectors=("CO", "Mining", "Slag"),
+                               data_aware_sectors=("CO", "Mining"),
+                               region_years={("A", "2020")})
+        # A mines (grade row) → spared; B does not → anchored; Slag keeps the sector rule
+        np.testing.assert_array_equal(m, [True, False, True])
 
 
 if __name__ == "__main__":

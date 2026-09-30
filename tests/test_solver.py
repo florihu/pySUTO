@@ -336,6 +336,81 @@ class TestPersist:
 # Feasibility pre-check
 # ---------------------------------------------------------------------------
 
+def _make_waste_toy_acc():
+    """Src(SB) → P(Process) → F(Flow), P → W(SB): only P is balanced (F has no
+    output), a = b + w, so a tight a < b books the gap on the loose w."""
+    import logging
+    from pysuto.acc import AccountingStructure, EdgeBounds
+    acc = AccountingStructure.__new__(AccountingStructure)
+    acc.logger = logging.getLogger("test_waste_toy")
+    acc.id     = "waste_toy"
+    acc.node_index = pd.DataFrame(
+        [("Src", "SB", "A"), ("P", "Process", "A"), ("F", "Flow", "A"), ("W", "SB", "A")],
+        columns=["sector", "entity", "region"],
+    )
+    acc.n_nodes, acc.time_range, acc.valuation = 4, ["2020"], ["Mass"]
+    acc.edge_index = pd.DataFrame([
+        {"edge_id": 0, "from_id": 0, "to_id": 1, "time": "2020", "valuation": "Mass"},  # a
+        {"edge_id": 1, "from_id": 1, "to_id": 2, "time": "2020", "valuation": "Mass"},  # b
+        {"edge_id": 2, "from_id": 1, "to_id": 3, "time": "2020", "valuation": "Mass"},  # w
+    ])
+    acc.n_edges = 3
+    acc.masks = {
+        "supply":   np.array([False, True, False]),
+        "use":      np.zeros(3, dtype=bool),
+        "tradable": np.zeros(3, dtype=bool),
+        "sb":       np.array([True, False, True]),
+    }
+    acc.ruleset = None
+    bounds               = EdgeBounds.__new__(EdgeBounds)
+    bounds.n_edges       = 3
+    bounds.DEFAULT_LOWER = EdgeBounds.DEFAULT_LOWER
+    bounds.DEFAULT_UPPER = EdgeBounds.DEFAULT_UPPER
+    bounds.l             = np.zeros(3)
+    bounds.u             = np.full(3, EdgeBounds.DEFAULT_UPPER)
+    bounds.n_exceptions  = 0
+    acc.bounds = bounds
+    return acc
+
+
+class TestLowerBoundsEnforced:
+    """ADR 0039, issue #28: without the bound rows the QP books a balance gap on
+    a loose residual edge as a negative flow; with them the edge stops at 0."""
+
+    def _solve(self, tmp_path, monkeypatch, enforce):
+        from pysuto.constraints import ConstraintEngine, FlowBoundsBuilder, MassBalanceBuilder
+        from pysuto.solver import ClarabelSolver
+        acc = _make_waste_toy_acc()
+
+        class _Agg:
+            f_agg     = np.array([100.0, 120.0, 0.0])
+            sigma_agg = np.array([1.0, 1.0, 1000.0])
+
+        storage_dir = str(tmp_path / "const")
+        engine = ConstraintEngine(acc, storage_dir=storage_dir)
+        engine.register(MassBalanceBuilder())
+        engine.register(FlowBoundsBuilder(enforce_lower=enforce))
+        cr = engine.run(_Agg(), timesteps=["2020"], persist=False)
+        s = ClarabelSolver(const_dir=storage_dir, verbose_first_solve=False)
+        monkeypatch.setattr(s, "load_run", lambda _rid: cr)
+        r = s.solve_all(cr.run_id)["2020"]
+        return cr, r, dict(zip(np.asarray(r.cols_t, dtype=int), r.F_opt))
+
+    def test_without_bounds_the_residual_edge_goes_negative(self, tmp_path, monkeypatch):
+        _, r, F = self._solve(tmp_path, monkeypatch, enforce=False)
+        assert r.solver_status == "Solved"
+        assert F[2] < -10.0                                  # w ≈ a − b ≈ −20
+
+    def test_with_bounds_the_residual_edge_stops_at_zero(self, tmp_path, monkeypatch):
+        cr, r, F = self._solve(tmp_path, monkeypatch, enforce=True)
+        assert r.solver_status == "Solved"
+        assert F[2] >= -1e-7 and F[2] == pytest.approx(0.0, abs=1e-6)
+        assert F[0] == pytest.approx(F[1], rel=1e-6)         # a = b once w is 0
+        bound = (cr.row_meta["type"] == "bound").to_numpy()
+        assert bound.sum() == 3
+        assert (cr.row_meta.loc[bound, "cone_type"] == "nonneg").all()
+
+
 class TestEngineToSolverIntegration:
     """Slice 4: end-to-end with a real ConstraintRun (G_blocks populated by
     engine.run). Per-t solver must produce solved status and F_opt that
