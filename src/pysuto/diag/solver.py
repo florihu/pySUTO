@@ -40,8 +40,7 @@ Run scope (x = year):
 Timestep scope (columns = first / worst-``Σz²`` / last year):
 
 * **SD-T-07** ``sd_t_07_rocket`` — c-space (``G·a_prior(t)`` vs ``c*`` on sum
-  rows) and a-space (``a_prior(t)`` vs ``a*``) log–log scatters, colour ``|z|``,
-  top-10 identities labelled.
+  rows) and a-space (``a_prior(t)`` vs ``a*``) log–log scatters, colour ``|z|``.
 
 ``plot(regions=[...])`` renders the same portfolio restricted to edges / rows
 touching those regions (filename suffix ``__<region>``); ``plot()`` also writes
@@ -58,7 +57,7 @@ from typing import NamedTuple, Optional
 import numpy as np
 import pandas as pd
 
-from ._plot import _C, _CAT8, _savefig
+from ._plot import _CAT8, _INK, _STATUS, _savefig, _seq_cmap
 from .stats._core import boundary_edges, filter_regions, sector_totals
 from .stats.objective import (
     FAMILIES, FAMILY_LABELS, family_frame, objective_decomposition, profiles,
@@ -67,18 +66,17 @@ from .stats.objective import (
 from .stats.solver import SolverStatsDiagnostic
 
 # Hue palette for SolverDiag.compare(). Order matters: first run gets blue.
-_HUE_PALETTE = ["blue", "orange", "green", "purple", "red", "navy"]
+_HUE_PALETTE = _CAT8
 # One colour / linestyle per objective family (single-run SD-R-11, SD-R-15).
-_FAMILY_COLOR = {"edges": _C["blue"], "sum_rows": _C["orange"], "soft_ratios": _C["purple"]}
+_FAMILY_COLOR = {"edges": _CAT8[0], "sum_rows": _CAT8[1], "soft_ratios": _CAT8[2]}
 _FAMILY_LS    = {"edges": "-",        "sum_rows": "--",         "soft_ratios": ":"}
-_STATUS_COLOR = {"Solved": _C["green"], "AlmostSolved": _C["orange"]}   # anything else: red
+_STATUS_COLOR = {"Solved": _STATUS["good"], "AlmostSolved": _STATUS["warning"]}   # anything else: critical
 
 _LOG_FLOOR   = 1e-6   # values are floored here before log10 (rocket axes)
 _MAX_SERIES  = 8      # categorical hues per panel; the tail folds into "other"
 _TOP_KEYS    = 20     # sector keys shown in SD-R-13
 _TOP_IDS     = 25     # identities shown in SD-R-14
 _N_PROFILES  = 12     # identities profiled in SD-R-15
-_N_ROCKET_LABELS = 10
 # entity_sub tie-break for the SB legend order (label literals — see ADR 0034;
 # only an ordering hint, never a filter).
 _BOUNDARY_FAMILY_ORDER = {"Nature": 0, "SEM": 1, "FD": 2}
@@ -686,7 +684,7 @@ class SolverDiag:
         Parameters
         ----------
         diags : dict[str, SolverDiag]
-            ``{hue_label: diag}`` — up to 6 entries recommended (palette size).
+            ``{hue_label: diag}`` — up to 8 entries recommended (palette size).
         odir : str
             Output directory. Files land at ``{odir}/{label}_{stem}{suffix}.png``.
         plot_ids : list[str] | None
@@ -711,7 +709,7 @@ class SolverDiag:
         # Build (hue_label, diag, color) tuples once
         hue: list = []
         for k, (lbl, dg) in enumerate(diags.items()):
-            color = _C[_HUE_PALETTE[k % len(_HUE_PALETTE)]]
+            color = _HUE_PALETTE[k % len(_HUE_PALETTE)]
             hue.append((lbl, dg, color))
 
         # Render using the first diag as host; each method accepts hue=[(label,diag,color),...]
@@ -787,7 +785,7 @@ class SolverDiag:
         palette in sorted-name order; ``"other"`` is always grey."""
         named = sorted(n for n in names if n != "other")
         colors = {n: _CAT8[i % len(_CAT8)] for i, n in enumerate(named)}
-        colors["other"] = _C["grey"]
+        colors["other"] = _INK["muted"]
         return colors
 
     # ------------------------------------------------------------------
@@ -849,7 +847,7 @@ class SolverDiag:
             sub = tot[tot["valuation"] == V] if tot is not None else None
             if sub is None or sub.empty:
                 at.text(0.5, 0.5, "n=0", transform=at.transAxes, ha="center", va="center",
-                        fontsize=9, color=_C["grey"])
+                        fontsize=9, color=_INK["muted"])
             else:
                 rmax = 1.0
                 vals_seen = []
@@ -857,7 +855,7 @@ class SolverDiag:
                     s = sub[sub["group"] == g].set_index("year").reindex(self._years)
                     if s["sum_post"].notna().sum() == 0 and s["sum_prior"].notna().sum() == 0:
                         continue
-                    col = colors.get(g, _C["grey"])
+                    col = colors.get(g, _INK["muted"])
                     post, prior = s["sum_post"].to_numpy(dtype=float), s["sum_prior"].to_numpy(dtype=float)
                     at.plot(x, post, color=col, lw=1.6, label=g)
                     at.plot(x, prior, color=col, lw=1.1, ls="--", alpha=0.7)
@@ -876,7 +874,7 @@ class SolverDiag:
                 else:
                     at.set_yscale("log")
                 ab.set_ylim(0, min(max(1.5, rmax * 1.05), 5.0))
-            ab.axhline(1.0, color=_C["grey"], lw=1.0, ls="--")
+            ab.axhline(1.0, color=_INK["muted"], lw=1.0, ls="--")
             at.set_title(f"valuation = {V}", loc="left", fontsize=10)
             if c == 0:
                 at.set_ylabel(f"Σ a* (solid) · Σ a_prior (dashed) [{unit}]")
@@ -886,9 +884,9 @@ class SolverDiag:
 
     def _totals_legend(self, fig, groups, colors, loc_rect=(0, 0, 0.87, 0.95)) -> None:
         from matplotlib.lines import Line2D
-        handles = [Line2D([0], [0], color=colors.get(g, _C["grey"]), lw=1.8, label=g) for g in groups]
-        handles.append(Line2D([0], [0], color=_C["navy"], lw=1.6, label="posterior a*(t)"))
-        handles.append(Line2D([0], [0], color=_C["navy"], lw=1.1, ls="--", alpha=0.7, label="prior a_prior(t)"))
+        handles = [Line2D([0], [0], color=colors.get(g, _INK["muted"]), lw=1.8, label=g) for g in groups]
+        handles.append(Line2D([0], [0], color=_INK["primary"], lw=1.6, label="posterior a*(t)"))
+        handles.append(Line2D([0], [0], color=_INK["primary"], lw=1.1, ls="--", alpha=0.7, label="prior a_prior(t)"))
         fig.legend(handles=handles, loc="center right", fontsize=7, frameon=False,
                    bbox_to_anchor=(1.0, 0.5))
         fig.tight_layout(rect=list(loc_rect))
@@ -980,7 +978,7 @@ class SolverDiag:
             if dvals is None:
                 for c in range(len(vals)):
                     top[c].text(0.5, 0.5, "n=0", transform=top[c].transAxes, ha="center",
-                                va="center", fontsize=9, color=_C["grey"])
+                                va="center", fontsize=9, color=_INK["muted"])
             else:
                 self._draw_totals_rows(top, bot, dvals, tot, groups, colors)
             for c in range(len(vals)):
@@ -1002,7 +1000,7 @@ class SolverDiag:
         import matplotlib.pyplot as plt
         from matplotlib.lines import Line2D
 
-        runs = hue if hue else [(self.label or "run", self, _C["blue"])]
+        runs = hue if hue else [(self.label or "run", self, _CAT8[0])]
         fig, axes = plt.subplots(4, 1, figsize=(13, 9.5), sharex=True,
                                  gridspec_kw={"height_ratios": [0.5 + 0.15 * len(runs), 1, 1, 1.4]})
         fig.suptitle(self._title("Solver health (SD-R-01)", hue=hue), fontsize=13, fontweight="bold")
@@ -1011,7 +1009,7 @@ class SolverDiag:
         for k, (lbl, dg, color) in enumerate(runs):
             x = dg._ts_index()
             statuses = [str(dg._results[t].solver_status) for t in dg._timesteps]
-            cols = [_STATUS_COLOR.get(s, _C["red"]) for s in statuses]
+            cols = [_STATUS_COLOR.get(s, _STATUS["critical"]) for s in statuses]
             axes[0].scatter(x, np.full(len(x), k), c=cols, s=42, marker="s", edgecolors="none")
             axes[1].plot(x, dg._scalar_series("iterations"),
                          color=color, lw=1.6, marker="o", ms=3, label=lbl)
@@ -1029,12 +1027,12 @@ class SolverDiag:
         axes[0].set_ylim(-0.6, len(runs) - 0.4)
         axes[0].set_title("Status", loc="left", fontsize=10)
         status_handles = [Line2D([0], [0], marker="s", ls="", color=c, ms=7, label=s)
-                          for s, c in list(_STATUS_COLOR.items()) + [("other", _C["red"])]]
+                          for s, c in list(_STATUS_COLOR.items()) + [("other", _STATUS["critical"])]]
         axes[0].legend(handles=status_handles, fontsize=7, frameon=False, loc="upper right", ncol=3)
         axes[1].set_ylabel("iterations");     axes[1].set_title("Iterations", loc="left", fontsize=10)
         axes[2].set_ylabel("solve_time (s)"); axes[2].set_title("Solve time", loc="left", fontsize=10)
         axes[3].set_ylabel("residual");       axes[3].set_title("Final KKT residuals (res_primal, res_dual, gap_rel)", loc="left", fontsize=10)
-        axes[3].axhspan(1e-9, 1e-7, color=_C["grey"], alpha=0.10)  # Clarabel default feasibility band
+        axes[3].axhspan(1e-9, 1e-7, color=_INK["muted"], alpha=0.10)  # Clarabel default feasibility band
 
         for ax in axes:
             _apply_modern_style(ax)
@@ -1052,7 +1050,7 @@ class SolverDiag:
         """SD-R-11: Σz² per family per year, max hard mass-balance |G·a*−c|, share |z|>3."""
         import matplotlib.pyplot as plt
 
-        runs = hue if hue else [(self.label or "run", self, _C["blue"])]
+        runs = hue if hue else [(self.label or "run", self, _CAT8[0])]
         decs = [(lbl, dg, color, dg._decomposition(regions)) for lbl, dg, color in runs]
         if all(d is None for _, _, _, d in decs):
             return self._placeholder("SD-R-11: no frames available (acc / row_meta missing)", regions)
@@ -1073,7 +1071,7 @@ class SolverDiag:
                 axes[2].plot(x, d[f"share_gt3_{fam}"].to_numpy(dtype=float),
                              color=col, ls=_FAMILY_LS[fam], lw=1.6, label=name)
             axes[0].semilogy(x, d["zsq_total"].clip(lower=1e-12).to_numpy(dtype=float),
-                             color=color if hue else _C["navy"], lw=2.2, alpha=0.9,
+                             color=color if hue else _INK["primary"], lw=2.2, alpha=0.9,
                              label=f"{lbl}: total" if hue else "total")
             axes[1].semilogy(x, d["max_abs_resid_massbal"].clip(lower=1e-16).to_numpy(dtype=float),
                              color=color, lw=1.6, marker="o", ms=3, label=lbl)
@@ -1082,7 +1080,7 @@ class SolverDiag:
         axes[0].set_title("Σz² per family — edge defects · sum-row residuals · soft-ratio residuals", loc="left", fontsize=10)
         axes[1].set_ylabel("max |G·a* − c|")
         axes[1].set_title("Max hard mass-balance residual", loc="left", fontsize=10)
-        axes[1].axhspan(1e-9, 1e-7, color=_C["grey"], alpha=0.10)
+        axes[1].axhspan(1e-9, 1e-7, color=_INK["muted"], alpha=0.10)
         axes[2].set_ylabel("share of rows with |z| > 3")
         axes[2].set_title("Share |z| > 3 per family (priced disagreement, not violation)", loc="left", fontsize=10)
         axes[2].set_ylim(0, 1)
@@ -1111,7 +1109,7 @@ class SolverDiag:
             return self._placeholder("SD-R-12: no iteration history persisted for this run")
 
         n = len(hist)
-        ramp = plt.get_cmap("Blues")(np.linspace(0.35, 1.0, n))     # one hue, light → dark
+        ramp = _seq_cmap()(np.linspace(0, 1, n))
         panels = [("res_primal", "primal residual", True), ("res_dual", "dual residual", True),
                   ("gap_abs", "absolute gap", True), ("step_length", "step length", False)]
         fig, axes = plt.subplots(2, 2, figsize=(13, 8.5))
@@ -1158,7 +1156,7 @@ class SolverDiag:
         """SD-R-13: objective share per sector key, one panel per family."""
         import matplotlib.pyplot as plt
 
-        runs = hue if hue else [(self.label or "run", self, _C["blue"])]
+        runs = hue if hue else [(self.label or "run", self, _CAT8[0])]
         host = runs[0][1]
         fig, axes = plt.subplots(1, len(FAMILIES), figsize=(6 * len(FAMILIES), 7.5), squeeze=False)
         axes = axes[0]
@@ -1170,7 +1168,7 @@ class SolverDiag:
             host_fam = host._family(fam, regions)
             host_share = share_by_key(host_fam, top=_TOP_KEYS)
             if host_share is None or host_share.empty:
-                ax.text(0.5, 0.5, "no rows", transform=ax.transAxes, ha="center", va="center", color=_C["grey"])
+                ax.text(0.5, 0.5, "no rows", transform=ax.transAxes, ha="center", va="center", color=_INK["muted"])
                 ax.set_title(FAMILY_LABELS[fam], loc="left", fontsize=10)
                 _apply_modern_style(ax)
                 continue
@@ -1191,7 +1189,7 @@ class SolverDiag:
                 pos = shares > 0
                 xmin = min(xmin, float(shares[pos].min())) if pos.any() else xmin
                 off = (k - (n_runs - 1) / 2) * 0.28 if n_runs > 1 else 0.0
-                ax.hlines(ys[pos] + off, 1e-12, shares[pos], color=_C["grey"], lw=0.8, alpha=0.6)
+                ax.hlines(ys[pos] + off, 1e-12, shares[pos], color=_INK["muted"], lw=0.8, alpha=0.6)
                 self._dot_rank(ax, ys[pos] + off, shares[pos], color, label=lbl if hue else None)
             lo = max(xmin / 3, 1e-6)
             ax.set_xscale("log")
@@ -1205,7 +1203,7 @@ class SolverDiag:
             n_unid = self._n_unidentified(host_fam)
             if n_unid:
                 ax.text(0.0, -0.14, f"{n_unid:,} rows without identity (in totals; keyed by variant)",
-                        transform=ax.transAxes, fontsize=7, color=_C["grey"])
+                        transform=ax.transAxes, fontsize=7, color=_INK["muted"])
             _apply_modern_style(ax)
         if not drew_any:
             plt.close(fig)
@@ -1229,7 +1227,7 @@ class SolverDiag:
             f = self._family(fam, regions)
             r = rank_identities(f, top=_TOP_IDS) if f is not None else None
             if r is None or r.empty:
-                ax.text(0.5, 0.5, "no rows", transform=ax.transAxes, ha="center", va="center", color=_C["grey"])
+                ax.text(0.5, 0.5, "no rows", transform=ax.transAxes, ha="center", va="center", color=_INK["muted"])
                 ax.set_title(FAMILY_LABELS[fam], loc="left", fontsize=10)
                 _apply_modern_style(ax)
                 continue
@@ -1237,12 +1235,12 @@ class SolverDiag:
             ys = np.arange(len(r))[::-1].astype(float)
             x = np.maximum(r["share"].to_numpy(dtype=float), 1e-12)
             lo = max(float(x.min()) / 3, 1e-6)
-            ax.hlines(ys, 1e-12, x, color=_C["grey"], lw=0.8, alpha=0.6)
+            ax.hlines(ys, 1e-12, x, color=_INK["muted"], lw=0.8, alpha=0.6)
             self._dot_rank(ax, ys, x, _FAMILY_COLOR[fam])
             for yi, xi, row in zip(ys, x, r.itertuples(index=False)):
                 ax.text(xi * 1.15, yi,
                         f"{row.sum_abs_delta:,.0f} kt · {row.n_years}y · max|z| {row.z_absmax:.1f} ({row.year_absmax})",
-                        va="center", fontsize=6.5, color=_C["grey"])
+                        va="center", fontsize=6.5, color=_INK["muted"])
             ax.set_xscale("log")
             ax.set_xlim(lo, 1.0)
             ax.set_yticks(ys)
@@ -1254,7 +1252,7 @@ class SolverDiag:
             n_unid = r.attrs.get("n_unidentified", 0)
             if n_unid:
                 ax.text(0.0, -0.10, f"{n_unid:,} rows without identity excluded from the ranking",
-                        transform=ax.transAxes, fontsize=7, color=_C["grey"])
+                        transform=ax.transAxes, fontsize=7, color=_INK["muted"])
             _apply_modern_style(ax)
         if not drew_any:
             plt.close(fig)
@@ -1280,9 +1278,9 @@ class SolverDiag:
         for i, row in enumerate(r.itertuples(index=False)):
             ax = axes.flat[i]
             z = P.loc[row.identity].to_numpy(dtype=float)
-            ax.axhline(0, color=_C["grey"], lw=0.8)
-            ax.axhline(3, color=_C["grey"], lw=0.8, ls="--")
-            ax.axhline(-3, color=_C["grey"], lw=0.8, ls="--")
+            ax.axhline(0, color=_INK["muted"], lw=0.8)
+            ax.axhline(3, color=_INK["muted"], lw=0.8, ls="--")
+            ax.axhline(-3, color=_INK["muted"], lw=0.8, ls="--")
             ax.plot(x, z, color=_FAMILY_COLOR[family], lw=1.6, marker="o", ms=3)
             ax.set_yscale("symlog", linthresh=1.0)
             ax.set_title(f"#{row.rank} {_short(row.label, 38)} · {100 * row.share:.1f} %",
@@ -1322,8 +1320,7 @@ class SolverDiag:
         row a: ``log10 |a_prior(t)|`` vs ``log10 |a*|`` on the year's edges.
         Values are floored at ``_LOG_FLOOR`` before the log so a handful of
         numerical zeros cannot squash the populated decades; colour = ``|z|``
-        (sequential, log scale, clipped to [1e-2, 1e2]); the top identities of
-        the family are labelled where they appear.
+        (sequential, log scale, clipped to [1e-2, 1e2]).
         """
         import matplotlib.pyplot as plt
         from matplotlib.colors import LogNorm
@@ -1341,7 +1338,7 @@ class SolverDiag:
         fig, axes = plt.subplots(2, 3, figsize=(16, 9.5), squeeze=False)
         fig.suptitle(self._title("Rocket: prior vs posterior, colour |z| (SD-T-07)", regions),
                      fontsize=13, fontweight="bold")
-        cmap = plt.get_cmap("YlOrRd")
+        cmap = _seq_cmap()
         norm = LogNorm(vmin=1e-2, vmax=1e2, clip=True)
         worst = ts_triple[1]
 
@@ -1349,18 +1346,16 @@ class SolverDiag:
             if fam is None or fam.empty or xcol not in fam.columns:
                 for col in range(3):
                     axes[r][col].text(0.5, 0.5, f"{name}: no rows", transform=axes[r][col].transAxes,
-                                      ha="center", va="center", color=_C["grey"])
+                                      ha="center", va="center", color=_INK["muted"])
                     _apply_modern_style(axes[r][col])
                 continue
-            top = rank_identities(fam, top=_N_ROCKET_LABELS)
-            top_ids = set(top["identity"].tolist()) if top is not None and not top.empty else set()
             per_year, lo, hi = {}, np.inf, -np.inf
             for t in ts_triple:
                 sub = fam[fam["year"] == str(t)]
                 xs = np.log10(np.maximum(np.abs(sub[xcol].to_numpy(dtype=float)), _LOG_FLOOR))
                 ys = np.log10(np.maximum(np.abs(sub[ycol].to_numpy(dtype=float)), _LOG_FLOOR))
                 zz = np.abs(sub["z"].to_numpy(dtype=float))
-                per_year[t] = (sub, xs, ys, zz)
+                per_year[t] = (xs, ys, zz)
                 if xs.size:
                     lo = min(lo, float(np.nanmin(xs)), float(np.nanmin(ys)))
                     hi = max(hi, float(np.nanmax(xs)), float(np.nanmax(ys)))
@@ -1369,23 +1364,17 @@ class SolverDiag:
             pad = 0.3
             for col, t in enumerate(ts_triple):
                 ax = axes[r][col]
-                sub, xs, ys, zz = per_year[t]
+                xs, ys, zz = per_year[t]
                 ok = np.isfinite(zz)
                 sc = None
                 if ok.any():
                     sc = ax.scatter(xs[ok], ys[ok], c=zz[ok], cmap=cmap, norm=norm,
                                     s=8, alpha=0.65, edgecolors="none")
                 if (~ok).any():   # σ = 0 → z undefined: grey
-                    ax.scatter(xs[~ok], ys[~ok], color=_C["grey"], s=6, alpha=0.4, edgecolors="none")
-                ax.plot([lo - pad, hi + pad], [lo - pad, hi + pad], color=_C["grey"], lw=0.9, ls="--")
+                    ax.scatter(xs[~ok], ys[~ok], color=_INK["muted"], s=6, alpha=0.4, edgecolors="none")
+                ax.plot([lo - pad, hi + pad], [lo - pad, hi + pad], color=_INK["muted"], lw=0.9, ls="--")
                 ax.set_xlim(lo - pad, hi + pad)
                 ax.set_ylim(lo - pad, hi + pad)
-                if top_ids:
-                    m = sub["identity"].isin(top_ids).to_numpy()
-                    for xi, yi, lab in zip(xs[m], ys[m], sub["label"].to_numpy()[m]):
-                        ax.annotate(_short(str(lab).replace("|", "·"), 30), (xi, yi),
-                                    xytext=(3, 3), textcoords="offset points",
-                                    fontsize=6, color=_C["navy"])
                 if sc is not None and col == len(ts_triple) - 1:
                     fig.colorbar(sc, ax=ax, pad=0.02, fraction=0.05, label="|z|")
                 ax.set_xlabel(xlab, fontsize=8)
@@ -1395,7 +1384,7 @@ class SolverDiag:
                     tag = "  · worst Σz²" if (timesteps is None and t == worst and col == 1) else ""
                     ax.set_title(f"{t}{tag}", fontsize=10, fontweight="bold")
                 ax.text(0.02, 0.97, f"{name} · n={int(ok.sum() + (~ok).sum())}",
-                        transform=ax.transAxes, fontsize=8, color=_C["grey"], va="top")
+                        transform=ax.transAxes, fontsize=8, color=_INK["muted"], va="top")
                 _apply_modern_style(ax)
         fig.tight_layout(rect=[0, 0, 1, 0.96])
         return fig

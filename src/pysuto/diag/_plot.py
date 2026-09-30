@@ -31,9 +31,20 @@ _C = {
 # Eight fixed slots in fixed order — a panel never shows more than eight series
 # (the tail folds into "other", drawn grey). Validated colour-blind safe on a
 # light surface (adjacent-pair CVD ΔE ≥ 9, chroma ≥ 0.1) with the dataviz
-# skill's validate_palette.js; `_C` above is for run / status / family roles.
+# skill's validate_palette.js. SolverDiag draws only from this palette (below);
+# `_C` above remains the role palette of the other stage diagnostics.
 _CAT8 = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100",
          "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
+
+# Its fixed status colours (distinct from the categorical slots) and ink.
+_STATUS = {"good": "#0ca30c", "warning": "#fab219", "critical": "#d03b3b"}
+_INK    = {"primary": "#0b0b0b", "muted": "#898781"}
+
+
+def _seq_cmap():
+    """The default colormap for every continuous colour scale: viridis."""
+    import matplotlib.pyplot as plt
+    return plt.get_cmap("viridis")
 
 
 def _savefig(fig, path: str, dpi: int = 150) -> str:

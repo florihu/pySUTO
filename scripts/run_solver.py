@@ -12,7 +12,8 @@ Pipeline
    (prior_mode='warm', the ClarabelSolver default)
 4  Persist OptimResults to data/proc/opt/<opt_run_id>/
 5  Render the SolverDiag portfolio (12 figures + ranking CSVs + provenance)
-   and the per-year edge/constraint CSVs under data/proc/opt/<opt_run_id>/diag/
+   under data/proc/opt/<opt_run_id>/diag/ (per-year edge/constraint CSVs on
+   demand: scripts/solver_stats.py)
 
 Usage::
 
@@ -138,16 +139,12 @@ def main(const_run_id: str, label: str = "", prior_mode: str = "warm") -> None:
     const_run = solver.load_run(const_run_id)
     diag_dir  = os.path.join(OUTPUT_DIR, optim_run_id, "diag")
 
-    # One AccountingStructure for figures and CSVs (loading it is the expensive
-    # step); the diag's stats object owns the all-years frames both read from.
+    # One AccountingStructure for figures and ranking CSVs (loading it is the
+    # expensive step); the diag's stats object owns the all-years frames both read from.
     acc  = AccountingStructure.load(const_run.acc_id)
     diag = SolverDiag(results, const_run, label=label or optim_run_id, acc=acc)
     diag.summary()
     diag.plot(odir=diag_dir)
-
-    # Per-year edge (defect) and constraint (residual) row-level CSVs for every
-    # year, from the same frames the figures were drawn from.
-    diag.stats.write(diag_dir)
 
     _log.info("=== init_run_solver DONE ===")
 
