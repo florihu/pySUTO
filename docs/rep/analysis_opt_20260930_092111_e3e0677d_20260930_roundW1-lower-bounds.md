@@ -127,9 +127,15 @@ outside the non-mining residual edges ✓ (all 909 are such edges).
 
 - Every earlier run — the base, Rounds A–W.3, the manuscript's previous reference chain — carries
   the termination error, so a comparison across this change mixes the model's effect with the
-  solver's. The base constraint set (`const_20260916_123437_8e8e9676`) is re-solved at the new
-  tolerance as `base_retol` for the manuscript's like-for-like comparison; the round REPs stand as
-  comparisons between runs solved alike.
+  solver's. The base constraint set (`const_20260916_123437_8e8e9676`) was therefore re-solved at
+  the new tolerance: `opt_20260930_093914_523d57d7` (label `base_retol`; 27 Solved, 3 AlmostSolved,
+  627 s). The solver alone moves the base's common-set z² from 1,718,085 to 1,533,213 (−10.8 %);
+  W.1 is a further −9.9 % below that (1,380,735), so of the −19.6 % vs the original base roughly
+  half is the termination fix and half the modelling rounds W.2–W.1. On the base alone the
+  tolerance lifts world retention CO Mass 0.779 → 0.861 and Concentrate CC 0.873 → 0.930, Chile's
+  concentrate export retention 0.574 → 0.893, and moves Indonesia's 0.845 → 0.834 — the Indonesia
+  miss of §4 is the solver's, not the bound rows'. The round REPs stand as comparisons between runs
+  solved alike.
 - The QP's weights span 1e-12..1e12 and two years end at the floor (AlmostSolved). Conditioning
   the problem (scaling the variables by σ) is the numerical follow-up; 1e-8 should then converge.
 - Stage 5 (#27): the 586,560 bound rows are hard rows; the active-set fix must drop slack bounds

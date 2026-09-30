@@ -29,6 +29,7 @@ CC, 90.6 % of it forced. Rejected: keeping the bounds probe-only (a negative flo
 result); reading the pinned `l` (would forbid negative no-data stock changes); the old tolerance
 (measured above). Consequences: every earlier run's retention and deletion figures carry the
 termination error, so a comparison across this change mixes the model's effect with the solver's
-(the base is re-solved at the new tolerance for the manuscript); Stage 5's active-set fix (#27)
+(the base re-solved at the new tolerance, `opt_20260930_093914_523d57d7`, sits at −10.8 % on
+the solver alone and W.1 a further −9.9 % below it); Stage 5's active-set fix (#27)
 must drop slack bound rows as well as slack bands; conditioning the QP so that 1e-8 converges is
 the open numerical item.
