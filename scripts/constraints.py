@@ -56,7 +56,7 @@ Constraint types (registered in order)
                                  SCRAP_SHARE_MODE); per (region, P∈{Smelting,CFR})
                                  hard band bl·Σ(CC inputs to P) ≤ Σ(Scrap→P) ≤
                                  bu·Σ(CC inputs to P), agg=true.
-8  Hard flow bounds           — FlowBoundsBuilder (from acc_struct.bounds)
+8  Hard lower bounds          — FlowBoundsBuilder (structural l = 0 → −a ≤ 0, ADR 0039)
 
 ═══════════════════════════════════════════════════════════
 USER CONFIGURATION  ←  only section you ever edit
@@ -70,6 +70,7 @@ import os
 import sys
 
 import numpy as np
+import pandas as pd
 
 # ---------------------------------------------------------------------------
 # USER CONFIGURATION
@@ -101,6 +102,7 @@ from pysuto.registry import ImputationRunRegistry
 from pysuto.input_registry import InputRegistries
 from pysuto.param_relation import expand_edge_index
 from pysuto.flow_node_balance import contradicted_flow_nodes
+from pysuto.constraints.engine import nodata_exempt_mask
 from pysuto.constraints import (
     ConstraintEngine,
     MassBalanceBuilder,
@@ -217,11 +219,18 @@ PRIOR_BOX_K       = None
 # see NODATA_ANCHOR_EXCLUDE and ADR 0013.
 NODATA_ANCHOR_CV  = 0.05
 NODATA_ANCHOR_EXCLUDE = ("CO", "Mining", "Ore", "WR", "Tailings", "Slag", "PSC")
+# Data-aware exemption (ADR 0013 amendment 3, Round W.3). The extraction chain is
+# spared by the anchor only where a relation sets its magnitude: region-years with
+# an ore-grade row (ADR 0015). In countries that mine nothing its noisy zeros get
+# the ordinary sibling-median anchor, so phantom extraction costs z instead of
+# being free. Slag and PSC keep the sector rule. () restores the sector-only rule.
+NODATA_ANCHOR_DATA_AWARE = ("CO", "Mining", "Ore", "WR", "Tailings")
 # Cold sensitivity run (branch sensitivity/no-flat-prior-zeros): hard-pin every
 # genuine no-data ("flat-prior") leaf edge to [0,0] in the flow bounds — "no feed
 # data ⇒ no flow". NOTE: the pin's l/u boxes only constrain the feasibility
-# pre-check probe, NOT the QP (FlowBoundsBuilder is a no-op for G) — the soft
-# NODATA_ANCHOR_CV above is what the solver actually feels. The pin stays on to
+# pre-check probe, NOT the QP (FlowBoundsBuilder enforces only the structural
+# lower bounds, ADR 0039) — the soft NODATA_ANCHOR_CV above is what the solver
+# actually feels. The pin stays on to
 # keep the pre-check strict and document intent. The pin spares structurally-
 # determined edges (extraction chain + all four SEM residual outputs
 # {WR,Tailings,Slag,PSC}); see ADR 0013.
@@ -260,6 +269,24 @@ SCRAP_SHARE_MODE = "hard"
 # same gap seen from the other side). False restores the Round O configuration
 # for an A/B. See section 2b of main().
 SCRAP_LEVEL_ANCHOR = True
+# Mass-balance scope (ADR 0038). The acc-local mask `massbal_scope` (masks.csv)
+# excludes Mining→WR, so waste rock is a satellite mass flow outside the Mining
+# balance — the gap between crude ore and ore can no longer be booked on it.
+# None balances every edge (the pre-ADR-0038 configuration, for an A/B).
+MASSBAL_MASK = "massbal_scope"
+# Enforced lower bounds (ADR 0039, Round W.1). Every edge whose structural lower
+# bound is 0 gets a hard row −a ≤ 0: non-negativity was part of the documented
+# formulation but never reached the QP (bounds lived only in the feasibility
+# probe), and residual mass edges went negative. False = pre-ADR-0039 behaviour.
+ENFORCE_LOWER_BOUNDS = True
+# Stripping ratio as a HARD relation (ADR 0038, Round W.2b). As a soft row the
+# waste-rock edge — copperless, outside every balance — is decided by nothing but
+# two weak terms, and the interior-point stopping rule never pins it down: W.2a
+# (opt_20260929_111551_21703f80) ended at WR/Ore 1.04 instead of 2.0, and still
+# 1.03 when 2019 was re-solved at a 1e-6 gap. A zero-cone row enforces
+# WR = k·Ore to feasibility tolerance; the imputer leaves WR to the flat prior so
+# the relation, not a second copy of the ore prior, sets it. False = soft (W.2a).
+STRIPPING_RATIO_HARD = True
 
 _log = get_logger("init_copper_constraints")
 
@@ -299,6 +326,20 @@ def main(imp_run_id: str, label: str) -> None:
             f"{acc_entry['id']} v{acc_entry['version']}."
         )
 
+    # ADR 0013 amendment 3: spare the extraction chain only in region-years with an
+    # ore-grade row (the copper case's "a relation sets this magnitude").
+    anchor_exempt, n_grade_ry = None, 0
+    if NODATA_ANCHOR_DATA_AWARE:
+        _og = pd.read_csv(inputs.params.resolve("ore_grade") / "params.csv",
+                          sep=None, engine="python", dtype=str)
+        _co = _og[_og["param_id"].str.startswith("oregradecosupply")]
+        _grade_ry = set(zip(_co["a_region_from"], _co["a_time"].astype(str)))
+        n_grade_ry = len(_grade_ry)
+        anchor_exempt = nodata_exempt_mask(acc, NODATA_ANCHOR_EXCLUDE,
+                                           NODATA_ANCHOR_DATA_AWARE, _grade_ry)
+        _log.info("No-data anchor: extraction chain spared in %d ore-grade region-years; "
+                  "%d edges spared in total", n_grade_ry, int(anchor_exempt.sum()))
+
     # ── B. Assemble constraint engine ─────────────────────────────────────
     engine = ConstraintEngine(
         acc_struct        = acc,
@@ -311,12 +352,13 @@ def main(imp_run_id: str, label: str) -> None:
         prior_box_k       = PRIOR_BOX_K,
         nodata_anchor_cv  = NODATA_ANCHOR_CV,
         nodata_anchor_exclude_sectors = NODATA_ANCHOR_EXCLUDE,
+        nodata_anchor_exempt_mask     = anchor_exempt,
         pin_flat_prior_zeros = PIN_FLAT_PRIOR_ZEROS,
     )
 
     # 1. Hard mass balance
     _log.info("Registering MassBalanceBuilder")
-    engine.register(MassBalanceBuilder())
+    engine.register(MassBalanceBuilder(mask=MASSBAL_MASK))
 
     # 2. Soft sum — supply/use total-output SCALE TOTALS (self-referential).
     #    Pin every process's and every flow's total-output scale to the model's
@@ -485,6 +527,12 @@ def main(imp_run_id: str, label: str) -> None:
     _register_builder(RatioConstraintBuilder, "eff",
                       sigma_rel_floor=RATIO_SIGMA_REL_FLOOR,
                       scale_abs_floor=RATIO_SCALE_ABS_FLOOR)
+    # 4a. Stripping ratio WR_Mass = k·Ore_Mass (ADR 0038): the only statement about
+    #     the waste-rock satellite, hard by default (STRIPPING_RATIO_HARD)
+    _register_builder(RatioConstraintBuilder, "stripping_ratio",
+                      sigma_rel_floor=RATIO_SIGMA_REL_FLOOR,
+                      scale_abs_floor=RATIO_SCALE_ABS_FLOOR,
+                      hard=STRIPPING_RATIO_HARD)
     # 3b. Soft ratio — region×year in-situ ore grades (CO/Ore edges; ADR 0015 —
     #     these replace the conc family's retired global CO/Ore rows)
     _register_builder(RatioConstraintBuilder, "ore_grade",
@@ -511,9 +559,9 @@ def main(imp_run_id: str, label: str) -> None:
                           sigma_rel_floor=RATIO_SIGMA_REL_FLOOR,
                           scale_abs_floor=RATIO_SCALE_ABS_FLOOR)
 
-    # 8. Hard flow bounds from acc_struct
-    _log.info("Registering FlowBoundsBuilder")
-    engine.register(FlowBoundsBuilder())
+    # 8. Hard lower bounds from acc_struct (ADR 0039)
+    _log.info("Registering FlowBoundsBuilder (enforce_lower=%s)", ENFORCE_LOWER_BOUNDS)
+    engine.register(FlowBoundsBuilder(enforce_lower=ENFORCE_LOWER_BOUNDS))
 
     # ── C. Run and persist ────────────────────────────────────────────────
     _log.info("Running ConstraintEngine over %d timesteps", len(acc.time_range))
@@ -539,6 +587,8 @@ def main(imp_run_id: str, label: str) -> None:
             "prior_box_k":       PRIOR_BOX_K,
             "nodata_anchor_cv":  NODATA_ANCHOR_CV,
             "nodata_anchor_exclude": list(NODATA_ANCHOR_EXCLUDE),
+            "nodata_anchor_data_aware": list(NODATA_ANCHOR_DATA_AWARE),
+            "nodata_anchor_grade_region_years": n_grade_ry,
             "pin_flat_prior_zeros": PIN_FLAT_PRIOR_ZEROS,
             "ratio_sigma_rel_floor": RATIO_SIGMA_REL_FLOOR,
             "ratio_scale_abs_floor": RATIO_SCALE_ABS_FLOOR,
@@ -548,6 +598,9 @@ def main(imp_run_id: str, label: str) -> None:
             "stock_bounds_mode": STOCK_BOUNDS_MODE,
             "scrap_share_mode":  SCRAP_SHARE_MODE,
             "scrap_level_anchor": SCRAP_LEVEL_ANCHOR,
+            "massbal_mask":      MASSBAL_MASK,
+            "enforce_lower_bounds": ENFORCE_LOWER_BOUNDS,
+            "stripping_ratio_hard": STRIPPING_RATIO_HARD,
         },
     )
 

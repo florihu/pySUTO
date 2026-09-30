@@ -25,6 +25,19 @@ feasibility-pre-check strictness (it is inert in the QP — see amendment 1 belo
    CONTEXT.md §"System-boundary category" for the residual-output vs
    secondary-input distinction.
 
+**Amended 2026-09-29 (Round W.3, issue #28):**
+3. **The extraction carve-out is data-aware.** `{CO, Mining, Ore, WR, Tailings}` are
+   spared only in region-years with an ore-grade row (887 in ore_grade v7) — where
+   ADR 0015's relation actually sets their magnitude. Elsewhere, in countries that
+   mine nothing, their no-data edges get the ordinary sibling-median anchor (5,884
+   more edges); before, the free chain acted as signed slack (817 Mass edges > 1 kt
+   below zero → 149). Slag and PSC keep the sector rule. Knob
+   `NODATA_ANCHOR_DATA_AWARE` in `scripts/constraints.py`; mask from
+   `nodata_exempt_mask` in `src/pysuto/constraints/engine.py`. The anchor does not
+   stop phantom concentrate that smelter demand pulls (Japan, Korea) — that is a
+   data contradiction, not free slack. Evidence: `opt_20260929_121937_e5f000b5`
+   (REP [`…roundW3-anchor-mining-regions`](../rep/analysis_opt_20260929_121937_e5f000b5_20260929_roundW3-anchor-mining-regions.md)).
+
 ## Context
 
 ~83 % of root edges have **no feed coverage** and are filled by

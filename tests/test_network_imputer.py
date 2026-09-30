@@ -10,7 +10,7 @@ A small synthetic copper chain (one region, one year) exercises:
   * backward multi-input subtraction (pooled Scrap)
   * the Ore branch split resolved from the SXEW anchor (+ negative residual: clipped
     to the edge bound, σ-widened, and not propagated downstream)
-  * the Mining WR Mass close (WR = max(0, CO − Ore) residual; copperless; clipped)
+  * the Mining WR Mass edge is left unfilled (satellite, fixed in Stage 3; ADR 0038)
   * determinacy / no-overwrite
   * CP pooling (eff = 1)
   * conc-by-construction: written CC/Mass twins satisfy CC = conc·Mass
@@ -376,43 +376,15 @@ def test_negative_balance_clipped_not_propagated(imputer, acc):
     assert f[acc.eid("CP", "Cathode", "CC")] == pytest.approx(70.0)
 
 
-def test_mining_wr_residual_close(imputer, acc):
-    # WR_Mass = max(0, CO_Mass − Ore_Mass): Ore stays grade-anchored, WR is the clipped
-    # input−output residual that closes the Mining Mass balance in the seed (ASSUMPTIONS.md).
-    # CO grade (ore_grade 0.005) < Ore grade (conc 0.009) ⇒ CO_Mass > Ore_Mass ⇒ WR > 0.
-    f, sigma = _run(imputer, acc, {("CO", "Mining", "CC"): 100.0})
-    assert f[acc.eid("Mining", "Ore", "CC")] == pytest.approx(100.0)   # eff=1, CC conserved
-    assert f[acc.eid("Mining", "WR", "CC")] == pytest.approx(0.0)      # WR copperless
-    co_mass  = f[acc.eid("CO", "Mining", "Mass")]
-    ore_mass = f[acc.eid("Mining", "Ore", "Mass")]
-    wr_mass  = f[acc.eid("Mining", "WR", "Mass")]
-    assert co_mass  == pytest.approx(100.0 / ORE_GRADE_A)  # CO Mass twin (ore_grade 0.005)
-    assert ore_mass == pytest.approx(100.0 / 0.009)        # Ore grade-anchored (conc_ore)
-    assert wr_mass  == pytest.approx(co_mass - ore_mass)   # residual
-    assert ore_mass + wr_mass == pytest.approx(co_mass)    # Mining Mass balance closes
-
-
-def test_mining_wr_clips_on_negative_delta(tmp_path, acc):
-    """When grade-implied Ore_Mass > crude_ore CO_Mass (CO grade > Ore grade), the WR
-    residual is negative and clips to 0 — the crude_ore-vs-grade data conflict."""
-    eff = tmp_path / "eff.csv"; conc = tmp_path / "conc.csv"; og = tmp_path / "og.csv"
-    write_eff_csv(eff)
-    write_conc_csv(conc)
-    # CO grade 0.02 > Ore conc 0.009 ⇒ CO_Mass (5,000) < Ore_Mass (11,111) ⇒ WR < 0 → clip 0
-    _write(og, [_row(
-        param_id="ore_grade_A_2020",
-        a_sector_from="CO", a_entity_from="SB", a_region_from="A",
-        a_time="2020", a_valuation="Mass",
-        b_sector_from="same", b_entity_from="same", b_region_from="same",
-        b_sector_to="same", b_entity_to="same", b_region_to="same",
-        b_time="same", b_valuation="CC", value_nominal="0.02",
-    )])
-    imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=float("inf"))
-    imp.prepare(acc)
-    f, _ = _run(imp, acc, {("CO", "Mining", "CC"): 100.0})
-    assert f[acc.eid("CO", "Mining", "Mass")]  == pytest.approx(100.0 / 0.02)   # 5,000
-    assert f[acc.eid("Mining", "Ore", "Mass")] == pytest.approx(100.0 / 0.009)  # 11,111 > CO
-    assert f[acc.eid("Mining", "WR", "Mass")]  == pytest.approx(0.0)            # clipped to 0
+def test_mining_leaves_waste_rock_to_the_flat_prior(imputer, acc):
+    """WR is a satellite mass flow fixed in Stage 3 by the hard stripping relation
+    (ADR 0038): the imputer closes the Mining CC recipe (WR CC = 0) but never
+    writes WR Mass — neither as CO − Ore nor as k·Ore."""
+    f, _ = _run(imputer, acc, {("CO", "Mining", "CC"): 100.0})
+    assert f[acc.eid("Mining", "Ore", "Mass")] == pytest.approx(100.0 / 0.009)
+    assert f[acc.eid("CO", "Mining", "Mass")] == pytest.approx(100.0 / ORE_GRADE_A)
+    assert f[acc.eid("Mining", "WR", "CC")] == pytest.approx(0.0)      # copperless
+    assert np.isnan(f[acc.eid("Mining", "WR", "Mass")])
 
 
 def test_cp_pool_eff_one(imputer, acc):

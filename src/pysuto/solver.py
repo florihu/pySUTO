@@ -15,7 +15,8 @@ Cone layout (correcting README §665-667):
   ε is a free decision variable inside ``x``; the residual itself is
   exact equality).
 * ``ZeroConeT(n_zero)`` — hard mass-balance equalities.
-* ``NonnegativeConeT(n_nonneg)`` — hard ratio bounds and flow bounds.
+* ``NonnegativeConeT(n_nonneg)`` — hard ratio bounds and flow lower bounds
+  (ADR 0039; upper bounds and the zero pin reach only the feasibility pre-check).
 
 Public API
 ----------

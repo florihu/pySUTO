@@ -1,0 +1,3 @@
+mask_name,logic,sector_from,sector_to,description
+massbal_scope,include,*,*,every edge enters the node mass balances
+massbal_scope,exclude,Mining,WR,waste rock is a satellite mass flow outside the Mining balance (ADR 0038)

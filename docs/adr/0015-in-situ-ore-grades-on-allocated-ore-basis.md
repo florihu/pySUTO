@@ -1,6 +1,12 @@
 # Ore grades are in-situ, on the price-allocated ore basis, region×year-resolved
 
 **Status:** accepted.
+Amended 2026-09-29 by [ADR 0038](0038-waste-rock-is-a-satellite-mass-flow.md): the Consequences'
+"under the allocated basis there is no separate waste-rock mass" is withdrawn. The crude-ore feed
+measures ore (used extraction), so CO = Ore in mass is a property of the data, not a statement
+that waste rock weighs nothing; waste rock is a calculated satellite mass flow (`WR = k·Ore`)
+outside the Mining balance, and the stripping-ratio row this ADR called "inert" was priced in
+every run (Mexico 2019, z = −3.3 on `opt_20260922_121256_d4394c0a`).
 Amended 2026-09-16 by [ADR 0028](0028-grade-sigma-is-stated-not-derived-from-the-band.md):
 the grade rows' σ is now **stated** (`unc_type="sd"`) rather than derived from the band, so the
 band's two jobs can move independently. The band values below are unchanged — a **year-local**

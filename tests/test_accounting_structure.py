@@ -1435,5 +1435,45 @@ class TestCrossRegionMask:
         assert (~acc.masks["cross_region"]).any()
 
 
+
+# =============================================================================
+# USER MASKS SURVIVE SAVE → LOAD (ADR 0038)
+# =============================================================================
+
+def _write_masks(path):
+    path.write_text("mask_name,logic,sector_from,sector_to\n"
+                    "scope,include,*,*\n"
+                    "scope,exclude,Mining,Ore\n")
+
+
+def test_user_masks_survive_save_and_load(root_simple, tmp_path):
+    """masks.csv is read only when the structure is built; load() must restore
+    the masks from the saved structure, else the Stage-3 mass-balance scope
+    silently vanishes."""
+    csv = tmp_path / "masks.csv"
+    _write_masks(csv)
+    store = str(tmp_path / "proc")
+    acc = AccountingStructure(id="t", root=root_simple, masks_file_path=str(csv),
+                              storage_dir=store)
+    assert acc.user_mask_names == ["scope"]
+    assert (~acc.masks["scope"]).any()
+    acc.save()
+    loaded = AccountingStructure.load("t", storage_dir=store)
+    assert loaded.user_mask_names == ["scope"]
+    np.testing.assert_array_equal(loaded.masks["scope"], acc.masks["scope"])
+
+
+def test_save_without_user_masks_drops_the_stale_file(root_simple, tmp_path):
+    csv = tmp_path / "masks.csv"
+    _write_masks(csv)
+    store = str(tmp_path / "proc")
+    AccountingStructure(id="t", root=root_simple, masks_file_path=str(csv),
+                        storage_dir=store).save()
+    AccountingStructure(id="t", root=root_simple, storage_dir=store).save()
+    loaded = AccountingStructure.load("t", storage_dir=store)
+    assert "scope" not in loaded.masks
+    assert loaded.user_mask_names == []
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

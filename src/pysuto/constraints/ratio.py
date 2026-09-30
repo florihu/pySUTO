@@ -146,7 +146,8 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
 
     def __init__(self, pairs: list[dict],
                  sigma_rel_floor: float = 0.02,
-                 scale_abs_floor: float = 1.0):
+                 scale_abs_floor: float = 1.0,
+                 hard: bool = False):
         """
         pairs : list of dicts with keys:
             constraint_id, edge_i, edge_j, r, sigma_c   (sigma_c = relative σ_r)
@@ -154,8 +155,12 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
             ratio violation).
         scale_abs_floor : lower bound on the flow-space scale (tonnage), so
             both-zero-prior pairs keep a finite σ_c.
+        hard : emit zero-cone equalities (``σ_c = 0``) instead of soft rows — for a
+            relation that defines an edge nothing else observes (the stripping
+            ratio of the waste-rock satellite, ADR 0038).
         """
         self._pairs = pairs
+        self._hard = bool(hard)
         self._sigma_rel_floor = float(sigma_rel_floor)
         self._scale_abs_floor = float(scale_abs_floor)
 
@@ -167,6 +172,7 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
         mask: str | None = None,
         sigma_rel_floor: float = 0.02,
         scale_abs_floor: float = 1.0,
+        hard: bool = False,
     ) -> "RatioConstraintBuilder":
         """
         Load from params CSV (same schema as ParametricImputer.from_csv).
@@ -277,7 +283,8 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
                 })
 
         _log.info("RatioConstraintBuilder: %d pairs from %s", len(pairs), os.path.basename(path))
-        return cls(pairs, sigma_rel_floor=sigma_rel_floor, scale_abs_floor=scale_abs_floor)
+        return cls(pairs, sigma_rel_floor=sigma_rel_floor, scale_abs_floor=scale_abs_floor,
+                   hard=hard)
 
     @property
     def source_paths(self) -> list[str]:
@@ -316,8 +323,8 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
                 "constraint_id": p["constraint_id"],
                 "type":          TYPE_RATIO,
                 "variant":       p["variant"],
-                "is_hard":       False,
-                "cone_type":     "free",
+                "is_hard":       self._hard,
+                "cone_type":     "zero" if self._hard else "free",
                 "time":          p["time"],
                 "valuation":     valuation,
                 **struct,
@@ -329,7 +336,8 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
         block = ConstraintBlock(
             G_rows   = G,
             c        = np.zeros(M),
-            sigma_c  = np.array([p["sigma_c"] for p in self._pairs]),
+            sigma_c  = (np.zeros(M) if self._hard
+                        else np.array([p["sigma_c"] for p in self._pairs])),
             row_meta = pd.DataFrame(meta_list),
         )
         self._cached_static = block
@@ -368,6 +376,10 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
         static = getattr(self, "_cached_static", None) or self.build_static(acc_struct)
         if static.G_rows.shape[0] == 0:
             return _empty_block(acc_struct.n_edges)
+        if self._hard:
+            # Equalities hold in every year's solve they appear in (their edges are
+            # year-local), like the mass balances: no σ scaling, no deactivation.
+            return static
 
         rn, cn, rd, cd, rabs, den_mode = self._scale_index()
         M = static.G_rows.shape[0]

@@ -1,5 +1,9 @@
 # Pool Scrap into the eff constraint; store the stripping ratio as a process I/O ratio
 
+*Amended 2026-09-29 by [ADR 0038](0038-waste-rock-is-a-satellite-mass-flow.md): the stripping
+ratio moved out of the eff file into its own params family `stripping_ratio`; the imputer uses it
+again (`WR_Mass = k·Ore_Mass`), and waste rock sits outside the Mining mass balance.*
+
 Two efficiency-parameter inconsistencies surfaced by the [`NetworkImputer`](0004-process-recipe-traversal-imputer.md):
 
 1. **Pooled inputs were not reflected in the `eff` *constraint*.** Smelting and CFR pool `Scrap`
