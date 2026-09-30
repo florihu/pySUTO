@@ -499,7 +499,7 @@ Five built-in constraint types populate rows of `G`:
 | 2 | Soft sum | $\sum_i \alpha_i a_i = c_k + \varepsilon_k$ | Free | user-specified |
 | 3 | Soft ratio | $a_i - r \cdot a_j = \varepsilon_k$ | Free | from params CSV |
 | 4 | Hard ratio bound | $a_i - r_u a_j \le 0$, $-a_i + r_l a_j \le 0$ | Non-neg | 0 |
-| 5 | Hard flow bound | $a_i \le u_i$, $-a_i \le -l_i$ | Non-neg | 0 |
+| 5 | Hard lower bound | $-a_i \le -l_i$ for every edge with structural $l_i = 0$ | Non-neg | 0 |
 
 **Type 1 (mass balance).** One row per balanced `(Flow|Process)` node × time pair, with `SB` (open-boundary) nodes excluded. Derived automatically from the four boolean edge masks on `AccountingStructure`.
 
@@ -529,9 +529,9 @@ Defaults: $\mathrm{CV}_a^\mathrm{min} = \mathrm{CV}_c^\mathrm{min} = 0.05$, $\si
 - **`SumConstraintBuilder`** — type 2; `.from_acc_struct(acc, sigma_fraction=…)` for auto-derived or `.from_csv(...)` for hand-written rows.
 - **`RatioConstraintBuilder`** — type 3 (`.from_csv(...)`).
 - **`RatioBoundBuilder`** — type 4 (`.from_csv(...)`).
-- **`FlowBoundsBuilder`** — type 5 (only edges with non-default bounds produce rows).
+- **`FlowBoundsBuilder`** — type 5: one row `−a_i ≤ 0` per edge whose structural lower bound `acc.bounds.l` is 0 — every edge but the signed stock edges ([ADR 0039](docs/adr/0039-flow-lower-bounds-are-enforced-in-the-qp.md)). Upper bounds and the Stage-3 zero pin produce no rows; they stay on `ConstraintRun.u/.l` for the feasibility pre-check.
 - **`ConstraintBlock`** — internal container for one builder's rows.
-- **`ConstraintRun`** — bundle of `G`, `row_meta`, `a0`, `sigma_a`, `u`, `l`, `timestep_data[t] = {"c", "sigma_c"}`. `row_meta` carries a uniform column set across all builders (`pysuto.constraints.naming.ROW_META_COLS`): `[constraint_id, type, variant, is_hard, cone_type, time, valuation, sector, region, entity, entity_sub, ratio_kind, bound_dir, num_*/denom_* (ratio numerator/denominator decode)]`. Every `constraint_id` follows the grammar **`{type}_{variant}_{specs}_{year}`** where `type ∈ {massbal, sum, ratio}` and `variant` is the role within the family (`usefulsupply`/`subentity`/`supplytotout`/`usetotout`/`smelterscrap`/`directrefscrap`/csv-label for sum, `ratioeq`/`bound` for ratio, or a user `param_id`). The id is a unique **display key — never parse it; read the columns** (see [CONTEXT.md](CONTEXT.md) §"Constraint identity"). The `time` column is the year the row belongs to (the final id token; set at spec construction by each builder) or `None` for time-agnostic rows (e.g. wildcard CSV constraints), whose id ends in `_na`. When every row's non-zeros lie inside its own time bucket (the **no cross-time coupling** invariant), the engine also stores a per-t partition `G_blocks[t]` / `edge_cols_by_t[t]` (persisted under `blocks/`); Stage 4's block solver consumes it to solve one ~30× smaller QP per year.
+- **`ConstraintRun`** — bundle of `G`, `row_meta`, `a0`, `sigma_a`, `u`, `l`, `timestep_data[t] = {"c", "sigma_c"}`. `row_meta` carries a uniform column set across all builders (`pysuto.constraints.naming.ROW_META_COLS`): `[constraint_id, type, variant, is_hard, cone_type, time, valuation, sector, region, entity, entity_sub, ratio_kind, bound_dir, num_*/denom_* (ratio numerator/denominator decode)]`. Every `constraint_id` follows the grammar **`{type}_{variant}_{specs}_{year}`** where `type ∈ {massbal, sum, ratio, bound}` and `variant` is the role within the family (`usefulsupply`/`subentity`/`supplytotout`/`usetotout`/`smelterscrap`/`directrefscrap`/csv-label for sum, `ratioeq`/`bound` for ratio, `lower` for bound, or a user `param_id`). The id is a unique **display key — never parse it; read the columns** (see [CONTEXT.md](CONTEXT.md) §"Constraint identity"). The `time` column is the year the row belongs to (the final id token; set at spec construction by each builder) or `None` for time-agnostic rows (e.g. wildcard CSV constraints), whose id ends in `_na`. When every row's non-zeros lie inside its own time bucket (the **no cross-time coupling** invariant), the engine also stores a per-t partition `G_blocks[t]` / `edge_cols_by_t[t]` (persisted under `blocks/`); Stage 4's block solver consumes it to solve one ~30× smaller QP per year.
 - **`ConstraintRunRegistry`** — disk layout under `data/proc/const/{run_id}/` (G.npz, row_meta.parquet, a0.npy, sigma_a.npy, u.npy, l.npy, `timesteps/t_{year}.npz`).
 
 #### Key parameters
@@ -583,7 +583,7 @@ A `ConstDiagnostic` plot suite (in [diag/](src/pysuto/diag/)) can be triggered v
 
 $$\min_{\mathbf{a},\,\boldsymbol{\varepsilon}} \quad (\mathbf{a} - \mathbf{a}_0(t))^\top \Sigma_a^{-1} (\mathbf{a} - \mathbf{a}_0(t)) \;+\; \boldsymbol{\varepsilon}^\top \Sigma_c(t)^{-1} \boldsymbol{\varepsilon}$$
 
-$$\text{s.t.} \quad \mathbf{G}\,\mathbf{a} - \boldsymbol{\varepsilon} = \mathbf{c}(t), \qquad \mathbf{l} \leq \mathbf{a} \leq \mathbf{u}$$
+$$\text{s.t.} \quad \mathbf{G}\,\mathbf{a} - \boldsymbol{\varepsilon} = \mathbf{c}(t), \qquad a_i \geq 0 \;\; \forall i \in \mathcal{L}$$
 
 | Symbol | Meaning |
 |---|---|
@@ -594,7 +594,7 @@ $$\text{s.t.} \quad \mathbf{G}\,\mathbf{a} - \boldsymbol{\varepsilon} = \mathbf{
 | $\Sigma_c(t)$ | Diagonal of σ_c²(t) on free rows; **may vary per timestep** (e.g. `SumConstraintBuilder` per-year row activation via `SIGMA_C_INACTIVE`; `fraction_of_flow` mode) |
 | $\mathbf{G}$ | Constraint matrix from Stage 3 (time-invariant) |
 | $\mathbf{c}(t)$ | Per-timestep RHS from `timestep_data[t]["c"]` |
-| $\mathbf{l}, \mathbf{u}$ | Per-edge bounds from `AccountingStructure` |
+| $\mathcal{L}$ | Edges whose structural lower bound `acc.bounds.l` is 0 — all but the signed stock edges; enforced as Type-5 rows of $\mathbf{G}$ ([ADR 0039](docs/adr/0039-flow-lower-bounds-are-enforced-in-the-qp.md)). The upper bounds $\mathbf{u}$ and the zero pin reach only the feasibility pre-check |
 
 ##### Clarabel standard form
 

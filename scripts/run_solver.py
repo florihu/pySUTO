@@ -46,6 +46,24 @@ FEASIBILITY_CHECK_FIRST_ONLY = True
 # MaxIterations reported as infeasible). max_iter is a CAP, so easy runs still stop
 # early; raising it only helps the hard pinned scan. 2000 solves 1995 feasibility.
 MAX_ITER = 2000
+# Clarabel termination tolerances (measured in Round W.1, ADR 0039). The former
+# production setting (gap_rel 1e-3 / feas 1e-7, reduced 1e-2 / 1e-5) stopped every
+# run while the cost was still falling by thousands per iteration: re-solving 2015
+# of const_20260929_120611_6ef43f64 at gap_rel 1e-8 lowered the objective by 9,052
+# (8 % of that year's misfit) and lifted Chile's concentrate-export retention from
+# 0.66 to 0.97. The reported gap (~800) bounds nothing: |objective| is dominated by
+# the constant Σ(a0/σ)² (1.17e6 vs a misfit of 1.13e5 in 2015), and the dual cost
+# at the stop sits above the true optimum. With the lower-bound rows the same stop
+# left W.1 48,800 short of its optimum. These tolerances run each year to its
+# numerical floor (InsufficientProgress after ~150–250 iterations, ≈ 30–60 s/year)
+# and accept that floor as AlmostSolved through the reduced tolerances (gap_rel
+# 1e-5 is not reached there, 1e-4 is).
+TOL_FEAS            = 1e-8
+TOL_GAP_REL         = 1e-6
+TOL_GAP_ABS         = 1e-2
+REDUCED_TOL_FEAS    = 1e-6
+REDUCED_TOL_GAP_REL = 1e-4
+REDUCED_TOL_GAP_ABS = 10.0
 
 
 # ---------------------------------------------------------------------------
@@ -70,17 +88,12 @@ def main(const_run_id: str, label: str = "", prior_mode: str = "warm") -> None:
 
     _log.info("=== init_run_solver START ===")
     _log.info("Loading ClarabelSolver (const_dir=%s)", CONST_DIR)
-    # Termination tolerances for the scaled-σ_c QP: the iterate hits the
-    # floating-point floor (μ ~1e-15) with rel gap 1e-4–5e-3 and dual residual
-    # ~1e-8–7e-7 — just above the 1e-8 defaults — and Clarabel then reports
-    # InsufficientProgress. Main tols 1e-7/1e-3 catch most years; the reduced
-    # tols accept a floored iterate as AlmostSolved (rel gap ≤1 %, feas ≤1e-5)
-    # — still orders of magnitude below any z-interpretation threshold.
-    solver = ClarabelSolver(const_dir=CONST_DIR, tol_feas=1e-7,
-                            tol_gap_rel=1e-3, tol_gap_abs=1e-1,
-                            reduced_tol_feas=1e-5,
-                            reduced_tol_gap_rel=1e-2,
-                            reduced_tol_gap_abs=1e2,
+    # Termination tolerances: see the USER CONFIGURATION block (Round W.1).
+    solver = ClarabelSolver(const_dir=CONST_DIR, tol_feas=TOL_FEAS,
+                            tol_gap_rel=TOL_GAP_REL, tol_gap_abs=TOL_GAP_ABS,
+                            reduced_tol_feas=REDUCED_TOL_FEAS,
+                            reduced_tol_gap_rel=REDUCED_TOL_GAP_REL,
+                            reduced_tol_gap_abs=REDUCED_TOL_GAP_ABS,
                             max_iter=MAX_ITER,
                             prior_mode=prior_mode,)
 
@@ -97,6 +110,17 @@ def main(const_run_id: str, label: str = "", prior_mode: str = "warm") -> None:
         output_dir   = OUTPUT_DIR,
         const_run_id = const_run_id,
         label        = label,
+        stage_config = {
+            "prior_mode":                   solver.prior_mode,
+            "max_iter":                     MAX_ITER,
+            "tol_feas":                     TOL_FEAS,
+            "tol_gap_rel":                  TOL_GAP_REL,
+            "tol_gap_abs":                  TOL_GAP_ABS,
+            "reduced_tol_feas":             REDUCED_TOL_FEAS,
+            "reduced_tol_gap_rel":          REDUCED_TOL_GAP_REL,
+            "reduced_tol_gap_abs":          REDUCED_TOL_GAP_ABS,
+            "feasibility_check_first_only": FEASIBILITY_CHECK_FIRST_ONLY,
+        },
     )
 
     total_iter   = sum(r.iterations   for r in results.values())
