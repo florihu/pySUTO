@@ -1,0 +1,334 @@
+<title>Copper Metabolism 1995–2024</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Newsreader:opsz,wght@6..72,400;6..72,500;6..72,600&family=Source+Sans+3:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* layout: one reading column (max 1040px) of five chapters; each figure is a bordered surface
+   with caption row, chart, note and a collapsible data table; the Sankey and the trade figures
+   share one year switch. */
+:root{
+  color-scheme:light;
+  --bg:#f5f4f0; --surface:#fcfcfb; --ink:#161614; --ink2:#4f4e4a; --muted:#86847e;
+  --grid:#e3e2dc; --axis:#c5c4bd; --border:rgba(22,22,20,.12); --wash:rgba(22,22,20,.045);
+  --c-china:#2a78d6; --c-eu:#eb6834; --c-us:#1baf7a; --c-rest:#b3b2a9;
+  --c-4:#eda100; --c-ref:#4a3aa7; --c-chile:#eda100; --c-peru:#e87ba4;
+  --r1:#6da7ec; --r2:#3987e5; --r3:#256abf; --r4:#184f95; --r5:#0d366b;
+  --k-ore:#6da7ec; --k-conc:#2a78d6; --k-matte:#e87ba4; --k-anode:#eda100; --k-ref:#184f95;
+  --k-cath:#4a3aa7; --k-scrap:#eb6834; --k-loss:#b3b2a9; --k-slag:#86847e; --k-stock:#c98500;
+  --k-use:#1baf7a;
+  --warn-bg:#fbf3e4; --warn-line:#c98500;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#121211; --surface:#1a1a19; --ink:#f2f1ec; --ink2:#c3c2b7; --muted:#8e8d87;
+    --grid:#2c2c2a; --axis:#3a3a37; --border:rgba(255,255,255,.12); --wash:rgba(255,255,255,.06);
+    --c-china:#3987e5; --c-eu:#d95926; --c-us:#199e70; --c-rest:#6b6a66;
+    --c-4:#c98500; --c-ref:#9085e9; --c-chile:#c98500; --c-peru:#d55181;
+    --r1:#0d366b; --r2:#1c5cab; --r3:#3987e5; --r4:#6da7ec; --r5:#9ec5f4;
+    --k-ore:#9ec5f4; --k-conc:#3987e5; --k-matte:#d55181; --k-anode:#c98500; --k-ref:#6da7ec;
+    --k-cath:#9085e9; --k-scrap:#d95926; --k-loss:#6b6a66; --k-slag:#8e8d87; --k-stock:#eda100;
+    --k-use:#199e70;
+    --warn-bg:#2a2416; --warn-line:#c98500;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#121211; --surface:#1a1a19; --ink:#f2f1ec; --ink2:#c3c2b7; --muted:#8e8d87;
+  --grid:#2c2c2a; --axis:#3a3a37; --border:rgba(255,255,255,.12); --wash:rgba(255,255,255,.06);
+  --c-china:#3987e5; --c-eu:#d95926; --c-us:#199e70; --c-rest:#6b6a66;
+  --c-4:#c98500; --c-ref:#9085e9; --c-chile:#c98500; --c-peru:#d55181;
+  --r1:#0d366b; --r2:#1c5cab; --r3:#3987e5; --r4:#6da7ec; --r5:#9ec5f4;
+  --k-ore:#9ec5f4; --k-conc:#3987e5; --k-matte:#d55181; --k-anode:#c98500; --k-ref:#6da7ec;
+  --k-cath:#9085e9; --k-scrap:#d95926; --k-loss:#6b6a66; --k-slag:#8e8d87; --k-stock:#eda100;
+  --k-use:#199e70;
+  --warn-bg:#2a2416; --warn-line:#c98500;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Source Sans 3",system-ui,-apple-system,"Segoe UI",sans-serif;padding:0 20px;padding-block:0 64px}
+.wrap{max-width:1040px;margin:0 auto}
+h1,h2,h3,.lede,.insight{font-family:"Newsreader",Georgia,"Times New Roman",serif;text-wrap:balance}
+h1{font-size:clamp(34px,5vw,52px);font-weight:500;line-height:1.05;margin:0 0 14px;letter-spacing:-.01em}
+h2{font-size:clamp(26px,3.4vw,34px);font-weight:500;line-height:1.15;margin:0 0 6px}
+h3{font-size:20px;font-weight:600;margin:0 0 4px}
+.lede{font-size:21px;font-weight:400;color:var(--ink2);margin:0 0 20px;line-height:1.4}
+.eyebrow{font-family:"IBM Plex Mono",ui-monospace,Menlo,monospace;font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 10px}
+header{padding-block:48px 28px;border-bottom:1px solid var(--border);margin-bottom:12px}
+.runmeta{display:flex;flex-wrap:wrap;gap:6px 28px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12.5px;color:var(--ink2);margin-top:18px}
+.runmeta b{color:var(--muted);font-weight:500;margin-right:6px}
+section.part{padding-block:44px 8px;border-bottom:1px solid var(--border)}
+section.part:last-of-type{border-bottom:0}
+.insight{font-size:clamp(20px,2.4vw,25px);line-height:1.35;font-weight:500;margin:18px 0 26px;max-width:34em}
+.insight em{font-style:italic;font-weight:500}
+figure{margin:0 0 34px;background:var(--surface);border:1px solid var(--border);padding:18px 18px 12px;min-width:0}
+figure .cap{display:flex;justify-content:space-between;align-items:baseline;gap:16px;flex-wrap:wrap;margin-bottom:8px}
+figure .cap h3{font-family:"Source Sans 3",system-ui,sans-serif;font-size:16px;font-weight:600;margin:0}
+figure .cap .unit{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;color:var(--muted)}
+figcaption.note{font-size:13.5px;color:var(--ink2);margin-top:8px;max-width:78ch}
+.legend{display:flex;flex-wrap:wrap;gap:6px 18px;font-size:13px;color:var(--ink2);margin:0 0 6px}
+.legend .key{display:inline-flex;align-items:center;gap:7px}
+.legend .key i{display:inline-block;width:14px;height:3px;border-radius:2px}
+.legend .key i.sq{width:11px;height:11px;border-radius:2px}
+.legend .key i.hatch{width:18px;height:11px;border-radius:2px;background:repeating-linear-gradient(45deg,currentColor 0 3px,transparent 3px 6px)}
+.legend .key i.dash{background:repeating-linear-gradient(90deg,currentColor 0 4px,transparent 4px 7px);color:var(--muted)}
+.legend .key i.tick{width:2px;height:12px;background:var(--ink);border-radius:0}
+.chart{position:relative;min-width:0}
+.chart svg{display:block;width:100%;height:auto;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:11px;overflow:visible}
+.chart svg text{fill:var(--muted)}
+.chart svg text.lab{fill:var(--ink2);font-family:"Source Sans 3",system-ui,sans-serif;font-size:12.5px}
+.chart svg text.val{fill:var(--ink2)}
+.chart svg text.halo{paint-order:stroke;stroke:var(--surface);stroke-width:3px;stroke-linejoin:round}
+.chart svg .grid{stroke:var(--grid);stroke-width:1}
+.chart svg .axis{stroke:var(--axis);stroke-width:1}
+.chart svg .xh{stroke:var(--axis);stroke-width:1;pointer-events:none}
+.chart svg .sklink,.chart svg .rib,.chart svg .seg{transition:opacity .12s}
+.chart svg .dim{opacity:.08}
+.chart svg .rbox{fill:var(--wash);stroke:var(--axis);stroke-width:1;cursor:pointer}
+.chart svg .rbox.on{stroke:var(--ink);stroke-width:1.5}
+.chart svg text.rlab{fill:var(--ink);font-family:"Source Sans 3",system-ui,sans-serif;font-size:11.5px;pointer-events:none}
+.chart.scroll{overflow-x:auto}
+.chart.scroll svg{min-width:720px}
+.tip{position:absolute;pointer-events:none;background:var(--surface);border:1px solid var(--border);box-shadow:0 4px 14px rgba(0,0,0,.12);padding:7px 10px;font-size:12.5px;line-height:1.4;color:var(--ink);white-space:nowrap;z-index:5;border-radius:3px;font-variant-numeric:tabular-nums}
+.tip b{display:block;font-family:"IBM Plex Mono",ui-monospace,monospace;font-weight:500;color:var(--muted);font-size:11.5px;margin-bottom:2px}
+.tip .row{display:flex;justify-content:space-between;gap:14px}
+.tip .row i{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:1px}
+.grid2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px 26px}
+.grid3{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:18px 22px}
+.panel{min-width:0}
+.panel h4{font-family:"Source Sans 3",system-ui,sans-serif;font-size:14px;font-weight:600;margin:0 0 2px;color:var(--ink)}
+.panel .sub{font-size:12.5px;color:var(--muted);margin:0 0 6px;font-family:"IBM Plex Mono",ui-monospace,monospace}
+.yswitch{display:inline-flex;align-items:center;gap:4px;margin:0 0 10px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;color:var(--muted)}
+.yswitch span{margin-right:6px;letter-spacing:.06em;text-transform:uppercase}
+.yswitch button{font:inherit;color:var(--ink2);background:var(--wash);border:1px solid var(--border);border-radius:3px;padding:3px 10px;cursor:pointer}
+.yswitch button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.yswitch button:focus-visible{outline:2px solid var(--c-china);outline-offset:1px}
+table{border-collapse:collapse;width:100%;font-size:14px;font-variant-numeric:tabular-nums}
+th,td{padding:7px 10px;text-align:right;border-bottom:1px solid var(--grid);vertical-align:baseline}
+th{font-weight:600;color:var(--ink2);font-size:12.5px;letter-spacing:.02em}
+th:first-child,td:first-child{text-align:left}
+td.num{font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:13px}
+tr.sum td{border-top:1px solid var(--axis);font-weight:600}
+tr.sec td{color:var(--muted);font-size:12.5px;padding-top:12px;border-bottom:0;text-transform:uppercase;letter-spacing:.06em}
+.tblwrap{overflow-x:auto}
+details.data{margin-top:8px;font-size:13px}
+details.data summary{cursor:pointer;color:var(--muted);font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px}
+details.data table{font-size:12.5px;margin-top:8px}
+details.data td,details.data th{padding:4px 8px}
+ul.reads{padding-left:0;list-style:none;margin:0 0 20px;max-width:70ch;display:grid;gap:12px}
+ul.reads li{padding-left:16px;border-left:2px solid var(--axis);font-size:16px}
+ul.reads li b{font-weight:600}
+.callout{background:var(--warn-bg);border-left:3px solid var(--warn-line);padding:12px 16px;font-size:14.5px;max-width:78ch;margin:0 0 28px}
+.callout b{font-weight:600}
+.small{font-size:13.5px;color:var(--ink2)}
+.sw{display:inline-block;width:10px;height:10px;border-radius:2px;vertical-align:-1px;margin-right:6px}
+footer{padding-block:28px 0;font-size:13px;color:var(--muted);font-family:"IBM Plex Mono",ui-monospace,monospace;line-height:1.6}
+@media (max-width:640px){figure{padding:12px 10px 8px} .lede{font-size:18px}}
+@media (prefers-reduced-motion:reduce){.tip,.chart svg .sklink,.chart svg .rib,.chart svg .seg{transition:none}}
+</style>
+
+<div class="wrap">
+<header>
+  <p class="eyebrow">pySUTO · reconciled copper supply-use system · copper content, kt Cu</p>
+  <h1>Copper Metabolism 1995–2024</h1>
+  <p class="lede">Five readings of the reference solver run: how large the system is and how it grew, the whole chain in one picture, how much of the refinery feed is scrap, where each step has concentrated, and how trade links mines to smelters and cathode to its users.</p>
+  <div class="runmeta">
+    <span><b>run</b>opt_20260930_092111_e3e0677d</span>
+    <span><b>label</b>roundW1_lower_bounds_tol</span>
+    <span><b>years</b>1995–2024, 30 solved (2 at the numerical floor)</span>
+    <span><b>regions</b>46 + rest of world</span>
+    <span><b>basis</b>posterior flows, CC valuation</span>
+  </div>
+</header>
+
+<!-- ============ PART 1 ============ -->
+<section class="part" id="p1">
+  <p class="eyebrow">1 · System size</p>
+  <h2>The system moves 34 Mt of copper a year across its boundary, 2.4 times what it did in 1995.</h2>
+  <p class="insight">Ore in situ carries 28.5 Mt Cu into the chain and scrap another 5.4 Mt. Of that, 26.6 Mt leaves as cathode to final use, 5.4 Mt as tailings and 1.3 Mt as slag; the small remainder is booked as stock change. Every stage of the chain more than doubled since 1995, and the leach route (SX‑EW) grew 4.3×.</p>
+
+  <figure>
+    <div class="cap"><h3>Process outputs along the chain</h3><span class="unit">world · Mt Cu</span></div>
+    <div id="f1a"></div>
+    <figcaption class="note">One line per process output, upstream light to downstream dark. The lines are stages of one chain, not additive: ore becomes concentrate, concentrate becomes matte, and so on. SX‑EW cathode is the leach route that bypasses smelting and joins the cathode pool directly. Anode and electrorefined copper sit on top of each other (22.2 vs 22.1 Mt in 2024); the table carries both.</figcaption>
+  </figure>
+
+  <div class="grid2">
+  <figure>
+    <div class="cap"><h3>Inputs across the system boundary</h3><span class="unit">world · Mt Cu · stacked</span></div>
+    <div id="f1b"></div>
+    <figcaption class="note">Copper enters from nature as ore in situ and from the use phase as scrap to smelters and fire refineries. Scrap melted directly by fabricators is outside the modelled boundary.</figcaption>
+  </figure>
+  <figure>
+    <div class="cap"><h3>Outputs across the system boundary</h3><span class="unit">world · Mt Cu · stacked</span></div>
+    <div id="f1c"></div>
+    <figcaption class="note">Copper leaves as cathode to final use, as stock change (exchange, user and producer stocks) and to the environment as tailings and slag. Same vertical scale as the inputs: the two panels balance in every year.</figcaption>
+  </figure>
+  </div>
+
+  <figure>
+    <div class="cap"><h3>Boundary ledger</h3><span class="unit">world · Mt Cu</span></div>
+    <div class="tblwrap" id="f1d"></div>
+    <figcaption class="note">Inputs equal outputs in every year to within 0.2 kt: the industrial system (Mining → Cathode pool) holds no stock, so the boundary closes by construction. Stock changes are booked on the output side and can be negative (a draw-down).</figcaption>
+  </figure>
+
+  <ul class="reads">
+    <li><b>Growth is uniform through the pyrometallurgical core.</b> Matte, anode and electrorefined copper all sit at ×2.24, concentrate at ×2.16: what a mass-balanced chain should show.</li>
+    <li><b>Cathode grew faster than the core (×2.46)</b> because two routes added to it: SX‑EW cathode rose from 1.2 to 5.0 Mt Cu (×4.32) and scrap feed from 2.1 to 5.4 Mt (×2.51).</li>
+    <li><b>Mined copper outgrew concentrate (×2.33 vs ×2.16)</b> because a growing share of ore is leached rather than milled; SX‑EW tailings rose ×4.4 with it.</li>
+    <li><b>Losses did not scale with output.</b> Tailings ×2.01 and slag ×2.12 against final use ×2.52: the loss share of the boundary input fell from 23 % to 20 %.</li>
+  </ul>
+</section>
+
+<!-- ============ PART 2 ============ -->
+<section class="part" id="p2">
+  <p class="eyebrow">2 · The chain in one picture</p>
+  <h2>28 Mt in from the ground, 27 Mt of cathode out, and the traded part of every commodity made visible.</h2>
+  <p class="insight">Hatched links cross a border. In 2024, 61 % of the world's concentrate is smelted in a region other than the one that mined it (11.0 of 18.1 Mt Cu), a third of the cathode is used abroad (9.1 of 27.2 Mt), 7 % of anode changes hands and matte barely moves at all.</p>
+
+  <figure>
+    <div class="cap"><h3>World copper system, Sankey of the reconciled flows</h3><span class="unit">world · kt Cu · node labels in Mt Cu</span></div>
+    <div class="yswitch" role="group" aria-label="Year"><span>Year</span><button type="button" data-y="1995">1995</button><button type="button" data-y="2010">2010</button><button type="button" data-y="2024" aria-pressed="true">2024</button></div>
+    <div class="legend" id="lg2"></div>
+    <div class="chart scroll" id="f2a"></div>
+    <figcaption class="note">Processes are dark bars, system-boundary sources and sinks are coloured by what they are. Commodity nodes are folded into the links between the process that makes them and the process that uses them; the link colour names the commodity. Within each column the vertical order is chosen by the layout to minimise crossings. Hover a link for its value and its share of the sending process; hover a node to isolate its flows. Negative stock changes are drawn as inflows from the stock.</figcaption>
+  </figure>
+
+  <ul class="reads">
+    <li><b>Two routes out of the mine.</b> Of the 28.5 Mt Cu in ore, 21.6 Mt go to milling and flotation and 6.8 Mt to leaching; the mill loses 3.6 Mt to tailings, the leach pads 1.8 Mt.</li>
+    <li><b>Scrap enters late.</b> 4.4 Mt of scrap go to smelters and 1.0 Mt straight to fire refineries, a sixth of the feed at those two stages.</li>
+    <li><b>The chain is tightest in the middle.</b> Smelting, converting and electrorefining each lose under 4 % to slag; the mill is where a fifth of the mined copper is lost.</li>
+    <li><b>Trade sits at two points.</b> Concentrate crosses a border before smelting and cathode after refining; matte and anode mostly stay where they are made.</li>
+  </ul>
+</section>
+
+<!-- ============ PART 3 ============ -->
+<section class="part" id="p3">
+  <p class="eyebrow">3 · Scrap versus primary input</p>
+  <h2>The world runs on 0.23 t of scrap per tonne of primary feed, back at its 1995 level after a 2003 trough of 0.12.</h2>
+  <p class="insight">The ratio fell through the early 2000s as primary smelting outran the scrap supply, then recovered. China's refineries feed 0.40 t of scrap per tonne of primary, Japan's 0.30, South Korea's 0.42 and the EU‑14's 0.60; the United States, at 0.05, has all but left secondary refining. Taiwan has no refinery-side feed in the model at all.</p>
+
+  <figure>
+    <div class="cap"><h3>Scrap feed per tonne of primary feed to smelters and refineries</h3><span class="unit">ratio · kt Cu scrap / kt Cu primary</span></div>
+    <div id="f3a"></div>
+    <figcaption class="note">Scrap = scrap to smelters + scrap to fire refineries. Primary = concentrate to smelters + SX‑EW cathode, counted where it is processed. Scrap melted directly by fabricators sits outside the modelled boundary and is not counted, which is why the United States, a large direct-melt user, reads low. The dashed line is the ICSG-based prior before reconciliation.</figcaption>
+  </figure>
+
+  <div class="grid2">
+  <figure>
+    <div class="cap"><h3>Scrap share of refinery-side feed, 2024, regions above 300 kt</h3><span class="unit">scrap / (scrap + primary)</span></div>
+    <div id="f3b"></div>
+    <figcaption class="note">Germany's refinery feed is close to half scrap, South Korea's and Japan's close to a quarter; China is the largest scrap consumer by volume at 3.5 Mt Cu, almost four times the EU‑14 combined.</figcaption>
+  </figure>
+  <figure>
+    <div class="cap"><h3>Scrap feed volume by region group</h3><span class="unit">kt Cu · stacked</span></div>
+    <div id="f3c"></div>
+    <figcaption class="note">Volume, not ratio: the world scrap feed grew from 2.1 to 5.4 Mt Cu, and almost all of the growth landed in China. Japan's 0.39 Mt and South Korea's 0.18 Mt are thin bands; Taiwan's is zero and is not drawn.</figcaption>
+  </figure>
+  </div>
+
+  <div class="callout"><b>Read with care.</b> In the reconciled solution China's scrap ratio (0.40) sits above its ICSG-based prior (0.31) and South Korea's (0.42) above its prior (0.34), Japan's (0.30) is close to its prior (0.28), while the EU‑14 posterior (0.60) sits below its prior (0.66); the world ratio (0.23) sits just above the prior (0.21). The solver adds scrap where the chain needs closing, and it adds it in China. The world level is a soft anchor; the regional split is a model outcome, not an observation.</div>
+
+  <ul class="reads">
+    <li><b>The 2003 trough is real, not an artefact.</b> Primary feed grew 43 % between 1995 and 2003 while the scrap feed fell by a quarter (2.1 → 1.6 Mt Cu).</li>
+    <li><b>China's ratio fell from 0.81 to 0.40</b> while its scrap volume rose 7.3× (0.5 → 3.5 Mt Cu): relative decline, absolute dominance.</li>
+    <li><b>The EU‑14 has held a scrap-heavy profile</b> throughout (0.84 → 0.60), with Germany at 46 % scrap share in 2024, the highest of any large region.</li>
+    <li><b>The United States dropped from 0.23 to 0.05 after 2000</b>, consistent with the closure of its secondary smelters; its scrap now goes to direct melt or export, both outside this boundary.</li>
+    <li><b>Japan rose steadily from 0.11 to 0.30.</b> Its primary feed has been flat at 1.1–1.4 Mt Cu for thirty years while scrap feed tripled (128 → 385 kt); the ratio peaked at 0.36 in 2021, and the posterior follows the ICSG-based prior closely.</li>
+    <li><b>South Korea climbed fastest, from 0.17 to 0.42.</b> Its scrap feed rose from 24 to 180 kt Cu while primary feed tripled (143 → 428 kt); the ratio climbed after a 2006 low of 0.08, peaked at 0.45 in 2019 and gives Korea the second-highest scrap share (30 %) among regions above 300 kt.</li>
+    <li><b>Taiwan has no secondary refining in the model.</b> Its refinery-side feed is 0.5 kt Cu of primary and no scrap in 2024: Taiwan's copper use is fabrication from imported cathode and directly melted scrap, both outside the modelled boundary, so no ratio can be drawn for it.</li>
+  </ul>
+</section>
+
+<!-- ============ PART 4 ============ -->
+<section class="part" id="p4">
+  <p class="eyebrow">4 · Supply concentration by chain step</p>
+  <h2>Mining deconcentrated a little. Everything downstream concentrated into China.</h2>
+  <p class="insight">In 1995 the United States led smelting, refining and final use. By 2024 China holds 51 % of world smelting, 44 % of refined cathode, 57 % of final use and 65 % of scrap feed, while the mining step became <em>less</em> concentrated. The EU‑14 kept a tenth of smelting and halved its share of use.</p>
+
+  <figure>
+    <div class="cap"><h3>Share of world output by region group, per chain step</h3><span class="unit">share of world · stacked to 100 %</span></div>
+    <div class="legend" id="lg4"></div>
+    <div class="grid3" id="f4a"></div>
+    <figcaption class="note">Mining and concentrate are the producing region's share; smelting and refined cathode the processing region's; scrap feed and final use the consuming region's. The rest of world is 41 named regions plus a residual.</figcaption>
+  </figure>
+
+  <div class="grid2">
+  <figure>
+    <div class="cap"><h3>Concentration index by step, 1995 → 2024</h3><span class="unit">Herfindahl–Hirschman index, Σ share²</span></div>
+    <div id="f4b"></div>
+    <figcaption class="note">HHI over all 47 regions. Bands follow the usual antitrust reading: below 0.15 unconcentrated, 0.15–0.25 moderate, above 0.25 high. Smelting crossed into “high” in the 2020s; scrap feed sits at 0.43.</figcaption>
+  </figure>
+  <figure>
+    <div class="cap"><h3>Share of smelter concentrate intake that is imported</h3><span class="unit">from outside the group / total intake</span></div>
+    <div id="f4c"></div>
+    <figcaption class="note">China's smelters now import five sixths of their concentrate, the EU‑14 three fifths from outside the EU‑14. US smelters run almost entirely on domestic concentrate.</figcaption>
+  </figure>
+  </div>
+
+  <figure>
+    <div class="cap"><h3>Group share per step, 2024 with 1995 for comparison</h3><span class="unit">share of world · %</span></div>
+    <div class="tblwrap" id="f4d"></div>
+  </figure>
+
+  <ul class="reads">
+    <li><b>Upstream is diversifying.</b> Mining HHI fell from 0.120 to 0.103. Chile's share of mined copper fell from 26 % to 21 % while Peru's rose from 4 % to 12 % and DR Congo's to 17 %, now second. Downstream, Chile keeps 5 % of smelting and 7 % of refined cathode, largely SX‑EW; Peru holds under 2 % of either.</li>
+    <li><b>The chokepoint moved from mine to smelter.</b> Smelting HHI tripled (0.083 → 0.274) on China's rise from 9 % to 51 %, fed by imported concentrate (27 % → 84 % of intake).</li>
+    <li><b>The EU‑14 is a processor, not a consumer.</b> It kept 10 % of smelting and 8 % of refining but fell from 22 % to 10 % of final use.</li>
+    <li><b>The United States exited the middle of the chain.</b> From 16–23 % of smelting, refining and final use in 1995 to 2–6 % in 2024, while keeping 5 % of mining.</li>
+    <li><b>Secondary supply is the most concentrated step of all.</b> Scrap feed HHI 0.43, with China taking 65 % of the world's refinery-bound scrap.</li>
+  </ul>
+</section>
+
+<!-- ============ PART 5 ============ -->
+<section class="part" id="p5">
+  <p class="eyebrow">5 · Trade structure</p>
+  <h2>Cross-border trade carries 21.7 Mt Cu a year, 2.9 times 1995, and concentrate has become the form in which copper travels.</h2>
+  <p class="insight">Concentrate trade grew from 2.5 to 11.0 Mt Cu, from 29 % to 61 % of what is produced; cathode trade from 4.1 to 9.1 Mt. China imports 11.4 Mt, more than half of everything traded, where in 1995 the largest importer was Japan at 1.5 Mt. Chile and Peru send most of their concentrate to China, and the DR Congo's 2.0 Mt of cathode go there too.</p>
+
+  <figure>
+    <div class="cap"><h3>Trade-linked flow of copper, exporter → importer per commodity</h3><span class="unit">kt Cu · ribbon width on one scale for all three years</span></div>
+    <div class="yswitch" role="group" aria-label="Year"><span>Year</span><button type="button" data-y="1995">1995</button><button type="button" data-y="2010">2010</button><button type="button" data-y="2024" aria-pressed="true">2024</button></div>
+    <div class="legend" id="lg5a"></div>
+    <div class="chart scroll" id="f5a"></div>
+    <figcaption class="note">After Sun et al. (2017), Fig. 4. Each pair of columns is one commodity: a ribbon runs from the exporting region on the left to the importing region on the right, its width proportional to copper content. Regions are the twenty largest traders of 2024, net exporters at the top, net importers at the bottom, the rest pooled; legs between two pooled regions are not drawn. Matte is left out here (155 kt Cu in 2024) but kept in the bars below. Click a region to isolate its legs; hover a ribbon for the value and its share of the exporter's shipments.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="cap"><h3>Exports and imports by region and commodity</h3><span class="unit">kt Cu · imports to the left, exports to the right</span></div>
+    <div class="yswitch" role="group" aria-label="Year"><span>Year</span><button type="button" data-y="1995">1995</button><button type="button" data-y="2010">2010</button><button type="button" data-y="2024" aria-pressed="true">2024</button></div>
+    <div class="legend" id="lg5b"></div>
+    <div class="chart scroll" id="f5b"></div>
+    <figcaption class="note">After Sun et al. (2017), Fig. 8, turned on its side. Stacks are the four traded commodities; the tick marks net trade (exports − imports). One horizontal scale for all three years.</figcaption>
+  </figure>
+
+  <div class="grid2">
+  <figure>
+    <div class="cap"><h3>Traded share of world output, per commodity</h3><span class="unit">cross-border trade / world output</span></div>
+    <div id="f5c"></div>
+    <figcaption class="note">Trade intensity: how much of each year's output crosses a border. Concentrate doubled its traded share; cathode's peaked around 2010 and has eased as China's own refining caught up with its use.</figcaption>
+  </figure>
+  <figure>
+    <div class="cap"><h3>World cross-border trade by commodity</h3><span class="unit">Mt Cu · stacked</span></div>
+    <div id="f5d"></div>
+    <figcaption class="note">Volume: concentrate overtook cathode as the largest traded form in the late 2010s. Anode is a steady 0.7–1.6 Mt; matte never exceeds 0.2 Mt.</figcaption>
+  </figure>
+  </div>
+
+  <ul class="reads">
+    <li><b>The concentrate funnel.</b> Chile → China (2.1 Mt Cu) and Peru → China (1.8 Mt) are the two largest legs in the system; China's smelters take 7.2 of the 11.0 Mt traded, and Chile sends 70 % of its concentrate exports there.</li>
+    <li><b>The cathode counter-flow.</b> DR Congo → China (1.4 Mt), Chile → United States (0.6 Mt) and Chile → China (0.5 Mt) lead; Japan exports 0.7 Mt of cathode while importing 1.2 Mt of concentrate, the profile of a smelting hub.</li>
+    <li><b>Anode is a regional niche.</b> 1.6 Mt in 2024: Zambia into China (0.24 Mt) and India (0.18), the DR Congo and Chile into China, Bulgaria into Germany.</li>
+    <li><b>Matte stays home.</b> 155 kt Cu, under 1 % of what is smelted: the smelter and the converter sit on the same site.</li>
+    <li><b>The importers changed, the exporters less so.</b> Japan took 1.5 Mt in 1995 and 1.2 Mt in 2024, the United States 0.7 and 0.9; China went from a marginal importer to 11.4 Mt. Chile was the largest exporter in both years (2.1 → 5.1 Mt), joined by Peru (2.8) and the DR Congo (2.5).</li>
+  </ul>
+</section>
+
+<footer>
+  Source: pySUTO posterior flows, run opt_20260930_092111_e3e0677d (constraints const_20260929_122634_40ebe5c9; feeds ICSG, BACI, USGS via imputation run imp_20260929_113529_ab914090). All figures in copper content; a tonne is a tonne of contained copper. EU‑14 = the 14 EU member states resolved in the model (DE, IT, FR, ES, PL, BE, NL, AT, SE, BG, GR, PT, SK, LU). Hover any chart for values; each figure carries its data table. Trade figures after Sun, Hao, Liu &amp; Zhao (2017), Resources, Conservation &amp; Recycling 124, 50–61.
+</footer>
+</div>
+
+<script id="data" type="application/json">%%DATA%%</script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.9.0/d3.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/d3-sankey/0.12.3/d3-sankey.min.js"></script>
+<script>
+%%MAIN%%
+</script>
