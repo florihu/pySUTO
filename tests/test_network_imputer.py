@@ -749,3 +749,52 @@ def test_region_resolved_grade_overlay_twin_map(tmp_path):
     assert m[cc_b][1] == pytest.approx(0.4)   # region B overlay wins
     cc_matte = acc.eid("Matte", "A", "CFR", "A", "CC")
     assert m[cc_matte][1] == pytest.approx(_BI_CONC["Matte"])  # untouched
+
+
+# =============================================================================
+# Stock-change legs are never written (Round X, ADR 0040)
+# =============================================================================
+
+_STOCK_NODES = NODES + [("FU", "SB", "FD"), ("MESC", "SB", "FD")]
+_STOCK_EDGES = EDGES + [("Cathode", "FU"), ("Cathode", "MESC")]
+
+
+@pytest.fixture
+def stock_acc(monkeypatch):
+    import test_network_imputer as mod
+    monkeypatch.setattr(mod, "NODES", _STOCK_NODES)
+    monkeypatch.setattr(mod, "EDGES", _STOCK_EDGES)
+    return MockAcc()
+
+
+def _stock_imputer(tmp_path, acc, stock_sectors):
+    eff = tmp_path / "eff.csv"; conc = tmp_path / "conc.csv"; og = tmp_path / "ore_grade.csv"
+    write_eff_csv(eff); write_conc_csv(conc); write_ore_grade_csv(og)
+    imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=float("inf"),
+                         stock_sectors=stock_sectors)
+    imp.prepare(acc)
+    return imp
+
+
+def test_flow_balance_never_writes_a_stock_leg(stock_acc, tmp_path):
+    """Cathode node: supply 100, FU 80 known, MESC unknown. Without the guard the
+    balance books the 20 kt residual on the stock leg (the sink pre-baked into the
+    prior); with stock_sectors=("MESC",) the leg stays NaN for the net-stock seed."""
+    seeds = {("CP", "Cathode", "CC", "2020"): 100.0, ("Cathode", "FU", "CC", "2020"): 80.0}
+    e_mesc = stock_acc.eid("Cathode", "MESC", "CC")
+
+    f, method = _run2(_stock_imputer(tmp_path, stock_acc, ()), stock_acc, seeds)
+    assert f[e_mesc] == pytest.approx(20.0) and method[e_mesc] == "network_balance"
+
+    f, method = _run2(_stock_imputer(tmp_path, stock_acc, ("MESC",)), stock_acc, seeds)
+    assert np.isnan(f[e_mesc]) and e_mesc not in method
+
+
+def test_flow_balance_counts_a_missing_stock_leg_as_zero(stock_acc, tmp_path):
+    """Supply 100 known, FU and MESC unknown: the stock leg is non-writable and
+    counts as 0, so FU closes at 100 (symmetric with the cross-region tier)."""
+    seeds = {("CP", "Cathode", "CC", "2020"): 100.0}
+    e_fu, e_mesc = stock_acc.eid("Cathode", "FU", "CC"), stock_acc.eid("Cathode", "MESC", "CC")
+    f, method = _run2(_stock_imputer(tmp_path, stock_acc, ("MESC",)), stock_acc, seeds)
+    assert f[e_fu] == pytest.approx(100.0) and method[e_fu] == "network_balance"
+    assert np.isnan(f[e_mesc])

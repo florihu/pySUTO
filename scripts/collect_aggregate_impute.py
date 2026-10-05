@@ -118,6 +118,21 @@ TIME_INTERPOLATE_ONLY = True
 # Set False to restore the pre-ADR-0026 behaviour.
 TIME_SCOPE_SAME_REGION = True
 
+# Signed stock-change legs (Cathode→MESC / Cathode→USC). A stock change is a
+# reported value or the zero-centred net-stock seed, nothing else: the time
+# interpolator and the NetworkImputer's Flow-node balance closure are barred from
+# writing these legs (Round X, ADR 0040). Before: 51 balance residuals (Σ|f|
+# 2,780 kt) and 96 interpolated stock changes (3,034 kt) sat in the prior, the
+# sink pre-baked.
+STOCK_SECTORS = ("MESC", "USC")
+# Net-stock seed σ for MESC/USC (ShareImputer seed mode), in kt: the seed is
+# priced like a feed-backed level — ADR 0025's scale-total rule, 1 % of the
+# co-located Cathode(i)→FU(j) flow, floored at the feeds' 0.3 kt resolution — so
+# a stock leg stays at its prior with small wiggle room. The former band
+# (p95/1.645 × max(FU, 100 kt)) gave the exchange-location legs σ ≈ 553 kt.
+STOCK_SEED_CV           = 0.01
+STOCK_SEED_ABS_FLOOR_KT = 0.3
+
 # FlatPriorImputer mode
 #   "magnitude_aware" (legacy) — σ = CV(j) · scale(j) via cv_by_mask + 3-level cascade
 #   "noisy_zero" (test)        — f=0, σ=FLAT_SIGMA_HIGH; effectively no prior weight
@@ -592,6 +607,7 @@ def main(feed_ids: list[str], label: str) -> None:
         ore_grade_csv = str(inputs.params.resolve("ore_grade") / "params.csv"),
         p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG, cv_cap=1.5,
         id="network",
+        stock_sectors=STOCK_SECTORS,
     )
     engine.register_cascade(
         [
@@ -610,14 +626,20 @@ def main(feed_ids: list[str], label: str) -> None:
     #    scope_edges drops the excluded edges from the series entirely, so a
     #    cross-region leg is neither a fill target nor an interpolation source.
     time_scope = None
+    _ei_t = expand_edge_index(acc.edge_index, acc.node_index)
     if TIME_SCOPE_SAME_REGION:
-        _ei_t = expand_edge_index(acc.edge_index, acc.node_index)
         time_scope = (_ei_t["region_from"].to_numpy()
                       == _ei_t["region_to"].to_numpy())
         logger.info("   time_interp scope: same-region edges only "
                     "(%d of %d; %d cross-region edges excluded, ADR 0026)",
                     int(time_scope.sum()), time_scope.size,
                     int((~time_scope).sum()))
+    if STOCK_SECTORS:
+        # stock-change legs are never interpolated (ADR 0040)
+        _stock = _ei_t["sector_to"].isin(STOCK_SECTORS).to_numpy()
+        time_scope = (~_stock) if time_scope is None else (time_scope & ~_stock)
+        logger.info("   time_interp scope: %d stock-change legs (%s) excluded "
+                    "(ADR 0040)", int(_stock.sum()), "/".join(STOCK_SECTORS))
     engine.register(TimeImputer(
         window           = TIME_WINDOW,
         method           = TIME_METHOD,
@@ -636,14 +658,17 @@ def main(feed_ids: list[str], label: str) -> None:
 
     # 6.5 Net-stock share imputation. Give Δstock (PSC/USC/MESC) edges informative,
     # cold-smooth priors BEFORE flat_prior would fill them with noisy_zero: PSC by
-    # share-transfer (share=PSC/(CSXEW+CER) carried across years, seeding 1995), and
-    # MESC/USC by a zero-mean throughput-scaled seed σ=(p95/Z95)·FU. p95 is read from
-    # the SAME stock_bounds params the Part-A soft bounds use, so prior and bound agree.
+    # share-transfer (share=PSC/(CSXEW+CER) carried across years, seeding 1995; p95
+    # read from the SAME stock_bounds params the Part-A soft bounds use), and
+    # MESC/USC by a zero-mean seed held at σ = max(STOCK_SEED_CV·|FU leg|,
+    # STOCK_SEED_ABS_FLOOR_KT) — see the USER CONFIGURATION note (ADR 0040).
     engine.register(ShareImputer.from_stock_bounds_csv(
         str(inputs.params.resolve("stock_bounds") / "params.csv"),
         scale_abs_floor = 100.0,
         p               = P_PROP,
         id              = "net_stock_share",
+        seed_cv         = STOCK_SEED_CV,
+        seed_abs_floor  = STOCK_SEED_ABS_FLOOR_KT,
     ))
     param_refs.append(inputs.params.entry("stock_bounds"))
 
@@ -757,6 +782,9 @@ def main(feed_ids: list[str], label: str) -> None:
                 "interpolate_only": TIME_INTERPOLATE_ONLY,
                 "scope_same_region": TIME_SCOPE_SAME_REGION,
             },
+            "stock_sectors":      list(STOCK_SECTORS),
+            "stock_seed_cv":      STOCK_SEED_CV,
+            "stock_seed_abs_floor": STOCK_SEED_ABS_FLOOR_KT,
         },
     )
     run_dir = os.path.join(IMP_DIR, run_id)

@@ -1,8 +1,8 @@
 """
 test_impute_share.py
 ====================
-ShareImputer (Part B): PSC share-transfer (with 1995 boundary seed) and
-MESC/USC zero-mean throughput-scaled seed.
+ShareImputer (Part B): PSC share-transfer (with 1995 boundary seed) and the
+MESC/USC zero-mean seed held at 1 % of the co-located FU leg / 0.3 kt (ADR 0040).
 """
 import numpy as np
 import pandas as pd
@@ -58,9 +58,10 @@ def test_share_transfer_seeds_1995_and_seed_is_zero_mean():
     # PSC 1995 seeded by NOCB share (0.03 from 1996) × base(1995)=100
     assert f[0] == pytest.approx(0.03 * 100.0)
     assert sigma[0] == pytest.approx((0.05 / Z95) * 100.0, rel=1e-6)   # (p95/Z95)·base
-    # MESC 1995: zero-mean, σ = (p95/Z95)·FU
+    # MESC 1995: zero-mean, σ = max(seed_cv·FU, seed_abs_floor) = 0.01·200 (Round X;
+    # the p95 band prices PSC only)
     assert f[6] == 0.0
-    assert sigma[6] == pytest.approx((0.10 / Z95) * 200.0, rel=1e-6)
+    assert sigma[6] == pytest.approx(0.01 * 200.0, rel=1e-6)
     # observed PSC 1996 untouched
     assert f[1] == 3.0
 
@@ -89,3 +90,34 @@ def test_seed_skipped_when_base_missing():
     imp.impute(f, sigma, missing, step=0, acc_struct=acc)
     assert np.isnan(f[6])                          # no base → not seeded
     assert f[0] == pytest.approx(0.03 * 100.0)     # PSC transfer still works
+
+
+def test_seed_sigma_is_one_percent_of_the_fu_leg_floored_at_0_3_kt():
+    """Round X / ADR 0040: the MESC/USC seed is priced like a feed-backed level,
+    σ = max(seed_cv·|FU leg|, seed_abs_floor), and needs no p95 entry."""
+    acc = _Acc()
+    f = np.full(8, np.nan)
+    sigma = np.full(8, np.nan)
+    f[7] = 200.0                       # Cathode→FU 1995 (the co-located base)
+    missing = np.isnan(f)
+    imp = ShareImputer(p95={}, scale_abs_floor=100.0, seed_cv=0.01, seed_abs_floor=0.3)
+    imp.impute(f, sigma, missing, step=0, acc_struct=acc)
+    assert f[6] == 0.0
+    assert sigma[6] == pytest.approx(0.01 * 200.0)     # 1 % of the leg, not p95·100
+
+    # a tiny / no-trade pair sits on the floor
+    f = np.full(8, np.nan); sigma = np.full(8, np.nan)
+    f[7] = 5.0
+    imp.impute(f, sigma, np.isnan(f), step=0, acc_struct=acc)
+    assert sigma[6] == pytest.approx(0.3)
+
+    # no base → no seed (left to the flat prior / Stage-3 no-data anchor)
+    f = np.full(8, np.nan); sigma = np.full(8, np.nan)
+    imp.impute(f, sigma, np.isnan(f), step=0, acc_struct=acc)
+    assert np.isnan(f[6])
+
+
+def test_seed_knobs_are_persisted_in_config():
+    imp = ShareImputer(p95={}, seed_cv=0.02, seed_abs_floor=0.5)
+    cfg = imp.config()
+    assert cfg["seed_cv"] == 0.02 and cfg["seed_abs_floor"] == 0.5
