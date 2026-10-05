@@ -57,7 +57,7 @@ from typing import NamedTuple, Optional
 import numpy as np
 import pandas as pd
 
-from ._plot import _CAT8, _INK, _STATUS, _savefig, _seq_cmap
+from ._plot import _CAT8, _CAT_EXT, _INK, _STATUS, _savefig, _seq_cmap
 from .stats._core import boundary_edges, filter_regions, sector_totals
 from .stats.objective import (
     FAMILIES, FAMILY_LABELS, family_frame, objective_decomposition, profiles,
@@ -782,9 +782,11 @@ class SolverDiag:
     @staticmethod
     def _series_colors(names) -> dict:
         """Stable colour per series name: slots of the validated categorical
-        palette in sorted-name order; ``"other"`` is always grey."""
+        palette in sorted-name order, the overflow slots past the eighth name
+        (two panels sharing one legend, SD-R-10); ``"other"`` is always grey."""
         named = sorted(n for n in names if n != "other")
-        colors = {n: _CAT8[i % len(_CAT8)] for i, n in enumerate(named)}
+        palette = _CAT8 + _CAT_EXT
+        colors = {n: palette[i % len(palette)] for i, n in enumerate(named)}
         colors["other"] = _INK["muted"]
         return colors
 

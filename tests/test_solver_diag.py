@@ -367,11 +367,17 @@ class TestBoundaryPalette:
         import pandas as pd
         rows = []
         specs = [
-            # SB-input: Scrap, CO ; SB-output: MESC, FU
+            # SB-input: Scrap, CO ; SB-output: MESC, FU, USC, PSC, WR, Tailings, Slag
+            # — nine named groups, one more than the per-panel palette holds
             ("Scrap", "SB", "Smelting", "Process", 10.0),
             ("CO", "SB", "Mining", "Process", 100.0),
             ("Cathode", "Flow", "MESC", "SB", 5.0),
             ("Cathode", "Flow", "FU", "SB", 50.0),
+            ("Cathode", "Flow", "USC", "SB", 4.0),
+            ("CP", "Process", "PSC", "SB", 3.0),
+            ("Mining", "Process", "WR", "SB", 200.0),
+            ("MF", "Process", "Tailings", "SB", 150.0),
+            ("Smelting", "Process", "Slag", "SB", 20.0),
         ]
         for y in years:
             for fs, fe, ts, te, v in specs:
@@ -391,10 +397,10 @@ class TestBoundaryPalette:
         try:
             handles = fig.legends[0].get_lines()
             by_label = {h.get_label(): h.get_color() for h in handles}
-            groups = {"Scrap", "CO", "MESC", "FU"}
+            groups = {"Scrap", "CO", "MESC", "FU", "USC", "PSC", "WR", "Tailings", "Slag"}
             assert groups <= set(by_label)
             colours = [by_label[g] for g in sorted(groups)]
-            assert len(set(colours)) == 4           # no two sectors share a colour
+            assert len(set(colours)) == 9           # no two sectors share a colour
         finally:
             plt.close(fig)
 

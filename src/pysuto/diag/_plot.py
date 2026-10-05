@@ -35,6 +35,11 @@ _C = {
 # `_C` above remains the role palette of the other stage diagnostics.
 _CAT8 = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100",
          "#e87ba4", "#008300", "#4a3aa7", "#e34948"]
+# Overflow slots for the one figure whose two panels share a legend (SD-R-10:
+# SB-input and SB-output sectors together can exceed eight). Used only past the
+# eighth name, so a single panel still draws from the validated eight; the four
+# extras are distinct hues but were not CVD-validated against the set.
+_CAT_EXT = ["#8c5a2b", "#00a3c7", "#9d2bb3", "#6b7d00"]
 
 # Its fixed status colours (distinct from the categorical slots) and ink.
 _STATUS = {"good": "#0ca30c", "warning": "#fab219", "critical": "#d03b3b"}
