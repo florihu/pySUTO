@@ -483,6 +483,14 @@ class NetworkImputer(BaseImputer):
         # net-stock seed for a stock leg — ADR 0040).
         if any(np.isnan(f[x]) for x in edges if x != e and self._writable(x)):
             return
+        # A node whose uses include a stock-change leg has no observed use total
+        # (the seed's 0 is an expectation, not a report), so its SUPPLY cannot be
+        # derived from its uses: that would pin production to trade and send the
+        # cathode contradiction into the prior's production edge instead of into a
+        # stock (Round X: 836 CP→Cathode fills, a fabricated German mine chain).
+        # Production stays the recipe's; only a lone missing USE may be closed here.
+        if e in inc and any(self._stock_target[x] for x in out):
+            return
         in_sum = float(sum(f[x] for x in inc if x != e and not np.isnan(f[x])))
         out_sum = float(sum(f[x] for x in out if x != e and not np.isnan(f[x])))
         f_e = (in_sum - out_sum) if e in out else (out_sum - in_sum)

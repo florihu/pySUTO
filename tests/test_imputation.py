@@ -1800,8 +1800,9 @@ class TestCathodeFdSplitSelectors:
         ei = self._toy_ei()
         assert mod.cathode_fu_domestic.target(ei).tolist() == [True, False, False, False, False], \
             "cathode_fu_domestic must match exactly the domestic Cathode→FU SB edge"
-        assert mod.cathode_usc_domestic.target(ei).tolist() == [False, False, True, False, False]
-        assert mod.cathode_mesc_domestic.target(ei).tolist() == [False, False, False, True, False]
+        # Round X (ADR 0040): no formula writes a stock-change leg any more.
+        assert not hasattr(mod, "cathode_usc_domestic")
+        assert not hasattr(mod, "cathode_mesc_domestic")
 
     def test_fd_split_subtract_terms_match_sb_entities(self):
         mod = self._load_script()
@@ -1812,15 +1813,16 @@ class TestCathodeFdSplitSelectors:
 
     def test_fd_split_missing_policy(self):
         """FU (the free-sink anchor) counts missing USC/MESC/exports as 0 so it
-        fires wherever production is known; USC/MESC keep "block" so they stay
-        reserved for the ShareImputer zero-mean seed (Part B not preempted)."""
+        fires wherever production is known. The USC/MESC residual relations were
+        retired in Round X (ADR 0040): a stock leg's prior is a reported value or
+        the ShareImputer's zero-mean seed, never a residual."""
         mod = self._load_script()
         fu_missing = [t.missing for t in mod.cathode_fu_domestic.terms]
         assert fu_missing == ["block", "zero", "zero", "zero"], \
             "FU: supply blocks, exports/USC/MESC count missing as 0"
-        for rel in (mod.cathode_usc_domestic, mod.cathode_mesc_domestic):
-            assert all(t.missing == "block" for t in rel.terms), \
-                "USC/MESC must keep full block semantics"
+        names = {getattr(r, "description", "") for r in mod.conc_formula_relations()} \
+            if hasattr(mod, "conc_formula_relations") else set()
+        assert not any("USC" in n.split(":")[0] or "MESC" in n.split(":")[0] for n in names)
 
 
 if __name__ == "__main__":

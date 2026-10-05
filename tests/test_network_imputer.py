@@ -798,3 +798,17 @@ def test_flow_balance_counts_a_missing_stock_leg_as_zero(stock_acc, tmp_path):
     f, method = _run2(_stock_imputer(tmp_path, stock_acc, ("MESC",)), stock_acc, seeds)
     assert f[e_fu] == pytest.approx(100.0) and method[e_fu] == "network_balance"
     assert np.isnan(f[e_mesc])
+
+
+def test_flow_balance_never_derives_supply_from_uses_that_include_a_stock_leg(stock_acc, tmp_path):
+    """FU 80 known, MESC unknown (counts as 0), CP→Cathode unknown: the balance must
+    not write production = 80 from the uses — production is the recipe's job and the
+    stock leg's 0 is an expectation, not a report. Without a stock leg on the node
+    (CSXEW: SXEW→CSXEW unknown, CSXEW→CP known) the supply closure still fires."""
+    seeds = {("Cathode", "FU", "CC", "2020"): 80.0, ("CSXEW", "CP", "CC", "2020"): 30.0}
+    imp = _stock_imputer(tmp_path, stock_acc, ("MESC",))
+    f, method = _run2(imp, stock_acc, seeds)
+    e_prod = stock_acc.eid("CP", "Cathode", "CC")
+    assert np.isnan(f[e_prod]) or method.get(e_prod) != "network_balance"
+    e_sx = stock_acc.eid("SXEW", "CSXEW", "CC")
+    assert f[e_sx] == pytest.approx(30.0) and method[e_sx] == "network_balance"
