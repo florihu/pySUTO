@@ -275,10 +275,12 @@ def _cathode_domestic_subtract(sector_to: str, missing: str = "block"):
 # unobserved export legs count as 0 (CONTEXT.md "missing counts as 0"), so the
 # residual fires wherever CP→Cathode production is known — this is what anchors
 # the FU sink with a real prior. The supply term keeps missing="block": without
-# known production a residual FU prior would be meaningless. USC/MESC below
-# deliberately keep full "block" semantics so they stay reserved for the
-# ShareImputer's zero-mean throughput-scaled seed (Part B) instead of being
-# preempted by a near-zero formula residual.
+# known production a residual FU prior would be meaningless. The USC/MESC
+# residual relations that used to follow were retired in Round X (ADR 0040): a
+# stock change is a reported value or the ShareImputer's zero-mean seed, never
+# a cathode-balance residual — on W.1 they were dormant only because the
+# NetworkImputer's balance wrote the twin first; once that writer was barred
+# they booked 7,290 kt of one-signed stock change (Japan MESC 2016 +543 kt).
 cathode_fu_domestic = FormulaRelation(
     description="Domestic Cathode→FU: CP supply/conc - exports - USC - MESC, clip 0",
     target=lambda ei: (
@@ -295,41 +297,6 @@ cathode_fu_domestic = FormulaRelation(
     clip_lower=0.0,
     epsilon=0.05,
 )
-
-cathode_usc_domestic = FormulaRelation(
-    description="Domestic Cathode→USC: CP supply/conc - exports - FU - MESC, clip 0",
-    target=lambda ei: (
-        (ei["sector_from"] == "Cathode") & (ei["entity_from"] == "Flow") &
-        (ei["sector_to"]   == "USC")     & (ei["entity_to"]   == "SB") &
-        (ei["region_from"] == ei["region_to"]) & (ei["valuation"] == "Mass")
-    ),
-    terms=[
-        _cathode_supply_term(),
-        _cathode_export_term(),
-        _cathode_domestic_subtract("FU"),
-        _cathode_domestic_subtract("MESC"),
-    ],
-    clip_lower=0.0,
-    epsilon=0.05,
-)
-
-cathode_mesc_domestic = FormulaRelation(
-    description="Domestic Cathode→MESC: CP supply/conc - exports - FU - USC, clip 0",
-    target=lambda ei: (
-        (ei["sector_from"] == "Cathode") & (ei["entity_from"] == "Flow") &
-        (ei["sector_to"]   == "MESC")    & (ei["entity_to"]   == "SB") &
-        (ei["region_from"] == ei["region_to"]) & (ei["valuation"] == "Mass")
-    ),
-    terms=[
-        _cathode_supply_term(),
-        _cathode_export_term(),
-        _cathode_domestic_subtract("FU"),
-        _cathode_domestic_subtract("USC"),
-    ],
-    clip_lower=0.0,
-    epsilon=0.05,
-)
-
 
 def _damp_leg_sigma(acc, agg_result, gamma, cv_cap, logger, a_ref_override=None):
     """Size-damp σ on covered bilateral Flow-origin Mass legs (ADR 0017).
@@ -579,10 +546,9 @@ def main(feed_ids: list[str], label: str) -> None:
     conc_formula = FormulaImputer(
         relations=[
             # chain-3 (concentrate/matte/anode_domestic) retired — see note above;
-            # the NetworkImputer now closes these legs. Cathode FD split retained.
+            # the NetworkImputer now closes these legs. The USC/MESC residuals
+            # were retired in Round X (ADR 0040); only the FU residual remains.
             cathode_fu_domestic,
-            cathode_usc_domestic,
-            cathode_mesc_domestic,
         ],
         params_csv=str(inputs.params.resolve("conc") / "params.csv"),
         id="conc_formula",
