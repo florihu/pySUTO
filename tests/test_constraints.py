@@ -949,6 +949,32 @@ class TestRatioConstraintBuilder:
         assert sc0 == pytest.approx((p95 / Z95_STOCK) * 100.0, rel=1e-6)  # σ_r · abs_floor
         assert 0.0 < sc0 < SIGMA_C_INACTIVE
 
+    def test_stock_bound_scale_floor_is_in_kt(self, toy_acc, tmp_path):
+        """Round X / ADR 0040: the net-stock rows take their own scale floor in kt
+        (STOCK_BOUNDS_SCALE_ABS_FLOOR = 0.1). A collapsed throughput then gives
+        σ_c = σ_r·0.1 kt — finite, soft, and not the 100 kt that priced the MESC
+        exchange-location rows at 553 kt."""
+        from pysuto.constraints import RatioConstraintBuilder
+        from pysuto.constraints.ratio import Z95_STOCK
+        from pysuto.constraints.sum import SIGMA_C_INACTIVE
+
+        p95  = 0.1
+        path = self._write_stock_bound_csv(tmp_path, value_max=p95)
+        builder = RatioConstraintBuilder.from_csv(
+            path, toy_acc, sigma_rel_floor=0.02, scale_abs_floor=0.1)
+        s = np.ones(toy_acc.n_edges)
+        blk0 = builder.build_dynamic(toy_acc, np.zeros(toy_acc.n_edges), s, "2020")
+        a0   = (blk0.row_meta["time"].astype(str) == "2020").to_numpy()
+        sc0  = blk0.sigma_c[a0][0]
+        assert sc0 == pytest.approx((p95 / Z95_STOCK) * 0.1, rel=1e-6)
+        assert 0.0 < sc0 < SIGMA_C_INACTIVE
+        # a real throughput is still scaled off the denominator, floor inactive
+        f = np.zeros(toy_acc.n_edges)
+        f[[0, 5]] = 10_000.0
+        blk = builder.build_dynamic(toy_acc, f, s, "2020")
+        a   = (blk.row_meta["time"].astype(str) == "2020").to_numpy()
+        assert blk.sigma_c[a][0] == pytest.approx((p95 / Z95_STOCK) * 10_000.0, rel=1e-6)
+
     def test_ratio_single_pair_mass_output_ratio(self, toy_acc, tmp_path):
         """Stripping-ratio shape: a single-pair Mass ratio between two Mining
         outputs (WR/Ore) → +1·Waste − r·Ore (no agg)."""

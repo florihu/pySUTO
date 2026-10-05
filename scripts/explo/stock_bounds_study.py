@@ -3,11 +3,25 @@
 Reads the ICSG feed values, computes the ratio of absolute stock change to
 cathode-Semi consumption per (region, year), reports per-region and pooled
 statistics, plots a 3-panel figure, and writes one params.csv row per
-(region, indicator) with agg=true so the RatioBoundBuilder aggregates the
-numerator and denominator over all source regions per destination region.
+(region, indicator in WRITE_INDICATORS) with agg=true so the RatioBoundBuilder
+aggregates the numerator and denominator over all source regions per
+destination region.
+
+Round X (ADR 0040): only PSC rows are written. MESC/USC are held at their prior
+by the Stage-2 net-stock seed σ (1 % of the co-located FU leg, floor 0.3 kt) and
+have no row family — a zero-centred row pulled every reported stock change
+toward zero, and the "hub" cluster (Netherlands, Singapore, United Kingdom,
+p95 = 9.1 from normalising an exchange location's stock change by its own small
+semi use) priced the MESC legs at σ ≈ 553 kt, a free sink. The MESC/USC
+statistics are still printed for the record. Regions are mapped to ROOT labels
+before anything is grouped (ADR 0032; the previous version keyed on ICSG's own
+labels, so Korea, ROW, Belgium and Taiwan fell to the default cluster).
+
+    python scripts/explo/stock_bounds_study.py [--dry-run]
 """
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -20,7 +34,8 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 
 from pysuto.acc import AccountingStructure  # noqa: E402
 
-VALUES_CSV = REPO_ROOT / "data/input/feed/icsg/current/values.csv"
+FEED_DIR   = REPO_ROOT / "data/input/feed/icsg/current"
+VALUES_CSV = FEED_DIR / "values.csv"
 EFF_PARAMS_CSV = REPO_ROOT / "data/input/params/eff/current/params.csv"
 PARAMS_DIR = REPO_ROOT / "data/input/params/stock_bounds/current"
 FIG_PATH = REPO_ROOT / "figs/ex/stock_bounds.png"
@@ -34,10 +49,17 @@ REFINING_EFF_PARAM_ID = "effer"
 
 # Per-indicator region clustering: indicators listed here are split into
 # multiple clusters via largest-gap on log10(per-region p95). Others use a
-# single global pool.
-CLUSTERED = {
-    "MESC": dict(k=2, names=["domestic", "hub"]),  # names ordered low → high
-}
+# single global pool. Empty since Round X — the MESC "hub" cluster is retired
+# with the MESC rows (see the module docstring).
+CLUSTERED: dict = {}
+
+# Indicators that get rows in params.csv (Round X: PSC only; ADR 0040).
+WRITE_INDICATORS = ("PSC",)
+
+# Guard on the PSC band: the shipped value is 0.0504 (v4). The denominator once
+# silently collapsed to SXEW-only (no `Anode` rows in the feed) and inflated p95
+# ~70×; refuse to write a band outside this window so that cannot recur.
+PSC_P95_WINDOW = (0.03, 0.08)
 
 INDICATORS = {
     "MESC": dict(Type="Cathode", Process="MESC", Supply_Use="Use"),
@@ -110,9 +132,21 @@ def _slug(region: str) -> str:
                   .replace(" ", "_"))
 
 
+def to_root_regions(df: pd.DataFrame, feed_dir: Path = FEED_DIR) -> pd.DataFrame:
+    """Map the feed's SOURCE region labels onto the model's root regions
+    (``conc.xlsx`` sheet ``region_map``), as ``feedpipe`` does downstream; the
+    acc enumerates root names, so grouping on source labels matched nothing for
+    any renamed or aggregated region (ADR 0032; TODO.md "Carried out of Round Q")."""
+    rm = pd.read_excel(feed_dir / "conc.xlsx", sheet_name="region_map")
+    m = dict(zip(rm["src_region"], rm["root_region"]))
+    missing = sorted(set(df["Region"]) - set(m))
+    assert not missing, f"feed regions absent from region_map: {missing}"
+    return df.assign(Region=df["Region"].map(m))
+
+
 def load_values() -> pd.DataFrame:
     df = pd.read_csv(VALUES_CSV)
-    return df
+    return to_root_regions(df)
 
 
 def filter_series(df: pd.DataFrame, filt: dict, name: str) -> pd.Series:
@@ -332,13 +366,15 @@ def _build_param_row(indicator: str, region: str, p95: float,
     }
 
 
-def write_params_csv(per_indicator_p95: dict, regions: list) -> None:
-    """Emit one row per (region, indicator). MESC uses the region's cluster p95;
-    USC/PSC use a single global p95 each."""
-    PARAMS_DIR.mkdir(parents=True, exist_ok=True)
+def build_params_rows(per_indicator_p95: dict, regions: list,
+                      indicators: tuple = WRITE_INDICATORS) -> pd.DataFrame:
+    """One row per (region, indicator in ``indicators``). A clustered indicator
+    uses the region's cluster p95; the others a single global p95 each."""
     rows = []
     for region in regions:
         for indicator, payload in per_indicator_p95.items():
+            if indicator not in indicators:
+                continue
             if isinstance(payload["p95"], dict):
                 # cluster-specific p95: payload["p95"] maps cluster_name → p95
                 cluster = payload["region_to_cluster"].get(region, payload["default_cluster"])
@@ -353,25 +389,27 @@ def write_params_csv(per_indicator_p95: dict, regions: list) -> None:
                 cluster_label=cluster,
                 denom_lbl=payload["denominator_label"],
             ))
-    df = pd.DataFrame(rows, columns=PARAMS_COLUMNS)
+    return pd.DataFrame(rows, columns=PARAMS_COLUMNS)
+
+
+def write_params_csv(per_indicator_p95: dict, regions: list) -> None:
+    PARAMS_DIR.mkdir(parents=True, exist_ok=True)
+    df = build_params_rows(per_indicator_p95, regions)
     out = PARAMS_DIR / "params.csv"
     df.to_csv(out, sep=";", index=False)
-    print(f"Params written to {out.relative_to(REPO_ROOT)} ({len(rows)} rows)")
+    print(f"Params written to {out.relative_to(REPO_ROOT)} ({len(df)} rows)")
 
 
-def main() -> None:
+def main(dry_run: bool = False) -> None:
     df = load_values()
 
     eff_er = load_eff_value(REFINING_EFF_PARAM_ID)
     print(f"Using {REFINING_EFF_PARAM_ID} = {eff_er} for the anode→cathode "
           f"contribution to the PSC denominator (empirical study only).")
-    # WARNING (known bug — do not ship a regenerated PSC bound without fixing this):
-    # the `Type="Anode"` term below matches ZERO rows — the ICSG feed has no `Anode`
-    # type (types are Cathode/Concentrate/Matte/PSC/Scrap). So the PSC denominator
-    # silently collapses to SXEW-only (~16% of refined cathode), inflating PSC's p95
-    # ~70× (0.05 → 3.52). The shipped PSC bound is the validated v3 value (0.05); a
-    # correct refined-cathode-production denominator + data-provenance check are a
-    # separate follow-up. USC/MESC (Cathode→FU denominator) are unaffected.
+    # The `Type="Anode"` term once matched ZERO rows (the feed had no `Anode` type)
+    # and the PSC denominator silently collapsed to SXEW-only, inflating p95 ~70×
+    # (0.05 → 3.52). The feed now carries Refining/Anode/Use rows (ADR 0021);
+    # PSC_P95_WINDOW guards against a recurrence.
     DENOMINATORS["PSC"] = [
         (dict(Type="Cathode", Supply_Use="Supply", Process="SXEW"), 1.0),
         (dict(Type="Anode",   Supply_Use="Use",    Process="Refining"), eff_er),
@@ -445,9 +483,23 @@ def main() -> None:
     regions = sorted(acc.node_index["region"].unique().tolist())
     print(f"  enumerated {len(regions)} regions from acc.node_index")
 
+    psc_p95 = per_indicator_p95["PSC"]["p95"]
+    lo, hi = PSC_P95_WINDOW
+    if not (lo <= psc_p95 <= hi):
+        raise ValueError(f"PSC pooled p95 = {psc_p95:.4f} outside {PSC_P95_WINDOW}: "
+                         "check the denominator before writing (see module docstring)")
+
     plot_figure(results)
+    if dry_run:
+        df_rows = build_params_rows(per_indicator_p95, regions)
+        print(f"\n[dry-run] would write {len(df_rows)} rows "
+              f"({', '.join(WRITE_INDICATORS)}) to {PARAMS_DIR.relative_to(REPO_ROOT)}")
+        print(df_rows[["param_id", "b_region_to", "value_max", "comment"]].head(8).to_string(index=False))
+        return
     write_params_csv(per_indicator_p95, regions)
 
 
 if __name__ == "__main__":
-    main()
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    ap.add_argument("--dry-run", action="store_true", help="print, do not write params.csv")
+    main(dry_run=ap.parse_args().dry_run)
