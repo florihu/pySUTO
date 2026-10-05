@@ -821,14 +821,18 @@ class SolverDiag:
             g["retention"] = np.where(sp > 0, g["sum_post"].to_numpy(dtype=float) / sp, np.nan)
         return g
 
-    def _totals_data(self, world_edges, group_col: str, regions=None, order_hint=None):
+    def _totals_data(self, world_edges, group_col: str, regions=None, order_hint=None,
+                     colors=None):
         """(valuations, folded totals, ordered groups, colours) for one edge
         subset. The named set and the colours come from the *world* view so a
-        region filter never repaints a sector."""
+        region filter never repaints a sector. ``colors`` overrides the palette
+        when several subsets share one legend (SD-R-10: one palette over the
+        union of both directions, so no two sectors share a colour)."""
         vals = self._valuations(world_edges)
         world = sector_totals(world_edges, group_col, years=self._years, valuations=vals)
         named = self._named_groups(world, order_hint)
-        colors = self._series_colors(named)
+        if colors is None:
+            colors = self._series_colors(named)
         edges = filter_regions(world_edges, ("from_region", "to_region"), regions)
         if edges.empty:
             return vals, None, [], colors
@@ -953,16 +957,32 @@ class SolverDiag:
 
         directions = [("sb_input", "SB-input (entity_from = SB)"),
                       ("sb_output", "SB-output (entity_to = SB, incl. final demand)")]
-        prepared = []
+        # One palette over the union of both directions' named groups: the two
+        # rows share a legend, and a per-direction palette gave Scrap (SB-input)
+        # and MESC (SB-output) the same colour.
+        subsets = []
+        union: list = []
         for key, dlabel in directions:
             sub = be[be["direction"] == key]
             if sub.empty:
-                prepared.append((dlabel, None, None, [], {}))
+                subsets.append((dlabel, None, None))
                 continue
             fam_of = (sub.drop_duplicates("sb_sector").set_index("sb_sector")["sb_entity_sub"]
                          .astype(str).to_dict())
             hint = {s: _BOUNDARY_FAMILY_ORDER.get(f, 99) for s, f in fam_of.items()}
-            prepared.append((dlabel,) + self._totals_data(sub, "sb_sector", regions, order_hint=hint))
+            vals_d = self._valuations(sub)
+            named = self._named_groups(
+                sector_totals(sub, "sb_sector", years=self._years, valuations=vals_d), hint)
+            union += [g for g in named if g not in union]
+            subsets.append((dlabel, sub, hint))
+        palette = self._series_colors(union)
+        prepared = []
+        for dlabel, sub, hint in subsets:
+            if sub is None:
+                prepared.append((dlabel, None, None, [], {}))
+                continue
+            prepared.append((dlabel,) + self._totals_data(
+                sub, "sb_sector", regions, order_hint=hint, colors=palette))
 
         vals = next((p[1] for p in prepared if p[1] is not None), None)
         if vals is None:
