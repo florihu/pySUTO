@@ -146,8 +146,8 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 - Masses are `kt` — the code's unit in logs, axis labels and the Sankey default. Name the valuation when both exist: `kt` (gross mass) vs `kt CC` (contained copper); `Mt` for world-scale totals; never an unlabelled `t`.
 - Every relative number names its base and the run it is relative to: `Σz² −9.6 % vs opt_<id>`, never `−9.6 %` alone. A difference of two percentages is in `pp`.
 - Retention is `Σa*/Σa_prior` by category and is always quoted with its category and year (GLOSSARY.md "Retention").
-- ADRs: `docs/adr/NNNN-slug.md`, one paragraph plus a bold `**Status:**` line citing evidence run ids; write one only if hard to reverse AND surprising AND a real trade-off (`.claude/skills/grill-with-docs/ADR-FORMAT.md`). "Rejected on measurement" is a valid status.
-- `GLOSSARY.md` is a glossary only: bold term, tight definition, `_Avoid_` aliases, flagged ambiguities (`.claude/skills/grill-with-docs/CONTEXT-FORMAT.md`). Add a term whenever vocabulary had to be pinned down mid-task.
+- ADRs: `docs/adr/NNNN-slug.md`, one paragraph plus a bold `**Status:**` line citing evidence run ids; write one only if hard to reverse AND surprising AND a real trade-off (`domain-modeling` skill, `ADR-FORMAT.md`). "Rejected on measurement" is a valid status.
+- `GLOSSARY.md` is a glossary only: bold term, tight definition, `_Avoid_` aliases, flagged ambiguities (`domain-modeling` skill, `GLOSSARY-FORMAT.md`). Add a term whenever vocabulary had to be pinned down mid-task.
 - Modelling choices and architecture go in `README.md`; round bookkeeping in `TODO.md`. No third place.
 
 ## Git workflow
@@ -158,6 +158,10 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 
 ## Agent skills
 
+- **Source** — Matt Pocock's skills come from the read-only `mattpocock-skills` plugin, enabled at project scope in `.claude/settings.json`; the rules below adapt them to pySUTO. `.claude/skills/` holds only pySUTO's own skills.
 - **Issue tracker** — GitHub issues via `gh`. See `docs/agents/issue-tracker.md`.
 - **Triage labels** — `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
 - **Domain docs** — single-context: `GLOSSARY.md` (glossary) + `docs/adr/`. See `docs/agents/domain.md`.
+- **`/implement`** — commits to the current branch: start it on a `feat/`, `fix/` or `diag/` branch, never `main`. There is no type checker; where it says typecheck, run the single test file. Commit first, then review the range since the branch point with `mattpocock-skills:code-review` (not the built-in `/code-review`); review fixes go in a second commit.
+- **Measure tickets** — `to-tickets` gives every σ-rule, builder, imputer, feed or knob change its own measure ticket, blocked by the build ticket and closed by a `measure(...)` commit plus its REP. `/implement` never runs the pipeline; a ticketless run whose change needs a REP says so at close-out.
+- **`/implement-spec`** — code-only specs; it never takes a measure ticket. Those run afterwards in the main checkout, one at a time (worktrees have no `data/proc`; registries have no locking).
