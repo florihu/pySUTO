@@ -13,7 +13,9 @@ as signed slack (1,108 mass edges of the mine chain more than 1 kt below zero on
 edge whose *structural* lower bound is 0 (586,560 rows, 19,552 per year: every edge but the
 signed stock changes Cathode→USC, Cathode→MESC and CP→PSC), read from `acc.bounds.l` and never
 from the pinned `ConstraintRun.l`, so the zero pin stays probe-only and no-data stock changes stay
-signed; upper bounds emit nothing. Measuring the round exposed a second defect the rows amplified:
+signed (in the bound rows — the hard concentration band still forbade their negative half until
+[ADR 0041](0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md)); upper bounds emit
+nothing. Measuring the round exposed a second defect the rows amplified:
 every production run had stopped at Clarabel's relative gap of 1e-3, which is no accuracy on this
 objective — its magnitude is the prior-only constant Σ(a₀/σ)² (1.17e6 in 2015 against a misfit
 Σz² of 1.13e5), so the rule admits ≈ 1,000 objective units, and the dual cost at a stalled iterate

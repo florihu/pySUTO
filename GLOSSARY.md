@@ -330,7 +330,8 @@ its sector is `"<any>"`, not pin it to a concrete edge entity. See
 `SB` node, naming *what kind* of boundary crossing it is. In the copper model: `Nature` (primary
 extraction entering the system — crude ore, `CO`), `FD` (final demand leaving the system — the
 final-demand categories `FU` / `MESC` / `USC`), `SEM` (secondary / residual material — `Scrap`
-recycling inputs and `Slag` / `Tailings` / `WR` / `PSC` residual outputs). `entity_sub` is
+recycling inputs, the `Slag` / `Tailings` / `WR` residual outputs, and `PSC`, the producer
+stock-change leg). `entity_sub` is
 meaningful only on `SB` nodes (`Flow` / `Process` nodes leave it empty). _Note:_ `FD` is
 structurally an SB-*output* (`entity_to == "SB"`) yet semantically belongs to the **use** side — a
 commodity consumed by final demand, with a real `Flow` commodity on its origin endpoint; only
@@ -420,7 +421,11 @@ _Avoid_: (1) reading a large-negative residual on a `nonneg` bound as a violatio
 **Structural lower bound** — the per-edge `l` of the accounting structure (`acc.bounds.l`): 0 on
 every edge except the signed stock-change edges (`Cathode→USC`, `Cathode→MESC`, `CP→PSC`), whose
 `l` is −1e6. Since [ADR 0039](docs/adr/0039-flow-lower-bounds-are-enforced-in-the-qp.md) each
-`l = 0` enters the QP as one hard `nonneg` row `−a ≤ 0` (type `bound`, variant `lower`). _Avoid_:
+`l = 0` enters the QP as one hard `nonneg` row `−a ≤ 0` (type `bound`, variant `lower`). A signed
+edge (`l < 0`) carries no one-signed hard ratio band: `bl·denom ≤ num ≤ bu·denom` with `bl ≥ 0` is
+satisfiable for a negative pair only at zero, so `RatioBoundBuilder` skips it there and the soft
+ratio equality alone ties the valuations
+([ADR 0041](docs/adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md)). _Avoid_:
 reading `ConstraintRun.l` as the structural bound — Stage 3 overwrites it with the prior box and the
 **zero pin** (`l = u = 0` on no-data edges, [ADR 0013](docs/adr/0013-no-data-flat-prior-anchor.md)),
 and those boxes, like every upper bound `u`, reach only the feasibility pre-check. Before ADR 0039
@@ -499,11 +504,14 @@ the destination of a `Cathode(i)→MESC(j)` leg, not a property of the origin. _
 (reserved for the merchant / re-export hubs of [ADR 0027](docs/adr/0027-re-exports-are-re-attributed-at-feed-time.md)),
 "warehouse region".
 
-**Net-stock seed** — the prior of a `MESC` / `USC` leg that no feed reports: value 0, held there
-with `σ = max(0.01·|co-located Cathode(i)→FU(j) flow|, 0.3 kt)` — the same pricing as a
-feed-backed level ([ADR 0040](docs/adr/0040-stock-change-legs-are-held-at-their-prior.md)). A stock
-leg's prior is a reported value or this seed; no imputer manufactures one. _Avoid_: reading a seeded
-0 as a reported zero; "throughput-scaled band" (the retired p95 pricing).
+**Net-stock seed** — the prior of a `MESC` / `USC` / `PSC` leg that no feed reports: value 0, held
+there with `σ = max(0.01·|base|, 0.3 kt)`, the base being the co-located `Cathode(i)→FU(j)` flow for
+`MESC` / `USC` and the same region's `CP→Cathode` product for `PSC`, in either valuation — the same
+pricing as a feed-backed level ([ADR 0040](docs/adr/0040-stock-change-legs-are-held-at-their-prior.md);
+PSC since [ADR 0041](docs/adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md)).
+A stock leg's prior is a reported value (with its Mass twin through the cathode concentration) or
+this seed; no imputer manufactures one. _Avoid_: reading a seeded 0 as a reported zero;
+"throughput-scaled band" (the retired p95 pricing); "share transfer" (the retired PSC mode).
 
 **Sink** — an edge family whose σ makes its penalty negligible against the mass it can absorb, so
 a contradiction elsewhere discharges into it instead of surfacing as `z` where it belongs. The
@@ -570,12 +578,17 @@ Mass→CC fraction) — they are different coefficient families.
 **Process recipe.** A Process node viewed as a mass-closing transformation in CC: its **pooled inputs**
 (primary + `Scrap` secondary) → one **Flow product** (`eff·Σin`) + a **SEM residual output**
 (`(1−eff)·Σin`). The unit of reasoning for the network-traversal imputer
-([ADR 0004](docs/adr/0004-process-recipe-traversal-imputer.md)). **Mining is the exception**: it has
-*no* `eff` row (eff defaults to 1.0, so CC is conserved CO→Ore) and its `WR` residual follows the
-**stripping ratio** (below) on Mass (`WR_Mass = stripping_ratio·Ore_Mass`), not the generic
-`(1−eff)·Σin` SEM-residual rule. _Avoid_: confusing the recipe's **SEM residual-output** (Slag / Tailings / WR / PSC,
-reached via a *supply* edge) with a **SEM secondary input** (Scrap, reached via a *use* edge) — both
-carry `entity_sub == "SEM"`, and only the edge direction distinguishes the two roles.
+([ADR 0004](docs/adr/0004-process-recipe-traversal-imputer.md)). **Mining and `CP` are the
+exceptions**: Mining has *no* `eff` row (eff defaults to 1.0, so CC is conserved CO→Ore) and its
+`WR` residual follows the **stripping ratio** (below) on Mass (`WR_Mass = stripping_ratio·Ore_Mass`),
+not the generic `(1−eff)·Σin` SEM-residual rule; `CP` has no `eff` row either, and its SEM output
+`PSC` is a stock-change leg held by the **net-stock seed**, never a derived residual — the eff-less
+recipe once wrote it as `0 ± 0`, a hidden hard pin
+([ADR 0041](docs/adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md)).
+_Avoid_: confusing the recipe's **SEM residual-output** (Slag / Tailings / WR, reached via a
+*supply* edge; `PSC` shares the `entity_sub` but is a stock-change leg) with a **SEM secondary
+input** (Scrap, reached via a *use* edge) — both carry `entity_sub == "SEM"`, and only the edge
+direction distinguishes the two roles.
 
 **Stripping ratio (`stripping_ratio`).** The mass of waste rock (`WR`) stripped per unit of `Ore`
 extracted at a Mining process — `WR_Mass = stripping_ratio · Ore_Mass`, a **Mass→Mass** ratio between

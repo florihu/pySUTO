@@ -8,7 +8,10 @@ drift +9.6 Mt → +0.39 Mt, common-set sum-row z² −0.4 % vs W.1, Round-E item
 Retires the zero-centred MESC/USC net-stock rows of the soft-net-stock-bounds fix
 ([REP 2026-09-01](../rep/analysis_opt_20260831_121315_645bbff1_20260901_soft-net-stock-bounds-fix.md));
 leaves [ADR 0039](0039-flow-lower-bounds-are-enforced-in-the-qp.md) (signed stock legs have no
-lower-bound row) and the PSC rows unchanged. Issue #34; follow-ups #35, #36.
+lower-bound row) and the PSC rows unchanged. Issue #34; follow-ups #35, #36. Amended by
+[ADR 0041](0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md) (Round Y): PSC joins
+the seeded legs with base `CP→Cathode`, the PSC share transfer is retired, and the one-signed hard
+concentration band that made this seed one-sided on USC/MESC is no longer emitted on a signed edge.
 
 The three stock-change legs are the only signed edges of the account, so whatever σ they carry is
 the price of routing a contradiction of the cathode balance into a stock instead of surfacing it
