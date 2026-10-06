@@ -13,7 +13,8 @@
   exchange stock-change legs are held at their prior (reported or zero) with
   σ = max(0.01·|FU leg|, 0.3 kt); their zero-centred rows are retired. Follow-ups: #35 (ICSG
   stock parse: 2014 exchange block, edition-boundary year, USC types, US producers row),
-  #36 (BACI 98/1/1 fan, PSC no-data σ 1e6, dead `cathode_mesc_domestic`).
+  #36 (BACI 98/1/1 fan, PSC no-data σ 1e6, dead `cathode_mesc_domestic`); from the code review
+  #37 (PSC 0.1 kt floor), #38 (supply guard), #39 (stock membership in three places).
 * Introduce as constant constraint — superseded by the seed pricing above (a soft row at
   0.3 kt is the constant constraint without the 1995 infeasibility of a hard band).
 
@@ -75,6 +76,14 @@ the balance never derives a supply from uses that include a stock leg. REP
 year lost per edition, USC types collapse, US producers row ±2 Mt), #36 (BACI 98/1/1 cathode fan
 = one-signed stock prior; no-data CP→PSC at σ 1e6; dead `cathode_mesc_domestic`). The manuscript
 Results stay on W.1 until re-baselined.
+
+**From the code review (2026-10-06):** `cathode_fu_domestic` never subtracted exports (its export
+term matched no edge), so X.0's z² −0.4 % vs W.1 bundles a −19.9 Mt domestic-FU prior change
+(REP §4.2 "Side effect"; the split is not measured); the formula and the conc FormulaImputer are
+retired (re-run `imp_20261006_081350_5f8edf28` bit-identical to X.0's imp). Deferred: #37 (the
+0.1 kt PSC scale floor leaves 442 of 1,410 rows at σ_c ≈ 0.0035 kt — latent zero pins, none bind
+on X.0), #38 (the supply guard keys on a stock leg's presence, not its missingness), #39 (stock-leg
+membership defined in three places).
 
 # OPEN (2026-09-16, out of Round L)
 
