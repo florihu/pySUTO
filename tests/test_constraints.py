@@ -1198,6 +1198,27 @@ class TestRatioBoundBuilder:
         block   = builder.build_static(toy_acc)
         assert np.all(block.sigma_c == 0.0)
 
+    def test_signed_edge_carries_no_one_signed_hard_band(self, toy_acc, tmp_path):
+        """A band `bl·denom ≤ num ≤ bu·denom` with bl ≥ 0 is satisfiable for a
+        negative pair only at zero, so on an edge whose structural lower bound is
+        negative (a signed stock-change leg) it would forbid the leg's negative half
+        — on X.0 no USC/MESC edge-year was negative in 265,080 (ADR 0041). The
+        builder emits no such band on a signed pair; the same row on an unsigned
+        pair still emits its two rows, and a band that spans zero stays hard."""
+        from pysuto.constraints import RatioBoundBuilder
+        path = self._write_bound_csv(tmp_path, bu=1.0, bl=0.995)
+        unsigned = RatioBoundBuilder.from_csv(path, toy_acc).build_static(toy_acc)
+        assert unsigned.G_rows.shape[0] == 2
+
+        toy_acc.bounds.l[2] = -1e6          # numerator Ore/A→Mining/A 2020 is signed
+        signed = RatioBoundBuilder.from_csv(path, toy_acc).build_static(toy_acc)
+        assert signed.G_rows.shape[0] == 0
+        assert signed.G_rows.shape[1] == toy_acc.n_edges
+
+        spanning = self._write_bound_csv(tmp_path, bu=0.05, bl=-0.05)
+        kept = RatioBoundBuilder.from_csv(spanning, toy_acc).build_static(toy_acc)
+        assert kept.G_rows.shape[0] == 2
+
     # ── empty-band guard (regression: scrap dual-class collapse) ──
 
     def _write_two_bound_csv(self, tmp_path, b1, b2):
