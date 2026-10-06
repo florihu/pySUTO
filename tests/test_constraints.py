@@ -1239,7 +1239,7 @@ class TestRatioBoundBuilder:
 
         The stock change (b-side, here Mining→Waste/SB) is the numerator and must
         carry the ±1; the denominator (a-side, Mining→Ore) carries ∓bu/bl — the
-        `Σb − r·Σa` form (CONTEXT.md §"Node-scoped vs set-scoped"; ADR 0005). The
+        `Σb − r·Σa` form (GLOSSARY.md §"Node-scoped vs set-scoped"; ADR 0005). The
         swapped placement builds `denom ≤ p95·stock` → forces stock ≥ denom/p95
         (~20–42×), the cathode-pool collapse this guards against.
         """

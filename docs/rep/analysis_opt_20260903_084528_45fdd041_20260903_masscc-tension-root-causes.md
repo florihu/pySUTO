@@ -55,7 +55,7 @@ Feed-backed share of supply-prior tonnage — every sector has **at most one** o
   Smelting/CFR/ER/CER/CP CC also recipe-derived.
 
 Yet **every scale total runs cv = 1.7 % identically** (ANCHOR_CV 0.01 + conditioning floor) — a
-twin-derived total carries the same authority as an ICSG observation. CONTEXT.md documents scale
+twin-derived total carries the same authority as an ICSG observation. GLOSSARY.md documents scale
 totals as scale preservation, *"not to add information"* — the uniform tight cv over-preserves
 fabricated priors. Result: 3.0M z² of phantom cost, and the drag **inverts the data hierarchy** —
 observed totals move *more* than fabricated ones (median |move|: Concentrate CC 8.7 % vs Mass

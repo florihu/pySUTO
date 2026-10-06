@@ -5,12 +5,12 @@ Stage-2 imputation is a cascade of **per-edge** fillers (`ParametricImputer`,
 a *node*. In the reference run [`imp_20260608_080016_0563ae84`](../../data/proc/imp/) **80.3 %
 of edges (686 k) end as `flat_prior_noisy_zero`** — the smart imputers fill ~9 % and the rest
 is given up on. The **SEM residual outputs** (Slag / Tailings / WR / PSC) have zero feed
-[`Coverage`](../../CONTEXT.md) and can *only* be reached by mass closure, so today they are
-noisy zeros (no [`val`](../../CONTEXT.md)). The conc-after-eff Mass-gap is the same
+[`Coverage`](../../GLOSSARY.md) and can *only* be reached by mass closure, so today they are
+noisy zeros (no [`val`](../../GLOSSARY.md)). The conc-after-eff Mass-gap is the same
 per-edge brittleness.
 
 We add a **`NetworkImputer`** ([`src/pysuto/impute/network.py`](../../src/pysuto/impute/network.py))
-that treats each **Process node as a mass-closing [recipe](../../CONTEXT.md)**: it propagates
+that treats each **Process node as a mass-closing [recipe](../../GLOSSARY.md)**: it propagates
 copper content (`CC`) through recovery efficiencies (`product = eff·Σ(primary inputs)`, `waste =
 (1−eff)·Σ(primary inputs)`, Scrap pooled in), balances Flow nodes (`Σ supply-in = Σ uses-out`,
 which joins one process's product to the next process's input and resolves the `Ore` branch
@@ -93,7 +93,7 @@ the `ImputationLog`, and the bounds-clip.
   downstream recipe (missing primary input), pushing the whole SXEW branch to `flat_prior_noisy_zero`
   (worse `val_pct`) and discarding the structural fact that the branch is ~0; for the dominant
   no-SXEW case 0 is the true value. The widened σ keeps the zero honest (a floor, not a precise
-  measurement). See [CONTEXT.md](../../CONTEXT.md) §"Bounds-clip (in-imputer)".
+  measurement). See [GLOSSARY.md](../../GLOSSARY.md) §"Bounds-clip (in-imputer)".
 - **Validation.** Re-run the imputation driver; success = **val-coverage (`val_pct`) of the
   `SEM` column in `coverage_system_boundary_<year>.csv` and of chain commodities in
   `coverage_supply_use_<year>.csv` rises**, with `flat_prior_noisy_zero` share well below 80 %.

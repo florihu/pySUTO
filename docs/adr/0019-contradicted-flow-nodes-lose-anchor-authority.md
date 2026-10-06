@@ -130,4 +130,4 @@ for the same reason.
   to the data source.
 - Pre-existing contradictions (Bulgaria, Zambia — flagged in the shipped baseline too, not only
   in ADR 0018's restored set) are now treated as well; the REP reports the split.
-- Glossary: see **contradicted flow node** in [CONTEXT.md](../../CONTEXT.md).
+- Glossary: see **contradicted flow node** in [GLOSSARY.md](../../GLOSSARY.md).

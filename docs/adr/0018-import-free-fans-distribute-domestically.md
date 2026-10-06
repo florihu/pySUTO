@@ -47,7 +47,7 @@ consumer region; it stays undistributed when BACI is blind to that region.**
   domestic leg as `max(0, usage − Σ imports)` and states it *"needs no ICSG production data"*.
   At `Σ imports = 0` that formula yields `usage`. This ADR removes the `imp_sum > 0` guard that
   prevented the existing rule from applying; it introduces no new weighting policy.
-- **ADR 0008's principle stands.** Its target is the *even 1/N split* — CONTEXT's
+- **ADR 0008's principle stands.** Its target is the *even 1/N split* — GLOSSARY's
   **Unweighted fan** is defined as one "whose legs carry no weighting information … every leg
   still at the uniform default". A domestic-weighted fan carries weights and is not an
   unweighted fan. Only the scope narrows.
@@ -92,4 +92,4 @@ consumer region; it stays undistributed when BACI is blind to that region.**
 - A cross-feed ordering note: `build_trade_shares` reads the ICSG `F_root`, so the recovery
   needs one rebuild of the trade-shares artifact **and** the ICSG feed before the Stage-2 chain.
 - Glossary: see **Unweighted fan** and **Trade-share fan weighting** in
-  [CONTEXT.md](../../CONTEXT.md).
+  [GLOSSARY.md](../../GLOSSARY.md).

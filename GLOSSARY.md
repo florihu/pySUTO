@@ -1,4 +1,4 @@
-# CONTEXT — pySUTO glossary
+# GLOSSARY — pySUTO glossary
 
 The canonical glossary lives in [README.md](README.md) §"Glossary / vocabulary". This file
 captures terms sharpened during design/grilling sessions that the README does not yet state

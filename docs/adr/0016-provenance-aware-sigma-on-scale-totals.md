@@ -9,7 +9,7 @@ the Round-A REP (rejection runs `opt_20260903_101715_821a620b` cv=0.15,
 
 The `supplytotout`/`usetotout` **scale totals** pin each node's total output to the model's own
 Stage-2 prior group-sum. Their documented purpose is scale preservation against the homogeneous
-collapse, *"not to add information"* (CONTEXT.md §Total-output). Every row ran the same tight
+collapse, *"not to add information"* (GLOSSARY.md §Total-output). Every row ran the same tight
 `ANCHOR_CV = 0.01` (effective cv ≈ 0.017 after Lp conditioning) regardless of whether the prior
 behind the group was a feed observation or a twin/recipe fabrication.
 

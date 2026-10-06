@@ -17,7 +17,7 @@
 `(from_id, to_id, valuation)` and linearly interpolated any year missing between two observations
 — bilateral BACI legs included. BACI is a **complete** matrix: a route carrying no row in a year
 carried no trade. The pipeline already said so — ADR 0010 ("a bilateral import leg with no trade
-observation means 'no trade on this route' — 0 is the honest value") and CONTEXT's *Trade-seed*
+observation means 'no trade on this route' — 0 is the honest value") and GLOSSARY's *Trade-seed*
 entry — and ADR 0024 listed the question as an open follow-up. The unscoped imputer silently
 overrode all three.
 

@@ -232,7 +232,7 @@ def build_F_src(raw_df: pd.DataFrame, ct: ConcordanceTable, *,
     edges (Mapping 2 fan-out — ``ct.tab`` holds one row per src×root pair) is
     counted **once**, while distinct raw rows that resolve to the *same* src
     edge (Mapping 1 raw-row aggregation) are **summed**. Then assert mass
-    conservation. See ADR 0002 and CONTEXT.md "Two mapping levels".
+    conservation. See ADR 0002 and GLOSSARY.md "Two mapping levels".
     """
     src_raw = ct.tab[["raw_id"] + list(ConcordanceTable.SRC_COLS)].drop_duplicates()
     merged = src_raw.merge(

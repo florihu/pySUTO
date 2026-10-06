@@ -83,7 +83,7 @@ Re-allocation uses the hub's own observed geography, `a_A = BACI(A→h)/I` and `
     BACI'(A→Z) = BACI(A→Z) + T·a_A·b_Z        (A ≠ Z)
 
 `A = Z` is a **re-import** (a returned good) or, where A is ROW, third-country trade folded onto
-one aggregate; it is dropped and reported, exactly as CONTEXT's *mapped self-trade* is dropped by
+one aggregate; it is dropped and reported, exactly as GLOSSARY's *mapped self-trade* is dropped by
 ADR 0014's scope. Hubs are processed largest-`T`-first within a (sector, year) and the sweep
 repeats, because hub→hub legs exist (3.4 % of trade); a hub's cumulative netting is capped at its
 own `T`, so a later pass only moves what an upstream hub's re-attribution replenished.

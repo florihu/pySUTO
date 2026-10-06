@@ -207,7 +207,7 @@ four correctness rounds were defects here rather than in the model.
 
 Two behaviours a reader should not have to discover from the code:
 
-- **A row's [vintage](CONTEXT.md) decides precedence, but only across releases.** ICSG publishes the
+- **A row's [vintage](GLOSSARY.md) decides precedence, but only across releases.** ICSG publishes the
   same series in successive yearbooks; a later vintage restates an earlier one, so rows sharing a key
   are resolved newest-wins. Two rows of *one* vintage sharing a key are two different streams folded
   together by a rename and are **summed**, not deduplicated
@@ -531,7 +531,7 @@ Defaults: $\mathrm{CV}_a^\mathrm{min} = \mathrm{CV}_c^\mathrm{min} = 0.05$, $\si
 - **`RatioBoundBuilder`** — type 4 (`.from_csv(...)`).
 - **`FlowBoundsBuilder`** — type 5: one row `−a_i ≤ 0` per edge whose structural lower bound `acc.bounds.l` is 0 — every edge but the signed stock edges ([ADR 0039](docs/adr/0039-flow-lower-bounds-are-enforced-in-the-qp.md)). Upper bounds and the Stage-3 zero pin produce no rows; they stay on `ConstraintRun.u/.l` for the feasibility pre-check.
 - **`ConstraintBlock`** — internal container for one builder's rows.
-- **`ConstraintRun`** — bundle of `G`, `row_meta`, `a0`, `sigma_a`, `u`, `l`, `timestep_data[t] = {"c", "sigma_c"}`. `row_meta` carries a uniform column set across all builders (`pysuto.constraints.naming.ROW_META_COLS`): `[constraint_id, type, variant, is_hard, cone_type, time, valuation, sector, region, entity, entity_sub, ratio_kind, bound_dir, num_*/denom_* (ratio numerator/denominator decode)]`. Every `constraint_id` follows the grammar **`{type}_{variant}_{specs}_{year}`** where `type ∈ {massbal, sum, ratio, bound}` and `variant` is the role within the family (`usefulsupply`/`subentity`/`supplytotout`/`usetotout`/`smelterscrap`/`directrefscrap`/csv-label for sum, `ratioeq`/`bound` for ratio, `lower` for bound, or a user `param_id`). The id is a unique **display key — never parse it; read the columns** (see [CONTEXT.md](CONTEXT.md) §"Constraint identity"). The `time` column is the year the row belongs to (the final id token; set at spec construction by each builder) or `None` for time-agnostic rows (e.g. wildcard CSV constraints), whose id ends in `_na`. When every row's non-zeros lie inside its own time bucket (the **no cross-time coupling** invariant), the engine also stores a per-t partition `G_blocks[t]` / `edge_cols_by_t[t]` (persisted under `blocks/`); Stage 4's block solver consumes it to solve one ~30× smaller QP per year.
+- **`ConstraintRun`** — bundle of `G`, `row_meta`, `a0`, `sigma_a`, `u`, `l`, `timestep_data[t] = {"c", "sigma_c"}`. `row_meta` carries a uniform column set across all builders (`pysuto.constraints.naming.ROW_META_COLS`): `[constraint_id, type, variant, is_hard, cone_type, time, valuation, sector, region, entity, entity_sub, ratio_kind, bound_dir, num_*/denom_* (ratio numerator/denominator decode)]`. Every `constraint_id` follows the grammar **`{type}_{variant}_{specs}_{year}`** where `type ∈ {massbal, sum, ratio, bound}` and `variant` is the role within the family (`usefulsupply`/`subentity`/`supplytotout`/`usetotout`/`smelterscrap`/`directrefscrap`/csv-label for sum, `ratioeq`/`bound` for ratio, `lower` for bound, or a user `param_id`). The id is a unique **display key — never parse it; read the columns** (see [GLOSSARY.md](GLOSSARY.md) §"Constraint identity"). The `time` column is the year the row belongs to (the final id token; set at spec construction by each builder) or `None` for time-agnostic rows (e.g. wildcard CSV constraints), whose id ends in `_na`. When every row's non-zeros lie inside its own time bucket (the **no cross-time coupling** invariant), the engine also stores a per-t partition `G_blocks[t]` / `edge_cols_by_t[t]` (persisted under `blocks/`); Stage 4's block solver consumes it to solve one ~30× smaller QP per year.
 - **`ConstraintRunRegistry`** — disk layout under `data/proc/const/{run_id}/` (G.npz, row_meta.parquet, a0.npy, sigma_a.npy, u.npy, l.npy, `timesteps/t_{year}.npz`).
 
 #### Key parameters
@@ -943,7 +943,7 @@ CONST_BINDINGS = [
     ("eff",          RatioConstraintBuilder, {}),
     ("conc",         RatioBoundBuilder,      {}),
     ("eff",          RatioBoundBuilder,      {}),
-    ("stock_bounds", RatioBoundBuilder,      {}),   # agg=true rows; |Σ b| ≤ k·Σ a  (b=stock numerator, a=FU/Cathode denom; the Σb−r·Σa form, see CONTEXT.md §"Node-scoped vs set-scoped")
+    ("stock_bounds", RatioBoundBuilder,      {}),   # agg=true rows; |Σ b| ≤ k·Σ a  (b=stock numerator, a=FU/Cathode denom; the Σb−r·Σa form, see GLOSSARY.md §"Node-scoped vs set-scoped")
 ]
 for param_id, Builder, kwargs in CONST_BINDINGS:
     const_engine.register(Builder.from_csv(
@@ -1345,7 +1345,7 @@ The two concordance shapes. *Fan-in* = many source edges combine into one root e
 distributed across several root edges (a mapping that classifies only one endpoint).
 These are the **source → root** (Mapping 2) shapes; the upstream **raw → source** projection
 (Mapping 1, where raw-row *aggregation* and *replication* live) is a separate level — see
-[CONTEXT.md](CONTEXT.md) *"Two mapping levels"*.
+[GLOSSARY.md](GLOSSARY.md) *"Two mapping levels"*.
 
 **Aggregation**:
 Stage 2 — combining multiple feeds' observations of the *same* root edge by inverse-variance

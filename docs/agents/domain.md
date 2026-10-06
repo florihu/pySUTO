@@ -2,7 +2,7 @@
 
 How the engineering skills should consume this repo's domain documentation when exploring the codebase.
 
-This repo is **single-context**. There is no separate `CONTEXT.md`; the canonical
+This repo is **single-context**. There is no separate `GLOSSARY.md`; the canonical
 domain/spec source is **`README.md`** at the repo root.
 
 ## Before exploring, read these

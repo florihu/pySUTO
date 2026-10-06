@@ -73,4 +73,4 @@ Scope is deliberately narrow:
   source.
 - The 35 pre-existing contradicted node-years are now named and measurable; they are the
   candidate for a later round.
-- Glossary: **contradicted flow node** in [CONTEXT.md](../../CONTEXT.md).
+- Glossary: **contradicted flow node** in [GLOSSARY.md](../../GLOSSARY.md).

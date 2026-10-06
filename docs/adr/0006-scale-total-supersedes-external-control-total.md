@@ -52,7 +52,7 @@ processes/flows instead of 7 families.
 - **Terminology.** New canonical term **scale total** (internal RHS), distinct from **control total**
   (external RHS, now removed). The README glossary's *avoid "anchor"/"coherence soft-sum"* stands;
   the builder method `from_mask_anchor` is kept as the generic *verb* (pin a masked group-sum to a
-  reference vector) shared by both mechanisms. See [CONTEXT.md](../../CONTEXT.md).
+  reference vector) shared by both mechanisms. See [GLOSSARY.md](../../GLOSSARY.md).
 - **`sum.py`.** `from_mask_anchor` now fills `row_meta.sector` (symmetric with `region`) for
   node-scoped rows grouped on a sector key, so the new node-sum rows carry full node identity.
 - **Validation.** At the prior `a0 = f_agg` we have `c = Σ f_agg`, so the scale-total rows have
