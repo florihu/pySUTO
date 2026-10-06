@@ -61,13 +61,14 @@ _NET = {
     "usc":  ("Cathode", "Flow",    "USC",  "SB"),
 }
 _BASE = {
-    # PSC base = total cathode production = CSXEW + CER inputs to CP (intra-region).
-    "psc":  [("CSXEW", "Flow", "CP", "Process"), ("CER", "Flow", "CP", "Process")],
+    # PSC base = the cathode-pool product CP→Cathode, same region (Round Y, ADR 0041):
+    # the seed prices the leg at 1 % of the producer's throughput in either valuation.
+    "psc":  [("CP", "Process", "Cathode", "Flow")],
     # MESC/USC base = final-use consumption, co-located by (region_from, region_to).
     "mesc": [("Cathode", "Flow", "FU", "SB")],
     "usc":  [("Cathode", "Flow", "FU", "SB")],
 }
-_MODE = {"psc": "transfer", "mesc": "seed", "usc": "seed"}
+_MODE = {"psc": "seed", "mesc": "seed", "usc": "seed"}
 
 
 class ShareImputer(BaseImputer):
@@ -227,7 +228,7 @@ class ShareImputer(BaseImputer):
         e_fill, b_fill = net_ids[fill], base_ids[fill]
         s_new = np.maximum(self.seed_cv * np.abs(f[b_fill]), self.seed_abs_floor)
         f[e_fill], sigma[e_fill] = 0.0, s_new
-        desc = f"{ind.upper()} zero-mean, σ=max(cv·|FU|, floor)"
+        desc = f"{ind.upper()} zero-mean, σ=max(cv·|base|, floor)"
         return [_log(int(e), step, "share_seed", [int(b)], [0.0], 0.0, float(s), desc,
                      f"seed_{ind}")
                 for e, b, s in zip(e_fill, b_fill, s_new)]

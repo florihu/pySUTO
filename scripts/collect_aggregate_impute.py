@@ -114,13 +114,15 @@ TIME_INTERPOLATE_ONLY = True
 # Set False to restore the pre-ADR-0026 behaviour.
 TIME_SCOPE_SAME_REGION = True
 
-# Signed stock-change legs (Cathode→MESC / Cathode→USC). A stock change is a
-# reported value or the zero-centred net-stock seed, nothing else: the time
-# interpolator and the NetworkImputer's Flow-node balance closure are barred from
-# writing these legs (Round X, ADR 0040). Before: 51 balance residuals (Σ|f|
-# 2,780 kt) and 96 interpolated stock changes (3,034 kt) sat in the prior, the
-# sink pre-baked.
-STOCK_SECTORS = ("MESC", "USC")
+# Signed stock-change legs (Cathode→MESC / Cathode→USC / CP→PSC). A stock change
+# is a reported value or the zero-centred net-stock seed, nothing else: the time
+# interpolator and the NetworkImputer (Flow-node balance and recipe) are barred
+# from writing these legs (Round X, ADR 0040; PSC since Round Y, ADR 0041).
+# Before: 51 balance residuals (Σ|f| 2,780 kt) and 96 interpolated stock changes
+# (3,034 kt) sat in the prior, the sink pre-baked; and with CP carrying no eff
+# row the recipe wrote PSC = (1 − 1.0)·Σin = 0 ± 0 on 872 region-years of X.0,
+# a hidden hard pin on a leg ADR 0013 says never to pin.
+STOCK_SECTORS = ("MESC", "USC", "PSC")
 # Net-stock seed σ for MESC/USC (ShareImputer seed mode), in kt: the seed is
 # priced like a feed-backed level — ADR 0025's scale-total rule, 1 % of the
 # co-located Cathode(i)→FU(j) flow, floored at the feeds' 0.3 kt resolution — so

@@ -1870,6 +1870,24 @@ class TestTimeInterpScopeExcludesStockLegs:
         assert mod._time_interp_scope(self._ei(), False, (),
                                       logging.getLogger("test")) is None
 
+    def test_driver_treats_psc_as_a_stock_leg(self):
+        """ADR 0041: the producer stock change `CP→PSC` is the third signed
+        stock-change leg. The driver's own stock-sector set names it, so the
+        time interpolator (here) and the NetworkImputer (its ownership gate)
+        leave it to the net-stock seed — on X.0 the eff-less recipe wrote it
+        as 0 ± 0 on 872 region-years, a hidden hard pin."""
+        import logging
+        mod = _load_driver()
+        assert "PSC" in mod.STOCK_SECTORS
+        ei = pd.DataFrame({
+            "region_from": ["A", "A", "A"],
+            "region_to":   ["A", "A", "A"],
+            "sector_to":   ["Cathode", "PSC", "MESC"],
+        })
+        scope = mod._time_interp_scope(ei, True, mod.STOCK_SECTORS,
+                                       logging.getLogger("test"))
+        np.testing.assert_array_equal(scope, [True, False, False])
+
     def test_stock_leg_is_neither_filled_nor_a_source(self):
         """End to end through TimeImputer: a MESC series with a 2021 gap stays a
         gap, while the parallel domestic series interpolates."""
