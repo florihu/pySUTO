@@ -11,8 +11,8 @@ C  Run imputation pipeline:
      1  concentration ratios (highest priority)
      2  ore-grade ratios
      3  efficiency ratios
-     4  domestic-use FormulaImputer for traded flows
-        (Concentrate, Matte, Anode, Cathode × FU/USC/MESC)
+     4  (domestic-use FormulaImputer retired — the NetworkImputer closes
+        these legs; ADR 0010 §C, ADR 0040)
      5  temporal interpolation (interpolation-only)
      6  flat-prior fallback (ROW-aware CVs)
 D  Save AggregationResult to OUTPUT_DIR
@@ -64,10 +64,6 @@ from pysuto.impute   import (
     TradeImputer,
     NetworkImputer,
     ParametricImputer,
-    FormulaImputer,
-    FormulaRelation,
-    SourceTerm,
-    ParamRef,
     TimeImputer,
     ShareImputer,
     FlatPriorImputer,
@@ -220,7 +216,7 @@ LEG_SIGMA_GAMMA  = 0.5
 LEG_SIGMA_CV_CAP = 1.0
 
 # ---------------------------------------------------------------------------
-# FormulaRelations (module-level — no runtime state, safe to define here)
+# Domestic-use FormulaRelations — all RETIRED; the NetworkImputer closes these legs
 # ---------------------------------------------------------------------------
 
 # concentrate_domestic / matte_domestic / anode_domestic RETIRED (ADR 0010 §C).
@@ -230,73 +226,39 @@ LEG_SIGMA_CV_CAP = 1.0
 # bilateral Anode(Flow)→ER(Process) trade legs, over-attributing the domestic
 # leg. Verified on the reference feeds — once the recipe gate opens these three
 # relations fired 0× (the network's network_mass_twin fills the domestic Mass
-# legs first). The cathode FD-split trio below is NOT subsumable (the Cathode
-# node has three same-region FD unknowns, beyond the lone-gap flow-balance) and
-# is retained.
+# legs first).
+# The cathode final-demand split (cathode_fu/usc/mesc_domestic) is RETIRED too.
+# USC/MESC in Round X (ADR 0040): a stock change is a reported value or the
+# ShareImputer's zero-mean seed, never a cathode-balance residual (once the
+# balance was barred from the stock legs they booked 7,290 kt of one-signed
+# stock change). FU with it: the stock legs are no longer writable, so the
+# domestic Cathode→FU leg is the Cathode node's lone same-region gap and the
+# balance closes it first (production − exports − reported stock change) —
+# the FU relation fired 0× on X.0. Its export term carried the same
+# entity_to=="Flow" defect (every Cathode export leg ends at an FU SB node), so
+# where it did fire (W.1: 226 legs, 28,740 kt) it booked production/conc with
+# no export subtracted; the network writes those legs at 8,845 kt.
 
-def _cathode_supply_term():
-    return SourceTerm(
-        selector=lambda ei: (
-            (ei["sector_from"] == "CP")      & (ei["entity_from"] == "Process") &
-            (ei["sector_to"]   == "Cathode") & (ei["entity_to"]   == "Flow") &
-            (ei["valuation"]   == "CC")
-        ),
-        coefficient=ParamRef("conccathodesupply", "inverse"),
-        region_binding="to_matches_target_from",
-        aggregate="single",
-    )
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
 
-def _cathode_export_term(missing: str = "block"):
-    return SourceTerm(
-        selector=lambda ei: (
-            (ei["sector_from"] == "Cathode") & (ei["entity_from"] == "Flow") &
-            (ei["entity_to"]   == "Flow")    & (ei["valuation"]   == "Mass")
-        ),
-        coefficient=-1.0,
-        region_binding="from_matches_target_from",
-        aggregate="sum",
-        missing=missing,
-    )
-
-def _cathode_domestic_subtract(sector_to: str, missing: str = "block"):
-    return SourceTerm(
-        selector=lambda ei, s=sector_to: (
-            (ei["sector_from"] == "Cathode") & (ei["entity_from"] == "Flow") &
-            (ei["sector_to"]   == s)         & (ei["entity_to"]   == "SB") &
-            (ei["region_from"] == ei["region_to"]) & (ei["valuation"] == "Mass")
-        ),
-        coefficient=-1.0,
-        region_binding="from_matches_target_from",
-        aggregate="single",
-        missing=missing,
-    )
-
-# FU uses missing="zero" on the subtract/export terms: absent USC/MESC or
-# unobserved export legs count as 0 (GLOSSARY.md "missing counts as 0"), so the
-# residual fires wherever CP→Cathode production is known — this is what anchors
-# the FU sink with a real prior. The supply term keeps missing="block": without
-# known production a residual FU prior would be meaningless. The USC/MESC
-# residual relations that used to follow were retired in Round X (ADR 0040): a
-# stock change is a reported value or the ShareImputer's zero-mean seed, never
-# a cathode-balance residual — on W.1 they were dormant only because the
-# NetworkImputer's balance wrote the twin first; once that writer was barred
-# they booked 7,290 kt of one-signed stock change (Japan MESC 2016 +543 kt).
-cathode_fu_domestic = FormulaRelation(
-    description="Domestic Cathode→FU: CP supply/conc - exports - USC - MESC, clip 0",
-    target=lambda ei: (
-        (ei["sector_from"] == "Cathode") & (ei["entity_from"] == "Flow") &
-        (ei["sector_to"]   == "FU")      & (ei["entity_to"]   == "SB") &
-        (ei["region_from"] == ei["region_to"]) & (ei["valuation"] == "Mass")
-    ),
-    terms=[
-        _cathode_supply_term(),
-        _cathode_export_term(missing="zero"),
-        _cathode_domestic_subtract("USC", missing="zero"),
-        _cathode_domestic_subtract("MESC", missing="zero"),
-    ],
-    clip_lower=0.0,
-    epsilon=0.05,
-)
+def _time_interp_scope(ei, same_region: bool, stock_sectors, logger):
+    """TimeImputer edge scope: same-region edges only (ADR 0026) when
+    ``same_region``, never a stock-change leg (ADR 0040). None = unscoped."""
+    scope = None
+    if same_region:
+        scope = (ei["region_from"].to_numpy() == ei["region_to"].to_numpy())
+        logger.info("   time_interp scope: same-region edges only "
+                    "(%d of %d; %d cross-region edges excluded, ADR 0026)",
+                    int(scope.sum()), scope.size, int((~scope).sum()))
+    if stock_sectors:
+        # stock-change legs are never interpolated (ADR 0040)
+        stock = ei["sector_to"].isin(stock_sectors).to_numpy()
+        scope = (~stock) if scope is None else (scope & ~stock)
+        logger.info("   time_interp scope: %d stock-change legs (%s) excluded "
+                    "(ADR 0040)", int(stock.sum()), "/".join(stock_sectors))
+    return scope
 
 def _damp_leg_sigma(acc, agg_result, gamma, cv_cap, logger, a_ref_override=None):
     """Size-damp σ on covered bilateral Flow-origin Mass legs (ADR 0017).
@@ -540,20 +502,9 @@ def main(feed_ids: list[str], label: str) -> None:
                     imp_id, params_id, inputs.params.entry(params_id)["version"])
         return imp
 
-    # Cascade group (iterated to fixpoint): concentration ratios → ore-grade
-    # ratios → process efficiencies → formula-driven domestic-use fills (the
-    # FormulaImputer shares the conc params CSV).
-    conc_formula = FormulaImputer(
-        relations=[
-            # chain-3 (concentrate/matte/anode_domestic) retired — see note above;
-            # the NetworkImputer now closes these legs. The USC/MESC residuals
-            # were retired in Round X (ADR 0040); only the FU residual remains.
-            cathode_fu_domestic,
-        ],
-        params_csv=str(inputs.params.resolve("conc") / "params.csv"),
-        id="conc_formula",
-        p=P_PROP,
-    )
+    # Cascade group (iterated to fixpoint): trade seeds → network closure →
+    # concentration ratios → ore-grade ratios → process efficiencies. (The
+    # domestic-use FormulaImputer is retired — see the note above.)
     # TradeImputer runs FIRST: it seeds cross-region Flow→Process import CC legs
     # from the BACI Mass twin (f_CC = conc·f_Mass), so the NetworkImputer recipe
     # gate can pool them and the flow-balance can close the lone domestic leg
@@ -582,7 +533,6 @@ def main(feed_ids: list[str], label: str) -> None:
             _build_parametric("conc",      "conc"),
             _build_parametric("ore_grade", "ore_grade"),
             _build_parametric("eff",       "eff"),
-            conc_formula,
         ],
         max_iter=CASCADE_MAX_ITER,
     )
@@ -591,21 +541,8 @@ def main(feed_ids: list[str], label: str) -> None:
     #    Scoped to same-region edges (ADR 0026) — see TIME_SCOPE_SAME_REGION.
     #    scope_edges drops the excluded edges from the series entirely, so a
     #    cross-region leg is neither a fill target nor an interpolation source.
-    time_scope = None
-    _ei_t = expand_edge_index(acc.edge_index, acc.node_index)
-    if TIME_SCOPE_SAME_REGION:
-        time_scope = (_ei_t["region_from"].to_numpy()
-                      == _ei_t["region_to"].to_numpy())
-        logger.info("   time_interp scope: same-region edges only "
-                    "(%d of %d; %d cross-region edges excluded, ADR 0026)",
-                    int(time_scope.sum()), time_scope.size,
-                    int((~time_scope).sum()))
-    if STOCK_SECTORS:
-        # stock-change legs are never interpolated (ADR 0040)
-        _stock = _ei_t["sector_to"].isin(STOCK_SECTORS).to_numpy()
-        time_scope = (~_stock) if time_scope is None else (time_scope & ~_stock)
-        logger.info("   time_interp scope: %d stock-change legs (%s) excluded "
-                    "(ADR 0040)", int(_stock.sum()), "/".join(STOCK_SECTORS))
+    time_scope = _time_interp_scope(expand_edge_index(acc.edge_index, acc.node_index),
+                                    TIME_SCOPE_SAME_REGION, STOCK_SECTORS, logger)
     engine.register(TimeImputer(
         window           = TIME_WINDOW,
         method           = TIME_METHOD,

@@ -1761,68 +1761,34 @@ class TestFlatPriorImputer:
         assert names == ["my_overlay", "supply"]
 
 
-class TestCathodeFdSplitSelectors:
-    """The cathode final-demand split FormulaRelations must select SB-entity
-    targets: FU/USC/MESC nodes carry entity == "SB", not "Process". With the
-    old "Process" predicate the formulas matched zero edges and silently never
-    fired (domestic Cathode→FU fell to flat_prior_noisy_zero)."""
+def _load_driver():
+    """The Stage-2 driver script as a module (skip if it cannot import)."""
+    import importlib.util, pathlib
+    repo = pathlib.Path(__file__).resolve().parents[1]
+    mod_path = repo / "scripts" / "collect_aggregate_impute.py"
+    try:
+        spec = importlib.util.spec_from_file_location(
+            "collect_aggregate_impute", mod_path)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+    except ImportError as e:
+        pytest.skip(f"collect_aggregate_impute not importable: {e}")
+    return mod
 
-    def _load_script(self):
-        import importlib.util, pathlib
-        repo = pathlib.Path(__file__).resolve().parents[1]
-        mod_path = repo / "scripts" / "collect_aggregate_impute.py"
-        try:
-            spec = importlib.util.spec_from_file_location(
-                "collect_aggregate_impute", mod_path)
-            mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
-        except ImportError as e:
-            pytest.skip(f"collect_aggregate_impute not importable: {e}")
-        return mod
 
-    def _toy_ei(self):
-        # one domestic Cathode→FU SB edge + decoys (cross-region / wrong entity)
-        return pd.DataFrame([
-            dict(sector_from="Cathode", entity_from="Flow", region_from="A",
-                 sector_to="FU",   entity_to="SB",   region_to="A", valuation="Mass"),
-            dict(sector_from="Cathode", entity_from="Flow", region_from="A",
-                 sector_to="FU",   entity_to="SB",   region_to="B", valuation="Mass"),
-            dict(sector_from="Cathode", entity_from="Flow", region_from="A",
-                 sector_to="USC",  entity_to="SB",   region_to="A", valuation="Mass"),
-            dict(sector_from="Cathode", entity_from="Flow", region_from="A",
-                 sector_to="MESC", entity_to="SB",   region_to="A", valuation="Mass"),
-            dict(sector_from="Cathode", entity_from="Flow", region_from="A",
-                 sector_to="MF",   entity_to="Process", region_to="A", valuation="Mass"),
-        ])
+class TestCathodeFdSplitRetired:
+    """The cathode final-demand split FormulaRelations are retired — USC/MESC in
+    Round X (ADR 0040: a stock change is never a balance residual), FU after it
+    (the Flow-node balance closes the domestic Cathode→FU leg first; see
+    test_network_imputer.test_flow_balance_counts_a_missing_stock_leg_as_zero).
+    The driver carries no domestic-use formula, so none can write a stock leg."""
 
-    def test_fd_split_targets_match_sb_entities(self):
-        mod = self._load_script()
-        ei = self._toy_ei()
-        assert mod.cathode_fu_domestic.target(ei).tolist() == [True, False, False, False, False], \
-            "cathode_fu_domestic must match exactly the domestic Cathode→FU SB edge"
-        # Round X (ADR 0040): no formula writes a stock-change leg any more.
-        assert not hasattr(mod, "cathode_usc_domestic")
-        assert not hasattr(mod, "cathode_mesc_domestic")
-
-    def test_fd_split_subtract_terms_match_sb_entities(self):
-        mod = self._load_script()
-        ei = self._toy_ei()
-        term = mod._cathode_domestic_subtract("USC")
-        assert term.selector(ei).tolist() == [False, False, True, False, False], \
-            "_cathode_domestic_subtract must select the domestic SB leg"
-
-    def test_fd_split_missing_policy(self):
-        """FU (the free-sink anchor) counts missing USC/MESC/exports as 0 so it
-        fires wherever production is known. The USC/MESC residual relations were
-        retired in Round X (ADR 0040): a stock leg's prior is a reported value or
-        the ShareImputer's zero-mean seed, never a residual."""
-        mod = self._load_script()
-        fu_missing = [t.missing for t in mod.cathode_fu_domestic.terms]
-        assert fu_missing == ["block", "zero", "zero", "zero"], \
-            "FU: supply blocks, exports/USC/MESC count missing as 0"
-        names = {getattr(r, "description", "") for r in mod.conc_formula_relations()} \
-            if hasattr(mod, "conc_formula_relations") else set()
-        assert not any("USC" in n.split(":")[0] or "MESC" in n.split(":")[0] for n in names)
+    def test_driver_carries_no_domestic_use_formula(self):
+        mod = _load_driver()
+        for name in ("cathode_fu_domestic", "cathode_usc_domestic",
+                     "cathode_mesc_domestic", "CONC_FORMULA_RELATIONS",
+                     "FormulaImputer", "FormulaRelation"):
+            assert not hasattr(mod, name), f"{name} is retired"
 
 
 if __name__ == "__main__":
@@ -1873,6 +1839,63 @@ def _same_region_scope(acc):
     from pysuto.param_relation import expand_edge_index
     ei = expand_edge_index(acc.edge_index, acc.node_index)
     return (ei["region_from"].to_numpy() == ei["region_to"].to_numpy())
+
+
+class TestTimeInterpScopeExcludesStockLegs:
+    """ADR 0040: the driver's TimeImputer scope never contains a stock-change
+    leg, with or without the same-region restriction (ADR 0026)."""
+
+    @staticmethod
+    def _ei():
+        # domestic use · cross-region use · domestic MESC leg · cross-region USC leg
+        return pd.DataFrame({
+            "region_from": ["A", "A", "A", "A"],
+            "region_to":   ["A", "B", "A", "B"],
+            "sector_to":   ["FU", "FU", "MESC", "USC"],
+        })
+
+    def test_same_region_scope_drops_stock_legs(self):
+        import logging
+        mod = _load_driver()
+        scope = mod._time_interp_scope(self._ei(), True, ("MESC", "USC"),
+                                       logging.getLogger("test"))
+        np.testing.assert_array_equal(scope, [True, False, False, False])
+
+    def test_unscoped_time_imputer_still_drops_stock_legs(self):
+        import logging
+        mod = _load_driver()
+        scope = mod._time_interp_scope(self._ei(), False, ("MESC", "USC"),
+                                       logging.getLogger("test"))
+        np.testing.assert_array_equal(scope, [True, True, False, False])
+        assert mod._time_interp_scope(self._ei(), False, (),
+                                      logging.getLogger("test")) is None
+
+    def test_stock_leg_is_neither_filled_nor_a_source(self):
+        """End to end through TimeImputer: a MESC series with a 2021 gap stays a
+        gap, while the parallel domestic series interpolates."""
+        import logging
+        acc = _TradeAcc()
+        acc.node_index = pd.DataFrame(
+            {"sector": ["Cathode", "FU", "MESC"],
+             "entity": ["Flow",    "SB", "SB"],
+             "region": ["A",       "A",  "A"]},
+            index=[0, 1, 2],
+        )
+        from pysuto.param_relation import expand_edge_index
+        ei = expand_edge_index(acc.edge_index, acc.node_index)
+        scope = _load_driver()._time_interp_scope(ei, True, ("MESC", "USC"),
+                                                  logging.getLogger("test"))
+        f     = np.full(6, np.nan)
+        sigma = np.full(6, np.nan)
+        f[0], sigma[0] = 10.0, 1.0
+        f[2], sigma[2] = 20.0, 1.0
+        f[3], sigma[3] = 30.0, 1.0
+        f[5], sigma[5] = 50.0, 1.0
+        imp = TimeImputer(window=3, method="linear", min_obs=2, interpolate_only=True,
+                          scope_edges=scope, id="time_interp")
+        imp.impute(f, sigma, np.isnan(f), 0, acc)
+        assert f[1] == pytest.approx(15.0), "Cathode→FU still interpolates"
+        assert np.isnan(f[4]), "Cathode→MESC must stay a gap (ADR 0040)"
 
 
 class TestTimeImputerSameRegionScope:

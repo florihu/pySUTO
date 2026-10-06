@@ -26,7 +26,10 @@ We decide that a stock leg's prior is a reported value (ICSG exchange or user st
 exchange location, the BACI-fanned share) or a zero-centred seed, that no imputer manufactures
 one (the balance residual and the interpolator are barred from `MESC`/`USC`, and the domestic
 USC/MESC residual formulas of the FormulaImputer — dormant on W.1 only because the balance wrote
-the twin first, 7,290 kt of one-signed stock change once it did not — are retired; and the
+the twin first, 7,290 kt of one-signed stock change once it did not — are retired, and with them
+the FU residual, which the balance now reaches first (0 fills on X.0; its export term never
+matched an edge, so where it did fire, W.1, it booked production/conc with no export subtracted:
+28,740 kt on 226 legs the network writes at 8,845 kt); and the
 balance never derives a node's supply from uses that include a stock leg, since with the stock
 legs counted as zero it wrote `CP→Cathode` from the trade legs before the recipe could, 836 fills
 and a fabricated German mine chain on the first chain), and that the seed

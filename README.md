@@ -63,7 +63,7 @@ The package is organised into **five sequential stages**: datafeed assembly (per
 ┌────────────────────────────────────────────────────────────────────────┐
 │  STAGE 2 — Aggregation & Imputation   ·   collect_aggregate_impute.py  │
 │  FeedCollector → AggregationMath → ImputationEngine                    │
-│  cascade→fixpoint : Network → Parametric(conc,eff) → Formula(conc)     │
+│  cascade→fixpoint : Network → Parametric(conc,eff)                     │
 │  then terminal    : Time → Time(extrap) → FlatPrior                    │
 │  in  : feed_ids                                                        │
 │  out : AggregationResult (f_agg · σ_agg · Ω · coverage · imp_log)      │

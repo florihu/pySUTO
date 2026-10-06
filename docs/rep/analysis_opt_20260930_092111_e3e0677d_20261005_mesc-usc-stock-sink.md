@@ -17,7 +17,8 @@ stripping_ratio v1, conc v8, ore_grade v7, scrap_share v3; stock_bounds v4 (W.1)
 MESC/USC zero rows retired) the world MESC posterior falls from 15,657 to 4,259 kt CC over 30
 years against a 3,869 kt prior (W.1: 6,009), the cumulative drift from +9.6 Mt to +0.39 Mt, the
 mass moved on MESC legs per year from up to 766 kt to at most 60 kt, and Zambia's 2010 exchange
-"exports" from 121 kt to 11 kt — while the common-set sum-row z² is −0.4 % vs W.1, every year
+"exports" from 121 kt to 11 kt — while the common-set sum-row z² is −0.4 % vs W.1 (a figure that
+also contains a −19.9 Mt domestic-FU prior change, §4.2 "Side effect"), every year
 solves to Solved, and the Round-E items hold (world retention within 0.006, exporter
 concentrate retention within 0.003). Zambia's 150 kt contradiction now shows where the data
 disagree: production −62 kt (z −6.9) and exports +57 kt (z 13.2 on the use total). What remains
@@ -85,11 +86,15 @@ Three layers produce the sink (file:line on `main` at `6483346`):
   2,780 kt, σ 60–147 kt (Germany USC 1999 −231 kt; Japan MESC 2014 +94 kt) — and `TimeImputer`
   interpolates stock changes linearly between reported years — 96 fills, Σ|f| 3,034 kt (US MESC
   2000 +118 kt at σ 7.8 kt). Together 5,814 kt of stock change in the prior that no source
-  reported. A third writer was dormant: the domestic residual formulas `cathode_usc_domestic` /
+  reported (5,815 kt in W, which since the code review also counts the conc twins of the two
+  formula-written USC legs below, 0.8 kt). A third writer was dormant: the domestic residual formulas `cathode_usc_domestic` /
   `cathode_mesc_domestic` (`collect_aggregate_impute.py:299-331`, Mass, `clip_lower=0`) fired 2
   and 0 times on W.1 only because the balance had written the Mass twin first; with that writer
   barred they booked **7,290 kt** of one-signed stock change in the first X.0 imputation
-  (`imp_20261005_115201_a8e40726`, Japan MESC 2016 +543 kt) and were retired (`4626edd`).
+  (`imp_20261005_115201_a8e40726`, Japan MESC 2016 +543 kt) and were retired (`4626edd`). W as
+  first written missed them: it read only CC legs and excluded `parametric`, and these writers
+  book Mass, so their CC twin is logged as `parametric`. The corrected W counts a twin whose
+  Mass source was imputer-written, and reads **7,272 kt CC** on that run (53 legs).
 - **Stage 3, the rows.** One zero-centred soft row per (destination, year), Σ MESC into r = 0 ±
   σ_c with σ_c = max(σ_r, 0.02)·max(Σ|FU into r|, `RATIO_SCALE_ABS_FLOOR` = 100)
   (`scripts/constraints.py:236-254`, `:547-553`; `src/pysuto/constraints/ratio.py:380-398`):
@@ -149,7 +154,7 @@ From `diag/edges_<year>.csv`, MESC and USC separately, CC (`scripts/explo/roundX
 | M1 | Σ\|a* − a_prior\| over the legs, world, per year | ≤ 100 kt (USC ≤ 50) | max 766 kt |
 | M2 | cumulative Σ_{t≤T}(Σa* − Σa_prior) | \|·\| ≤ 1 Mt | +9,648 kt at 2024 |
 | M3 | Σ_j MESC*(i→j,t) / CP→Cathode*(i,t), origins ≥ 100 kt | ≤ 5 % | Zambia 2010 24.9 % |
-| W | mass written onto MESC/USC legs by non-seed, non-feed imputers | 0 | 5,814 kt |
+| W | mass written onto MESC/USC legs by non-seed, non-feed imputers | 0 | 5,815 kt |
 
 plus the Round-E stop rule (ADR 0025: world retention on CO Mass / MF→Concentrate CC /
 CP→Cathode CC not down by > 0.01 — W.1: 0.862 / 0.992 / 0.994; small-node posterior/prior
@@ -197,7 +202,7 @@ seeded legs, 5 legs above 100 kt (China's domestic pairs, max 124 kt).
 
 | Metric | Limit | W.1 | X.0 | |
 |---|---|---|---|---|
-| W, mass written onto MESC/USC legs by non-seed, non-feed imputers | 0 | 5,814 kt | **0 kt** | pass |
+| W, mass written onto MESC/USC legs by non-seed, non-feed imputers | 0 | 5,815 kt | **0 kt** | pass |
 | MESC R, years outside [0.8, 1.2] of 29 quoted | 0 | 28 | **6** (1996 1.36; 2000 1.23; 2005–2008 1.21–1.30) | fail, narrowly |
 | MESC M1, max yearly mass moved | ≤ 100 kt | 766 kt | **60 kt** | pass |
 | MESC M2, max cumulative drift | ≤ 1,000 kt | +9,648 kt | **+389 kt** | pass |
@@ -227,9 +232,22 @@ signed edge family with 60,000 members: 16 kt/yr world-wide per indicator agains
 70–130 kt/yr, enough to push USC's yearly retention to 1.1–1.4. Tightening the no-data anchor on
 stock legs or removing the one-signed 1 % BACI fan (#36) are the levers left; neither was in scope.
 
-**Side effect recorded.** With the stock legs counted as 0, 227 domestic `Cathode→FU` legs
-(8,852 kt over 30 years) that the unknown stock legs used to block are now closed by the Flow-node
-balance as production − exports, the FU-residual semantics the formula already applied.
+**Side effect recorded (corrected 2026-10-06, code review).** With the stock legs no longer
+writable, the domestic `Cathode→FU` leg is the Cathode node's lone same-region gap, and the
+Flow-node balance now writes 227 of them (Σ 8,874 kt Mass over 30 years) as production − exports
+− reported stock change. On W.1 the unknown stock legs blocked that balance, and 226 of these legs
+were written instead by `cathode_fu_domestic` (`imp_20260929_113529_ab914090`: Σ 28,740 kt). Its
+export term selects `entity_to == "Flow"`, while every Cathode export leg ends at an FU (SB) node,
+so it never subtracted an export: 224 of the 226 fills carry the supply coefficient alone,
+production/conc (Congo D.R. 2024: 2,578.4 kt on W.1, 568.0 kt on X.0). On X.0 the formula fires
+0×, and the same 226 legs carry 8,845 kt. **The domestic-FU prior therefore falls by 19.9 Mt
+between W.1 and X.0.** That change is not part of the stock-leg design, and the common-set
+z² −0.4 % vs W.1 bundles the two; this REP does not measure how much of the −0.4 % each one
+accounts for. The relation is now retired, together with the conc FormulaImputer that ran it.
+Re-running Stage 2 on the X.0 inputs without it (`imp_20261006_081350_5f8edf28`) reproduces
+`imp_20261005_125928_e9ffa8cb` bit for bit: f_agg, σ_agg, Ω, coverage, and every value, σ and
+source of the 792,165 imputation-log rows. Only the log's step indices change, because one
+cascade member is gone.
 
 **Figure.** `data/proc/opt/opt_20261005_134720_ee69cda9/diag/sd_r_10_boundary_flows.png`: the
 MESC and USC retention lines sit between 0.9 and 1.4 (MESC) / 1.1 and 1.4 (USC) instead of 1.2–5.4,
@@ -260,8 +278,10 @@ are re-baselined on the shipped run in a separate step (checklist below).
 (`opt_20260930_092111_e3e0677d`) until re-baselined in a separate step: rerun
 `scripts/report/results_figs.py` on the shipped run, refresh the ledger rows (Table 3 / S15),
 the retention-by-stage table, the A5 tolerance pair, the row counts quoted in Method §3.1.5
-(1,952,021 rows; 433,421 soft ratio rows) and the "stock_bounds v4" of the reference-chain
-header (`method.md:16`, `si.md:631`).
+(1,952,021 rows; 433,421 soft ratio rows), the "stock_bounds v4" of the reference-chain
+header (`method.md:16`, `si.md:631`), and the SI imputer table's "Formula (cascade)" row
+(`si.md:177`): the cathode final-use split it describes is retired (§4.2 "Side effect"), and the
+domestic Cathode→FU prior is the Flow-node balance's.
 
 ---
 
