@@ -4,7 +4,7 @@
 
 [ADR 0001](0001-replace-coherence-sum-eq-with-bilateral-anchoring.md) fixed the homogeneous
 scale-collapse by anchoring a handful of edge families to **externally published ICSG totals**
-("control total" in the [`README`](../../README.md) glossary — a Type-2 soft-sum whose RHS `c(t)`
+("control total" in [`GLOSSARY.md`](../../GLOSSARY.md) — a Type-2 soft-sum whose RHS `c(t)`
 is an external number). That covered only 7 hand-listed families
 ([`scripts/constraints.py` ICSG_ANCHOR_FAMILIES](../../scripts/constraints.py)); every other process
 and flow stayed unprotected from the collapse. We **replace** that block with a **scale total**: a
@@ -50,7 +50,7 @@ processes/flows instead of 7 families.
   number anymore; correctness now rests on the Stage-1/2 feeds embedded in `f_agg`, hard mass
   balance, and the conc/eff `ratio_bound` limits.
 - **Terminology.** New canonical term **scale total** (internal RHS), distinct from **control total**
-  (external RHS, now removed). The README glossary's *avoid "anchor"/"coherence soft-sum"* stands;
+  (external RHS, now removed). The glossary's *avoid "anchor"/"coherence soft-sum"* stands;
   the builder method `from_mask_anchor` is kept as the generic *verb* (pin a masked group-sum to a
   reference vector) shared by both mechanisms. See [GLOSSARY.md](../../GLOSSARY.md).
 - **`sum.py`.** `from_mask_anchor` now fills `row_meta.sector` (symmetric with `region`) for

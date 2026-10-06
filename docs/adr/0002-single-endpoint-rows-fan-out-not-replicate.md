@@ -3,7 +3,7 @@
 A raw feed row that classifies only **one** endpoint (e.g. ICSG `Use` rows: consumer known,
 producer unknown) must resolve to **one** source edge whose unclassified endpoint is left open
 (`"<any>"`) and distributed across the matching root edges by normalised weights — the
-[`README`](../../README.md) glossary definition of **fan-out**. `ConcordanceTable.from_raw`
+[`GLOSSARY.md`](../../GLOSSARY.md) definition of **fan-out**. `ConcordanceTable.from_raw`
 ([`conc.py`](../../src/pysuto/conc.py#L456)) previously filled the unclassified **to**-side with
 `"<any>"` (correct) but the unclassified **from**-side with the *concrete matched-edge*
 sector/region. For `Use` rows that materialised one source edge per producing region, each

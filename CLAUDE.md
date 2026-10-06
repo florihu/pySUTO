@@ -147,7 +147,7 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 - Every relative number names its base and the run it is relative to: `Σz² −9.6 % vs opt_<id>`, never `−9.6 %` alone. A difference of two percentages is in `pp`.
 - Retention is `Σa*/Σa_prior` by category and is always quoted with its category and year (GLOSSARY.md "Retention").
 - ADRs: `docs/adr/NNNN-slug.md`, one paragraph plus a bold `**Status:**` line citing evidence run ids; write one only if hard to reverse AND surprising AND a real trade-off (`.claude/skills/grill-with-docs/ADR-FORMAT.md`). "Rejected on measurement" is a valid status.
-- `GLOSSARY.md` is a glossary only: bold term, tight definition, `_Avoid_` aliases, flagged ambiguities (`.claude/skills/grill-with-docs/CONTEXT-FORMAT.md`). Add a term whenever vocabulary had to be pinned down mid-task; keep README `## Glossary` consistent with it.
+- `GLOSSARY.md` is a glossary only: bold term, tight definition, `_Avoid_` aliases, flagged ambiguities (`.claude/skills/grill-with-docs/CONTEXT-FORMAT.md`). Add a term whenever vocabulary had to be pinned down mid-task.
 - Modelling choices and architecture go in `README.md`; round bookkeeping in `TODO.md`. No third place.
 
 ## Git workflow
@@ -160,4 +160,4 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 
 - **Issue tracker** — GitHub issues via `gh`. See `docs/agents/issue-tracker.md`.
 - **Triage labels** — `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
-- **Domain docs** — single-context: `GLOSSARY.md` (glossary) + README `## Glossary` + `docs/adr/`. See `docs/agents/domain.md`.
+- **Domain docs** — single-context: `GLOSSARY.md` (glossary) + `docs/adr/`. See `docs/agents/domain.md`.
