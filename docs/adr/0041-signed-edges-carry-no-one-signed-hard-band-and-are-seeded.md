@@ -13,8 +13,9 @@ No concentration row matched `*→PSC` and ICSG reports PSC in CC only, so no im
 prior: all 1,410 Mass region-years were the flat prior (0, σ 1e6), outside the no-data pin and anchor
 (ADR 0013), a free signed sink that absorbed ≈ 1,380 kt over 30 years (22–87 kt/yr; China 2013
 −32 kt). In CC the Cathode Pool has no efficiency row, so the recipe wrote `PSC = (1 − 1.0)·Σin = 0`
-with σ 0 on 872 region-years and Stage 3 floored it to σ 1e-6 — a hard zero on a leg ADR 0013 says
-never to pin; only the 187 ICSG region-years varied. And `conccathodesupply` matches every edge leaving
+with σ 0 on 872 region-years (875 pinned once the three zeros the interpolator copied from them are
+counted) and Stage 3 floored it to σ 1e-6 — a hard zero on a leg ADR 0013 says never to pin; only
+the 187 ICSG region-years varied. And `conccathodesupply` matches every edge leaving
 Cathode, so its hard band `bl·denom ≤ num ≤ bu·denom` already sat on the signed `Cathode→USC` and
 `Cathode→MESC` legs; a band with `bl ≥ 0` is satisfiable for a negative pair only at zero, so no
 USC/MESC edge-year was negative, prior or posterior, in 265,080 — the one-directional +16 kt/yr

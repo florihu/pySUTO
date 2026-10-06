@@ -86,14 +86,16 @@ retired (re-run `imp_20261006_081350_5f8edf28` bit-identical to X.0's imp). Defe
 on X.0), #38 (the supply guard keys on a stock leg's presence, not its missingness), #39 (stock-leg
 membership defined in three places).
 
-**Round Y (2026-10-06, spec #41, ADR 0041; branch `fix/psc-prior-both-valuations` off Round X —
-built, NOT yet measured):** diagnosing the flat Mass PSC prior on X.0 found three defects: no conc
-row covers `*→PSC` and ICSG reports PSC in CC only (1,410 Mass flat priors at σ 1e6, a free signed
-sink of ≈ 1,380 kt / 30 y: China 2013 −32 kt, Chile 2009 +16 kt); CP's eff-less recipe wrote PSC
-CC = 0 ± 0 on 872 region-years (hard pin at σ 1e-6; only the 187 ICSG years vary); and
+**Round Y (2026-10-06, spec #41 — closes #36 item 2 — ADR 0041; branch
+`fix/psc-prior-both-valuations` off Round X — built, NOT yet measured):** diagnosing the flat Mass
+PSC prior on X.0 found three defects: no conc row covers `*→PSC` and ICSG reports PSC in CC only
+(1,410 Mass flat priors at σ 1e6, a free signed sink of ≈ 1,380 kt / 30 y: China 2013 −32 kt,
+Chile 2009 +16 kt); CP's eff-less recipe wrote PSC CC = 0 ± 0 on 872 region-years (875 pinned at
+σ 1e-6 with the interpolator's three copies; only the 187 ICSG years vary); and
 `conccathodesupply`'s hard band forbids negative USC/MESC (0 negative edge-years of 265,080 — the
 +16 kt/yr residual above). Built: Y.0 = `RatioBoundBuilder` emits no one-signed hard band on a
-signed edge (≈ 268k of 844k hard conc rows go) + `concpscuse` (conc v9); Y.1 = PSC in
+signed edge (≈ 268k of 844k hard conc rows go) + `concpscuse` (conc v8 → v9 on the first Stage-2
+run); Y.1 = PSC in
 `STOCK_SECTORS`, seeded at 1 % of `CP→Cathode` / 0.3 kt in both valuations, the share transfer
 retired, `stock_bounds` a Stage-3 input only. Measure tickets pending: Y.0 and Y.1 vs X.0 under the
 spec's stop rule P1–P10 (Mass–CC gap on PSC ≤ 10 kt/yr, mass moved ≤ 100 kt/yr US excluded,

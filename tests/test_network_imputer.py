@@ -28,7 +28,8 @@ import pandas as pd
 import pytest
 
 from pysuto.agg import AggregationResult
-from pysuto.impute import NetworkImputer, derive_process_recipes
+from pysuto.impute import (ImputationEngine, NetworkImputer, ParametricImputer,
+                           ShareImputer, derive_process_recipes)
 
 
 # =============================================================================
@@ -825,14 +826,16 @@ def _psc_engine(tmp_path, acc, stock_sectors):
     """The Stage-2 composition that touches CP→PSC, as the driver composes it:
     network closure, the conc ParametricImputer (the Mass twin of a reported CC
     value), then the terminal net-stock seed."""
-    from pysuto.impute import ImputationEngine, ParametricImputer, ShareImputer
-    eff = tmp_path / "eff.csv"; conc = tmp_path / "conc.csv"; og = tmp_path / "ore_grade.csv"
+    eff  = tmp_path / "eff.csv"
+    conc = tmp_path / "conc.csv"
+    og   = tmp_path / "ore_grade.csv"
     write_eff_csv(eff); write_conc_csv(conc, psc_use=True); write_ore_grade_csv(og)
     engine = ImputationEngine(acc_struct=acc)
     engine.register_cascade([
         NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=float("inf"),
                        stock_sectors=stock_sectors),
-        ParametricImputer.from_csv(str(conc), acc, p=1.3, q=3.0, alpha_min=0.05, id="conc"),
+        ParametricImputer.from_csv(str(conc), acc, p=1.3, q=3.0, alpha_min=0.05,
+                                   id="conc"),
     ])
     engine.register(ShareImputer(p=1.3, id="net_stock_share",
                                  seed_cv=0.01, seed_abs_floor=0.3))
@@ -857,13 +860,14 @@ def _psc_run(engine, acc, seeds):
 
 
 def test_psc_is_a_stock_leg_in_both_valuations(tmp_path):
-    """Seam A. 2020 reports a (negative) PSC in CC, 2021 reports none. With PSC a
-    stock sector the reported value keeps its sign and gets its Mass twin from the
+    """The Stage-2 engine run. 2020 reports a (negative) PSC in CC, 2021 reports none.
+    With PSC a stock sector the reported value keeps its sign and gets its Mass twin from the
     cathode conc row (parametric), the unobserved year is seeded 0 ± max(1 %·
     |CP→Cathode|, 0.3 kt) in both valuations by the net-stock seed, and no network
     or time write touches a PSC leg (ADR 0040 extended to PSC, ADR 0041)."""
     acc = MockAcc(times=("2020", "2021"))
-    psc = [acc.eid("CP", "PSC", v, t) for v in ("CC", "Mass") for t in ("2020", "2021")]
+    psc = [acc.eid("CP", "PSC", v, t)
+           for v in ("CC", "Mass") for t in ("2020", "2021")]
     acc.bounds.l[psc] = -1e6                       # a signed leg (acc bounds, ADR 0039)
     seeds = {("CSXEW", "CP", "CC", "2020"): 60.0, ("CER", "CP", "CC", "2020"): 40.0,
              ("CP",    "PSC", "CC", "2020"): -3.0,
@@ -872,11 +876,14 @@ def test_psc_is_a_stock_leg_in_both_valuations(tmp_path):
     method = dict(zip(log["edge_id"], log["method"]))
 
     cc20, m20 = acc.eid("CP", "PSC", "CC", "2020"), acc.eid("CP", "PSC", "Mass", "2020")
-    cc21, m21 = acc.eid("CP", "PSC", "CC", "2021"), acc.eid("CP", "PSC", "Mass", "2021")
+    cc21 = acc.eid("CP", "PSC", "CC",   "2021")
+    m21  = acc.eid("CP", "PSC", "Mass", "2021")
     # the reported value stays, its Mass twin comes through the cathode conc, sign kept
     assert f[cc20] == -3.0 and cc20 not in method
-    assert f[m20] == pytest.approx(-3.0 / CONC["Cathode"]) and method[m20] == "parametric"
-    # the unobserved year: zero-mean seed priced on the cathode-pool product, both valuations
+    assert f[m20] == pytest.approx(-3.0 / CONC["Cathode"])
+    assert method[m20] == "parametric"
+    # the unobserved year: zero-mean seed priced on the cathode-pool product, both
+    # valuations
     prod_cc = f[acc.eid("CP", "Cathode", "CC",   "2021")]
     prod_m  = f[acc.eid("CP", "Cathode", "Mass", "2021")]
     assert prod_cc == pytest.approx(100.0)

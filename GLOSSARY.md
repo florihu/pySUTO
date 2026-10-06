@@ -422,15 +422,20 @@ _Avoid_: (1) reading a large-negative residual on a `nonneg` bound as a violatio
 every edge except the signed stock-change edges (`Cathode→USC`, `Cathode→MESC`, `CP→PSC`), whose
 `l` is −1e6. Since [ADR 0039](docs/adr/0039-flow-lower-bounds-are-enforced-in-the-qp.md) each
 `l = 0` enters the QP as one hard `nonneg` row `−a ≤ 0` (type `bound`, variant `lower`). A signed
-edge (`l < 0`) carries no one-signed hard ratio band: `bl·denom ≤ num ≤ bu·denom` with `bl ≥ 0` is
-satisfiable for a negative pair only at zero, so `RatioBoundBuilder` skips it there and the soft
-ratio equality alone ties the valuations
+edge (`l < 0`) carries no **one-signed band**
 ([ADR 0041](docs/adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md)). _Avoid_:
 reading `ConstraintRun.l` as the structural bound — Stage 3 overwrites it with the prior box and the
 **zero pin** (`l = u = 0` on no-data edges, [ADR 0013](docs/adr/0013-no-data-flat-prior-anchor.md)),
 and those boxes, like every upper bound `u`, reach only the feasibility pre-check. Before ADR 0039
 no bound reached the QP, so `l ≤ a ≤ u` in older REPs and the README describes the probe, not the
 solve.
+
+**One-signed band** — a hard ratio band `bl·denom ≤ num ≤ bu·denom` whose lower ratio bound is
+≥ 0 (or that has an upper bound alone): satisfiable for a negative pair only at zero, so on a
+**stock-change leg** it would forbid the draw-down half. Never emitted on a signed edge; a band
+that spans zero (`bl < 0`, the stock bands) is sign-safe and stays hard
+([ADR 0041](docs/adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md)).
+_Avoid_: "positive band", "non-negative band".
 
 **Forced vs discretionary deletion** — the split of a node's prior-to-posterior mass loss into the
 part no optimiser could have avoided and the part it chose. Copper leaves a mine node only as
@@ -497,6 +502,11 @@ a retention on a signed category whose prior sum is near zero (`MESC` / `USC` / 
 is undefined there, so quote the mass moved `Σ|a* − a_prior|` beside it.
 
 ## Stock-change vocabulary
+
+**Stock-change leg** — one of the three signed edges of the account: `Cathode→USC`,
+`Cathode→MESC` and `CP→PSC`, each a net addition to a stock (negative = a draw-down), structural
+lower bound −1e6. Its prior is a reported value or the **net-stock seed**; no imputer writes it; no
+one-signed hard band sits on it. _Avoid_: "stock leg", "stock edge", "Δstock edge".
 
 **Exchange location** — a region in which ICSG reports exchange stocks: the LME warehouse
 countries by location, COMEX as the United States, SHFE as China (16 regions in the feed). It is

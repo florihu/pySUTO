@@ -875,7 +875,8 @@ class TestRatioConstraintBuilder:
             assert np.isclose(row, 1.0).sum() == 1
             assert np.isclose(row, -0.8).sum() == 1
 
-    def _write_stock_bound_csv(self, tmp_path, value_max=0.1):
+    @staticmethod
+    def _write_stock_bound_csv(tmp_path, value_max=0.1):
         """One agg net-stock bound row: numerator (b) = Mining→Waste/SB (net stock),
         denominator (a) = Mining→Ore (throughput). value_nominal=0, ±value_max band,
         empty unc_type (matches the shipped stock_bounds params)."""
@@ -1218,6 +1219,13 @@ class TestRatioBoundBuilder:
         spanning = self._write_bound_csv(tmp_path, bu=0.05, bl=-0.05)
         kept = RatioBoundBuilder.from_csv(spanning, toy_acc).build_static(toy_acc)
         assert kept.G_rows.shape[0] == 2
+
+        # an aggregated stock band (value_min = −k) spans zero and stays hard on a
+        # signed numerator: one upper + one lower row per (region, year) bucket
+        toy_acc.bounds.l[[4, 9]] = -1e6     # Mining/A→Waste/SB, the net-stock numerator
+        stock = TestRatioConstraintBuilder._write_stock_bound_csv(tmp_path, value_max=0.05)
+        agg = RatioBoundBuilder.from_csv(stock, toy_acc).build_static(toy_acc)
+        assert agg.G_rows.shape[0] == 2 * len(toy_acc.time_range)
 
     # ── empty-band guard (regression: scrap dual-class collapse) ──
 

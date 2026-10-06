@@ -29,12 +29,9 @@ from typing import Optional
 
 import numpy as np
 
-from pysuto.logging import get_logger
 from pysuto.param_relation import expand_edge_index
 
 from .base import BaseImputer, _log
-
-logger = get_logger(__name__)
 
 # (sector_from, entity_from, sector_to, entity_to) selectors: net leg → its base.
 _NET = {
@@ -71,13 +68,14 @@ class ShareImputer(BaseImputer):
         self.seed_abs_floor = float(seed_abs_floor)
 
     def config(self) -> dict:
-        return {"p": self.p, "seed_cv": self.seed_cv, "seed_abs_floor": self.seed_abs_floor}
+        return {"p": self.p, "seed_cv": self.seed_cv,
+                "seed_abs_floor": self.seed_abs_floor}
 
     # ------------------------------------------------------------------
     def impute(self, f, sigma, missing, step, acc_struct) -> list[dict]:
         ei = expand_edge_index(acc_struct.edge_index, acc_struct.node_index)
         entries: list[dict] = []
-        for ind in ("psc", "mesc", "usc"):
+        for ind in _NET:
             entries += self._seed(ind, f, sigma, ei, step)
         return entries
 

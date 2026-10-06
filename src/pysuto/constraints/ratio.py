@@ -513,7 +513,7 @@ class RatioBoundBuilder(BaseConstraintBuilder):
             # half, so no hard band is emitted there; the soft ratio equality
             # carries the ratio (ADR 0041). A band that spans zero (the stock
             # bands, bl < 0) is sign-safe and stays hard.
-            one_signed = not (bl < 0.0)
+            one_signed = np.isnan(bl) or bl >= 0.0
             for r in resolver.resolve_row(row):
                 if scope is not None and not (scope[r.a_edge_id] and scope[r.b_edge_id]):
                     continue
