@@ -239,4 +239,70 @@ f5d.appendChild(legend(null,COMMS.map(c=>({name:c,color:COMM[c],sq:1}))));
 areaChart(f5d,{aria:'World cross-border trade by commodity, Mt Cu',series:COMMS.map(c=>({name:c,values:TT[c].trade,color:COMM[c]})),yfmt:v=>fmt(v/1000,0),nticks:5});
 
 setYear(2024);
+
+// ================= PART 6: end use categories (IWCC data, own 2012–2024 axis) =================
+// The helpers above close over the run's 1995–2024 axis (Y, N); chapter 6 draws on the
+// payload's years and leaves them untouched. Categories keep the payload's (legend) order.
+const E=D.enduse,EY=E.years,EN=EY.length;
+const EDASH=['','7 3','1.5 3','9 3 2 3','4 2.5 1.5 2.5'];
+const ECAT=E.categories.map((c,k)=>({label:c.label,group:c.group,kt:c.kt,color:`var(--eu${k+1})`,
+  dash:EDASH[E.categories.slice(0,k).filter(o=>o.group===c.group).length]}));
+const ESHARE=ECAT.map(c=>c.kt.map((v,i)=>v/E.total[i]));
+const pct1=v=>(v*100).toFixed(1)+' %';
+const lineKey=c=>`<svg width="24" height="10" aria-hidden="true"><line x1="1" x2="23" y1="5" y2="5" style="stroke:${c.color};stroke-width:2.5${c.dash?';stroke-dasharray:'+c.dash:''}"/></svg>`;
+document.getElementById('lg6').innerHTML=E.groups.map(g=>`<div class="grp"><b>${g}</b>`+ECAT.filter(c=>c.group===g).map(c=>`<span class="key">${lineKey(c)}${c.label}</span>`).join('')+'</div>').join('');
+
+(function(){ // chart 1: 16 category lines, world-total strip above on its own scale
+  const root=document.getElementById('f6a');
+  const W=960,m={t:16,r:92,b:30,l:58},hS=84,gap=26,hM=340,H=m.t+hS+gap+hM+m.b,iw=W-m.l-m.r,y0=m.t+hS+gap;
+  const X=i=>m.l+iw*i/(EN-1);
+  const sTop=Math.ceil(Math.max(...E.total)/5000)*5000,Ys=v=>m.t+hS*(1-v/sTop);
+  const ticks=niceTicks(0,Math.max(...ECAT.flatMap(c=>c.kt)),6),mTop=ticks[ticks.length-1],Ym=v=>y0+hM*(1-v/mTop);
+  const wrap=document.createElement('div');wrap.className='chart scroll';
+  const svg=svgEl('svg',{viewBox:`0 0 ${W} ${H}`,role:'img','aria-label':`World copper end use by IWCC category, kt Cu, ${EY[0]}–${EY[EN-1]}`});
+  const grid=(y,v)=>{svg.appendChild(svgEl('line',{x1:m.l,x2:W-m.r,y1:y,y2:y,class:v===0?'axis':'grid'}));const t=svgEl('text',{x:m.l-8,y:y+4,'text-anchor':'end'});t.textContent=fmt(v);svg.appendChild(t);};
+  [0,10000,20000,30000].filter(v=>v<sTop).forEach(v=>grid(Ys(v),v));
+  ticks.forEach(v=>grid(Ym(v),v));
+  const st=svgEl('text',{x:m.l+6,y:m.t+2,class:'lab'});st.textContent='World total';svg.appendChild(st);
+  EY.forEach((y,i)=>{if(i%2)return;const t=svgEl('text',{x:X(i),y:H-m.b+18,'text-anchor':'middle'});t.textContent=y;svg.appendChild(t);});
+  const line=(vals,Yf)=>vals.map((v,i)=>(i?'L':'M')+X(i).toFixed(1)+','+Yf(v).toFixed(1)).join(' ');
+  svg.appendChild(svgEl('path',{d:line(E.total,Ys),style:'fill:none;stroke:var(--ink);stroke-width:2;stroke-linejoin:round;stroke-linecap:round'}));
+  svg.appendChild(svgEl('circle',{cx:X(EN-1),cy:Ys(E.total[EN-1]),r:4,style:'fill:var(--ink);stroke:var(--surface);stroke-width:2'}));
+  const el=svgEl('text',{x:X(EN-1)+10,y:Ys(E.total[EN-1])+4,class:'lab'});el.textContent=fmt(E.total[EN-1])+' kt';svg.appendChild(el);
+  ECAT.forEach(c=>svg.appendChild(svgEl('path',{d:line(c.kt,Ym),style:`fill:none;stroke:${c.color};stroke-width:2;stroke-linejoin:round;${c.dash?'stroke-dasharray:'+c.dash+';stroke-linecap:butt':'stroke-linecap:round'}`})));
+  const xh=svgEl('line',{class:'xh',y1:m.t,y2:y0+hM,x1:-10,x2:-10});svg.appendChild(xh);
+  const dot=color=>{const d=svgEl('circle',{r:4,cx:-10,cy:-10,style:`fill:${color};stroke:var(--surface);stroke-width:2;pointer-events:none`});svg.appendChild(d);return d;};
+  const dots=ECAT.map(c=>dot(c.color)),dT=dot('var(--ink)');
+  wrap.appendChild(svg);
+  attachTip(wrap,svg,W,px=>{if(px==null){xh.setAttribute('x1',-10);xh.setAttribute('x2',-10);dots.concat([dT]).forEach(d=>d.setAttribute('cx',-10));return null;}
+    const i=Math.max(0,Math.min(EN-1,Math.round((px-m.l)/iw*(EN-1))));xh.setAttribute('x1',X(i));xh.setAttribute('x2',X(i));
+    ECAT.forEach((c,k)=>{dots[k].setAttribute('cx',X(i));dots[k].setAttribute('cy',Ym(c.kt[i]));});dT.setAttribute('cx',X(i));dT.setAttribute('cy',Ys(E.total[i]));
+    return {x:X(i),html:tipRows(EY[i]+' · kt Cu',ECAT.map(c=>({name:c.label,color:c.color,val:fmt(c.kt[i])})).concat([{name:'World total',color:'var(--ink)',val:fmt(E.total[i])}]))};},true);
+  root.appendChild(wrap);
+  dataTable(root,EY,ECAT.map(c=>[c.label,...c.kt.map(v=>fmt(v))]).concat([['World total',...E.total.map(v=>fmt(v))]]),'Category · kt Cu');
+})();
+
+(function(){ // chart 2: 100 % stacked bars, first category of the legend on top
+  const root=document.getElementById('f6b');
+  const W=960,m={t:12,r:16,b:30,l:58},H=440,ih=H-m.t-m.b,iw=W-m.l-m.r,slot=iw/EN,bw=Math.min(36,slot*0.55);
+  const Yc=v=>m.t+ih*v; // v = cumulative share from the top
+  const wrap=document.createElement('div');wrap.className='chart scroll';
+  const svg=svgEl('svg',{viewBox:`0 0 ${W} ${H}`,role:'img','aria-label':`Composition of world copper end use, share of world total, ${EY[0]}–${EY[EN-1]}`});
+  [0,.25,.5,.75,1].forEach(t=>{const y=Yc(1-t);svg.appendChild(svgEl('line',{x1:m.l,x2:W-m.r,y1:y,y2:y,class:t===0?'axis':'grid'}));const tx=svgEl('text',{x:m.l-8,y:y+4,'text-anchor':'end'});tx.textContent=(t*100)+' %';svg.appendChild(tx);});
+  const hov=svgEl('rect',{x:-1000,y:m.t,width:slot,height:ih,style:'fill:var(--wash)'});svg.appendChild(hov);
+  const segs=EY.map((y,i)=>{const x=m.l+slot*(i+.5)-bw/2;let cum=0;
+    const t=svgEl('text',{x:x+bw/2,y:H-m.b+18,'text-anchor':'middle'});t.textContent=y;svg.appendChild(t);
+    return ECAT.map((c,k)=>{const a=Yc(cum),b=Yc(cum+=ESHARE[k][i]),top=a+0.5,h=Math.max(0,b-a-1);
+      svg.appendChild(k===0?svgEl('path',{d:`M${x},${top+h} V${top+4} a4,4 0 0 1 4,-4 H${x+bw-4} a4,4 0 0 1 4,4 V${top+h} Z`,style:`fill:${c.color}`})
+        :svgEl('rect',{x,y:top,width:bw,height:h,style:`fill:${c.color}`}));
+      return {a,b};});});
+  wrap.appendChild(svg);
+  attachTip(wrap,svg,W,(px,py)=>{if(px==null){hov.setAttribute('x',-1000);return null;}
+    const i=Math.max(0,Math.min(EN-1,Math.floor((px-m.l)/slot)));hov.setAttribute('x',m.l+slot*i);
+    const k=segs[i].findIndex(s=>py>=s.a&&py<s.b);
+    return {x:m.l+slot*(i+.5),html:tipRows(EY[i]+' · share of world total',ECAT.map((c,j)=>({name:j===k?`<span style="font-weight:600;color:var(--ink)">${c.label}</span>`:c.label,color:c.color,val:pct1(ESHARE[j][i])})).concat([{name:'World total',color:'transparent',val:fmt(E.total[i])+' kt'}]))};},true);
+  root.appendChild(wrap);
+  const groups=E.groups.map(g=>[g+' (group)',...EY.map((y,i)=>pct1(ECAT.reduce((s,c,k)=>s+(c.group===g?ESHARE[k][i]:0),0)))]);
+  dataTable(root,EY,ECAT.map((c,k)=>[c.label,...ESHARE[k].map(pct1)]).concat(groups),'Category · share of world total');
+})();
 })();

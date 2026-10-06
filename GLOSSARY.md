@@ -71,6 +71,13 @@ A mask marking which edges may be **traded across regions**; every other edge is
 A destination sector where flows terminate: `FU` (Final Use), `MESC` (Metal Exchange Stock
 Change), `USC` (User Stock Change).
 
+**End-use category (IWCC)**:
+A demand segment, one of 16 in six groups, to which IWCC assigns the copper content of
+semi-finished products, e.g. Power utility or Automotive electrical; it includes direct-melt
+scrap and lies outside the model, which does not reconcile it. A different quantity from the
+`FU` (Final Use) **Final-demand category**, the cathode leaving the modelled system.
+_Avoid_: "final use" when the IWCC categories are meant.
+
 **Root** (root edge / root accounting structure):
 The canonical internal **data model** of this system — the common index every external feed is
 fitted onto. **Source / src edge** = an edge in a feed's own classification, *before*
