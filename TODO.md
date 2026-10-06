@@ -101,7 +101,13 @@ retired, `stock_bounds` a Stage-3 input only. **Y.0 measured (#43):** `opt_20261
 (`imp_20261006_101314_c6b6c588` → `const_20261006_101742_205d50d3`, commit 2e9240e, 30/30 Solved,
 conc v9): Mass–CC gap on PSC 22–87 → 0–6 kt/yr, common-set z² −0.1 % vs X.0, Round-E held, USC/MESC
 two-signed (23,800 negative edge-years each; drift +16/+13 → −6/−8 kt/yr), PSC stock-bound max |z|
-4.48 → 5.18. Y.1 pending (#44) under the spec's stop rule P1–P10 (Mass–CC gap on PSC ≤ 10 kt/yr, mass moved ≤ 100 kt/yr US excluded,
+4.48 → 5.18. **Y.1 measured (#44), rejected on measurement:** `opt_20261006_120237_643c4b4a`
+(`imp_20261006_111616_6566f4d2` → `const_20261006_112045_f55da888`, commit 48787a1, 30/30 Solved, conc
+v10): the seed at 1 % of CP→Cathode is a sink — 870 seeded legs move 7,943 kt CC / 30 y (272 kt/yr vs
+limit 100; China −1,546, Zambia +857 at σ 3.8), PSC stock-bound max |z| 4.48 → 22.6, Chile CP→Cathode
+retention Δ 0.028, common-set z² −10.3 % for the wrong reason. Y.0 accepted (ADR 0041 split status).
+**Decision pending (user):** revert the two seed commits (485aac4, bd41e29 — PSC back to the recipe's
+hard zero, H5 open) or measure Y.2 = the no-trade floor alone (σ 0.3 kt). Stop rule P1–P10 (Mass–CC gap on PSC ≤ 10 kt/yr, mass moved ≤ 100 kt/yr US excluded,
 CP→Cathode retention ≤ 0.01 moved, common-set z² ≤ +1 %, Round-E, USC/MESC two-signed); the US
 PSC 2006–2012 (#35, ±2 Mt) reported in its own row. Filed #40: the ICSG feed drops all 150 negative
 MESC/USC rows before concordance (258 of 385 rows), a feed-rebuild round.
