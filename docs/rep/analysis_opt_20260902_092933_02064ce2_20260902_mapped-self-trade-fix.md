@@ -11,7 +11,7 @@ pre-check neutralised as established).
 
 ## The problem (short form)
 
-1. **Mapped self-trade** (new CONTEXT.md term): region folding (HK/Macao→China; smalls→ROW) turned
+1. **Mapped self-trade** (new GLOSSARY.md term): region folding (HK/Macao→China; smalls→ROW) turned
    5,181 of 78,312 BACI rows into root-level self-loops whose address IS the domestic edge. The
    flagship: HK→mainland blister 0.021 kt landed as the `Matte.China→CFR.China` **Mass** prior
    (0.0276 kt, σ=0.005) next to ICSG's **CC** 5,678 kt — physically impossible, coverage blocked

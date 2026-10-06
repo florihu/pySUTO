@@ -79,6 +79,6 @@ measure it on.
 ## 5. Suite / artifacts
 
 Tests 878 passed (new: resolver, tailings generator ×3, screen ×2). ADR 0016 (new), ADR 0015
-amendment, CONTEXT.md scale-total + grade entries. ⚠ gitignored data regenerated: `ore_grade`
+amendment, GLOSSARY.md scale-total + grade entries. ⚠ gitignored data regenerated: `ore_grade`
 v3 (rerun `scripts/build_ore_grade.py`), `conc` v6 (conctailingsuse row removed from the
 hand-maintained live CSV — do not blind-regenerate).

@@ -109,7 +109,7 @@ India at **112k → 12k**, Philippines 54k → 27k, Spain 29k → 11k, Brazil 16
 - **ADR 0019** detects exactly this contradiction (outflow anchor ≫ inflow prior) but its scope is
   `("Matte","Anode")` — Concentrate was the *inflow evidence* in that ADR, never a monitored node —
   and its σ action is inert (`UNCLOSED_ANCHOR_CV = None`) after Round E showed σ reprices without
-  resolving. CONTEXT: "the remedy is data-side".
+  resolving. GLOSSARY: "the remedy is data-side".
 - **ADR 0021** precedent: a derivation placed where it cannot hold is fixed in the derivation.
 
 Options, ranked:

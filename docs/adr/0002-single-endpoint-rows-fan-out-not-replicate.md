@@ -3,11 +3,11 @@
 A raw feed row that classifies only **one** endpoint (e.g. ICSG `Use` rows: consumer known,
 producer unknown) must resolve to **one** source edge whose unclassified endpoint is left open
 (`"<any>"`) and distributed across the matching root edges by normalised weights — the
-[`README`](../../README.md) glossary definition of **fan-out**. `ConcordanceTable.from_raw`
+[`GLOSSARY.md`](../../GLOSSARY.md) definition of **fan-out**. `ConcordanceTable.from_raw`
 ([`conc.py`](../../src/pysuto/conc.py#L456)) previously filled the unclassified **to**-side with
 `"<any>"` (correct) but the unclassified **from**-side with the *concrete matched-edge*
 sector/region. For `Use` rows that materialised one source edge per producing region, each
-assigned the **full** raw value — **replication, not fan-out** (see [`CONTEXT.md`](../../CONTEXT.md)).
+assigned the **full** raw value — **replication, not fan-out** (see [`GLOSSARY.md`](../../GLOSSARY.md)).
 ICSG inflated total mass **36×** (5,576 / 7,926 raw rows replicated, up to 48×), which corrupted
 both the per-edge prior `a₀` and the `from_mask_anchor` control totals and drove the Stage-4
 collapse (REP [`analysis_opt_20260602_133908_46bc514e_20260603_feed-scale-collapse.md`](../rep/analysis_opt_20260602_133908_46bc514e_20260603_feed-scale-collapse.md)).
@@ -25,7 +25,7 @@ guard rejected the previous, incomplete state):
 2. **Entity follows `<any>`** ([`conc.py`](../../src/pysuto/conc.py#L470)) — when an endpoint's
    sector is `"<any>"`, its entity must be `"<any>"` too; otherwise an open sector that spans a
    `Flow` producer *and* the `SB` import source re-splits into two source edges (the
-   `sector → entity` 1:1 coupling does **not** hold for `"<any>"`, see CONTEXT.md).
+   `sector → entity` 1:1 coupling does **not** hold for `"<any>"`, see GLOSSARY.md).
 3. **`build_F_src` must de-duplicate the fan-out** ([`scripts/icsg_feed.py`](../../scripts/icsg_feed.py#L252)) —
    `ct.tab` has one row per *(src edge × root edge)*, so a single raw row that fans across N roots
    appears N times; the `groupby(SRC_COLS).sum()` must run over unique `(raw_id, src edge)` pairs
@@ -61,7 +61,7 @@ guard rejected the previous, incomplete state):
 - **A mass-conservation guard** (`|ΣF_root − Σraw| / Σraw ≤ tol`, hard error) is added at feed
   read-in as a feed-agnostic backstop — it would have caught the 36× inflation, and covers the
   option-B entity fragility.
-- **Relies on the `sector → entity` 1:1 invariant** now recorded in CONTEXT.md.
+- **Relies on the `sector → entity` 1:1 invariant** now recorded in GLOSSARY.md.
 - **Validation (verified in-process).** Rebuilding the ICSG concordance + `F_src`: raw rows mapping
   to multiple distinct source edges drops **5,576 (max 48×) → 0**; `ΣF_src` and `ΣF_root` both equal
   the matched raw total **2,069,585 kt** (was 74.7M — `36.08× → 1.0000×`); `F_root` max drops

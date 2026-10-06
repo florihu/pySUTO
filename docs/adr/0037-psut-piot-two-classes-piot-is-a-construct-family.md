@@ -57,6 +57,6 @@ defer to #20.
 4. **Order:** #19 → #24 → bipartite Sankey on `PSUT` → #25; one commit per slice, the shipped run
    re-materialised after #19 and #24.
 
-Finding recorded in [CONTEXT.md](../../CONTEXT.md): final-use (`Y`) edges are bilateral in copper (6,486 of
+Finding recorded in [GLOSSARY.md](../../GLOSSARY.md): final-use (`Y`) edges are bilateral in copper (6,486 of
 6,627 cross regions in 2020 — cathode into foreign final use), so `region_crossed` applies to `U` and `Y`,
 not to `U` alone.

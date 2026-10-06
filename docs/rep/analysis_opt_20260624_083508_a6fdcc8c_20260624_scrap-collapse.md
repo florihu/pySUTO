@@ -22,7 +22,7 @@ relax a hard infeasibility.** The fix is in the hard ratio-bound spec, not the c
 > wrong** — it assumed the feasibility sign backwards. Hard `nonneg` rows are feasible at **`G·a ≤ c`**
 > (Clarabel `NonnegativeConeT`, [solver.py:313](../../src/pysuto/solver.py#L313)); on disk **100 % of
 > hard nonneg rows are satisfied** (max residual ≈ +2e-9), and the large *negative* residuals are slack,
-> not violations (see CONTEXT.md §"Residual"). `_emit`, `eff`, and `stock_bounds` are correct — the
+> not violations (see GLOSSARY.md §"Residual"). `_emit`, `eff`, and `stock_bounds` are correct — the
 > `5abf8eb` net-stock fix at the generator/CSV layer (ADR 0005 amendment) confirms the convention. A
 > scan of all 637,320 bounded edge-pairs finds the empty-band defect is **scrap and only scrap** (2,820
 > pairs); no other `conc`/`eff`/`trade_shares`/`stock_bounds` band is contradictory.
@@ -144,7 +144,7 @@ by the eff balance + priors. Decision recorded in
 
 To prevent recurrence across **all** param classes, `ConstraintEngine.run` now rejects any edge-pair
 whose hard ratio bounds intersect to ∅ (`_validate_ratio_bounds`), and `RatioBoundBuilder.from_csv`
-rejects `value_min > value_max`. Glossary sharpened (CONTEXT.md §"Residual", §"Concentration
+rejects `value_min > value_max`. Glossary sharpened (GLOSSARY.md §"Residual", §"Concentration
 coefficient"). Alternatives considered and rejected: **split** scrap into two nodes (contradicts the
 root node, no feed data); **soft-only** conc bounds (keeps two conflicting pulls); a **soft sum** on
 scrap (the original idea — cannot relax a hard infeasibility, circular target, pins only the total).

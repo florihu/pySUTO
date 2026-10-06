@@ -14,7 +14,7 @@ copper model (all residuals — Slag/Tailings/WR/PSC — are SEM-outputs), so `x
 The squaring follows **Suh (2004)** as used by the **PIOLab** (Wieland et al. 2022, `docs/ref/`): by-products
 are endogenised as negative inputs and the core supply table holds **useful output** only; then, commodity-by-
 industry (Miller & Blair ch. 5), `B = U·x̂_new⁻¹`, `D = S·q̂⁻¹`, `A = B·D`, `Z = A·q̂`, `L = (I−A)⁻¹`.
-This matches the PIOLab vocabulary CONTEXT.md already adopted (*total/useful output*, throughput).
+This matches the PIOLab vocabulary GLOSSARY.md already adopted (*total/useful output*, throughput).
 
 **No runtime dependency on `pySUT` or `pymrio`.** The construction step (edge vector → physical SUT) exists in
 neither; both are downstream *consumers* of an already-built table. The Suh/PIOLab calculus is a few sparse
@@ -39,4 +39,4 @@ linear-algebra lines, so we implement it directly (`piot.py`) rather than take o
 - **Point estimate first (the deliberate no-).** v1 builds from `a*` only; Stage-5 posterior σ is **not**
   propagated yet — the API is shaped so a later Monte-Carlo layer (sample edges → rebuild `L` per draw) can add it.
 - **Terminology.** New canonical terms **PSUT / PIOT / gPIOT / `A` / `L` / footprint / realized `conc`** recorded
-  in [CONTEXT.md](../../CONTEXT.md), with `G` kept for the constraint matrix and lowercase `a` for the edge vector.
+  in [GLOSSARY.md](../../GLOSSARY.md), with `G` kept for the constraint matrix and lowercase `a` for the edge vector.

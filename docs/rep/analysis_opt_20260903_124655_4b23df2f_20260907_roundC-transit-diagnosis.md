@@ -157,7 +157,7 @@ The evidence splits the problem in three; only one part needs new structure.
    feed level, per region-sector-year total** (exports reduced by re-exported
    imports, import shares rescaled) — it simultaneously removes the fabricated-chain
    pressure *and* the §3 clip leak, is confined to Stage-1 feed semantics
-   (CONTEXT §Feed-semantics + ADR 0014 amendment), and needs no accounting-structure
+   (GLOSSARY §Feed-semantics + ADR 0014 amendment), and needs no accounting-structure
    change. Partner-pair netting is insufficient (A→hub→B is not symmetric).
    **(b) an explicit re-export edge class** (Flow→Flow cross-region; ADR 0011
    unit, new PSUT block) is the honest end-state *if* the manuscript needs true

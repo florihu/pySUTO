@@ -79,7 +79,7 @@ ratio in the eff params file as its own `param_type`**.
 - **Scope.** The Stage-3 `σ_a` CV floor (ADR 0004 "A1 caveat") is untouched.
 
 > **Amendment (2026-06-24).** The shipped `stock_bounds` params were later found **a/b-inverted**
-> relative to the `Σb − r·Σa` form documented above (and CONTEXT.md §"Node-scoped vs set-scoped"):
+> relative to the `Σb − r·Σa` form documented above (and GLOSSARY.md §"Node-scoped vs set-scoped"):
 > `stock_bounds_study.py` placed the stock edge on the `a`-side (numerator) and the FU/Cathode
 > denominator on the `b`-side, so `RatioBoundBuilder` built `denom ≤ p95·stock` (forcing
 > `stock ≥ denom/p95`, ~20–42×) instead of `stock ≤ p95·denom`. This forced ~95% of refined copper

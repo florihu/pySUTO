@@ -62,4 +62,4 @@ Two coordinated policies in `ConcordanceTable.from_raw` (opt-in per feed; ICSG e
   model; cross-region scrap legs do not exist structurally).
 - A wrong sector_map root (the `Refining_Anode → ER/CFR` class) now fails the feed build loudly
   instead of silently distributing onto foreign edge families.
-- Glossary: see **Unweighted fan** and **Qualifier fan** in [CONTEXT.md](../../CONTEXT.md).
+- Glossary: see **Unweighted fan** and **Qualifier fan** in [GLOSSARY.md](../../GLOSSARY.md).

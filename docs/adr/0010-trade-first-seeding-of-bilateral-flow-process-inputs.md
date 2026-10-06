@@ -150,5 +150,5 @@ carries a real prior (verified: ER→CER 2020 prior 1.8 → 20.8k, vs solved ≈
   residual).
 - Regions where the upstream product is also fully uncovered remain flat-prior — strictly better
   than today, and improved by the time-carry once any year closes.
-- New `TradeImputer` + shared `conc_twin_map()` helper; document in CONTEXT.md (trade-seed vocab)
+- New `TradeImputer` + shared `conc_twin_map()` helper; document in GLOSSARY.md (trade-seed vocab)
   and README §6 (test map). Verification per the report §8.4.

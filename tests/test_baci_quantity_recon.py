@@ -7,7 +7,7 @@ physical band [0.20, 0.35]. Where it does not, the *quantity* is the broken
 field — the value agrees with ICSG production in every year — so the quantity
 is reconstructed from it and the leg carries the grade's declared σ.
 
-_Avoid_: reading the fraction as a grade. CONTEXT.md's **Concentrate grade**
+_Avoid_: reading the fraction as a grade. GLOSSARY.md's **Concentrate grade**
 entry already warns that values of 0.6–0.9 "are not grades at all".
 """
 import os

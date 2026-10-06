@@ -50,5 +50,5 @@ Make the warm-start real and per-period, and store it explicitly:
   year-local chain; path-equivalence with the block path is only defined under
   `prior_mode='cold'`.
 - `ConstraintRun.a0` is now vestigial (the global time-replicated cold vector);
-  `a_prior_global` is the accessor for the global cold prior. See CONTEXT.md
+  `a_prior_global` is the accessor for the global cold prior. See GLOSSARY.md
   *a_prior (warm-start prior)*.

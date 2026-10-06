@@ -168,5 +168,5 @@ rewrote. Re-measure with the same script before merging either.
   script computes both readings explicitly) must say which it means.
 - `data/` is gitignored: on a fresh checkout, `python scripts/parse/icsg_parse/icsg_clean.py
   --to-feed` and `python scripts/explo/scrap_share_study.py` re-apply this decision.
-- CONTEXT.md carries the vocabulary: *smelter scrap*, *direct-to-refinery scrap*, ICSG's two
+- GLOSSARY.md carries the vocabulary: *smelter scrap*, *direct-to-refinery scrap*, ICSG's two
   output classifications, *direct melt*.

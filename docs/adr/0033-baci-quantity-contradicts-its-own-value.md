@@ -127,7 +127,7 @@ at 5.0. The previous loader assigned, which would have silently undone ADR 0027 
 ### Considered and rejected
 
 - **σ-widening alone**, the first choice. [ADR 0019](0019-contradicted-flow-nodes-lose-anchor-authority.md)
-  measured that remedy (0.46 % of mass moved, targeted collapses untouched) and CONTEXT.md records
+  measured that remedy (0.46 % of mass moved, targeted collapses untouched) and GLOSSARY.md records
   the verdict: *"σ reprices a data contradiction without resolving it."* The forced term is
   `cap = 0.35·X + U`; σ only *permits* the solver to raise `X`, while reconstruction raises it in
   the prior. σ encodes "we do not know" when the evidence says we do.

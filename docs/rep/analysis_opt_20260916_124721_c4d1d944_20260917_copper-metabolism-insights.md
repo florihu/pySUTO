@@ -328,7 +328,7 @@ recycling unable to supply more than half of it (RCR 2023 above).
   literature has copper ore grades declining ~25 % per decade
   ([Calvo, Mudd et al.](https://dc.engconfintl.org/lca_waste/4/)). The ore side is the most-deleted
   part of the chain (CO Mass retention 0.86; the Round M cone analysis) and its grades are on an
-  allocated basis that CONTEXT warns not to read as head grades. Nothing here is a finding about
+  allocated basis that GLOSSARY warns not to read as head grades. Nothing here is a finding about
   ore grades.
 - **The boundary.** No fabrication node, no semis trade, no direct-melt scrap, no EoL generation:
   `FU` is refined copper delivered to fabricators, not copper entering the in-use stock.

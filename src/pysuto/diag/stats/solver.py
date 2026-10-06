@@ -61,7 +61,7 @@ _ROW_EXTRA_COLS = ("is_hard", "sector", "region", "entity", "entity_sub",
                    "denom_region_to", "denom_valuation")
 # A row's cross-year identity is the tuple of EVERY row_meta column except the
 # display key and the year (read from columns, never parsed from constraint_id
-# — CONTEXT.md §"Constraint identity vocabulary"). cone_type / bound_dir are
+# — GLOSSARY.md §"Constraint identity vocabulary"). cone_type / bound_dir are
 # part of it: a pair's soft row and its two hard band rows are three identities.
 _ROW_NON_IDENTITY_COLS = ("constraint_id", "time")
 _ROW_CATEGORY_COLS = ("type", "variant", "cone_type", "valuation") + _ROW_EXTRA_COLS
