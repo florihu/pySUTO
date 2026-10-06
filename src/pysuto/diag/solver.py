@@ -786,7 +786,10 @@ class SolverDiag:
         (two panels sharing one legend, SD-R-10); ``"other"`` is always grey."""
         named = sorted(n for n in names if n != "other")
         palette = _CAT8 + _CAT_EXT
-        colors = {n: palette[i % len(palette)] for i, n in enumerate(named)}
+        if len(named) > len(palette):
+            raise ValueError(f"{len(named)} named series exceed the {len(palette)}-slot "
+                             f"palette (two would share a colour): {named}")
+        colors = dict(zip(named, palette))
         colors["other"] = _INK["muted"]
         return colors
 
@@ -986,8 +989,10 @@ class SolverDiag:
             prepared.append((dlabel,) + self._totals_data(
                 sub, "sb_sector", regions, order_hint=hint, colors=palette))
 
-        vals = next((p[1] for p in prepared if p[1] is not None), None)
-        if vals is None:
+        # one column per valuation of EITHER direction; each direction draws into
+        # the columns of its own valuations and marks the others n=0
+        vals = sorted({v for p in prepared if p[1] is not None for v in p[1]})
+        if not vals:
             return self._placeholder("SD-R-10: no system-boundary edges present", regions)
         fig, axes = plt.subplots(4, len(vals), figsize=(6.5 * len(vals) + 1.5, 15),
                                  sharex=True, squeeze=False)
@@ -997,13 +1002,14 @@ class SolverDiag:
         all_colors: dict = {}
         for d, (dlabel, dvals, tot, groups, colors) in enumerate(prepared):
             top, bot = axes[2 * d], axes[2 * d + 1]
-            if dvals is None:
-                for c in range(len(vals)):
+            cols = [vals.index(V) for V in dvals] if dvals is not None else []
+            if cols:
+                self._draw_totals_rows([top[c] for c in cols], [bot[c] for c in cols],
+                                       dvals, tot, groups, colors)
+            for c in range(len(vals)):
+                if c not in cols:
                     top[c].text(0.5, 0.5, "n=0", transform=top[c].transAxes, ha="center",
                                 va="center", fontsize=9, color=_INK["muted"])
-            else:
-                self._draw_totals_rows(top, bot, dvals, tot, groups, colors)
-            for c in range(len(vals)):
                 top[c].set_title(f"{dlabel} · valuation = {vals[c]}", loc="left", fontsize=10)
             all_groups += [g for g in groups if g not in all_groups]
             all_colors.update(colors)
