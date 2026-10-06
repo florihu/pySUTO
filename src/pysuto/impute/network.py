@@ -172,6 +172,7 @@ class NetworkImputer(BaseImputer):
         self._cc_to_mass: dict[int, tuple[int, float, float]] = {}
         self._same_region: np.ndarray | None = None
         self._stock_target: np.ndarray | None = None
+        self._writable_mask: np.ndarray | None = None
         self._lower: np.ndarray | None = None  # per-edge bounds (for in-imputer clipping)
         self._upper: np.ndarray | None = None
         self._n_clipped: int = 0
@@ -199,6 +200,7 @@ class NetworkImputer(BaseImputer):
         if self._stock_sectors:
             is_stock = em["to_sector"].isin(self._stock_sectors).to_numpy()
             self._stock_target[em["edge_id"].to_numpy()] = is_stock
+        self._writable_mask = self._same_region & ~self._stock_target
 
         # per-edge bounds: clip fills to [l, u] inside _w so a negative residual
         # (e.g. Ore→SXEW = Mining→Ore − Ore→MF) cannot propagate through the
@@ -269,7 +271,7 @@ class NetworkImputer(BaseImputer):
 
     def _writable(self, e: int) -> bool:
         """Ownership: same-region edges only, and never a stock-change leg."""
-        return bool(self._same_region[e]) and not bool(self._stock_target[e])
+        return bool(self._writable_mask[e])
 
     def _build_flow_balances(self, acc):
         """Per **(Flow node, year)**: (incoming CC supply edges, outgoing CC use edges).
@@ -475,14 +477,12 @@ class NetworkImputer(BaseImputer):
         if len(missing) != 1:
             return
         e = missing[0]
-        # every other *writable* edge must be known; missing cross-region legs and
-        # missing stock-change legs (non-writable) are treated as 0 (no trade on
+        # every other *writable* edge is therefore known; missing cross-region legs
+        # and missing stock-change legs (non-writable) are treated as 0 (no trade on
         # that route / no stock change) — symmetric with the recipe's
         # bilateral_import tier (ADR 0010). They are counted as 0, never written,
         # so the uncovered edge stays an honest gap (flat prior, or the zero-mean
         # net-stock seed for a stock leg — ADR 0040).
-        if any(np.isnan(f[x]) for x in edges if x != e and self._writable(x)):
-            return
         # A node whose uses include a stock-change leg has no observed use total
         # (the seed's 0 is an expectation, not a report), so its SUPPLY cannot be
         # derived from its uses: that would pin production to trade and send the

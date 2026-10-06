@@ -101,9 +101,14 @@ def test_seed_sigma_is_one_percent_of_the_fu_leg_floored_at_0_3_kt():
     f[7] = 200.0                       # Cathode→FU 1995 (the co-located base)
     missing = np.isnan(f)
     imp = ShareImputer(p95={}, scale_abs_floor=100.0, seed_cv=0.01, seed_abs_floor=0.3)
-    imp.impute(f, sigma, missing, step=0, acc_struct=acc)
+    entries = imp.impute(f, sigma, missing, step=0, acc_struct=acc)
     assert f[6] == 0.0
     assert sigma[6] == pytest.approx(0.01 * 200.0)     # 1 % of the leg, not p95·100
+    (log,) = [x for x in entries if x["edge_id"] == 6]
+    assert log["method"] == "share_seed" and log["param_id"] == "seed_mesc"
+    assert log["source_edges"] == [7] and log["coefficients"] == [0.0]
+    assert log["f_after"] == 0.0 and log["sigma_after"] == pytest.approx(2.0)
+    assert isinstance(log["edge_id"], int) and isinstance(log["sigma_after"], float)
 
     # a tiny / no-trade pair sits on the floor
     f = np.full(8, np.nan); sigma = np.full(8, np.nan)

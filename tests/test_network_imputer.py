@@ -809,6 +809,6 @@ def test_flow_balance_never_derives_supply_from_uses_that_include_a_stock_leg(st
     imp = _stock_imputer(tmp_path, stock_acc, ("MESC",))
     f, method = _run2(imp, stock_acc, seeds)
     e_prod = stock_acc.eid("CP", "Cathode", "CC")
-    assert np.isnan(f[e_prod]) or method.get(e_prod) != "network_balance"
+    assert not method.get(e_prod, "").startswith("network_balance")   # incl. _capped/_clipped
     e_sx = stock_acc.eid("SXEW", "CSXEW", "CC")
     assert f[e_sx] == pytest.approx(30.0) and method[e_sx] == "network_balance"

@@ -224,16 +224,13 @@ class ShareImputer(BaseImputer):
         base_ids = m["base_id"].to_numpy(dtype=int)
 
         fill = (np.isnan(f[net_ids]) & ~np.isnan(f[base_ids]))
-        entries: list[dict] = []
-        for k in np.where(fill)[0]:
-            e, b = int(net_ids[k]), int(base_ids[k])
-            s_new = max(self.seed_cv * abs(float(f[b])), self.seed_abs_floor)
-            f[e], sigma[e] = 0.0, s_new
-            entries.append(_log(
-                e, step, "share_seed", [b], [0.0], 0.0, s_new,
-                f"{ind.upper()} zero-mean, σ=max(cv·|FU|, floor)", f"seed_{ind}",
-            ))
-        return entries
+        e_fill, b_fill = net_ids[fill], base_ids[fill]
+        s_new = np.maximum(self.seed_cv * np.abs(f[b_fill]), self.seed_abs_floor)
+        f[e_fill], sigma[e_fill] = 0.0, s_new
+        desc = f"{ind.upper()} zero-mean, σ=max(cv·|FU|, floor)"
+        return [_log(int(e), step, "share_seed", [int(b)], [0.0], 0.0, float(s), desc,
+                     f"seed_{ind}")
+                for e, b, s in zip(e_fill, b_fill, s_new)]
 
 
 def _interp_share(share: dict, years: list) -> dict:
