@@ -834,7 +834,7 @@ def _psc_engine(tmp_path, acc, stock_sectors):
                        stock_sectors=stock_sectors),
         ParametricImputer.from_csv(str(conc), acc, p=1.3, q=3.0, alpha_min=0.05, id="conc"),
     ])
-    engine.register(ShareImputer(p95={}, p=1.3, id="net_stock_share",
+    engine.register(ShareImputer(p=1.3, id="net_stock_share",
                                  seed_cv=0.01, seed_abs_floor=0.3))
     return engine
 

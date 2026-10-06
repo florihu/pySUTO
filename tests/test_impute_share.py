@@ -50,7 +50,7 @@ def test_psc_seed_is_zero_mean_one_percent_of_the_cathode_pool_product():
     f[1] = 3.0                      # PSC 1996 reported
     f[8], f[9] = 100.0, 120.0       # CP→Cathode 1995 / 1996 (the PSC base)
     f[7] = 200.0                    # Cathode→FU 1995 (the MESC base)
-    imp = ShareImputer(p95={}, seed_cv=0.01, seed_abs_floor=0.3)
+    imp = ShareImputer(seed_cv=0.01, seed_abs_floor=0.3)
     entries = imp.impute(f, sigma, np.isnan(f), step=0, acc_struct=acc)
 
     assert f[0] == 0.0 and sigma[0] == pytest.approx(0.01 * 100.0)
@@ -67,7 +67,7 @@ def test_psc_seed_skipped_when_the_cathode_pool_product_is_missing():
     acc = _Acc()
     f, sigma = _blank()
     f[2] = 50.0; f[3] = 50.0; f[7] = 200.0
-    imp = ShareImputer(p95={}, seed_cv=0.01, seed_abs_floor=0.3)
+    imp = ShareImputer(seed_cv=0.01, seed_abs_floor=0.3)
     imp.impute(f, sigma, np.isnan(f), step=0, acc_struct=acc)
     assert np.isnan(f[0]) and np.isnan(f[1])
     assert f[6] == 0.0
@@ -78,7 +78,7 @@ def test_seed_skipped_when_base_missing():
     f, sigma = _blank()
     f[1] = 3.0; f[8] = 100.0
     # e7 (MESC base) left NaN → MESC seed must skip (leave for flat-prior)
-    imp = ShareImputer(p95={}, seed_cv=0.01, seed_abs_floor=0.3)
+    imp = ShareImputer(seed_cv=0.01, seed_abs_floor=0.3)
     imp.impute(f, sigma, np.isnan(f), step=0, acc_struct=acc)
     assert np.isnan(f[6])                          # no base → not seeded
     assert f[0] == 0.0                             # PSC 1995: base known → seeded
@@ -86,14 +86,14 @@ def test_seed_skipped_when_base_missing():
 
 def test_seed_sigma_is_one_percent_of_the_fu_leg_floored_at_0_3_kt():
     """Round X / ADR 0040: the MESC/USC seed is priced like a feed-backed level,
-    σ = max(seed_cv·|FU leg|, seed_abs_floor), and needs no p95 entry."""
+    σ = max(seed_cv·|FU leg|, seed_abs_floor), with no empirical band."""
     acc = _Acc()
     f, sigma = _blank()
     f[7] = 200.0                       # Cathode→FU 1995 (the co-located base)
-    imp = ShareImputer(p95={}, seed_cv=0.01, seed_abs_floor=0.3)
+    imp = ShareImputer(seed_cv=0.01, seed_abs_floor=0.3)
     entries = imp.impute(f, sigma, np.isnan(f), step=0, acc_struct=acc)
     assert f[6] == 0.0
-    assert sigma[6] == pytest.approx(0.01 * 200.0)     # 1 % of the leg, not p95·100
+    assert sigma[6] == pytest.approx(0.01 * 200.0)     # 1 % of the leg, not a band
     (log,) = [x for x in entries if x["edge_id"] == 6]
     assert log["method"] == "share_seed" and log["param_id"] == "seed_mesc"
     assert log["source_edges"] == [7] and log["coefficients"] == [0.0]
@@ -113,6 +113,6 @@ def test_seed_sigma_is_one_percent_of_the_fu_leg_floored_at_0_3_kt():
 
 
 def test_seed_knobs_are_persisted_in_config():
-    imp = ShareImputer(p95={}, seed_cv=0.02, seed_abs_floor=0.5)
+    imp = ShareImputer(seed_cv=0.02, seed_abs_floor=0.5)
     cfg = imp.config()
     assert cfg["seed_cv"] == 0.02 and cfg["seed_abs_floor"] == 0.5

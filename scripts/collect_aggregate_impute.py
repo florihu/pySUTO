@@ -123,11 +123,12 @@ TIME_SCOPE_SAME_REGION = True
 # row the recipe wrote PSC = (1 − 1.0)·Σin = 0 ± 0 on 872 region-years of X.0,
 # a hidden hard pin on a leg ADR 0013 says never to pin.
 STOCK_SECTORS = ("MESC", "USC", "PSC")
-# Net-stock seed σ for MESC/USC (ShareImputer seed mode), in kt: the seed is
-# priced like a feed-backed level — ADR 0025's scale-total rule, 1 % of the
-# co-located Cathode(i)→FU(j) flow, floored at the feeds' 0.3 kt resolution — so
-# a stock leg stays at its prior with small wiggle room. The former band
-# (p95/1.645 × max(FU, 100 kt)) gave the exchange-location legs σ ≈ 553 kt.
+# Net-stock seed σ for MESC/USC/PSC (ShareImputer), in kt: the seed is priced
+# like a feed-backed level — ADR 0025's scale-total rule, 1 % of the co-located
+# base flow (Cathode(i)→FU(j) for MESC/USC, the same region's CP→Cathode for
+# PSC), floored at the feeds' 0.3 kt resolution — so a stock leg stays at its
+# prior with small wiggle room. The former band (p95/1.645 × max(FU, 100 kt))
+# gave the exchange-location legs σ ≈ 553 kt.
 STOCK_SEED_CV           = 0.01
 STOCK_SEED_ABS_FLOOR_KT = 0.3
 
@@ -561,21 +562,17 @@ def main(feed_ids: list[str], label: str) -> None:
     # chain is derived by the NetworkImputer from ICSG production through the
     # carried-forward in-situ grade, so nothing is left for it to fill.)
 
-    # 6.5 Net-stock share imputation. Give Δstock (PSC/USC/MESC) edges informative,
-    # cold-smooth priors BEFORE flat_prior would fill them with noisy_zero: PSC by
-    # share-transfer (share=PSC/(CSXEW+CER) carried across years, seeding 1995; p95
-    # read from the SAME stock_bounds params the Part-A soft bounds use), and
-    # MESC/USC by a zero-mean seed held at σ = max(STOCK_SEED_CV·|FU leg|,
-    # STOCK_SEED_ABS_FLOOR_KT) — see the USER CONFIGURATION note (ADR 0040).
-    engine.register(ShareImputer.from_stock_bounds_csv(
-        str(inputs.params.resolve("stock_bounds") / "params.csv"),
-        scale_abs_floor = 100.0,
+    # 6.5 Net-stock seed. Hold the Δstock legs (MESC/USC/PSC) no feed reports at 0
+    # with σ = max(STOCK_SEED_CV·|co-located base|, STOCK_SEED_ABS_FLOOR_KT) BEFORE
+    # flat_prior would fill them with noisy_zero — base = Cathode→FU for MESC/USC
+    # (ADR 0040), CP→Cathode for PSC (ADR 0041); see the USER CONFIGURATION note.
+    # The stock_bounds params are a Stage-3 input only (the PSC soft rows).
+    engine.register(ShareImputer(
         p               = P_PROP,
         id              = "net_stock_share",
         seed_cv         = STOCK_SEED_CV,
         seed_abs_floor  = STOCK_SEED_ABS_FLOOR_KT,
     ))
-    param_refs.append(inputs.params.entry("stock_bounds"))
 
     # 7. Final fallback — flat prior.
     # Two modes (see FLAT_MODE config above):
