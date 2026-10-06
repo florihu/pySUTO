@@ -68,7 +68,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 # pySUTO — project-specific facts
 
-Supply–use-table reconciliation (copper application): a σ-weighted QP solved in Clarabel at the end of a six-stage pipeline (numpy · scipy.sparse · pandas). Architecture and module map are in [README.md](README.md) §2–§6, vocabulary in [CONTEXT.md](CONTEXT.md), decisions in `docs/adr/`, open rounds in `TODO.md`. Re-measure, do not assume (ADR 0028): a claim about a run is backed by a run id and a number.
+Supply–use-table reconciliation (copper application): a σ-weighted QP solved in Clarabel at the end of a six-stage pipeline (numpy · scipy.sparse · pandas). Architecture and module map are in [README.md](README.md) §2–§6, vocabulary in [GLOSSARY.md](GLOSSARY.md), decisions in `docs/adr/`, open rounds in `TODO.md`. Re-measure, do not assume (ADR 0028): a claim about a run is backed by a run id and a number.
 
 ## Pipeline
 
@@ -76,7 +76,7 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 - Run ids are `{feed|imp|const|opt|uncprop|psut}_{YYYYMMDD_HHMMSS}_{8hex}`; feed runs embed the feed name (`feed_<feed_id>_…`).
 - Per-stage `registry.json` is a trimmed index. Lineage lives in each run's `metadata.json` (`parents.inputs` = input versions, `parents.upstream` = parent run ids) — read the sidecar for provenance.
 - Feed build order is load-bearing (ADR 0024, 0027): `build_baci_reexport.py → baci_feed.py`, then `build_trade_shares.py → icsg_feed.py`. Any ICSG or BACI change invalidates the trade-share weights and nothing detects it (it once cost 6.2 pp of z²): rebuild them, then confirm `trade_shares.version` in the feed's `metadata.json`.
-- `run_solver.py --prior-mode` defaults to `cold` in code although its help text, docstring and CONTEXT.md say warm — cold is what runs; trust the sidecar's `prior_mode`.
+- `run_solver.py --prior-mode` defaults to `cold` in code although its help text, docstring and GLOSSARY.md say warm — cold is what runs; trust the sidecar's `prior_mode`.
 
 ## Environment & commands
 
@@ -131,7 +131,7 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 ## Invariants no test enforces (the ADR is the source of truth)
 
 - Never parse a `constraint_id`; read `row_meta` columns. Param ids contain no underscore (ADR 0005).
-- Hard row ⇔ `σ_c = 0`. In solver CSVs `residual` is identically 0 on hard rows; use `resid_solver` for them (CONTEXT.md "Defect, residual & violation").
+- Hard row ⇔ `σ_c = 0`. In solver CSVs `residual` is identically 0 on hard rows; use `resid_solver` for them (GLOSSARY.md "Defect, residual & violation").
 - Results are year-local: scatter `F_opt` through `cols_t` before any `G @ F` (README §8 "period slice").
 - σ cannot repair a data contradiction: fix the input, never loosen σ or drop the row (ADR 0019, 0035).
 - The 0.3 kt σ floor applies to feed-backed scale totals only, never globally (ADR 0025).
@@ -145,19 +145,23 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 - Analyses of `opt`/`const`/`imp` runs are REPs at `docs/rep/analysis_<run_id>_<YYYYMMDD>_<slug>.md`, opening with Run / Against / Chain / Feed+params versions / Date / Branch / ADR / Verdict.
 - Masses are `kt` — the code's unit in logs, axis labels and the Sankey default. Name the valuation when both exist: `kt` (gross mass) vs `kt CC` (contained copper); `Mt` for world-scale totals; never an unlabelled `t`.
 - Every relative number names its base and the run it is relative to: `Σz² −9.6 % vs opt_<id>`, never `−9.6 %` alone. A difference of two percentages is in `pp`.
-- Retention is `Σa*/Σa_prior` by category and is always quoted with its category and year (CONTEXT.md "Retention").
-- ADRs: `docs/adr/NNNN-slug.md`, one paragraph plus a bold `**Status:**` line citing evidence run ids; write one only if hard to reverse AND surprising AND a real trade-off (`.claude/skills/grill-with-docs/ADR-FORMAT.md`). "Rejected on measurement" is a valid status.
-- `CONTEXT.md` is a glossary only: bold term, tight definition, `_Avoid_` aliases, flagged ambiguities (`.claude/skills/grill-with-docs/CONTEXT-FORMAT.md`). Add a term whenever vocabulary had to be pinned down mid-task; keep README `## Glossary` consistent with it.
+- Retention is `Σa*/Σa_prior` by category and is always quoted with its category and year (GLOSSARY.md "Retention").
+- ADRs: `docs/adr/NNNN-slug.md`, one paragraph plus a bold `**Status:**` line citing evidence run ids; write one only if hard to reverse AND surprising AND a real trade-off (`domain-modeling` skill, `ADR-FORMAT.md`). "Rejected on measurement" is a valid status.
+- `GLOSSARY.md` is a glossary only: bold term, tight definition, `_Avoid_` aliases, flagged ambiguities (`domain-modeling` skill, `GLOSSARY-FORMAT.md`). Add a term whenever vocabulary had to be pinned down mid-task.
 - Modelling choices and architecture go in `README.md`; round bookkeeping in `TODO.md`. No third place.
 
 ## Git workflow
 
 - Branches `feat/…`, `fix/…`, `diag/…`; merge with `--no-ff`, titled `Merge branch '<b>': <result> (ADR N, Round X)`.
-- Commits: `type(scope): finding as a sentence`; types feat/fix/docs/measure/chore/test/refactor; scope is a module or artefact (`feed`, `impute`, `constraints`, `diag`, `psut`, `piot`, `rep`, `adr`, `context`, `params`); issues as `#NN`.
+- Commits: `type(scope): finding as a sentence`; types feat/fix/docs/measure/chore/test/refactor; scope is a module or artefact (`feed`, `impute`, `constraints`, `diag`, `psut`, `piot`, `rep`, `adr`, `glossary`, `params`); issues as `#NN`.
 - Commit only when asked. Never stage `data/` (except `current/` inputs via `git add -f`), `logs/` or `leg/`.
 
 ## Agent skills
 
+- **Source** — Matt Pocock's skills come from the read-only `mattpocock-skills` plugin, enabled at project scope in `.claude/settings.json`; the rules below adapt them to pySUTO. `.claude/skills/` holds only pySUTO's own skills.
 - **Issue tracker** — GitHub issues via `gh`. See `docs/agents/issue-tracker.md`.
 - **Triage labels** — `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
-- **Domain docs** — single-context: `CONTEXT.md` (glossary) + README `## Glossary` + `docs/adr/`. See `docs/agents/domain.md`.
+- **Domain docs** — single-context: `GLOSSARY.md` (glossary) + `docs/adr/`. See `docs/agents/domain.md`.
+- **`/implement`** — commits to the current branch: start it on a `feat/`, `fix/` or `diag/` branch, never `main`. There is no type checker; where it says typecheck, run the single test file. Commit first, then review the range since the branch point with `mattpocock-skills:code-review` (not the built-in `/code-review`); review fixes go in a second commit.
+- **Measure tickets** — `to-tickets` gives every σ-rule, builder, imputer, feed or knob change its own measure ticket, blocked by the build ticket and closed by a `measure(...)` commit plus its REP. `/implement` never runs the pipeline; a ticketless run whose change needs a REP says so at close-out.
+- **`/implement-spec`** — code-only specs; it never takes a measure ticket. Those run afterwards in the main checkout, one at a time (worktrees have no `data/proc`; registries have no locking).

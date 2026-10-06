@@ -6,7 +6,7 @@ solver.py
 Every number is read from the all-years frames of
 :class:`pysuto.diag.stats.SolverStatsDiagnostic` (edge frame, constraint frame),
 so the figures and the per-year ``edges_<year>.csv`` / ``constraints_<year>.csv``
-agree by construction. Vocabulary follows CONTEXT.md: **defect** = ``a*−a_prior``
+agree by construction. Vocabulary follows GLOSSARY.md: **defect** = ``a*−a_prior``
 per edge; **residual** = ``G·a−c`` per row; **objective share** = an item's ``z²``
 over its family's ``Σz²`` (the QP objective *is* ``Σz²``); **identity** = the
 cross-year key of an edge (template) or a row (``row_meta`` columns);

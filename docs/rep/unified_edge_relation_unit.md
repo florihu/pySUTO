@@ -322,7 +322,7 @@ Why this is attractive here specifically:
 - **Recompute cost of the cache stance.** Treating intermediates as regenerable assumes
   replay is cheap enough; for large `G`/solver runs it is not free. The provenance layer
   must coexist with kept caches (which is the chosen stance — see §8).
-- **Non-goals.** No deletion of stored data; no new ADR or `CONTEXT.md`; this is a lens +
+- **Non-goals.** No deletion of stored data; no new ADR or `GLOSSARY.md`; this is a lens +
   sketch, *not* a committed refactor.
 
 ---

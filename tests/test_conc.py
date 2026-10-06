@@ -606,7 +606,7 @@ class TestSingleEndpointUseFanOut:
 # build_F_src — Mapping 1 (raw rows → source edges) mass conservation.
 # Distinct from Mapping 2 (source → root) fan-in/fan-out: these tests cover how
 # raw-row VALUES aggregate onto src edges, the seam where the 36× ICSG
-# re-inflation happened. See ADR 0002 / CONTEXT.md "Two mapping levels".
+# re-inflation happened. See ADR 0002 / GLOSSARY.md "Two mapping levels".
 # =============================================================================
 
 class TestBuildFSrcMassConservation:

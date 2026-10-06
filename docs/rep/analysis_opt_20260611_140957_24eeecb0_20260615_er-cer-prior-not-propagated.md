@@ -282,7 +282,7 @@ it would zero genuine domestic legs and break Smelting/MF; only cross-region imp
 3. `_do_recipe` treats `bilateral_import` like SEM (the behaviour change).
 4. Add `TradeImputer` + export.
 5. Register `TradeImputer` first in the cascade.
-6. ADR 0010 + README §6 test-map line + CONTEXT.md vocab line.
+6. ADR 0010 + README §6 test-map line + GLOSSARY.md vocab line.
 
 ### 8.4 Verification
 - **Unit** (`tests/test_trade_imputer.py` or extend `tests/test_network_imputer.py`): 2–3 region

@@ -112,7 +112,7 @@ TIME_INTERPOLATE_ONLY = True
 # interpolating a cross-region leg from its neighbouring years invents trade the
 # source never reported (9,215 Mass legs / 20,252 kt on the pre-ADR-0026 chain,
 # of which 15,266 kt survived into the posterior: Papua New Guinea concentrate,
-# Zambia cathode/matte, Peru). ADR 0010 and CONTEXT "Trade-seed" already state
+# Zambia cathode/matte, Peru). ADR 0010 and GLOSSARY "Trade-seed" already state
 # the intent ("a route with no BACI Mass observation is left NaN, an honest
 # flat-prior gap, never seeded to 0"); the unscoped imputer silently overrode it.
 # Set False to restore the pre-ADR-0026 behaviour.
@@ -272,7 +272,7 @@ def _cathode_domestic_subtract(sector_to: str, missing: str = "block"):
     )
 
 # FU uses missing="zero" on the subtract/export terms: absent USC/MESC or
-# unobserved export legs count as 0 (CONTEXT.md "missing counts as 0"), so the
+# unobserved export legs count as 0 (GLOSSARY.md "missing counts as 0"), so the
 # residual fires wherever CP→Cathode production is known — this is what anchors
 # the FU sink with a real prior. The supply term keeps missing="block": without
 # known production a residual FU prior would be meaningless. The USC/MESC

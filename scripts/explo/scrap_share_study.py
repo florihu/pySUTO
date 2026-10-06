@@ -33,7 +33,7 @@ Regions are the concordance's ROOT names, not the raw feed's source labels
 (ADR 0032) — ``South Korea`` is ``Korea, Rep.``, ``Belgium-Luxembourg`` is
 ``Belgium``, and the 48 ROW members aggregate into one band.
 
-Share convention (CONTEXT.md: "SEM-secondary (Scrap — missing counts as 0)"):
+Share convention (GLOSSARY.md: "SEM-secondary (Scrap — missing counts as 0)"):
 a share observation exists for every year the region's *scrap* series has a
 value; the primary series (Concentrate / Matte) counts as 0 when missing, so
 pure-secondary smelters (no concentrate series) correctly show share = 1.

@@ -81,7 +81,7 @@ falls from 735,040 to 723,198 kt instead of being held at 735,040.
   the external drift: multipliers 0.995–1.005, median 0.9992, i.e. < 0.5 % of ore mass against a
   ±20 % band. **Not taken in this round** (sub-percent effect); it remains the principled next
   refinement if the carried years ever matter. ⚠ The grades in use are therefore *internal*
-  (ADR 0015 derivation), not the external v1 series — see CONTEXT.md.
+  (ADR 0015 derivation), not the external v1 series — see GLOSSARY.md.
 
 ## Consequences
 

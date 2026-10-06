@@ -21,7 +21,7 @@ matrix over (exporter, importer, HS6, year): a route that carries no row in a ye
 carried no trade, not a route whose value is unknown. [ADR 0010](0010-trade-first-seeding-of-bilateral-flow-process-inputs.md)
 states the rule for the same population — *"A bilateral import leg with no trade observation means
 'no trade on this route' — 0 is the honest value"*, and the uncovered edge *"stays an honest
-flat-prior gap the solver can widen"* — and CONTEXT's **Trade-seed** entry repeats it. The
+flat-prior gap the solver can widen"* — and GLOSSARY's **Trade-seed** entry repeats it. The
 interpolator silently overrode both.
 
 Measured on the shipped Round-K chain (`imp_20260910_131346_e055415a`):

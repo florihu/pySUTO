@@ -134,7 +134,7 @@ SIGMA_A_ABS_FLOOR = 1.0e-6
 ANCHOR_CV         = 0.01
 SIGMA_C_CV_MIN    = 0.01
 # Provenance-aware scale totals: a scale total preserves the model's own prior
-# group-sum ("not to add information", CONTEXT.md §Total-output). Where that
+# group-sum ("not to add information", GLOSSARY.md §Total-output). Where that
 # prior is FABRICATED (twin/recipe/flat imputations, no feed observation behind
 # the group) a tight ANCHOR_CV over-preserves it — it fights the observed
 # valuation of the same sectors and inverts the data hierarchy (REP
@@ -396,7 +396,7 @@ def main(imp_run_id: str, label: str) -> None:
     # Provenance-aware σ_c: loosen scale totals whose prior group-sum is
     # fabricated (feed-backed share of Σ|f_agg| < FEED_SHARE_OBSERVED). Uses
     # agg_result.coverage — the pre-imputation "did any feed observe this
-    # edge?" flag (CONTEXT.md §Coverage), so imputations never count.
+    # edge?" flag (GLOSSARY.md §Coverage), so imputations never count.
     _cov  = np.asarray(agg_result.coverage, dtype=bool)
     _f_agg_signed = np.nan_to_num(np.asarray(f_agg, dtype=float))
     _absf = np.abs(_f_agg_signed)
@@ -465,7 +465,7 @@ def main(imp_run_id: str, label: str) -> None:
     #     leave the solver free to move copper between the smelter and the
     #     refinery route — the exact substitution ADR 0030 constrained. Grouped
     #     on `sector_to`, so row_meta.sector is the CONSUMING node. These are
-    #     *scrap level anchors*, NOT input totals: CONTEXT.md reserves "total
+    #     *scrap level anchors*, NOT input totals: GLOSSARY.md reserves "total
     #     input" for ALL incoming edges, and these sum one input class.
     #
     #     Scoped to CC and to COVERED edges:

@@ -92,7 +92,7 @@ _BLOCK_RULES = (
 BLOCKS = tuple(rule[0] for rule in _BLOCK_RULES)
 
 # (entity, entity_sub, level name) of each block's row and column labels. The
-# level names are the framework's role words (CONTEXT "Role"); the labels are
+# level names are the framework's role words (GLOSSARY "Role"); the labels are
 # the case's sectors.
 _ROW_COL = {
     "S": (("Process", None, "process"),   ("Flow", None, "flow")),
@@ -444,7 +444,7 @@ class PSUT(_TidyView):
         ``keep_crossings=True`` stamps ``region_crossed`` — ``from_region !=
         to_region`` at the resolution *before* this relabel, OR-ed with any
         earlier stamp — into the key, so the realized traded share survives a
-        region collapse (CONTEXT "Traded (realized) vs tradable"). Returns a
+        region collapse (GLOSSARY "Traded (realized) vs tradable"). Returns a
         new PSUT; the call is appended to :attr:`aggregation`.
         """
         if region is None and sector is None and not keep_crossings:
@@ -587,7 +587,7 @@ class PSUT(_TidyView):
     def realized_conc(self, period=None, *, numerator: Optional[str] = None,
                       denominator: Optional[str] = None) -> pd.DataFrame:
         """Per-edge ratio of two valuations: the *ex-post* concentration
-        ``CC/Mass`` of the materialised flows (CONTEXT "Realized conc"), to be
+        ``CC/Mass`` of the materialised flows (GLOSSARY "Realized conc"), to be
         read against the parametric ``conc``. One row per (period, edge
         template) with ``val_<numerator>``, ``val_<denominator>`` and ``conc``
         (NaN where the denominator is zero). ``period=None`` means every

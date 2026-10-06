@@ -58,7 +58,7 @@ class SourceTerm:
                     "sum"    (sum over all matching edges).
     missing         NaN-source policy: "block" (default) aborts the fill when
                     any matched source value is missing; "zero" treats missing
-                    sources as 0 (CONTEXT.md "missing counts as 0" — for
+                    sources as 0 (GLOSSARY.md "missing counts as 0" — for
                     subtract/export terms whose absence means "no such flow
                     observed", not "unknown"). Structural failures (aggregate
                     "single" matching ≠ 1 edge) always block.

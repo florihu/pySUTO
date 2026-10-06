@@ -11,7 +11,7 @@ root region is dropped as mapped self-trade exactly as a source row would be.
 
 The region map folds several source reporters into one root region (Hong Kong 344 and Macao 446
 → "China"; ~150 small reporters → "ROW"). A bilateral trade row whose two endpoints fold onto the
-same root region becomes **mapped self-trade** (CONTEXT.md term): its root 8-tuple address is
+same root region becomes **mapped self-trade** (GLOSSARY.md term): its root 8-tuple address is
 byte-identical to the **domestic** edge, so the feed writes a tiny, customs-precise trade value
 onto a production-scale transfer. 5,181 of 78,312 BACI rows (~6.6 %) are mapped self-trade.
 
@@ -24,7 +24,7 @@ Chile's mining chain by ~80 % in Mass. The same mechanism poisoned China's catho
 self-trade, the `sum_usetotout_Cathode_China` z≈92 tail), China's anode edge, and ROW's
 matte/concentrate/cathode edges (intra-ROW trade).
 
-CONTEXT.md already documented the intended invariant — "BACI … no self-trade rows, so no domestic
+GLOSSARY.md already documented the intended invariant — "BACI … no self-trade rows, so no domestic
 leg" — true at source level, silently broken at root level by the fold. Likewise
 `build_trade_shares.py` already forces the domestic fan leg to the residual (domestic `imp_cc=0`):
 the codebase's intent that trade data never informs domestic edges predates this ADR.

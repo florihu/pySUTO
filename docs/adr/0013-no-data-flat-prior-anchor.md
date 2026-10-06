@@ -22,7 +22,7 @@ feasibility-pre-check strictness (it is inert in the QP — see amendment 1 belo
    matching would also exempt `Scrap` (a SEM secondary *input*, reached via a
    use edge) — exactly the sector the anchor exists to discipline. Only
    supply-side edges into SEM SB nodes (the residual outputs) qualify; see
-   CONTEXT.md §"System-boundary category" for the residual-output vs
+   GLOSSARY.md §"System-boundary category" for the residual-output vs
    secondary-input distinction.
 
 **Amended 2026-09-29 (Round W.3, issue #28):**
@@ -82,7 +82,7 @@ run for diffing). The cold run then solves on the data-backed ~18 % of edges.
 
 The pin's exclusion set is **broader than the anchor's**:
 `{CO, Mining, Ore, WR, Tailings, Slag, PSC}`. All four SEM residual outputs
-(`Slag / Tailings / WR / PSC`, [CONTEXT.md](../../CONTEXT.md) §"System-boundary
+(`Slag / Tailings / WR / PSC`, [GLOSSARY.md](../../GLOSSARY.md) §"System-boundary
 category") are the `(1−eff)·Σin` complement of a process — and the residual output
 is the process's **only free output**, the mass relief valve that lets a hard
 process balance close when the product edge is itself pinned. Pinning a no-data

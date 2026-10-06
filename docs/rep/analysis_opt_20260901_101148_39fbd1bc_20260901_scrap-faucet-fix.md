@@ -44,7 +44,7 @@ from the ADR 0011/0012 one-relation-drives-all pattern). `SCRAP_SHARE_MODE` knob
 Predicate `entity_to` "Process"→"SB" (4 sites) **plus** a new `SourceTerm.missing="zero"` policy (default
 "block" — no change to other relations): the FD trio was mutually circular (FU blocked on USC+MESC being
 observed, and the export sum blocked on any missing bilateral leg), so even with correct predicates it fired
-0×. Now **FU counts missing USC/MESC/export legs as 0** (CONTEXT.md "missing counts as 0") and fires wherever
+0×. Now **FU counts missing USC/MESC/export legs as 0** (GLOSSARY.md "missing counts as 0") and fires wherever
 CP→Cathode production is known (**194 fills**); USC/MESC keep full block semantics so the ShareImputer's
 zero-mean throughput-scaled seed (Part B) is not preempted.
 

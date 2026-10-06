@@ -314,7 +314,7 @@ def _build_param_row(indicator: str, region: str, p95: float,
     a = spec["a"]; b = spec["b"]; intra = spec["intra"]
 
     # RatioBoundBuilder's CSV convention is a-side = DENOMINATOR, b-side = NUMERATOR:
-    # the agg row is `Σb − r·Σa`, bounding b/a ≤ r (CONTEXT.md §"Node-scoped vs
+    # the agg row is `Σb − r·Σa`, bounding b/a ≤ r (GLOSSARY.md §"Node-scoped vs
     # set-scoped"; ADR 0005). INDICATOR_EDGES labels the stock edge "a" (the natural
     # numerator) and the denominator "b", so we write them into the CSV *swapped* —
     # denominator → a_*, stock → b_*. A straight a→a / b→b mapping inverts the bound

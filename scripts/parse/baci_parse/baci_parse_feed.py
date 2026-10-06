@@ -34,7 +34,7 @@ and BACI's *value* agrees with ICSG production in every year (0.92-1.09) while
 its *quantity* is 60 % out in exactly those years.  The quantity is the broken
 field, so it is rebuilt from the value at the region's own measured fraction.
 
-_Avoid_: reading the fraction as a grade.  CONTEXT.md's **Concentrate grade**
+_Avoid_: reading the fraction as a grade.  GLOSSARY.md's **Concentrate grade**
 entry already warns that values of 0.6-0.9 "are not grades at all" but a
 statement that the recorded export mass is too small.
 

@@ -14,7 +14,7 @@ over the family's (or the run's) ``Σz²``. Three families:
                     every one is a scale total or a scrap level anchor);
 * ``soft_ratios`` — residuals on ``type == "ratio"`` rows in the free cone.
 
-A large ``|z|`` on a soft row is priced disagreement, not failure (CONTEXT.md
+A large ``|z|`` on a soft row is priced disagreement, not failure (GLOSSARY.md
 §"Constraint table") — nothing here is a "violation".
 
 Inputs are the all-years frames of :class:`SolverStatsDiagnostic`

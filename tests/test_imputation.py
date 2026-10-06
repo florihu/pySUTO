@@ -823,7 +823,7 @@ class TestFormulaImputer:
 
     def test_missing_zero_counts_nan_source_as_zero(self, acc):
         """missing="zero": a NaN subtract term contributes 0 instead of blocking
-        the fill (CONTEXT.md "missing counts as 0"); the default "block" on the
+        the fill (GLOSSARY.md "missing counts as 0"); the default "block" on the
         same shape still aborts."""
         def _rel(missing):
             return FormulaRelation(
