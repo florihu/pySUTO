@@ -2,7 +2,9 @@
 
 **Run analysed:** `opt_20261005_134720_ee69cda9` (X.0, label `roundX0_stock_legs_at_prior`; 30 years
 Solved; `prior_mode` cold) — the Round X reference run (ADR 0040)
-**Runs measured:** Y.0 — *pending* (#43); Y.1 — *pending* (#44)
+**Runs measured:** Y.0 `opt_20261006_105904_61c5efe9` (label `roundY0_psc_mass_twin`; chain
+`imp_20261006_101314_c6b6c588` → `const_20261006_101742_205d50d3`; code at commit `2e9240e`; 30 years
+Solved; conc **v9**, feeds and trade_shares v21 as X.0) — #43; Y.1 — *pending* (#44)
 **Against:** X.0 (the run analysed)
 **Chain (X.0):** `imp_20261005_125928_e9ffa8cb` → `const_20261005_130418_a5fb94a6` → the run
 **Feeds/params (X.0):** icsg v12 / trade_shares v21, baci v11, crude_ore v3; acc copper v4; conc v8,
@@ -147,31 +149,46 @@ tables of `scripts/solver_stats.py <opt> --years all` must exist for each run.
 
 | item | pass rule (Y.1) | X.0 | Y.0 | Y.1 |
 |---|---|---|---|---|
-| P1 PSC prior classes CC: observed / twin / seed / pinned / free | pinned 0; free ≤ 350 | 187 / 0 / 0 / 875 / 348 | — | — |
-| P1 Mass | pinned 0; free ≤ 350 | 0 / 0 / 0 / 0 / 1,410 | — | — |
-| P2 Σ\|F_Mass − F_CC/0.9975\| on PSC per year | ≤ 10 kt every year | 22.2–86.5 kt; 30 years above | — | — |
-| P3 mass moved on PSC per year, US excluded (CC / Mass) | ≤ 100 kt/yr | max 50.7 / 286.9; mean 11.7 / 103.2 | — | — |
-| P3 United States alone, Σ\|a* − a_prior\| 30 y (CC / Mass) | reported | 6,052 / 708 kt | — | — |
-| P4 cumulative drift 1995–2024, US excluded (CC / Mass) | within ±1,000 kt; Mass ≈ CC | +113.8 / +820.7 kt | — | — |
-| P4 United States alone Σ(F − a0) (CC / Mass) | reported | +588 / −418 kt | — | — |
-| P5 CP→Cathode CC retention per year, world | moves ≤ 0.01 vs X.0 | 0.968–1.006 | — | — |
-| P5 Chile / China / United States | moves ≤ 0.01 vs X.0 | 0.886–1.029 / 0.962–1.037 / 0.936–1.060 | — | — |
-| P6 common-set sum-row z² vs X.0 | ≤ +1 % (sign reported) | base | — | — |
-| P7 Round-E: world retention CO Mass / Conc CC / Cathode CC | holds | 0.862 / 0.990 / 0.988 | — | — |
-| P7 small-node (\|c\| < 18 kt) posterior/prior median / p90 | holds | 1.000 / 1.157 (n 4,772) | — | — |
-| P7 exporter concentrate retention Chile / Peru / Indonesia / world | holds | 0.969 / 1.014 / 0.915 / 0.924 | — | — |
-| P7 mass moved, all CC edges | reported | 502,941 kt | — | — |
-| P8 PSC stock-bound rows: max \|z\|; rows \|z\| > 3; Σz² | not worse | 4.48; 5; 190.8 | — | — |
-| P9 solver status | 30 Solved | 30/30 Solved | — | — |
-| P10 USC: negative posterior edge-years; drift mean [min, max]; years > 0 | both signs; \|mean\| < 16 | 0; +16.3 [+8.7, +23.3]; 30/30 | — | — |
-| P10 MESC: same | both signs; \|mean\| < 16 | 0; +13.0 [−15.3, +23.4]; 28/30 | — | — |
+| P1 PSC prior classes CC: observed / twin / seed / pinned / free | pinned 0; free ≤ 350 | 187 / 0 / 0 / 875 / 348 | 187 / 0 / 0 / 875 / 348 (twin-only state: CC unchanged by design) | — |
+| P1 Mass | pinned 0; free ≤ 350 | 0 / 0 / 0 / 0 / 1,410 | 0 / 1,059 / 0 / 875 / 348 | — |
+| P2 Σ\|F_Mass − F_CC/0.9975\| on PSC per year | ≤ 10 kt every year | 22.2–86.5 kt; 30 years above | 0.0–5.6 kt; 0 years above | — |
+| P3 mass moved on PSC per year, US excluded (CC / Mass) | ≤ 100 kt/yr | max 50.7 / 286.9; mean 11.7 / 103.2 | max 40.2 / 40.1; mean 7.0 / 6.9 | — |
+| P3 United States alone, Σ\|a* − a_prior\| 30 y (CC / Mass) | reported | 6,052 / 708 kt | 5,885 / 5,887 kt | — |
+| P4 cumulative drift 1995–2024, US excluded (CC / Mass) | within ±1,000 kt; Mass ≈ CC | +113.8 / +820.7 kt | +70.8 / +67.4 kt | — |
+| P4 United States alone Σ(F − a0) (CC / Mass) | reported | +588 / −418 kt | +489 / +494 kt | — |
+| P5 CP→Cathode CC retention per year, world | moves ≤ 0.01 vs X.0 | 0.968–1.006 | 0.967–1.005; max Δ 0.003 vs X.0 | — |
+| P5 Chile / China / United States | moves ≤ 0.01 vs X.0 | 0.886–1.029 / 0.962–1.037 / 0.936–1.060 | max Δ 0.003 / 0.002 / **0.021** (US 2008 1.035 → 1.056; #35 region) | — |
+| P6 common-set sum-row z² vs X.0 | ≤ +1 % (sign reported) | base | **−0.1 %** (1,492,089 → 1,490,497 on 27,116 rows) | — |
+| P7 Round-E: world retention CO Mass / Conc CC / Cathode CC | holds | 0.862 / 0.990 / 0.988 | 0.863 / 0.990 / 0.988 | — |
+| P7 small-node (\|c\| < 18 kt) posterior/prior median / p90 | holds | 1.000 / 1.157 (n 4,772) | 1.000 / 1.149 | — |
+| P7 exporter concentrate retention Chile / Peru / Indonesia / world | holds | 0.969 / 1.014 / 0.915 / 0.924 | 0.970 / 1.013 / 0.915 / 0.924 | — |
+| P7 mass moved, all CC edges | reported | 502,941 kt | 501,359 kt | — |
+| P8 PSC stock-bound rows: max \|z\|; rows \|z\| > 3; Σz² | not worse | 4.48; 5; 190.8 | **5.18; 9; 215.6** (worse) | — |
+| P9 solver status | 30 Solved | 30/30 Solved | 30/30 Solved (29.6 min) | — |
+| P10 USC: negative posterior edge-years; drift mean [min, max]; years > 0 | both signs; \|mean\| < 16 | 0; +16.3 [+8.7, +23.3]; 30/30 | **23,847**; −5.6 [−36.4, +7.0]; 11/30 | — |
+| P10 MESC: same | both signs; \|mean\| < 16 | 0; +13.0 [−15.3, +23.4]; 28/30 | **23,822**; −8.2 [−40.3, +6.8]; 9/30 | — |
 
 The USC drift of X.0 is one-signed in every year and already sits at the P10 limit; with the feed
 still dropping the negative rows (#40), P10 is read as "both signs appear and the mean falls", not
 as a target the hard-band change alone can reach.
 
-**Y.0 (#43):** pending. **Y.1 (#44):** pending — the verdict paragraph and the ADR 0041 status line
-are written then.
+**Y.0 (#43), read:** the one-row hypothesis closes the Mass sink on its own — with the cathode
+concentration tying PSC's two valuations the Mass–CC gap falls from 22–87 kt to 0–6 kt in every
+year, the Mass legs now move exactly as the CC legs do (P3 mean 6.9 vs 7.0 kt/yr, P4 +67 vs +71 kt)
+instead of absorbing 103 kt/yr, and the common-set sum-row z² is −0.1 % vs X.0 with every Round-E
+item within 0.008 of X.0. The 1,059 Mass twins are the network's: 187 carry the ICSG value (88 of them
+negative, the sign survives the soft tie) and 872 are its eff-less zeros, so the Mass leg is now pinned
+at σ 1e-6 wherever the CC leg is — the twin-only state the ticket was pre-registered to show, and the
+pin Y.1 replaces by the seed. The band rule alone changes the other two signed legs: 133,950 one-signed
+pairs skipped (hard conc rows 844,282 → 579,202, none left on USC/MESC/PSC), 23,800 USC and MESC
+edge-years go negative where none could, and the per-year drift turns from +16.3 (USC, 30 of 30 years
+up) and +13.0 kt (MESC) to −5.6 and −8.2 kt with 11 and 9 years up — two-signed, as ADR 0041 predicted,
+although the feed still delivers no negative prior (#40). Two items moved the wrong way: the PSC
+stock-bound rows are more stressed (max |z| 4.48 → 5.18, rows above 3 from 5 to 9) because the contradiction the Mass sink used to absorb now lands on the CC band in the reported years; and the United
+States' CP→Cathode retention moves 0.021 in 2008 (the #35 region, 5,885 kt of PSC movement on its own).
+The stop rule is judged on Y.1.
+
+**Y.1 (#44):** pending — the verdict paragraph and the ADR 0041 status line are written then.
 
 ## 8 — Follow-ups outside the round
 
@@ -191,4 +208,7 @@ are written then.
   source table `data/input/feed/icsg/current/values.csv`
 - params `data/input/params/conc/current/params.csv` (v8 on X.0; v9 carries `concpscuse`),
   `data/input/params/stock_bounds/current/params.csv` (v5)
+- Y.0: `data/proc/opt/opt_20261006_105904_61c5efe9/`, const
+  `data/proc/const/const_20261006_101742_205d50d3/`, imp `data/proc/imp/imp_20261006_101314_c6b6c588/`
+  (code at commit `2e9240e`; `scratchpad` chain log: Stage 2 2.8 min, Stage 3 8.6 min, Stage 4 38 min)
 - diag `scripts/explo/roundY_psc_diag.py`; plan `~/.claude/plans/pls-diagnose-in-the-sleepy-nest.md`

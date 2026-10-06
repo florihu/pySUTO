@@ -97,8 +97,11 @@ Chile 2009 +16 kt); CP's eff-less recipe wrote PSC CC = 0 ± 0 on 872 region-yea
 signed edge (≈ 268k of 844k hard conc rows go) + `concpscuse` (conc v8 → v9 on the first Stage-2
 run); Y.1 = PSC in
 `STOCK_SECTORS`, seeded at 1 % of `CP→Cathode` / 0.3 kt in both valuations, the share transfer
-retired, `stock_bounds` a Stage-3 input only. Measure tickets pending: Y.0 and Y.1 vs X.0 under the
-spec's stop rule P1–P10 (Mass–CC gap on PSC ≤ 10 kt/yr, mass moved ≤ 100 kt/yr US excluded,
+retired, `stock_bounds` a Stage-3 input only. **Y.0 measured (#43):** `opt_20261006_105904_61c5efe9`
+(`imp_20261006_101314_c6b6c588` → `const_20261006_101742_205d50d3`, commit 2e9240e, 30/30 Solved,
+conc v9): Mass–CC gap on PSC 22–87 → 0–6 kt/yr, common-set z² −0.1 % vs X.0, Round-E held, USC/MESC
+two-signed (23,800 negative edge-years each; drift +16/+13 → −6/−8 kt/yr), PSC stock-bound max |z|
+4.48 → 5.18. Y.1 pending (#44) under the spec's stop rule P1–P10 (Mass–CC gap on PSC ≤ 10 kt/yr, mass moved ≤ 100 kt/yr US excluded,
 CP→Cathode retention ≤ 0.01 moved, common-set z² ≤ +1 %, Round-E, USC/MESC two-signed); the US
 PSC 2006–2012 (#35, ±2 Mt) reported in its own row. Filed #40: the ICSG feed drops all 150 negative
 MESC/USC rows before concordance (258 of 385 rows), a feed-rebuild round.
