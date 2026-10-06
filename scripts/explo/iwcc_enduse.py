@@ -1,15 +1,30 @@
-"""World copper end use by IWCC category, 2012-2023.
+"""World copper end use by IWCC category, 2012-2024 (IWCC 2025 release).
 
-Reads data/input/raw/IWCC/IWCC_2024_End-use-summary-Copper-content.xlsx
-(sheet "Copper Content", row 5 = the 16 leaf end-use categories) and writes
-two PNGs to figs/ex/:
+Reads the 2025-release workbook only,
+data/input/raw/IWCC/End-Use-Summary-Copper-content(1).xlsx (sheet "Copper
+Content": sheet rows 3-5 = group / subgroup / leaf headers, row 6 = descriptions
+with "Total" in the last column, data from row 8; column A = year, B-Q = the 16
+leaf end-use categories, R = Total). The 2024 release next to it is left alone.
 
-  iwcc_enduse_absolute.png  -- kt Cu per category (lines) + world total (top strip)
-  iwcc_enduse_shares.png    -- share of world total per category (100% stacked bars)
+``build_payload(path)`` is the one parse: it checks the layout (column count,
+category header row, integer years) and that the 16 categories sum to Total,
+raising ValueError otherwise, and returns the ``enduse`` payload of the insight
+artifact (#45). Both outputs are drawn from that payload:
+
+  docs/rep/figs/iwcc_enduse/iwcc_enduse.json  -- the payload (tracked; the page
+                                                 assembler merges it under ``enduse``)
+  figs/ex/iwcc_enduse_absolute.png  -- kt Cu per category (lines) + world total (top strip)
+  figs/ex/iwcc_enduse_shares.png    -- share of world total per category (100% stacked bars)
+
+and the headline numbers the page prose quotes are printed (world totals,
+x2024/2012 per category, group shares 2012/2023/2024, 2023->2024 share movers).
 
 Run:  python scripts/explo/iwcc_enduse.py
 """
 
+from __future__ import annotations
+
+import json
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -18,8 +33,9 @@ import pandas as pd
 from matplotlib.lines import Line2D
 from matplotlib.patches import Patch
 
-SRC = Path("data/input/raw/IWCC/IWCC_2024_End-use-summary-Copper-content.xlsx")
+SRC = Path("data/input/raw/IWCC/End-Use-Summary-Copper-content(1).xlsx")
 OUT_DIR = Path("figs/ex")
+JSON_OUT = Path("docs/rep/figs/iwcc_enduse/iwcc_enduse.json")
 
 INK, INK2, SURFACE = "#0b0b0b", "#52514e", "#ffffff"
 GRID = "#e6e5e0"
@@ -51,21 +67,83 @@ GROUPS = [
 ]
 DASHES = [(None, None), (5, 2), (1.4, 1.6), (7, 2, 1.4, 2), (3, 1.4, 1.4, 1.4)]
 
+SOURCE = "IWCC end-use summary, 2025 release, copper-content basis"
+# measured against the 2024 release: 2023 world total 29,948.6 -> 30,335.3 kt Cu
+REVISION = "2021–2023 revised vs the 2024 release (2023 world total +1.3 %)"
+SHEET, HEADER_ROW, DATA_ROW, TOTAL_COL = "Copper Content", 4, 7, 17
+# 0-based row 4 (sheet row 5), columns 1-16, as IWCC types the leaf headers; compared
+# without whitespace and case, since the source breaks words ("Commun ications")
+HEADERS = ("Plumbing", "Building Plant", "Architecture", "Communications",
+           "Electrical Power", "Power Utility", "Telecommunications", "Electrical",
+           "Non Electrical", "Automotive Electrical", "Automotive Non Electrical",
+           "Other Vehicles", "Consumer and general products", "Cooling equipment",
+           "Electronic equipment", "Diverse")
 
-def build_series() -> tuple[pd.DataFrame, list[dict]]:
-    raw = pd.ExcelFile(SRC).parse("Copper Content", header=None)
-    data = raw.iloc[7:, :].astype(float).reset_index(drop=True)
-    years = data.iloc[:, 0].astype(int).values
-    series, spec = {}, []
-    for group, leaves in GROUPS:
-        for i, (col, label, color) in enumerate(leaves):
-            series[label] = data.iloc[:, col].values
-            spec.append({"label": label, "group": group, "color": color,
-                         "dashes": DASHES[i % len(DASHES)]})
-    df = pd.DataFrame(series, index=years)
-    total = data.iloc[:, 17].values
-    assert np.allclose(df.sum(axis=1).values, total), "leaves do not sum to Total"
-    df["Total"] = total
+
+def _key(cell) -> str:
+    return "".join(str(cell).split()).casefold()
+
+
+def build_payload(path: Path) -> dict:
+    """Parse the IWCC end-use workbook into the page's ``enduse`` payload.
+
+    Parameters
+    ----------
+    path : Path
+        The 2025-release workbook (sheet "Copper Content").
+
+    Returns
+    -------
+    dict
+        ``source`` label, ``years`` (int), ``groups`` (the six IWCC headers in
+        source order), ``categories`` (per leaf in source order: ``label``,
+        ``group``, ``kt`` series) and the world ``total`` series, kt Cu.
+    """
+    raw = pd.read_excel(path, sheet_name=SHEET, header=None)
+    if raw.shape[1] != TOTAL_COL + 1:
+        raise ValueError(f"{Path(path).name}: expected {TOTAL_COL + 1} columns (year, "
+                         f"16 categories, Total), found {raw.shape[1]}")
+    found = [*raw.iloc[HEADER_ROW, 1:TOTAL_COL], raw.iloc[HEADER_ROW + 1, TOTAL_COL]]
+    wrong = [(c, f, h) for c, (f, h) in enumerate(zip(found, HEADERS + ("Total",)), 1)
+             if _key(f) != _key(h)]
+    if wrong:
+        raise ValueError(f"{Path(path).name}: the category header row does not match "
+                         f"the 2025-release layout; (column, found, expected): {wrong}")
+    data = raw.iloc[DATA_ROW:, :]
+    year = pd.to_numeric(data.iloc[:, 0], errors="coerce")
+    bad = year.isna() | (year != year.round())
+    if bad.any():
+        raise ValueError(f"{Path(path).name}: non-year cells in column 0 of the data "
+                         f"block: {data.iloc[:, 0][bad].tolist()}")
+    years = [int(y) for y in year]
+    total = data.iloc[:, TOTAL_COL].astype(float).to_numpy()
+    leaf_sum = data.iloc[:, 1:TOTAL_COL].astype(float).to_numpy().sum(axis=1)
+    off = ~np.isclose(leaf_sum, total)
+    if off.any():
+        raise ValueError(f"{Path(path).name}: the 16 categories do not sum to Total in "
+                         f"{[y for y, o in zip(years, off) if o]}")
+    categories = [
+        {"label": label, "group": group, "kt": _kt(data.iloc[:, col].astype(float))}
+        for group, leaves in GROUPS for col, label, _ in leaves]
+    return {"source": SOURCE, "years": years, "groups": [g for g, _ in GROUPS],
+            "categories": categories, "total": _kt(total)}
+
+
+def _kt(values) -> list[float]:
+    """Plain floats rounded to 0.1 kt, like the run's insight ``data.json``."""
+    return [round(float(v), 1) for v in values]
+
+
+def build_series(payload: dict) -> tuple[pd.DataFrame, list[dict]]:
+    """The payload as a year-indexed frame (16 categories + Total) and plot spec."""
+    style_of = {label: (color, DASHES[i % len(DASHES)])
+                for _, leaves in GROUPS for i, (_, label, color) in enumerate(leaves)}
+    df = pd.DataFrame({c["label"]: c["kt"] for c in payload["categories"]},
+                      index=payload["years"])
+    df["Total"] = payload["total"]
+    spec = [{"label": c["label"], "group": c["group"],
+             "color": style_of[c["label"]][0], "dashes": style_of[c["label"]][1]}
+            for c in payload["categories"]]
     return df, spec
 
 
@@ -132,10 +210,9 @@ def fig_absolute(df: pd.DataFrame, spec: list[dict]) -> None:
     style(main)
     place_legend(main, spec, "line")
 
-    fig.suptitle("World copper end use by category, 2012–2023",
+    fig.suptitle(f"World copper end use by category, {years[0]}–{years[-1]}",
                  fontsize=13, color=INK, x=0.012, ha="left", y=0.985)
-    fig.text(0.012, 0.935, "IWCC 2024 end-use summary, copper-content basis",
-             fontsize=9, color=INK2, ha="left")
+    fig.text(0.012, 0.935, SOURCE, fontsize=9, color=INK2, ha="left")
     fig.savefig(OUT_DIR / "iwcc_enduse_absolute.png", dpi=200,
                 facecolor=SURFACE, bbox_inches="tight")
     plt.close(fig)
@@ -162,22 +239,46 @@ def fig_shares(df: pd.DataFrame, spec: list[dict]) -> None:
     style(ax)
     place_legend(ax, spec, "bar")
 
-    fig.suptitle("Composition of world copper end use, 2012–2023",
+    fig.suptitle(f"Composition of world copper end use, {years[0]}–{years[-1]}",
                  fontsize=13, color=INK, x=0.012, ha="left", y=0.985)
-    fig.text(0.012, 0.925, "IWCC 2024 end-use summary, copper-content basis; "
-             "categories sum to 100% each year", fontsize=9, color=INK2, ha="left")
+    fig.text(0.012, 0.925, f"{SOURCE}; categories sum to 100% each year; {REVISION}",
+             fontsize=9, color=INK2, ha="left")
     fig.savefig(OUT_DIR / "iwcc_enduse_shares.png", dpi=200,
                 facecolor=SURFACE, bbox_inches="tight")
     plt.close(fig)
 
 
+def print_headline(df: pd.DataFrame, spec: list[dict]) -> None:
+    """The numbers the page prose quotes, computed from the payload's 0.1 kt values."""
+    labels = [s["label"] for s in spec]
+    y0, yp, y1 = df.index[0], df.index[-2], df.index[-1]
+    tot = df["Total"]
+    share = df[labels].div(tot, axis=0) * 100
+    print(f"{SOURCE}: {len(spec)} categories, {y0}-{y1}")
+    print(f"world total [kt Cu]: {y0} {tot[y0]:,.1f} | {yp} {tot[yp]:,.1f} | "
+          f"{y1} {tot[y1]:,.1f}; {y1} {(tot[y1] / tot[y0] - 1) * 100:+.1f} % vs {y0}, "
+          f"{(tot[y1] / tot[yp] - 1) * 100:+.1f} % vs {yp}")
+    factor = (df.loc[y1, labels] / df.loc[y0, labels]).sort_values(ascending=False)
+    print(f"x{y1}/{y0}: " + "; ".join(f"{k} {v:.2f}" for k, v in factor.items()))
+    group = share.T.groupby([s["group"] for s in spec], sort=False).sum().T
+    print(f"group share of world total [%] {y0}/{yp}/{y1}: " + "; ".join(
+        f"{g} {group.loc[y0, g]:.1f}/{group.loc[yp, g]:.1f}/{group.loc[y1, g]:.1f}"
+        for g in group.columns))
+    delta = share.loc[y1] - share.loc[yp]
+    move = delta[delta.abs().sort_values(ascending=False).index]
+    print(f"share movers {yp}->{y1} [% of world total]: " + "; ".join(
+        f"{k} {share.loc[yp, k]:.1f}->{share.loc[y1, k]:.1f} ({v:+.1f} pp)"
+        for k, v in move.items()))
+
+
 def main() -> None:
-    df, spec = build_series()
+    payload = build_payload(SRC)
+    JSON_OUT.parent.mkdir(parents=True, exist_ok=True)
+    JSON_OUT.write_text(json.dumps(payload, separators=(",", ":")))
+    df, spec = build_series(payload)
     fig_absolute(df, spec)
     fig_shares(df, spec)
-    first, last = df.index[0], df.index[-1]
-    print(f"{len(spec)} categories, {first}-{last}; "
-          f"total {df['Total'].iloc[0]:,.0f} -> {df['Total'].iloc[-1]:,.0f} kt")
+    print_headline(df, spec)
     print("palette:", ",".join(s["color"] for s in spec))
 
 
