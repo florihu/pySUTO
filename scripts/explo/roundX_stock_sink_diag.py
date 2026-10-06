@@ -51,7 +51,8 @@ SMALL_NODE = 18.0           # kt, ADR 0025 (b)
 ZAMBIA_ROWS = ["sum_usetotout_Cathode_Zambia_CC_2010",
                "sum_supplytotout_CP_Zambia_CC_2010"]
 SEED_METHODS = {"share_seed"}
-FEED_METHODS = {"parametric"}       # the conc twin of a feed-backed Mass leg
+TWIN_PREFIX  = "parametric"         # conc twin (CC from Mass); counted only when its
+                                    # Mass source was itself imputer-written, not a feed
 
 
 def _edges_with_sigma(opt, ei):
@@ -64,12 +65,25 @@ def _edges_with_sigma(opt, ei):
 
 
 def _writer_mass(opt, ei):
-    """Σ|f_after| written onto stock legs by non-seed, non-feed imputers."""
     _, imp, _ = L._chain(opt)
+    return _writer_mass_imp(imp, ei)
+
+
+def _writer_mass_imp(imp, ei):
+    """Σ|f_after| written onto stock CC legs by non-seed, non-feed imputers.
+
+    A Mass-booking writer (e.g. a FormulaRelation) shows up on the CC leg only
+    through its conc twin, logged as ``parametric*`` — the same method as the
+    twin of a feed-backed Mass leg. A twin is therefore counted iff its Mass
+    source has an imputation-log entry of its own (a feed value has none)."""
     log = pd.read_parquet(ROOT / "imp" / imp / "imputation_log.parquet")
+    written = set(log.edge_id[~log.method.isin(SEED_METHODS)].to_numpy().tolist())
     m = log.merge(ei[["edge_id", "sector_to", "valuation"]], on="edge_id")
     m = m[m.sector_to.isin(STOCKS) & (m.valuation == "CC")]
-    other = m[~m.method.isin(SEED_METHODS | FEED_METHODS) & (m.f_after.abs() > 0)]
+    twin = m.method.str.startswith(TWIN_PREFIX)
+    derived = twin & m.source_edges.map(lambda s: any(int(x) in written for x in s))
+    keep = ((~twin & ~m.method.isin(SEED_METHODS)) | derived) & (m.f_after.abs() > 0)
+    other = m[keep]
     by = other.groupby(["sector_to", "method"]).agg(n=("edge_id", "size"),
                                                      mass=("f_after", lambda s: s.abs().sum()))
     return float(other.f_after.abs().sum()), by

@@ -140,7 +140,8 @@ def to_root_regions(df: pd.DataFrame, feed_dir: Path = FEED_DIR) -> pd.DataFrame
     rm = pd.read_excel(feed_dir / "conc.xlsx", sheet_name="region_map")
     m = dict(zip(rm["src_region"], rm["root_region"]))
     missing = sorted(set(df["Region"]) - set(m))
-    assert not missing, f"feed regions absent from region_map: {missing}"
+    if missing:
+        raise KeyError(f"feed regions absent from region_map: {missing}")
     return df.assign(Region=df["Region"].map(m))
 
 
@@ -489,13 +490,13 @@ def main(dry_run: bool = False) -> None:
         raise ValueError(f"PSC pooled p95 = {psc_p95:.4f} outside {PSC_P95_WINDOW}: "
                          "check the denominator before writing (see module docstring)")
 
-    plot_figure(results)
     if dry_run:
         df_rows = build_params_rows(per_indicator_p95, regions)
         print(f"\n[dry-run] would write {len(df_rows)} rows "
               f"({', '.join(WRITE_INDICATORS)}) to {PARAMS_DIR.relative_to(REPO_ROOT)}")
         print(df_rows[["param_id", "b_region_to", "value_max", "comment"]].head(8).to_string(index=False))
         return
+    plot_figure(results)
     write_params_csv(per_indicator_p95, regions)
 
 
