@@ -5,6 +5,8 @@ group/subgroup/leaf headers (with the source's broken words), row 5 the
 descriptions with "Total" in column 17, data from row 7 -- goes in; the page's
 ``enduse`` payload comes out.
 """
+from __future__ import annotations
+
 import json
 import os
 import sys

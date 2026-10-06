@@ -251,12 +251,6 @@ const ESHARE=ECAT.map(c=>c.kt.map((v,i)=>v/E.total[i]));
 const pct1=v=>(v*100).toFixed(1)+' %';
 const lineKey=c=>`<svg width="24" height="10" aria-hidden="true"><line x1="1" x2="23" y1="5" y2="5" style="stroke:${c.color};stroke-width:2.5${c.dash?';stroke-dasharray:'+c.dash:''}"/></svg>`;
 document.getElementById('lg6').innerHTML=E.groups.map(g=>`<div class="grp"><b>${g}</b>`+ECAT.filter(c=>c.group===g).map(c=>`<span class="key">${lineKey(c)}${c.label}</span>`).join('')+'</div>').join('');
-// tooltip kept inside its chart: the 17-row readouts are taller than the pointer's headroom
-function tip6(wrap,svg,W,fn){const tip=document.createElement('div');tip.className='tip';tip.hidden=true;wrap.appendChild(tip);
-  svg.addEventListener('mousemove',e=>{const r=svg.getBoundingClientRect();const res=fn((e.clientX-r.left)*W/r.width,(e.clientY-r.top)*W/r.width);if(!res){tip.hidden=true;return;}
-    tip.hidden=false;tip.innerHTML=res.html;const ax=res.x/W*r.width,left=ax>r.width*0.6;
-    tip.style.top=Math.max(0,Math.min(e.clientY-r.top-10,r.height-(tip.offsetHeight||0)))+'px';tip.style.left=left?'':(ax+14)+'px';tip.style.right=left?(r.width-ax+14)+'px':'';});
-  svg.addEventListener('mouseleave',()=>{tip.hidden=true;fn(null);});}
 
 (function(){ // chart 1: 16 category lines, world-total strip above on its own scale
   const root=document.getElementById('f6a');
@@ -280,10 +274,10 @@ function tip6(wrap,svg,W,fn){const tip=document.createElement('div');tip.classNa
   const dot=color=>{const d=svgEl('circle',{r:4,cx:-10,cy:-10,style:`fill:${color};stroke:var(--surface);stroke-width:2;pointer-events:none`});svg.appendChild(d);return d;};
   const dots=ECAT.map(c=>dot(c.color)),dT=dot('var(--ink)');
   wrap.appendChild(svg);
-  tip6(wrap,svg,W,px=>{if(px==null){xh.setAttribute('x1',-10);xh.setAttribute('x2',-10);dots.concat([dT]).forEach(d=>d.setAttribute('cx',-10));return null;}
+  attachTip(wrap,svg,W,px=>{if(px==null){xh.setAttribute('x1',-10);xh.setAttribute('x2',-10);dots.concat([dT]).forEach(d=>d.setAttribute('cx',-10));return null;}
     const i=Math.max(0,Math.min(EN-1,Math.round((px-m.l)/iw*(EN-1))));xh.setAttribute('x1',X(i));xh.setAttribute('x2',X(i));
     ECAT.forEach((c,k)=>{dots[k].setAttribute('cx',X(i));dots[k].setAttribute('cy',Ym(c.kt[i]));});dT.setAttribute('cx',X(i));dT.setAttribute('cy',Ys(E.total[i]));
-    return {x:X(i),html:tipRows(EY[i]+' · kt Cu',ECAT.map(c=>({name:c.label,color:c.color,val:fmt(c.kt[i])})).concat([{name:'World total',color:'var(--ink)',val:fmt(E.total[i])}]))};});
+    return {x:X(i),html:tipRows(EY[i]+' · kt Cu',ECAT.map(c=>({name:c.label,color:c.color,val:fmt(c.kt[i])})).concat([{name:'World total',color:'var(--ink)',val:fmt(E.total[i])}]))};},true);
   root.appendChild(wrap);
   dataTable(root,EY,ECAT.map(c=>[c.label,...c.kt.map(v=>fmt(v))]).concat([['World total',...E.total.map(v=>fmt(v))]]),'Category · kt Cu');
 })();
@@ -303,10 +297,10 @@ function tip6(wrap,svg,W,fn){const tip=document.createElement('div');tip.classNa
         :svgEl('rect',{x,y:top,width:bw,height:h,style:`fill:${c.color}`}));
       return {a,b};});});
   wrap.appendChild(svg);
-  tip6(wrap,svg,W,(px,py)=>{if(px==null){hov.setAttribute('x',-1000);return null;}
+  attachTip(wrap,svg,W,(px,py)=>{if(px==null){hov.setAttribute('x',-1000);return null;}
     const i=Math.max(0,Math.min(EN-1,Math.floor((px-m.l)/slot)));hov.setAttribute('x',m.l+slot*i);
     const k=segs[i].findIndex(s=>py>=s.a&&py<s.b);
-    return {x:m.l+slot*(i+.5),html:tipRows(EY[i]+' · share of world total',ECAT.map((c,j)=>({name:j===k?`<span style="font-weight:600;color:var(--ink)">${c.label}</span>`:c.label,color:c.color,val:pct1(ESHARE[j][i])})).concat([{name:'World total',color:'transparent',val:fmt(E.total[i])+' kt'}]))};});
+    return {x:m.l+slot*(i+.5),html:tipRows(EY[i]+' · share of world total',ECAT.map((c,j)=>({name:j===k?`<span style="font-weight:600;color:var(--ink)">${c.label}</span>`:c.label,color:c.color,val:pct1(ESHARE[j][i])})).concat([{name:'World total',color:'transparent',val:fmt(E.total[i])+' kt'}]))};},true);
   root.appendChild(wrap);
   const groups=E.groups.map(g=>[g+' (group)',...EY.map((y,i)=>pct1(ECAT.reduce((s,c,k)=>s+(c.group===g?ESHARE[k][i]:0),0)))]);
   dataTable(root,EY,ECAT.map((c,k)=>[c.label,...ESHARE[k].map(pct1)]).concat(groups),'Category · share of world total');

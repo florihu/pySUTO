@@ -15,8 +15,10 @@
   --k-cath:#4a3aa7; --k-scrap:#eb6834; --k-loss:#b3b2a9; --k-slag:#86847e; --k-stock:#c98500;
   --k-use:#1baf7a;
   --warn-bg:#fbf3e4; --warn-line:#c98500;
-  /* chapter 6: the 16 IWCC end-use categories in legend order, one hue family per group;
-     adjacent pairs pass the dataviz validator in both themes (normal dE >= 15, CVD dE >= 8) */
+  /* chapter 6: the 16 IWCC end-use categories in legend order, one hue family per group,
+     lightness alternating within a family; each theme's set passes the dataviz validator's
+     adjacent-pair floors (normal dE >= 15, CVD dE >= 8), and line dashes carry identity
+     inside a family. The light set is also the PNG palette of scripts/explo/iwcc_enduse.py. */
   --eu1:#028eaf; --eu2:#0f4af2; --eu3:#0ac1fa; --eu4:#015993; --eu5:#657efe; --eu6:#ff4128;
   --eu7:#a20615; --eu8:#06cf95; --eu9:#037e3a; --eu10:#a8a000; --eu11:#885c02; --eu12:#fa950a;
   --eu13:#81488c; --eu14:#d18cdd; --eu15:#7603d9; --eu16:#f82d9e;
@@ -341,7 +343,7 @@ footer{padding-block:28px 0;font-size:13px;color:var(--muted);font-family:"IBM P
 <section class="part" id="p6">
   <p class="eyebrow">6 · End use categories</p>
   <h2>World copper end use grew 30 % since 2012 to 31.4 Mt Cu: the grid and the car led the growth (×1.74 each), building wiring stood still (×1.03) and plumbing shrank (×0.93).</h2>
-  <p class="insight">IWCC assigns the copper content of semi-finished products to 16 end-use categories in six groups. Between 2012 and 2024 Power utility rose from 2.7 to 4.8 Mt Cu and Automotive electrical from 1.7 to 3.0 Mt, while Electrical power, the power wiring of buildings and still the largest single use at 5.8 Mt, held flat. These are IWCC data from outside the model: pySUTO does not reconcile them.</p>
+  <p class="insight">IWCC assigns the copper content of semi-finished products to 16 end-use categories in six groups. Between 2012 and 2024 Power utility rose from 2.7 to 4.8 Mt Cu and Automotive electrical from 1.7 to 3.0 Mt, while Electrical power, the power wiring of buildings and still the largest single use at 5.8 Mt in 2024, held flat. These are IWCC data from outside the model: pySUTO does not reconcile them.</p>
 
   <figure>
     <div class="cap"><h3>World copper end use by category, 2012–2024</h3><span class="unit">world · kt Cu</span></div>

@@ -15,8 +15,10 @@
   --k-cath:#4a3aa7; --k-scrap:#eb6834; --k-loss:#b3b2a9; --k-slag:#86847e; --k-stock:#c98500;
   --k-use:#1baf7a;
   --warn-bg:#fbf3e4; --warn-line:#c98500;
-  /* chapter 6: the 16 IWCC end-use categories in legend order, one hue family per group;
-     adjacent pairs pass the dataviz validator in both themes (normal dE >= 15, CVD dE >= 8) */
+  /* chapter 6: the 16 IWCC end-use categories in legend order, one hue family per group,
+     lightness alternating within a family; each theme's set passes the dataviz validator's
+     adjacent-pair floors (normal dE >= 15, CVD dE >= 8), and line dashes carry identity
+     inside a family. The light set is also the PNG palette of scripts/explo/iwcc_enduse.py. */
   --eu1:#028eaf; --eu2:#0f4af2; --eu3:#0ac1fa; --eu4:#015993; --eu5:#657efe; --eu6:#ff4128;
   --eu7:#a20615; --eu8:#06cf95; --eu9:#037e3a; --eu10:#a8a000; --eu11:#885c02; --eu12:#fa950a;
   --eu13:#81488c; --eu14:#d18cdd; --eu15:#7603d9; --eu16:#f82d9e;
@@ -341,7 +343,7 @@ footer{padding-block:28px 0;font-size:13px;color:var(--muted);font-family:"IBM P
 <section class="part" id="p6">
   <p class="eyebrow">6 · End use categories</p>
   <h2>World copper end use grew 30 % since 2012 to 31.4 Mt Cu: the grid and the car led the growth (×1.74 each), building wiring stood still (×1.03) and plumbing shrank (×0.93).</h2>
-  <p class="insight">IWCC assigns the copper content of semi-finished products to 16 end-use categories in six groups. Between 2012 and 2024 Power utility rose from 2.7 to 4.8 Mt Cu and Automotive electrical from 1.7 to 3.0 Mt, while Electrical power, the power wiring of buildings and still the largest single use at 5.8 Mt, held flat. These are IWCC data from outside the model: pySUTO does not reconcile them.</p>
+  <p class="insight">IWCC assigns the copper content of semi-finished products to 16 end-use categories in six groups. Between 2012 and 2024 Power utility rose from 2.7 to 4.8 Mt Cu and Automotive electrical from 1.7 to 3.0 Mt, while Electrical power, the power wiring of buildings and still the largest single use at 5.8 Mt in 2024, held flat. These are IWCC data from outside the model: pySUTO does not reconcile them.</p>
 
   <figure>
     <div class="cap"><h3>World copper end use by category, 2012–2024</h3><span class="unit">world · kt Cu</span></div>
@@ -385,8 +387,9 @@ function niceTicks(lo,hi,n){const r=hi-lo||1;const raw=r/n;const p=Math.pow(10,M
 const svgEl=(t,a)=>{const e=document.createElementNS('http://www.w3.org/2000/svg',t);for(const k in a)e.setAttribute(k,a[k]);return e;};
 function legend(el,items){const d=el||document.createElement('div');d.className='legend';d.innerHTML=items.map(s=>`<span class="key"><i class="${s.sq?'sq':''}${s.dash?' dash':''}" style="background:${s.dash?'':s.color}"></i>${s.name}</span>`).join('');return d;}
 function tipRows(title,rows){return `<b>${title}</b>`+rows.map(r=>`<div class="row"><span><i style="background:${r.color}"></i>${r.name}</span><span>${r.val}</span></div>`).join('');}
-function attachTip(wrap,svg,W,onMove){const tip=document.createElement('div');tip.className='tip';tip.hidden=true;wrap.appendChild(tip);
-  svg.addEventListener('mousemove',e=>{const r=svg.getBoundingClientRect();const px=(e.clientX-r.left)*W/r.width;const py=(e.clientY-r.top)*W/r.width;const res=onMove(px,py);if(!res){tip.hidden=true;return;}tip.hidden=false;tip.innerHTML=res.html;const ax=res.x/W*r.width;const left=ax>r.width*0.6;tip.style.top=Math.max(0,(e.clientY-r.top)-10)+'px';tip.style.left=left?'':(ax+14)+'px';tip.style.right=left?(r.width-ax+14)+'px':'';});
+// clampBottom (opt-in): keep a tooltip taller than the pointer's headroom inside the chart
+function attachTip(wrap,svg,W,onMove,clampBottom){const tip=document.createElement('div');tip.className='tip';tip.hidden=true;wrap.appendChild(tip);
+  svg.addEventListener('mousemove',e=>{const r=svg.getBoundingClientRect();const px=(e.clientX-r.left)*W/r.width;const py=(e.clientY-r.top)*W/r.width;const res=onMove(px,py);if(!res){tip.hidden=true;return;}tip.hidden=false;tip.innerHTML=res.html;const ax=res.x/W*r.width;const left=ax>r.width*0.6;const top=(e.clientY-r.top)-10;tip.style.top=Math.max(0,clampBottom?Math.min(top,r.height-(tip.offsetHeight||0)):top)+'px';tip.style.left=left?'':(ax+14)+'px';tip.style.right=left?(r.width-ax+14)+'px':'';});
   svg.addEventListener('mouseleave',()=>{tip.hidden=true;onMove(null);});}
 function dataTable(wrap,cols,rows,rowLabel){const d=document.createElement('details');d.className='data';d.innerHTML='<summary>Data table</summary>';const w=document.createElement('div');w.className='tblwrap';const t=document.createElement('table');t.innerHTML='<thead><tr><th>'+rowLabel+'</th>'+cols.map(c=>'<th>'+c+'</th>').join('')+'</tr></thead>';const tb=document.createElement('tbody');rows.forEach(r=>{const tr=document.createElement('tr');tr.innerHTML='<td>'+r[0]+'</td>'+r.slice(1).map(v=>'<td class="num">'+v+'</td>').join('');tb.appendChild(tr);});t.appendChild(tb);w.appendChild(t);d.appendChild(w);wrap.appendChild(d);}
 
@@ -728,12 +731,6 @@ const ESHARE=ECAT.map(c=>c.kt.map((v,i)=>v/E.total[i]));
 const pct1=v=>(v*100).toFixed(1)+' %';
 const lineKey=c=>`<svg width="24" height="10" aria-hidden="true"><line x1="1" x2="23" y1="5" y2="5" style="stroke:${c.color};stroke-width:2.5${c.dash?';stroke-dasharray:'+c.dash:''}"/></svg>`;
 document.getElementById('lg6').innerHTML=E.groups.map(g=>`<div class="grp"><b>${g}</b>`+ECAT.filter(c=>c.group===g).map(c=>`<span class="key">${lineKey(c)}${c.label}</span>`).join('')+'</div>').join('');
-// tooltip kept inside its chart: the 17-row readouts are taller than the pointer's headroom
-function tip6(wrap,svg,W,fn){const tip=document.createElement('div');tip.className='tip';tip.hidden=true;wrap.appendChild(tip);
-  svg.addEventListener('mousemove',e=>{const r=svg.getBoundingClientRect();const res=fn((e.clientX-r.left)*W/r.width,(e.clientY-r.top)*W/r.width);if(!res){tip.hidden=true;return;}
-    tip.hidden=false;tip.innerHTML=res.html;const ax=res.x/W*r.width,left=ax>r.width*0.6;
-    tip.style.top=Math.max(0,Math.min(e.clientY-r.top-10,r.height-(tip.offsetHeight||0)))+'px';tip.style.left=left?'':(ax+14)+'px';tip.style.right=left?(r.width-ax+14)+'px':'';});
-  svg.addEventListener('mouseleave',()=>{tip.hidden=true;fn(null);});}
 
 (function(){ // chart 1: 16 category lines, world-total strip above on its own scale
   const root=document.getElementById('f6a');
@@ -757,10 +754,10 @@ function tip6(wrap,svg,W,fn){const tip=document.createElement('div');tip.classNa
   const dot=color=>{const d=svgEl('circle',{r:4,cx:-10,cy:-10,style:`fill:${color};stroke:var(--surface);stroke-width:2;pointer-events:none`});svg.appendChild(d);return d;};
   const dots=ECAT.map(c=>dot(c.color)),dT=dot('var(--ink)');
   wrap.appendChild(svg);
-  tip6(wrap,svg,W,px=>{if(px==null){xh.setAttribute('x1',-10);xh.setAttribute('x2',-10);dots.concat([dT]).forEach(d=>d.setAttribute('cx',-10));return null;}
+  attachTip(wrap,svg,W,px=>{if(px==null){xh.setAttribute('x1',-10);xh.setAttribute('x2',-10);dots.concat([dT]).forEach(d=>d.setAttribute('cx',-10));return null;}
     const i=Math.max(0,Math.min(EN-1,Math.round((px-m.l)/iw*(EN-1))));xh.setAttribute('x1',X(i));xh.setAttribute('x2',X(i));
     ECAT.forEach((c,k)=>{dots[k].setAttribute('cx',X(i));dots[k].setAttribute('cy',Ym(c.kt[i]));});dT.setAttribute('cx',X(i));dT.setAttribute('cy',Ys(E.total[i]));
-    return {x:X(i),html:tipRows(EY[i]+' · kt Cu',ECAT.map(c=>({name:c.label,color:c.color,val:fmt(c.kt[i])})).concat([{name:'World total',color:'var(--ink)',val:fmt(E.total[i])}]))};});
+    return {x:X(i),html:tipRows(EY[i]+' · kt Cu',ECAT.map(c=>({name:c.label,color:c.color,val:fmt(c.kt[i])})).concat([{name:'World total',color:'var(--ink)',val:fmt(E.total[i])}]))};},true);
   root.appendChild(wrap);
   dataTable(root,EY,ECAT.map(c=>[c.label,...c.kt.map(v=>fmt(v))]).concat([['World total',...E.total.map(v=>fmt(v))]]),'Category · kt Cu');
 })();
@@ -780,10 +777,10 @@ function tip6(wrap,svg,W,fn){const tip=document.createElement('div');tip.classNa
         :svgEl('rect',{x,y:top,width:bw,height:h,style:`fill:${c.color}`}));
       return {a,b};});});
   wrap.appendChild(svg);
-  tip6(wrap,svg,W,(px,py)=>{if(px==null){hov.setAttribute('x',-1000);return null;}
+  attachTip(wrap,svg,W,(px,py)=>{if(px==null){hov.setAttribute('x',-1000);return null;}
     const i=Math.max(0,Math.min(EN-1,Math.floor((px-m.l)/slot)));hov.setAttribute('x',m.l+slot*i);
     const k=segs[i].findIndex(s=>py>=s.a&&py<s.b);
-    return {x:m.l+slot*(i+.5),html:tipRows(EY[i]+' · share of world total',ECAT.map((c,j)=>({name:j===k?`<span style="font-weight:600;color:var(--ink)">${c.label}</span>`:c.label,color:c.color,val:pct1(ESHARE[j][i])})).concat([{name:'World total',color:'transparent',val:fmt(E.total[i])+' kt'}]))};});
+    return {x:m.l+slot*(i+.5),html:tipRows(EY[i]+' · share of world total',ECAT.map((c,j)=>({name:j===k?`<span style="font-weight:600;color:var(--ink)">${c.label}</span>`:c.label,color:c.color,val:pct1(ESHARE[j][i])})).concat([{name:'World total',color:'transparent',val:fmt(E.total[i])+' kt'}]))};},true);
   root.appendChild(wrap);
   const groups=E.groups.map(g=>[g+' (group)',...EY.map((y,i)=>pct1(ECAT.reduce((s,c,k)=>s+(c.group===g?ESHARE[k][i]:0),0)))]);
   dataTable(root,EY,ECAT.map((c,k)=>[c.label,...ESHARE[k].map(pct1)]).concat(groups),'Category · share of world total');

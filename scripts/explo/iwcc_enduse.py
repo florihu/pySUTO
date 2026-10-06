@@ -40,30 +40,35 @@ JSON_OUT = Path("docs/rep/figs/iwcc_enduse/iwcc_enduse.json")
 INK, INK2, SURFACE = "#0b0b0b", "#52514e", "#ffffff"
 GRID = "#e6e5e0"
 
-# row 5 leaves grouped by the row 3/4 hierarchy of the sheet. One hue family per
-# group, lightness-stepped within it (OKLCH L 0.74->0.48, max in-gamut chroma);
-# validated with the dataviz palette validator: lightness band and chroma floor
-# PASS, within-family adjacent pairs sit below the separation floors -- inherent
-# to 16 categorical slots, so line dashes and legend-order-equals-stack-order
-# carry identity as secondary encoding.
+# the 16 leaves under the sheet's row 3/4 groups: (column, leaf header as IWCC types it
+# in 0-based row 4 = sheet row 5, label, colour). Headers are compared without
+# whitespace and case, since the source breaks words ("Commun ications"). The colours
+# are the page's light-theme --eu1..16 (insights_artifact_page/template.html), so
+# slides and page match: one hue family per group, lightness alternating within a
+# family; the page set passes the dataviz validator's adjacent-pair floors (normal
+# dE >= 15, CVD dE >= 8), and line dashes carry identity inside a family.
 GROUPS = [
     ("Building construction", [
-        (1, "Plumbing", "#00bfdd"), (2, "Building plant", "#00a6d5"),
-        (3, "Architecture", "#008cce"), (4, "Communications", "#0070ce"),
-        (5, "Electrical power", "#2d51c1")]),
+        (1, "Plumbing", "Plumbing", "#028eaf"),
+        (2, "Building Plant", "Building plant", "#0f4af2"),
+        (3, "Architecture", "Architecture", "#0ac1fa"),
+        (4, "Communications", "Communications", "#015993"),
+        (5, "Electrical Power", "Electrical power", "#657efe")]),
     ("Infrastructure", [
-        (6, "Power utility", "#fb8900"), (7, "Telecommunications", "#ac1d03")]),
+        (6, "Power Utility", "Power utility", "#ff4128"),
+        (7, "Telecommunications", "Telecommunications", "#a20615")]),
     ("Equipment — industrial", [
-        (8, "Electrical", "#00c6ab"), (9, "Non-electrical", "#007137")]),
+        (8, "Electrical", "Electrical", "#06cf95"),
+        (9, "Non Electrical", "Non-electrical", "#037e3a")]),
     ("Equipment — transport", [
-        (10, "Automotive electrical", "#bcae00"),
-        (11, "Automotive non-electrical", "#a57c00"),
-        (12, "Other vehicles", "#854f00")]),
+        (10, "Automotive Electrical", "Automotive electrical", "#a8a000"),
+        (11, "Automotive Non Electrical", "Automotive non-electrical", "#885c02"),
+        (12, "Other Vehicles", "Other vehicles", "#fa950a")]),
     ("Equipment — other", [
-        (13, "Consumer & general products", "#d683f6"),
-        (14, "Cooling equipment", "#9b61d9"),
-        (15, "Electronic equipment", "#6440b8")]),
-    ("Diverse", [(16, "Others", "#dd4f78")]),
+        (13, "Consumer and general products", "Consumer & general products", "#81488c"),
+        (14, "Cooling equipment", "Cooling equipment", "#d18cdd"),
+        (15, "Electronic equipment", "Electronic equipment", "#7603d9")]),
+    ("Diverse", [(16, "Diverse", "Others", "#f82d9e")]),
 ]
 DASHES = [(None, None), (5, 2), (1.4, 1.6), (7, 2, 1.4, 2), (3, 1.4, 1.4, 1.4)]
 
@@ -71,13 +76,6 @@ SOURCE = "IWCC end-use summary, 2025 release, copper-content basis"
 # measured against the 2024 release: 2023 world total 29,948.6 -> 30,335.3 kt Cu
 REVISION = "2021–2023 revised vs the 2024 release (2023 world total +1.3 %)"
 SHEET, HEADER_ROW, DATA_ROW, TOTAL_COL = "Copper Content", 4, 7, 17
-# 0-based row 4 (sheet row 5), columns 1-16, as IWCC types the leaf headers; compared
-# without whitespace and case, since the source breaks words ("Commun ications")
-HEADERS = ("Plumbing", "Building Plant", "Architecture", "Communications",
-           "Electrical Power", "Power Utility", "Telecommunications", "Electrical",
-           "Non Electrical", "Automotive Electrical", "Automotive Non Electrical",
-           "Other Vehicles", "Consumer and general products", "Cooling equipment",
-           "Electronic equipment", "Diverse")
 
 
 def _key(cell) -> str:
@@ -104,7 +102,8 @@ def build_payload(path: Path) -> dict:
         raise ValueError(f"{Path(path).name}: expected {TOTAL_COL + 1} columns (year, "
                          f"16 categories, Total), found {raw.shape[1]}")
     found = [*raw.iloc[HEADER_ROW, 1:TOTAL_COL], raw.iloc[HEADER_ROW + 1, TOTAL_COL]]
-    wrong = [(c, f, h) for c, (f, h) in enumerate(zip(found, HEADERS + ("Total",)), 1)
+    headers = [h for _, leaves in GROUPS for _, h, _, _ in leaves] + ["Total"]
+    wrong = [(c, f, h) for c, (f, h) in enumerate(zip(found, headers), 1)
              if _key(f) != _key(h)]
     if wrong:
         raise ValueError(f"{Path(path).name}: the category header row does not match "
@@ -124,7 +123,7 @@ def build_payload(path: Path) -> dict:
                          f"{[y for y, o in zip(years, off) if o]}")
     categories = [
         {"label": label, "group": group, "kt": _kt(data.iloc[:, col].astype(float))}
-        for group, leaves in GROUPS for col, label, _ in leaves]
+        for group, leaves in GROUPS for col, _, label, _ in leaves]
     return {"source": SOURCE, "years": years, "groups": [g for g, _ in GROUPS],
             "categories": categories, "total": _kt(total)}
 
@@ -137,7 +136,7 @@ def _kt(values) -> list[float]:
 def build_series(payload: dict) -> tuple[pd.DataFrame, list[dict]]:
     """The payload as a year-indexed frame (16 categories + Total) and plot spec."""
     style_of = {label: (color, DASHES[i % len(DASHES)])
-                for _, leaves in GROUPS for i, (_, label, color) in enumerate(leaves)}
+                for _, leaves in GROUPS for i, (_, _, label, color) in enumerate(leaves)}
     df = pd.DataFrame({c["label"]: c["kt"] for c in payload["categories"]},
                       index=payload["years"])
     df["Total"] = payload["total"]
