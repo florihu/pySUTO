@@ -28,8 +28,7 @@ import pandas as pd
 import pytest
 
 from pysuto.agg import AggregationResult
-from pysuto.impute import (ImputationEngine, NetworkImputer, ParametricImputer,
-                           ShareImputer, derive_process_recipes)
+from pysuto.impute import NetworkImputer, derive_process_recipes
 
 
 # =============================================================================
@@ -218,7 +217,7 @@ def _conc_pair(suffix, sector, entity, side, val):
     return _row(param_id=f"conc_{suffix}", value_nominal=str(val), **a, **b)
 
 
-def write_conc_csv(path, psc_use: bool = False):
+def write_conc_csv(path):
     rows = []
     flow_use = ["Ore", "Concentrate", "Matte", "CSXEW", "CER", "Cathode"]
     for s in flow_use:
@@ -230,9 +229,6 @@ def write_conc_csv(path, psc_use: bool = False):
     rows.append(_conc_pair("wr_use", "WR", "SB", "use", CONC["WR"]))
     rows.append(_conc_pair("tailings_use", "Tailings", "SB", "use", CONC["Tailings"]))
     rows.append(_conc_pair("slag_use", "Slag", "SB", "use", CONC["Slag"]))
-    if psc_use:
-        # the producer stock change is cathode held at the producer (Round Y, ADR 0041)
-        rows.append(_conc_pair("psc_use", "PSC", "SB", "use", CONC["Cathode"]))
     _write(path, rows)
 
 
@@ -816,93 +812,3 @@ def test_flow_balance_never_derives_supply_from_uses_that_include_a_stock_leg(st
     assert not method.get(e_prod, "").startswith("network_balance")   # incl. _capped/_clipped
     e_sx = stock_acc.eid("SXEW", "CSXEW", "CC")
     assert f[e_sx] == pytest.approx(30.0) and method[e_sx] == "network_balance"
-
-
-# =============================================================================
-# PSC is a stock-change leg in both valuations (Round Y, ADR 0041)
-# =============================================================================
-
-def _psc_engine(tmp_path, acc, stock_sectors):
-    """The Stage-2 composition that touches CP→PSC, as the driver composes it:
-    network closure, the conc ParametricImputer (the Mass twin of a reported CC
-    value), then the terminal net-stock seed."""
-    eff  = tmp_path / "eff.csv"
-    conc = tmp_path / "conc.csv"
-    og   = tmp_path / "ore_grade.csv"
-    write_eff_csv(eff); write_conc_csv(conc, psc_use=True); write_ore_grade_csv(og)
-    engine = ImputationEngine(acc_struct=acc)
-    engine.register_cascade([
-        NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=float("inf"),
-                       stock_sectors=stock_sectors),
-        ParametricImputer.from_csv(str(conc), acc, p=1.3, q=3.0, alpha_min=0.05,
-                                   id="conc"),
-    ])
-    engine.register(ShareImputer(p=1.3, id="net_stock_share",
-                                 seed_cv=0.01, seed_abs_floor=0.3))
-    return engine
-
-
-def _psc_run(engine, acc, seeds):
-    """seeds: (from_sector, to_sector, valuation, time) -> value (σ = 1 %)."""
-    f = np.full(acc.n_edges, np.nan)
-    sigma = np.full(acc.n_edges, np.nan)
-    for (fs, ts, v, t), val in seeds.items():
-        e = acc.eid(fs, ts, v, t)
-        f[e] = val
-        sigma[e] = 0.01 * abs(val) if val else 0.01
-    F = f[np.newaxis, :]
-    res = AggregationResult(
-        f_agg=f.copy(), sigma_agg=sigma.copy(), Omega=np.where(np.isfinite(F), 1.0, 0.0),
-        F=F, Sigma=sigma[np.newaxis, :], feed_ids=["test"], coverage=np.isfinite(f),
-    )
-    out = engine.run(res)
-    return out.f_agg, out.sigma_agg, out.imputation_log.as_dataframe()
-
-
-def test_psc_is_a_stock_leg_in_both_valuations(tmp_path):
-    """The Stage-2 engine run. 2020 reports a (negative) PSC in CC, 2021 reports none.
-    With PSC a stock sector the reported value keeps its sign and gets its Mass twin from the
-    cathode conc row (parametric), the unobserved year is seeded 0 ± max(1 %·
-    |CP→Cathode|, 0.3 kt) in both valuations by the net-stock seed, and no network
-    or time write touches a PSC leg (ADR 0040 extended to PSC, ADR 0041)."""
-    acc = MockAcc(times=("2020", "2021"))
-    psc = [acc.eid("CP", "PSC", v, t)
-           for v in ("CC", "Mass") for t in ("2020", "2021")]
-    acc.bounds.l[psc] = -1e6                       # a signed leg (acc bounds, ADR 0039)
-    seeds = {("CSXEW", "CP", "CC", "2020"): 60.0, ("CER", "CP", "CC", "2020"): 40.0,
-             ("CP",    "PSC", "CC", "2020"): -3.0,
-             ("CSXEW", "CP", "CC", "2021"): 60.0, ("CER", "CP", "CC", "2021"): 40.0}
-    f, sigma, log = _psc_run(_psc_engine(tmp_path, acc, ("PSC",)), acc, seeds)
-    method = dict(zip(log["edge_id"], log["method"]))
-
-    cc20, m20 = acc.eid("CP", "PSC", "CC", "2020"), acc.eid("CP", "PSC", "Mass", "2020")
-    cc21 = acc.eid("CP", "PSC", "CC",   "2021")
-    m21  = acc.eid("CP", "PSC", "Mass", "2021")
-    # the reported value stays, its Mass twin comes through the cathode conc, sign kept
-    assert f[cc20] == -3.0 and cc20 not in method
-    assert f[m20] == pytest.approx(-3.0 / CONC["Cathode"])
-    assert method[m20] == "parametric"
-    # the unobserved year: zero-mean seed priced on the cathode-pool product, both
-    # valuations
-    prod_cc = f[acc.eid("CP", "Cathode", "CC",   "2021")]
-    prod_m  = f[acc.eid("CP", "Cathode", "Mass", "2021")]
-    assert prod_cc == pytest.approx(100.0)
-    assert f[cc21] == 0.0 and sigma[cc21] == pytest.approx(0.01 * prod_cc)
-    assert f[m21]  == 0.0 and sigma[m21]  == pytest.approx(0.01 * abs(prod_m))
-    assert method[cc21] == "share_seed" and method[m21] == "share_seed"
-    assert set(log.loc[log["edge_id"].isin([cc21, m21]), "param_id"]) == {"seed_psc"}
-    # no imputer other than the seed and the conc twin ever wrote a PSC leg
-    assert not any(method[e].startswith(("network", "time")) for e in psc if e in method)
-
-
-def test_eff_less_recipe_pins_psc_at_zero_without_the_stock_gate(tmp_path):
-    """The X.0 defect, reproduced: CP has no eff row, so the recipe writes PSC =
-    (1 − 1.0)·Σin = 0 with σ 0 and its Mass twin the same — a hard pin that
-    Stage 3 only floors to σ 1e-6 (872 region-years on X.0)."""
-    acc = MockAcc(times=("2021",))
-    seeds = {("CSXEW", "CP", "CC", "2021"): 60.0, ("CER", "CP", "CC", "2021"): 40.0}
-    f, sigma, log = _psc_run(_psc_engine(tmp_path, acc, ()), acc, seeds)
-    method = dict(zip(log["edge_id"], log["method"]))
-    cc, m = acc.eid("CP", "PSC", "CC", "2021"), acc.eid("CP", "PSC", "Mass", "2021")
-    assert f[cc] == 0.0 and sigma[cc] == 0.0 and method[cc] == "network_forward"
-    assert f[m]  == 0.0 and sigma[m]  == 0.0 and method[m]  == "network_mass_twin"

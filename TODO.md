@@ -106,8 +106,9 @@ two-signed (23,800 negative edge-years each; drift +16/+13 → −6/−8 kt/yr),
 v10): the seed at 1 % of CP→Cathode is a sink — 870 seeded legs move 7,943 kt CC / 30 y (272 kt/yr vs
 limit 100; China −1,546, Zambia +857 at σ 3.8), PSC stock-bound max |z| 4.48 → 22.6, Chile CP→Cathode
 retention Δ 0.028, common-set z² −10.3 % for the wrong reason. Y.0 accepted (ADR 0041 split status).
-**Decision pending (user):** revert the two seed commits (485aac4, bd41e29 — PSC back to the recipe's
-hard zero, H5 open) or measure Y.2 = the no-trade floor alone (σ 0.3 kt). Stop rule P1–P10 (Mass–CC gap on PSC ≤ 10 kt/yr, mass moved ≤ 100 kt/yr US excluded,
+**Decided 2026-10-06:** the two seed commits (485aac4, bd41e29) are reverted — PSC's unreported
+years return to the recipe's hard zero (H5 open under #36 item 2; candidate next price: the 0.3 kt
+no-trade floor alone). The branch ships Y.0. Stop rule P1–P10 (Mass–CC gap on PSC ≤ 10 kt/yr, mass moved ≤ 100 kt/yr US excluded,
 CP→Cathode retention ≤ 0.01 moved, common-set z² ≤ +1 %, Round-E, USC/MESC two-signed); the US
 PSC 2006–2012 (#35, ±2 Mt) reported in its own row. Filed #40: the ICSG feed drops all 150 negative
 MESC/USC rows before concordance (258 of 385 rows), a feed-rebuild round.

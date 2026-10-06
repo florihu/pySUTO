@@ -11,8 +11,8 @@ move 7,943 kt CC over 30 years (272 kt/yr, limit 100; 2.65σ on average, 6.2σ a
 Zambia +857 kt at σ 3.8, Austria +356 kt at σ 0.9), the PSC stock-bound rows go from max |z| 4.48 to
 22.6, CP→Cathode retention moves 0.028 in Chile, and the common-set z² falls 10.3 % because forced
 contradictions became discretionary stock changes — ADR 0040's sink, not a fit. The eff-less hidden pin
-(H5) therefore stays open; the no-trade floor alone (σ 0.3 kt) is the candidate price for a Y.2, and
-whether the seed commits are reverted meanwhile is recorded in TODO. Amends
+(H5) therefore stays open; the no-trade floor alone (σ 0.3 kt) is the candidate price for a later
+round, and the two seed commits (485aac4, bd41e29) are reverted so that the branch ships Y.0. Amends
 [ADR 0040](0040-stock-change-legs-are-held-at-their-prior.md) (the band that made its seed one-sided is
 gone) and [ADR 0039](0039-flow-lower-bounds-are-enforced-in-the-qp.md) (the signed legs' negative half
 was still forbidden, by the concentration band). Closes #36 item 2 for the band and the row only; feed

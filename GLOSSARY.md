@@ -505,8 +505,11 @@ is undefined there, so quote the mass moved `Σ|a* − a_prior|` beside it.
 
 **Stock-change leg** — one of the three signed edges of the account: `Cathode→USC`,
 `Cathode→MESC` and `CP→PSC`, each a net addition to a stock (negative = a draw-down), structural
-lower bound −1e6. Its prior is a reported value or the **net-stock seed**; no imputer writes it; no
-one-signed hard band sits on it. _Avoid_: "stock leg", "stock edge", "Δstock edge".
+lower bound −1e6. No one-signed hard band sits on it. For `USC` / `MESC` the prior is a reported
+value or the **net-stock seed** and no imputer writes it; for `PSC` an unreported year is still the
+recipe's eff-less `0 ± 0` (a seed at 1 % of `CP→Cathode` was rejected on measurement,
+[ADR 0041](docs/adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md); #36).
+_Avoid_: "stock leg", "stock edge", "Δstock edge".
 
 **Exchange location** — a region in which ICSG reports exchange stocks: the LME warehouse
 countries by location, COMEX as the United States, SHFE as China (16 regions in the feed). It is
@@ -514,14 +517,13 @@ the destination of a `Cathode(i)→MESC(j)` leg, not a property of the origin. _
 (reserved for the merchant / re-export hubs of [ADR 0027](docs/adr/0027-re-exports-are-re-attributed-at-feed-time.md)),
 "warehouse region".
 
-**Net-stock seed** — the prior of a `MESC` / `USC` / `PSC` leg that no feed reports: value 0, held
-there with `σ = max(0.01·|base|, 0.3 kt)`, the base being the co-located `Cathode(i)→FU(j)` flow for
-`MESC` / `USC` and the same region's `CP→Cathode` product for `PSC`, in either valuation — the same
-pricing as a feed-backed level ([ADR 0040](docs/adr/0040-stock-change-legs-are-held-at-their-prior.md);
-PSC since [ADR 0041](docs/adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md)).
-A stock leg's prior is a reported value (with its Mass twin through the cathode concentration) or
-this seed; no imputer manufactures one. _Avoid_: reading a seeded 0 as a reported zero;
-"throughput-scaled band" (the retired p95 pricing); "share transfer" (the retired PSC mode).
+**Net-stock seed** — the prior of a `MESC` / `USC` leg that no feed reports: value 0, held there
+with `σ = max(0.01·|co-located Cathode(i)→FU(j) flow|, 0.3 kt)` — the same pricing as a
+feed-backed level ([ADR 0040](docs/adr/0040-stock-change-legs-are-held-at-their-prior.md)). A
+`MESC` / `USC` leg's prior is a reported value or this seed; no imputer manufactures one. The same
+seed on `PSC`, priced at 1 % of the region's `CP→Cathode`, was a sink (272 kt/yr absorbed) and is
+rejected on measurement ([ADR 0041](docs/adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md)).
+_Avoid_: reading a seeded 0 as a reported zero; "throughput-scaled band" (the retired p95 pricing).
 
 **Sink** — an edge family whose σ makes its penalty negligible against the mass it can absorb, so
 a contradiction elsewhere discharges into it instead of surfacing as `z` where it belongs. The
@@ -591,10 +593,10 @@ Mass→CC fraction) — they are different coefficient families.
 ([ADR 0004](docs/adr/0004-process-recipe-traversal-imputer.md)). **Mining and `CP` are the
 exceptions**: Mining has *no* `eff` row (eff defaults to 1.0, so CC is conserved CO→Ore) and its
 `WR` residual follows the **stripping ratio** (below) on Mass (`WR_Mass = stripping_ratio·Ore_Mass`),
-not the generic `(1−eff)·Σin` SEM-residual rule; `CP` has no `eff` row either, and its SEM output
-`PSC` is a stock-change leg held by the **net-stock seed**, never a derived residual — the eff-less
-recipe once wrote it as `0 ± 0`, a hidden hard pin
-([ADR 0041](docs/adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md)).
+not the generic `(1−eff)·Σin` SEM-residual rule; `CP` has no `eff` row either, so the recipe writes
+its SEM output `PSC` — a **stock-change leg**, not a residual — as `0 ± 0` on every unreported
+region-year, a hidden hard pin that stands until a tighter price than the measured 1 % seed is found
+([ADR 0041](docs/adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md), #36).
 _Avoid_: confusing the recipe's **SEM residual-output** (Slag / Tailings / WR, reached via a
 *supply* edge; `PSC` shares the `entity_sub` but is a stock-change leg) with a **SEM secondary
 input** (Scrap, reached via a *use* edge) — both carry `entity_sub == "SEM"`, and only the edge
