@@ -101,6 +101,22 @@ def test_params_load_bearing_change_bumps(tmp_path: Path) -> None:
         == "param_id;value\nx;1\n"
 
 
+def test_pending_lists_an_unregistered_edit_without_bumping(tmp_path: Path) -> None:
+    _params_id(tmp_path, "conc", "param_id;value\nx;1\n")
+    _params_id(tmp_path, "eff", "param_id;value\ny;1\n")
+    InputRegistry("params", root=tmp_path).initialize()
+    index_before = (tmp_path / "params" / "registry.json").read_text()
+
+    _write(tmp_path / "params" / "conc" / "current" / "params.csv",
+           "param_id;value\nx;2\n")
+    _params_id(tmp_path, "scrap", "param_id;value\nz;1\n")      # never registered
+    reg = InputRegistry("params", root=tmp_path)
+
+    assert reg.pending() == {"conc": 1, "scrap": None}            # id -> latest vN
+    assert (tmp_path / "params" / "registry.json").read_text() == index_before
+    assert not (tmp_path / "params" / "conc" / "v2").exists()
+
+
 def test_params_non_load_bearing_change_does_not_bump(tmp_path: Path) -> None:
     _params_id(
         tmp_path, "conc",

@@ -179,6 +179,21 @@ class InputRegistry:
     def latest_version(self, id: str) -> int:
         return self._require_entry(id)["versions"][-1]["version"]
 
+    def pending(self) -> dict[str, int | None]:
+        """Ids whose ``current/`` differs from their latest snapshot, mapped to that
+        snapshot's version (``None`` if never registered). Read-only: nothing is
+        hashed into the index and no ``vN/`` is written — :meth:`initialize` does that."""
+        out: dict[str, int | None] = {}
+        if not self.root.is_dir():
+            return out
+        for child in sorted(self.root.iterdir()):
+            if not (child / "current").is_dir():
+                continue
+            versions = self._index.get(child.name, {}).get("versions", [])
+            if not versions or versions[-1]["hashes"] != self._current_hashes(child.name):
+                out[child.name] = versions[-1]["version"] if versions else None
+        return out
+
     def ids(self) -> list[str]:
         return sorted(self._index.keys())
 
@@ -192,8 +207,7 @@ class InputRegistry:
                 "input/%s/%s: %d file(s) under current/ shared an inode with a "
                 "snapshot — given a private copy (an in-place write would have "
                 "rewritten history)", self.kind, id, n_shared)
-        load_bearing = self._load_bearing_files(id, current)
-        new_hashes = _hash_files(current, load_bearing)
+        new_hashes = self._current_hashes(id)
 
         rec = self._index.get(id, {"label": "", "versions": []})
         prior_versions = rec["versions"]
@@ -221,6 +235,10 @@ class InputRegistry:
         })
         self._index[id] = rec
         _log.info("input/%s/%s: bumped to v%d (label=%r)", self.kind, id, new_version, label)
+
+    def _current_hashes(self, id: str) -> dict[str, str]:
+        current = self.root / id / "current"
+        return _hash_files(current, self._load_bearing_files(id, current))
 
     @staticmethod
     def _privatise_current(current: Path) -> int:
