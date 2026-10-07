@@ -15,7 +15,11 @@ over 1995–2024 missing against 2,285–5,004 Mt/yr posterior), so the imputer 
 own: under the hard row an informative WR prior would count the Ore prior twice. The solve does not
 move beyond what the solver resolves — the objective shifts by ≤ 3.5 per year, almost uniformly —
 and the WR priors now enter the no-data anchor's (Mining, Mass) sibling median, loosening the zero
-anchor on 1,042 no-mine Ore/WR edges from σ 1,176 to 1,741 kt.
+anchor on 1,042 no-mine Ore/WR edges from σ 1,176 to 1,741 kt. k's band is an input (`value_min`/
+`value_max` of the `stripping_ratio` row): v2 narrows it to 1.5–2.5, so "range 1–3" and "±25 %"
+below hold for v1 only. WR touches no row but the stripping relation and its own bound, so
+`WR*(k) = k·Ore*` exactly and the band is reported as a range of the flow (SI Table S12), never as
+a σ (decided 2026-10-07; a regional k is #47).
 
 The crude-ore feed measures ore (used extraction), so crude-ore mass equals ore mass by construction
 and waste rock, unused extraction, lies outside every feed. With Mining→WR inside the Mining mass

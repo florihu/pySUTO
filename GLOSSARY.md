@@ -101,6 +101,11 @@ The four parameter kinds, split **extensive** vs **intensive**. *Extensive* (kt 
 The best-estimate flow vector the QP stays close to: `f_agg` at the first timestep, and the
 previous year's optimum thereafter (warm start).
 
+**Prior σ (`σ_a`)**:
+The standard deviation of an edge's prior: how far the QP may move the edge from `a₀` at unit
+cost. A **flat** σ (10⁶ kt) states that the edge carries no information of its own.
+_Avoid_: "σ init", "initial σ" — nothing iterates it.
+
 ## Pipeline & process vocabulary
 
 The stage verbs and the cross-cutting machinery that runs them.
@@ -611,7 +616,7 @@ direction distinguishes the two roles.
 
 **Stripping ratio (`stripping_ratio`).** The mass of waste rock (`WR`) stripped per unit of `Ore`
 extracted at a Mining process — `WR_Mass = stripping_ratio · Ore_Mass`, a **Mass→Mass** ratio between
-two **outputs** of Mining (2.0, range 1–3), held **hard**: it alone sets waste rock, a satellite
+two **outputs** of Mining, held **hard**: it alone sets waste rock, a satellite
 flow with no data of its own ([ADR 0038](docs/adr/0038-waste-rock-is-a-satellite-mass-flow.md)).
 _Avoid_: calling it an `eff` — `eff` is strictly a CC copper-recovery fraction (above); reading
 waste rock as a residual (`CO − Ore`).
