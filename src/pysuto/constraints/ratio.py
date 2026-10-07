@@ -451,6 +451,9 @@ class RatioBoundBuilder(BaseConstraintBuilder):
         ei_idx = expand_edge_index(acc_struct.edge_index, acc_struct.node_index).set_index("edge_id")
 
         bound_rows = []
+        # structural lower bound < 0 ⇔ a signed edge (acc bounds; ADR 0039)
+        signed           = np.asarray(acc_struct.bounds.l, dtype=float) < 0.0
+        n_signed_skipped = 0
         for _, row in df.iterrows():
             # Stripping ratio is soft-only (ADR 0005): its [value_min, value_max] is a
             # plausible range, not an empirical hard WR/Ore bound. The imputer fills
@@ -504,8 +507,18 @@ class RatioBoundBuilder(BaseConstraintBuilder):
                     })
                 continue
 
+            # A one-signed band (bl ≥ 0, or an upper bound alone) is satisfiable
+            # for a negative pair only at zero: on a signed edge (structural
+            # l < 0 — the stock-change legs) it would forbid the leg's negative
+            # half, so no hard band is emitted there; the soft ratio equality
+            # carries the ratio (ADR 0041). A band that spans zero (the stock
+            # bands, bl < 0) is sign-safe and stays hard.
+            one_signed = np.isnan(bl) or bl >= 0.0
             for r in resolver.resolve_row(row):
                 if scope is not None and not (scope[r.a_edge_id] and scope[r.b_edge_id]):
+                    continue
+                if one_signed and (signed[r.a_edge_id] or signed[r.b_edge_id]):
+                    n_signed_skipped += 1
                     continue
                 bound_rows.append({
                     "variant":  variant,
@@ -520,9 +533,10 @@ class RatioBoundBuilder(BaseConstraintBuilder):
                 })
 
         n_agg = sum(1 for br in bound_rows if br.get("agg"))
-        _log.info("RatioBoundBuilder: %d bound rows from %s (%d agg, %d per-pair)",
+        _log.info("RatioBoundBuilder: %d bound rows from %s (%d agg, %d per-pair; "
+                  "%d one-signed pairs skipped on signed edges)",
                   len(bound_rows), os.path.basename(path),
-                  n_agg, len(bound_rows) - n_agg)
+                  n_agg, len(bound_rows) - n_agg, n_signed_skipped)
         return cls(bound_rows, kind=kind)
 
     @property

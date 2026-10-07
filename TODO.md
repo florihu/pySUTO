@@ -13,8 +13,9 @@
   exchange stock-change legs are held at their prior (reported or zero) with
   σ = max(0.01·|FU leg|, 0.3 kt); their zero-centred rows are retired. Follow-ups: #35 (ICSG
   stock parse: 2014 exchange block, edition-boundary year, USC types, US producers row),
-  #36 (BACI 98/1/1 fan, PSC no-data σ 1e6, dead `cathode_mesc_domestic`); from the code review
-  #37 (PSC 0.1 kt floor), #38 (supply guard), #39 (stock membership in three places).
+  #36 (BACI 98/1/1 fan, PSC no-data σ 1e6 → Round Y / ADR 0041, dead `cathode_mesc_domestic`);
+  from the code review #37 (PSC 0.1 kt floor), #38 (supply guard), #39 (stock membership in
+  three places); #40 (the ICSG feed drops the negative MESC/USC rows).
 * Introduce as constant constraint — superseded by the seed pricing above (a soft row at
   0.3 kt is the constant constraint without the 1995 infeasibility of a hard band).
 
@@ -84,6 +85,34 @@ retired (re-run `imp_20261006_081350_5f8edf28` bit-identical to X.0's imp). Defe
 0.1 kt PSC scale floor leaves 442 of 1,410 rows at σ_c ≈ 0.0035 kt — latent zero pins, none bind
 on X.0), #38 (the supply guard keys on a stock leg's presence, not its missingness), #39 (stock-leg
 membership defined in three places).
+
+**Round Y (2026-10-06, spec #41 — closes #36 item 2 — ADR 0041; branch
+`fix/psc-prior-both-valuations` off Round X — built, NOT yet measured):** diagnosing the flat Mass
+PSC prior on X.0 found three defects: no conc row covers `*→PSC` and ICSG reports PSC in CC only
+(1,410 Mass flat priors at σ 1e6, a free signed sink of ≈ 1,380 kt / 30 y: China 2013 −32 kt,
+Chile 2009 +16 kt); CP's eff-less recipe wrote PSC CC = 0 ± 0 on 872 region-years (875 pinned at
+σ 1e-6 with the interpolator's three copies; only the 187 ICSG years vary); and
+`conccathodesupply`'s hard band forbids negative USC/MESC (0 negative edge-years of 265,080 — the
++16 kt/yr residual above). Built: Y.0 = `RatioBoundBuilder` emits no one-signed hard band on a
+signed edge (≈ 268k of 844k hard conc rows go) + `concpscuse` (conc v8 → v9 on the first Stage-2
+run); Y.1 = PSC in
+`STOCK_SECTORS`, seeded at 1 % of `CP→Cathode` / 0.3 kt in both valuations, the share transfer
+retired, `stock_bounds` a Stage-3 input only. **Y.0 measured (#43):** `opt_20261006_105904_61c5efe9`
+(`imp_20261006_101314_c6b6c588` → `const_20261006_101742_205d50d3`, commit 2e9240e, 30/30 Solved,
+conc v9): Mass–CC gap on PSC 22–87 → 0–6 kt/yr, common-set z² −0.1 % vs X.0, Round-E held, USC/MESC
+two-signed (23,800 negative edge-years each; drift +16/+13 → −6/−8 kt/yr), PSC stock-bound max |z|
+4.48 → 5.18. **Y.1 measured (#44), rejected on measurement:** `opt_20261006_120237_643c4b4a`
+(`imp_20261006_111616_6566f4d2` → `const_20261006_112045_f55da888`, commit 48787a1, 30/30 Solved, conc
+v10): the seed at 1 % of CP→Cathode is a sink — 870 seeded legs move 7,943 kt CC / 30 y (272 kt/yr vs
+limit 100; China −1,546, Zambia +857 at σ 3.8), PSC stock-bound max |z| 4.48 → 22.6, Chile CP→Cathode
+retention Δ 0.028, common-set z² −10.3 % for the wrong reason. Y.0 accepted (ADR 0041 split status).
+**Decided 2026-10-06:** the two seed commits (485aac4, bd41e29) are reverted — PSC's unreported
+years return to the recipe's hard zero (H5 open under #36 item 2; candidate next price: the 0.3 kt
+no-trade floor alone). The branch ships Y.0. Y.1's chain (imp/const/opt) pruned 2026-10-07; Y.0's
+chain and X.0 stay. Stop rule P1–P10 (Mass–CC gap on PSC ≤ 10 kt/yr, mass moved ≤ 100 kt/yr US excluded,
+CP→Cathode retention ≤ 0.01 moved, common-set z² ≤ +1 %, Round-E, USC/MESC two-signed); the US
+PSC 2006–2012 (#35, ±2 Mt) reported in its own row. Filed #40: the ICSG feed drops all 150 negative
+MESC/USC rows before concordance (258 of 385 rows), a feed-rebuild round.
 
 # OPEN (2026-09-16, out of Round L)
 
