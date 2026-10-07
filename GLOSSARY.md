@@ -599,8 +599,8 @@ Mass→CC fraction) — they are different coefficient families.
 (`(1−eff)·Σin`). The unit of reasoning for the network-traversal imputer
 ([ADR 0004](docs/adr/0004-process-recipe-traversal-imputer.md)). **Mining and `CP` are the
 exceptions**: Mining has *no* `eff` row (eff defaults to 1.0, so CC is conserved CO→Ore) and its
-`WR` residual follows the **stripping ratio** (below) on Mass (`WR_Mass = stripping_ratio·Ore_Mass`),
-not the generic `(1−eff)·Σin` SEM-residual rule; `CP` has no `eff` row either, so the recipe writes
+`WR` satellite output follows the **stripping ratio** (below) on Mass
+(`WR_Mass = stripping_ratio·Ore_Mass`), not the generic `(1−eff)·Σin` SEM-residual rule; `CP` has no `eff` row either, so the recipe writes
 its SEM output `PSC` — a **stock-change leg**, not a residual — as `0 ± 0` on every unreported
 region-year, a hidden hard pin that stands until a tighter price than the measured 1 % seed is found
 ([ADR 0041](docs/adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md), #36).
@@ -611,13 +611,10 @@ direction distinguishes the two roles.
 
 **Stripping ratio (`stripping_ratio`).** The mass of waste rock (`WR`) stripped per unit of `Ore`
 extracted at a Mining process — `WR_Mass = stripping_ratio · Ore_Mass`, a **Mass→Mass** ratio between
-two **outputs** of Mining (2.0, range 1–3). It is *not* a recovery efficiency: not in `CC`, not a
-recovery fraction, and `> 1`. It is a **hard** relation that alone fixes waste rock, a satellite
-flow with no data of its own; the prior carries `stripping_ratio · Ore_Mass` at a flat σ, so it
-agrees with the relation without weighing on Ore
-([ADR 0038](docs/adr/0038-waste-rock-is-a-satellite-mass-flow.md)). _Avoid_: calling it an `eff` —
-`eff` is strictly a CC copper-recovery fraction (above). _Avoid_: reading waste rock as a residual
-(`CO − Ore`) or reading its prior as evidence — it only mirrors the Ore prior.
+two **outputs** of Mining (2.0, range 1–3), held **hard**: it alone sets waste rock, a satellite
+flow with no data of its own ([ADR 0038](docs/adr/0038-waste-rock-is-a-satellite-mass-flow.md)).
+_Avoid_: calling it an `eff` — `eff` is strictly a CC copper-recovery fraction (above); reading
+waste rock as a residual (`CO − Ore`).
 
 **Allocated ore mass.** The `crude_ore` feed's ore Mass is S&P **price-allocated**: a
 poly-metallic mine's physical ore is split across its metals by price share, so the copper-

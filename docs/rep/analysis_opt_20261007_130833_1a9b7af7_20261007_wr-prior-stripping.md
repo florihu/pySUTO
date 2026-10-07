@@ -53,6 +53,10 @@ mass as a defect at the prior.
 | time-interpolation fills | 207 | 209 (+2: Botswana WR 2019–20) |
 | flat-prior fills | 713,691 | 712,802 (−889) |
 
+WR retention (Mining→WR Mass, Σa*/Σa_prior) is now defined: 0.866 over 1995–2024, from 0.816 in
+2024 to 0.970 in 1997 — the Mining→Ore Mass retention, since prior and posterior are both 2·Ore.
+On the reference it is undefined (prior 0).
+
 Botswana 2019–20 has Ore Mass only from time interpolation (after the cascade); its WR now
 interpolates from the neighbouring `k·Ore` years at σ ≈ 10⁶, so these two edges also leave the
 no-data anchor, which pulled Botswana's ore toward zero through the hard row (WR 0 ± 1,176 kt
@@ -69,7 +73,7 @@ edges, σ_a on those plus 1,042 anchored zeros (§5). With `J(F) = Σ((F − a�
 |---|---|
 | \|δ\| from the WR priors, at either posterior | 3.45 |
 | \|δ\| from the anchor σ change, at either posterior | 0.37 |
-| \|δ(F_base) − δ(F_new)\| | 0.17 |
+| \|δ(F_base) − δ(F_new)\| | 0.14 |
 
 A near-constant shift of ≤ 3.5 against J of 44,287–231,317 per year leaves the optimum where it
 was. Evaluating each posterior under both QPs shows where the observed differences come from:
@@ -88,7 +92,7 @@ run's answer; a positive one, that the new posterior beats the reference on the 
 (the column mirrors J_base(F_new) − J_base(F_base) to within δ). Both runs stop hundreds of units
 from the optimum in some years while reporting a gap below 1. The three negative years carry the
 WR posterior drops (2008 3,299.6 → 3,231.8 Mt, 2009 3,346.9 → 3,279.9 Mt, 2022 5,004.2 →
-4,934.5 Mt; Chile 2009 −35.7 Mt, i.e. −17.8 Mt ore) and the whole common-set z² increase:
+4,934.5 Mt; Chile 2009 WR −35,698 kt, i.e. ore −17,849 kt) and the whole common-set z² increase:
 
 | sum-row z² by anchor band (\|c\|, kt) | rows | reference | this run | Δ |
 |---|---|---|---|---|
@@ -103,10 +107,11 @@ The > 1000 kt increase is 2008 +451, 2009 +397, 2022 +681, led by the Ore/Mining
 China 2022 (z −18.2 → −20.5 Mass, −12.9 → −15.4 CC) and Chile 2008/09 (−23.7 → −25.2,
 −22.4 → −24.0).
 
-Round-E (ADR 0025), reference → this run: world retention CO Mass 0.863 → 0.862, Concentrate CC
-0.990 → 0.990, Cathode CC 0.988 → 0.988; small nodes (|c| < 18 kt, n 4,772) posterior/prior median
-1.000 → 1.000, p90 1.149 → 1.149; concentrate exporter retention Chile 0.970 → 0.970, Peru 1.013 →
-1.014, Indonesia 0.915 → 0.915, world 0.924 → 0.924; mass moved over CC edges 501,359 → 502,999 kt.
+Round-E (ADR 0025), reference → this run: world retention 1995–2024 CO Mass 0.863 → 0.862,
+Concentrate CC 0.990 → 0.990, Cathode CC 0.988 → 0.988; small nodes (|c| < 18 kt, n 4,772, all
+years) posterior/prior median 1.000 → 1.000, p90 1.149 → 1.149; cross-region concentrate exporter
+retention 1995–2024 Chile 0.970 → 0.970, Peru 1.013 → 1.014, Indonesia 0.915 → 0.915, world 0.924 →
+0.924; mass moved over CC edges 501,359 → 502,999 kt CC.
 The WR posterior stays exactly 2·Ore in every year (1995–2024: 107,842.9 → 107,685.8 Mt).
 
 ## 5. Side effect: the no-data anchor's sibling median
@@ -115,19 +120,24 @@ The anchor (ADR 0013) prices a zero-prior edge at 5 % of the median |a₀| of it
 (from_sector, valuation) siblings. The WR priors now count as (Mining, Mass) siblings: 889 → 1,778
 siblings, median 23,520.6 → 34,826.3 kt, so the 1,042 anchored zeros (Mining→Ore and Mining→WR Mass
 in the 521 region-years that mine nothing) loosen from σ 1,176 to 1,741 kt. Their contribution to δ
-is ≤ 0.37 per year; no measurable effect.
+is ≤ 0.37 per year; no measurable effect. Kept on purpose (2026-10-07): leaving flat-σ priors out
+of the siblings would restore the old scale, but it is a Stage-3 change for an effect below what
+the solver resolves.
 
 ## 6. Follow-ups
 
-- **Solver resolution.** At ADR 0039's tolerances a `Solved` year can sit ≥ 684 units of J from a
-  known feasible point (2008 here, gap_abs 0.29). Run-to-run differences of a few hundred z² per
-  year — ±0.1 % of the common-set total, tens of Mt of ore Mass in Chile and China — are below what
-  a single solve resolves. Cross-evaluating posteriors (as in §4) separates a model effect from this
-  noise; earlier rounds that moved z² by ≤ 0.1 % did not.
+- **Solver resolution** (commented on #33). At ADR 0039's tolerances a `Solved` year can sit
+  ≥ 684 units of J from a known feasible point (2008 here, gap_abs 0.29). Run-to-run differences of
+  a few hundred z² per year — ±0.1 % of the common-set sum-row z² of
+  `opt_20261006_105904_61c5efe9`, up to 17,849 kt of ore Mass in Chile 2009 — are below what a
+  single solve resolves. Cross-evaluating posteriors (as in §4) separates a model effect from this
+  noise; earlier rounds that moved z² by ≤ 0.1 % against their base run did not.
 - `docs/manuscript/si.md` Table S15 ("waste rock is no longer filled … 889 mass edges … to the flat
   prior") describes the W.1 reference run; it changes when the manuscript moves to a newer chain.
 
 ## 7. Reproduce
+
+The chain:
 
 ```
 python scripts/collect_aggregate_impute.py --feed-id feed_icsg_20260922_115241_eb9cb9ff \
@@ -135,7 +145,17 @@ python scripts/collect_aggregate_impute.py --feed-id feed_icsg_20260922_115241_e
     --label wr_stripping_prior
 python scripts/constraints.py --imp-run-id imp_20261007_122232_2b67458e wr_stripping_prior
 python scripts/run_solver.py --const-run-id const_20261007_122703_50f6ff71 --label wr_stripping_prior
-python scripts/solver_stats.py opt_20261007_130833_1a9b7af7 --years all   # §4 reads every year
+```
+
+The diagnostics read every year, so they need the run's per-year tables, written once on their own
+(≈ 0.43 GB; the reference run carries them already):
+
+```
+python scripts/solver_stats.py opt_20261007_130833_1a9b7af7 --years all
+python scripts/explo/wr_prior_crosseval.py opt_20261006_105904_61c5efe9 opt_20261007_130833_1a9b7af7
 python scripts/explo/roundY_psc_diag.py opt_20261006_105904_61c5efe9 opt_20261007_130833_1a9b7af7
 python scripts/explo/roundK_sigma_floor_diag.py opt_20261006_105904_61c5efe9 opt_20261007_130833_1a9b7af7
 ```
+
+`wr_prior_crosseval.py` prints §3's WR table and retention (W1), the δ table (W2) and the
+cross-evaluation (W3).

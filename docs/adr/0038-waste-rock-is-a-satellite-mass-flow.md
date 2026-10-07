@@ -7,7 +7,8 @@ Amends [ADR 0005](0005-pool-scrap-into-eff-constraint-and-stripping-ratio.md) an
 
 **Amended 2026-10-07 (run `opt_20261007_130833_1a9b7af7`; REP
 [`…wr-prior-stripping`](../rep/analysis_opt_20261007_130833_1a9b7af7_20261007_wr-prior-stripping.md)):**
-the prior carries waste rock. Left to the noisy zero, every prior-side view showed none (124,325 Mt
+the prior carries waste rock; "the imputer leaves it to the flat prior" below no longer holds.
+Left to the noisy zero, every prior-side view showed none (124,325 Mt
 over 1995–2024 missing against 2,285–5,004 Mt/yr posterior), so the imputer now writes
 `WR_Mass = k·Ore_Mass` from the same `stripping_ratio` row as the hard relation, at the flat σ
 (10⁶ kt, exempt from the imputer's cv cap). The σ stays flat because waste rock has no data of its

@@ -524,11 +524,11 @@ def main(feed_ids: list[str], label: str) -> None:
         eff_csv       = str(inputs.params.resolve("eff")       / "params.csv"),
         conc_csv      = str(inputs.params.resolve("conc")      / "params.csv"),
         ore_grade_csv = str(inputs.params.resolve("ore_grade") / "params.csv"),
+        stripping_ratio_csv = str(inputs.params.resolve("stripping_ratio") / "params.csv"),
+        stripping_sigma     = FLAT_SIGMA_HIGH,
         p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG, cv_cap=1.5,
         id="network",
         stock_sectors=STOCK_SECTORS,
-        stripping_ratio_csv = str(inputs.params.resolve("stripping_ratio") / "params.csv"),
-        stripping_sigma     = FLAT_SIGMA_HIGH,
     )
     param_refs.append(inputs.params.entry("stripping_ratio"))
     engine.register_cascade(
