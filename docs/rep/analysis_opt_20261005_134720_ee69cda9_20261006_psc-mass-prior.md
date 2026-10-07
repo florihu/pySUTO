@@ -243,7 +243,7 @@ alone (σ = 0.3 kt, the price ADR 0040 gives a leg with no co-located flow) as Y
 - Y.0: `data/proc/opt/opt_20261006_105904_61c5efe9/`, const
   `data/proc/const/const_20261006_101742_205d50d3/`, imp `data/proc/imp/imp_20261006_101314_c6b6c588/`
   (code at commit `2e9240e`; `scratchpad` chain log: Stage 2 2.8 min, Stage 3 8.6 min, Stage 4 38 min)
-- Y.1: `data/proc/opt/opt_20261006_120237_643c4b4a/` (`diag/sd_r_10_boundary_flows.png`), const
-  `data/proc/const/const_20261006_112045_f55da888/`, imp `data/proc/imp/imp_20261006_111616_6566f4d2/`
-  (code at `48787a1`; Stage 2 2.8 min, Stage 3 8.6 min, Stage 4 38.5 min)
+- Y.1: `opt_20261006_120237_643c4b4a` ← `const_20261006_112045_f55da888` ← `imp_20261006_111616_6566f4d2`
+  (code at `48787a1`; Stage 2 2.8 min, Stage 3 8.6 min, Stage 4 38.5 min) — **pruned 2026-10-07** after the
+  measurement (rejected run; its P1–P10 and the SD-R-10 reading are recorded in §7, not reproducible from disk)
 - diag `scripts/explo/roundY_psc_diag.py`; plan `~/.claude/plans/pls-diagnose-in-the-sleepy-nest.md`
