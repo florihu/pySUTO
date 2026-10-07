@@ -126,6 +126,7 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 
 - `data/` is gitignored. Hand-authored inputs under `data/input/**/current/` are tracked via `git add -f`; registries, `vN/` snapshots and script-written `current/` files are untracked but load-bearing — never delete them as clean-up. `data/input/raw` (17 GB) is not reproducible: read-only.
 - Input registries (`feed|acc|params|mask`) are sha256-bumped and hardlinked: edit only `current/`, never a `vN/` directory (ADR 0023).
+- A parameter's value and its provenance live in its row of `data/input/params/<id>/current/params.csv` (`value_*`, `source`, `comment`), and the user edits it between turns. Read the row before quoting it, cite it as `<id> vN`, and keep values out of GLOSSARY.md and code comments.
 - Registries have no locking: never run two stage drivers concurrently in one checkout — index entries get lost.
 - Runs cited by a REP, ADR or `TODO.md` are permanent. Figures go to `<run>/diag/`, `figs/psut/`, `figs/report/`, `docs/rep/figs/`; `docs/rep/` is git-tracked.
 
