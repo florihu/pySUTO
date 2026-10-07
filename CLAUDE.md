@@ -86,7 +86,8 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 - Run everything from the repo root: some drivers call `load_config("config/config.yaml")` at import time and `get_logger()` writes `logs/<name>.log` relative to CWD.
 - Tests: `python -m pytest tests/` — always pass `tests/`, bare `pytest` also collects the gitignored `leg/`. One test: `python -m pytest tests/test_solver.py::TestX::test_y -q`. The suite runs in under a minute.
 - Pipeline: `scripts/acc.py --id copper` → parse (`scripts/parse/`) → feeds → `collect_aggregate_impute.py --feed-id …` → `constraints.py --imp-run-id <id> <label>` (label is positional) → `run_solver.py --const-run-id <id>` (also renders diag) → `uncertainty_propagation.py <opt_run_id>` → `psut.py <opt_run_id> [--sankey 2020]`.
-- Before a full chain run `df -h .` and keep ≥ 3 GB free: const ≈ 0.7 GB, opt ≈ 0.5 GB per run. A Stage-3 `zipfile` `OSError` means the disk is full, not a bug. Deleting runs is the user's call; afterwards prune their ids from `data/proc/<stage>/registry.json`.
+- Before a full chain run `df -h .` and keep ≥ 3 GB free: const ≈ 0.7 GB, opt ≈ 0.08 GB per run (≈ 0.5 GB with the per-year tables). A Stage-3 `zipfile` `OSError` means the disk is full, not a bug. Deleting runs is the user's call; afterwards prune their ids from `data/proc/<stage>/registry.json`.
+- `run_solver.py` writes no per-year `diag/edges_<year>.csv` / `constraints_<year>.csv` (427 of the 504 MB of `opt_20261006_105904_61c5efe9`). Write them only for the years a diagnostic reads — `scripts/solver_stats.py <opt_run_id> --years …` — and never append `--years all` to a script that runs the stage drivers back to back (#46).
 - Maintenance scripts (`scripts/migrate_registries.py`, `scripts/explo/prune_runs.py`) run with `--dry-run` first. No lint, formatter, type-checker, CI, pre-commit or Makefile exist.
 
 ## Numerical & performance conventions

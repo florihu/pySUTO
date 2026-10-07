@@ -199,7 +199,8 @@ class TestBlockRunDiag:
 
     def test_full_portfolio_renders_from_year_local(self, tmp_path, monkeypatch):
         """Every figure renders from year-local results; with the acc injected
-        the frames exist, so one ranking CSV per family is written too."""
+        the frames exist, so one ranking CSV per family is written too — but no
+        per-year edge / constraint table (those are written on demand, #46)."""
         from pysuto.diag import SolverDiag
         results, cr, acc = _solve_block_run(tmp_path, monkeypatch)
         diag = SolverDiag(results, cr, label="block", acc=acc)
@@ -209,6 +210,8 @@ class TestBlockRunDiag:
             assert os.path.exists(p)
         names = {os.path.basename(p) for p in paths}
         assert {"ranking_edges.csv", "ranking_sum_rows.csv", "ranking_soft_ratios.csv"} <= names
+        on_disk = os.listdir(tmp_path / "diag")   # the directory, not the returned paths
+        assert not [n for n in on_disk if n.startswith(("edges_", "constraints_"))], on_disk
         # the edge frame is real here: the sector figures are not placeholders
         assert os.path.getsize(tmp_path / "diag" / "sd_r_08_useful_output.png") > 20_000
 
