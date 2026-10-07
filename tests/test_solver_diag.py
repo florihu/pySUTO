@@ -353,3 +353,98 @@ class TestRegistry:
         from pysuto.diag import SolverDiag
         stems = [spec.filename for spec in SolverDiag.PLOTS.values()]
         assert len(stems) == len(set(stems))
+
+
+# ---------------------------------------------------------------------------
+# 7. SD-R-10 palette: SB-input and SB-output share one legend, so they must
+#    share one palette (Round X: Scrap and MESC were drawn in the same colour)
+# ---------------------------------------------------------------------------
+
+class TestBoundaryPalette:
+
+    @staticmethod
+    def _frame(years):
+        import pandas as pd
+        rows = []
+        specs = [
+            # SB-input: Scrap, CO ; SB-output: MESC, FU, USC, PSC, WR, Tailings, Slag
+            # — nine named groups, one more than the per-panel palette holds
+            ("Scrap", "SB", "Smelting", "Process", 10.0),
+            ("CO", "SB", "Mining", "Process", 100.0),
+            ("Cathode", "Flow", "MESC", "SB", 5.0),
+            ("Cathode", "Flow", "FU", "SB", 50.0),
+            ("Cathode", "Flow", "USC", "SB", 4.0),
+            ("CP", "Process", "PSC", "SB", 3.0),
+            ("Mining", "Process", "WR", "SB", 200.0),
+            ("MF", "Process", "Tailings", "SB", 150.0),
+            ("Smelting", "Process", "Slag", "SB", 20.0),
+        ]
+        for y in years:
+            for fs, fe, ts, te, v in specs:
+                rows.append({"from_sector": fs, "from_region": "A", "from_entity": fe,
+                             "to_sector": ts, "to_region": "A", "to_entity": te,
+                             "valuation": "CC", "a_prior": v, "a_post": 1.1 * v,
+                             "year": y})
+        return pd.DataFrame(rows)
+
+    def test_sb_input_and_sb_output_sectors_get_distinct_colours(self, toy_results, monkeypatch):
+        import matplotlib.pyplot as plt
+        from pysuto.diag import SolverDiag
+        results, run = toy_results
+        diag = SolverDiag(results, run, label="toy")
+        monkeypatch.setattr(diag, "_edge_frame", lambda: self._frame(diag._years))
+        fig = diag._fig_boundary_flows()
+        try:
+            handles = fig.legends[0].get_lines()
+            by_label = {h.get_label(): h.get_color() for h in handles}
+            groups = {"Scrap", "CO", "MESC", "FU", "USC", "PSC", "WR", "Tailings", "Slag"}
+            assert groups <= set(by_label)
+            colours = [by_label[g] for g in sorted(groups)]
+            assert len(set(colours)) == 9           # no two sectors share a colour
+        finally:
+            plt.close(fig)
+
+    def test_totals_data_honours_a_given_palette(self, toy_results, monkeypatch):
+        from pysuto.diag import SolverDiag
+        results, run = toy_results
+        diag = SolverDiag(results, run, label="toy")
+        frame = self._frame(diag._years)
+        given = {"Scrap": "#000000", "CO": "#111111", "other": "#222222"}
+        sub = frame[frame["from_entity"] == "SB"]
+        _, _, _, colors = diag._totals_data(sub, "from_sector", colors=given)
+        assert colors is given
+
+    def test_more_named_sectors_than_palette_slots_raises(self):
+        from pysuto.diag import SolverDiag
+        twelve = [f"s{i:02d}" for i in range(12)]
+        colours = SolverDiag._series_colors(twelve + ["other"])
+        assert len({colours[n] for n in twelve}) == 12
+        with pytest.raises(ValueError, match="13 named series"):
+            SolverDiag._series_colors(twelve + ["s12"])
+
+    def test_directions_with_different_valuations_share_columns(self, toy_results, monkeypatch):
+        """SB-input carries only Mass, SB-output CC and Mass: one column per
+        valuation of either direction, each panel titled by its own valuation."""
+        import matplotlib.pyplot as plt
+        import numpy as np
+        import pandas as pd
+        from pysuto.diag import SolverDiag
+        results, run = toy_results
+        diag = SolverDiag(results, run, label="toy")
+        frame = self._frame(diag._years)
+        sb_in = frame["from_entity"] == "SB"
+        frame.loc[sb_in, "valuation"] = "Mass"
+        mass_out = frame[~sb_in].assign(valuation="Mass")
+        frame = pd.concat([frame, mass_out], ignore_index=True)
+        monkeypatch.setattr(diag, "_edge_frame", lambda: frame)
+        fig = diag._fig_boundary_flows()
+        try:
+            axes = np.array(fig.axes).reshape(4, 2)
+            assert [a.get_title(loc="left") for a in axes[0]] == [
+                "SB-input (entity_from = SB) · valuation = CC",
+                "SB-input (entity_from = SB) · valuation = Mass"]
+            assert [t.get_text() for t in axes[0][0].texts] == ["n=0"]
+            assert len(axes[0][1].get_lines()) > 0          # Mass drawn in the Mass column
+            assert all(len(a.get_lines()) > 0 for a in axes[2])
+        finally:
+            plt.close(fig)

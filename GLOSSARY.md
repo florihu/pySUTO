@@ -494,7 +494,30 @@ edges of one category in one year (a sector, a node, a region, an SB class — a
 category) divided by the prior sum over the same edges. It is a dimensionless share of the prior
 mass: `1` keeps the prior scale, `< 1` is deletion, `> 1` inflation (second row of SD-R-08 / 09 /
 10, per sector and year). The complement of the deletion in **forced vs discretionary deletion**.
-_Avoid_: "adaptation", "recovery", "survival"; a retention quoted without its category and year.
+_Avoid_: "adaptation", "recovery", "survival"; a retention quoted without its category and year;
+a retention on a signed category whose prior sum is near zero (`MESC` / `USC` / `PSC`) — the ratio
+is undefined there, so quote the mass moved `Σ|a* − a_prior|` beside it.
+
+## Stock-change vocabulary
+
+**Exchange location** — a region in which ICSG reports exchange stocks: the LME warehouse
+countries by location, COMEX as the United States, SHFE as China (16 regions in the feed). It is
+the destination of a `Cathode(i)→MESC(j)` leg, not a property of the origin. _Avoid_: "hub"
+(reserved for the merchant / re-export hubs of [ADR 0027](docs/adr/0027-re-exports-are-re-attributed-at-feed-time.md)),
+"warehouse region".
+
+**Net-stock seed** — the prior of a `MESC` / `USC` leg that no feed reports: value 0, held there
+with `σ = max(0.01·|co-located Cathode(i)→FU(j) flow|, 0.3 kt)` — the same pricing as a
+feed-backed level ([ADR 0040](docs/adr/0040-stock-change-legs-are-held-at-their-prior.md)). A stock
+leg's prior is a reported value or this seed; no imputer manufactures one. _Avoid_: reading a seeded
+0 as a reported zero; "throughput-scaled band" (the retired p95 pricing).
+
+**Sink** — an edge family whose σ makes its penalty negligible against the mass it can absorb, so
+a contradiction elsewhere discharges into it instead of surfacing as `z` where it belongs. The
+signed stock legs are the structural candidates (they alone may be negative, ADR 0039); the
+exchange-location `MESC` legs at σ ≈ 553 kt were one (Round X). Relates to **forced vs
+discretionary deletion**: a sink converts a forced contradiction into a discretionary move.
+_Avoid_: "slack" (the soft-row residual), "buffer".
 
 ## Feed valuation & trade-share vocabulary
 

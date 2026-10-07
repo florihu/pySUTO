@@ -63,7 +63,7 @@ The package is organised into **five sequential stages**: datafeed assembly (per
 ┌────────────────────────────────────────────────────────────────────────┐
 │  STAGE 2 — Aggregation & Imputation   ·   collect_aggregate_impute.py  │
 │  FeedCollector → AggregationMath → ImputationEngine                    │
-│  cascade→fixpoint : Network → Parametric(conc,eff) → Formula(conc)     │
+│  cascade→fixpoint : Network → Parametric(conc,eff)                     │
 │  then terminal    : Time → Time(extrap) → FlatPrior                    │
 │  in  : feed_ids                                                        │
 │  out : AggregationResult (f_agg · σ_agg · Ω · coverage · imp_log)      │
@@ -507,7 +507,7 @@ Five built-in constraint types populate rows of `G`:
 
 **Type 3 (soft ratio).** $r$ is `value_nominal` from the params CSV; σ_c follows the three uncertainty modes (`sd`, `min_max`, `pedigree`) shared with `ParametricImputer`. The same CSV file thus serves both stages. A row with `agg=true` is **set-scoped**: `RatioConstraintBuilder` pools every matched a-side edge against every matched b-side edge per `(region_to, time, valuation)` bucket into one soft row $\sum b - r\sum a = \varepsilon$ — used for the pooled recovery recipe `product = eff·(Concentrate/Matte + Scrap)` at Smelting/CFR (see [ADR 0005](docs/adr/0005-pool-scrap-into-eff-constraint-and-stripping-ratio.md)).
 
-**Type 4 / Type 5.** Hard inequalities, σ_c = 0. When a ratio-bound row sets `agg=true`, `RatioBoundBuilder` sums every matched a-side edge into one G row and every matched b-side edge into another, scoped per `(region_to, time, valuation)` bucket — used both for stock-change bounds (numerator/denominator summed over source regions per destination region; see [data/input/params/stock_bounds/current/params.csv](data/input/params/stock_bounds/current/params.csv)) and for the pooled eff bounds at Smelting/CFR. Bucketing on `region_to` keeps each process region's recipe separate.
+**Type 4 / Type 5.** Hard inequalities, σ_c = 0. When a ratio-bound row sets `agg=true`, `RatioBoundBuilder` sums every matched a-side edge into one G row and every matched b-side edge into another, scoped per `(region_to, time, valuation)` bucket — used both for stock-change bounds (numerator/denominator summed over source regions per destination region; see [data/input/params/stock_bounds/current/params.csv](data/input/params/stock_bounds/current/params.csv)) and for the pooled eff bounds at Smelting/CFR. Bucketing on `region_to` keeps each process region's recipe separate. Since Round X the stock-change rows cover the producer stock change (`CP→PSC`) only: the user and exchange stock-change legs (`Cathode→USC`, `Cathode→MESC`) carry no row and are held at their prior by the Stage-2 net-stock seed σ, `max(0.01·|co-located FU flow|, 0.3 kt)`, because a signed leg with a loose σ is a sink for every contradiction of the cathode balance and a zero-centred row pulled the reported stock changes toward zero ([ADR 0040](docs/adr/0040-stock-change-legs-are-held-at-their-prior.md)).
 
 **Prior regularisation.** Before persisting the `ConstraintRun`, the engine applies an Lp regularisation to both edge-level σ_a and free-cone row-level σ_c:
 
@@ -943,7 +943,7 @@ CONST_BINDINGS = [
     ("eff",          RatioConstraintBuilder, {}),
     ("conc",         RatioBoundBuilder,      {}),
     ("eff",          RatioBoundBuilder,      {}),
-    ("stock_bounds", RatioBoundBuilder,      {}),   # agg=true rows; |Σ b| ≤ k·Σ a  (b=stock numerator, a=FU/Cathode denom; the Σb−r·Σa form, see GLOSSARY.md §"Node-scoped vs set-scoped")
+    ("stock_bounds", RatioBoundBuilder,      {}),   # agg=true rows; |Σ b| ≤ k·Σ a  (b=stock numerator, a=Cathode denom; PSC only since ADR 0040; the Σb−r·Σa form, see GLOSSARY.md §"Node-scoped vs set-scoped")
 ]
 for param_id, Builder, kwargs in CONST_BINDINGS:
     const_engine.register(Builder.from_csv(

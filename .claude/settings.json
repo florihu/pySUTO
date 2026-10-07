@@ -1,4 +1,7 @@
 {
+  "enabledPlugins": {
+    "mattpocock-skills@mattpocock": true
+  },
   "extraKnownMarketplaces": {
     "mattpocock": {
       "source": {
@@ -6,8 +9,5 @@
         "url": "https://github.com/mattpocock/skills.git"
       }
     }
-  },
-  "enabledPlugins": {
-    "mattpocock-skills@mattpocock": true
   }
 }

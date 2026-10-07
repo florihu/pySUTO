@@ -57,7 +57,7 @@ from typing import NamedTuple, Optional
 import numpy as np
 import pandas as pd
 
-from ._plot import _CAT8, _INK, _STATUS, _savefig, _seq_cmap
+from ._plot import _CAT8, _CAT_EXT, _INK, _STATUS, _savefig, _seq_cmap
 from .stats._core import boundary_edges, filter_regions, sector_totals
 from .stats.objective import (
     FAMILIES, FAMILY_LABELS, family_frame, objective_decomposition, profiles,
@@ -782,9 +782,14 @@ class SolverDiag:
     @staticmethod
     def _series_colors(names) -> dict:
         """Stable colour per series name: slots of the validated categorical
-        palette in sorted-name order; ``"other"`` is always grey."""
+        palette in sorted-name order, the overflow slots past the eighth name
+        (two panels sharing one legend, SD-R-10); ``"other"`` is always grey."""
         named = sorted(n for n in names if n != "other")
-        colors = {n: _CAT8[i % len(_CAT8)] for i, n in enumerate(named)}
+        palette = _CAT8 + _CAT_EXT
+        if len(named) > len(palette):
+            raise ValueError(f"{len(named)} named series exceed the {len(palette)}-slot "
+                             f"palette (two would share a colour): {named}")
+        colors = dict(zip(named, palette))
         colors["other"] = _INK["muted"]
         return colors
 
@@ -821,14 +826,18 @@ class SolverDiag:
             g["retention"] = np.where(sp > 0, g["sum_post"].to_numpy(dtype=float) / sp, np.nan)
         return g
 
-    def _totals_data(self, world_edges, group_col: str, regions=None, order_hint=None):
+    def _totals_data(self, world_edges, group_col: str, regions=None, order_hint=None,
+                     colors=None):
         """(valuations, folded totals, ordered groups, colours) for one edge
         subset. The named set and the colours come from the *world* view so a
-        region filter never repaints a sector."""
+        region filter never repaints a sector. ``colors`` overrides the palette
+        when several subsets share one legend (SD-R-10: one palette over the
+        union of both directions, so no two sectors share a colour)."""
         vals = self._valuations(world_edges)
         world = sector_totals(world_edges, group_col, years=self._years, valuations=vals)
         named = self._named_groups(world, order_hint)
-        colors = self._series_colors(named)
+        if colors is None:
+            colors = self._series_colors(named)
         edges = filter_regions(world_edges, ("from_region", "to_region"), regions)
         if edges.empty:
             return vals, None, [], colors
@@ -953,19 +962,37 @@ class SolverDiag:
 
         directions = [("sb_input", "SB-input (entity_from = SB)"),
                       ("sb_output", "SB-output (entity_to = SB, incl. final demand)")]
-        prepared = []
+        # One palette over the union of both directions' named groups: the two
+        # rows share a legend, and a per-direction palette gave Scrap (SB-input)
+        # and MESC (SB-output) the same colour.
+        subsets = []
+        union: list = []
         for key, dlabel in directions:
             sub = be[be["direction"] == key]
             if sub.empty:
-                prepared.append((dlabel, None, None, [], {}))
+                subsets.append((dlabel, None, None))
                 continue
             fam_of = (sub.drop_duplicates("sb_sector").set_index("sb_sector")["sb_entity_sub"]
                          .astype(str).to_dict())
             hint = {s: _BOUNDARY_FAMILY_ORDER.get(f, 99) for s, f in fam_of.items()}
-            prepared.append((dlabel,) + self._totals_data(sub, "sb_sector", regions, order_hint=hint))
+            vals_d = self._valuations(sub)
+            named = self._named_groups(
+                sector_totals(sub, "sb_sector", years=self._years, valuations=vals_d), hint)
+            union += [g for g in named if g not in union]
+            subsets.append((dlabel, sub, hint))
+        palette = self._series_colors(union)
+        prepared = []
+        for dlabel, sub, hint in subsets:
+            if sub is None:
+                prepared.append((dlabel, None, None, [], {}))
+                continue
+            prepared.append((dlabel,) + self._totals_data(
+                sub, "sb_sector", regions, order_hint=hint, colors=palette))
 
-        vals = next((p[1] for p in prepared if p[1] is not None), None)
-        if vals is None:
+        # one column per valuation of EITHER direction; each direction draws into
+        # the columns of its own valuations and marks the others n=0
+        vals = sorted({v for p in prepared if p[1] is not None for v in p[1]})
+        if not vals:
             return self._placeholder("SD-R-10: no system-boundary edges present", regions)
         fig, axes = plt.subplots(4, len(vals), figsize=(6.5 * len(vals) + 1.5, 15),
                                  sharex=True, squeeze=False)
@@ -975,13 +1002,14 @@ class SolverDiag:
         all_colors: dict = {}
         for d, (dlabel, dvals, tot, groups, colors) in enumerate(prepared):
             top, bot = axes[2 * d], axes[2 * d + 1]
-            if dvals is None:
-                for c in range(len(vals)):
+            cols = [vals.index(V) for V in dvals] if dvals is not None else []
+            if cols:
+                self._draw_totals_rows([top[c] for c in cols], [bot[c] for c in cols],
+                                       dvals, tot, groups, colors)
+            for c in range(len(vals)):
+                if c not in cols:
                     top[c].text(0.5, 0.5, "n=0", transform=top[c].transAxes, ha="center",
                                 va="center", fontsize=9, color=_INK["muted"])
-            else:
-                self._draw_totals_rows(top, bot, dvals, tot, groups, colors)
-            for c in range(len(vals)):
                 top[c].set_title(f"{dlabel} · valuation = {vals[c]}", loc="left", fontsize=10)
             all_groups += [g for g in groups if g not in all_groups]
             all_colors.update(colors)

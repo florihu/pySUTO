@@ -147,6 +147,7 @@ class NetworkImputer(BaseImputer):
         alpha_min: float = 0.05,
         cv_cap: float = 1.5,
         id: str | None = None,
+        stock_sectors: tuple = (),
     ) -> None:
         self.id = id or type(self).__name__
         self._eff_csv = eff_csv
@@ -156,6 +157,11 @@ class NetworkImputer(BaseImputer):
         self.q = float(q)
         self.alpha_min = float(alpha_min)
         self.cv_cap = float(cv_cap)
+        # Signed stock-change legs (edges into these SB sectors) are never written:
+        # a stock change is a reported value or a zero-centred seed, never the
+        # residual of a node balance (Round X, ADR 0040). They are counted when
+        # known and treated as 0 when missing, like cross-region legs.
+        self._stock_sectors = tuple(stock_sectors)
         # Waste rock (Mining→WR) is a satellite mass flow (ADR 0038): outside the Mining
         # balance and fixed in Stage 3 by the hard stripping relation WR = k·Ore, so the
         # imputer never writes it.
@@ -165,6 +171,8 @@ class NetworkImputer(BaseImputer):
         self._flow_nodes: list[tuple[tuple[int, ...], tuple[int, ...]]] = []
         self._cc_to_mass: dict[int, tuple[int, float, float]] = {}
         self._same_region: np.ndarray | None = None
+        self._stock_target: np.ndarray | None = None
+        self._writable_mask: np.ndarray | None = None
         self._lower: np.ndarray | None = None  # per-edge bounds (for in-imputer clipping)
         self._upper: np.ndarray | None = None
         self._n_clipped: int = 0
@@ -187,6 +195,12 @@ class NetworkImputer(BaseImputer):
         same = (em["from_region"].to_numpy() == em["to_region"].to_numpy())
         self._same_region = np.zeros(acc.n_edges, dtype=bool)
         self._same_region[em["edge_id"].to_numpy()] = same
+        # stock-change legs: never a write target (see __init__)
+        self._stock_target = np.zeros(acc.n_edges, dtype=bool)
+        if self._stock_sectors:
+            is_stock = em["to_sector"].isin(self._stock_sectors).to_numpy()
+            self._stock_target[em["edge_id"].to_numpy()] = is_stock
+        self._writable_mask = self._same_region & ~self._stock_target
 
         # per-edge bounds: clip fills to [l, u] inside _w so a negative residual
         # (e.g. Ore→SXEW = Mining→Ore − Ore→MF) cannot propagate through the
@@ -254,6 +268,10 @@ class NetworkImputer(BaseImputer):
                 if prod not in best or rr.specificity > best[prod][4]:
                     best[prod] = (nominal, sig, eps, pid, rr.specificity)
         return {k: v[:4] for k, v in best.items()}
+
+    def _writable(self, e: int) -> bool:
+        """Ownership: same-region edges only, and never a stock-change leg."""
+        return bool(self._writable_mask[e])
 
     def _build_flow_balances(self, acc):
         """Per **(Flow node, year)**: (incoming CC supply edges, outgoing CC use edges).
@@ -454,16 +472,24 @@ class NetworkImputer(BaseImputer):
         """Flow-node CC balance: Σ(supply in) = Σ(uses out); fill a lone gap."""
         p = self.p
         edges = list(inc) + list(out)
-        missing = [e for e in edges if np.isnan(f[e]) and self._same_region[e]]
-        # only act if exactly one *writable* (same-region) edge is unknown
+        missing = [e for e in edges if np.isnan(f[e]) and self._writable(e)]
+        # only act if exactly one *writable* (same-region, non-stock) edge is unknown
         if len(missing) != 1:
             return
         e = missing[0]
-        # every other *same-region* edge must be known; missing cross-region
-        # (non-writable) legs are treated as 0 (no trade on that route) — symmetric
-        # with the recipe's bilateral_import tier (ADR 0010). They are counted as 0,
-        # never written, so the uncovered edge stays an honest flat-prior gap.
-        if any(np.isnan(f[x]) for x in edges if x != e and self._same_region[x]):
+        # every other *writable* edge is therefore known; missing cross-region legs
+        # and missing stock-change legs (non-writable) are treated as 0 (no trade on
+        # that route / no stock change) — symmetric with the recipe's
+        # bilateral_import tier (ADR 0010). They are counted as 0, never written,
+        # so the uncovered edge stays an honest gap (flat prior, or the zero-mean
+        # net-stock seed for a stock leg — ADR 0040).
+        # A node whose uses include a stock-change leg has no observed use total
+        # (the seed's 0 is an expectation, not a report), so its SUPPLY cannot be
+        # derived from its uses: that would pin production to trade and send the
+        # cathode contradiction into the prior's production edge instead of into a
+        # stock (Round X: 836 CP→Cathode fills, a fabricated German mine chain).
+        # Production stays the recipe's; only a lone missing USE may be closed here.
+        if e in inc and any(self._stock_target[x] for x in out):
             return
         in_sum = float(sum(f[x] for x in inc if x != e and not np.isnan(f[x])))
         out_sum = float(sum(f[x] for x in out if x != e and not np.isnan(f[x])))
@@ -494,7 +520,7 @@ class NetworkImputer(BaseImputer):
         downstream sums below their true values. A clipped fill widens σ to the clip
         gap (a saturated estimate, not a precise bound) and is tagged ``_clipped``.
         """
-        if not self._same_region[e] or not np.isnan(f[e]):
+        if not self._writable(e) or not np.isnan(f[e]):
             return False
         val = float(val)
         sig = float(sig)

@@ -52,6 +52,11 @@ Constraint types (registered in order)
                                  sums every matched a-side edge into one
                                  G row and every matched b-side edge into
                                  another, per (region, time, valuation).
+                                 PSC only since Round X: MESC/USC legs have no
+                                 row family — they are held at their prior by
+                                 the Stage-2 net-stock seed σ (1 % / 0.3 kt,
+                                 ADR 0040), and a zero-centred row pulled the
+                                 reported stock changes toward zero.
 7b Scrap-share bands          — RatioBoundBuilder (scrap_share/params.csv, per
                                  SCRAP_SHARE_MODE); per (region, P∈{Smelting,CFR})
                                  hard band bl·Σ(CC inputs to P) ≤ Σ(Scrap→P) ≤
@@ -238,14 +243,23 @@ PIN_FLAT_PRIOR_ZEROS = True
 # Soft-ratio σ_c scaling (REP analysis_opt_20260611_075036 §8.2): the CSV ratio
 # σ_r is rescaled to flow space per row, σ_c = max(σ_r, REL_FLOOR) ·
 # max(Σ|a₀,num|, |r|·Σ|a₀,denom|, ABS_FLOOR). REL_FLOOR caps |z| at 1/floor on
-# a 100 % ratio violation; ABS_FLOOR (tonnage) keeps both-zero-prior rows finite
-# AND soft: ~77 % of soft ratio rows are zero-prior parametric ties, and at
-# ABS_FLOOR=1 their σ_c=0.02 t made the Hessian so stiff Clarabel stalled
-# (InsufficientProgress @2005). 100 t → σ_c=2 t on those rows (z=50 per 100 t).
+# a 100 % ratio violation; ABS_FLOOR (in kt — the flow unit) keeps both-zero-prior
+# rows finite AND soft: ~77 % of soft ratio rows are zero-prior parametric ties,
+# and at ABS_FLOOR=1 their σ_c=0.02 kt made the Hessian so stiff Clarabel stalled
+# (InsufficientProgress @2005). 100 kt → σ_c=2 kt on those rows (z=50 per 100 kt).
+# (The REP and an earlier version of this comment wrote "t"; the value was always
+# applied in kt.)
 RATIO_SIGMA_REL_FLOOR = 0.02
 RATIO_SCALE_ABS_FLOOR = 100.0
-# Net-stock ("stock_bound") mode. "soft" routes the PSC/USC/MESC net-stock-change
-# bounds to the free-cone soft-ratio path (minimized quadratic slack, σ_c scaled
+# Net-stock rows use their own scale floor. Their σ_c scales off the throughput
+# denominator alone (ratio.py scale_mode="denominator"), so the floor is what a
+# region with no throughput gets: at the generic 100 kt it was σ_r·100 kt on every
+# such row (Round X: 553 kt on the MESC "hub" rows, a free sink). 0.1 kt is the
+# yearbook's display resolution; the row stays finite and soft (ADR 0040).
+STOCK_BOUNDS_SCALE_ABS_FLOOR = 0.1
+# Net-stock ("stock_bound") mode. "soft" routes the PSC net-stock-change bounds
+# (stock_bounds v5 carries PSC rows only; MESC/USC are held by their prior σ,
+# ADR 0040) to the free-cone soft-ratio path (minimized quadratic slack, σ_c scaled
 # off the throughput denominator — see RatioConstraintBuilder scale_mode); "hard"
 # keeps the legacy nonneg-cone RatioBoundBuilder. Soft guarantees feasibility (no
 # stock row can break) and secures too-high AND too-low symmetrically. The hard
@@ -548,7 +562,7 @@ def main(imp_run_id: str, label: str) -> None:
     if STOCK_BOUNDS_MODE == "soft":
         _register_builder(RatioConstraintBuilder, "stock_bounds",
                           sigma_rel_floor=RATIO_SIGMA_REL_FLOOR,
-                          scale_abs_floor=RATIO_SCALE_ABS_FLOOR)
+                          scale_abs_floor=STOCK_BOUNDS_SCALE_ABS_FLOOR)
     else:
         _register_builder(RatioBoundBuilder, "stock_bounds", kind="stock_bounds")
     # 7b. Scrap-share bands — hard (nonneg cone) by default; see SCRAP_SHARE_MODE
@@ -592,6 +606,7 @@ def main(imp_run_id: str, label: str) -> None:
             "pin_flat_prior_zeros": PIN_FLAT_PRIOR_ZEROS,
             "ratio_sigma_rel_floor": RATIO_SIGMA_REL_FLOOR,
             "ratio_scale_abs_floor": RATIO_SCALE_ABS_FLOOR,
+            "stock_bounds_scale_abs_floor": STOCK_BOUNDS_SCALE_ABS_FLOOR,
             "ore_grade_basis": "in-situ (ADR 0015)",
             "fabricated_anchor_cv": FABRICATED_ANCHOR_CV,
             "feed_share_observed":  FEED_SHARE_OBSERVED,

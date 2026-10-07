@@ -17,15 +17,22 @@ Two per-indicator modes:
   to the CP pool (= total cathode production; NOT CP→Cathode, which is
   production−PSC and circular).
 
-* ``"seed"`` (MESC / USC): the net change is centred at 0 with a throughput-scaled
-  band — ``f[net]=0``, ``σ=(p95/Z95)·f[base_colocated]`` — replacing ``noisy_zero``.
-  MESC/USC are 47×47 source→dest matrices whose signed central share ≈ 0, so a
-  zero-mean seed is the honest informative prior. base = the co-located
-  Cathode(i)→FU(j) consumption edge.
+* ``"seed"`` (MESC / USC): the net change is centred at 0 and held there —
+  ``f[net]=0``, ``σ = max(seed_cv·|f[base_colocated]|, seed_abs_floor)`` — replacing
+  ``noisy_zero``. MESC/USC are 47×47 source→dest matrices whose signed central
+  share ≈ 0, so a zero-mean seed is the honest informative prior, and a stock
+  leg is the one signed edge of the account: any looseness makes it a sink for
+  every contradiction of the cathode balance (Round X; ADR 0040). The seed is
+  therefore priced like a feed-backed level (ADR 0025's scale-total rule, 1 % of
+  the co-located Cathode(i)→FU(j) flow, floored at the feeds' 0.3 kt resolution),
+  not by the empirical p95 band — the band (p95 × a 100 kt floor) gave the hub
+  legs σ ≈ 553 kt and the solver +9.7 Mt of phantom exchange stock over 30 years.
+  base = the co-located Cathode(i)→FU(j) consumption edge; a no-trade pair is
+  pinned at the floor.
 
-Both leave ``σ = (p95/Z95)·base`` (the empirical band, consistent with the Part-A
-soft bound). ``p95`` (value_max) is read per (indicator, region) from the
-stock_bounds params CSV, so the MESC domestic/hub cluster rides along for free.
+PSC keeps ``σ = (p95/Z95)·base`` (the empirical band, consistent with the Part-A
+soft bound); ``p95`` (value_max) is read per (indicator, region) from the
+stock_bounds params CSV. MESC/USC read no p95 since Round X.
 """
 
 from __future__ import annotations
@@ -74,22 +81,28 @@ class ShareImputer(BaseImputer):
         scale_abs_floor: float = 100.0,
         p: float = 1.3,
         id: Optional[str] = None,
+        seed_cv: float = 0.01,
+        seed_abs_floor: float = 0.3,
     ) -> None:
         self.id              = id or "share"
-        self._p95            = p95           # dict[(indicator, region_to)] -> p95
+        self._p95            = p95           # dict[(indicator, region_to)] -> p95 (PSC)
         self.scale_abs_floor = float(scale_abs_floor)
         self.p               = float(p)
+        # MESC/USC seed σ = max(seed_cv·|FU leg|, seed_abs_floor) — kt (ADR 0040).
+        self.seed_cv         = float(seed_cv)
+        self.seed_abs_floor  = float(seed_abs_floor)
 
     # ------------------------------------------------------------------
     @classmethod
     def from_stock_bounds_csv(
         cls, path: str, scale_abs_floor: float = 100.0,
         p: float = 1.3, id: Optional[str] = None,
+        seed_cv: float = 0.01, seed_abs_floor: float = 0.3,
     ) -> "ShareImputer":
         """Read the per-(indicator, region) p95 (value_max) from the stock_bounds
         params CSV — the same file that defines the Part-A soft bounds, so the
-        imputed band and the constraint band are the same number (incl. the MESC
-        domestic/hub cluster already baked into value_max per region)."""
+        imputed PSC band and the constraint band are the same number. The MESC/USC
+        seed does not use p95 (see ``seed_cv`` / ``seed_abs_floor``)."""
         df = pd.read_csv(path, sep=None, engine="python", dtype=str).fillna("")
         p95: dict = {}
         for _, row in df.iterrows():
@@ -105,11 +118,13 @@ class ShareImputer(BaseImputer):
                     p95[(ind, region)] = abs(vmax)
                     break
         logger.info("ShareImputer.from_stock_bounds_csv: %d (indicator,region) p95 entries", len(p95))
-        return cls(p95, scale_abs_floor=scale_abs_floor, p=p, id=id)
+        return cls(p95, scale_abs_floor=scale_abs_floor, p=p, id=id,
+                   seed_cv=seed_cv, seed_abs_floor=seed_abs_floor)
 
     def config(self) -> dict:
         return {"scale_abs_floor": self.scale_abs_floor, "p": self.p,
-                "n_p95": len(self._p95)}
+                "n_p95": len(self._p95),
+                "seed_cv": self.seed_cv, "seed_abs_floor": self.seed_abs_floor}
 
     # ------------------------------------------------------------------
     def impute(self, f, sigma, missing, step, acc_struct) -> list[dict]:
@@ -195,7 +210,7 @@ class ShareImputer(BaseImputer):
                 ))
         return entries
 
-    # ---- MESC/USC: zero-mean, throughput-scaled seed per co-located edge ----
+    # ---- MESC/USC: zero-mean seed per co-located edge, held at 1 % / 0.3 kt ----
     def _seed(self, ind, f, sigma, ei, step) -> list[dict]:
         keys = ["region_from", "region_to", "time", "valuation"]
         net  = self._sel(ei, _NET[ind])[["edge_id"] + keys]
@@ -207,19 +222,15 @@ class ShareImputer(BaseImputer):
 
         net_ids  = m["edge_id"].to_numpy(dtype=int)
         base_ids = m["base_id"].to_numpy(dtype=int)
-        p95_arr  = np.array([self._p95.get((ind, r), np.nan) for r in m["region_to"]])
 
-        fill = (np.isnan(f[net_ids]) & ~np.isnan(f[base_ids]) & ~np.isnan(p95_arr))
-        entries: list[dict] = []
-        for k in np.where(fill)[0]:
-            e, b = int(net_ids[k]), int(base_ids[k])
-            s_new = self._floor_sigma(float(p95_arr[k]), float(f[b]))
-            f[e], sigma[e] = 0.0, s_new
-            entries.append(_log(
-                e, step, "share_seed", [b], [0.0], 0.0, s_new,
-                f"{ind.upper()} zero-mean, σ=(p95/Z95)·FU", f"seed_{ind}",
-            ))
-        return entries
+        fill = (np.isnan(f[net_ids]) & ~np.isnan(f[base_ids]))
+        e_fill, b_fill = net_ids[fill], base_ids[fill]
+        s_new = np.maximum(self.seed_cv * np.abs(f[b_fill]), self.seed_abs_floor)
+        f[e_fill], sigma[e_fill] = 0.0, s_new
+        desc = f"{ind.upper()} zero-mean, σ=max(cv·|FU|, floor)"
+        return [_log(int(e), step, "share_seed", [int(b)], [0.0], 0.0, float(s), desc,
+                     f"seed_{ind}")
+                for e, b, s in zip(e_fill, b_fill, s_new)]
 
 
 def _interp_share(share: dict, years: list) -> dict:
