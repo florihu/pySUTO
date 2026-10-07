@@ -101,6 +101,11 @@ The four parameter kinds, split **extensive** vs **intensive**. *Extensive* (kt 
 The best-estimate flow vector the QP stays close to: `f_agg` at the first timestep, and the
 previous year's optimum thereafter (warm start).
 
+**Prior σ (`σ_a`)**:
+The standard deviation of an edge's prior: how far the QP may move the edge from `a₀` at unit
+cost. A **flat** σ (10⁶ kt) states that the edge carries no information of its own.
+_Avoid_: "σ init", "initial σ" — nothing iterates it.
+
 ## Pipeline & process vocabulary
 
 The stage verbs and the cross-cutting machinery that runs them.
@@ -599,8 +604,8 @@ Mass→CC fraction) — they are different coefficient families.
 (`(1−eff)·Σin`). The unit of reasoning for the network-traversal imputer
 ([ADR 0004](docs/adr/0004-process-recipe-traversal-imputer.md)). **Mining and `CP` are the
 exceptions**: Mining has *no* `eff` row (eff defaults to 1.0, so CC is conserved CO→Ore) and its
-`WR` residual follows the **stripping ratio** (below) on Mass (`WR_Mass = stripping_ratio·Ore_Mass`),
-not the generic `(1−eff)·Σin` SEM-residual rule; `CP` has no `eff` row either, so the recipe writes
+`WR` satellite output follows the **stripping ratio** (below) on Mass
+(`WR_Mass = stripping_ratio·Ore_Mass`), not the generic `(1−eff)·Σin` SEM-residual rule; `CP` has no `eff` row either, so the recipe writes
 its SEM output `PSC` — a **stock-change leg**, not a residual — as `0 ± 0` on every unreported
 region-year, a hidden hard pin that stands until a tighter price than the measured 1 % seed is found
 ([ADR 0041](docs/adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md), #36).
@@ -611,21 +616,15 @@ direction distinguishes the two roles.
 
 **Stripping ratio (`stripping_ratio`).** The mass of waste rock (`WR`) stripped per unit of `Ore`
 extracted at a Mining process — `WR_Mass = stripping_ratio · Ore_Mass`, a **Mass→Mass** ratio between
-two **outputs** of Mining (default 2.0). It is *not* a recovery efficiency: not in `CC`, not a
-recovery fraction, and `> 1`. It lives in the **eff parameter file** as its own `param_type`
-(`stripping_ratio`, distinct from `efficiency`), making that file a store of **process input/output
-ratios** of which recovery-`eff` and `stripping_ratio` are two families. It survives **only as the
-soft `ratio` constraint** `WR − stripping_ratio·Ore = 0` (kept free/inert): the NetworkImputer fills
-WR as the **mass-balance residual** `WR_Mass = max(0, CO_Mass − Ore_Mass)` instead — and on the
-allocated-ore basis (below) that residual is ≈ 0 by construction, as allocated data carries no
-separate waste-rock mass. _Avoid_: calling it an `eff` — `eff` is strictly a CC copper-recovery
-fraction (above); the two only share a file. _Avoid_: reading the imputer's WR fill as
-stripping-ratio-driven — that rule was replaced 2026-06.
+two **outputs** of Mining, held **hard**: it alone sets waste rock, a satellite
+flow with no data of its own ([ADR 0038](docs/adr/0038-waste-rock-is-a-satellite-mass-flow.md)).
+_Avoid_: calling it an `eff` — `eff` is strictly a CC copper-recovery fraction (above); reading
+waste rock as a residual (`CO − Ore`).
 
 **Allocated ore mass.** The `crude_ore` feed's ore Mass is S&P **price-allocated**: a
 poly-metallic mine's physical ore is split across its metals by price share, so the copper-
 attributed mass is *smaller than the physical ore mined*. `Ore`/`CO` Mass edges carry this
-allocated mass, and everything derived per unit of it (grade, WR residual) inherits the basis.
+allocated mass, and everything derived per unit of it (grade, waste rock) inherits the basis.
 _Avoid_: comparing it to physically mined/milled tonnages.
 
 **Recovered vs in-situ grade.** Two grade notions per region-year: **recovered grade** = metal

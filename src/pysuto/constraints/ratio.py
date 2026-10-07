@@ -455,10 +455,9 @@ class RatioBoundBuilder(BaseConstraintBuilder):
         signed           = np.asarray(acc_struct.bounds.l, dtype=float) < 0.0
         n_signed_skipped = 0
         for _, row in df.iterrows():
-            # Stripping ratio is soft-only (ADR 0005): its [value_min, value_max] is a
-            # plausible range, not an empirical hard WR/Ore bound. The imputer fills
-            # WR = max(0, CO − Ore) (ASSUMPTIONS.md), which a hard WR ≥ value_min·Ore bound
-            # would make infeasible for crude_ore < grade-implied-ore regions. Skip it.
+            # Stripping ratio gets no band: its equality row WR = k·Ore already ties WR to
+            # Ore (ADR 0038), and [value_min, value_max] is the uncertainty band of k,
+            # reported beside the flow, not a bound. Skip it.
             if str(row.get("param_type", "")).strip() == "stripping_ratio":
                 continue
             nominal = float_or(row.get("value_nominal", "nan"), np.nan)

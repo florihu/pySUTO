@@ -130,6 +130,15 @@ class _RRecipe:
     eff_param_id: str | None
 
 
+@dataclass(frozen=True)
+class _Stripping:
+    """One Mining region-year's waste-rock relation ``WR_Mass = k·Ore_Mass``."""
+    ore: int        # Mining→Ore Mass edge (A-side)
+    wr: int         # Mining→WR Mass edge (B-side)
+    k: float
+    param_id: str
+
+
 # ---------------------------------------------------------------------------
 # NetworkImputer
 # ---------------------------------------------------------------------------
@@ -148,11 +157,15 @@ class NetworkImputer(BaseImputer):
         cv_cap: float = 1.5,
         id: str | None = None,
         stock_sectors: tuple = (),
+        stripping_ratio_csv: str | None = None,
+        stripping_sigma: float = 1.0e6,
     ) -> None:
         self.id = id or type(self).__name__
         self._eff_csv = eff_csv
         self._conc_csv = conc_csv
         self._ore_grade_csv = ore_grade_csv
+        self._stripping_csv = stripping_ratio_csv
+        self.stripping_sigma = float(stripping_sigma)
         self.p = float(p)
         self.q = float(q)
         self.alpha_min = float(alpha_min)
@@ -163,9 +176,12 @@ class NetworkImputer(BaseImputer):
         # known and treated as 0 when missing, like cross-region legs.
         self._stock_sectors = tuple(stock_sectors)
         # Waste rock (Mining→WR) is a satellite mass flow (ADR 0038): outside the Mining
-        # balance and fixed in Stage 3 by the hard stripping relation WR = k·Ore, so the
-        # imputer never writes it.
+        # balance and fixed in Stage 3 by the hard stripping relation WR = k·Ore. The
+        # prior carries WR Mass = k·Ore Mass so it satisfies that row, at the flat
+        # `stripping_sigma` — WR has no data of its own, and an informative WR prior
+        # would count the Ore prior twice through the hard row.
         # populated by prepare()
+        self._stripping: list[_Stripping] = []
         self._recipes: list[_RRecipe] = []
         self._relaxed_fills: set[int] = set()
         self._flow_nodes: list[tuple[tuple[int, ...], tuple[int, ...]]] = []
@@ -182,6 +198,8 @@ class NetworkImputer(BaseImputer):
         out = [self._eff_csv, self._conc_csv]
         if self._ore_grade_csv:
             out.append(self._ore_grade_csv)
+        if self._stripping_csv:
+            out.append(self._stripping_csv)
         return out
 
     # -- setup --------------------------------------------------------------
@@ -217,6 +235,9 @@ class NetworkImputer(BaseImputer):
         # product CC edge -> (eff, σ_eff, ε, param_id)
         product_eff = self._load_eff_map(self._eff_csv, resolver)
 
+        if self._stripping_csv:
+            self._stripping = self._load_stripping(self._stripping_csv, resolver)
+
         # input edge -> from-node entity_sub (classifies primary vs SEM secondary)
         sub_from = dict(zip(em["edge_id"].to_numpy(), em["from_entity_sub"].to_numpy()))
         # input edge -> from/to region (classifies same-region vs cross-region import)
@@ -244,14 +265,19 @@ class NetworkImputer(BaseImputer):
         # Flow-node CC balances: (incoming supply edges, outgoing use edges)
         self._flow_nodes = self._build_flow_balances(acc)
 
-    def _load_eff_map(self, path, resolver) -> dict:
+    @staticmethod
+    def _read_params(path, param_type) -> pd.DataFrame:
+        """The rows of one ``param_type`` from a params CSV, comment rows dropped."""
         df = pd.read_csv(path, sep=None, engine="python", comment="#", dtype=str)
         df = df.dropna(subset=["param_id"])
         df = df[~df["param_id"].str.startswith("#")]
+        return df[df["param_type"].astype(str).str.strip() == param_type]
+
+    def _load_eff_map(self, path, resolver) -> dict:
         # Recovery-efficiency rows only: any other process ratio (the stripping
         # ratio, a Mass output ratio with its own file since ADR 0038) must not
         # pollute the eff map. Filter by param_type, not by a magic param_id.
-        df = df[df["param_type"].astype(str).str.strip() == "efficiency"]
+        df = self._read_params(path, "efficiency")
         best: dict[int, tuple] = {}  # product_cc -> (eff, σ, ε, param_id, specificity)
         for _, row in df.iterrows():
             try:
@@ -268,6 +294,23 @@ class NetworkImputer(BaseImputer):
                 if prod not in best or rr.specificity > best[prod][4]:
                     best[prod] = (nominal, sig, eps, pid, rr.specificity)
         return {k: v[:4] for k, v in best.items()}
+
+    def _load_stripping(self, path, resolver) -> list[_Stripping]:
+        best: dict[int, tuple[_Stripping, int]] = {}  # WR Mass edge -> (rel, specificity)
+        for _, row in self._read_params(path, "stripping_ratio").iterrows():
+            k, pid = float(row["value_nominal"]), str(row["param_id"])
+            for rr in resolver.resolve_row(row):
+                wr = rr.b_edge_id  # B-side = Mining→WR Mass, A-side = Mining→Ore Mass
+                if wr not in best or rr.specificity > best[wr][1]:
+                    best[wr] = (_Stripping(rr.a_edge_id, wr, k, pid), rr.specificity)
+        return [rel for rel, _ in best.values()]
+
+    def _do_stripping(self, f, sigma, entries, step) -> None:
+        """WR Mass = k·Ore Mass at the flat σ, uncapped (see __init__)."""
+        for s in self._stripping:
+            if np.isnan(f[s.wr]) and not np.isnan(f[s.ore]):
+                self._w(s.wr, s.k * f[s.ore], self.stripping_sigma, f, sigma, entries, step,
+                        "network_stripping", [s.ore], [s.k], s.param_id, uncapped=True)
 
     def _writable(self, e: int) -> bool:
         """Ownership: same-region edges only, and never a stock-change leg."""
@@ -324,6 +367,8 @@ class NetworkImputer(BaseImputer):
                                 relax_primaries=True)
             if len(entries) == n_before:
                 break
+        # WR is a leaf (satellite): its fill unlocks nothing, so one pass at the end
+        self._do_stripping(f, sigma, entries, step)
         if self._n_clipped:
             # One summary in place of the engine's per-edge out-of-bounds warnings
             # (now silent, since fills are clipped to bounds before they propagate).
@@ -456,17 +501,13 @@ class NetworkImputer(BaseImputer):
                 continue
             twin = self._cc_to_mass.get(cc)
             if twin is None:
-                continue  # WR (conc=0) has no conc twin — its Mass comes from the balance below
+                continue  # WR (conc=0) has no conc twin — its Mass is k·Ore (_do_stripping)
             m, conc, conc_sig = twin
             if np.isnan(f[m]):
                 f_m = float(f[cc] / conc)
                 s_m = lp_combine([sigma[cc] / conc, abs(f_m) * conc_sig / conc], p)
                 self._w(m, f_m, s_m, f, sigma, entries, step,
                         "network_mass_twin", [cc], [1.0 / conc], None)
-
-        # Waste rock (Mining→WR Mass) is never written here: it is a satellite mass flow
-        # outside the Mining balance, fixed in Stage 3 by the hard stripping relation
-        # WR = k·Ore (ADR 0038), so it keeps the flat prior and no information of its own.
 
     def _do_flow_balance(self, inc, out, f, sigma, entries, step) -> None:
         """Flow-node CC balance: Σ(supply in) = Σ(uses out); fill a lone gap."""
@@ -511,7 +552,7 @@ class NetworkImputer(BaseImputer):
     # -- write helper -------------------------------------------------------
 
     def _w(self, e, val, sig, f, sigma, entries, step, method,
-           sources, coeffs, param_id, desc="") -> bool:
+           sources, coeffs, param_id, desc="", uncapped=False) -> bool:
         """Write a fill, guarded by ownership (same-region) + no-overwrite.
 
         The value is clipped to the edge's ``[lower, upper]`` bounds *before* it is
@@ -530,7 +571,9 @@ class NetworkImputer(BaseImputer):
             sig = lp_combine([sig, abs(val - clipped_val)], self.p)  # widen σ to the clip gap
             val = clipped_val
             self._n_clipped += 1
-        sig, capped = _apply_cv_cap(sig, val, self.cv_cap)  # cap self-disables at val==0
+        capped = False
+        if not uncapped:  # cap self-disables at val==0
+            sig, capped = _apply_cv_cap(sig, val, self.cv_cap)
         f[e] = val
         sigma[e] = float(sig)
         entries.append(_log(

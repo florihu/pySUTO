@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+# pre-commit: run the test suite when a commit touches Python under src/, scripts/ or tests/.
+# Enable once per clone:  git config core.hooksPath .githooks
+# Tests import this checkout's src/ (PYTHONPATH), so a worktree tests its own code.
+set -euo pipefail
+
+git diff --cached --name-only --diff-filter=ACMRD | grep -qE '^(src|scripts|tests)/.*\.py$' || exit 0
+
+PY=${PYSUTO_PYTHON:-python}
+export PYTHONPATH="src${PYTHONPATH:+:$PYTHONPATH}"
+if ! "$PY" -c "import pysuto" 2>/dev/null; then
+    echo "pre-commit: '$PY' cannot import pysuto; activate the conda env 'pysuto' or set PYSUTO_PYTHON." >&2
+    exit 1
+fi
+exec "$PY" -m pytest tests/ -q -x

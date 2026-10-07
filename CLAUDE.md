@@ -88,7 +88,7 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 - Pipeline: `scripts/acc.py --id copper` → parse (`scripts/parse/`) → feeds → `collect_aggregate_impute.py --feed-id …` → `constraints.py --imp-run-id <id> <label>` (label is positional) → `run_solver.py --const-run-id <id>` (also renders diag) → `uncertainty_propagation.py <opt_run_id>` → `psut.py <opt_run_id> [--sankey 2020]`.
 - Before a full chain run `df -h .` and keep ≥ 3 GB free: const ≈ 0.7 GB, opt ≈ 0.08 GB per run (≈ 0.5 GB with the per-year tables). A Stage-3 `zipfile` `OSError` means the disk is full, not a bug. Deleting runs is the user's call; afterwards prune their ids from `data/proc/<stage>/registry.json`.
 - `run_solver.py` writes no per-year `diag/edges_<year>.csv` / `constraints_<year>.csv` (427 of the 504 MB of `opt_20261006_105904_61c5efe9`). Write them only for the years a diagnostic reads — `scripts/solver_stats.py <opt_run_id> --years …` — and never append `--years all` to a script that runs the stage drivers back to back (#46).
-- Maintenance scripts (`scripts/migrate_registries.py`, `scripts/explo/prune_runs.py`) run with `--dry-run` first. No lint, formatter, type-checker, CI, pre-commit or Makefile exist.
+- Maintenance scripts (`scripts/migrate_registries.py`, `scripts/explo/prune_runs.py`) run with `--dry-run` first. No lint, formatter, type-checker, CI or Makefile exist; `.githooks/pre-commit` runs `python -m pytest tests/` on commits that touch Python (enable per clone: `git config core.hooksPath .githooks`).
 
 ## Numerical & performance conventions
 
@@ -96,7 +96,7 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 - dtypes: values `float64`, indices `int64`, masks `bool`, no `float32`. Time labels are strings, never ints.
 - Stage 2 arrays are dense `float64` of shape `N_f × N_r` (≈ 850k edges); NaN means "not covered", never 0. Vectorise — no Python loops over edges.
 - Sparse: assemble COO triplets → `csr_matrix((v, (r, c)))`; keep `G` CSR; convert to CSC only at the Clarabel boundary. `_partition_G_by_time` raises on any cross-year nonzero — keep it strict.
-- Solver: one Clarabel QP per year (block path), ≈ 6 s/year over 30 years. Any status outside `{Solved, AlmostSolved}` raises `RuntimeError` — never add a silent fallback. The feasibility pre-check covers the first year only (`FEASIBILITY_CHECK_FIRST_ONLY`); a full scan takes ≈ 350 s.
+- Solver: one Clarabel QP per year (block path), ≈ 60 s/year at the ADR 0039 tolerances (≈ 30 min for 30 years; per-year times are in the run sidecar) — run it in the background. Any status outside `{Solved, AlmostSolved}` raises `RuntimeError` — never add a silent fallback. The feasibility pre-check covers the first year only (`FEASIBILITY_CHECK_FIRST_ONLY`); a full scan takes ≈ 350 s.
 - "Warm start" means two unrelated things: the modelling prior `a_prior(t) = a*(t−1)` (`--prior-mode warm`) and Clarabel's KKT-factorisation reuse. Say which one you mean.
 - σ conditioning has one source of truth, `src/pysuto/_conditioning.py`; the `DEFAULT_*` constants in `src/pysuto/uncprop.py` mirror it by hand — change both or neither.
 - Lp exponent `p = 1.3` everywhere; `src/` uses no RNG (run ids are uuid4); tests seed `np.random.default_rng`.
@@ -126,6 +126,7 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 
 - `data/` is gitignored. Hand-authored inputs under `data/input/**/current/` are tracked via `git add -f`; registries, `vN/` snapshots and script-written `current/` files are untracked but load-bearing — never delete them as clean-up. `data/input/raw` (17 GB) is not reproducible: read-only.
 - Input registries (`feed|acc|params|mask`) are sha256-bumped and hardlinked: edit only `current/`, never a `vN/` directory (ADR 0023).
+- A parameter's value and its provenance live in its row of `data/input/params/<id>/current/params.csv` (`value_*`, `source`, `comment`), and the user edits it between turns. Read the row before quoting it, cite it as `<id> vN`, and keep values out of GLOSSARY.md and code comments; `python scripts/input_status.py` lists `current/` edits not yet registered.
 - Registries have no locking: never run two stage drivers concurrently in one checkout — index entries get lost.
 - Runs cited by a REP, ADR or `TODO.md` are permanent. Figures go to `<run>/diag/`, `figs/psut/`, `figs/report/`, `docs/rep/figs/`; `docs/rep/` is git-tracked.
 

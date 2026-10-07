@@ -10,7 +10,7 @@ A small synthetic copper chain (one region, one year) exercises:
   * backward multi-input subtraction (pooled Scrap)
   * the Ore branch split resolved from the SXEW anchor (+ negative residual: clipped
     to the edge bound, σ-widened, and not propagated downstream)
-  * the Mining WR Mass edge is left unfilled (satellite, fixed in Stage 3; ADR 0038)
+  * the Mining WR Mass edge is k·Ore at the flat σ (satellite, fixed in Stage 3; ADR 0038)
   * determinacy / no-overwrite
   * CP pooling (eff = 1)
   * conc-by-construction: written CC/Mass twins satisfy CC = conc·Mass
@@ -191,18 +191,27 @@ def write_eff_csv(path, stripping_ratio: float | None = 2.0):
             value_nominal=str(v),
         ))
     if stripping_ratio is not None:
-        # WR_Mass = stripping_ratio · Ore_Mass: A=Mining→Ore Mass, B=Mining→WR Mass.
-        rows.append(_row(
-            param_id="stripping_ratio", param_type="stripping_ratio",
-            a_sector_from="Mining", a_entity_from="Process", a_region_from="*",
-            a_sector_to="Ore", a_entity_to="Flow", a_region_to="same",
-            a_time="*", a_valuation="Mass",
-            b_sector_from="Mining", b_entity_from="Process", b_region_from="same",
-            b_sector_to="WR", b_entity_to="SB", b_region_to="same",
-            b_time="same", b_valuation="same",
-            value_nominal=str(stripping_ratio),
-        ))
+        rows.append(_stripping_row(stripping_ratio))
     _write(path, rows)
+
+
+def _stripping_row(k: float, region: str = "*"):
+    """WR_Mass = k · Ore_Mass: A = Mining→Ore Mass, B = Mining→WR Mass."""
+    return _row(
+        param_id="strippingratio", param_type="stripping_ratio",
+        a_sector_from="Mining", a_entity_from="Process", a_region_from=region,
+        a_sector_to="Ore", a_entity_to="Flow", a_region_to="same",
+        a_time="*", a_valuation="Mass",
+        b_sector_from="Mining", b_entity_from="Process", b_region_from="same",
+        b_sector_to="WR", b_entity_to="SB", b_region_to="same",
+        b_time="same", b_valuation="same",
+        value_nominal=str(k),
+    )
+
+
+def write_stripping_csv(path, k_by_region: dict):
+    """The stripping_ratio params file (own family since ADR 0038); "*" = all regions."""
+    _write(path, [_stripping_row(k, region) for region, k in k_by_region.items()])
 
 
 def _conc_pair(suffix, sector, entity, side, val):
@@ -376,15 +385,37 @@ def test_negative_balance_clipped_not_propagated(imputer, acc):
     assert f[acc.eid("CP", "Cathode", "CC")] == pytest.approx(70.0)
 
 
-def test_mining_leaves_waste_rock_to_the_flat_prior(imputer, acc):
+def _stripping_imputer(tmp_path, acc, k_by_region):
+    eff, conc, og, sr = (tmp_path / n for n in ("eff.csv", "conc.csv", "og.csv", "sr.csv"))
+    write_eff_csv(eff, stripping_ratio=None)
+    write_conc_csv(conc)
+    write_ore_grade_csv(og)
+    write_stripping_csv(sr, k_by_region)
+    imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=1.5,
+                         stripping_ratio_csv=str(sr), stripping_sigma=1.0e6)
+    imp.prepare(acc)
+    return imp
+
+
+def test_mining_fills_waste_rock_at_the_flat_sigma(tmp_path, acc):
     """WR is a satellite mass flow fixed in Stage 3 by the hard stripping relation
-    (ADR 0038): the imputer closes the Mining CC recipe (WR CC = 0) but never
-    writes WR Mass — neither as CO − Ore nor as k·Ore."""
-    f, _ = _run(imputer, acc, {("CO", "Mining", "CC"): 100.0})
+    (ADR 0038): the prior carries WR Mass = k·Ore Mass, consistent with that row,
+    at the flat σ — WR has no data of its own, so the cv cap must not tighten it
+    (an informative WR prior would count the Ore prior twice through the hard row)."""
+    imp = _stripping_imputer(tmp_path, acc, {"*": 2.0})
+    f, sigma = _run(imp, acc, {("CO", "Mining", "CC"): 100.0})
     assert f[acc.eid("Mining", "Ore", "Mass")] == pytest.approx(100.0 / 0.009)
     assert f[acc.eid("CO", "Mining", "Mass")] == pytest.approx(100.0 / ORE_GRADE_A)
     assert f[acc.eid("Mining", "WR", "CC")] == pytest.approx(0.0)      # copperless
-    assert np.isnan(f[acc.eid("Mining", "WR", "Mass")])
+    assert f[acc.eid("Mining", "WR", "Mass")] == pytest.approx(2.0 * 100.0 / 0.009)
+    assert sigma[acc.eid("Mining", "WR", "Mass")] == pytest.approx(1.0e6)
+
+
+def test_waste_rock_takes_the_most_specific_stripping_row(tmp_path, acc):
+    """A region row beats the global row, as for eff and conc."""
+    imp = _stripping_imputer(tmp_path, acc, {"*": 2.0, "A": 3.0})
+    f, _ = _run(imp, acc, {("CO", "Mining", "CC"): 100.0})
+    assert f[acc.eid("Mining", "WR", "Mass")] == pytest.approx(3.0 * 100.0 / 0.009)
 
 
 def test_cp_pool_eff_one(imputer, acc):
