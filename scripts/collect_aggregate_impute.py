@@ -93,7 +93,9 @@ CASCADE_MAX_ITER = 10
 
 # NetworkImputer — waste rock is a satellite mass flow outside the Mining balance
 # (ADR 0038), fixed in Stage 3 by the hard stripping relation WR_Mass = k·Ore_Mass
-# (the `stripping_ratio` params family); the imputer leaves it to the flat prior. A direct
+# (the `stripping_ratio` params family). The prior carries WR_Mass = k·Ore_Mass at the
+# flat σ FLAT_SIGMA_HIGH, so it satisfies that row without a weight of its own (an
+# informative WR prior would count the Ore prior twice through the hard row). A direct
 # ratio avoids the CO_Mass − Ore_Mass residual going negative when a region's
 # ore_grade exceeds the flat conc_ore.
 
@@ -133,7 +135,7 @@ STOCK_SEED_ABS_FLOOR_KT = 0.3
 #   "magnitude_aware" (legacy) — σ = CV(j) · scale(j) via cv_by_mask + 3-level cascade
 #   "noisy_zero" (test)        — f=0, σ=FLAT_SIGMA_HIGH; effectively no prior weight
 FLAT_MODE       = "noisy_zero"
-FLAT_SIGMA_HIGH = 1.0e6      # used only when FLAT_MODE == "noisy_zero"
+FLAT_SIGMA_HIGH = 1.0e6      # noisy_zero fallback σ; also the WR stripping fill's σ (ADR 0038)
 
 # FlatPriorImputer — CVs per mask (ROW edges get the geographic pedigree penalty)
 #   used only when FLAT_MODE == "magnitude_aware"
@@ -525,7 +527,10 @@ def main(feed_ids: list[str], label: str) -> None:
         p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG, cv_cap=1.5,
         id="network",
         stock_sectors=STOCK_SECTORS,
+        stripping_ratio_csv = str(inputs.params.resolve("stripping_ratio") / "params.csv"),
+        stripping_sigma     = FLAT_SIGMA_HIGH,
     )
+    param_refs.append(inputs.params.entry("stripping_ratio"))
     engine.register_cascade(
         [
             trade,

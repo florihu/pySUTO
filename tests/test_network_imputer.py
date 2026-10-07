@@ -10,7 +10,7 @@ A small synthetic copper chain (one region, one year) exercises:
   * backward multi-input subtraction (pooled Scrap)
   * the Ore branch split resolved from the SXEW anchor (+ negative residual: clipped
     to the edge bound, σ-widened, and not propagated downstream)
-  * the Mining WR Mass edge is left unfilled (satellite, fixed in Stage 3; ADR 0038)
+  * the Mining WR Mass edge is k·Ore at the flat σ (satellite, fixed in Stage 3; ADR 0038)
   * determinacy / no-overwrite
   * CP pooling (eff = 1)
   * conc-by-construction: written CC/Mass twins satisfy CC = conc·Mass
@@ -205,6 +205,20 @@ def write_eff_csv(path, stripping_ratio: float | None = 2.0):
     _write(path, rows)
 
 
+def write_stripping_csv(path, k: float):
+    """The stripping_ratio params file (own family since ADR 0038)."""
+    _write(path, [_row(
+        param_id="strippingratio", param_type="stripping_ratio",
+        a_sector_from="Mining", a_entity_from="Process", a_region_from="*",
+        a_sector_to="Ore", a_entity_to="Flow", a_region_to="same",
+        a_time="*", a_valuation="Mass",
+        b_sector_from="Mining", b_entity_from="Process", b_region_from="same",
+        b_sector_to="WR", b_entity_to="SB", b_region_to="same",
+        b_time="same", b_valuation="same",
+        value_nominal=str(k),
+    )])
+
+
 def _conc_pair(suffix, sector, entity, side, val):
     """Build use (commodity on to) or supply (commodity on from) conc row."""
     b = dict(b_sector_from="same", b_entity_from="same", b_region_from="same",
@@ -376,15 +390,25 @@ def test_negative_balance_clipped_not_propagated(imputer, acc):
     assert f[acc.eid("CP", "Cathode", "CC")] == pytest.approx(70.0)
 
 
-def test_mining_leaves_waste_rock_to_the_flat_prior(imputer, acc):
+def test_mining_fills_waste_rock_at_the_flat_sigma(tmp_path, acc):
     """WR is a satellite mass flow fixed in Stage 3 by the hard stripping relation
-    (ADR 0038): the imputer closes the Mining CC recipe (WR CC = 0) but never
-    writes WR Mass — neither as CO − Ore nor as k·Ore."""
-    f, _ = _run(imputer, acc, {("CO", "Mining", "CC"): 100.0})
+    (ADR 0038): the prior carries WR Mass = k·Ore Mass, consistent with that row,
+    at the flat σ — WR has no data of its own, so the cv cap must not tighten it
+    (an informative WR prior would count the Ore prior twice through the hard row)."""
+    eff, conc, og, sr = (tmp_path / n for n in ("eff.csv", "conc.csv", "og.csv", "sr.csv"))
+    write_eff_csv(eff, stripping_ratio=None)
+    write_conc_csv(conc)
+    write_ore_grade_csv(og)
+    write_stripping_csv(sr, 2.0)
+    imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=1.5,
+                         stripping_ratio_csv=str(sr), stripping_sigma=1.0e6)
+    imp.prepare(acc)
+    f, sigma = _run(imp, acc, {("CO", "Mining", "CC"): 100.0})
     assert f[acc.eid("Mining", "Ore", "Mass")] == pytest.approx(100.0 / 0.009)
     assert f[acc.eid("CO", "Mining", "Mass")] == pytest.approx(100.0 / ORE_GRADE_A)
     assert f[acc.eid("Mining", "WR", "CC")] == pytest.approx(0.0)      # copperless
-    assert np.isnan(f[acc.eid("Mining", "WR", "Mass")])
+    assert f[acc.eid("Mining", "WR", "Mass")] == pytest.approx(2.0 * 100.0 / 0.009)
+    assert sigma[acc.eid("Mining", "WR", "Mass")] == pytest.approx(1.0e6)
 
 
 def test_cp_pool_eff_one(imputer, acc):
