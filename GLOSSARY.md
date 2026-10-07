@@ -611,21 +611,18 @@ direction distinguishes the two roles.
 
 **Stripping ratio (`stripping_ratio`).** The mass of waste rock (`WR`) stripped per unit of `Ore`
 extracted at a Mining process — `WR_Mass = stripping_ratio · Ore_Mass`, a **Mass→Mass** ratio between
-two **outputs** of Mining (default 2.0). It is *not* a recovery efficiency: not in `CC`, not a
-recovery fraction, and `> 1`. It lives in the **eff parameter file** as its own `param_type`
-(`stripping_ratio`, distinct from `efficiency`), making that file a store of **process input/output
-ratios** of which recovery-`eff` and `stripping_ratio` are two families. It survives **only as the
-soft `ratio` constraint** `WR − stripping_ratio·Ore = 0` (kept free/inert): the NetworkImputer fills
-WR as the **mass-balance residual** `WR_Mass = max(0, CO_Mass − Ore_Mass)` instead — and on the
-allocated-ore basis (below) that residual is ≈ 0 by construction, as allocated data carries no
-separate waste-rock mass. _Avoid_: calling it an `eff` — `eff` is strictly a CC copper-recovery
-fraction (above); the two only share a file. _Avoid_: reading the imputer's WR fill as
-stripping-ratio-driven — that rule was replaced 2026-06.
+two **outputs** of Mining (2.0, range 1–3). It is *not* a recovery efficiency: not in `CC`, not a
+recovery fraction, and `> 1`. It is a **hard** relation that alone fixes waste rock, a satellite
+flow with no data of its own; the prior carries `stripping_ratio · Ore_Mass` at a flat σ, so it
+agrees with the relation without weighing on Ore
+([ADR 0038](docs/adr/0038-waste-rock-is-a-satellite-mass-flow.md)). _Avoid_: calling it an `eff` —
+`eff` is strictly a CC copper-recovery fraction (above). _Avoid_: reading waste rock as a residual
+(`CO − Ore`) or reading its prior as evidence — it only mirrors the Ore prior.
 
 **Allocated ore mass.** The `crude_ore` feed's ore Mass is S&P **price-allocated**: a
 poly-metallic mine's physical ore is split across its metals by price share, so the copper-
 attributed mass is *smaller than the physical ore mined*. `Ore`/`CO` Mass edges carry this
-allocated mass, and everything derived per unit of it (grade, WR residual) inherits the basis.
+allocated mass, and everything derived per unit of it (grade, waste rock) inherits the basis.
 _Avoid_: comparing it to physically mined/milled tonnages.
 
 **Recovered vs in-situ grade.** Two grade notions per region-year: **recovered grade** = metal
