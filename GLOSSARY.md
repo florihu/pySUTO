@@ -556,12 +556,11 @@ _Avoid_: "slack" (the soft-row residual), "buffer".
 directly. _Avoid_: "stock" when the account's `PSC` / `USC` / `MESC` entities are meant, "stock
 change" for a level.
 
-**Net addition to stock (NAS)** — the difference between a stock level and the same series' level
-in the preceding year of the same **vintage**; it is the reported value a **stock-change leg**
-carries. A NAS never straddles two vintages or a reporting gap. `PSC` is the producer NAS (a lone
-yearbook `Total`, or one its types contradict, counts as producers), `MESC` the exchange NAS by
-**exchange location**, `USC` the sum of the consumer, merchant and government NAS of a region-year. _Avoid_: "stock change" for the
-quantity (ambiguous with the leg), a level difference taken across vintages.
+**Net addition to stock (NAS)** — the change of one stock series between two consecutive years of
+one **vintage**: the reported value a **stock-change leg** carries. `PSC` is the producers' NAS
+(a region that prints only a total counts as producers), `MESC` the exchanges' NAS at one
+**exchange location**, `USC` the summed consumer, merchant and government NAS. _Avoid_: "stock
+change" for the quantity (ambiguous with the leg), a difference across vintages or a reporting gap.
 
 ## Feed valuation & trade-share vocabulary
 

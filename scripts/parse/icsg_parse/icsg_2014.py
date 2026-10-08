@@ -682,15 +682,16 @@ def clean_pmc_stocks(df_raw):
 
     # The U.S. producers row prints with superimposed digits (1010.33 for 10.4,
     # 1212.99 for 12.9); it is recovered as U.S. Total - U.S. (consumers) (#35).
-    prod = (df_clean['Region'] == 'U.S.') & (df_clean['Type'] == 'Producers')
-    if prod.any():
+    us_producers = (df_clean['Region'] == 'U.S.') & (df_clean['Type'] == 'Producers')
+    if us_producers.any():
         us = df_clean[df_clean['Region'] == 'U.S.'].pivot(index='Year', columns='Type',
                                                           values='Value')
-        derived = df_clean.loc[prod, 'Year'].map(us['Total'] - us['Consumers'])
+        derived = df_clean.loc[us_producers, 'Year'].map(us['Total'] - us['Consumers'])
         if derived.isna().any():
+            missing = sorted(df_clean.loc[us_producers, 'Year'][derived.isna()])
             raise ValueError("U.S. producer stocks need U.S. Total and U.S. (consumers) "
-                             f"in every year; missing for {sorted(df_clean.loc[prod, 'Year'][derived.isna()])}")
-        df_clean.loc[prod, 'Value'] = derived
+                             f"in every year; missing for {missing}")
+        df_clean.loc[us_producers, 'Value'] = derived
 
     return df_clean
 

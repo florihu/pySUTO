@@ -80,11 +80,22 @@ def _pmc_sheet_2014():
             ["China (total) 1/",              np.nan,    30.0,  47.0,   73.0],
             ["Germany Total  3/",             np.nan,    70.0,  70.0,   70.0],
             ["Iran (producers)",              np.nan,    np.nan, 0.0,   5.0],
-            ["UU.SS. (p(prorodduucceersrs))", np.nan,    1010.33, 828.2, 2828.11],
-            ["U.S. (consumers)",              np.nan,    45.3,  50.8,   61.7],
-            ["U.S. Total",                    np.nan,    55.7,  59.0,   89.8],
             ["TOTAL COUNTRY STOCKS",          np.nan,    741.4, 653.5,  821.8]]
     return pd.DataFrame(rows, columns=["Thousand metric tonnes", "a", "b", "c", "d"])
+
+
+def _us_sheet_2014():
+    """The three U.S. rows of Table 8B as printed, 2004-2012."""
+    years = list(range(2004, 2013))
+    rows = [["STOCK TYPE AND", np.nan] + years,
+            ["UU.SS. (p(prorodduucceersrs))", np.nan,
+             1010.33, 828.2, 2828.11, 2020.0, 1515.77, 2323.77, 1010.33, 848.4, 1212.99],
+            ["U.S. (consumers)", np.nan,
+             45.3, 50.8, 61.7, 63.8, 34.2, 37.2, 31.1, 35.2, 39.0],
+            ["U.S. Total", np.nan,
+             55.7, 59.0, 89.8, 83.8, 49.9, 60.9, 41.4, 43.6, 51.9],
+            ["TOTAL COUNTRY STOCKS", np.nan] + [np.nan] * len(years)]
+    return pd.DataFrame(rows, columns=["Thousand metric tonnes", "a"] + [f"c{y}" for y in years])
 
 
 def test_2014_lone_totals_are_kept():
@@ -98,10 +109,10 @@ def test_2014_lone_totals_are_kept():
 def test_2014_us_producers_is_total_minus_consumers():
     """The row prints with superimposed digits (1010.33 for 10.4), which put
     +/-2 Mt producer-stock changes into the feed."""
-    df = icsg_2014.clean_pmc_stocks(_pmc_sheet_2014())
-    assert _level(df, "U.S.", "Producers", 2004) == pytest.approx(10.4)
-    assert _level(df, "U.S.", "Producers", 2005) == pytest.approx(8.2)
-    assert _level(df, "U.S.", "Producers", 2006) == pytest.approx(28.1)
+    df = icsg_2014.clean_pmc_stocks(_us_sheet_2014())
+    expected = [10.4, 8.2, 28.1, 20.0, 15.7, 23.7, 10.3, 8.4, 12.9]
+    for year, value in zip(range(2004, 2013), expected):
+        assert _level(df, "U.S.", "Producers", year) == pytest.approx(value)
     assert _level(df, "U.S.", "Total", 2006) == pytest.approx(89.8)
 
 
@@ -188,3 +199,23 @@ def test_2023_region_is_the_whole_name_before_the_type():
     pmc = set(df.loc[df["Stock_type"] == "PMC", "Region"])
     assert pmc == {"South Africa", "Japan", "United Kingdom", "U.S."}
     assert _level(df, "Japan", "Total", 2024) == pytest.approx(94.4)
+
+
+def test_2005_merged_cell_gives_each_type_its_own_value():
+    """Korea's cell names three types on one line and the fourth after a line
+    break; split on line breaks only, 11.0 kt of merchants' stock was booked
+    as Government and the consumers' 6.0 kt was lost."""
+    label = ("Korean Rep. (producers) Korean Rep. (merchants) Korean Rep. (consumers)"
+             "_x000d_\nKorean Rep. (Government)")
+    sheet = pd.DataFrame([["STOCK TYPE AND COUNTRY", 1995, 2000],
+                          [label, "7.4_x000d_\n11.0_x000d_\n6.0",
+                           "5.7_x000d_\n2.0_x000d_\n8.0_x000d_\n13.1"],
+                          ["Chile (producers)  1/  3/", 88.8, 212.0],
+                          ["TOTAL COUNTRY STOCKS", 624.5, 766.8]],
+                         columns=["TABLE 8B", "a", "b"])
+    df = icsg_2005.clean_pmc_stocks(sheet)
+    assert _level(df, "Korean Rep.", "Merchants", 1995) == pytest.approx(11.0)
+    assert _level(df, "Korean Rep.", "Consumers", 1995) == pytest.approx(6.0)
+    assert _level(df, "Korean Rep.", "Government", 1995) is None
+    assert _level(df, "Korean Rep.", "Government", 2000) == pytest.approx(13.1)
+    assert _level(df, "Chile", "Producers", 2000) == pytest.approx(212.0)

@@ -465,8 +465,10 @@ def clean_pmc_stocks(df_raw):
 
     # --- 5. Explode multi-value rows ---
     def explode_row(row):
-        # Split multiple entries in first column
-        parts = str(row[df.columns[0]]).split('_x000d_\n')
+        # Split multiple entries in first column: at line breaks and where a new
+        # "Region (type)" follows a closing bracket on the same line, as in
+        # Korea's "... (producers) Korean Rep. (merchants) ..." cell (#35)
+        parts = re.split(r'_x000d_\n|(?<=\))\s+(?=[A-Za-z])', str(row[df.columns[0]]))
         # Split multiple values in Value column
         values = str(row['Value']).replace(',', '').split('_x000d_\n')
         # If numbers don't match parts, pad with NaN

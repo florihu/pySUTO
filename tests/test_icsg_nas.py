@@ -118,7 +118,9 @@ def test_a_total_its_types_add_up_to_is_not_counted_twice():
 
 def test_types_that_contradict_the_total_give_way_to_it(caplog):
     """Japan prints 0.000 for every type from 2021, when it reports only a
-    total: read as levels they booked a -95.8 kt producer draw-down."""
+    total: read as levels they booked a -95.8 kt producer draw-down.  The year
+    the total takes over from the types books no change (triage Q9); from then
+    on the total is a lone total."""
     rows = []
     for year, prod, cons, total in [(2020, 95.8, 14.2, 110.0),
                                     (2021, 0.0,  0.0,  94.4),
@@ -128,10 +130,23 @@ def test_types_that_contradict_the_total_give_way_to_it(caplog):
                  ("Japan", "PMC", "Total",     year, total, 2025)]
     with caplog.at_level(logging.WARNING):
         df = net_addition_to_stock(_levels(rows))
-    assert _nas(df, "Japan", "Cathode_Pool", 2021) == pytest.approx(94.4 - 110.0)
+    assert _nas(df, "Japan", "Cathode_Pool", 2021) is None
     assert _nas(df, "Japan", "Cathode_Pool", 2022) == pytest.approx(3.9)
     assert _nas(df, "Japan", "USC", 2021) is None
     assert "Japan" in caplog.text and "2021" in caplog.text
+
+
+def test_a_total_that_takes_over_from_its_types_books_no_change_that_year():
+    """Germany prints its types to 2003 and only a total from 2004: the
+    total's 2004 change mixes a stock change with a change of reporting."""
+    df = net_addition_to_stock(_levels([
+        ("Germany", "PMC", "Producers", 2003, 47.0, 2005),
+        ("Germany", "PMC", "Consumers", 2003, 33.0, 2005),
+        ("Germany", "PMC", "Total",     2003, 80.0, 2005),
+        ("Germany", "PMC", "Total",     2004, 70.0, 2005),
+        ("Germany", "PMC", "Total",     2005, 70.0, 2005)]))
+    assert _nas(df, "Germany", "Cathode_Pool", 2004) is None
+    assert _nas(df, "Germany", "Cathode_Pool", 2005) == pytest.approx(0.0)
 
 
 def test_a_type_that_stops_reporting_is_warned_and_yields_no_change(caplog):

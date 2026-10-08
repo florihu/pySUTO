@@ -1,6 +1,7 @@
-"""
-ICSG Stock & Flow Processing Script
-------------------------------------
+"""process_icsg.py
+===============
+ICSG stock & flow processing.
+
 Steps:
 1. Net addition to stock (NAS) from the ICSG stock levels of every vintage
    (`net_addition_to_stock`, GLOSSARY.md "Net addition to stock"):
@@ -83,7 +84,8 @@ def net_addition_to_stock(levels):
     lv = lv.sort_values(SERIES_KEY + ["Year"], kind="mergesort")
     dup = lv.duplicated(SERIES_KEY + ["Year"], keep=False)
     if dup.any():
-        raise ValueError(f"two stock levels for one series and year:\n{lv[dup].to_string()}")
+        raise ValueError("two stock levels for one series and year:\n"
+                         f"{lv[dup].to_string()}")
 
     # A year's types are its breakdown unless a printed total contradicts them;
     # then the total stands alone, as a lone total does.  A total is always a
@@ -93,7 +95,8 @@ def net_addition_to_stock(levels):
     _warn_reporting_gaps(lv, is_total)
     sum_types = lv[~is_total].groupby(year_key)["Value"].sum()
     total = lv[is_total].set_index(year_key)["Value"]
-    both = pd.concat([sum_types.rename("types"), total.rename("total")], axis=1, join="inner")
+    both = pd.concat([sum_types.rename("types"), total.rename("total")],
+                     axis=1, join="inner")
     contradicted = both[(both["types"] - both["total"]).abs() > TOTAL_TOLERANCE_KT]
     for (region, stock, _, vintage, year), r in contradicted.iterrows():
         logger.warning(f"{region} {stock} {year} (vintage {vintage}): types sum to "
@@ -103,10 +106,14 @@ def net_addition_to_stock(levels):
     lv["breakdown"] = at_year.isin(sum_types.index) & ~at_year.isin(contradicted.index)
     lv = lv[is_total | lv["breakdown"]]
 
+    # A total's change is booked only between two years in which it stands
+    # alone: the year it takes over from its types mixes a stock change with a
+    # change of reporting, and such a change is not recovered (triage Q9).
     g = lv.groupby(SERIES_KEY, sort=False)
     consecutive = (lv["Year"] - g["Year"].shift()) == 1
     lv["NAS"] = lv["Value"] - g["Value"].shift()
-    nas = lv[consecutive & (lv["Type"].ne("Total") | ~lv["breakdown"])].copy()
+    alone_both_years = ~lv["breakdown"] & g["breakdown"].shift().eq(False)
+    nas = lv[consecutive & (lv["Type"].ne("Total") | alone_both_years)].copy()
 
     # the series of one leg add within a vintage: USC = consumers + merchants +
     # government, MESC = every exchange at one location
@@ -149,14 +156,15 @@ def main():
     print(f"\nType / Process distribution in NAS:")
     print(nas_mapped.groupby(["Type", "Process"]).size().reset_index(name="count").to_string(index=False))
 
-    # -- 4. Concatenate with flows ---------------------------------------------
+    # -- 3. Concatenate with flows ---------------------------------------------
     combined = pd.concat([flows_raw, nas_mapped], ignore_index=True)
 
     print(f"\nCombined shape: {combined.shape}")
 
     # in the case where there are multiple loaded instances (different year loaded from file)
     # take always the most recent version
-    combined = combined.sort_values("Year_loaded_from_file", kind="mergesort").drop_duplicates(
+    combined = combined.sort_values("Year_loaded_from_file",
+                                    kind="mergesort").drop_duplicates(
         subset=["Region", "Type", "Year", "Process", "Supply_Use", "Unit"],
         keep="last"
     ).reset_index(drop=True)
@@ -164,7 +172,7 @@ def main():
     assert not combined.duplicated(subset=["Region", "Type", "Year", "Process", "Supply_Use", "Unit"]).any(), \
         "Duplicate rows found after concatenation and deduplication!"
 
-    # -- 5. Enforce consistent dtypes ------------------------------------------
+    # -- 4. Enforce consistent dtypes ------------------------------------------
     str_cols = ["Region", "Type", "Process", "Supply_Use", "Unit"]
     for col in str_cols:
         combined[col] = combined[col].astype(str).str.strip()
@@ -179,7 +187,7 @@ def main():
     print(f"Supply_Use values: {combined['Supply_Use'].unique()}")
     print(f"Year range:        {combined['Year'].min()} - {combined['Year'].max()}")
 
-    # -- 6. Save outputs -------------------------------------------------------
+    # -- 5. Save outputs -------------------------------------------------------
     nas_mapped.to_csv(f"{CLEAN_DIR}/icsg_nas.csv", index=False)
     print(f"\nSaved: {CLEAN_DIR}/icsg_nas.csv  ({len(nas_mapped)} rows)")
 
