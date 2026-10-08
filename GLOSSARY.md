@@ -790,7 +790,12 @@ fraction of 0.6–0.9 is not a 60–90 % concentrate; it is a statement that the
 three times too small ([ADR 0033](docs/adr/0033-baci-quantity-contradicts-its-own-value.md)).
 _Avoid_ also: flagging a single leg inside a year whose *aggregate* fraction is in band — the
 aggregate is the level at which production statistics can license the claim, and lifting a leg
-below it fabricates mass.
+below it fabricates mass. A fraction **far below** the band (< 0.02) is the opposite statement: the
+recorded mass is far more than the value buys, because the quantity is in the wrong unit (PNG
+2019–2022 books kilograms as tonnes, 0.0006) or the leg is not concentrate. Such a leg is rebuilt
+downwards (ADR 0033, Round Z amendment). _Avoid_: reading 0.15–0.20 as a defect. A value is net of
+payables and treatment charges, so real concentrate sits there. _Avoid_ also: reading a fraction
+≪ 0.20 as a low grade.
 
 **Traded (realized) vs tradable; `region_crossed`.** **Tradable** is a *sector capacity* — the four ICSG-fanned
 sectors (Cathode, Concentrate, Anode, Matte) whose Use edges *may* cross regions (above). **Traded / inter-regional**

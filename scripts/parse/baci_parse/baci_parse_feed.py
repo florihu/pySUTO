@@ -15,7 +15,8 @@ What this script does
        740311  Copper cathodes                → Cathode
 3. Drops rows with missing or zero quantity.
 4. Aggregates by (Year, Sector, Region_from, Region_to) — sum quantity *and value*.
-5. Reconstructs the quantity of legs whose value contradicts it (ADR 0033, below).
+5. Reconstructs the quantity of legs whose value contradicts it, on either side
+   of the band (ADR 0033, below).
 6. Converts quantity from tonnes (BACI native) to kt  (÷ 1000).
 7. Adds a constant Unit column "kt".
 8. Writes data/input/feed/baci/v0/values.csv + two ADR 0033 sidecars.
@@ -33,6 +34,15 @@ it in 18 of 30 years, reaching 0.65-0.68 — blister territory, not concentrate 
 and BACI's *value* agrees with ICSG production in every year (0.92-1.09) while
 its *quantity* is 60 % out in exactly those years.  The quantity is the broken
 field, so it is rebuilt from the value at the region's own measured fraction.
+
+The reconstruction is two-sided (Round Z).  Papua New Guinea's 2019-2022
+concentrate legs carry a fraction of 0.0006 — PNG → Philippines 2020 is
+21,277,530 t at 3.6 USD/t, kilograms booked as tonnes — so a leg below
+``LO_LEG_GATE`` (floor / 10) in an exporter-year below ``LO_YEAR_GATE`` (the
+floor) is rebuilt by the same formula, downwards.  The leg gate is not the
+floor: a value is net of payables and treatment charges, so real concentrate
+sits at 0.15-0.20.  Each side only moves its leg one way: up above the band,
+down below it.
 
 _Avoid_: reading the fraction as a grade.  GLOSSARY.md's **Concentrate grade**
 entry already warns that values of 0.6-0.9 "are not grades at all" but a
@@ -77,6 +87,10 @@ RECON_HS   = {260300}        # ADR 0033 scope: only concentrate mass enters
                              # matte/anode/cathode cannot move the forced term.
 
 BAND_LO, BAND_HI = 0.20, 0.35       # ADR 0028's hard concentrate cone
+LO_LEG_GATE      = BAND_LO / 10.0   # low side (Round Z): an order of magnitude
+                                    # below the floor, clear of 0.15-0.20, which
+                                    # is real concentrate net of payables
+LO_YEAR_GATE     = BAND_LO          # ...in an exporter-year itself below the cone
 G_NOM            = 0.275            # the conc row's nominal
 CV_GRADE_DECL    = 0.0375 / 0.275   # ...and its declared σ, as a cv: 0.1364
 CV_PED           = 0.209            # BACI Mass pedigree cv (ADR 0017)
@@ -151,8 +165,17 @@ def reconstruct_quantity(legs, refs, p_cu) -> pd.DataFrame:
 
     ``q_new = v / (P_cu · g_ref)`` — the value and the copper price are well
     measured; ``g_ref`` is the uncertain input, and that is the uncertainty the
-    leg then carries.  Only legs *above* the band are touched: a fraction above
-    the ceiling means too little mass for the value, never too much.
+    leg then carries, on either side.  ``side`` says which contradiction a leg
+    carries, and ``flagged`` is ``side != "none"``:
+
+    ``above``  leg and exporter-year fraction > ``BAND_HI``: too little mass for
+               the value; ``q_new`` is never below ``q_obs``.
+    ``below``  leg fraction < ``LO_LEG_GATE`` in an exporter-year below
+               ``LO_YEAR_GATE``: too much mass for the value (PNG 2019-2022
+               books kilograms as tonnes); ``q_new`` is never above ``q_obs``.
+
+    Legs under ``MIN_LEG_T`` are never flagged on either side.  Unflagged legs
+    keep ``q_new = q_obs`` and ``cv_scale = 1``.
     """
     out = legs.copy()
     out["cu_frac"] = value_implied_cu_fraction(out, p_cu)
@@ -165,7 +188,10 @@ def reconstruct_quantity(legs, refs, p_cu) -> pd.DataFrame:
     # inflating individual legs there would fabricate mass. Within a flagged
     # year the per-leg fraction decides *which* legs moved — the defect is a
     # gradient across partners (Chile 2021: Brazil 0.19 … China 0.86), not a
-    # uniform per-country offset.
+    # uniform per-country offset. The low side keeps the year gate at the floor
+    # (Congo D.R. 2020: one leg at 0.005 drags the year to 0.051) but puts the
+    # leg gate a decade lower, because 0.15-0.20 is real concentrate net of
+    # payables while the unit errors sit below 0.01.
     conc = out[out["Sector"].isin(RECON_HS)]
     yr = conc.groupby(["Region_from", "Year"])[["v", "q"]].sum()
     yr_frac = (yr["v"] * 1000.0
@@ -173,14 +199,17 @@ def reconstruct_quantity(legs, refs, p_cu) -> pd.DataFrame:
                / yr.index.get_level_values("Year").map(p_cu))
     keys = pd.MultiIndex.from_arrays([out["Region_from"], out["Year"]])
     out["year_frac"] = yr_frac.reindex(keys).to_numpy()
-    out["flagged"] = (out["Sector"].isin(RECON_HS)
-                      & (out["q"] >= MIN_LEG_T)
-                      & (out["cu_frac"] > BAND_HI)
-                      & (out["year_frac"] > BAND_HI))
+    scope = out["Sector"].isin(RECON_HS) & (out["q"] >= MIN_LEG_T)
+    above = scope & (out["cu_frac"] > BAND_HI) & (out["year_frac"] > BAND_HI)
+    below = scope & (out["cu_frac"] < LO_LEG_GATE) & (out["year_frac"] < LO_YEAR_GATE)
+    out["side"] = np.select([above, below], ["above", "below"], "none")
+    out["flagged"] = above | below
     out["q_obs"] = out["q"]
     q_val = out["v"] * 1000.0 / (out["Year"].map(p_cu) * out["g_ref"])
-    out["q_new"] = np.where(out["flagged"], np.maximum(q_val, out["q_obs"]),
-                            out["q_obs"])
+    out["q_new"] = np.select([above, below],
+                             [np.maximum(q_val, out["q_obs"]),
+                              np.minimum(q_val, out["q_obs"])],
+                             out["q_obs"])
     out.loc[~out["flagged"], "cv_scale"] = 1.0
     return out
 
@@ -203,7 +232,7 @@ def _write_sidecars(rec, refs) -> None:
     reg = dict(zip(rmap["src_region"], rmap["root_region"]))
 
     rec.assign(recovered=rec["q_new"] - rec["q_obs"]) \
-       .loc[rec["flagged"], ["Year", "Sector", "Region_from", "Region_to",
+       .loc[rec["flagged"], ["Year", "Sector", "Region_from", "Region_to", "side",
                              "v", "q_obs", "q_new", "recovered", "cu_frac",
                              "year_frac", "g_ref", "cv_scale"]] \
        .sort_values(["Year", "Region_from", "Region_to"]) \
@@ -280,11 +309,13 @@ def main() -> None:
     conc = agg[agg["Sector"].isin(RECON_HS)]
     refs = reference_fractions(conc, p_cu)
     rec = reconstruct_quantity(agg, refs, p_cu)
-    flagged = rec[rec["flagged"]]
-    logger.info("ADR 0033: %d of %d concentrate legs flagged; mass %.0f → %.0f kt "
-                "(+%.0f kt recovered)", len(flagged), len(conc),
-                flagged["q_obs"].sum() / 1e3, flagged["q_new"].sum() / 1e3,
-                (flagged["q_new"] - flagged["q_obs"]).sum() / 1e3)
+    for side in ("above", "below"):
+        s = rec[rec["side"] == side]
+        logger.info("ADR 0033 %s the band: %d of %d concentrate legs in %d exporter-years "
+                    "flagged; mass %.0f → %.0f kt (%+.0f kt)", side, len(s), len(conc),
+                    s.groupby(["Region_from", "Year"]).ngroups,
+                    s["q_obs"].sum() / 1e3, s["q_new"].sum() / 1e3,
+                    (s["q_new"] - s["q_obs"]).sum() / 1e3)
 
     # Rename and convert tonnes → kt
     agg = rec[["Year", "Sector", "Region_from", "Region_to"]].copy()

@@ -40,6 +40,29 @@
 1. General convergence analysis of solver        → SD-R-01 (health), SD-R-12 (per-iteration traces), SD-R-11 (objective decomposition)
 2. Most-changed a, z outliers                    → SD-R-13 / SD-R-14 / SD-R-15a (edge defects by objective share), SD-T-07 a-space
 3. c*(t)−c₀(t): which constraints moved          → SD-R-13 / SD-R-14 / SD-R-15b-c (sum-row and soft-ratio residuals); `ranking_<family>.csv`
+# ROUND Z — BACI KILOGRAMS AS TONNES: THE LOW SIDE OF ADR 0033 (built 2026-10-08; issue #48)
+
+**Defect:** PNG's 2019–2022 HS 260300 legs book kilograms under a tonne header (PNG → Philippines
+2020: 21,277,530 t at 3.6 USD/t, value-implied Cu fraction 0.0006). ADR 0033 was one-sided, so
+the world Concentrate `Mass` prior rose 64 → 105 Mt (SD-R-09 Mass retention 0.584 in 2020 on
+`opt_20261007_130833_1a9b7af7`), and through the trade shares PNG took 81 % of the Philippines'
+and 92 % of ROW's CC concentrate fan in 2020.
+
+**Build (`fix/baci-low-side-recon`):** a leg < 0.02 in an exporter-year < 0.20 is rebuilt
+downwards at its exporter's own `g_ref` and `cv_scale`; the above side is unchanged. At the parse
+(V202601, no solve): 119 legs / 70 exporter-years / 27 exporters, 115,854 → 390 kt; PNG 2019–22
+→ 468 / 391 / 329 / 335 kt; Congo D.R. → Zambia 2020 1,964 → 38 kt; the 881 above-band legs
+are identical. ADR 0033 amended; GLOSSARY, README and the parse docstrings follow.
+
+**Measure (open):** two cold chains that differ only in the parse: Z.base from gross v10, Z
+from the new parse. Each runs re-export netting → BACI feed → `build_trade_shares.py` → ICSG
+feed → Stages 2–4. Confirm `trade_shares.version` after each. REP judged on #48's Z-1…Z-4 and
+the null Z-h; per-year tables 2018–2023 only (#46). Then complete ADR 0033's amendment status
+with the run ids. After acceptance, `docs/manuscript/method.md` (trade defects paragraph) and
+`si.md` (BACI row of the input-correction table) still describe the one-sided rule.
+
+**Verdict:** pending.
+
 # ROUND X — STOCK LEGS AT THEIR PRIOR (measured 2026-10-05; ADR 0040; issue #34)
 
 **What was reported:** "Scrap retention swings between > 5 and ≈ 1" on

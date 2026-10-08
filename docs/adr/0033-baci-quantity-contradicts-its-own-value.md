@@ -6,6 +6,11 @@ explained and whose ROW question is answered negatively. Reuses the
 [ADR 0027](0027-re-exports-are-re-attributed-at-feed-time.md) pattern (correct the value *and*
 carry the inference in σ) while **rejecting** its σ formula for this population.
 
+**Amended 2026-10-08 (Round Z, issue #48; measure run pending):** the reconstruction is
+two-sided. A leg whose value buys an order of magnitude *less* than its recorded mass is rebuilt
+downwards by the same formula at the same σ; "too little mass for the value, never too much" below
+holds for the above side only. See *Amendment (Round Z)* at the end.
+
 ## Context
 
 Five rounds cut the **discretionary** mine-chain deletion 26,958 → 12,435 kt and left the **forced**
@@ -170,3 +175,85 @@ respect a boundary it was never given.
 intake retention 0.925 → 0.918; Belgium newly appears hard-capped at 1,029 kt CC forced against 300
 deleted, which is Round Q's fabricated domestic `Concentrate→Smelting` edge surfacing in the
 detector. **ROW is now 62 % of the remaining forced term** and the largest single open item.
+
+## Amendment (Round Z, 2026-10-08): the low side
+
+**Diagnosis.** On SD-R-09 of `opt_20261007_130833_1a9b7af7` (chain `imp_20261007_122232_2b67458e`
+→ `const_20261007_122703_50f6ff71`, baci v11) the Concentrate `Mass` retention falls in 2019–2022
+while `CC` holds:
+
+| year | Mass prior | Mass posterior | Mass retention | CC retention |
+|---|---|---|---|---|
+| 2018 | 64,063 kt | 61,824 kt | 0.965 | 0.948 |
+| 2019 | 85,349 kt | 61,207 kt | 0.717 | 0.934 |
+| 2020 | 105,492 kt | 61,642 kt | **0.584** | 0.904 |
+| 2021 | 87,446 kt | 63,392 kt | 0.725 | 0.914 |
+| 2022 | 94,745 kt | 63,920 kt | 0.675 | 0.921 |
+
+Without Papua New Guinea the Mass retention is 0.948–0.964 in every one of these years. The prior is
+wrong, in raw BACI: HS 260300 from PNG (`i = 598`) to the Philippines in 2020 is
+`q = 21,277,530 t` at `v = 76,901 kUSD`, so 3.6 USD/t against a copper price of 6,224 USD/t, a
+fraction of **0.0006**. PNG's legs to Japan, China and Korea sit at 0.34–0.41 in the same years.
+That is kilograms booked as tonnes. PNG's export mass is 22,248 / 40,813 / 21,607 / 28,381 kt in
+2019–2022 against 205–416 kt in 2015–2018. The defect reaches both valuations. `Mass` carries
+it directly (edge 91910, 21,277.53 kt), and Stage 2's outlier-leg rule makes deleting it nearly free
+(z ≈ −0.2). `CC` carries it as **geography**: the ICSG fan is split by trade-share weights on BACI
+mass, so PNG takes 81 % of the Philippines' CC concentrate intake (2018: 6 %) and 92 % of ROW's
+(edges 91911, 93051). The solver deletes that at z −9.2 / −6.5 / −14.6 (Philippines / ROW / India).
+Congo D.R. → Zambia 2020 has the same shape: 1,964,086 t at 31 USD/t, leg 0.005, exporter-year
+0.051, z −36.5 on Mass. The one-sided rule above passed all of them untouched, and
+edge 91910 carries the same prior back to `opt_20260921_101621_cd0c0ae2`. σ cannot repair it,
+because the trade-share weights read the mass before any σ exists (ADR 0019, 0035).
+
+**Decision.**
+
+```
+above  ⇔  Sector = 260300 ∧ q ≥ 1 kt ∧ cu_frac(leg) > 0.35 ∧ cu_frac(exporter-year) > 0.35   (unchanged)
+below  ⇔  Sector = 260300 ∧ q ≥ 1 kt ∧ cu_frac(leg) < 0.02 ∧ cu_frac(exporter-year) < 0.20
+q_new  =  v / (P_cu · g_ref)     never below q_obs above, never above q_obs below
+```
+
+The two sides cannot both hold for one leg, because no fraction is both above 0.35 and below 0.02.
+The gates are evaluated once, on the recorded data.
+
+**The leg gate is floor / 10, not the floor.** A value-implied fraction is net of payables and
+treatment charges, so it sits below the true grade. Legs ≥ 1 kt over 30 years: [0.15, 0.20) holds
+1,168 legs / 73.1 Mt, [0.10, 0.15) 583 / 15.3 Mt, [0.05, 0.10) 295 / 8.2 Mt, [0.02, 0.05) 139 /
+3.2 Mt, [0.01, 0.02) 73 / 1.0 Mt, [0.001, 0.01) 58 / 28.3 Mt, [0, 0.001) 10 / 86.6 Mt. Real trade
+is a continuum that thins out toward 0.02. The defect mass sits below 0.01, separate from it.
+
+**The year gate is the floor.** It plays the same role as above: the exporter-year aggregate is
+where intervening is licensed. At 0.20 it catches Congo D.R. 2020, where one leg drags the year to
+0.051; its in-band legs keep their mass because the leg gate picks only the broken one.
+
+**`g_ref` and σ are reused.** The calibration is unchanged, since out-of-band exporter-years were
+already excluded from it. PNG has 0.321 on 23 years and Congo D.R. 0.262 on 13, both at the
+declared-floor `cv_scale` 1.194. A below-flagged leg carries its exporter's `cv_scale` exactly as an
+above-flagged one does. `quantity_recon.csv` gains a `side` column, and its `recovered` is signed
+(negative below). `quantity_cv_scale.csv` keeps its schema.
+
+### Considered and rejected (low side)
+
+- **σ-widening alone.** The CC fan geography is fixed at feed-build time, before σ exists.
+- **A ×1000 divide.** It assumes the unit, and it misses PNG's legs that are not exactly ×1000
+  (Singapore 2021 at 0.012, Bulgaria 2020 at 0.005).
+- **A leg gate at the floor (0.20).** It hits the payables population above.
+- **A year gate at 0.02.** It flags 40 legs in 23 exporter-years (112,477 → 297 kt) and misses
+  Congo D.R. → Zambia 2020.
+- **A per-country patch.** A future BACI release would not pass through it.
+- **Dropping the legs.** That discards the value evidence that PNG did export ≈ 330–470 kt.
+
+### Measured at the parse (BACI HS92 V202601, before any solve)
+
+| | |
+|---|---|
+| below-flagged | **119 legs, 70 exporter-years, 27 exporters; 115,854 → 390 kt** (PNG 111,809 kt of it) |
+| PNG export mass 2019–2022 | 22,248 / 40,813 / 21,607 / 28,381 → **468 / 391 / 329 / 335 kt** |
+| Congo D.R. → Zambia 2020 | 1,964.1 → **37.6 kt** |
+| above side (null) | 881 legs, +82,320 kt, identical to the one-sided rule; every leg not flagged below is unchanged |
+| leg gate 0.01 / 0.02 / 0.05 | 57 / 119 / 218 legs; 114,842 / 115,854 / 118,727 kt rebuilt to 342 / 390 / 767 kt |
+
+The flagged legs spread over every five-year block (8 / 34 / 12 / 12 / 12 / 41), so this defect,
+too, is not new. The solve is measured by the Round Z measure ticket, with two chains that differ
+only in the parse (#30's stale inputs held equal). This section's status is completed with those run
+ids.
