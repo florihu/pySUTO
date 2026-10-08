@@ -10,7 +10,7 @@ from pysuto.logging import get_logger
 
 
 logger = get_logger(__name__)
-out_folder = r'data/proc/datafeed/icsg_clean'
+out_folder = r'data/proc/feedprep/icsg_clean'
 
 
 REGION_RENAME = {
@@ -168,6 +168,11 @@ def clean_stock(df_raw):
 
     df = df_raw.copy()
 
+    # keep the label column and the year columns: the 2023 sheet ends with an
+    # averages column, the 2025 sheet with its last year (2024) (#35)
+    year_cols = [c for c in df.columns[1:] if re.match(r"^\d{4}$", str(c))]
+    df = df[[df.columns[0]] + year_cols]
+
     #Lets start with stock type = Exchange
     # includ in th thr row SHFE thats the first part
     
@@ -175,7 +180,7 @@ def clean_stock(df_raw):
     lmeidx = df[df.iloc[:, 0].str.contains('LME', na=False)].index[0]
 
 
-    ex = df.iloc[lmeidx+1:shfeidx+1, :-1].copy()
+    ex = df.iloc[lmeidx+1:shfeidx+1, :].copy()
     #rename first column in type_help
     ex = ex.rename(columns={ex.columns[0]: 'Type'})
     ex['Region'] = ex['Type'].str.strip()
@@ -197,11 +202,15 @@ def clean_stock(df_raw):
 
     # the second is from shfe (not included) to REFINED STOCK SUMMARY
     refidx = df[df.iloc[:, 0].str.contains('REFINED STOCK SUMMARY', na=False)].index[0]
-    pmc = df.iloc[shfeidx+2:refidx, :-1].copy()
+    pmc = df.iloc[shfeidx+2:refidx, :].copy()
     #rename first col to type
     pmc = pmc.rename(columns={pmc.columns[0]: 'Type'})
-    # recover pattern region (type) in type col and put it in region col
-    pmc['Region'] = pmc['Type'].str.split(' ').str[0].str.strip()
+    # the region is the whole label before its type, its total or its footnote:
+    # the first word of 'South Africa (producers) 1/' is not a region (#35)
+    pmc['Region'] = (pmc['Type'].str.replace(r'\s*\(.*$', '', regex=True)
+                                .str.replace(r'\s+Total\b.*$', '', regex=True)
+                                .str.replace(r'\s+\d+/.*$', '', regex=True)
+                                .str.strip())
     # type is everything that is in brackets ()
     pmc['Type'] = pmc['Type'].str.extract(r'\((.*?)\)', expand=False).str.strip()
 
@@ -219,9 +228,6 @@ def clean_stock(df_raw):
 
      #concat ex and pmc
     df = pd.concat([ex_long, pmc_long], ignore_index=True)
-    
-    #rename region United with United Kingdom
-    df['Region'] = df['Region'].replace({'United': 'United Kingdom'})
 
 
     return df

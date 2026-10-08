@@ -11,7 +11,7 @@ from pysuto.logging import get_logger
 
 
 logger = get_logger(__name__)
-out_folder = r'data/proc/datafeed/icsg_clean'
+out_folder = r'data/proc/feedprep/icsg_clean'
 
 
 

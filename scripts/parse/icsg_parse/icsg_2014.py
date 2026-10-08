@@ -328,22 +328,12 @@ def checks_stocks(df):
     
     pass
 
-def clean_exchange_stocks(df_raw, id, start =3):
+def clean_exchange_stocks(df_raw, id):
 
+    # main() reads the sheet with header=2, so the year row already labels the
+    # columns; the 2005 cleaner this was copied from reads with header=0 and
+    # has to promote a data row instead (#35).
     df = df_raw.copy()
-
-    col = df.iloc[1, :].to_list()
-    df.columns = col
-
-    df = df.iloc[start:, :].reset_index(drop=True)
-
-  
-
-    # --------------------------------------------------
-    # 1️⃣ Set correct header (row 1)
-    # --------------------------------------------------
-    #df.columns = df.iloc[1]
-    
 
     df = df.rename(columns={df.columns[0]: "Region"})
 
@@ -437,8 +427,8 @@ def clean_exchange_stocks(df_raw, id, start =3):
     #rename exchange type col in type
     df_clean = df_clean.rename(columns={"Exchange_type": "Type"})
 
-    # filter NaN and 0
-    df_clean = df_clean[df_clean['Value'].notna() & (df_clean['Value'] != 0)].reset_index(drop=True)
+    # filter NaN; a reported zero is a level (#35)
+    df_clean = df_clean[df_clean['Value'].notna()].reset_index(drop=True)
     return df_clean
 
 def clean_copper_price_table(df_raw, id):
@@ -628,16 +618,22 @@ def clean_pmc_stocks(df_raw):
 
     # --- 6. Parse Region and Stock_type ---
     def parse_stock_region(x):
-        # Skip totals or summary
-        if re.search(r'total|summary|sources', x, re.IGNORECASE):
+        # Skip summary and source rows
+        if re.search(r'summary|sources', x, re.IGNORECASE):
             return pd.Series([np.nan, np.nan])
         match = re.match(r'(.*?)[ ]*\((.*?)\)', x)
         if match:
             region = match.group(1).strip()
             stype = match.group(2).strip().lower()
             return pd.Series([region, stype])
-        else:
-            return pd.Series([x.strip(), np.nan])
+        # a region's printed total ("Japan Total", "Germany Total  3/") is a
+        # level: the only one China, Germany and the Philippines print (#35)
+        match = re.match(r'(.*?)\s+total\b', x, re.IGNORECASE)
+        if match:
+            return pd.Series([match.group(1).strip(), 'total'])
+        if re.search(r'total', x, re.IGNORECASE):
+            return pd.Series([np.nan, np.nan])
+        return pd.Series([x.strip(), np.nan])
 
     df_exp[['Region','Stock_type']] = df_exp['STOCK_TYPE_AND_COUNTRY'].apply(parse_stock_region)
 
@@ -677,14 +673,24 @@ def clean_pmc_stocks(df_raw):
     df_clean['Type'] = df_clean['Type'].replace(tr)
     df_clean['Region'] = df_clean['Region'].replace(rr)
 
-    df_clean = df_clean[df_clean['Value'].notna() & (df_clean['Value'] != 0)].reset_index(drop=True)
+    # a reported zero is a level (#35)
+    df_clean = df_clean[df_clean['Value'].notna()].reset_index(drop=True)
 
 
     #make year an int col
     df_clean['Year'] = df_clean['Year'].astype(int)
 
-    # if the value for U.S. producers is 1212.99 then change it to 12.9
-    df_clean.loc[(df_clean['Region'] == 'U.S.') & (df_clean['Type'] == 'Producers') & (df_clean['Value'] == 1212.99), 'Value'] = 12.9
+    # The U.S. producers row prints with superimposed digits (1010.33 for 10.4,
+    # 1212.99 for 12.9); it is recovered as U.S. Total - U.S. (consumers) (#35).
+    prod = (df_clean['Region'] == 'U.S.') & (df_clean['Type'] == 'Producers')
+    if prod.any():
+        us = df_clean[df_clean['Region'] == 'U.S.'].pivot(index='Year', columns='Type',
+                                                          values='Value')
+        derived = df_clean.loc[prod, 'Year'].map(us['Total'] - us['Consumers'])
+        if derived.isna().any():
+            raise ValueError("U.S. producer stocks need U.S. Total and U.S. (consumers) "
+                             f"in every year; missing for {sorted(df_clean.loc[prod, 'Year'][derived.isna()])}")
+        df_clean.loc[prod, 'Value'] = derived
 
     return df_clean
 

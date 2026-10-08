@@ -100,7 +100,7 @@ def plot_cap(df):
 
 
 if __name__ == "__main__":
-    p = r"data/proc/datafeed/icsg_clean/icsg_global_indicators.csv"
+    p = r"data/proc/feedprep/icsg_clean/icsg_global_indicators.csv"
     df = pd.read_csv(p)
     plot_cap(df)
 
