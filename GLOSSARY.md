@@ -148,6 +148,12 @@ One constraint-row generator — `MassBalance`, `Sum`, `Ratio`, `RatioBound`, or
 Stage 4 — the σ-weighted QP solved per timestep with Clarabel (`ClarabelSolver`), producing
 the optimised flow vector `a*`.
 
+**QP backend**:
+The numerical solver of one period's standard-form QP (variables `[a; ε]`, equality and `≤`
+rows), reporting a neutral status; it knows nothing of edges, rows, σ or periods. Clarabel is
+the production backend.
+_Avoid_: "the solver" (that is Stage 4 as a whole), "solver backend".
+
 **Posterior uncertainty propagation**:
 Stage 5 — the closed-form posterior standard deviation `σ_a*` and confidence intervals.
 
