@@ -155,23 +155,19 @@ def creg(s, f):
     return s, f
 
 
-def stot(sraw):
+def stock_levels(s):
+    """Stock levels of every vintage, printed totals included.
+
+    process_icsg.py differences each vintage on its own and decides there what a
+    printed total counts as; keeping only the newest vintage's level of a year
+    left the first year of every later vintage without a net addition (#35).
     """
-    Standardize 'Total' Type entries in stocks.
-    """
-
-    group_keys = ['Region', 'Year', 'Stock_type']
-
-    type_counts = sraw.groupby(group_keys)['Type'].transform('nunique')
-    is_total = sraw['Type'].eq('Total')
-
-    # rename if only entry
-    sraw.loc[is_total & (type_counts == 1), 'Type'] = 'Producers'
-
-    # drop redundant totals
-    s = sraw.loc[~(is_total & (type_counts > 1))]
-
-    return s.reset_index(drop=True)
+    key = ['Region', 'Type', 'Year', 'Stock_type', 'Unit', 'Year_loaded_from_file']
+    dup = s.duplicated(subset=key, keep=False)
+    if dup.any():
+        raise ValueError(f"two stock levels for one series and year in one vintage:\n"
+                         f"{s[dup].to_string()}")
+    return s.sort_values(key, kind='mergesort').reset_index(drop=True)
 
 def pcl(p):
     """Clean price dataframe."""
@@ -250,7 +246,6 @@ def main(ys=[2005, 2014, 2023, 2025],
     s, f = creg(s, f)
     s, f = type_ren(s, f)
 
-    s = stot(s)
     f = remove_total_if_specific_exists(f)
 
     # types
@@ -264,24 +259,18 @@ def main(ys=[2005, 2014, 2023, 2025],
     f['Value'] = f['Value'].astype(float)
 
     # dedup keys
-    s_key = [c for c in s.columns if c not in ['Year_loaded_from_file', 'Value']]
     f_key = [c for c in f.columns if c not in ['Year_loaded_from_file', 'Value']]
 
-    s = (
-        s.sort_values('Year_loaded_from_file')
-        .drop_duplicates(subset=s_key, keep='last')
-        .reset_index(drop=True)
-    )
+    s = stock_levels(s)
 
     f = sum_renamed_collisions(f, f_key)
 
     f = (
-        f.sort_values('Year_loaded_from_file')
+        f.sort_values('Year_loaded_from_file', kind='mergesort')
         .drop_duplicates(subset=f_key, keep='last')
         .reset_index(drop=True)
     )
 
-    assert not s.duplicated(subset=s_key).any()
     assert not f.duplicated(subset=f_key).any()
 
     # ---------------- prices ----------------
@@ -291,7 +280,7 @@ def main(ys=[2005, 2014, 2023, 2025],
     p_key = [c for c in p.columns if c != 'Year_loaded_from_file']
 
     p = (
-        p.sort_values('Year_loaded_from_file')
+        p.sort_values('Year_loaded_from_file', kind='mergesort')
         .drop_duplicates(subset=p_key, keep='last')
         .reset_index(drop=True)
     )

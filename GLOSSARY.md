@@ -559,8 +559,8 @@ change" for a level.
 **Net addition to stock (NAS)** — the difference between a stock level and the same series' level
 in the preceding year of the same **vintage**; it is the reported value a **stock-change leg**
 carries. A NAS never straddles two vintages or a reporting gap. `PSC` is the producer NAS (a lone
-yearbook `Total` counts as producers), `MESC` the exchange NAS by **exchange location**, `USC` the
-sum of the consumer, merchant and government NAS of a region-year. _Avoid_: "stock change" for the
+yearbook `Total`, or one its types contradict, counts as producers), `MESC` the exchange NAS by
+**exchange location**, `USC` the sum of the consumer, merchant and government NAS of a region-year. _Avoid_: "stock change" for the
 quantity (ambiguous with the leg), a level difference taken across vintages.
 
 ## Feed valuation & trade-share vocabulary

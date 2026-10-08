@@ -286,7 +286,12 @@ Related: the same ordering applies to `build_baci_reexport.py` → `baci_feed.py
 `build_trade_shares` also reads the **netted BACI** feed, so a BACI change (Round R) should trigger
 a rebuild too.
 
-## OPEN, out of Round S — two defects found in the ICSG parse, deliberately NOT fixed
+## FIXED by #35 (`fix/icsg-stock-parse`), measured by #65 — two defects found in the ICSG parse in Round S
+
+Both are fixed in code: `USC` is the sum of its three types (a net addition per type and vintage, every sort
+before a dedup stable), and all five parsers write to `data/proc/feedprep/icsg_clean` and run from the raw
+yearbooks. The feed is not rebuilt until #65. The record below is kept as found.
+
 
 **1. `process_icsg.py` collapses three stock series onto one key, and picks the survivor at
 random.** `RENAME_DICT` maps `PMC_Consumers`, `PMC_Merchants` and `PMC_Government` all to `USC`, so
