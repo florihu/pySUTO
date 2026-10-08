@@ -427,7 +427,7 @@ Table [S11](#tab-si-ledger) lists every operation that changes a source before i
 | ICSG | production $\to$ consumed input: smelter production $/\,\eta_{\mathrm{Sm}}$ $\to$ concentrate and scrap into smelting; total refined production $/\,\eta_{\mathrm{ER}}$ $\to$ anode into ER | 0021 | anode into ER anchors the refinery; before, 96% of observed anode exports were deleted |
 | ICSG | usage rows fanned over supplying regions by trade shares: import leg $= c \cdot$ BACI mass, domestic leg $=$ usage $-$ imports, capped at the region's own production; import-free fans all-domestic; fans without weights undistributed | 0002, 0024, 0018, 0008 | trade shares v21: 133,292 weights; Taiwan's usage fans (15.9 Mt CC) undistributed |
 | BACI | rows with zero or missing quantity dropped (value lost reported) | — | — |
-| BACI | quantity rebuilt from value where the value-implied Cu fraction of the leg and of the exporter-year both exceed 0.35 and the leg is $\ge 1$ kt: $q = v/(P_{\mathrm{Cu}}\, g_{\mathrm{ref}})$, $P_{\mathrm{Cu}}$ the cathode unit value of the same release; $\sigma$ scaled by $\sqrt{1 + (\mathrm{cv}_{g_{\mathrm{ref}}}/0.209)^2}$, capped at 5 | 0033 | 881 of 18,141 concentrate legs, 54 exporters, $+82{,}320$ kt gross over 30 years (Chile $+58{,}517$) |
+| BACI | quantity rebuilt from value where the value-implied Cu fraction of the leg and of the exporter-year both exceed 0.35, or where the leg is below 0.02 and the exporter-year below 0.20 (rebuilt downwards), and the leg is $\ge 1$ kt: $q = v/(P_{\mathrm{Cu}}\, g_{\mathrm{ref}})$, $P_{\mathrm{Cu}}$ the cathode unit value of the same release; $\sigma$ scaled by $\sqrt{1 + (\mathrm{cv}_{g_{\mathrm{ref}}}/0.209)^2}$, capped at 5 | 0033 | 881 of 18,141 concentrate legs, 54 exporters, $+82{,}320$ kt gross over 30 years (Chile $+58{,}517$); below the band 119 legs, $115{,}854 \to 390$ kt (Papua New Guinea 2019–2022, kilograms booked as tonnes) |
 | BACI | re-export netting, Eq. (4) of the main text; details below | 0027 | $T = 11{,}028$ kt CC re-attributed; 191 new origin–destination legs; 511 kt CC of re-imports dropped; 651 screened origin-years; 60,341 kt CC in the residual ledger |
 | BACI | feed scoped to cross-region edges | 0014 | 5,181 of 78,312 rows (6.6%) were mapped self-trade and are dropped |
 | Crude ore | allocated-ore basis; grade carried past 2022 | 0015, 0023 | 2.5 Mt/yr of world ore mass restored in 2023–24 |
@@ -539,7 +539,7 @@ Every modelling decision is an architecture decision record in the repository (`
 | 0030 | Secondary-smelter copper enters the chain once | accepted | C | booking both ICSG series |
 | 0031 | ICSG scrap series anchor their level, not only their share | accepted | C | share bands only |
 | 0032 | One territory, one label | accepted | C |  |
-| 0033 | BACI quantity rebuilt from value on flagged legs | accepted | C | unrecoverable mass (0029 assumption) |
+| 0033 | BACI quantity rebuilt from value on flagged legs, above and below the band (amended, Round Z) | accepted | C | unrecoverable mass (0029 assumption); a $\times 1000$ divide |
 | 0034 | Roles are the framework's, labels are the case's | proposed | F |  |
 | 0035 | The 2014 yearbook's label is on the row above its total | accepted | C | loosening the mine constraint |
 | 0036 | A renamed type is a second stream, not a restatement | accepted | C |  |

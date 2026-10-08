@@ -1,4 +1,6 @@
-# pySUTO
+<p align="center">
+  <img src="figs/logo/pysuto-wordmark.svg" alt="pySUTO" width="420">
+</p>
 
 **Python Supply–Use Table Optimiser**
 
@@ -215,9 +217,11 @@ Two behaviours a reader should not have to discover from the code:
 - **The BACI parse overrides its source's published quantity on flagged legs.** HS 740311 is
   ~99.99 % Cu, so its unit value *is* the copper price in the same release; a concentrate leg whose
   value-implied Cu fraction leaves the physical band is reconstructed from its intact value
-  (`q = v / (P_cu · g_ref)`), and the inference is carried in σ through a sidecar. Every flagged leg
-  ships in `quantity_recon.csv` so the override is auditable leg by leg
-  ([ADR 0033](docs/adr/0033-baci-quantity-contradicts-its-own-value.md)).
+  (`q = v / (P_cu · g_ref)`), and the inference is carried in σ through a sidecar. The
+  reconstruction is two-sided: above the ceiling it only raises the mass, and far below the floor
+  (leg < 0.02 in an exporter-year < 0.20, e.g. PNG's kilograms booked as tonnes) it only lowers it.
+  Every flagged leg ships in `quantity_recon.csv` with its `side` so the override is auditable leg by
+  leg ([ADR 0033](docs/adr/0033-baci-quantity-contradicts-its-own-value.md)).
 
 #### Math
 
@@ -1196,7 +1200,7 @@ indistinguishable from real data once it reaches the model:
 | [test_icsg_clean.py](tests/test_icsg_clean.py) | ADR 0021 anode placement, secondary-excess clipping, input divisors; `territory_aliases` / `merge_territories` ([ADR 0032](docs/adr/0032-one-territory-one-label.md)) |
 | [test_icsg_2014_region_fill.py](tests/test_icsg_2014_region_fill.py) | Which country a row belongs to when the yearbook's label sits on the middle row of its block, and the sheet's own WORLD/TOTALS block ([ADR 0035](docs/adr/0035-the-yearbooks-label-is-not-on-the-row-it-owns.md)) |
 | [test_icsg_comb_renamed_collisions.py](tests/test_icsg_comb_renamed_collisions.py) | Rows a rename folds onto one key sum *within* a vintage; a cross-vintage restatement is left to the dedup ([ADR 0036](docs/adr/0036-a-renamed-type-is-a-second-stream-not-a-restatement.md)) |
-| [test_baci_quantity_recon.py](tests/test_baci_quantity_recon.py) | Value-implied Cu fraction detector, its two gates, `g_ref` calibration, σ scale composition across sidecar files ([ADR 0033](docs/adr/0033-baci-quantity-contradicts-its-own-value.md)) |
+| [test_baci_quantity_recon.py](tests/test_baci_quantity_recon.py) | Value-implied Cu fraction detector, its two gates on each side of the band (above: raise; below: lower, the PNG kg-as-t regression), `g_ref` calibration, σ scale composition across sidecar files ([ADR 0033](docs/adr/0033-baci-quantity-contradicts-its-own-value.md)) |
 | [test_build_baci_reexport.py](tests/test_build_baci_reexport.py) | Re-export netting and its residual ledger ([ADR 0027](docs/adr/0027-re-exports-are-re-attributed-at-feed-time.md)) |
 | [test_build_trade_shares.py](tests/test_build_trade_shares.py) | Fan weights and the ADR 0024 domestic bound |
 
