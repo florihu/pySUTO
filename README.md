@@ -1,4 +1,6 @@
-# pySUTO
+<p align="center">
+  <img src="figs/logo/pysuto-wordmark.svg" alt="pySUTO" width="420">
+</p>
 
 **Python Supply–Use Table Optimiser**
 
