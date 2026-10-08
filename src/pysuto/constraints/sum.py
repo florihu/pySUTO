@@ -379,8 +379,9 @@ class SumConstraintBuilder(BaseConstraintBuilder):
 
             # Resolve spec time: if every CSV row in the group names the same
             # single year (no wildcards), the constraint is year-locked to
-            # that year. Otherwise (mixed years, or any wildcard) it's
-            # treated as time-agnostic and stays active across all timesteps.
+            # that year. Otherwise (mixed years, or any wildcard) it gets
+            # time=None; the engine's per-year partition rejects such a row
+            # because it would couple years (#51).
             time_vals = (
                 grp["time"].astype(str).str.strip().unique().tolist()
                 if "time" in grp.columns else []
@@ -620,8 +621,9 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         Rows whose spec has ``time != t`` are *deactivated* for this
         timestep: ``c = 0`` and ``σ_c = SIGMA_C_INACTIVE`` so the row's
         slack ε is essentially unpenalised in the objective. Rows with
-        ``spec["time"] is None`` (time-agnostic, e.g. hand-written CSV
-        constraints with wildcard time) stay active for every timestep.
+        ``spec["time"] is None`` (hand-written CSV constraints with wildcard
+        time) are not deactivated here; the engine's per-year partition
+        rejects them (#51).
 
         This is what turns the per-timestep loop in
         ``ConstraintEngine.run`` into real per-year solves — without it,
