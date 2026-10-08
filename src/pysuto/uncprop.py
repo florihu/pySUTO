@@ -13,8 +13,10 @@ edge × timestep, using the closed-form GLS expression
 with ``S(t) = G · diag(σ²_a) · Gᵀ + diag(σ²_c(t)) = L(t) · L(t)ᵀ`` and
 ``g_i = col_i(G)``.
 
-The symbolic Cholesky pattern is analyzed once (G is time-invariant)
-and the numeric factor is refreshed per timestep via CHOLMOD's
+On the block path (``G_blocks`` present, every current run) ``S(t)`` is
+analysed and factored once per timestep from that year's ``G_t``. Only the
+full-G path analyses the symbolic Cholesky pattern once (G is time-invariant
+there) and refreshes the numeric factor per timestep via CHOLMOD's
 ``cholesky_inplace`` because σ_c is time-variant. A scipy ``splu``
 fallback kicks in when scikit-sparse is not installed; it computes
 ``gᵀ S⁻¹ g`` directly (same value, no symbolic-pattern reuse, slower).

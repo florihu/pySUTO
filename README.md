@@ -580,7 +580,7 @@ A `ConstDiagnostic` plot suite (in [diag/](src/pysuto/diag/)) can be triggered v
 
 ### Stage 4 — Solver
 
-**What this stage does.** Loads a persisted `ConstraintRun`, runs a feasibility pre-check on the hard rows, and solves a σ-weighted QP per timestep using Clarabel. The per-year prior is the conditioned `f_agg` slice (`prior_mode="cold"`, what `run_solver.py` runs by default) or the previous year's solution `a_0(t) = F_opt(t-1)` (`prior_mode="warm"`, the `ClarabelSolver` class default). Clarabel's solver state is reused via `solver.update(P=…, q=…, b=…)` when consecutive years share the same `G_t` (`A` is time-invariant then; `P` is rebuilt each year because σ_c on free rows can vary).
+**What this stage does.** Loads a persisted `ConstraintRun`, runs a feasibility pre-check on the hard rows, and solves a σ-weighted QP per timestep using Clarabel. The per-year prior is the conditioned `f_agg` slice (`prior_mode="cold"`, what `run_solver.py` runs by default) or the previous year's solution `a_0(t) = F_opt(t-1)` (`prior_mode="warm"`, the `ClarabelSolver` class default). Clarabel's solver state is reused via `solver.update(P=…, q=…, b=…)` only when every year's `G_blocks[t]` and cone ordering equal the first year's (`_per_t_problem_identical`, decided once per run; `A` is time-invariant then, `P` is rebuilt each year because σ_c on free rows can vary); otherwise each year builds its own solver.
 
 **Inputs:** `ConstraintRun` run ID (loaded from `data/proc/const/`).
 **Outputs per timestep:** `OptimResult` plus solver telemetry (`objective`, `iterations`, `solve_time_s`, `solver_status`, full `convergence` dict, optional `iter_history`). The array shapes depend on the solve path — the **block path** (the default for partitioned runs) stores **year-local** slices, the **legacy** full-G path stores full-length vectors; see [Per-t block solve & year-local persistence](#per-t-block-solve--year-local-persistence).
@@ -838,7 +838,7 @@ world.to_piot().sankey("2020").write_html("copper_process_network_2020.html")
 
 ## Workflow
 
-> **Tuning knobs are UPPER_CASE constants in each driver's `# USER CONFIGURATION` block** (`P_PROP`, `Q_REG`, `ALPHA_MIN_REG`, `default_cv`, time-imputer settings, Stage 3 σ floors, solver tolerances). [`config/config.yaml`](config/config.yaml) holds only `pipeline.acc_id`; `load_config()` parses nothing else. Modules keep their existing kwarg signatures, so library use (tests, REPL) still works with module defaults.
+> **Tuning knobs are UPPER_CASE constants in each driver's `# USER CONFIGURATION` block** (`P_PROP`, `Q_REG`, `ALPHA_MIN_REG`, `FLAT_DEFAULT_CV`, time-imputer settings, Stage 3 σ floors, solver tolerances). [`config/config.yaml`](config/config.yaml) holds only `pipeline.acc_id`; `load_config()` parses nothing else. Modules keep their existing kwarg signatures, so library use (tests, REPL) still works with module defaults.
 
 ```python
 from pysuto.acc import AccountingStructure
@@ -1212,7 +1212,7 @@ indistinguishable from real data once it reaches the model:
 The two tables above cover the core layers and the parse stage; `tests/` holds further modules for
 diagnostics, params and helpers not itemised here.
 
-Run with `pytest tests/ -v` — **1,059 passing, 1 skipped** as of Stage 6 Slice 6 (in a git worktree, prefix with `PYTHONPATH=src`: the conda env's editable install points at the main checkout).
+Run with `pytest tests/ -v` — **1,136 passing, 1 skipped** as of 2026-10-08 (in a git worktree, prefix with `PYTHONPATH=src`: the conda env's editable install points at the main checkout).
 
 ---
 

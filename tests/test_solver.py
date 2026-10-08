@@ -418,8 +418,8 @@ class TestEngineToSolverIntegration:
 
     def _build_real_run(self, tmp_path):
         # Reuse test_constraints' toy_acc / toy_agg_result via local builders.
-        # persist=False keeps the run in memory; G_blocks are persisted and
-        # round-tripped by ConstraintRunRegistry, this test just needs no disk.
+        # persist=False keeps the run in memory. G_blocks are persisted and
+        # round-tripped by ConstraintRunRegistry; this test just needs no disk.
         from tests.test_constraints import _make_toy_acc, _make_toy_agg_result
         from pysuto.constraints import ConstraintEngine, MassBalanceBuilder
 
