@@ -5,7 +5,7 @@ import re
 import os
 
 
-from pysuto.util import get_path
+from pysuto.utils import get_path
 from pysuto.logging import get_logger
 
 

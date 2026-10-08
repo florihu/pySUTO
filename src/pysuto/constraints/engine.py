@@ -105,7 +105,9 @@ def _partition_G_by_time(
 
     Safety: each row's non-zero columns must lie entirely within its own time
     bucket — this is the "no cross-time coupling" invariant. Violations raise
-    ValueError with the offending row id.
+    ValueError with the offending row id. Every row must also carry a year the
+    structure has edges for: a row with ``time=None`` (a wildcard-time CSV sum)
+    or an unknown year belongs to no block and raises rather than being dropped.
     """
     if "time" in row_meta.columns and len(row_meta):
         row_time = row_meta["time"].astype(str).to_numpy()
@@ -113,6 +115,21 @@ def _partition_G_by_time(
         row_time = np.array([], dtype=str)
     col_time = edge_index["time"].astype(str).to_numpy()
     G_csr    = G.tocsr() if not sp.isspmatrix_csr(G) else G
+
+    # Coverage: a row whose time is no year of the structure (None from a
+    # wildcard-time CSV sum, or a year with no edges) lands in no block and
+    # would vanish from every per-year solve without a trace — reject it (#51).
+    uncovered = ~np.isin(row_time, np.unique(col_time))
+    if uncovered.any():
+        bad_ids = row_meta["constraint_id"].to_numpy()[uncovered]
+        raise ValueError(
+            f"_partition_G_by_time: {int(uncovered.sum())} rows carry a time "
+            f"that is no year of the accounting structure "
+            f"(first constraint_ids: {bad_ids[:5].tolist()}). Such a row falls "
+            f"in no year block and would be silently dropped from every "
+            f"per-year solve; a wildcard-time CSV sum is rejected because it "
+            f"would couple years."
+        )
 
     G_blocks:       dict[str, sp.csr_matrix] = {}
     edge_cols_by_t: dict[str, np.ndarray]    = {}

@@ -1954,6 +1954,53 @@ class TestEnginePerTPartition:
         assert {"massbal", "ratio"} <= types_seen
         assert {"zero", "free", "nonneg"} <= cones_seen
 
+    def test_wildcard_time_csv_sum_is_rejected(self, toy_acc, toy_agg_result, tmp_path):
+        """A CSV sum whose time is a wildcard gets time=None and sums edges
+        across years; it belongs to no year block, so the partition rejects it
+        instead of dropping it from every per-year solve (#51)."""
+        import csv
+        from pysuto.constraints import ConstraintEngine, SumConstraintBuilder
+
+        csv_path = tmp_path / "sum_wild.csv"
+        with open(csv_path, "w", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=[
+                "constraint_id", "description",
+                "sector_from", "entity_from", "region_from",
+                "sector_to",   "entity_to",   "region_to",
+                "time", "valuation",
+                "coefficient", "c_k", "sigma_ck_mode", "sigma_ck_value", "sigma_ck_fraction",
+            ])
+            w.writeheader()
+            w.writerow({
+                "constraint_id": "wildsum", "description": "every year at once",
+                "sector_from": "Mining", "entity_from": "Process", "region_from": "A",
+                "sector_to":   "Ore",    "entity_to":   "Flow",    "region_to":   "A",
+                "time": "*", "valuation": "Mass",
+                "coefficient": "1.0", "c_k": "0", "sigma_ck_mode": "sd",
+                "sigma_ck_value": "5.0", "sigma_ck_fraction": "",
+            })
+        builder = SumConstraintBuilder.from_csv(str(csv_path), toy_acc)
+        assert builder.build_static(toy_acc).row_meta["time"].isna().all()
+
+        engine = ConstraintEngine(toy_acc, storage_dir=str(tmp_path / "const"))
+        engine.register(builder)
+        with pytest.raises(ValueError, match="no year of the accounting structure") as ei:
+            engine.run(toy_agg_result, timesteps=["2020", "2021"], persist=False)
+        assert "wildsum" in str(ei.value)
+
+    def test_row_with_unknown_year_is_rejected(self, toy_acc):
+        """A row whose time is a year the structure has no edges for belongs
+        to no block; the partition raises rather than leaving it out (#51)."""
+        from pysuto.constraints.engine import _partition_G_by_time
+
+        G = sp.csr_matrix((np.ones(2), ([0, 1], [0, 0])), shape=(2, toy_acc.n_edges))
+        row_meta = pd.DataFrame({
+            "constraint_id": ["sum_ok_Mass_2020", "sum_lost_Mass_2019"],
+            "time":          ["2020", "2019"],
+        })
+        with pytest.raises(ValueError, match="sum_lost_Mass_2019"):
+            _partition_G_by_time(G, row_meta, toy_acc.edge_index, ["2020", "2021"])
+
 
 class TestPriorBox:
     """`_apply_prior_box` grafts the RAS scale-floor onto the QP bounds."""
