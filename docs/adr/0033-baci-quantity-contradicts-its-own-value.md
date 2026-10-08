@@ -6,9 +6,11 @@ explained and whose ROW question is answered negatively. Reuses the
 [ADR 0027](0027-re-exports-are-re-attributed-at-feed-time.md) pattern (correct the value *and*
 carry the inference in σ) while **rejecting** its σ formula for this population.
 
-**Amended 2026-10-08 (Round Z, issue #48; measure run pending):** the reconstruction is
-two-sided. A leg whose value buys an order of magnitude *less* than its recorded mass is rebuilt
-downwards by the same formula at the same σ; "too little mass for the value, never too much" below
+**Amended 2026-10-08 (Round Z, issue #48; run `opt_20261008_092950_625a6c7e` against
+`opt_20261008_083810_56f905e9`; REP
+[`…roundZ-png-kg-as-t`](../rep/analysis_opt_20261008_092950_625a6c7e_20261008_roundZ-png-kg-as-t.md)):**
+the reconstruction is two-sided. A leg whose value buys an order of magnitude *less* than its
+recorded mass is rebuilt downwards by the same formula at the same σ; "too little mass for the value, never too much" below
 holds for the above side only. See *Amendment (Round Z)* at the end.
 
 ## Context
@@ -252,7 +254,40 @@ above-flagged one does. `quantity_recon.csv` gains a `side` column, and its `rec
 | PNG export mass 2019–2022 | 22,248 / 40,813 / 21,607 / 28,381 → **468.5 / 391.3 / 328.8 / 334.6 kt** |
 | Congo D.R. → Zambia 2020 | 1,964.1 → **37.6 kt** |
 | above side (null) | 881 legs, +82,320 kt, identical to the one-sided rule; every leg not flagged below is unchanged |
+| leg gate 0.01 / 0.02 / 0.05 | 57 / 119 / 218 legs; 114,842 / 115,854 / 118,727 → 342 / 390 / 767 kt |
 
-The solve, the leg-gate sensitivity and the netting delta are measured by the Round Z measure
-ticket, with two chains that differ only in the parse (#30's stale inputs held equal). This
-section's status is completed with those run ids.
+### Measured (Round Z)
+
+Run `opt_20261008_092950_625a6c7e` (Z: gross v13 → netted v14, trade_shares v23; 28 Solved + 2018,
+2022 AlmostSolved, cold) against `opt_20261008_083810_56f905e9` (Z.base: gross v10 re-netted → v12,
+trade_shares v22; 30/30 Solved). The two chains differ only in the parse. Both carry #30's stale
+ore_grade v7, and the refresh alone moves z² −0.07 % against `opt_20261007_130833_1a9b7af7`.
+
+| | Z.base | **Z** |
+|---|---|---|
+| world Concentrate `Mass` prior 2020 | 105,492 kt | **65,491 kt** |
+| SD-R-09 Concentrate `Mass` retention 2019–2022 | 0.717 / 0.584 / 0.725 / 0.675 | **0.962 / 0.950 / 0.957 / 0.950** |
+| PNG share of the CC fan 2020, Philippines / ROW | 0.807 / 0.922 | **0.033 / 0.021** |
+| PNG CC export prior 2019–2022 | 668 / 1,066 / 622 / 641 kt | **119 / 104 / 89 / 87 kt** |
+| Congo D.R. → Zambia 2020, z Mass / CC | −36.5 / −10.3 | **+0.4 / −2.5** |
+| Chile forced deletion (ADR 0029) | 295 kt CC, 5 of 30 years | 295, 5 of 30 |
+| common-set sum-row z² | 1,442,713 | **1,402,531 (−2.79 %)** |
+
+**Every pre-registered prediction held.**
+
+- **Gross null:** v13 differs from v10 on the 119 below legs only.
+- **Unflagged exporter-years:** where neither valuation's prior moved, their posteriors moved
+  0.04 % (Mass) / 0.08 % (CC).
+- **z², 2018:** z² rises +4.8 % in Z's AlmostSolved 2018. That is solver inexactness: Z.base's
+  posterior is feasible on Z's 2018 QP and scores 2,415 lower than Z's own answer. Without 2018
+  the round is −3.05 %.
+
+**Costs.**
+
+- **Exporter retention** falls 0.4–0.5 pp (Chile 0.969 → 0.964). The cause is a denominator: the
+  corrected fan hands the PNG-vacated smelter intake to these exporters' priors, and their
+  posteriors rise.
+- **Congo D.R. 2020** gains 66.7 kt CC of forced deletion. The rebuilt leg lowers its export cap.
+  This is the ambiguous leg (real ore lot or unit error), rebuilt by the rule like any other.
+- **ADR 0027's netting:** Concentrate T falls 5,590 → 5,149 kt CC, mostly at the Philippines hub
+  (2019–2022: 285 → 94).

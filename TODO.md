@@ -41,7 +41,7 @@
 2. Most-changed a, z outliers                    → SD-R-13 / SD-R-14 / SD-R-15a (edge defects by objective share), SD-T-07 a-space
 3. c*(t)−c₀(t): which constraints moved          → SD-R-13 / SD-R-14 / SD-R-15b-c (sum-row and soft-ratio residuals); `ranking_<family>.csv`
 
-# ROUND Z — BACI KILOGRAMS AS TONNES: THE LOW SIDE OF ADR 0033 (built 2026-10-08; issue #48)
+# ROUND Z — BACI KILOGRAMS AS TONNES: THE LOW SIDE OF ADR 0033 (measured 2026-10-08; ACCEPTED; issue #48)
 
 **Defect:** PNG's 2019–2022 HS 260300 legs book kilograms under a tonne header (PNG → Philippines
 2020: 21,277,530 t at 3.6 USD/t, value-implied Cu fraction 0.0006). ADR 0033 was one-sided, so
@@ -53,16 +53,24 @@ and 92 % of ROW's CC concentrate fan in 2020.
 downwards at its exporter's own `g_ref` and `cv_scale`; the above side is unchanged. At the parse
 (V202601, no solve): 119 legs / 70 exporter-years / 27 exporters, 115,854 → 390 kt; PNG 2019–22
 → 468.5 / 391.3 / 328.8 / 334.6 kt; Congo D.R. → Zambia 2020 1,964 → 38 kt; the 881 above-band legs
-are identical. ADR 0033 amended; GLOSSARY, README and the parse docstrings follow.
+are identical. ADR 0033 amended; GLOSSARY, README and the parse docstri**Measured:** `opt_20261008_092950_625a6c7e` (Z: gross v13 → netted v14, trade_shares v23;
+chain `imp_20261008_084450_041271d3` → `const_20261008_084916_293ff701`; 28 Solved + 2018, 2022
+AlmostSolved) against Z.base `opt_20261008_083810_56f905e9` (gross v10 re-netted → v12,
+trade_shares v22; `imp_20261008_075249_bb1e1884` → `const_20261008_075717_9ccd0d40`; 30/30 Solved).
+Z-1…Z-4 all hold: world Concentrate Mass prior 2020 105,492 → 65,491 kt, SD-R-09 Mass retention
+2019–22 0.962 / 0.950 / 0.957 / 0.950, PNG's share of the PHL / ROW CC fan 2020 0.807 / 0.922 →
+0.033 / 0.021, Congo D.R. → Zambia 2020 z −36.5 → +0.4. Common-set sum-row z² −2.79 % vs Z.base
+(−3.05 % without Z's 2018, which a cross-evaluation shows stopped 2,415 short of its own optimum).
+Gross null exact; Chile forced unchanged. Costs: exporter retention −0.4…−0.5 pp (a denominator
+effect: their priors rise with the corrected fan, and their posteriors rise too); Congo D.R. 2020
++66.7 kt CC forced (the ambiguous leg). #30's re-netting alone: z² −0.07 %. REP
+`docs/rep/analysis_opt_20261008_092950_625a6c7e_20261008_roundZ-png-kg-as-t.md`;
+`scripts/explo/roundZ_png_kg_diag.py`.
 
-**Measure (open):** two cold chains that differ only in the parse: Z.base from gross v10, Z
-from the new parse. Each runs re-export netting → BACI feed → `build_trade_shares.py` → ICSG
-feed → Stages 2–4. Confirm `trade_shares.version` after each. REP judged on #48's Z-1…Z-4 and
-the null Z-h; per-year tables 2018–2023 only (#46). Then complete ADR 0033's amendment status
-with the run ids. After acceptance, `docs/manuscript/method.md` (trade defects paragraph) and
-`si.md` (BACI row of the input-correction table) still describe the one-sided rule.
-
-**Verdict:** pending.
+**Verdict:** accepted. Z becomes the reference chain on merge (user's call). Then
+`docs/manuscript/method.md` (trade-defects paragraph) and `si.md` (BACI row of the
+input-correction table) still describe the one-sided rule, and their Concentrate figures need the
+new chain.t:** pending.
 
 # ROUND X — STOCK LEGS AT THEIR PRIOR (measured 2026-10-05; ADR 0040; issue #34)
 
