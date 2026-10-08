@@ -38,13 +38,13 @@ Supply–use tables and material flow accounts are assembled from multiple data 
 - **Multi-source uncertainty** — each data source carries a pedigree quality score (Laner et al. 2016) that translates into a coefficient of variation. Uncertainty is propagated through every transformation step using Lp / power-mean error propagation.
 - **Physical consistency** — supply must equal use for every node and every material-parameter efficiency must be respected. A linear-equality / inequality QP enforces these constraints while staying as close as possible to the aggregated data, with full uncertainty quantification on the optimised values.
 
-The package is organised into **five sequential stages**: datafeed assembly (per source), aggregation + imputation (across sources), constraint building, constrained optimisation, and posterior uncertainty propagation. Each stage has a clear input, a clear output, and its own persistence layer.
+The package is organised into **six sequential stages**: datafeed assembly (per source), aggregation + imputation (across sources), constraint building, constrained optimisation, posterior uncertainty propagation, and PSUT/PIOT construction. Each stage has a clear input, a clear output, and its own persistence layer.
 
 ---
 
 ## Architecture
 
-**Workflow** — horizontal data flow through the five stages:
+**Workflow** — horizontal data flow through the six stages:
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
@@ -85,7 +85,7 @@ The package is organised into **five sequential stages**: datafeed assembly (per
        ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │  STAGE 4 — Solver   ·   scripts/run_solver.py                          │
-│  ClarabelSolver.solve_all()  (QP, warm-started per timestep)           │
+│  ClarabelSolver.solve_all()  (one QP per timestep; warm or cold prior) │
 │  in  : ConstraintRun                                                   │
 │  out : OptimResult per t (F_opt · ε · residuals · telemetry)           │
 └──────┬─────────────────────────────────────────────────────────────────┘
@@ -112,21 +112,21 @@ The package is organised into **five sequential stages**: datafeed assembly (per
 ```
 ORTHOGONAL CROSS-CUTTING CONCERNS   (one service, applied across every stage)
 
-               Stage 1    Stage 2    Stage 3    Stage 4    Stage 5
-               Datafeed   Agg+Imp    Constr.     Solver   Posterior
-             ┌──────────┬──────────┬──────────┬──────────┬──────────┐
-Registry     │   feed   │   imp    │  const   │   opt    │ uncprop  │
-(run store)  │ registry │ registry │ registry │ registry │ registry │
-             ├──────────┴──────────┴──────────┴──────────┴──────────┤
-Provenance   │ sidecar metadata.json · parents.inputs (versioned)   │
-(lineage)    │ + parents.upstream  (run_id chain, re-discovered)    │
-             ├──────────────────────────────────────────────────────┤
-Logging      │ get_logger(name) per module + add_run_handler() —    │
-             │ one file per run; all named loggers funnel to root   │
-             ├──────────────────────────────────────────────────────┤
-Config /     │ load_config(config.yaml) · InputRegistries versions  │
-inputs       │ acc / feed / params (hash-bumped) — read every run   │
-             └──────────────────────────────────────────────────────┘
+               Stage 1    Stage 2    Stage 3    Stage 4    Stage 5    Stage 6
+               Datafeed   Agg+Imp    Constr.     Solver   Posterior  PSUT/PIOT
+             ┌──────────┬──────────┬──────────┬──────────┬──────────┬──────────┐
+Registry     │   feed   │   imp    │  const   │   opt    │ uncprop  │   psut   │
+(run store)  │ registry │ registry │ registry │ registry │ registry │ registry │
+             ├──────────┴──────────┴──────────┴──────────┴──────────┴──────────┤
+Provenance   │ sidecar metadata.json · parents.inputs (versioned)              │
+(lineage)    │ + parents.upstream  (run_id chain, re-discovered)               │
+             ├─────────────────────────────────────────────────────────────────┤
+Logging      │ get_logger(name) per module + add_run_handler() —               │
+             │ one file per run; all named loggers funnel to root              │
+             ├─────────────────────────────────────────────────────────────────┤
+Config /     │ load_config(config.yaml) · InputRegistries versions             │
+inputs       │ acc / feed / params / mask (hash-bumped) — read every run       │
+             └─────────────────────────────────────────────────────────────────┘
 
 modules:  Registry=registry/ (BaseOutputRegistry · _sidecar · make_run_id)
           Logging=logging.py   Config=config.py + input_registry.py
@@ -294,8 +294,9 @@ When a feed sets `Row_penalty: TRUE` in its metadata sidecar, every **ROW-touchi
 ```python
 registry = DataFeedRegistry(odir="data/proc/feed/registry")
 registry.load_index()
+inputs = InputRegistries.initialize(root="data/input")   # versions acc / feed inputs
 
-wm, meta, result = run_feed_pipeline(
+wm, meta, result, entry = run_feed_pipeline(
     excel_path="data/input/feeds/baci_2022.xlsx",
     raw_df=baci_df,
     acc_struct=acc,
@@ -303,6 +304,8 @@ wm, meta, result = run_feed_pipeline(
     time_map_df=time_map, valuation_map_df=valuation_map, var_map_df=var_map,
     F_src=F_src,
     registry=registry,
+    parents={"inputs": {"acc": inputs.acc.entry("copper"), "feed": inputs.feed.entry("baci")},
+             "upstream": {}},                       # required keyword
     feed_id="baci",
     aux_col="Supply_Use",
     allow_unmatched_edges=True,
@@ -524,7 +527,7 @@ Defaults: $\mathrm{CV}_a^\mathrm{min} = \mathrm{CV}_c^\mathrm{min} = 0.05$, $\si
 
 **Ordering.** σ_a regularisation runs *before* `build_dynamic` propagates σ_a → σ_c via the Lp combine over `_rhs_ids`, so the regularised σ_a flows into σ_c. This is deliberate: the relative term $\mathrm{CV}_a^\mathrm{min} \cdot |a_0|$ is a modelling claim about how tightly we believe σ_a, not a numerical guard, so it *should* propagate to σ_c. The absolute floor $\sigma_a^\mathrm{floor}$ is the actual safety net — once the FlatPriorImputer's 3-level scale cascade is in place (see Stage 2) it should essentially never fire on imputer-filled edges, so its presence does not distort downstream uncertainty propagation.
 
-**Per-timestep deactivation of soft sum rows.** Each `SumConstraintBuilder` spec carries a `time` field (the year baked into `constraint_id`); `from_csv` specs with wildcard or mixed `time` are stored as `time=None` and **rejected** when the engine partitions `G` by year (`_partition_G_by_time` raises `ValueError`): such a row would sum edges across years and couple the per-year QPs. When `ConstraintEngine.run` calls `build_dynamic(t)` for a given timestep, rows whose `spec["time"]` does not match `t` are *deactivated* by setting `c=0` and `σ_c = SIGMA_C_INACTIVE` (default `1e10`). Hard rows (mass balance, ratio bound, flow bound) are always active across all timesteps since they encode global structural invariants. The σ_c sentinel makes the row's objective contribution $(1/\sigma_c)^2 \approx 10^{-20}$ — effectively unenforced — without touching `G` or the cone structure. `ClarabelSolver.solve_all` rebuilds the QP Hessian `P` per timestep so the per-t σ_c entries actually take effect (Clarabel's `solver.update(P=…, q=…, b=…)`).
+**Per-timestep deactivation of soft sum rows.** Each `SumConstraintBuilder` spec carries a `time` field (the year baked into `constraint_id`); `from_csv` specs with wildcard or mixed `time` are stored as `time=None` and **rejected** when the engine partitions `G` by year (`_partition_G_by_time` raises `ValueError`): such a row would sum edges across years and couple the per-year QPs. When `ConstraintEngine.run` calls `build_dynamic(t)` for a given timestep, rows whose `spec["time"]` does not match `t` are *deactivated* by setting `c=0` and `σ_c = SIGMA_C_INACTIVE` (default `1e10`). Mass-balance and flow-bound rows are active in every timestep; `RatioBoundBuilder.build_dynamic` deactivates hard band rows of other years by setting `c = BOUND_C_INACTIVE`, which makes the inequality trivially satisfied. The σ_c sentinel makes the row's objective contribution $(1/\sigma_c)^2 \approx 10^{-20}$ — effectively unenforced — without touching `G` or the cone structure. `ClarabelSolver.solve_all` rebuilds the QP Hessian `P` per timestep so the per-t σ_c entries actually take effect (Clarabel's `solver.update(P=…, q=…, b=…)`).
 
 #### Classes
 
@@ -577,7 +580,7 @@ A `ConstDiagnostic` plot suite (in [diag/](src/pysuto/diag/)) can be triggered v
 
 ### Stage 4 — Solver
 
-**What this stage does.** Loads a persisted `ConstraintRun`, runs a feasibility pre-check on the hard rows, and solves a σ-weighted QP per timestep using Clarabel. Each timestep is warm-started from the previous solution by setting `a_0(t) = F_opt(t-1)` and reusing Clarabel's solver state via `solver.update(P=…, q=…, b=…)` (only `A` is time-invariant; `P` is rebuilt each year because σ_c on free rows can vary).
+**What this stage does.** Loads a persisted `ConstraintRun`, runs a feasibility pre-check on the hard rows, and solves a σ-weighted QP per timestep using Clarabel. The per-year prior is the conditioned `f_agg` slice (`prior_mode="cold"`, what `run_solver.py` runs by default) or the previous year's solution `a_0(t) = F_opt(t-1)` (`prior_mode="warm"`, the `ClarabelSolver` class default). Clarabel's solver state is reused via `solver.update(P=…, q=…, b=…)` only when every year's `G_blocks[t]` and cone ordering equal the first year's (`_per_t_problem_identical`, decided once per run; `A` is time-invariant then, `P` is rebuilt each year because σ_c on free rows can vary); otherwise each year builds its own solver.
 
 **Inputs:** `ConstraintRun` run ID (loaded from `data/proc/const/`).
 **Outputs per timestep:** `OptimResult` plus solver telemetry (`objective`, `iterations`, `solve_time_s`, `solver_status`, full `convergence` dict, optional `iter_history`). The array shapes depend on the solve path — the **block path** (the default for partitioned runs) stores **year-local** slices, the **legacy** full-G path stores full-length vectors; see [Per-t block solve & year-local persistence](#per-t-block-solve--year-local-persistence).
@@ -609,7 +612,7 @@ $$P(t) = 2\begin{bmatrix} \Sigma_a^{-1} & 0 \\ 0 & \Sigma_c(t)^{-1} \end{bmatrix
 
 $$q(t) = \begin{bmatrix} -2\,\Sigma_a^{-1}\mathbf{a}_0(t) \\ \mathbf{0} \end{bmatrix}, \qquad A = \begin{bmatrix} \mathbf{G}_\text{free} & -\mathbf{I} \\ \mathbf{G}_\text{zero} & \mathbf{0} \\ \mathbf{G}_\text{nonneg} & \mathbf{0} \end{bmatrix}, \qquad b(t) = \begin{bmatrix} \mathbf{c}_\text{free}(t) \\ \mathbf{c}_\text{zero}(t) \\ \mathbf{c}_\text{nonneg}(t) \end{bmatrix}$$
 
-Cone order: `ZeroConeT(n_free)` for the soft-equality residual rows (ε is a free decision variable; the row `Gx - ε = c` is itself an exact equality), `ZeroConeT(n_zero)` for hard balance rows, `NonnegativeConeT(n_nonneg)` for bound rows. `A` is time-invariant; `P(t)`, `q(t)`, and `b(t)` change per timestep — `P(t)` because $\Sigma_c$ on free rows may vary (e.g. `SumConstraintBuilder` deactivates rows of other years via `SIGMA_C_INACTIVE`), `q(t)` from the warm-started prior $\mathbf{a}_0(t)$, `b(t)` from $\mathbf{c}(t)$. `solver.update(P=…, q=…, b=…)` refreshes them between timesteps while Clarabel reuses its solver state for $A$.
+Cone order: `ZeroConeT(n_free)` for the soft-equality residual rows (ε is a free decision variable; the row `Gx - ε = c` is itself an exact equality), `ZeroConeT(n_zero)` for hard balance rows, `NonnegativeConeT(n_nonneg)` for bound rows. `A` is time-invariant; `P(t)`, `q(t)`, and `b(t)` change per timestep — `P(t)` because $\Sigma_c$ on free rows may vary (e.g. `SumConstraintBuilder` deactivates rows of other years via `SIGMA_C_INACTIVE`), `q(t)` from the per-year prior $\mathbf{a}_0(t)$, `b(t)` from $\mathbf{c}(t)$. `solver.update(P=…, q=…, b=…)` refreshes them between timesteps while Clarabel reuses its solver state for $A$.
 
 ##### Σ_a conditioning
 
@@ -625,7 +628,7 @@ Before solving, the hard subsystem (zero + nonneg cones + flow bounds) is solved
 
 ##### Per-t block solve & year-local persistence
 
-When the `ConstraintRun` carries a per-t partition (`G_blocks`, `edge_cols_by_t` — built in Stage 3 whenever constraints have no cross-time coupling), `solve_all` dispatches to `_solve_all_via_blocks`: each year is solved as an independent QP over only that year's edges (`cols_t`) and rows (`rows_t`), ~30× smaller than the global QP. Because the edge set partitions **disjointly by time**, every edge is solved exactly once — in its own year — so the cross-year warm-start carry is a no-op on this path and the complete `a*` is the disjoint union of the per-period slices.
+When the `ConstraintRun` carries a per-t partition (`G_blocks`, `edge_cols_by_t` — built in Stage 3 whenever constraints have no cross-time coupling), `solve_all` dispatches to `_solve_all_via_blocks`: each year is solved as an independent QP over only that year's edges (`cols_t`) and rows (`rows_t`), ~30× smaller than the global QP. Because the edge set partitions **disjointly by time**, every edge is solved exactly once — in its own year — and the complete `a*` is the disjoint union of the per-period slices. Under `prior_mode="warm"` the previous year's `F_opt` is carried into the next year's prior by edge template (`AccountingStructure.warm_start_gather`; positional fallback without an acc); under `"cold"` every year starts from its own `f_agg` slice.
 
 Each per-t `OptimResult` therefore persists **only that period's solved values**: `F_opt` over `cols_t` `[E_t]`, `residuals` / `c_star` over `rows_t` `[M_t]`, plus the `cols_t` / `rows_t` global-index arrays — with **no cross-year prior placeholders**. (Earlier block runs stored the full `[E]` vector with non-`t` edges frozen at the prior `a_0`; this surfaced the prior mass-balance infeasibility on every *other* year's rows and a spurious bimodal `a` distribution — see [`docs/rep/analysis_opt_20260527_095157_40846da4_20260528_block-solver-massbal-artifact.md`](docs/rep/analysis_opt_20260527_095157_40846da4_20260528_block-solver-massbal-artifact.md).) The legacy full-G path (empty `G_blocks`) keeps full-length `[E]` / `[M]` vectors with `cols_t = rows_t = None`; the npz `cols_t` key is the schema discriminator on load. `SolverDiag` reassembles the disjoint per-period slices into one complete `a*` / `residuals` at load time, so every figure (and the mass-balance residual) reads the true, placeholder-free solution. Loading a pre-fix block run (const has `G_blocks` but the opt npz lacks `cols_t`) emits a `warn_if_prefix_block_run` warning.
 
@@ -672,7 +675,7 @@ optim_run_id = solver.persist(
 
 ### Stage 5 — Posterior uncertainty propagation
 
-**What this stage does.** Loads a persisted Stage-4 `OptimRun` plus its upstream `ConstraintRun`, then computes the marginal posterior standard deviation `σ_a*(t)` and a Gaussian `(1-α)` confidence interval per edge × timestep. The Cholesky pattern of `S(t) = G·diag(σ²_a)·Gᵀ + diag(σ²_c(t))` is analyzed once (G is time-invariant) and the numeric factor is refreshed per timestep because σ_c is time-variant.
+**What this stage does.** Loads a persisted Stage-4 `OptimRun` plus its upstream `ConstraintRun`, then computes the marginal posterior standard deviation `σ_a*(t)` and a Gaussian `(1-α)` confidence interval per edge × timestep. When the `ConstraintRun` carries a per-period partition (`G_blocks`, every current run), `S(t) = G_t·diag(σ²_a)·G_tᵀ + diag(σ²_c(t))` is analysed and factored once per year (`_compute_via_blocks`). Only the full-G path, taken when `G_blocks` is empty, analyses the Cholesky pattern once and refreshes the numeric factor per timestep.
 
 **Inputs:** `opt_run_id` (Stage 4 output; the upstream `const_run_id` is discovered from its sidecar).
 **Outputs:** `UncPropResult` with `per_timestep[t] = {sigma_a_star, lower, upper, diagnostics}`. On the block path these arrays are **year-local** (over `cols_t`, matching the Stage-4 `OptimResult`) and carry `cols_t`; the legacy path keeps full-length `[E]` arrays with `cols_t = None`.
@@ -817,14 +820,14 @@ world.to_piot().sankey("2020").write_html("copper_process_network_2020.html")
 | [unc.py](src/pysuto/unc.py) | `PedigreeScores`, `UncertaintyMixin`, `PropagationResult` | Pedigree→CV (Laner et al.); Lp / power-mean propagation through `W`. |
 | [meta.py](src/pysuto/meta.py) | `DataFeedMetadata` | Parses the Excel sidecar. |
 | [registry/](src/pysuto/registry/) | `BaseOutputRegistry`, `DataFeedRegistry`, `ImputationRunRegistry`, `ConstraintRunRegistry`, `OptimRunRegistry`, `UncPropRunRegistry`, `PsutRunRegistry`, `_RegistryEntry`, `make_run_id`, `build_sidecar` | Harmonized output registries (Stages 1–6); shared run-id pattern + sidecar schema. **Subpackage layout:** `base.py`, `feed.py`, `imputation.py`, `constraint.py`, `optim.py`, `uncprop.py`, `psut.py`, `_sidecar.py`. |
-| [input_registry.py](src/pysuto/input_registry.py) | `InputRegistry`, `InputRegistries` | Per-kind versioned snapshot store for `feed`, `acc`, `params` inputs; hardlink dedup; auto-bump on content-hash change. |
+| [input_registry.py](src/pysuto/input_registry.py) | `InputRegistry`, `InputRegistries` | Per-kind versioned snapshot store for `feed`, `acc`, `params`, `mask` inputs; hardlink dedup; auto-bump on content-hash change. |
 | [utils.py](src/pysuto/utils.py) | `_NpEncoder`, io helpers | JSON serialisation, numpy-safe dump/load. |
 | [logging.py](src/pysuto/logging.py) | `get_logger` | Structured run logging. |
 | [collector.py](src/pysuto/collector.py) | `FeedCollector` | Select feeds, align onto common edge index, produce `AggregationResult`. |
 | [agg.py](src/pysuto/agg.py) | `AggregationMath`, `AggregationResult` | Build `Ω`, compute `f_agg`, `σ_agg`, coverage. |
 | [impute/](src/pysuto/impute/) | `ImputationEngine`, `BaseImputer`, `TradeImputer`, `NetworkImputer`, `ProcessRecipe`, `ParametricImputer`, `FormulaImputer`, `TimeImputer`, `ShareImputer`, `FlatPriorImputer`, `ParametricRelation`, `FormulaRelation`, `SourceTerm`, `ParamRef`, `ImputationLog`, `ImputationMetadata` | Ordered imputation pipeline; per-edge provenance logging. **Subpackage layout:** `engine.py`, `base.py`, `trade.py`, `network.py`, `parametric.py`, `formula.py`, `time.py`, `share.py`, `flat_prior.py`. |
 | [constraints/](src/pysuto/constraints/) | `ConstraintEngine`, `BaseConstraintBuilder`, `MassBalanceBuilder`, `SumConstraintBuilder`, `RatioConstraintBuilder`, `RatioBoundBuilder`, `FlowBoundsBuilder`, `ConstraintBlock`, `ConstraintRun` | Plugin constraint pipeline; persists to `data/proc/const/` via `ConstraintRunRegistry` (lives in [registry/](src/pysuto/registry/)). **Subpackage layout:** `engine.py`, `base.py`, `mass_balance.py`, `sum.py`, `ratio.py`, `flow_bound.py`, `run.py`. |
-| [solver.py](src/pysuto/solver.py) | `ClarabelSolver`, `OptimResult` | σ-weighted QP via Clarabel; warm-start across timesteps. |
+| [solver.py](src/pysuto/solver.py) | `ClarabelSolver`, `OptimResult` | σ-weighted QP via Clarabel, one per timestep; warm or cold prior. |
 | [uncprop.py](src/pysuto/uncprop.py) | `BaseUncProp`, `KalmanUncProp`, `UncPropResult`, `UncPropTimestep` | Stage-5 posterior uncertainty via sparse Cholesky; persists to `data/proc/uncprop/` via `UncPropRunRegistry`. |
 | [psut.py](src/pysuto/psut.py) | `PSUT`, `OptimResultsLike`, `classify_blocks`, `BLOCKS` | Stage-6 tidy-canonical PSUT: `from_opt_run` / `from_results`, block views `S`/`U`/`Y`/`E`/`O`/`P`/`W`, `realized_conc`, `aggregate` (region/sector pushforward with `region_crossed`), `sankey` (thin delegate to `diag.psut`), `to_piot`, period selection (`periods`, `latest`, `at`); every valuation in one table with a `primary`; persists to `data/proc/psut/` via `PsutRunRegistry`. |
 | [piot.py](src/pysuto/piot.py) | `PIOT`, `market_share_network`, `market_shares`, `CONSTRUCTS`, `LEVELS` | Stage-6 PIOT as a construct family: the market-share process network (`Z()`, `D()`, process-network `sankey()`), levels `A`/`L` (`x`, `y`, `A`, `L`), `intensity`, `footprint`, `embodied_trade`, `ew_mfa`, `multipliers`, `sda`; `suh_product` is a stub until #20. A derived view of a PSUT, never persisted. |
@@ -835,7 +838,7 @@ world.to_piot().sankey("2020").write_html("copper_process_network_2020.html")
 
 ## Workflow
 
-> **Global tuning knobs live in [`config/config.yaml`](config/config.yaml).** Init scripts call `cfg = load_config()` and pass the resolved values as kwargs (`p`, `q`, `alpha_min`, `default_cv`, time-imputer settings, Stage 3 σ floors). Modules keep their existing kwarg signatures, so library use (tests, REPL) still works with module defaults.
+> **Tuning knobs are UPPER_CASE constants in each driver's `# USER CONFIGURATION` block** (`P_PROP`, `Q_REG`, `ALPHA_MIN_REG`, `FLAT_DEFAULT_CV`, time-imputer settings, Stage 3 σ floors, solver tolerances). [`config/config.yaml`](config/config.yaml) holds only `pipeline.acc_id`; `load_config()` parses nothing else. Modules keep their existing kwarg signatures, so library use (tests, REPL) still works with module defaults.
 
 ```python
 from pysuto.acc import AccountingStructure
@@ -856,13 +859,14 @@ from pysuto.solver import ClarabelSolver
 from pysuto.uncprop import KalmanUncProp
 from pysuto.diag import AggDiagnostic, ImpDiagnostic
 
-cfg           = load_config()           # config/config.yaml
-P_PROP        = cfg.propagation.p       # global Lp exponent
-Q_REG         = cfg.propagation.q       # ParametricImputer backward-branch knee sharpness
-ALPHA_MIN_REG = cfg.propagation.alpha_min  # ParametricImputer inverse-multiplier floor
+cfg           = load_config()           # config/config.yaml: pipeline.acc_id only
+ACC_ID        = cfg.pipeline.acc_id     # "copper"
+P_PROP        = 1.3                     # global Lp exponent — a driver constant
+Q_REG         = 3.0                     # ParametricImputer backward-branch knee sharpness
+ALPHA_MIN_REG = 0.05                    # ParametricImputer inverse-multiplier floor
 
 # ── Stage 0: initialise the input registries (scan-and-bump) ─────────────
-# Walks data/input/{feed,acc,params}/<id>/current/ and bumps any id whose
+# Walks data/input/{feed,acc,params,mask}/<id>/current/ and bumps any id whose
 # load-bearing files have changed since the last registered version.
 inputs = InputRegistries.initialize(root="data/input")
 
@@ -874,7 +878,7 @@ for feed_id, raw_df, F_src in feed_configs:
     feed_dir = inputs.feed.resolve(feed_id)        # path to <id>/v{latest}/
     parents  = {
         "inputs": {
-            "acc":  inputs.acc.entry("copper"),    # {id, version, date, code, label}
+            "acc":  inputs.acc.entry(ACC_ID),      # {id, version, date, code, label}
             "feed": inputs.feed.entry(feed_id),
         },
         "upstream": {},
@@ -931,7 +935,7 @@ imp_run_id = imp_registry.register(
     agg_result,
     label    = "copper baseline",
     parents  = {
-        "inputs": {"acc": inputs.acc.entry("copper"), "params": param_refs},
+        "inputs": {"acc": inputs.acc.entry(ACC_ID), "params": param_refs},
         "upstream": {"feed_run_ids": [s["feed_run_id"] for s in collector.selected]},
     },
     imputers = engine.imputers,
@@ -962,7 +966,7 @@ constraint_run = const_engine.run(
     label      = "copper",
     parents    = {
         "inputs": {
-            "acc":    inputs.acc.entry("copper"),
+            "acc":    inputs.acc.entry(ACC_ID),
             "params": [inputs.params.entry("conc"), inputs.params.entry("eff"),
                        inputs.params.entry("stock_bounds")],
         },
@@ -1044,7 +1048,7 @@ the sidecar.
 
 ### Input registry (`data/input/`)
 
-Three kinds (`feed`, `acc`, `params`), each with its own per-kind
+Four kinds (`feed`, `acc`, `params`, `mask`), each with its own per-kind
 `registry.json`:
 
 ```
@@ -1067,7 +1071,8 @@ Load-bearing files per kind:
 | Kind | Load-bearing files |
 |---|---|
 | `params/<id>/` | `params.csv` |
-| `acc/<id>/` | `root.ods`, `bounds.ods`, `rules.ods` |
+| `acc/<id>/` | `root.ods`, `bounds.ods`, `rules.ods`, `masks.csv` (optional; an absent file hashes to empty) |
+| `mask/<id>/` | `rules.csv` |
 | `feed/<id>/` | per-feed declared list; default = "every file in `current/` not matching `*.bib` / `*.md`" |
 
 Downstream runs record `(id, version)` in their sidecar
@@ -1169,14 +1174,14 @@ utils / logging  ←  imported by any layer, import nothing from pysuto
 
 ## Testing
 
-Each layer has a dedicated test file in `tests/`. Shared fixtures live in `conftest.py`.
+Each layer has a dedicated test file in `tests/`. There is no `conftest.py`: fixtures are toy objects built in each test module.
 
 | Test file | Scope |
 |---|---|
 | [test_accounting_structure.py](tests/test_accounting_structure.py) | `AccountingStructure` index, masks, bounds |
 | [test_conc.py](tests/test_conc.py) | Concordance and `WeightMatrix` construction / sparse round-trip |
 | [test_unc.py](tests/test_unc.py) | Pedigree → CV formulas; CV-invariant Lp propagation invariants |
-| [test_feedpipe.py](tests/test_feedpipe.py) | Stage 1 orchestration end-to-end |
+| [test_feedpipe.py](tests/test_feedpipe.py) | Stage 1 pieces: step D propagation, `DataFeedMetadata` pedigree → CV, `DataFeedRegistry` round-trip, mass-conservation guard, edge-scope mask (`run_feed_pipeline` itself has no test) |
 | [test_registry.py](tests/test_registry.py) | `DataFeedRegistry` save/load/round-trip |
 | [test_collector.py](tests/test_collector.py) | Feed alignment, NaN coverage mask, `Ω` column sums |
 | [test_agg.py](tests/test_agg.py) | `Ω` construction, `f_agg = 1ᵀ(Ω⊙F)`, σ_agg invariants |
@@ -1207,7 +1212,7 @@ indistinguishable from real data once it reaches the model:
 The two tables above cover the core layers and the parse stage; `tests/` holds further modules for
 diagnostics, params and helpers not itemised here.
 
-Run with `pytest tests/ -v` — **1,059 passing, 1 skipped** as of Stage 6 Slice 6 (in a git worktree, prefix with `PYTHONPATH=src`: the conda env's editable install points at the main checkout).
+Run with `pytest tests/ -v` — **1,136 passing, 1 skipped** as of 2026-10-08 (in a git worktree, prefix with `PYTHONPATH=src`: the conda env's editable install points at the main checkout).
 
 ---
 

@@ -8,8 +8,8 @@ Pipeline
 --------
 1  Load ClarabelSolver + ConstraintRun
 2  Feasibility pre-check (defaults to first timestep only)
-3  Solve every timestep with the warm-start prior  a_prior(t) = a_post(t-1)
-   (prior_mode='warm', the ClarabelSolver default)
+3  Solve every timestep from the cold prior  a_prior(t) = conditioned f_agg(t)
+   (--prior-mode cold, this driver's default; 'warm' carries a_post(t-1))
 4  Persist OptimResults to data/proc/opt/<opt_run_id>/
 5  Render the SolverDiag portfolio (12 figures + ranking CSVs + provenance)
    under data/proc/opt/<opt_run_id>/diag/ (per-year edge/constraint CSVs on
@@ -163,7 +163,7 @@ if __name__ == "__main__":
     parser.add_argument(
         "--prior-mode", required=False, default='cold',
         choices=["warm", "cold"],
-        help="ClarabelSolver prior mode: 'warm' (default) or 'cold'."
+        help="ClarabelSolver prior mode: 'cold' (default) or 'warm'."
     )
 
     args = parser.parse_args()

@@ -634,11 +634,11 @@ class PSUT(_TidyView):
 
     def to_piot(self, construct: str = "market_share", level: str = "Z"):
         """This table's input-output side: a :class:`~pysuto.piot.PIOT` built
-        by ``construct`` up to ``level``. Slice 5 ships the market-share
-        (industry-by-industry) construct at level ``'Z'`` — the process
-        network, with ``Z()``, ``D()`` and the process-network ``sankey()``;
-        ``'suh_product'`` and the levels ``'A'``/``'L'`` raise
-        ``NotImplementedError`` until issue #20."""
+        by ``construct`` up to ``level``. The market-share (industry-by-industry)
+        construct is built at level ``'Z'`` — the process network, with
+        ``Z()``, ``D()`` and the process-network ``sankey()`` — or on to
+        ``'A'`` and ``'L'``; ``'suh_product'`` raises ``NotImplementedError``
+        until issue #20."""
         from .piot import PIOT                              # lazy: piot imports psut
         return PIOT.from_psut(self, construct=construct, level=level)
 

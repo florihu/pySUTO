@@ -149,7 +149,7 @@ class PIOT(_TidyView):
         The node universe inherited from the PSUT; ``Z`` is labelled from its
         Process rows, ``D`` from its Process and Flow rows.
     construct, level
-        How the table was built and how far (``'Z'`` only in Slice 5).
+        How the table was built and how far (``'Z'``, ``'A'`` or ``'L'``).
     valuations, primary, acc_id, opt_run_id, const_run_id, aggregation
         Carried over from the PSUT.
     """

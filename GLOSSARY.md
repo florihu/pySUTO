@@ -98,8 +98,8 @@ The four parameter kinds, split **extensive** vs **intensive**. *Extensive* (kt 
 (category 4) — these two are the `ParametricImputer` edge-pair relations.
 
 **Prior `a₀`**:
-The best-estimate flow vector the QP stays close to: `f_agg` at the first timestep, and the
-previous year's optimum thereafter (warm start).
+The best-estimate flow vector the QP stays close to: the year's conditioned `f_agg` slice
+(`prior_mode="cold"`, the driver default) or, under `"warm"`, the previous year's optimum.
 
 **Prior σ (`σ_a`)**:
 The standard deviation of an edge's prior: how far the QP may move the edge from `a₀` at unit
@@ -190,11 +190,11 @@ Seeding the prior `a₀(t)` for a timestep with the previous year's optimum `a*(
 
 **Run** / **run-id**:
 One persisted execution of a stage, keyed `{stage}_{YYYYMMDD_HHMMSS}_{uuid}`
-(`stage ∈ {feed, imp, const, opt, uncprop}`).
+(`stage ∈ {feed, imp, const, opt, uncprop, psut}`).
 
 **Registry**:
 A per-stage store of runs. The **input registry** versions the input *bytes*
-(feed / acc / params, hardlink-deduped); each **output registry** records a run plus its
+(feed / acc / params / mask, hardlink-deduped); each **output registry** records a run plus its
 sidecar.
 
 **Sidecar** (`metadata.json`):

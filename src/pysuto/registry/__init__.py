@@ -1,5 +1,5 @@
 """
-registry — harmonized output registries for Stages 1–4.
+registry — harmonized output registries for Stages 1–6.
 
 Public surface (re-exported here so call sites can keep using
 ``from pysuto.registry import X``):
@@ -15,7 +15,7 @@ Public surface (re-exported here so call sites can keep using
 * :func:`make_run_id`             — ``{stage}_{ts}_{code}`` minter
 * :func:`build_sidecar`           — per-run ``metadata.json`` payload builder
 
-All four output registries share one run-id pattern and one sidecar schema,
+All six output registries share one run-id pattern and one sidecar schema,
 defined in :class:`BaseOutputRegistry`:
 
 * run-id literal format ``{stage}_{YYYYMMDD_HHMMSS}_{8-char-uuid4-hex}``
