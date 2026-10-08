@@ -328,7 +328,8 @@ resolving a same-vintage collision as a restatement. One stream then silently re
 rather than adding to it, and which one survives depends on row order
 ([ADR 0036](docs/adr/0036-a-renamed-type-is-a-second-stream-not-a-restatement.md)). _Avoid_ also:
 reading a vintage as a *time* coordinate — it labels the publication, not the year observed; one
-vintage carries many observation years.
+vintage carries many observation years. _Avoid_ also: "edition" for a yearbook's release — say
+vintage.
 
 **Boundary topology** *(referenced by [ADR 0001](docs/adr/0001-replace-coherence-sum-eq-with-bilateral-anchoring.md); to be expanded)* —
 the open System-Boundary (SB) endpoints where flows terminate, so prior disagreement there does
@@ -549,6 +550,18 @@ signed stock legs are the structural candidates (they alone may be negative, ADR
 exchange-location `MESC` legs at σ ≈ 553 kt were one (Round X). Relates to **forced vs
 discretionary deletion**: a sink converts a forced contradiction into a discretionary move.
 _Avoid_: "slack" (the soft-row residual), "buffer".
+
+**Stock level** — the end-of-period quantity ICSG reports for a region and one stock type
+(producers, consumers, merchants, government, or an exchange). It never enters the account
+directly. _Avoid_: "stock" when the account's `PSC` / `USC` / `MESC` entities are meant, "stock
+change" for a level.
+
+**Net addition to stock (NAS)** — the difference between a stock level and the same series' level
+in the preceding year of the same **vintage**; it is the reported value a **stock-change leg**
+carries. A NAS never straddles two vintages or a reporting gap. `PSC` is the producer NAS (a lone
+yearbook `Total` counts as producers), `MESC` the exchange NAS by **exchange location**, `USC` the
+sum of the consumer, merchant and government NAS of a region-year. _Avoid_: "stock change" for the
+quantity (ambiguous with the leg), a level difference taken across vintages.
 
 ## Feed valuation & trade-share vocabulary
 
