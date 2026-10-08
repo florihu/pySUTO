@@ -356,10 +356,10 @@ Two things are wrong and they are separable:
 
 **2. Three more files in the ICSG parse stage are still dead.** Round S revived `icsg_2014.py`,
 `icsg_comb.py` and `process_icsg.py` because the chain had to run. `icsg_2005.py`, `icsg_2023f.py`
-and `icsg_cap.py` carry the identical two breakages — `from pysuto.util import` (renamed to
-`pysuto.utils`) and `out_folder = 'data/proc/datafeed/icsg_clean'` (renamed to
-`data/proc/feedprep/`). Their outputs are checked in and unaffected, so nothing is blocked today,
-but the stage cannot be rebuilt from the raw yearbooks until they are repaired. Mechanical.
+and `icsg_cap.py` carried the identical two breakages; #50 fixed the import (`pysuto.util` →
+`pysuto.utils`, now under test) and `out_folder = 'data/proc/datafeed/icsg_clean'` (renamed to
+`data/proc/feedprep/`) remains. Their outputs are checked in and unaffected, so nothing is blocked
+today, but the stage cannot be rebuilt from the raw yearbooks until it is repaired. Mechanical.
 
 ## ROUND R — SHIPPED 2026-09-22: BACI's quantity contradicts its own value (ADR 0033)
 

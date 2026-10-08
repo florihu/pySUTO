@@ -58,7 +58,7 @@ data/proc/const/<const_run_id>/
 - `type` — `mass_balance | sum_eq | ratio_eq | ratio_bound | flow_bound`.
 - `is_hard` — bool.
 - `cone_type` — `zero | nonneg | free`.
-- `time` — year string for time-bound rows, `None` for time-agnostic.
+- `time` — year string. A row whose time is no year of the structure (`None` from a wildcard-time CSV sum) is rejected by the engine's per-year partition (#51), so no persisted run carries one.
 
 Loading:
 ```python
