@@ -35,14 +35,19 @@ and BACI's *value* agrees with ICSG production in every year (0.92-1.09) while
 its *quantity* is 60 % out in exactly those years.  The quantity is the broken
 field, so it is rebuilt from the value at the region's own measured fraction.
 
-The reconstruction is two-sided (Round Z).  Papua New Guinea's 2019-2022
-concentrate legs carry a fraction of 0.0006 — PNG → Philippines 2020 is
-21,277,530 t at 3.6 USD/t, kilograms booked as tonnes — so a leg below
-``LO_LEG_GATE`` (floor / 10) in an exporter-year below ``LO_YEAR_GATE`` (the
-floor) is rebuilt by the same formula, downwards.  The leg gate is not the
-floor: a value is net of payables and treatment charges, so real concentrate
-sits at 0.15-0.20.  Each side only moves its leg one way: up above the band,
-down below it.
+The reconstruction is two-sided (Round Z).  Both sides need a concentrate leg
+of at least ``MIN_LEG_T`` and rebuild it by the same ``q = v / (P_cu · g_ref)``:
+
+above  leg and exporter-year fraction > ``BAND_HI`` (the ceiling): too little
+       mass for the value; the leg is only ever raised, never below ``q_obs``.
+below  leg fraction < ``LO_LEG_GATE`` (floor / 10) in an exporter-year below
+       ``LO_YEAR_GATE`` (the floor): too much mass for the value; the leg is
+       only ever lowered, never above ``q_obs``.
+
+Papua New Guinea's 2019-2022 legs are the low-side case: PNG → Philippines
+2020 is 21,277,530 t at 3.6 USD/t, a fraction of 0.0006, kilograms booked as
+tonnes.  The leg gate is not the floor: a value is net of payables and
+treatment charges, so real concentrate sits at 0.15-0.20.
 
 _Avoid_: reading the fraction as a grade.  GLOSSARY.md's **Concentrate grade**
 entry already warns that values of 0.6-0.9 "are not grades at all" but a
@@ -311,8 +316,9 @@ def main() -> None:
     rec = reconstruct_quantity(agg, refs, p_cu)
     for side in ("above", "below"):
         s = rec[rec["side"] == side]
-        logger.info("ADR 0033 %s the band: %d of %d concentrate legs in %d exporter-years "
-                    "flagged; mass %.0f → %.0f kt (%+.0f kt)", side, len(s), len(conc),
+        logger.info("ADR 0033 %s the band: %d of %d concentrate legs in %d "
+                    "exporter-years flagged; mass %.0f → %.0f kt (%+.0f kt)",
+                    side, len(s), len(conc),
                     s.groupby(["Region_from", "Year"]).ngroups,
                     s["q_obs"].sum() / 1e3, s["q_new"].sum() / 1e3,
                     (s["q_new"] - s["q_obs"]).sum() / 1e3)

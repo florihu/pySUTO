@@ -182,13 +182,13 @@ detector. **ROW is now 62 % of the remaining forced term** and the largest singl
 → `const_20261007_122703_50f6ff71`, baci v11) the Concentrate `Mass` retention falls in 2019–2022
 while `CC` holds:
 
-| year | Mass prior | Mass posterior | Mass retention | CC retention |
-|---|---|---|---|---|
-| 2018 | 64,063 kt | 61,824 kt | 0.965 | 0.948 |
-| 2019 | 85,349 kt | 61,207 kt | 0.717 | 0.934 |
-| 2020 | 105,492 kt | 61,642 kt | **0.584** | 0.904 |
-| 2021 | 87,446 kt | 63,392 kt | 0.725 | 0.914 |
-| 2022 | 94,745 kt | 63,920 kt | 0.675 | 0.921 |
+| year | Mass prior | Mass posterior | Mass retention | CC prior | CC retention |
+|---|---|---|---|---|---|
+| 2018 | 64,063 kt | 61,824 kt | 0.965 | 17,603 kt | 0.948 |
+| 2019 | 85,349 kt | 61,207 kt | 0.717 | 17,535 kt | 0.934 |
+| 2020 | 105,492 kt | 61,642 kt | **0.584** | 18,392 kt | 0.904 |
+| 2021 | 87,446 kt | 63,392 kt | 0.725 | 18,565 kt | 0.914 |
+| 2022 | 94,745 kt | 63,920 kt | 0.675 | 18,581 kt | 0.921 |
 
 Without Papua New Guinea the Mass retention is 0.948–0.964 in every one of these years. The prior is
 wrong, in raw BACI: HS 260300 from PNG (`i = 598`) to the Philippines in 2020 is
@@ -196,8 +196,9 @@ wrong, in raw BACI: HS 260300 from PNG (`i = 598`) to the Philippines in 2020 is
 fraction of **0.0006**. PNG's legs to Japan, China and Korea sit at 0.34–0.41 in the same years.
 That is kilograms booked as tonnes. PNG's export mass is 22,248 / 40,813 / 21,607 / 28,381 kt in
 2019–2022 against 205–416 kt in 2015–2018. The defect reaches both valuations. `Mass` carries
-it directly (edge 91910, 21,277.53 kt), and Stage 2's outlier-leg rule makes deleting it nearly free
-(z ≈ −0.2). `CC` carries it as **geography**: the ICSG fan is split by trade-share weights on BACI
+it directly (2020: edge 91910 PNG → Philippines, 21,277.53 kt; 93050 PNG → ROW, 16,950.5 kt),
+and Stage 2's outlier-leg rule makes deleting it nearly free (z ≈ −0.2). The world `CC` prior does
+not move, because the importers' ICSG usage is conserved. `CC` carries it as **geography**: the ICSG fan is split by trade-share weights on BACI
 mass, so PNG takes 81 % of the Philippines' CC concentrate intake (2018: 6 %) and 92 % of ROW's
 (edges 91911, 93051). The solver deletes that at z −9.2 / −6.5 / −14.6 (Philippines / ROW / India).
 Congo D.R. → Zambia 2020 has the same shape: 1,964,086 t at 31 USD/t, leg 0.005, exporter-year
@@ -248,12 +249,10 @@ above-flagged one does. `quantity_recon.csv` gains a `side` column, and its `rec
 | | |
 |---|---|
 | below-flagged | **119 legs, 70 exporter-years, 27 exporters; 115,854 → 390 kt** (PNG 111,809 kt of it) |
-| PNG export mass 2019–2022 | 22,248 / 40,813 / 21,607 / 28,381 → **468 / 391 / 329 / 335 kt** |
+| PNG export mass 2019–2022 | 22,248 / 40,813 / 21,607 / 28,381 → **468.5 / 391.3 / 328.8 / 334.6 kt** |
 | Congo D.R. → Zambia 2020 | 1,964.1 → **37.6 kt** |
 | above side (null) | 881 legs, +82,320 kt, identical to the one-sided rule; every leg not flagged below is unchanged |
-| leg gate 0.01 / 0.02 / 0.05 | 57 / 119 / 218 legs; 114,842 / 115,854 / 118,727 kt rebuilt to 342 / 390 / 767 kt |
 
-The flagged legs spread over every five-year block (8 / 34 / 12 / 12 / 12 / 41), so this defect,
-too, is not new. The solve is measured by the Round Z measure ticket, with two chains that differ
-only in the parse (#30's stale inputs held equal). This section's status is completed with those run
-ids.
+The solve, the leg-gate sensitivity and the netting delta are measured by the Round Z measure
+ticket, with two chains that differ only in the parse (#30's stale inputs held equal). This
+section's status is completed with those run ids.

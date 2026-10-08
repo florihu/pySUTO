@@ -291,7 +291,7 @@ def test_a_leg_in_a_flagged_year_is_reconstructed():
 # Philippines 2020 is 21,277,530 t at 3.6 USD/t, a fraction of 0.0006, while
 # its clean years sit at 0.32.
 
-PNG, PHL, PRK = 598, 608, 408
+PNG, PHL, PRK = 598, 608, 408           # PRK: North Korea, folded into ROW
 
 
 def _png():
