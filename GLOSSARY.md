@@ -190,7 +190,7 @@ Seeding the prior `a₀(t)` for a timestep with the previous year's optimum `a*(
 
 **Run** / **run-id**:
 One persisted execution of a stage, keyed `{stage}_{YYYYMMDD_HHMMSS}_{uuid}`
-(`stage ∈ {feed, imp, const, opt, uncprop}`).
+(`stage ∈ {feed, imp, const, opt, uncprop, psut}`).
 
 **Registry**:
 A per-stage store of runs. The **input registry** versions the input *bytes*

@@ -8,7 +8,8 @@ Covers:
     - DataFeedMetadata construction and pedigree conversion
     - PropagationResult fields and numerical correctness
     - DataFeedRegistry  register / save / reload round-trip
-    - run_feed_pipeline convenience wrapper (steps A–D + register)
+    - Mass-conservation guard and edge-scope mask
+      (run_feed_pipeline itself — steps A–D + register — has no test here)
     - Edge cases: zero flows, single-edge identity matrix, perfect-quality scores
 
 Run with:

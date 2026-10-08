@@ -418,8 +418,8 @@ class TestEngineToSolverIntegration:
 
     def _build_real_run(self, tmp_path):
         # Reuse test_constraints' toy_acc / toy_agg_result via local builders.
-        # Use persist=False to keep cr.G_blocks intact (registry persistence
-        # of G_blocks lands in Slice 8; until then, save/load drops them).
+        # persist=False keeps the run in memory; G_blocks are persisted and
+        # round-tripped by ConstraintRunRegistry, this test just needs no disk.
         from tests.test_constraints import _make_toy_acc, _make_toy_agg_result
         from pysuto.constraints import ConstraintEngine, MassBalanceBuilder
 
@@ -433,8 +433,8 @@ class TestEngineToSolverIntegration:
 
     @staticmethod
     def _solver_with_inmem_run(storage_dir, cr, monkeypatch):
-        """Build a ClarabelSolver whose load_run returns the in-memory cr,
-        so G_blocks survives (Slice 8 will fix the on-disk round-trip)."""
+        """Build a ClarabelSolver whose load_run returns the in-memory cr
+        (G_blocks round-trip through the registry; this only skips the disk)."""
         from pysuto.solver import ClarabelSolver
         s = ClarabelSolver(const_dir=storage_dir, verbose_first_solve=False)
         monkeypatch.setattr(s, "load_run", lambda _rid: cr)
