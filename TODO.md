@@ -41,7 +41,7 @@
 2. Most-changed a, z outliers                    → SD-R-13 / SD-R-14 / SD-R-15a (edge defects by objective share), SD-T-07 a-space
 3. c*(t)−c₀(t): which constraints moved          → SD-R-13 / SD-R-14 / SD-R-15b-c (sum-row and soft-ratio residuals); `ranking_<family>.csv`
 
-# ROUND Z — BACI KILOGRAMS AS TONNES: THE LOW SIDE OF ADR 0033 (measured 2026-10-08; ACCEPTED; issue #48)
+# ROUND Z — BACI KILOGRAMS AS TONNES: THE LOW SIDE OF ADR 0033 (MERGED 2026-10-08; issue #48)
 
 **Defect:** PNG's 2019–2022 HS 260300 legs book kilograms under a tonne header (PNG → Philippines
 2020: 21,277,530 t at 3.6 USD/t, value-implied Cu fraction 0.0006). ADR 0033 was one-sided, so
@@ -67,10 +67,9 @@ effect: their priors rise with the corrected fan, and their posteriors rise too)
 `docs/rep/analysis_opt_20261008_092950_625a6c7e_20261008_roundZ-png-kg-as-t.md`;
 `scripts/explo/roundZ_png_kg_diag.py`.
 
-**Verdict:** accepted. Z becomes the reference chain on merge (user's call). Then
-`docs/manuscript/method.md` (trade-defects paragraph) and `si.md` (BACI row of the
-input-correction table) still describe the one-sided rule, and their Concentrate figures need the
-new chain.t:** pending.
+**Verdict:** accepted and merged to main 2026-10-08; Z (`opt_20261008_092950_625a6c7e`) is the
+reference chain. The manuscript's Method and SI describe the two-sided rule (BACI v14); its
+Results still read the W.1 chain, as they have since Round X.t:** pending.
 
 # ROUND X — STOCK LEGS AT THEIR PRIOR (measured 2026-10-05; ADR 0040; issue #34)
 
