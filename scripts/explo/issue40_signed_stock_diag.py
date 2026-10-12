@@ -15,7 +15,13 @@ pre-registered items for <new> against <base>:
         rows whose c moved
     C   common-set sum-row z² over 30 years, per year and per |c| band
 
-    python scripts/explo/issue40_signed_stock_diag.py <opt_base> <opt_new>
+With a third run <opt_ref> (#40.1, against #40's own run):
+
+    H   the cathode use totals that carried a negative target in <opt_ref>: their
+        summed z² in <opt_ref> and in <opt_new>
+    V   stock leg-years whose CC prior is negative while their Mass prior is positive
+
+    python scripts/explo/issue40_signed_stock_diag.py <opt_base> <opt_new> [<opt_ref>]
     python scripts/explo/issue40_signed_stock_diag.py --crosseval <opt_base> <opt_new> <year> ...
 
 ``--crosseval`` scores each run's posterior under each run's year-QP (ADR 0039), so a
@@ -67,6 +73,26 @@ def _signs(s, col):
     out = pd.DataFrame({"neg": v.lt(0), "zero": v.eq(0), "pos": v.gt(0)})
     out[["sector_to", "valuation"]] = s[["sector_to", "valuation"]].to_numpy()
     return out.groupby(["sector_to", "valuation"])[["neg", "zero", "pos"]].sum()
+
+
+def _mixed_signs(e):
+    """Stock leg-years with a negative CC prior beside a positive Mass prior."""
+    k = ["sector_from", "region_from", "sector_to", "region_to", "time"]
+    w = _stock(e).pivot_table(index=k, columns="valuation", values="prior")
+    return int(((w["CC"] < 0) & (w["Mass"] > 0)).sum())
+
+
+def hubs_and_valuations(new, ref, acc, ei):
+    S = {o: Z._sums(o, acc) for o in (ref, new)}
+    r = S[ref]
+    hub = r[r.constraint_id.str.startswith("sum_usetotout_Cathode_") & (r.c < 0)]
+    k = ["constraint_id", "year"]
+    j = hub[k + ["z2"]].merge(S[new][k + ["z2"]], on=k, how="left", suffixes=("_ref", "_new"))
+    print(f"\n== H {len(j)} cathode use totals with c < 0 in {ref}: z² {j.z2_ref.sum():,.0f} → "
+          f"{j.z2_new.sum():,.0f} in {new} ({100 * j.z2_new.sum() / j.z2_ref.sum():.2f} %)")
+    print("\n== V stock leg-years with CC prior < 0 and Mass prior > 0")
+    for o in (ref, new):
+        print(f"   {o}: {_mixed_signs(_edges(o, ei)):,}")
 
 
 def main(base, new):
@@ -143,3 +169,8 @@ if __name__ == "__main__":
         Z.crosseval(sys.argv[2], sys.argv[3], sys.argv[4:])
     else:
         main(sys.argv[1], sys.argv[2])
+        if len(sys.argv) > 3:
+            _acc = AccountingStructure.load(id=load_config().pipeline.acc_id,
+                                           storage_dir=str(ROOT / "acc"))
+            hubs_and_valuations(sys.argv[2], sys.argv[3], _acc,
+                                expand_edge_index(_acc.edge_index, _acc.node_index))

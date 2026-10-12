@@ -74,9 +74,15 @@ The fan of a signed stock change is now computed on its magnitude, so all non-Ta
 distributed; Round-E holds. Pre-registered item 4 fails in 2003 (+121 kt on MESC/USC) and common-set
 sum-row z² rises **+9.22 %**, 97.2 % of it on 48 cathode use totals of six exchange hubs (NL, SG, MY,
 FR, UAE, UK): the fan books their draw-downs on cathode they never produced. 1,250 stock leg-years
-also carry a negative CC prior beside BACI's positive Mass prior (#36 item 1). **Next: one round
-deciding (1) the domestic leg of a signed fan at a non-producing hub and (2) BACI's 98/1/1 cathode
-fan.** #65 stays blocked until then. trade_shares v24 is the registered latest version.
+also carry a negative CC prior beside BACI's positive Mass prior (#36 item 1).
+
+**#40.1 MEASURED 2026-10-12** (`568d62f`, run `opt_20261012_122124_40b1b370`, REP
+`docs/rep/analysis_opt_20261012_122124_40b1b370_20261012_issue40-1-supply-mix-fans.md`): stock changes
+drawn from the region's cathode supply mix + BACI cathode fan 100/0/0. Hub z² 160,444 → 841, mixed-sign
+legs 1,250 → 0, z² +0.13 % vs Z; **item 3 fails** (gross stock-leg adjustment > +100 kt vs Z in 10 years;
+net within ±91 kt except 1995, −163.5 kt with no stock data). **Maintainer's call: ship over item 3
+(REP §5 option 1) or attribute with change 1 alone (option 2).** #65 stays blocked. Registered latest:
+baci v15, trade_shares v26 (v25 discarded).
 
 ## ADR 0017's reference leg size drifts with the population it prices
 
