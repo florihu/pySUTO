@@ -403,3 +403,44 @@ def test_importer_region_does_not_price_the_leg():
     ]), conc).set_index("root_region_from")
     assert to_japan.loc["Chile", "weight"] == pytest.approx(32.0)
     assert to_china.loc["Chile", "weight"] == pytest.approx(32.0)
+
+
+# ---------------------------------------------------------------------------
+# Signed stock-change legs (#40)
+# ---------------------------------------------------------------------------
+
+def _belgium_mesc(icsg_total):
+    """Belgium's exchange stock change of one year, fanned over its origins."""
+    return pd.DataFrame([
+        _edge("Belgium", "Belgium", icsg_total / 3, np.nan, st="MESC", t=2000),
+        _edge("Chile",   "Belgium", icsg_total / 3, 10.0,   st="MESC", t=2000),
+        _edge("Peru",    "Belgium", icsg_total / 3, 2.0,    st="MESC", t=2000),
+    ])
+
+
+def test_a_draw_down_fans_like_a_build_of_the_same_size():
+    """Regression: only usage > 0 was emitted, so every negative MESC/USC row
+    reached the concordance unweighted and was not distributed (ADR 0008):
+    150 of 150 negative stock changes never entered the account.  The weights
+    stay non-negative; the sign travels with the value."""
+    build = compute_trade_share_weights(_belgium_mesc(19.1), CONC)
+    draw  = compute_trade_share_weights(_belgium_mesc(-19.1), CONC)
+    assert len(draw) == 3
+    w_build = {r.root_region_from: r.weight for r in build.itertuples()}
+    w_draw  = {r.root_region_from: r.weight for r in draw.itertuples()}
+    assert w_draw == pytest.approx(w_build)
+    assert w_draw["Chile"] == pytest.approx(0.9975 * 10.0)
+    assert (draw["weight"] >= 0).all()
+
+
+def test_a_zero_stock_change_still_emits_no_rows():
+    """A zero has no fan shape to give; an undistributed zero and the net-stock
+    seed carry the same prior and sigma (ADR 0040)."""
+    assert compute_trade_share_weights(_belgium_mesc(0.0), CONC).empty
+
+
+def test_a_negative_flow_into_final_use_is_not_made_positive():
+    """Only the stock-change legs are signed; a flow keeps its rule."""
+    df = pd.DataFrame([_edge("China", "China", -5.0, np.nan),
+                       _edge("USA",   "China", -5.0, 2000.0)])
+    assert compute_trade_share_weights(df, CONC).empty

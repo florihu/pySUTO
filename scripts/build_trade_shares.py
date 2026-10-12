@@ -88,6 +88,9 @@ from pysuto.param_relation import conc_for, conc_nominal_lookup
 TRADED_SECTORS = ["Cathode", "Concentrate", "Anode", "Matte"]
 # Sectors actually emitted this run.
 SECTORS = list(TRADED_SECTORS)
+# Destinations of the signed stock-change legs (GLOSSARY "Stock-change leg";
+# CP→PSC is not fanned).  The same membership is kept in three other places, #39.
+SIGNED_SECTORS_TO = ("MESC", "USC")
 
 _INPUT_ROOT = os.path.join("data", "input")
 ACC_DIR     = os.path.join("data", "proc", "acc")
@@ -196,6 +199,13 @@ def compute_trade_share_weights(
         raw_u = (df[grp_cols].merge(usage_fallback, on=grp_cols, how="left")
                  ["usage_raw"].fillna(0.0).to_numpy())
         usage = np.where(usage > 0, usage, raw_u)
+
+    # A stock change is signed: a draw-down fans like a build of the same size,
+    # and the sign travels with the value, not the weights.  Without this, only
+    # usage > 0 was emitted and every negative MESC/USC row stayed undistributed
+    # (ADR 0008, #40).
+    signed = df["root_sector_to"].isin(SIGNED_SECTORS_TO).to_numpy()
+    usage = np.where(signed, np.abs(usage), usage)
 
     dom_raw = np.maximum(0.0, usage - imp_sum)      # domestic residual (ADR 0002)
     imp_raw = df["imp_cc"].to_numpy()               # import leg (0 where untraded)
