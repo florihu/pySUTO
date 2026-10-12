@@ -209,15 +209,19 @@ def compute_trade_share_weights(
 
     dom_raw = np.maximum(0.0, usage - imp_sum)      # domestic residual (ADR 0002)
     imp_raw = df["imp_cc"].to_numpy()               # import leg (0 where untraded)
+    prod = np.full(len(df), np.nan)
 
     if production is not None and len(production):
         # ADR 0024: a region cannot supply itself more of the product than it
         # produces; bound the residual and hand the remainder to the imports.
+        # A flow keeps the residual where its imports cannot carry the remainder;
+        # a stock change never does: a hub that refines no cathode cannot hold
+        # a draw-down of its own cathode (#40, 48 use totals at z 58.6).
         pcols = ["root_sector_from", "root_region_to", "root_time"]
         prod = (df[pcols].merge(production[pcols + ["production_cc"]], on=pcols, how="left")
                 ["production_cc"].to_numpy())
         remainder = dom_raw - np.maximum(np.nan_to_num(prod, nan=np.inf), 0.0)
-        bounded = ~np.isnan(prod) & (imp_sum > 0) & (imp_sum >= remainder)
+        bounded = ~np.isnan(prod) & (imp_sum > 0) & ((imp_sum >= remainder) | signed)
         dom_b = np.where(bounded, np.minimum(dom_raw, np.maximum(prod, 0.0)), dom_raw)
         with np.errstate(divide="ignore", invalid="ignore"):
             scale = np.where(bounded, (usage - dom_b) / imp_sum, 1.0)
@@ -235,7 +239,10 @@ def compute_trade_share_weights(
                          zip(df["root_sector_from"], df["root_sector_to"],
                              df["root_region_to"], df["root_time"])])
         observed = observed & ~held
-    covered = (usage > 0) & ((imp_sum > 0) | observed)
+    # A stock change at a region with neither imports nor production has nowhere
+    # to go: it stays undistributed and the net-stock seed prices it (ADR 0040).
+    nowhere = signed & (imp_sum == 0) & (np.nan_to_num(prod, nan=np.inf) <= 0)
+    covered = (usage > 0) & ((imp_sum > 0) | observed) & ~nowhere
     out = df.loc[covered, grp_cols[:2] + ["root_region_from", "root_region_to",
                                           "root_time", "weight"]]
     return out.reset_index(drop=True)

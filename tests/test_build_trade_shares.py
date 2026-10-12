@@ -444,3 +444,46 @@ def test_a_negative_flow_into_final_use_is_not_made_positive():
     df = pd.DataFrame([_edge("China", "China", -5.0, np.nan),
                        _edge("USA",   "China", -5.0, 2000.0)])
     assert compute_trade_share_weights(df, CONC).empty
+
+
+def _hub_mesc(change, imports):
+    """The UAE's exchange stock change of 2003: a hub that refines no cathode."""
+    n = 1 + len(imports)
+    rows = [_edge("United Arab Emirates", "United Arab Emirates", change / n, np.nan,
+                  st="MESC", t=2003)]
+    for region, mass in imports:
+        rows.append(_edge(region, "United Arab Emirates", change / n, mass, st="MESC", t=2003))
+    return pd.DataFrame(rows)
+
+
+def test_a_hub_draw_down_never_lands_on_cathode_it_did_not_produce():
+    """Regression (#40 round): imports of 5 kt could not carry a 59.9 kt draw-down,
+    so ADR 0024's bound did not fire and the whole change went on the hub's own
+    leg; the hub's cathode balance could not release it (z 58.6 on 48 use
+    totals).  For a signed leg the bound holds even where the import legs must
+    carry more than their recorded tonnage."""
+    df = _hub_mesc(-59.9, [("Chile", 4.0), ("Zambia", 1.0)])
+    prod = _prod([("Cathode", "United Arab Emirates", 2003, 0.0)])
+    out = compute_trade_share_weights(df, CONC, {"United Arab Emirates"}, production=prod)
+    w = {r.root_region_from: r.weight for r in out.itertuples()}
+    assert w["United Arab Emirates"] == 0.0
+    assert w["Chile"] + w["Zambia"] == pytest.approx(59.9)
+    assert w["Chile"] / w["Zambia"] == pytest.approx(4.0)
+
+
+def test_a_hub_with_neither_imports_nor_production_gets_no_fan():
+    """Nowhere to book the change: it stays undistributed and the net-stock
+    seed prices the leg (ADR 0040)."""
+    df = _hub_mesc(-59.9, [("Chile", 0.0)])
+    prod = _prod([("Cathode", "United Arab Emirates", 2003, 0.0)])
+    out = compute_trade_share_weights(df, CONC, {"United Arab Emirates"}, production=prod)
+    assert out.empty
+
+
+def test_a_producer_keeps_its_own_stock_change_up_to_its_output():
+    df = _hub_mesc(-30.0, [("Chile", 4.0)])
+    prod = _prod([("Cathode", "United Arab Emirates", 2003, 20.0)])
+    out = compute_trade_share_weights(df, CONC, {"United Arab Emirates"}, production=prod)
+    w = {r.root_region_from: r.weight for r in out.itertuples()}
+    assert w["United Arab Emirates"] == pytest.approx(20.0)
+    assert w["Chile"] == pytest.approx(10.0)
