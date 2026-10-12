@@ -66,6 +66,27 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
 
 # OPEN (2026-09-16, out of Round L)
 
+## #65 MEASURED 2026-10-12 — ACCEPTED: the ICSG feed rebuilt from the repaired stock parse (#35)
+
+`diag/icsg-stock-parse-measure`, run `opt_20261012_135741_67851aa1` vs #40.1 `opt_20261012_122124_40b1b370`,
+REP `docs/rep/analysis_opt_20261012_135741_67851aa1_20261012_issue65-icsg-stock-parse.md`. icsg v13, baci v16
+(netted against v13; weights = v15's), trade_shares v28. Every pass-rule item holds:
+- MESC 29 y, USC/PSC 28 y.
+- US PSC ≤ 19.9 kt.
+- Round-E holds and mass moved −5,945 kt.
+- Gross stock-leg adjustment falls on all three families (PSC 6,080 → 207 kt CC).
+- No non-stock row moves.
+
+Sum-row z² is **+0.16 % vs base**: Sweden +2,636, Singapore −2,924. The feed's stock changes now sum to
++540 kt over 1996–2024 (ICSG: +456; v12: −877). **New reference chain once merged:
+`opt_20261012_135741_67851aa1`.** Follow-ups (REP §7, not filed):
+1. A lone MESC/USC row lifts a reporting gap out of the ADR 0027 `icsg_gap` exclusion. Sweden, folded
+   into "Scandinavia" until 2003, is netted in 2001–2003; Singapore is the case where that is right.
+2. `build_trade_shares.py` takes usage from the latest ICSG feed run, so after an ICSG change it needs
+   a second pass (v27 → v28 here). Either read raw ICSG usage everywhere or document
+   ICSG feed → trade shares → ICSG feed.
+3. #37 and #30 are next on icsg v13.
+
 ## #40 MEASURED 2026-10-12 — NOT ACCEPTED: negative stock changes reach the account, two fan defects surface
 
 `fix/signed-stock-fans` (9e83a93, unmerged), run `opt_20261012_084619_3c11d751` vs Z
@@ -308,7 +329,7 @@ a rebuild too.
 
 Both are fixed in code: `USC` is the sum of its three types (a net addition per type and vintage, every sort
 before a dedup stable), and all five parsers write to `data/proc/feedprep/icsg_clean` and run from the raw
-yearbooks. The feed is not rebuilt until #65. The record below is kept as found.
+yearbooks. #65 rebuilt the feed (icsg v13, run `opt_20261012_135741_67851aa1`). The record below is kept as found.
 
 
 **1. `process_icsg.py` collapses three stock series onto one key, and picks the survivor at
