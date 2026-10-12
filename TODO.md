@@ -66,6 +66,18 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
 
 # OPEN (2026-09-16, out of Round L)
 
+## #40 MEASURED 2026-10-12 — NOT ACCEPTED: negative stock changes reach the account, two fan defects surface
+
+`fix/signed-stock-fans` (9e83a93, unmerged), run `opt_20261012_084619_3c11d751` vs Z
+`opt_20261008_092950_625a6c7e`, REP `docs/rep/analysis_opt_20261012_084619_3c11d751_20261012_issue40-signed-stock-fans.md`.
+The fan of a signed stock change is now computed on its magnitude, so all non-Taiwan negatives are
+distributed; Round-E holds. Pre-registered item 4 fails in 2003 (+121 kt on MESC/USC) and common-set
+sum-row z² rises **+9.22 %**, 97.2 % of it on 48 cathode use totals of six exchange hubs (NL, SG, MY,
+FR, UAE, UK): the fan books their draw-downs on cathode they never produced. 1,250 stock leg-years
+also carry a negative CC prior beside BACI's positive Mass prior (#36 item 1). **Next: one round
+deciding (1) the domestic leg of a signed fan at a non-producing hub and (2) BACI's 98/1/1 cathode
+fan.** #65 stays blocked until then. trade_shares v24 is the registered latest version.
+
 ## ADR 0017's reference leg size drifts with the population it prices
 
 `a_ref` is the **median of the covered bilateral legs**, so cleaning the leg
