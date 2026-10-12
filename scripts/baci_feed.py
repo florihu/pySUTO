@@ -199,7 +199,7 @@ def load_user_weights(acc: AccountingStructure) -> pd.DataFrame | None:
 
     The committed baci weights.csv is the legacy sector-pair format
     (root_sector_from, root_sector_to, weight — e.g. the Cathode→FU/USC/MESC
-    98/1/1 to-side fan split). Since the route+time-keyed user_weights seam
+    100/0/0 to-side fan split; a zero weight leaves a leg uncovered, #40). Since the route+time-keyed user_weights seam
     (commit 8faf5a4) ``ConcordanceTable.from_raw`` requires the full
     (sectors, regions, time) key, so a sector-pair row — which by the old
     semantics applied to every route and year — is expanded across all
@@ -302,7 +302,7 @@ def load_cv_scales(acc) -> np.ndarray | None:
 
     Each factor is applied to **every** cross-region Flow-origin edge of that
     leg in both valuations — for cathode that is the FU/USC/MESC triplet, which
-    the feed's own fan splits 98/1/1.
+    the feed's own fan splits 100/0/0 (#40).
 
     Returns ``None`` when no file is present, so the build is bit-identical to
     a feed that has been through neither transformation.

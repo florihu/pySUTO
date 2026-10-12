@@ -7,7 +7,8 @@ import pandas as pd
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
-from build_trade_shares import compute_trade_share_weights  # noqa: E402
+from build_trade_shares import (compute_trade_share_weights,  # noqa: E402
+                                stock_legs_take_the_cathode_trade)
 
 # (sector, region) keyed; "*" is the region wildcard (ADR 0029 plumbing)
 CONC = {("Cathode", "*"): 0.9975}
@@ -403,3 +404,126 @@ def test_importer_region_does_not_price_the_leg():
     ]), conc).set_index("root_region_from")
     assert to_japan.loc["Chile", "weight"] == pytest.approx(32.0)
     assert to_china.loc["Chile", "weight"] == pytest.approx(32.0)
+
+
+# ---------------------------------------------------------------------------
+# Signed stock-change legs (#40)
+# ---------------------------------------------------------------------------
+
+def _belgium_mesc(icsg_total):
+    """Belgium's exchange stock change of one year, fanned over its origins."""
+    return pd.DataFrame([
+        _edge("Belgium", "Belgium", icsg_total / 3, np.nan, st="MESC", t=2000),
+        _edge("Chile",   "Belgium", icsg_total / 3, 10.0,   st="MESC", t=2000),
+        _edge("Peru",    "Belgium", icsg_total / 3, 2.0,    st="MESC", t=2000),
+    ])
+
+
+def test_a_draw_down_fans_like_a_build_of_the_same_size():
+    """Regression: only usage > 0 was emitted, so every negative MESC/USC row
+    reached the concordance unweighted and was not distributed (ADR 0008):
+    150 of 150 negative stock changes never entered the account.  The weights
+    stay non-negative; the sign travels with the value."""
+    build = compute_trade_share_weights(_belgium_mesc(19.1), CONC)
+    draw  = compute_trade_share_weights(_belgium_mesc(-19.1), CONC)
+    assert len(draw) == 3
+    w_build = {r.root_region_from: r.weight for r in build.itertuples()}
+    w_draw  = {r.root_region_from: r.weight for r in draw.itertuples()}
+    assert w_draw == pytest.approx(w_build)
+    assert w_draw["Chile"] == pytest.approx(0.9975 * 10.0)
+    assert (draw["weight"] >= 0).all()
+
+
+def test_a_zero_stock_change_still_emits_no_rows():
+    """A zero has no fan shape to give; an undistributed zero and the net-stock
+    seed carry the same prior and sigma (ADR 0040)."""
+    assert compute_trade_share_weights(_belgium_mesc(0.0), CONC).empty
+
+
+def test_a_negative_flow_into_final_use_is_not_made_positive():
+    """Only the stock-change legs are signed; a flow keeps its rule."""
+    df = pd.DataFrame([_edge("China", "China", -5.0, np.nan),
+                       _edge("USA",   "China", -5.0, 2000.0)])
+    assert compute_trade_share_weights(df, CONC).empty
+
+
+def _hub_mesc(change, imports):
+    """The UAE's exchange stock change of 2003: a hub that refines no cathode."""
+    n = 1 + len(imports)
+    rows = [_edge("United Arab Emirates", "United Arab Emirates", change / n, np.nan,
+                  st="MESC", t=2003)]
+    for region, mass in imports:
+        rows.append(_edge(region, "United Arab Emirates", change / n, mass, st="MESC", t=2003))
+    return pd.DataFrame(rows)
+
+
+def _shares(out):
+    w = {r.root_region_from: r.weight for r in out.itertuples()}
+    total = sum(w.values())
+    return {k: v / total for k, v in w.items()}
+
+
+def test_a_hub_draw_down_never_lands_on_cathode_it_did_not_produce():
+    """Regression (#40 round): imports of 5 kt could not carry a 59.9 kt draw-down,
+    so ADR 0024's bound did not fire and the whole change went on the hub's own
+    leg; the hub's cathode balance could not release it (z 58.6 on 48 use
+    totals).  A stock change is drawn from the region's cathode supply in
+    proportion, and a hub supplies itself nothing."""
+    df = _hub_mesc(-59.9, [("Chile", 4.0), ("Zambia", 1.0)])
+    prod = _prod([("Cathode", "United Arab Emirates", 2003, 0.0)])
+    out = compute_trade_share_weights(df, CONC, {"United Arab Emirates"}, production=prod)
+    s = _shares(out)
+    assert s["United Arab Emirates"] == 0.0
+    assert s["Chile"] == pytest.approx(0.8)
+    assert s["Zambia"] == pytest.approx(0.2)
+
+
+def test_a_hub_with_neither_imports_nor_production_gets_no_fan():
+    """Nowhere to book the change: it stays undistributed and the net-stock
+    seed prices the leg (ADR 0040)."""
+    df = _hub_mesc(-59.9, [("Chile", 0.0)])
+    prod = _prod([("Cathode", "United Arab Emirates", 2003, 0.0)])
+    out = compute_trade_share_weights(df, CONC, {"United Arab Emirates"}, production=prod)
+    assert out.empty
+
+
+def test_a_producer_draws_its_stock_change_from_its_supply_mix():
+    """Own production 20 kt CC, imports 4 kt Mass (3.99 kt CC): the change is
+    drawn 20 : 3.99 — not imports first, which would put China's exchange
+    draw-downs wholly on imported cathode although it refines three times what
+    it imports."""
+    df = _hub_mesc(-30.0, [("Chile", 4.0)])
+    prod = _prod([("Cathode", "United Arab Emirates", 2003, 20.0)])
+    out = compute_trade_share_weights(df, CONC, {"United Arab Emirates"}, production=prod)
+    s = _shares(out)
+    assert s["United Arab Emirates"] == pytest.approx(20.0 / (20.0 + 0.9975 * 4.0))
+    assert s["Chile"] == pytest.approx(0.9975 * 4.0 / (20.0 + 0.9975 * 4.0))
+
+
+def test_a_producer_without_imports_keeps_its_whole_stock_change():
+    df = _hub_mesc(-30.0, [("Chile", 0.0)])
+    prod = _prod([("Cathode", "United Arab Emirates", 2003, 20.0)])
+    out = compute_trade_share_weights(df, CONC, {"United Arab Emirates"}, production=prod)
+    assert _shares(out) == {"United Arab Emirates": 1.0, "Chile": 0.0}
+
+
+def test_stock_legs_take_the_cathode_trade_into_the_region():
+    """BACI books cathode trade on the FU legs only (100/0/0, #36): a stock fan
+    reads its import pattern there, not from its own, now empty, BACI legs."""
+    edges = pd.DataFrame([
+        _edge("Chile",  "Belgium", 1.0,  500.0, st="FU",   t=2000),
+        _edge("Chile",  "Belgium", -2.0, 0.0,   st="MESC", t=2000),
+        _edge("Chile",  "Belgium", 0.5,  0.0,   st="USC",  t=2000),
+        _edge("Peru",   "Belgium", 1.0,  80.0,  st="FU",   t=2000),
+        _edge("Peru",   "Belgium", -2.0, 0.0,   st="MESC", t=2000),
+        _edge("Peru",   "Belgium", 0.0,  0.0,   st="FU",   t=2001),
+        _edge("Peru",   "Belgium", -1.0, 0.0,   st="MESC", t=2001),
+    ])
+    out = stock_legs_take_the_cathode_trade(edges)
+    mass = {(r.root_region_from, r.root_sector_to, r.root_time): r.baci_mass for r in out.itertuples()}
+    assert mass[("Chile", "MESC", 2000)] == 500.0
+    assert mass[("Chile", "USC", 2000)] == 500.0
+    assert mass[("Peru", "MESC", 2000)] == 80.0
+    assert mass[("Peru", "MESC", 2001)] == 0.0
+    assert mass[("Chile", "FU", 2000)] == 500.0                 # flows untouched
+    assert out["icsg"].tolist() == edges["icsg"].tolist()

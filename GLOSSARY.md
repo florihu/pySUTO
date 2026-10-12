@@ -544,6 +544,12 @@ seed on `PSC`, priced at 1 % of the region's `CP→Cathode`, was a sink (272 kt/
 rejected on measurement ([ADR 0041](docs/adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md)).
 _Avoid_: reading a seeded 0 as a reported zero; "throughput-scaled band" (the retired p95 pricing).
 
+**Supply-mix fan** — the split of a region's reported stock change over the origins of its
+stock-change legs, in proportion to the region's cathode supply: own production on the domestic
+leg, each partner's cathode exports to it on the import legs
+([ADR 0043](docs/adr/0043-a-stock-change-is-drawn-from-its-regions-cathode-supply.md)). _Avoid_:
+"domestic residual" (the flow fan's rule, ADR 0024), "imports first".
+
 **Sink** — an edge family whose σ makes its penalty negligible against the mass it can absorb, so
 a contradiction elsewhere discharges into it instead of surfacing as `z` where it belongs. The
 signed stock legs are the structural candidates (they alone may be negative, ADR 0039); the

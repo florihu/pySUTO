@@ -88,6 +88,9 @@ from pysuto.param_relation import conc_for, conc_nominal_lookup
 TRADED_SECTORS = ["Cathode", "Concentrate", "Anode", "Matte"]
 # Sectors actually emitted this run.
 SECTORS = list(TRADED_SECTORS)
+# Destinations of the signed stock-change legs (GLOSSARY "Stock-change leg";
+# CP→PSC is not fanned).  The same membership is kept in three other places, #39.
+SIGNED_SECTORS_TO = ("MESC", "USC")
 
 _INPUT_ROOT = os.path.join("data", "input")
 ACC_DIR     = os.path.join("data", "proc", "acc")
@@ -197,8 +200,16 @@ def compute_trade_share_weights(
                  ["usage_raw"].fillna(0.0).to_numpy())
         usage = np.where(usage > 0, usage, raw_u)
 
+    # A stock change is signed: a draw-down fans like a build of the same size,
+    # and the sign travels with the value, not the weights.  Without this, only
+    # usage > 0 was emitted and every negative MESC/USC row stayed undistributed
+    # (ADR 0008, #40).
+    signed = df["root_sector_to"].isin(SIGNED_SECTORS_TO).to_numpy()
+    usage = np.where(signed, np.abs(usage), usage)
+
     dom_raw = np.maximum(0.0, usage - imp_sum)      # domestic residual (ADR 0002)
     imp_raw = df["imp_cc"].to_numpy()               # import leg (0 where untraded)
+    prod = np.full(len(df), np.nan)
 
     if production is not None and len(production):
         # ADR 0024: a region cannot supply itself more of the product than it
@@ -216,6 +227,15 @@ def compute_trade_share_weights(
 
     df["weight"] = np.where(df["is_domestic"], dom_raw, imp_raw)
 
+    # A stock change is drawn from the region's cathode supply in proportion:
+    # its own production on the domestic leg, each partner's exports to it on
+    # the import legs.  A region that refines nothing holds no stock change of
+    # its own cathode (#40: 48 hub use totals at z 58.6), and one with neither
+    # production nor imports leaves the change to the net-stock seed (ADR 0040).
+    own = np.maximum(np.nan_to_num(prod, nan=0.0), 0.0)
+    df["weight"] = np.where(signed, np.where(df["is_domestic"], own, df["imp_cc"]),
+                            df["weight"])
+
     # Emit groups ICSG fans into (usage>0) that BACI either covers (≥1 import)
     # or observes (zero imports is then a real observation → all-domestic fan,
     # ADR 0018). Trade-blind regions stay unemitted → fan undistributed.
@@ -225,7 +245,8 @@ def compute_trade_share_weights(
                          zip(df["root_sector_from"], df["root_sector_to"],
                              df["root_region_to"], df["root_time"])])
         observed = observed & ~held
-    covered = (usage > 0) & ((imp_sum > 0) | observed)
+    nowhere = signed & (imp_sum <= 0) & (own <= 0)
+    covered = (usage > 0) & ((imp_sum > 0) | observed) & ~nowhere
     out = df.loc[covered, grp_cols[:2] + ["root_region_from", "root_region_to",
                                           "root_time", "weight"]]
     return out.reset_index(drop=True)
@@ -467,6 +488,22 @@ def icsg_raw_production(sectors, edges: pd.DataFrame) -> pd.DataFrame:
     return grid[cols].reset_index(drop=True)
 
 
+def stock_legs_take_the_cathode_trade(edges: pd.DataFrame) -> pd.DataFrame:
+    """A stock leg's BACI mass is the cathode trade on the same route's FU leg.
+
+    BACI books cathode trade on the FU legs only (sector-pair fan 100/0/0, #36),
+    so a stock fan reads its import pattern there; its own BACI legs are empty.
+    """
+    fu = edges[edges["root_sector_to"] == "FU"]
+    key = ["root_sector_from", "root_region_from", "root_region_to", "root_time"]
+    trade = fu.set_index(key)["baci_mass"]
+    out = edges.copy()
+    stock = out["root_sector_to"].isin(SIGNED_SECTORS_TO).to_numpy()
+    idx = pd.MultiIndex.from_frame(out.loc[stock, key])
+    out.loc[stock, "baci_mass"] = trade.reindex(idx).to_numpy()
+    return out
+
+
 def build_edges_frame(acc, icsg_froot, baci_froot, sectors) -> pd.DataFrame:
     """One row per CC fan-target edge for `sectors`, with icsg + paired baci_mass."""
     ei = _decoded_edges(acc)
@@ -479,8 +516,9 @@ def build_edges_frame(acc, icsg_froot, baci_froot, sectors) -> pd.DataFrame:
     cc["baci_mass"] = np.where(cc["mass_edge_id"].notna(),
                                baci_froot[cc["mass_edge_id"].fillna(0).astype(int).values],
                                np.nan)
-    return cc[["root_sector_from", "root_sector_to", "root_region_from",
-               "root_region_to", "root_time", "icsg", "baci_mass"]]
+    return stock_legs_take_the_cathode_trade(
+        cc[["root_sector_from", "root_sector_to", "root_region_from",
+            "root_region_to", "root_time", "icsg", "baci_mass"]])
 
 
 def main() -> None:
