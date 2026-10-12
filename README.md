@@ -177,6 +177,8 @@ cross-cutting (import nothing from the data layer):
 
 **Two preprocessing scripts run before the feed pipelines and write into the input registry, so their order matters:** `scripts/build_baci_reexport.py` reads the registered gross BACI version and writes a **netted** one — re-exported tonnage re-attributed from the hub to its true origin and destination, with a residual ledger beside it ([ADR 0027](docs/adr/0027-re-exports-are-re-attributed-at-feed-time.md)) — and must run before `scripts/baci_feed.py`; `scripts/build_trade_shares.py` then builds the ICSG fan weights from that netted matrix ([ADR 0002](docs/adr/0002-single-endpoint-rows-fan-out-not-replicate.md) option D, [ADR 0024](docs/adr/0024-fan-domestic-leg-bounded-by-own-production.md)) and must run before `scripts/icsg_feed.py`.
 
+**Stock changes fan by supply, not by residual.** For the signed stock legs (MESC, USC) the trade-share builder draws a reported change from the region's cathode supply in proportion: its own production on the domestic leg, and each partner's cathode exports to it, read from the Cathode→FU leg, on the import legs. A region with neither leaves the change to the net-stock seed. BACI's own cathode fan books all of its trade on FU, so stock legs carry no BACI prior ([ADR 0043](docs/adr/0043-a-stock-change-is-drawn-from-its-regions-cathode-supply.md)).
+
 > **⚠ Any change to the ICSG *or* BACI feed invalidates the trade-share weights — rebuild them.**
 > `build_trade_shares.py` reads both: the netted BACI matrix *and* the ICSG feed's own production
 > (`icsg_intake_production`), which is what the [ADR 0024](docs/adr/0024-fan-domestic-leg-bounded-by-own-production.md)

@@ -80,9 +80,9 @@ also carry a negative CC prior beside BACI's positive Mass prior (#36 item 1).
 `docs/rep/analysis_opt_20261012_122124_40b1b370_20261012_issue40-1-supply-mix-fans.md`): stock changes
 drawn from the region's cathode supply mix + BACI cathode fan 100/0/0. Hub z² 160,444 → 841, mixed-sign
 legs 1,250 → 0, z² +0.13 % vs Z; **item 3 fails** (gross stock-leg adjustment > +100 kt vs Z in 10 years;
-net within ±91 kt except 1995, −163.5 kt with no stock data). **Maintainer's call: ship over item 3
-(REP §5 option 1) or attribute with change 1 alone (option 2).** #65 stays blocked. Registered latest:
-baci v15, trade_shares v26 (v25 discarded).
+net within ±91 kt except 1995, −163.5 kt with no stock data). **SHIPPED over item 3 by the maintainer's decision
+(ADR 0043); the 1995 sink and the gross shuffling go to #37. #65 is next.** Registered latest: baci v15, trade_shares v26
+(v25 discarded). **New reference chain: `opt_20261012_122124_40b1b370`.**
 
 ## ADR 0017's reference leg size drifts with the population it prices
 
