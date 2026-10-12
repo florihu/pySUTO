@@ -35,6 +35,15 @@ CLEAN_DIR = "data/proc/feedprep/icsg_clean"
 TOTAL_TOLERANCE_KT = 0.5
 
 # combined type key (Stock_type + "_" + Type) -> stock-change leg
+#
+# A region that prints only a total counts as producers, as in ICSG's own
+# summary tables: the 2005 and 2014 yearbooks add every lone total to
+# "Producers" (2004: 453.0 kt of producer rows + 108.4 kt of totals = 561.4 kt),
+# and the 2023/2025 yearbooks still do for the estimated totals (China, Germany,
+# Korea, the Philippines, Bulgaria).  They keep only Japan's total since 2021
+# apart ("detail by type not specified"); producers held 82-87 % of Japan's
+# stocks in 2016-2020, its last years with types.  Splitting a total by shares
+# would add an estimate to the feed.
 RENAME_DICT = {
     "PMC_Producers":          "PSC",
     "PMC_Producers/Merchants":"PSC",
