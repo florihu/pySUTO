@@ -4,6 +4,8 @@
 
 **Python Supply–Use Table Optimiser**
 
+> ⭐ If pySUTO is useful to your work, please leave a star on [GitHub](https://github.com/florihu/pySUTO) — it helps others find the project.
+
 A modular Python framework for constructing, reconciling, and propagating uncertainty through material flow accounts derived from heterogeneous data sources. pySUTO takes raw statistical data feeds, maps them onto a common accounting structure, aggregates across sources with inverse-variance weighting, imputes missing values, builds a constrained linear system, and solves a σ-weighted QP — tracking uncertainty end-to-end from raw pedigree scores to the final optimum.
 
 > Contributors / LLM assistants: see [CLAUDE.md](CLAUDE.md) for behavioural rules.
@@ -19,7 +21,7 @@ A modular Python framework for constructing, reconciling, and propagating uncert
    - [Stage 3 — Constraint building](#stage-3--constraint-building)
    - [Stage 4 — Solver](#stage-4--solver)
    - [Stage 5 — Posterior uncertainty propagation](#stage-5--posterior-uncertainty-propagation)
-   - [Stage 6 — PSUT/PIOT builder (in progress)](#stage-6--psutpiot-builder-in-progress)
+   - [Stage 6 — PSUT/PIOT builder](#stage-6--psutpiot-builder)
 3. [Module reference](#module-reference)
 4. [Workflow](#workflow)
 5. [File structure](#file-structure)
@@ -65,8 +67,8 @@ The package is organised into **six sequential stages**: datafeed assembly (per 
 ┌────────────────────────────────────────────────────────────────────────┐
 │  STAGE 2 — Aggregation & Imputation   ·   collect_aggregate_impute.py  │
 │  FeedCollector → AggregationMath → ImputationEngine                    │
-│  cascade→fixpoint : Network → Parametric(conc,eff)                     │
-│  then terminal    : Time → NetStockSeed → FlatPrior                    │
+│  cascade→fixpoint : Trade → Network → Parametric(conc,ore_grade,eff)   │
+│  then terminal    : Time → Share (net stock) → FlatPrior               │
 │  in  : feed_ids                                                        │
 │  out : AggregationResult (f_agg · σ_agg · Ω · coverage · imp_log)      │
 └──────┬─────────────────────────────────────────────────────────────────┘
@@ -89,28 +91,28 @@ The package is organised into **six sequential stages**: datafeed assembly (per 
 │  in  : ConstraintRun                                                   │
 │  out : OptimResult per t (F_opt · ε · residuals · telemetry)           │
 └──────┬─────────────────────────────────────────────────────────────────┘
-       │  opt_run_id
-       ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│  STAGE 5 — Posterior uncertainty   ·   uncertainty_propagation.py      │
-│  KalmanUncProp.compute()  (closed-form GLS · sparse Cholesky)          │
-│  in  : OptimRun (+ upstream ConstraintRun)                             │
-│  out : UncPropResult per t (σ_a* · lower · upper · diagnostics)        │
-└──────┬─────────────────────────────────────────────────────────────────┘
-       │  opt_run_id
-       ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│  STAGE 6 — PSUT/PIOT builder   ·   scripts/psut.py      (SLICES 1-6)   │
-│  PSUT: blocks · aggregate · sankey · to_piot → PIOT Z/A/L · footprint  │
-│  in  : OptimRun (a* = F_opt) + AccountingStructure via provenance      │
-│  out : PSUT table · PIOT Z/A/L · footprints · ew-MFA · figs/psut/      │
-└────────────────────────────────────────────────────────────────────────┘
+       │  opt_run_id   (Stages 5 and 6 each read it, never each other)
+       ├──────────────────────────────────────┐
+       ▼                                      ▼
+┌──────────────────────────────────┐  ┌──────────────────────────────────┐
+│ STAGE 5 — Posterior uncertainty  │  │ STAGE 6 — PSUT/PIOT builder      │
+│ uncertainty_propagation.py       │  │ scripts/psut.py                  │
+│ KalmanUncProp.compute()          │  │ PSUT: blocks · aggregate         │
+│ (closed-form GLS · sparse Chol.) │  │       · sankey · to_piot         │
+│ in : OptimRun (+ ConstraintRun)  │  │ in : OptimRun (a* = F_opt)       │
+│ out: UncPropResult per t         │  │      + acc via provenance chain  │
+│      σ_a* · lower · upper · diag │  │ out: PsutRun (parquet/period) ·  │
+│                                  │  │      PIOT · footprints · ew-MFA  │
+└──────────────────────────────────┘  └──────────────────────────────────┘
 ```
+
+Stage 6 branches off Stage 4 beside Stage 5 rather than after it: v1 materialises the point estimate `a*` and does not read the posterior σ ([ADR 0007](docs/adr/0007-downstream-psut-piot-follows-piolab-suh-no-external-io-lib.md)).
 
 **Orthogonal architecture** — cross-cutting concerns (top) crossing every stage, over the layered one-way import stack (bottom):
 
 ```
-ORTHOGONAL CROSS-CUTTING CONCERNS   (one service, applied across every stage)
+ORTHOGONAL CROSS-CUTTING CONCERNS   (one service across the stages;
+                                     a split cell: Stages 1–3 differ from 4–6)
 
                Stage 1    Stage 2    Stage 3    Stage 4    Stage 5    Stage 6
                Datafeed   Agg+Imp    Constr.     Solver   Posterior  PSUT/PIOT
@@ -118,15 +120,20 @@ ORTHOGONAL CROSS-CUTTING CONCERNS   (one service, applied across every stage)
 Registry     │   feed   │   imp    │  const   │   opt    │ uncprop  │   psut   │
 (run store)  │ registry │ registry │ registry │ registry │ registry │ registry │
              ├──────────┴──────────┴──────────┴──────────┴──────────┴──────────┤
-Provenance   │ sidecar metadata.json · parents.inputs (versioned)              │
+Provenance   │ sidecar metadata.json · parents.inputs (versioned) ¹            │
 (lineage)    │ + parents.upstream  (run_id chain, re-discovered)               │
              ├─────────────────────────────────────────────────────────────────┤
 Logging      │ get_logger(name) per module + add_run_handler() —               │
-             │ one file per run; all named loggers funnel to root              │
-             ├─────────────────────────────────────────────────────────────────┤
-Config /     │ load_config(config.yaml) · InputRegistries versions             │
-inputs       │ acc / feed / params / mask (hash-bumped) — read every run       │
-             └─────────────────────────────────────────────────────────────────┘
+             │ one file per run; all named loggers funnel to root ²            │
+             ├────────────────────────────────┬────────────────────────────────┤
+Config /     │ load_config(config.yaml) ·     │ no registry read: the inputs   │
+inputs       │ InputRegistries.initialize()   │ come with the upstream run id; │
+             │ acc/feed/params/mask, hash-    │ St4 and St6 load acc from      │
+             │ bumped — read every run        │ data/proc/acc by its id        │
+             └────────────────────────────────┴────────────────────────────────┘
+¹ only Stages 1–3 fill parents.inputs; Stages 4–5 record parents.upstream alone,
+  and Stage 6 adds the acc id without its version (#53; the const sidecar has it).
+² scripts/icsg_feed.py attaches no run handler.
 
 modules:  Registry=registry/ (BaseOutputRegistry · _sidecar · make_run_id)
           Logging=logging.py   Config=config.py + input_registry.py
@@ -135,19 +142,22 @@ LAYERED MODULE STACK   (imports flow downward only — never upward)
 
 ┌────────────────────────────────────────────────────────────────┐
 │  domain  ·  acc → conc → unc (mixin) · masks · param_relation  │
+│          ·  flow_node_balance (St2–St3 prior check)            │
 └──────┬─────────────────────────────────────────────────────────┘
        │
        ▼  imported by
 ┌────────────────────────────────────────────────────────────────┐
-│  pipeline (the 5 horizontal stages)                            │
+│  pipeline (the 6 stages)                                       │
 │  feed → feedpipe → collector → agg → impute/ → constraints/    │
 │       → solver → uncprop                                       │
+│  psut → piot   (St6 — reads persisted runs; imports acc,       │
+│                 logging, registry; never solver or uncprop)    │
 └──────┬─────────────────────────────────────────────────────────┘
        │
        ▼  consumed by (never imports back up)
 ┌────────────────────────────────────────────────────────────────┐
-│  diagnostics (leaf)  ·  diag/  — emits PNGs,                   │
-│  never imported into the data layer                            │
+│  diagnostics (leaf)  ·  diag/  — emits PNGs and the Plotly     │
+│  Sankeys; never imported into the data layer                   │
 └────────────────────────────────────────────────────────────────┘
 
 cross-cutting (import nothing from the data layer):
@@ -155,7 +165,9 @@ cross-cutting (import nothing from the data layer):
   all stages   : registry/  (BaseOutputRegistry + _sidecar provenance)
   St4–St5 only : _conditioning (condition_prior · condition_sigma_c)
   plugin seam  : BaseImputer→ImputationEngine (St2) ;
-                 BaseConstraintBuilder→ConstraintEngine (St3)
+                 BaseConstraintBuilder→ConstraintEngine (St3) ;
+                 OptimResultsLike protocol: solver result → PSUT (St4→St6) ;
+                 CONSTRUCTS × LEVELS in PSUT.to_piot (St6; suh_product = #20)
 ```
 
 | Stage | Module(s) | Input | Output |
@@ -165,6 +177,7 @@ cross-cutting (import nothing from the data layer):
 | 3 — Constraint building | `constraints/` | `AggregationResult` | `ConstraintRun`: `G`, `c(t)`, `σ_c(t)`, bounds |
 | 4 — Solver | `solver.py` | `ConstraintRun` | `OptimResult` per timestep |
 | 5 — Posterior uncertainty | `uncprop.py` | `OptimRun` + upstream `ConstraintRun` | `UncPropResult`: `σ_a*(t)`, `lower(t)`, `upper(t)` |
+| 6 — PSUT/PIOT builder | `psut.py`, `piot.py`, `diag/psut.py` | `OptimRun` (+ `ConstraintRun` → `acc` through provenance) | `PsutRun`: tidy PSUT, one parquet per period; `PIOT` views and Sankeys derived on demand, never persisted |
 
 ---
 
@@ -204,16 +217,24 @@ four correctness rounds were defects here rather than in the model.
 
 | | chain | writes |
 |---|---|---|
-| **ICSG** | `icsg_{2005,2014,2023f}.py` (one per yearbook vintage) → `icsg_comb.py` (combine vintages) → `process_icsg.py` (stock NAS + merge) → `icsg_clean.py --to-feed` | `data/input/feed/icsg/current/values.csv` |
+| **ICSG** | `icsg_{2005,2014,2023f}.py` (one per yearbook vintage) → `icsg_comb.py` (combine vintages) → `process_icsg.py` (stock levels → NAS per vintage + merge) → `icsg_clean.py --to-feed` | `data/input/feed/icsg/current/values.csv` |
 | **BACI** | `baci_parse/baci_parse_feed.py` | `data/input/feed/baci/v0/values.csv` + `quantity_recon.csv`, `quantity_cv_scale.csv` |
 
-Two behaviours a reader should not have to discover from the code:
+Three behaviours a reader should not have to discover from the code:
 
 - **A row's [vintage](GLOSSARY.md) decides precedence, but only across releases.** ICSG publishes the
   same series in successive yearbooks; a later vintage restates an earlier one, so rows sharing a key
   are resolved newest-wins. Two rows of *one* vintage sharing a key are two different streams folded
   together by a rename and are **summed**, not deduplicated
   ([ADR 0036](docs/adr/0036-a-renamed-type-is-a-second-stream-not-a-restatement.md)).
+- **A stock change is computed from levels, never read.** The yearbook parsers return every
+  [stock level](GLOSSARY.md) ICSG prints; `process_icsg.py` differences consecutive levels of one
+  series *within one vintage* into the [net addition to stock](GLOSSARY.md) — never across
+  vintages, and a blank year yields no change for itself or the year after. `USC` sums the
+  consumer, merchant and government series and `MESC` every exchange at one location. A region
+  that prints only a total — or a total its types contradict by more than `TOTAL_TOLERANCE_KT` —
+  counts as producer stock (`PSC`), as ICSG's own summary tables count it, and a total books no
+  change in the year it takes over from its types.
 - **The BACI parse overrides its source's published quantity on flagged legs.** HS 740311 is
   ~99.99 % Cu, so its unit value *is* the copper price in the same release; a concentrate leg whose
   value-implied Cu fraction leaves the physical band is reconstructed from its intact value
@@ -773,7 +794,7 @@ The v1 module is **bound-blind**: at edges where `a* = l` with positive dual, th
 
 See [`docs/rep/plans/stage5_uncprop_integration_plan.md`](docs/rep/plans/stage5_uncprop_integration_plan.md) for the full integration plan and the v1 scope cuts.
 
-### Stage 6 — PSUT/PIOT builder *(in progress)*
+### Stage 6 — PSUT/PIOT builder
 
 Downstream of the solver: **materialise** the solved edge vector `a*` (`OptimResult.F_opt`) as numeric **physical supply-use tables (PSUT)** — supply `S`, use `U`, final use `Y`, plus boundary blocks `E`/`O`/`P` — per period and per valuation (`CC`, `Mass`), reusing the existing supply/use masks and `entity_sub`. From each PSUT it builds the symmetric **physical input-output table (PIOT)** following PIOLab (Wieland et al. 2022) and Suh (2004) — by-products endogenised as negative inputs, then `A`, `Z`, `L = (I−A)⁻¹` over a full **MRIO** (region × flow) — and ships the classical analytics: footprints / embodied flows, embodied bilateral trade, ew-MFA headline indicators, and multipliers / SDA. v1 is point-estimate only (Stage-5 σ propagation deferred). Rationale and the deliberate *no pySUT / pymrio dependency* are recorded in [ADR 0007](docs/adr/0007-downstream-psut-piot-follows-piolab-suh-no-external-io-lib.md).
 
@@ -822,7 +843,12 @@ world.to_piot().sankey("2020").write_html("copper_process_network_2020.html")
 | [registry/](src/pysuto/registry/) | `BaseOutputRegistry`, `DataFeedRegistry`, `ImputationRunRegistry`, `ConstraintRunRegistry`, `OptimRunRegistry`, `UncPropRunRegistry`, `PsutRunRegistry`, `_RegistryEntry`, `make_run_id`, `build_sidecar` | Harmonized output registries (Stages 1–6); shared run-id pattern + sidecar schema. **Subpackage layout:** `base.py`, `feed.py`, `imputation.py`, `constraint.py`, `optim.py`, `uncprop.py`, `psut.py`, `_sidecar.py`. |
 | [input_registry.py](src/pysuto/input_registry.py) | `InputRegistry`, `InputRegistries` | Per-kind versioned snapshot store for `feed`, `acc`, `params`, `mask` inputs; hardlink dedup; auto-bump on content-hash change. |
 | [utils.py](src/pysuto/utils.py) | `_NpEncoder`, io helpers | JSON serialisation, numpy-safe dump/load. |
-| [logging.py](src/pysuto/logging.py) | `get_logger` | Structured run logging. |
+| [logging.py](src/pysuto/logging.py) | `get_logger`, `add_run_handler` | Structured run logging; one file per run. |
+| [config.py](src/pysuto/config.py) | `load_config`, `Config`, `PipelineConfig` | Typed loader for `config/config.yaml` (`pipeline.acc_id` only). |
+| [lp.py](src/pysuto/lp.py) | `lp_combine` | The Lp / power-mean σ combiner `(Σ \|x_i\|^p)^(1/p)`, one source of truth for Stages 1–3. |
+| [masks.py](src/pysuto/masks.py) | `MaskRuleSet`, `coerce_mask`, `load_masks_csv` | Named boolean edge masks over an `AccountingStructure` (flat-prior CV ranges, builder scope, feed `edge_scope_mask`). |
+| [param_relation.py](src/pysuto/param_relation.py) | `ParamRelationResolver`, `ResolvedRelation`, `expand_edge_index`, `sigma_from_row` | The params-CSV A→B relation resolver (selectors, `*` / `same` wildcards, σ from a row), shared by Stage 2 (`ParametricImputer.from_csv`) and Stage 3 (`RatioConstraintBuilder` / `RatioBoundBuilder.from_csv`). |
+| [flow_node_balance.py](src/pysuto/flow_node_balance.py) | `flow_node_balance`, `contradicted_flow_nodes` | Detects a contradicted flow node — inflow and outflow priors that disagree — for the Stage 2 and Stage 3 drivers; detection only, the policy is the caller's ([ADR 0019](docs/adr/0019-contradicted-flow-nodes-lose-anchor-authority.md)). |
 | [collector.py](src/pysuto/collector.py) | `FeedCollector` | Select feeds, align onto common edge index, produce `AggregationResult`. |
 | [agg.py](src/pysuto/agg.py) | `AggregationMath`, `AggregationResult` | Build `Ω`, compute `f_agg`, `σ_agg`, coverage. |
 | [impute/](src/pysuto/impute/) | `ImputationEngine`, `BaseImputer`, `TradeImputer`, `NetworkImputer`, `ProcessRecipe`, `ParametricImputer`, `FormulaImputer`, `TimeImputer`, `ShareImputer`, `FlatPriorImputer`, `ParametricRelation`, `FormulaRelation`, `SourceTerm`, `ParamRef`, `ImputationLog`, `ImputationMetadata` | Ordered imputation pipeline; per-edge provenance logging. **Subpackage layout:** `engine.py`, `base.py`, `trade.py`, `network.py`, `parametric.py`, `formula.py`, `time.py`, `share.py`, `flat_prior.py`. |
@@ -848,8 +874,8 @@ from pysuto.feedpipe import run_feed_pipeline
 from pysuto.registry import DataFeedRegistry
 from pysuto.input_registry import InputRegistries
 from pysuto.impute import (
-    ImputationEngine, ParametricImputer, ParametricRelation,
-    FormulaImputer, TimeImputer, FlatPriorImputer,
+    ImputationEngine, TradeImputer, NetworkImputer, ParametricImputer,
+    TimeImputer, ShareImputer, FlatPriorImputer,
 )
 from pysuto.constraints import (
     ConstraintEngine, MassBalanceBuilder, SumConstraintBuilder,
@@ -905,25 +931,36 @@ agg_result = collector.aggregate(p=P_PROP)
 agg_diag = AggDiagnostic(agg_result, acc_struct=acc, label="copper")
 agg_diag.summary()
 
-# Config-table-driven imputer registration: every binding resolves its
-# params.csv through the input registry, so the run's sidecar records the
-# exact (param_id, version) that fed each fill.
-IMP_BINDINGS = [
-    ("eff",        ParametricImputer, dict(p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG)),
-    ("ore_grade",  ParametricImputer, dict(p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG)),
-    ("conc",       ParametricImputer, dict(p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG)),
-    ("flat_prior", FlatPriorImputer,  dict(p=P_PROP, default_cv=0.3)),
-]
-engine = ImputationEngine(acc_struct=acc)
-param_refs = []
-for param_id, Builder, kwargs in IMP_BINDINGS:
-    csv_path = inputs.params.resolve(param_id) / "params.csv"
-    engine.register(Builder.from_csv(str(csv_path), acc_struct=acc, **kwargs))
-    param_refs.append(inputs.params.entry(param_id))
+# Every params.csv resolves through the input registry, so the run's sidecar
+# records the exact (param_id, version) that fed each fill.
+def csv(param_id):
+    return str(inputs.params.resolve(param_id) / "params.csv")
 
-# Optional: lambda-driven FormulaImputer (no params.csv).
-engine.register(FormulaImputer(relations=[domestic_matte], p=P_PROP))
-engine.register(TimeImputer(window=5, method="linear", gap_inflation=1.05, p=P_PROP))
+engine = ImputationEngine(acc_struct=acc)
+# Cascade, iterated to a fixpoint: trade seeds → network closure → parametric
+# fallbacks on whatever the network leaves undetermined.
+engine.register_cascade(
+    [
+        TradeImputer(conc_csv=csv("conc"), p=P_PROP, id="trade"),
+        NetworkImputer(eff_csv=csv("eff"), conc_csv=csv("conc"),
+                       ore_grade_csv=csv("ore_grade"),
+                       stripping_ratio_csv=csv("stripping_ratio"),
+                       p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG,
+                       stock_sectors=("MESC", "USC"), id="network"),
+        *[ParametricImputer.from_csv(csv(pid), acc, id=pid, p=P_PROP, q=Q_REG,
+                                     alpha_min=ALPHA_MIN_REG)
+          for pid in ("conc", "ore_grade", "eff")],
+    ],
+    max_iter=10,
+)
+# Terminal imputers, in order.
+engine.register(TimeImputer(window=3, method="linear", min_obs=2, gap_inflation=1.05,
+                            interpolate_only=True, p=P_PROP))
+engine.register(ShareImputer.from_stock_bounds_csv(csv("stock_bounds"), p=P_PROP))
+engine.register(FlatPriorImputer(acc_struct=acc, mode="noisy_zero", sigma_high=1.0e6,
+                                 p=P_PROP))
+param_refs = [inputs.params.entry(pid) for pid in
+              ("conc", "ore_grade", "eff", "stripping_ratio", "stock_bounds")]
 
 agg_result = engine.run(agg_result)
 agg_diag.plot(odir="data/proc/imp/copper/diag", show=False)
@@ -1004,18 +1041,36 @@ uncprop_result = prop.compute(optim_run_id, alpha=0.05)
 uncprop_run_id = prop.persist(uncprop_result, optim_run_id, label="copper")
 # uncprop_result.per_timestep[t].sigma_a_star  → (E,) posterior std
 # uncprop_result.per_timestep[t].lower / upper → (E,) Gaussian CI, clipped to [l, u]
+
+# ── Stage 6: PSUT / PIOT (reads the opt run, not Stage 5) ─────────────────
+from pysuto.psut import PSUT
+from pysuto.registry import PsutRunRegistry
+
+psut = PSUT.from_opt_run(optim_run_id)             # acc via opt → const sidecars
+psut_run_id = PsutRunRegistry("data/proc/psut").register(
+    psut,
+    parents = {
+        "inputs":   {"acc": {"id": psut.acc_id}},
+        "upstream": {"opt_run_id": optim_run_id, "const_run_id": psut.const_run_id},
+    },
+    label   = "copper",
+)
+piot = psut.aggregate(region="World", keep_crossings=True).to_piot("market_share", level="L")
+# psut.table        → one row per edge × period × valuation, in blocks S/U/Y/E/O/P/W
+# piot.footprint("E", "2020"), piot.ew_mfa("2020") → derived views, never persisted
 ```
 
 ### Output run-id format
 
-All four stages mint run-ids using one harmonized pattern:
+All six stages mint run-ids using one harmonized pattern:
 
 ```
 {stage}_{YYYYMMDD_HHMMSS}_{8-char-uuid4-hex}
 ```
 
-`stage ∈ {feed, imp, const, opt}`.  No label, feed-id, acc-id, or parent
-run-id is embedded — the label lives only in the registry, and parent
+`stage ∈ {feed, imp, const, opt, uncprop, psut}`; a feed run embeds its feed id
+(`feed_<feed_id>_…`, e.g. `feed_baci_20260915_105105_187857d6`).  No label, acc-id,
+or parent run-id is embedded — the label lives only in the registry, and parent
 references live in the per-run sidecar `metadata.json`.
 
 ### Per-run sidecar `metadata.json`
@@ -1102,8 +1157,13 @@ pysuto/
 │   ├── uncprop.py                                                           │
 │   ├── psut.py                                                              │
 │   └── _sidecar.py                                                          │
-├── input_registry.py      InputRegistry · InputRegistries                  │  Stages 0–5
+├── input_registry.py      InputRegistry · InputRegistries                  │  Stages 0–6
 ├── _conditioning.py       condition_prior · condition_sigma_c              │
+├── config.py              load_config  (config.yaml: pipeline.acc_id)      │
+├── lp.py                  lp_combine  (Lp / power-mean σ combiner)         │
+├── masks.py               MaskRuleSet · coerce_mask · load_masks_csv       │
+├── param_relation.py      ParamRelationResolver · expand_edge_index        │
+├── flow_node_balance.py   contradicted_flow_nodes  (St2–St3 check)         │
 ├── utils.py               _NpEncoder · io helpers                          │
 ├── logging.py             structured run logging                          ─┘
 │
@@ -1117,6 +1177,7 @@ pysuto/
 │   ├── network.py          NetworkImputer · ProcessRecipe                    │
 │   ├── trade.py            TradeImputer (cross-region CC trade-seed)         │
 │   ├── time.py                                                               │
+│   ├── share.py            ShareImputer (net-stock share + seed)             │
 │   └── flat_prior.py                                                       ─┘
 │
 ├── constraints/           ConstraintEngine · BaseConstraintBuilder        ─┐ Stage 3
@@ -1194,7 +1255,7 @@ Each layer has a dedicated test file in `tests/`. There is no `conftest.py`: fix
 | [test_solver_stats_diag.py](tests/test_solver_stats_diag.py) | `SolverStatsDiagnostic` per-year CSV schemas, all-years frames (identity, `lhs_prior_t`, `resid_solver`, warm prior), ranking CSVs |
 | [test_objective_stats.py](tests/test_objective_stats.py) | objective-share builders (family frames, Σz² by key, identity ranking, z profiles, objective decomposition), sector totals / retention, boundary edges |
 | [test_uncprop.py](tests/test_uncprop.py) | `KalmanUncProp` closed-form 2×2, PSD/monotonicity, Byron limit, CHOLMOD symbolic-factor reuse, registry round-trip, CI clipping, end-to-end `compute(opt_run_id)` |
-| [test_psut.py](tests/test_psut.py) | Stage 6 Slices 1–2: six-block decomposition (an unclassifiable edge raises), node-universe labels with role-named levels, per-node balance from the table alone, every valuation with a primary, `realized_conc`, year-local `cols_t` mapping, period selection, `PsutRunRegistry` round-trip incl. Slice-1 sidecars, `from_opt_run` provenance chain, CLI; region/sector aggregation (conservation, symmetry, idempotence, commutation, `region_crossed` at root resolution, entity-kind clash); supply-use Sankey tables reconcile with the table, headless Plotly figure, multi-region labels, `min_val`, CLI `--sankey` ([ADR 0037](docs/adr/0037-psut-piot-two-classes-piot-is-a-construct-family.md)) |
+| [test_psut.py](tests/test_psut.py) | Stage 6 Slices 1–4: six-block decomposition (an unclassifiable edge raises), node-universe labels with role-named levels, per-node balance from the table alone, every valuation with a primary, `realized_conc`, year-local `cols_t` mapping, period selection, `PsutRunRegistry` round-trip incl. Slice-1 sidecars, `from_opt_run` provenance chain, CLI; region/sector aggregation (conservation, symmetry, idempotence, commutation, `region_crossed` at root resolution, entity-kind clash); supply-use Sankey tables reconcile with the table, headless Plotly figure, multi-region labels, `min_val`, CLI `--sankey` ([ADR 0037](docs/adr/0037-psut-piot-two-classes-piot-is-a-construct-family.md)) |
 | [test_piot.py](tests/test_piot.py) | Stage 6 Slices 5–6: identity edges for single producers, the market-share split between two producers, conservation of every producer's supply and of every block total, the traded split carried onto the network, level gating, the process-network Sankey agreeing with the supply-use one; Leontief identities `L·y = x` and `(I−A)·L = I`, footprints summing to total extraction, embodied trade with extraction rows and RMC columns, ew-MFA identities incl. the closed-world check, multipliers, a two-factor SDA |
 
 **Parse-stage tests** — these guard the Stage-1 readers, where a source-format quirk is
@@ -1207,19 +1268,21 @@ indistinguishable from real data once it reaches the model:
 | [test_icsg_comb_renamed_collisions.py](tests/test_icsg_comb_renamed_collisions.py) | Rows a rename folds onto one key sum *within* a vintage; a cross-vintage restatement is left to the dedup ([ADR 0036](docs/adr/0036-a-renamed-type-is-a-second-stream-not-a-restatement.md)) |
 | [test_baci_quantity_recon.py](tests/test_baci_quantity_recon.py) | Value-implied Cu fraction detector, its two gates on each side of the band (above: raise; below: lower, the PNG kg-as-t regression), `g_ref` calibration, σ scale composition across sidecar files ([ADR 0033](docs/adr/0033-baci-quantity-contradicts-its-own-value.md)) |
 | [test_build_baci_reexport.py](tests/test_build_baci_reexport.py) | Re-export netting and its residual ledger ([ADR 0027](docs/adr/0027-re-exports-are-re-attributed-at-feed-time.md)) |
+| [test_icsg_stock_levels.py](tests/test_icsg_stock_levels.py) | Every stock level the yearbooks print survives the parse: the 2014 exchange sheet, lone totals, reported zeros (a blank is not one), the U.S. producers row, the 2025 sheet's last year, whole region names, Korea's merged cell (#35) |
+| [test_icsg_nas.py](tests/test_icsg_nas.py) | Net addition to stock: one year's change within one vintage, newest vintage wins, `USC` / `MESC` sum their series, a lone or contradicted total is producer stock, no change in a total's takeover year, a reporting gap warns (#35) |
 | [test_build_trade_shares.py](tests/test_build_trade_shares.py) | Fan weights and the ADR 0024 domestic bound |
 
 The two tables above cover the core layers and the parse stage; `tests/` holds further modules for
 diagnostics, params and helpers not itemised here.
 
-Run with `pytest tests/ -v` — **1,136 passing, 1 skipped** as of 2026-10-08 (in a git worktree, prefix with `PYTHONPATH=src`: the conda env's editable install points at the main checkout).
+Run with `pytest tests/ -v` — **1,159 passing, 1 skipped** as of 2026-10-12 (in a git worktree, prefix with `PYTHONPATH=src`: the conda env's editable install points at the main checkout).
 
 ---
 
 ## Installation
 
 ```bash
-git clone https://github.com/your-org/pySUTO.git
+git clone https://github.com/florihu/pySUTO.git
 cd pySUTO
 pip install -e .
 pytest tests/ -v
