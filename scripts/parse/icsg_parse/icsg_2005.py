@@ -10,7 +10,7 @@ from pysuto.logging import get_logger
 logger = get_logger(__name__)
 
 
-out_folder = r'data/proc/datafeed/icsg_clean'
+out_folder = r'data/proc/feedprep/icsg_clean'
 
 
 REGION_RENAME = {
@@ -305,8 +305,8 @@ def clean_exchange_stocks(df_raw, id, start =3):
     #rename exchange type col in type
     df_clean = df_clean.rename(columns={"Exchange_type": "Type"})
 
-    # filter NaN and 0
-    df_clean = df_clean[df_clean['Value'].notna() & (df_clean['Value'] != 0)].reset_index(drop=True)
+    # filter NaN; a reported zero is a level (#35)
+    df_clean = df_clean[df_clean['Value'].notna()].reset_index(drop=True)
     return df_clean
 
 def clean_copper_price_table(df_raw, id):
@@ -465,8 +465,10 @@ def clean_pmc_stocks(df_raw):
 
     # --- 5. Explode multi-value rows ---
     def explode_row(row):
-        # Split multiple entries in first column
-        parts = str(row[df.columns[0]]).split('_x000d_\n')
+        # Split multiple entries in first column: at line breaks and where a new
+        # "Region (type)" follows a closing bracket on the same line, as in
+        # Korea's "... (producers) Korean Rep. (merchants) ..." cell (#35)
+        parts = re.split(r'_x000d_\n|(?<=\))\s+(?=[A-Za-z])', str(row[df.columns[0]]))
         # Split multiple values in Value column
         values = str(row['Value']).replace(',', '').split('_x000d_\n')
         # If numbers don't match parts, pad with NaN
@@ -489,16 +491,22 @@ def clean_pmc_stocks(df_raw):
 
     # --- 6. Parse Region and Stock_type ---
     def parse_stock_region(x):
-        # Skip totals or summary
-        if re.search(r'total|summary|sources', x, re.IGNORECASE):
+        # Skip summary and source rows
+        if re.search(r'summary|sources', x, re.IGNORECASE):
             return pd.Series([np.nan, np.nan])
         match = re.match(r'(.*?)[ ]*\((.*?)\)', x)
         if match:
             region = match.group(1).strip()
             stype = match.group(2).strip().lower()
             return pd.Series([region, stype])
-        else:
-            return pd.Series([x.strip(), np.nan])
+        # a region's printed total ("Japan Total", "Germany Total  4/") is a
+        # level: the only one China and the Philippines print (#35)
+        match = re.match(r'(.*?)\s+total\b', x, re.IGNORECASE)
+        if match:
+            return pd.Series([match.group(1).strip(), 'total'])
+        if re.search(r'total', x, re.IGNORECASE):
+            return pd.Series([np.nan, np.nan])
+        return pd.Series([x.strip(), np.nan])
 
     df_exp[['Region','Stock_type']] = df_exp['STOCK_TYPE_AND_COUNTRY'].apply(parse_stock_region)
 
@@ -538,7 +546,8 @@ def clean_pmc_stocks(df_raw):
     df_clean['Type'] = df_clean['Type'].replace(tr)
     df_clean['Region'] = df_clean['Region'].replace(rr)
 
-    df_clean = df_clean[df_clean['Value'].notna() & (df_clean['Value'] != 0)].reset_index(drop=True)
+    # a reported zero is a level (#35)
+    df_clean = df_clean[df_clean['Value'].notna()].reset_index(drop=True)
 
 
     #make year an int col
