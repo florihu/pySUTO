@@ -132,7 +132,7 @@ WITHHOLD_CHAIN_INCONSISTENT = False
 
 def compute_trade_share_weights(
     edges: pd.DataFrame,
-    usage: pd.DataFrame,
+    usage_raw: pd.DataFrame,
     conc_lookup: dict,
     baci_observed_regions: set[str] | None = None,
     withhold_fallback: set | None = None,
@@ -145,9 +145,9 @@ def compute_trade_share_weights(
         root_time, baci_mass (BACI F_root Mass on the paired Mass edge; NaN/0
         where no trade).
 
-    ``usage`` — per fan group ``(root_sector_from, root_sector_to,
-    root_region_to, root_time)`` the ICSG Use total in CC (``usage_raw``), read
-    from the registered ICSG input by ``icsg_raw_usage``. A group without a row
+    ``usage_raw`` — per fan group ``(root_sector_from, root_sector_to,
+    root_region_to, root_time)`` the ICSG Use total in CC (column ``usage_raw``),
+    read from the registered ICSG input by ``icsg_raw_usage``. A group without a row
     has no usage and is not emitted. Never the ICSG feed run's ``F_root`` fan
     total: that run is built from these weights, so after an ICSG change it
     carries the previous data (#66).
@@ -195,7 +195,8 @@ def compute_trade_share_weights(
     grp_cols = ["root_sector_from", "root_sector_to", "root_region_to", "root_time"]
     imp_sum = df.groupby(grp_cols, sort=False)["imp_cc"].transform("sum").to_numpy()
     # many-to-one left merge preserves df's row order
-    usage = (df[grp_cols].merge(usage, on=grp_cols, how="left", validate="many_to_one")
+    usage = (df[grp_cols].merge(usage_raw, on=grp_cols, how="left",
+                                validate="many_to_one")
              ["usage_raw"].astype(float).fillna(0.0).to_numpy())
 
     # A stock change is signed: a draw-down fans like a build of the same size,

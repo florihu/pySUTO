@@ -92,11 +92,14 @@ the "no production data" property let the fan book copper a region never produce
 The split is computed in **CC** (apply `conc` to BACI Mass) so low-conc sectors are unit-consistent.
 
 - **Cross-feed dependency (new).** ICSG's fan weights now derive from BACI. Feeds stay loosely coupled
-  via a versioned artifact: `scripts/build_trade_shares.py` reads the BACI feed `F_root`, the ICSG feed
-  `F_root` (for usage — weight-invariant), and the `conc` param, and emits the **`trade_shares`**
+  via a versioned artifact: `scripts/build_trade_shares.py` reads the BACI feed `F_root`, the ICSG
+  usage, and the `conc` param, and emits the **`trade_shares`**
   params-kind input (`params.csv`, so the params registry content-versions it). `scripts/icsg_feed.py`
   consumes it as `user_weights_df` (region+time-keyed) and records its entry in the feed sidecar; absent
-  artifact ⇒ uniform fan (unchanged).
+  artifact ⇒ uniform fan (unchanged). *(Amended 2026-10-13, #66: the usage is read from the registered
+  ICSG input's raw rows, not from the ICSG feed `F_root` as first built — that run is made from these
+  weights, so after an ICSG change the weights carried the previous data until a second pass; see
+  [ADR 0018](0018-import-free-fans-distribute-domestically.md).)*
 - **Time-variant.** Weights are per-year (`root_time` key); `_impute_weights` already normalises per
   `src_time`.
 - **Fallback.** Per-consumer-group complete: covered groups emit weights for all fan targets (0 for

@@ -13,8 +13,8 @@ ICSG rows for every group, so the trade-share weights depend only on registered 
 pass (trade shares, then the ICSG feed) is exact after any ICSG change. Evidence: REP
 [`…issue65-icsg-stock-parse`](../rep/analysis_opt_20261012_135741_67851aa1_20261012_issue65-icsg-stock-parse.md)
 §6 (trade_shares v27 carried 47 stale weights built on the previous ICSG feed run; v28 → v29
-converged to 3e-12 relative), and the rebuild on icsg v13 reproduces v29 to 1.6e-11 relative on
-all 146,311 weights.
+converged to 3e-12 relative), and the rebuild on icsg v13 with baci v16
+(`feed_baci_20261012_130305_1cdad15b`) reproduces v29 to 1.6e-11 relative on all 146,311 weights.
 
 ## Context
 
