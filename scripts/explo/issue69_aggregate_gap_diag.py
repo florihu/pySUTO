@@ -80,9 +80,12 @@ def netting(v_base: int, v_new: int) -> None:
           f"{m[m.dT != 0.0].groupby(['sector', 'region']).size().to_dict()}")
     print(f"   Σ ΔT {m.dT.sum():,.1f}   Σ ΔT_applied {m.dTa.sum():,.1f}")
     other = m[(m.region != SWEDEN) & (m.dTa.abs() > 1e-9)]
-    top = other.loc[other.dTa.abs().idxmax()]
-    print(f"   other hub-years whose T_applied moves: {len(other)}, largest "
-          f"{top.sector} {top.region} {top.time} {top.dTa:+.3f}")
+    if len(other):
+        top = other.loc[other.dTa.abs().idxmax()]
+        print(f"   other hub-years whose T_applied moves: {len(other)}, largest "
+              f"{top.sector} {top.region} {top.time} {top.dTa:+.3f}")
+    else:
+        print("   other hub-years whose T_applied moves: none")
     sw = m[(m.region == SWEDEN) & (m.sector == "Cathode") & m.time.isin(SW_YRS)]
     cols = ["time", "U_base", "T_base", "T_applied_base", "label_base", "T_new",
             "T_applied_new", "label_new", "icsg_aggregate"]     # the last: #67 ledgers only
