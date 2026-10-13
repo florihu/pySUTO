@@ -230,7 +230,8 @@ def attribution(j: pd.DataFrame) -> None:
         print(_top(x, 6, cols))
 
 
-def main(base: str, new: str, v_base: int, v_new: int) -> None:
+def load(base: str, new: str):
+    """Both runs' edges and sum rows, their chains printed, and the common-set frame."""
     acc = AccountingStructure.load(id=load_config().pipeline.acc_id,
                                    storage_dir=str(ROOT / "acc"))
     ei = expand_edge_index(acc.edge_index, acc.node_index)
@@ -246,7 +247,11 @@ def main(base: str, new: str, v_base: int, v_new: int) -> None:
     j = S[base][k + ["region", "label", "c", "z2"]].merge(S[new][k + ["c", "z2"]], on=k,
                                                          suffixes=("_base", "_new"))
     j["dz2"] = j.z2_new - j.z2_base
+    return E, S, j
 
+
+def main(base: str, new: str, v_base: int, v_new: int) -> None:
+    E, S, j = load(base, new)
     netting(v_base, v_new)
     sweden(E, j, base, new)
     singapore(j, base)
