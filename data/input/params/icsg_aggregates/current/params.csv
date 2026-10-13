@@ -1,0 +1,2 @@
+src_region,root_region,year_from,year_to,source,comment
+Scandinavia,Sweden,1995,2003,"ICSG yearbook loaded as 2005 (icsg v13 values.csv): Scandinavia reports Mining, Smelting, Refining, Semi and Cathode_Pool rows for 1995-2004; Sweden's own rows for those processes start in 2004","Until 2003 only Sweden's LME stock changes (MESC 1996-2003) are reported as Sweden, so its flows sit inside Scandinavia. 2004 is excluded because Sweden reports its own flows then. Finland and Norway also report from 2004 and map to ROW, which is never a hub (ADR 0027). #67"

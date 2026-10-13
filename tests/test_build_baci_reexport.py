@@ -9,6 +9,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 from build_baci_reexport import (  # noqa: E402
     cv_scale,
+    icsg_aggregate_members,
     label_row,
     net_one_hub,
     net_reexports,
@@ -29,8 +30,9 @@ def _trade(rows):
     return pd.DataFrame(rows)
 
 
-def _vol(trade, intake=None, production=None, reported=None):
-    v = reexport_volumes(trade, intake or {}, production or {}, reported or set())
+def _vol(trade, intake=None, production=None, reported=None, aggregated=None):
+    v = reexport_volumes(trade, intake or {}, production or {}, reported or set(),
+                         aggregated=aggregated or {})
     v["label"] = [label_row(r) for r in v.itertuples(index=False)]
     return v
 
@@ -462,3 +464,79 @@ class TestProductionRecipes:
         assert use["Matte"].iloc[0] == pytest.approx(max(prod["Matte"].iloc[0], 1000.0 / k))
         assert use["Concentrate"].iloc[0] == pytest.approx(800.0)
         assert use["Cathode"].iloc[0] == pytest.approx(1300.0)
+
+
+# ---------------------------------------------------------------------------
+# #67: a region-year inside a declared ICSG aggregate is a reporting gap
+# ---------------------------------------------------------------------------
+
+SCANDINAVIA = {("Sweden", T2015): "Scandinavia"}
+
+
+def _sweden_hub():
+    """Sweden 2001's shape: cathode imports 60, exports 50, and ICSG's only Swedish
+    cathode row that year its LME stock change, 21.8 kt."""
+    return _trade([_leg("Cathode", "Chile", "Sweden", 60.0),
+                   _leg("Cathode", "Sweden", "Germany", 50.0)])
+
+
+class TestIcsgAggregateGap:
+
+    def test_a_hub_inside_an_aggregate_with_only_a_stock_row_is_a_gap(self):
+        """Regression (#67): U includes the MESC/USC rows, so a lone stock change
+        defeated the gap guard.  Sweden's smelting, refining and semis sit under
+        ICSG's "Scandinavia" until 2003, yet its cathode was netted as a
+        pass-through hub in every year 1996-2003, 220.9 kt CC in all."""
+        v = _row(_vol(_sweden_hub(), intake={("Cathode", "Sweden", T2015): 21.8},
+                      reported={("Cathode", "Sweden")}, aggregated=SCANDINAVIA),
+                 "Cathode", "Sweden")
+        assert v.icsg_gap and v["T"] == 0.0 and v.label == "icsg-gap"
+        assert v.icsg_aggregate == "Scandinavia"
+        assert v.U == pytest.approx(21.8), "the stock row is still on the ledger"
+
+    def test_the_same_hub_outside_any_aggregate_is_netted_as_before(self):
+        intake = {("Cathode", "Sweden", T2015): 21.8}
+        undeclared = _row(_vol(_sweden_hub(), intake=intake,
+                               reported={("Cathode", "Sweden")}), "Cathode", "Sweden")
+        other_year = _row(_vol(_sweden_hub(), intake=intake,
+                               reported={("Cathode", "Sweden")},
+                               aggregated={("Sweden", "2004"): "Scandinavia"}),
+                          "Cathode", "Sweden")
+        for v in (undeclared, other_year):
+            assert not v.icsg_gap and v["T"] == pytest.approx(50.0)
+            assert v.label == "pass-through"
+            assert pd.isna(v.icsg_aggregate)
+
+    def test_a_region_that_never_reports_the_product_keeps_u_and_p_at_zero(self):
+        """The declaration names Sweden; a hub ICSG never reports is netted on
+        U = P = 0 exactly as before (ADR 0027)."""
+        trade = _trade([_leg("Cathode", "Chile", "UAE", 60.0),
+                        _leg("Cathode", "UAE", "India", 50.0)])
+        v = _row(_vol(trade, reported=set(), aggregated=SCANDINAVIA), "Cathode", "UAE")
+        assert not v.icsg_gap and v.U_missing and v.P_missing
+        assert v["T"] == pytest.approx(50.0)
+
+
+class TestIcsgAggregateMembers:
+
+    def _csv(self, tmp_path, body):
+        path = tmp_path / "params.csv"
+        path.write_text("src_region;root_region;year_from;year_to;source;comment\n" + body)
+        return path
+
+    def test_each_member_year_is_keyed_with_a_string_year(self, tmp_path):
+        got = icsg_aggregate_members(self._csv(
+            tmp_path, "Scandinavia;Sweden;1995;1997;ICSG 2005 yearbook;\n"))
+        assert got == {("Sweden", "1995"): "Scandinavia",
+                       ("Sweden", "1996"): "Scandinavia",
+                       ("Sweden", "1997"): "Scandinavia"}
+
+    def test_a_reversed_year_range_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="year_from"):
+            icsg_aggregate_members(self._csv(
+                tmp_path, "Scandinavia;Sweden;2003;1995;ICSG 2005 yearbook;\n"))
+
+    def test_a_region_year_claimed_by_two_aggregates_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="Sweden"):
+            icsg_aggregate_members(self._csv(
+                tmp_path, "Scandinavia;Sweden;1995;2003;a;\nNordic;Sweden;2003;2004;b;\n"))
