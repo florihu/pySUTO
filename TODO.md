@@ -66,6 +66,16 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
 
 # OPEN (2026-09-16, out of Round L)
 
+## #68 MEASURED 2026-10-13 — PASSES: the raw-usage trade shares (#66) reproduce v29
+
+`diag/raw-usage-trade-shares-measure`, REP
+`docs/rep/analysis_opt_20261012_135741_67851aa1_20261013_issue66-raw-usage-trade-shares.md`;
+`scripts/explo/issue68_trade_shares_identity.py`. trade_shares **v30** (`387c5d68`), rebuilt on icsg v13
+and baci v16, has exactly v29's 146,311 weights, each within 1.6e-11 relative (rule: 1e-9). No ICSG feed
+or Stage 2–4 run; **the reference chain stays `opt_20261012_135741_67851aa1`.** Follow-up, not filed: the
+builder's ADR 0024 line prints −304,203 "kt CC moved" because it sums the stock legs' supply-mix weights
+(ADR 0043). The 442 bounded flow legs moved +20,536 kt CC. The Round T guard below is still open.
+
 ## #65 MEASURED 2026-10-12 — ACCEPTED: the ICSG feed rebuilt from the repaired stock parse (#35)
 
 `diag/icsg-stock-parse-measure`, run `opt_20261012_135741_67851aa1` vs #40.1 `opt_20261012_122124_40b1b370`,
