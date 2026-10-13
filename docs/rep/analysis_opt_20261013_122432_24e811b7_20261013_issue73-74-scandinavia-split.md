@@ -109,8 +109,8 @@ Every year whose sum-row z² moves by more than 1,000 vs base:
 
 **The rises are the exporters into ROW's semis demand.** That demand shrinks by Sweden's share
 (1995–2003) and the 2004 duplicate, so the cathode legs sized to it shrink too. Zambia's 2004 cathode use
-total falls 313.1 → 280.7 kt CC, below what its refinery reports. The legs had been carrying demand that
-was never ROW's.
+total falls 313.1 → 280.7 kt CC and its z² rises 177.4 → 425.8. The legs had been carrying demand that
+belonged to Sweden or was counted twice.
 
 ## 5. Stock legs
 
@@ -120,7 +120,7 @@ Per family, two years grow in \|net\|:
   is gone, and it no longer offsets the other regions' draw-downs. The rest is spread, none by more than
   1.5 kt CC.
 - **USC 1998, +3.4 → −17.1 kt CC.** Spread over 47 regions: ROW −2.6, China −1.1, Belgium and the
-  Netherlands −1.0 each, and the remaining −12.9 over 41 regions at under 0.9 each. No leg crosses
+  Netherlands −1.0 each, and the remaining −12.9 over 41 regions at most 0.9 each. No leg crosses
   \|z\| 5.
 
 Per region-year, no stock net grows by more than 1.5 kt CC. Stock legs above \|z\| 5 fall 316 → 300,

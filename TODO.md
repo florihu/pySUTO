@@ -66,6 +66,20 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
 
 # OPEN (2026-09-16, out of Round L)
 
+## #75 MEASURED 2026-10-13 — PASSES: Scandinavia split to Sweden for 1995–2003, its 2004 duplicate dropped (#73, #74)
+
+`diag/scandinavia-split-measure`, run `opt_20261013_122432_24e811b7` vs `opt_20261013_095846_46ece808`, REP
+`docs/rep/analysis_opt_20261013_122432_24e811b7_20261013_issue73-74-scandinavia-split.md`;
+`scripts/explo/issue75_scandinavia_split_diag.py`. icsg v14, baci v18, trade_shares v32, icsg_aggregates
+v4. Every pre-registered item holds vs `opt_20261013_095846_46ece808`: Sweden's `Ore→SXEW` 307.8 → 0.0 kt CC
+over 1996–2003, its ore through `Ore→MF`, mining ratio 1.00–1.12; ROW → Sweden MESC 2001 z 15.7 → 0.01;
+ROW 2004 anode/concentrate/mine totals fall by exactly the dropped rows and ROW 2004 sum-row z²
+26,099 → 609; no T changes; Round-E all up; no new stock leg above |z| 5. Common-set sum-row z²
+**−6.16 % vs `opt_20261013_095846_46ece808`**, mass moved −3.56 %. The bulk is ROW's refinery: the base
+deleted 1,897 kt CC of ROW refined cathode over 1995–2004 (Sweden's share and the 2004 double count had
+no outlet), now 5. Cost: exporters into ROW's semis demand (Zambia +2,082, Uzbekistan +1,107, Kazakhstan
++402). **Reference chain changes to `opt_20261013_122432_24e811b7` once merged.** Then #30/#37 on icsg v14.
+
 ## #73 + #74 BUILT 2026-10-13 — NOT MEASURED (#75): an ICSG aggregate row is split to its declared member
 
 `fix/scandinavia-aggregate-allocation`. `icsg_clean.split_aggregates()` (ADR 0032 amendment) splits
