@@ -66,6 +66,18 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
 
 # OPEN (2026-09-16, out of Round L)
 
+## #69 MEASURED 2026-10-13 — PASSES, two findings against intent: Sweden's cathode un-netted (#67)
+
+`diag/aggregate-gap-measure`, run `opt_20261013_095846_46ece808` vs `opt_20261012_135741_67851aa1`, REP
+`docs/rep/analysis_opt_20261013_095846_46ece808_20261013_issue67-aggregate-gap.md`;
+`scripts/explo/issue69_aggregate_gap_diag.py`. baci v17, trade_shares v31, icsg_aggregates v2. Every
+pre-registered item holds: only Sweden's T changes (−220.9 kt CC), Sweden 2003 mining ratio 0.41 → 0.70,
+Sweden 1996–2003 sum-row z² −6,055, Singapore −0.087 %, Round-E unchanged, mass moved +0.00 %. Common-set
+sum-row z² **−0.69 % vs base**. Against intent: the restored trade is carried by a Swedish SX-EW chain
+(`Ore→SXEW`, prior 0; 1996–2003 posterior 175.0 → 307.8 kt CC) and a 2001 MESC sink (+48.9 kt CC of ROW
+cathode), because 1995–2003 "Scandinavia" smelting/refining maps to ROW. **Reference chain changes to
+`opt_20261013_095846_46ece808` only if merged — owner's call.** Follow-up (REP §7.1) not filed.
+
 ## #68 MEASURED 2026-10-13 — PASSES: the raw-usage trade shares (#66) reproduce v29
 
 `diag/raw-usage-trade-shares-measure`, REP
@@ -96,7 +108,7 @@ Sum-row z² is **+0.16 % vs base**: Sweden +2,636, Singapore −2,924. The feed'
    declared membership in params `icsg_aggregates` v2; in memory on baci v13 × icsg v13 only Sweden's
    T changes (Σ T −220.9 kt CC). Σ T_applied falls 215.3 kt CC: Sweden 2002 applied 31.3 of its 36.4,
    and hub→hub chains move 25 other hub-years' T_applied, all by ≤ 0.28 kt CC (UK 2002). #69 should quote
-   both. Measurement = #69.** Found while building, not filed: ICSG's 2004 "Scandinavia" rows (loaded
+   both. Measurement = #69.** Found while building, filed as #73 (needs-triage): ICSG's 2004 "Scandinavia" rows (loaded
    from the 2005 yearbook) duplicate Sweden's, Finland's and Norway's own 2004 rows (2014 yearbook;
    refined anode use 408.6 kt CC both ways), so the Nordic 2004 flows enter twice, once via ROW.
 2. `build_trade_shares.py` takes usage from the latest ICSG feed run, so after an ICSG change it needs
