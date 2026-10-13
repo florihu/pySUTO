@@ -114,6 +114,9 @@ Three exclusions, each adopted on a measurement rather than a judgement:
   row is therefore a gap whatever stock rows it carries. The membership is declared in the
   hand-authored params input `icsg_aggregates` (v2: Sweden ⊂ Scandinavia, 1995–2003), never
   inferred from region names, and the ledger's `icsg_aggregate` column names the aggregate.
+  Since #73/#74 the ICSG clean step gives Sweden its share of Scandinavia's 1995–2003 rows ([ADR
+  0032](0032-one-territory-one-label.md), amendment). Sweden then carries a `U` and `P` in those years,
+  but they are estimates, not observations of a hub's balance, so the declared region-years stay gaps.
   Counting only flow rows in the test was rejected: it would also re-flag Singapore 2005–2015,
   which reports semis only in 1995–2001 and is a genuine LME hub, whose netting on its MESC rows
   lowered sum-row z² by 2,924 in #65 (`opt_20261012_135741_67851aa1` vs

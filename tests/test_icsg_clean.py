@@ -15,7 +15,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..",
                                 "scripts", "parse", "icsg_parse"))
-from icsg_clean import (aggregate_splits, apply_input_divisors,  # noqa: E402
+from icsg_clean import (aggregate_declaration, apply_input_divisors,  # noqa: E402
                         merge_territories, refining_anode_rows, secondary_excess,
                         split_aggregates, territory_aliases)
 
@@ -249,7 +249,7 @@ def test_merge_is_a_no_op_without_aliases():
 # ---------------------------------------------------------------------------
 
 SPLIT = pd.DataFrame([dict(src_region="Scandinavia", root_region="Sweden",
-                           year_from=1995, year_to=2003, handover_year=2004)])
+                           year_from=1995, year_to=2003)])      # handover year 2004
 
 
 def _nordic(sweden_2004=181.0, sweden_extra=()):
@@ -330,17 +330,46 @@ def test_no_declaration_is_a_no_op():
     pd.testing.assert_frame_equal(split_aggregates(df, SPLIT.iloc[:0]), df)
 
 
+def test_a_second_member_of_the_same_aggregate_raises():
+    """Its share would be read off rows the first split already changed."""
+    two = pd.concat([SPLIT, SPLIT.assign(root_region="Finland")], ignore_index=True)
+    with pytest.raises(ValueError, match="one declared member per aggregate"):
+        split_aggregates(_nordic(), two)
+
+
+def test_an_aggregate_reported_after_its_handover_year_raises():
+    late = _row("Scandinavia", "Refining", "Primary", 340.0, year=2005)
+    with pytest.raises(ValueError, match="outside"):
+        split_aggregates(_nordic(sweden_extra=[late]), SPLIT)
+
+
+def test_a_series_with_no_readable_share_raises():
+    """An aggregate of 0 beside a reporting member: dropping it would lose
+    nothing, but splitting before it would have no share to apply."""
+    zero = [_row("Scandinavia", "Smelting", "Primary", 0.0, year=2004),
+            _row("Sweden", "Smelting", "Primary", 5.0, year=2004)]
+    with pytest.raises(ValueError, match="no share can be read"):
+        split_aggregates(_nordic(sweden_extra=zero), SPLIT)
+
+
+def test_a_handover_year_without_the_member_raises():
+    df = _nordic()
+    df = df[~((df.Region == "Sweden") & (df.Year == 2004))]
+    with pytest.raises(ValueError, match="does not carry both"):
+        split_aggregates(df, SPLIT)
+
+
 def test_the_declaration_is_read_with_integer_years(tmp_path):
     path = tmp_path / "params.csv"
-    path.write_text("src_region,root_region,year_from,year_to,handover_year,source,comment\n"
-                    "Scandinavia,Sweden,1995,2003,2004,icsg v13,#74\n")
-    got = aggregate_splits(path)
-    assert got.loc[0, ["year_from", "year_to", "handover_year"]].tolist() == [1995, 2003, 2004]
+    path.write_text("src_region,root_region,year_from,year_to,source,comment\n"
+                    "Scandinavia,Sweden,1995,2003,icsg v13,#74\n")
+    got = aggregate_declaration(path)
+    assert got.loc[0, ["year_from", "year_to"]].tolist() == [1995, 2003]
 
 
-def test_a_handover_year_inside_the_member_years_raises(tmp_path):
+def test_a_reversed_year_range_raises(tmp_path):
     path = tmp_path / "params.csv"
-    path.write_text("src_region,root_region,year_from,year_to,handover_year,source,comment\n"
-                    "Scandinavia,Sweden,1995,2003,2003,icsg v13,#74\n")
-    with pytest.raises(ValueError, match="handover_year"):
-        aggregate_splits(path)
+    path.write_text("src_region,root_region,year_from,year_to,source,comment\n"
+                    "Scandinavia,Sweden,2003,1995,icsg v13,#74\n")
+    with pytest.raises(ValueError, match="year_from after year_to"):
+        aggregate_declaration(path)

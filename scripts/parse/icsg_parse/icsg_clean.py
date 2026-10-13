@@ -10,8 +10,8 @@ CLEAN_DIR = 'data/proc/feedprep/icsg_clean'
 FEED_VALUES = 'data/input/feed/icsg/current/values.csv'
 FEED_CONC = 'data/input/feed/icsg/current/conc.xlsx'
 ROW_BUCKET = 'ROW'
-# Hand-authored: which root region an ICSG aggregate row contains, in which
-# years, and the handover year that publishes both (#67, #73, #74).
+# Hand-authored: which root region an ICSG aggregate row contains, and in which
+# years; the year after is the handover year that publishes both (#67, #73, #74).
 AGGREGATES_CSV = 'data/input/params/icsg_aggregates/current/params.csv'
 
 
@@ -114,78 +114,97 @@ def merge_territories(df, aliases):
               .reset_index(drop=True))
 
 
-def aggregate_splits(path=AGGREGATES_CSV):
+def aggregate_declaration(path=AGGREGATES_CSV):
     """The ``icsg_aggregates`` declaration, with integer years.
 
     A row says ICSG reports ``root_region`` inside the aggregate row
-    ``src_region`` from ``year_from`` to ``year_to``, and publishes both in
-    ``handover_year``, the first year the member reports itself.  A handover year
-    that does not follow the member years raises.
+    ``src_region`` from ``year_from`` to ``year_to``.  The year after is the
+    **handover year**: ICSG publishes the aggregate and its members, the first
+    year the members report themselves.  A reversed year range raises.
     """
     d = pd.read_csv(path, sep=None, engine='python', dtype=str)
-    for c in ('year_from', 'year_to', 'handover_year'):
+    for c in ('year_from', 'year_to'):
         d[c] = d[c].astype(int)
-    bad = d[d['handover_year'] <= d['year_to']]
+    bad = d[d['year_from'] > d['year_to']]
     if len(bad):
-        raise ValueError(f"icsg_aggregates: handover_year must follow year_to:\n{bad}")
+        raise ValueError(f"icsg_aggregates: year_from after year_to:\n{bad}")
     return d
 
 
-def split_aggregates(df, splits):
+def split_aggregates(df, declaration):
     """Split each declared aggregate row to its member by the handover year's shares.
 
     ICSG reports some countries only inside an aggregate row until a handover
     year, then the countries themselves ("Scandinavia" → ROW until 2003, Sweden,
-    Finland and Norway from 2004).  In the handover year it publishes both, so
-    that year states the member's share of every series it reports.
+    Finland and Norway from 2004).  In the handover year, the year after
+    ``year_to``, it publishes both, so that year states the member's share of
+    every series it reports.
 
     - **Member years (#74).** The aggregate's row is split: the declared member
-      gets the handover year's share, the aggregate keeps the rest, and the total
-      is unchanged.  Without it Sweden had a mine and trade but no smelter or
-      refinery in 1995–2003, and the model built its cathode through a phantom
-      SX-EW chain.
+      gets the handover year's share, the aggregate keeps the rest, and the
+      series total is unchanged.  Without it Sweden had a mine and trade but no
+      smelter or refinery in 1995–2003, and the model built its cathode through
+      a phantom SX-EW chain.
     - **Handover year (#73).** The aggregate republishes its members, so its row
       is dropped wherever the member reports the series; the feed used to add
       both, and the Nordic flows entered twice, once via ROW.
 
     A series the member does not report in the handover year has no share and
-    stays with the aggregate.  A share outside [0, 1], or a member row the split
-    would duplicate, raises.  Runs before anything keys on ``Region``, like
+    stays with the aggregate.  These raise: a second member declared for one
+    aggregate (its share would be read off rows the first split already
+    changed), an aggregate row outside ``year_from`` … handover year, a handover
+    year without both forms, a series both report whose share cannot be read
+    (aggregate ≤ 0 or a missing value) or lies outside [0, 1], and a member row
+    the split would duplicate.  Runs before anything keys on ``Region``, like
     ``merge_territories`` (ADR 0032).
     """
-    if not len(splits):
+    if not len(declaration):
         return df
+    twice = declaration['src_region'][declaration['src_region'].duplicated()]
+    if len(twice):
+        raise ValueError(f"one declared member per aggregate; declared twice: "
+                         f"{sorted(set(twice))}")
     key = ['Process', 'Type', 'Supply_Use']
     df = df.copy()
-    for s in splits.itertuples(index=False):
-        agg, mem, h = s.src_region, s.root_region, s.handover_year
+    for d in declaration.itertuples(index=False):
+        agg, mem, h = d.src_region, d.root_region, d.year_to + 1
+        years = df.loc[df['Region'] == agg, 'Year']
+        outside = sorted(set(years[(years < d.year_from) | (years > h)]))
+        if outside:
+            raise ValueError(f"{agg} reports outside {d.year_from}–{h}: {outside}")
         a_h = df[(df['Region'] == agg) & (df['Year'] == h)].set_index(key)['Value']
         m_h = df[(df['Region'] == mem) & (df['Year'] == h)].set_index(key)['Value']
         if a_h.empty or m_h.empty:
             raise ValueError(f"{agg} ⊃ {mem}: handover year {h} does not carry both")
         both = a_h.index.intersection(m_h.index)
-        pos = both[a_h[both].to_numpy() > 0.0]
-        share = m_h[pos] / a_h[pos]
-        off = share[(share < 0.0) | (share > 1.0)]
-        if len(off):
-            raise ValueError(f"{agg} ⊃ {mem}: a member share outside [0, 1] in {h}:\n{off}")
+        a, m = a_h[both], m_h[both]
+        unreadable = both[~(a > 0.0).to_numpy() | m.isna().to_numpy()]
+        if len(unreadable):
+            raise ValueError(f"{agg} ⊃ {mem}: no share can be read in {h} for "
+                             f"{list(unreadable)}")
+        share = m / a
+        beyond = share[(share < 0.0) | (share > 1.0)]
+        if len(beyond):
+            raise ValueError(f"{agg} ⊃ {mem}: a member share outside [0, 1] in {h}:\n"
+                             f"{beyond}")
 
-        inside = (df['Region'] == agg) & df['Year'].between(s.year_from, s.year_to)
-        f = share.reindex(pd.MultiIndex.from_frame(df.loc[inside, key])).to_numpy()
-        idx, f = df.index[inside][~np.isnan(f)], f[~np.isnan(f)]
+        inside = (df['Region'] == agg) & df['Year'].between(d.year_from, d.year_to)
+        frac = share.reindex(pd.MultiIndex.from_frame(df.loc[inside, key])).to_numpy()
+        has = ~np.isnan(frac)
+        idx, frac = df.index[inside][has], frac[has]
         new = df.loc[idx].copy()
         new['Region'] = mem
-        new['Value'] = df.loc[idx, 'Value'].to_numpy() * f
+        new['Value'] = df.loc[idx, 'Value'].to_numpy() * frac
         clash = df[df['Region'] == mem].merge(new[key + ['Year']], on=key + ['Year'])
         if len(clash):
             raise ValueError(f"{mem} already reports what the {agg} split would give it:\n"
                              f"{clash[key + ['Year']]}")
-        df.loc[idx, 'Value'] = df.loc[idx, 'Value'].to_numpy() * (1.0 - f)
+        df.loc[idx, 'Value'] = df.loc[idx, 'Value'].to_numpy() * (1.0 - frac)
 
         handover = ((df['Region'] == agg) & (df['Year'] == h)
-                    & pd.MultiIndex.from_frame(df[key]).isin(m_h.index))
-        print(f"{agg} ⊃ {mem}: {len(new)} member rows for {s.year_from}–{s.year_to}, "
-              f"{new['Value'].sum():,.1f} kt moved; shares read off {h}: "
+                    & pd.MultiIndex.from_frame(df[key]).isin(both))
+        print(f"{agg} ⊃ {mem}: {len(new)} member rows for {d.year_from}–{d.year_to}; "
+              f"shares read off {h}: "
               + ", ".join(f"{'/'.join(k[:2])} {v:.3f}" for k, v in share.items())
               + f"; {int(handover.sum())} handover-year rows of {agg} dropped")
         df = pd.concat([df[~handover], new], ignore_index=True)
@@ -316,7 +335,7 @@ def cl(raw):
     df = merge_territories(df, territory_aliases())
     #2c an aggregate row is split to its declared member, and its handover-year
     #   duplicate is not summed with the members (#73, #74)
-    df = split_aggregates(df, aggregate_splits())
+    df = split_aggregates(df, aggregate_declaration())
 
     #3 production → the input it consumed, marked as a Use row
     eff = read_eff()

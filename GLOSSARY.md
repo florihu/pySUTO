@@ -788,13 +788,16 @@ error — the Rotterdam effect (imports a hub never re-exports on the record) ge
 re-attributed from BACI alone.
 
 **ICSG aggregate row** — an ICSG source row that reports several countries together, such as
-"Scandinavia" before Sweden reports its own flows. Its root-region members, their years and the
-**handover year** (the first year ICSG publishes both forms) are declared in the `icsg_aggregates`
-params input, never inferred from names. The ICSG clean step splits the row to its member by the
-handover year's shares and drops its handover-year duplicate ([ADR 0032](docs/adr/0032-one-territory-one-label.md));
-a member's region-year stays an `icsg-gap` for the re-export netting ([ADR 0027](docs/adr/0027-re-exports-are-re-attributed-at-feed-time.md)).
+"Scandinavia" for Sweden, Finland and Norway until 2003. Its members and their years are declared in
+the `icsg_aggregates` params input, never inferred from names; the ICSG clean step splits it to its
+member ([ADR 0032](docs/adr/0032-one-territory-one-label.md)).
 _Distinct from_: `excluded-aggregate`, the ledger label for ROW, a *root* region; and from `agg=true`
 pooling and Stage-2 aggregation, which are unrelated. _Avoid_: "aggregate" alone.
+
+**Handover year** — the first year ICSG publishes both an aggregate row and the members it contains,
+the year after the declared member years (2004 for Scandinavia). It states each member's share of the
+aggregate's series, and the aggregate row in it is a republication of its members.
+_Avoid_: summing the two forms in that year.
 
 **BACI-observed region** — a consumer region for which the BACI feed records at least one cross-region
 import (any traded sector, any year). The flag is what makes `Σ imports = 0` *informative*: for an

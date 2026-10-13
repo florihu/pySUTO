@@ -172,22 +172,28 @@ from the 2014 yearbook. The region map sends Scandinavia to ROW. That did two ki
 
 This is ADR 0032's handover, with an aggregate in place of a renamed territory. `split_aggregates()`
 runs in `cl()` right after `merge_territories()`, before anything keys on `Region`. It reads the
-hand-authored params input `icsg_aggregates` (v3: Sweden ⊂ Scandinavia, 1995–2003, handover year 2004),
-the same declaration #67's netting reads.
+hand-authored params input `icsg_aggregates` (v4: Sweden ⊂ Scandinavia, 1995–2003), the same
+declaration #67's netting reads. The **handover year** is the year after the member years, 2004.
 
 - **Member years.** The declared member's share of each series is its value over the aggregate's in the
   handover year. Each aggregate row in the member years is split: the member gets that share, the
   aggregate keeps the rest, and the total is unchanged. Shares on icsg v13: Mining 0.837, Smelting
   primary 0.525, Refining primary 0.521, Semis 0.618, Smelting secondary 0.914, Refining secondary
-  0.916. Sweden gains 54 rows for 1995–2003, 5,364.7 kt in all; series totals in those years are
-  unchanged.
+  0.916. Sweden gains 54 rows for 1995–2003; over those years it now carries 1,558.2 kt CC of refined
+  anode use, 1,296.0 of smelter concentrate use, 681.3 of mine output and 1,548.3 of semis use. Each
+  production and use series keeps its total. One knock-on: after ADR 0030's nesting, refinery scrap use
+  rises 0.40 kt CC over 1995–2003, because in 9 years Scandinavia's remainder of the smelter route
+  exceeds its remainder of secondary refined output. Those 9 region-years (0.02–0.06 kt CC each) are
+  clipped and listed in `icsg_secondary_excess.csv`, the ADR 0030 path.
 - **Handover year.** The aggregate republishes its members, so its row is dropped wherever the member
   reports the series: 6 rows. In 2004 Scandinavia's refined primary output equals Sweden + Finland +
-  Norway exactly (347.7 kt); mining differs by 0.5 kt and semis by 4.6 kt, yearbook revisions.
+  Norway exactly (347.7 kt CC); mining differs by 0.5 kt CC and semis by 4.6, yearbook revisions.
 - **Left alone.** A series the member does not report in the handover year has no share and stays with
   the aggregate, here Scandinavia's producer stock change. Finland and Norway are not declared: they map
   to ROW, so their part stays where it was.
-- **Raises.** A share outside [0, 1], or a member row the split would duplicate.
+- **Raises.** A second member declared for one aggregate, an aggregate row outside its member years and
+  handover year, a handover year without both forms, a series whose share cannot be read or lies
+  outside [0, 1], and a member row the split would duplicate.
 
 **The assumption.** Each share is held at its handover-year value for every member year. ICSG publishes
 no Swedish split before 2004, and Nordic capacity moved over the decade, so the 1995–2003 split is an
