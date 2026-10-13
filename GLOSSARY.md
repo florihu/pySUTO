@@ -241,6 +241,13 @@ bucket, so `G` partitions cleanly into `G_blocks[t]`. The Stage-3 partition rais
 if this is violated.
 _Avoid_: "time independence".
 
+**Parallel solve**:
+Solving the periods of a cold-prior run concurrently, each period its own QP; possible only
+because a cold period's prior does not depend on another period's optimum. A warm run is a
+chain and is solved in period order.
+_Avoid_: "multi-threaded solve" — that is the solver's threading *inside* one period's QP (its
+linear algebra), which a parallel solve pins to one thread.
+
 *Example.* "Why does the 1995 file's mass balance look enormous?" — "That's a
 pre-fix block run: the file holds 1995's **period slice** plus **cross-year
 placeholders** for every other year, and the residual was taken over the full
@@ -417,7 +424,8 @@ silent no-op and every year fell back to `f_agg` — see [ADR 0009](docs/adr/000
 
 **Two warm-starts (not the same thing).** `prior_mode` (warm/cold) is the **modelling** prior
 above. `reuse_factorization` is a purely **numerical** warm-start — reusing Clarabel's KKT
-factorisation across timesteps via `solver.update()`. _Avoid_: conflating the two; the local
+factorisation across timesteps via `solver.update()`; it exists only in a serial solve, since a
+**parallel solve** factorises each period on its own. _Avoid_: conflating the two; the local
 that selects KKT reuse was historically also called `warm_start`.
 
 **Defect** — the per-**edge** prior departure `a* − a_prior` (solved value minus the warm-start
