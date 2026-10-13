@@ -723,7 +723,7 @@ class TestParallelSolve:
             assert st.max_threads == 1
             assert st.direct_solve_method == "qdldl"
 
-    def test_parallel_solve_reproduces_the_serial_solve_bit_for_bit(
+    def test_parallel_solve_matches_each_period_solved_alone_bit_for_bit(
         self, tmp_path, monkeypatch,
     ):
         """Reference = each period solved serially on its own instance. A serial
@@ -743,6 +743,21 @@ class TestParallelSolve:
             np.testing.assert_array_equal(res_p[t].eps_opt,   res_s[t].eps_opt)
             np.testing.assert_array_equal(res_p[t].residuals, res_s[t].residuals)
             assert res_p[t].objective == res_s[t].objective
+
+    def test_parallel_solve_matches_a_serial_run_to_solver_tolerance(
+        self, tmp_path, monkeypatch,
+    ):
+        """Against one serial run over both periods (KKT reuse on this toy's
+        identical G_blocks): same period order, same values to solver tolerance."""
+        cr, serial   = self._cold_solver(tmp_path, monkeypatch, n_workers=1)
+        _,  parallel = self._cold_solver(tmp_path, monkeypatch, n_workers=2)
+        monkeypatch.setattr(parallel, "load_run", lambda _rid: cr)
+        res_s = serial.solve_all(cr.run_id)
+        res_p = parallel.solve_all(cr.run_id)
+
+        assert list(res_p) == list(res_s)
+        for t in res_s:
+            assert np.allclose(res_p[t].F_opt, res_s[t].F_opt, rtol=1e-7, atol=1e-7), t
 
     def test_sidecar_records_how_the_periods_were_solved(self, tmp_path, monkeypatch):
         cr, s = self._cold_solver(tmp_path, monkeypatch, n_workers=8)
@@ -785,11 +800,14 @@ class TestParallelSolve:
         original_cls = solver_mod.clarabel.DefaultSolver
         monkeypatch.setattr(solver_mod.clarabel, "DefaultSolver",
                             lambda *a, **k: _NumericalError(original_cls(*a, **k)))
-        cr, s = self._cold_solver(tmp_path, monkeypatch, n_workers=2)
+        opt_dir = tmp_path / "opt"
+        cr, s = self._cold_solver(tmp_path, monkeypatch, n_workers=2,
+                                  opt_dir=str(opt_dir))
         monkeypatch.setattr(s, "feasibility_check", lambda run, t: None)
         with pytest.raises(RuntimeError, match="NumericalError") as exc:
             s.solve_all(cr.run_id)
         assert "'2020'" in str(exc.value) and "'2021'" in str(exc.value)
+        assert not list(opt_dir.glob("opt_*")), "a failed solve registered a run"
 
 
 class TestPreFixBlockRunGuard:

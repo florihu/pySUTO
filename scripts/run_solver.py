@@ -70,10 +70,12 @@ REDUCED_TOL_GAP_ABS = 10.0
 # N_WORKERS threads, each with its own Clarabel instance; 1 = the serial loop,
 # the only setting --prior-mode warm accepts (a warm run is a chain). Each
 # period's linear solver is pinned to one thread: multi-threaded faer was slower
-# than one thread (1995: 48 s vs 35 s) and gave a bit-identical answer.
+# than one thread (1995 of const_20261012_113828_12c562c7: 48.0 s vs 34.9 s) and
+# gave the objective of opt_20261012_122124_40b1b370 bit for bit (#70).
 N_WORKERS           = os.cpu_count() or 1
 # Clarabel's linear solver for the period QPs. "faer" is what "auto" picked in
-# every copper run so far; "qdldl" is ≈ 5× faster but moves the objective (#72).
+# opt_20261012_122124_40b1b370 (sidecar linsolver_name); "qdldl" solved the same
+# periods ≈ 5× faster but moved each objective by −122 … +311 (#72).
 DIRECT_SOLVE_METHOD = "faer"
 
 

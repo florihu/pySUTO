@@ -7,7 +7,9 @@ Loads a persisted :class:`pysuto.constraints.ConstraintRun`, transforms it
 to Clarabel's standard form, runs a feasibility pre-check on the hard rows,
 then solves the QP per timestep using ``solver.update(b=...)`` between
 timesteps to retain the KKT factorisation (the practical warm-start
-mechanism for this problem since only ``c`` varies across time).
+mechanism for this problem since only ``c`` varies across time). Under
+``prior_mode='cold'`` with ``n_workers > 1`` the timesteps are instead solved
+concurrently (**parallel solve**, #70), each on its own Clarabel instance.
 
 Cone layout (correcting README §665-667):
 
@@ -93,6 +95,12 @@ class OptimResult:
 # =============================================================================
 
 _OK_STATUSES = {"Solved", "AlmostSolved"}
+
+# Linear-solver threads per period QP: one. Measured on
+# const_20261012_113828_12c562c7 against opt_20261012_122124_40b1b370 (#70): the
+# 1995 period solved in 48.0 s on all cores and 34.9 s on one, bit-identical
+# objective; the cores go to the parallel solve instead.
+_PERIOD_MAX_THREADS = 1
 
 
 class ClarabelSolver:
@@ -236,14 +244,13 @@ class ClarabelSolver:
         return s
 
     def _period_settings(self, verbose: bool) -> clarabel.DefaultSettings:
-        """Settings for one period's QP: the linear solver pinned to one thread.
-        Multi-threaded faer is slower than one thread on a period QP and gives
-        the same answer (1995: 48 s vs 35 s, objective bit-identical, #70); the
-        cores go to the parallel solve instead. The full-G probe keeps the
-        default, where the threads help (432 s vs 471 s)."""
+        """Settings for one period's QP: the linear solver pinned to
+        ``_PERIOD_MAX_THREADS``. The full-G feasibility probe keeps the default,
+        where the threads help (1995 probe of const_20261012_113828_12c562c7:
+        432 s on all cores vs 471 s on one, #70)."""
         s = self._settings(verbose)
         s.direct_solve_method = self.direct_solve_method
-        s.max_threads         = 1
+        s.max_threads         = _PERIOD_MAX_THREADS
         return s
 
     def _condition_prior(
@@ -535,6 +542,8 @@ class ClarabelSolver:
             if missing:
                 raise KeyError(f"timesteps not in run: {sorted(missing)}")
 
+        # A failed call must not leave the previous call's facts for persist().
+        self._solve_config, self._solve_summary = {}, {}
         t0 = time.perf_counter()
         if run.G_blocks:
             results = self._solve_all_via_blocks(
@@ -542,7 +551,7 @@ class ClarabelSolver:
             )
             self._solve_config = {
                 "n_workers":           min(self.n_workers, len(ts_labels)),
-                "max_threads":         1,
+                "max_threads":         _PERIOD_MAX_THREADS,
                 "direct_solve_method": self.direct_solve_method,
             }
         else:
@@ -550,7 +559,7 @@ class ClarabelSolver:
                 run, ts_labels, feasibility_check_first_only,
             )
             self._solve_config = {"n_workers": 1}
-        # Wall-clock of the whole call: feasibility probe + period solves.
+        # Wall-clock after loading: feasibility probe + period solves.
         self._solve_summary = {"solve_wall_s": time.perf_counter() - t0}
         return results
 
@@ -726,7 +735,6 @@ class ClarabelSolver:
         with no time-varying ratios), one Clarabel instance is built and
         reused via solver.update(P, q, b) — keeping the KKT factorisation
         across the whole timestep loop."""
-        reuse_factorization = self._per_t_problem_identical(run, ts_labels)
         check_labels = ts_labels[:1] if feasibility_check_first_only else ts_labels
         logger.info(
             "Feasibility pre-check on %d/%d timesteps%s…",
@@ -764,6 +772,7 @@ class ClarabelSolver:
                 run, ts_labels, a_0_global, inv_sa_global, row_time,
             )
 
+        reuse_factorization = self._per_t_problem_identical(run, ts_labels)
         results: dict[str, OptimResult] = {}
         solver_t: Optional[clarabel.DefaultSolver] = None
         prev_cols: Optional[np.ndarray] = None
@@ -807,14 +816,16 @@ class ClarabelSolver:
     ) -> dict[str, OptimResult]:
         """Parallel solve (cold only): every period is its own QP against its
         cold seed, so the periods run concurrently on a thread pool, each with a
-        fresh Clarabel instance (Clarabel releases the GIL in ``solve()``).
+        fresh Clarabel instance. Clarabel releases the GIL in ``solve()``: 8
+        periods of const_20261012_113828_12c562c7 took 63.3 s on 8 threads vs
+        549 s serially in opt_20261012_122124_40b1b370, bit-identical (#70).
 
         The first failed period cancels the periods not yet started; the
         RuntimeError names every period that failed, and nothing is returned."""
         n_threads = min(self.n_workers, len(ts_labels))
         logger.info("Parallel solve: %d periods on %d threads", len(ts_labels), n_threads)
 
-        def _one(t: str) -> OptimResult:
+        def _solve_one_period(t: str) -> OptimResult:
             cols_t = run.edge_cols_by_t[t]
             res, _ = self._solve_period(
                 run, t, a_0_global[cols_t].copy(), inv_sa_global[cols_t], row_time,
@@ -822,7 +833,7 @@ class ClarabelSolver:
             return res
 
         with ThreadPoolExecutor(max_workers=n_threads) as pool:
-            fut_by_t = {t: pool.submit(_one, t) for t in ts_labels}
+            fut_by_t = {t: pool.submit(_solve_one_period, t) for t in ts_labels}
             for fut in as_completed(fut_by_t.values()):
                 if fut.exception() is not None:
                     pool.shutdown(wait=False, cancel_futures=True)
