@@ -30,8 +30,8 @@ should be inert here. This measurement checks that.
 - The new trade shares have exactly v29's rows.
 - Every weight equals v29's to ≤ 1e-9 relative.
 
-The ticket states the second item in relative terms. The script reads a weight v29 holds at exactly 0
-as requiring an exact 0, since a relative difference is undefined there.
+The script applies the second item as |Δw| ≤ 1e-9 · |w_v29|. Where v29 holds a weight at exactly 0,
+that asks for an exact 0.
 
 ## 3. Result
 
@@ -45,21 +45,26 @@ as requiring an exact 0, since a relative difference is undefined there.
 | weights at 0 in the base, nonzero in v30 | 0 of 113,055 | 0 of 113,055 |
 | weights beyond 1e-9 relative | 0 | 0 |
 
-- **The differences are round-off.** The raw usage totals reproduce the feed run's fan totals to
-  3.5e-16 relative (#66). The 810 weights that differ from v29 sit in 177 fan groups: 98 domestic
-  legs and 712 import legs, the latter rescaled by ADR 0024's bound, which divides by the usage.
+- **The differences are round-off.** The raw usage totals reproduce the fan totals of
+  `feed_icsg_20261012_130637_fa562177` to 3.5e-16 relative (measured for #66). The 810 weights that
+  differ from v29 sit in 177 fan groups: 98 domestic legs and 712 import legs. The import legs are
+  rescaled by ADR 0024's bound, which divides by the usage.
 - **The largest relative difference is a near-zero residual.** It is Bulgaria's domestic concentrate
-  leg in 2015, 0.0035 kt CC or 1.2e-5 of its group, where the residual subtracts two near-equal totals
-  and amplifies the round-off.
+  leg in 2015: 0.0035 kt CC in v29, 1.2e-5 of its v29 group total. The residual subtracts two
+  near-equal totals and amplifies the round-off.
 - **No stock leg differs.** A stock leg's weight reads only the sign of its usage (ADR 0043).
-- **For scale:** v28 and v29 differ in 947 weights at 3.1e-12 relative, the round-off #65 reported.
+- **For scale:** v29 differs from v28 in 947 weights at 3.1e-12 relative to v28, the round-off #65
+  reported.
 
 ## 4. The builder's diagnostics are unchanged
 
-The pre-#66 builder ran in memory on the same inputs with `feed_icsg_20261012_130637_fa562177`. Its
-weights equal v29 within 1.8e-12 absolute, and it prints the same diagnostic lines as the v30 build.
+#66 made usage an input of the weight computation, so the pre-#66 rule can be replayed with the
+current code. The script's `--diag` mode does that in memory, on the same inputs, with usage from
+`feed_icsg_20261012_130637_fa562177` and the raw rows only where its fan total is 0. Its weights equal
+the raw-usage weights within 1.8e-12 kt CC absolute, on the same rows. Both print the same diagnostic
+lines, which are also what the v30 build printed.
 
-| builder line | pre-#66 | v30 build |
+| builder line | pre-#66 rule | raw usage (#66) |
 |---|---|---|
 | ADR 0024: domestic legs bounded | 442 | 442 |
 | ADR 0024: "kt CC moved" | −304,203 | −304,203 |
@@ -76,8 +81,9 @@ The ADR 0024 line's "kt CC moved" is negative. That predates #66.
 - **The cause.** The line sums free minus bound weight over every domestic leg, stock legs included.
   Since ADR 0043 a stock leg's domestic weight is its region's own production when production is given,
   and 0 when it is not.
-- **What the stock legs add.** The 402 domestic stock legs add −324,738 to the sum. That is a sum of
-  supply-mix raw weights, not tonnage moved.
+- **What the stock legs add.** The 402 domestic stock legs add −324,738 kt CC to the sum. That is
+  their regions' own cathode production, counted once per leg as a supply-mix weight. It is not
+  tonnage moved.
 - **The real figure.** The 442 bounded flow legs moved +20,536 kt CC from the domestic residual onto
   import legs.
 
@@ -96,11 +102,13 @@ The fix restricts the sum to flow legs and changes a printed line only. It is no
 ## Reproduce
 
 ```
-python scripts/build_trade_shares.py                          # registers v30 on icsg v13 + baci v16
-python scripts/explo/issue68_trade_shares_identity.py 29 30   # the pass rule
-python scripts/explo/issue68_trade_shares_identity.py 28 30
-python scripts/explo/issue68_trade_shares_identity.py 28 29   # #65's round-off, for scale
+python scripts/build_trade_shares.py                          # the rebuild; registered as v30
+python scripts/explo/issue68_trade_shares_identity.py 29 30   # §3, the pass rule
+python scripts/explo/issue68_trade_shares_identity.py 28 30   # §3
+python scripts/explo/issue68_trade_shares_identity.py 28 29   # §3, #65's round-off, for scale
+python scripts/explo/issue68_trade_shares_identity.py --diag \
+    feed_icsg_20261012_130637_fa562177 feed_baci_20261012_130305_1cdad15b   # §4 and §5
 ```
 
-§4 runs the pre-#66 builder, `git show d7a7654:scripts/build_trade_shares.py`, through the same calls
-as its `main()` without writing or registering anything.
+The rebuild is deterministic. Re-running it on the same inputs writes the same file, which the
+params registry does not version again.
