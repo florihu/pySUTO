@@ -54,9 +54,12 @@ fourfold — that gap is ICSG-internal, not BACI's, and spreading it would
 fabricate imports instead of domestic supply (measured: it cut US mine
 output 10–30 pp in those years through the interpolated neighbours).
 
-``ICSG_usage_CC`` is read from the *existing* ICSG feed ``F_root``: the fan total
-Σ_X F_root(X→Y) equals the raw ICSG usage regardless of the weights used to
-build it (mass-preserving), so it is the same number the raw carries.
+``ICSG_usage_CC`` is read from the registered ICSG input's raw ``Use`` rows
+(``icsg_raw_usage``), never from an ICSG feed run: that run is built from these
+very weights, so reading its ``F_root`` handed the builder the *previous* ICSG
+data and the documented order (trade shares → ICSG feed) was exact only on a
+second pass (#66). The weights therefore depend on registered inputs alone —
+the BACI feed run, built first, and the ICSG input.
 
 SCOPE — traded refined/intermediate products only:
     Cathode, Concentrate, Anode, Matte.
@@ -129,9 +132,9 @@ WITHHOLD_CHAIN_INCONSISTENT = False
 
 def compute_trade_share_weights(
     edges: pd.DataFrame,
+    usage: pd.DataFrame,
     conc_lookup: dict,
     baci_observed_regions: set[str] | None = None,
-    usage_fallback: pd.DataFrame | None = None,
     withhold_fallback: set | None = None,
     production: pd.DataFrame | None = None,
 ) -> pd.DataFrame:
@@ -139,8 +142,15 @@ def compute_trade_share_weights(
 
     ``edges`` columns (one row per CC fan-target edge):
         root_sector_from, root_sector_to, root_region_from, root_region_to,
-        root_time, icsg (ICSG F_root CC), baci_mass (BACI F_root Mass on the
-        paired Mass edge; NaN/0 where no trade).
+        root_time, baci_mass (BACI F_root Mass on the paired Mass edge; NaN/0
+        where no trade).
+
+    ``usage`` — per fan group ``(root_sector_from, root_sector_to,
+    root_region_to, root_time)`` the ICSG Use total in CC (``usage_raw``), read
+    from the registered ICSG input by ``icsg_raw_usage``. A group without a row
+    has no usage and is not emitted. Never the ICSG feed run's ``F_root`` fan
+    total: that run is built from these weights, so after an ICSG change it
+    carries the previous data (#66).
 
     ``baci_observed_regions`` — consumer regions BACI observes at all (any
     cross-region import, any sector, any year). For those, ``Σ imports == 0``
@@ -151,13 +161,6 @@ def compute_trade_share_weights(
     no information: the group is left unemitted so the fan stays undistributed
     — the honest "total known, split unknown" state (ADR 0008). ``None`` means
     "no region is known-observed", i.e. the pre-ADR-0018 behaviour.
-
-    ``usage_fallback`` — per-group ICSG usage read from the *raw* ICSG rows
-    (the four group keys + ``usage_raw``). Needed only to break a bootstrap:
-    ``usage`` is normally the ICSG ``F_root`` fan total, but a fan a previous
-    build left **undistributed** has ``F_root == 0`` on every leg, so its usage
-    reads as 0 and the group could never be recovered. Applied strictly where
-    the ``F_root`` total is 0, leaving distributed groups bit-for-bit unchanged.
 
     ``withhold_fallback`` — group keys ``(sector_from, sector_to, region_to,
     time)`` for which the import-free domestic fallback must **not** fire, so
@@ -190,15 +193,10 @@ def compute_trade_share_weights(
     df["imp_cc"] = np.where(df["is_domestic"], 0.0, conc * df["baci_mass"])
 
     grp_cols = ["root_sector_from", "root_sector_to", "root_region_to", "root_time"]
-    g = df.groupby(grp_cols, sort=False)
-    usage   = g["icsg"].transform("sum").to_numpy()
-    imp_sum = g["imp_cc"].transform("sum").to_numpy()
-
-    if usage_fallback is not None:
-        # many-to-one left merge preserves df's row order
-        raw_u = (df[grp_cols].merge(usage_fallback, on=grp_cols, how="left")
-                 ["usage_raw"].fillna(0.0).to_numpy())
-        usage = np.where(usage > 0, usage, raw_u)
+    imp_sum = df.groupby(grp_cols, sort=False)["imp_cc"].transform("sum").to_numpy()
+    # many-to-one left merge preserves df's row order
+    usage = (df[grp_cols].merge(usage, on=grp_cols, how="left", validate="many_to_one")
+             ["usage_raw"].astype(float).fillna(0.0).to_numpy())
 
     # A stock change is signed: a draw-down fans like a build of the same size,
     # and the sign travels with the value, not the weights.  Without this, only
@@ -317,9 +315,12 @@ def icsg_raw_usage(sectors) -> pd.DataFrame:
     Group key is the fan's ``(root_sector_from, root_sector_to,
     root_region_to, root_time)``: the input product (sector_map ``icsg_type``),
     the consumer process/boundary (``root_sector``), the mapped consumer region
-    and the year. Verified to reproduce the ICSG ``F_root`` fan total exactly
-    (max relative difference 3e-16 over all 2,610 distributed groups), so it is
-    a faithful stand-in where ``F_root`` is 0 because the fan was dropped.
+    and the year. The builder's only source of usage (#66): a distributed fan's
+    ``F_root`` total reproduces it to 3.5e-16 relative (all 3,113 groups of
+    ``feed_icsg_20261012_130637_fa562177``, 599 of them signed stock groups),
+    but that feed run is built from these weights, so reading it after an ICSG
+    change hands back the previous data. Signed stock rows (MESC, USC) keep
+    their sign here; the caller fans them by magnitude.
     """
     inputs = _input_registries()
     fdir = inputs.feed.resolve("icsg")
@@ -504,21 +505,20 @@ def stock_legs_take_the_cathode_trade(edges: pd.DataFrame) -> pd.DataFrame:
     return out
 
 
-def build_edges_frame(acc, icsg_froot, baci_froot, sectors) -> pd.DataFrame:
-    """One row per CC fan-target edge for `sectors`, with icsg + paired baci_mass."""
+def build_edges_frame(acc, baci_froot, sectors) -> pd.DataFrame:
+    """One row per CC fan-target edge for `sectors`, with the paired baci_mass."""
     ei = _decoded_edges(acc)
     ei = ei[ei["root_sector_from"].isin(sectors)]
     cc   = ei[ei["valuation"] == "CC"].copy()
     mass = ei[ei["valuation"] == "Mass"][["from_id", "to_id", "time", "edge_id"]]
     mass = mass.rename(columns={"edge_id": "mass_edge_id"})
     cc = cc.merge(mass, on=["from_id", "to_id", "time"], how="left")
-    cc["icsg"]      = icsg_froot[cc["edge_id"].values]
     cc["baci_mass"] = np.where(cc["mass_edge_id"].notna(),
                                baci_froot[cc["mass_edge_id"].fillna(0).astype(int).values],
                                np.nan)
     return stock_legs_take_the_cathode_trade(
         cc[["root_sector_from", "root_sector_to", "root_region_from",
-            "root_region_to", "root_time", "icsg", "baci_mass"]])
+            "root_region_to", "root_time", "baci_mass"]])
 
 
 def main() -> None:
@@ -532,10 +532,9 @@ def main() -> None:
     _wild = {s_: v for (s_, r_), v in conc_lookup.items() if r_ == "*"}
     _reg = len(conc_lookup) - len(_wild)
     print(f"   conc: {_wild}" + (f"  (+{_reg} region-resolved rows)" if _reg else ""))
-    icsg = _latest_feed_froot("icsg")
     baci = _latest_feed_froot("baci")
 
-    edges = build_edges_frame(acc, icsg, baci, SECTORS)
+    edges = build_edges_frame(acc, baci, SECTORS)
     observed = baci_observed_regions(acc, baci)
     usage_raw = icsg_raw_usage(SECTORS)
     # ADR 0020's withhold, disabled by ADR 0021 — see WITHHOLD_CHAIN_INCONSISTENT.
@@ -557,13 +556,13 @@ def main() -> None:
     production = icsg_raw_production(BOUND_DOMESTIC_SECTORS, edges)
     print(f"   production rows (raw ICSG, ADR 0027 definitions): {len(production):,} "
           f"for {BOUND_DOMESTIC_SECTORS}")
-    shares = compute_trade_share_weights(edges, conc_lookup, observed,
-                                         usage_raw, withhold, production)
+    shares = compute_trade_share_weights(edges, usage_raw, conc_lookup, observed,
+                                         withhold, production)
 
     # ADR 0024 diagnostic: how many groups the production bound touched and
     # how much usage moved from the domestic leg onto the import legs.
-    unbounded = compute_trade_share_weights(edges, conc_lookup, observed,
-                                            usage_raw, withhold, None)
+    unbounded = compute_trade_share_weights(edges, usage_raw, conc_lookup, observed,
+                                            withhold, None)
     dcols = ["root_sector_from", "root_sector_to", "root_region_from", "root_region_to", "root_time"]
     both = (unbounded.merge(shares, on=dcols, suffixes=("_free", "_bound")))
     dom_both = both[both["root_region_from"] == both["root_region_to"]]
@@ -574,7 +573,7 @@ def main() -> None:
 
     # ADR 0018 diagnostic: which groups are emitted only because of the
     # import-free domestic fallback, and how much ICSG tonnage they carry.
-    pre = compute_trade_share_weights(edges, conc_lookup, None, None)
+    pre = compute_trade_share_weights(edges, usage_raw, conc_lookup, None)
     gcols = ["root_sector_from", "root_sector_to", "root_region_to", "root_time"]
     new_grp = (shares[gcols].drop_duplicates()
                .merge(pre[gcols].drop_duplicates(), how="left", indicator=True))

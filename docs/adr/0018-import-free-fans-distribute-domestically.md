@@ -8,6 +8,13 @@ Amended 2026-09-16 by [ADR 0027](0027-re-exports-are-re-attributed-at-feed-time.
 `Σ imports = 0` that the re-export netting *constructed* is not an observation of domestic
 sourcing, so those groups are withheld (left undistributed, ADR 0008's honest state) instead of
 fanned all-domestic. The observability *set* is unchanged.
+Amended 2026-10-13 (#66): the bootstrap below is now the rule — `usage` is read from the raw
+ICSG rows for every group, so the trade-share weights depend only on registered inputs and one
+pass (trade shares, then the ICSG feed) is exact after any ICSG change. Evidence: REP
+[`…issue65-icsg-stock-parse`](../rep/analysis_opt_20261012_135741_67851aa1_20261012_issue65-icsg-stock-parse.md)
+§6 (trade_shares v27 carried 47 stale weights built on the previous ICSG feed run; v28 → v29
+converged to 3e-12 relative), and the rebuild on icsg v13 reproduces v29 to 1.6e-11 relative on
+all 146,311 weights.
 
 ## Context
 
@@ -57,11 +64,14 @@ consumer region; it stays undistributed when BACI is blind to that region.**
   exception is **Taiwan**, trade-blind because BACI 490 "Other Asia, nes" folds into ROW
   ([ADR 0014](0014-bilateral-feeds-scoped-to-cross-region-edges.md)) — and the largest single
   dropped block at 15.9 Mt. Its fans stay undistributed.
-- **Bootstrap.** `usage` is normally the ICSG `F_root` fan total, which is 0 on every leg of a
-  previously-dropped fan, so the guard could never re-open. `icsg_raw_usage()` reads the ICSG
-  Use totals from the raw rows through the same sector/region maps and is applied **strictly
-  where the `F_root` total is 0**; it reproduces the `F_root` fan total to a maximum relative
-  difference of 3e-16 across all 2,610 distributed groups, so those are bit-for-bit unchanged.
+- **Bootstrap — since #66 the rule.** `usage` was the ICSG `F_root` fan total, which is 0 on
+  every leg of a previously-dropped fan, so the guard could never re-open. `icsg_raw_usage()`
+  reads the ICSG Use totals from the raw rows through the same sector/region maps; it
+  reproduces the `F_root` fan total to a maximum relative difference of 3e-16 across all
+  distributed groups (2,610 at the time; 3,113 on `feed_icsg_20261012_130637_fa562177`, 599
+  of them signed stock groups). It was first applied strictly where the `F_root` total is 0,
+  which left the weights depending on the previous ICSG feed run everywhere else; since #66 it
+  is the only source of `usage`.
 
 ## Considered options
 
@@ -89,7 +99,10 @@ consumer region; it stays undistributed when BACI is blind to that region.**
 - [ADR 0016](0016-provenance-aware-sigma-on-scale-totals.md)'s feed-backed/fabricated group
   classification (`FEED_SHARE_OBSERVED = 0.5`) reclassifies these groups; inert today because
   `FABRICATED_ANCHOR_CV == ANCHOR_CV`.
-- A cross-feed ordering note: `build_trade_shares` reads the ICSG `F_root`, so the recovery
-  needs one rebuild of the trade-shares artifact **and** the ICSG feed before the Stage-2 chain.
+- A cross-feed ordering note: `build_trade_shares` reads the BACI feed run and the registered
+  ICSG input, never an ICSG feed run (#66). Until then it read the ICSG `F_root`, which is built
+  from the weights themselves, so after an ICSG change the documented order was exact only on a
+  second pass (trade_shares v27 → v28 in REP `…issue65-icsg-stock-parse` §6). After any ICSG or
+  BACI change: rebuild the trade shares, then the ICSG feed, then the Stage-2 chain — one pass.
 - Glossary: see **Unweighted fan** and **Trade-share fan weighting** in
   [GLOSSARY.md](../../GLOSSARY.md).

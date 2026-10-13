@@ -1,4 +1,9 @@
-"""Unit tests for the pure trade-share weight computation (ADR 0002 option D)."""
+"""Unit tests for the pure trade-share weight computation (ADR 0002 option D).
+
+A fixture edge's ``icsg`` is the share of its group's ICSG usage that leg would
+carry; ``_usage`` sums it into the per-group frame the builder reads from the
+raw ICSG rows (#66).  ``compute_trade_share_weights`` never reads the column.
+"""
 import os
 import sys
 
@@ -20,6 +25,17 @@ def _edge(rf, rt, icsg, baci, sf="Cathode", st="FU", t=2010):
             "root_time": t, "icsg": icsg, "baci_mass": baci}
 
 
+def _usage(edges):
+    """The per-group usage frame (`icsg_raw_usage`'s shape) of a fixture."""
+    g = ["root_sector_from", "root_sector_to", "root_region_to", "root_time"]
+    return edges.groupby(g, sort=False)["icsg"].sum().rename("usage_raw").reset_index()
+
+
+def _weights(edges, conc, *args, **kwargs):
+    """`compute_trade_share_weights` on a fixture with its own usage frame."""
+    return compute_trade_share_weights(edges, _usage(edges), conc, *args, **kwargs)
+
+
 def test_domestic_residual_and_conc_conversion():
     # Consumer China; usage = Σ icsg = 7393. Imports: USA 2000, Chile 1000 (Mass).
     df = pd.DataFrame([
@@ -27,7 +43,7 @@ def test_domestic_residual_and_conc_conversion():
         _edge("USA",   "China", 7393 / 3, 2000.0),
         _edge("Chile", "China", 7393 / 3, 1000.0),
     ])
-    out = compute_trade_share_weights(df, CONC)
+    out = _weights(df, CONC)
     w = {r.root_region_from: r.weight for r in out.itertuples()}
     # import legs use conc·Mass (NOT raw Mass)
     assert w["USA"]   == pytest.approx(0.9975 * 2000)
@@ -46,7 +62,7 @@ def test_untraded_producer_in_covered_group_gets_zero():
         _edge("Chile", "China", 7393 / 4, 1000.0),
         _edge("Peru",  "China", 7393 / 4, 0.0),
     ])
-    out = compute_trade_share_weights(df, CONC)
+    out = _weights(df, CONC)
     w = {r.root_region_from: r.weight for r in out.itertuples()}
     assert w["Peru"] == 0.0
     assert len(out) == 4
@@ -59,7 +75,7 @@ def test_import_free_group_in_observed_region_gets_domestic_fan():
         _edge("China", "China", 100.0, np.nan),
         _edge("USA",   "China", 100.0, 0.0),
     ])
-    out = compute_trade_share_weights(df, CONC, {"China"})
+    out = _weights(df, CONC, {"China"})
     w = {r.root_region_from: r.weight for r in out.itertuples()}
     assert w["China"] == pytest.approx(200.0)   # residual = usage − 0
     assert w["USA"] == 0.0
@@ -73,7 +89,7 @@ def test_import_free_group_in_trade_blind_region_emits_no_rows():
         _edge("Taiwan", "Taiwan", 100.0, np.nan),
         _edge("USA",    "Taiwan", 100.0, 0.0),
     ])
-    out = compute_trade_share_weights(df, CONC, {"China"})
+    out = _weights(df, CONC, {"China"})
     assert out.empty
 
 
@@ -85,12 +101,11 @@ def test_withheld_group_does_not_get_the_domestic_fallback():
         _edge("USA",   "China", 100.0, 0.0,    sf="Matte", st="CFR"),
     ])
     key = {("Matte", "CFR", "China", 2010)}
-    assert compute_trade_share_weights(df, {("Matte", "*"): 0.525}, {"China"},
-                                       withhold_fallback=key).empty
+    assert _weights(df, {("Matte", "*"): 0.525}, {"China"},
+                    withhold_fallback=key).empty
     # ...and an unrelated group in the same region is untouched
-    assert not compute_trade_share_weights(df, {("Matte", "*"): 0.525}, {"China"},
-                                           withhold_fallback={("Matte", "CFR",
-                                                               "Peru", 2010)}).empty
+    assert not _weights(df, {("Matte", "*"): 0.525}, {"China"},
+                        withhold_fallback={("Matte", "CFR", "Peru", 2010)}).empty
 
 
 def test_withholding_never_touches_baci_covered_groups():
@@ -100,9 +115,8 @@ def test_withholding_never_touches_baci_covered_groups():
         _edge("China", "China", 100.0, np.nan, sf="Matte", st="CFR"),
         _edge("USA",   "China", 100.0, 50.0,   sf="Matte", st="CFR"),
     ])
-    out = compute_trade_share_weights(df, {("Matte", "*"): 0.525}, {"China"},
-                                      withhold_fallback={("Matte", "CFR",
-                                                          "China", 2010)})
+    out = _weights(df, {("Matte", "*"): 0.525}, {"China"},
+                   withhold_fallback={("Matte", "CFR", "China", 2010)})
     assert len(out) == 2
     assert {r.root_region_from for r in out.itertuples()} == {"China", "USA"}
 
@@ -113,7 +127,7 @@ def test_uncovered_group_emits_no_rows_without_observability_info():
         _edge("China", "China", 100.0, np.nan),
         _edge("USA",   "China", 100.0, 0.0),
     ])
-    assert compute_trade_share_weights(df, CONC).empty
+    assert _weights(df, CONC).empty
 
 
 def test_imports_exceeding_usage_clip_domestic_to_zero():
@@ -122,7 +136,7 @@ def test_imports_exceeding_usage_clip_domestic_to_zero():
         _edge("Switzerland", "Switzerland", 0.05 / 2, np.nan),
         _edge("Chile",       "Switzerland", 0.05 / 2, 300.0),
     ])
-    out = compute_trade_share_weights(df, CONC)
+    out = _weights(df, CONC)
     w = {r.root_region_from: r.weight for r in out.itertuples()}
     assert w["Switzerland"] == 0.0
     assert w["Chile"] == pytest.approx(0.9975 * 300)
@@ -136,7 +150,7 @@ def test_groups_are_independent_per_year():
         _edge("China", "China", 1000.0, np.nan, t=2011),
         _edge("USA",   "China", 1000.0, 900.0,  t=2011),
     ])
-    out = compute_trade_share_weights(df, CONC)
+    out = _weights(df, CONC)
     by = {(r.root_region_from, r.root_time): r.weight for r in out.itertuples()}
     assert by[("USA", 2010)] == pytest.approx(0.9975 * 500)
     assert by[("USA", 2011)] == pytest.approx(0.9975 * 900)
@@ -169,7 +183,7 @@ def _india(usage=821.0, chile_mass=1000.0, peru_mass=470.0):
 def test_domestic_bounded_by_production_and_remainder_spread_on_imports():
     df = _india()
     prod = _prod([("Concentrate", "India", 2010, 30.0)])
-    out = compute_trade_share_weights(df, CONC_C, production=prod)
+    out = _weights(df, CONC_C, production=prod)
     w = {r.root_region_from: r.weight for r in out.itertuples()}
     assert w["India"] == pytest.approx(30.0)                       # not 821 − 404.25 = 416.75
     imp_sum = 0.275 * 1470.0
@@ -183,8 +197,8 @@ def test_domestic_bounded_by_production_and_remainder_spread_on_imports():
 def test_bound_is_inert_when_residual_within_production():
     df = _india()
     prod = _prod([("Concentrate", "India", 2010, 5000.0)])
-    free = compute_trade_share_weights(df, CONC_C)
-    bound = compute_trade_share_weights(df, CONC_C, production=prod)
+    free = _weights(df, CONC_C)
+    bound = _weights(df, CONC_C, production=prod)
     pd.testing.assert_frame_equal(free, bound)
 
 
@@ -192,15 +206,15 @@ def test_bound_needs_a_production_row_and_an_import_leg():
     df = _india()
     # no production row for this group → unchanged
     other = _prod([("Concentrate", "Chile", 2010, 5000.0)])
-    pd.testing.assert_frame_equal(compute_trade_share_weights(df, CONC_C),
-                                  compute_trade_share_weights(df, CONC_C, production=other))
+    pd.testing.assert_frame_equal(_weights(df, CONC_C),
+                                  _weights(df, CONC_C, production=other))
     # import-free fan (ADR 0018) → all-domestic form kept even with production 30
     df0 = pd.DataFrame([
         _edge("Poland", "Poland", 477.0, np.nan, sf="Concentrate", st="Smelting"),
         _edge("Chile",  "Poland", 0.0,   np.nan, sf="Concentrate", st="Smelting"),
     ])
     prod = _prod([("Concentrate", "Poland", 2010, 427.0)])
-    out = compute_trade_share_weights(df0, CONC_C, {"Poland"}, production=prod)
+    out = _weights(df0, CONC_C, {"Poland"}, production=prod)
     w = {r.root_region_from: r.weight for r in out.itertuples()}
     assert w["Poland"] == pytest.approx(477.0)
 
@@ -208,7 +222,7 @@ def test_bound_needs_a_production_row_and_an_import_leg():
 def test_zero_production_puts_all_usage_on_imports():
     df = _india(usage=1309.0, chile_mass=2000.0, peru_mass=1195.0)   # Japan-like: mines nothing
     prod = _prod([("Concentrate", "India", 2010, 0.0)])
-    out = compute_trade_share_weights(df, CONC_C, production=prod)
+    out = _weights(df, CONC_C, production=prod)
     w = {r.root_region_from: r.weight for r in out.itertuples()}
     assert w["India"] == 0.0
     assert w["Chile"] + w["Peru"] == pytest.approx(1309.0)
@@ -223,13 +237,13 @@ def test_bound_needs_imports_able_to_carry_the_remainder():
         _edge("Mexico", "USA", 996 / 2, 26.0 / 0.275, sf="Concentrate", st="Smelting"),
     ])
     prod = _prod([("Concentrate", "USA", 2010, 886.0)])
-    free = compute_trade_share_weights(df, CONC_C)
-    bound = compute_trade_share_weights(df, CONC_C, production=prod)
+    free = _weights(df, CONC_C)
+    bound = _weights(df, CONC_C, production=prod)
     pd.testing.assert_frame_equal(free, bound)
     w = {r.root_region_from: r.weight for r in bound.itertuples()}
     assert w["USA"] == pytest.approx(996 - 26.0)
     # India-like (imports 404 ≥ remainder 387) is still bounded
-    out = compute_trade_share_weights(_india(), CONC_C, production=_prod([("Concentrate", "India", 2010, 30.0)]))
+    out = _weights(_india(), CONC_C, production=_prod([("Concentrate", "India", 2010, 30.0)]))
     assert {r.root_region_from: r.weight for r in out.itertuples()}["India"] == pytest.approx(30.0)
 
 
@@ -295,7 +309,7 @@ def test_cathode_domestic_residual_is_bounded_by_refined_output():
         _edge("Chile",  "France", 92.5, 146.7 / 0.9975),  # imports 146.7 kt CC
     ])
     prod = _prod([("Cathode", "France", 2010, 0.0)])
-    out = compute_trade_share_weights(df, CONC, {"France"}, production=prod)
+    out = _weights(df, CONC, {"France"}, production=prod)
     w = {r.root_region_from: r.weight for r in out.itertuples()}
     assert w["France"] == 0.0, "a region with no refinery supplies itself nothing"
     assert w["Chile"] == pytest.approx(185.0), "usage conserved onto the import leg"
@@ -310,9 +324,9 @@ def test_cathode_bound_still_refuses_to_fabricate_imports():
         _edge("France", "France", 200.0, np.nan),   # usage 400, imports ~100
         _edge("Chile",  "France", 200.0, 100.0),
     ])
-    free = compute_trade_share_weights(df, CONC, {"France"})
-    bound = compute_trade_share_weights(
-        df, CONC, {"France"}, production=_prod([("Cathode", "France", 2010, 0.0)]))
+    free = _weights(df, CONC, {"France"})
+    bound = _weights(df, CONC, {"France"},
+                     production=_prod([("Cathode", "France", 2010, 0.0)]))
     pd.testing.assert_frame_equal(free, bound)
 
 
@@ -321,9 +335,9 @@ def test_cathode_bound_is_inert_for_a_real_refiner():
         _edge("Germany", "Germany", 200.0, np.nan),
         _edge("Chile",   "Germany", 200.0, 100.0),
     ])
-    free = compute_trade_share_weights(df, CONC, {"Germany"})
-    bound = compute_trade_share_weights(
-        df, CONC, {"Germany"}, production=_prod([("Cathode", "Germany", 2010, 900.0)]))
+    free = _weights(df, CONC, {"Germany"})
+    bound = _weights(df, CONC, {"Germany"},
+                     production=_prod([("Cathode", "Germany", 2010, 900.0)]))
     pd.testing.assert_frame_equal(free, bound)
 
 
@@ -371,7 +385,7 @@ def test_each_import_leg_uses_its_own_exporters_conc():
         _edge("Chile", "Japan", 0.0, 100.0,    sf="Concentrate", st="Smelting"),
         _edge("Peru",  "Japan", 0.0, 100.0,    sf="Concentrate", st="Smelting"),
     ])
-    out = compute_trade_share_weights(df, conc).set_index("root_region_from")
+    out = _weights(df, conc).set_index("root_region_from")
     assert out.loc["Chile", "weight"] == pytest.approx(32.0)
     assert out.loc["Peru", "weight"] == pytest.approx(24.0)
     # domestic residual is usage minus BOTH legs at their own grades
@@ -385,7 +399,7 @@ def test_exporter_without_its_own_row_falls_back_to_the_wildcard():
         _edge("Chile", "Japan", 0.0, 100.0,    sf="Concentrate", st="Smelting"),
         _edge("Mongolia", "Japan", 0.0, 100.0, sf="Concentrate", st="Smelting"),
     ])
-    out = compute_trade_share_weights(df, conc).set_index("root_region_from")
+    out = _weights(df, conc).set_index("root_region_from")
     assert out.loc["Chile", "weight"] == pytest.approx(32.0)
     assert out.loc["Mongolia", "weight"] == pytest.approx(27.5)
 
@@ -394,11 +408,11 @@ def test_importer_region_does_not_price_the_leg():
     """The same cargo must cost the same CC wherever it lands."""
     conc = {("Concentrate", "*"): 0.275, ("Concentrate", "Chile"): 0.32,
             ("Concentrate", "Japan"): 0.20, ("Concentrate", "China"): 0.35}
-    to_japan = compute_trade_share_weights(pd.DataFrame([
+    to_japan = _weights(pd.DataFrame([
         _edge("Japan", "Japan", 100.0, np.nan, sf="Concentrate", st="Smelting"),
         _edge("Chile", "Japan", 0.0, 100.0,    sf="Concentrate", st="Smelting"),
     ]), conc).set_index("root_region_from")
-    to_china = compute_trade_share_weights(pd.DataFrame([
+    to_china = _weights(pd.DataFrame([
         _edge("China", "China", 100.0, np.nan, sf="Concentrate", st="Smelting"),
         _edge("Chile", "China", 0.0, 100.0,    sf="Concentrate", st="Smelting"),
     ]), conc).set_index("root_region_from")
@@ -424,8 +438,8 @@ def test_a_draw_down_fans_like_a_build_of_the_same_size():
     reached the concordance unweighted and was not distributed (ADR 0008):
     150 of 150 negative stock changes never entered the account.  The weights
     stay non-negative; the sign travels with the value."""
-    build = compute_trade_share_weights(_belgium_mesc(19.1), CONC)
-    draw  = compute_trade_share_weights(_belgium_mesc(-19.1), CONC)
+    build = _weights(_belgium_mesc(19.1), CONC)
+    draw  = _weights(_belgium_mesc(-19.1), CONC)
     assert len(draw) == 3
     w_build = {r.root_region_from: r.weight for r in build.itertuples()}
     w_draw  = {r.root_region_from: r.weight for r in draw.itertuples()}
@@ -437,14 +451,14 @@ def test_a_draw_down_fans_like_a_build_of_the_same_size():
 def test_a_zero_stock_change_still_emits_no_rows():
     """A zero has no fan shape to give; an undistributed zero and the net-stock
     seed carry the same prior and sigma (ADR 0040)."""
-    assert compute_trade_share_weights(_belgium_mesc(0.0), CONC).empty
+    assert _weights(_belgium_mesc(0.0), CONC).empty
 
 
 def test_a_negative_flow_into_final_use_is_not_made_positive():
     """Only the stock-change legs are signed; a flow keeps its rule."""
     df = pd.DataFrame([_edge("China", "China", -5.0, np.nan),
                        _edge("USA",   "China", -5.0, 2000.0)])
-    assert compute_trade_share_weights(df, CONC).empty
+    assert _weights(df, CONC).empty
 
 
 def _hub_mesc(change, imports):
@@ -471,7 +485,7 @@ def test_a_hub_draw_down_never_lands_on_cathode_it_did_not_produce():
     proportion, and a hub supplies itself nothing."""
     df = _hub_mesc(-59.9, [("Chile", 4.0), ("Zambia", 1.0)])
     prod = _prod([("Cathode", "United Arab Emirates", 2003, 0.0)])
-    out = compute_trade_share_weights(df, CONC, {"United Arab Emirates"}, production=prod)
+    out = _weights(df, CONC, {"United Arab Emirates"}, production=prod)
     s = _shares(out)
     assert s["United Arab Emirates"] == 0.0
     assert s["Chile"] == pytest.approx(0.8)
@@ -483,7 +497,7 @@ def test_a_hub_with_neither_imports_nor_production_gets_no_fan():
     seed prices the leg (ADR 0040)."""
     df = _hub_mesc(-59.9, [("Chile", 0.0)])
     prod = _prod([("Cathode", "United Arab Emirates", 2003, 0.0)])
-    out = compute_trade_share_weights(df, CONC, {"United Arab Emirates"}, production=prod)
+    out = _weights(df, CONC, {"United Arab Emirates"}, production=prod)
     assert out.empty
 
 
@@ -494,7 +508,7 @@ def test_a_producer_draws_its_stock_change_from_its_supply_mix():
     it imports."""
     df = _hub_mesc(-30.0, [("Chile", 4.0)])
     prod = _prod([("Cathode", "United Arab Emirates", 2003, 20.0)])
-    out = compute_trade_share_weights(df, CONC, {"United Arab Emirates"}, production=prod)
+    out = _weights(df, CONC, {"United Arab Emirates"}, production=prod)
     s = _shares(out)
     assert s["United Arab Emirates"] == pytest.approx(20.0 / (20.0 + 0.9975 * 4.0))
     assert s["Chile"] == pytest.approx(0.9975 * 4.0 / (20.0 + 0.9975 * 4.0))
@@ -503,7 +517,7 @@ def test_a_producer_draws_its_stock_change_from_its_supply_mix():
 def test_a_producer_without_imports_keeps_its_whole_stock_change():
     df = _hub_mesc(-30.0, [("Chile", 0.0)])
     prod = _prod([("Cathode", "United Arab Emirates", 2003, 20.0)])
-    out = compute_trade_share_weights(df, CONC, {"United Arab Emirates"}, production=prod)
+    out = _weights(df, CONC, {"United Arab Emirates"}, production=prod)
     assert _shares(out) == {"United Arab Emirates": 1.0, "Chile": 0.0}
 
 
@@ -527,3 +541,49 @@ def test_stock_legs_take_the_cathode_trade_into_the_region():
     assert mass[("Peru", "MESC", 2001)] == 0.0
     assert mass[("Chile", "FU", 2000)] == 500.0                 # flows untouched
     assert out["icsg"].tolist() == edges["icsg"].tolist()
+
+
+# ---------------------------------------------------------------------------
+# #66: usage comes from the registered ICSG input, never from a feed run
+# ---------------------------------------------------------------------------
+
+def _raw(rows):
+    """Per-group ICSG Use totals as `icsg_raw_usage` returns them."""
+    return pd.DataFrame(rows, columns=["root_sector_from", "root_sector_to",
+                                       "root_region_to", "root_time", "usage_raw"])
+
+
+def test_a_flow_groups_usage_comes_from_the_raw_rows_not_the_feed_run():
+    """Regression (#66): the builder took a group's usage from the latest ICSG
+    feed run's F_root total and read the raw rows only where that total was 0.
+    That run is built from the previous weights, so after an ICSG flow change
+    the domestic leg and the ADR 0024 bound were sized on the old total, with
+    no error.  Here the stale legs sum to 1,000 kt CC against 7,393 in the raw
+    rows: the stale total would clip the domestic leg to 0."""
+    df = pd.DataFrame([
+        _edge("China", "China", 1000 / 3, np.nan),
+        _edge("USA",   "China", 1000 / 3, 2000.0),
+        _edge("Chile", "China", 1000 / 3, 1000.0),
+    ])
+    raw = _raw([("Cathode", "FU", "China", 2010, 7393.0)])
+    out = compute_trade_share_weights(df, raw, CONC)
+    w = {r.root_region_from: r.weight for r in out.itertuples()}
+    assert w["China"] == pytest.approx(7393 - 0.9975 * 3000)
+    assert w["USA"]   == pytest.approx(0.9975 * 2000)
+    assert sum(w.values()) == pytest.approx(7393.0)
+
+
+def test_a_stock_change_the_raw_rows_no_longer_carry_is_not_fanned():
+    """trade_shares v27's defect in #65: icsg v12 had a Korea Cathode→USC change
+    in 2007 and v13 none, yet the feed run built from v12 still fanned it, so
+    47 stale weights were emitted.  A stale stock leg must give no rows, and a
+    change only the raw rows carry must be fanned by its magnitude."""
+    stale = _belgium_mesc(19.1)                      # the stale feed run's legs
+    assert compute_trade_share_weights(stale, _raw([]), CONC, {"Belgium"}).empty
+    gone = _belgium_mesc(0.0)                        # the feed run never saw it
+    raw = _raw([("Cathode", "MESC", "Belgium", 2000, -19.1)])
+    out = compute_trade_share_weights(gone, raw, CONC, {"Belgium"})
+    w = {r.root_region_from: r.weight for r in out.itertuples()}
+    assert len(out) == 3
+    assert w["Chile"] == pytest.approx(0.9975 * 10.0)
+    assert (out["weight"] >= 0).all()

@@ -85,7 +85,8 @@ Sum-row z² is **+0.16 % vs base**: Sweden +2,636, Singapore −2,924. The feed'
    Singapore is the case where that is right.
 2. `build_trade_shares.py` takes usage from the latest ICSG feed run, so after an ICSG change it needs
    a second pass (v27 → v28 here). Either read raw ICSG usage everywhere or document
-   ICSG feed → trade shares → ICSG feed.
+   ICSG feed → trade shares → ICSG feed. **Done, #66 (2026-10-13): raw usage everywhere; the rebuild
+   on icsg v13 reproduces trade_shares v29 to 1.6e-11 relative, one pass suffices.**
 3. #37 and #30 are next on icsg v13.
 
 ## #40 MEASURED 2026-10-12 — NOT ACCEPTED: negative stock changes reach the account, two fan defects surface
