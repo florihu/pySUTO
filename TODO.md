@@ -93,10 +93,12 @@ Sum-row z² is **+0.16 % vs base**: Sweden +2,636, Singapore −2,924. The feed'
 1. A lone MESC/USC row lifts a reporting gap out of the ADR 0027 `icsg_gap` exclusion. Sweden, folded
    into "Scandinavia" until 2003, is netted in every year 1996–2003 (220.9 kt CC; 2003 new with #35);
    Singapore is the case where that is right. **Built, #67 (2026-10-13, `fix/icsg-aggregate-gap`):
-   declared membership in params `icsg_aggregates` v1; in memory on baci v13 × icsg v13 only Sweden's
-   T changes (−220.9 kt CC). Measurement = #69.** Found while building, not filed: ICSG's 2004
-   "Scandinavia" row (2005 yearbook) duplicates Sweden's, Finland's and Norway's own 2004 rows (2014
-   yearbook; refined anode use 408.6 kt both ways), so the Nordic 2004 flows enter twice, once via ROW.
+   declared membership in params `icsg_aggregates` v2; in memory on baci v13 × icsg v13 only Sweden's
+   T changes (Σ T −220.9 kt CC). Σ T_applied falls 215.3 kt CC: Sweden 2002 applied 31.3 of its 36.4,
+   and hub→hub chains move 25 other hub-years' T_applied, all by ≤ 0.28 kt CC (UK 2002). #69 should quote
+   both. Measurement = #69.** Found while building, not filed: ICSG's 2004 "Scandinavia" rows (loaded
+   from the 2005 yearbook) duplicate Sweden's, Finland's and Norway's own 2004 rows (2014 yearbook;
+   refined anode use 408.6 kt CC both ways), so the Nordic 2004 flows enter twice, once via ROW.
 2. `build_trade_shares.py` takes usage from the latest ICSG feed run, so after an ICSG change it needs
    a second pass (v27 → v28 here). Either read raw ICSG usage everywhere or document
    ICSG feed → trade shares → ICSG feed. **Done, #66 (2026-10-13): raw usage everywhere; the rebuild

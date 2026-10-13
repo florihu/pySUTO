@@ -104,14 +104,15 @@ Three exclusions, each adopted on a measurement rather than a judgement:
   2019/2020/2022) re-attributes that same defect onto China, Japan and Korea.
 - **ICSG gap-years are skipped.** Where a region reports the product in ICSG in other years but
   has neither `U` nor `P` in year *t* — Sweden 1995–2003 sits under an ICSG "Scandinavia" row that
-  folds to ROW — `T = 0` and the ledger flags `icsg_gap`. A region that *never* reports the
+  folds to ROW, though from 1996 its own stock rows give it a `U` (see the amendment) — `T = 0` and
+  the ledger flags `icsg_gap`. A region that *never* reports the
   product keeps `U = P = 0`: that is the honest value, not a gap.
   *Amended 2026-10-13 (#67): the stock-row case.* `U` includes the MESC/USC stock-change rows, so
   a region's own stock row defeated the test while its flows sat inside an aggregate. Sweden's LME
   changes are reported as Sweden in 1996–2003, and its cathode was netted as a pass-through hub in
   every one of those years, 220.9 kt CC of `T` on baci v16. A region-year inside an ICSG aggregate
   row is therefore a gap whatever stock rows it carries. The membership is declared in the
-  hand-authored params input `icsg_aggregates` (v1: Sweden ⊂ Scandinavia, 1995–2003), never
+  hand-authored params input `icsg_aggregates` (v2: Sweden ⊂ Scandinavia, 1995–2003), never
   inferred from region names, and the ledger's `icsg_aggregate` column names the aggregate.
   Counting only flow rows in the test was rejected: it would also re-flag Singapore 2005–2015,
   which reports semis only in 1995–2001 and is a genuine LME hub, whose netting on its MESC rows

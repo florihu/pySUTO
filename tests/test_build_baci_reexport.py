@@ -30,9 +30,9 @@ def _trade(rows):
     return pd.DataFrame(rows)
 
 
-def _vol(trade, intake=None, production=None, reported=None, aggregated=None):
+def _vol(trade, intake=None, production=None, reported=None, aggregate_of=None):
     v = reexport_volumes(trade, intake or {}, production or {}, reported or set(),
-                         aggregated=aggregated or {})
+                         aggregate_of or {})
     v["label"] = [label_row(r) for r in v.itertuples(index=False)]
     return v
 
@@ -474,8 +474,8 @@ SCANDINAVIA = {("Sweden", T2015): "Scandinavia"}
 
 
 def _sweden_hub():
-    """Sweden 2001's shape: cathode imports 60, exports 50, and ICSG's only Swedish
-    cathode row that year its LME stock change, 21.8 kt."""
+    """Sweden's shape in 2001, set in the fixture year: cathode imports 60, exports
+    50, and ICSG's only Swedish cathode row its LME stock change, 21.8 kt CC."""
     return _trade([_leg("Cathode", "Chile", "Sweden", 60.0),
                    _leg("Cathode", "Sweden", "Germany", 50.0)])
 
@@ -488,7 +488,7 @@ class TestIcsgAggregateGap:
         ICSG's "Scandinavia" until 2003, yet its cathode was netted as a
         pass-through hub in every year 1996-2003, 220.9 kt CC in all."""
         v = _row(_vol(_sweden_hub(), intake={("Cathode", "Sweden", T2015): 21.8},
-                      reported={("Cathode", "Sweden")}, aggregated=SCANDINAVIA),
+                      reported={("Cathode", "Sweden")}, aggregate_of=SCANDINAVIA),
                  "Cathode", "Sweden")
         assert v.icsg_gap and v["T"] == 0.0 and v.label == "icsg-gap"
         assert v.icsg_aggregate == "Scandinavia"
@@ -500,7 +500,7 @@ class TestIcsgAggregateGap:
                                reported={("Cathode", "Sweden")}), "Cathode", "Sweden")
         other_year = _row(_vol(_sweden_hub(), intake=intake,
                                reported={("Cathode", "Sweden")},
-                               aggregated={("Sweden", "2004"): "Scandinavia"}),
+                               aggregate_of={("Sweden", "2004"): "Scandinavia"}),
                           "Cathode", "Sweden")
         for v in (undeclared, other_year):
             assert not v.icsg_gap and v["T"] == pytest.approx(50.0)
@@ -512,7 +512,7 @@ class TestIcsgAggregateGap:
         U = P = 0 exactly as before (ADR 0027)."""
         trade = _trade([_leg("Cathode", "Chile", "UAE", 60.0),
                         _leg("Cathode", "UAE", "India", 50.0)])
-        v = _row(_vol(trade, reported=set(), aggregated=SCANDINAVIA), "Cathode", "UAE")
+        v = _row(_vol(trade, reported=set(), aggregate_of=SCANDINAVIA), "Cathode", "UAE")
         assert not v.icsg_gap and v.U_missing and v.P_missing
         assert v["T"] == pytest.approx(50.0)
 
