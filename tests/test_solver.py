@@ -650,6 +650,148 @@ class TestEngineToSolverIntegration:
                            atol=1e-9, rtol=1e-9)
 
 
+def clarabel_default_settings():
+    import clarabel
+    return clarabel.DefaultSettings()
+
+
+class TestParallelSolve:
+    """Parallel solve (#70): cold periods solved concurrently, one Clarabel
+    instance per period, the linear solver pinned to one thread."""
+
+    def test_warm_prior_with_several_workers_raises(self):
+        from pysuto.solver import ClarabelSolver
+        with pytest.raises(ValueError, match="warm"):
+            ClarabelSolver(prior_mode="warm", n_workers=2)
+
+    def test_fewer_than_one_worker_raises(self):
+        from pysuto.solver import ClarabelSolver
+        with pytest.raises(ValueError, match="n_workers"):
+            ClarabelSolver(prior_mode="cold", n_workers=0)
+
+    @staticmethod
+    def _cold_solver(tmp_path, monkeypatch, **kw):
+        """Engine-built toy (2 periods, identical G_blocks) + a cold solver
+        serving it in memory."""
+        from pysuto.solver import ClarabelSolver
+        _, cr, storage_dir = TestEngineToSolverIntegration()._build_real_run(tmp_path)
+        s = ClarabelSolver(const_dir=storage_dir, verbose_first_solve=False,
+                           prior_mode="cold", **kw)
+        monkeypatch.setattr(s, "load_run", lambda _rid: cr)
+        return cr, s
+
+    @staticmethod
+    def _record_clarabel_inits(monkeypatch):
+        """Wrap clarabel.DefaultSolver; return the list of settings each
+        instance was built with (list.append is thread-safe)."""
+        import pysuto.solver as solver_mod
+        built = []
+        original_cls = solver_mod.clarabel.DefaultSolver
+        def recording_factory(*args, **kwargs):
+            built.append(args[5])                    # (P, q, A, b, cones, settings)
+            return original_cls(*args, **kwargs)
+        monkeypatch.setattr(solver_mod.clarabel, "DefaultSolver", recording_factory)
+        return built
+
+    def test_parallel_solve_factorises_each_period_on_its_own(self, tmp_path, monkeypatch):
+        """Serial reuses one instance across identical periods (see
+        test_warm_start_reuses_solver_instance_when_G_blocks_identical); a
+        parallel solve builds one per period."""
+        built = self._record_clarabel_inits(monkeypatch)
+        cr, s = self._cold_solver(tmp_path, monkeypatch, n_workers=2)
+        res = s.solve_all(cr.run_id)
+
+        assert len(built) == 3, f"1 probe + 2 periods expected; got {len(built)}"
+        assert all(r.solver_status == "Solved" for r in res.values())
+
+    @pytest.mark.parametrize("n_workers", [1, 2])
+    def test_period_solves_use_one_linear_solver_thread(
+        self, tmp_path, monkeypatch, n_workers,
+    ):
+        """Multi-threaded faer is slower than one thread on a period QP and
+        gives the same answer; the probe (full G) keeps Clarabel's default."""
+        built = self._record_clarabel_inits(monkeypatch)
+        cr, s = self._cold_solver(tmp_path, monkeypatch, n_workers=n_workers,
+                                  direct_solve_method="qdldl")
+        s.solve_all(cr.run_id)
+
+        probe, periods = built[0], built[1:]
+        assert probe.max_threads == clarabel_default_settings().max_threads
+        assert probe.direct_solve_method == clarabel_default_settings().direct_solve_method
+        assert periods, "no period solve built a Clarabel instance"
+        for st in periods:
+            assert st.max_threads == 1
+            assert st.direct_solve_method == "qdldl"
+
+    def test_parallel_solve_reproduces_the_serial_solve_bit_for_bit(
+        self, tmp_path, monkeypatch,
+    ):
+        """Reference = each period solved serially on its own instance. A serial
+        run over this toy's identical G_blocks would reuse the factorisation for
+        2021 (update() skips re-equilibration, ~1e-10 off); copper's blocks
+        differ, so its serial runs build a fresh instance per period too."""
+        cr, serial   = self._cold_solver(tmp_path, monkeypatch, n_workers=1)
+        _,  parallel = self._cold_solver(tmp_path, monkeypatch, n_workers=2)
+        monkeypatch.setattr(parallel, "load_run", lambda _rid: cr)
+        res_s = {t: serial.solve_all(cr.run_id, timesteps=[t])[t]
+                 for t in ("2020", "2021")}
+        res_p = parallel.solve_all(cr.run_id)
+
+        assert list(res_p) == ["2020", "2021"]
+        for t in res_s:
+            np.testing.assert_array_equal(res_p[t].F_opt,     res_s[t].F_opt)
+            np.testing.assert_array_equal(res_p[t].eps_opt,   res_s[t].eps_opt)
+            np.testing.assert_array_equal(res_p[t].residuals, res_s[t].residuals)
+            assert res_p[t].objective == res_s[t].objective
+
+    def test_sidecar_records_how_the_periods_were_solved(self, tmp_path, monkeypatch):
+        cr, s = self._cold_solver(tmp_path, monkeypatch, n_workers=8)
+        results = s.solve_all(cr.run_id)
+        out_id  = s.persist(
+            run_id       = cr.run_id,
+            results      = results,
+            output_dir   = str(tmp_path / "opt"),
+            stage_config = {"prior_mode": "cold", "max_iter": 2000},
+        )
+        with open(tmp_path / "opt" / out_id / "metadata.json") as fh:
+            sidecar = json.load(fh)
+
+        cfg = sidecar["stage_config"]
+        assert cfg["n_workers"] == 2                  # 8 requested, 2 periods
+        assert cfg["max_threads"] == 1
+        assert cfg["direct_solve_method"] == "faer"
+        assert cfg["max_iter"] == 2000                # the caller's keys are kept
+        assert sidecar["stage_summary"]["solve_wall_s"] > 0
+        assert set(sidecar["stage_summary"]["per_timestep"]) == {"2020", "2021"}
+
+    def test_failed_periods_are_named_and_nothing_is_returned(self, tmp_path, monkeypatch):
+        """Clarabel reports NumericalError on every period (the toy itself
+        solves in 0 iterations, so max_iter cannot make it fail); the probe is
+        skipped so the failure comes from the period solves themselves."""
+        import types
+        import pysuto.solver as solver_mod
+
+        class _NumericalError:
+            def __init__(self, inner):
+                self._inner = inner
+            def solve(self):
+                sol = self._inner.solve()
+                return types.SimpleNamespace(status="NumericalError", x=sol.x,
+                                             iterations=sol.iterations,
+                                             obj_val=sol.obj_val)
+            def __getattr__(self, name):
+                return getattr(self._inner, name)
+
+        original_cls = solver_mod.clarabel.DefaultSolver
+        monkeypatch.setattr(solver_mod.clarabel, "DefaultSolver",
+                            lambda *a, **k: _NumericalError(original_cls(*a, **k)))
+        cr, s = self._cold_solver(tmp_path, monkeypatch, n_workers=2)
+        monkeypatch.setattr(s, "feasibility_check", lambda run, t: None)
+        with pytest.raises(RuntimeError, match="NumericalError") as exc:
+            s.solve_all(cr.run_id)
+        assert "'2020'" in str(exc.value) and "'2021'" in str(exc.value)
+
+
 class TestPreFixBlockRunGuard:
 
     def _block_const_run(self):

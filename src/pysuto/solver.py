@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import os
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass, asdict
 from typing import Optional
 
@@ -158,14 +159,25 @@ class ClarabelSolver:
         verbose_first_solve:    bool  = True,
         capture_iter_history:   bool  = True,
         prior_mode:             str   = "warm",
+        n_workers:              int   = 1,
+        direct_solve_method:    str   = "faer",
     ) -> None:
         if prior_mode not in ("warm", "cold"):
             raise ValueError(
                 f"prior_mode must be 'warm' or 'cold', got {prior_mode!r}"
             )
+        if n_workers < 1:
+            raise ValueError(f"n_workers must be ≥ 1, got {n_workers}")
+        if n_workers > 1 and prior_mode == "warm":
+            raise ValueError(
+                f"n_workers={n_workers} needs prior_mode='cold': a warm run is a "
+                f"chain (a_prior(t) = a*(t-1)) and is solved in period order"
+            )
         self.const_dir              = const_dir
         self.opt_dir                = opt_dir
         self.prior_mode             = prior_mode
+        self.n_workers              = n_workers
+        self.direct_solve_method    = direct_solve_method
         self.sigma_a_floor_abs      = sigma_a_floor_abs
         self.sigma_a_floor_rel      = sigma_a_floor_rel
         self.sigma_a_ceiling_factor = sigma_a_ceiling_factor
@@ -179,6 +191,10 @@ class ClarabelSolver:
         self.max_iter               = max_iter
         self.verbose_first_solve    = verbose_first_solve
         self.capture_iter_history   = capture_iter_history
+        # How the last solve_all ran (worker threads, linear solver, wall-clock);
+        # persist() writes it into the sidecar.
+        self._solve_config:  dict = {}
+        self._solve_summary: dict = {}
 
         self._const_registry = ConstraintRunRegistry(const_dir)
         self._opt_registry   = OptimRunRegistry(opt_dir)
@@ -217,6 +233,17 @@ class ClarabelSolver:
         if self.reduced_tol_gap_rel is not None:
             s.reduced_tol_gap_rel = self.reduced_tol_gap_rel
         # Default static + dynamic regularisation kept on (Clarabel defaults).
+        return s
+
+    def _period_settings(self, verbose: bool) -> clarabel.DefaultSettings:
+        """Settings for one period's QP: the linear solver pinned to one thread.
+        Multi-threaded faer is slower than one thread on a period QP and gives
+        the same answer (1995: 48 s vs 35 s, objective bit-identical, #70); the
+        cores go to the parallel solve instead. The full-G probe keeps the
+        default, where the threads help (432 s vs 471 s)."""
+        s = self._settings(verbose)
+        s.direct_solve_method = self.direct_solve_method
+        s.max_threads         = 1
         return s
 
     def _condition_prior(
@@ -508,13 +535,24 @@ class ClarabelSolver:
             if missing:
                 raise KeyError(f"timesteps not in run: {sorted(missing)}")
 
+        t0 = time.perf_counter()
         if run.G_blocks:
-            return self._solve_all_via_blocks(
+            results = self._solve_all_via_blocks(
                 run, ts_labels, feasibility_check_first_only,
             )
-        return self._solve_all_legacy(
-            run, ts_labels, feasibility_check_first_only,
-        )
+            self._solve_config = {
+                "n_workers":           min(self.n_workers, len(ts_labels)),
+                "max_threads":         1,
+                "direct_solve_method": self.direct_solve_method,
+            }
+        else:
+            results = self._solve_all_legacy(
+                run, ts_labels, feasibility_check_first_only,
+            )
+            self._solve_config = {"n_workers": 1}
+        # Wall-clock of the whole call: feasibility probe + period solves.
+        self._solve_summary = {"solve_wall_s": time.perf_counter() - t0}
+        return results
 
     def _solve_all_legacy(
         self,
@@ -721,6 +759,11 @@ class ClarabelSolver:
                     "positional carry-forward by edge order.", run.acc_id,
                 )
 
+        if self.n_workers > 1:
+            return self._solve_periods_parallel(
+                run, ts_labels, a_0_global, inv_sa_global, row_time,
+            )
+
         results: dict[str, OptimResult] = {}
         solver_t: Optional[clarabel.DefaultSolver] = None
         prev_cols: Optional[np.ndarray] = None
@@ -728,25 +771,6 @@ class ClarabelSolver:
 
         for k, t in enumerate(ts_labels):
             cols_t  = run.edge_cols_by_t[t]
-            rows_t  = np.where(row_time == t)[0]
-            G_t     = run.G_blocks[t]
-            rm_t    = run.row_meta.iloc[rows_t]
-            c_t_full     = np.asarray(run.timestep_data[t]["c"])
-            sc_t_full    = np.asarray(run.timestep_data[t]["sigma_c"])
-            c_t          = c_t_full[rows_t]
-            sc_t         = sc_t_full[rows_t]
-
-            ct       = rm_t["cone_type"].to_numpy()
-            idx_free   = np.where(ct == "free")[0]
-            idx_zero   = np.where(ct == "zero")[0]
-            idx_nonneg = np.where(ct == "nonneg")[0]
-            perm_t   = np.concatenate([idx_free, idx_zero, idx_nonneg])
-            n_free_t = idx_free.size
-            n_zero_t, n_nonneg_t = idx_zero.size, idx_nonneg.size
-            n_a_t    = G_t.shape[1]
-            m_t      = G_t.shape[0]
-
-            inv_sa_t = inv_sa_global[cols_t]
             # Per-period prior mean a_prior(t): warm → a_post(t-1) aligned by
             # template; cold seed (t0, or every year in cold mode) → conditioned
             # f_agg slice.
@@ -759,145 +783,222 @@ class ClarabelSolver:
                 elif len(prev_F) == len(a_prior_t):
                     a_prior_t = prev_F.copy()  # positional fallback (no acc)
 
-            G_p_t = G_t.tocsr()[perm_t]
-            S_top = -sp.eye(n_free_t, format="csr") if n_free_t else sp.csr_matrix((0, 0))
-            S_bot = sp.csr_matrix((n_zero_t + n_nonneg_t, n_free_t))
-            S_t   = sp.vstack([S_top, S_bot], format="csr") if n_free_t else \
-                    sp.csr_matrix((m_t, 0))
-            A_t   = sp.hstack([G_p_t, S_t], format="csc")
-            b_t   = c_t[perm_t]
-
-            if n_free_t:
-                sc_arr   = np.where(np.isnan(sc_t), self.sigma_c_floor, sc_t)
-                sc_arr   = np.maximum(sc_arr, self.sigma_c_floor)
-                inv_scf  = 1.0 / (sc_arr[perm_t[:n_free_t]] ** 2)
-            else:
-                inv_scf = np.zeros(0)
-            P_diag_t = 2.0 * np.concatenate([inv_sa_t, inv_scf])
-            P_t      = sp.diags(P_diag_t, format="csc")
-            q_t      = np.concatenate([-2.0 * inv_sa_t * a_prior_t,
-                                        np.zeros(n_free_t)])
-
-            cones_t: list = []
-            if n_free_t   > 0: cones_t.append(clarabel.ZeroConeT(n_free_t))
-            if n_zero_t   > 0: cones_t.append(clarabel.ZeroConeT(n_zero_t))
-            if n_nonneg_t > 0: cones_t.append(clarabel.NonnegativeConeT(n_nonneg_t))
-
-            t0 = time.perf_counter()
-            verbose = self.verbose_first_solve and k == 0
-            if solver_t is None:
-                settings = self._settings(verbose=verbose)
-                solver_t = clarabel.DefaultSolver(
-                    P_t, q_t, A_t, b_t, cones_t, settings,
-                )
-            elif reuse_factorization:
-                solver_t.update(P=P_t, q=q_t, b=b_t)
-            else:
-                settings = self._settings(verbose=verbose)
-                solver_t = clarabel.DefaultSolver(
-                    P_t, q_t, A_t, b_t, cones_t, settings,
-                )
-
-            hist: list[tuple] = []
-            if self.capture_iter_history:
-                def _cb(info, _hist=hist):
-                    _hist.append((
-                        int(info.iterations),
-                        float(info.cost_primal), float(info.cost_dual),
-                        float(info.gap_abs),
-                        float(info.res_primal), float(info.res_dual),
-                        float(info.ktratio),    float(info.mu),
-                        float(info.step_length),
-                    ))
-                    return False
-                solver_t.set_termination_callback(_cb)
-
-            sol     = solver_t.solve()
-            elapsed = time.perf_counter() - t0
-            status  = str(sol.status)
-
-            if self.capture_iter_history:
-                solver_t.unset_termination_callback()
-
-            if status not in _OK_STATUSES and reuse_factorization and k > 0:
-                # The reused instance keeps the equilibration computed for the
-                # first timestep (update() does not re-equilibrate); per-t
-                # σ_c now varies with f_agg, so a later year can stall on
-                # stale scaling. Cold restart with fresh equilibration.
-                logger.warning(
-                    "t=%s  status=%s on reused solver — cold-restart retry",
-                    t, status,
-                )
-                settings = self._settings(verbose=False)
-                solver_t = clarabel.DefaultSolver(
-                    P_t, q_t, A_t, b_t, cones_t, settings,
-                )
-                hist.clear()
-                if self.capture_iter_history:
-                    solver_t.set_termination_callback(_cb)
-                sol     = solver_t.solve()
-                elapsed = time.perf_counter() - t0
-                status  = str(sol.status)
-                if self.capture_iter_history:
-                    solver_t.unset_termination_callback()
-
-            convergence  = self._info_to_dict(solver_t.get_info())
-            iter_history = np.array(hist, dtype=ITER_DTYPE) if hist else None
-
-            if status not in _OK_STATUSES:
-                raise RuntimeError(
-                    f"Timestep {t!r}: Clarabel status={status}; halting "
-                    f"(cold restart already tried). iterations={sol.iterations}"
-                )
-
-            x         = np.asarray(sol.x)
-            F_opt_t   = x[:n_a_t]
-            eps_opt_t = x[n_a_t:] if n_free_t else np.zeros(0)
-
-            # ε back into row-order on the per-t row block
-            eps_full_t = np.zeros(m_t)
-            if n_free_t:
-                eps_full_t[perm_t[:n_free_t]] = eps_opt_t
-
-            # Year-local persistence (REP §8.2): store only this period's
-            # solved values. F_opt over cols_t, residuals/c_star over rows_t —
-            # no cross-year prior placeholders. Residual is the block residual
-            # G_t @ F_opt_t - c_t (rows_t order); mass balance ≈ 0 by construction.
-            residuals_t = np.asarray(G_t @ F_opt_t - c_t)
-            c_star_t    = c_t + eps_full_t
-
-            results[t] = OptimResult(
-                timestep      = t,
-                F_opt         = F_opt_t,
-                eps_opt       = eps_opt_t,
-                c_star        = c_star_t,
-                residuals     = residuals_t,
-                objective     = float(sol.obj_val),
-                iterations    = int(sol.iterations),
-                solve_time_s  = elapsed,
-                solver_status = status,
-                convergence   = convergence,
-                iter_history  = iter_history,
-                cols_t        = cols_t,
-                rows_t        = rows_t,
-                a_prior       = a_prior_t,
-            )
-
-            logger.info(
-                "t=%s  status=%s  iters=%d  obj=%.4e  gap=%.2e  dres=%.2e  step=%.2f  time=%.2fs  (per-t: %d cols × %d rows)",
-                t, status, sol.iterations, sol.obj_val,
-                convergence["gap_abs"], convergence["res_dual"],
-                convergence["step_length"], elapsed,
-                n_a_t, m_t,
+            results[t], solver_t = self._solve_period(
+                run, t, a_prior_t, inv_sa_global[cols_t], row_time,
+                solver_t = solver_t if reuse_factorization else None,
+                verbose  = self.verbose_first_solve and k == 0,
             )
 
             # Carry this period's posterior forward as next year's warm prior,
             # aligned to t+1's edges by template (warm_start_gather above). The
             # old in-place a_0_t_global[cols_t]=F_opt_t write was a no-op (cols_t
             # are disjoint per year, so a later year never read it).
-            prev_cols, prev_F = cols_t, F_opt_t
+            prev_cols, prev_F = cols_t, results[t].F_opt
 
         return results
+
+    def _solve_periods_parallel(
+        self,
+        run:           ConstraintRun,
+        ts_labels:     list[str],
+        a_0_global:    np.ndarray,
+        inv_sa_global: np.ndarray,
+        row_time:      np.ndarray,
+    ) -> dict[str, OptimResult]:
+        """Parallel solve (cold only): every period is its own QP against its
+        cold seed, so the periods run concurrently on a thread pool, each with a
+        fresh Clarabel instance (Clarabel releases the GIL in ``solve()``).
+
+        The first failed period cancels the periods not yet started; the
+        RuntimeError names every period that failed, and nothing is returned."""
+        n_threads = min(self.n_workers, len(ts_labels))
+        logger.info("Parallel solve: %d periods on %d threads", len(ts_labels), n_threads)
+
+        def _one(t: str) -> OptimResult:
+            cols_t = run.edge_cols_by_t[t]
+            res, _ = self._solve_period(
+                run, t, a_0_global[cols_t].copy(), inv_sa_global[cols_t], row_time,
+            )
+            return res
+
+        with ThreadPoolExecutor(max_workers=n_threads) as pool:
+            fut_by_t = {t: pool.submit(_one, t) for t in ts_labels}
+            for fut in as_completed(fut_by_t.values()):
+                if fut.exception() is not None:
+                    pool.shutdown(wait=False, cancel_futures=True)
+                    break
+        # Leaving the with-block waited for the periods already running.
+        failed = {t: f.exception() for t, f in fut_by_t.items()
+                  if not f.cancelled() and f.exception() is not None}
+        if failed:
+            raise RuntimeError(
+                f"Parallel solve failed in {len(failed)} period(s) "
+                f"{sorted(failed)}; periods not yet started were cancelled — "
+                + " | ".join(str(e) for e in failed.values())
+            ) from next(iter(failed.values()))
+        return {t: fut_by_t[t].result() for t in ts_labels}
+
+    def _solve_period(
+        self,
+        run:       ConstraintRun,
+        t:         str,
+        a_prior_t: np.ndarray,
+        inv_sa_t:  np.ndarray,
+        row_time:  np.ndarray,
+        solver_t:  Optional[clarabel.DefaultSolver] = None,
+        verbose:   bool = False,
+    ) -> tuple[OptimResult, clarabel.DefaultSolver]:
+        """Build period ``t``'s QP, solve it and return its OptimResult with the
+        Clarabel instance used. Passing the previous period's ``solver_t``
+        keeps its KKT factorisation via ``update()`` (serial path, identical
+        per-t problems only); otherwise a fresh instance is built."""
+        cols_t  = run.edge_cols_by_t[t]
+        rows_t  = np.where(row_time == t)[0]
+        G_t     = run.G_blocks[t]
+        rm_t    = run.row_meta.iloc[rows_t]
+        c_t_full     = np.asarray(run.timestep_data[t]["c"])
+        sc_t_full    = np.asarray(run.timestep_data[t]["sigma_c"])
+        c_t          = c_t_full[rows_t]
+        sc_t         = sc_t_full[rows_t]
+
+        ct       = rm_t["cone_type"].to_numpy()
+        idx_free   = np.where(ct == "free")[0]
+        idx_zero   = np.where(ct == "zero")[0]
+        idx_nonneg = np.where(ct == "nonneg")[0]
+        perm_t   = np.concatenate([idx_free, idx_zero, idx_nonneg])
+        n_free_t = idx_free.size
+        n_zero_t, n_nonneg_t = idx_zero.size, idx_nonneg.size
+        n_a_t    = G_t.shape[1]
+        m_t      = G_t.shape[0]
+
+        G_p_t = G_t.tocsr()[perm_t]
+        S_top = -sp.eye(n_free_t, format="csr") if n_free_t else sp.csr_matrix((0, 0))
+        S_bot = sp.csr_matrix((n_zero_t + n_nonneg_t, n_free_t))
+        S_t   = sp.vstack([S_top, S_bot], format="csr") if n_free_t else \
+                sp.csr_matrix((m_t, 0))
+        A_t   = sp.hstack([G_p_t, S_t], format="csc")
+        b_t   = c_t[perm_t]
+
+        if n_free_t:
+            sc_arr   = np.where(np.isnan(sc_t), self.sigma_c_floor, sc_t)
+            sc_arr   = np.maximum(sc_arr, self.sigma_c_floor)
+            inv_scf  = 1.0 / (sc_arr[perm_t[:n_free_t]] ** 2)
+        else:
+            inv_scf = np.zeros(0)
+        P_diag_t = 2.0 * np.concatenate([inv_sa_t, inv_scf])
+        P_t      = sp.diags(P_diag_t, format="csc")
+        q_t      = np.concatenate([-2.0 * inv_sa_t * a_prior_t,
+                                    np.zeros(n_free_t)])
+
+        cones_t: list = []
+        if n_free_t   > 0: cones_t.append(clarabel.ZeroConeT(n_free_t))
+        if n_zero_t   > 0: cones_t.append(clarabel.ZeroConeT(n_zero_t))
+        if n_nonneg_t > 0: cones_t.append(clarabel.NonnegativeConeT(n_nonneg_t))
+
+        t0 = time.perf_counter()
+        reused = solver_t is not None
+        if reused:
+            solver_t.update(P=P_t, q=q_t, b=b_t)
+        else:
+            settings = self._period_settings(verbose=verbose)
+            solver_t = clarabel.DefaultSolver(
+                P_t, q_t, A_t, b_t, cones_t, settings,
+            )
+
+        hist: list[tuple] = []
+        if self.capture_iter_history:
+            def _cb(info, _hist=hist):
+                _hist.append((
+                    int(info.iterations),
+                    float(info.cost_primal), float(info.cost_dual),
+                    float(info.gap_abs),
+                    float(info.res_primal), float(info.res_dual),
+                    float(info.ktratio),    float(info.mu),
+                    float(info.step_length),
+                ))
+                return False
+            solver_t.set_termination_callback(_cb)
+
+        sol     = solver_t.solve()
+        elapsed = time.perf_counter() - t0
+        status  = str(sol.status)
+
+        if self.capture_iter_history:
+            solver_t.unset_termination_callback()
+
+        if status not in _OK_STATUSES and reused:
+            # The reused instance keeps the equilibration computed for the
+            # first timestep (update() does not re-equilibrate); per-t
+            # σ_c now varies with f_agg, so a later year can stall on
+            # stale scaling. Cold restart with fresh equilibration.
+            logger.warning(
+                "t=%s  status=%s on reused solver — cold-restart retry",
+                t, status,
+            )
+            settings = self._period_settings(verbose=False)
+            solver_t = clarabel.DefaultSolver(
+                P_t, q_t, A_t, b_t, cones_t, settings,
+            )
+            hist.clear()
+            if self.capture_iter_history:
+                solver_t.set_termination_callback(_cb)
+            sol     = solver_t.solve()
+            elapsed = time.perf_counter() - t0
+            status  = str(sol.status)
+            if self.capture_iter_history:
+                solver_t.unset_termination_callback()
+
+        convergence  = self._info_to_dict(solver_t.get_info())
+        iter_history = np.array(hist, dtype=ITER_DTYPE) if hist else None
+
+        if status not in _OK_STATUSES:
+            raise RuntimeError(
+                f"Timestep {t!r}: Clarabel status={status}; halting"
+                f"{' (cold restart already tried)' if reused else ''}. "
+                f"iterations={sol.iterations}"
+            )
+
+        x         = np.asarray(sol.x)
+        F_opt_t   = x[:n_a_t]
+        eps_opt_t = x[n_a_t:] if n_free_t else np.zeros(0)
+
+        # ε back into row-order on the per-t row block
+        eps_full_t = np.zeros(m_t)
+        if n_free_t:
+            eps_full_t[perm_t[:n_free_t]] = eps_opt_t
+
+        # Year-local persistence (REP §8.2): store only this period's
+        # solved values. F_opt over cols_t, residuals/c_star over rows_t —
+        # no cross-year prior placeholders. Residual is the block residual
+        # G_t @ F_opt_t - c_t (rows_t order); mass balance ≈ 0 by construction.
+        residuals_t = np.asarray(G_t @ F_opt_t - c_t)
+        c_star_t    = c_t + eps_full_t
+
+        result = OptimResult(
+            timestep      = t,
+            F_opt         = F_opt_t,
+            eps_opt       = eps_opt_t,
+            c_star        = c_star_t,
+            residuals     = residuals_t,
+            objective     = float(sol.obj_val),
+            iterations    = int(sol.iterations),
+            solve_time_s  = elapsed,
+            solver_status = status,
+            convergence   = convergence,
+            iter_history  = iter_history,
+            cols_t        = cols_t,
+            rows_t        = rows_t,
+            a_prior       = a_prior_t,
+        )
+
+        logger.info(
+            "t=%s  status=%s  iters=%d  obj=%.4e  gap=%.2e  dres=%.2e  step=%.2f  time=%.2fs  (per-t: %d cols × %d rows)",
+            t, status, sol.iterations, sol.obj_val,
+            convergence["gap_abs"], convergence["res_dual"],
+            convergence["step_length"], elapsed,
+            n_a_t, m_t,
+        )
+        return result, solver_t
 
     def solve_timestep(
         self,
@@ -932,10 +1033,13 @@ class ClarabelSolver:
         in particular is not recoverable from the artifacts, so a run that
         omits it cannot be compared to another on that axis (Round P, G5); it
         defaults to this solver's own ``prior_mode`` when the caller passes
-        nothing.
+        nothing. How the last ``solve_all`` ran — ``n_workers`` (threads
+        used), ``max_threads`` and ``direct_solve_method`` — is added to it,
+        and its wall-clock lands in ``stage_summary.solve_wall_s``.
         """
         stage_config = ({"prior_mode": self.prior_mode}
                         if stage_config is None else stage_config)
+        stage_config = {**stage_config, **self._solve_config}
         const_id = const_run_id or run_id
         registry = OptimRunRegistry(output_dir) if output_dir else self._opt_registry
         opt_run_id = registry.register(
@@ -944,7 +1048,8 @@ class ClarabelSolver:
                 "inputs":   {},
                 "upstream": {"const_run_id": const_id},
             },
-            stage_config = stage_config,
+            stage_config  = stage_config,
+            stage_summary = dict(self._solve_summary) or None,
             label = label,
         )
         logger.info("OptimRun '%s' persisted to %s",

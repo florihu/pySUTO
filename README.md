@@ -657,6 +657,10 @@ When the `ConstraintRun` carries a per-t partition (`G_blocks`, `edge_cols_by_t`
 
 Each per-t `OptimResult` therefore persists **only that period's solved values**: `F_opt` over `cols_t` `[E_t]`, `residuals` / `c_star` over `rows_t` `[M_t]`, plus the `cols_t` / `rows_t` global-index arrays — with **no cross-year prior placeholders**. (Earlier block runs stored the full `[E]` vector with non-`t` edges frozen at the prior `a_0`; this surfaced the prior mass-balance infeasibility on every *other* year's rows and a spurious bimodal `a` distribution — see [`docs/rep/analysis_opt_20260527_095157_40846da4_20260528_block-solver-massbal-artifact.md`](docs/rep/analysis_opt_20260527_095157_40846da4_20260528_block-solver-massbal-artifact.md).) The legacy full-G path (empty `G_blocks`) keeps full-length `[E]` / `[M]` vectors with `cols_t = rows_t = None`; the npz `cols_t` key is the schema discriminator on load. `SolverDiag` reassembles the disjoint per-period slices into one complete `a*` / `residuals` at load time, so every figure (and the mass-balance residual) reads the true, placeholder-free solution. Loading a pre-fix block run (const has `G_blocks` but the opt npz lacks `cols_t`) emits a `warn_if_prefix_block_run` warning.
 
+##### Parallel solve
+
+Under `prior_mode="cold"` no period reads another period's optimum, so with `n_workers > 1` the periods are solved concurrently on a thread pool (`min(n_workers, periods)` threads), each with its own Clarabel instance; the results come back in period order and are bit-identical to solving each period on its own. A warm run is a chain, so `n_workers > 1` with `prior_mode="warm"` raises. Every period solve, serial or parallel, pins Clarabel's linear solver (`direct_solve_method`, default `"faer"`) to one thread: on the copper period QPs multi-threaded faer was slower than one thread and gave the same answer, so the cores go to the periods instead (#70). Reusing the KKT factorisation via `update()` is a serial-only feature; a parallel solve factorises each period on its own. The first failed period cancels the periods not yet started and raises naming every period that failed. The feasibility pre-check keeps Clarabel's default threading and runs before any period. The sidecar records `n_workers`, `max_threads` and `direct_solve_method` in `stage_config` and the call's wall-clock as `stage_summary.solve_wall_s`.
+
 #### Classes
 
 - **`ClarabelSolver`** ([solver.py](src/pysuto/solver.py)) — `.load_run(run_id)`, `.feasibility_check(run, t_label)`, `.solve_all(run_id, timesteps=…)`, `.persist(run_id, results, output_dir, …)`.
@@ -676,7 +680,9 @@ Solver diagnostics live in [diag/](src/pysuto/diag/) (`SolverDiag`, 12 figures: 
 | `tol_feas` / `tol_gap_abs` / `tol_gap_rel` | `1e-8` | Clarabel tolerances |
 | `max_iter` | `200` | Clarabel iteration cap |
 | `feasibility_check_first_only` | `True` | Check only `t=0` for feasibility (much faster) |
-| `verbose_first_solve` | `True` | Print Clarabel iteration log for `t=0` only |
+| `verbose_first_solve` | `True` | Print Clarabel iteration log for `t=0` only (serial solve) |
+| `n_workers` | `1` | Periods solved concurrently (cold only); the driver sets `N_WORKERS = os.cpu_count()` |
+| `direct_solve_method` | `"faer"` | Clarabel's linear solver for the period QPs, pinned to one thread |
 
 #### Use case
 
