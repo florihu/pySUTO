@@ -115,8 +115,10 @@ By region:
     United Kingdom 34.6 → 14.3 kt CC.
   - Sweden's mine output then has less outlet, and its posterior falls from 68.3 to 40.4 kt CC against
     a prior of 98.7. Mining z² rises 1,409 (CC + Mass).
-  - The same mechanism already netted Sweden in 2001 and 2002 in v15 (49.1 and 36.4 kt), through MESC
-    rows v12 had. #35 recovers the 2003 row and so extends it by one year (§7).
+  - The same mechanism already netted Sweden in every year 1996–2002 in v15, through MESC rows v12
+    had: 22.0, 18.7, 18.6, 12.0, 16.2, 49.1 and 36.4 kt CC, 173.0 kt in all. #35 recovers the 2003 row
+    and so extends it by one year, to 220.9 kt (§7). This sentence was corrected on 2026-10-13; it
+    first named 2001–2002 only.
 - **Sweden 1996–2000 is not an input change.** No prior touching Sweden moves in those years. Across
   all edges, Σ|Δ prior| is 15–92 kt CC per year in 1996–1999, almost all of it on MESC, USC and PSC
   legs elsewhere (1998: 15 kt). Sweden's mine chain in those years has zero priors downstream of the
@@ -208,8 +210,8 @@ order (trade shares, then the ICSG feed) therefore builds the weights on the pre
 
 1. **A stock-only row lifts a reporting gap out of the ADR 0027 exclusion.**
    - The netting's `icsg_gap` test asks for "neither U nor P", and U includes the MESC and USC rows.
-     Sweden, whose flows sit under "Scandinavia" until 2003, is netted on a lone LME change in 2001,
-     2002 and now 2003.
+     Sweden, whose flows sit under "Scandinavia" until 2003, is netted on its lone LME changes in
+     every year 1996–2003, 220.9 kt CC in all; 2003 is new with #35.
    - Singapore is the other face of the same rule. It reports semis only in 1995–2001, and netting
      its 2005–2015 hub trade on its MESC rows lowers z² by 2,924.
    - Telling the two apart is a decision for the re-export builder, with its own measurement.

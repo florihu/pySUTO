@@ -79,9 +79,10 @@ REP `docs/rep/analysis_opt_20261012_135741_67851aa1_20261012_issue65-icsg-stock-
 
 Sum-row z² is **+0.16 % vs base**: Sweden +2,636, Singapore −2,924. The feed's stock changes now sum to
 +540 kt over 1996–2024 (ICSG: +456; v12: −877). **New reference chain once merged:
-`opt_20261012_135741_67851aa1`.** Follow-ups (REP §7, not filed):
+`opt_20261012_135741_67851aa1`.** Follow-ups (REP §7), filed 2026-10-13 in milestone "manuscript ready": item 1 = #67 → #69, item 2 = #66 → #68:
 1. A lone MESC/USC row lifts a reporting gap out of the ADR 0027 `icsg_gap` exclusion. Sweden, folded
-   into "Scandinavia" until 2003, is netted in 2001–2003; Singapore is the case where that is right.
+   into "Scandinavia" until 2003, is netted in every year 1996–2003 (220.9 kt CC; 2003 new with #35);
+   Singapore is the case where that is right.
 2. `build_trade_shares.py` takes usage from the latest ICSG feed run, so after an ICSG change it needs
    a second pass (v27 → v28 here). Either read raw ICSG usage everywhere or document
    ICSG feed → trade shares → ICSG feed.
