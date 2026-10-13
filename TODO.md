@@ -66,6 +66,18 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
 
 # OPEN (2026-09-16, out of Round L)
 
+## #73 + #74 BUILT 2026-10-13 — NOT MEASURED: an ICSG aggregate row is split to its declared member
+
+`fix/scandinavia-aggregate-allocation`. `icsg_clean.split_aggregates()` (ADR 0032 amendment) splits
+Scandinavia's 1995–2003 rows to Sweden by the 2004 handover year's shares (refined primary 0.521, mining
+0.837, …) and drops Scandinavia's 2004 rows where Sweden reports the series; params `icsg_aggregates` v3
+adds `handover_year`. On the #65 parse output, run to scratch: the old clean step reproduces icsg v13
+exactly; the new one adds 54 Sweden rows (5,364.7 kt), keeps every 1995–2003 series total, and lowers
+2004 by Scandinavia's rows only (refined anode use −408.6 kt CC). **Measurement needs the full chain**
+from `icsg_clean.py --to-feed` (icsg v14) → netting of baci v13 → BACI feed → trade shares → ICSG feed →
+Stages 2–4, against `opt_20261013_095846_46ece808`; ore_grade v7 and stock_bounds v5 are derived from
+ICSG and already stale (#30, #37). No measure ticket filed yet.
+
 ## #69 MEASURED 2026-10-13 — PASSES, two findings against intent: Sweden's cathode un-netted (#67)
 
 `diag/aggregate-gap-measure`, run `opt_20261013_095846_46ece808` vs `opt_20261012_135741_67851aa1`, REP

@@ -10,6 +10,9 @@ CLEAN_DIR = 'data/proc/feedprep/icsg_clean'
 FEED_VALUES = 'data/input/feed/icsg/current/values.csv'
 FEED_CONC = 'data/input/feed/icsg/current/conc.xlsx'
 ROW_BUCKET = 'ROW'
+# Hand-authored: which root region an ICSG aggregate row contains, in which
+# years, and the handover year that publishes both (#67, #73, #74).
+AGGREGATES_CSV = 'data/input/params/icsg_aggregates/current/params.csv'
 
 
 RENAME_TOT = {'Smelting': 'Primary',
@@ -109,6 +112,84 @@ def merge_territories(df, aliases):
     return (df.sort_values('Year_loaded_from_file')
               .drop_duplicates(subset=key, keep='last')
               .reset_index(drop=True))
+
+
+def aggregate_splits(path=AGGREGATES_CSV):
+    """The ``icsg_aggregates`` declaration, with integer years.
+
+    A row says ICSG reports ``root_region`` inside the aggregate row
+    ``src_region`` from ``year_from`` to ``year_to``, and publishes both in
+    ``handover_year``, the first year the member reports itself.  A handover year
+    that does not follow the member years raises.
+    """
+    d = pd.read_csv(path, sep=None, engine='python', dtype=str)
+    for c in ('year_from', 'year_to', 'handover_year'):
+        d[c] = d[c].astype(int)
+    bad = d[d['handover_year'] <= d['year_to']]
+    if len(bad):
+        raise ValueError(f"icsg_aggregates: handover_year must follow year_to:\n{bad}")
+    return d
+
+
+def split_aggregates(df, splits):
+    """Split each declared aggregate row to its member by the handover year's shares.
+
+    ICSG reports some countries only inside an aggregate row until a handover
+    year, then the countries themselves ("Scandinavia" → ROW until 2003, Sweden,
+    Finland and Norway from 2004).  In the handover year it publishes both, so
+    that year states the member's share of every series it reports.
+
+    - **Member years (#74).** The aggregate's row is split: the declared member
+      gets the handover year's share, the aggregate keeps the rest, and the total
+      is unchanged.  Without it Sweden had a mine and trade but no smelter or
+      refinery in 1995–2003, and the model built its cathode through a phantom
+      SX-EW chain.
+    - **Handover year (#73).** The aggregate republishes its members, so its row
+      is dropped wherever the member reports the series; the feed used to add
+      both, and the Nordic flows entered twice, once via ROW.
+
+    A series the member does not report in the handover year has no share and
+    stays with the aggregate.  A share outside [0, 1], or a member row the split
+    would duplicate, raises.  Runs before anything keys on ``Region``, like
+    ``merge_territories`` (ADR 0032).
+    """
+    if not len(splits):
+        return df
+    key = ['Process', 'Type', 'Supply_Use']
+    df = df.copy()
+    for s in splits.itertuples(index=False):
+        agg, mem, h = s.src_region, s.root_region, s.handover_year
+        a_h = df[(df['Region'] == agg) & (df['Year'] == h)].set_index(key)['Value']
+        m_h = df[(df['Region'] == mem) & (df['Year'] == h)].set_index(key)['Value']
+        if a_h.empty or m_h.empty:
+            raise ValueError(f"{agg} ⊃ {mem}: handover year {h} does not carry both")
+        both = a_h.index.intersection(m_h.index)
+        pos = both[a_h[both].to_numpy() > 0.0]
+        share = m_h[pos] / a_h[pos]
+        off = share[(share < 0.0) | (share > 1.0)]
+        if len(off):
+            raise ValueError(f"{agg} ⊃ {mem}: a member share outside [0, 1] in {h}:\n{off}")
+
+        inside = (df['Region'] == agg) & df['Year'].between(s.year_from, s.year_to)
+        f = share.reindex(pd.MultiIndex.from_frame(df.loc[inside, key])).to_numpy()
+        idx, f = df.index[inside][~np.isnan(f)], f[~np.isnan(f)]
+        new = df.loc[idx].copy()
+        new['Region'] = mem
+        new['Value'] = df.loc[idx, 'Value'].to_numpy() * f
+        clash = df[df['Region'] == mem].merge(new[key + ['Year']], on=key + ['Year'])
+        if len(clash):
+            raise ValueError(f"{mem} already reports what the {agg} split would give it:\n"
+                             f"{clash[key + ['Year']]}")
+        df.loc[idx, 'Value'] = df.loc[idx, 'Value'].to_numpy() * (1.0 - f)
+
+        handover = ((df['Region'] == agg) & (df['Year'] == h)
+                    & pd.MultiIndex.from_frame(df[key]).isin(m_h.index))
+        print(f"{agg} ⊃ {mem}: {len(new)} member rows for {s.year_from}–{s.year_to}, "
+              f"{new['Value'].sum():,.1f} kt moved; shares read off {h}: "
+              + ", ".join(f"{'/'.join(k[:2])} {v:.3f}" for k, v in share.items())
+              + f"; {int(handover.sum())} handover-year rows of {agg} dropped")
+        df = pd.concat([df[~handover], new], ignore_index=True)
+    return df
 
 
 def _smelter_route(df, eff):
@@ -233,6 +314,9 @@ def cl(raw):
     #2b one territory, one label — must precede every step that keys on
     #   Region: the ADR 0030 nesting subtraction and the feed's own summation
     df = merge_territories(df, territory_aliases())
+    #2c an aggregate row is split to its declared member, and its handover-year
+    #   duplicate is not summed with the members (#73, #74)
+    df = split_aggregates(df, aggregate_splits())
 
     #3 production → the input it consumed, marked as a Use row
     eff = read_eff()
