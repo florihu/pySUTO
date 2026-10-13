@@ -787,6 +787,13 @@ the **Bounds-clip** above, which is an imputer's saturated fill. _Avoid_: readin
 error — the Rotterdam effect (imports a hub never re-exports on the record) genuinely cannot be
 re-attributed from BACI alone.
 
+**ICSG aggregate row** — an ICSG source row that reports several countries together, such as
+"Scandinavia" before Sweden reports its own flows. Its root-region members and their years are
+declared in the `icsg_aggregates` params input, never inferred from names; a member's region-year is
+an `icsg-gap` for the re-export netting ([ADR 0027](docs/adr/0027-re-exports-are-re-attributed-at-feed-time.md)).
+_Distinct from_: `excluded-aggregate`, the ledger label for ROW, a *root* region; and from `agg=true`
+pooling and Stage-2 aggregation, which are unrelated. _Avoid_: "aggregate" alone.
+
 **BACI-observed region** — a consumer region for which the BACI feed records at least one cross-region
 import (any traded sector, any year). The flag is what makes `Σ imports = 0` *informative*: for an
 observed region it means "sourced domestically", for a trade-blind one it means "we cannot see". Derived

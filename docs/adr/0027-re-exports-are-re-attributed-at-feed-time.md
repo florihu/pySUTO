@@ -21,6 +21,8 @@ measurement series), [ADR 0018](0018-import-free-fans-distribute-domestically.md
 Cathode and Anode). Requires
 [ADR 0026](0026-bilateral-trade-legs-are-not-time-interpolated.md). Baseline
 `opt_20260914_090327_c21a5c48`; L.0 predecessor `opt_20260915_103911_38b3fffc`.
+**Amended 2026-10-13 (#67):** a region-year whose flows ICSG reports inside an aggregate row is a
+gap whatever stock rows it carries; see the gap exclusion below. Measured by #69.
 
 ## Context
 
@@ -102,8 +104,20 @@ Three exclusions, each adopted on a measurement rather than a judgement:
   2019/2020/2022) re-attributes that same defect onto China, Japan and Korea.
 - **ICSG gap-years are skipped.** Where a region reports the product in ICSG in other years but
   has neither `U` nor `P` in year *t* — Sweden 1995–2003 sits under an ICSG "Scandinavia" row that
-  folds to ROW — `T = 0` and the ledger flags `icsg_gap`. A region that *never* reports the
+  folds to ROW, though from 1996 its own stock rows give it a `U` (see the amendment) — `T = 0` and
+  the ledger flags `icsg_gap`. A region that *never* reports the
   product keeps `U = P = 0`: that is the honest value, not a gap.
+  *Amended 2026-10-13 (#67): the stock-row case.* `U` includes the MESC/USC stock-change rows, so
+  a region's own stock row defeated the test while its flows sat inside an aggregate. Sweden's LME
+  changes are reported as Sweden in 1996–2003, and its cathode was netted as a pass-through hub in
+  every one of those years, 220.9 kt CC of `T` on baci v16. A region-year inside an ICSG aggregate
+  row is therefore a gap whatever stock rows it carries. The membership is declared in the
+  hand-authored params input `icsg_aggregates` (v2: Sweden ⊂ Scandinavia, 1995–2003), never
+  inferred from region names, and the ledger's `icsg_aggregate` column names the aggregate.
+  Counting only flow rows in the test was rejected: it would also re-flag Singapore 2005–2015,
+  which reports semis only in 1995–2001 and is a genuine LME hub, whose netting on its MESC rows
+  lowered sum-row z² by 2,924 in #65 (`opt_20261012_135741_67851aa1` vs
+  `opt_20261012_122124_40b1b370`).
 
 **Crumbs.** Proportional allocation over every origin × destination pair of a hub creates tens of
 thousands of sub-kilotonne legs that would enter coverage and drag ADR 0017's sector medians

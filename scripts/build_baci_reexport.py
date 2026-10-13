@@ -60,10 +60,16 @@ Three exclusions, each measured before it was adopted (see the Round L REP):
   Philippines hub (PNG is 97–99 % of its imports in 2019/20/22) cannot launder
   that defect onto China, Japan and Korea.
 * **ICSG gap-years are skipped.** Where a region reports the product in ICSG in
-  other years but has neither U nor P in year t (Sweden 1995–2003 sits under an
-  ICSG "Scandinavia" row that folds to ROW), ``T = 0`` and the ledger flags
-  ``icsg_gap``. A region that *never* reports the product keeps U = P = 0 —
-  that is the honest value, not a gap.
+  other years but has neither U nor P in year t, ``T = 0`` and the ledger flags
+  ``icsg_gap``. So does a region-year whose flows ICSG reports inside an
+  aggregate row, whatever stock rows it carries itself (#67): U includes the
+  MESC/USC rows, and Sweden's lone LME changes had it netted as a pass-through
+  hub in every year 1996–2003 although its smelting, refining and semis sit
+  under ICSG's "Scandinavia" (→ ROW). The membership is declared in the
+  registered ``icsg_aggregates`` input, never inferred from region names, and
+  the ledger's ``icsg_aggregate`` column names the aggregate. A region that
+  *never* reports the product keeps U = P = 0 — that is the honest value, not a
+  gap.
 
 **Crumbs.** Proportional allocation over every origin × destination pair of a
 hub produces tens of thousands of sub-kilotonne legs that would enter coverage
@@ -155,9 +161,12 @@ LEG_ZERO_FLOOR_CC = 1.0e-4
 # second sees its inflow, so the sweep repeats until nothing moves.
 MAX_PASSES = 3
 
-_INPUT_ROOT = os.path.join("data", "input")
-FEED_ID     = "baci"
-OUT_DIR     = os.path.join(_INPUT_ROOT, "feed", FEED_ID, "current")
+_INPUT_ROOT   = os.path.join("data", "input")
+FEED_ID       = "baci"
+OUT_DIR       = os.path.join(_INPUT_ROOT, "feed", FEED_ID, "current")
+# Hand-authored params input: which root regions an ICSG aggregate row contains,
+# and in which years (#67).
+AGGREGATES_ID = "icsg_aggregates"
 
 assert "Scrap" not in SECTORS, "Scrap is not traded"
 
@@ -191,13 +200,16 @@ def screened_origins(trade: pd.DataFrame, production: pd.DataFrame,
 
 
 def reexport_volumes(trade: pd.DataFrame, intake: dict, production: dict,
-                     reported: set, hub_exclude: set = HUB_EXCLUDE) -> pd.DataFrame:
+                     reported: set, aggregate_of: dict,
+                     hub_exclude: set = HUB_EXCLUDE) -> pd.DataFrame:
     """Per (sector, region, year) the four observed numbers and ``T``.
 
-    ``trade``     cross-region root legs: sector, region_from, region_to, time, cc
-    ``intake``    {(sector, region, time): U}   — ICSG, may be absent
-    ``production``{(sector, region, time): P}   — ICSG, may be absent
-    ``reported``  {(sector, region)} ICSG reports at all, in any year
+    ``trade``       cross-region root legs: sector, region_from, region_to, time, cc
+    ``intake``      {(sector, region, time): U}   — ICSG, may be absent
+    ``production``  {(sector, region, time): P}   — ICSG, may be absent
+    ``reported``    {(sector, region)} ICSG reports at all, in any year
+    ``aggregate_of``{(region, time): ICSG aggregate row} — region-years whose
+                    flows ICSG reports inside that row (``icsg_aggregate_members``)
     """
     imp = trade.groupby(["sector", "region_to", "time"])["cc"].sum()
     exp = trade.groupby(["sector", "region_from", "time"])["cc"].sum()
@@ -211,8 +223,12 @@ def reexport_volumes(trade: pd.DataFrame, intake: dict, production: dict,
         p   = production.get((s, h, t), np.nan)
         excluded = h in hub_exclude
         # A region that reports the product elsewhere but not this year has a
-        # reporting gap, not a zero: netting it would delete real exports.
-        gap = (np.isnan(u) and np.isnan(p) and (s, h) in reported)
+        # reporting gap, not a zero: netting it would delete real exports.  So
+        # has a region-year whose flows sit inside an ICSG aggregate row, even
+        # where its own stock rows give it a U (#67).
+        aggregate = aggregate_of.get((h, t))
+        gap = aggregate is not None or (np.isnan(u) and np.isnan(p)
+                                        and (s, h) in reported)
         u_f = 0.0 if np.isnan(u) else max(u, 0.0)
         p_f = 0.0 if np.isnan(p) else max(p, 0.0)
         r   = max(0.0, i_h - u_f)
@@ -223,11 +239,35 @@ def reexport_volumes(trade: pd.DataFrame, intake: dict, production: dict,
             sector=s, region=h, time=t, I=i_h, X=x_h, U=u, P=p, R=r, E=e, T=t_v,
             T_surplus=min(x_h, i_h, r), T_ceiling=min(x_h, i_h, e),
             resid=r - t_v, dom_exports=x_h - t_v,
-            excluded_aggregate=excluded, icsg_gap=gap,
+            excluded_aggregate=excluded, icsg_gap=gap, icsg_aggregate=aggregate,
             U_missing=bool(np.isnan(u)), P_missing=bool(np.isnan(p)),
             imports_exhausted=bool(t_v > 0 and np.isclose(t_v, i_h) and u_f > p_f),
         ))
     return pd.DataFrame(rows)
+
+
+def icsg_aggregate_members(path) -> dict:
+    """``{(root_region, year): aggregate}`` from the hand-authored ``icsg_aggregates`` input.
+
+    A row declares that ICSG reports ``root_region``'s flows inside its aggregate
+    row ``src_region`` in every year from ``year_from`` to ``year_to`` inclusive.
+    Declared, never inferred from region names (#67). Years are strings. A
+    reversed range, or a region-year claimed by two aggregates, raises.
+    """
+    df = pd.read_csv(path, sep=None, engine="python", dtype=str)
+    out: dict = {}
+    for r in df.itertuples(index=False):
+        y0, y1 = int(r.year_from), int(r.year_to)
+        if y0 > y1:
+            raise ValueError(f"{AGGREGATES_ID}: {r.src_region} ⊃ {r.root_region} has "
+                             f"year_from {y0} > year_to {y1}")
+        for y in range(y0, y1 + 1):
+            key = (r.root_region, str(y))
+            if key in out:
+                raise ValueError(f"{AGGREGATES_ID}: {r.root_region} {y} is claimed by "
+                                 f"both {out[key]} and {r.src_region}")
+            out[key] = r.src_region
+    return out
 
 
 def _waterfill(want: dict, cap: dict) -> dict:
@@ -709,11 +749,15 @@ def main(source_version: int = SOURCE_VERSION) -> None:
           f"   gross {legs_old['cc'].sum():,.0f} kt CC")
 
     intake, production, reported = icsg_intake_production()
+    params = _input_registries().params
+    aggregate_of = icsg_aggregate_members(params.resolve(AGGREGATES_ID) / "params.csv")
+    print(f"   ICSG aggregates: {len(aggregate_of)} member region-years "
+          f"({AGGREGATES_ID} v{params.entry(AGGREGATES_ID)['version']})")
     screened = screened_origins(legs_old, production)
     print(f"   screened origins (exports > {OUTLIER_K}×(P+I), P>0): "
           f"{len(screened)} sector-region-years")
 
-    volumes = reexport_volumes(legs_old, intake, production, reported)
+    volumes = reexport_volumes(legs_old, intake, production, reported, aggregate_of)
     volumes["label"] = [label_row(r) for r in volumes.itertuples(index=False)]
 
     legs_new, events = net_reexports(legs_old, volumes, screened)
