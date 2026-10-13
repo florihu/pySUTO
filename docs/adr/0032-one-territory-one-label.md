@@ -3,7 +3,9 @@
 **Status:** accepted — Round Q, 2026-09-21. Completes
 [ADR 0030](0030-secondary-smelter-copper-enters-the-chain-once.md), whose nesting subtraction was
 silently skipped for 19 of Belgium's 30 years. Corrects the Round P.2 scope recorded in
-[TODO](../TODO.md).
+[TODO](../TODO.md). **Amended 2026-10-13 (#73, #74):** an ICSG aggregate row is split to its declared
+member by the handover year's shares, and its handover-year duplicate is dropped; see the amendment
+at the end. Built, not yet measured.
 
 ## Context
 
@@ -153,3 +155,55 @@ is ADR 0029's open item, not a Q effect. The **discretionary** term — what the
 ICSG level at 1.17, both because the copper removed from the direct route reappears on the smelter
 route. `Kazakhstan` rejoins `ROW` above 1.05 intake retention, having cleared in P.1. World secondary
 share is unchanged at 0.223 against a 0.164 prior.
+
+## Amendment (#73, #74, 2026-10-13): an aggregate row is split to its declared member
+
+ICSG reports some countries only inside an **aggregate row** until a handover year, then the countries
+themselves. "Scandinavia" carries Sweden's, Finland's and Norway's mining, smelting, refining and semis
+for 1995–2004, loaded from the 2005 yearbook. The three countries report themselves from 2004, loaded
+from the 2014 yearbook. The region map sends Scandinavia to ROW. That did two kinds of damage.
+
+- **#74, 1995–2003.** Sweden had a mine (crude-ore feed) and its trade (BACI) but no smelter or refinery.
+  Once #67 stopped netting its cathode trade away, the model supplied it through a phantom SX-EW chain
+  (`Ore→SXEW`, a flat-prior zero, 175.0 → 307.8 kt CC over 1996–2003) and a forced ROW → Sweden MESC
+  move in 2001 (z 15.7), on `opt_20261013_095846_46ece808`.
+- **#73, 2004.** Both forms are published and the feed added them, so the Nordic flows entered twice,
+  once via ROW: refined anode use 408.6 kt CC each way.
+
+This is ADR 0032's handover, with an aggregate in place of a renamed territory. `split_aggregates()`
+runs in `cl()` right after `merge_territories()`, before anything keys on `Region`. It reads the
+hand-authored params input `icsg_aggregates` (v4: Sweden ⊂ Scandinavia, 1995–2003), the same
+declaration #67's netting reads. The **handover year** is the year after the member years, 2004.
+
+- **Member years.** The declared member's share of each series is its value over the aggregate's in the
+  handover year. Each aggregate row in the member years is split: the member gets that share, the
+  aggregate keeps the rest, and the total is unchanged. Shares on icsg v13: Mining 0.837, Smelting
+  primary 0.525, Refining primary 0.521, Semis 0.618, Smelting secondary 0.914, Refining secondary
+  0.916. Sweden gains 54 rows for 1995–2003; over those years it now carries 1,558.2 kt CC of refined
+  anode use, 1,296.0 of smelter concentrate use, 681.3 of mine output and 1,548.3 of semis use. Each
+  production and use series keeps its total. One knock-on: after ADR 0030's nesting, refinery scrap use
+  rises 0.40 kt CC over 1995–2003, because in 9 years Scandinavia's remainder of the smelter route
+  exceeds its remainder of secondary refined output. Those 9 region-years (0.02–0.06 kt CC each) are
+  clipped and listed in `icsg_secondary_excess.csv`, the ADR 0030 path.
+- **Handover year.** The aggregate republishes its members, so its row is dropped wherever the member
+  reports the series: 6 rows. In 2004 Scandinavia's refined primary output equals Sweden + Finland +
+  Norway exactly (347.7 kt CC); mining differs by 0.5 kt CC and semis by 4.6, yearbook revisions.
+- **Left alone.** A series the member does not report in the handover year has no share and stays with
+  the aggregate, here Scandinavia's producer stock change. Finland and Norway are not declared: they map
+  to ROW, so their part stays where it was.
+- **Raises.** A second member declared for one aggregate, an aggregate row outside its member years and
+  handover year, a handover year without both forms, a series whose share cannot be read or lies
+  outside [0, 1], and a member row the split would duplicate.
+
+**The assumption.** Each share is held at its handover-year value for every member year. ICSG publishes
+no Swedish split before 2004, and Nordic capacity moved over the decade, so the 1995–2003 split is an
+estimate, not an observation. That is why #67's netting keeps treating Sweden 1995–2003 as a reporting
+gap: its allocated intake and production are not observations of a hub's balance.
+
+**Considered and rejected.**
+- *Keep Scandinavia in ROW.* That is the #74 defect: Sweden's trade without its processing.
+- *Give the whole aggregate to Sweden.* It would hand Sweden Finland's smelter and refinery, about half
+  of Scandinavia's primary output in 2004.
+- *Drop only the 2004 duplicate.* That fixes #73 and leaves #74.
+- *Year-specific shares from another source.* None is in the repo.
+

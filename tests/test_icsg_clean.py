@@ -15,8 +15,9 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..",
                                 "scripts", "parse", "icsg_parse"))
-from icsg_clean import (apply_input_divisors, merge_territories,  # noqa: E402
-                        refining_anode_rows, secondary_excess, territory_aliases)
+from icsg_clean import (aggregate_declaration, apply_input_divisors,  # noqa: E402
+                        merge_territories, refining_anode_rows, secondary_excess,
+                        split_aggregates, territory_aliases)
 
 _COLS = ["Region", "Type", "Year", "Value", "Process", "Supply_Use", "Unit",
          "Year_loaded_from_file"]
@@ -240,3 +241,135 @@ def test_territory_aliases_reads_the_concordance_and_excludes_row():
 def test_merge_is_a_no_op_without_aliases():
     df = _frame([_row("Chile", "Refining", "Primary", 100.0)])
     pd.testing.assert_frame_equal(merge_territories(df, {}), df)
+
+
+# ---------------------------------------------------------------------------
+# #73, #74: an aggregate row is split to its declared member, and its
+# handover-year duplicate is not summed with the members
+# ---------------------------------------------------------------------------
+
+SPLIT = pd.DataFrame([dict(src_region="Scandinavia", root_region="Sweden",
+                           year_from=1995, year_to=2003)])      # handover year 2004
+
+
+def _nordic(sweden_2004=181.0, sweden_extra=()):
+    """Scandinavia's refined output before and in the 2004 handover, as ICSG
+    publishes it: the aggregate alone in 2001, both forms in 2004."""
+    return pd.DataFrame([
+        _row("Scandinavia", "Refining", "Primary", 300.0, year=2001),
+        _row("Scandinavia", "Refining", "Primary", 347.7, year=2004),
+        _row("Sweden",      "Refining", "Primary", sweden_2004, year=2004),
+        _row("Finland",     "Refining", "Primary", 131.1, year=2004),
+        _row("Norway",      "Refining", "Primary", 35.6, year=2004),
+        _row("Scandinavia", "Cathode_Pool", "PSC", 4.0, year=2001),
+        _row("Scandinavia", "Cathode_Pool", "PSC", -0.2, year=2004),
+        _row("Sweden",      "MESC", "Cathode", 21.8, year=2001, su="Use"),
+        *sweden_extra,
+    ])[_COLS]
+
+
+def _value(df, region, proc, typ, year):
+    m = ((df.Region == region) & (df.Process == proc) & (df.Type == typ)
+         & (df.Year == year))
+    return df.loc[m, "Value"]
+
+
+def test_a_members_share_is_read_off_the_handover_year_and_applied_before_it():
+    """Regression (#74): Sweden's smelting and refining sat inside
+    "Scandinavia" (→ ROW) until 2003, so Sweden had a mine and trade but no
+    processing, and the model built its cathode through a phantom SX-EW chain.
+    Its share of each series is what ICSG publishes for it in 2004."""
+    out = split_aggregates(_nordic(), SPLIT)
+    share = 181.0 / 347.7
+    assert _value(out, "Sweden", "Refining", "Primary", 2001).item() == \
+        pytest.approx(300.0 * share, rel=1e-12)
+    assert _value(out, "Scandinavia", "Refining", "Primary", 2001).item() == \
+        pytest.approx(300.0 * (1.0 - share), rel=1e-12)
+    total = (_value(out, "Sweden", "Refining", "Primary", 2001).item()
+             + _value(out, "Scandinavia", "Refining", "Primary", 2001).item())
+    assert total == pytest.approx(300.0, rel=1e-12), "the aggregate's total is kept"
+
+
+def test_the_handover_year_aggregate_is_not_summed_with_its_members():
+    """Regression (#73): in 2004 ICSG publishes Scandinavia and its members,
+    and the feed added both, so the Nordic flows entered twice, once via ROW."""
+    out = split_aggregates(_nordic(), SPLIT)
+    assert _value(out, "Scandinavia", "Refining", "Primary", 2004).empty
+    refined_2004 = out[(out.Process == "Refining") & (out.Year == 2004)].Value.sum()
+    assert refined_2004 == pytest.approx(181.0 + 131.1 + 35.6)
+
+
+def test_a_series_the_member_does_not_report_stays_with_the_aggregate():
+    """Sweden reports no producer stock change in 2004, so there is no share to
+    read and Scandinavia's PSC rows stay whole, in every year."""
+    out = split_aggregates(_nordic(), SPLIT)
+    assert _value(out, "Scandinavia", "Cathode_Pool", "PSC", 2001).item() == 4.0
+    assert _value(out, "Scandinavia", "Cathode_Pool", "PSC", 2004).item() == -0.2
+    assert _value(out, "Sweden", "Cathode_Pool", "PSC", 2001).empty
+
+
+def test_the_members_own_rows_are_untouched():
+    out = split_aggregates(_nordic(), SPLIT)
+    assert _value(out, "Sweden", "MESC", "Cathode", 2001).item() == 21.8
+    assert _value(out, "Finland", "Refining", "Primary", 2004).item() == 131.1
+
+
+def test_a_member_larger_than_its_aggregate_raises():
+    with pytest.raises(ValueError, match="share"):
+        split_aggregates(_nordic(sweden_2004=400.0), SPLIT)
+
+
+def test_a_member_row_the_split_would_double_raises():
+    own = _row("Sweden", "Refining", "Primary", 50.0, year=2001)
+    with pytest.raises(ValueError, match="Sweden"):
+        split_aggregates(_nordic(sweden_extra=[own]), SPLIT)
+
+
+def test_no_declaration_is_a_no_op():
+    df = _nordic()
+    pd.testing.assert_frame_equal(split_aggregates(df, SPLIT.iloc[:0]), df)
+
+
+def test_a_second_member_of_the_same_aggregate_raises():
+    """Its share would be read off rows the first split already changed."""
+    two = pd.concat([SPLIT, SPLIT.assign(root_region="Finland")], ignore_index=True)
+    with pytest.raises(ValueError, match="one declared member per aggregate"):
+        split_aggregates(_nordic(), two)
+
+
+def test_an_aggregate_reported_after_its_handover_year_raises():
+    late = _row("Scandinavia", "Refining", "Primary", 340.0, year=2005)
+    with pytest.raises(ValueError, match="outside"):
+        split_aggregates(_nordic(sweden_extra=[late]), SPLIT)
+
+
+def test_a_series_with_no_readable_share_raises():
+    """An aggregate of 0 beside a reporting member: dropping it would lose
+    nothing, but splitting before it would have no share to apply."""
+    zero = [_row("Scandinavia", "Smelting", "Primary", 0.0, year=2004),
+            _row("Sweden", "Smelting", "Primary", 5.0, year=2004)]
+    with pytest.raises(ValueError, match="no share can be read"):
+        split_aggregates(_nordic(sweden_extra=zero), SPLIT)
+
+
+def test_a_handover_year_without_the_member_raises():
+    df = _nordic()
+    df = df[~((df.Region == "Sweden") & (df.Year == 2004))]
+    with pytest.raises(ValueError, match="does not carry both"):
+        split_aggregates(df, SPLIT)
+
+
+def test_the_declaration_is_read_with_integer_years(tmp_path):
+    path = tmp_path / "params.csv"
+    path.write_text("src_region,root_region,year_from,year_to,source,comment\n"
+                    "Scandinavia,Sweden,1995,2003,icsg v13,#74\n")
+    got = aggregate_declaration(path)
+    assert got.loc[0, ["year_from", "year_to"]].tolist() == [1995, 2003]
+
+
+def test_a_reversed_year_range_raises(tmp_path):
+    path = tmp_path / "params.csv"
+    path.write_text("src_region,root_region,year_from,year_to,source,comment\n"
+                    "Scandinavia,Sweden,2003,1995,icsg v13,#74\n")
+    with pytest.raises(ValueError, match="year_from after year_to"):
+        aggregate_declaration(path)
