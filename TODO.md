@@ -71,12 +71,13 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
 `diag/aggregate-gap-measure`, run `opt_20261013_095846_46ece808` vs `opt_20261012_135741_67851aa1`, REP
 `docs/rep/analysis_opt_20261013_095846_46ece808_20261013_issue67-aggregate-gap.md`;
 `scripts/explo/issue69_aggregate_gap_diag.py`. baci v17, trade_shares v31, icsg_aggregates v2. Every
-pre-registered item holds: only Sweden's T changes (−220.9 kt CC), Sweden 2003 mining ratio 0.41 → 0.70,
-Sweden 1996–2003 sum-row z² −6,055, Singapore −0.087 %, Round-E unchanged, mass moved +0.00 %. Common-set
-sum-row z² **−0.69 % vs base**. Against intent: the restored trade is carried by a Swedish SX-EW chain
-(`Ore→SXEW`, prior 0; 1996–2003 posterior 175.0 → 307.8 kt CC) and a 2001 MESC sink (+48.9 kt CC of ROW
-cathode), because 1995–2003 "Scandinavia" smelting/refining maps to ROW. **Reference chain changes to
-`opt_20261013_095846_46ece808` only if merged — owner's call.** Follow-up (REP §7.1) not filed.
+pre-registered item holds vs `opt_20261012_135741_67851aa1`: only Sweden's T changes (−220.9 kt CC),
+Sweden 2003 mining ratio 0.41 → 0.70, Sweden 1996–2003 sum-row z² −6,055, Singapore −0.087 %, Round-E
+unchanged, mass moved +0.00 %. Common-set sum-row z² **−0.69 % vs `opt_20261012_135741_67851aa1`**.
+Against intent, both because 1995–2003 "Scandinavia" smelting/refining maps to ROW (**#74**): the restored
+trade is supplied by a Swedish SX-EW chain, a flat-prior sink at σ 1e6 (`Ore→SXEW` 1996–2003 posterior
+175.0 → 307.8 kt CC), and by a forced ROW → Sweden MESC move in 2001 (+49.1 kt CC at z 15.7).
+**Reference chain changes to `opt_20261013_095846_46ece808` only if merged — owner's call.**
 
 ## #68 MEASURED 2026-10-13 — PASSES: the raw-usage trade shares (#66) reproduce v29
 

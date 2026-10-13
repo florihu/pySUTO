@@ -3,17 +3,17 @@ issue69_aggregate_gap_diag.py
 =============================
 #69 measurement of #67: Sweden's cathode is no longer netted in 1996–2003, because its
 flows sit inside ICSG's "Scandinavia" (params ``icsg_aggregates``).  Reads persisted
-run artefacts and the two netted BACI versions' ledgers only, builds the sum-row table
-in memory (no per-year CSVs, #46) and prints #69's pre-registered items for <new>
-against <base>:
+run artefacts, the constraint runs' σ_a and the two netted BACI versions' ledgers only,
+builds the sum-row table in memory (no per-year CSVs, #46) and prints #69's
+pre-registered items for <new> against <base>:
 
     N   netting: per hub-year T and T_applied, baci v<base> ledger → v<new> ledger
-    W   Sweden: Mining→Ore CC posterior/prior per year, where its ore goes (MF or
-        SXEW), sum-row z² 1996–2003, the rows that moved most, and its cathode legs
+    W   Sweden: Mining→Ore CC posterior/prior, where its ore goes (MF or SXEW) with σ,
+        its cathode leg groups, the ROW → Sweden MESC leg's z, and its sum-row z²
     G   Singapore: sum-row z² over all years
     E   the Round-E items (ADR 0025): world retention, small-node posterior/prior,
-        exporter retention, Δz² by anchor band and mass moved (CC)
-    S   MESC, USC and PSC: net Σ(a* − a_prior) per year, CC, and by region where it moves
+        exporter retention, z² by anchor band and mass moved (CC)
+    S   MESC, USC and PSC: net Σ(a* − a_prior) per year, CC, per family and per region
     C   common-set sum-row z² over 30 years, per year, and by region
     A   attribution: the rows behind the < 10 kt band's Δz² and behind the largest
         regional moves outside Sweden
@@ -50,70 +50,106 @@ KEY     = ["sector", "region", "time"]
 
 
 def _ledger(v: int) -> pd.DataFrame:
+    """One netted BACI version's re-export ledger; years stay strings."""
     led = pd.read_csv(BACI_IN / f"v{v}" / "reexport_ledger.csv", dtype={"time": str})
     return led.fillna({"T_applied": 0.0})
 
 
+def _top(x: pd.DataFrame, n: int, cols: list) -> str:
+    """The ``n`` rows of ``x`` with the largest |dz2|, as a table."""
+    return (x.reindex(x.dz2.abs().sort_values(ascending=False).index).head(n)[cols]
+            .round(1).to_string(index=False))
+
+
+def _with_sigma(e: pd.DataFrame, opt: str) -> pd.DataFrame:
+    """``e`` with each edge's σ_a from the run's constraint run, and its z."""
+    const, _, _ = L._chain(opt)
+    sigma = np.load(ROOT / "const" / const / "sigma_a.npy")
+    return e.assign(sigma=sigma[e.edge_id.to_numpy()],
+                    z=lambda d: (d.post - d.prior) / d.sigma)
+
+
 def netting(v_base: int, v_new: int) -> None:
+    """N: which hub-years' T and T_applied change between the two ledgers."""
     print(f"\n== N netting, baci v{v_base} → v{v_new} ledger (kt CC)")
     m = _ledger(v_base).merge(_ledger(v_new), on=KEY, how="outer",
                               suffixes=("_base", "_new"), indicator=True)
     print(f"   hub-years in one ledger only: {int((m['_merge'] != 'both').sum())}")
-    dT  = m["T_new"] - m["T_base"]
-    dTa = m["T_applied_new"] - m["T_applied_base"]
-    moved = m[dT != 0.0]
+    m["dT"], m["dTa"] = m.T_new - m.T_base, m.T_applied_new - m.T_applied_base
     print(f"   hub-years whose T changes: "
-          f"{moved.groupby(['sector', 'region']).size().to_dict()}")
-    print(f"   Σ ΔT {dT.sum():,.1f}   Σ ΔT_applied {dTa.sum():,.1f}")
-    other = m.region != SWEDEN
-    print(f"   other hub-years whose T_applied moves: "
-          f"{int(((dTa.abs() > 1e-9) & other).sum())}, max |Δ| "
-          f"{dTa[other].abs().max():.3f}")
+          f"{m[m.dT != 0.0].groupby(['sector', 'region']).size().to_dict()}")
+    print(f"   Σ ΔT {m.dT.sum():,.1f}   Σ ΔT_applied {m.dTa.sum():,.1f}")
+    other = m[(m.region != SWEDEN) & (m.dTa.abs() > 1e-9)]
+    top = other.loc[other.dTa.abs().idxmax()]
+    print(f"   other hub-years whose T_applied moves: {len(other)}, largest "
+          f"{top.sector} {top.region} {top.time} {top.dTa:+.3f}")
     sw = m[(m.region == SWEDEN) & (m.sector == "Cathode") & m.time.isin(SW_YRS)]
     cols = ["time", "U_base", "T_base", "T_applied_base", "label_base", "T_new",
             "T_applied_new", "label_new", "icsg_aggregate"]     # the last: #67 ledgers only
     print(sw[[c for c in cols if c in sw.columns]].round(2).to_string(index=False))
 
 
-def _mining_ratio(e: pd.DataFrame) -> pd.Series:
-    m = ((e.sector_from == "Mining") & (e.sector_to == "Ore") & (e.region_from == SWEDEN)
-         & (e.region_to == SWEDEN) & (e.valuation == "CC"))
-    g = e[m].groupby("time")[["prior", "post"]].sum()
-    return g.post / g.prior.where(g.prior > 0)
+def _sweden_cc(e: pd.DataFrame, sector_from: str, sector_to: str) -> pd.DataFrame:
+    """Sweden's domestic ``sector_from → sector_to`` CC edges, one row per year."""
+    m = ((e.sector_from == sector_from) & (e.sector_to == sector_to) & (e.valuation == "CC")
+         & (e.region_from == SWEDEN) & (e.region_to == SWEDEN))
+    return e[m]
+
+
+def _leg_groups(e: pd.DataFrame) -> pd.DataFrame:
+    """Sweden's cathode legs in CC by group and year, prior and posterior."""
+    c = e[(e.sector_from == "Cathode") & (e.valuation == "CC")]
+    into = (c.region_to == SWEDEN) & (c.region_from != SWEDEN)
+    group = np.select([into & (c.sector_to == s) for s in ("FU", "MESC", "USC")]
+                      + [(c.region_from == SWEDEN) & (c.region_to != SWEDEN)],
+                      ["imports into FU", "imports into MESC", "imports into USC",
+                       "exports"], default="")
+    legs = c.assign(group=group)[group != ""]
+    own = _sweden_cc(e, "CSXEW", "CP").assign(group="own CSXEW→CP")
+    return pd.concat([legs, own]).groupby(["group", "time"])[["prior", "post"]].sum()
 
 
 def sweden(E: dict, j: pd.DataFrame, base: str, new: str) -> None:
+    """W: Sweden's mine output, where its ore goes, its cathode legs and its z²."""
     print(f"\n== W {SWEDEN}")
     for o in (base, new):
-        r = _mining_ratio(E[o]).loc["1995":"2005"]
+        m = _sweden_cc(E[o], "Mining", "Ore").set_index("time")
+        r = (m.post / m.prior.where(m.prior > 0)).loc["1995":"2005"]
         print(f"   Mining→Ore CC posterior/prior {o[-8:]}: {Z._fmt(r, 2)}")
     for o in (base, new):
-        e = E[o]
         for route in ("MF", "SXEW"):
-            m = ((e.sector_from == "Ore") & (e.sector_to == route) & (e.valuation == "CC")
-                 & (e.region_from == SWEDEN) & (e.region_to == SWEDEN))
-            g = e[m].groupby("time")[["prior", "post"]].sum().loc["1995":"2005"]
-            print(f"   Ore→{route:4s} CC {o[-8:]} prior {Z._fmt(g.prior, 1)}")
-            print(f"   Ore→{route:4s} CC {o[-8:]} post  {Z._fmt(g.post, 1)}")
+            r = _with_sigma(_sweden_cc(E[o], "Ore", route), o).set_index("time")
+            yrs, sw = r.loc["1995":"2005"], r.loc[SW_YRS]
+            print(f"   Ore→{route:4s} CC {o[-8:]} prior {Z._fmt(yrs.prior, 1)}")
+            print(f"   Ore→{route:4s} CC {o[-8:]} post  {Z._fmt(yrs.post, 1)}")
+            print(f"   Ore→{route:4s} CC {o[-8:]} 1996–2003: Σ post {sw.post.sum():,.1f}, "
+                  f"σ_a {sw.sigma.min():.3g}–{sw.sigma.max():.3g}; prior max over "
+                  f"{len(r)} years {r.prior.max():.1f}")
+    for o in (base, new):
+        g = _leg_groups(E[o])
+        print(f"   cathode legs {o[-8:]}, prior / post, 2001 and 2003:")
+        for grp in g.index.get_level_values(0).unique():
+            x = g.loc[grp].reindex(SW_YRS).fillna(0.0)
+            print(f"     {grp:18s} " + "  ".join(f"{t}: {x.prior[t]:.1f} / {x.post[t]:.1f}"
+                                                 for t in ("2001", "2003")))
+    for o in (base, new):
+        e = E[o]
+        leg = _with_sigma(e[(e.sector_from == "Cathode") & (e.region_from == "ROW")
+                            & (e.region_to == SWEDEN) & (e.sector_to == "MESC")
+                            & (e.time == "2001")], o)
+        print(f"   ROW → Sweden MESC 2001 {o[-8:]}: " + "  ".join(
+            f"{r.valuation} prior {r.prior:.1f} post {r.post:.1f} σ {r.sigma:.3g} "
+            f"z {r.z:.2f}"
+            for r in leg.itertuples()))
     s = j[(j.region == SWEDEN) & j.year.isin(SW_YRS)]
     print(f"   sum rows 1996–2003: {len(s)} rows, z² {s.z2_base.sum():,.0f} → "
           f"{s.z2_new.sum():,.0f} ({s.dz2.sum():+,.0f})")
     print(s.groupby("year")[["z2_base", "z2_new", "dz2"]].sum().round(0).T.to_string())
-    print(s.reindex(s.dz2.abs().sort_values(ascending=False).index).head(10)
-          [["label", "year", "c_base", "c_new", "z2_base", "z2_new"]]
-          .round(1).to_string(index=False))
-    for o in (base, new):
-        e = E[o]
-        cc = (e.sector_from == "Cathode") & (e.valuation == "CC") & e.time.isin(SW_YRS)
-        leg_in  = cc & (e.region_to == SWEDEN) & (e.region_from != SWEDEN)
-        leg_out = cc & (e.region_from == SWEDEN) & (e.region_to != SWEDEN)
-        for name, msk in (("imports", leg_in), ("exports", leg_out)):
-            g = e[msk].groupby("time")[["prior", "post"]].sum().reindex(SW_YRS).fillna(0.0)
-            print(f"   cathode {name} {o[-8:]} prior {Z._fmt(g.prior, 1)}")
-            print(f"   cathode {name} {o[-8:]} post  {Z._fmt(g.post, 1)}")
+    print(_top(s, 10, ["label", "year", "c_base", "c_new", "z2_base", "z2_new"]))
 
 
 def singapore(j: pd.DataFrame, base: str) -> None:
+    """G: Singapore's sum-row z² over all years."""
     s = j[j.region == HUB]
     print(f"\n== G {HUB}: {len(s)} sum rows, z² {s.z2_base.sum():,.0f} → "
           f"{s.z2_new.sum():,.0f} ({100 * (s.z2_new.sum() / s.z2_base.sum() - 1):+.3f} % "
@@ -121,6 +157,7 @@ def singapore(j: pd.DataFrame, base: str) -> None:
 
 
 def round_e(E: dict, S: dict, j: pd.DataFrame, base: str, new: str) -> None:
+    """E: the Round-E items of ADR 0025 for both runs."""
     print(f"\n== E Round-E items (ADR 0025), vs {base}")
     out = {}
     for o in (base, new):
@@ -131,43 +168,40 @@ def round_e(E: dict, S: dict, j: pd.DataFrame, base: str, new: str) -> None:
               f"\n     (c) exporter retention {Z._fmt(pd.Series(exp), 3)}"
               f"\n     (d) mass moved, all CC edges {mass:,.0f} kt")
     band = pd.cut(j.c_base.abs(), Z.BANDS, right=False)
-    print("   (d) Δz² by anchor band |c| (kt):",
-          Z._fmt(j.dz2.groupby(band, observed=False).sum(), 0))
+    by = j.groupby(band, observed=False)[["z2_base", "z2_new", "dz2"]].sum()
+    print("   (d) z² by anchor band |c| (kt), base / new / Δ:")
+    print(by.round(0).to_string())
     mb, mn = out[base][4], out[new][4]
-    print(f"   (d) mass moved {mb:,.0f} → {mn:,.0f} kt ({100 * (mn / mb - 1):+.2f} % vs {base})")
+    print(f"   (d) mass moved {mb:,.0f} → {mn:,.0f} kt "
+          f"({100 * (mn / mb - 1):+.2f} % vs {base})")
 
 
 def stock(E: dict, base: str, new: str) -> None:
+    """S: stock-leg net per family and year, and the region-years that move."""
     print("\n== S stock legs, net Σ(a* − a_prior) per year, kt CC")
-    rows = []
-    for o in (base, new):
-        f = P65._family(E[o]).query("valuation == 'CC'")
-        g = f.groupby(["family", "time"]).delta.sum()
-        rows.append(g.reindex(pd.MultiIndex.from_product([["MESC", "USC", "PSC"], YEARS],
-                                                         names=["family", "time"]))
-                    .fillna(0.0).rename(o))
-    st = pd.concat(rows, axis=1)
+    fam = {o: P65._family(E[o]).query("valuation == 'CC'") for o in (base, new)}
+    idx = pd.MultiIndex.from_product([["MESC", "USC", "PSC"], YEARS],
+                                     names=["family", "time"])
+    st = pd.concat([fam[o].groupby(["family", "time"]).delta.sum().reindex(idx)
+                    .fillna(0.0).rename(o) for o in (base, new)], axis=1)
     st["grows"] = st[new].abs() - st[base].abs()
-    for fam in ("MESC", "USC", "PSC"):
-        x = st.loc[fam]
+    for f in ("MESC", "USC", "PSC"):
+        x = st.loc[f]
         top = x.grows.idxmax()
-        print(f"   {fam}: Σ net {x[base].sum():,.1f} → {x[new].sum():,.1f}; largest growth "
+        print(f"   {f}: Σ net {x[base].sum():,.1f} → {x[new].sum():,.1f}; largest growth "
               f"of |net| {x.grows.max():+.1f} in {top} ({x.loc[top, base]:,.1f} → "
               f"{x.loc[top, new]:,.1f})")
     print(st.loc[(slice(None), SW_YRS + ["2004"]), [base, new]].round(1).unstack(0)
           .to_string())
-    by = []
-    for o in (base, new):
-        f = P65._family(E[o]).query("valuation == 'CC'")
-        by.append(f.groupby(["family", "time", "region_to"]).delta.sum().rename(o))
-    r = pd.concat(by, axis=1).fillna(0.0)
+    r = pd.concat([fam[o].groupby(["family", "time", "region_to"]).delta.sum().rename(o)
+                   for o in (base, new)], axis=1).fillna(0.0)
     r["d"] = r[new] - r[base]
-    r = r[r.d.abs() > 1.0].sort_values("d")
     print("   region-years whose stock net moves by more than 1 kt CC:")
-    print(r.round(1).to_string())
+    print(r[r.d.abs() > 1.0].sort_values("d").round(1).to_string())
 
 
 def common_set(j: pd.DataFrame, base: str) -> None:
+    """C: the common-set sum-row z², per year and by region."""
     tb, tn = j.z2_base.sum(), j.z2_new.sum()
     print(f"\n== C common-set sum-row z²: {len(j):,} rows in both runs, "
           f"{tb:,.0f} → {tn:,.0f} ({100 * (tn / tb - 1):+.3f} % vs {base})")
@@ -180,19 +214,17 @@ def common_set(j: pd.DataFrame, base: str) -> None:
 
 
 def attribution(j: pd.DataFrame) -> None:
+    """A: the rows behind the < 10 kt band and the largest non-Swedish regional moves."""
     print("\n== A attribution")
+    cols = ["label", "year", "c_base", "c_new", "z2_base", "z2_new", "dz2"]
     small = j[j.c_base.abs() < 10.0]
     print(f"   < 10 kt band: Σ Δz² {small.dz2.sum():+,.0f}; largest movers:")
-    print(small.reindex(small.dz2.abs().sort_values(ascending=False).index).head(8)
-          [["label", "year", "c_base", "c_new", "z2_base", "z2_new", "dz2"]]
-          .round(1).to_string(index=False))
+    print(_top(small, 8, cols))
     reg = j[j.region != SWEDEN].groupby("region").dz2.sum()
     for region in reg.abs().sort_values(ascending=False).index[:3]:
         x = j[j.region == region]
         print(f"   {region}: Σ Δz² {x.dz2.sum():+,.0f}; largest movers:")
-        print(x.reindex(x.dz2.abs().sort_values(ascending=False).index).head(6)
-              [["label", "year", "c_base", "c_new", "z2_base", "z2_new", "dz2"]]
-              .round(1).to_string(index=False))
+        print(_top(x, 6, cols))
 
 
 def main(base: str, new: str, v_base: int, v_new: int) -> None:
