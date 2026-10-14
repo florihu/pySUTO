@@ -129,7 +129,7 @@ STOCK_SECTORS = ("MESC", "USC")
 # a stock leg stays at its prior with small wiggle room. The former band
 # (p95/1.645 × max(FU, 100 kt)) gave the exchange-location legs σ ≈ 553 kt.
 STOCK_SEED_CV           = 0.01
-STOCK_SEED_ABS_FLOOR_KT = 0.3
+STOCK_SEED_ABS_FLOOR_KT = 0.3     # icsg_feed's OBSERVED_ZERO_* mirror these (#76)
 
 # FlatPriorImputer mode
 #   "magnitude_aware" (legacy) — σ = CV(j) · scale(j) via cv_by_mask + 3-level cascade

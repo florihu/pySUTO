@@ -186,12 +186,13 @@ are the reason this paragraph exists):
 When the residual or the bound gives a weighted fan's domestic leg weight 0, that 0 is the
 statement "the region supplies none of its own use", not a missing value. Until #76 it was lost:
 the ICSG feed's σ is proportional to the weighted value, so the leg left Stage 1 at σ 0, the
-collector read it as uncovered, and the `NetworkImputer`'s flow balance closed it as the region's
-supply minus its other uses. On `imp_20261013_113740_5e11f431` that refilled 64 domestic
-`Cathode→FU` legs with 4,905 kt CC (ROW 4,496, 188–318 kt CC a year in 1995–2011) and 101 domestic
-`Concentrate→Smelting` legs with 1,115 kt CC: use ICSG does not report, booked so that the
-solver never saw the contradiction. The feed now carries every such leg as covered at 0 with
-`σ = max(0.01·|U|, 0.3 kt)`, where `U` is the usage its fans distribute (an aggregate region
+collector read it as uncovered, and the imputers closed it. On `imp_20261013_113740_5e11f431` the
+`NetworkImputer`'s flow balance wrote 64 domestic `Cathode→FU` legs at 4,905 kt CC (ROW 4,496,
+189–318 kt CC a year in 1995–2011) as the region's supply minus its other uses, the time
+interpolator 4 more at 307 kt CC, and the smelter recipe, run backward, and the balance 98 domestic
+`Concentrate→Smelting` legs at 1,000 kt CC: use ICSG does not report, booked so that the solver
+never saw the contradiction. The feed now carries every such leg as covered at 0 with
+`σ = max(0.01·|U|, 0.3 kt CC)`, where `U` is the usage its fans distribute (an aggregate region
 fans each member's row onto the same leg) — the net-stock seed's pricing
 ([ADR 0040](0040-stock-change-legs-are-held-at-their-prior.md)). Stock-change legs keep their own
 seed and supply-mix fan (ADR 0040, 0043); zero-weight import legs stay uncovered (no trade on that

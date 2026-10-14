@@ -164,7 +164,7 @@ class ConcordanceTable(DataFeed):
         self.n_src_edges  = len(self.src_edges)
         self.n_root_edges = len(self.acc_struct.edge_index)
 
-    def zero_weight_domestic_legs(self, exclude_sectors_to=()) -> pd.DataFrame:
+    def zero_weight_domestic_legs(self, exclude_sectors_to) -> pd.DataFrame:
         """Domestic legs a weighted fan gives exactly 0, with their src edge (#76).
 
         Inside a fan whose weights sum to 1, a domestic leg (region_from ==
@@ -177,14 +177,14 @@ class ConcordanceTable(DataFeed):
         ``edge_id`` (root edge), one row per such leg.
         """
         t = self.tab
-        leg = ((t['weight_mode'] == 'user') & (t['weight_value'] == 0.0)
-               & (t['root_region_from'] == t['root_region_to'])
-               & ~t['root_sector_to'].isin(list(exclude_sectors_to)))
-        z = t.loc[leg]
+        is_zero_domestic = ((t['weight_mode'] == 'user') & (t['weight_value'] == 0.0)
+                            & (t['root_region_from'] == t['root_region_to'])
+                            & ~t['root_sector_to'].isin(list(exclude_sectors_to)))
+        rows = t.loc[is_zero_domestic]
         src = [self.src_edge_to_id[k]
-               for k in z[self.SRC_COLS].itertuples(index=False, name=None)]
+               for k in rows[self.SRC_COLS].itertuples(index=False, name=None)]
         return pd.DataFrame({'src_id':  np.asarray(src, dtype=np.int64),
-                             'edge_id': z['edge_id'].to_numpy(dtype=np.int64)})
+                             'edge_id': rows['edge_id'].to_numpy(dtype=np.int64)})
 
     # ------------------------------------------------------------------ #
     # from_raw factory                                                     #

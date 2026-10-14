@@ -184,9 +184,10 @@ concordance row in si.md S8 change with it.
 ## #76 BUILT 2026-10-14 — NOT MEASURED (#78): a weighted fan's zero domestic leg is an observed zero
 
 `fix/observed-zero`. The ICSG feed carries a domestic leg its trade shares weigh at 0 as covered at 0,
-`σ = max(0.01·|U|, 0.3 kt)` on the usage its fans distribute (ADR 0024 amendment; `observed_zero` mask in
+`σ = max(0.01·|U|, 0.3 kt CC)` on the usage its fans distribute (ADR 0024 amendment; `observed_zero` mask in
 the feed's `result.npz`, honoured by `FeedCollector` and exempt from `min_flow_kt`), so the `NetworkImputer`
-no longer refills it. In memory on icsg v14 + trade_shares v32, nothing registered: the feed is unchanged
+no longer refills it (64 + 4 `Cathode→FU` and 98 `Concentrate→Smelting` refills, 6,212 kt CC, on
+`imp_20261013_113740_5e11f431`). In memory on icsg v14 + trade_shares v32, nothing registered: the feed is unchanged
 elsewhere (`F_root`, `sigma_root` equal `feed_icsg_20261013_113455_40931987` before the stamp), 355 observed
 zeros (257 `Cathode→FU`, 98 `Concentrate→Smelting`), ROW's semis leg in 1995–2011, 2015, 2016 and 2020–23 at
 σ 6.8–17.6 kt CC. **Measurement = #78, after #79** (#77's BACI 490 remap).

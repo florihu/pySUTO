@@ -257,11 +257,6 @@ class TestFeedCollectorCombination:
         result = collector.select(["feed_a", "feed_b", "feed_ab"]).aggregate()
         assert result.n_feeds == 3
 
-
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
-
-
 # ---------------------------------------------------------------------------
 # Observed zeros (#76)
 # ---------------------------------------------------------------------------
@@ -292,3 +287,7 @@ class TestObservedZero:
         F, _ = self._load({"F_root":     np.array([5.0, 0.0, 0.005]),
                            "sigma_root": np.array([1.0, 0.3, 0.1])})
         assert F[0, 0] == 5.0 and np.isnan(F[0, 1:]).all()
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])

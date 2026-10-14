@@ -57,12 +57,15 @@ import pandas as pd
 FEED_ID = "icsg"
 
 # #76: a weighted fan's domestic leg at trade-share weight 0 is an observed zero,
-# covered at 0 with the net-stock seed's pricing (ADR 0040) on the usage U the fan
-# distributes: σ = max(OBSERVED_ZERO_CV·|U|, OBSERVED_ZERO_FLOOR_KT).
+# covered at 0 with the net-stock seed's pricing (ADR 0040) on the usage U its fans
+# distribute: σ = max(OBSERVED_ZERO_CV·|U|, OBSERVED_ZERO_FLOOR_KT). Mirrors
+# collect_aggregate_impute's STOCK_SEED_CV / STOCK_SEED_ABS_FLOOR_KT: change both or
+# neither.
 OBSERVED_ZERO_CV       = 0.01
 OBSERVED_ZERO_FLOOR_KT = 0.3
-# Stock-change legs keep their own seed and supply-mix fan (ADR 0040, 0043).
-STOCK_SECTORS_TO       = ("MESC", "USC", "PSC")
+# The signed stock legs: their zero-weight domestic leg is a supply-mix share
+# (ADR 0043) whose zero the net-stock seed prices (ADR 0040), not an observed zero.
+STOCK_SECTORS_TO       = ("MESC", "USC")
 # ACC_ID is loaded from config/config.yaml → pipeline.acc_id below, after
 # the pysuto package is added to sys.path.
 
@@ -310,6 +313,19 @@ def observed_zero_sigma(legs: pd.DataFrame, F_src: np.ndarray,
     return out
 
 
+def stamp_observed_zeros(ct: ConcordanceTable, F_src: np.ndarray, result) -> int:
+    """Mark the feed's observed zeros on ``result`` and give them their σ (#76).
+
+    Sets ``result.observed_zero`` and overwrites ``result.sigma_root`` there, after
+    propagation, so no per-edge CV multiplier reaches them. Returns their count.
+    """
+    sigma0 = observed_zero_sigma(ct.zero_weight_domestic_legs(STOCK_SECTORS_TO),
+                                 F_src, result.sigma_root)
+    result.observed_zero = ~np.isnan(sigma0)
+    result.sigma_root[result.observed_zero] = sigma0[result.observed_zero]
+    return int(result.observed_zero.sum())
+
+
 def propagate(wm: WeightMatrix, F_src: np.ndarray, meta: DataFeedMetadata, acc):
     print(f"\n{'='*60}")
     print("D  Propagating uncertainty (scipy.sparse)")
@@ -468,12 +484,8 @@ def main() -> None:
     # D — source flow vector + uncertainty propagation
     F_src  = build_F_src(raw_df, ct)
     result, row_summary = propagate(wm, F_src, meta, acc)
-    sigma0 = observed_zero_sigma(ct.zero_weight_domestic_legs(STOCK_SECTORS_TO),
-                                 F_src, result.sigma_root)
-    result.observed_zero = ~np.isnan(sigma0)
-    result.sigma_root[result.observed_zero] = sigma0[result.observed_zero]
-    print(f"   observed zeros: {int(result.observed_zero.sum()):,} domestic legs at "
-          f"trade-share weight 0 (#76)")
+    n_zero = stamp_observed_zeros(ct, F_src, result)
+    print(f"   observed zeros: {n_zero:,} domestic legs at trade-share weight 0 (#76)")
 
     # E — register + persist (via DataFeedRegistry / feedpipe)
     parents = {"inputs": input_ref, "upstream": {}}
