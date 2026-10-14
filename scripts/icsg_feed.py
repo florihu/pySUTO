@@ -36,7 +36,7 @@ OUTPUT (written automatically via DataFeedRegistry):
       icsg/
         metadata.json        ← DataFeedMetadata (human-readable)
         icsg.pkl             ← WeightMatrix pickle
-        result.npz           ← F_root, sigma_root, cv_root, cv_src
+        result.npz           ← F_root, sigma_root, cv_root, cv_src, observed_zero (#76)
     diagnostics/
       icsg_v<VERSION>_diagnostics.png
 """
@@ -55,6 +55,14 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 
 FEED_ID = "icsg"
+
+# #76: a weighted fan's domestic leg at trade-share weight 0 is an observed zero,
+# covered at 0 with the net-stock seed's pricing (ADR 0040) on the usage U the fan
+# distributes: σ = max(OBSERVED_ZERO_CV·|U|, OBSERVED_ZERO_FLOOR_KT).
+OBSERVED_ZERO_CV       = 0.01
+OBSERVED_ZERO_FLOOR_KT = 0.3
+# Stock-change legs keep their own seed and supply-mix fan (ADR 0040, 0043).
+STOCK_SECTORS_TO       = ("MESC", "USC", "PSC")
 # ACC_ID is loaded from config/config.yaml → pipeline.acc_id below, after
 # the pysuto package is added to sys.path.
 
@@ -283,6 +291,25 @@ def build_F_src(raw_df: pd.DataFrame, ct: ConcordanceTable) -> np.ndarray:
     return F_src
 
 
+def observed_zero_sigma(legs: pd.DataFrame, F_src: np.ndarray,
+                        sigma_root: np.ndarray) -> np.ndarray:
+    """σ of every observed zero, NaN on every other root edge (#76).
+
+    ``legs`` lists the zero-weight domestic legs (``src_id``, ``edge_id``) of
+    ``ConcordanceTable.zero_weight_domestic_legs``. Each edge is priced on the
+    usage its fans distribute, ``U = Σ |F_src[src_id]|``: an aggregate region
+    (ROW) fans each member country's row onto the same legs. A leg another fan
+    feeds (``sigma_root > 0``) is a flow, not an observed zero.
+    """
+    edge = legs["edge_id"].to_numpy()
+    usage = np.zeros(len(sigma_root))
+    np.add.at(usage, edge, np.abs(F_src[legs["src_id"].to_numpy()]))
+    out = np.full(len(sigma_root), np.nan)
+    out[edge] = np.maximum(OBSERVED_ZERO_CV * usage[edge], OBSERVED_ZERO_FLOOR_KT)
+    out[sigma_root > 0] = np.nan
+    return out
+
+
 def propagate(wm: WeightMatrix, F_src: np.ndarray, meta: DataFeedMetadata, acc):
     print(f"\n{'='*60}")
     print("D  Propagating uncertainty (scipy.sparse)")
@@ -441,6 +468,12 @@ def main() -> None:
     # D — source flow vector + uncertainty propagation
     F_src  = build_F_src(raw_df, ct)
     result, row_summary = propagate(wm, F_src, meta, acc)
+    sigma0 = observed_zero_sigma(ct.zero_weight_domestic_legs(STOCK_SECTORS_TO),
+                                 F_src, result.sigma_root)
+    result.observed_zero = ~np.isnan(sigma0)
+    result.sigma_root[result.observed_zero] = sigma0[result.observed_zero]
+    print(f"   observed zeros: {int(result.observed_zero.sum()):,} domestic legs at "
+          f"trade-share weight 0 (#76)")
 
     # E — register + persist (via DataFeedRegistry / feedpipe)
     parents = {"inputs": input_ref, "upstream": {}}

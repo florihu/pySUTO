@@ -175,12 +175,17 @@ class PropagationResult:
         Boolean provenance mask flagging the edges whose σ was inflated by a
         per-edge ``cv_root_scale`` (e.g. the ROW pedigree penalty). ``None``
         when no penalty was applied. Set by the caller, not by propagation.
+    observed_zero : np.ndarray, shape (N_root,), optional
+        Boolean mask of the edges the feed reports at exactly 0 with a σ > 0
+        (#76): covered at 0, never treated as a gap. ``None`` when the feed
+        has none. Set by the caller, not by propagation.
     """
     F_root:    np.ndarray
     sigma_root: np.ndarray
     cv_root:   np.ndarray
     cv_src:    float
     row_penalized: Optional[np.ndarray] = None
+    observed_zero: Optional[np.ndarray] = None
  
     def __repr__(self) -> str:
         return (

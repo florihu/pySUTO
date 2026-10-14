@@ -181,6 +181,15 @@ into `current/`, register (gross version) → `build_baci_reexport.py --source-v
 `current/` pairs the new map with values netted under the old one: run nothing BACI-side but that chain. Once
 #79 passes and becomes the reference chain, the manuscript's Taiwan limitation (method.md §3.2.8) and its
 concordance row in si.md S8 change with it.
+## #76 BUILT 2026-10-14 — NOT MEASURED (#78): a weighted fan's zero domestic leg is an observed zero
+
+`fix/observed-zero`. The ICSG feed carries a domestic leg its trade shares weigh at 0 as covered at 0,
+`σ = max(0.01·|U|, 0.3 kt)` on the usage its fans distribute (ADR 0024 amendment; `observed_zero` mask in
+the feed's `result.npz`, honoured by `FeedCollector` and exempt from `min_flow_kt`), so the `NetworkImputer`
+no longer refills it. In memory on icsg v14 + trade_shares v32, nothing registered: the feed is unchanged
+elsewhere (`F_root`, `sigma_root` equal `feed_icsg_20261013_113455_40931987` before the stamp), 355 observed
+zeros (257 `Cathode→FU`, 98 `Concentrate→Smelting`), ROW's semis leg in 1995–2011, 2015, 2016 and 2020–23 at
+σ 6.8–17.6 kt CC. **Measurement = #78, after #79** (#77's BACI 490 remap).
 
 ## #75 MEASURED 2026-10-13 — FAILS ON ONE CLAUSE (#73 semis use), fix ticket #76; every other item holds
 

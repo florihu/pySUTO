@@ -260,3 +260,35 @@ class TestFeedCollectorCombination:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+# ---------------------------------------------------------------------------
+# Observed zeros (#76)
+# ---------------------------------------------------------------------------
+
+class TestObservedZero:
+    """A feed's observed zero is covered at 0; every other near-zero leg still drops."""
+
+    def _load(self, feed):
+        coll = FeedCollector(_MockRegistry({"icsg": feed}), _MockAccStruct(3),
+                             min_flow_kt=0.01).select(["icsg"])
+        return coll._load_arrays()
+
+    def test_an_observed_zero_is_covered_at_zero(self):
+        F, Sigma = self._load({"F_root":        np.array([5.0, 0.0, 0.0]),
+                               "sigma_root":    np.array([1.0, 0.3, 0.0]),
+                               "observed_zero": np.array([False, True, False])})
+        assert F[0, 1] == 0.0 and Sigma[0, 1] == pytest.approx(0.3)
+        assert np.isnan(F[0, 2]) and np.isnan(Sigma[0, 2])
+
+    def test_a_near_zero_leg_that_is_not_an_observed_zero_still_drops(self):
+        F, Sigma = self._load({"F_root":        np.array([5.0, 0.005, 0.0]),
+                               "sigma_root":    np.array([1.0, 0.1, 0.3]),
+                               "observed_zero": np.array([False, False, True])})
+        assert np.isnan(F[0, 1]) and np.isnan(Sigma[0, 1])
+        assert F[0, 2] == 0.0
+
+    def test_a_feed_without_observed_zeros_is_unchanged(self):
+        F, _ = self._load({"F_root":     np.array([5.0, 0.0, 0.005]),
+                           "sigma_root": np.array([1.0, 0.3, 0.1])})
+        assert F[0, 0] == 5.0 and np.isnan(F[0, 1:]).all()

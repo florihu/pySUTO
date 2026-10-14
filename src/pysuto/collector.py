@@ -173,8 +173,10 @@ class FeedCollector:
 
             # sigma_root = 0 → no source edge contributed → not covered
             covered = sigma_k > 0
+            # an observed zero (#76) is a report of 0, not a near-zero flow
+            obs_zero = np.asarray(res.get("observed_zero", np.zeros(len(f_k))), dtype=bool)
             if self._min_flow_kt > 0:
-                below = covered & (np.abs(f_k) < self._min_flow_kt)
+                below = covered & ~obs_zero & (np.abs(f_k) < self._min_flow_kt)
                 covered &= ~below
                 if below.any():
                     logger.info(

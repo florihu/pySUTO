@@ -194,6 +194,8 @@ cross-cutting (import nothing from the data layer):
 
 **Stock changes fan by supply, not by residual.** For the signed stock legs (MESC, USC) the trade-share builder draws a reported change from the region's cathode supply in proportion: its own production on the domestic leg, and each partner's cathode exports to it, read from the Cathode→FU leg, on the import legs. A region with neither leaves the change to the net-stock seed. BACI's own cathode fan books all of its trade on FU, so stock legs carry no BACI prior ([ADR 0043](docs/adr/0043-a-stock-change-is-drawn-from-its-regions-cathode-supply.md)).
 
+**A zero domestic share is reported, not missing.** Where a fan's weights give a region's own supply nothing (its imports cover its usage, or it produces none), the ICSG feed carries that domestic leg as an **observed zero**: covered at 0, priced like the net-stock seed on the usage its fans distribute, and never filled by an imputer. The solver then has to settle any conflict with the region's own production in the open ([ADR 0024](docs/adr/0024-fan-domestic-leg-bounded-by-own-production.md) amendment, #76).
+
 > **⚠ Any change to the ICSG *or* BACI feed invalidates the trade-share weights — rebuild them.**
 > `build_trade_shares.py` reads both: the netted BACI matrix *and* the ICSG feed's own production
 > (`icsg_intake_production`), which is what the [ADR 0024](docs/adr/0024-fan-domestic-leg-bounded-by-own-production.md)

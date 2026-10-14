@@ -143,6 +143,9 @@ class DataFeedRegistry(BaseOutputRegistry):
             row_pen = getattr(result, "row_penalized", None)
             if row_pen is not None:
                 arrays["row_penalized"] = np.asarray(row_pen, dtype=bool)
+            obs_zero = getattr(result, "observed_zero", None)
+            if obs_zero is not None:
+                arrays["observed_zero"] = np.asarray(obs_zero, dtype=bool)
             np.savez(os.path.join(run_dir, "result.npz"), **arrays)
 
         if F_src is not None:

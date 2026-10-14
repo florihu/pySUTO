@@ -6,6 +6,8 @@ bound now covers Cathode and Anode as well as Concentrate (see *Amendment* below
 [ADR 0002](0002-single-endpoint-rows-fan-out-not-replicate.md) option D and
 [ADR 0018](0018-import-free-fans-distribute-domestically.md). Evidence: REP
 [`…india-concentrate-residual-domestic`](../rep/analysis_20260910_india-concentrate-residual-domestic.md).
+**Amended 2026-10-14 (#76)**: a domestic leg the rule sets to 0 is an *observed zero* (see
+*Amendment (#76)* below); to be measured by #78.
 
 ## Context
 
@@ -178,3 +180,21 @@ are the reason this paragraph exists):
   against the 380 kt its own refinery consumes and its residual was capped far too low
   (CFR/Anode Belgium 44,349 → 75,656 z²). Corrected to `(matte + scrap) · eff_CFR` → 292 kt; the
   cell returned to 43,884. `U_Matte` carries the same correction.
+
+## Amendment (#76, 2026-10-14): a zero domestic leg is an observed zero
+
+When the residual or the bound gives a weighted fan's domestic leg weight 0, that 0 is the
+statement "the region supplies none of its own use", not a missing value. Until #76 it was lost:
+the ICSG feed's σ is proportional to the weighted value, so the leg left Stage 1 at σ 0, the
+collector read it as uncovered, and the `NetworkImputer`'s flow balance closed it as the region's
+supply minus its other uses. On `imp_20261013_113740_5e11f431` that refilled 64 domestic
+`Cathode→FU` legs with 4,905 kt CC (ROW 4,496, 188–318 kt CC a year in 1995–2011) and 101 domestic
+`Concentrate→Smelting` legs with 1,115 kt CC: use ICSG does not report, booked so that the
+solver never saw the contradiction. The feed now carries every such leg as covered at 0 with
+`σ = max(0.01·|U|, 0.3 kt)`, where `U` is the usage its fans distribute (an aggregate region
+fans each member's row onto the same leg) — the net-stock seed's pricing
+([ADR 0040](0040-stock-change-legs-are-held-at-their-prior.md)). Stock-change legs keep their own
+seed and supply-mix fan (ADR 0040, 0043); zero-weight import legs stay uncovered (no trade on that
+route is not the same statement). Where the region's own production then has nowhere to go, the
+solver must settle that conflict in the open. ROW's 1995–2011 surplus traces to an input error,
+BACI 490 folded into ROW (#77, to be measured by #79). This amendment is to be measured by #78.

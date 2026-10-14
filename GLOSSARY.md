@@ -419,6 +419,15 @@ edge?* — a **pre-imputation** notion, strictly **narrower** than val-coverage:
 column is `val_pct` (not `coverage_pct`) precisely because val-coverage also credits
 non-flat-prior imputations that feed-`Coverage` excludes.
 
+**Observed zero** — an edge a feed reports at exactly 0 with a σ > 0 (the feed result's
+`observed_zero` mask): covered, so no imputer fills it, and any flow the solver puts on it is
+priced. The ICSG feed gives one to a weighted fan's domestic leg whose trade-share weight is 0,
+priced like the **net-stock seed** on the usage its fans distribute
+([ADR 0024](docs/adr/0024-fan-domestic-leg-bounded-by-own-production.md) amendment). Distinct from
+an uncovered edge (no feed observed it; NaN in Stage 2) and from the net-stock seed (a prior no
+feed reports). _Avoid_: "fed zero"; "zero pin" (the `l = u = 0` bound on no-data edges,
+[ADR 0013](docs/adr/0013-no-data-flat-prior-anchor.md)).
+
 ## Defect, residual & violation vocabulary
 
 **a_prior (warm-start prior)** — the per-**period** prior mean the optimiser uses for year `t`.

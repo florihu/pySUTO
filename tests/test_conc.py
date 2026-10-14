@@ -809,6 +809,31 @@ class TestFanPolicy:
         sizes = ct.tab.groupby(ConcordanceTable.SRC_COLS).size()
         assert (sizes == 1).all() and len(sizes) == 3
 
+    # -- zero-weight domestic legs (#76) -----------------------------------------
+
+    def _ct(self, raw_use_only, mock_acc_struct, maps, wa, wb):
+        return ConcordanceTable.from_raw(
+            raw_df=raw_use_only, acc_struct=mock_acc_struct,
+            aux_col="Supply_Use", id="t", user_weights_df=self._uw(wa, wb),
+            drop_unweighted_fans=True, **maps)
+
+    def test_a_zero_weight_domestic_leg_is_listed_with_its_fan(
+            self, raw_use_only, mock_acc_struct, maps):
+        ct = self._ct(raw_use_only, mock_acc_struct, maps, 0.0, 0.3)
+        legs = ct.zero_weight_domestic_legs()
+        assert legs["edge_id"].tolist() == [6]
+        src = tuple(ct.tab.loc[ct.tab["edge_id"] == 6, ConcordanceTable.SRC_COLS].iloc[0])
+        assert legs["src_id"].tolist() == [ct.src_edge_to_id[src]]
+
+    def test_a_zero_weight_import_leg_is_not_listed(self, raw_use_only, mock_acc_struct, maps):
+        ct = self._ct(raw_use_only, mock_acc_struct, maps, 0.7, 0.0)
+        assert ct.zero_weight_domestic_legs().empty
+
+    def test_a_zero_weight_leg_into_an_excluded_sector_is_not_listed(
+            self, raw_use_only, mock_acc_struct, maps):
+        ct = self._ct(raw_use_only, mock_acc_struct, maps, 0.0, 0.3)
+        assert ct.zero_weight_domestic_legs(exclude_sectors_to=("Refining",)).empty
+
     # -- leg_filter ----------------------------------------------------------
 
     def _open_from_maps(self, maps):
