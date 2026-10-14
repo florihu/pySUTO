@@ -78,9 +78,9 @@ refills ROW's domestic semis leg, which the fan now leaves at 0 (2004 model prio
 1,498 → 1,680 kt CC; 1995–2004 posterior above the ICSG fan 2,434 → 4,500 kt CC). Common-set sum-row z²
 −6.16 % and mass moved −3.56 % vs `opt_20261013_095846_46ece808`, mostly ROW's refinery chain (−67,883):
 its refined cathode, deleted on the base (1,897 kt CC over 1995–2004), now lands on that imputed leg.
-Δz² rises vs `opt_20261013_095846_46ece808`: Zambia +2,082, Uzbekistan +1,107. **Merge = owner's call**
-(ADR 0043 precedent); it would make `opt_20261013_122432_24e811b7` the reference chain. #76 decides the
-zero-weight fan leg.
+Δz² rises vs `opt_20261013_095846_46ece808`: Zambia +2,082, Uzbekistan +1,107. **Merged 2026-10-14 over
+the failed clause by the maintainer's decision** (ADR 0043 precedent); `opt_20261013_122432_24e811b7` is the
+reference chain. #76 decides the zero-weight fan leg.
 
 ## #73 + #74 BUILT 2026-10-13 — NOT MEASURED (#75): an ICSG aggregate row is split to its declared member
 

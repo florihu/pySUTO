@@ -164,10 +164,10 @@ Per region-year, no stock net grows in \|net\| by more than 1.5 kt CC. Stock leg
 1. **#76: a zero-weight fan leg is refilled by the imputer.** It decides whether ROW's refined cathode is
    deleted or booked as unreported semis use. It is the failed clause's cause, and its fix will move this
    round's headline.
-2. **Merging is the owner's call.** #74 is fixed and #73's duplicate is gone from the inputs; the
-   failed clause is a pre-existing mechanism the split extends to every year. Merging makes
-   `opt_20261013_122432_24e811b7` the reference chain. ADR 0043 is the precedent for shipping over a
-   failed item by the maintainer's decision.
+2. **Merged over the failed clause by the maintainer's decision (2026-10-14).** #74 is fixed and #73's
+   duplicate is gone from the inputs; the failed clause is a pre-existing mechanism the split extends to
+   every year. `opt_20261013_122432_24e811b7` is the reference chain. ADR 0043 is the precedent for
+   shipping over a failed item by the maintainer's decision.
 3. **#30 and #37** rebuild ore_grade and stock_bounds. Both read ICSG, so they should run on icsg v14.
 4. **The constant 2004 shares are an estimate** (ADR 0032 amendment).
 
