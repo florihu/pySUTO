@@ -9,7 +9,8 @@ Pipeline
 1  Load ClarabelSolver + ConstraintRun
 2  Feasibility pre-check (defaults to first timestep only)
 3  Solve every timestep from the cold prior  a_prior(t) = conditioned f_agg(t)
-   (--prior-mode cold, this driver's default; 'warm' carries a_post(t-1))
+   (--prior-mode cold, this driver's default; 'warm' carries a_post(t-1)),
+   N_WORKERS timesteps at a time (parallel solve; warm needs N_WORKERS = 1)
 4  Persist OptimResults to data/proc/opt/<opt_run_id>/
 5  Render the SolverDiag portfolio (12 figures + ranking CSVs + provenance)
    under data/proc/opt/<opt_run_id>/diag/ (per-year edge/constraint CSVs on
@@ -65,6 +66,17 @@ TOL_GAP_ABS         = 1e-2
 REDUCED_TOL_FEAS    = 1e-6
 REDUCED_TOL_GAP_REL = 1e-4
 REDUCED_TOL_GAP_ABS = 10.0
+# Parallel solve (#70): cold periods are independent QPs, so they run on
+# N_WORKERS threads, each with its own Clarabel instance; 1 = the serial loop,
+# the only setting --prior-mode warm accepts (a warm run is a chain). Each
+# period's linear solver is pinned to one thread: multi-threaded faer was slower
+# than one thread (1995 of const_20261012_113828_12c562c7: 48.0 s vs 34.9 s) and
+# gave the objective of opt_20261012_122124_40b1b370 bit for bit (#70).
+N_WORKERS           = os.cpu_count() or 1
+# Clarabel's linear solver for the period QPs. "faer" is what "auto" picked in
+# opt_20261012_122124_40b1b370 (sidecar linsolver_name); "qdldl" solved the same
+# periods ≈ 5× faster but moved each objective by −122 … +311 (#72).
+DIRECT_SOLVE_METHOD = "faer"
 
 
 # ---------------------------------------------------------------------------
@@ -96,7 +108,9 @@ def main(const_run_id: str, label: str = "", prior_mode: str = "warm") -> None:
                             reduced_tol_gap_rel=REDUCED_TOL_GAP_REL,
                             reduced_tol_gap_abs=REDUCED_TOL_GAP_ABS,
                             max_iter=MAX_ITER,
-                            prior_mode=prior_mode,)
+                            prior_mode=prior_mode,
+                            n_workers=N_WORKERS,
+                            direct_solve_method=DIRECT_SOLVE_METHOD,)
 
     _log.info("Solving ConstraintRun '%s'", const_run_id)
     results = solver.solve_all(
