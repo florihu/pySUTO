@@ -540,6 +540,11 @@ _Avoid_: "shrinkage" (in statistics, the pull of an estimate toward the prior me
 year's edges: a variance-weighted mean of `κ`, so a few flat-σ edges dominate it.
 _Avoid_: "mean shrinkage".
 
+**Active set** — the hard inequality rows (lower bounds, ratio bands) that bind at `a*` in one
+year. Stage 5 linearises the QP there: a binding lower bound pins its edge (**bound-active**,
+`σ_a* = 0`), a binding band acts as an equality, and a slack row carries no information about the
+posterior. _Avoid_: counting the mass balances in it — equalities always hold.
+
 **Prior class** — where an edge's prior comes from, one of four: **from a feed** (a data feed
 covers the edge), **imputed** (a Stage-2 imputer wrote it), **flat** (no information of its own:
 a flat prior, anchored or not, and the fabricated waste-rock satellites) and **zero-pinned** (a
