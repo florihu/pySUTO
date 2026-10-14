@@ -33,7 +33,7 @@ class UncPropRunRegistry(BaseOutputRegistry):
 
     Diagnostics scalars (``trace_prior``, ``trace_post``, ``max_resid_hard``,
     ``psd_min_diag``) live in the sidecar's ``stage_summary.per_timestep``
-    so ``load_sidecar`` alone reconstructs a shrinkage dashboard without
+    so ``load_sidecar`` alone reconstructs a trace-contraction dashboard without
     touching the arrays. ``a*`` is *not* persisted here — readers join on
     the upstream ``opt_run_id`` recorded in ``parents.upstream``.
     """

@@ -93,6 +93,62 @@ def _make_toy_3edge_2t(run_id: str = "toy_3e"):
     )
 
 
+def _compute_block_toy(tmp_path, monkeypatch):
+    """2 years × 3 edges, one hard mass balance (a0 = a1) per year, σ_a = 1, on
+    the block (year-local) path. Returns (const_run, opt_results, UncPropResult)."""
+    from pysuto.uncprop import KalmanUncProp
+    from pysuto.solver import OptimResult
+    from pysuto.constraints import ConstraintRun
+
+    G_per_t = sp.csr_matrix(np.array([[1.0, -1.0, 0.0]]))
+    G_global = sp.block_diag([G_per_t, G_per_t]).tocsr()
+    row_meta = pd.DataFrame({
+        "constraint_id": ["mb_2020", "mb_2021"],
+        "is_hard":       [True, True],
+        "cone_type":     ["zero", "zero"],
+        "time":          ["2020", "2021"],
+    })
+    cr = ConstraintRun(
+        G=G_global, row_meta=row_meta,
+        a0=np.array([1.0, 1.0, 2.0, 1.5, 1.5, 2.5]),
+        sigma_a=np.ones(6), u=np.full(6, 10.0), l=np.zeros(6),
+        timestep_data={
+            "2020": {"c": np.zeros(2), "sigma_c": np.array([0.0, 1e8])},
+            "2021": {"c": np.zeros(2), "sigma_c": np.array([1e8, 0.0])},
+        },
+        run_id="blk", acc_id="a", agg_id="g",
+        created_at="2026-05-28T00:00:00",
+        G_blocks={"2020": G_per_t.tocsr(), "2021": G_per_t.tocsr()},
+        edge_cols_by_t={"2020": np.array([0, 1, 2]),
+                        "2021": np.array([3, 4, 5])},
+    )
+    opt_results = {
+        "2020": OptimResult(
+            timestep="2020", F_opt=np.array([1.0, 1.0, 2.0]),
+            eps_opt=np.zeros(0), c_star=np.zeros(1), residuals=np.zeros(1),
+            objective=0.0, iterations=0, solve_time_s=0.0,
+            solver_status="Solved", convergence={},
+            cols_t=np.array([0, 1, 2]), rows_t=np.array([0]),
+        ),
+        "2021": OptimResult(
+            timestep="2021", F_opt=np.array([1.5, 1.5, 2.5]),
+            eps_opt=np.zeros(0), c_star=np.zeros(1), residuals=np.zeros(1),
+            objective=0.0, iterations=0, solve_time_s=0.0,
+            solver_status="Solved", convergence={},
+            cols_t=np.array([3, 4, 5]), rows_t=np.array([1]),
+        ),
+    }
+    prop = KalmanUncProp(
+        opt_dir=str(tmp_path / "opt"), const_dir=str(tmp_path / "const"),
+        uncprop_dir=str(tmp_path / "uncprop"),
+    )
+    monkeypatch.setattr(prop._opt_registry, "load_sidecar",
+                        lambda _rid: {"parents": {"upstream": {"const_run_id": cr.run_id}}})
+    monkeypatch.setattr(prop._opt_registry, "load", lambda _rid: opt_results)
+    monkeypatch.setattr(prop._const_registry, "load", lambda _rid: cr)
+    return cr, opt_results, prop.compute("opt_fake", alpha=0.05)
+
+
 def _solve_and_persist(const_run, tmp_path):
     """Persist const_run, solve it, persist opt run. Returns (opt_run_id, dirs)."""
     from pysuto.solver import ClarabelSolver
@@ -609,58 +665,9 @@ class TestLoadFromOptRunId:
     def test_block_uncprop_output_is_year_local(self, tmp_path, monkeypatch):
         """Block-path uncprop stores year-local sigma_a_star/lower/upper over
         cols_t, with lower ≤ a* ≤ upper, and round-trips through the registry."""
-        from pysuto.uncprop import KalmanUncProp
-        from pysuto.solver import OptimResult
-        from pysuto.constraints import ConstraintRun
         from pysuto.registry import UncPropRunRegistry
 
-        G_per_t = sp.csr_matrix(np.array([[1.0, -1.0, 0.0]]))
-        G_global = sp.block_diag([G_per_t, G_per_t]).tocsr()
-        row_meta = pd.DataFrame({
-            "constraint_id": ["mb_2020", "mb_2021"],
-            "is_hard":       [True, True],
-            "cone_type":     ["zero", "zero"],
-            "time":          ["2020", "2021"],
-        })
-        cr = ConstraintRun(
-            G=G_global, row_meta=row_meta,
-            a0=np.array([1.0, 1.0, 2.0, 1.5, 1.5, 2.5]),
-            sigma_a=np.ones(6), u=np.full(6, 10.0), l=np.zeros(6),
-            timestep_data={
-                "2020": {"c": np.zeros(2), "sigma_c": np.array([0.0, 1e8])},
-                "2021": {"c": np.zeros(2), "sigma_c": np.array([1e8, 0.0])},
-            },
-            run_id="blk", acc_id="a", agg_id="g",
-            created_at="2026-05-28T00:00:00",
-            G_blocks={"2020": G_per_t.tocsr(), "2021": G_per_t.tocsr()},
-            edge_cols_by_t={"2020": np.array([0, 1, 2]),
-                            "2021": np.array([3, 4, 5])},
-        )
-        opt_results = {
-            "2020": OptimResult(
-                timestep="2020", F_opt=np.array([1.0, 1.0, 2.0]),
-                eps_opt=np.zeros(0), c_star=np.zeros(1), residuals=np.zeros(1),
-                objective=0.0, iterations=0, solve_time_s=0.0,
-                solver_status="Solved", convergence={},
-                cols_t=np.array([0, 1, 2]), rows_t=np.array([0]),
-            ),
-            "2021": OptimResult(
-                timestep="2021", F_opt=np.array([1.5, 1.5, 2.5]),
-                eps_opt=np.zeros(0), c_star=np.zeros(1), residuals=np.zeros(1),
-                objective=0.0, iterations=0, solve_time_s=0.0,
-                solver_status="Solved", convergence={},
-                cols_t=np.array([3, 4, 5]), rows_t=np.array([1]),
-            ),
-        }
-        prop = KalmanUncProp(
-            opt_dir=str(tmp_path / "opt"), const_dir=str(tmp_path / "const"),
-            uncprop_dir=str(tmp_path / "uncprop"),
-        )
-        monkeypatch.setattr(prop._opt_registry, "load_sidecar",
-                            lambda _rid: {"parents": {"upstream": {"const_run_id": cr.run_id}}})
-        monkeypatch.setattr(prop._opt_registry, "load", lambda _rid: opt_results)
-        monkeypatch.setattr(prop._const_registry, "load", lambda _rid: cr)
-        result = prop.compute("opt_fake", alpha=0.05)
+        cr, opt_results, result = _compute_block_toy(tmp_path, monkeypatch)
 
         for t in ("2020", "2021"):
             ts = result.per_timestep[t]
@@ -684,6 +691,16 @@ class TestLoadFromOptRunId:
         np.testing.assert_array_equal(
             reloaded.per_timestep["2020"].cols_t, cr.edge_cols_by_t["2020"],
         )
+
+    def test_block_trace_contraction_is_year_local(self, tmp_path, monkeypatch):
+        """The block path's trace_prior / trace_post sum over the year's own
+        edges: per year σ² = [1, 1, 1] → σ*² = [½, ½, 1], so trace_prior = 3 and
+        trace_post = 2 (trace contraction ⅓) — not the all-years 6 and 5 (⅙)."""
+        _, _, result = _compute_block_toy(tmp_path, monkeypatch)
+        for t in ("2020", "2021"):
+            diag = result.per_timestep[t].diagnostics
+            assert diag["trace_prior"] == pytest.approx(3.0)
+            assert diag["trace_post"]  == pytest.approx(2.0)
 
     def test_missing_const_run_id_raises(self, tmp_path):
         """If opt sidecar has no upstream.const_run_id, compute() should fail

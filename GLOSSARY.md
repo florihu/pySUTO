@@ -155,7 +155,8 @@ the production backend.
 _Avoid_: "the solver" (that is Stage 4 as a whole), "solver backend".
 
 **Posterior uncertainty propagation**:
-Stage 5 — the closed-form posterior standard deviation `σ_a*` and confidence intervals.
+Stage 5 — the closed-form posterior standard deviation `σ_a*` and confidence intervals; its
+per-edge summary is the **posterior contraction** `κ`.
 
 **Engine** ≡ **pipeline**:
 The orchestrator for a stage — it holds a registered, ordered list of plugins and runs them
@@ -527,6 +528,29 @@ mass: `1` keeps the prior scale, `< 1` is deletion, `> 1` inflation (second row 
 _Avoid_: "adaptation", "recovery", "survival"; a retention quoted without its category and year;
 a retention on a signed category whose prior sum is near zero (`MESC` / `USC` / `PSC`) — the ratio
 is undefined there, so quote the mass moved `Σ|a* − a_prior|` beside it.
+
+**Posterior contraction (`κ`)** — the share of an edge's prior variance the constraints remove in
+one year, `κ = 1 − σ_a*² / σ_a²`: `0` leaves the prior uncertainty untouched, `1` pins the edge. It
+depends on `G`, `σ_a` and `σ_c` only, never on `c` or `a*`, so it measures how informative the
+constraints are, not whether they agree with the prior — that is the **defect**'s `z`.
+_Avoid_: "shrinkage" (in statistics, the pull of an estimate toward the prior mean — our defect),
+"variance reduction", "information gain".
+
+**Trace contraction** — the run-level contraction of one year, `1 − Σσ_a*² / Σσ_a²` over that
+year's edges: a variance-weighted mean of `κ`, so a few flat-σ edges dominate it.
+_Avoid_: "mean shrinkage".
+
+**Prior class** — where an edge's prior comes from, one of four: **from a feed** (a data feed
+covers the edge), **imputed** (a Stage-2 imputer wrote it), **flat** (no information of its own:
+a flat prior, anchored or not, and the fabricated waste-rock satellites) and **zero-pinned** (a
+no-data edge with `l = u = 0`). The four are disjoint and cover every edge.
+_Avoid_: "observed" vs "modelled" — an imputed prior also derives from data.
+
+**Prior-carried / confirmed / overruled / unexplained move** — the four quadrants of an edge-year
+in posterior contraction `κ` and standardised defect `z`, cut at `κ = 0.5` and `|z| = 3`:
+prior-carried (`κ < 0.5`, `|z| ≤ 3`), confirmed (`κ ≥ 0.5`, `|z| ≤ 3`), overruled (`κ ≥ 0.5`,
+`|z| > 3`, a prior–data conflict) and unexplained move (`κ < 0.5`, `|z| > 3`, moved uninformed).
+_Avoid_: "unidentified" for prior-carried — the edge has a value, only no new information.
 
 ## Stock-change vocabulary
 
