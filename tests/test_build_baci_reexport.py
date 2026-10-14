@@ -8,6 +8,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 from build_baci_reexport import (  # noqa: E402
+    check_region_map,
     cv_scale,
     icsg_aggregate_members,
     label_row,
@@ -540,3 +541,31 @@ class TestIcsgAggregateMembers:
         with pytest.raises(ValueError, match="Sweden"):
             icsg_aggregate_members(self._csv(
                 tmp_path, "Scandinavia;Sweden;1995;2003;a;\nNordic;Sweden;2003;2004;b;\n"))
+
+
+class TestCheckRegionMap:
+
+    def _conc(self, path, rows):
+        path.mkdir()
+        pd.DataFrame(rows, columns=["src_region", "root_region", "mapping_type",
+                                    "mapping_confidence", "notes"]) \
+          .to_excel(path / "conc.xlsx", sheet_name="region_map", index=False)
+        return str(path)
+
+    def test_the_same_map_in_the_source_and_current_passes(self, tmp_path):
+        rows = [(490, "Taiwan", "alias", "high", None), (152, "Chile", "direct", "high", None)]
+        check_region_map(self._conc(tmp_path / "v19", rows),
+                         self._conc(tmp_path / "current", rows[::-1]))
+
+    def test_a_code_the_current_map_sends_elsewhere_raises(self, tmp_path):
+        src = self._conc(tmp_path / "v13", [(490, "ROW", "aggregate", "high", None)])
+        cur = self._conc(tmp_path / "current", [(490, "Taiwan", "alias", "high", None)])
+        with pytest.raises(ValueError, match="490: ROW → Taiwan"):
+            check_region_map(src, cur)
+
+    def test_a_code_only_one_map_has_raises(self, tmp_path):
+        src = self._conc(tmp_path / "v13", [(152, "Chile", "direct", "high", None)])
+        cur = self._conc(tmp_path / "current", [(152, "Chile", "direct", "high", None),
+                                                (490, "Taiwan", "alias", "high", None)])
+        with pytest.raises(ValueError, match="490: None → Taiwan"):
+            check_region_map(src, cur)

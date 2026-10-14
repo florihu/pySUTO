@@ -734,11 +734,35 @@ def rebuild_values(raw: pd.DataFrame, legs_old: pd.DataFrame,
 # MAIN
 # ---------------------------------------------------------------------------
 
+def check_region_map(src_dir: str, out_dir: str = OUT_DIR) -> None:
+    """Raise unless the source snapshot maps every BACI code as ``current/`` does.
+
+    The netting maps codes through the source snapshot's region map, but
+    ``baci_feed.py`` maps the netted ``values.csv`` through ``current/``'s. After a
+    region-map edit (#77: code 490 → Taiwan) the two differ until the BACI parse
+    is re-run, which also re-keys the ADR 0033 sidecar, and its output registered:
+    net that version, not an older one.
+    """
+    def read(d: str) -> dict:
+        m = pd.read_excel(os.path.join(d, "conc.xlsx"), sheet_name="region_map")
+        return dict(zip(m["src_region"].astype(int), m["root_region"]))
+
+    src, cur = read(src_dir), read(out_dir)
+    diff = sorted(k for k in src.keys() | cur.keys() if src.get(k) != cur.get(k))
+    if diff:
+        raise ValueError(
+            f"{len(diff)} BACI code(s) map differently in {src_dir} and {out_dir} "
+            f"(code: source → current): "
+            + ", ".join(f"{k}: {src.get(k)} → {cur.get(k)}" for k in diff[:5])
+            + " — re-run the BACI parse, register it, and net that version")
+
+
 def main(source_version: int = SOURCE_VERSION) -> None:
     print("=" * 70)
     print("Re-attributing re-exported trade at feed time (ADR 0027)")
     print(f"   sectors    : {SECTORS}")
     src_dir = _source_dir(source_version)
+    check_region_map(src_dir)
 
     conc_lookup = _conc_lookup()
     _wild = {s_: v for (s_, r_), v in conc_lookup.items() if r_ == "*"}

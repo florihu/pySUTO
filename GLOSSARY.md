@@ -738,8 +738,8 @@ those shares are read from the **netted** BACI version, and a group whose import
 observed, so ADR 0018's condition does not hold. The domestic leg (X==Y) carries the residual `usage − Σ imports` (in CC units);
 the split is computed in copper content via `conc`. Applies only to the four **traded** ICSG-fanned
 sectors — Cathode, Concentrate, Anode, Matte. The residual also governs the **import-free** case: where
-BACI *observes* the consumer region (46 of 47 — all but **Taiwan**, trade-blind because BACI 490 "Other
-Asia, nes" folds into ROW, [ADR 0014](docs/adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)),
+BACI *observes* the consumer region (Taiwan only since BACI 490 "Other Asia, nes" maps to it, #77; before,
+it folded into ROW, [ADR 0014](docs/adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)),
 `Σ imports = 0` is a real observation of domestic sourcing and the residual `usage − 0 = usage` gives an
 all-domestic fan ([ADR 0018](docs/adr/0018-import-free-fans-distribute-domestically.md)); where BACI is
 blind, zero imports carries no information and the fan stays undistributed. **The domestic leg is
