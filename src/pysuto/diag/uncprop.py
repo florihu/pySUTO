@@ -104,7 +104,6 @@ class UncPropDiag:
         self._conditioning  = conditioning
         self._stats_obj: Optional[UncPropStatsDiagnostic] = None
         self._default_odir: Optional[str] = None
-        self._uncprop_run_id: Optional[str] = None
 
     @property
     def acc(self):
@@ -181,8 +180,7 @@ class UncPropDiag:
             result, opt_results, const_run, label=label or uncprop_run_id, acc=acc,
             imp_result=imp_result, conditioning=sidecar.get("stage_config", {}),
         )
-        instance._default_odir   = os.path.join(uncprop_dir, uncprop_run_id, "diag")
-        instance._uncprop_run_id = uncprop_run_id
+        instance._default_odir = os.path.join(uncprop_dir, uncprop_run_id, "diag")
         return instance
 
     # ------------------------------------------------------------------
@@ -208,7 +206,8 @@ class UncPropDiag:
     @staticmethod
     def _classes(frame) -> list[str]:
         present = set(frame["prior_class"].astype(str))
-        return [c for c in PRIOR_CLASSES if c in present] + sorted(present - set(PRIOR_CLASSES))
+        return ([c for c in PRIOR_CLASSES if c in present]
+                + sorted(present - set(PRIOR_CLASSES)))
 
     @staticmethod
     def _region_suffix(regions) -> str:
@@ -242,17 +241,23 @@ class UncPropDiag:
         lines.append(f"  years     : {len(years)} ({years[0]}–{years[-1]})  "
                      f"method={getattr(self._unc, 'method', '?')}  "
                      f"alpha={getattr(self._unc, 'alpha', float('nan')):g}")
-        lines.append(f"  trace κ   : min={tc.min():.3f} ({tc.idxmin()})  "
-                     f"median={tc.median():.3f}  max={tc.max():.3f} ({tc.idxmax()})")
-        lines.append(f"  edge-years: {len(f):,}  bound-active={int(f['bound_active'].sum()):,}"
-                     + ("" if self._imp is not None else "  (no imputation run: prior class 'all')"))
+        cells = [f"{y} {v:.3f}" for y, v in tc.items()]
+        for k in range(0, len(cells), 6):
+            head = "  trace κ   : " if k == 0 else " " * 14
+            lines.append(head + "  ".join(cells[k:k + 6]))
+        n_ba = int(f["bound_active"].sum())
+        lines.append(f"  edge-years: {len(f):,}  bound-active={n_ba:,}"
+                     + ("" if self._imp is not None
+                        else "  (no imputation run: prior class 'all')"))
         for val in self._valuations(f):
             fv = f[f["valuation"] == val]
             total = float(fv["weight"].sum())
-            lines.append(f"  {val} — share of Σ max(|a_prior|,|a*|) = {total:,.1f} kt, all years")
+            lines.append(f"  {val} — share of Σ max(|a_prior|,|a*|) = {total:,.1f} kt, "
+                         "all years")
             pv = (fv.groupby(["prior_class", "quadrant"], observed=True)["weight"].sum()
                     .unstack("quadrant").reindex(columns=QUADRANTS).fillna(0.0))
             pv = pv.reindex([c for c in self._classes(fv) if c in pv.index])
+            pv.loc["total"] = pv.sum(axis=0)
             lines.append("    " + f"{'':<12}" + "".join(f"{q:>18}" for q in QUADRANTS))
             for cls, row in pv.iterrows():
                 share = row / total * 100.0 if total > 0 else row * np.nan
@@ -301,7 +306,8 @@ class UncPropDiag:
         selected = set(self.PLOTS) if plot_ids is None else set(plot_ids)
         unknown = selected - set(self.PLOTS)
         if unknown:
-            raise ValueError(f"Unknown plot_ids {sorted(unknown)}. Valid ids: {list(self.PLOTS)}")
+            raise ValueError(f"Unknown plot_ids {sorted(unknown)}. "
+                             f"Valid ids: {list(self.PLOTS)}")
 
         suffix = self._region_suffix(regions)
         paths: list[str] = []
@@ -316,7 +322,8 @@ class UncPropDiag:
                 plt.close(fig)
 
         csv = os.path.join(odir, f"contraction_summary{suffix}.csv")
-        self.stats.contraction_summary(self._frame(regions, timesteps)).to_csv(csv, index=False)
+        summary = self.stats.contraction_summary(self._frame(regions, timesteps))
+        summary.to_csv(csv, index=False)
         paths.append(csv)
         return paths
 
@@ -350,8 +357,9 @@ class UncPropDiag:
                 w = d["weight"].to_numpy()
                 pos = w > 0
                 if pos.any():
-                    hb = ax.hexbin(d["kappa"].to_numpy()[pos], _symlog(d["z"].to_numpy()[pos]),
-                                   C=w[pos], reduce_C_function=np.sum, gridsize=_HEX_GRID,
+                    hb = ax.hexbin(d["kappa"].to_numpy()[pos],
+                                   _symlog(d["z"].to_numpy()[pos]), C=w[pos],
+                                   reduce_C_function=np.sum, gridsize=_HEX_GRID,
                                    extent=(0.0, 1.0, -y_lim, y_lim), mincnt=1,
                                    cmap=_seq_cmap(), linewidths=0)
                     hexes.append(hb)
@@ -375,8 +383,9 @@ class UncPropDiag:
                 ax.set_yticklabels([str(v) for v in ticks])
                 ax.set_xlim(-0.02, 1.02)
                 ax.set_ylim(-y_lim, y_lim)
-                ax.set_title(f"{cls} · {val}\n{len(d):,} edge-years · {w.sum():,.0f} kt ({val})"
-                             f" · {int(d['bound_active'].sum()):,} bound-active", fontsize=9)
+                n_ba = int(d["bound_active"].sum())
+                ax.set_title(f"{cls} · {val}\n{len(d):,} edge-years · "
+                             f"{w.sum():,.0f} kt ({val}) · {n_ba:,} bound-active", fontsize=9)
                 if i == len(classes) - 1:
                     ax.set_xlabel("posterior contraction κ")
                 if j == 0:

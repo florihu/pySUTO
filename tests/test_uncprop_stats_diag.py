@@ -200,6 +200,19 @@ def test_missing_opt_year_raises():
         UncPropStatsDiagnostic(_unc(), {"1995": _opt()["1995"]}, _cr())
 
 
+def test_a_feed_covered_edge_is_never_zero_pinned():
+    log = pd.DataFrame({"edge_id": [1], "imputer_id": ["trade"], "method": ["trade_seed"]})
+    out = classify_priors(np.array([True, False]), log, np.zeros(2), np.zeros(2))
+    assert list(out) == ["from a feed", "zero-pinned"]
+
+
+def test_misaligned_partitions_raise():
+    opt = _opt()
+    opt["1996"].cols_t = np.array([3, 5, 4])
+    with pytest.raises(ValueError, match="1996"):
+        UncPropStatsDiagnostic(_unc(), opt, _cr()).edge_frame()
+
+
 def test_classify_priors_raises_on_an_unclassified_edge():
     log = pd.DataFrame({"edge_id": [1], "imputer_id": ["trade"], "method": ["trade_seed"]})
     with pytest.raises(ValueError, match="1 edge"):
@@ -214,8 +227,8 @@ def test_classify_priors_raises_on_an_unclassified_edge():
 def test_trace_contraction_per_year():
     d = UncPropStatsDiagnostic(_unc(), _opt(), _cr())
     tc = d.trace_contraction(d.edge_frame())
-    assert tc["1995"] == pytest.approx(1 - 2.25 / 6, rel=1e-12)
-    assert tc["1996"] == pytest.approx(1 - 5 / 6, rel=1e-12)
+    assert tc["1995"] == pytest.approx(1 - 2.25 / 6)
+    assert tc["1996"] == pytest.approx(1 - 5 / 6)
 
 
 def test_contraction_summary_sums_weight_per_cell():

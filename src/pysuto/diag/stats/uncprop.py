@@ -27,8 +27,6 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from pysuto._conditioning import condition_prior
-
 # Quadrant cuts (GLOSSARY.md "Prior-carried / confirmed / overruled / unexplained move").
 KAPPA_CUT   = 0.5
 Z_CUT       = 3.0
@@ -50,10 +48,10 @@ _EDGE_META_COLS = ["from_id", "to_id", "from_sector", "from_region", "from_entit
 def classify_priors(coverage, imputation_log: pd.DataFrame, l, u) -> np.ndarray:
     """The **prior class** of every edge, as an ``(E,)`` object array.
 
-    Precedence: zero-pinned (``l == u == 0``) → from a feed (``coverage``) → flat
-    (``imputer_id`` in the flat set or ``method`` in the satellite set) →
-    imputed (any other ``imputation_log`` entry). An edge none of these reach
-    raises ``ValueError``: the four classes are defined to cover every edge.
+    Precedence: from a feed (``coverage``) → zero-pinned (a no-data edge with
+    ``l == u == 0``) → flat (``imputer_id`` in the flat set or ``method`` in the
+    satellite set) → imputed (any other ``imputation_log`` entry). An edge none
+    of these reach raises ``ValueError``: the four classes cover every edge.
     """
     coverage = np.asarray(coverage, dtype=bool)
     l, u = np.asarray(l, dtype=float), np.asarray(u, dtype=float)
@@ -68,8 +66,8 @@ def classify_priors(coverage, imputation_log: pd.DataFrame, l, u) -> np.ndarray:
             | log["method"].isin(_FLAT_METHODS)).to_numpy()
     out[ids[~flat]] = "imputed"
     out[ids[flat]]  = "flat"
+    out[(l == 0.0) & (u == 0.0) & ~coverage] = "zero-pinned"
     out[coverage]   = "from a feed"
-    out[(l == 0.0) & (u == 0.0)] = "zero-pinned"
 
     missing = int((out == "").sum())
     if missing:
@@ -149,6 +147,8 @@ class UncPropStatsDiagnostic:
     # ------------------------------------------------------------------
 
     def _sigma_a(self) -> np.ndarray:
+        # Local import to keep diag at the leaf of the import graph (as SolverDiag).
+        from pysuto._conditioning import condition_prior
         kw = {"floor_abs":      self._cond.get("sigma_a_floor_abs"),
               "floor_rel":      self._cond.get("sigma_a_floor_rel"),
               "ceiling_factor": self._cond.get("sigma_a_ceiling_factor")}
@@ -182,6 +182,11 @@ class UncPropStatsDiagnostic:
             cols = (np.asarray(ts.cols_t, dtype=np.int64) if ts.cols_t is not None
                     else np.arange(E, dtype=np.int64))
             year_local = getattr(res, "cols_t", None) is not None
+            if year_local and not np.array_equal(np.asarray(res.cols_t), cols):
+                raise ValueError(
+                    f"year {y}: the opt result's cols_t and the uncprop timestep's "
+                    "cols_t differ — the two runs do not share one partition"
+                )
             F = np.asarray(res.F_opt, dtype=float)
             a_post = F if year_local else F[cols]
             ap = getattr(res, "a_prior", None)
@@ -254,6 +259,7 @@ class UncPropStatsDiagnostic:
         """Edge count and Σ weight (kt) per year × valuation × prior class × quadrant."""
         g = frame.groupby(["year", "valuation", "prior_class", "quadrant"],
                           sort=True, observed=True)
-        out = g.agg(n_edges=("edge_id", "size"), weight_kt=("weight", "sum")).reset_index()
+        out = g.agg(n_edges=("edge_id", "size"),
+                    weight_kt=("weight", "sum")).reset_index()
         out["n_edges"] = out["n_edges"].astype(np.int64)
         return out

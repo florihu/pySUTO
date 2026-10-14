@@ -548,12 +548,9 @@ _Avoid_: "observed" vs "modelled" — an imputed prior also derives from data.
 
 **Prior-carried / confirmed / overruled / unexplained move** — the four quadrants of an edge-year
 in posterior contraction `κ` and standardised defect `z`, cut at `κ = 0.5` and `|z| = 3`:
-**prior-carried** (`κ < 0.5`, `|z| ≤ 3`) — barely informed, stays near its prior; **confirmed**
-(`κ ≥ 0.5`, `|z| ≤ 3`) — informed and in agreement; **overruled** (`κ ≥ 0.5`, `|z| > 3`) — a
-prior–data conflict the constraints settle; **unexplained move** (`κ < 0.5`, `|z| > 3`) — moved
-without being informed, which the linear posterior cannot account for (an active bound or band
-did the moving). _Avoid_: "unidentified" for prior-carried — the edge has a value, only no new
-information.
+prior-carried (`κ < 0.5`, `|z| ≤ 3`), confirmed (`κ ≥ 0.5`, `|z| ≤ 3`), overruled (`κ ≥ 0.5`,
+`|z| > 3`, a prior–data conflict) and unexplained move (`κ < 0.5`, `|z| > 3`, moved uninformed).
+_Avoid_: "unidentified" for prior-carried — the edge has a value, only no new information.
 
 ## Stock-change vocabulary
 

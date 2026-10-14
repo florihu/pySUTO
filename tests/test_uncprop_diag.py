@@ -4,11 +4,11 @@ test_uncprop_diag.py
 Smoke and round-trip tests for :class:`pysuto.diag.UncPropDiag`.
 
 The chain is real but tiny: the block-path toy of ``test_solver_diag`` (engine
-ConstraintRun with mass balances, made full-rank, solved by Clarabel) propagated
-by ``KalmanUncProp``. The tests cover:
+ConstraintRun with mass balances made full-rank, plus one soft row per year,
+solved by Clarabel) propagated by ``KalmanUncProp``. The tests cover:
   1. the portfolio (2 figures + ``contraction_summary.csv``) renders live;
-  2. ``from_uncprop_id`` reloads result, opt run, const run and the sidecar's
-     σ conditioning, and renders under the uncprop run's ``diag/``;
+  2. ``from_uncprop_id`` reloads result, opt run, const run, imp run (prior
+     classes) and the sidecar's σ conditioning, and renders under ``diag/``;
   3. registry, plot selection, ``regions=`` suffix, ``timesteps=`` validation;
   4. ``summary()`` reports the trace contraction and the quadrant shares.
 """
@@ -28,12 +28,15 @@ import pytest
 STEMS = ["ud_r_01_contraction_shift", "ud_r_02_prior_posterior_bands"]
 
 
-def _full_rank_block_run(tmp_path, monkeypatch):
-    """The block-path toy of ``test_solver_diag`` minus region B's Ore balance,
-    solved by Clarabel → (year-local results, ConstraintRun, acc). Region B is a
-    closed two-node loop whose Mining and Ore balances are each other's negatives;
-    with both, the hard rows are rank-deficient and Stage 5's ``S_t`` is singular."""
+def _full_rank_block_run(tmp_path, monkeypatch, agg_id=""):
+    """The block-path toy of ``test_solver_diag`` minus region B's Ore balance, plus
+    one soft row per year (``Mining B → Ore B`` = 50 kt, σ_c 2), solved by
+    Clarabel → (year-local results, ConstraintRun, acc). Region B is a closed
+    two-node loop whose Mining and Ore balances are each other's negatives; with
+    both, the hard rows are rank-deficient and Stage 5's ``S_t`` is singular."""
     import dataclasses
+    import pandas as pd
+    import scipy.sparse as sp
     from test_constraints import _make_toy_acc, _make_toy_agg_result  # type: ignore
     from pysuto.constraints import ConstraintEngine, MassBalanceBuilder
     from pysuto.solver import ClarabelSolver
@@ -45,13 +48,26 @@ def _full_rank_block_run(tmp_path, monkeypatch):
 
     rm   = cr.row_meta
     keep = ~((rm["sector"] == "Ore") & (rm["region"] == "B")).to_numpy()
-    G    = cr.G.tocsr()[keep]
-    rm   = rm[keep].reset_index(drop=True)
+    em   = acc.edge_meta.reset_index(drop=True)
+    soft = em.index[(em["from_sector"] == "Mining") & (em["from_region"] == "B")]
+    years = em.loc[soft, "time"].astype(str).tolist()
+    soft_G = sp.csr_matrix((np.ones(len(soft)), (np.arange(len(soft)), soft)),
+                           shape=(len(soft), cr.G.shape[1]))
+    soft_rm = pd.DataFrame([{**{c: None for c in rm.columns},
+                             "constraint_id": f"soft_mining_b_{y}", "type": "sum",
+                             "variant": "anchor", "is_hard": False, "cone_type": "free",
+                             "time": y, "valuation": "Mass"} for y in years])
+    G  = sp.vstack([cr.G.tocsr()[keep], soft_G]).tocsr()
+    rm = pd.concat([rm[keep], soft_rm], ignore_index=True)
+    rm["is_hard"] = rm["is_hard"].astype(bool)
     row_time = rm["time"].astype(str).to_numpy()
+    n_soft = len(soft)
     cr = dataclasses.replace(
-        cr, G=G, row_meta=rm,
-        timestep_data={t: {**d, "c": np.asarray(d["c"])[keep],
-                              "sigma_c": np.asarray(d["sigma_c"])[keep]}
+        cr, G=G, row_meta=rm, agg_id=agg_id,
+        timestep_data={t: {**d,
+                           "c": np.r_[np.asarray(d["c"])[keep], np.full(n_soft, 50.0)],
+                           "sigma_c": np.r_[np.asarray(d["sigma_c"])[keep],
+                                            np.full(n_soft, 2.0)]}
                        for t, d in cr.timestep_data.items()},
         G_blocks={t: G[np.flatnonzero(row_time == t)][:, cols].tocsr()
                   for t, cols in cr.edge_cols_by_t.items()},
@@ -167,6 +183,48 @@ class TestFromUncpropId:
         expected = os.path.join(dirs["uncprop"], unc_id, "diag")
         assert len(paths) == len(STEMS) + 1
         assert all(p.startswith(expected) and os.path.exists(p) for p in paths)
+
+    def test_roundtrip_reads_prior_classes_from_the_imp_run(self, tmp_path, monkeypatch):
+        """With the const run's agg_id registered, prior classes come from the
+        imp run's coverage and imputation log (2020 feed-covered, 2021 imputed
+        except the Waste edge, logged as a flat prior)."""
+        from types import SimpleNamespace
+        from pysuto.diag import UncPropDiag
+        from pysuto.impute import ImputationLog
+        from pysuto.registry import ConstraintRunRegistry, ImputationRunRegistry
+        from pysuto.solver import ClarabelSolver
+        from pysuto.uncprop import KalmanUncProp
+
+        dirs = {k: str(tmp_path / k) for k in ("const", "opt", "uncprop", "imp")}
+        log = ImputationLog()
+        log.extend([{"edge_id": e, "imputer_id": "network", "method": "network_forward"}
+                    for e in (5, 6, 7, 8)]
+                   + [{"edge_id": 9, "imputer_id": "flat_prior",
+                       "method": "flat_prior_noisy_zero"}])
+        z = np.zeros((1, 10))
+        agg = SimpleNamespace(f_agg=np.ones(10), sigma_agg=np.ones(10), Omega=z, F=z,
+                              Sigma=z, coverage=np.arange(10) < 5, feed_ids=["toy"],
+                              imputation_log=log, imputation_metadata=None)
+        imp_id = ImputationRunRegistry(dirs["imp"]).register(
+            agg, label="toy", parents={"inputs": {}, "upstream": {}})
+
+        results, cr, acc = _full_rank_block_run(tmp_path, monkeypatch, agg_id=imp_id)
+        ConstraintRunRegistry(dirs["const"]).register(cr)
+        opt_run_id = ClarabelSolver(const_dir=dirs["const"], verbose_first_solve=False) \
+            .persist(run_id=cr.run_id, results=results, output_dir=dirs["opt"],
+                     const_run_id=cr.run_id)
+        prop = KalmanUncProp(opt_dir=dirs["opt"], const_dir=dirs["const"],
+                             uncprop_dir=dirs["uncprop"])
+        unc_id = prop.persist(prop.compute(opt_run_id), opt_run_id)
+
+        diag = UncPropDiag.from_uncprop_id(
+            unc_id, uncprop_dir=dirs["uncprop"], opt_dir=dirs["opt"],
+            const_dir=dirs["const"], imp_dir=dirs["imp"], acc=acc,
+        )
+        f = diag.stats.edge_frame().set_index("edge_id")
+        assert set(f.loc[f["year"] == "2020", "prior_class"]) == {"from a feed"}
+        assert list(f.loc[[5, 6, 7, 8, 9], "prior_class"]) == ["imputed"] * 4 + ["flat"]
+        assert "no imputation run" not in diag.summary()
 
     def test_unknown_run_id_raises(self, tmp_path):
         from pysuto.diag import UncPropDiag

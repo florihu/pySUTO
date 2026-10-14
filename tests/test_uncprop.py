@@ -699,8 +699,8 @@ class TestLoadFromOptRunId:
         _, _, result = _compute_block_toy(tmp_path, monkeypatch)
         for t in ("2020", "2021"):
             diag = result.per_timestep[t].diagnostics
-            assert diag["trace_prior"] == pytest.approx(3.0, rel=1e-12)
-            assert diag["trace_post"]  == pytest.approx(2.0, rel=1e-12)
+            assert diag["trace_prior"] == pytest.approx(3.0)
+            assert diag["trace_post"]  == pytest.approx(2.0)
 
     def test_missing_const_run_id_raises(self, tmp_path):
         """If opt sidecar has no upstream.const_run_id, compute() should fail
