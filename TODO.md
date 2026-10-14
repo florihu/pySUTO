@@ -69,14 +69,18 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
 ## #77 BUILT 2026-10-14 — NOT MEASURED (#79): BACI 490 "Other Asia, nes" maps to Taiwan, not ROW
 
 `fix/baci-490-taiwan`. The BACI region map (`current/conc.xlsx`, not yet registered) sends code 490 to
-Taiwan (ADR 0014 and 0018 amended). Folded into ROW, it gave ROW Taiwan's cathode imports (375–655 kt a
-year in 1995–2011), which zeroed ROW's domestic semis share (#76), and left Taiwan trade-blind.
+Taiwan (ADR 0014 and 0018 amended). Folded into ROW, it gave ROW Taiwan's cathode imports (baci v18,
+HS 740311: 375–655 kt a year in 1995–2011), which zeroed ROW's domestic semis share (#76), and left Taiwan
+trade-blind.
 `build_baci_reexport.check_region_map()` now raises when the source version's region map differs from
 `current/`'s: the netting would net under one map and `baci_feed.py` apply the other. **#79's chain**
 therefore starts at the parse: `baci_parse_feed.py` (→ `baci/v0/`, its ADR 0033 σ sidecar re-keyed with
 the new map) → set aside `current/reexport_*.csv`, copy `v0/{values,quantity_recon,quantity_cv_scale}.csv`
 into `current/`, register (gross version) → `build_baci_reexport.py --source-version <it>` → `baci_feed.py`
-→ `build_trade_shares.py` → `icsg_feed.py` → Stages 2–4 against `opt_20261013_122432_24e811b7`.
+→ `build_trade_shares.py` → `icsg_feed.py` → Stages 2–4 against `opt_20261013_122432_24e811b7`. Until then
+`current/` pairs the new map with values netted under the old one: run nothing BACI-side but that chain. Once
+#79 passes and becomes the reference chain, the manuscript's Taiwan limitation (method.md §3.2.8) and its
+concordance row in si.md S8 change with it.
 
 ## #75 MEASURED 2026-10-13 — FAILS ON ONE CLAUSE (#73 semis use), fix ticket #76; every other item holds
 

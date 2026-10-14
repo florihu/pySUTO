@@ -83,8 +83,8 @@ def test_import_free_group_in_observed_region_gets_domestic_fan():
 
 
 def test_import_free_group_in_trade_blind_region_emits_no_rows():
-    # BACI never observes Taiwan (BACI 490 → ROW, ADR 0014), so zero imports
-    # carries no information → fan stays undistributed (ADR 0008 holds).
+    # BACI never observes the region (Taiwan's case until #77 mapped BACI 490 to
+    # it), so zero imports carries no information → fan stays undistributed.
     df = pd.DataFrame([
         _edge("Taiwan", "Taiwan", 100.0, np.nan),
         _edge("USA",    "Taiwan", 100.0, 0.0),

@@ -1,5 +1,6 @@
 """Unit tests for the feed-time re-export re-attribution (ADR 0027)."""
 import os
+import shutil
 import sys
 
 import numpy as np
@@ -12,6 +13,7 @@ from build_baci_reexport import (  # noqa: E402
     cv_scale,
     icsg_aggregate_members,
     label_row,
+    load_root_trade,
     net_one_hub,
     net_reexports,
     production_recipes,
@@ -545,7 +547,7 @@ class TestIcsgAggregateMembers:
 
 class TestCheckRegionMap:
 
-    def _conc(self, path, rows):
+    def _region_map_xlsx(self, path, rows):
         path.mkdir()
         pd.DataFrame(rows, columns=["src_region", "root_region", "mapping_type",
                                     "mapping_confidence", "notes"]) \
@@ -554,18 +556,34 @@ class TestCheckRegionMap:
 
     def test_the_same_map_in_the_source_and_current_passes(self, tmp_path):
         rows = [(490, "Taiwan", "alias", "high", None), (152, "Chile", "direct", "high", None)]
-        check_region_map(self._conc(tmp_path / "v19", rows),
-                         self._conc(tmp_path / "current", rows[::-1]))
+        check_region_map(self._region_map_xlsx(tmp_path / "v19", rows),
+                         self._region_map_xlsx(tmp_path / "current", rows[::-1]))
 
     def test_a_code_the_current_map_sends_elsewhere_raises(self, tmp_path):
-        src = self._conc(tmp_path / "v13", [(490, "ROW", "aggregate", "high", None)])
-        cur = self._conc(tmp_path / "current", [(490, "Taiwan", "alias", "high", None)])
+        src = self._region_map_xlsx(tmp_path / "v13", [(490, "ROW", "aggregate", "high", None)])
+        cur = self._region_map_xlsx(tmp_path / "current", [(490, "Taiwan", "alias", "high", None)])
         with pytest.raises(ValueError, match="490: ROW → Taiwan"):
             check_region_map(src, cur)
 
     def test_a_code_only_one_map_has_raises(self, tmp_path):
-        src = self._conc(tmp_path / "v13", [(152, "Chile", "direct", "high", None)])
-        cur = self._conc(tmp_path / "current", [(152, "Chile", "direct", "high", None),
+        src = self._region_map_xlsx(tmp_path / "v13", [(152, "Chile", "direct", "high", None)])
+        cur = self._region_map_xlsx(tmp_path / "current", [(152, "Chile", "direct", "high", None),
                                                 (490, "Taiwan", "alias", "high", None)])
         with pytest.raises(ValueError, match="490: None → Taiwan"):
             check_region_map(src, cur)
+
+
+CURRENT_CONC = os.path.join(os.path.dirname(__file__), "..", "data", "input", "feed", "baci",
+                            "current", "conc.xlsx")
+
+
+def test_a_490_row_lands_on_taiwan_under_the_registered_region_map(tmp_path):
+    """The tracked BACI region map, not a toy one: BACI 490 "Other Asia, nes" is
+    Taiwan's trade (#77), so a Chile → 490 cathode row is a Chile → Taiwan leg."""
+    shutil.copyfile(CURRENT_CONC, tmp_path / "conc.xlsx")
+    pd.DataFrame({"Year": [2004], "Sector": [740311], "Region_from": [152],
+                  "Region_to": [490], "Value": [10.0], "Unit": ["kt"]}) \
+      .to_csv(tmp_path / "values.csv", index=False)
+    _, legs, _, r_of = load_root_trade(str(tmp_path), {("Cathode", "*"): 1.0})
+    assert r_of[490] == "Taiwan"
+    assert legs[["region_from", "region_to", "cc"]].values.tolist() == [["Chile", "Taiwan", 10.0]]
