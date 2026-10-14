@@ -735,11 +735,24 @@ The CHOLMOD backend computes $\|L^{-1} g_i\|^2$ column-block at a time; the scip
 
 Posterior std and confidence interval:
 
-$$\sigma_{a^*,i}(t) = \sqrt{\max(\sigma^2_{a^*,i}(t), 0)}, \qquad [\text{lower}_i,\, \text{upper}_i] = \max\!\big(a^*_i(t) - z\,\sigma_{a^*,i}(t),\, l_i\big) \ \text{up to}\ \min\!\big(a^*_i(t) + z\,\sigma_{a^*,i}(t),\, u_i\big), \qquad z = \Phi^{-1}(1 - \alpha/2).$$
+$$\sigma_{a^*,i}(t) = \sqrt{\max(\sigma^2_{a^*,i}(t), 0)}, \qquad [\text{lower}_i,\, \text{upper}_i] = \big[a^*_i(t) - z\,\sigma_{a^*,i}(t),\; a^*_i(t) + z\,\sigma_{a^*,i}(t)\big], \qquad z = \Phi^{-1}(1 - \alpha/2),$$
+
+with `lower` clipped at 0 on edges that carry an ADR 0039 lower-bound row (the structural `l = 0`) and nowhere else: the `ConstraintRun`'s `l` / `u` hold the prior box and the zero pin, which reach the feasibility probe, not the QP.
 
 ##### Hard rows and the `Σ_c^full` block structure
 
 σ_c on hard rows is forced to **exact zero** before the per-t Cholesky (see [`condition_sigma_c(hard_mask=...)`](src/pysuto/_conditioning.py)); soft rows receive a numerical floor only. This preserves the $\Sigma_c^{\mathrm{full}} = \mathrm{blkdiag}(\mathbf{0}_h,\, \Sigma_{c,s})$ structure the derivation relies on. Hard-balanced edges then produce **zero-width** CIs (`lower = a* = upper`) — this is the correct, expected behaviour.
+
+##### The active set (block path, #27)
+
+The formula holds for equality constraints; the QP also has hard **inequalities** (`nonneg` cone: the ADR 0039 lower bounds and the ratio bands). The posterior is the QP's linearisation at its active set at `a*(t)` ([ADR 0044](docs/adr/0044-the-posterior-is-the-qps-linearisation-at-its-active-set.md)):
+
+- a hard inequality row **binds** when `G·a* − c ≥ −bind_tol` (`1e-6` kt), read from `OptimResult.residuals`;
+- a binding lower bound **pins** its edge: `σ²_a → 0` in `S(t)` and `σ_a* = 0` (a zero-width interval at 0), instead of adding a row;
+- a binding band enters as a hard equality; slack bounds and bands drop out;
+- rows left without a live (unpinned) edge are dropped, and hard rows linearly dependent on the others (closed balance loops, a band's two rows at `0 = 0`) are dropped after a pivoted Cholesky of the unit-diagonal hard block `G_h·diag(σ²)·G_hᵀ` (`rank_tol`), so `S(t)` stays non-singular with every kept hard row at exactly zero σ_c.
+
+Per year the sidecar records `n_bound_active`, `n_bands_binding`, `n_hard_dependent` and `n_rows_kept`. The full-G (legacy) path has no active set and warns when hard inequality rows are present.
 
 ##### Sanity invariants (checked in tests)
 
@@ -766,6 +779,8 @@ $$\sigma_{a^*,i}(t) = \sqrt{\max(\sigma^2_{a^*,i}(t), 0)}, \qquad [\text{lower}_
 | `sigma_a_floor_rel` | `1e-5` | Same as `ClarabelSolver` |
 | `sigma_a_ceiling_factor` | `1e5` | Same as `ClarabelSolver` |
 | `sigma_c_floor` | `1e-9` | Floor on soft-row σ_c; hard rows are forced to exact zero regardless |
+| `bind_tol` | `1e-6` | kt — a hard inequality row binds at `a*` when `G·a* − c ≥ −bind_tol` (driver knob `BIND_TOL`) |
+| `rank_tol` | `1e-10` | Pivot tolerance of the scaled hard-block pivoted Cholesky that drops dependent hard rows (driver knob `RANK_TOL`) |
 
 #### Use case
 
@@ -796,7 +811,7 @@ uncprop_run_id  = prop.persist(result, opt_run_id, label="copper")
 - **UD-R-02** — prior `a_prior ± z_α·σ_a` against the posterior `[lower, upper]` over the years, for the top-12 identities per valuation.
 - `contraction_summary.csv` — edge count and Σ weight per year × valuation × prior class × quadrant.
 
-No copper chain has a Stage-5 run yet: hard inequality rows enter `S_t` as equalities and make it singular (#27).
+Before the active set (#27) no copper chain could run Stage 5: every hard inequality row entered `S_t` as an equality and made it singular.
 
 #### Optional dependency
 

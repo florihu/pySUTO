@@ -726,3 +726,123 @@ class TestLoadFromOptRunId:
         )
         with pytest.raises(KeyError, match="const_run_id"):
             prop.compute(opt_run_id, alpha=0.05)
+
+
+# ---------------------------------------------------------------------------
+# 9) Math — the QP's active set (#27): slack inequality rows drop out, binding
+#    lower bounds pin their edge, binding bands act as equalities, redundant
+#    hard rows are dropped, intervals clip at the structural zero only
+# ---------------------------------------------------------------------------
+
+# One year, four edges e0..e3; σ_a = [2, 1, 1, 1]; e3 is signed (no bound row)
+# and zero-pinned in the ConstraintRun (l = u = 0), as a no-data edge would be.
+_AS_ROWS = [  # (coefficients on e0..e3, type, variant, is_hard, cone, c, σ_c)
+    ([1, -1, -1,  0], "massbal", "massbal", True,  "zero",   0.0, 0.0),   # r0
+    ([-1, 0,  0,  0], "bound",   "lower",   True,  "nonneg", 0.0, 0.0),   # r1
+    ([0, -1,  0,  0], "bound",   "lower",   True,  "nonneg", 0.0, 0.0),   # r2
+    ([0,  0, -1,  0], "bound",   "lower",   True,  "nonneg", 0.0, 0.0),   # r3
+    ([0,  1,  0, -2], "ratio",   "band",    True,  "nonneg", 0.0, 0.0),   # r4
+    ([0,  0,  0,  1], "sum",     "anchor",  False, "free",   4.0, 1.0),   # r5
+]
+_AS_S2 = np.array([4.0, 1.0, 1.0, 1.0])
+
+
+def _active_set_posterior(a_star, monkeypatch, tmp_path, extra_rows=()):
+    """Stage 5 on the one-year active-set toy at the given a* → UncPropTimestep."""
+    from pysuto.constraints import ConstraintRun
+    from pysuto.solver import OptimResult
+    from pysuto.uncprop import KalmanUncProp
+
+    rows = _AS_ROWS + list(extra_rows)
+    G = sp.csr_matrix(np.array([r[0] for r in rows], dtype=float))
+    c = np.array([r[5] for r in rows])
+    row_meta = pd.DataFrame({
+        "constraint_id": [f"r{i}" for i in range(len(rows))],
+        "type":      [r[1] for r in rows], "variant": [r[2] for r in rows],
+        "is_hard":   [r[3] for r in rows], "cone_type": [r[4] for r in rows],
+        "time":      "2020",
+    })
+    a_star = np.asarray(a_star, dtype=float)
+    cr = ConstraintRun(
+        G=G, row_meta=row_meta, a0=a_star, sigma_a=np.sqrt(_AS_S2),
+        u=np.array([10.0, 10.0, 10.0, 0.0]), l=np.zeros(4),
+        timestep_data={"2020": {"c": c, "sigma_c": np.array([r[6] for r in rows])}},
+        run_id="as", acc_id="a", agg_id="g", created_at="2026-10-14T00:00:00",
+        G_blocks={"2020": G}, edge_cols_by_t={"2020": np.arange(4)},
+    )
+    opt = {"2020": OptimResult(
+        timestep="2020", F_opt=a_star, eps_opt=np.zeros(0), c_star=c,
+        residuals=G @ a_star - c, objective=0.0, iterations=0, solve_time_s=0.0,
+        solver_status="Solved", convergence={},
+        cols_t=np.arange(4), rows_t=np.arange(len(rows)),
+    )}
+    prop = KalmanUncProp(opt_dir=str(tmp_path / "opt"), const_dir=str(tmp_path / "const"),
+                         uncprop_dir=str(tmp_path / "uncprop"))
+    monkeypatch.setattr(prop._opt_registry, "load_sidecar",
+                        lambda _rid: {"parents": {"upstream": {"const_run_id": "as"}}})
+    monkeypatch.setattr(prop._opt_registry, "load", lambda _rid: opt)
+    monkeypatch.setattr(prop._const_registry, "load", lambda _rid: cr)
+    return prop.compute("opt_fake", alpha=0.05).per_timestep["2020"]
+
+
+def _dense_posterior(rows, s2, hard):
+    """Reference σ*² on an explicitly reduced system: S = G·diag(s2)·Gᵀ + diag(σ_c²)."""
+    G = np.array([_AS_ROWS[i][0] for i in rows], dtype=float)
+    sc2 = np.array([0.0 if h else _AS_ROWS[i][6] ** 2 for i, h in zip(rows, hard)])
+    S = G @ np.diag(s2) @ G.T + np.diag(sc2)
+    return s2 - s2 ** 2 * np.einsum("ij,ij->j", G, np.linalg.solve(S, G))
+
+
+class TestActiveSet:
+
+    def test_slack_inequality_rows_drop_out(self, tmp_path, monkeypatch):
+        ts = _active_set_posterior([5, 3, 2, 4], monkeypatch, tmp_path)
+        ref = _dense_posterior([0, 5], _AS_S2, [True, False])
+        np.testing.assert_allclose(ts.sigma_a_star ** 2, ref, rtol=1e-10, atol=1e-12)
+
+    def test_bound_active_edge_is_pinned_and_eliminated(self, tmp_path, monkeypatch):
+        ts = _active_set_posterior([3, 3, 0, 4], monkeypatch, tmp_path)
+        s2 = _AS_S2 * np.array([1, 1, 0, 1])
+        ref = _dense_posterior([0, 5], s2, [True, False])
+        assert ts.sigma_a_star[2] == 0.0
+        np.testing.assert_allclose(ts.sigma_a_star ** 2, ref, rtol=1e-10, atol=1e-12)
+
+    def test_binding_band_acts_as_an_equality(self, tmp_path, monkeypatch):
+        ts = _active_set_posterior([8, 8, 0, 4], monkeypatch, tmp_path)   # e1 − 2·e3 = 0
+        s2 = _AS_S2 * np.array([1, 1, 0, 1])
+        ref = _dense_posterior([0, 4, 5], s2, [True, True, False])
+        np.testing.assert_allclose(ts.sigma_a_star ** 2, ref, rtol=1e-10, atol=1e-12)
+        d = ts.diagnostics
+        assert (d["n_bound_active"], d["n_bands_binding"], d["n_hard_dependent"]) == (1, 1, 0)
+
+    def test_redundant_hard_rows_are_dropped(self, tmp_path, monkeypatch):
+        """Two copies of the mass balance (one negated, one doubled) make S
+        singular with every hard row at σ_c = 0; the dependent copies go."""
+        dupes = [([-1, 1, 1, 0], "massbal", "massbal", True, "zero", 0.0, 0.0),
+                 ([2, -2, -2, 0], "massbal", "massbal", True, "zero", 0.0, 0.0)]
+        ts = _active_set_posterior([5, 3, 2, 4], monkeypatch, tmp_path, extra_rows=dupes)
+        ref = _dense_posterior([0, 5], _AS_S2, [True, False])
+        np.testing.assert_allclose(ts.sigma_a_star ** 2, ref, rtol=1e-8, atol=1e-10)
+        assert ts.diagnostics["n_hard_dependent"] == 2
+
+    def test_rows_emptied_by_elimination_are_dropped(self, tmp_path, monkeypatch):
+        # e0, e1, e2 bound-active: the mass balance has no live edge left
+        ts = _active_set_posterior([0, 0, 0, 4], monkeypatch, tmp_path)
+        np.testing.assert_allclose(ts.sigma_a_star, [0, 0, 0, np.sqrt(0.5)], rtol=1e-12)
+
+    def test_intervals_clip_at_the_structural_zero_only(self, tmp_path, monkeypatch):
+        z = 1.959963984540054
+        ts = _active_set_posterior([1, 0.5, 0.5, 0.5], monkeypatch, tmp_path)
+        s = ts.sigma_a_star
+        assert ts.lower[1] == 0.0 and 0.5 - z * s[1] < 0       # bound row → clipped at 0
+        assert ts.lower[3] == pytest.approx(0.5 - z * s[3])    # signed edge: may go < 0
+        assert ts.lower[3] < 0
+        assert ts.upper[3] == pytest.approx(0.5 + z * s[3])    # not clipped to the pin u = 0
+        assert ts.upper[3] > 0
+
+    def test_misaligned_opt_rows_raise(self, tmp_path, monkeypatch):
+        from pysuto.uncprop import KalmanUncProp
+        prop = KalmanUncProp.__new__(KalmanUncProp)
+        with pytest.raises(ValueError, match="rows_t"):
+            prop._check_partition("2020", np.arange(4), np.arange(6),
+                                  np.arange(4), np.arange(5))

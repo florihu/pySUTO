@@ -155,6 +155,12 @@ def test_bound_active_needs_a_lower_bound_row_and_zero_posterior(frame):
                                   [False, False, False, False, True, False])
 
 
+def test_bound_active_uses_the_runs_bind_tol():
+    d = UncPropStatsDiagnostic(_unc(), _opt(), _cr(), conditioning={"bind_tol": 5.0})
+    f = d.edge_frame().set_index("edge_id")
+    assert f.loc[1, "bound_active"] and f.loc[4, "bound_active"]     # a* = 4.5 and 0
+
+
 def test_prior_classes(frame):
     assert list(frame["prior_class"]) == [
         "from a feed", "imputed", "flat", "zero-pinned", "flat", "imputed",
