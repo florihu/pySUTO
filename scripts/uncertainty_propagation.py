@@ -13,6 +13,9 @@ Pipeline
    solves for the marginal diagonal of the posterior covariance
 3  persist(result, opt_run_id, label) — writes per-t .npz arrays and a
    harmonized sidecar under data/proc/uncprop/<uncprop_run_id>/
+4  Render the UncPropDiag portfolio (UD-R-01/02 + contraction_summary.csv)
+   from the persisted run into data/proc/uncprop/<uncprop_run_id>/diag/
+   (re-render later with scripts/uncprop_diag.py)
 
 Usage::
 
@@ -32,6 +35,7 @@ from datetime import datetime
 OPT_DIR     = os.path.join("data", "proc", "opt")
 CONST_DIR   = os.path.join("data", "proc", "const")
 UNCPROP_DIR = os.path.join("data", "proc", "uncprop")
+IMP_DIR     = os.path.join("data", "proc", "imp")
 ALPHA       = 0.05
 # ---------------------------------------------------------------------------
 # END USER CONFIGURATION
@@ -39,6 +43,7 @@ ALPHA       = 0.05
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+from pysuto.diag    import UncPropDiag
 from pysuto.uncprop import KalmanUncProp
 from pysuto.logging import get_logger, add_run_handler
 
@@ -78,6 +83,19 @@ def main(opt_run_id: str, label: str = "") -> None:
         uncprop_run_id, UNCPROP_DIR, len(result.per_timestep),
         mean_contraction, max_resid_hard,
     )
+
+    diag = UncPropDiag.from_uncprop_id(
+        uncprop_run_id,
+        uncprop_dir = UNCPROP_DIR,
+        opt_dir     = OPT_DIR,
+        const_dir   = CONST_DIR,
+        imp_dir     = IMP_DIR,
+        label       = label,
+    )
+    diag.summary()
+    paths = diag.plot()
+    _log.info("Wrote %d diag files to %s", len(paths),
+              os.path.join(UNCPROP_DIR, uncprop_run_id, "diag"))
     _log.info("=== init_uncertainty_propagation DONE ===")
 
 

@@ -784,9 +784,19 @@ uncprop_run_id  = prop.persist(result, opt_run_id, label="copper")
 #                                             the block path; full [E] on legacy)
 # result.per_timestep["2020"].lower / upper → clipped to [l, u] (same shape)
 # result.per_timestep["2020"].cols_t        → global edge index of the slice (block path)
-# result.per_timestep["2020"].diagnostics   → trace_prior, trace_post,
-#                                             max_resid_hard, psd_min_diag
+# result.per_timestep["2020"].diagnostics   → trace_prior, trace_post (over the
+#                                             year's edges), max_resid_hard, psd_min_diag
 ```
+
+#### Diagnostics
+
+`UncPropDiag` ([diag/uncprop.py](src/pysuto/diag/uncprop.py)) renders the Stage-5 portfolio from the all-years edge frame of `UncPropStatsDiagnostic`. It is built live (`UncPropDiag(result, opt_results, const_run, acc=…, imp_result=…)`) or from disk (`UncPropDiag.from_uncprop_id(uncprop_run_id)`, which follows the sidecar to the opt, const and imputation runs). The driver renders it after `persist()`; `scripts/uncprop_diag.py <uncprop_run_id> [--regions …]` re-renders a persisted run into `data/proc/uncprop/<id>/diag/`. Vocabulary is GLOSSARY.md's: **posterior contraction** `κ`, **prior class**, and the κ–z quadrants.
+
+- **UD-R-01** — κ against the signed defect `z`, hexbin weighted by `max(|a_prior|, |a*|)` (kt), one panel per prior class × valuation, bound-active edges circled.
+- **UD-R-02** — prior `a_prior ± z_α·σ_a` against the posterior `[lower, upper]` over the years, for the top-12 identities per valuation.
+- `contraction_summary.csv` — edge count and Σ weight per year × valuation × prior class × quadrant.
+
+No copper chain has a Stage-5 run yet: hard inequality rows enter `S_t` as equalities and make it singular (#27).
 
 #### Optional dependency
 
@@ -868,7 +878,7 @@ world.to_piot().sankey("2020").write_html("copper_process_network_2020.html")
 | [psut.py](src/pysuto/psut.py) | `PSUT`, `OptimResultsLike`, `classify_blocks`, `BLOCKS` | Stage-6 tidy-canonical PSUT: `from_opt_run` / `from_results`, block views `S`/`U`/`Y`/`E`/`O`/`P`/`W`, `realized_conc`, `aggregate` (region/sector pushforward with `region_crossed`), `sankey` (thin delegate to `diag.psut`), `to_piot`, period selection (`periods`, `latest`, `at`); every valuation in one table with a `primary`; persists to `data/proc/psut/` via `PsutRunRegistry`. |
 | [piot.py](src/pysuto/piot.py) | `PIOT`, `market_share_network`, `market_shares`, `CONSTRUCTS`, `LEVELS` | Stage-6 PIOT as a construct family: the market-share process network (`Z()`, `D()`, process-network `sankey()`), levels `A`/`L` (`x`, `y`, `A`, `L`), `intensity`, `footprint`, `embodied_trade`, `ew_mfa`, `multipliers`, `sda`; `suh_product` is a stub until #20. A derived view of a PSUT, never persisted. |
 | [_conditioning.py](src/pysuto/_conditioning.py) | `condition_prior`, `condition_sigma_c` | Shared σ_a / σ_c conditioning rules — guarantees uncprop sees the same effective prior the solver did. |
-| [diag/](src/pysuto/diag/) | `FeedDiagnostics`, `AggDiagnostic`, `ImpDiagnostic`, `ConstDiagnostic`, `SolverDiag`, `sankey_figure`, `sankey_tables`, `SankeySpec`; `stats/`: `CoverageDiagnostic`, `StatsDiagnostic`, `ConstStatsDiagnostic`, `SolverStatsDiagnostic` | Cross-stage diagnostic plot suites (figures), row-level stats tables (CSVs) and the Stage-6 supply-use Sankey (Plotly, lazy). **Subpackage layout:** `feed.py`, `agg.py`, `imp.py`, `const.py`, `solver.py`, `psut.py`, `_plot.py`, `stats/{_core,coverage,val,const,solver,objective}.py`. |
+| [diag/](src/pysuto/diag/) | `FeedDiagnostics`, `AggDiagnostic`, `ImpDiagnostic`, `ConstDiagnostic`, `SolverDiag`, `UncPropDiag`, `sankey_figure`, `sankey_tables`, `SankeySpec`; `stats/`: `CoverageDiagnostic`, `StatsDiagnostic`, `ConstStatsDiagnostic`, `SolverStatsDiagnostic`, `UncPropStatsDiagnostic` | Cross-stage diagnostic plot suites (figures), row-level stats tables (CSVs) and the Stage-6 supply-use Sankey (Plotly, lazy). **Subpackage layout:** `feed.py`, `agg.py`, `imp.py`, `const.py`, `solver.py`, `uncprop.py`, `psut.py`, `_plot.py`, `stats/{_core,coverage,val,const,solver,objective,uncprop}.py`. |
 
 ---
 
@@ -1214,6 +1224,7 @@ pysuto/
     ├── imp.py                                                                │
     ├── const.py                                                              │
     ├── solver.py                                                             │
+    ├── uncprop.py          UncPropDiag (Stage 5)                             │
     ├── psut.py                                                               │
     ├── _plot.py                                                              │
     └── stats/             CoverageDiagnostic · StatsDiagnostic               │
@@ -1222,7 +1233,8 @@ pysuto/
         ├── val.py            identity ranking — stateless builders)          │
         ├── const.py                                                          │
         ├── solver.py                                                         │
-        └── objective.py                                                    ─┘
+        ├── objective.py                                                      │
+        └── uncprop.py      UncPropStatsDiagnostic (Stage 5)                ─┘
 ```
 
 **Import direction is strictly one-way:**
@@ -1264,7 +1276,9 @@ Each layer has a dedicated test file in `tests/`. There is no `conftest.py`: fix
 | [test_solver_diag.py](tests/test_solver_diag.py) | `SolverDiag` 12-figure portfolio smoke test (toy placeholders + block run with real edges), `regions=` filter, `compare()`, worst-Σz² year |
 | [test_solver_stats_diag.py](tests/test_solver_stats_diag.py) | `SolverStatsDiagnostic` per-year CSV schemas, all-years frames (identity, `lhs_prior_t`, `resid_solver`, warm prior), ranking CSVs |
 | [test_objective_stats.py](tests/test_objective_stats.py) | objective-share builders (family frames, Σz² by key, identity ranking, z profiles, objective decomposition), sector totals / retention, boundary edges |
-| [test_uncprop.py](tests/test_uncprop.py) | `KalmanUncProp` closed-form 2×2, PSD/monotonicity, Byron limit, CHOLMOD symbolic-factor reuse, registry round-trip, CI clipping, end-to-end `compute(opt_run_id)` |
+| [test_uncprop.py](tests/test_uncprop.py) | `KalmanUncProp` closed-form 2×2, PSD/monotonicity, Byron limit, CHOLMOD symbolic-factor reuse, registry round-trip, CI clipping, end-to-end `compute(opt_run_id)`, year-local trace contraction |
+| [test_uncprop_stats_diag.py](tests/test_uncprop_stats_diag.py) | `UncPropStatsDiagnostic` edge frame: κ, z, weight, κ–z quadrants, bound-active flag, prior classes, σ_a conditioning, legacy full-length arrays, trace contraction, contraction summary |
+| [test_uncprop_diag.py](tests/test_uncprop_diag.py) | `UncPropDiag` portfolio on a solved, propagated toy chain: live render, `from_uncprop_id` round trip, registry, `plot_ids`, `regions=` suffix, `timesteps=` validation, `summary()` |
 | [test_psut.py](tests/test_psut.py) | Stage 6 Slices 1–4: six-block decomposition (an unclassifiable edge raises), node-universe labels with role-named levels, per-node balance from the table alone, every valuation with a primary, `realized_conc`, year-local `cols_t` mapping, period selection, `PsutRunRegistry` round-trip incl. Slice-1 sidecars, `from_opt_run` provenance chain, CLI; region/sector aggregation (conservation, symmetry, idempotence, commutation, `region_crossed` at root resolution, entity-kind clash); supply-use Sankey tables reconcile with the table, headless Plotly figure, multi-region labels, `min_val`, CLI `--sankey` ([ADR 0037](docs/adr/0037-psut-piot-two-classes-piot-is-a-construct-family.md)) |
 | [test_piot.py](tests/test_piot.py) | Stage 6 Slices 5–6: identity edges for single producers, the market-share split between two producers, conservation of every producer's supply and of every block total, the traded split carried onto the network, level gating, the process-network Sankey agreeing with the supply-use one; Leontief identities `L·y = x` and `(I−A)·L = I`, footprints summing to total extraction, embodied trade with extraction rows and RMC columns, ew-MFA identities incl. the closed-world check, multipliers, a two-factor SDA |
 

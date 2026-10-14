@@ -24,6 +24,11 @@ Public surface (re-exported here so call sites can keep using
                                 identity, sector totals + retention, rocket.
 * :class:`SolverStatsDiagnostic`— Stage 4: post-solve row-level CSVs (per-edge
                                 defect a*−a₀; per-constraint lhs_prior/lhs_post).
+* :class:`UncPropDiag`       — Stage 5: the uncprop-run figure portfolio —
+                                posterior contraction κ vs defect z by prior
+                                class, prior vs posterior bands over time.
+* :class:`UncPropStatsDiagnostic`— Stage 5: the all-years edge frame behind it
+                                (σ_a*, κ, z, prior class, κ–z quadrant).
 * :func:`sankey_figure` / :func:`sankey_tables` / :class:`SankeySpec`
                              — Stage 6: the bipartite supply-use Sankey of a
                                 PSUT (Plotly, imported lazily).
@@ -44,12 +49,14 @@ from .imp      import ImpDiagnostic, ownership_violations
 from .const    import ConstDiagnostic
 from .agg      import AggDiagnostic
 from .solver   import SolverDiag
+from .uncprop  import UncPropDiag
 from .psut     import SankeySpec, sankey_figure, sankey_tables
 from .stats    import (
     CoverageDiagnostic,
     StatsDiagnostic,
     ConstStatsDiagnostic,
     SolverStatsDiagnostic,
+    UncPropStatsDiagnostic,
 )
 
 __all__ = [
@@ -63,6 +70,8 @@ __all__ = [
     "AggDiagnostic",
     "SolverDiag",
     "SolverStatsDiagnostic",
+    "UncPropDiag",
+    "UncPropStatsDiagnostic",
     "SankeySpec",
     "sankey_figure",
     "sankey_tables",

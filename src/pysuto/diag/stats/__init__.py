@@ -18,6 +18,10 @@ Groups the stats-table diagnostics and their shared builders:
                                                     builders (family frames, Σz² by
                                                     sector key, identity ranking,
                                                     z profiles, objective decomposition).
+* :class:`UncPropStatsDiagnostic`(``uncprop.py``)— Stage 5: all-years edge frame
+                                                    (σ_a*, contraction κ, defect z,
+                                                    prior class, κ–z quadrant) behind
+                                                    ``UncPropDiag``.
 
 The shared, stateless builders (:func:`grouped_stats`, :func:`constraint_table`,
 :func:`sector_totals`, :func:`boundary_edges`, :func:`filter_regions`) live in
@@ -29,10 +33,12 @@ from .coverage import CoverageDiagnostic
 from .val      import StatsDiagnostic
 from .const    import ConstStatsDiagnostic
 from .solver   import SolverStatsDiagnostic
+from .uncprop  import UncPropStatsDiagnostic
 
 __all__ = [
     "CoverageDiagnostic",
     "StatsDiagnostic",
     "ConstStatsDiagnostic",
     "SolverStatsDiagnostic",
+    "UncPropStatsDiagnostic",
 ]
