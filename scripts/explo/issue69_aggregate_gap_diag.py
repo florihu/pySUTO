@@ -80,9 +80,12 @@ def netting(v_base: int, v_new: int) -> None:
           f"{m[m.dT != 0.0].groupby(['sector', 'region']).size().to_dict()}")
     print(f"   Σ ΔT {m.dT.sum():,.1f}   Σ ΔT_applied {m.dTa.sum():,.1f}")
     other = m[(m.region != SWEDEN) & (m.dTa.abs() > 1e-9)]
-    top = other.loc[other.dTa.abs().idxmax()]
-    print(f"   other hub-years whose T_applied moves: {len(other)}, largest "
-          f"{top.sector} {top.region} {top.time} {top.dTa:+.3f}")
+    if len(other):
+        top = other.loc[other.dTa.abs().idxmax()]
+        print(f"   other hub-years whose T_applied moves: {len(other)}, largest "
+              f"{top.sector} {top.region} {top.time} {top.dTa:+.3f}")
+    else:
+        print("   other hub-years whose T_applied moves: none")
     sw = m[(m.region == SWEDEN) & (m.sector == "Cathode") & m.time.isin(SW_YRS)]
     cols = ["time", "U_base", "T_base", "T_applied_base", "label_base", "T_new",
             "T_applied_new", "label_new", "icsg_aggregate"]     # the last: #67 ledgers only
@@ -227,7 +230,8 @@ def attribution(j: pd.DataFrame) -> None:
         print(_top(x, 6, cols))
 
 
-def main(base: str, new: str, v_base: int, v_new: int) -> None:
+def load(base: str, new: str):
+    """Both runs' edges and sum rows, their chains printed, and the common-set frame."""
     acc = AccountingStructure.load(id=load_config().pipeline.acc_id,
                                    storage_dir=str(ROOT / "acc"))
     ei = expand_edge_index(acc.edge_index, acc.node_index)
@@ -243,7 +247,11 @@ def main(base: str, new: str, v_base: int, v_new: int) -> None:
     j = S[base][k + ["region", "label", "c", "z2"]].merge(S[new][k + ["c", "z2"]], on=k,
                                                          suffixes=("_base", "_new"))
     j["dz2"] = j.z2_new - j.z2_base
+    return E, S, j
 
+
+def main(base: str, new: str, v_base: int, v_new: int) -> None:
+    E, S, j = load(base, new)
     netting(v_base, v_new)
     sweden(E, j, base, new)
     singapore(j, base)

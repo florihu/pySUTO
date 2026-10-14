@@ -66,6 +66,22 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
 
 # OPEN (2026-09-16, out of Round L)
 
+## #75 MEASURED 2026-10-13 — FAILS ON ONE CLAUSE (#73 semis use), fix ticket #76; every other item holds
+
+`diag/scandinavia-split-measure`, run `opt_20261013_122432_24e811b7` vs `opt_20261013_095846_46ece808`, REP
+`docs/rep/analysis_opt_20261013_122432_24e811b7_20261013_issue73-74-scandinavia-split.md`;
+`scripts/explo/issue75_scandinavia_split_diag.py`. icsg v14, baci v18, trade_shares v32. Vs
+`opt_20261013_095846_46ece808`: #74 fixed (Sweden's `Ore→SXEW` 307.8 → 0.0 kt CC over 1996–2003, ROW →
+Sweden MESC 2001 |z| 15.7 → 0.01); ROW 2004 anode/concentrate/mine totals fall by exactly the dropped
+rows and ROW 2004 sum-row z² 26,099 → 609; **but ROW's semis use does not fall**: the network imputer
+refills ROW's domestic semis leg, which the fan now leaves at 0 (2004 model prior 1,396 → 1,404, posterior
+1,498 → 1,680 kt CC; 1995–2004 posterior above the ICSG fan 2,434 → 4,500 kt CC). Common-set sum-row z²
+−6.16 % and mass moved −3.56 % vs `opt_20261013_095846_46ece808`, mostly ROW's refinery chain (−67,883):
+its refined cathode, deleted on the base (1,897 kt CC over 1995–2004), now lands on that imputed leg.
+Δz² rises vs `opt_20261013_095846_46ece808`: Zambia +2,082, Uzbekistan +1,107. **Merged 2026-10-14 over
+the failed clause by the maintainer's decision** (ADR 0043 precedent); `opt_20261013_122432_24e811b7` is the
+reference chain. #76 decides the zero-weight fan leg.
+
 ## #73 + #74 BUILT 2026-10-13 — NOT MEASURED (#75): an ICSG aggregate row is split to its declared member
 
 `fix/scandinavia-aggregate-allocation`. `icsg_clean.split_aggregates()` (ADR 0032 amendment) splits
