@@ -737,7 +737,7 @@ Posterior std and confidence interval:
 
 $$\sigma_{a^*,i}(t) = \sqrt{\max(\sigma^2_{a^*,i}(t), 0)}, \qquad [\text{lower}_i,\, \text{upper}_i] = \big[a^*_i(t) - z\,\sigma_{a^*,i}(t),\; a^*_i(t) + z\,\sigma_{a^*,i}(t)\big], \qquad z = \Phi^{-1}(1 - \alpha/2),$$
 
-with `lower` clipped at 0 on edges that carry an ADR 0039 lower-bound row (the structural `l = 0`) and nowhere else: the `ConstraintRun`'s `l` / `u` hold the prior box and the zero pin, which reach the feasibility probe, not the QP.
+with `lower` clipped at the bound row's own `l` on edges that carry an ADR 0039 lower-bound row and nowhere else (block path): the `ConstraintRun`'s `l` / `u` hold the prior box and the zero pin, which reach the feasibility probe, not the QP.
 
 ##### Hard rows and the `Σ_c^full` block structure
 
@@ -748,9 +748,9 @@ with `lower` clipped at 0 on edges that carry an ADR 0039 lower-bound row (the s
 The formula holds for equality constraints; the QP also has hard **inequalities** (`nonneg` cone: the ADR 0039 lower bounds and the ratio bands). The posterior is the QP's linearisation at its active set at `a*(t)` ([ADR 0044](docs/adr/0044-the-posterior-is-the-qps-linearisation-at-its-active-set.md)):
 
 - a hard inequality row **binds** when `G·a* − c ≥ −bind_tol` (`1e-6` kt), read from `OptimResult.residuals`;
-- a binding lower bound **pins** its edge: `σ²_a → 0` in `S(t)` and `σ_a* = 0` (a zero-width interval at 0), instead of adding a row;
+- a binding lower bound **pins** its edge (**bound-active**): `σ²_a → 0` in `S(t)` and `σ_a* = 0` (a zero-width interval at the bound), instead of adding a row; the mask is persisted as `bound_active`;
 - a binding band enters as a hard equality; slack bounds and bands drop out;
-- rows left without a live (unpinned) edge are dropped, and hard rows linearly dependent on the others (closed balance loops, a band's two rows at `0 = 0`) are dropped after a pivoted Cholesky of the unit-diagonal hard block `G_h·diag(σ²)·G_hᵀ` (`rank_tol`), so `S(t)` stays non-singular with every kept hard row at exactly zero σ_c.
+- rows left without a live (unpinned) edge are dropped, and hard rows linearly dependent on the others over the live edges (closed balance loops, a band's two rows at `0 = 0`) are dropped after a pivoted Cholesky of the unit-diagonal Gram `G_h·G_hᵀ` (`rank_tol`; unweighted, since a σ²-weighted Gram makes rows that differ only on low-σ edges look parallel), so `S(t)` stays non-singular with every kept hard row at exactly zero σ_c.
 
 Per year the sidecar records `n_bound_active`, `n_bands_binding`, `n_hard_dependent` and `n_rows_kept`. The full-G (legacy) path has no active set and warns when hard inequality rows are present.
 

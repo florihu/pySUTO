@@ -56,11 +56,13 @@ def _unc():
         "1995": SimpleNamespace(sigma_a_star=np.array([1.0, 1.0, 0.5]),
                                 lower=np.array([0.0, 2.5, 2.0]),
                                 upper=np.array([4.0, 6.5, 4.0]),
-                                cols_t=np.array([0, 1, 2])),
+                                cols_t=np.array([0, 1, 2]),
+                                bound_active=np.array([False, False, False])),
         "1996": SimpleNamespace(sigma_a_star=np.array([2.0, 0.0, 1.0]),
                                 lower=np.array([2.0, 0.0, 7.0]),
                                 upper=np.array([10.0, 0.0, 11.0]),
-                                cols_t=np.array([3, 4, 5])),
+                                cols_t=np.array([3, 4, 5]),
+                                bound_active=np.array([False, True, False])),
     }
     return SimpleNamespace(method="kalman", alpha=0.05, per_timestep=ts)
 
@@ -148,17 +150,17 @@ def test_quadrant_kappa_cut_is_inclusive():
     assert list(quadrant([0.5, 0.4999], [0.0, 0.0])) == ["confirmed", "prior-carried"]
 
 
-def test_bound_active_needs_a_lower_bound_row_and_zero_posterior(frame):
-    # e4 has a bound row and a* = 0; e1 has a bound row but a* = 4.5;
-    # e3 has a* = 6 and no row.
+def test_bound_active_is_stage5s_persisted_mask(frame):
     np.testing.assert_array_equal(frame["bound_active"].to_numpy(),
                                   [False, False, False, False, True, False])
 
 
-def test_bound_active_uses_the_runs_bind_tol():
-    d = UncPropStatsDiagnostic(_unc(), _opt(), _cr(), conditioning={"bind_tol": 5.0})
-    f = d.edge_frame().set_index("edge_id")
-    assert f.loc[1, "bound_active"] and f.loc[4, "bound_active"]     # a* = 4.5 and 0
+def test_no_persisted_mask_means_nothing_pinned():
+    unc = _unc()
+    for ts in unc.per_timestep.values():
+        ts.bound_active = None                                      # the full-G path
+    f = UncPropStatsDiagnostic(unc, _opt(), _cr()).edge_frame()
+    assert not f["bound_active"].any()
 
 
 def test_prior_classes(frame):

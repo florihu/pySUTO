@@ -541,9 +541,12 @@ year's edges: a variance-weighted mean of `κ`, so a few flat-σ edges dominate 
 _Avoid_: "mean shrinkage".
 
 **Active set** — the hard inequality rows (lower bounds, ratio bands) that bind at `a*` in one
-year. Stage 5 linearises the QP there: a binding lower bound pins its edge (**bound-active**,
-`σ_a* = 0`), a binding band acts as an equality, and a slack row carries no information about the
-posterior. _Avoid_: counting the mass balances in it — equalities always hold.
+year; the posterior is the QP's linearisation there.
+_Avoid_: "active constraints", "binding constraints" for the mass balances — equalities always hold.
+
+**Bound-active** — an edge whose lower bound is in the active set; its posterior is pinned at the
+bound (`σ_a* = 0`).
+_Avoid_: "deleted", "at zero" — a signed edge at zero is not bound-active.
 
 **Prior class** — where an edge's prior comes from, one of four: **from a feed** (a data feed
 covers the edge), **imputed** (a Stage-2 imputer wrote it), **flat** (no information of its own:

@@ -18,9 +18,9 @@ One row per edge × year of a persisted ``UncPropResult``, joined to the opt run
   ``"all"`` when no imputation run is supplied;
 * ``quadrant``     — prior-carried / confirmed / overruled / unexplained move,
   cut at :data:`KAPPA_CUT` and :data:`Z_CUT`;
-* ``bound_active`` — the edge has an ADR 0039 lower-bound row and ``a* ≤`` the
-  run's ``bind_tol`` — exactly the edges Stage 5 pinned (σ_a* = 0) in its
-  active set.
+* ``bound_active`` — the edges Stage 5 pinned (σ_a* = 0) because their lower
+  bound binds at ``a*``, read from the persisted active set (all ``False``
+  where Stage 5 recorded none: the full-G path).
 """
 
 from __future__ import annotations
@@ -86,15 +86,6 @@ def quadrant(kappa, z) -> np.ndarray:
     out = out.astype(object)
     out[np.isnan(kappa) | np.isnan(az)] = ""
     return out
-
-
-def _lower_bound_cols(constraint_run, lower_bound_mask) -> np.ndarray:
-    """Global edge columns that carry an ADR 0039 lower-bound row (the rows of
-    ``lower_bound_mask``, each with a single nonzero in ``G``)."""
-    rows = np.flatnonzero(lower_bound_mask)
-    if rows.size == 0:
-        return np.zeros(0, dtype=np.int64)
-    return np.unique(constraint_run.G.tocsr()[rows].tocoo().col).astype(np.int64)
 
 
 class UncPropStatsDiagnostic:
@@ -164,19 +155,10 @@ class UncPropStatsDiagnostic:
         if self._frame_cache is not None:
             return self._frame_cache
 
-        # Local import to keep diag at the leaf of the import graph (as SolverDiag):
-        # Stage 5's own lower-bound rule and default tolerance, so the flag marks
-        # exactly the edges its active set pinned.
-        from pysuto.uncprop import DEFAULT_BIND_TOL, KalmanUncProp
-
-        E        = int(self._cr.G.shape[1])
-        a0       = np.asarray(self._cr.a0, dtype=float)
-        sigma_a  = self._sigma_a()
-        classes  = self._prior_classes()
-        bind_tol = float(self._cond.get("bind_tol", DEFAULT_BIND_TOL))
-        has_lb   = np.zeros(E, dtype=bool)
-        has_lb[_lower_bound_cols(self._cr,
-                                 KalmanUncProp._lower_bound_mask(self._cr.row_meta))] = True
+        E       = int(self._cr.G.shape[1])
+        a0      = np.asarray(self._cr.a0, dtype=float)
+        sigma_a = self._sigma_a()
+        classes = self._prior_classes()
 
         parts = []
         for t, ts in self._unc.per_timestep.items():
@@ -207,6 +189,9 @@ class UncPropStatsDiagnostic:
                 "sigma_a_star": np.asarray(ts.sigma_a_star, dtype=float),
                 "lower":        np.asarray(ts.lower, dtype=float),
                 "upper":        np.asarray(ts.upper, dtype=float),
+                "bound_active": (np.asarray(ts.bound_active, dtype=bool)
+                                 if getattr(ts, "bound_active", None) is not None
+                                 else np.zeros(cols.size, dtype=bool)),
             }))
         f = pd.concat(parts, ignore_index=True)
 
@@ -217,7 +202,6 @@ class UncPropStatsDiagnostic:
         cols = f["edge_id"].to_numpy()
         f["prior_class"]  = classes[cols] if classes is not None else "all"
         f["quadrant"]     = quadrant(f["kappa"], f["z"])
-        f["bound_active"] = has_lb[cols] & (f["a_post"].to_numpy() <= bind_tol)
 
         em = getattr(self._acc, "edge_meta", None) if self._acc is not None else None
         if em is not None:

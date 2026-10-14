@@ -76,9 +76,10 @@ DEFAULT_SIGMA_A_FLOOR_REL      = 1e-5
 DEFAULT_SIGMA_A_CEILING_FACTOR = 1e5
 DEFAULT_SIGMA_C_FLOOR          = 1e-9
 
-# Active set (#27). A hard inequality row binds when G·a* − c ≥ −bind_tol (kt):
-# Clarabel leaves a binding row ~1e-8 slack, a slack one far more. rank_tol is
-# the pivot tolerance of the unit-diagonal hard block's pivoted Cholesky.
+# Active set (#27). A hard inequality row binds when G·a* − c ≥ −bind_tol (kt,
+# 1 kg). Clarabel's a* has no clean gap there (thousands of bound edges sit in
+# [1e-7, 1e-6) kt), so a measure reports the pinned set's sensitivity to it.
+# rank_tol is the pivot tolerance of the unit-diagonal Gram of the hard rows.
 DEFAULT_BIND_TOL               = 1e-6
 DEFAULT_RANK_TOL               = 1e-10
 
@@ -96,10 +97,21 @@ class UncPropTimestep:
     (E,) with ``cols_t = None``."""
     timestep:     str
     sigma_a_star: np.ndarray            # posterior std (cols_t or E,)
-    lower:        np.ndarray            # a* − z·σ, clipped to l
-    upper:        np.ndarray            # a* + z·σ, clipped to u
+    lower:        np.ndarray            # a* − z·σ; block path: clipped at the bound's l
+    upper:        np.ndarray            # a* + z·σ; legacy path: clipped to u
     diagnostics:  dict                  # trace_prior / trace_post / max_resid_hard / psd_min_diag
     cols_t:       Optional[np.ndarray] = None  # global edge cols (block path)
+    bound_active: Optional[np.ndarray] = None  # pinned by a binding lower bound (block path)
+
+
+@dataclass
+class _PeriodReduction:
+    """One period reduced at the QP's active set
+    (:meth:`KalmanUncProp._reduce_at_active_set`)."""
+    keep:         np.ndarray            # bool (m_t,) — the rows of S_t
+    bound_active: np.ndarray            # bool (n_t,) — lower bound binds: σ_a² → 0
+    lower_bound:  np.ndarray            # (n_t,) — the bound row's l, NaN without one
+    counts:       dict                  # JSON-safe diagnostics
 
 
 @dataclass
@@ -339,10 +351,9 @@ class KalmanUncProp(BaseUncProp):
 
             cols_t = const_run.edge_cols_by_t[t_label]
             rows_t = np.where(row_time == t_label)[0]
-            self._check_partition(t_label, cols_t, rows_t,
-                                  getattr(opt_t, "cols_t", None),
-                                  getattr(opt_t, "rows_t", None))
+            self._check_partition(t_label, cols_t, rows_t, opt_t)
             G_t    = const_run.G_blocks[t_label].tocsr()
+            c_t    = np.asarray(const_run.timestep_data[t_label]["c"], dtype=float)[rows_t]
 
             sigma_a2_t = sigma_a2[cols_t]
 
@@ -354,38 +365,41 @@ class KalmanUncProp(BaseUncProp):
                 raw_sc, floor=self.sigma_c_floor, hard_mask=hm_t,
             )
 
-            keep, pinned, has_lb, counts = self._active_set(
-                G_t, sigma_a2_t, hm_t, cone[rows_t], lower_bound[rows_t],
+            red = self._reduce_at_active_set(
+                G_t, c_t, sigma_a2_t, hm_t, cone[rows_t], lower_bound[rows_t],
                 np.asarray(opt_t.residuals, dtype=float),
             )
-            s2_t = np.where(pinned, 0.0, sigma_a2_t)
-            live = np.flatnonzero(s2_t > 0.0)
-            G_k  = G_t[keep].tocsc()
+            sigma_a2_eff_t = np.where(red.bound_active, 0.0, sigma_a2_t)
+            live = np.flatnonzero(sigma_a2_eff_t > 0.0)
+            G_k  = G_t[red.keep].tocsc()
 
             d_t = np.zeros(cols_t.size, dtype=np.float64)
             if G_k.shape[0] and live.size:
-                S_t = self._build_S(G_k, s2_t, sc_t[keep] ** 2)
+                S_t = self._build_S(G_k, sigma_a2_eff_t, sc_t[red.keep] ** 2)
                 d_t[live] = self._marginal_diagonal_block(S_t, G_k[:, live].tocsc(),
                                                           live.size)
 
-            var_post_t = s2_t * (1.0 - s2_t * d_t)
+            var_post_t = sigma_a2_eff_t * (1.0 - sigma_a2_eff_t * d_t)
             np.clip(var_post_t, 0.0, None, out=var_post_t)
             sigma_a_star_t = np.sqrt(var_post_t)
 
             # Year-local output (REP §8.2): store only this period's cols_t
             # posterior. F_opt is already the year-local slice from the solver.
-            # Clip at the structural zero only: l / u carry the prior box and
-            # the zero pin, which reach the feasibility probe, not the QP.
+            # Clip at the bound row's own l only: ConstraintRun.l / u carry the
+            # prior box and the zero pin, which reach the feasibility probe, not
+            # the QP. A pinned edge within bind_tol below l keeps lower ≤ a*.
             half_width_t = z * sigma_a_star_t
             lower_t = opt_t.F_opt - half_width_t
-            lower_t = np.where(has_lb, np.maximum(lower_t, 0.0), lower_t)
+            has_lb  = ~np.isnan(red.lower_bound)
+            lower_t[has_lb] = np.minimum(
+                np.maximum(lower_t[has_lb], red.lower_bound[has_lb]), opt_t.F_opt[has_lb],
+            )
             upper_t = opt_t.F_opt + half_width_t
 
             # Per-t diagnostics: hard-row residual on the t-block only.
             em_t = equality_mask[rows_t]
-            c_t_full = np.asarray(const_run.timestep_data[t_label]["c"])
             if em_t.any():
-                resid_t = G_t @ opt_t.F_opt - c_t_full[rows_t]
+                resid_t = G_t @ opt_t.F_opt - c_t
                 max_resid_hard = float(np.abs(resid_t[em_t]).max())
             else:
                 max_resid_hard = 0.0
@@ -396,7 +410,7 @@ class KalmanUncProp(BaseUncProp):
                 "trace_post":     float(np.square(sigma_a_star_t).sum()),
                 "max_resid_hard": max_resid_hard,
                 "psd_min_diag":   float(sigma_a_star_t.min()),
-                **counts,
+                **red.counts,
             }
 
             per_timestep[t_label] = UncPropTimestep(
@@ -406,6 +420,7 @@ class KalmanUncProp(BaseUncProp):
                 upper        = upper_t,
                 diagnostics  = diagnostics,
                 cols_t       = cols_t,
+                bound_active = red.bound_active,
             )
 
             trace_contraction = (1.0 - diagnostics["trace_post"] / diagnostics["trace_prior"]
@@ -421,7 +436,7 @@ class KalmanUncProp(BaseUncProp):
                 trace_contraction,
                 time.perf_counter() - t_start,
                 live.size, G_t.shape[1], G_k.shape[0], G_t.shape[0],
-                counts["n_bound_active"], counts["n_hard_dependent"],
+                red.counts["n_bound_active"], red.counts["n_hard_dependent"],
             )
 
         return UncPropResult(
@@ -439,70 +454,91 @@ class KalmanUncProp(BaseUncProp):
         """Rows that are ADR 0039 lower bounds (read from ``type`` / ``variant``)."""
         if not {"type", "variant"} <= set(row_meta.columns):
             return np.zeros(len(row_meta), dtype=bool)
-        return ((row_meta["type"] == "bound") & (row_meta["variant"] == "lower")).to_numpy()
+        is_lower = (row_meta["type"] == "bound") & (row_meta["variant"] == "lower")
+        return is_lower.to_numpy()
 
     @staticmethod
-    def _check_partition(t_label, cols_t, rows_t, opt_cols, opt_rows) -> None:
+    def _check_partition(t_label: str, cols_t: np.ndarray, rows_t: np.ndarray,
+                         opt_t) -> None:
         """The opt result must be year-local over this period's own partition:
         its ``residuals`` are read row by row against ``rows_t``."""
-        if opt_cols is None or opt_rows is None:
+        if opt_t.cols_t is None or opt_t.rows_t is None:
             raise ValueError(
                 f"t={t_label}: the opt result has no cols_t / rows_t but the "
                 "ConstraintRun is partitioned — re-solve on the block path"
             )
-        if not (np.array_equal(np.asarray(opt_cols), np.asarray(cols_t))
-                and np.array_equal(np.asarray(opt_rows), np.asarray(rows_t))):
+        if not (np.array_equal(np.asarray(opt_t.cols_t), np.asarray(cols_t))
+                and np.array_equal(np.asarray(opt_t.rows_t), np.asarray(rows_t))):
             raise ValueError(
                 f"t={t_label}: the opt result's cols_t / rows_t differ from the "
                 "ConstraintRun's partition — the two runs do not belong together"
             )
 
-    def _active_set(self, G_t, sigma_a2_t, hard, cone, lower_bound, resid):
-        """Reduce one period to the QP's active set at ``a*``.
+    def _reduce_at_active_set(
+        self,
+        G_t:         sp.csr_matrix,
+        c_t:         np.ndarray,
+        sigma_a2_t:  np.ndarray,
+        hard:        np.ndarray,
+        cone:        np.ndarray,
+        lower_bound: np.ndarray,
+        resid:       np.ndarray,
+    ) -> _PeriodReduction:
+        """Reduce one period at the QP's active set at ``a*``.
 
-        Returns ``(keep, pinned, has_lb, counts)``: ``keep`` — the rows of
-        ``S_t`` (hard equalities, soft rows, binding bands; minus rows left
-        without a live edge and hard rows dependent on the others); ``pinned`` —
-        edges whose lower bound binds (σ_a² → 0, so σ_a* = 0); ``has_lb`` — edges
-        with a lower-bound row at all (structural ``l = 0``); ``counts`` — JSON-safe
-        diagnostics.
+        Kept rows: hard equalities, soft rows and binding bands, minus rows left
+        without a live edge and hard rows linearly dependent on the others. A
+        binding lower bound adds no row: it pins its edge (σ_a² → 0, σ_a* = 0).
         """
         G_t     = G_t.tocsr()
         nonneg  = hard & (cone == "nonneg")
         binding = nonneg & (resid >= -self.bind_tol)
 
-        pinned = np.zeros(G_t.shape[1], dtype=bool)
-        pinned[G_t[np.flatnonzero(binding & lower_bound)].tocoo().col] = True
-        has_lb = np.zeros(G_t.shape[1], dtype=bool)
-        has_lb[G_t[np.flatnonzero(lower_bound)].tocoo().col] = True
-        s2 = np.where(pinned, 0.0, sigma_a2_t)
+        bound_rows = np.flatnonzero(lower_bound)
+        bound_cols = G_t[bound_rows].tocoo()             # one nonzero per bound row
+        lower = np.full(G_t.shape[1], np.nan)
+        lower[bound_cols.col] = -c_t[bound_rows[bound_cols.row]]   # −a ≤ −l
+        bound_active = np.zeros(G_t.shape[1], dtype=bool)
+        bound_active[G_t[np.flatnonzero(binding & lower_bound)].tocoo().col] = True
+        live = ~bound_active & (sigma_a2_t > 0.0)
 
         keep = (hard & (cone == "zero")) | ~hard | (binding & ~lower_bound)
-        keep &= np.asarray(abs(G_t) @ (s2 > 0.0).astype(float)).ravel() > 0.0
-        dependent = self._dependent_hard_rows(G_t, s2, np.flatnonzero(keep & hard))
+        keep &= np.asarray(abs(G_t) @ live.astype(float)).ravel() > 0.0
+        dependent = self._dependent_hard_rows(G_t, live, np.flatnonzero(keep & hard))
         keep[dependent] = False
 
-        counts = {
-            "n_bound_active":   int(pinned.sum()),
-            "n_bands_binding":  int((binding & ~lower_bound).sum()),
-            "n_hard_dependent": int(dependent.size),
-            "n_rows_kept":      int(keep.sum()),
-        }
-        return keep, pinned, has_lb, counts
+        return _PeriodReduction(
+            keep         = keep,
+            bound_active = bound_active,
+            lower_bound  = lower,
+            counts       = {
+                "n_bound_active":   int(bound_active.sum()),
+                "n_bands_binding":  int((binding & ~lower_bound).sum()),
+                "n_hard_dependent": int(dependent.size),
+                "n_rows_kept":      int(keep.sum()),
+            },
+        )
 
-    def _dependent_hard_rows(self, G_t, s2, hard_rows) -> np.ndarray:
-        """Hard rows linearly dependent on the others (closed balance loops,
-        a band's two rows at 0 = 0): the rows past the numerical rank of a
-        pivoted Cholesky of ``G_h·diag(s2)·G_hᵀ`` scaled to unit diagonal.
-        Dropping them keeps ``S_t`` non-singular with every kept hard row at
-        exactly zero σ_c."""
+    def _dependent_hard_rows(self, G_t: sp.csr_matrix, live: np.ndarray,
+                             hard_rows: np.ndarray) -> np.ndarray:
+        """Hard rows linearly dependent on the others over the live edges (closed
+        balance loops, a band's two rows at 0 = 0): the rows past the numerical
+        rank of a pivoted Cholesky of the unit-diagonal Gram ``G_h·G_hᵀ``.
+
+        The Gram is unweighted on purpose: weighted by σ_a², rows that differ
+        only on low-σ edges look parallel and an exact pin would be lost. The
+        dense Gram is m_h² floats (≈ 280 MB for copper's ≈ 5,900 hard rows).
+        Dropping the dependent rows keeps ``S_t`` non-singular with every kept
+        hard row at exactly zero σ_c."""
         if hard_rows.size < 2:
             return np.zeros(0, dtype=np.int64)
-        G_h  = G_t[hard_rows]
-        S_hh = (G_h @ sp.diags(s2) @ G_h.T).toarray()
-        scale = 1.0 / np.sqrt(np.diag(S_hh))
-        _, piv, rank, _ = dpstrf(S_hh * scale[:, None] * scale[None, :],
-                                 lower=1, tol=self.rank_tol)
+        G_h  = G_t[hard_rows][:, np.flatnonzero(live)]
+        gram = (G_h @ G_h.T).toarray()
+        scale = 1.0 / np.sqrt(np.diag(gram))
+        _, piv, rank, info = dpstrf(gram * scale[:, None] * scale[None, :],
+                                    lower=1, tol=self.rank_tol)
+        if info < 0:
+            raise ValueError(f"dpstrf: argument {-info} is invalid")
         return np.sort(hard_rows[piv[rank:] - 1])
 
     def _marginal_diagonal_block(

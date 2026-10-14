@@ -128,6 +128,13 @@ class TestLivePortfolio:
         assert all(ts.diagnostics["n_hard_dependent"] == 1
                    for ts in unc.per_timestep.values())
 
+    def test_frame_bound_active_is_stage5s_pinned_set(self, diag, chain):
+        unc = chain[0]
+        f = diag.stats.edge_frame()
+        for t, ts in unc.per_timestep.items():
+            ft = f[f["year"] == t].set_index("edge_id").loc[ts.cols_t]
+            np.testing.assert_array_equal(ft["bound_active"].to_numpy(), ts.bound_active)
+
     def test_frame_kappa_matches_stage5_sigma(self, diag, chain):
         unc = chain[0]
         f = diag.stats.edge_frame()
