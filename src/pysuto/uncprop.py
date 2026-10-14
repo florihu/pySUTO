@@ -251,15 +251,15 @@ class KalmanUncProp(BaseUncProp):
                 diagnostics  = diagnostics,
             )
 
-            shrinkage = (1.0 - diagnostics["trace_post"] / diagnostics["trace_prior"]
-                         if diagnostics["trace_prior"] > 0.0 else 0.0)
+            trace_contraction = (1.0 - diagnostics["trace_post"] / diagnostics["trace_prior"]
+                                 if diagnostics["trace_prior"] > 0.0 else 0.0)
             logger.info(
-                "t=%s  σ_post: min=%.3e med=%.3e max=%.3e  shrinkage=%.3f  time=%.2fs",
+                "t=%s  σ_post: min=%.3e med=%.3e max=%.3e  trace_contraction=%.3f  time=%.2fs",
                 t_label,
                 float(sigma_a_star.min()),
                 float(np.median(sigma_a_star)),
                 float(sigma_a_star.max()),
-                shrinkage,
+                trace_contraction,
                 time.perf_counter() - t_start,
             )
 
@@ -283,7 +283,7 @@ class KalmanUncProp(BaseUncProp):
         invariant in :func:`pysuto.constraints.engine._partition_G_by_time`).
         Non-``t`` entries of ``sigma_a_star`` inherit the prior σ_a — same
         as the legacy "deactivated row" outcome where ``σ_c=SIGMA_C_INACTIVE``
-        makes d≈0 and shrinkage vanishes."""
+        makes d≈0 and the contraction vanishes."""
         _, sigma_a = condition_prior(
             const_run.a0, const_run.sigma_a,
             floor_abs      = self.sigma_a_floor_abs,
@@ -338,10 +338,11 @@ class KalmanUncProp(BaseUncProp):
                 max_resid_hard = float(np.abs(resid_t[em_t]).max())
             else:
                 max_resid_hard = 0.0
+            # Traces over this year's own edges (cols_t): adding the other
+            # years' untouched σ² would dilute the trace contraction ~n_t-fold.
             diagnostics = {
-                "trace_prior":    float(sigma_a2.sum()),
-                "trace_post":     float((sigma_a2.sum() - sigma_a2_t.sum())
-                                        + np.square(sigma_a_star_t).sum()),
+                "trace_prior":    float(sigma_a2_t.sum()),
+                "trace_post":     float(np.square(sigma_a_star_t).sum()),
                 "max_resid_hard": max_resid_hard,
                 "psd_min_diag":   float(sigma_a_star_t.min()),
             }
@@ -355,16 +356,16 @@ class KalmanUncProp(BaseUncProp):
                 cols_t       = cols_t,
             )
 
-            shrinkage = (1.0 - diagnostics["trace_post"] / diagnostics["trace_prior"]
-                         if diagnostics["trace_prior"] > 0.0 else 0.0)
+            trace_contraction = (1.0 - diagnostics["trace_post"] / diagnostics["trace_prior"]
+                                 if diagnostics["trace_prior"] > 0.0 else 0.0)
             logger.info(
-                "t=%s  σ_post: min=%.3e med=%.3e max=%.3e  shrinkage=%.3f  "
+                "t=%s  σ_post: min=%.3e med=%.3e max=%.3e  trace_contraction=%.3f  "
                 "time=%.2fs  (per-t: %d cols × %d rows)",
                 t_label,
                 float(sigma_a_star_t.min()),
                 float(np.median(sigma_a_star_t)),
                 float(sigma_a_star_t.max()),
-                shrinkage,
+                trace_contraction,
                 time.perf_counter() - t_start,
                 G_t.shape[1], G_t.shape[0],
             )

@@ -63,20 +63,20 @@ def main(opt_run_id: str, label: str = "") -> None:
     result = prop.compute(opt_run_id, alpha=ALPHA)
     uncprop_run_id = prop.persist(result, opt_run_id, label=label)
 
-    shrinkages = [
+    contractions = [
         1.0 - ts.diagnostics["trace_post"] / ts.diagnostics["trace_prior"]
         for ts in result.per_timestep.values()
         if ts.diagnostics["trace_prior"] > 0.0
     ]
-    mean_shrinkage = sum(shrinkages) / len(shrinkages) if shrinkages else 0.0
+    mean_contraction = sum(contractions) / len(contractions) if contractions else 0.0
     max_resid_hard = max(
         ts.diagnostics["max_resid_hard"] for ts in result.per_timestep.values()
     )
 
     _log.info(
-        "UncPropRun '%s' persisted under %s  (n_t=%d, mean_shrinkage=%.3f, max_resid_hard=%.3e)",
+        "UncPropRun '%s' persisted under %s  (n_t=%d, mean_trace_contraction=%.3f, max_resid_hard=%.3e)",
         uncprop_run_id, UNCPROP_DIR, len(result.per_timestep),
-        mean_shrinkage, max_resid_hard,
+        mean_contraction, max_resid_hard,
     )
     _log.info("=== init_uncertainty_propagation DONE ===")
 
