@@ -589,13 +589,14 @@ def test_a_490_row_lands_on_taiwan_under_the_registered_region_map(tmp_path):
     assert legs[["region_from", "region_to", "cc"]].values.tolist() == [["Chile", "Taiwan", 10.0]]
 
 
-def test_178_and_711_rows_land_on_dr_congo_and_south_africa_under_the_registered_region_map(
+def test_178_and_711_rows_land_on_dr_congo_and_south_africa_under_the_tracked_map(
         tmp_path):
     """BACI 178 "Congo" carries DR Congo's cathode and 711 "Southern African
     Customs Union" is South Africa's trade until BACI splits it in 2000 (#84)."""
     shutil.copyfile(CURRENT_CONC, tmp_path / "conc.xlsx")
-    pd.DataFrame({"Year": [2020, 1997], "Sector": [740311, 740311], "Region_from": [178, 711],
-                  "Region_to": [784, 380], "Value": [10.0, 5.0], "Unit": ["kt", "kt"]}) \
+    pd.DataFrame({"Year": [2020, 1997], "Sector": [740311, 740311],
+                  "Region_from": [178, 711], "Region_to": [784, 380],
+                  "Value": [10.0, 5.0], "Unit": ["kt", "kt"]}) \
       .to_csv(tmp_path / "values.csv", index=False)
     _, legs, _, r_of = load_root_trade(str(tmp_path), {("Cathode", "*"): 1.0})
     assert (r_of[178], r_of[711]) == ("Congo, D.R.", "South Africa")

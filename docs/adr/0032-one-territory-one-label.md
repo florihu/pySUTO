@@ -5,7 +5,7 @@
 silently skipped for 19 of Belgium's 30 years. Corrects the Round P.2 scope recorded in
 [TODO](../TODO.md). **Amended 2026-10-13 (#73, #74):** an ICSG aggregate row is split to its declared
 member by the handover year's shares, and its handover-year duplicate is dropped; see the amendment
-at the end. Built, not yet measured. **Amended 2026-10-15 (#85):** a yearbook that publishes a
+at the end. Built, not yet measured. **Amended 2026-10-15 (#85):** a vintage that publishes a
 territory under another territory's label is relabelled, and its rows are dropped in the years the
 territory reports itself; see the second amendment. Built, to be measured by #86.
 
@@ -209,25 +209,26 @@ gap: its allocated intake and production are not observations of a hub's balance
 - *Drop only the 2004 duplicate.* That fixes #73 and leaves #74.
 - *Year-specific shares from another source.* None is in the repo.
 
-## Amendment (#85, 2026-10-15): one yearbook's label for another territory
+## Amendment (#85, 2026-10-15): one vintage's label for another territory
 
 The 2005 yearbook publishes DR Congo as `Congo`. Its mining footnote 3/ reads "SXEW production counted
 in Congo only at the mine level, as the ore is exported to Zambia for treatment", which is Katanga, not
 Brazzaville. The parse maps `Congo` to `Congo Rep.`, the label every later yearbook uses for Brazzaville,
 and the region map sends that to ROW. So DR Congo had no ICSG rows in 1995–2003, and ROW carried its
-mine, smelter and SX-EW output: 303.2, 266.9 and 257.6 kt CC over those nine years in icsg v14.
+mined concentrate, smelter intake and SX-EW cathode: 303.2, 266.9 and 257.6 kt CC over those nine
+years in icsg v14.
 
-**Decision.** `icsg_clean.relabel_yearbooks` maps `(label, yearbook)` to the territory's own label,
+**Decision.** `icsg_clean.relabel_by_vintage` maps `(label, vintage)` to the territory's own label,
 before anything keys on `Region`; `('Congo Rep.', 2005) → 'Congo, D.R.'` is the one declaration. A
-territory merge (above) cannot do it, because the label is right in other yearbooks.
+territory merge (above) cannot do it, because the label is right in other vintages.
 
 **The overlap year is dropped whole.** In 2004 both yearbooks publish DR Congo, and they type its
 refined output differently: SX-EW cathode in the 2005 yearbook, refinery output in the 2014 one. The
 per-series dedup cannot see that overlap, so a plain rename would book the 20 kt twice (ADR 0036's
 merge-or-replace question). The relabelled rows are therefore dropped in every year the territory
-reports under its own label in another yearbook, here 2004's three rows.
+reports under its own label in another vintage, here 2004's three rows.
 
-**Raises** on a declaration that matches no rows, and on a yearbook carrying both labels.
+**Raises** on a declaration that matches no rows, and on a vintage carrying both labels.
 
 **Left as found.** The 2005 yearbook books DR Congo's low-grade electrowon cathode in both its smelter
 and its SX-EW tables (33.4, 43.8, … kt). The parse keeps both, as it did under ROW; #86 reports how DR

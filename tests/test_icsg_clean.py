@@ -16,7 +16,7 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..",
                                 "scripts", "parse", "icsg_parse"))
 from icsg_clean import (aggregate_declaration, apply_input_divisors,  # noqa: E402
-                        merge_territories, refining_anode_rows, relabel_yearbooks,
+                        merge_territories, refining_anode_rows, relabel_by_vintage,
                         secondary_excess, split_aggregates, territory_aliases)
 
 _COLS = ["Region", "Type", "Year", "Value", "Process", "Supply_Use", "Unit",
@@ -376,30 +376,30 @@ def test_a_reversed_year_range_raises(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# #85: the 2005 yearbook's "Congo" is DR Congo, every later yearbook's
+# #85: the 2005 yearbook's "Congo" is DR Congo, every later vintage's
 # "Congo Rep." is Brazzaville, and the parse maps both to "Congo Rep."
 # ---------------------------------------------------------------------------
 
 CONGO = {("Congo Rep.", 2005): "Congo, D.R."}
 
 
-def _yb(region, proc, typ, value, year, yearbook, su="Supply"):
+def _vintage_row(region, proc, typ, value, year, vintage, su="Supply"):
     return dict(_row(region, proc, typ, value, year=year, su=su),
-                Year_loaded_from_file=yearbook)
+                Year_loaded_from_file=vintage)
 
 
 def _congo():
     """DR Congo's 2003-2004 as the 2005 yearbook books it ("Congo"), its 2004
     as the 2014 yearbook books it, and Brazzaville's 2018 from the 2025 one."""
     return _frame([
-        _yb("Congo Rep.",  "Mining",   "Concentrate", 29.1,  2003, 2005),
-        _yb("Congo Rep.",  "SXEW",     "Cathode",     8.0,   2003, 2005),
-        _yb("Congo Rep.",  "Mining",   "Concentrate", 33.8,  2004, 2005),
-        _yb("Congo Rep.",  "SXEW",     "Cathode",     20.0,  2004, 2005),
-        _yb("Congo Rep.",  "Smelting", "Primary",     20.0,  2004, 2005),
-        _yb("Congo, D.R.", "Mining",   "Concentrate", 33.1,  2004, 2014),
-        _yb("Congo, D.R.", "Refining", "Primary",     20.0,  2004, 2014),
-        _yb("Congo Rep.",  "SXEW",     "Cathode",     16.0,  2018, 2025),
+        _vintage_row("Congo Rep.",  "Mining",   "Concentrate", 29.1,  2003, 2005),
+        _vintage_row("Congo Rep.",  "SXEW",     "Cathode",     8.0,   2003, 2005),
+        _vintage_row("Congo Rep.",  "Mining",   "Concentrate", 33.8,  2004, 2005),
+        _vintage_row("Congo Rep.",  "SXEW",     "Cathode",     20.0,  2004, 2005),
+        _vintage_row("Congo Rep.",  "Smelting", "Primary",     20.0,  2004, 2005),
+        _vintage_row("Congo, D.R.", "Mining",   "Concentrate", 33.1,  2004, 2014),
+        _vintage_row("Congo, D.R.", "Refining", "Primary",     20.0,  2004, 2014),
+        _vintage_row("Congo Rep.",  "SXEW",     "Cathode",     16.0,  2018, 2025),
     ])
 
 
@@ -407,7 +407,7 @@ def test_the_2005_yearbooks_congo_is_dr_congo():
     """Regression (#85): its mining footnote says the ore "is exported to Zambia
     for treatment", yet DR Congo had no ICSG rows in 1995-2003 and ROW carried
     its mine, smelter and SX-EW output."""
-    out = relabel_yearbooks(_congo(), CONGO)
+    out = relabel_by_vintage(_congo(), CONGO)
     assert _value(out, "Congo, D.R.", "SXEW", "Cathode", 2003).item() == 8.0
     assert _value(out, "Congo Rep.", "Mining", "Concentrate", 2003).empty
     assert _value(out, "Congo Rep.", "SXEW", "Cathode", 2018).item() == 16.0
@@ -416,20 +416,20 @@ def test_the_2005_yearbooks_congo_is_dr_congo():
 def test_a_year_the_territory_reports_itself_enters_once():
     """2004 is published by both yearbooks with DR Congo's refined output typed
     SX-EW in one and refinery in the other, so a per-series dedup keeps both."""
-    out = relabel_yearbooks(_congo(), CONGO)
+    out = relabel_by_vintage(_congo(), CONGO)
     y04 = out[out.Year == 2004]
     assert (y04.Year_loaded_from_file == 2014).all()
     assert sorted(y04.Value) == [20.0, 33.1]
 
 
-def test_a_yearbook_carrying_both_labels_raises():
-    df = pd.concat([_congo(), _frame([_yb("Congo, D.R.", "Mining", "Concentrate",
-                                          30.0, 2002, 2005)])], ignore_index=True)
+def test_a_vintage_carrying_both_labels_raises():
+    extra = _vintage_row("Congo, D.R.", "Mining", "Concentrate", 30.0, 2002, 2005)
+    df = pd.concat([_congo(), _frame([extra])], ignore_index=True)
     with pytest.raises(ValueError, match="both"):
-        relabel_yearbooks(df, CONGO)
+        relabel_by_vintage(df, CONGO)
 
 
 def test_a_relabel_matching_no_rows_raises():
     df = _congo()
     with pytest.raises(ValueError, match="no Congo Rep. rows"):
-        relabel_yearbooks(df[df.Year_loaded_from_file != 2005], CONGO)
+        relabel_by_vintage(df[df.Year_loaded_from_file != 2005], CONGO)

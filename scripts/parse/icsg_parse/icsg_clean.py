@@ -13,11 +13,11 @@ ROW_BUCKET = 'ROW'
 # Hand-authored: which root region an ICSG aggregate row contains, and in which
 # years; the year after is the handover year that publishes both (#67, #73, #74).
 AGGREGATES_CSV = 'data/input/params/icsg_aggregates/current/params.csv'
-# A label one yearbook uses for another territory → that territory's own label
+# A label one vintage uses for another territory → that territory's own label
 # (#85).  The 2005 yearbook's "Congo" is DR Congo: its mining footnote 3/ says
 # the ore "is exported to Zambia for treatment".  The parse maps it to
-# "Congo Rep.", which every later yearbook uses for Brazzaville.
-YEARBOOK_LABELS = {('Congo Rep.', 2005): 'Congo, D.R.'}
+# "Congo Rep.", which every later vintage uses for Brazzaville.
+VINTAGE_LABELS = {('Congo Rep.', 2005): 'Congo, D.R.'}
 
 
 RENAME_TOT = {'Smelting': 'Primary',
@@ -119,30 +119,31 @@ def merge_territories(df, aliases):
               .reset_index(drop=True))
 
 
-def relabel_yearbooks(df, labels=YEARBOOK_LABELS):
-    """Give one yearbook's rows of a mislabelled territory its own label (#85).
+def relabel_by_vintage(df, labels):
+    """Give one vintage's rows of a mislabelled territory its own label (#85).
 
-    ``labels`` maps ``(label, yearbook)`` to the territory's own label.  The
+    ``labels`` maps ``(label, vintage)`` to the territory's own label.  The
     relabelled rows are dropped in every year the territory reports under its
-    own label in another yearbook: the two yearbooks type the same copper
-    differently (DR Congo's 2004 refined output is SX-EW cathode in 2005,
-    refinery output in 2014), so the per-series dedup cannot see the overlap
-    and a plain rename would add both (ADR 0036).  A label matching no rows,
-    or a yearbook carrying both labels, raises.  Runs before anything keys on
-    ``Region``, like ``merge_territories`` (ADR 0032).
+    own label in another vintage: the two vintages type the same copper
+    differently (DR Congo's 2004 refined output is SX-EW cathode in the 2005
+    yearbook, refinery output in the 2014 one), so the cross-vintage dedup,
+    which keys on the type, cannot see the overlap and a plain rename would
+    add both (ADR 0036).  A label matching no rows, or a vintage carrying both
+    labels, raises.  Runs before anything keys on ``Region``, like
+    ``merge_territories`` (ADR 0032).
     """
     df = df.copy()
-    for (label, yearbook), own in labels.items():
-        book = df['Year_loaded_from_file'] == yearbook
+    for (label, vintage), own in labels.items():
+        book = df['Year_loaded_from_file'] == vintage
         rows = book & (df['Region'] == label)
         if not rows.any():
-            raise ValueError(f"no {label} rows in the {yearbook} yearbook to relabel")
+            raise ValueError(f"no {label} rows in the {vintage} vintage to relabel")
         if (book & (df['Region'] == own)).any():
-            raise ValueError(f"the {yearbook} yearbook carries both {label} and {own}")
+            raise ValueError(f"the {vintage} vintage carries both {label} and {own}")
         reported = df.loc[~book & (df['Region'] == own), 'Year']
         dup = rows & df['Year'].isin(reported)
         years = df.loc[rows & ~dup, 'Year']
-        print(f"{label} ({yearbook} yearbook) is {own}: {int((rows & ~dup).sum())} rows "
+        print(f"{label} ({vintage} vintage) is {own}: {int((rows & ~dup).sum())} rows "
               f"for {years.min()}–{years.max()} relabelled; {int(dup.sum())} rows in "
               f"{sorted(set(df.loc[dup, 'Year']))} dropped, {own} reports them itself")
         df.loc[rows, 'Region'] = own
@@ -366,8 +367,8 @@ def cl(raw):
         m = (df['Process'] == process) & (df['Type'] == 'Total')
         df.loc[m, 'Type'] = new_name
 
-    #2a a yearbook's mislabelled territory gets its own label (#85)
-    df = relabel_yearbooks(df)
+    #2a a vintage's mislabelled territory gets its own label (#85)
+    df = relabel_by_vintage(df, VINTAGE_LABELS)
     #2b one territory, one label — must precede every step that keys on
     #   Region: the ADR 0030 nesting subtraction and the feed's own summation
     df = merge_territories(df, territory_aliases())

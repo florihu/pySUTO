@@ -71,9 +71,9 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
 `fix/congo-sacu-mapping`. Two input labels gave ROW another region's copper (#82's triage):
 - **#84, BACI.** The region map (`current/conc.xlsx`, not yet registered) sends 178 "Congo" to Congo, D.R.
   and 711 "Southern African Customs Union" to South Africa (ADR 0014 amended). 178 exported 3,890 kt of
-  cathode in 2012–2024 against Brazzaville's 79 kt of ICSG production; 711 is South Africa's trade, with
+  cathode in 2012–2024 (gross baci v19) against Brazzaville's 79 kt of ICSG production; 711 is South Africa's trade, with
   Namibia's and Botswana's, until BACI splits it in 2000.
-- **#85, ICSG.** `icsg_clean.relabel_yearbooks` gives the 2005 yearbook's "Congo" (parsed as `Congo Rep.`,
+- **#85, ICSG.** `icsg_clean.relabel_by_vintage` gives the 2005 yearbook's "Congo" (parsed as `Congo Rep.`,
   → ROW) its own label, Congo, D.R., for 1995–2003, and drops its 2004 rows, which the 2014 yearbook
   reports under Congo, D.R. with the refined output typed differently (ADR 0032 amended). On the current
   combined file: 27 rows relabelled, 3 dropped.
