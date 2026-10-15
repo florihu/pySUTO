@@ -529,6 +529,31 @@ def _source_dir(version: int) -> str:
     return src
 
 
+def _region_map(d: str) -> dict:
+    """BACI code → root region, from the region map of ``d``'s ``conc.xlsx``."""
+    m = pd.read_excel(os.path.join(d, "conc.xlsx"), sheet_name="region_map")
+    return dict(zip(m["src_region"].astype(int), m["root_region"]))
+
+
+def check_region_map(src_dir: str, current_dir: str = OUT_DIR) -> None:
+    """Raise unless the source version maps every BACI code as ``current/`` does.
+
+    The netting maps codes through the source version's region map, but
+    ``baci_feed.py`` maps the netted ``values.csv`` through ``current/``'s. After a
+    region-map edit (#77: code 490 → Taiwan) the two differ until the BACI parse
+    is re-run, which also re-keys the ADR 0033 sidecar, and its output registered:
+    net that version, not an older one.
+    """
+    src, cur = _region_map(src_dir), _region_map(current_dir)
+    diff = sorted(k for k in src.keys() | cur.keys() if src.get(k) != cur.get(k))
+    if diff:
+        raise ValueError(
+            f"{len(diff)} BACI code(s) map differently in {src_dir} and {current_dir} "
+            f"(code: source → current; first {min(len(diff), 5)}): "
+            + ", ".join(f"{k}: {src.get(k)} → {cur.get(k)}" for k in diff[:5])
+            + " — re-run the BACI parse, register it, and net that version")
+
+
 def _conc_lookup() -> dict:
     """`conc` supply nominals keyed ``(sector, exporter region)``.
 
@@ -642,9 +667,8 @@ def load_root_trade(src_dir: str, conc_lookup: dict) -> tuple:
     """Raw BACI → cross-region root legs in CC, plus the raw frame and maps."""
     raw  = pd.read_csv(os.path.join(src_dir, "values.csv"))
     smap = pd.read_excel(os.path.join(src_dir, "conc.xlsx"), sheet_name="sector_map")
-    rmap = pd.read_excel(os.path.join(src_dir, "conc.xlsx"), sheet_name="region_map")
     s_of = dict(zip(smap["src_sector"].astype(int), smap["root_sector"]))
-    r_of = dict(zip(rmap["src_region"].astype(int), rmap["root_region"]))
+    r_of = _region_map(src_dir)
 
     raw["sector"]      = raw["Sector"].astype(int).map(s_of)
     raw["region_from"] = raw["Region_from"].astype(int).map(r_of)
@@ -739,6 +763,7 @@ def main(source_version: int = SOURCE_VERSION) -> None:
     print("Re-attributing re-exported trade at feed time (ADR 0027)")
     print(f"   sectors    : {SECTORS}")
     src_dir = _source_dir(source_version)
+    check_region_map(src_dir)
 
     conc_lookup = _conc_lookup()
     _wild = {s_: v for (s_, r_), v in conc_lookup.items() if r_ == "*"}
