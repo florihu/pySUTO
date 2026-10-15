@@ -66,11 +66,32 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
 
 # OPEN (2026-09-16, out of Round L)
 
+## #79 MEASURED 2026-10-14 — FAILS ON ROUND-E (d) AND THE STOCK-LEG ITEM, fix ticket #82; items 1–3 hold
+
+`diag/baci-490-taiwan-measure`, run `opt_20261014_131552_f320b5f7` vs `opt_20261013_122432_24e811b7`, REP
+`docs/rep/analysis_opt_20261014_131552_f320b5f7_20261014_issue77-baci-490-taiwan.md`;
+`scripts/explo/issue79_baci490_taiwan_diag.py`.
+- **Chain.** The BACI re-parse reproduces v13's `values.csv` and gives baci v19 (gross, new map); then
+  baci v20 (netted), trade_shares v33 (47/47 regions observed), icsg v14.
+- **Taiwan enters the account.** Its undistributed ICSG rows go 41 (15,566 kt CC) → 0, and its semis use
+  3 → 14,820 kt CC against ICSG's 15,460.
+- **ROW's domestic semis leg** is fed in 17 of 17 years 1995–2011, with no imputer write. Its semis `f_agg`
+  equals the ICSG fan within 0.011 kt CC.
+- **But ROW's hidden gap shows.** In the ledger, U − (P + I − X) goes from −6,886 to +2,355 kt CC over
+  1995–2011 and from +353 to +5,829 over 2012–2024. In 1995–2011 the domestic leg's posterior barely moves
+  (4,320 → 4,324 kt CC), but its prior is now ICSG's 6,194, so ROW's cathode use totals carry Δz² +18,029.
+  ROW's semis use is 0.61–0.96 of its fan, and its refined cathode after 2011 is no longer cut (posterior/prior
+  0.65–1.07 → 0.98–1.06).
+- **Overall vs `opt_20261013_122432_24e811b7`:** common-set z² +1.41 %, rising in every anchor band; mass
+  moved +1.66 %. 18 stock legs newly above |z| 5, all into ROW.
+- **Merged 2026-10-15 over the failed items by the maintainer's decision** (#75 precedent);
+  `opt_20261014_131552_f320b5f7` is the reference chain. #82 is next, then #78 against this run.
+
 ## #77 BUILT 2026-10-14 — NOT MEASURED (#79): BACI 490 "Other Asia, nes" maps to Taiwan, not ROW
 
 `fix/baci-490-taiwan`. The BACI region map (`current/conc.xlsx`, not yet registered) sends code 490 to
 Taiwan (ADR 0014 and 0018 amended). Folded into ROW, it gave ROW Taiwan's cathode imports (baci v18,
-HS 740311: 375–655 kt a year in 1995–2011), which zeroed ROW's domestic semis share (#76), and left Taiwan
+HS 740311: 375–658 kt a year in 1995–2011), which zeroed ROW's domestic semis share (#76), and left Taiwan
 trade-blind.
 `build_baci_reexport.check_region_map()` now raises when the source version's region map differs from
 `current/`'s: the netting would net under one map and `baci_feed.py` apply the other. **#79's chain**
