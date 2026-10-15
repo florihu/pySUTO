@@ -31,8 +31,9 @@ hold. Fix ticket **#88**.
 - **South Africa enters 1995–1999 with trade.** Its 1995–1999 cathode use rows fit (Δz² −9,775 on South
   Africa), and its refined output there is no longer cut (CP→Cathode 572 → 654 posterior on a prior of 619).
 - **DR Congo takes the contradiction.** Code 178's cathode lands on top of code 180's in 2020–2023, where 180
-  alone already balanced. The solver invents 829 kt CC of DR Congo refined output in 2019–2023 (base 207),
-  retention 1.08–1.14, and opens one stock leg at |z| 6.9.
+  alone already balanced. The solver raises DR Congo's refined output above its prior by 829 kt CC over
+  2019–2023 (base 207), with CP→Cathode retention 1.080–1.143 in 2020–2023, and opens one stock leg at
+  |z| 6.9.
 - **Common-set sum-row z² −0.75 % vs `opt_20261014_131552_f320b5f7`**: ROW −14,013, South Africa −9,775, DR
   Congo +13,320.
 
@@ -50,25 +51,30 @@ belonged to DR Congo and South Africa.
 
 | Item | Rule | Result |
 |---|---|---|
-| 1 | The labels land | **Holds.** baci v21/v22 map 178 → Congo, D.R. and 711 → South Africa. In icsg v15, Congo, D.R. carries the 2005 yearbook's 1995–2003 (27 rows), 2004 has 2 rows under Congo, D.R. only, and `Congo Rep.` keeps 2017–2024 (8 rows). |
+| 1 | The labels land | **Holds.** The gross baci v21 and the netted v22 map 178 → Congo, D.R. and 711 → South Africa. In icsg v15, Congo, D.R. carries the 2005 yearbook's 1995–2003 (27 rows), 2004 has 2 rows under Congo, D.R. only, and `Congo Rep.` keeps 2017–2024 (8 rows). The icsg v14 → v15 diff is 57 rows, all `Congo Rep.` or `Congo, D.R.` (30 out, 27 in). |
 | 2 | ROW's ledger gap, 2012–2024, ≤ +2,500 kt CC | **Holds.** +5,829 (v20) → **+1,951** (v22); by year −52 … +546. |
-| 3 | ROW's 2012–2024 cathode-use sum rows: Σz² at most half the base's | **Holds.** 16,055 → 3,208, 0.200 of base. |
+| 3 | ROW's 2012–2024 cathode-use sum rows: Σz² at most half the base's | **Holds.** 16,055 → 3,208, 0.1998 of base. |
 | 4 | Round-E (ADR 0025) on the common set | **Holds** (§6). |
-| 5 | No new stock leg above \|z\| 5; ROW's eight 2022–23 MESC/USC legs fall below 5 | **Fails on the first half.** One leg, USC 2022 DR Congo → China, in both valuations (z −6.89 Mass, −6.88 CC; base −0.05). ROW's eight legs fall from −5.95 … −6.49 to −0.09 … +0.01. |
-| 6 | DR Congo's CP→Cathode CC retention ≤ 1.05 in every year | **Fails.** 1.13, 1.11, 1.14, 1.08 in 2020–2023; 2016 at 1.05. |
+| 5 | No new stock leg above \|z\| 5; ROW's eight 2022–23 MESC/USC legs fall below 5 | **Fails on the first half.** One leg, USC 2022 DR Congo → China, in both valuations (z −6.89 Mass, −6.88 CC; base −0.05, −0.04). ROW's eight legs fall from −5.95 … −6.49 to −0.09 … +0.01. |
+| 6 | DR Congo's CP→Cathode CC retention ≤ 1.05 in every year | **Fails.** 1.129, 1.114, 1.143, 1.080 in 2020–2023; base 1.016–1.034. |
 
-Retention is posterior/prior of the CP→Cathode CC edge into DR Congo, per year. 2005 and 2006 print `inf` in
-both runs: a zero prior with a positive posterior, unchanged by this change.
+Retention is posterior/prior of the CP→Cathode CC edge into DR Congo, per year. Two more years need saying:
+- **2016** is 1.047, inside the bar, up from 1.000 in base.
+- **2005 and 2006** have a zero prior in both runs, so retention is undefined. The rule as written fails them in
+  both runs; their posteriors, 1.68 → 2.89 and 3.37 → 8.86 kt CC, are a few kt and do not decide the item.
+  The base also had a zero prior in 1995–2003 with posteriors of 0.9–14.1 kt CC; #85 gives those years a
+  prior, and their retention is now 1.000–1.007.
 
 ## 3. Predictions (posted on #86 before Stage 2)
 
 | Prediction | Outcome |
 |---|---|
-| Item 3 passes; ROW's 2012–2024 cathode-use Σz² falls to 20–35 % of base | **Right** (20.0 %) |
+| Item 3 passes; ROW's 2012–2024 cathode-use Σz² falls to 20–35 % of base | **Right on the pass; the size falls just below the band** (19.98 %) |
 | Round-E holds; (a)–(c) within noise | **Right** |
-| (d) common-set z² falls 1–3 % | **Wrong on size**: −0.75 %, because DR Congo's 2004–2008 smelter chain rises (+22,220 over 2004–2008) |
+| (d) common-set z² falls 1–3 % | **Wrong on size**: −0.75 %, because DR Congo's 2004–2008 rows rise (Δz² +22,220, all sectors) |
 | ROW's eight 2022–23 legs fall below \|z\| 5; risk: a DR Congo stock leg absorbing the 2020–2023 excess | **Right**, and the named risk occurred (item 5) |
-| Item 6 holds: retention ≤ 1.05, exports cut by 1,000–1,500 kt CC instead | **Wrong.** Retention 1.08–1.14; exports cut by 649 kt CC over 2019–2023 |
+| Item 6 holds: retention ≤ 1.05, exports cut by 1,000–1,500 kt CC over 2020–2023 instead | **Wrong.** Retention 1.080–1.143; exports cut by 625 kt CC over 2020–2023 (8,231 → 7,606) |
+| Tanzania and the UAE are the likeliest export legs to be cut | **Partly right.** Over 2020–2023 the UAE leg is cut by 160 kt CC (1,337 → 1,177) and the ROW leg, which holds Tanzania, by 159 (1,921 → 1,762); China's is cut most, by 274 (3,247 → 2,973) |
 | DR Congo's 1995–2003 smelter or SX-EW chain cut by about half | **Wrong.** Both routes are carried whole (§5) |
 | South Africa's 711 cathode exports partly cut | **Right**: 350 → 314 kt CC |
 
@@ -84,8 +90,8 @@ Ledger, cathode U − (P + I − X), kt CC:
 - **2012–2024: ROW's cathode use is fed.** Its semis use posterior/fan rises from 0.61–0.89 to 0.72–1.01, with
   2 years below 0.85 instead of 12. The domestic leg's posterior is 3,709 kt CC (fed 4,877) against 1,024
   (fed 5,436); ROW's production prior less its export prior is 3,703, against 244.
-- **By year,** the Σz² of ROW's cathode-use rows falls in every year 2012–2024, most in 2020–2023
-  (811 → 3, 1,385 → 114, 1,777 → 53, 1,624 → 1).
+- **By year,** the Σz² of ROW's cathode-use rows falls in every year 2012–2024; relative to each year's base,
+  most in 2020–2023 (811 → 3, 1,385 → 114, 1,777 → 53, 1,624 → 1).
 - **ROW's refined output** in 2020–2022 is now cut a little: CP→Cathode posterior/prior 0.94, 0.95, 0.91
   (base 0.99, 0.98, 0.99). ROW's ledger gap there is −52, +48, +3: ROW is no longer short of cathode.
 - **1995–2011** moves little (ledger +2,355 → +2,169): #85 takes DR Congo's SX-EW cathode out of ROW's
@@ -100,22 +106,32 @@ Ledger, cathode U − (P + I − X), kt CC:
 | ledger U − (P + I − X), 1995–2011 | −474 | −543 |
 | ledger U − (P + I − X), 2012–2024 | −2,785 | **+1,094** |
 | CP→Cathode 2019–2023, Σ prior / Σ post | 8,023 / 8,230 (+207) | 8,023 / 8,852 (**+829**) |
+| CP→Cathode 2020–2023, Σ prior / Σ post | 6,828 / 7,011 (+183) | 6,828 / 7,605 (+777) |
 | cathode exports 2019–2023, Σ prior / Σ post | 7,505 / 7,448 | 9,502 / 8,853 |
+| cathode exports 2020–2023, Σ prior / Σ post | 6,636 / 6,576 | 8,231 / 7,606 |
 | common-set Δz² | | **+13,320** |
 
 - **2020–2023.** The ledger gap by year is +441, +321, +489, +341 kt CC. In the base, code 180 alone gave +64,
   0, +104, −123 there: DR Congo's own exports already matched ICSG's production, and code 178's flows add
   321–464 kt CC a year on top. In 2012–2019 the same code fills a shortfall (base −134 … −358 a year).
 - **The solver** splits the excess: refined output rises (+829 vs +207 kt CC over 2019–2023) and exports fall
-  by 649 kt CC (China 3,480 → 3,202, ROW 2,241 → 2,073, UAE 1,661 → 1,495). It also opens the item-5 leg,
-  USC 2022 DR Congo → China at −63 kt CC: a stock drawdown that acts as a cathode source for DR Congo.
-- **2004–2010.** DR Congo's concentrate export prior rises (2008: 93 → 143 kt CC) with code 178's flows. DR Congo's smelter chain carries it: Δz² Anode +8,532, Matte +7,247, Smelting +4,402, CFR +3,428,
-  by year 2004 +4,654, 2007 +4,309, **2008 +11,684**.
-- **1995–2003 is fed.** Δz² −12,923 over 1995–2002 (by sector, all years: Mining −9,387, Cathode −2,974). Both of the 2005
-  yearbook's routes are carried whole: Ore→SXEW 355/355 and Concentrate→Smelting 288/307 kt CC (prior/post),
-  on a mine of 734/724. In the base, DR Congo's mine was cut from 364 to 178 with nothing downstream. The 2005
-  yearbook books the low-grade electrowon cathode in both its smelter and its SX-EW tables; whether the mine
-  of 734 double-counts it is not settled here.
+  by 649 kt CC (China 3,480 → 3,202, ROW 2,241 → 2,073, UAE 1,661 → 1,495). By year, China's leg is cut in
+  2020–2022 (2020: 542 → 476) and the UAE's in every year. It also opens the item-5 leg, USC 2022 DR Congo →
+  China at −63 kt CC: a stock drawdown that acts as a cathode source for DR Congo.
+- **Transit.** In gross baci v21, codes 178 and 180 ship 785 kt of cathode to Tanzania in 2018–2023 (228 in
+  2020) and 517 kt to Singapore. Tanzania sits in ROW, which the netting never nets. Singapore's leg is barely
+  cut (2020–2023: 354 → 346).
+- **Neither DR Congo nor South Africa becomes a hub.** DR Congo's ledger nets 1–5 kt CC a year in 2010, 2017
+  and 2024, as before; South Africa's 16–23 kt CC of cathode in 2019–2024 is unchanged.
+- **2004–2010.** DR Congo's concentrate export prior rises (2008: 93 → 143 kt CC) with code 178's flows, and
+  its smelter chain carries it. DR Congo's Δz² by sector, all years: Anode +8,532, Matte +7,247, Smelting
+  +4,402, CFR +3,428. By year: 2004 +4,654, 2007 +4,309, **2008 +11,684**; 2004–2008 together +22,220.
+- **1995–2003 is fed.** Δz² −12,923 over 1995–2002 (by sector, all years: Mining −9,387, Cathode −2,974).
+  Both of the 2005 yearbook's routes are carried whole: Ore→SXEW 355/355 and Concentrate→Smelting 288/307
+  kt CC (prior/post), on a mine of 734/724. In the base, DR Congo's chain had priors only on the mine (364) and the solver cut it
+  to 178, building Ore→SXEW 151 and CP→Cathode 92 on zero priors. The 2005 yearbook books the low-grade
+  electrowon cathode in both its smelter and its SX-EW tables; whether the mine of 734 double-counts it is not
+  settled here.
 
 ## 6. Round-E (ADR 0025), `opt_20261014_131552_f320b5f7` → `opt_20261015_093646_ddd9d3d9`
 
@@ -128,12 +144,13 @@ Ledger, cathode U − (P + I − X), kt CC:
 | (d) 10–100 kt | 526,695 | 532,584 (+5,889) |
 | (d) 100–1,000 kt | 536,735 | 526,703 (−10,033) |
 | (d) > 1,000 kt | 158,847 | 153,908 (−4,940) |
-| (d) mass moved, all CC edges | 473,283 kt | 469,971 kt (−0.70 % vs `opt_20261014_131552_f320b5f7`) |
+| (d) mass moved, all CC edges | 473,283 kt CC | 469,971 kt CC (−0.70 % vs `opt_20261014_131552_f320b5f7`) |
 
 - **(a)–(c) hold.**
 - **(d) holds.** The gain sits on the rows the change targets: ROW's cathode use (100–1,000 kt and > 1,000 kt)
   and South Africa's 1995–1999 cathode (10–100 kt), and it comes with mass moved, not a repricing: ROW's
-  domestic semis posterior +2,685 kt CC in 2012–2024. The 10–100 kt band rises on DR Congo. A rise in one band
+  domestic semis posterior +2,685 kt CC in 2012–2024. (d)'s own mass-moved total falls 0.70 %; as in #79, it is
+  reported, not judged. The 10–100 kt band rises on DR Congo. A rise in one band
   beside a located gain is the #65 precedent, where (d) was not failed.
 
 ## 7. Stock legs
@@ -142,8 +159,9 @@ Ledger, cathode U − (P + I − X), kt CC:
   and CC (item 5).
 - **ROW's eight 2022–23 MESC/USC legs** (#82) fall below |z| 5: z −6.49/−6.47 (2022) and −5.98/−5.95 (2023) in
   base, −0.09 … +0.01 now.
-- **The ten Kazakhstan → ROW and Russia → ROW legs** (#82) stay where they were: Kazakhstan 1999 USC/MESC
-  z 5.20/5.27 → 5.37/5.34, 2000 5.03/5.14 → 5.04/5.14; Russia 2002 CC −5.47 unchanged. Their years keep ROW's
+- **The ten Kazakhstan → ROW and Russia → ROW legs** (#82) stay where they were. Kazakhstan, Mass/CC (the USC
+  and MESC legs are identical): 1999 z 5.20/5.27 → 5.37/5.34, 2000 5.03/5.14 → 5.04/5.14. Russia 2002 CC −5.47,
+  unchanged. Their years keep ROW's
   1995–2011 gap.
 - **Net stock change:** USC Σ −276.4 → −461.5 kt CC, most in China 2020–2023 (2022: −40.7 → −103.0); MESC
   −188.3 → −213.1.
@@ -153,16 +171,23 @@ Ledger, cathode U − (P + I − X), kt CC:
 - **Σz² 1,335,063 → 1,325,073 (−0.748 % vs `opt_20261014_131552_f320b5f7`)**, 27,298 rows in both runs.
 - **By region:** falls ROW −14,013, South Africa −9,775, China −588, Zambia −217; rises DR Congo +13,320,
   Malaysia +639, UAE +437.
-- **By year:** 1995–2002 fall (1998 −5,264), 2004–2008 rise (2008 +11,160), 2012–2024 fall.
+- **By year:** 1995–2002 fall (1998 −5,264), 2003–2008 rise (2008 +11,160), every year 2012–2024 falls
+  (−30 … −2,357).
 - **Rows in one run only:** 188 new rows (z² 1,477), 176 of them DR Congo's; 24 rows only in base
   (z² 378), 16 of them DR Congo's.
 
 ## 9. South Africa, 1995–1999
 
-- **Trade enters.** Exports prior/post: cathode 350/314, anode 214/189, concentrate 84/88, matte 5/4 kt CC;
-  the base had none (prior 0). Its cathode goes to Taiwan, Italy, Japan, Germany and Malaysia; its anode to
-  Korea, Belgium, China, Germany and Japan.
+- **Trade enters.** Exports prior/post: cathode 350/314, anode 214/189, concentrate 84/88, matte 5/4 kt CC.
+  The base had no export prior, and its posterior carried 74 kt CC of concentrate exports. The cathode goes
+  to Taiwan, Italy, Japan, Germany and Malaysia; the anode to Korea, Belgium, China, Germany and Japan.
 - **Refined output** is no longer cut: CP→Cathode prior 619, posterior 572 → 654.
+- **Its semis-use fan** (Cathode→FU into South Africa) was all domestic in base, and the solver raised it above
+  its prior (396 → 562) to give the refined output an outlet. Now it is cut below it (392 → 342), and imports
+  are 4/5.
+- **Namibia's share of 711's anode** cannot be separated: 711 is one code, and the map gives all of it to South
+  Africa. For scale, in gross baci v21 711's anode exports are 44, 39, 44, 43 and 26 kt in 1995–1999. From
+  2000, South Africa's (710) are 31, 40, 28, 19 and 7, and Namibia's (516) 8, 21, 22, 29 and 25.
 - **The ledger** shows South Africa's 1995–1999 cathode U − (P + I − X) at −3 … +56 kt CC a year.
 
 ## 10. ROW's remaining cathode gap, by country (#82)
@@ -190,10 +215,10 @@ It stays visible as misfit (ADR 0019).
 ## 11. Follow-ups
 
 - **#88:** DR Congo's 2020–2023 cathode excess and its 2004–2010 concentrate. The triage questions: does the UAE
-  report the same shipments under 178 and 180; does the transit through Tanzania (785 kt, 2018–2023; ROW, not
-  netted) count DR Congo's cathode twice; is ICSG's DR Congo production low.
-- **#82** is answered: its gap was DR Congo's and South Africa's trade and production, plus the importer
-  disagreement of §10.
+  report the same shipments under 178 and 180; does the transit through Tanzania (785 kt gross, 2018–2023; ROW,
+  not netted) count DR Congo's cathode twice; is ICSG's DR Congo production low.
+- **#82's question is answered**: its gap was DR Congo's and South Africa's trade and production, plus the
+  importer disagreement of §10. #86 closes #82 only on a pass, so closing it now is the maintainer's call.
 
 ## Reproduce
 
@@ -215,5 +240,6 @@ python scripts/explo/issue86_congo_sacu_diag.py opt_20261014_131552_f320b5f7 \
     opt_20261015_093646_ddd9d3d9 20 22 21
 ```
 
-The diagnostic prints every number in this REP, with two exceptions: the solve time comes from the run's
-sidecar, and the re-parse hashes and sidecar-key count come from building the chain; they are posted on #86.
+The diagnostic prints every number in this REP or the numbers it is summed from, with two exceptions: the
+solve time comes from the run's sidecar, and the re-parse hashes and sidecar-key count come from building the
+chain; they are posted on #86.
