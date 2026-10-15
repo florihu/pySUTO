@@ -84,7 +84,8 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
   0.65–1.07 → 0.98–1.06).
 - **Overall vs `opt_20261013_122432_24e811b7`:** common-set z² +1.41 %, rising in every anchor band; mass
   moved +1.66 %. 18 stock legs newly above |z| 5, all into ROW.
-- **Merge = owner's call.**
+- **Merged 2026-10-15 over the failed items by the maintainer's decision** (#75 precedent);
+  `opt_20261014_131552_f320b5f7` is the reference chain. #82 is next, then #78 against this run.
 
 ## #77 BUILT 2026-10-14 — NOT MEASURED (#79): BACI 490 "Other Asia, nes" maps to Taiwan, not ROW
 
