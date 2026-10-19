@@ -12,6 +12,10 @@ lower-bound row) and the PSC rows unchanged. Issue #34; follow-ups #35, #36. Ame
 [ADR 0041](0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md) (Round Y): PSC joins
 the seeded legs with base `CP→Cathode`, the PSC share transfer is retired, and the one-signed hard
 concentration band that made this seed one-sided on USC/MESC is no longer emitted on a signed edge.
+Re-measured by #37 (2026-10-19, run `opt_20261019_171746_3272682b`): the 0.1 kt PSC scale floor is
+kept — its 428 near-pin rows sit only where there is no refinery output — and stock_bounds is
+regenerated on the repaired stock series (v6, p95 0.0489 → 0.0276). The zero-centred PSC rows pull
+ICSG-reported values toward zero, the pull this ADR retired on MESC/USC (#98).
 
 The three stock-change legs are the only signed edges of the account, so whatever σ they carry is
 the price of routing a contradiction of the cathode balance into a stock instead of surfacing it

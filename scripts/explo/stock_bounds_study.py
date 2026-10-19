@@ -56,10 +56,12 @@ CLUSTERED: dict = {}
 # Indicators that get rows in params.csv (Round X: PSC only; ADR 0040).
 WRITE_INDICATORS = ("PSC",)
 
-# Guard on the PSC band: the shipped value is 0.0504 (v4). The denominator once
-# silently collapsed to SXEW-only (no `Anode` rows in the feed) and inflated p95
-# ~70×; refuse to write a band outside this window so that cannot recur.
-PSC_P95_WINDOW = (0.03, 0.08)
+# Guard on the PSC band. The denominator once silently collapsed to SXEW-only (no
+# `Anode` rows in the feed) and inflated p95 ~70×; refuse to write a band outside
+# this window so that cannot recur. The lower bound was 0.03 while the band stood at
+# 0.0504 (v4) and 0.0489 (v5), both on the stock parse #65 repaired; on icsg v15 the
+# band is 0.0276 (v6, #37), Σ|PSC| having fallen 9,135 → 2,995 kt with the repair.
+PSC_P95_WINDOW = (0.01, 0.08)
 
 INDICATORS = {
     "MESC": dict(Type="Cathode", Process="MESC", Supply_Use="Use"),
