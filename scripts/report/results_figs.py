@@ -943,26 +943,26 @@ def main(opt: str, psut_id: str, tol_pair=None, out: Path = OUT_DIR) -> None:
         "max_hard_residual_kt": float(dec.max_abs_resid_massbal.max()),
         "share_gt3": {f: {"min": float(dec[f"share_gt3_{f}"].min()), "max": float(dec[f"share_gt3_{f}"].max()),
                           "mean": float(dec[f"share_gt3_{f}"].mean())} for f in ("edges", "sum_rows", "soft_ratios")},
-        "edge_share_top": A["share_e"].set_index("sector_key")["share"].round(4).to_dict(),
-        "sum_share_top": A["share_s"].set_index("sector_key")["share"].round(4).to_dict(),
+        "edge_share_top": A["share_e"].set_index("sector_key")["share"].round(6).to_dict(),
+        "sum_share_top": A["share_s"].set_index("sector_key")["share"].round(6).to_dict(),
         "hub_regions": hubs, "hub_share": A["hub"],
-        "retention_30y": ret_all["retention"].round(4).to_dict(),
+        "retention_30y": ret_all["retention"].round(6).to_dict(),
         "chile_export_retention_2010_19": chile_export_retention(edges),
         "a4_years_both": int(A["a4"].both.sum()),
         "a4_years_cathode_concentrate": int((A["a4"].cathode_minus_concentrate >= THRESH["A4_step"]).sum()),
         "a4_years_concentrate_ore": int((A["a4"].concentrate_minus_ore >= THRESH["A4_step"]).sum()),
-        "tolerance_pair_retention": (A["pair"].set_index("stage").round(4).to_dict("index") if A["pair"] is not None else None),
+        "tolerance_pair_retention": (A["pair"].set_index("stage").round(6).to_dict("index") if A["pair"] is not None else None),
         "tolerance_pair_chile_export": A.get("pair_chile"),
-        "secondary_pooled_2020_24": pooled.round(4).to_dict("index"),
+        "secondary_pooled_2020_24": pooled.round(6).to_dict("index"),
         "icsg_input_share_pooled": B["icsg_pool"],
-        "icsg_published_share": B["icsg_published"].loc[[1995, 2010, 2020, 2024]].round(4).to_dict(),
+        "icsg_published_share": B["icsg_published"].loc[[1995, 2010, 2020, 2024]].round(6).to_dict(),
         "world_secondary_2024": {"prior": float(world.loc[2024, "prior"]), "post": float(world.loc[2024, "post"])},
-        "hhi_2024": {f"{r.step}_{r.val}": {"upper": round(r.hhi_upper, 4), "lower": round(r.hhi_lower, 4),
-                                          "row_share": round(r.row_share, 4), "top": r.top_region,
-                                          "top_share": round(r.top_share, 4)} for r in h24.itertuples()},
-        "hhi_1995_post": {r.step: round(r.hhi_upper, 4) for r in B["hhi"][(B["hhi"].year == "1995") & (B["hhi"].val == "post")].itertuples()},
-        "partners_2024": {f"{c}_{d}": partners[(c, d)].loc[2024].round(4).to_dict() for c, d in TRADE_PANELS},
-        "partners_1995": {f"{c}_{d}": partners[(c, d)].loc[1995].round(4).to_dict() for c, d in TRADE_PANELS},
+        "hhi_2024": {f"{r.step}_{r.val}": {"upper": round(r.hhi_upper, 6), "lower": round(r.hhi_lower, 6),
+                                          "row_share": round(r.row_share, 6), "top": r.top_region,
+                                          "top_share": round(r.top_share, 6)} for r in h24.itertuples()},
+        "hhi_1995_post": {r.step: round(r.hhi_upper, 6) for r in B["hhi"][(B["hhi"].year == "1995") & (B["hhi"].val == "post")].itertuples()},
+        "partners_2024": {f"{c}_{d}": partners[(c, d)].loc[2024].round(6).to_dict() for c, d in TRADE_PANELS},
+        "partners_1995": {f"{c}_{d}": partners[(c, d)].loc[1995].round(6).to_dict() for c, d in TRADE_PANELS},
         "trade_totals_kt": {f"{c}_{d}": {"1995": float(partners[(c, d)].attrs["total_kt"].loc[1995]),
                                         "2024": float(partners[(c, d)].attrs["total_kt"].loc[2024])} for c, d in TRADE_PANELS},
         "embodied_period": period, "embodied_china_from_chile_peru_kt": emb_kt, "direct_conc_china_from_chile_peru_kt": direct_kt,
@@ -975,20 +975,22 @@ def main(opt: str, psut_id: str, tol_pair=None, out: Path = OUT_DIR) -> None:
         "problem": problem_numbers(P),
     }
     hhi_tbl = B["hhi"][B["hhi"].year.isin(["1995", "2024"])].copy()
+    # Stored at six decimals: the SI tables print three (or whole kt) and the prose is
+    # read off numbers.json, so a value rounds once, not twice.
     tables = {
         "si_s15_ledger": ledger,
         "si_s15_decomposition": dec.round(6),
-        "si_s15_retention_by_stage": A["retention"][A["retention"].year == "all"][["stage", "prior", "post", "retention"]].round(4),
-        "si_s15_a4_gradient": A["a4"].reset_index().round(4),
-        "si_s15_secondary_pooled": pooled.reset_index().rename(columns={"index": "group"}).round(4),
-        "si_s15_hhi_1995_2024": hhi_tbl.round(4),
-        "si_s15_embodied_folded": folded.round(1).rename_axis("mining region").reset_index(),
+        "si_s15_retention_by_stage": A["retention"][A["retention"].year == "all"][["stage", "prior", "post", "retention"]].round(6),
+        "si_s15_a4_gradient": A["a4"].reset_index().round(6),
+        "si_s15_secondary_pooled": pooled.reset_index().rename(columns={"index": "group"}).round(6),
+        "si_s15_hhi_1995_2024": hhi_tbl.round(6),
+        "si_s15_embodied_folded": folded.round(6).rename_axis("mining region").reset_index(),
         "si_s16_top_identities_edges": A["rank_e"], "si_s16_top_identities_sum_rows": A["rank_s"],
         "si_s16_top_identities_soft_ratios": A["rank_r"], "si_s16_share_soft_ratios": A["share_r"],
-        "si_s17_legs": leg_table(cc, ["Chile", "Peru", "China"]).round(3),
+        "si_s17_legs": leg_table(cc, ["Chile", "Peru", "China"]).round(6),
     }
     if A["pair"] is not None:
-        tables["si_s15_tolerance_pair"] = A["pair"].round(4)
+        tables["si_s15_tolerance_pair"] = A["pair"].round(6)
     write_outputs(out, ledger, numbers, tables)
     print("written to", out)
 
