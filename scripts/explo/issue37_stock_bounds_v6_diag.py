@@ -7,13 +7,15 @@ constraint runs' per-year σ_c and row_meta, and the runs' persisted artefacts; 
 sum-row and constraint tables in memory (no per-year CSVs, #46). Prints #37's pass-rule
 items for <new> against <base>:
 
-    I   scope: the edges whose f or σ_a differ between the imp runs, by sector pair; the
-        rows whose σ_c differ between the const runs, by family; the PSC rows' factor on
-        the stored σ_c and with the engine's σ_c Lp lift inverted (item 1)
+    I   scope: the edges whose f or σ_a differ between the imp runs, by sector pair; which
+        Stage-2 step sets each CP→PSC edge; the rows whose σ_c differ between the const runs,
+        by family; the PSC rows' factor on the stored σ_c and with the engine's σ_c Lp lift
+        inverted (item 1)
     P   the PSC rows: Σz², |z| > 3, and the near-pin rows (σ_c < 0.01 kt) with the hazard
         check (CP→Cathode prior < 1 kt beside a nonzero PSC prior)
     E   the Round-E items (ADR 0025) (item 2)
-    K   world Σ CP→PSC (CC) by year against ICSG's reported PSC: Σ|post − ICSG| (item 3)
+    K   world Σ CP→PSC (CC) by year against ICSG's reported PSC: Σ|post − ICSG| (item 3);
+        the reported legs that move toward zero, and the years whose |world post| grows
     S   stock legs newly above |z| 5 (item 4); the 1995 stock legs by family
     C   common-set sum-row z² by region, sector and year; rows only one run has
     A   attribution of the largest moves
@@ -86,13 +88,27 @@ def scope(acc, base: str, new: str) -> None:
     if other.any():
         print("   σ_c changes outside the PSC rows:")
         print(mn[other].assign(base=sb[other], new=sn[other])
-              [["constraint_id", "type", "variant", "time", "base", "new"]].head(20).to_string())
+              [["constraint_id", "type", "variant", "time", "base", "new"]].to_string())
     psc = changed & (fam == PSC_ROW).to_numpy()
     cfg_b, cfg_n = P94._stage_config(cb), P94._stage_config(cn)
     stored = sn[psc] / sb[psc]
     unl = P94._lp_unlift(sn[psc], c_n[psc], cfg_n) / P94._lp_unlift(sb[psc], c_b[psc], cfg_b)
     print(f"   PSC rows' σ_c factor: stored {stored.min():.4f}–{stored.max():.4f}; "
           f"Lp lift inverted {unl.min():.6f}–{unl.max():.6f} ({int(psc.sum()):,} rows)")
+
+
+def psc_provenance(acc, imp: str) -> None:
+    """I: which Stage-2 step sets each CP→PSC edge — a feed, or the imputer that wrote it."""
+    ei = expand_edge_index(acc.edge_index, acc.node_index)
+    psc = ei[(ei.sector_from == "CP") & (ei.sector_to == "PSC")].edge_id.to_numpy()
+    a = np.load(ROOT / "imp" / imp / "agg_result.npz")
+    cov = np.asarray(a["coverage"])
+    cov = (cov.any(axis=0) if cov.ndim > 1 else cov).astype(bool)
+    log = pd.read_parquet(ROOT / "imp" / imp / "imputation_log.parquet")
+    log = log[log.edge_id.isin(psc)]
+    print(f"   {imp}: CP→PSC edges {len(psc):,}; from a feed {int(cov[psc].sum()):,}; imputed by "
+          f"{log.groupby(['imputer_id', 'method']).edge_id.nunique().to_dict()}; "
+          f"net_stock_share entries {int((log.imputer_id == 'net_stock_share').sum())}")
 
 
 def _psc_frame(opt: str, acc) -> pd.DataFrame:
@@ -127,9 +143,16 @@ def icsg_psc(E: dict, base: str, new: str) -> None:
     """K: world Σ CP→PSC (CC) against ICSG's reported world PSC, 1996–2024."""
     v = P75._icsg(new)[1]
     raw = pd.read_csv(ICSG_IN / f"v{v}" / "values.csv")
-    icsg = raw[raw.Type == "PSC"].groupby(raw.Year.astype(str)).Value.sum()
+    rep = raw[raw.Type == "PSC"]
+    icsg = rep.groupby(rep.Year.astype(str)).Value.sum()
     icsg = icsg.reindex(YEARS_K).fillna(0.0)
-    print(f"\n== K world PSC (CC, kt) against ICSG's reported PSC (icsg v{v}), 1996–2024 (item 3)")
+    print(f"\n== K world PSC (CC, kt) against ICSG's reported PSC (icsg v{v}: {rep.Region.nunique()} "
+          f"territories, {len(rep):,} rows), 1996–2024 (item 3)")
+    sums = {}
+    for d in sorted(ICSG_IN.glob("v*"), key=lambda x: int(x.name[1:])):
+        r = pd.read_csv(d / "values.csv")
+        sums[d.name] = r.loc[r.Type == "PSC", "Value"].abs().sum()
+    print("   Σ|PSC| (kt CC) by icsg version: " + "  ".join(f"{k} {x:,.0f}" for k, x in sums.items()))
     t = {}
     for o in (base, new):
         e = E[o][(E[o].sector_from == "CP") & (E[o].sector_to == "PSC") & (E[o].valuation == "CC")]
@@ -144,6 +167,21 @@ def icsg_psc(E: dict, base: str, new: str) -> None:
     tab["d"] = (tab.post_new - tab.ICSG).abs() - (tab.post_base - tab.ICSG).abs()
     print("   years whose gap moves most:")
     print(tab.reindex(tab.d.abs().sort_values(ascending=False).index).head(6).round(1).to_string())
+    grow = (tab.post_new.abs() > tab.post_base.abs())
+    print(f"   years whose |world post| grows: {int(grow.sum())} of {len(tab)} "
+          f"({', '.join(tab.index[grow])}); years whose gap shrinks: {int((tab.d < 0).sum())}")
+    cov = {}
+    for o in (base, new):
+        a = np.load(ROOT / "imp" / L._chain(o)[1] / "agg_result.npz")
+        c = np.asarray(a["coverage"])
+        cov[o] = (c.any(axis=0) if c.ndim > 1 else c).astype(bool)
+    legs = {o: E[o][(E[o].sector_from == "CP") & (E[o].sector_to == "PSC")
+                    & cov[o][E[o].edge_id.to_numpy()]].set_index("edge_id").post for o in (base, new)}
+    m = pd.concat({"base": legs[base], "new": legs[new]}, axis=1).dropna()
+    toward = m.new.abs() <= m.base.abs()
+    away = (m.new.abs() - m.base.abs())[~toward]
+    print(f"   feed-covered CP→PSC legs: {len(m)}; |post| shrinks or holds on {int(toward.sum())}; "
+          f"grows on {int((~toward).sum())}, by at most {away.max() if len(away) else 0.0:.3f} kt")
 
 
 def year_1995(E: dict, base: str, new: str) -> None:
@@ -160,6 +198,8 @@ def main(base: str, new: str) -> None:
     acc = AccountingStructure.load(id=load_config().pipeline.acc_id,
                                    storage_dir=str(ROOT / "acc"))
     scope(acc, base, new)
+    for o in (base, new):
+        psc_provenance(acc, L._chain(o)[1])
     E, S, j = P69.load(base, new)
     psc_rows(acc, E, base, new)
     P69.round_e(E, S, j, base, new)

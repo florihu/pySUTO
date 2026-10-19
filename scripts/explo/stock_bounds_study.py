@@ -58,9 +58,9 @@ WRITE_INDICATORS = ("PSC",)
 
 # Guard on the PSC band. The denominator once silently collapsed to SXEW-only (no
 # `Anode` rows in the feed) and inflated p95 ~70×; refuse to write a band outside
-# this window so that cannot recur. The lower bound was 0.03 while the band stood at
-# 0.0504 (v4) and 0.0489 (v5), both on the stock parse #65 repaired; on icsg v15 the
-# band is 0.0276 (v6, #37), Σ|PSC| having fallen 9,135 → 2,995 kt with the repair.
+# this window so that cannot recur. The lower bound was set on the stock parse #65
+# repaired; the repaired series' band sits below that old bound, so it moved (#37).
+# The band itself lives in the stock_bounds params rows.
 PSC_P95_WINDOW = (0.01, 0.08)
 
 INDICATORS = {

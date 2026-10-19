@@ -154,10 +154,11 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
 - **stock_bounds v5 → v6** on icsg v15: PSC p95 0.0489 → 0.0276. v5 predates #65's stock-parse repair (Σ|PSC|
   9,135 → 2,995 kt). The study's guard window is lowered to 0.01. The 0.1 kt floor is kept: latent, and the hazard
   is absent.
-- **Scope:** Stage 2 bit-identical (no imputer reads p95 on this chain); σ_c changes only on the 1,410 PSC rows,
-  by 0.673063.
+- **Scope:** Stage 2 bit-identical: the ShareImputer reads p95 but writes no CP→PSC edge on this chain. σ_c
+  changes only on the 1,410 PSC rows, by 0.673063.
 - **Fails 3 and 4:** the zero-centred rows pull ICSG-reported PSC toward zero. Σ|post − ICSG| 117.9 → 132.2 kt CC
-  (+12.1 %); Iran PSC 2016 z 4.21 → 5.20. Round-E holds; common-set z² −0.032 %, solver noise.
+  (+12.1 % vs `opt_20261019_161937_fd301f58`); Iran PSC 2016 z 4.21 → 5.20. Round-E holds. Common-set z² −0.032 %
+  vs `opt_20261019_161937_fd301f58`, on Mining/Ore Mass rows; not attributed, read as solver noise.
 - `opt_20261019_171746_3272682b` becomes the reference chain.
 
 ## #94 MEASURED 2026-10-19 — FAILS ON ITEMS 1 (as worded) AND 2 (Round-E (c), Peru); neither is a defect, shipped
