@@ -8,6 +8,10 @@ flagged in the ledger and σ-compounded), and a re-attributed pair whose two end
 root region is dropped as mapped self-trade exactly as a source row would be.
 Amended 2026-10-14 (#77): BACI 490 "Other Asia, nes" maps to **Taiwan**, not ROW — the known quirk
 below is resolved; to be measured by #79.
+Amended 2026-10-15 (#84): BACI 178 "Congo" maps to **Congo, D.R.** (it carries DR Congo's cathode:
+3,890 kt exported in 2012–2024, gross baci v19, against Brazzaville's 79 kt of ICSG production) and 711 "Southern African
+Customs Union" to **South Africa** (its trade until BACI splits it in 2000), not ROW. Neither
+creates mapped self-trade: BACI has no 178 ↔ 180 or 711 ↔ 710 rows. To be measured by #86.
 
 ## Context
 

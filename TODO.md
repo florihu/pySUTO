@@ -66,6 +66,27 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
 
 # OPEN (2026-09-16, out of Round L)
 
+## #84 + #85 BUILT 2026-10-15 — NOT MEASURED (#86): DR Congo's copper leaves ROW, SACU maps to South Africa
+
+`fix/congo-sacu-mapping`. Two input labels gave ROW another region's copper (#82's triage):
+- **#84, BACI.** The region map (`current/conc.xlsx`, not yet registered) sends 178 "Congo" to Congo, D.R.
+  and 711 "Southern African Customs Union" to South Africa (ADR 0014 amended). 178 exported 3,890 kt of
+  cathode in 2012–2024 (gross baci v19) against Brazzaville's 79 kt of ICSG production; 711 is South Africa's trade, with
+  Namibia's and Botswana's, until BACI splits it in 2000.
+- **#85, ICSG.** `icsg_clean.relabel_by_vintage` gives the 2005 yearbook's "Congo" (parsed as `Congo Rep.`,
+  → ROW) its own label, Congo, D.R., for 1995–2003, and drops its 2004 rows, which the 2014 yearbook
+  reports under Congo, D.R. with the refined output typed differently (ADR 0032 amended). On the current
+  combined file: 27 rows relabelled, 3 dropped.
+- **Expected** (gross values, no run): ROW's cathode U − (P + I − X) +2,335 / +5,808 → +2,148 / +1,920
+  kt CC (1995–2011 / 2012–2024); DR Congo +1,136 in 2012–2024 (785 kt of its cathode goes to Tanzania,
+  in ROW and not netted); South Africa +330 in 1995–1999.
+- **#86's chain.** `icsg_clean.py --to-feed`, register (the icsg diff touches only the Congo rows) → BACI as
+  in #79 (re-parse to `baci/v0/`, set aside `current/reexport_*.csv`, copy, register the gross version) →
+  `build_baci_reexport.py --source-version <it>` → `baci_feed.py` → `build_trade_shares.py` →
+  `icsg_feed.py` → Stages 2–4 against `opt_20261014_131552_f320b5f7`. Until then `current/` pairs the new
+  BACI map with values netted under the old one: run nothing BACI-side but that chain. The si.md S8
+  concordance row changes with the chain that ships it.
+
 ## #79 MEASURED 2026-10-14 — FAILS ON ROUND-E (d) AND THE STOCK-LEG ITEM, fix ticket #82; items 1–3 hold
 
 `diag/baci-490-taiwan-measure`, run `opt_20261014_131552_f320b5f7` vs `opt_20261013_122432_24e811b7`, REP

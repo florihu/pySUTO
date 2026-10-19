@@ -320,7 +320,10 @@ as the **source region label** those rows carry. A feed may rename a territory m
 (`Belgium-Luxembourg` to 2013), so one territory wears two labels across the series and, in the
 handover year, two labels on the same cell. Two source labels denote one territory exactly when the
 region map assigns them to the same **real-country root**; `ROW` is excluded, being a bucket of 48
-territories rather than one. Anything computed *before* the region map is applied — a parse rule, a
+territories rather than one. The region map cannot express a label that means another territory in
+one **vintage** only: the 2005 yearbook's `Congo` (parsed as `Congo Rep.`, Brazzaville in every later
+vintage) is DR Congo, so the ICSG clean step relabels it per vintage before the map applies
+([ADR 0032](docs/adr/0032-one-territory-one-label.md), #85). Anything computed *before* the region map is applied — a parse rule, a
 param study reading `values.csv` — must therefore group by territory, not by label. _Avoid_: reading
 a handover-year pair as two measurements. It is one measurement republished, so adding the two
 doubles the cell, and a rule keyed on the label silently skips the territory whose two series are

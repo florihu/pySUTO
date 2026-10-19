@@ -21,6 +21,7 @@ REG_REN = {
     "North Korea": "North Korea",
 
     # Congo variants
+    # the 2005 yearbook's "Congo" is DR Congo: icsg_clean relabels it (#85)
     "Congo": "Congo Rep.",
     "Congo Rep.": "Congo Rep.",
     "Congo DR": "Congo, D.R.",
