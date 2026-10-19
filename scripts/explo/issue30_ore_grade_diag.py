@@ -48,16 +48,21 @@ WINDOW   = [str(y) for y in range(2004, 2014)]
 EARLY    = [str(y) for y in range(2000, 2004)]
 
 
-def _grades(v: int) -> pd.DataFrame:
-    """ore_grade v's CO/Mining grade rows: region, year, nominal, relative σ."""
-    p = pd.read_csv(OG_IN / f"v{v}" / "params.csv", sep=None, engine="python", dtype=str)
-    g = p[p.param_id.str.startswith(GRADE, na=False)].copy()
-    g["region"] = g.param_id.str[len(GRADE):-4]          # the id carries region and year
-    g["year"] = g.param_id.str[-4:]
+def _rows(v: int) -> pd.DataFrame:
+    """Every ore_grade v row: param_id, region, year, nominal, relative σ = band/4/nominal."""
+    g = pd.read_csv(OG_IN / f"v{v}" / "params.csv", sep=None, engine="python", dtype=str)
+    g["region"] = g.a_region_from.where(g.a_region_from != "*", g.a_region_to)
+    g["year"] = g.a_time
     for c in ("value_nominal", "value_min", "value_max"):
         g[c] = g[c].astype(float)
     g["rel_sigma"] = (g.value_max - g.value_min) / 4.0 / g.value_nominal.abs()
-    return g[["region", "year", "value_nominal", "rel_sigma"]]
+    return g[["param_id", "region", "year", "value_nominal", "rel_sigma"]]
+
+
+def _grades(v: int) -> pd.DataFrame:
+    """ore_grade v's CO/Mining in-situ grade rows."""
+    g = _rows(v)
+    return g[g.param_id.str.startswith(GRADE)]
 
 
 def _imp_ore_grade(opt: str) -> int:
@@ -73,7 +78,7 @@ def inputs(base: str, new: str, v_base: int, v_new: int) -> None:
           f"v{_imp_ore_grade(new)} (new) (item 1)")
     a, b = _grades(v_base), _grades(v_new)
     for v, g in ((v_base, a), (v_new, b)):
-        r = g[g.region == "row"].set_index("year").value_nominal
+        r = g[g.region == "ROW"].set_index("year").value_nominal
         cap = 1.5 * r.reindex(EARLY).max()
         w = r.reindex(WINDOW)
         print(f"   v{v} ROW grade by year: " + " ".join(
@@ -86,22 +91,31 @@ def inputs(base: str, new: str, v_base: int, v_new: int) -> None:
     print("   largest |Δ grade| by region (percentage points): "
           + "  ".join(f"{k} {100 * v:.2f}" for k, v in by.head(8).items()))
     for v, g in ((v_base, a), (v_new, b)):
+        d = g[g.region == "Congo, D.R."].set_index("year").value_nominal
+        print(f"   v{v} DR Congo grade by year: " + " ".join(
+            f"{t[-2:]}:{100 * x:.2f}" for t, x in d.loc[:"2008"].items()) + " (%)")
+    for v in (v_base, v_new):
+        g = _rows(v)
+        fam = g.param_id.str.replace(r"[A-Z].*$|\d{4}$", "", regex=True).str.extract(
+            r"^(oregrade(?:cosupply|oreuse|oresupply|tailingsusemf|tailingsusesxew))")[0]
         hi = g[g.rel_sigma > 1.0]
-        print(f"   v{v}: {len(g)} grade rows, {len(hi)} with relative σ > 100 % (max "
-              f"{100 * g.rel_sigma.max():.0f} %), by region "
+        print(f"   v{v}: {len(g)} ore_grade rows, {len(hi)} with relative σ > 100 % (max "
+              f"{100 * g.rel_sigma.max():.0f} %); by family "
+              f"{fam[hi.index].value_counts().to_dict()}; by region "
               f"{hi.groupby('region').size().sort_values(ascending=False).head(6).to_dict()}")
 
 
 def _ratio_rows(opt: str, acc) -> pd.DataFrame:
-    """The ore-grade ratio rows of a run, with their z."""
+    """The ore-grade ratio rows of a run (row_meta variant), with their z and family."""
     d = SolverDiag.from_opt_id(opt, acc=acc)
     cf = SolverStatsDiagnostic(d.results, d.constraint_run, acc).constraint_frame()
-    r = cf[(cf["type"].astype(str) == "ratio")
-           & cf["constraint_id"].astype(str).str.contains("_oregrade|^ratio_oregrade",
-                                                          regex=True)]
-    return pd.DataFrame({"constraint_id": r["constraint_id"].astype(str).to_numpy(),
-                         "region": r["region"].astype(str).to_numpy(),
-                         "z": r["z"].to_numpy()})
+    meta = pd.read_parquet(ROOT / "const" / L._chain(opt)[0] / "row_meta.parquet")
+    var = cf["constraint_id"].astype(str).map(dict(zip(meta.constraint_id, meta.variant)))
+    r = cf[(cf["type"].astype(str) == "ratio") & var.astype(str).str.startswith("oregrade")]
+    v = var[r.index].astype(str)
+    fam = v.str.extract(r"^(oregrade(?:cosupply|oreuse|oresupply|tailingsusemf|"
+                        r"tailingsusesxew))")[0]
+    return pd.DataFrame({"family": fam.to_numpy(), "z": r["z"].to_numpy()})
 
 
 def retention(E: dict, acc, base: str, new: str) -> None:
@@ -120,7 +134,13 @@ def retention(E: dict, acc, base: str, new: str) -> None:
     z = {o: _ratio_rows(o, acc) for o in (base, new)}
     for o in (base, new):
         print(f"   {o}: ore-grade ratio rows {len(z[o])}, Σz² {(z[o].z ** 2).sum():,.0f}, "
-              f"|z| > 3: {int((z[o].z.abs() > 3).sum())}")
+              f"|z| > 3: {int((z[o].z.abs() > 3).sum())}; rows by family "
+              f"{z[o].family.value_counts().to_dict()}")
+    print("   ROW CO Mass by year, prior / post (kt): " + "  ".join(
+        f"{t}: " + " | ".join(
+            f"{E[o][(E[o].sector_from == 'CO') & (E[o].valuation == 'Mass') & (E[o].region_to == 'ROW') & (E[o].time == t)].prior.sum():,.0f}/"
+            f"{E[o][(E[o].sector_from == 'CO') & (E[o].valuation == 'Mass') & (E[o].region_to == 'ROW') & (E[o].time == t)].post.sum():,.0f}"
+            for o in (base, new)) for t in ("2004", "2005", "2006")))
 
 
 def main(base: str, new: str, v_base: int, v_new: int) -> None:
