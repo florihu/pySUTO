@@ -677,7 +677,7 @@ def fig4(A: dict, out: Path) -> Path:
         a1.plot(x, dec[f"zsq_{fam}"], color=FAMILY_COLOR[fam], lw=1.6, label=FAMILY_LABEL[fam])
         a2.plot(x, dec[f"share_gt3_{fam}"], color=FAMILY_COLOR[fam], lw=1.6)
     a1.set_yscale("log"); a1.set_ylabel("Σz² per family"); a1.tick_params(labelbottom=False)
-    a1.legend(frameon=False, loc="lower right", ncol=1)
+    a1.legend(frameon=False, loc="center left", ncol=1)   # lower right ran under (b)'s tick labels
     a2.set_ylabel("share of rows |z| > 3"); a2.set_ylim(0, 0.4); a2.set_xlabel("year")
     for ax in (a1, a2):
         _style(ax); _year_axis(ax)
