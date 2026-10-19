@@ -10,17 +10,22 @@ predictions are scored on, for <new> against <base>. Shared sections come from t
 #75, #79 and #92 diagnostics:
 
     O   observed zeros: count by sector pair; imputer writes on them in each chain
-        (item 1); their posterior and z, largest |z| by region (item 3)
-    F   ROW's domestic semis leg and its semis prior against the ICSG fan (item 2)
-    G   Germany (#32): its mine-chain sum rows' z² by year; its posterior mine output; where
-        its smelter balance goes (concentrate imports, matte, anode, scrap)
+        (item 1); their posterior and z, by region and the largest |z| (item 3); for a
+        first build's feed, its zeros in producer region-years (raw ICSG production);
+        the domestic legs a small positive weight leaves under min_flow_kt and the
+        imputer refills
+    F   ROW's domestic semis leg 1995–2011, and ROW's semis prior against its ICSG fan
+        in every year (item 2)
+    G   Germany (#32): its mine-chain sum rows' z² by year, the rows only one run has
+        included; its posterior mine output and its SX-EW route, prior and posterior;
+        where its smelter balance goes (concentrate imports, matte, anode, scrap)
     K   the same class elsewhere: mine-chain z² of Korea, Spain, Slovakia, Botswana
     E   the Round-E items (ADR 0025); ROW's CP→Cathode reported, not judged (item 4)
     S   stock legs newly above |z| 5, their size, and the net stock posterior (item 3)
     C   common-set sum-row z² by region, sector and year; rows only one run has
     A   attribution of the largest moves
 
-    python scripts/explo/issue78_observed_zero_diag.py <opt_base> <opt_new>
+    python scripts/explo/issue78_observed_zero_diag.py <opt_base> <opt_new> [<first_feed>]
 """
 from __future__ import annotations
 
@@ -46,6 +51,8 @@ from pysuto.config import load_config                     # noqa: E402
 ROOT     = Path("data/proc")
 GERMANY  = "Germany"
 SAME     = ("Korea, Rep.", "Spain", "Slovakia", "Botswana")
+CLASS76  = ("United Kingdom", "Indonesia", "Italy", "Sweden")    # #76's largest refills
+MIN_FLOW = 0.01                                                   # Stage 2's min_flow_kt
 MINE     = ("Ore", "MF", "Concentrate", "Mining")
 
 
@@ -86,8 +93,63 @@ def observed(E: dict, acc, base: str, new: str) -> None:
     print("   largest |z|: " + "  ".join(
         f"{r.root_region_to} {r.root_sector_to} {r.time} post {r.post:.1f} z {r.z:+.1f}"
         for _, r in top.iterrows()))
-    by = z.groupby("root_region_to").post.sum().sort_values(ascending=False).head(8)
-    print("   posterior by region (largest): " + "  ".join(f"{k} {v:,.1f}" for k, v in by.items()))
+    by = z.groupby("root_region_to").agg(n=("post", "size"), post=("post", "sum"),
+                                         zmax=("z", lambda x: x.abs().max()))
+    print("   by region (legs, Σ post kt CC, max |z|): " + "  ".join(
+        f"{k} {int(r.n)}/{r.post:,.1f}/{r.zmax:.2f}" for k, r in
+        by.sort_values("post", ascending=False).iterrows()))
+
+
+def first_build(acc, feed: str) -> None:
+    """O: a first build's observed zeros in region-years that produce the product (raw
+    ICSG production, the ADR 0024 bound's own helper)."""
+    r = np.load(ROOT / "feed" / "registry" / feed / "result.npz")
+    ei = BTS._decoded_edges(acc)
+    legs = ei[r["observed_zero"][ei.edge_id.to_numpy()]]
+    prod = BTS.icsg_raw_production(BTS.BOUND_DOMESTIC_SECTORS, legs)
+    p = prod.set_index(["root_sector_from", "root_region_to", "root_time"]).production_cc
+    own = p.reindex(pd.MultiIndex.from_frame(
+        legs[["root_sector_from", "root_region_to", "root_time"]].astype(str))).fillna(0.0)
+    legs = legs.assign(producer=(own > 0).to_numpy())
+    print(f"\n== O first build {feed}: {len(legs)} observed zeros; in producer region-years:")
+    for sec, g in legs.groupby("root_sector_from"):
+        pr = g[g.producer]
+        print(f"   {sec}: {len(pr)} of {len(g)}; by region "
+              f"{pr.groupby('root_region_to').size().sort_values(ascending=False).to_dict()}")
+
+
+def small_weight(E: dict, base: str, new: str) -> None:
+    """O: domestic Cathode→FU and Concentrate→Smelting legs the ICSG feed covers below
+    min_flow_kt, which Stage 2 drops and the imputer may refill."""
+    for o in (base, new):
+        feed = L._chain(o)[2]["icsg"]
+        fed = P79._fed(feed)
+        e = E[o][(E[o].valuation == "CC") & (E[o].region_from == E[o].region_to)
+                 & (((E[o].sector_from == "Cathode") & (E[o].sector_to == "FU"))
+                    | ((E[o].sector_from == "Concentrate") & (E[o].sector_to == "Smelting")))]
+        f = fed[e.edge_id.to_numpy()]
+        small = e[(f > 0) & (f < MIN_FLOW)]
+        log = pd.read_parquet(ROOT / "imp" / L._chain(o)[1] / "imputation_log.parquet")
+        w = log[log.edge_id.isin(small.edge_id)]
+        print(f"   {o}: domestic legs fed below min_flow_kt {len(small)}; imputer writes "
+              f"{len(w)}, their prior Σ {small.prior.sum():,.1f} kt CC; "
+              + " ".join(f"{r.region_to} {r.sector_from} {r.time}" for _, r in small.iterrows()))
+
+
+def row_fan_all_years(E: dict, base: str, new: str) -> None:
+    """F: ROW's Cathode→FU f_agg total against its ICSG fan in every year (item 2)."""
+    print("\n== F ROW's semis prior against its ICSG fan, every year (item 2)")
+    for o in (base, new):
+        feed, imp = P79._icsg_inputs(o)[0], L._chain(o)[1]
+        fagg = np.load(ROOT / "imp" / imp / "agg_result.npz")["f_agg"]
+        e = E[o][(E[o].valuation == "CC") & (E[o].sector_from == "Cathode")
+                 & (E[o].sector_to == "FU") & (E[o].region_to == "ROW")]
+        e = e.assign(fed=P79._fed(feed)[e.edge_id.to_numpy()], fagg=fagg[e.edge_id.to_numpy()])
+        g = e.groupby("time")[["fed", "fagg"]].sum()
+        d = g.fagg - g.fed
+        bad = d[d.abs() > 0.5]
+        print(f"   {o}: years within 0.5 kt CC {int((d.abs() <= 0.5).sum())} of {len(d)}; "
+              f"off: " + (" ".join(f"{t}:{x:+,.1f}" for t, x in bad.items()) or "none"))
 
 
 # ---------------------------------------------------------------------------
@@ -99,8 +161,14 @@ def _mine_rows(j: pd.DataFrame, region: str) -> pd.DataFrame:
     return j[(j.region == region) & s.isin(MINE)]
 
 
-def germany(E: dict, j: pd.DataFrame, base: str, new: str) -> None:
+def germany(E: dict, S: dict, j: pd.DataFrame, base: str, new: str) -> None:
     """G: Germany's mine-chain z², its posterior mine output, and its smelter balance."""
+    for o in (base, new):
+        a = S[o].assign(region=S[o].region.astype(str))
+        m = a[(a.region == GERMANY) & P92._sector(a.label).isin(MINE)]
+        print(f"\n== G {GERMANY} mine-chain rows, all rows of {o}: {len(m)} rows, Σz² "
+              f"{m.z2.sum():,.0f}; by year " + " ".join(
+                  f"{t[-2:]}:{x:,.0f}" for t, x in m.groupby("year").z2.sum().items() if x > 100))
     m = _mine_rows(j, GERMANY)
     by = m.groupby("year")[["z2_base", "z2_new"]].sum()
     by = by[(by.z2_base + by.z2_new) > 100]
@@ -115,6 +183,7 @@ def germany(E: dict, j: pd.DataFrame, base: str, new: str) -> None:
         e = E[o][E[o].valuation == "CC"]
         mine = e[(e.sector_from == "CO") & (e.sector_to == "Mining") & (e.region_to == GERMANY)]
         sx = e[(e.sector_from == "Ore") & (e.sector_to == "SXEW") & (e.region_to == GERMANY)]
+        print(f"   {o}: Ore→SXEW Σ prior {sx.prior.sum():,.1f}, Σ post {sx.post.sum():,.1f} kt CC")
         c_in = e[(e.sector_from == "Concentrate") & (e.sector_to == "Smelting")
                  & (e.region_to == GERMANY)]
         dom = c_in.region_from == GERMANY
@@ -130,15 +199,21 @@ def germany(E: dict, j: pd.DataFrame, base: str, new: str) -> None:
     for reg in SAME:
         m = _mine_rows(j, reg)
         print(f"   {reg}: {m.z2_base.sum():,.0f} → {m.z2_new.sum():,.0f}")
+    print("   #76's refill class, common-set Δz²: " + "  ".join(
+        f"{r} {j[j.region == r].dz2.sum():+,.0f}" for r in CLASS76))
 
 
-def main(base: str, new: str) -> None:
+def main(base: str, new: str, first_feed: str | None = None) -> None:
     acc = AccountingStructure.load(id=load_config().pipeline.acc_id,
                                    storage_dir=str(ROOT / "acc"))
     E, S, j = P69.load(base, new)
     observed(E, acc, base, new)
+    if first_feed:
+        first_build(acc, first_feed)
+    small_weight(E, base, new)
     P79.feeds(E, acc, base, new)
-    germany(E, j, base, new)
+    row_fan_all_years(E, base, new)
+    germany(E, S, j, base, new)
     P79.rest_of_world(E, j, base, new)
     P69.round_e(E, S, j, base, new)
     P79.stock_z(E, base, new)
@@ -152,6 +227,6 @@ def main(base: str, new: str) -> None:
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
+    if len(sys.argv) not in (3, 4):
         sys.exit(__doc__)
-    main(sys.argv[1], sys.argv[2])
+    main(*sys.argv[1:])
