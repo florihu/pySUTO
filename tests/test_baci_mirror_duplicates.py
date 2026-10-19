@@ -1,9 +1,10 @@
 """A BACI code that repeats copper another code already declares (#88).
 
-BACI 178 "Congo" carries DR Congo's cathode as its partners declare it (#84). DR Congo's
-own declarations (180) fall short of ICSG production in 2012–2019 and 2024, which 178
-fills; in 2020–2023 they match it, and 178 counts the copper twice. The parse drops a
-declared code's rows, either side, in its duplicate years only.
+BACI 178 "Congo" carries DR Congo's refined copper as its partners declare it (#84). DR
+Congo's own declarations (180, all of HS 7403.1x, #91) fall short of ICSG production
+through 2014 and in 2024, which 178 fills; in 2015–2023 they reach or exceed it, and 178
+counts the copper twice. The parse drops a declared code's rows, either side, in its
+duplicate years only.
 """
 from __future__ import annotations
 
@@ -48,3 +49,13 @@ def test_a_declaration_matching_no_rows_raises():
     agg = _agg([(2019, CATHODE, 178, 784, 242e3)])
     with pytest.raises(ValueError, match="178"):
         drop_mirror_duplicates(agg, DUP)
+
+
+def test_the_parse_reads_every_code_the_tracked_sector_map_maps():
+    """The parse's code list and the concordance's sector map are one scope (#91)."""
+    from baci_parse_feed import HS_CODES
+    conc = os.path.join(os.path.dirname(__file__), "..", "data", "input", "feed", "baci",
+                        "current", "conc.xlsx")
+    smap = pd.read_excel(conc, sheet_name="sector_map")
+    assert HS_CODES == set(smap["src_sector"].astype(int))
+    assert {740311, 740312, 740313, 740319} <= HS_CODES

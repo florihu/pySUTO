@@ -7,12 +7,15 @@ baci feed (data/input/feed/baci/v0/).
 What this script does
 ---------------------
 1. Iterates over all BACI_HS92_Y<YYYY>_V202601.csv files in BACI_RAW_DIR.
-2. Filters early to only the 5 HS codes covered by the conc.xlsx sector_map:
+2. Filters early to only the 8 HS codes covered by the conc.xlsx sector_map:
        260300  Copper ores and concentrates   → Concentrate
        740110  Copper mattes                  → Matte
        740120  Cement copper                  → Matte
        740200  Unrefined copper / anodes      → Anode
        740311  Copper cathodes                → Cathode
+       740312  Copper wire-bars               → Cathode   (#91: refined copper,
+       740313  Copper billets                 → Cathode    7–15 % of cathode trade)
+       740319  Other refined copper           → Cathode
 3. Drops rows with missing or zero quantity.
 4. Aggregates by (Year, Sector, Region_from, Region_to) — sum quantity *and value*.
 4b. Drops a declared code's rows in the years they duplicate another code's
@@ -86,7 +89,7 @@ _INPUT_ROOT  = os.path.join("data", "input")
 BACI_RAW_DIR = os.path.join("data", "input", "raw", "BACI_HS92_V202601")
 OUT_PATH     = os.path.join("data", "input", "feed", "baci", "v0", "values.csv")
 
-HS_CODES = {260300, 740110, 740120, 740200, 740311}
+HS_CODES = {260300, 740110, 740120, 740200, 740311, 740312, 740313, 740319}
 
 CATHODE_HS = 740311          # ~99.99 % Cu — its unit value is the copper price
 RECON_HS   = {260300}        # ADR 0033 scope: only concentrate mass enters
@@ -111,11 +114,11 @@ MIN_IN_BAND      = 2                # fewer than this and the spread is not
                                     # precision, so σ goes to the cap.
 
 # A code whose rows repeat copper another code already declares: code → (first,
-# last) such year (#88).  BACI 178 "Congo" carries DR Congo's cathode as its
-# partners declare it (#84).  DR Congo's own declarations (180) fall 134–517 kt CC
-# short of ICSG production in 2012–2019 and 2024, which 178 fills; in 2020–2023 they
-# match it (ledger +64, 0, +104, −123 kt CC), and 178 counts the copper twice.
-MIRROR_DUPLICATES = {178: (2020, 2023)}
+# last) such year (#88).  BACI 178 "Congo" carries DR Congo's refined copper as its
+# partners declare it (#84).  DR Congo's own declarations (180, all of HS 7403.1x,
+# #91) fall short of ICSG production through 2014 and in 2024, which 178 fills; in
+# 2015–2023 they reach or exceed it, and 178 counts the copper twice.
+MIRROR_DUPLICATES = {178: (2015, 2023)}
 
 OUT_DIR       = os.path.dirname(OUT_PATH)
 RECON_PATH    = os.path.join(OUT_DIR, "quantity_recon.csv")

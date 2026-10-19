@@ -602,3 +602,20 @@ def test_178_and_711_rows_land_on_dr_congo_and_south_africa_under_the_tracked_ma
     assert (r_of[178], r_of[711]) == ("Congo, D.R.", "South Africa")
     assert sorted(legs[["region_from", "region_to", "cc"]].values.tolist()) == \
         [["Congo, D.R.", "United Arab Emirates", 10.0], ["South Africa", "Italy", 5.0]]
+
+
+def test_every_refined_copper_code_lands_on_cathode_under_the_tracked_map(tmp_path):
+    """HS 740312 wire bars, 740313 billets and 740319 other refined copper are refined
+    copper like 740311; reading 740311 alone left Austria's cathode node without 78 %
+    of its refined exports in 2003 (#91)."""
+    shutil.copyfile(CURRENT_CONC, tmp_path / "conc.xlsx")
+    codes = [740311, 740312, 740313, 740319]
+    pd.DataFrame({"Year": [2003] * 4, "Sector": codes, "Region_from": [40] * 4,
+                  "Region_to": [380] * 4, "Value": [10.0, 1.0, 43.6, 18.1],
+                  "Unit": ["kt"] * 4}) \
+      .to_csv(tmp_path / "values.csv", index=False)
+    _, legs, s_of, _ = load_root_trade(str(tmp_path), {("Cathode", "*"): 1.0})
+    assert {s_of[c] for c in codes} == {"Cathode"}
+    assert legs[["sector", "region_from", "region_to"]].values.tolist() == \
+        [["Cathode", "Austria", "Italy"]]
+    assert legs.cc.sum() == pytest.approx(72.7)
