@@ -10,7 +10,7 @@ not its values) and re-affirms [ADR 0012](0012-scrap-one-mixed-grade-commodity.m
 per-commodity invariant. Baseline `opt_20260915_131115_b8bf05a9`; runs
 `opt_20260916_094322_0c932b8e` (M.1) and `opt_20260916_100802_4264582e` (M.2).
 
-**Amended 2026-10-19 (#29; status: built, to be measured by #94):**
+**Amended 2026-10-19 (#29; status: accepted — measured by #94, run `opt_20261019_161937_fd301f58`, ratio-row Σz² 55,213 → 8,146, common-set sum-row z² −0.48 % vs `opt_20261019_155415_a1d7e9a9`):**
 the stated σ is in **ratio units**, and the soft ratio row now applies it **relative to the
 ratio**, σ/|r|. Since the symmetric σ_c scaling (REP `analysis_opt_20260611_075036` §8.2,
 σ_log = σ/r) the row multiplied σ itself by a flow scale of ≈ |r|·Σ|a₀,denom|, reading it as a
