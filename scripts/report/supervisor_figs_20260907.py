@@ -19,6 +19,8 @@ import pandas as pd
 import plotly.graph_objects as go
 from matplotlib.colors import LinearSegmentedColormap
 
+from pysuto.diag.stats.problem import CHAIN_ORDER
+
 RUN_DIR = Path("data/proc/opt/opt_20260903_124655_4b23df2f/diag")
 OUT_DIR = Path("figs/report")
 YEARS = range(1995, 2025)
@@ -38,8 +40,6 @@ SECTOR_LABEL = {
     "FU": "Final use", "MESC": "Exchange stocks", "USC": "User stocks",
     "PSC": "PSC", "WR": "WR",
 }
-CHAIN_ORDER = ["CO", "Mining", "Ore", "MF", "SXEW", "Concentrate", "Smelting",
-               "Matte", "CFR", "Anode", "ER", "CER", "CSXEW", "CP", "Cathode", "Scrap"]
 
 
 def load_edges() -> pd.DataFrame:

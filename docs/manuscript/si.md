@@ -640,7 +640,7 @@ Inputs live in a versioned registry of four kinds (feeds, accounting structure, 
 
 ## S15 Hypothesis protocol and outcomes
 
-Implemented in `scripts/report/results_figs.py`: one command on the reference chain of Table [S17](#tab-si-chain) regenerates Figures 3 and 4, Table 3 and every number the Results cite (`docs/manuscript/figs/numbers.json`), together with the tables of this section and of S16–S17.
+Implemented in `scripts/report/results_figs.py`: one command on the reference chain of Table [S17](#tab-si-chain) regenerates Figures 3–5, Table 3 and every number the Results cite (`docs/manuscript/figs/numbers.json`), together with the tables of this section and of S16–S17.
 
 ### S15.1 Protocol
 
@@ -729,7 +729,7 @@ The eight expectations of Table 3 were written with their metric and threshold b
 
 ## S16 Solver-diagnostic portfolio of the reference run
 
-Every solver run renders twelve figures under `data/proc/opt/<run>/diag/` (`pysuto/diag/solver.py`, registry `SolverDiag.PLOTS`) from the same all-years frames that Figure 3 of the main text redraws; Table [S23](#tab-si-portfolio) lists them. Tables S24–S26 rank the identities that carry each family's objective on the reference run (the run's `ranking_*.csv`; the full top-25 in `si_s16_top_identities_*.csv`). An identity is an edge template across years, or a row's node and pair columns (S12); $\sum_t z^2$ is summed over the 30 years, $\sum_t \lvert\Delta\rvert$ is the summed absolute defect or residual in kt.
+Every solver run renders twelve figures under `data/proc/opt/<run>/diag/` (`pysuto/diag/solver.py`, registry `SolverDiag.PLOTS`) from the same all-years frames that Figure 4 of the main text redraws; Table [S23](#tab-si-portfolio) lists them. Tables S24–S26 rank the identities that carry each family's objective on the reference run (the run's `ranking_*.csv`; the full top-25 in `si_s16_top_identities_*.csv`). An identity is an edge template across years, or a row's node and pair columns (S12); $\sum_t z^2$ is summed over the 30 years, $\sum_t \lvert\Delta\rvert$ is the summed absolute defect or residual in kt.
 
 <a id="tab-si-portfolio"></a>
 
@@ -737,14 +737,14 @@ Every solver run renders twelve figures under `data/proc/opt/<run>/diag/` (`pysu
 | --- | --- | --- |
 | SD-R-01 | solver health | status strip, iterations, solve time and final KKT residuals per year |
 | SD-R-08 | useful output | Process→Flow totals by process sector, $\sum a^*(t)$ against $\sum a_{\mathrm{prior}}(t)$ and retention, per valuation |
-| SD-R-09 | total output by flow sector | Flow→Process and Flow→boundary totals and retention, per valuation (Figure 3c) |
+| SD-R-09 | total output by flow sector | Flow→Process and Flow→boundary totals and retention, per valuation (Figure 4c) |
 | SD-R-10 | boundary flows | system-boundary totals by boundary sector, inputs and outputs, and retention |
-| SD-R-11 | objective decomposition | $\sum z^2$ per family, maximum hard mass-balance residual and share of $\lvert z\rvert > 3$, per year (Figure 3a) |
+| SD-R-11 | objective decomposition | $\sum z^2$ per family, maximum hard mass-balance residual and share of $\lvert z\rvert > 3$, per year (Figure 4a) |
 | SD-R-12 | convergence traces | Clarabel per-iteration residuals, gap and step length, one line per year |
-| SD-R-13 | objective share by sector key | per family, top 20 keys (Figure 3b) |
+| SD-R-13 | objective share by sector key | per family, top 20 keys (Figure 4b) |
 | SD-R-14 | top identities | top 25 identities per family by $\sum_t z^2$, annotated with $\sum_t \lvert\Delta\rvert$ |
 | SD-R-15a–c | identity profiles | $z_t$ over the years for the top 12 identities of each family |
-| SD-T-07 | rocket | prior against posterior in $c$-space and $a$-space at the first, worst-$\sum z^2$ and last year, colour $\lvert z\rvert$ (Figure 3d) |
+| SD-T-07 | rocket | prior against posterior in $c$-space and $a$-space at the first, worst-$\sum z^2$ and last year, colour $\lvert z\rvert$ (Figure 4d) |
 
 **Table S23.** The solver-diagnostic portfolio.
 
@@ -797,7 +797,7 @@ Every solver run renders twelve figures under `data/proc/opt/<run>/diag/` (`pysu
 
 ## S17 Bilateral legs of the trade insight
 
-The partner shares of Figure 4c and the embodied matrix of Figure 4d are posterior quantities; this section shows what the reconciliation did to the legs behind them. Table [S27](#tab-si-legs) lists, for Chile, Peru and China, the five largest cross-region concentrate and cathode legs by prior in 2000 and 2024 with their prior, posterior and retention (kt CC); the full table with matte and anode legs is `si_s17_legs.csv`. Legs into the merchant hubs of S15.1 are the ones cut (Chile→Netherlands cathode, Chile→Switzerland anode), consistent with A3; the legs into processing regions keep their prior scale within a few percent, and the Chile→China concentrate leg is retained at its prior. A leg's posterior is a year-local quantity of the account (README §8), not a trade record: it is the flow the balances of both endpoints admit.
+The partner shares of Figure 5c and the embodied matrix of Figure 5d are posterior quantities; this section shows what the reconciliation did to the legs behind them. Table [S27](#tab-si-legs) lists, for Chile, Peru and China, the five largest cross-region concentrate and cathode legs by prior in 2000 and 2024 with their prior, posterior and retention (kt CC); the full table with matte and anode legs is `si_s17_legs.csv`. Legs into the merchant hubs of S15.1 are the ones cut (Chile→Netherlands cathode, Chile→Switzerland anode), consistent with A3; the legs into processing regions keep their prior scale within a few percent, and the Chile→China concentrate leg is retained at its prior. A leg's posterior is a year-local quantity of the account (README §8), not a trade record: it is the flow the balances of both endpoints admit.
 
 <a id="tab-si-legs"></a>
 

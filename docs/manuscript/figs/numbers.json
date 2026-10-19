@@ -408,5 +408,247 @@
       "value": "5,534 / 3,932 kt CC = 1.41; 0.035 \u2192 0.528",
       "outcome": "PASS"
     }
-  ]
+  ],
+  "problem": {
+    "year": "2020",
+    "region": "China",
+    "provenance_cc": {
+      "feed": {
+        "n_edges": 760,
+        "kt": 88067.2
+      },
+      "network": {
+        "n_edges": 685,
+        "kt": 216854.9
+      },
+      "trade": {
+        "n_edges": 190,
+        "kt": 805.0
+      },
+      "conc": {
+        "n_edges": 404,
+        "kt": 2782.2
+      },
+      "ore_grade": {
+        "n_edges": 15,
+        "kt": 2627.4
+      },
+      "eff": {
+        "n_edges": 0,
+        "kt": 0.0
+      },
+      "time_interp": {
+        "n_edges": 30,
+        "kt": 143.6
+      },
+      "net_stock_share": {
+        "n_edges": 266,
+        "kt": 0.0
+      },
+      "flat_prior": {
+        "n_edges": 11891,
+        "kt": 0.0
+      }
+    },
+    "feed_cc_edges_per_year": {
+      "min": 710,
+      "max": 914
+    },
+    "chain_profile_cc_kt": {
+      "CO\u2192Mining": {
+        "network": 23938.2,
+        "ore_grade": 2627.4,
+        "time_interp": 10.6
+      },
+      "Mining\u2192Ore": {
+        "network": 26565.6,
+        "time_interp": 10.6
+      },
+      "Ore\u2192MF": {
+        "network": 20832.4,
+        "time_interp": 10.6
+      },
+      "Ore\u2192SXEW": {
+        "network": 5737.5
+      },
+      "MF\u2192Concentrate": {
+        "feed": 16580.4,
+        "network": 85.5,
+        "time_interp": 8.5
+      },
+      "MF\u2192Tailings": {
+        "network": 4166.5,
+        "time_interp": 2.1
+      },
+      "SXEW\u2192CSXEW": {
+        "feed": 4159.7
+      },
+      "SXEW\u2192Tailings": {
+        "network": 1577.8
+      },
+      "Concentrate\u2192Smelting": {
+        "feed": 6973.6,
+        "network": 343.5,
+        "time_interp": 4.9
+      },
+      "Smelting\u2192Matte": {
+        "network": 20884.4,
+        "time_interp": 4.7
+      },
+      "Smelting\u2192Slag": {
+        "network": 757.5,
+        "time_interp": 0.2
+      },
+      "Matte\u2192CFR": {
+        "network": 20725.0,
+        "time_interp": 4.7
+      },
+      "CFR\u2192Anode": {
+        "network": 20976.5,
+        "time_interp": 4.6
+      },
+      "CFR\u2192Slag": {
+        "network": 269.6,
+        "time_interp": 0.1
+      },
+      "Anode\u2192ER": {
+        "feed": 19200.2,
+        "network": 35.9,
+        "time_interp": 4.5
+      },
+      "ER\u2192CER": {
+        "network": 20530.8,
+        "time_interp": 4.5
+      },
+      "ER\u2192Slag": {
+        "network": 61.8
+      },
+      "CER\u2192CP": {
+        "network": 20530.8,
+        "time_interp": 4.5
+      },
+      "CSXEW\u2192CP": {
+        "network": 4159.7
+      },
+      "CP\u2192Cathode": {
+        "network": 24690.4,
+        "time_interp": 4.5
+      },
+      "Cathode\u2192FU": {
+        "feed": 15068.9,
+        "conc": 2463.6,
+        "time_interp": 4.5
+      },
+      "Scrap\u2192Smelting": {
+        "feed": 3491.7
+      },
+      "Scrap\u2192CFR": {
+        "feed": 644.6,
+        "time_interp": 9.3
+      },
+      "Concentrate (trade)": {
+        "feed": 10965.5,
+        "trade": 104.4
+      },
+      "Matte (trade)": {
+        "trade": 203.3
+      },
+      "Anode (trade)": {
+        "feed": 1356.4,
+        "trade": 497.2
+      },
+      "Cathode (trade)": {
+        "feed": 9527.3,
+        "conc": 124.3
+      }
+    },
+    "families": {
+      "mass balance": {
+        "cone": "zero",
+        "rows": 1316,
+        "prior_breach": 436,
+        "binding": null,
+        "binding_on_flow": null,
+        "binding_on_zero_flows": null
+      },
+      "stripping": {
+        "cone": "zero",
+        "rows": 47,
+        "prior_breach": 31,
+        "binding": null,
+        "binding_on_flow": null,
+        "binding_on_zero_flows": null
+      },
+      "conc band": {
+        "cone": "nonneg",
+        "rows": 28150,
+        "prior_breach": 233,
+        "binding": 22861,
+        "binding_on_flow": 6841,
+        "binding_on_zero_flows": 16020
+      },
+      "eff band": {
+        "cone": "nonneg",
+        "rows": 470,
+        "prior_breach": 40,
+        "binding": 127,
+        "binding_on_flow": 89,
+        "binding_on_zero_flows": 38
+      },
+      "scrap-share band": {
+        "cone": "nonneg",
+        "rows": 188,
+        "prior_breach": 5,
+        "binding": 38,
+        "binding_on_flow": 6,
+        "binding_on_zero_flows": 32
+      },
+      "lower bound": {
+        "cone": "nonneg",
+        "rows": 19552,
+        "prior_breach": 0,
+        "binding": 10297,
+        "binding_on_flow": 0,
+        "binding_on_zero_flows": 10297
+      },
+      "soft ratio": {
+        "cone": "free",
+        "rows": 14451,
+        "prior_breach": null,
+        "binding": null,
+        "binding_on_flow": null,
+        "binding_on_zero_flows": null
+      },
+      "scale total & scrap anchor": {
+        "cone": "free",
+        "rows": 947,
+        "prior_breach": null,
+        "binding": null,
+        "binding_on_flow": null,
+        "binding_on_zero_flows": null
+      }
+    },
+    "block": {
+      "rows": 65121,
+      "edges": 28482,
+      "rows_by_cone": {
+        "free": 15398,
+        "zero": 1363,
+        "nonneg": 48360
+      },
+      "nnz": 200760,
+      "nnz_stored": 208944
+    },
+    "region_slice": {
+      "edges": 406,
+      "legs": 352,
+      "legs_left_out": 752,
+      "rows": 1432,
+      "complete": 927,
+      "partial": 505,
+      "free_rows": 439,
+      "nnz": 2881,
+      "binding_on_flow": 119
+    }
+  }
 }

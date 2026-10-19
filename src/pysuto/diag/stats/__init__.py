@@ -22,6 +22,12 @@ Groups the stats-table diagnostics and their shared builders:
                                                     (σ_a*, contraction κ, defect z,
                                                     prior class, κ–z quadrant) behind
                                                     ``UncPropDiag``.
+* :class:`ProblemStatsDiagnostic`(``problem.py``)— Stages 2–4: the problem one
+                                                    period is handed (edge provenance,
+                                                    chain profile, prior breach and
+                                                    active set per row, a region's
+                                                    standard-form slice) behind the
+                                                    Results' problem figure.
 
 The shared, stateless builders (:func:`grouped_stats`, :func:`constraint_table`,
 :func:`sector_totals`, :func:`boundary_edges`, :func:`filter_regions`) live in
@@ -34,6 +40,7 @@ from .val      import StatsDiagnostic
 from .const    import ConstStatsDiagnostic
 from .solver   import SolverStatsDiagnostic
 from .uncprop  import UncPropStatsDiagnostic
+from .problem  import ProblemStatsDiagnostic
 
 __all__ = [
     "CoverageDiagnostic",
@@ -41,4 +48,5 @@ __all__ = [
     "ConstStatsDiagnostic",
     "SolverStatsDiagnostic",
     "UncPropStatsDiagnostic",
+    "ProblemStatsDiagnostic",
 ]
