@@ -145,7 +145,8 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
   `icsg_feed.py` → Stages 2–4 against `opt_20261014_131552_f320b5f7`. Until then `current/` pairs the new
   BACI map with values netted under the old one: run nothing BACI-side but that chain. The si.md S8
   concordance row changes with the chain that ships it.
-## #29 BUILT 2026-10-19 — NOT MEASURED (its measure ticket): a soft ratio row is priced at its stated σ relative to r
+
+## #29 BUILT 2026-10-19 — NOT MEASURED (#94): a soft ratio row is priced at its stated σ relative to r
 
 `fix/ratio-sigma-relative`. The params tables state σ in ratio units (`value_sd`, or band/4), but
 `RatioConstraintBuilder` multiplied it by a flow scale ≈ |r|·Σ|a₀,denom| as if it were a CV, so every
@@ -159,7 +160,9 @@ build, no solve):
   40.9 % (×20), scrap 14.5 → 20.7 % (×1.4), anode 2.0 → 2.13 %; cathode, CER, CSXEW, PSC and WR stay
   on the floor.
 - **ore_grade:** CO/Ore grade rows 2 % floor → median 16.9 % (q10 8.2 %, q90 34.1 %; none left on the
-  floor, σ_c ×8.4 at the median); tailings MF median 17.1 %, SXEW 13.2 %.
+  floor, σ_c ×8.4 at the median); tailings MF median 17.1 %, SXEW 13.2 %. 104 rows, mostly ROW, exceed
+  100 % (ore grade up to 355 %, tailings up to 468 %), nearly free; #94 reports them. #30 rebuilds
+  ore_grade first, which may change them.
 - **eff:** SXEW 6.25 → 8.62 %, flotation 5.0 → 6.25 %; smelting, CFR and ER stay on the floor.
 No soft row tightens (every active r ≤ 1). The measure ticket runs Stages 3–4 against the reference
 chain (today `opt_20261014_131552_f320b5f7`) and judges the change by the Round-E stop rule (ADR

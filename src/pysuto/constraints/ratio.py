@@ -71,7 +71,7 @@ def _ratio_struct_cols(num: dict, denom: dict) -> dict:
     }
 
 
-def _relative_sigma(sigma: float, r: float, param_id) -> float:
+def _relative_sigma(sigma: float, r: float, param_id: str | None) -> float:
     """σ in ratio units (``sigma_from_row``) → the relative σ_r = σ/|r| (#29).
 
     At a prior that sits on the ratio the symmetric scale
@@ -226,6 +226,7 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
             nominal = float_or(row.get("value_nominal", "nan"), np.nan)
             if np.isnan(nominal):
                 continue
+            param_id = str(row.get("param_id", "")).strip() or None
             # Net-stock bands (param_type=="stock_bound", nominal r=0, centred at 0):
             # read the symmetric ±p95 half-band (value_max) as the ratio-space σ_r and
             # tag scale_mode="denominator" so build_dynamic scales σ_c off the THROUGHPUT
@@ -240,12 +241,12 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
                     sigma = sigma_from_row(row, nominal)
                 except Exception:
                     sigma = 0.0
-                sigma      = _relative_sigma(sigma, nominal, row.get("param_id", "?"))
+                if not hard:            # a hard row carries σ_c = 0 whatever σ is
+                    sigma = _relative_sigma(sigma, nominal, param_id)
                 scale_mode = "symmetric"
 
             # A user param_id, if present, becomes the grammar `variant` slot
             # (underscore-free); otherwise the ratio variant is "ratioeq".
-            param_id = str(row.get("param_id", "")).strip() or None
             variant  = _safe(param_id, field="param_id") if param_id else "ratioeq"
 
             # agg rows pool every matched a-side edge against every matched
