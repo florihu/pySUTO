@@ -9,35 +9,35 @@ standard form.
 Synthetic stubs only. Two regions A and B; 14 edges, twelve in 2020 and two in
 2021 (e11, e12). The 2020 block's columns are ``cols_t = [0..10, 13]``:
 
-    e   from → to                val   provenance        f_agg    l
-    0   Mining|A → Ore|A         CC    network            10      0
-    1   Mining|A → Ore|A         Mass  feed              500      0
-    2   Ore|A → Concentrate|A    CC    feed                9      0
-    3   Ore|A → Concentrate|A    Mass  conc              250      0
-    4   Concentrate|A → Smelting|B   CC    trade           4      0   leg
-    5   Concentrate|A → Smelting|B   Mass  feed           13      0   leg
-    6   Concentrate|B → Smelting|A   CC    flat_prior      0      0   leg
-    7   Concentrate|B → Smelting|A   Mass  flat_prior      0      0   leg
-    8   Cathode|A → USC|A        CC    net_stock_share     0   −1e6   signed
-    9   Cathode|A → USC|A        Mass  net_stock_share     0   −1e6   signed
-    10  Concentrate|B → Smelting|B   CC    feed            7      0
-    13  Smelting|A → Cathode|A   CC    flat_prior          0      0
+    e   from → to                     val   provenance       f_agg   l
+    0   Mining|A → Ore|A              CC    network            10    0
+    1   Mining|A → Ore|A              Mass  feed              500    0
+    2   Ore|A → Concentrate|A         CC    feed                9    0
+    3   Ore|A → Concentrate|A         Mass  conc              250    0
+    4   Concentrate|A → Smelting|B    CC    trade               4    0    leg
+    5   Concentrate|A → Smelting|B    Mass  feed               13    0    leg
+    6   Concentrate|B → Smelting|A    CC    flat_prior          0    0    leg
+    7   Concentrate|B → Smelting|A    Mass  flat_prior          0    0    leg
+    8   Cathode|A → USC|A             CC    net_stock_share     0  −1e6   signed
+    9   Cathode|A → USC|A             Mass  net_stock_share     0  −1e6   signed
+    10  Concentrate|B → Smelting|B    CC    feed                7    0
+    13  Smelting|A → Cathode|A        CC    flat_prior          0    0
 
 The 2020 rows (local r = global id; row 12 is a 2021 row outside the block):
 
-    r   family              cone    entries                     c       prior resid   resid at a*
-    0   mass balance        zero    e0 − e2                     0        1  (breach)   0
-    1   stripping           zero    e1 − 2·e3                   0        0             0
-    2   conc band           nonneg  e2 − 0.5·e3                 0     −116             0   (binds, on flow)
-    3   eff band            nonneg  e13 − 0.9·e6                0        0             0   (binds, zero flows)
-    4   scrap-share band    nonneg  e4 − 0.1·e5                 0      2.7 (breach)  −0.5
-    5   lower bound         nonneg  −e10 (+ stored 0 on e1)     0       −7            −7
-    6   lower bound         nonneg  −e0                         0      −10        −1e-6   (binds at −tol)
-    7   lower bound         nonneg  −e2                         0       −9        −2e-6   (slack)
-    8   mass balance        zero    e8 − e9                 −1e-6     1e-6 (= tol)   0
-    9   soft ratio          free    e4 − 0.3·e5                 0                    0.2
-    10  scale total         free    e2 + e10                   20                    0.5
-    11  scrap-share band    nonneg  e13 − 0.2·e6 (+ stored 0 on e2)  0   0             0   (binds, zero flows)
+    r   family            cone    entries                   c      prior resid  resid at a*
+    0   mass balance      zero    e0 − e2                   0       1 (breach)   0
+    1   stripping         zero    e1 − 2·e3                 0       0            0
+    2   conc band         nonneg  e2 − 0.5·e3               0    −116            0  (on flow)
+    3   eff band          nonneg  e13 − 0.9·e6              0       0            0  (zero flows)
+    4   scrap-share band  nonneg  e4 − 0.1·e5               0     2.7 (breach) −0.5
+    5   lower bound       nonneg  −e10 (+ stored 0 on e1)   0      −7           −7
+    6   lower bound       nonneg  −e0                       0     −10        −1e-6  (binds, −tol)
+    7   lower bound       nonneg  −e2                       0      −9        −2e-6  (slack)
+    8   mass balance      zero    e8 − e9               −1e-6    1e-6 (= tol)    0
+    9   soft ratio        free    e4 − 0.3·e5               0                  0.2
+    10  scale total       free    e2 + e10                 20                  0.5
+    11  scrap-share band  nonneg  e13 − 0.2·e6 (+ 0 on e2)  0       0            0  (zero flows)
 
 ``a*`` puts e0 at exactly the bind tolerance (1e-6, not flowing); the residuals
 at ``a*`` are the stub's own (they are not recomputed).
@@ -54,9 +54,6 @@ from numpy.testing import assert_array_equal
 
 from pysuto.diag.stats import ProblemStatsDiagnostic
 from pysuto.diag.stats.problem import row_family
-from pysuto.diag.stats.uncprop import BIND_TOL_KT
-
-TOL = BIND_TOL_KT
 
 
 # ---------------------------------------------------------------------------
@@ -99,8 +96,8 @@ def _imp(extra_log=(), coverage_extra=()):
                         "imputer_id": ["network", "conc", "trade", "flat_prior", "flat_prior",
                                        "net_stock_share", "net_stock_share", "flat_prior"]})
     if extra_log:
-        log = pd.concat([log, pd.DataFrame(list(extra_log), columns=["edge_id", "imputer_id"])],
-                        ignore_index=True)
+        extra = pd.DataFrame(list(extra_log), columns=["edge_id", "imputer_id"])
+        log = pd.concat([log, extra], ignore_index=True)
     coverage = np.zeros(len(_EDGES), dtype=bool)
     coverage[[1, 2, 5, 10, 11, 12, *coverage_extra]] = True
     return SimpleNamespace(f_agg=F_AGG.copy(), coverage=coverage, imputation_log=_Log(log))
@@ -148,7 +145,7 @@ def _row_meta():
 
 
 def _cr():
-    c = np.zeros(13)
+    c = np.zeros(13)                                  # stored over all rows
     c[8], c[10] = -1e-6, 20.0
     l = np.zeros(len(_EDGES))
     l[[8, 9]] = -1e6
@@ -164,13 +161,19 @@ RESID   = np.array([0, 0, 0, 0, -0.5, -7, -1e-6, -2e-6, 0, 0.2, 0.5, 0], dtype=f
 
 
 def _opt(cols=COLS_2020):
-    return SimpleNamespace(F_opt=F_OPT.copy(), a_prior=A_PRIOR.copy(), residuals=RESID.copy(),
-                           cols_t=np.asarray(cols), rows_t=np.arange(12))
+    return SimpleNamespace(F_opt=F_OPT.copy(), a_prior=A_PRIOR.copy(),
+                           residuals=RESID.copy(), cols_t=np.asarray(cols),
+                           rows_t=np.arange(12))
 
 
-def _diag(**kw):
+def _diag(year="2020", **kw):
     return ProblemStatsDiagnostic(kw.get("opt", _opt()), kw.get("cr", _cr()),
-                                  kw.get("imp", _imp()), _acc(), "2020")
+                                  kw.get("imp", _imp()), _acc(), year)
+
+
+def test_year_is_a_time_label():
+    with pytest.raises(TypeError, match="time label"):
+        _diag(year=2020)
 
 
 # ---------------------------------------------------------------------------
@@ -180,9 +183,9 @@ def _diag(**kw):
 class TestProvenance:
     def test_feed_where_covered_else_the_imputer(self):
         p = _diag().provenance()
-        assert p.tolist() == ["network", "feed", "feed", "conc", "trade", "feed", "flat_prior",
-                              "flat_prior", "net_stock_share", "net_stock_share", "feed",
-                              "feed", "feed", "flat_prior"]
+        assert p.tolist() == ["network", "feed", "feed", "conc", "trade", "feed",
+                              "flat_prior", "flat_prior", "net_stock_share",
+                              "net_stock_share", "feed", "feed", "feed", "flat_prior"]
 
     def test_raises_on_an_edge_both_covered_and_imputed(self):
         with pytest.raises(ValueError, match="both"):
@@ -205,7 +208,7 @@ class TestProvenance:
         assert t.loc["trade"].tolist() == [1, 4.0]
         assert t.loc["flat_prior"].tolist() == [2, 0.0]          # e6, e13
         assert t.loc["net_stock_share"].tolist() == [1, 0.0]
-        assert t.loc["eff"].tolist() == [0, 0.0]                 # a known imputer with no fills
+        assert t.loc["eff"].tolist() == [0, 0.0]                 # a known imputer, no fills
         assert list(t.columns) == ["n_edges", "kt"]
         assert t.index[0] == "feed"
 
@@ -259,7 +262,7 @@ class TestRowActivity:
 
     def test_prior_breach_is_strict_at_the_tolerance(self):
         r = _diag().row_frame()
-        assert np.flatnonzero(r["prior_breach"].to_numpy()).tolist() == [0, 4]   # r8 sits at +tol
+        assert np.flatnonzero(r["prior_breach"].to_numpy()).tolist() == [0, 4]  # r8 at +tol
 
     def test_binding_on_nonneg_rows_down_to_minus_the_tolerance(self):
         r = _diag().row_frame()
@@ -275,16 +278,16 @@ class TestRowActivity:
         assert s.index.tolist() == ["mass balance", "stripping", "conc band", "eff band",
                                     "scrap-share band", "lower bound", "soft ratio",
                                     "scale total & scrap anchor"]
-        assert s["cone"].tolist() == ["zero", "zero", "nonneg", "nonneg", "nonneg", "nonneg",
-                                      "free", "free"]
+        assert s["cone"].tolist() == ["zero", "zero", "nonneg", "nonneg", "nonneg",
+                                      "nonneg", "free", "free"]
         assert s["rows"].tolist() == [2, 1, 1, 1, 2, 3, 1, 1]
         assert s.loc["mass balance", "prior_breach"] == 1
         assert s.loc["scrap-share band", "prior_breach"] == 1
         assert s.loc["scrap-share band", "binding"] == 1
         assert s.loc["scrap-share band", "binding_on_flow"] == 0
         assert s.loc["lower bound", "binding_on_zero_flows"] == 1
-        assert pd.isna(s.loc["mass balance", "binding"])               # equalities always hold
-        assert pd.isna(s.loc["soft ratio", "prior_breach"])            # soft rows: z², not breach
+        assert pd.isna(s.loc["mass balance", "binding"])         # equalities always hold
+        assert pd.isna(s.loc["soft ratio", "prior_breach"])      # soft rows: z², not breach
 
     def test_block_sizes_count_true_nonzeros(self):
         b = _diag().block_sizes()
@@ -302,19 +305,20 @@ class TestRowActivity:
 # ---------------------------------------------------------------------------
 
 class TestRegionSlice:
-    def test_columns_domestic_plus_informative_legs_mass_then_cc(self):
+    def test_columns_domestic_plus_legs_with_a_prior_mass_then_cc(self):
         s = _diag().region_slice("A")
         assert_array_equal(s.edge_ids, [1, 3, 9, 5, 0, 2, 13, 8, 4])
         assert s.valuation.tolist() == ["Mass"] * 4 + ["CC"] * 5
-        assert_array_equal(s.is_leg, [False, False, False, True, False, False, False, False, True])
+        assert_array_equal(s.is_leg, [False, False, False, True,
+                                      False, False, False, False, True])
         assert s.n_legs_omitted == 2                               # e6, e7: flat-prior legs
 
     def test_rows_by_cone_then_family_complete_first(self):
         s = _diag().region_slice("A")
         assert_array_equal(s.row_ids, [9, 10, 0, 8, 1, 2, 3, 4, 11, 6, 7])
         assert s.cone.tolist() == ["free"] * 2 + ["zero"] * 3 + ["nonneg"] * 6
-        assert_array_equal(s.complete, [True, False, True, True, True, True, False, True, False,
-                                        True, True])
+        assert_array_equal(s.complete, [True, False, True, True, True, True, False, True,
+                                        False, True, True])
         assert_array_equal(s.binding_on_flow, [r == 2 for r in s.row_ids])
 
     def test_a_row_reached_only_through_a_stored_zero_is_not_in_the_slice(self):

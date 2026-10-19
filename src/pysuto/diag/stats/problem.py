@@ -48,6 +48,8 @@ CHAIN_ORDER = ["CO", "Mining", "Ore", "MF", "SXEW", "Concentrate", "Smelting",
 # appended after them.
 PROVENANCE_ORDER = ["feed", "network", "trade", "conc", "ore_grade", "eff",
                     "time_interp", "net_stock_share", "flat_prior"]
+# Provenances that give an edge no prior of its own (0 kt seeds).
+NO_PRIOR_OF_ITS_OWN = ("net_stock_share", "flat_prior")
 
 FAMILIES = ["mass balance", "stripping", "conc band", "eff band", "scrap-share band",
             "lower bound", "soft ratio", "scale total & scrap anchor"]
@@ -57,8 +59,10 @@ _BAND_FAMILY = {"conc": "conc band", "eff": "eff band", "scrap_share": "scrap-sh
 _VALUATION_ORDER = ["Mass", "CC"]
 
 
-def _rank(sector: str) -> int:
-    return CHAIN_ORDER.index(sector) if sector in CHAIN_ORDER else len(CHAIN_ORDER)
+def _position(values: pd.Series, order: list) -> np.ndarray:
+    """Each value's index in ``order``; values outside it sort last."""
+    rank = {v: i for i, v in enumerate(order)}
+    return values.map(rank).fillna(len(order)).to_numpy(dtype=np.int64)
 
 
 def row_family(row_meta: pd.DataFrame) -> np.ndarray:
@@ -67,24 +71,24 @@ def row_family(row_meta: pd.DataFrame) -> np.ndarray:
     typ  = row_meta["type"].astype(str).to_numpy()
     var  = row_meta["variant"].astype(str).to_numpy()
     hard = row_meta["is_hard"].to_numpy(dtype=bool)
-    kind = row_meta["ratio_kind"].astype(object).to_numpy() if "ratio_kind" in row_meta else \
-        np.full(len(row_meta), None, dtype=object)
+    kind = row_meta["ratio_kind"].astype(object).to_numpy()
 
     out = np.full(len(row_meta), "", dtype=object)
     out[typ == "massbal"] = "mass balance"
     out[typ == "bound"]   = "lower bound"
     out[typ == "sum"]     = "scale total & scrap anchor"
     ratio = typ == "ratio"
-    out[ratio & (var == "strippingratio")] = "stripping"
-    out[ratio & ~hard & (var != "strippingratio")] = "soft ratio"
-    band = ratio & hard & (var != "strippingratio")
+    strip = var == "strippingratio"
+    out[ratio & strip]          = "stripping"
+    out[ratio & ~hard & ~strip] = "soft ratio"
     for k, fam in _BAND_FAMILY.items():
-        out[band & (kind == k)] = fam
+        out[ratio & hard & ~strip & (kind == k)] = fam
 
     bad = out == ""
     if bad.any():
         first = row_meta.loc[bad, ["type", "variant", "is_hard"]].head(3).to_dict("records")
-        raise ValueError(f"{int(bad.sum())} row(s) match no constraint family (first: {first})")
+        raise ValueError(f"{int(bad.sum())} row(s) match no constraint family "
+                         f"(first: {first})")
     return out
 
 
@@ -109,7 +113,7 @@ class RegionSlice:
     binding_on_flow: np.ndarray          # bool
     n_edges:         int
     n_slack:         int
-    n_legs_omitted:  int                 # the region's legs left out (flat prior, net-stock share)
+    n_legs_omitted:  int                 # the region's legs with no prior of their own
 
 
 class ProblemStatsDiagnostic:
@@ -122,18 +126,23 @@ class ProblemStatsDiagnostic:
         ``residuals`` year-local over ``cols_t`` / ``rows_t``.
     constraint_run : ConstraintRun
         Supplies ``G_blocks[year]`` / ``edge_cols_by_t[year]``, ``row_meta``,
-        ``timestep_data[year]["c"]`` and the structural lower bound ``l``.
+        ``timestep_data[year]["c"]`` (over all rows) and the structural lower
+        bound ``l``.
     imp_result : AggregationResult
         The imputation run behind the const run: ``f_agg``, ``coverage`` and
         ``imputation_log.as_dataframe()``.
     acc_struct : AccountingStructure
         ``edge_meta`` (endpoints, time, valuation) for every global edge.
     year : str
-        The period.
+        The period, a time label.
     """
 
-    def __init__(self, opt_result, constraint_run, imp_result, acc_struct, year) -> None:
-        self.year = str(year)
+    def __init__(self, opt_result, constraint_run, imp_result, acc_struct,
+                 year: str) -> None:
+        if not isinstance(year, str):
+            raise TypeError(f"year is a time label (str), got "
+                            f"{type(year).__name__} {year!r}")
+        self.year = year
         self._opt = opt_result
         self._cr  = constraint_run
         self._imp = imp_result
@@ -146,32 +155,36 @@ class ProblemStatsDiagnostic:
     def from_opt_id(
         cls,
         opt_run_id: str,
-        year,
-        opt_dir:   str = "data/proc/opt",
-        const_dir: str = "data/proc/const",
-        imp_dir:   str = "data/proc/imp",
-        acc_dir:   str = "data/proc/acc",
+        year:       str,
+        opt_dir:    str = "data/proc/opt",
+        const_dir:  str = "data/proc/const",
+        imp_dir:    str = "data/proc/imp",
+        acc_dir:    str = "data/proc/acc",
     ) -> "ProblemStatsDiagnostic":
         """Follow the opt run's ``parents.upstream`` to its const and imp runs
         and load the year from disk."""
         # Local import to keep diag at the leaf of the import graph (as SolverDiag).
         from pysuto.acc import AccountingStructure
-        from pysuto.registry import ConstraintRunRegistry, ImputationRunRegistry, OptimRunRegistry
+        from pysuto.registry import (
+            ConstraintRunRegistry, ImputationRunRegistry, OptimRunRegistry,
+        )
 
         opt_reg  = OptimRunRegistry(opt_dir)
         upstream = opt_reg.load_sidecar(opt_run_id).get("parents", {}).get("upstream", {})
         const_run_id = upstream.get("const_run_id")
         if not const_run_id:
-            raise KeyError(f"opt run '{opt_run_id}' sidecar lacks parents.upstream.const_run_id")
+            raise KeyError(f"opt run '{opt_run_id}' sidecar lacks "
+                           "parents.upstream.const_run_id")
         const_run = ConstraintRunRegistry(const_dir).load(const_run_id)
         if not const_run.agg_id:
-            raise KeyError(f"const run '{const_run_id}' records no imp run (parents.upstream)")
+            raise KeyError(f"const run '{const_run_id}' records no imp run "
+                           "(parents.upstream)")
         imp_result = ImputationRunRegistry(imp_dir).load(const_run.agg_id)
         acc = AccountingStructure.load(id=const_run.acc_id, storage_dir=acc_dir)
         results = opt_reg.load(opt_run_id)
-        if str(year) not in results:
-            raise KeyError(f"opt run '{opt_run_id}' has no period {year}")
-        return cls(results[str(year)], const_run, imp_result, acc, year)
+        if year not in results:
+            raise KeyError(f"opt run '{opt_run_id}' has no period {year!r}")
+        return cls(results[year], const_run, imp_result, acc, year)
 
     # ------------------------------------------------------------------
     # Edges
@@ -199,17 +212,18 @@ class ProblemStatsDiagnostic:
         out[ids] = log["imputer_id"].astype(str).to_numpy()
         missing = out == ""
         if missing.any():
-            raise ValueError(f"{int(missing.sum())} edge(s) are neither feed-covered nor imputed "
-                             f"(first: {np.flatnonzero(missing)[:5].tolist()})")
+            raise ValueError(f"{int(missing.sum())} edge(s) are neither feed-covered nor "
+                             f"imputed (first: {np.flatnonzero(missing)[:5].tolist()})")
         self._prov_cache = out
         return out
 
     def _cols(self) -> np.ndarray:
-        cols = np.asarray(self._opt.cols_t, dtype=np.int64)
+        cols  = np.asarray(self._opt.cols_t, dtype=np.int64)
         block = np.asarray(self._cr.edge_cols_by_t[self.year], dtype=np.int64)
         if not np.array_equal(cols, block):
-            raise ValueError(f"year {self.year}: the opt result's cols_t and the constraint "
-                             "run's block columns differ — the runs do not share one partition")
+            raise ValueError(f"year {self.year}: the opt result's cols_t and the "
+                             "constraint run's block columns differ — the runs do "
+                             "not share one partition")
         return cols
 
     def edge_frame(self) -> pd.DataFrame:
@@ -238,7 +252,8 @@ class ProblemStatsDiagnostic:
         return PROVENANCE_ORDER + sorted(set(present) - set(PROVENANCE_ORDER))
 
     def provenance_totals(self, valuation: str = "CC") -> pd.DataFrame:
-        """Edge count and Σ f_agg (kt) per provenance category, for the year."""
+        """Edge count and Σ ``f_agg`` per provenance category for the year, in
+        kt of ``valuation`` (kt CC for ``"CC"``)."""
         e = self.edge_frame()
         e = e[e["valuation"] == valuation]
         g = e.groupby("provenance")["f"].agg(n_edges="size", kt="sum")
@@ -248,28 +263,31 @@ class ProblemStatsDiagnostic:
         return g
 
     def feed_edges_by_year(self, valuation: str = "CC") -> pd.Series:
-        """Feed-covered edges per year over the whole run (for the caption's range)."""
+        """Feed-covered edges per year over the whole run (the caption's range)."""
         cov = np.asarray(self._imp.coverage, dtype=bool)
         m = cov & (self._em["valuation"].astype(str).to_numpy() == valuation)
-        return pd.Series(self._em["time"].astype(str).to_numpy()[m]).value_counts().sort_index()
+        years = pd.Series(self._em["time"].astype(str).to_numpy()[m])
+        return years.value_counts().sort_index()
 
     def chain_profile(self, valuation: str = "CC") -> pd.DataFrame:
-        """kt per domestic sector pair (chain order) and per traded commodity,
-        one column per provenance category, plus ``kind``."""
+        """Σ ``f_agg`` (kt of ``valuation``) per domestic sector pair in chain
+        order and per traded commodity, one column per provenance category,
+        plus ``kind``."""
         e = self.edge_frame()
         e = e[(e["valuation"] == valuation) & ~e["signed"]].copy()
-        e["bar"] = np.where(e["leg"], e["from_sector"] + " (trade)",
-                            e["from_sector"] + "→" + e["to_sector"])
-        e["kind"] = np.where(e["leg"], "legs", "domestic")
-        e["k_kind"] = e["leg"].astype(int)
-        e["k_from"] = e["from_sector"].map(_rank)
-        e["k_to"]   = np.where(e["leg"], 0, e["to_sector"].map(_rank))
-        e["to_key"] = np.where(e["leg"], "", e["to_sector"])
+        leg = e["leg"].to_numpy()
+        e["bar"]    = np.where(leg, e["from_sector"] + " (trade)",
+                               e["from_sector"] + "→" + e["to_sector"])
+        e["kind"]   = np.where(leg, "legs", "domestic")
+        e["k_kind"] = leg.astype(np.int64)
+        e["k_from"] = _position(e["from_sector"], CHAIN_ORDER)
+        e["k_to"]   = np.where(leg, 0, _position(e["to_sector"], CHAIN_ORDER))
+        e["to_key"] = np.where(leg, "", e["to_sector"])
         p = e.pivot_table(index="bar", columns="provenance", values="f", aggfunc="sum",
                           fill_value=0.0)
         p = p[[c for c in self._categories(p.columns) if c in p.columns]]
-        keys = e.drop_duplicates("bar").set_index("bar")[["kind", "k_kind", "k_from", "k_to", "to_key"]]
-        p = p.join(keys)
+        keys = e.drop_duplicates("bar").set_index("bar")
+        p = p.join(keys[["kind", "k_kind", "k_from", "k_to", "to_key"]])
         p = p[p[[c for c in p.columns if c in set(e["provenance"])]].abs().sum(axis=1) > 0]
         p = p.sort_values(["k_kind", "k_from", "k_to", "to_key"], kind="mergesort")
         p.index.name = "bar"
@@ -298,9 +316,10 @@ class ProblemStatsDiagnostic:
                              f"({rows.size} × {cols.size})")
         rm = self._cr.row_meta.iloc[rows].reset_index(drop=True)
         c = np.asarray(self._cr.timestep_data[self.year]["c"], dtype=float)
-        if c.size != rows.size:
-            c = c[rows]                                        # stored over all rows
-        r_prior = G @ np.asarray(self._opt.a_prior, dtype=float) - c
+        if c.size != len(self._cr.row_meta):
+            raise ValueError(f"year {self.year}: c has {c.size} entries, row_meta "
+                             f"{len(self._cr.row_meta)} rows — c is stored over all rows")
+        r_prior = G @ np.asarray(self._opt.a_prior, dtype=float) - c[rows]
         resid   = np.asarray(self._opt.residuals, dtype=float)
         F       = np.asarray(self._opt.F_opt, dtype=float)
 
@@ -339,7 +358,8 @@ class ProblemStatsDiagnostic:
             binding_on_flow=("binding_on_flow", "sum"),
             binding_on_zero_flows=("binding_on_zero_flows", "sum"))
         if (g["n_cones"] > 1).any():
-            raise ValueError(f"families spanning several cones: {g.index[g.n_cones > 1].tolist()}")
+            raise ValueError(f"families spanning several cones: "
+                             f"{g.index[g.n_cones > 1].tolist()}")
         g = g.drop(columns="n_cones").reindex([x for x in FAMILIES if x in g.index])
         counts = ["prior_breach", "binding", "binding_on_flow", "binding_on_zero_flows"]
         g[counts] = g[counts].astype("Int64")
@@ -362,24 +382,26 @@ class ProblemStatsDiagnostic:
 
     def region_slice(self, region: str) -> RegionSlice:
         """The region's domestic edges and its legs with a prior of their own
-        (provenance neither flat prior nor net-stock share), with every row that
-        has a nonzero on them, in standard form."""
+        (provenance not in :data:`NO_PRIOR_OF_ITS_OWN`), with every row that has
+        a nonzero on them, in standard form."""
         e, r = self.edge_frame(), self.row_frame()
         touch = (e["from_region"] == region) | (e["to_region"] == region)
-        uninformative = e["provenance"].isin(["flat_prior", "net_stock_share"])
-        keep = touch & (~e["leg"] | ~uninformative)
-        n_omitted = int((touch & e["leg"] & uninformative).sum())
+        no_prior = e["provenance"].isin(NO_PRIOR_OF_ITS_OWN)
+        keep = touch & (~e["leg"] | ~no_prior)
+        n_omitted = int((touch & e["leg"] & no_prior).sum())
 
         k = e[keep].copy()
         k["j"] = np.flatnonzero(keep.to_numpy())
-        k["k_val"]  = k["valuation"].map(lambda v: _VALUATION_ORDER.index(v)
-                                         if v in _VALUATION_ORDER else len(_VALUATION_ORDER))
-        k["k_leg"]  = k["leg"].astype(int)
-        k["k_from"] = k["from_sector"].map(_rank)
-        k["k_to"]   = np.where(k["leg"], (k["from_region"] == region).astype(int),
-                               k["to_sector"].map(_rank))      # legs: imports, then exports
-        k["k_name"] = np.where(k["leg"], np.where(k["from_region"] == region, k["to_region"],
-                                                  k["from_region"]), k["to_sector"])
+        out_leg = (k["from_region"] == region).to_numpy()
+        leg = k["leg"].to_numpy()
+        k["k_val"]  = _position(k["valuation"], _VALUATION_ORDER)
+        k["k_leg"]  = leg.astype(np.int64)
+        k["k_from"] = _position(k["from_sector"], CHAIN_ORDER)
+        # legs: imports, then exports
+        k["k_to"]   = np.where(leg, out_leg.astype(np.int64),
+                               _position(k["to_sector"], CHAIN_ORDER))
+        k["k_name"] = np.where(leg, np.where(out_leg, k["to_region"], k["from_region"]),
+                               k["to_sector"])
         k = k.sort_values(["k_val", "k_leg", "k_from", "k_to", "k_name", "edge_id"],
                           kind="mergesort")
         jcols = k["j"].to_numpy()
@@ -389,9 +411,9 @@ class ProblemStatsDiagnostic:
         n_all = np.asarray(P.sum(axis=1)).ravel()
         i_rows = np.flatnonzero(n_in > 0)
         sel = r.iloc[i_rows].assign(i=i_rows, complete=(n_in == n_all)[i_rows])
-        sel["k_cone"] = sel["cone"].map(CONES.index)
-        sel["k_fam"]  = sel["family"].map(FAMILIES.index)
-        sel["k_part"] = (~sel["complete"]).astype(int)
+        sel["k_cone"] = _position(sel["cone"], CONES)
+        sel["k_fam"]  = _position(sel["family"], FAMILIES)
+        sel["k_part"] = (~sel["complete"]).astype(np.int64)
         sel = sel.sort_values(["k_cone", "k_fam", "k_part", "i"], kind="mergesort")
 
         G_slice = self._G()[sel["i"].to_numpy()][:, jcols].tocsr()

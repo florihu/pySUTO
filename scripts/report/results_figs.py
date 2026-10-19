@@ -42,6 +42,7 @@ from matplotlib.colors import LogNorm                 # noqa: E402
 from matplotlib.gridspec import GridSpecFromSubplotSpec  # noqa: E402
 from matplotlib.lines import Line2D                   # noqa: E402
 from matplotlib.patches import Patch, Rectangle       # noqa: E402
+from matplotlib.transforms import blended_transform_factory  # noqa: E402
 
 sys.path.insert(0, "src")
 sys.path.insert(0, "scripts")
@@ -52,7 +53,7 @@ import copper_metabolism_insights as CMI                              # noqa: E4
 from pysuto.diag.stats import ProblemStatsDiagnostic                 # noqa: E402
 from pysuto.diag.stats.objective import (family_frame, objective_decomposition,  # noqa: E402
                                          rank_identities, share_by_key)
-from pysuto.diag.stats.problem import PROVENANCE_ORDER               # noqa: E402
+from pysuto.diag.stats.problem import NO_PRIOR_OF_ITS_OWN, PROVENANCE_ORDER  # noqa: E402
 from pysuto.registry.psut import PsutRunRegistry                      # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -62,7 +63,7 @@ OUT_DIR  = Path("docs/manuscript/figs")
 YEARS    = list(range(1995, 2025))
 POOL     = list(range(2020, 2025))          # the "recent" pool used for shares
 ROCKET_YEAR = 2020
-PROBLEM_YEAR   = 2020                       # Fig. 3: the period whose QP is shown
+PROBLEM_YEAR   = "2020"                     # Fig. 3: the period whose QP is shown
 PROBLEM_REGION = "China"                    # Fig. 3e: the region sliced out of it
 
 # Retention stages (from-sector, to-sector, valuation): the categories of
@@ -112,11 +113,11 @@ SEQ_CMAP = "Blues"
 FAMILY_COLOR = {"edges": PALETTE[0], "sum_rows": PALETTE[1], "soft_ratios": PALETTE[2]}
 FAMILY_LABEL = {"edges": "edge defects", "sum_rows": "scale-total residuals",
                 "soft_ratios": "soft-ratio residuals"}
-# Fig. 3: provenance in palette order; the two categories that carry no
-# information of their own (0 kt) share the neutral grey.
+# Fig. 3: provenance in palette order; the categories that give an edge no
+# prior of its own (0 kt) share the neutral grey, any other imputer is grey too.
 PROV_COLOR = {"feed": PALETTE[0], "network": PALETTE[1], "trade": PALETTE[2], "conc": PALETTE[3],
               "ore_grade": PALETTE[4], "time_interp": PALETTE[5],
-              "net_stock_share": GREY, "flat_prior": GREY}
+              **{c: GREY for c in NO_PRIOR_OF_ITS_OWN}}
 PROV_LABEL = {"feed": "from a feed (ICSG)", "network": "network", "trade": "trade seed (BACI × grade)",
               "conc": "concentration", "ore_grade": "ore grade", "eff": "efficiency",
               "time_interp": "time interpolation", "net_stock_share": "net-stock share",
@@ -443,21 +444,22 @@ def _year_axis(ax):
 
 
 def _block_labels(names: np.ndarray, min_rows: int = 30) -> list:
-    """(centre, label) per run of equal names; a run shorter than ``min_rows``
-    joins its label to the preceding labelled run."""
+    """(first row, end row, label) per run of equal names; a run shorter than
+    ``min_rows`` joins the preceding labelled run and its label."""
     edges = np.flatnonzero(np.r_[True, names[1:] != names[:-1], True])
     out = []
     for a, b in zip(edges[:-1], edges[1:]):
         if b - a < min_rows and out:
-            c, lab, a0 = out[-1]
-            out[-1] = ((a0 + b - 1) / 2, f"{lab} · {names[a]}", a0)
+            a0, _, lab = out[-1]
+            out[-1] = (a0, b, f"{lab} · {names[a]}")
         else:
-            out.append(((a + b - 1) / 2, str(names[a]), a))
-    return [(c, lab) for c, lab, _ in out]
+            out.append((a, b, str(names[a])))
+    return out
 
 
 def fig3(P, out: Path) -> Path:
-    tot = P.provenance_totals("CC").drop(index="eff")
+    tot = P.provenance_totals("CC")
+    tot = tot[tot["n_edges"] > 0]                    # an imputer with no fills has no bar
     cp, fam, blk = P.chain_profile("CC"), P.family_summary(), P.block_sizes()
     sl = P.region_slice(PROBLEM_REGION)
     year = P.year
@@ -502,8 +504,8 @@ def fig3(P, out: Path) -> Path:
     pos, left = np.array(pos), np.zeros(len(cp))
     for c in stack:
         v = cp[c].to_numpy(dtype=float)
-        ab.barh(pos, v, left=left, height=0.74, color=PROV_COLOR[c], edgecolor=SURFACE,
-                linewidth=0.4, label=PROV_LABEL[c])
+        ab.barh(pos, v, left=left, height=0.74, color=PROV_COLOR.get(c, GREY),
+                edgecolor=SURFACE, linewidth=0.4, label=PROV_LABEL.get(c, c))
         left += v
     ab.set_yticks(pos); ab.set_yticklabels(cp.index, fontsize=5.6)
     ab.set_ylim(pos.min() - 0.7, 0.7)
@@ -574,9 +576,14 @@ def fig3(P, out: Path) -> Path:
         ae.axhline(i - 0.5, color=GRID, lw=0.5)
     for i in cone_edges[1:]:
         ae.axhline(i - 0.5, color=INK2, lw=0.6)
-    labels = _block_labels(np.array([SLICE_LABEL.get(f, f) for f in sl.family], dtype=object))
-    ae.set_yticks([c for c, _ in labels]); ae.set_yticklabels([lab for _, lab in labels], fontsize=5.8)
-    ae.tick_params(axis="y", length=0)
+    blocks = _block_labels(np.array([SLICE_LABEL.get(f, f) for f in sl.family], dtype=object))
+    ae.set_yticks([(a + b - 1) / 2 for a, b, _ in blocks])
+    ae.set_yticklabels([lab for _, _, lab in blocks], fontsize=5.8)
+    ae.tick_params(axis="y", length=0, pad=7)
+    bracket = blended_transform_factory(ae.transAxes, ae.transData)
+    for a, b, _ in blocks:                                   # family brackets on the row axis
+        ae.plot([-0.012, -0.03, -0.03, -0.012], [a - 0.2, a - 0.2, b - 0.8, b - 0.8],
+                transform=bracket, color=INK2, lw=0.6, clip_on=False)
     for a, b in zip(cone_edges, np.r_[cone_edges[1:], n_r]):
         ae.annotate({"free": "soft", "zero": "hard =", "nonneg": "hard ≤"}[sl.cone[a]],
                     xy=(0, (a + b - 1) / 2), xycoords=("axes fraction", "data"),
@@ -591,7 +598,8 @@ def fig3(P, out: Path) -> Path:
         s.set_color(INK2); s.set_linewidth(0.6)
     nnz = int(sl.A[:, :sl.n_edges].nnz)
     ae.text(1.0, -0.025, f"{sl.n_edges} edges ({int(sl.is_leg.sum())} trade legs) + {sl.n_slack} slack ε\n"
-            f"{n_r:,} rows · {nnz:,} nonzeros · {sl.n_legs_omitted} flat-prior legs left out",
+            f"{n_r:,} rows · {nnz:,} nonzeros · {sl.n_legs_omitted} legs with no prior of "
+            "their own left out",
             transform=ae.transAxes, ha="right", va="top", fontsize=5.8, color=INK2)
     _tag(ae, "e", f"{PROBLEM_REGION}'s slice of the {year} QP in standard form", y=1.06)
 
@@ -618,8 +626,8 @@ def fig3(P, out: Path) -> Path:
             ax.text(xs + (1 - wE) * 0.62, top - hh * 0.3, "−I", fontsize=6.5, color=INK)
         else:
             ax.text(xs + (1 - wE) * 0.43, top - hh / 2, "0", ha="center", va="center", fontsize=6.5, color=INK)
-        ax.text(x0 + 0.88 + 0.01, top - hh / 2, {"free": "free", "zero": "zero", "nonneg": "nonneg"}[cone],
-                ha="left", va="center", fontsize=5.8, color=INK2)
+        ax.text(x0 + 0.88 + 0.01, top - hh / 2, cone, ha="left", va="center", fontsize=5.8,
+                color=INK2)
         top -= hh
     ax.text(x0, top - 0.04, f"the full {year} block: {blk['rows']:,} rows × {ne:,} edges, "
             f"{blk['nnz']:,} nonzeros\n(density {blk['nnz'] / (blk['rows'] * ne):.1e}); "

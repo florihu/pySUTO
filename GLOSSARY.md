@@ -136,7 +136,7 @@ every fill is recorded in the `ImputationLog`.
 
 **Imputer**:
 One fill method — `Trade`, `Network`, `Parametric`, `Time`, `Share` or `FlatPrior`; a `BaseImputer`
-subclass. `Formula` is retired: the class remains, Stage 2 no longer runs it.
+subclass. `Formula` is retired.
 
 **Constraint building**:
 Stage 3 — compiling `f_agg` / `σ_agg` into the sparse constraint matrix `G` plus per-timestep
@@ -551,10 +551,10 @@ year's edges: a variance-weighted mean of `κ`, so a few flat-σ edges dominate 
 _Avoid_: "mean shrinkage".
 
 **Active set** — the hard inequality rows (lower bounds, ratio bands) that bind at `a*` in one
-year; the posterior is the QP's linearisation there.
+year; the posterior is the QP's linearisation there. A row of the active set binds **on flow**
+when at least one of its edges (its nonzero coefficients) carries `|a*|` above the bind
+tolerance, and **on zero flows** otherwise.
 _Avoid_: "active constraints", "binding constraints" for the mass balances — equalities always hold.
-A row of the active set binds **on flow** when at least one of its edges (its nonzero coefficients)
-carries `|a*|` above the bind tolerance, and **on zero flows** otherwise.
 
 **Prior class** — where an edge's prior comes from, one of four: **from a feed** (a data feed
 covers the edge), **imputed** (a Stage-2 imputer wrote it), **flat** (no information of its own:
@@ -564,7 +564,8 @@ _Avoid_: "observed" vs "modelled" — an imputed prior also derives from data.
 
 **Provenance** (of an edge's prior) — *from a feed*, or the one imputer that wrote it (`network`,
 `trade`, `conc`, …): the prior class at imputer resolution. An edge has exactly one.
-_Avoid_: "raw" for the feed-covered share — a network fill also carries feed totals.
+_Avoid_: "raw" for the feed-covered share — a network fill also carries feed totals; "provenance"
+for a run's lineage — that is the **Sidecar**'s record.
 
 **Prior-carried / confirmed / overruled / unexplained move** — the four quadrants of an edge-year
 in posterior contraction `κ` and standardised defect `z`, cut at `κ = 0.5` and `|z| = 3`:
