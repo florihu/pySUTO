@@ -739,6 +739,14 @@ other `unc_type` mode is `pedigree` (σ = nominal · Laner total CV). _Avoid_: c
 σ" — a band is the wall, σ is the price of approaching it; and narrowing a `min_max` band when you
 only meant to move the wall.
 
+**Relative ratio σ (`σ_r`).** The σ of a soft ratio row as a fraction of its ratio, `σ_r = σ/|r|`,
+where `σ` is the params row's stated σ in **ratio units** (`value_sd`, or `(value_max − value_min)/4`)
+and `r` its `value_nominal`. `RATIO_SIGMA_REL_FLOOR` floors it and the row's flow scale multiplies
+it, `σ_c = max(σ_r, floor)·max(Σ|a₀,num|, |r|·Σ|a₀,denom|, RATIO_SCALE_ABS_FLOOR)`, which at a prior
+on the ratio is `σ·Σ|a₀,denom|`. The imputers read `σ` itself, and net-stock rows (`r = 0`) scale
+`σ` off the throughput alone; until #29 the soft row read `σ` as `σ_r`. _Avoid_: calling `value_sd`
+a CV; quoting a ratio row's σ without saying which of the two it is.
+
 **Grade carried past the ore feed.** The `crude_ore` feed ends before ICSG production does
 (2022 vs 2024). For a region-year with production but no ore mass the `ore_grade` generator
 carries the region's **last observed in-situ grade** forward (`src=carry`, band ±20 % instead
