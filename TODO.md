@@ -146,6 +146,21 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
   BACI map with values netted under the old one: run nothing BACI-side but that chain. The si.md S8
   concordance row changes with the chain that ships it.
 
+## #94 MEASURED 2026-10-19 — FAILS ON ITEMS 1 (as worded) AND 2 (Round-E (c), Peru); neither is a defect, shipped
+
+`diag/ratio-sigma-measure`, run `opt_20261019_161937_fd301f58` vs `opt_20261019_155415_a1d7e9a9`, REP
+`docs/rep/analysis_opt_20261019_161937_fd301f58_20261019_issue29-relative-ratio-sigma.md`;
+`scripts/explo/issue94_relative_ratio_sigma_diag.py`.
+- **The change.** Only soft ratio rows' σ_c change (217,717 rows). On the stored σ_c they match
+  max(σ/|r|, 0.02)/max(σ, 0.02) to 3.9e-5, because the engine's σ_c Lp lift (abs_floor 0.001 kt, p 1.3) sits on
+  both runs. With the lift inverted, all match to 1.0e-15.
+- **Results.** Ratio-row Σz² 55,213 → 8,146, mostly the repricing (concentrate residuals grow ≈ 1.4×). Mass moved
+  −14.7 % and common-set sum-row z² −0.48 %, both vs `opt_20261019_155415_a1d7e9a9`.
+- **Round-E (c):** Peru's exporter retention 1.011 → 0.986 (CC, 1995–2024); Chile 0.973 → 1.009. The upstream read
+  shows export mass held (0.998) and the base's surplus gone: Peru CO→Mining CC 1.057 → 1.028 of prior. No
+  deletion, so no fix ticket.
+- `opt_20261019_161937_fd301f58` becomes the reference chain.
+
 ## #29 BUILT 2026-10-19 — NOT MEASURED (#94): a soft ratio row is priced at its stated σ relative to r
 
 `fix/ratio-sigma-relative`. The params tables state σ in ratio units (`value_sd`, or band/4), but
