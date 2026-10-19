@@ -6,8 +6,9 @@ bound now covers Cathode and Anode as well as Concentrate (see *Amendment* below
 [ADR 0002](0002-single-endpoint-rows-fan-out-not-replicate.md) option D and
 [ADR 0018](0018-import-free-fans-distribute-domestically.md). Evidence: REP
 [`…india-concentrate-residual-domestic`](../rep/analysis_20260910_india-concentrate-residual-domestic.md).
-**Amended 2026-10-14 (#76)**: a domestic leg the rule sets to 0 is an *observed zero* (see
-*Amendment (#76)* below); to be measured by #78.
+**Amended 2026-10-14 (#76), narrowed 2026-10-19 (#78)**: a domestic leg the production bound
+sets to 0, in a region that produces none of the product, is an *observed zero* (see *Amendment
+(#76)* below); measured by #78.
 
 ## Context
 
@@ -199,3 +200,17 @@ seed and supply-mix fan (ADR 0040, 0043); zero-weight import legs stay uncovered
 route is not the same statement). Where the region's own production then has nowhere to go, the
 solver must settle that conflict in the open. ROW's 1995–2011 surplus traces to an input error,
 BACI 490 folded into ROW (#77, to be measured by #79). This amendment is to be measured by #78.
+
+**Narrowed on measurement (#78, 2026-10-19).** The first build stamped every zero-weight domestic
+leg: 367 on icsg v15 + trade_shares v36. The run (`opt_20261019_145258_6bbfa0b5`) raised common-set
+sum-row z² 29.2 % vs `opt_20261019_142026_83bfe843`, with Italy +262,853, the United Kingdom +95,382,
+South Africa +29,575, Bulgaria +32,336 and Spain +23,499, on their refinery and smelter rows. All 271
+`Cathode→FU` zeros came from the residual alone, imports above usage, in regions that refine copper
+themselves, and 10 `Concentrate→Smelting` zeros sat in regions that mine concentrate. Pinning those
+legs left the region's own output nowhere to go. That is not the statement "the region supplies
+none of its own use"; it is the fan's residual rule. The observed zero now covers only what this
+ADR's bound states: a domestic leg in a production-bounded fan (the trade-share builder's
+`PRODUCER_OF`: concentrate, matte, anode) in a region whose own ICSG production of that product is 0
+that year, "a non-producer must say zero, not nothing" (`icsg_feed.non_producer_mask`). On the same
+feed that is 82 concentrate legs, Germany's 30 among them (#32). Every other zero-weight domestic leg
+stays open to the imputer, as before #76.

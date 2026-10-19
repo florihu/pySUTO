@@ -1,9 +1,10 @@
 """
 test_icsg_feed.py
 =================
-The ICSG feed's observed zeros (#76): a weighted fan's domestic leg at trade-share
-weight 0 leaves Stage 1 covered at 0, priced on its fans' usage, and reaches Stage 2
-as covered.
+The ICSG feed's observed zeros (#76, narrowed by #78): a weighted fan's domestic leg at
+trade-share weight 0, in a fan the trade shares bound by the region's own production, in
+a region that produces none of that product, leaves Stage 1 covered at 0, priced on its
+fans' usage, and reaches Stage 2 as covered.
 """
 from __future__ import annotations
 
@@ -15,7 +16,8 @@ import pandas as pd
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
-from icsg_feed import observed_zero_sigma, stamp_observed_zeros  # noqa: E402
+from icsg_feed import (non_producer_mask, observed_zero_sigma,    # noqa: E402
+                       stamp_observed_zeros)
 from pysuto.collector import FeedCollector                        # noqa: E402
 from pysuto.conc import ConcordanceTable, WeightMatrix            # noqa: E402
 from pysuto.unc import PropagationResult                          # noqa: E402
@@ -66,9 +68,11 @@ def _builder_weights(usage, imports):
     return max(0.0, usage - imports), imports
 
 
-def _collected(raw_use_only, mock_acc_struct, maps, usage, w_domestic, w_import):
-    """Fan ``usage`` over the toy legs with these weights, stamp the observed zeros,
-    and load the result through the collector at Stage 2's min_flow_kt."""
+def _collected(raw_use_only, mock_acc_struct, maps, usage, w_domestic, w_import,
+               producer=False):
+    """Fan ``usage`` over the toy legs with these weights, stamp the observed zeros
+    (A produces none of the product unless ``producer``), and load the result through
+    the collector at Stage 2's min_flow_kt."""
     uw = pd.DataFrame([
         {"root_sector_from": "Concentrate", "root_sector_to": "Refining",
          "root_region_from": r, "root_region_to": "A", "root_time": 0, "weight": w}
@@ -80,7 +84,7 @@ def _collected(raw_use_only, mock_acc_struct, maps, usage, w_domestic, w_import)
     F_root = WeightMatrix(ct).apply(F_src)
     result = PropagationResult(F_root=F_root, sigma_root=0.05 * np.abs(F_root),
                                cv_root=np.full_like(F_root, 0.05), cv_src=0.05)
-    n = stamp_observed_zeros(ct, F_src, result)
+    n = stamp_observed_zeros(ct, F_src, result, np.full(len(F_root), not producer))
     registry = _MockRegistry({"icsg": {"F_root": result.F_root, "sigma_root": result.sigma_root,
                                        "observed_zero": result.observed_zero}})
     coll = FeedCollector(registry, _MockAccStruct(len(F_root)), min_flow_kt=0.01)
@@ -114,4 +118,40 @@ def test_a_fan_with_no_positive_weight_stays_undistributed(raw_use_only, mock_ac
                                    drop_unweighted_fans=True, **maps)
     zeros = np.zeros(ct.n_root_edges)
     result = PropagationResult(F_root=zeros, sigma_root=zeros.copy(), cv_root=zeros, cv_src=0.05)
-    assert ct.tab.empty and stamp_observed_zeros(ct, np.zeros(0), result) == 0
+    assert ct.tab.empty and stamp_observed_zeros(
+        ct, np.zeros(0), result, np.ones(ct.n_root_edges, dtype=bool)) == 0
+
+
+def test_a_producers_zero_weight_leg_stays_open_to_the_imputer(
+        raw_use_only, mock_acc_struct, maps):
+    """Regression (#78): Italy's, the UK's and South Africa's domestic semis legs were
+    zero only because imports exceed usage; pinning them left the regions' own refined
+    output nowhere to go, and common-set sum-row z² rose 29 %."""
+    n, F, Sigma = _collected(raw_use_only, mock_acc_struct, maps, 10.0,
+                             *_builder_weights(usage=10.0, imports=12.0), producer=True)
+    assert n == 0
+    assert np.isnan(F[DOMESTIC]) and np.isnan(Sigma[DOMESTIC])   # not covered: imputable
+
+
+# ---------------------------------------------------------------------------
+# non_producer_mask
+# ---------------------------------------------------------------------------
+
+def _edges(*rows):
+    return pd.DataFrame(rows, columns=["edge_id", "root_sector_from", "root_region_to",
+                                       "root_time"])
+
+
+def _production(*rows):
+    return pd.DataFrame(rows, columns=["root_sector_from", "root_region_to", "root_time",
+                                       "production_cc"])
+
+
+def test_only_a_non_producers_production_bounded_legs_may_carry_an_observed_zero():
+    """Germany mines no concentrate, so its domestic concentrate leg at weight 0 is an
+    observation (#32); Spain mines some, and a cathode fan has no production bound."""
+    edges = _edges((0, "Concentrate", "Germany", "2018"), (1, "Concentrate", "Spain", "2018"),
+                   (2, "Cathode", "Italy", "2018"), (3, "Concentrate", "Chile", "2018"))
+    prod = _production(("Concentrate", "Spain", "2018", 40.0),
+                       ("Concentrate", "Germany", "2018", 0.0))
+    assert non_producer_mask(edges, prod, 5).tolist() == [True, False, False, True, False]
