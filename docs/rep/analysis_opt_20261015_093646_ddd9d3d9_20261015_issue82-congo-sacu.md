@@ -23,7 +23,8 @@ versions except the ones in bold.
 #86, #84, #85, #82; fix ticket #88 · **ADR:** 0014 and 0032 (amended by #84, #85), 0025 (stop rule), 0019
 
 **Verdict: fails on two items, 5 (stock legs) and 6 (DR Congo's production), both on DR Congo.** Items 1–4
-hold. Fix ticket **#88**.
+hold. Fix ticket **#88**. **Merged 2026-10-19 over the failed items by the maintainer's decision** (#75 and #79
+precedent): `opt_20261015_093646_ddd9d3d9` is the reference chain, and #82 is closed.
 
 - **ROW's cathode gap closes to the importer residual.** In the ledger, ROW's 2012–2024 cathode U − (P + I − X)
   falls from +5,829 to +1,951 kt CC. The Σz² of ROW's 2012–2024 cathode-use sum rows falls from 16,055 to 3,208

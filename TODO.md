@@ -81,7 +81,9 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
   (|z| 6.9). Code 178's 2004–2010 concentrate loads DR Congo's smelter chain (DR Congo's 2004–2008 Δz²
   +22,220, all sectors).
 - **Overall:** common-set sum-row z² −0.75 % vs `opt_20261014_131552_f320b5f7`; Round-E (a)–(d) hold.
-- **Merge is the maintainer's call.** The si.md S8 concordance row changes with the chain that ships it.
+- **Merged 2026-10-19 over the failed items by the maintainer's decision** (#75 and #79 precedent):
+  `opt_20261015_093646_ddd9d3d9` is the reference chain; #82 closed, #88 next. The si.md S8 concordance row
+  changes with the chain that ships it.
 
 ## #84 + #85 BUILT 2026-10-15 — NOT MEASURED (#86): DR Congo's copper leaves ROW, SACU maps to South Africa
 
