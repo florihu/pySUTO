@@ -66,6 +66,23 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
 
 # OPEN (2026-09-16, out of Round L)
 
+## #86 MEASURED 2026-10-15 — FAILS ON ITEMS 5 AND 6 (DR Congo), fix ticket #88; items 1–4 hold
+
+`diag/congo-sacu-measure`, run `opt_20261015_093646_ddd9d3d9` vs `opt_20261014_131552_f320b5f7`, REP
+`docs/rep/analysis_opt_20261015_093646_ddd9d3d9_20261015_issue82-congo-sacu.md`;
+`scripts/explo/issue86_congo_sacu_diag.py`. Chain: icsg v15, baci v21 (gross) → v22, trade_shares v34.
+- **ROW (#82):** ledger cathode gap 2012–2024 +5,829 → +1,951 kt CC; its cathode-use rows' Σz² 16,055 → 3,208;
+  domestic semis posterior 1,024 → 3,709. What remains is the importer disagreement (Saudi Arabia, Turkey,
+  Vietnam, Pakistan, Egypt, Oman, North Korea), left visible (ADR 0019).
+- **South Africa 1995–1999** gains its trade: Δz² −9,775.
+- **DR Congo fails items 5 and 6:** code 178's cathode lands on top of a balanced code 180 in 2020–2023 (ledger
+  +441, +321, +489, +341). The solver raises refined output above its prior by 829 kt CC over 2019–2023 (base
+  207), CP→Cathode retention 1.080–1.143 in 2020–2023, and opens USC 2022 DR Congo → China at −63 kt CC
+  (|z| 6.9). Code 178's 2004–2010 concentrate loads DR Congo's smelter chain (DR Congo's 2004–2008 Δz²
+  +22,220, all sectors).
+- **Overall:** common-set sum-row z² −0.75 % vs `opt_20261014_131552_f320b5f7`; Round-E (a)–(d) hold.
+- **Merge is the maintainer's call.** The si.md S8 concordance row changes with the chain that ships it.
+
 ## #84 + #85 BUILT 2026-10-15 — NOT MEASURED (#86): DR Congo's copper leaves ROW, SACU maps to South Africa
 
 `fix/congo-sacu-mapping`. Two input labels gave ROW another region's copper (#82's triage):
