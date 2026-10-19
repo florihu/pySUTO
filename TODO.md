@@ -182,6 +182,18 @@ into `current/`, register (gross version) → `build_baci_reexport.py --source-v
 `current/` pairs the new map with values netted under the old one: run nothing BACI-side but that chain. Once
 #79 passes and becomes the reference chain, the manuscript's Taiwan limitation (method.md §3.2.8) and its
 concordance row in si.md S8 change with it.
+
+## #30 MEASURED 2026-10-19 — PASSES: ore_grade rebuilt on icsg v15 (v7 → v8)
+
+`diag/ore-grade-rebuild`, run `opt_20261019_155415_a1d7e9a9` vs `opt_20261019_152525_6ca5c00a`, REP
+`docs/rep/analysis_opt_20261019_155415_a1d7e9a9_20261019_issue30-ore-grade-v8.md`; `scripts/explo/issue30_ore_grade_diag.py`.
+- **The grades.** ROW's 2004–2013 in-situ grade goes from 3.04–8.50 % on v7 (the ADR 0035 phantom window) to
+  1.04–1.48 %, and ROW's 2004–06 ore posterior goes from about 14 % of its prior to about 100 % (CO Mass retention
+  0.824 → 1.077 over 1995–2024). DR Congo's new 2003 grade is 7.99 %, an outlier of its own series. Rows with
+  relative σ above 100 % fall from 104 to 36 over all ore_grade families (#94).
+- **z²:** common-set sum-row z² +0.033 % vs `opt_20261019_152525_6ca5c00a`, neutral; Round-E holds; no new sink.
+- `opt_20261019_155415_a1d7e9a9` becomes the reference chain.
+
 ## #78 MEASURED 2026-10-19 — PASSES items 1, 3, 4 (narrowed build; item 2 fails as worded in 2015, as in base); the first build was rejected (+29.2 %)
 
 `diag/observed-zero-measure`, runs `opt_20261019_145258_6bbfa0b5` (first build, rejected) and
