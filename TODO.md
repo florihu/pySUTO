@@ -66,6 +66,14 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
 
 # OPEN (2026-09-16, out of Round L)
 
+## #88 BUILT 2026-10-19 — NOT MEASURED: BACI 178 is DR Congo's only through 2019; from 2020 it duplicates 180
+
+`fix/baci-178-mirror-duplicates`. `baci_parse_feed.drop_mirror_duplicates` drops a declared code's rows, either
+side, from its first duplicate year (`MIRROR_DUPLICATES = {178: 2020}`; ADR 0014 am., GLOSSARY **Mirror
+duplicate**). #86 found 180 alone matching ICSG's DR Congo production in 2020–2023 (ledger +64, 0, +104, −123
+kt CC) and 178 on top of it forcing 829 kt CC of invented refined output and a |z| 6.9 stock leg. The measure
+ticket's chain starts at the BACI parse (the gross values change), as in #79/#86.
+
 ## #86 MEASURED 2026-10-15 — FAILS ON ITEMS 5 AND 6 (DR Congo), fix ticket #88; items 1–4 hold
 
 `diag/congo-sacu-measure`, run `opt_20261015_093646_ddd9d3d9` vs `opt_20261014_131552_f320b5f7`, REP

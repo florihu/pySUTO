@@ -12,6 +12,11 @@ Amended 2026-10-15 (#84): BACI 178 "Congo" maps to **Congo, D.R.** (it carries D
 3,890 kt exported in 2012–2024, gross baci v19, against Brazzaville's 79 kt of ICSG production) and 711 "Southern African
 Customs Union" to **South Africa** (its trade until BACI splits it in 2000), not ROW. Neither
 creates mapped self-trade: BACI has no 178 ↔ 180 or 711 ↔ 710 rows. To be measured by #86.
+Amended 2026-10-19 (#88): from 2020, 178's rows are **mirror duplicates** of DR Congo's own declarations and
+the BACI parse drops them (`MIRROR_DUPLICATES`). #86 measured the overlap: code 180 alone matches ICSG's
+DR Congo production in 2020–2023 (ledger +64, 0, +104, −123 kt CC), and 178 on top of it made the solver
+invent 829 kt CC of refined output. Through 2019, 178 fills a shortfall in 180's declarations and stays
+DR Congo's. To be measured by the #88 measure ticket.
 
 ## Context
 

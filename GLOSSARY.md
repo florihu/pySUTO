@@ -314,6 +314,13 @@ edge scope drops rows resolving to domestic addresses), see
 mapped self-trade row as a domestic observation — the china-matte case put 0.028 kt of gross mass
 next to 5,678 kt of copper content on one edge.
 
+**Mirror duplicate** — a BACI flow that its importer declared under the wrong exporter code while
+the true exporter's own declaration of the same shipment is also in BACI, so the copper is counted
+twice. BACI 178 "Congo" is DR Congo's cathode as its partners declare it: until 2019 it fills a
+shortfall in DR Congo's own declarations (180), and from 2020 it duplicates them, so the BACI parse
+drops it from 2020 (`MIRROR_DUPLICATES`, #88; [ADR 0014](docs/adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)).
+_Avoid_: mapping a mirror duplicate to the true exporter; it adds the shipment a second time.
+
 **Reporting territory** — the real-world territory a feed's rows describe, which is *not* the same
 as the **source region label** those rows carry. A feed may rename a territory mid-series (ICSG's
 `Taiwan` → `Taiwan, China` from 2013) or publish historical joint reporting under a joint label
