@@ -66,6 +66,20 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
 
 # OPEN (2026-09-16, out of Round L)
 
+## #92 MEASURED 2026-10-19 — FAILS ON ITEM 4 (no new sink), fix ticket #95; items 1–3, 5, 6 hold
+
+`diag/refined-scope-measure`, run `opt_20261019_142026_83bfe843` vs `opt_20261015_093646_ddd9d3d9`, REP
+`docs/rep/analysis_opt_20261019_142026_83bfe843_20261019_issue91-refined-scope.md`;
+`scripts/explo/issue92_refined_scope_diag.py`. Chain: baci v26 → v27, trade_shares v36 (v25 an unused orphan, #93).
+- **Gains.** Austria's 1995–2014 cathode-use Σz² 48,500 → 2,624; Austria −88,777. Common-set sum-row z² −5.57 % vs
+  `opt_20261015_093646_ddd9d3d9`, −2.0 % counting the rows only one run has (the UAE's new rows carry 46,472).
+  Round-E (a)–(d) hold; the < 10 kt band rises +28.6 % of its base, mostly the UAE.
+- **Item 4 fails.** 25 CC stock legs newly above |z| 5 (Kazakhstan, DR Congo, Zambia, Russia, Indonesia; Σ|post|
+  304.8 kt CC), and the net stock posterior goes from +51 to −1,328 kt CC over 1995–2024. Refined exports exceed
+  ICSG production. The UAE's re-exports lose 178's supply: UAE +25,625. Both are in #95.
+- **Shipped over item 4** under the maintainer's delegation (2026-10-19; #79 and #86 precedent):
+  `opt_20261019_142026_83bfe843` becomes the reference chain.
+
 ## #91 + #88 BUILT 2026-10-19 — NOT MEASURED (#92): all refined copper enters the Cathode sector, and BACI 178 repeats DR Congo's declarations in 2015–2023
 
 `fix/baci-refined-scope` (on `fix/baci-178-mirror-duplicates`).
