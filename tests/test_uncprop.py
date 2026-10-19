@@ -854,6 +854,25 @@ class TestActiveSet:
         assert ts.diagnostics["n_hard_dependent"] == 0
         assert (ts.sigma_a_star ** 2 <= 1e-6 * sigma_a2).all()          # κ ≥ 1 − 1e-6
 
+    def test_contraction_is_exact_where_S_is_singular_to_working_precision(
+            self, tmp_path, monkeypatch):
+        """The copper pattern of #27: two independent hard rows share a 1e6 kt
+        edge and differ only on two 1e-6 kt edges, so forming S rounds it to
+        singular. With v = (1, −1, −1) spanning the rows' null space,
+        κ_i = 1 − v_i² / (σ_i² · vᵀΣ⁻¹v): 0.5 on each tiny edge, and 5/6 once a
+        soft row with σ_c = 1e-6 measures e1 + e2 (vᵀΣ⁻¹v gains 4/σ_c²)."""
+        rows = [([1, 1, 0], "massbal", "massbal", True,  "zero", 0.0, 0.0),
+                ([1, 0, 1], "massbal", "massbal", True,  "zero", 0.0, 0.0)]
+        soft = ([0, 1, 1], "sum", "anchor", False, "free", 0.0, 1e-6)
+        sigma_a2 = np.array([1e12, 1e-12, 1e-12])
+        for extra, kappa in (([], 0.5), ([soft], 5.0 / 6.0)):
+            ts = _one_year_posterior(rows + extra, sigma_a2, [0.0, 0.0, 0.0],
+                                     monkeypatch, tmp_path)
+            assert ts.diagnostics["n_hard_dependent"] == 0
+            np.testing.assert_allclose(ts.sigma_a_star[1:] ** 2,
+                                       (1.0 - kappa) * sigma_a2[1:], rtol=1e-10)
+            assert (ts.sigma_a_star ** 2 <= sigma_a2).all()
+
     def test_rows_emptied_by_elimination_are_dropped(self, tmp_path, monkeypatch):
         # e0, e1, e2 bound-active: the mass balance has no live edge left
         ts = _four_edge_posterior([0, 0, 0, 4], monkeypatch, tmp_path)

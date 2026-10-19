@@ -13,13 +13,17 @@ edge × timestep, using the closed-form GLS expression
 with ``S(t) = G · diag(σ²_a) · Gᵀ + diag(σ²_c(t)) = L(t) · L(t)ᵀ`` and
 ``g_i = col_i(G)``.
 
-On the block path (``G_blocks`` present, every current run) ``S(t)`` is
-analysed and factored once per timestep from that year's ``G_t``. Only the
-full-G path analyses the symbolic Cholesky pattern once (G is time-invariant
-there) and refreshes the numeric factor per timestep via CHOLMOD's
-``cholesky_inplace`` because σ_c is time-variant. A scipy ``splu``
-fallback kicks in when scikit-sparse is not installed; it computes
-``gᵀ S⁻¹ g`` directly (same value, no symbolic-pattern reuse, slower).
+On the block path (``G_blocks`` present, every current run) ``S(t)`` is never
+formed: ``σ²_{a,i} · g_iᵀ S⁻¹ g_i`` is the leverage of edge i in the whitened
+system ``M = [G_t · diag(σ_a), diag(σ_c)]`` (``S = M Mᵀ``), read off a dense QR
+of ``Mᵀ`` (:meth:`KalmanUncProp._leverage`), so it lies in [0, 1]. Forming
+``S`` squares ``M``'s condition number; with σ_a spanning 1e-8 … 1e6 kt on
+copper, an LU of ``S`` put the contraction outside [0, 1] on ~330 edges a year
+(#27). Only the full-G path factors ``S``: it analyses the symbolic Cholesky
+pattern once (G is time-invariant there) and refreshes the numeric factor per
+timestep via CHOLMOD's ``cholesky_inplace`` because σ_c is time-variant. A
+scipy ``splu`` fallback kicks in when scikit-sparse is not installed; it
+computes ``gᵀ S⁻¹ g`` directly (same value, no symbolic-pattern reuse, slower).
 
 σ_a and a₀ are pulled through :func:`_conditioning.condition_prior`
 with the same floor / ceiling rules the solver applied, so the posterior
@@ -56,6 +60,7 @@ from typing import Optional
 
 import numpy as np
 import scipy.sparse as sp
+from scipy.linalg import qr
 from scipy.linalg.lapack import dpstrf
 from scipy.stats import norm
 
@@ -161,6 +166,9 @@ class KalmanUncProp(BaseUncProp):
          ``[l, u]``.
       7. Diagnostics: ``trace_prior``, ``trace_post``, ``max_resid_hard``,
          ``psd_min_diag``.
+
+    The block path replaces steps 2–5 by ``σ²_{a*} = σ²_a · (1 − κ)``, with the
+    contraction ``κ`` read off a QR of the whitened system (:meth:`_leverage`).
 
     σ_a is conditioned with the same rules the solver used (shared
     helper in :mod:`pysuto._conditioning`). σ_c on hard rows is forced
@@ -326,8 +334,9 @@ class KalmanUncProp(BaseUncProp):
         makes d≈0 and the contraction vanishes.
 
         Each period is first reduced to the QP's active set at ``a*(t)``
-        (:meth:`_active_set`, #27), so ``S_t`` is built from the kept rows and
-        the live (not bound-pinned) edges only."""
+        (:meth:`_reduce_at_active_set`, #27), so the whitened system of
+        :meth:`_leverage` holds the kept rows and the live (not bound-pinned)
+        edges only."""
         _, sigma_a = condition_prior(
             const_run.a0, const_run.sigma_a,
             floor_abs      = self.sigma_a_floor_abs,
@@ -373,13 +382,13 @@ class KalmanUncProp(BaseUncProp):
             live = np.flatnonzero(sigma_a2_eff_t > 0.0)
             G_k  = G_t[red.keep].tocsc()
 
-            d_t = np.zeros(cols_t.size, dtype=np.float64)
+            kappa_t = np.zeros(cols_t.size, dtype=np.float64)
             if G_k.shape[0] and live.size:
-                S_t = self._build_S(G_k, sigma_a2_eff_t, sc_t[red.keep] ** 2)
-                d_t[live] = self._marginal_diagonal_block(S_t, G_k[:, live].tocsc(),
-                                                          live.size)
+                kappa_t[live] = self._leverage(G_k[:, live].tocsr(),
+                                               np.sqrt(sigma_a2_eff_t[live]),
+                                               sc_t[red.keep])
 
-            var_post_t = sigma_a2_eff_t * (1.0 - sigma_a2_eff_t * d_t)
+            var_post_t = sigma_a2_eff_t * (1.0 - kappa_t)
             np.clip(var_post_t, 0.0, None, out=var_post_t)
             sigma_a_star_t = np.sqrt(var_post_t)
 
@@ -541,34 +550,32 @@ class KalmanUncProp(BaseUncProp):
             raise ValueError(f"dpstrf: argument {-info} is invalid")
         return np.sort(hard_rows[piv[rank:] - 1])
 
-    def _marginal_diagonal_block(
-        self,
-        S_t: sp.csc_matrix,
-        G_t: sp.csc_matrix,
-        n_t: int,
-    ) -> np.ndarray:
-        """``d_i = g_iᵀ S_t⁻¹ g_i`` for every column ``g_i`` of ``G_t``.
-        Uses CHOLMOD when available (one analyze+factor per t — the per-t
-        path doesn't reuse symbolic patterns across t because G_blocks can
-        differ); falls back to scipy ``splu`` otherwise."""
-        d = np.zeros(n_t, dtype=np.float64)
-        try:
-            from sksparse.cholmod import cholesky as cholmod_cholesky
-            factor = cholmod_cholesky(S_t)
-            for s in range(0, n_t, self.block_size):
-                e = min(s + self.block_size, n_t)
-                G_blk = G_t[:, s:e].toarray()
-                V = factor.solve_L(G_blk, use_LDLt_decomposition=False)
-                d[s:e] = np.einsum("mb,mb->b", V, V)
-        except ImportError:
-            from scipy.sparse.linalg import splu
-            lu = splu(S_t)
-            for s in range(0, n_t, self.block_size):
-                e = min(s + self.block_size, n_t)
-                G_blk = G_t[:, s:e].toarray()
-                X = lu.solve(G_blk)
-                d[s:e] = np.einsum("mb,mb->b", G_blk, X)
-        return d
+    @staticmethod
+    def _leverage(G_k: sp.csr_matrix, sigma_a: np.ndarray,
+                  sigma_c: np.ndarray) -> np.ndarray:
+        """``κ_i = σ²_{a,i} · g_iᵀ S⁻¹ g_i`` for every column ``g_i`` of ``G_k``.
+
+        With ``M = [G_k · diag(σ_a), diag(σ_c)]``, ``S = M Mᵀ`` and ``κ_i`` is the
+        i-th diagonal of the projector onto ``M``'s row space: the squared norm
+        of row i of ``Q`` in ``Mᵀ = Q R``. Householder QR of ``Mᵀ`` with its rows
+        sorted by decreasing norm keeps ``κ`` in [0, 1] to rounding; an LU of
+        ``S`` does not, because forming ``S`` squares ``M``'s condition number
+        (#27). Hard rows (σ_c = 0) add no row to ``Mᵀ``.
+        """
+        n, m = G_k.shape[1], G_k.shape[0]
+        soft = np.flatnonzero(sigma_c > 0.0)
+        Mt = sp.vstack([
+            (G_k @ sp.diags(sigma_a)).T,
+            sp.csr_matrix((sigma_c[soft], (np.arange(soft.size), soft)),
+                          shape=(soft.size, m)),
+        ]).tocsr()
+        row_norm = np.sqrt(np.asarray(Mt.multiply(Mt).sum(axis=1)).ravel())
+        order    = np.argsort(-row_norm, kind="stable")
+        Q, _ = qr(Mt[order].toarray(), mode="economic", overwrite_a=True,
+                  check_finite=False)
+        lev = np.empty(n + soft.size, dtype=np.float64)
+        lev[order] = np.einsum("ij,ij->i", Q, Q)
+        return lev[:n]
 
     def persist(
         self,

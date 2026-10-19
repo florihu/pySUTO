@@ -118,7 +118,7 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 
 - Flat `tests/`, no `conftest.py`, no markers, no golden files. Fixtures are toy objects built in the test module; use `tmp_path` and `monkeypatch`, never `mocker`.
 - Tolerances: `np.allclose` with `rtol=1e-12`/`1e-10` for exact algebraic identities, `1e-6`/`1e-7` for solver outputs; `pytest.approx` (default or `rel=1e-6`) for scalars; `assert_array_equal` for indices and masks. Never loosen a tolerance to make a test pass.
-- One test is skipped because scikit-sparse is absent (`uncprop` uses the `splu` fallback) — not a defect.
+- One test is skipped because scikit-sparse is absent (`uncprop`'s full-G legacy path uses the `splu` fallback; the block path needs neither) — not a defect.
 - Importing `baci_feed` attaches a root DEBUG handler, so every suite run appends ~17k lines under `logs/` (gitignored).
 - A bug fix ships with the test that reproduces it; a change to a σ rule, builder, imputer or feed ships with a REP measuring it.
 
