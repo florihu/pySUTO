@@ -709,7 +709,7 @@ class TestUnitMixingCheck:
 class TestRatioConstraintBuilder:
 
     def _write_params_csv(self, tmp_path, nominal=0.5, unc_type="sd", value_sd=0.05,
-                          bound_lower="", bound_upper=""):
+                          bound_lower="", bound_upper="", value_min="", value_max=""):
         import csv
         path = tmp_path / "params.csv"
         with open(path, "w", newline="") as f:
@@ -737,8 +737,8 @@ class TestRatioConstraintBuilder:
                 "value_nominal":  str(nominal),
                 "unc_type":       unc_type,
                 "value_sd":       str(value_sd),
-                "value_min":      "",
-                "value_max":      "",
+                "value_min":      str(value_min),
+                "value_max":      str(value_max),
                 "bound_lower":    str(bound_lower),
                 "bound_upper":    str(bound_upper),
             })
@@ -760,7 +760,7 @@ class TestRatioConstraintBuilder:
         assert np.all(block.c == 0.0)
 
     def test_ratio_sigma_from_sd(self, toy_acc, tmp_path):
-        """sigma_c == value_sd for unc_type='sd'."""
+        """sigma_c == value_sd/r for unc_type='sd' (r = 1 here)."""
         from pysuto.constraints import RatioConstraintBuilder
         path    = self._write_params_csv(tmp_path, nominal=1.0, unc_type="sd", value_sd=0.123)
         builder = RatioConstraintBuilder.from_csv(path, toy_acc)
@@ -769,7 +769,7 @@ class TestRatioConstraintBuilder:
         assert block.sigma_c[0] == pytest.approx(0.123)
 
     def test_ratio_sigma_from_min_max(self, toy_acc, tmp_path):
-        """sigma_c = (max - min) / 4 for unc_type='min_max'."""
+        """sigma_c = (max - min) / 4 / r for unc_type='min_max' (r = 1 here)."""
         import csv
         from pysuto.constraints import RatioConstraintBuilder
 
@@ -867,7 +867,7 @@ class TestRatioConstraintBuilder:
         assert rm["region"].notna().all()
         assert set(rm["region"]) == {"A", "B"}
         assert (rm["cone_type"] == "free").all() and (~rm["is_hard"]).all()
-        assert np.allclose(block.sigma_c, 0.05)
+        assert np.allclose(block.sigma_c, 0.05 / 0.8, rtol=1e-12)   # relative σ_r (#29)
         assert np.all(block.c == 0.0)
         # each row: +1 on the product edge, −0.8 on the pooled input edge
         G = block.G_rows.toarray()
@@ -1041,7 +1041,7 @@ class TestRatioConstraintBuilder:
         np.testing.assert_array_equal(dyn.c, 0.0)
 
     def test_ratio_sigma_c_scaled_symmetrically(self, toy_acc, tmp_path):
-        """build_dynamic rescales σ_r to flow space:
+        """build_dynamic rescales the relative σ_r = value_sd/r to flow space:
         σ_c = max(σ_r, rel_floor)·max(Σ|f_num|, r·Σ|f_denom|, abs_floor)."""
         from pysuto.constraints import RatioConstraintBuilder
         path    = self._write_params_csv(tmp_path, nominal=0.5, unc_type="sd", value_sd=0.05)
@@ -1054,12 +1054,12 @@ class TestRatioConstraintBuilder:
         f[p["edge_i"]] = 1000.0
         f[p["edge_j"]] = 100.0
         dyn = builder.build_dynamic(toy_acc, f, None, p["time"])
-        assert dyn.sigma_c[0] == pytest.approx(0.05 * 1000.0)
+        assert dyn.sigma_c[0] == pytest.approx((0.05 / 0.5) * 1000.0)
         # denominator-dominant: r·|f_denom| > |f_num|
         f[p["edge_i"]] = 10.0
         f[p["edge_j"]] = 4000.0
         dyn = builder.build_dynamic(toy_acc, f, None, p["time"])
-        assert dyn.sigma_c[0] == pytest.approx(0.05 * 0.5 * 4000.0)
+        assert dyn.sigma_c[0] == pytest.approx((0.05 / 0.5) * 0.5 * 4000.0)
 
     def test_ratio_sigma_c_floors(self, toy_acc, tmp_path):
         """rel floor lifts a quasi-hard σ_r; abs floor keeps both-zero-prior
@@ -1080,6 +1080,68 @@ class TestRatioConstraintBuilder:
         dyn = builder.build_dynamic(toy_acc, f, None, p["time"])
         assert dyn.sigma_c[0] == pytest.approx(0.02 * 1.0)
 
+    def test_ratio_sigma_is_relative_to_r(self, toy_acc, tmp_path):
+        """#29: the params table states σ in ratio units; the soft row weighs it
+        relative to r. A concentrate-like row (r = 0.275, value_sd = 0.0375) carries
+        σ_r = σ/|r| = 0.1364, not 0.0375, so at a prior that sits on the ratio
+        σ_c = σ·|a₀,denom| — the Gauss–Newton linearisation of the log-ratio."""
+        from pysuto.constraints import RatioConstraintBuilder
+        path    = self._write_params_csv(tmp_path, nominal=0.275, unc_type="sd",
+                                         value_sd=0.0375)
+        builder = RatioConstraintBuilder.from_csv(
+            path, toy_acc, sigma_rel_floor=0.02, scale_abs_floor=1.0)
+        static  = builder.build_static(toy_acc)
+        assert static.sigma_c[0] == pytest.approx(0.0375 / 0.275, rel=1e-12)
+        p = builder._pairs[0]
+        f = np.zeros(toy_acc.n_edges)
+        f[p["edge_i"]] = 0.275 * 1000.0      # numerator on the ratio
+        f[p["edge_j"]] = 1000.0              # denominator
+        dyn = builder.build_dynamic(toy_acc, f, None, p["time"])
+        assert dyn.sigma_c[0] == pytest.approx((0.0375 / 0.275) * 275.0, rel=1e-12)
+        assert dyn.sigma_c[0] == pytest.approx(0.0375 * 1000.0, rel=1e-12)
+
+    def test_ratio_relative_sigma_below_floor_gets_floor(self, toy_acc, tmp_path):
+        """An eff-like row (r = 0.965, band [0.95, 0.98] → σ = 0.0075 in ratio
+        units, σ_r = 0.0078) still takes sigma_rel_floor = 0.02."""
+        from pysuto.constraints import RatioConstraintBuilder
+        path    = self._write_params_csv(tmp_path, nominal=0.965, unc_type="min_max",
+                                         value_min=0.95, value_max=0.98)
+        builder = RatioConstraintBuilder.from_csv(
+            path, toy_acc, sigma_rel_floor=0.02, scale_abs_floor=1.0)
+        static  = builder.build_static(toy_acc)
+        assert static.sigma_c[0] == pytest.approx(((0.98 - 0.95) / 4.0) / 0.965,
+                                                  rel=1e-12)
+        p = builder._pairs[0]
+        f = np.zeros(toy_acc.n_edges)
+        f[p["edge_i"]] = 965.0
+        f[p["edge_j"]] = 1000.0
+        dyn = builder.build_dynamic(toy_acc, f, None, p["time"])
+        assert dyn.sigma_c[0] == pytest.approx(0.02 * 965.0, rel=1e-12)
+
+    def test_ratio_zero_r_stated_exact_keeps_floor(self, toy_acc, tmp_path):
+        """A stated-exact zero ratio (the concwruse shape: r = 0, band [0, 0]) has
+        σ = 0, so σ_r = 0 and the floor prices the row, as before #29."""
+        from pysuto.constraints import RatioConstraintBuilder
+        path    = self._write_params_csv(tmp_path, nominal=0.0, unc_type="min_max",
+                                         value_min=0.0, value_max=0.0)
+        builder = RatioConstraintBuilder.from_csv(
+            path, toy_acc, sigma_rel_floor=0.02, scale_abs_floor=100.0)
+        static  = builder.build_static(toy_acc)
+        assert static.sigma_c[0] == 0.0
+        p = builder._pairs[0]
+        f = np.zeros(toy_acc.n_edges)
+        f[p["edge_i"]] = 50.0
+        f[p["edge_j"]] = 1000.0
+        dyn = builder.build_dynamic(toy_acc, f, None, p["time"])
+        assert dyn.sigma_c[0] == pytest.approx(0.02 * 100.0, rel=1e-12)
+
+    def test_ratio_zero_r_with_sigma_raises(self, toy_acc, tmp_path):
+        """r = 0 with σ > 0 has no relative σ: the build raises, naming the row."""
+        from pysuto.constraints import RatioConstraintBuilder
+        path = self._write_params_csv(tmp_path, nominal=0.0, unc_type="sd", value_sd=0.01)
+        with pytest.raises(ValueError, match="testratio"):
+            RatioConstraintBuilder.from_csv(path, toy_acc)
+
     def test_ratio_sigma_c_scaled_agg(self, toy_acc, tmp_path):
         """Agg (pooled) rows scale by the pooled sums Σ|f| over each side."""
         from pysuto.constraints import RatioConstraintBuilder
@@ -1092,7 +1154,7 @@ class TestRatioConstraintBuilder:
         f[p["edge_i_list"]] = 100.0
         f[p["edge_j_list"]] = 300.0
         dyn = builder.build_dynamic(toy_acc, f, None, p["time"])
-        expected = max(0.05, 0.02) * max(
+        expected = max(0.05 / 0.8, 0.02) * max(
             100.0 * len(p["edge_i_list"]),
             p["r"] * 300.0 * len(p["edge_j_list"]),
             1.0,

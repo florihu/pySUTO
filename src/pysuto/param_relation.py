@@ -108,6 +108,10 @@ def sigma_from_row(row: pd.Series, nominal: float) -> float:
       "sd"       — σ = value_sd
       "min_max"  — σ = (value_max − value_min) / 4
       "pedigree" — σ = nominal · PedigreeScores(...).total_cv()  (Laner et al. 2016)
+
+    σ is in the units of `value_nominal` (ratio units for a ratio); the imputers
+    consume it as is. `RatioConstraintBuilder` divides it by |nominal| into the
+    relative σ its soft rows are scaled by (#29).
     """
     unc = str(row.get("unc_type", "")).strip()
     if unc == "sd":
