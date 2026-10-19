@@ -66,13 +66,19 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
 
 # OPEN (2026-09-16, out of Round L)
 
-## #88 BUILT 2026-10-19 — NOT MEASURED: BACI 178 is DR Congo's only through 2019; from 2020 it duplicates 180
+## #88 BUILT 2026-10-19 — NOT MEASURED (#90): BACI 178 repeats DR Congo's declarations in 2020–2023 only
 
 `fix/baci-178-mirror-duplicates`. `baci_parse_feed.drop_mirror_duplicates` drops a declared code's rows, either
-side, from its first duplicate year (`MIRROR_DUPLICATES = {178: 2020}`; ADR 0014 am., GLOSSARY **Mirror
-duplicate**). #86 found 180 alone matching ICSG's DR Congo production in 2020–2023 (ledger +64, 0, +104, −123
-kt CC) and 178 on top of it forcing 829 kt CC of invented refined output and a |z| 6.9 stock leg. The measure
-ticket's chain starts at the BACI parse (the gross values change), as in #79/#86.
+side, in its duplicate years (`MIRROR_DUPLICATES = {178: (2020, 2023)}`; ADR 0014 am., GLOSSARY **Mirror
+duplicate**): 1,549.7 kt of cathode, 43.3 of concentrate, 4.9 of anode, 0.8 of matte (gross baci v21).
+- **Why 2020–2023:** code 180 alone matches ICSG's DR Congo production there (ledger +64, 0, +104, −123 kt CC);
+  in 2012–2019 and 2024 it falls 134–517 kt CC short and 178 fills it. On `opt_20261015_093646_ddd9d3d9`, 178
+  on top of 180 raised DR Congo's refined output 777 kt CC above its prior over 2020–2023 (183 on
+  `opt_20261014_131552_f320b5f7`). 2019 keeps a +90 kt CC overshoot.
+- **Side effect:** the drop runs before ADR 0033's reconstruction, so the pooled copper price `P_cu` for
+  2020–2023 moves slightly for every exporter.
+- **Open in #88:** 178's 2004–2010 concentrate (DR Congo's 2004–2008 Δz² +22,220 on #86).
+- **#90's chain** starts at the BACI parse (the gross values change), as in #79/#86.
 
 ## #86 MEASURED 2026-10-15 — FAILS ON ITEMS 5 AND 6 (DR Congo), fix ticket #88; items 1–4 hold
 

@@ -15,7 +15,7 @@ What this script does
        740311  Copper cathodes                → Cathode
 3. Drops rows with missing or zero quantity.
 4. Aggregates by (Year, Sector, Region_from, Region_to) — sum quantity *and value*.
-4b. Drops a declared code's rows from the year they duplicate another code's
+4b. Drops a declared code's rows in the years they duplicate another code's
     declarations (#88, ``MIRROR_DUPLICATES``).
 5. Reconstructs the quantity of legs whose value contradicts it, on either side
    of the band (ADR 0033, below).
@@ -110,11 +110,12 @@ MIN_IN_BAND      = 2                # fewer than this and the spread is not
                                     # measurable — which is ignorance, not
                                     # precision, so σ goes to the cap.
 
-# A code whose rows duplicate another code's declarations: code → first such year
-# (#88).  BACI 178 "Congo" carries DR Congo's cathode as its partners declare it
-# (#84).  Until 2019 that fills DR Congo's own declarations (180), which fall short
-# of ICSG production; from 2020 they cover it, and 178 counts the copper twice.
-MIRROR_DUPLICATES = {178: 2020}
+# A code whose rows repeat copper another code already declares: code → (first,
+# last) such year (#88).  BACI 178 "Congo" carries DR Congo's cathode as its
+# partners declare it (#84).  DR Congo's own declarations (180) fall 134–517 kt CC
+# short of ICSG production in 2012–2019 and 2024, which 178 fills; in 2020–2023 they
+# match it (ledger +64, 0, +104, −123 kt CC), and 178 counts the copper twice.
+MIRROR_DUPLICATES = {178: (2020, 2023)}
 
 OUT_DIR       = os.path.dirname(OUT_PATH)
 RECON_PATH    = os.path.join(OUT_DIR, "quantity_recon.csv")
@@ -125,17 +126,17 @@ CV_SCALE_PATH = os.path.join(OUT_DIR, "quantity_cv_scale.csv")
 # #88 — a code that duplicates another code's declarations
 # ---------------------------------------------------------------------------
 
-def drop_mirror_duplicates(agg, duplicates=MIRROR_DUPLICATES) -> pd.DataFrame:
-    """``agg`` without a declared code's rows, either side, from its first duplicate
-    year.  A declaration that matches no rows raises: it is stale."""
-    for code, first in duplicates.items():
+def drop_mirror_duplicates(agg, duplicates) -> pd.DataFrame:
+    """``agg`` without a declared code's rows, either side, in its duplicate years
+    ``(first, last)``.  A declaration that matches no rows raises: it is stale."""
+    for code, (first, last) in duplicates.items():
         rows = (((agg["Region_from"] == code) | (agg["Region_to"] == code))
-                & (agg["Year"] >= first))
+                & agg["Year"].between(first, last))
         if not rows.any():
-            raise ValueError(f"MIRROR_DUPLICATES: no rows of code {code} from {first}")
+            raise ValueError(f"MIRROR_DUPLICATES: no rows of code {code} in {first}–{last}")
         by = agg.loc[rows].groupby("Sector")["q"].sum() / 1e3
-        logger.info("#88 code %d from %d duplicates another code's declarations: %d rows "
-                    "dropped, kt by sector %s", code, first, int(rows.sum()),
+        logger.info("#88 code %d in %d–%d repeats another code's declarations: %d rows "
+                    "dropped, kt by sector %s", code, first, last, int(rows.sum()),
                     by.round(1).to_dict())
         agg = agg.loc[~rows]
     return agg.reset_index(drop=True)
@@ -336,7 +337,7 @@ def main() -> None:
     )
     for col in ["Year", "Sector", "Region_from", "Region_to"]:
         agg[col] = agg[col].astype(int)
-    agg = drop_mirror_duplicates(agg)
+    agg = drop_mirror_duplicates(agg, MIRROR_DUPLICATES)
 
     # --- ADR 0033: rebuild the quantity of legs whose value contradicts it ---
     p_cu = copper_price(agg)

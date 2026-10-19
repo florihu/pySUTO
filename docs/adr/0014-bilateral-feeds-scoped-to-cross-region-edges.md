@@ -12,11 +12,14 @@ Amended 2026-10-15 (#84): BACI 178 "Congo" maps to **Congo, D.R.** (it carries D
 3,890 kt exported in 2012–2024, gross baci v19, against Brazzaville's 79 kt of ICSG production) and 711 "Southern African
 Customs Union" to **South Africa** (its trade until BACI splits it in 2000), not ROW. Neither
 creates mapped self-trade: BACI has no 178 ↔ 180 or 711 ↔ 710 rows. To be measured by #86.
-Amended 2026-10-19 (#88): from 2020, 178's rows are **mirror duplicates** of DR Congo's own declarations and
-the BACI parse drops them (`MIRROR_DUPLICATES`). #86 measured the overlap: code 180 alone matches ICSG's
-DR Congo production in 2020–2023 (ledger +64, 0, +104, −123 kt CC), and 178 on top of it made the solver
-invent 829 kt CC of refined output. Through 2019, 178 fills a shortfall in 180's declarations and stays
-DR Congo's. To be measured by the #88 measure ticket.
+Amended 2026-10-19 (#88): in 2020–2023, 178's rows are **mirror duplicates**: DR Congo's own declarations
+(180) already match ICSG's DR Congo production there (ledger +64, 0, +104, −123 kt CC), and the BACI parse
+drops them (`MIRROR_DUPLICATES`; 1,549.7 kt of cathode, 43.3 of concentrate, 4.9 of anode, 0.8 of matte, gross
+baci v21). On `opt_20261015_093646_ddd9d3d9`, 178 on top of 180 raised DR Congo's refined output 777 kt CC
+above its prior over 2020–2023 (183 on `opt_20261014_131552_f320b5f7`). In 2012–2019 and 2024, 180 falls
+134–517 kt CC a year short, 178 fills it and stays DR Congo's; 2019 keeps a +90 kt CC overshoot. Which
+mechanism repeats the copper (an importer declaring 178 for DR Congo, or transit) is not settled; the
+balance is the evidence. 178's 2004–2010 concentrate stays open in #88. To be measured by #90.
 
 ## Context
 
