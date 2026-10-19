@@ -13,9 +13,9 @@ What this script does
        740120  Cement copper                  → Matte
        740200  Unrefined copper / anodes      → Anode
        740311  Copper cathodes                → Cathode
-       740312  Copper wire-bars               → Cathode   (#91: refined copper,
-       740313  Copper billets                 → Cathode    7–15 % of cathode trade)
-       740319  Other refined copper           → Cathode
+       740312  Copper wire-bars               → Cathode   (#91: refined copper;
+       740313  Copper billets                 → Cathode    cross-region trade 4.5–15.1 %
+       740319  Other refined copper           → Cathode    of 740311's a year, 1995–2024)
 3. Drops rows with missing or zero quantity.
 4. Aggregates by (Year, Sector, Region_from, Region_to) — sum quantity *and value*.
 4b. Drops a declared code's rows in the years they duplicate another code's
@@ -116,8 +116,9 @@ MIN_IN_BAND      = 2                # fewer than this and the spread is not
 # A code whose rows repeat copper another code already declares: code → (first,
 # last) such year (#88).  BACI 178 "Congo" carries DR Congo's refined copper as its
 # partners declare it (#84).  DR Congo's own declarations (180, all of HS 7403.1x,
-# #91) fall short of ICSG production through 2014 and in 2024, which 178 fills; in
-# 2015–2023 they reach or exceed it, and 178 counts the copper twice.
+# #91) fall 5–323 kt short of ICSG production in every year through 2014 and 476 kt
+# in 2024, which 178 fills.  In 2015–2023 they lie within −74 … +422 kt of it, and 178
+# (226–465 kt a year) would push them past it: it counts the copper twice.
 MIRROR_DUPLICATES = {178: (2015, 2023)}
 
 OUT_DIR       = os.path.dirname(OUT_PATH)

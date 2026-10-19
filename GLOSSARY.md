@@ -316,9 +316,9 @@ next to 5,678 kt of copper content on one edge.
 
 **Mirror duplicate** — a BACI flow under one code that repeats copper another code already declares,
 so mapping both to one region counts it twice. The test is the balance, not the customs record: in
-the years the true exporter's own declarations already match its production, the second code's
-flows are duplicates and are dropped; in the years they fall short, the second code fills the gap
-and is kept ([ADR 0014](docs/adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)). _Avoid_:
+the years the true exporter's own declarations already reach about its production, so that the
+second code would push them past it, the second code's flows are duplicates and are dropped; in the
+years they fall clearly short, the second code fills the gap and is kept ([ADR 0014](docs/adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)). _Avoid_:
 "mis-coded flow" for every year of such a code — it is a duplicate only where the balance says so.
 
 **Reporting territory** — the real-world territory a feed's rows describe, which is *not* the same
