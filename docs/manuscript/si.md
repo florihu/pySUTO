@@ -657,7 +657,7 @@ The eight expectations of Table 3 were written with their metric and threshold b
 | tolerance pair (A5) | `const_20260916_123437_8e8e9676` solved at gap$_{\mathrm{rel}}$ $10^{-3}$ (`opt_20260916_124721_c4d1d944`) and at $10^{-6}$ (`opt_20260930_093914_523d57d7`); retention per stage over 30 years, $\Delta$ = new $-$ old |
 | secondary share (B1), input basis | $\sum(\mathrm{Scrap}\to\mathrm{Smelting} + \mathrm{Scrap}\to\mathrm{CFR}) / \sum(\mathrm{Scrap}\to\mathrm{Smelting} + \mathrm{Scrap}\to\mathrm{CFR} + \mathrm{Concentrate}\to\mathrm{Smelting} + \mathrm{SXEW}\to\mathrm{CSXEW})$ in CC, by the region of the receiving process; groups: China; EU-14 (Germany, Italy, France, Spain, Poland, Belgium, Netherlands, Austria, Sweden, Bulgaria, Greece, Portugal, Slovakia, Luxembourg); United States; Japan, Korea and Taiwan; India; Chile and Peru; Rest |
 | ICSG-implied share | the same ratio from the ICSG feed's own rows (scrap into smelting and refining, concentrate intake of smelters, SX-EW cathode), pooled 2020–24: 0.165. Not independent of the prior — the row tests fidelity. ICSG's published share of refined output (secondary refined over total refined incl. SX-EW), reconstructed from the nested feed rows: 0.180 (1995), 0.177 (2010), 0.160 (2020), 0.178 (2024) |
-| HHI (B2) | $\mathrm{HHI}_t = \sum_r s_r^2$ over regions $r$ of one step's world output in CC in year $t$: mining = Mining→Ore, smelting = Smelting→Matte, refining = CP→Cathode (electrolytic and SX-EW cathode), use = Cathode→FU by destination. Upper: ROW as one region; lower: ROW's term omitted (ROW's share 0.02–0.09). Bands 0.15 / 0.25, the conventional moderate / high thresholds; tests use the upper value |
+| HHI (B2) | $\mathrm{HHI}_t = \sum_r s_r^2$ over regions $r$ of one step's world output in CC in year $t$: mining = Mining→Ore, smelting = Smelting→Matte, refining = CP→Cathode (electrolytic and SX-EW cathode), use = Cathode→FU by destination. Upper: ROW as one region; lower: ROW's term omitted (ROW's share 0.01–0.08). Bands 0.15 / 0.25, the conventional moderate / high thresholds; tests use the upper value |
 | embodied extraction (B3) | $M_{rs} = \sum_{p \in r} e_p\, L_{pq}\, Y_{q,\,d \in s}$: $e$ the extraction intensity (E block over process output), $L$ the Leontief inverse of the market-share PIOT (S7), $Y$ final demand (FU, MESC, USC); rows the mining region, columns the consuming region; column sums are the regional footprint, row sums the extraction. Direct: the posterior Concentrate→Smelting legs Chile→China and Peru→China. Chile's export share to China: China's share of Chile's cross-region legs in concentrate, matte, anode and cathode (CC) |
 
 **Table S18.** Quantities of the hypothesis ledger.
@@ -667,63 +667,63 @@ The eight expectations of Table 3 were written with their metric and threshold b
 | id | expectation | metric | threshold | value | outcome |
 | --- | --- | --- | --- | --- | --- |
 | A1 | every hard identity closes | max $\lvert G a^* - c\rvert$ over hard mass balances, all years | $< 10^{-6}$ kt | $1.7 \times 10^{-7}$ kt | pass |
-| A2 | compatibility is family-specific | share of rows with $\lvert z\rvert > 3$ per year: edges below, scale totals above | edges $< 0.05$ and scale totals $> 0.20$, every year | edges 0.004–0.024 (30/30 yr); scale totals 0.191–0.318 (27/30 yr: 2000, 2005, 2007 below) | fail |
-| A3 | the adjustment localises on transit trade | share of edge $\sum z^2$ on cross-region legs into merchant hubs | $\ge 0.50$ | 0.713 (all cross-region legs 0.925) | pass |
-| A4 | the adjustment grows upstream | retention cathode CC $>$ concentrate CC $>$ ore Mass, gap per step, years passing | $\ge 0.02$ per step in $\ge 25$ of 30 years | 4/30 both steps (cathode–concentrate 6, concentrate–ore 26) | fail |
+| A2 | compatibility is family-specific | share of rows with $\lvert z\rvert > 3$ per year: edges below, scale totals above | edges $< 0.05$ and scale totals $> 0.20$, every year | edges 0.004–0.021 (30/30 yr); scale totals 0.171–0.284 (21/30 yr: 2000–2003, 2005–2007, 2009 and 2010 below) | fail |
+| A3 | the adjustment localises on transit trade | share of edge $\sum z^2$ on cross-region legs into merchant hubs | $\ge 0.50$ | 0.744 (all cross-region legs 0.937) | pass |
+| A4 | the adjustment grows upstream | retention cathode CC $>$ concentrate CC $>$ ore Mass, gap per step, years passing | $\ge 0.02$ per step in $\ge 25$ of 30 years | 6/30 both steps (cathode–concentrate 9, concentrate–ore 26) | fail |
 | A5 | termination accuracy does not move the answer | $\lvert\Delta\,\mathrm{retention}\rvert$ per stage, tolerance pair, 30-year pool | $< 0.02$ every stage | 4/9 stages within; max 0.223 (Scrap→Smelting CC) | fail |
-| B1 | secondary share: fidelity and regional order | input-side share pooled 2020–24: $\lvert$world posterior $-$ ICSG-implied$\rvert$; EU-14 $>$ China $>$ US; EU-14 / world | $< 0.02$; order holds; $\ge 2\times$ | $\lvert 0.181 - 0.165\rvert = 0.016$; 0.364 $>$ 0.266 $>$ 0.046; 2.01$\times$ | pass |
-| B2 | concentration rises downstream and is reconciliation-invariant | HHI (upper) 2024 posterior per step; $\lvert\mathrm{HHI}_{\mathrm{post}} - \mathrm{HHI}_{\mathrm{prior}}\rvert$ per step | refining, use $>$ mining and $> 0.25$; mining $< 0.15$; $\lvert\Delta\rvert < 0.01$ | mining 0.103, smelting 0.274, refining 0.221, use 0.342; $\lvert\Delta\rvert$ mining 0.008, smelting 0.012, refining 0.007, use 0.032 | fail (refining $< 0.25$; smelting and use not invariant) |
-| B3 | embodied exceeds direct; Chile's exports turned to China | China's embodied mined Cu from Chile+Peru / direct concentrate imports from them, 2024; Chile's export share to China 1995 and 2024 | $\ge 1.10$; $< 0.10 \to > 0.50$ | 5,534 / 3,932 kt CC $= 1.41$; 0.035 $\to$ 0.528 | pass |
+| B1 | secondary share: fidelity and regional order | input-side share pooled 2020–24: $\lvert$world posterior $-$ ICSG-implied$\rvert$; EU-14 $>$ China $>$ US; EU-14 / world | $< 0.02$; order holds; $\ge 2\times$ | $\lvert 0.173 - 0.165\rvert = 0.007$; 0.355 $>$ 0.246 $>$ 0.045; 2.06$\times$ | pass |
+| B2 | concentration rises downstream and is reconciliation-invariant | HHI (upper) 2024 posterior per step; $\lvert\mathrm{HHI}_{\mathrm{post}} - \mathrm{HHI}_{\mathrm{prior}}\rvert$ per step | refining, use $>$ mining and $> 0.25$; mining $< 0.15$; $\lvert\Delta\rvert < 0.01$ | mining 0.106, smelting 0.281, refining 0.228, use 0.351; $\lvert\Delta\rvert$ mining 0.005, smelting 0.001, refining $< 0.001$, use 0.004 | fail (refining $< 0.25$) |
+| B3 | embodied exceeds direct; Chile's exports turned to China | China's embodied mined Cu from Chile+Peru / direct concentrate imports from them, 2024; Chile's export share to China 1995 and 2024 | $\ge 1.10$; $< 0.10 \to > 0.50$ | 6,031 / 4,222 kt CC $= 1.43$; 0.035 $\to$ 0.545 | pass |
 
 **Table S18b.** The ledger with its measured values (`table3_ledger.csv`). Per-year values of the decomposition (Σz² per family, the maximum hard residual and the share of $\lvert z\rvert > 3$) are in `si_s15_decomposition.csv`; the A4 gradient per year in `si_s15_a4_gradient.csv`.
 
 | stage | prior | posterior | retention | pair: gap $10^{-3}$ | pair: gap $10^{-6}$ | $\Delta$ |
 | --- | --- | --- | --- | --- | --- | --- |
-| CO→Mining Mass | 62,455,760 | 53,829,592 | 0.862 | 0.779 | 0.861 | $+0.081$ |
-| MF→Concentrate CC | 403,804 | 400,480 | 0.992 | 0.873 | 0.930 | $+0.058$ |
-| Concentrate→Smelting CC | 424,794 | 400,480 | 0.943 | 0.856 | 0.913 | $+0.057$ |
-| Anode→ER CC | 486,726 | 475,301 | 0.977 | 0.990 | 0.995 | $+0.006$ |
-| CP→Cathode CC | 576,550 | 573,099 | 0.994 | 1.003 | 1.011 | $+0.008$ |
-| Cathode→FU CC | 596,457 | 554,576 | 0.930 | 0.938 | 0.944 | $+0.007$ |
-| Scrap→Smelting CC | 76,886 | 78,027 | 1.015 | 0.995 | 0.772 | $-0.223$ |
-| Smelting→Matte CC | 477,834 | 460,624 | 0.964 | 0.923 | 0.935 | $+0.012$ |
-| Scrap→CFR CC | 22,385 | 22,928 | 1.024 | 0.736 | 0.705 | $-0.031$ |
+| CO→Mining Mass | 62,455,760 | 53,932,248 | 0.864 | 0.779 | 0.861 | $+0.081$ |
+| MF→Concentrate CC | 403,304 | 401,562 | 0.996 | 0.873 | 0.930 | $+0.058$ |
+| Concentrate→Smelting CC | 423,342 | 401,562 | 0.949 | 0.856 | 0.913 | $+0.057$ |
+| Anode→ER CC | 486,428 | 479,253 | 0.985 | 0.990 | 0.995 | $+0.006$ |
+| CP→Cathode CC | 576,213 | 576,211 | 1.000 | 1.003 | 1.011 | $+0.008$ |
+| Cathode→FU CC | 587,337 | 577,653 | 0.984 | 0.938 | 0.944 | $+0.007$ |
+| Scrap→Smelting CC | 76,826 | 76,173 | 0.991 | 0.995 | 0.772 | $-0.223$ |
+| Smelting→Matte CC | 479,332 | 463,119 | 0.966 | 0.923 | 0.935 | $+0.012$ |
+| Scrap→CFR CC | 22,383 | 22,752 | 1.016 | 0.736 | 0.705 | $-0.030$ |
 
-**Table S19.** Retention by stage over 1995–2024 (kt; Mass for the ore row, CC otherwise) on the reference run, and on the tolerance pair (A5). Chile's concentrate export retention 2010–19: 0.979 on the reference run; 0.574 and 0.893 on the pair.
+**Table S19.** Retention by stage over 1995–2024 (kt; Mass for the ore row, CC otherwise) on the reference run, and on the tolerance pair (A5). Chile's concentrate export retention 2010–19: 1.013 on the reference run; 0.574 and 0.893 on the pair.
 
 | group | prior | posterior |
 | --- | --- | --- |
-| EU-14 | 0.371 | 0.364 |
-| China | 0.227 | 0.266 |
-| JP/KR/TW | 0.239 | 0.256 |
-| Rest | 0.058 | 0.064 |
-| United States | 0.046 | 0.046 |
-| India | 0.004 | 0.017 |
+| EU-14 | 0.376 | 0.355 |
+| JP/KR/TW | 0.235 | 0.251 |
+| China | 0.227 | 0.246 |
+| Rest | 0.058 | 0.063 |
+| United States | 0.046 | 0.045 |
+| India | 0.005 | 0.005 |
 | Chile+Peru | 0.000 | 0.000 |
-| World | 0.164 | 0.181 |
+| World | 0.164 | 0.173 |
 
 **Table S20.** Secondary share of refinery-side input, pooled 2020–2024 (B1); ICSG-implied world value 0.165.
 
 | step | 1995 prior | 1995 posterior | 2024 prior | 2024 posterior | 2024 ROW band | largest region 2024 (posterior) |
 | --- | --- | --- | --- | --- | --- | --- |
-| mining | 0.116 | 0.120 | 0.112 | 0.103 | 0.102–0.103 | Chile 0.207 |
-| smelting | 0.076 | 0.083 | 0.286 | 0.274 | 0.273–0.274 | China 0.509 |
-| refining | 0.093 | 0.093 | 0.228 | 0.221 | 0.221–0.221 | China 0.443 |
-| use | 0.096 | 0.103 | 0.309 | 0.342 | 0.338–0.342 | China 0.573 |
+| mining | 0.117 | 0.119 | 0.112 | 0.106 | 0.105–0.106 | Chile 0.227 |
+| smelting | 0.075 | 0.082 | 0.281 | 0.281 | 0.281–0.281 | China 0.517 |
+| refining | 0.092 | 0.092 | 0.228 | 0.228 | 0.228–0.228 | China 0.453 |
+| use | 0.089 | 0.094 | 0.355 | 0.351 | 0.349–0.351 | China 0.583 |
 
-**Table S21.** Herfindahl–Hirschman index per step (upper value; B2). Full series in `si_s15_hhi_1995_2024.csv`.
+**Table S21.** Herfindahl–Hirschman index per step (upper value; B2). The 1995 and 2024 values with ROW's share are in `si_s15_hhi_1995_2024.csv`; the other years are drawn in Figure 5b.
 
-| mining region | China | United States | Congo, D.R. | India | Japan | Germany | Rest |
+| mining region | China | United States | India | Korea, Rep. | Japan | Germany | Rest |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Chile | 3,128 | 753 | 0 | 230 | 282 | 130 | 1,373 |
-| Congo, D.R. | 2,684 | 46 | 1,098 | 50 | 4 | 57 | 766 |
-| Peru | 2,406 | 84 | 0 | 85 | 144 | 74 | 661 |
-| China | 1,621 | 1 | 0 | 0 | 0 | 0 | 48 |
-| United States | 116 | 901 | 0 | 15 | 47 | 5 | 401 |
-| Indonesia | 405 | 0 | 0 | 137 | 132 | 38 | 680 |
-| Rest | 4,896 | 137 | 0 | 448 | 196 | 450 | 3,757 |
+| Chile | 3,576 | 799 | 229 | 296 | 305 | 136 | 1,215 |
+| Congo, D.R. | 2,684 | 46 | 115 | 156 | 3 | 67 | 1,163 |
+| Peru | 2,455 | 87 | 79 | 66 | 141 | 72 | 585 |
+| China | 1,924 | 1 | 0 | 1 | 0 | 1 | 56 |
+| United States | 112 | 917 | 13 | 4 | 41 | 4 | 357 |
+| Indonesia | 398 | 0 | 127 | 81 | 119 | 34 | 565 |
+| Rest | 4,975 | 134 | 418 | 193 | 162 | 440 | 3,549 |
 
-**Table S22.** Embodied extraction 2024, kt CC (B3): rows the mining region, columns the region of final use; the six largest of each and Rest. World extraction 28,482 kt CC; China's footprint 15,256 kt CC (column sum), of which 5,534 from Chile and Peru against 3,932 kt CC of direct concentrate imports from them.
+**Table S22.** Embodied extraction 2024, kt CC (B3): rows the mining region, columns the region of final use; the six largest of each and Rest. World extraction 28,900 kt CC; China's footprint 16,123 kt CC (column sum), of which 6,031 from Chile and Peru against 4,222 kt CC of direct concentrate imports from them.
 
 <a id="si-portfolio"></a>
 
@@ -750,121 +750,121 @@ Every solver run renders twelve figures under `data/proc/opt/<run>/diag/` (`pysu
 
 | rank | identity | sector key | $\sum_t z^2$ | share | $\sum_t \lvert\Delta\rvert$ (kt) | max $\lvert z\rvert$ (year) | years $\lvert z\rvert > 3$ |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | Cathode Zambia→FU Switzerland, Mass | Cathode→FU | 340,255 | 0.182 | 4,894 | 203.7 (2014) | 23 |
-| 2 | Anode Zambia→ER Switzerland, Mass | Anode→ER | 323,621 | 0.173 | 3,747 | 228.9 (2017) | 10 |
-| 3 | Cathode Russia→FU Netherlands, Mass | Cathode→FU | 161,649 | 0.087 | 3,112 | 138.8 (1996) | 30 |
-| 4 | Cathode Chile→FU Netherlands, Mass | Cathode→FU | 93,077 | 0.050 | 1,759 | 106.7 (2006) | 30 |
-| 5 | Cathode Russia→FU Switzerland, Mass | Cathode→FU | 74,288 | 0.040 | 1,020 | 113.6 (2005) | 14 |
-| 6 | Anode Zambia→ER Singapore, Mass | Anode→ER | 59,600 | 0.032 | 687 | 150.8 (2017) | 9 |
-| 7 | Cathode Russia→FU Germany, Mass | Cathode→FU | 35,263 | 0.019 | 707 | 114.3 (1995) | 9 |
-| 8 | Anode Congo, D.R.→ER China, Mass | Anode→ER | 26,457 | 0.014 | 334 | 95.6 (2012) | 10 |
-| 9 | Cathode Congo, D.R.→FU Switzerland, Mass | Cathode→FU | 24,190 | 0.013 | 319 | 97.9 (2020) | 8 |
-| 10 | Anode South Africa→ER China, Mass | Anode→ER | 23,318 | 0.012 | 274 | 67.7 (2022) | 7 |
+| 1 | Cathode Zambia→FU Switzerland, Mass | Cathode→FU | 383,020 | 0.195 | 5,352 | 223.5 (2014) | 24 |
+| 2 | Anode Zambia→ER Switzerland, Mass | Anode→ER | 326,458 | 0.166 | 3,763 | 230.0 (2017) | 10 |
+| 3 | Cathode Russia→FU Netherlands, Mass | Cathode→FU | 146,315 | 0.074 | 3,004 | 117.0 (1997) | 30 |
+| 4 | Cathode Chile→FU Netherlands, Mass | Cathode→FU | 119,535 | 0.061 | 2,007 | 132.8 (2006) | 30 |
+| 5 | Cathode Russia→FU Switzerland, Mass | Cathode→FU | 78,161 | 0.040 | 1,057 | 114.7 (2005) | 16 |
+| 6 | Anode Zambia→ER Singapore, Mass | Anode→ER | 62,986 | 0.032 | 708 | 152.5 (2017) | 9 |
+| 7 | Cathode Congo, D.R.→FU Switzerland, Mass | Cathode→FU | 48,736 | 0.025 | 607 | 105.4 (2020) | 12 |
+| 8 | Anode Congo, D.R.→ER China, Mass | Anode→ER | 34,122 | 0.017 | 407 | 95.8 (2012) | 13 |
+| 9 | Anode South Africa→ER China, Mass | Anode→ER | 24,360 | 0.012 | 275 | 74.0 (2021) | 7 |
+| 10 | Cathode ROW→FU Switzerland, Mass | Cathode→FU | 17,345 | 0.009 | 450 | 98.0 (2015) | 22 |
 
-**Table S24.** Edge defects: the ten identities with the largest $\sum_t z^2$ (family total 1,868,437). Nine of the ten are BACI trade legs in gross mass into a region that reports no processing (S15.1), the Zambian anode and cathode legs into Switzerland alone carry 36% of the family.
+**Table S24.** Edge defects: the ten identities with the largest $\sum_t z^2$ (family total 1,968,689). All ten are BACI trade legs in gross mass, eight of them into a region that reports no processing (S15.1) — the exceptions are the D.R. Congo and South African anode legs into China — and the Zambian anode and cathode legs into Switzerland alone carry 36% of the family.
 
 | rank | identity | sector key | $\sum_t z^2$ | share | $\sum_t \lvert\Delta\rvert$ (kt) | max $\lvert z\rvert$ (year) | years $\lvert z\rvert > 3$ |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | use total, Cathode, Austria, Mass | Cathode | 33,612 | 0.022 | 688 | 58.1 (2003) | 29 |
-| 2 | use total, Cathode, Austria, CC | Cathode | 26,054 | 0.017 | 639 | 53.9 (2003) | 29 |
-| 3 | use total, Cathode, ROW, CC | Cathode | 25,407 | 0.017 | 6,872 | 58.4 (1998) | 29 |
-| 4 | smelter scrap anchor, Austria, CC | Smelting | 23,914 | 0.016 | 868 | 54.5 (2019) | 30 |
-| 5 | use total, Cathode, ROW, Mass | Cathode | 19,283 | 0.013 | 6,876 | 51.8 (2004) | 29 |
-| 6 | smelter scrap anchor, Russia, CC | Smelting | 17,098 | 0.011 | 1,344 | 57.9 (2003) | 12 |
-| 7 | use total, Ore, Germany, Mass | Ore | 16,941 | 0.011 | 7,457 | 58.5 (2018) | 5 |
-| 8 | use total, Ore, Germany, CC | Ore | 16,873 | 0.011 | 73 | 58.5 (2018) | 5 |
-| 9 | supply total, MF, Germany, CC | MF | 16,822 | 0.011 | 58 | 58.5 (2018) | 5 |
-| 10 | use total, Concentrate, Germany, CC | Concentrate | 16,822 | 0.011 | 58 | 58.5 (2018) | 5 |
+| 1 | use total, Cathode, United Arab Emirates, CC | Cathode | 40,890 | 0.036 | 2,661 | 55.7 (2023) | 17 |
+| 2 | use total, Cathode, United Arab Emirates, Mass | Cathode | 40,860 | 0.036 | 2,667 | 55.7 (2023) | 17 |
+| 3 | smelter scrap anchor, Austria, CC | Smelting | 19,708 | 0.017 | 699 | 54.5 (2019) | 26 |
+| 4 | smelter scrap anchor, Russia, CC | Smelting | 17,950 | 0.016 | 1,312 | 58.7 (2003) | 9 |
+| 5 | supply total, Mining, Chile, Mass | Mining | 17,618 | 0.015 | 7,839,156 | 30.6 (2024) | 29 |
+| 6 | use total, Ore, Chile, Mass | Ore | 17,618 | 0.015 | 7,839,156 | 30.6 (2024) | 29 |
+| 7 | use total, Anode, Congo, D.R., CC | Anode | 17,524 | 0.015 | 557 | 57.4 (2012) | 14 |
+| 8 | use total, Concentrate, Philippines, CC | Concentrate | 16,954 | 0.015 | 1,247 | 40.4 (2020) | 29 |
+| 9 | use total, Anode, Congo, D.R., Mass | Anode | 16,479 | 0.014 | 536 | 57.3 (2012) | 14 |
+| 10 | supply total, Smelting, Russia, CC | Smelting | 15,325 | 0.013 | 4,772 | 47.9 (1995) | 10 |
 
-**Table S25.** Scale-total residuals: the ten identities with the largest $\sum_t z^2$ (family total 1,497,777). The family is flat — no identity exceeds 2.2% — and its head is Austria's cathode total against its smelter scrap anchor (the nested secondary series, S9), the rest-of-world cathode total, and Germany's extraction-chain totals in 2018 (ore, concentrate and MF output at $z \approx -58$ in one year).
+**Table S25.** Scale-total residuals: the ten identities with the largest $\sum_t z^2$ (family total 1,149,839). The family is flat — no identity exceeds 3.6% — and its head is the cathode use total of the United Arab Emirates in both valuations (7.1% together; $\lvert z\rvert > 3$ in 17 of the 21 years the row exists), the smelter scrap anchors of Austria and Russia (the nested secondary series, S9), and Chile's mining supply total and ore use total in gross mass, which carry the same residual ($\lvert z\rvert > 3$ in 29 of 30 years, largest in 2024).
 
 | rank | identity | sector key | $\sum_t z^2$ | share | $\sum_t \lvert\Delta\rvert$ | max $\lvert z\rvert$ (year) | years $\lvert z\rvert > 3$ |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | net-stock bound, PSC, Malaysia, CC | net stock | 3,149 | 0.047 | 354 kt | 29.4 (2006) | 4 |
-| 2 | net-stock bound, PSC, Singapore, CC | net stock | 1,999 | 0.030 | 562 kt | 19.0 (1998) | 19 |
-| 3 | net-stock bound, PSC, United Arab Emirates, CC | net stock | 1,838 | 0.027 | 251 kt | 32.2 (2011) | 4 |
-| 4 | net-stock bound, PSC, Netherlands, CC | net stock | 883 | 0.013 | 296 kt | 14.6 (2019) | 10 |
-| 5 | slag concentration, CFR, Japan | CFR→Slag | 579 | 0.009 | 250 | 5.3 (2016) | 22 |
-| 6 | scrap concentration, Smelting, Belgium | Scrap→Smelting | 475 | 0.007 | 2,309 | 7.4 (2001) | 23 |
-| 7 | net-stock bound, PSC, Sweden, CC | net stock | 462 | 0.007 | 187 kt | 10.3 (2003) | 7 |
-| 8 | concentrate grade, ROW smelters | Concentrate→Smelting | 435 | 0.006 | 528 | 10.0 (2020) | 11 |
-| 9 | ore grade, Chile 2024 (Ore→MF) | Ore→MF | 414 | 0.006 | 2,178 | 20.3 (2024) | 1 |
-| 10 | slag concentration, Smelting, ROW | Smelting→Slag | 393 | 0.006 | 174 | 8.8 (2022) | 9 |
+| 1 | cathode concentration, Russia→USC Netherlands | Cathode→USC | 1,517 | 0.182 | 180 | 24.0 (1997) | 7 |
+| 2 | scrap concentration, Smelting, Belgium | Scrap→Smelting | 259 | 0.031 | 2,438 | 5.2 (2001) | 13 |
+| 3 | net-stock bound, PSC, Iran, CC | net stock | 184 | 0.022 | 151 kt | 10.1 (2016) | 6 |
+| 4 | cathode concentration, Zambia→MESC Switzerland | Cathode→MESC | 162 | 0.020 | 90 | 6.1 (2017) | 7 |
+| 5 | cathode concentration, Zambia→USC Switzerland | Cathode→USC | 162 | 0.020 | 90 | 6.1 (2017) | 7 |
+| 6 | scrap concentration, Smelting, Austria | Scrap→Smelting | 101 | 0.012 | 1,037 | 2.7 (2009) | 0 |
+| 7 | cathode concentration, Russia→MESC Netherlands | Cathode→MESC | 98 | 0.012 | 33 | 7.9 (1997) | 2 |
+| 8 | anode concentration, ER, Zambia | Anode→ER | 92 | 0.011 | 255 | 2.4 (2020) | 0 |
+| 9 | concentrate grade, ROW smelters | Concentrate→Smelting | 76 | 0.009 | 806 | 2.6 (2022) | 0 |
+| 10 | anode concentration, ER, Kazakhstan | Anode→ER | 61 | 0.007 | 256 | 1.9 (2015) | 0 |
 
-**Table S26.** Soft-ratio residuals: the ten identities with the largest $\sum_t z^2$ (family total 66,999, 2% of the objective). The producer-stock-change bounds of the merchant hubs head the family; by sector key the ore-grade relations (Ore→MF 0.149, Mining→Ore 0.143, CO→Mining 0.142) and the concentrate grade (0.102) carry the most (`si_s16_share_soft_ratios.csv`).
+**Table S26.** Soft-ratio residuals: the ten identities with the largest $\sum_t z^2$ (family total 8,324, 0.3% of the objective). One identity heads the family: the cathode concentration on Russia's stock-change leg into the Netherlands' user stock change carries 18% of it; the only net-stock bound among the ten is Iran's producer stock change. By sector key the cathode concentration on the user-stock-change legs (Cathode→USC 0.212), the concentrate grade (Concentrate→Smelting 0.124) and the anode concentration (Anode→ER 0.117) carry the most; the ore grade (Ore→MF) carries 0.039 (`si_s16_share_soft_ratios.csv`).
 
 <a id="si-legs"></a>
 
 ## S17 Bilateral legs of the trade insight
 
-The partner shares of Figure 5c and the embodied matrix of Figure 5d are posterior quantities; this section shows what the reconciliation did to the legs behind them. Table [S27](#tab-si-legs) lists, for Chile, Peru and China, the five largest cross-region concentrate and cathode legs by prior in 2000 and 2024 with their prior, posterior and retention (kt CC); the full table with matte and anode legs is `si_s17_legs.csv`. Legs into the merchant hubs of S15.1 are the ones cut (Chile→Netherlands cathode, Chile→Switzerland anode), consistent with A3; the legs into processing regions keep their prior scale within a few percent, and the Chile→China concentrate leg is retained at its prior. A leg's posterior is a year-local quantity of the account (README §8), not a trade record: it is the flow the balances of both endpoints admit.
+The partner shares of Figure 5c and the embodied matrix of Figure 5d are posterior quantities; this section shows what the reconciliation did to the legs behind them. Table [S27](#tab-si-legs) lists, for Chile, Peru and China, the five largest cross-region concentrate and cathode legs by prior in 2000 and 2024 with their prior, posterior and retention (kt CC); the full table with matte and anode legs is `si_s17_legs.csv`. Of the 54 distinct legs in the table (six appear under two countries), 31 keep their prior within 5%, among them Chile→China concentrate (0.943 in 2000, 0.986 in 2024); Peru→China concentrate, the second-largest leg of 2024, is retained at 0.915. The largest cuts fall on rest-of-world concentrate into China (0.698 in 2024), Chile's concentrate into India and Korea (0.761 and 0.846 in 2024), Kazakhstan's cathode into China (0.808 in 2024) and Chile's and Peru's cathode into the United States in 2000 (0.827 and 0.854); the largest gains on Peru's smaller legs (cathode into the United Kingdom in 2000, 1.641; concentrate into ROW in 2024, 1.289). Legs into the merchant hubs of S15.1 are rare among the largest by prior: France (Chile's cathode, 0.881 in 2000 and 0.879 in 2024) and Taiwan (Peru's cathode in 2000, 1.013) in the table, Peru's anode into the Netherlands in 2000 (0.130) in `si_s17_legs.csv`. The hub legs that carry A3's share of the edge objective are ranked by $\sum_t z^2$ in Table S24; of its ten only Chile→Netherlands cathode belongs to these three countries, and it is not among Chile's five largest cathode legs by prior in 2000 or 2024. A leg's posterior is a year-local quantity of the account (README §8), not a trade record: it is the flow the balances of both endpoints admit.
 
 <a id="tab-si-legs"></a>
 
 | country | year | commodity | from | to | prior (kt CC) | posterior (kt CC) | retention |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Chile | 2000 | Cathode | Chile | Italy | 378 | 319 | 0.844 |
-| Chile | 2000 | Cathode | Chile | ROW | 298 | 319 | 1.070 |
-| Chile | 2000 | Cathode | Chile | France | 296 | 242 | 0.819 |
-| Chile | 2000 | Cathode | Chile | United States | 292 | 225 | 0.769 |
-| Chile | 2000 | Cathode | Chile | China | 241 | 243 | 1.008 |
-| Chile | 2000 | Concentrate | Chile | Japan | 578 | 603 | 1.043 |
-| Chile | 2000 | Concentrate | Chile | China | 150 | 140 | 0.933 |
-| Chile | 2000 | Concentrate | Chile | Korea, Rep. | 119 | 117 | 0.988 |
-| Chile | 2000 | Concentrate | Chile | Brazil | 108 | 109 | 1.017 |
-| Chile | 2000 | Concentrate | Chile | Germany | 84 | 76 | 0.901 |
-| Chile | 2024 | Cathode | Chile | United States | 632 | 626 | 0.991 |
-| Chile | 2024 | Cathode | Chile | China | 506 | 501 | 0.990 |
-| Chile | 2024 | Cathode | Chile | Brazil | 193 | 227 | 1.178 |
-| Chile | 2024 | Cathode | Chile | Korea, Rep. | 119 | 118 | 0.992 |
-| Chile | 2024 | Cathode | Chile | France | 108 | 77 | 0.716 |
-| Chile | 2024 | Concentrate | Chile | China | 2,386 | 2,090 | 0.876 |
-| Chile | 2024 | Concentrate | Chile | Japan | 512 | 479 | 0.935 |
-| Chile | 2024 | Concentrate | Chile | Korea, Rep. | 148 | 116 | 0.784 |
-| Chile | 2024 | Concentrate | Chile | India | 147 | 118 | 0.802 |
-| Chile | 2024 | Concentrate | Chile | Germany | 77 | 66 | 0.848 |
-| Peru | 2000 | Cathode | Peru | United States | 411 | 314 | 0.764 |
-| Peru | 2000 | Cathode | Peru | Italy | 35 | 30 | 0.845 |
-| Peru | 2000 | Cathode | Peru | Brazil | 14 | 14 | 0.999 |
-| Peru | 2000 | Cathode | Peru | United Kingdom | 13 | 20 | 1.535 |
-| Peru | 2000 | Cathode | Peru | ROW | 11 | 12 | 1.054 |
-| Peru | 2000 | Concentrate | Peru | Japan | 27 | 26 | 0.960 |
-| Peru | 2000 | Concentrate | Peru | China | 22 | 21 | 0.940 |
-| Peru | 2000 | Concentrate | Peru | India | 21 | 21 | 1.020 |
-| Peru | 2000 | Concentrate | Chile | Peru | 20 | 21 | 1.029 |
-| Peru | 2000 | Concentrate | Peru | ROW | 16 | 16 | 0.985 |
-| Peru | 2024 | Cathode | Peru | China | 102 | 102 | 1.001 |
-| Peru | 2024 | Cathode | Peru | United States | 61 | 61 | 1.002 |
-| Peru | 2024 | Cathode | Peru | Italy | 50 | 50 | 1.002 |
-| Peru | 2024 | Cathode | Peru | Brazil | 41 | 49 | 1.180 |
-| Peru | 2024 | Cathode | Peru | ROW | 7 | 7 | 1.002 |
-| Peru | 2024 | Concentrate | Peru | China | 2,032 | 1,842 | 0.907 |
-| Peru | 2024 | Concentrate | Peru | Japan | 230 | 227 | 0.988 |
-| Peru | 2024 | Concentrate | Peru | Korea, Rep. | 74 | 63 | 0.844 |
-| Peru | 2024 | Concentrate | Peru | ROW | 72 | 83 | 1.160 |
-| Peru | 2024 | Concentrate | Peru | Spain | 69 | 82 | 1.186 |
-| China | 2000 | Cathode | Chile | China | 241 | 243 | 1.008 |
-| China | 2000 | Cathode | Japan | China | 69 | 69 | 0.998 |
-| China | 2000 | Cathode | United States | China | 57 | 56 | 0.997 |
-| China | 2000 | Cathode | Philippines | China | 51 | 48 | 0.950 |
-| China | 2000 | Cathode | China | Korea, Rep. | 45 | 43 | 0.959 |
-| China | 2000 | Concentrate | Chile | China | 150 | 140 | 0.933 |
-| China | 2000 | Concentrate | Mongolia | China | 127 | 121 | 0.950 |
-| China | 2000 | Concentrate | Australia | China | 74 | 74 | 1.006 |
-| China | 2000 | Concentrate | Canada | China | 39 | 37 | 0.956 |
-| China | 2000 | Concentrate | Peru | China | 22 | 21 | 0.940 |
-| China | 2024 | Cathode | Congo, D.R. | China | 1,453 | 1,446 | 0.995 |
-| China | 2024 | Cathode | Chile | China | 506 | 501 | 0.990 |
-| China | 2024 | Cathode | China | ROW | 290 | 289 | 0.998 |
-| China | 2024 | Cathode | Kazakhstan | China | 289 | 259 | 0.896 |
-| China | 2024 | Cathode | Japan | China | 235 | 235 | 1.000 |
-| China | 2024 | Concentrate | Chile | China | 2,386 | 2,090 | 0.876 |
-| China | 2024 | Concentrate | Peru | China | 2,032 | 1,842 | 0.907 |
-| China | 2024 | Concentrate | ROW | China | 826 | 612 | 0.741 |
-| China | 2024 | Concentrate | Mexico | China | 464 | 439 | 0.946 |
-| China | 2024 | Concentrate | Kazakhstan | China | 462 | 421 | 0.911 |
+| Chile | 2000 | Cathode | Chile | Italy | 351 | 353 | 1.004 |
+| Chile | 2000 | Cathode | Chile | France | 286 | 252 | 0.881 |
+| Chile | 2000 | Cathode | Chile | United States | 282 | 234 | 0.827 |
+| Chile | 2000 | Cathode | Chile | China | 250 | 251 | 1.006 |
+| Chile | 2000 | Cathode | Chile | Korea, Rep. | 235 | 237 | 1.006 |
+| Chile | 2000 | Concentrate | Chile | Japan | 578 | 599 | 1.037 |
+| Chile | 2000 | Concentrate | Chile | China | 149 | 141 | 0.943 |
+| Chile | 2000 | Concentrate | Chile | Korea, Rep. | 119 | 122 | 1.027 |
+| Chile | 2000 | Concentrate | Chile | Brazil | 108 | 107 | 0.997 |
+| Chile | 2000 | Concentrate | Chile | Germany | 84 | 82 | 0.974 |
+| Chile | 2024 | Cathode | Chile | United States | 631 | 629 | 0.997 |
+| Chile | 2024 | Cathode | Chile | China | 513 | 510 | 0.995 |
+| Chile | 2024 | Cathode | Chile | Brazil | 189 | 228 | 1.208 |
+| Chile | 2024 | Cathode | Chile | Korea, Rep. | 131 | 131 | 0.998 |
+| Chile | 2024 | Cathode | Chile | France | 86 | 75 | 0.879 |
+| Chile | 2024 | Concentrate | Chile | China | 2,387 | 2,354 | 0.986 |
+| Chile | 2024 | Concentrate | Chile | Japan | 513 | 528 | 1.030 |
+| Chile | 2024 | Concentrate | Chile | Korea, Rep. | 148 | 126 | 0.846 |
+| Chile | 2024 | Concentrate | Chile | India | 147 | 112 | 0.761 |
+| Chile | 2024 | Concentrate | Chile | Germany | 77 | 73 | 0.940 |
+| Peru | 2000 | Cathode | Peru | United States | 349 | 298 | 0.854 |
+| Peru | 2000 | Cathode | Peru | Italy | 30 | 31 | 1.021 |
+| Peru | 2000 | Cathode | Peru | Brazil | 14 | 15 | 1.031 |
+| Peru | 2000 | Cathode | Peru | United Kingdom | 12 | 19 | 1.641 |
+| Peru | 2000 | Cathode | Peru | Taiwan | 9 | 9 | 1.013 |
+| Peru | 2000 | Concentrate | Peru | Japan | 27 | 26 | 0.992 |
+| Peru | 2000 | Concentrate | Peru | China | 22 | 22 | 0.982 |
+| Peru | 2000 | Concentrate | Peru | India | 21 | 21 | 1.029 |
+| Peru | 2000 | Concentrate | Chile | Peru | 20 | 20 | 1.003 |
+| Peru | 2000 | Concentrate | Peru | ROW | 16 | 17 | 1.096 |
+| Peru | 2024 | Cathode | Peru | China | 103 | 109 | 1.056 |
+| Peru | 2024 | Cathode | Peru | United States | 61 | 64 | 1.039 |
+| Peru | 2024 | Cathode | Peru | Italy | 47 | 51 | 1.071 |
+| Peru | 2024 | Cathode | Peru | Brazil | 40 | 51 | 1.260 |
+| Peru | 2024 | Cathode | Peru | Mexico | 5 | 5 | 1.083 |
+| Peru | 2024 | Concentrate | Peru | China | 2,043 | 1,869 | 0.915 |
+| Peru | 2024 | Concentrate | Peru | Japan | 233 | 236 | 1.011 |
+| Peru | 2024 | Concentrate | Peru | Korea, Rep. | 74 | 68 | 0.911 |
+| Peru | 2024 | Concentrate | Peru | Spain | 69 | 83 | 1.211 |
+| Peru | 2024 | Concentrate | Peru | ROW | 49 | 64 | 1.289 |
+| China | 2000 | Cathode | Chile | China | 250 | 251 | 1.006 |
+| China | 2000 | Cathode | Japan | China | 72 | 72 | 1.000 |
+| China | 2000 | Cathode | United States | China | 62 | 62 | 1.000 |
+| China | 2000 | Cathode | Philippines | China | 52 | 50 | 0.968 |
+| China | 2000 | Cathode | China | Korea, Rep. | 42 | 42 | 1.000 |
+| China | 2000 | Concentrate | Chile | China | 149 | 141 | 0.943 |
+| China | 2000 | Concentrate | Mongolia | China | 127 | 122 | 0.959 |
+| China | 2000 | Concentrate | Australia | China | 74 | 74 | 1.011 |
+| China | 2000 | Concentrate | Canada | China | 39 | 38 | 0.971 |
+| China | 2000 | Concentrate | Peru | China | 22 | 22 | 0.982 |
+| China | 2024 | Cathode | Congo, D.R. | China | 1,506 | 1,506 | 1.000 |
+| China | 2024 | Cathode | Chile | China | 513 | 510 | 0.995 |
+| China | 2024 | Cathode | Kazakhstan | China | 308 | 249 | 0.808 |
+| China | 2024 | Cathode | Japan | China | 248 | 248 | 1.000 |
+| China | 2024 | Cathode | Russia | China | 245 | 251 | 1.022 |
+| China | 2024 | Concentrate | Chile | China | 2,387 | 2,354 | 0.986 |
+| China | 2024 | Concentrate | Peru | China | 2,043 | 1,869 | 0.915 |
+| China | 2024 | Concentrate | ROW | China | 774 | 540 | 0.698 |
+| China | 2024 | Concentrate | Mexico | China | 466 | 413 | 0.886 |
+| China | 2024 | Concentrate | Kazakhstan | China | 462 | 414 | 0.896 |
 
-**Table S27.** Cross-region concentrate and cathode legs of Chile, Peru and China in 2000 and 2024: the five largest by prior per commodity and direction, kt CC, with retention = posterior / prior.
+**Table S27.** Cross-region concentrate and cathode legs of Chile, Peru and China in 2000 and 2024: the five largest by prior per commodity and year with the country at either end (exports and imports together), kt CC, with retention = posterior / prior.
 
 ## References
 
