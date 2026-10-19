@@ -149,9 +149,12 @@ def _production(*rows):
 
 def test_only_a_non_producers_production_bounded_legs_may_carry_an_observed_zero():
     """Germany mines no concentrate, so its domestic concentrate leg at weight 0 is an
-    observation (#32); Spain mines some, and a cathode fan has no production bound."""
+    observation (#32); Spain mines some. Cathode and anode legs are not stamped, whatever
+    the region produces (#96): the feed carries no production edge to test them on."""
     edges = _edges((0, "Concentrate", "Germany", "2018"), (1, "Concentrate", "Spain", "2018"),
-                   (2, "Cathode", "Italy", "2018"), (3, "Concentrate", "Chile", "2018"))
+                   (2, "Cathode", "Italy", "2018"), (3, "Concentrate", "Chile", "2018"),
+                   (4, "Anode", "Belgium", "2018"))
     prod = _production(("Concentrate", "Spain", "2018", 40.0),
                        ("Concentrate", "Germany", "2018", 0.0))
-    assert non_producer_mask(edges, prod, 5).tolist() == [True, False, False, True, False]
+    assert non_producer_mask(edges, prod, 6).tolist() == [True, False, False, True, False,
+                                                          False]

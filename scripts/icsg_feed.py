@@ -66,6 +66,10 @@ OBSERVED_ZERO_FLOOR_KT = 0.3
 # The signed stock legs: their zero-weight domestic leg is a supply-mix share
 # (ADR 0043) whose zero the net-stock seed prices (ADR 0040), not an observed zero.
 STOCK_SECTORS_TO       = ("MESC", "USC")
+# The products whose zero-weight domestic leg is an observed zero in a region that makes
+# none of them (#78): concentrate, the one product whose producing edge (MF→Concentrate)
+# the ICSG feed itself carries. Cathode non-producers are #96.
+OBSERVED_ZERO_SECTORS  = ("Concentrate",)
 # ACC_ID is loaded from config/config.yaml → pipeline.acc_id below, after
 # the pysuto package is added to sys.path.
 
@@ -101,7 +105,7 @@ from pysuto.feedpipe import (
     register_feed,
 )
 from pysuto.diag import FeedDiagnostics
-from build_trade_shares import PRODUCER_OF, _decoded_edges, icsg_production
+from build_trade_shares import _decoded_edges, icsg_production
 
 ACC_ID = load_config().pipeline.acc_id
 
@@ -318,11 +322,10 @@ def non_producer_mask(edges: pd.DataFrame, production: pd.DataFrame,
                       n_edges: int) -> np.ndarray:
     """Per root edge: True where an observed zero may sit (#78).
 
-    The edge carries a product whose fan the trade shares bound by the region's own
-    production (``PRODUCER_OF``, ADR 0024), and the region produces none of it that
-    year: "a non-producer must say zero, not nothing". A zero-weight domestic leg
-    anywhere else is the fan's residual where imports exceed usage, not an observation,
-    and stays open to the imputer.
+    The edge carries a product in ``OBSERVED_ZERO_SECTORS`` and its region produces none
+    of it that year: "a non-producer must say zero, not nothing" (ADR 0024). A
+    zero-weight domestic leg anywhere else stays open to the imputer: in a producer it is
+    the fan's residual where imports exceed usage, not an observation.
 
     ``edges``: ``edge_id, root_sector_from, root_region_to, root_time``; ``production``:
     the trade-share builder's ``icsg_production`` frame (a missing row is 0).
@@ -332,8 +335,9 @@ def non_producer_mask(edges: pd.DataFrame, production: pd.DataFrame,
     key = pd.MultiIndex.from_frame(edges[["root_sector_from", "root_region_to", "root_time"]])
     own = p.reindex(key).fillna(0.0).to_numpy()
     mask = np.zeros(n_edges, dtype=bool)
-    mask[edges["edge_id"].to_numpy()] = (edges["root_sector_from"].isin(list(PRODUCER_OF))
-                                         .to_numpy() & (own == 0.0))
+    mask[edges["edge_id"].to_numpy()] = (edges["root_sector_from"]
+                                         .isin(OBSERVED_ZERO_SECTORS).to_numpy()
+                                         & (own == 0.0))
     return mask
 
 
@@ -512,7 +516,7 @@ def main() -> None:
     F_src  = build_F_src(raw_df, ct)
     result, row_summary = propagate(wm, F_src, meta, acc)
     non_producer = non_producer_mask(
-        _decoded_edges(acc), icsg_production(acc, result.F_root, list(PRODUCER_OF)),
+        _decoded_edges(acc), icsg_production(acc, result.F_root, list(OBSERVED_ZERO_SECTORS)),
         len(result.F_root))
     n_zero = stamp_observed_zeros(ct, F_src, result, non_producer)
     print(f"   observed zeros: {n_zero:,} domestic legs at trade-share weight 0 in regions "

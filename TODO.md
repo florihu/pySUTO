@@ -181,13 +181,15 @@ into `current/`, register (gross version) → `build_baci_reexport.py --source-v
 `current/` pairs the new map with values netted under the old one: run nothing BACI-side but that chain. Once
 #79 passes and becomes the reference chain, the manuscript's Taiwan limitation (method.md §3.2.8) and its
 concordance row in si.md S8 change with it.
-## #76 NARROWED 2026-10-19 after #78's first run — NOT MEASURED: only a non-producer's production-bounded domestic leg is an observed zero
+## #76 NARROWED 2026-10-19 after #78's first run — NOT MEASURED: only a non-miner's domestic concentrate leg is an observed zero
 
 `fix/observed-zero`. #78's first run (`opt_20261019_145258_6bbfa0b5`, all 367 zero-weight domestic legs stamped)
 raised common-set sum-row z² 29.2 % vs `opt_20261019_142026_83bfe843`: Italy, the UK, South Africa, Bulgaria and
 Spain, whose zeros came from imports above usage while they produce the product. Germany's mine rows fell 74,373 → 0.
-`icsg_feed.non_producer_mask` now limits the stamp to `PRODUCER_OF` fans (concentrate, matte, anode) in regions with
-zero ICSG production that year (ADR 0024 am.): 82 concentrate legs on icsg v15, Germany's 30 among them. #78 re-runs.
+`icsg_feed.non_producer_mask` now limits the stamp to domestic concentrate legs in regions with zero ICSG concentrate
+production that year (`OBSERVED_ZERO_SECTORS`; ADR 0024 am.): 82 legs on icsg v15, Germany's 30 among them. The first
+run's damage came from the 25 cathode and 14 concentrate zeros in producer region-years; the 246 cathode zeros in
+non-producers would qualify but need the bound's raw-production key (#96). #78 re-runs.
 
 ## #76 BUILT 2026-10-14 — NOT MEASURED (#78): a weighted fan's zero domestic leg is an observed zero
 
