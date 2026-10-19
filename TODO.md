@@ -182,6 +182,23 @@ into `current/`, register (gross version) → `build_baci_reexport.py --source-v
 `current/` pairs the new map with values netted under the old one: run nothing BACI-side but that chain. Once
 #79 passes and becomes the reference chain, the manuscript's Taiwan limitation (method.md §3.2.8) and its
 concordance row in si.md S8 change with it.
+## #78 MEASURED 2026-10-19 — PASSES items 1, 3, 4 (narrowed build; item 2 fails as worded in 2015, as in base); the first build was rejected (+29.2 %)
+
+`diag/observed-zero-measure`, runs `opt_20261019_145258_6bbfa0b5` (first build, rejected) and
+`opt_20261019_152525_6ca5c00a` (narrowed, 30/30 Solved) vs `opt_20261019_142026_83bfe843`, REP
+`docs/rep/analysis_opt_20261019_152525_6ca5c00a_20261019_issue76-observed-zero.md`;
+`scripts/explo/issue78_observed_zero_diag.py`.
+- **The narrowed build** stamps 82 observed zeros on non-miners' domestic concentrate legs. Germany's mine rows fall
+  101,078 → 0 over all rows (#32). Common-set sum-row z² −7.0 % vs `opt_20261019_142026_83bfe843` (−11.1 % with the
+  54 base-only rows). Every Round-E band falls, and no new stock leg rises above |z| 5.
+- **Item 2** fails as worded in 2015 only: ROW's semis prior is +281.7 kt CC above its fan, identical in base. ROW
+  is a producer, so its zero stays imputable by design.
+- **The first build** stamped all 367 zero-weight domestic legs; producer region-years made it +29.2 %. The second
+  build is post hoc, and its scope change is recorded on #76.
+- **Open:** #96 (the 246 cathode non-producers) and Germany's phantom SX-EW chain (Ore→SXEW 381.2 kt CC posterior on
+  a prior of 0.5; +33 % vs base).
+- **Shipped by the maintainer's decision** (delegated): `opt_20261019_152525_6ca5c00a` becomes the reference chain.
+
 ## #76 NARROWED 2026-10-19 after #78's first run — NOT MEASURED: only a non-miner's domestic concentrate leg is an observed zero
 
 `fix/observed-zero`. #78's first run (`opt_20261019_145258_6bbfa0b5`, all 367 zero-weight domestic legs stamped)
