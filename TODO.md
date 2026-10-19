@@ -66,6 +66,32 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
 
 # OPEN (2026-09-16, out of Round L)
 
+## #91 + #88 BUILT 2026-10-19 — NOT MEASURED (#92): all refined copper enters the Cathode sector, and BACI 178 repeats DR Congo's declarations in 2015–2023
+
+`fix/baci-refined-scope` (on `fix/baci-178-mirror-duplicates`).
+- **#91, the HS scope.** The BACI sector map and the parse now read HS 740312 wire bars, 740313 billets and 740319
+  other refined copper as Cathode, beside 740311 (ADR 0014 am.). They are 0.41–1.35 Mt a year of cross-region
+  trade, 4.5–15.1 % of 740311's (gross). Austria's cathode node lacked 77.7 % of its 2003 refined exports (#63:
+  its cathode-use rows carry z² 48,500 in 1995–2014 on `opt_20261015_093646_ddd9d3d9`). Chile gains 101–162 kt a
+  year of exports in 1995–2010, DR Congo 245–772 kt a year in 2015–2019. China's and Italy's imports rise. ADR
+  0033's copper price stays 740311.
+- **#88, the mirror duplicate.** `baci_parse_feed.drop_mirror_duplicates` drops a declared code's rows, either side,
+  in its duplicate years: `MIRROR_DUPLICATES = {178: (2015, 2023)}`, which is 3,163.8 kt of refined copper, 70.5
+  of concentrate, 23.1 of anode and 2.2 of matte (gross).
+  - On the full scope, code 180 alone lies within −74 … +422 kt (gross) of ICSG's DR Congo production in
+    2015–2023, and 178's 226–465 kt a year would push it past; it falls 5–323 kt short in every year through
+    2014 and 476 kt in 2024, where 178 stays.
+  - The first window, 2020–2023, was derived on 740311 alone; #90 measured it and is superseded.
+  - The drop runs before ADR 0033's reconstruction, so the copper price `P_cu` and the reconstructed concentrate
+    legs move slightly.
+- **Side effects for #92 to report:** ADR 0033's reconstruction moves concentrate legs through the copper price
+  and through a region's reference fraction `g_ref` (178's own, once its 2015–2023 years go). A Cathode leg now
+  summed from several HS codes gets a smaller σ under the Lp rule (p = 1.3; Austria 2003 toy: cv 0.209 → 0.169).
+- **Still open:** 180's own 2015–2022 excess over ICSG (ADR 0019 unless explained), and 178's 2004–2010
+  concentrate (#88).
+- **The manuscript.** Method's sources paragraph and Table 1 now list the refined codes; Table 1's counts change with
+  the final chain.
+
 ## #86 MEASURED 2026-10-15 — FAILS ON ITEMS 5 AND 6 (DR Congo), fix ticket #88; items 1–4 hold
 
 `diag/congo-sacu-measure`, run `opt_20261015_093646_ddd9d3d9` vs `opt_20261014_131552_f320b5f7`, REP

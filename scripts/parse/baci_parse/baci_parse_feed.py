@@ -7,14 +7,19 @@ baci feed (data/input/feed/baci/v0/).
 What this script does
 ---------------------
 1. Iterates over all BACI_HS92_Y<YYYY>_V202601.csv files in BACI_RAW_DIR.
-2. Filters early to only the 5 HS codes covered by the conc.xlsx sector_map:
+2. Filters early to only the 8 HS codes covered by the conc.xlsx sector_map:
        260300  Copper ores and concentrates   → Concentrate
        740110  Copper mattes                  → Matte
        740120  Cement copper                  → Matte
        740200  Unrefined copper / anodes      → Anode
        740311  Copper cathodes                → Cathode
+       740312  Copper wire-bars               → Cathode   (#91: refined copper;
+       740313  Copper billets                 → Cathode    cross-region trade 4.5–15.1 %
+       740319  Other refined copper           → Cathode    of 740311's a year, 1995–2024)
 3. Drops rows with missing or zero quantity.
 4. Aggregates by (Year, Sector, Region_from, Region_to) — sum quantity *and value*.
+4b. Drops a declared code's rows in the years they duplicate another code's
+    declarations (#88, ``MIRROR_DUPLICATES``).
 5. Reconstructs the quantity of legs whose value contradicts it, on either side
    of the band (ADR 0033, below).
 6. Converts quantity from tonnes (BACI native) to kt  (÷ 1000).
@@ -84,7 +89,7 @@ _INPUT_ROOT  = os.path.join("data", "input")
 BACI_RAW_DIR = os.path.join("data", "input", "raw", "BACI_HS92_V202601")
 OUT_PATH     = os.path.join("data", "input", "feed", "baci", "v0", "values.csv")
 
-HS_CODES = {260300, 740110, 740120, 740200, 740311}
+HS_CODES = {260300, 740110, 740120, 740200, 740311, 740312, 740313, 740319}
 
 CATHODE_HS = 740311          # ~99.99 % Cu — its unit value is the copper price
 RECON_HS   = {260300}        # ADR 0033 scope: only concentrate mass enters
@@ -108,9 +113,37 @@ MIN_IN_BAND      = 2                # fewer than this and the spread is not
                                     # measurable — which is ignorance, not
                                     # precision, so σ goes to the cap.
 
+# A code whose rows repeat copper another code already declares: code → (first,
+# last) such year (#88).  BACI 178 "Congo" carries DR Congo's refined copper as its
+# partners declare it (#84).  DR Congo's own declarations (180, all of HS 7403.1x,
+# #91) fall 5–323 kt short of ICSG production in every year through 2014 and 476 kt
+# in 2024, which 178 fills.  In 2015–2023 they lie within −74 … +422 kt of it, and 178
+# (226–465 kt a year) would push them past it: it counts the copper twice.
+MIRROR_DUPLICATES = {178: (2015, 2023)}
+
 OUT_DIR       = os.path.dirname(OUT_PATH)
 RECON_PATH    = os.path.join(OUT_DIR, "quantity_recon.csv")
 CV_SCALE_PATH = os.path.join(OUT_DIR, "quantity_cv_scale.csv")
+
+
+# ---------------------------------------------------------------------------
+# #88 — a code that duplicates another code's declarations
+# ---------------------------------------------------------------------------
+
+def drop_mirror_duplicates(agg, duplicates) -> pd.DataFrame:
+    """``agg`` without a declared code's rows, either side, in its duplicate years
+    ``(first, last)``.  A declaration that matches no rows raises: it is stale."""
+    for code, (first, last) in duplicates.items():
+        rows = (((agg["Region_from"] == code) | (agg["Region_to"] == code))
+                & agg["Year"].between(first, last))
+        if not rows.any():
+            raise ValueError(f"MIRROR_DUPLICATES: no rows of code {code} in {first}–{last}")
+        by = agg.loc[rows].groupby("Sector")["q"].sum() / 1e3
+        logger.info("#88 code %d in %d–%d repeats another code's declarations: %d rows "
+                    "dropped, kt by sector %s", code, first, last, int(rows.sum()),
+                    by.round(1).to_dict())
+        agg = agg.loc[~rows]
+    return agg.reset_index(drop=True)
 
 
 # ---------------------------------------------------------------------------
@@ -308,6 +341,7 @@ def main() -> None:
     )
     for col in ["Year", "Sector", "Region_from", "Region_to"]:
         agg[col] = agg[col].astype(int)
+    agg = drop_mirror_duplicates(agg, MIRROR_DUPLICATES)
 
     # --- ADR 0033: rebuild the quantity of legs whose value contradicts it ---
     p_cu = copper_price(agg)

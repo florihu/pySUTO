@@ -12,6 +12,21 @@ Amended 2026-10-15 (#84): BACI 178 "Congo" maps to **Congo, D.R.** (it carries D
 3,890 kt exported in 2012–2024, gross baci v19, against Brazzaville's 79 kt of ICSG production) and 711 "Southern African
 Customs Union" to **South Africa** (its trade until BACI splits it in 2000), not ROW. Neither
 creates mapped self-trade: BACI has no 178 ↔ 180 or 711 ↔ 710 rows. To be measured by #86.
+Amended 2026-10-19 (#88, with the HS scope of the next amendment): in 2015–2023, 178's rows are **mirror
+duplicates** and the BACI parse drops them (`MIRROR_DUPLICATES`; 3,163.8 kt of refined copper, 70.5 of
+concentrate, 23.1 of anode, 2.2 of matte, gross). DR Congo's own declarations (180), counted over all of HS
+7403.1x, lie within −74 … +422 kt (gross mass) of ICSG's DR Congo production in 2015–2023, and 178's 226–465 kt
+a year would push them past it. In every year through 2014 they fall 5–323 kt short, and 476 kt in 2024; 178
+fills that and stays DR Congo's. On `opt_20261015_093646_ddd9d3d9` (740311 only,
+no window), 178 on top of 180 raised DR Congo's refined output 777 kt CC above its prior over 2020–2023 (183 on
+`opt_20261014_131552_f320b5f7`). A first window of 2020–2023, derived on 740311 alone, is superseded. Which
+mechanism repeats the copper (an importer declaring 178 for DR Congo, or transit) is not settled; the
+balance is the evidence. 180's own 2015–2022 excess is a disagreement between ICSG and BACI that no mapping
+explains (ADR 0019). 178's 2004–2010 concentrate stays open in #88.
+Amended 2026-10-19 (#91): the Cathode sector reads all refined copper, HS 740311 cathodes, 740312 wire bars,
+740313 billets and 740319 other refined, unwrought; the last three were dropped before. Their cross-region
+trade is 0.41–1.35 Mt a year, 4.5–15.1 % of 740311's in the same year (1995–2024, gross; Austria's 2003 refined
+exports: 77.7 %). ADR 0033's copper price stays HS 740311 alone. To be measured with #88 by #92.
 
 ## Context
 
