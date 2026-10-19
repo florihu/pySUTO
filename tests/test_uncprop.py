@@ -857,21 +857,26 @@ class TestActiveSet:
     def test_contraction_is_exact_where_S_is_singular_to_working_precision(
             self, tmp_path, monkeypatch):
         """The copper pattern of #27: two independent hard rows share a 1e6 kt
-        edge and differ only on two 1e-6 kt edges, so forming S rounds it to
-        singular. With v = (1, −1, −1) spanning the rows' null space,
-        κ_i = 1 − v_i² / (σ_i² · vᵀΣ⁻¹v): 0.5 on each tiny edge, and 5/6 once a
-        soft row with σ_c = 1e-6 measures e1 + e2 (vᵀΣ⁻¹v gains 4/σ_c²)."""
-        rows = [([1, 1, 0], "massbal", "massbal", True,  "zero", 0.0, 0.0),
-                ([1, 0, 1], "massbal", "massbal", True,  "zero", 0.0, 0.0)]
-        soft = ([0, 1, 1], "sum", "anchor", False, "free", 0.0, 1e-6)
-        sigma_a2 = np.array([1e12, 1e-12, 1e-12])
-        for extra, kappa in (([], 0.5), ([soft], 5.0 / 6.0)):
-            ts = _one_year_posterior(rows + extra, sigma_a2, [0.0, 0.0, 0.0],
-                                     monkeypatch, tmp_path)
-            assert ts.diagnostics["n_hard_dependent"] == 0
-            np.testing.assert_allclose(ts.sigma_a_star[1:] ** 2,
-                                       (1.0 - kappa) * sigma_a2[1:], rtol=1e-10)
-            assert (ts.sigma_a_star ** 2 <= sigma_a2).all()
+        edge e2 and differ only on two small edges e0, e1, so forming S rounds
+        it to singular (σ_a = 1e-6 kt: the LU raises) or skews it silently
+        (σ_a = 0.017 kt: the LU gave κ = 0.644). With v = (−1, −1, 1) spanning
+        the rows' null space, κ_i = 1 − v_i² / (σ_i² · vᵀΣ⁻¹v): 1 − 1/(2 + σ²/σ_2²)
+        on each small edge, and 1 − 1/(6 + σ²/σ_2²) once a soft row with σ_c = σ
+        measures e0 + e1 (vᵀΣ⁻¹v gains 4/σ_c²). The small edges come first, so
+        the leverage needs its rows sorted by norm."""
+        rows = [([1, 0, 1], "massbal", "massbal", True,  "zero", 0.0, 0.0),
+                ([0, 1, 1], "massbal", "massbal", True,  "zero", 0.0, 0.0)]
+        for s2 in (1e-12, 3e-4):
+            sigma_a2 = np.array([s2, s2, 1e12])
+            soft = ([1, 1, 0], "sum", "anchor", False, "free", 0.0, np.sqrt(s2))
+            for extra, k in (([], 2.0), ([soft], 6.0)):
+                kappa = 1.0 - 1.0 / (k + s2 / 1e12)
+                ts = _one_year_posterior(rows + extra, sigma_a2, [0.0, 0.0, 0.0],
+                                         monkeypatch, tmp_path)
+                assert ts.diagnostics["n_hard_dependent"] == 0
+                np.testing.assert_allclose(ts.sigma_a_star[:2] ** 2,
+                                           (1.0 - kappa) * sigma_a2[:2], rtol=1e-10)
+                assert (ts.sigma_a_star ** 2 <= sigma_a2).all()
 
     def test_rows_emptied_by_elimination_are_dropped(self, tmp_path, monkeypatch):
         # e0, e1, e2 bound-active: the mass balance has no live edge left

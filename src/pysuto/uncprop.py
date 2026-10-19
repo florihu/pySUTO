@@ -18,12 +18,13 @@ formed: ``σ²_{a,i} · g_iᵀ S⁻¹ g_i`` is the leverage of edge i in the whi
 system ``M = [G_t · diag(σ_a), diag(σ_c)]`` (``S = M Mᵀ``), read off a dense QR
 of ``Mᵀ`` (:meth:`KalmanUncProp._leverage`), so it lies in [0, 1]. Forming
 ``S`` squares ``M``'s condition number; with σ_a spanning 1e-8 … 1e6 kt on
-copper, an LU of ``S`` put the contraction outside [0, 1] on ~330 edges a year
-(#27). Only the full-G path factors ``S``: it analyses the symbolic Cholesky
-pattern once (G is time-invariant there) and refreshes the numeric factor per
-timestep via CHOLMOD's ``cholesky_inplace`` because σ_c is time-variant. A
-scipy ``splu`` fallback kicks in when scikit-sparse is not installed; it
-computes ``gᵀ S⁻¹ g`` directly (same value, no symbolic-pattern reuse, slower).
+copper, an LU of ``S`` put the contraction outside [0, 1] on 331 edges of 1995
+and 368 of 2016 in ``uncprop_20261014_140949_fcf53674`` (#27). Only the full-G
+path factors ``S``: it analyses the symbolic Cholesky pattern once (G is
+time-invariant there) and refreshes the numeric factor per timestep via
+CHOLMOD's ``cholesky_inplace`` because σ_c is time-variant. A scipy ``splu``
+fallback kicks in when scikit-sparse is not installed; it computes
+``gᵀ S⁻¹ g`` directly (same value, no symbolic-pattern reuse, slower).
 
 σ_a and a₀ are pulled through :func:`_conditioning.condition_prior`
 with the same floor / ceiling rules the solver applied, so the posterior
@@ -152,7 +153,8 @@ class BaseUncProp(ABC):
 # =============================================================================
 
 class KalmanUncProp(BaseUncProp):
-    """Closed-form posterior covariance via sparse Cholesky.
+    """Closed-form posterior covariance: a QR of the whitened system per year on
+    the block path, sparse Cholesky on the full-G (legacy) path.
 
     Per timestep:
 
@@ -323,9 +325,8 @@ class KalmanUncProp(BaseUncProp):
         opt_results: dict,
         alpha:       float,
     ) -> UncPropResult:
-        """Per-t Schur complement using ``run.G_blocks[t]`` — replaces the
-        ``(M × M)`` global ``S`` with one ``(m_t × m_t)`` block per timestep
-        (~30× smaller for the copper run). Mathematically identical: the
+        """Per-t posterior using ``run.G_blocks[t]`` — replaces the ``(M × M)``
+        global ``S`` with one year's rows per timestep. Mathematically identical: the
         legacy global ``S`` is exactly block-diagonal by time when no
         cross-time constraint coupling exists (verified by the partition
         invariant in :func:`pysuto.constraints.engine._partition_G_by_time`).
@@ -380,11 +381,11 @@ class KalmanUncProp(BaseUncProp):
             )
             sigma_a2_eff_t = np.where(red.bound_active, 0.0, sigma_a2_t)
             live = np.flatnonzero(sigma_a2_eff_t > 0.0)
-            G_k  = G_t[red.keep].tocsc()
+            G_k  = G_t[red.keep]
 
             kappa_t = np.zeros(cols_t.size, dtype=np.float64)
             if G_k.shape[0] and live.size:
-                kappa_t[live] = self._leverage(G_k[:, live].tocsr(),
+                kappa_t[live] = self._leverage(G_k[:, live],
                                                np.sqrt(sigma_a2_eff_t[live]),
                                                sc_t[red.keep])
 
@@ -560,9 +561,10 @@ class KalmanUncProp(BaseUncProp):
         of row i of ``Q`` in ``Mᵀ = Q R``. Householder QR of ``Mᵀ`` with its rows
         sorted by decreasing norm keeps ``κ`` in [0, 1] to rounding; an LU of
         ``S`` does not, because forming ``S`` squares ``M``'s condition number
-        (#27). Hard rows (σ_c = 0) add no row to ``Mᵀ``.
+        (#27). Hard rows (σ_c = 0) add no row to ``Mᵀ``, and edges in no kept
+        row get κ = 0 without entering the QR.
         """
-        n, m = G_k.shape[1], G_k.shape[0]
+        m, n = G_k.shape
         soft = np.flatnonzero(sigma_c > 0.0)
         Mt = sp.vstack([
             (G_k @ sp.diags(sigma_a)).T,
@@ -571,9 +573,15 @@ class KalmanUncProp(BaseUncProp):
         ]).tocsr()
         row_norm = np.sqrt(np.asarray(Mt.multiply(Mt).sum(axis=1)).ravel())
         order    = np.argsort(-row_norm, kind="stable")
-        Q, _ = qr(Mt[order].toarray(), mode="economic", overwrite_a=True,
+        order    = order[row_norm[order] > 0.0]
+        if order.size < m:
+            # A full-row-rank M has ≥ m nonzero rows; an economic Q of a wide
+            # Mᵀ is square and would report κ = 1 on every edge.
+            raise ValueError(f"_leverage: Mᵀ has {order.size} nonzero rows for {m} "
+                             f"kept constraint rows — the kept rows are dependent")
+        Q, _ = qr(Mt[order].toarray(order="F"), mode="economic", overwrite_a=True,
                   check_finite=False)
-        lev = np.empty(n + soft.size, dtype=np.float64)
+        lev = np.zeros(n + soft.size, dtype=np.float64)
         lev[order] = np.einsum("ij,ij->i", Q, Q)
         return lev[:n]
 
