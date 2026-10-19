@@ -843,3 +843,12 @@ def test_flow_balance_never_derives_supply_from_uses_that_include_a_stock_leg(st
     assert not method.get(e_prod, "").startswith("network_balance")   # incl. _capped/_clipped
     e_sx = stock_acc.eid("SXEW", "CSXEW", "CC")
     assert f[e_sx] == pytest.approx(30.0) and method[e_sx] == "network_balance"
+
+
+def test_flow_balance_never_refills_an_observed_zero(stock_acc, tmp_path):
+    """Supply 100 known, the domestic FU leg fed as an observed zero (#76): it is
+    covered, so the balance leaves it at 0 instead of closing it at 100."""
+    seeds = {("CP", "Cathode", "CC", "2020"): 100.0, ("Cathode", "FU", "CC", "2020"): 0.0}
+    e_fu = stock_acc.eid("Cathode", "FU", "CC")
+    f, method = _run2(_stock_imputer(tmp_path, stock_acc, ("MESC",)), stock_acc, seeds)
+    assert f[e_fu] == 0.0 and e_fu not in method

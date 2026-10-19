@@ -36,7 +36,7 @@ OUTPUT (written automatically via DataFeedRegistry):
       icsg/
         metadata.json        ← DataFeedMetadata (human-readable)
         icsg.pkl             ← WeightMatrix pickle
-        result.npz           ← F_root, sigma_root, cv_root, cv_src
+        result.npz           ← F_root, sigma_root, cv_root, cv_src, observed_zero (#76)
     diagnostics/
       icsg_v<VERSION>_diagnostics.png
 """
@@ -55,6 +55,21 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 
 FEED_ID = "icsg"
+
+# #76: a weighted fan's domestic leg at trade-share weight 0 is an observed zero,
+# covered at 0 with the net-stock seed's pricing (ADR 0040) on the usage U its fans
+# distribute: σ = max(OBSERVED_ZERO_CV·|U|, OBSERVED_ZERO_FLOOR_KT). Mirrors
+# collect_aggregate_impute's STOCK_SEED_CV / STOCK_SEED_ABS_FLOOR_KT: change both or
+# neither.
+OBSERVED_ZERO_CV       = 0.01
+OBSERVED_ZERO_FLOOR_KT = 0.3
+# The signed stock legs: their zero-weight domestic leg is a supply-mix share
+# (ADR 0043) whose zero the net-stock seed prices (ADR 0040), not an observed zero.
+STOCK_SECTORS_TO       = ("MESC", "USC")
+# The products whose zero-weight domestic leg is an observed zero in a region that makes
+# none of them (#78): concentrate, the one product whose producing edge (MF→Concentrate)
+# the ICSG feed itself carries. Cathode non-producers are #96.
+OBSERVED_ZERO_SECTORS  = ("Concentrate",)
 # ACC_ID is loaded from config/config.yaml → pipeline.acc_id below, after
 # the pysuto package is added to sys.path.
 
@@ -90,6 +105,7 @@ from pysuto.feedpipe import (
     register_feed,
 )
 from pysuto.diag import FeedDiagnostics
+from build_trade_shares import _decoded_edges, icsg_production
 
 ACC_ID = load_config().pipeline.acc_id
 
@@ -283,6 +299,64 @@ def build_F_src(raw_df: pd.DataFrame, ct: ConcordanceTable) -> np.ndarray:
     return F_src
 
 
+def observed_zero_sigma(legs: pd.DataFrame, F_src: np.ndarray,
+                        sigma_root: np.ndarray) -> np.ndarray:
+    """σ of every observed zero, NaN on every other root edge (#76).
+
+    ``legs`` lists the zero-weight domestic legs (``src_id``, ``edge_id``) of
+    ``ConcordanceTable.zero_weight_domestic_legs``. Each edge is priced on the
+    usage its fans distribute, ``U = Σ |F_src[src_id]|``: an aggregate region
+    (ROW) fans each member country's row onto the same legs. A leg another fan
+    feeds (``sigma_root > 0``) is a flow, not an observed zero.
+    """
+    edge = legs["edge_id"].to_numpy()
+    usage = np.zeros(len(sigma_root))
+    np.add.at(usage, edge, np.abs(F_src[legs["src_id"].to_numpy()]))
+    out = np.full(len(sigma_root), np.nan)
+    out[edge] = np.maximum(OBSERVED_ZERO_CV * usage[edge], OBSERVED_ZERO_FLOOR_KT)
+    out[sigma_root > 0] = np.nan
+    return out
+
+
+def non_producer_mask(edges: pd.DataFrame, production: pd.DataFrame,
+                      n_edges: int) -> np.ndarray:
+    """Per root edge: True where an observed zero may sit (#78).
+
+    The edge carries a product in ``OBSERVED_ZERO_SECTORS`` and its region produces none
+    of it that year: "a non-producer must say zero, not nothing" (ADR 0024). A
+    zero-weight domestic leg anywhere else stays open to the imputer: in a producer it is
+    the fan's residual where imports exceed usage, not an observation.
+
+    ``edges``: ``edge_id, root_sector_from, root_region_to, root_time``; ``production``:
+    the trade-share builder's ``icsg_production`` frame (a missing row is 0).
+    """
+    p = production.set_index(["root_sector_from", "root_region_to",
+                              "root_time"])["production_cc"]
+    key = pd.MultiIndex.from_frame(edges[["root_sector_from", "root_region_to", "root_time"]])
+    own = p.reindex(key).fillna(0.0).to_numpy()
+    mask = np.zeros(n_edges, dtype=bool)
+    mask[edges["edge_id"].to_numpy()] = (edges["root_sector_from"]
+                                         .isin(OBSERVED_ZERO_SECTORS).to_numpy()
+                                         & (own == 0.0))
+    return mask
+
+
+def stamp_observed_zeros(ct: ConcordanceTable, F_src: np.ndarray, result,
+                         non_producer: np.ndarray) -> int:
+    """Mark the feed's observed zeros on ``result`` and give them their σ (#76, #78).
+
+    Only the zero-weight domestic legs ``non_producer`` allows are stamped. Sets
+    ``result.observed_zero`` and overwrites ``result.sigma_root`` there, after
+    propagation, so no per-edge CV multiplier reaches them. Returns their count.
+    """
+    legs = ct.zero_weight_domestic_legs(STOCK_SECTORS_TO)
+    legs = legs[non_producer[legs["edge_id"].to_numpy()]]
+    sigma0 = observed_zero_sigma(legs, F_src, result.sigma_root)
+    result.observed_zero = ~np.isnan(sigma0)
+    result.sigma_root[result.observed_zero] = sigma0[result.observed_zero]
+    return int(result.observed_zero.sum())
+
+
 def propagate(wm: WeightMatrix, F_src: np.ndarray, meta: DataFeedMetadata, acc):
     print(f"\n{'='*60}")
     print("D  Propagating uncertainty (scipy.sparse)")
@@ -441,6 +515,12 @@ def main() -> None:
     # D — source flow vector + uncertainty propagation
     F_src  = build_F_src(raw_df, ct)
     result, row_summary = propagate(wm, F_src, meta, acc)
+    non_producer = non_producer_mask(
+        _decoded_edges(acc), icsg_production(acc, result.F_root, list(OBSERVED_ZERO_SECTORS)),
+        len(result.F_root))
+    n_zero = stamp_observed_zeros(ct, F_src, result, non_producer)
+    print(f"   observed zeros: {n_zero:,} domestic legs at trade-share weight 0 in regions "
+          f"that produce none of the product (#76, #78)")
 
     # E — register + persist (via DataFeedRegistry / feedpipe)
     parents = {"inputs": input_ref, "upstream": {}}

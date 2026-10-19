@@ -16,8 +16,12 @@ copper content (`CC`) through recovery efficiencies (`product = eff·Σ(primary 
 which joins one process's product to the next process's input and resolves the `Ore` branch
 split MF-pyro vs SXEW-hydro from whichever side the data pins), and derives `Mass` twins via
 `conc` in the same step. It runs **first** in the existing cascade and is the **sole writer of
-process-incident, same-region** chain edges; cross-region traded imports and `Cathode →
-FU/USC/MESC` final demand are read as boundary terms but never written. eff/conc are resolved
+process-incident, same-region** chain edges; cross-region traded imports and the
+`Cathode → USC/MESC` stock changes are read as boundary terms but never written, and a same-region
+`Cathode → FU` leg is written only when no feed covers it. *(Amended 2026-10-14, #76: this
+sentence said final demand is never written, stale since
+[ADR 0040](0040-stock-change-legs-are-held-at-their-prior.md) let the flow balance close the FU
+residual; a fan's observed zero is covered, so it is never written.)* eff/conc are resolved
 with the same `ParamRelationResolver` the constraint builders use. It is a new *imputer*, not a
 new *engine* — it reuses the engine cascade/fixpoint, the Lp/σ machinery, `_reg_sensitivity`,
 the `ImputationLog`, and the bounds-clip.

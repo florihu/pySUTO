@@ -6,6 +6,9 @@ bound now covers Cathode and Anode as well as Concentrate (see *Amendment* below
 [ADR 0002](0002-single-endpoint-rows-fan-out-not-replicate.md) option D and
 [ADR 0018](0018-import-free-fans-distribute-domestically.md). Evidence: REP
 [`…india-concentrate-residual-domestic`](../rep/analysis_20260910_india-concentrate-residual-domestic.md).
+**Amended 2026-10-14 (#76), narrowed 2026-10-19 (#78)**: a domestic concentrate leg the bound
+sets to 0, in a region that mines no concentrate, is an *observed zero* (see *Amendment (#76)*
+below); to be measured by #78.
 
 ## Context
 
@@ -178,3 +181,38 @@ are the reason this paragraph exists):
   against the 380 kt its own refinery consumes and its residual was capped far too low
   (CFR/Anode Belgium 44,349 → 75,656 z²). Corrected to `(matte + scrap) · eff_CFR` → 292 kt; the
   cell returned to 43,884. `U_Matte` carries the same correction.
+
+## Amendment (#76, 2026-10-14): a zero domestic leg is an observed zero
+
+When the residual or the bound gives a weighted fan's domestic leg weight 0, that 0 is the
+statement "the region supplies none of its own use", not a missing value. Until #76 it was lost:
+the ICSG feed's σ is proportional to the weighted value, so the leg left Stage 1 at σ 0, the
+collector read it as uncovered, and the imputers closed it. On `imp_20261013_113740_5e11f431` the
+`NetworkImputer`'s flow balance wrote 64 domestic `Cathode→FU` legs at 4,905 kt CC (ROW 4,496,
+189–318 kt CC a year in 1995–2011) as the region's supply minus its other uses, the time
+interpolator 4 more at 307 kt CC, and the smelter recipe, run backward, and the balance 98 domestic
+`Concentrate→Smelting` legs at 1,000 kt CC: use ICSG does not report, booked so that the solver
+never saw the contradiction. The feed now carries every such leg as covered at 0 with
+`σ = max(0.01·|U|, 0.3 kt CC)`, where `U` is the usage its fans distribute (an aggregate region
+fans each member's row onto the same leg) — the net-stock seed's pricing
+([ADR 0040](0040-stock-change-legs-are-held-at-their-prior.md)). Stock-change legs keep their own
+seed and supply-mix fan (ADR 0040, 0043); zero-weight import legs stay uncovered (no trade on that
+route is not the same statement). Where the region's own production then has nowhere to go, the
+solver must settle that conflict in the open. ROW's 1995–2011 surplus traces to an input error,
+BACI 490 folded into ROW (#77, to be measured by #79). This amendment is to be measured by #78.
+
+**Narrowed on measurement (#78, 2026-10-19).** The first build stamped every zero-weight domestic
+leg: 367 on icsg v15 + trade_shares v36. The run (`opt_20261019_145258_6bbfa0b5`) raised common-set
+sum-row z² 29.2 % vs `opt_20261019_142026_83bfe843`, with Italy +262,853, the United Kingdom +95,382,
+South Africa +29,575, Bulgaria +32,336 and Spain +23,499, on their refinery and smelter rows. Those are
+the zeros in region-years that produce the product: 25 of the 271 `Cathode→FU` zeros (Italy 13, the
+UK 4, South Africa 3, …) and 14 of the 96 `Concentrate→Smelting` zeros (Bulgaria, Spain). There the
+bound's 0 is the residual where imports exceed usage, and pinning it left the region's own output
+nowhere to go. That is not the statement "the region supplies none of its own use". The observed
+zero now covers a domestic concentrate leg in a region whose own ICSG concentrate production
+(MF→Concentrate in the feed) is 0 that year, "a non-producer must say zero, not nothing"
+(`icsg_feed.non_producer_mask`, `OBSERVED_ZERO_SECTORS`). On the same feed that is 82 legs, Germany's
+30 among them (#32). The 246 cathode zeros in non-producers (France, the Netherlands, Taiwan,
+Switzerland, …) would qualify by the same test, but the feed carries no cathode production edge to
+read it from; keying the test on the bound's raw ICSG production is #96. Every other zero-weight
+domestic leg stays open to the imputer, as before #76.

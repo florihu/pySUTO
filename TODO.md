@@ -182,6 +182,26 @@ into `current/`, register (gross version) → `build_baci_reexport.py --source-v
 `current/` pairs the new map with values netted under the old one: run nothing BACI-side but that chain. Once
 #79 passes and becomes the reference chain, the manuscript's Taiwan limitation (method.md §3.2.8) and its
 concordance row in si.md S8 change with it.
+## #76 NARROWED 2026-10-19 after #78's first run — NOT MEASURED: only a non-miner's domestic concentrate leg is an observed zero
+
+`fix/observed-zero`. #78's first run (`opt_20261019_145258_6bbfa0b5`, all 367 zero-weight domestic legs stamped)
+raised common-set sum-row z² 29.2 % vs `opt_20261019_142026_83bfe843`: Italy, the UK, South Africa, Bulgaria and
+Spain, whose zeros came from imports above usage while they produce the product. Germany's mine rows fell 74,373 → 0.
+`icsg_feed.non_producer_mask` now limits the stamp to domestic concentrate legs in regions with zero ICSG concentrate
+production that year (`OBSERVED_ZERO_SECTORS`; ADR 0024 am.): 82 legs on icsg v15, Germany's 30 among them. The first
+run's damage came from the 25 cathode and 14 concentrate zeros in producer region-years; the 246 cathode zeros in
+non-producers would qualify but need the bound's raw-production key (#96). #78 re-runs.
+
+## #76 BUILT 2026-10-14 — NOT MEASURED (#78): a weighted fan's zero domestic leg is an observed zero
+
+`fix/observed-zero`. The ICSG feed carries a domestic leg its trade shares weigh at 0 as covered at 0,
+`σ = max(0.01·|U|, 0.3 kt CC)` on the usage its fans distribute (ADR 0024 amendment; `observed_zero` mask in
+the feed's `result.npz`, honoured by `FeedCollector` and exempt from `min_flow_kt`), so the `NetworkImputer`
+no longer refills it (64 + 4 `Cathode→FU` and 98 `Concentrate→Smelting` refills, 6,212 kt CC, on
+`imp_20261013_113740_5e11f431`). In memory on icsg v14 + trade_shares v32, nothing registered: the feed is unchanged
+elsewhere (`F_root`, `sigma_root` equal `feed_icsg_20261013_113455_40931987` before the stamp), 355 observed
+zeros (257 `Cathode→FU`, 98 `Concentrate→Smelting`), ROW's semis leg in 1995–2011, 2015, 2016 and 2020–23 at
+σ 6.8–17.6 kt CC. **Measurement = #78, after #79** (#77's BACI 490 remap).
 
 ## #75 MEASURED 2026-10-13 — FAILS ON ONE CLAUSE (#73 semis use), fix ticket #76; every other item holds
 

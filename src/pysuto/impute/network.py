@@ -19,8 +19,10 @@ concentration coefficient. Two node kinds carry conservation in CC:
 System-boundary (SB) nodes are open endpoints and are never balanced.
 
 The imputer is the sole writer of **process-incident, same-region** chain edges;
-cross-region traded imports and final-demand edges are read as boundary terms but
-never written (BACI / ICSG own those — see ADR 0002). eff/conc are resolved with
+cross-region traded imports are read as boundary terms but never written (BACI /
+ICSG own those — see ADR 0002). The flow balance may close a same-region final-demand
+leg no feed covers (ADR 0040); it never writes a stock-change leg, and a fan's
+observed zero (#76) is covered, so it is never written either. eff/conc are resolved with
 the same :class:`~pysuto.param_relation.ParamRelationResolver` the constraint
 builders use, so the emitted CC/Mass twins satisfy ``conc_*_supply``/``_use`` by
 construction (generalising ADR 0002 option D to the whole chain).
