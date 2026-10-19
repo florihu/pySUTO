@@ -66,6 +66,83 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
 
 # OPEN (2026-09-16, out of Round L)
 
+## #86 MEASURED 2026-10-15 — FAILS ON ITEMS 5 AND 6 (DR Congo), fix ticket #88; items 1–4 hold
+
+`diag/congo-sacu-measure`, run `opt_20261015_093646_ddd9d3d9` vs `opt_20261014_131552_f320b5f7`, REP
+`docs/rep/analysis_opt_20261015_093646_ddd9d3d9_20261015_issue82-congo-sacu.md`;
+`scripts/explo/issue86_congo_sacu_diag.py`. Chain: icsg v15, baci v21 (gross) → v22, trade_shares v34.
+- **ROW (#82):** ledger cathode gap 2012–2024 +5,829 → +1,951 kt CC; its cathode-use rows' Σz² 16,055 → 3,208;
+  domestic semis posterior 1,024 → 3,709. What remains is the importer disagreement (Saudi Arabia, Turkey,
+  Vietnam, Pakistan, Egypt, Oman, North Korea), left visible (ADR 0019).
+- **South Africa 1995–1999** gains its trade: Δz² −9,775.
+- **DR Congo fails items 5 and 6:** code 178's cathode lands on top of a balanced code 180 in 2020–2023 (ledger
+  +441, +321, +489, +341). The solver raises refined output above its prior by 829 kt CC over 2019–2023 (base
+  207), CP→Cathode retention 1.080–1.143 in 2020–2023, and opens USC 2022 DR Congo → China at −63 kt CC
+  (|z| 6.9). Code 178's 2004–2010 concentrate loads DR Congo's smelter chain (DR Congo's 2004–2008 Δz²
+  +22,220, all sectors).
+- **Overall:** common-set sum-row z² −0.75 % vs `opt_20261014_131552_f320b5f7`; Round-E (a)–(d) hold.
+- **Merged 2026-10-19 over the failed items by the maintainer's decision** (#75 and #79 precedent):
+  `opt_20261015_093646_ddd9d3d9` is the reference chain; #82 closed, #88 next. The si.md S8 concordance row
+  changes with the chain that ships it.
+
+## #84 + #85 BUILT 2026-10-15 — NOT MEASURED (#86): DR Congo's copper leaves ROW, SACU maps to South Africa
+
+`fix/congo-sacu-mapping`. Two input labels gave ROW another region's copper (#82's triage):
+- **#84, BACI.** The region map (`current/conc.xlsx`, not yet registered) sends 178 "Congo" to Congo, D.R.
+  and 711 "Southern African Customs Union" to South Africa (ADR 0014 amended). 178 exported 3,890 kt of
+  cathode in 2012–2024 (gross baci v19) against Brazzaville's 79 kt of ICSG production; 711 is South Africa's trade, with
+  Namibia's and Botswana's, until BACI splits it in 2000.
+- **#85, ICSG.** `icsg_clean.relabel_by_vintage` gives the 2005 yearbook's "Congo" (parsed as `Congo Rep.`,
+  → ROW) its own label, Congo, D.R., for 1995–2003, and drops its 2004 rows, which the 2014 yearbook
+  reports under Congo, D.R. with the refined output typed differently (ADR 0032 amended). On the current
+  combined file: 27 rows relabelled, 3 dropped.
+- **Expected** (gross values, no run): ROW's cathode U − (P + I − X) +2,335 / +5,808 → +2,148 / +1,920
+  kt CC (1995–2011 / 2012–2024); DR Congo +1,136 in 2012–2024 (785 kt of its cathode goes to Tanzania,
+  in ROW and not netted); South Africa +330 in 1995–1999.
+- **#86's chain.** `icsg_clean.py --to-feed`, register (the icsg diff touches only the Congo rows) → BACI as
+  in #79 (re-parse to `baci/v0/`, set aside `current/reexport_*.csv`, copy, register the gross version) →
+  `build_baci_reexport.py --source-version <it>` → `baci_feed.py` → `build_trade_shares.py` →
+  `icsg_feed.py` → Stages 2–4 against `opt_20261014_131552_f320b5f7`. Until then `current/` pairs the new
+  BACI map with values netted under the old one: run nothing BACI-side but that chain. The si.md S8
+  concordance row changes with the chain that ships it.
+
+## #79 MEASURED 2026-10-14 — FAILS ON ROUND-E (d) AND THE STOCK-LEG ITEM, fix ticket #82; items 1–3 hold
+
+`diag/baci-490-taiwan-measure`, run `opt_20261014_131552_f320b5f7` vs `opt_20261013_122432_24e811b7`, REP
+`docs/rep/analysis_opt_20261014_131552_f320b5f7_20261014_issue77-baci-490-taiwan.md`;
+`scripts/explo/issue79_baci490_taiwan_diag.py`.
+- **Chain.** The BACI re-parse reproduces v13's `values.csv` and gives baci v19 (gross, new map); then
+  baci v20 (netted), trade_shares v33 (47/47 regions observed), icsg v14.
+- **Taiwan enters the account.** Its undistributed ICSG rows go 41 (15,566 kt CC) → 0, and its semis use
+  3 → 14,820 kt CC against ICSG's 15,460.
+- **ROW's domestic semis leg** is fed in 17 of 17 years 1995–2011, with no imputer write. Its semis `f_agg`
+  equals the ICSG fan within 0.011 kt CC.
+- **But ROW's hidden gap shows.** In the ledger, U − (P + I − X) goes from −6,886 to +2,355 kt CC over
+  1995–2011 and from +353 to +5,829 over 2012–2024. In 1995–2011 the domestic leg's posterior barely moves
+  (4,320 → 4,324 kt CC), but its prior is now ICSG's 6,194, so ROW's cathode use totals carry Δz² +18,029.
+  ROW's semis use is 0.61–0.96 of its fan, and its refined cathode after 2011 is no longer cut (posterior/prior
+  0.65–1.07 → 0.98–1.06).
+- **Overall vs `opt_20261013_122432_24e811b7`:** common-set z² +1.41 %, rising in every anchor band; mass
+  moved +1.66 %. 18 stock legs newly above |z| 5, all into ROW.
+- **Merged 2026-10-15 over the failed items by the maintainer's decision** (#75 precedent);
+  `opt_20261014_131552_f320b5f7` is the reference chain. #82 is next, then #78 against this run.
+
+## #77 BUILT 2026-10-14 — NOT MEASURED (#79): BACI 490 "Other Asia, nes" maps to Taiwan, not ROW
+
+`fix/baci-490-taiwan`. The BACI region map (`current/conc.xlsx`, not yet registered) sends code 490 to
+Taiwan (ADR 0014 and 0018 amended). Folded into ROW, it gave ROW Taiwan's cathode imports (baci v18,
+HS 740311: 375–658 kt a year in 1995–2011), which zeroed ROW's domestic semis share (#76), and left Taiwan
+trade-blind.
+`build_baci_reexport.check_region_map()` now raises when the source version's region map differs from
+`current/`'s: the netting would net under one map and `baci_feed.py` apply the other. **#79's chain**
+therefore starts at the parse: `baci_parse_feed.py` (→ `baci/v0/`, its ADR 0033 σ sidecar re-keyed with
+the new map) → set aside `current/reexport_*.csv`, copy `v0/{values,quantity_recon,quantity_cv_scale}.csv`
+into `current/`, register (gross version) → `build_baci_reexport.py --source-version <it>` → `baci_feed.py`
+→ `build_trade_shares.py` → `icsg_feed.py` → Stages 2–4 against `opt_20261013_122432_24e811b7`. Until then
+`current/` pairs the new map with values netted under the old one: run nothing BACI-side but that chain. Once
+#79 passes and becomes the reference chain, the manuscript's Taiwan limitation (method.md §3.2.8) and its
+concordance row in si.md S8 change with it.
+
 ## #75 MEASURED 2026-10-13 — FAILS ON ONE CLAUSE (#73 semis use), fix ticket #76; every other item holds
 
 `diag/scandinavia-split-measure`, run `opt_20261013_122432_24e811b7` vs `opt_20261013_095846_46ece808`, REP

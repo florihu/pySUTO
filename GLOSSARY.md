@@ -320,7 +320,10 @@ as the **source region label** those rows carry. A feed may rename a territory m
 (`Belgium-Luxembourg` to 2013), so one territory wears two labels across the series and, in the
 handover year, two labels on the same cell. Two source labels denote one territory exactly when the
 region map assigns them to the same **real-country root**; `ROW` is excluded, being a bucket of 48
-territories rather than one. Anything computed *before* the region map is applied — a parse rule, a
+territories rather than one. The region map cannot express a label that means another territory in
+one **vintage** only: the 2005 yearbook's `Congo` (parsed as `Congo Rep.`, Brazzaville in every later
+vintage) is DR Congo, so the ICSG clean step relabels it per vintage before the map applies
+([ADR 0032](docs/adr/0032-one-territory-one-label.md), #85). Anything computed *before* the region map is applied — a parse rule, a
 param study reading `values.csv` — must therefore group by territory, not by label. _Avoid_: reading
 a handover-year pair as two measurements. It is one measurement republished, so adding the two
 doubles the cell, and a rule keyed on the label silently skips the territory whose two series are
@@ -770,8 +773,8 @@ those shares are read from the **netted** BACI version, and a group whose import
 observed, so ADR 0018's condition does not hold. The domestic leg (X==Y) carries the residual `usage − Σ imports` (in CC units);
 the split is computed in copper content via `conc`. Applies only to the four **traded** ICSG-fanned
 sectors — Cathode, Concentrate, Anode, Matte. The residual also governs the **import-free** case: where
-BACI *observes* the consumer region (46 of 47 — all but **Taiwan**, trade-blind because BACI 490 "Other
-Asia, nes" folds into ROW, [ADR 0014](docs/adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)),
+BACI *observes* the consumer region (records any cross-region import into it; BACI 490 "Other Asia, nes"
+counts as Taiwan, [ADR 0014](docs/adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)),
 `Σ imports = 0` is a real observation of domestic sourcing and the residual `usage − 0 = usage` gives an
 all-domestic fan ([ADR 0018](docs/adr/0018-import-free-fans-distribute-domestically.md)); where BACI is
 blind, zero imports carries no information and the fan stays undistributed. **The domestic leg is

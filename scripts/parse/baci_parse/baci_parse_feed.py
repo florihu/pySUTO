@@ -248,7 +248,7 @@ def _write_sidecars(rec, refs) -> None:
     f["region_from"] = f["Region_from"].map(reg)
     f["region_to"] = f["Region_to"].map(reg)
     f["time"] = f["Year"]
-    # several BACI codes fold onto one root region (186 of them onto ROW), so a
+    # several BACI codes fold onto one root region (most of them onto ROW), so a
     # root leg can gather more than one source leg; weight by the mass each
     # carries rather than letting an arbitrary one win.
     key = ["sector", "region_from", "region_to", "time"]

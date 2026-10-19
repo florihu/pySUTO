@@ -6,6 +6,12 @@ Amended 2026-09-16 by [ADR 0027](0027-re-exports-are-re-attributed-at-feed-time.
 bilateral feed now carries **inferred** legs as well as observed ones (re-attributed re-exports,
 flagged in the ledger and σ-compounded), and a re-attributed pair whose two ends fold to the same
 root region is dropped as mapped self-trade exactly as a source row would be.
+Amended 2026-10-14 (#77): BACI 490 "Other Asia, nes" maps to **Taiwan**, not ROW — the known quirk
+below is resolved; to be measured by #79.
+Amended 2026-10-15 (#84): BACI 178 "Congo" maps to **Congo, D.R.** (it carries DR Congo's cathode:
+3,890 kt exported in 2012–2024, gross baci v19, against Brazzaville's 79 kt of ICSG production) and 711 "Southern African
+Customs Union" to **South Africa** (its trade until BACI splits it in 2000), not ROW. Neither
+creates mapped self-trade: BACI has no 178 ↔ 180 or 711 ↔ 710 rows. To be measured by #86.
 
 ## Context
 
@@ -67,4 +73,6 @@ every unaffected region.
   inconsistent observation of this class fails loudly instead of silently reshaping the solution.
 - Known quirk left open: BACI 490 ("Other Asia, nes") maps to ROW while Taiwan is a model region —
   Taiwan therefore has no trade data (the origin of the Taiwan noisy-zero scrap faucet). Revisit
-  as a data decision.
+  as a data decision. **Resolved 2026-10-14 (#77):** 490 is Taiwan's trade in UN Comtrade and BACI,
+  and folding it into ROW gave ROW Taiwan's cathode imports, which zeroed ROW's domestic semis share
+  (#76). It maps to Taiwan; to be measured by #79.

@@ -28,7 +28,7 @@ to sum 1, so ``F_root_CC(import) = conc·BACI_Mass`` and
 Groups with **no** recorded imports (ADR 0018): if BACI observes the consumer
 region at all, ``Σ imports = 0`` is a real observation of domestic sourcing and
 the residual ``usage − 0 = usage`` yields an all-domestic fan. If BACI is blind
-to the region (Taiwan — BACI 490 "Other Asia, nes" folds into ROW, ADR 0014),
+to the region (Taiwan was, until #77 mapped BACI 490 "Other Asia, nes" to it),
 no rows are emitted and the fan stays undistributed per ADR 0008. Before ADR
 0018 every import-free group was unemitted, which silently discarded 469 ICSG
 fans (~45 Mt CC) — see REP roundD-fan-recovery.
@@ -156,8 +156,8 @@ def compute_trade_share_weights(
     cross-region import, any sector, any year). For those, ``Σ imports == 0``
     is an *observation* of domestic sourcing, so the ADR-0002-option-D residual
     ``max(0, usage − Σ imports) = usage`` applies and the fan is emitted
-    all-domestic (ADR 0018). For a region BACI never observes (BACI 490 "Other
-    Asia, nes" → ROW leaves Taiwan trade-blind, ADR 0014), zero imports carries
+    all-domestic (ADR 0018). For a region BACI never observes (Taiwan was one
+    until #77 mapped BACI 490 "Other Asia, nes" to it), zero imports carries
     no information: the group is left unemitted so the fan stays undistributed
     — the honest "total known, split unknown" state (ADR 0008). ``None`` means
     "no region is known-observed", i.e. the pre-ADR-0018 behaviour.
