@@ -146,6 +146,18 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
   BACI map with values netted under the old one: run nothing BACI-side but that chain. The si.md S8
   concordance row changes with the chain that ships it.
 
+## #94 MEASURED 2026-10-19 — FAILS ON ITEMS 1 (as worded) AND 2 (Round-E (c), Peru); shipped by the maintainer's decision
+
+`diag/ratio-sigma-measure`, run `opt_20261019_161937_fd301f58` vs `opt_20261019_155415_a1d7e9a9`, REP
+`docs/rep/analysis_opt_20261019_161937_fd301f58_20261019_issue29-relative-ratio-sigma.md`;
+`scripts/explo/issue94_relative_ratio_sigma_diag.py`.
+- **The change.** Only soft ratio rows' σ_c change (217,717 rows), by max(σ/|r|, 0.02)/max(σ, 0.02) to 3.9e-5
+  relative, not the rule's rtol 1e-9; a small untraced term in the stored σ_c. Ratio-row Σz² 55,213 → 8,146; mass
+  moved −14.7 %; common-set sum-row z² −0.48 % vs `opt_20261019_155415_a1d7e9a9`.
+- **Round-E (c):** Peru's exporter retention 1.011 → 0.986 (−0.025); Chile 0.973 → 1.009. Shipped over it (L.1
+  precedent): the code now applies the σ the parameter tables state.
+- `opt_20261019_161937_fd301f58` becomes the reference chain.
+
 ## #29 BUILT 2026-10-19 — NOT MEASURED (#94): a soft ratio row is priced at its stated σ relative to r
 
 `fix/ratio-sigma-relative`. The params tables state σ in ratio units (`value_sd`, or band/4), but
