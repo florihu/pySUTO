@@ -146,6 +146,29 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
   BACI map with values netted under the old one: run nothing BACI-side but that chain. The si.md S8
   concordance row changes with the chain that ships it.
 
+## #29 BUILT 2026-10-19 — NOT MEASURED (#94): a soft ratio row is priced at its stated σ relative to r
+
+`fix/ratio-sigma-relative`. The params tables state σ in ratio units (`value_sd`, or band/4), but
+`RatioConstraintBuilder` multiplied it by a flow scale ≈ |r|·Σ|a₀,denom| as if it were a CV, so every
+soft ratio row with r < 1 was priced up to 1/r times too tight. `from_csv` now carries σ_r = σ/|r|
+into `RATIO_SIGMA_REL_FLOOR` (ADR 0028 amended; GLOSSARY "Relative ratio σ"). `sigma_from_row`, the
+imputers, the net-stock rows (r = 0, denominator scale), the hard stripping relation and every hard
+band are unchanged; a zero ratio with σ > 0 raises at build time, `concwruse` (σ = 0) keeps the floor.
+Applied relative σ before → after, computed from the params rows (conc v10, eff v4, ore_grade v7; no
+build, no solve):
+- **conc:** concentrate 3.75 → 13.6 % (σ_c ×3.6), matte 11.25 → 21.4 % (×1.9), slag 2 % floor →
+  40.9 % (×20), scrap 14.5 → 20.7 % (×1.4), anode 2.0 → 2.13 %; cathode, CER, CSXEW, PSC and WR stay
+  on the floor.
+- **ore_grade:** CO/Ore grade rows 2 % floor → median 16.9 % (q10 8.2 %, q90 34.1 %; none left on the
+  floor, σ_c ×8.4 at the median); tailings MF median 17.1 %, SXEW 13.2 %. 104 rows, mostly ROW, exceed
+  100 % (ore grade up to 355 %, tailings up to 468 %), nearly free; #94 reports them. #30 rebuilds
+  ore_grade first, which may change them.
+- **eff:** SXEW 6.25 → 8.62 %, flotation 5.0 → 6.25 %; smelting, CFR and ER stay on the floor.
+No soft row tightens (every active r ≤ 1). The measure ticket runs Stages 3–4 against the reference
+chain (today `opt_20261014_131552_f320b5f7`) and judges the change by the Round-E stop rule (ADR
+0025), with a REP. Once it ships, the manuscript changes with it: method.md's parameter paragraph
+(the closing #29 sentence) and limitations paragraph, and si.md Table S4's ratio row.
+
 ## #79 MEASURED 2026-10-14 — FAILS ON ROUND-E (d) AND THE STOCK-LEG ITEM, fix ticket #82; items 1–3 hold
 
 `diag/baci-490-taiwan-measure`, run `opt_20261014_131552_f320b5f7` vs `opt_20261013_122432_24e811b7`, REP

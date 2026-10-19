@@ -240,9 +240,9 @@ NODATA_ANCHOR_DATA_AWARE = ("CO", "Mining", "Ore", "WR", "Tailings")
 # determined edges (extraction chain + all four SEM residual outputs
 # {WR,Tailings,Slag,PSC}); see ADR 0013.
 PIN_FLAT_PRIOR_ZEROS = True
-# Soft-ratio σ_c scaling (REP analysis_opt_20260611_075036 §8.2): the CSV ratio
-# σ_r is rescaled to flow space per row, σ_c = max(σ_r, REL_FLOOR) ·
-# max(Σ|a₀,num|, |r|·Σ|a₀,denom|, ABS_FLOOR). REL_FLOOR caps |z| at 1/floor on
+# Soft-ratio σ_c scaling (REP analysis_opt_20260611_075036 §8.2): the CSV σ (ratio
+# units) is made relative, σ_r = σ/|r| (#29), and rescaled to flow space per row,
+# σ_c = max(σ_r, REL_FLOOR) · max(Σ|a₀,num|, |r|·Σ|a₀,denom|, ABS_FLOOR). REL_FLOOR caps |z| at 1/floor on
 # a 100 % ratio violation; ABS_FLOOR (in kt — the flow unit) keeps both-zero-prior
 # rows finite AND soft: ~77 % of soft ratio rows are zero-prior parametric ties,
 # and at ABS_FLOOR=1 their σ_c=0.02 kt made the Hessian so stiff Clarabel stalled

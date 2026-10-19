@@ -71,6 +71,25 @@ def _ratio_struct_cols(num: dict, denom: dict) -> dict:
     }
 
 
+def _relative_sigma(sigma: float, r: float, param_id: str | None) -> float:
+    """σ in ratio units (``sigma_from_row``) → the relative σ_r = σ/|r| (#29).
+
+    At a prior that sits on the ratio the symmetric scale
+    ``max(Σ|a₀,num|, |r|·Σ|a₀,denom|)`` is |r|·Σ|a₀,denom|, so only σ/|r| gives the
+    linearised σ_c = σ·Σ|a₀,denom|. A stated-exact ratio (σ = 0) is relative 0 at
+    any r, so a zero ratio stated as exact (the ``concwruse`` shape) keeps the
+    floor; a zero ratio with σ > 0 has no relative σ and raises.
+    """
+    if sigma == 0.0:
+        return 0.0
+    if r == 0.0:
+        raise ValueError(
+            f"RatioConstraintBuilder: param {param_id!r} has value_nominal = 0 with "
+            f"σ = {sigma} — a zero ratio has no relative σ."
+        )
+    return sigma / abs(r)
+
+
 def _is_agg(row) -> bool:
     """True if the row's `agg` cell evaluates to a true-ish value."""
     return str(row.get("agg", "")).strip().lower() in _AGG_TRUE
@@ -136,12 +155,16 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
     Soft free-cone ratio constraint: a_i − r · a_j = ε_k
 
     Loaded from the same params CSV schema as ParametricImputer.
-    The CSV uncertainty modes (sd / min_max / pedigree) yield the *relative*
-    ratio-space σ_r per pair; :meth:`build_dynamic` rescales it to flow space
-    symmetrically (Gauss–Newton linearization of the log-ratio error model at
-    the prior, REP analysis_opt_20260611_075036 §8.2):
+    The CSV uncertainty modes (sd / min_max / pedigree) state σ in *ratio units*;
+    :meth:`from_csv` divides it by |r| into the *relative* σ_r each pair carries
+    (#29), and :meth:`build_dynamic` rescales that to flow space symmetrically
+    (Gauss–Newton linearization of the log-ratio error model at the prior, REP
+    analysis_opt_20260611_075036 §8.2, where σ_log = σ/r):
 
         σ_c = max(σ_r, sigma_rel_floor) · max(Σ|a₀,num|, |r|·Σ|a₀,denom|, scale_abs_floor)
+
+    Net-stock rows (``scale_mode="denominator"``, r = 0) keep σ_r in ratio units:
+    their scale is the denominator alone, which the ratio is already relative to.
     """
 
     def __init__(self, pairs: list[dict],
@@ -150,7 +173,8 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
                  hard: bool = False):
         """
         pairs : list of dicts with keys:
-            constraint_id, edge_i, edge_j, r, sigma_c   (sigma_c = relative σ_r)
+            constraint_id, edge_i, edge_j, r, sigma_c   (sigma_c = relative σ_r = σ/|r|;
+            in ratio units on scale_mode="denominator" rows)
         sigma_rel_floor : lower bound on σ_r (caps |z| at 1/floor on a 100 %
             ratio violation).
         scale_abs_floor : lower bound on the flow-space scale (tonnage), so
@@ -176,7 +200,9 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
     ) -> "RatioConstraintBuilder":
         """
         Load from params CSV (same schema as ParametricImputer.from_csv).
-        Resolves A→B edge pairs and computes the relative σ_r from unc_type.
+        Resolves A→B edge pairs and computes the relative σ_r = σ/|r| from unc_type
+        (σ in ratio units, as ``sigma_from_row`` returns it). Raises ``ValueError``
+        on a zero ratio with σ > 0.
 
         ``mask`` (optional): name of a mask in ``acc_struct.masks``. Pairs
         where either edge falls outside the mask are dropped.
@@ -200,6 +226,7 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
             nominal = float_or(row.get("value_nominal", "nan"), np.nan)
             if np.isnan(nominal):
                 continue
+            param_id = str(row.get("param_id", "")).strip() or None
             # Net-stock bands (param_type=="stock_bound", nominal r=0, centred at 0):
             # read the symmetric ±p95 half-band (value_max) as the ratio-space σ_r and
             # tag scale_mode="denominator" so build_dynamic scales σ_c off the THROUGHPUT
@@ -214,11 +241,12 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
                     sigma = sigma_from_row(row, nominal)
                 except Exception:
                     sigma = 0.0
+                if not hard:            # a hard row carries σ_c = 0 whatever σ is
+                    sigma = _relative_sigma(sigma, nominal, param_id)
                 scale_mode = "symmetric"
 
             # A user param_id, if present, becomes the grammar `variant` slot
             # (underscore-free); otherwise the ratio variant is "ratioeq".
-            param_id = str(row.get("param_id", "")).strip() or None
             variant  = _safe(param_id, field="param_id") if param_id else "ratioeq"
 
             # agg rows pool every matched a-side edge against every matched

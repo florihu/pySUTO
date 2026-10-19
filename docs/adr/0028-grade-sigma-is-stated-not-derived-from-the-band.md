@@ -10,6 +10,21 @@ not its values) and re-affirms [ADR 0012](0012-scrap-one-mixed-grade-commodity.m
 per-commodity invariant. Baseline `opt_20260915_131115_b8bf05a9`; runs
 `opt_20260916_094322_0c932b8e` (M.1) and `opt_20260916_100802_4264582e` (M.2).
 
+**Amended 2026-10-19 (#29; status: built, to be measured by #94):**
+the stated σ is in **ratio units**, and the soft ratio row now applies it **relative to the
+ratio**, σ/|r|. Since the symmetric σ_c scaling (REP `analysis_opt_20260611_075036` §8.2,
+σ_log = σ/r) the row multiplied σ itself by a flow scale of ≈ |r|·Σ|a₀,denom|, reading it as a
+CV, so every ratio row below 1 was priced up to 1/|r| times too tight: on `conc` v10 the
+concentrate rows at 3.75 % instead of 13.6 %, and on `ore_grade` v7 the ore-grade and tailings
+rows at the 2 % `RATIO_SIGMA_REL_FLOOR` instead of their σ/r (median 16.9 %; 90 of 3,894 ROW CO/Ore
+rows were already above the floor). 104 ore-grade rows, mostly ROW, now carry a relative σ above
+100 % (up to 355 %; tailings up to 468 %), which leaves them nearly free; #94 reports them.
+`RatioConstraintBuilder.from_csv` now divides by |r| before the floor; `sigma_from_row` and the
+imputers, which read σ in ratio units (`conc_twin_map`, the `eff` map), are unchanged, as are the
+net-stock rows (r = 0, scaled off the denominator their ratio is already relative to), the hard
+stripping relation and every hard band. A zero ratio with σ > 0 now raises at build time; one
+stated as exact (σ = 0, `concwruse`) keeps the floor.
+
 ## Context
 
 The Chile diagnosis (REP `…20260916_chile-mine-chain.md`) found the model's ore deletion executed
