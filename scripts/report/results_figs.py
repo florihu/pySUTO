@@ -1,21 +1,25 @@
 """
 results_figs.py
 ===============
-Manuscript Results (Section 4) from one reference run: the two key-tile figures
-(Fig. 3 reconciliation, Fig. 4 copper system), the pre-registered hypothesis
-ledger (Table 3) and every number the prose cites, so that a later run swaps in
-by re-running this script.
+Manuscript Results (Section 4) from one reference run: the three key-tile figures
+(Fig. 3 the problem, Fig. 4 reconciliation, Fig. 5 copper system), the
+pre-registered hypothesis ledger (Table 3) and every number the prose cites, so
+that a later run swaps in by re-running this script.
 
     python scripts/report/results_figs.py <opt_run_id> --psut-run-id <psut_run_id>
         [--tol-pair <opt_old> <opt_new>] [--out docs/manuscript/figs]
 
 Reads persisted run artifacts and the registered feeds only; nothing upstream is
-modified. Writes ``fig3_reconciliation.png``, ``fig4_copper_system.png``,
-``table3_ledger.csv``, ``numbers.json`` and the SI tables (``si_*.csv`` and one
-``si_tables.md`` with the same tables rendered) to ``--out``. The thresholds of
-the ledger are frozen in the USER CONFIGURATION block (SI S15) and reported
-whichever way they fall.
+modified. Writes ``fig3_problem.png``, ``fig4_reconciliation.png``,
+``fig5_copper_system.png``, ``table3_ledger.csv``, ``numbers.json`` and the SI
+tables (``si_*.csv`` and one ``si_tables.md`` with the same tables rendered) to
+``--out``. The thresholds of the ledger are frozen in the USER CONFIGURATION
+block (SI S15) and reported whichever way they fall.
 
+Fig. 3 is the problem one Stage-4 period is handed (``PROBLEM_YEAR``): edge
+provenance, the chain profile, prior breach and active set per constraint family,
+and ``PROBLEM_REGION``'s slice of the QP in standard form, all from
+``ProblemStatsDiagnostic`` (the opt run's lineage to its const and imp runs).
 Part A (RQ-A, compatibility) draws from the Stage-4 frames of ``SolverDiag``
 (``objective_decomposition``, ``family_frame``, ``share_by_key``); retention and
 every Part B share come from the per-edge prior / posterior of the run
@@ -37,6 +41,8 @@ import pandas as pd                                   # noqa: E402
 from matplotlib.colors import LogNorm                 # noqa: E402
 from matplotlib.gridspec import GridSpecFromSubplotSpec  # noqa: E402
 from matplotlib.lines import Line2D                   # noqa: E402
+from matplotlib.patches import Patch, Rectangle       # noqa: E402
+from matplotlib.transforms import blended_transform_factory  # noqa: E402
 
 sys.path.insert(0, "src")
 sys.path.insert(0, "scripts")
@@ -44,8 +50,10 @@ sys.path.insert(0, "scripts/explo")
 sys.path.insert(0, "scripts/report")
 
 import copper_metabolism_insights as CMI                              # noqa: E402
+from pysuto.diag.stats import ProblemStatsDiagnostic                 # noqa: E402
 from pysuto.diag.stats.objective import (family_frame, objective_decomposition,  # noqa: E402
                                          rank_identities, share_by_key)
+from pysuto.diag.stats.problem import NO_PRIOR_OF_ITS_OWN, PROVENANCE_ORDER  # noqa: E402
 from pysuto.registry.psut import PsutRunRegistry                      # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -55,9 +63,11 @@ OUT_DIR  = Path("docs/manuscript/figs")
 YEARS    = list(range(1995, 2025))
 POOL     = list(range(2020, 2025))          # the "recent" pool used for shares
 ROCKET_YEAR = 2020
+PROBLEM_YEAR   = "2020"                     # Fig. 3: the period whose QP is shown
+PROBLEM_REGION = "China"                    # Fig. 3e: the region sliced out of it
 
 # Retention stages (from-sector, to-sector, valuation): the categories of
-# Section 3.3 / SI Table S16. The first seven are drawn in Fig. 3c.
+# Section 3.3 / SI Table S16. The first seven are drawn in Fig. 4c.
 STAGES = [("CO", "Mining", "Mass"), ("MF", "Concentrate", "CC"),
           ("Concentrate", "Smelting", "CC"), ("Anode", "ER", "CC"),
           ("CP", "Cathode", "CC"), ("Cathode", "FU", "CC"), ("Scrap", "Smelting", "CC"),
@@ -103,6 +113,22 @@ SEQ_CMAP = "Blues"
 FAMILY_COLOR = {"edges": PALETTE[0], "sum_rows": PALETTE[1], "soft_ratios": PALETTE[2]}
 FAMILY_LABEL = {"edges": "edge defects", "sum_rows": "scale-total residuals",
                 "soft_ratios": "soft-ratio residuals"}
+# Fig. 3: provenance in palette order; the categories that give an edge no
+# prior of its own (0 kt) share the neutral grey, any other imputer is grey too.
+PROV_COLOR = {"feed": PALETTE[0], "network": PALETTE[1], "trade": PALETTE[2], "conc": PALETTE[3],
+              "ore_grade": PALETTE[4], "time_interp": PALETTE[5],
+              **{c: GREY for c in NO_PRIOR_OF_ITS_OWN}}
+PROV_LABEL = {"feed": "from a feed (ICSG)", "network": "network", "trade": "trade seed (BACI × grade)",
+              "conc": "concentration", "ore_grade": "ore grade", "eff": "efficiency",
+              "time_interp": "time interpolation", "net_stock_share": "net-stock share",
+              "flat_prior": "flat prior"}
+CONE_COLOR = {"zero": INK, "nonneg": INK2, "free": GREY}
+CONE_LABEL = {"zero": "hard equality (zero cone)", "nonneg": "hard inequality (nonneg cone)",
+              "free": "soft (free cone)"}
+ACTIVE_COLOR = PALETTE[6]                   # binding on flow, in (d) and the ticks of (e)
+SLICE_LABEL = {"mass balance": "mass balances", "conc band": "conc bands", "eff band": "eff",
+               "scrap-share band": "scrap share", "lower bound": "lower bounds",
+               "soft ratio": "soft ratios", "scale total & scrap anchor": "scale totals"}
 plt.rcParams.update({"font.family": "sans-serif", "font.size": 7.5,
                      "axes.edgecolor": INK2, "axes.labelcolor": INK2,
                      "xtick.color": INK2, "ytick.color": INK2, "axes.titlecolor": INK,
@@ -417,7 +443,229 @@ def _year_axis(ax):
     ax.set_xticks([1995, 2005, 2015, 2024])
 
 
-def fig3(A: dict, out: Path) -> Path:
+def _block_labels(names: np.ndarray, min_rows: int = 30) -> list:
+    """(first row, end row, label) per run of equal names; a run shorter than
+    ``min_rows`` joins the preceding labelled run and its label."""
+    edges = np.flatnonzero(np.r_[True, names[1:] != names[:-1], True])
+    out = []
+    for a, b in zip(edges[:-1], edges[1:]):
+        if b - a < min_rows and out:
+            a0, _, lab = out[-1]
+            out[-1] = (a0, b, f"{lab} · {names[a]}")
+        else:
+            out.append((a, b, str(names[a])))
+    return out
+
+
+def fig3(P, out: Path) -> Path:
+    tot = P.provenance_totals("CC")
+    tot = tot[tot["n_edges"] > 0]                    # an imputer with no fills has no bar
+    cp, fam, blk = P.chain_profile("CC"), P.family_summary(), P.block_sizes()
+    sl = P.region_slice(PROBLEM_REGION)
+    year = P.year
+    fig = plt.figure(figsize=(7.2, 10.2))
+    g1 = fig.add_gridspec(1, 2, left=0.03, right=0.97, top=0.955, bottom=0.70, wspace=0.42)
+    g2 = fig.add_gridspec(1, 2, left=0.20, right=0.97, top=0.605, bottom=0.40, wspace=0.12)
+    g3 = fig.add_gridspec(1, 2, left=0.02, right=0.97, top=0.295, bottom=0.035, wspace=0.06,
+                          width_ratios=[1.3, 1])
+
+    # (a) edges and kt per provenance category ----------------------------------
+    ga = GridSpecFromSubplotSpec(1, 3, subplot_spec=g1[0, 0], wspace=0.04, width_ratios=[1, 1.0, 1])
+    al, am, ar = (fig.add_subplot(ga[k]) for k in range(3))
+    cats = tot.index.tolist()
+    y = np.arange(len(cats))[::-1]
+    colors = [PROV_COLOR.get(c, GREY) for c in cats]
+    al.barh(y, tot["n_edges"], color=colors, height=0.62)
+    al.set_xscale("log"); al.set_xlim(6e4, 1)
+    ar.barh(y, tot["kt"].where(tot["kt"] > 0), color=colors, height=0.62)
+    ar.set_xscale("log"); ar.set_xlim(1, 2e6)
+    for yi, n, kt in zip(y, tot["n_edges"], tot["kt"]):
+        al.text(n * 1.25, yi, f"{n:,}", ha="right", va="center", fontsize=6, color=INK2)
+        ar.text(kt * 1.25 if kt > 0 else 1.25, yi, f"{kt:,.0f}", ha="left", va="center", fontsize=6, color=INK2)
+    for yi, c in zip(y, cats):
+        am.text(0.5, yi, PROV_LABEL.get(c, c).replace(" (", "\n("), ha="center", va="center",
+                fontsize=6.3, color=INK, linespacing=1.0)
+    for ax in (al, am, ar):
+        ax.set_ylim(-0.6, len(cats) - 0.4); ax.set_yticks([])
+    am.axis("off")
+    al.set_xlabel("edges (log)"); ar.set_xlabel("kt CC (log)")
+    _style(al, grid_axis="x"); _style(ar, grid_axis="x")
+    al.spines["left"].set_visible(False); al.spines["right"].set_visible(True)
+    _tag(al, "a", f"What fills the {year} prior, CC", y=1.03)
+
+    # (b) chain profile ------------------------------------------------------------
+    ab = fig.add_subplot(g1[0, 1])
+    stack = [c for c in PROVENANCE_ORDER if c in cp.columns and cp[c].abs().sum() > 0]
+    pos, k = [], 0.0
+    for i, kind in enumerate(cp["kind"]):
+        if i and kind != cp["kind"].iloc[i - 1]:
+            k += 0.9                                       # gap before the traded commodities
+        pos.append(-k); k += 1.0
+    pos, left = np.array(pos), np.zeros(len(cp))
+    for c in stack:
+        v = cp[c].to_numpy(dtype=float)
+        ab.barh(pos, v, left=left, height=0.74, color=PROV_COLOR.get(c, GREY),
+                edgecolor=SURFACE, linewidth=0.4, label=PROV_LABEL.get(c, c))
+        left += v
+    ab.set_yticks(pos); ab.set_yticklabels(cp.index, fontsize=5.6)
+    ab.set_ylim(pos.min() - 0.7, 0.7)
+    ab.set_xlabel(f"kt CC, world {year}")
+    ab.legend(frameon=False, fontsize=5.8, loc="upper left", bbox_to_anchor=(-0.42, -0.13), ncol=3)
+    _style(ab, grid_axis="x")
+    _tag(ab, "b", "Where the feeds sit along the chain", y=1.03)
+
+    # (c) rows per family ------------------------------------------------------------
+    ac = fig.add_subplot(g2[0, 0])
+    yf = np.arange(len(fam))[::-1]
+    ac.barh(yf, fam["rows"], color=[CONE_COLOR[c] for c in fam["cone"]], height=0.62)
+    for yi, n in zip(yf, fam["rows"]):
+        ac.text(n * 1.2, yi, f"{n:,}", va="center", fontsize=6, color=INK2)
+    ac.set_xscale("log"); ac.set_xlim(10, 4e5)
+    ac.set_yticks(yf); ac.set_yticklabels(fam.index, fontsize=6.5)
+    ac.set_xlabel(f"rows, {year} (log)")
+    ac.legend([Patch(color=CONE_COLOR[c]) for c in ("zero", "nonneg", "free")],
+              [CONE_LABEL[c] for c in ("zero", "nonneg", "free")],
+              frameon=False, fontsize=5.8, loc="upper left", bbox_to_anchor=(0.0, -0.2), ncol=2)
+    _style(ac, grid_axis="x")
+    _tag(ac, "c", "What the QP constrains", y=1.04)
+
+    # (d) prior breach and active set ---------------------------------------------------
+    ad = fig.add_subplot(g2[0, 1], sharey=ac)
+    status = [("prior_breach", "prior breach", INK, 1.0),
+              ("binding_on_flow", "binding on flow", ACTIVE_COLOR, 1.0),
+              ("binding_on_zero_flows", "binding on zero flows", ACTIVE_COLOR, 0.35)]
+    h = 0.28
+    smax = float(np.nanmax([(fam[c].astype(float) / fam["rows"] * 100.0).max() for c, *_ in status]))
+    for j, (col, lab, colr, alpha) in enumerate(status):
+        share = fam[col].astype(float) / fam["rows"] * 100.0
+        ok = share.notna().to_numpy()
+        yy = yf + (1 - j) * h
+        ad.barh(yy[ok], share[ok], height=h * 0.9, color=colr, alpha=alpha, label=lab)
+        for yi, s in zip(yy[ok], share[ok]):
+            txt = "0" if s == 0 else (f"{s:.1f} %" if s < 10 else f"{s:.0f} %")
+            ad.text(s + 0.8, yi, txt, va="center", fontsize=5.2, color=INK2)
+    for yi, cone in zip(yf, fam["cone"]):
+        if cone == "free":
+            ad.text(0.8, yi, "soft rows: their pull is z², Fig. 4a", va="center", fontsize=5.8, color=INK2)
+    ad.set_xlim(0, 10 * np.ceil(smax / 10) + 8); ad.tick_params(labelleft=False)
+    ad.set_xlabel("% of the family's rows")
+    ad.legend(frameon=False, fontsize=5.8, loc="upper left", bbox_to_anchor=(0.0, -0.2), ncol=2)
+    _style(ad, grid_axis="x")
+    _tag(ad, "d", "Prior breach and active set at a*", y=1.04)
+
+    # (e) the region's slice in standard form + the full block ------------------------------
+    ae, ax = fig.add_subplot(g3[0, 0]), fig.add_subplot(g3[0, 1])
+    A = sl.A.tocoo()
+    n_r, n_c = A.shape
+    ae.scatter(A.col, A.row, s=0.35, marker="s", linewidths=0, color=INK2, rasterized=True)
+    ae.set_xlim(-0.5, n_c - 0.5); ae.set_ylim(n_r - 0.5, -0.5)
+    ae.set_aspect("equal"); ae.set_anchor("E")
+    n_mass = int((sl.valuation == "Mass").sum())
+    groups = [(0, n_mass, "Mass"), (n_mass, sl.n_edges, "CC"), (sl.n_edges, n_c, "ε")]
+    for a, _, _ in groups[1:]:
+        ae.axvline(a - 0.5, color=INK2, lw=0.6)
+    for a, b, _ in groups[:2]:                               # domestic | legs inside each valuation
+        legs = np.flatnonzero(sl.is_leg[a:b])
+        if legs.size:
+            ae.axvline(a + legs[0] - 0.5, color=GREY, lw=0.4, ls="--")
+    ae.set_xticks([(a + b - 1) / 2 for a, b, _ in groups]); ae.set_xticklabels([g[2] for g in groups])
+    ae.xaxis.tick_top(); ae.tick_params(axis="x", length=0, labelsize=6.5)
+    cone_edges = np.flatnonzero(np.r_[True, sl.cone[1:] != sl.cone[:-1]])
+    fam_edges = np.flatnonzero(np.r_[False, sl.family[1:] != sl.family[:-1]])
+    for i in fam_edges:
+        ae.axhline(i - 0.5, color=GRID, lw=0.5)
+    for i in cone_edges[1:]:
+        ae.axhline(i - 0.5, color=INK2, lw=0.6)
+    blocks = _block_labels(np.array([SLICE_LABEL.get(f, f) for f in sl.family], dtype=object))
+    ae.set_yticks([(a + b - 1) / 2 for a, b, _ in blocks])
+    ae.set_yticklabels([lab for _, _, lab in blocks], fontsize=5.8)
+    ae.tick_params(axis="y", length=0, pad=7)
+    bracket = blended_transform_factory(ae.transAxes, ae.transData)
+    for a, b, _ in blocks:                                   # family brackets on the row axis
+        ae.plot([-0.012, -0.03, -0.03, -0.012], [a - 0.2, a - 0.2, b - 0.8, b - 0.8],
+                transform=bracket, color=INK2, lw=0.6, clip_on=False)
+    for a, b in zip(cone_edges, np.r_[cone_edges[1:], n_r]):
+        ae.annotate({"free": "soft", "zero": "hard =", "nonneg": "hard ≤"}[sl.cone[a]],
+                    xy=(0, (a + b - 1) / 2), xycoords=("axes fraction", "data"),
+                    xytext=(-90, 0), textcoords="offset points", rotation=90,
+                    ha="center", va="center", fontsize=6.3, color=INK)
+    act = np.flatnonzero(sl.binding_on_flow)
+    ae.hlines(act, n_c + 6, n_c + 40, colors=ACTIVE_COLOR, lw=0.5, clip_on=False)
+    if act.size:
+        ae.text(n_c + 52, act.mean(), "binding on flow", rotation=90, ha="left", va="center",
+                fontsize=5.6, color=INK2)
+    for s in ae.spines.values():
+        s.set_color(INK2); s.set_linewidth(0.6)
+    nnz = int(sl.A[:, :sl.n_edges].nnz)
+    ae.text(1.0, -0.025, f"{sl.n_edges} edges ({int(sl.is_leg.sum())} trade legs) + {sl.n_slack} slack ε\n"
+            f"{n_r:,} rows · {nnz:,} nonzeros · {sl.n_legs_omitted} legs with no prior of "
+            "their own left out",
+            transform=ae.transAxes, ha="right", va="top", fontsize=5.8, color=INK2)
+    _tag(ae, "e", f"{PROBLEM_REGION}'s slice of the {year} QP in standard form", y=1.06)
+
+    # the full block as a to-scale schematic (the zero cone drawn at a minimum height)
+    rc, ne, ns = blk["rows_by_cone"], blk["edges"], blk["rows_by_cone"]["free"]
+    wE = ne / (ne + ns)
+    hts = {c: max(rc[c] / blk["rows"], 0.05) for c in ("free", "zero", "nonneg")}
+    scale = 0.86 / sum(hts.values())
+    top, x0 = 0.92, 0.04
+    ax.text(x0 + wE * 0.86 / 2, top + 0.015, f"{ne:,} edges a", ha="center", va="bottom", fontsize=6, color=INK2)
+    ax.text(x0 + (wE + (1 - wE) / 2) * 0.86, top + 0.015, f"{ns:,} slack ε", ha="center", va="bottom",
+            fontsize=6, color=INK2)
+    text = {"free": f"G_free\n{rc['free']:,} soft rows", "zero": f"G_zero  {rc['zero']:,} rows",
+            "nonneg": f"G_nonneg\n{rc['nonneg']:,} rows"}
+    for cone in ("free", "zero", "nonneg"):
+        hh = hts[cone] * scale
+        ax.add_patch(Rectangle((x0, top - hh), wE * 0.86, hh, facecolor=GRID, edgecolor=INK2, lw=0.6))
+        ax.text(x0 + wE * 0.43, top - hh / 2, text[cone], ha="center", va="center", fontsize=6, color=INK)
+        ax.add_patch(Rectangle((x0 + wE * 0.86, top - hh), (1 - wE) * 0.86, hh, facecolor=SURFACE,
+                               edgecolor=INK2, lw=0.6))
+        xs = x0 + wE * 0.86
+        if cone == "free":
+            ax.plot([xs, xs + (1 - wE) * 0.86], [top, top - hh], color=INK2, lw=0.8)
+            ax.text(xs + (1 - wE) * 0.62, top - hh * 0.3, "−I", fontsize=6.5, color=INK)
+        else:
+            ax.text(xs + (1 - wE) * 0.43, top - hh / 2, "0", ha="center", va="center", fontsize=6.5, color=INK)
+        ax.text(x0 + 0.88 + 0.01, top - hh / 2, cone, ha="left", va="center", fontsize=5.8,
+                color=INK2)
+        top -= hh
+    ax.text(x0, top - 0.04, f"the full {year} block: {blk['rows']:,} rows × {ne:,} edges, "
+            f"{blk['nnz']:,} nonzeros\n(density {blk['nnz'] / (blk['rows'] * ne):.1e}); "
+            f"Stage 4 solves {len(YEARS)} such QPs, one per year",
+            ha="left", va="top", fontsize=5.8, color=INK2)
+    ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
+
+    path = out / "fig3_problem.png"
+    fig.savefig(path, dpi=300)
+    plt.close(fig)
+    return path
+
+
+def problem_numbers(P) -> dict:
+    """The Fig. 3 numbers the prose cites (``numbers.json["problem"]``)."""
+    tot, fam = P.provenance_totals("CC"), P.family_summary()
+    feed, sl = P.feed_edges_by_year("CC"), P.region_slice(PROBLEM_REGION)
+    cp = P.chain_profile("CC")
+    na = lambda v: None if pd.isna(v) else int(v)                    # noqa: E731
+    return {
+        "year": P.year, "region": PROBLEM_REGION,
+        "provenance_cc": {c: {"n_edges": int(r.n_edges), "kt": round(float(r.kt), 1)} for c, r in tot.iterrows()},
+        "feed_cc_edges_per_year": {"min": int(feed.min()), "max": int(feed.max())},
+        "chain_profile_cc_kt": {b: {c: round(float(v), 1) for c, v in r.drop("kind").items()
+                                    if round(float(v), 1)} for b, r in cp.iterrows()},
+        "families": {f: {"cone": r.cone, "rows": int(r.rows), "prior_breach": na(r.prior_breach),
+                         "binding": na(r.binding), "binding_on_flow": na(r.binding_on_flow),
+                         "binding_on_zero_flows": na(r.binding_on_zero_flows)} for f, r in fam.iterrows()},
+        "block": P.block_sizes(),
+        "region_slice": {"edges": sl.n_edges, "legs": int(sl.is_leg.sum()), "legs_left_out": sl.n_legs_omitted,
+                         "rows": int(len(sl.row_ids)), "complete": int(sl.complete.sum()),
+                         "partial": int((~sl.complete).sum()), "free_rows": sl.n_slack,
+                         "nnz": int(sl.A[:, :sl.n_edges].nnz),
+                         "binding_on_flow": int(sl.binding_on_flow.sum())},
+    }
+
+
+def fig4(A: dict, out: Path) -> Path:
     dec, x = A["dec"], np.array(YEARS)
     fig = plt.figure(figsize=(7.2, 7.2))
     outer = fig.add_gridspec(2, 2, hspace=0.45, wspace=0.32, left=0.08, right=0.92, top=0.92, bottom=0.07)
@@ -487,13 +735,13 @@ def fig3(A: dict, out: Path) -> Path:
     cb = fig.colorbar(sc, ax=fig.axes[-2:], fraction=0.04, pad=0.02)
     cb.set_label("|z|"); cb.outline.set_visible(False)
 
-    path = out / "fig3_reconciliation.png"
+    path = out / "fig4_reconciliation.png"
     fig.savefig(path, dpi=300)
     plt.close(fig)
     return path
 
 
-def fig4(B: dict, out: Path) -> Path:
+def fig5(B: dict, out: Path) -> Path:
     x = np.array(YEARS)
     fig = plt.figure(figsize=(7.2, 9.4))
     outer = fig.add_gridspec(3, 2, hspace=0.62, wspace=0.3, left=0.1, right=0.93, top=0.965, bottom=0.05,
@@ -572,7 +820,7 @@ def fig4(B: dict, out: Path) -> Path:
     ax.tick_params(length=0)
     _tag(ax, "d", f"Where the copper in final use was mined ({B['embodied_period']})")
 
-    path = out / "fig4_copper_system.png"
+    path = out / "fig5_copper_system.png"
     fig.savefig(path, dpi=300)
     plt.close(fig)
     return path
@@ -631,6 +879,9 @@ def main(opt: str, psut_id: str, tol_pair=None, out: Path = OUT_DIR) -> None:
     out.mkdir(parents=True, exist_ok=True)
     print(f"reference run {opt} · psut {psut_id} · tolerance pair {tol_pair}")
 
+    # ---- Fig. 3: the problem ------------------------------------------------------------
+    P = ProblemStatsDiagnostic.from_opt_id(opt, PROBLEM_YEAR)
+
     # ---- Part A -------------------------------------------------------------------
     ef, cf = load_frames(opt)
     dec = objective_decomposition(ef, cf)
@@ -679,8 +930,8 @@ def main(opt: str, psut_id: str, tol_pair=None, out: Path = OUT_DIR) -> None:
     # ---- ledger, figures, outputs -----------------------------------------------------
     ledger = build_ledger(A, B)
     print(ledger[["id", "value", "outcome"]].to_string(index=False))
-    p3, p4 = fig3(A, out), fig4(B, out)
-    print("figures:", p3, p4)
+    p3, p4, p5 = fig3(P, out), fig4(A, out), fig5(B, out)
+    print("figures:", p3, p4, p5)
 
     ret_all = A["retention"][A["retention"].year == "all"].set_index("stage")
     h24 = B["hhi"][B["hhi"].year == "2024"]
@@ -721,6 +972,7 @@ def main(opt: str, psut_id: str, tol_pair=None, out: Path = OUT_DIR) -> None:
         "world_extraction_kt": float(M.to_numpy().sum()),
         "chile_share_to_china": {"1995": B["chile_china_1995"], "2024": B["chile_china_2024"]},
         "ledger": ledger.to_dict("records"),
+        "problem": problem_numbers(P),
     }
     hhi_tbl = B["hhi"][B["hhi"].year.isin(["1995", "2024"])].copy()
     tables = {

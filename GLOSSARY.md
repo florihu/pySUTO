@@ -135,7 +135,8 @@ Stage 2 — filling root edges that **no feed covered**, via an ordered pipeline
 every fill is recorded in the `ImputationLog`.
 
 **Imputer**:
-One fill method — `Parametric`, `Formula`, `Time`, or `FlatPrior`; a `BaseImputer` subclass.
+One fill method — `Trade`, `Network`, `Parametric`, `Time`, `Share` or `FlatPrior`; a `BaseImputer`
+subclass. `Formula` is retired.
 
 **Constraint building**:
 Stage 3 — compiling `f_agg` / `σ_agg` into the sparse constraint matrix `G` plus per-timestep
@@ -466,6 +467,12 @@ _Avoid_: (1) reading a large-negative residual on a `nonneg` bound as a violatio
 (a misread that once produced a phantom "inverted bound" diagnosis); (2) conflating with
 **defect** — residual is per-constraint, defect is per-edge.
 
+**Prior breach** — a hard row the prior does not satisfy: `|G·a_prior − c|` above the bind
+tolerance on a `zero` row, `G·a_prior − c` above it on a `nonneg` row. The solver has to move
+flows to close it. A soft row has no breach — its disagreement with the prior is its `z`.
+_Avoid_: "prior violation"; "infeasible prior" — the prior as a whole is never feasible, a breach is
+one row's.
+
 **Structural lower bound** — the per-edge `l` of the accounting structure (`acc.bounds.l`): 0 on
 every edge except the signed stock-change edges (`Cathode→USC`, `Cathode→MESC`, `CP→PSC`), whose
 `l` is −1e6. Since [ADR 0039](docs/adr/0039-flow-lower-bounds-are-enforced-in-the-qp.md) each
@@ -560,11 +567,22 @@ _Avoid_: "shrinkage" (in statistics, the pull of an estimate toward the prior me
 year's edges: a variance-weighted mean of `κ`, so a few flat-σ edges dominate it.
 _Avoid_: "mean shrinkage".
 
+**Active set** — the hard inequality rows (lower bounds, ratio bands) that bind at `a*` in one
+year; the posterior is the QP's linearisation there. A row of the active set binds **on flow**
+when at least one of its edges (its nonzero coefficients) carries `|a*|` above the bind
+tolerance, and **on zero flows** otherwise.
+_Avoid_: "active constraints", "binding constraints" for the mass balances — equalities always hold.
+
 **Prior class** — where an edge's prior comes from, one of four: **from a feed** (a data feed
 covers the edge), **imputed** (a Stage-2 imputer wrote it), **flat** (no information of its own:
 a flat prior, anchored or not, and the fabricated waste-rock satellites) and **zero-pinned** (a
 no-data edge with `l = u = 0`). The four are disjoint and cover every edge.
 _Avoid_: "observed" vs "modelled" — an imputed prior also derives from data.
+
+**Provenance** (of an edge's prior) — *from a feed*, or the one imputer that wrote it (`network`,
+`trade`, `conc`, …): the prior class at imputer resolution. An edge has exactly one.
+_Avoid_: "raw" for the feed-covered share — a network fill also carries feed totals; "provenance"
+for a run's lineage — that is the **Sidecar**'s record.
 
 **Prior-carried / confirmed / overruled / unexplained move** — the four quadrants of an edge-year
 in posterior contraction `κ` and standardised defect `z`, cut at `κ = 0.5` and `|z| = 3`:
@@ -1077,7 +1095,8 @@ grammar `{type}_{variant}_{specs}_{year}` (tokens joined by `_`; every token und
 a key for *reading*, never *parsing*: all structured fields live as `row_meta` columns and are read
 from there. _Avoid_: splitting a `constraint_id` to recover a field — read the column instead.
 
-**type** (constraint family) — the top identity slot, one of `massbal` | `sum` | `ratio`. Already a
+**type** (constraint family) — the top identity slot, one of `massbal` | `sum` | `ratio` | `bound`
+(the structural lower bounds, ADR 0039). Already a
 reserved word for the constraint-row `type` column (see Glossary §Entity `_Avoid_`: "node type").
 _Avoid_: using `type` for an entity kind (that is **entity**: `Process` | `Flow` | `SB`).
 
