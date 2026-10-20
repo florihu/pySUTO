@@ -80,7 +80,7 @@ def crosseval(base: str, new: str) -> pd.DataFrame:
         free = qp["ct"] == "free"
         for o in (base, new):
             z = np.load(Z.ROOT / "opt" / o / "timesteps" / f"t_{t}.npz", allow_pickle=True)
-            if not np.array_equal(np.asarray(z["cols_t"], dtype=int), qp["cols"]):
+            if not np.array_equal(np.asarray(z["cols_t"], dtype=np.int64), qp["cols"]):
                 raise SystemExit(f"{o} {t}: cols_t differs from the const run's")
             F = z["F_opt"]
             J, zero_v, nn_v = Z._J(qp, F)
@@ -122,10 +122,10 @@ def round_e(base: str, new: str) -> tuple[dict, pd.DataFrame]:
 
 
 def verdict(base: str, new: str, solved: bool, phases: pd.DataFrame, x: pd.DataFrame,
-            re: dict, j: pd.DataFrame) -> None:
+            rete: dict, j: pd.DataFrame) -> None:
     """V: #72's pre-registered decision items."""
-    wr_b, med_b, _, exp_b, _ = re[base]
-    wr_n, med_n, _, exp_n, _ = re[new]
+    wr_b, med_b, _, exp_b, _ = rete[base]
+    wr_n, med_n, _, exp_n, _ = rete[new]
     big = j.c_base.abs() >= 100
     zb, zn = j.z2_base[big].sum(), j.z2_new[big].sum()
     viol = {k: max(x[f"{k} new"].max() - max(10 * x[f"{k} base"].max(), VIOL_FLOOR), 0.0)
@@ -154,8 +154,8 @@ def verdict(base: str, new: str, solved: bool, phases: pd.DataFrame, x: pd.DataF
 def main(base: str, new: str) -> None:
     solved, phases = table(base, new)
     x = crosseval(base, new)
-    re, j = round_e(base, new)
-    verdict(base, new, solved, phases, x, re, j)
+    rete, j = round_e(base, new)
+    verdict(base, new, solved, phases, x, rete, j)
 
 
 if __name__ == "__main__":

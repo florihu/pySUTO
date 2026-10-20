@@ -35,3 +35,15 @@ termination error, so a comparison across this change mixes the model's effect w
 the solver alone and W.1 a further −9.9 % below it); Stage 5's active-set fix (#27)
 must drop slack bound rows as well as slack bands; conditioning the QP so that 1e-8 converges is
 the open numerical item.
+
+**Amended 2026-10-20 (#72, measured):**
+1. **The numerical floor depends on the linear solver; faer is kept.** qdldl, Clarabel's other
+   built-in LDLᵀ, solved the final chain's 30 period QPs 4.5× faster than faer (233.6 → 51.8 s on
+   8 threads) and stopped at a different point near the floor: scored on the same QPs, Σ_t J
+   +1,337.5 (+0.043 % vs `opt_20261019_171746_3272682b`), lower in 13 of 30 years, per-year ΔJ
+   mean +44.6 and sd 134.9, so indistinguishable from faer at these tolerances. Rejected on
+   measurement (run `opt_20261020_090246_99da4a39`; REP
+   [`…issue72-qdldl`](../rep/analysis_opt_20261020_090246_99da4a39_20261020_issue72-qdldl.md)):
+   no quality gain, Stage 4 only 745 → 563 s behind the 444-s probe, and every number of the
+   reference chain would move. A comparison across a linear-solver change, like one across the
+   tolerance change above, mixes the solver's floor into the model's effect.
