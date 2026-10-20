@@ -74,7 +74,8 @@ class OptimResult:
     eps_opt:       np.ndarray      # (n_free,) — slack on soft rows in original row order
     c_star:        np.ndarray      # (M,) — c + ε (ε=0 for hard rows). Diagnostic.
     residuals:     np.ndarray      # (M,) — G @ F_opt - c (original row order)
-    objective:     float
+    objective:     float           # Clarabel's cost: J − Σ(a_prior/σ_a)² for qp_variables
+                                   # 'flows', J itself for 'defects' (#33)
     iterations:    int
     solve_time_s:  float
     solver_status: str             # str(clarabel SolverStatus enum)
@@ -147,6 +148,14 @@ class ClarabelSolver:
 
     Defaults give ~12 orders of magnitude condition number — fine for
     Clarabel with default static + dynamic regularisation.
+
+    QP variables (#33)
+    ------------------
+    ``qp_variables='flows'`` (the default) solves for ``a``: ``q = −2·Σ_a^{-1}·a_prior``
+    and Clarabel's cost is J − Σ(a_prior/σ_a)². ``'defects'`` solves the same QP for
+    the defect ``d = a − a_prior`` (same P and A, ``q = 0``, ``b = c − G·a_prior``), so
+    the cost is J itself; ``F_opt`` is returned as ``a_prior + d`` either way. Block
+    path only (serial and parallel); the feasibility probe has no σ-weighted cost.
     """
 
     def __init__(
@@ -169,10 +178,15 @@ class ClarabelSolver:
         prior_mode:             str   = "warm",
         n_workers:              int   = 1,
         direct_solve_method:    str   = "faer",
+        qp_variables:           str   = "flows",
     ) -> None:
         if prior_mode not in ("warm", "cold"):
             raise ValueError(
                 f"prior_mode must be 'warm' or 'cold', got {prior_mode!r}"
+            )
+        if qp_variables not in ("flows", "defects"):
+            raise ValueError(
+                f"qp_variables must be 'flows' or 'defects', got {qp_variables!r}"
             )
         if n_workers < 1:
             raise ValueError(f"n_workers must be ≥ 1, got {n_workers}")
@@ -186,6 +200,7 @@ class ClarabelSolver:
         self.prior_mode             = prior_mode
         self.n_workers              = n_workers
         self.direct_solve_method    = direct_solve_method
+        self.qp_variables           = qp_variables
         self.sigma_a_floor_abs      = sigma_a_floor_abs
         self.sigma_a_floor_rel      = sigma_a_floor_rel
         self.sigma_a_ceiling_factor = sigma_a_ceiling_factor
@@ -553,6 +568,7 @@ class ClarabelSolver:
                 "n_workers":           min(self.n_workers, len(ts_labels)),
                 "max_threads":         _PERIOD_MAX_THREADS,
                 "direct_solve_method": self.direct_solve_method,
+                "qp_variables":        self.qp_variables,
             }
         else:
             results = self._solve_all_legacy(
@@ -571,6 +587,11 @@ class ClarabelSolver:
     ) -> dict[str, OptimResult]:
         """Legacy path: full-G QP per timestep with solver.update() warm-start.
         Used only when run.G_blocks is empty (test fixtures predating Slice 2)."""
+        if self.qp_variables != "flows":
+            raise ValueError(
+                f"qp_variables={self.qp_variables!r} needs the block path "
+                f"(run.G_blocks); the legacy full-G path solves for the flows only"
+            )
         # Feasibility pre-check
         check_labels = ts_labels[:1] if feasibility_check_first_only else ts_labels
         logger.info(
@@ -898,8 +919,15 @@ class ClarabelSolver:
             inv_scf = np.zeros(0)
         P_diag_t = 2.0 * np.concatenate([inv_sa_t, inv_scf])
         P_t      = sp.diags(P_diag_t, format="csc")
-        q_t      = np.concatenate([-2.0 * inv_sa_t * a_prior_t,
-                                    np.zeros(n_free_t)])
+        if self.qp_variables == "defects":
+            # Solve for d = a − a_prior (#33): the same QP with q = 0, so Clarabel's
+            # cost is J itself, not J minus the constant Σ(a_prior/σ_a)² (≈ 1e6 vs
+            # J ≈ 1e5), and q no longer enters its dual-residual scaling.
+            q_t = np.zeros(n_a_t + n_free_t)
+            b_t = b_t - G_p_t @ a_prior_t
+        else:
+            q_t = np.concatenate([-2.0 * inv_sa_t * a_prior_t,
+                                  np.zeros(n_free_t)])
 
         cones_t: list = []
         if n_free_t   > 0: cones_t.append(clarabel.ZeroConeT(n_free_t))
@@ -971,6 +999,8 @@ class ClarabelSolver:
 
         x         = np.asarray(sol.x)
         F_opt_t   = x[:n_a_t]
+        if self.qp_variables == "defects":
+            F_opt_t = a_prior_t + F_opt_t
         eps_opt_t = x[n_a_t:] if n_free_t else np.zeros(0)
 
         # ε back into row-order on the per-t row block

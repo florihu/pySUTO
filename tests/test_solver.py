@@ -816,6 +816,191 @@ class TestParallelSolve:
         assert not list(opt_dir.glob("opt_*")), "a failed solve registered a run"
 
 
+# ---------------------------------------------------------------------------
+# QP variables (#33): the flows or their defects
+# ---------------------------------------------------------------------------
+
+def _block_run(G_t, cone_type, period_data, run_id="qp_toy"):
+    """A block-path ConstraintRun whose periods share the block ``G_t`` (row cones
+    ``cone_type``). ``period_data`` maps each period to its ``(c, sigma_c, a_prior,
+    sigma_a)`` over the block's rows and edges. Single-entry ``−1`` rows are typed
+    ``bound``, the other nonneg rows ``ratio``, the free rows ``sum``."""
+    from pysuto.constraints import ConstraintRun
+    m, n = G_t.shape
+    periods = list(period_data)
+    cone_type = np.asarray(cone_type)
+    is_bound = (G_t.getnnz(axis=1) == 1) & (np.asarray(G_t.sum(axis=1)).ravel() == -1.0)
+    row_type = np.where(cone_type == "free", "sum", np.where(is_bound, "bound", "ratio"))
+    row_meta = pd.concat([pd.DataFrame({
+        "constraint_id": [f"r{i}_{t}" for i in range(m)],
+        "type":          row_type,
+        "is_hard":       cone_type != "free",
+        "cone_type":     cone_type,
+        "time":          t,
+    }) for t in periods], ignore_index=True)
+    timestep_data = {}
+    for k, (t, (c, sigma_c, a_prior, _)) in enumerate(period_data.items()):
+        c_full, sc_full = np.zeros(m * len(periods)), np.zeros(m * len(periods))
+        c_full[k * m:(k + 1) * m], sc_full[k * m:(k + 1) * m] = c, sigma_c
+        timestep_data[t] = {"c": c_full, "sigma_c": sc_full,
+                            "a_prior": np.asarray(a_prior, dtype=float)}
+    return ConstraintRun(
+        G              = sp.block_diag([G_t] * len(periods), format="csr"),
+        row_meta       = row_meta,
+        a0             = np.concatenate([d[2] for d in period_data.values()]),
+        sigma_a        = np.concatenate([d[3] for d in period_data.values()]),
+        u              = np.full(n * len(periods), 1e4),
+        l              = np.zeros(n * len(periods)),
+        timestep_data  = timestep_data,
+        run_id         = run_id,
+        acc_id         = "toy_acc",
+        agg_id         = "toy_agg",
+        created_at     = "2026-10-20T00:00:00",
+        G_blocks       = {t: G_t.copy() for t in periods},
+        edge_cols_by_t = {t: np.arange(k * n, (k + 1) * n) for k, t in enumerate(periods)},
+    )
+
+
+def _make_wide_sigma_run(periods=("2020",), seed=33):
+    """Five edges per period, σ_a over eight orders (1e-3 … 1e5)::
+
+        zero    e0 − e1 − e2 − e3 − e4 = 0    (balance; pins the loose e1)
+        free    e0      = 110,  σ_c = 5
+        free    e1 + e2 = 105,  σ_c = 3
+        nonneg  e2 − 0.55·e0 ≤ 0              (hard band, binding)
+        nonneg  −e_i ≤ 0                      (lower bounds; e3's binds)
+
+    Every edge is held by its prior or pinned by a hard row, and the tight edge e4 has
+    a near-zero prior, so Σ(a_prior/σ_a)² stays within an order of J and the flows
+    solve converges as well as the defects solve. Periods after the first share the
+    block (a serial solve reuses its KKT factorisation) with the soft rows' c and the
+    priors scaled by U(0.9, 1.1), seeded."""
+    rng = np.random.default_rng(seed)
+    G_t = sp.csr_matrix(np.vstack([
+        [1.0,   -1.0, -1.0, -1.0, -1.0],
+        [1.0,    0.0,  0.0,  0.0,  0.0],
+        [0.0,    1.0,  1.0,  0.0,  0.0],
+        [-0.55,  0.0,  1.0,  0.0,  0.0],
+        -np.eye(5),
+    ]))
+    cone_type = ["zero", "free", "free", "nonneg"] + ["nonneg"] * 5
+    c         = np.array([0.0, 110.0, 105.0, 0.0] + [0.0] * 5)
+    sigma_c   = np.array([0.0, 5.0, 3.0, 0.0] + [0.0] * 5)
+    a_prior   = np.array([100.0, 40.0, 80.0, -20.0, 0.002])
+    sigma_a   = np.array([5.0, 1e5, 2.0, 2.0, 1e-3])
+    period_data = {}
+    for k, t in enumerate(periods):
+        scale_c = np.ones(9)
+        scale_c[1:3] = rng.uniform(0.9, 1.1, 2) if k else 1.0
+        scale_a = rng.uniform(0.9, 1.1, 5) if k else np.ones(5)
+        period_data[t] = (c * scale_c, sigma_c, a_prior * scale_a, sigma_a)
+    return _block_run(G_t, cone_type, period_data)
+
+
+class TestQpVariables:
+    """#33: solving for the defects d = a − a_prior (q = 0, b = c − G·a_prior) is the
+    same QP as solving for the flows, whose cost carries the constant Σ(a_prior/σ_a)²;
+    the result comes back in flow space either way."""
+
+    @staticmethod
+    def _solve(run, tmp_path, monkeypatch, qp_variables, n_workers=1):
+        from pysuto.solver import ClarabelSolver
+        s = ClarabelSolver(const_dir=str(tmp_path / "const"), opt_dir=str(tmp_path / "opt"),
+                           verbose_first_solve=False, prior_mode="cold",
+                           n_workers=n_workers, qp_variables=qp_variables)
+        monkeypatch.setattr(s, "load_run", lambda _rid: run)
+        return s, s.solve_all(run.run_id)
+
+    @staticmethod
+    def _J(run, t, F):
+        """Σ((F − a_prior)/σ_a)² + Σ_free((G·F − c)/σ_c)² of period ``t``."""
+        rows = np.where(run.row_meta["time"].to_numpy() == t)[0]
+        cols = run.edge_cols_by_t[t]
+        r    = run.G_blocks[t] @ F - run.timestep_data[t]["c"][rows]
+        free = run.row_meta["cone_type"].to_numpy()[rows] == "free"
+        sc   = run.timestep_data[t]["sigma_c"][rows]
+        return (float((((F - run.a0[cols]) / run.sigma_a[cols]) ** 2).sum())
+                + float(((r[free] / sc[free]) ** 2).sum()))
+
+    def _assert_same_optimum(self, run, flows, defects):
+        assert list(defects) == list(flows)
+        for t in flows:
+            f, d = flows[t], defects[t]
+            assert f.solver_status == d.solver_status == "Solved", t
+            for k in ("F_opt", "eps_opt", "residuals", "c_star"):
+                assert np.allclose(getattr(d, k), getattr(f, k), rtol=1e-7, atol=1e-7), \
+                    (t, k, np.max(np.abs(getattr(d, k) - getattr(f, k))))
+            np.testing.assert_array_equal(d.a_prior, f.a_prior)
+            assert self._J(run, t, d.F_opt) == pytest.approx(self._J(run, t, f.F_opt),
+                                                             rel=1e-6)
+
+    def test_defects_give_the_flows_optimum_with_binding_bound_and_band(
+        self, tmp_path, monkeypatch,
+    ):
+        run = _make_wide_sigma_run()
+        _, flows   = self._solve(run, tmp_path, monkeypatch, "flows")
+        _, defects = self._solve(run, tmp_path, monkeypatch, "defects")
+        self._assert_same_optimum(run, flows, defects)
+
+        F = defects["2020"].F_opt
+        assert F[3] == pytest.approx(0.0, abs=1e-6)            # e3's lower bound binds
+        assert F[2] == pytest.approx(0.55 * F[0], rel=1e-6)    # the band binds
+        assert F[0] == pytest.approx(F[1:].sum(), rel=1e-9)    # the balance holds
+
+    @pytest.mark.parametrize("n_workers", [1, 2])
+    def test_defects_give_the_flows_optimum_on_both_period_paths(
+        self, tmp_path, monkeypatch, n_workers,
+    ):
+        """n_workers=1 reuses one Clarabel instance across the two identical periods
+        (update(P, q, b)); n_workers=2 solves them concurrently."""
+        from pysuto.solver import ClarabelSolver
+        run = _make_wide_sigma_run(periods=("2020", "2021"))
+        assert ClarabelSolver._per_t_problem_identical(run, ["2020", "2021"])
+        _, flows   = self._solve(run, tmp_path, monkeypatch, "flows",   n_workers)
+        _, defects = self._solve(run, tmp_path, monkeypatch, "defects", n_workers)
+        self._assert_same_optimum(run, flows, defects)
+        for t in defects:
+            assert defects[t].F_opt[3] == pytest.approx(0.0, abs=1e-6), t
+
+    def test_objective_is_the_cost_of_the_solved_variables(self, tmp_path, monkeypatch):
+        """Clarabel's cost: J for the defects, J − Σ(a_prior/σ_a)² for the flows."""
+        run = _make_wide_sigma_run()
+        _, flows   = self._solve(run, tmp_path, monkeypatch, "flows")
+        _, defects = self._solve(run, tmp_path, monkeypatch, "defects")
+        const = float(((run.a0 / run.sigma_a) ** 2).sum())
+        J = self._J(run, "2020", defects["2020"].F_opt)
+        assert defects["2020"].objective == pytest.approx(J, rel=1e-6)
+        assert flows["2020"].objective + const == pytest.approx(J, rel=1e-6)
+
+    def test_flows_is_the_default_and_the_sidecar_records_the_choice(
+        self, tmp_path, monkeypatch,
+    ):
+        from pysuto.solver import ClarabelSolver
+        assert ClarabelSolver(const_dir=str(tmp_path / "c"),
+                              opt_dir=str(tmp_path / "o")).qp_variables == "flows"
+        run = _make_wide_sigma_run()
+        s, results = self._solve(run, tmp_path, monkeypatch, "defects")
+        out_id = s.persist(run_id=run.run_id, results=results,
+                           output_dir=str(tmp_path / "opt"))
+        with open(tmp_path / "opt" / out_id / "metadata.json") as fh:
+            assert json.load(fh)["stage_config"]["qp_variables"] == "defects"
+
+    def test_unknown_qp_variables_raises(self, tmp_path):
+        from pysuto.solver import ClarabelSolver
+        with pytest.raises(ValueError, match="qp_variables"):
+            ClarabelSolver(const_dir=str(tmp_path / "c"), opt_dir=str(tmp_path / "o"),
+                           qp_variables="whitened")
+
+    def test_legacy_full_g_path_solves_for_the_flows_only(self, tmp_path, monkeypatch,
+                                                          toy_run):
+        from pysuto.solver import ClarabelSolver
+        s = ClarabelSolver(const_dir=str(tmp_path / "c"), opt_dir=str(tmp_path / "o"),
+                           verbose_first_solve=False, qp_variables="defects")
+        monkeypatch.setattr(s, "load_run", lambda _rid: toy_run)
+        with pytest.raises(ValueError, match="block path"):
+            s.solve_all("toy_run")
+
+
 class TestPreFixBlockRunGuard:
 
     def _block_const_run(self):
