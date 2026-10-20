@@ -2,7 +2,8 @@
 uncprop_diag.py
 ===============
 Stage 5-diag driver: render the UncPropDiag portfolio (UD-R-01 contraction–shift,
-UD-R-02 prior vs posterior bands, ``contraction_summary.csv``) for a persisted
+UD-R-02 prior vs posterior bands, UD-R-03 shift calibration,
+``contraction_summary.csv``, ``calibration.csv``, ``birge.csv``) for a persisted
 uncprop run.
 
 The opt and const runs are resolved from the uncprop run's sidecar
@@ -14,7 +15,8 @@ Usage::
     python scripts/uncprop_diag.py <uncprop_run_id> [--label LABEL] [--regions Chile Zambia]
 
 Figures land in ``data/proc/uncprop/<uncprop_run_id>/diag/`` (``--regions`` adds a
-``__<region>`` suffix and restricts both figures and the CSV).
+``__<region>`` suffix and restricts the figures and the per-edge CSVs; ``birge.csv``
+is run-level and never filtered).
 """
 
 from __future__ import annotations

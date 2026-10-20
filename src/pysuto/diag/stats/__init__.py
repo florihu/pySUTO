@@ -20,8 +20,10 @@ Groups the stats-table diagnostics and their shared builders:
                                                     z profiles, objective decomposition).
 * :class:`UncPropStatsDiagnostic`(``uncprop.py``)— Stage 5: all-years edge frame
                                                     (σ_a*, contraction κ, defect z,
-                                                    prior class, κ–z quadrant) behind
-                                                    ``UncPropDiag``.
+                                                    prior class, κ–z quadrant,
+                                                    standardised shift z/√κ) behind
+                                                    ``UncPropDiag``, its calibration
+                                                    table and the Birge ratio.
 * :class:`ProblemStatsDiagnostic`(``problem.py``)— Stages 2–4: the problem one
                                                     period is handed (edge provenance,
                                                     chain profile, prior breach and

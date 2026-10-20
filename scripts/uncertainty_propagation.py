@@ -14,9 +14,10 @@ Pipeline
    marginal diagonal of the posterior covariance
 3  persist(result, opt_run_id, label) — writes per-t .npz arrays and a
    harmonized sidecar under data/proc/uncprop/<uncprop_run_id>/
-4  Render the UncPropDiag portfolio (UD-R-01/02 + contraction_summary.csv)
-   from the persisted run into data/proc/uncprop/<uncprop_run_id>/diag/
-   (re-render later with scripts/uncprop_diag.py)
+4  Render the UncPropDiag portfolio (UD-R-01/02/03 + contraction_summary.csv,
+   calibration.csv, birge.csv) from the persisted run into
+   data/proc/uncprop/<uncprop_run_id>/diag/ (re-render later with
+   scripts/uncprop_diag.py)
 
 Usage::
 
@@ -33,13 +34,14 @@ from datetime import datetime
 # ---------------------------------------------------------------------------
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
-OPT_DIR     = os.path.join("data", "proc", "opt")
-CONST_DIR   = os.path.join("data", "proc", "const")
-UNCPROP_DIR = os.path.join("data", "proc", "uncprop")
-IMP_DIR     = os.path.join("data", "proc", "imp")
-ALPHA       = 0.05
-BIND_TOL    = 1e-6      # kt — a hard inequality row binds when G·a* − c ≥ −BIND_TOL (#27)
-RANK_TOL    = 1e-10     # pivot tolerance for hard rows dependent on the others (#27)
+OPT_DIR              = os.path.join("data", "proc", "opt")
+CONST_DIR            = os.path.join("data", "proc", "const")
+UNCPROP_DIR          = os.path.join("data", "proc", "uncprop")
+IMP_DIR              = os.path.join("data", "proc", "imp")
+ALPHA                = 0.05
+BIND_TOL             = 1e-6    # kt — a hard inequality row binds when G·a* − c ≥ −BIND_TOL (#27)
+RANK_TOL             = 1e-10   # pivot tolerance for hard rows dependent on the others (#27)
+EXCLUDE_SCALE_TOTALS = False   # True leaves the scale totals out of S(t) — ablation (#87)
 # ---------------------------------------------------------------------------
 # END USER CONFIGURATION
 # ---------------------------------------------------------------------------
@@ -60,14 +62,16 @@ def main(opt_run_id: str, label: str = "") -> None:
     )
 
     _log.info("=== init_uncertainty_propagation START ===")
-    _log.info("opt_run_id=%s  alpha=%.3f", opt_run_id, ALPHA)
+    _log.info("opt_run_id=%s  alpha=%.3f  exclude_scale_totals=%s",
+              opt_run_id, ALPHA, EXCLUDE_SCALE_TOTALS)
 
     prop = KalmanUncProp(
-        opt_dir     = OPT_DIR,
-        const_dir   = CONST_DIR,
-        uncprop_dir = UNCPROP_DIR,
-        bind_tol    = BIND_TOL,
-        rank_tol    = RANK_TOL,
+        opt_dir              = OPT_DIR,
+        const_dir            = CONST_DIR,
+        uncprop_dir          = UNCPROP_DIR,
+        bind_tol             = BIND_TOL,
+        rank_tol             = RANK_TOL,
+        exclude_scale_totals = EXCLUDE_SCALE_TOTALS,
     )
 
     result = prop.compute(opt_run_id, alpha=ALPHA)

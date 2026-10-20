@@ -594,6 +594,23 @@ prior-carried (`κ < 0.5`, `|z| ≤ 3`), confirmed (`κ ≥ 0.5`, `|z| ≤ 3`), 
 `|z| > 3`, a prior–data conflict) and unexplained move (`κ < 0.5`, `|z| > 3`, moved uninformed).
 _Avoid_: "unidentified" for prior-carried — the edge has a value, only no new information.
 
+**Standardised shift (`z/√κ`)** — an edge-year's defect `z` over `√κ`: N(0, 1) under the
+active-set linearisation when σ is right, read only on edge-years that are not bound-active, have
+`κ ≥ 0.01` and are not flat. Its **tail share** is the share beyond `|z/√κ| = 3` (0.27 % under
+N(0, 1)).
+_Avoid_: "pull", "normalised residual".
+
+**Flagged ambiguity — "standardised".** The **standardised defect** `z = (a* − a_prior)/σ_a` is
+scaled by the prior σ and shrinks toward 0 as `κ → 0`; the **standardised shift** `z/√κ` is scaled
+by the shift's own σ. Only the shift is compared with N(0, 1).
+
+**Birge ratio (`R`)** — `Σz²/dof` of a year or the run: the QP objective at `a*` over the
+independent constraints of the active-set problem (soft rows kept, independent hard rows kept,
+scale totals an ablation left out, bound-active edges whose prior is off the bound — a pin on its
+own prior is zero by construction); `R > 1` means σ is too small by about `√R`, and the
+**Birge-scaled interval** `a* ± z_α·√R·σ_a*` is quoted beside the stored `[lower, upper]`.
+_Avoid_: "reduced χ²", "goodness of fit".
+
 ## Stock-change vocabulary
 
 **Stock-change leg** — one of the three signed edges of the account: `Cathode→USC`,

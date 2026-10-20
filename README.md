@@ -788,6 +788,7 @@ Per year the sidecar records `n_bound_active`, `n_bands_binding`, `n_hard_depend
 | `sigma_c_floor` | `1e-9` | Floor on soft-row σ_c; hard rows are forced to exact zero regardless |
 | `bind_tol` | `1e-6` | kt — a hard inequality row binds at `a*` when `G·a* − c ≥ −bind_tol` (driver knob `BIND_TOL`) |
 | `rank_tol` | `1e-10` | Pivot tolerance of the scaled hard-block pivoted Cholesky that drops dependent hard rows (driver knob `RANK_TOL`) |
+| `exclude_scale_totals` | `False` | Ablation (#87): leaves the scale totals and scrap level anchors (`row_meta.type == "sum"`, `variant` in `SCALE_TOTAL_VARIANTS`) out of `S(t)`; `a*` is untouched and the count lands in `n_scale_totals_left_out` (driver knob `EXCLUDE_SCALE_TOTALS`, recorded in `stage_config`) |
 
 #### Use case
 
@@ -816,7 +817,11 @@ uncprop_run_id  = prop.persist(result, opt_run_id, label="copper")
 
 - **UD-R-01** — κ against the signed defect `z`, hexbin weighted by `max(|a_prior|, |a*|)` (kt), one panel per prior class × valuation, bound-active edges circled.
 - **UD-R-02** — prior `a_prior ± z_α·σ_a` against the posterior `[lower, upper]` over the years, for the top-12 identities per valuation.
+- **UD-R-03** — QQ plot of the **standardised shift** `z/√κ` against N(0, 1), one panel per prior class × valuation, over the edge-years that are not bound-active, have `κ ≥ 0.01` and are not flat; the N(0, R) line uses the run's **Birge ratio**.
 - `contraction_summary.csv` — edge count and Σ weight per year × valuation × prior class × quadrant.
+- `calibration.csv` — per valuation × prior class: the share with `|z/√κ| > 3` (N(0, 1) expects 0.27 %), unweighted and weighted by `max(|a_prior|, |a*|)`, the quantiles of `|z/√κ|`, and the same shares beyond `3·√R`.
+- `birge.csv` — the Birge ratio `R = Σz²/dof` per year and over the run: `Σz²` is the QP objective at `a*` (SolverDiag's objective decomposition), `dof` = Stage 5's `n_rows_kept + n_scale_totals_left_out + n_bound_active` minus `n_bound_active_at_prior` (pins whose prior already sits on the bound, within `bind_tol`: zero by construction, no degree of freedom); it carries the half-widths `z_α` and `z_α·√R` of the raw and the Birge-scaled interval. `UncPropStatsDiagnostic.birge_interval(frame)` gives the scaled interval per edge-year; the stored `lower` / `upper` are never rescaled.
+- A scale-total ablation run (`exclude_scale_totals`) gets no UD-R-03, no `calibration.csv` and no Birge interval: its `z` comes from the full fit, its `κ` and `σ_a*` from the reduced `S(t)`. Its Birge ratio is the full fit's.
 
 Before the active set (#27) no copper chain could run Stage 5: every hard inequality row entered `S_t` as an equality and made it singular.
 
