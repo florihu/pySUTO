@@ -405,3 +405,16 @@ class InputRegistries:
             mask=InputRegistry("mask", root).initialize(
                 label_overrides.get("mask"), pins.get("mask")),
         )
+
+    @classmethod
+    def load(cls, root: Path | str = Path("data/input")) -> "InputRegistries":
+        """Read-only view: resolves against what is registered and never versions
+        a ``current/``. For lookups and diagnostics; a pipeline step registers its
+        inputs with :meth:`initialize` (#93: a diagnostic's lookup through
+        ``initialize`` registered a mid-edit ``current/`` as baci v25)."""
+        return cls(
+            feed=InputRegistry("feed", root),
+            acc=InputRegistry("acc", root),
+            params=InputRegistry("params", root),
+            mask=InputRegistry("mask", root),
+        )

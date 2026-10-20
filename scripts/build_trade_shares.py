@@ -277,6 +277,13 @@ def _conc_lookup() -> dict:
 
 
 def _input_registries():
+    """Read-only: a lookup never versions a ``current/`` (#93)."""
+    from pysuto.input_registry import InputRegistries
+    return InputRegistries.load(root=_INPUT_ROOT)
+
+
+def _register_inputs():
+    """Version every edited ``current/`` — ``main``'s call, as a pipeline step's."""
     from pysuto.input_registry import InputRegistries
     return InputRegistries.initialize(root=_INPUT_ROOT)
 
@@ -526,6 +533,7 @@ def main() -> None:
     print("=" * 60)
     print("Building BACI trade-share weights (ADR 0002 option D)")
     print(f"   sectors: {SECTORS}  (Scrap excluded — not traded)")
+    _register_inputs()
 
     acc_id = load_config().pipeline.acc_id
     acc = AccountingStructure.load(id=acc_id, storage_dir=ACC_DIR)
@@ -596,8 +604,7 @@ def main() -> None:
           f"{shares.groupby(['root_sector_from','root_sector_to','root_region_to','root_time']).ngroups:,}")
 
     # Snapshot/version the artifact via the params registry (provenance).
-    inputs = _input_registries()
-    entry = inputs.params.entry("trade_shares")
+    entry = _register_inputs().params.entry("trade_shares")
     print(f"   registered trade_shares v{entry['version']} ({entry['code']})")
 
 

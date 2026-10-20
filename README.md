@@ -1157,6 +1157,9 @@ the registry hashes the *load-bearing* files in each `<id>/current/`
 and compares against the latest registered version.  If anything
 changed, `v_{N+1}/` is materialised — with **hardlinks** for files
 unchanged from the prior version, fresh copies for files that changed.
+Registering is a pipeline step's call. A lookup or a diagnostic uses
+`InputRegistries.load()`, which resolves against what is registered and
+never versions a `current/` (#93).
 
 Load-bearing files per kind:
 

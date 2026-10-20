@@ -327,6 +327,27 @@ def test_input_registries_pins_per_kind(tmp_path: Path) -> None:
     assert inputs.params.entry("conc")["version"] == 1
 
 
+def test_load_reads_the_registered_version_and_registers_nothing(tmp_path: Path) -> None:
+    """A read-only caller must not version a mid-edit current/: a diagnostic's
+    lookup registered baci v25, a version no run uses (#93)."""
+    _params_id(tmp_path, "eff", "v;1\n")
+    _feed_id(tmp_path, "baci", {"data.csv": "x,1\n"})
+    InputRegistries.initialize(root=tmp_path)
+    _write(tmp_path / "params" / "eff" / "current" / "params.csv", "v;2\n")
+    _feed_id(tmp_path, "baci", {"data.csv": "x,2\n"})
+    before = {k: (tmp_path / k / "registry.json").read_bytes() for k in ("params", "feed")}
+
+    inputs = InputRegistries.load(root=tmp_path)
+
+    assert inputs.params.entry("eff")["version"] == 1
+    assert (inputs.params.resolve("eff") / "params.csv").read_text() == "v;1\n"
+    assert inputs.feed.entry("baci")["version"] == 1
+    assert not (tmp_path / "params" / "eff" / "v2").exists()
+    assert not (tmp_path / "feed" / "baci" / "v2").exists()
+    assert {k: (tmp_path / k / "registry.json").read_bytes()
+            for k in ("params", "feed")} == before
+
+
 # =============================================================================
 # Registry JSON shape
 # =============================================================================

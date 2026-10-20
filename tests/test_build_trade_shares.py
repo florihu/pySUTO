@@ -587,3 +587,22 @@ def test_a_stock_change_the_raw_rows_no_longer_carry_is_not_fanned():
     assert len(out) == 3
     assert w["Chile"] == pytest.approx(0.9975 * 10.0)
     assert (out["weight"] >= 0).all()
+
+
+# ---- #93: a lookup reads the registered version and registers nothing ------
+
+def test_eff_lookup_does_not_version_an_edited_current(tmp_path, monkeypatch):
+    """Every lookup here goes through `_input_registries`; a diagnostic calling one
+    must not register what current/ holds mid-edit (#93)."""
+    import build_trade_shares as B
+    from pysuto.input_registry import InputRegistries
+
+    csv = tmp_path / "params" / "eff" / "current" / "params.csv"
+    csv.parent.mkdir(parents=True)
+    csv.write_text("param_type;a_sector_to;value_nominal\nefficiency;Smelting;0.98\n")
+    InputRegistries.initialize(root=tmp_path)
+    csv.write_text("param_type;a_sector_to;value_nominal\nefficiency;Smelting;0.95\n")
+    monkeypatch.setattr(B, "_INPUT_ROOT", str(tmp_path))
+
+    assert B._eff_smelting() == pytest.approx(0.98)
+    assert not (tmp_path / "params" / "eff" / "v2").exists()

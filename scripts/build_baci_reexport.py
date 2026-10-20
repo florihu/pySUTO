@@ -500,6 +500,13 @@ def label_row(r) -> str:
 # ---------------------------------------------------------------------------
 
 def _input_registries():
+    """Read-only: a lookup never versions a ``current/`` (#93)."""
+    from pysuto.input_registry import InputRegistries
+    return InputRegistries.load(root=_INPUT_ROOT)
+
+
+def _register_inputs():
+    """Version every edited ``current/`` — ``main``'s call, as a pipeline step's."""
     from pysuto.input_registry import InputRegistries
     return InputRegistries.initialize(root=_INPUT_ROOT)
 
@@ -764,6 +771,7 @@ def main(source_version: int = SOURCE_VERSION) -> None:
     print(f"   sectors    : {SECTORS}")
     src_dir = _source_dir(source_version)
     check_region_map(src_dir)
+    _register_inputs()
 
     conc_lookup = _conc_lookup()
     _wild = {s_: v for (s_, r_), v in conc_lookup.items() if r_ == "*"}
@@ -851,7 +859,7 @@ def main(source_version: int = SOURCE_VERSION) -> None:
         print(f"   carried forward quantity_cv_scale.csv from {src_dir}")
     print(f"\n   wrote values.csv + 3 ledgers → {OUT_DIR}")
 
-    entry = _input_registries().feed.entry(FEED_ID)
+    entry = _register_inputs().feed.entry(FEED_ID)
     print(f"   registered {FEED_ID} v{entry['version']} ({entry['code']})")
 
 
