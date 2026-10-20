@@ -782,14 +782,20 @@ class TestParallelSolve:
     def test_failed_periods_are_named_and_nothing_is_returned(self, tmp_path, monkeypatch):
         """Clarabel reports NumericalError on every period (the toy itself
         solves in 0 iterations, so max_iter cannot make it fail); the probe is
-        skipped so the failure comes from the period solves themselves."""
+        skipped so the failure comes from the period solves themselves. Both
+        periods meet at a barrier before either fails: otherwise, under CPU
+        load, 2021 is cancelled before it starts and only 2020 is named (#83)."""
+        import threading
         import types
         import pysuto.solver as solver_mod
+
+        both_started = threading.Barrier(2, timeout=30)
 
         class _NumericalError:
             def __init__(self, inner):
                 self._inner = inner
             def solve(self):
+                both_started.wait()
                 sol = self._inner.solve()
                 return types.SimpleNamespace(status="NumericalError", x=sol.x,
                                              iterations=sol.iterations,
