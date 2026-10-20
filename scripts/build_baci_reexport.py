@@ -107,6 +107,7 @@ from collections import defaultdict
 import numpy as np
 import pandas as pd
 
+from pysuto.input_registry import InputRegistries
 from pysuto.param_relation import conc_for
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -501,13 +502,11 @@ def label_row(r) -> str:
 
 def _input_registries():
     """Read-only: a lookup never versions a ``current/`` (#93)."""
-    from pysuto.input_registry import InputRegistries
     return InputRegistries.load(root=_INPUT_ROOT)
 
 
 def _register_inputs():
     """Version every edited ``current/`` — ``main``'s call, as a pipeline step's."""
-    from pysuto.input_registry import InputRegistries
     return InputRegistries.initialize(root=_INPUT_ROOT)
 
 

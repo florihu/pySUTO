@@ -327,14 +327,14 @@ def test_input_registries_pins_per_kind(tmp_path: Path) -> None:
     assert inputs.params.entry("conc")["version"] == 1
 
 
-def test_a_params_provenance_file_is_load_bearing(tmp_path: Path) -> None:
+def test_a_params_parents_file_is_load_bearing(tmp_path: Path) -> None:
     """Weights rebuilt from a new feed run can be byte-identical; the version must
     still change, or it keeps naming the old run (#53). An id without the file is
     hashed as before, so no existing version is re-registered."""
-    _params_id(tmp_path, "trade_shares", "w\n1\n", {"provenance.json": '{"run": "a"}'})
+    _params_id(tmp_path, "trade_shares", "w\n1\n", {"parents.json": '{"run": "a"}'})
     _params_id(tmp_path, "conc", "x\n")
     InputRegistry("params", root=tmp_path).initialize()
-    _write(tmp_path / "params" / "trade_shares" / "current" / "provenance.json", '{"run": "b"}')
+    _write(tmp_path / "params" / "trade_shares" / "current" / "parents.json", '{"run": "b"}')
 
     reg = InputRegistry("params", root=tmp_path).initialize()
 

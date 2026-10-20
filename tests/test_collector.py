@@ -134,7 +134,7 @@ class TestFeedCollectorSelect:
     def test_a_registry_error_on_resolve_propagates(self, registry, acc):
         """The collector used to swallow TypeError/AttributeError/KeyError here as a
         fallback for test doubles, recording the feed with no run id (#53)."""
-        class _Broken(type(registry)):
+        class _Broken(_MockRegistry):
             def resolve(self, key):
                 raise KeyError(f"registry index for {key!r} is corrupt")
 

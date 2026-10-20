@@ -204,8 +204,8 @@ cross-cutting (import nothing from the data layer):
 > version was registered and printed it, with no check that it post-dated the `values.csv` it was
 > fanning. This happened for four consecutive rounds and cost 6.2 percentage points of sum-row z²;
 > rebuilding alone moved 21,709 kt CC from domestic residual onto import legs. Since #53 the builder
-> writes `provenance.json` beside `params.csv` — the BACI feed run and the `baci`, `icsg`, `conc` and
-> `eff` versions it read — and `icsg_feed.py` refuses weights whose record differs from what is in
+> writes `parents.json` beside `params.csv` — the BACI feed run and the `baci`, `icsg`, `conc` and
+> `eff` versions it read — and `icsg_feed.py` refuses weights whose parents differ from what is in
 > force. The full order after a feed change is:
 >
 > ```
@@ -1167,7 +1167,7 @@ Load-bearing files per kind:
 
 | Kind | Load-bearing files |
 |---|---|
-| `params/<id>/` | `params.csv`, plus `provenance.json` where a builder writes one (`trade_shares`, #53) |
+| `params/<id>/` | `params.csv`, plus `parents.json` where a builder writes one (`trade_shares`, #53) |
 | `acc/<id>/` | `root.ods`, `bounds.ods`, `rules.ods`, `masks.csv` (optional; an absent file hashes to empty) |
 | `mask/<id>/` | `rules.csv` |
 | `feed/<id>/` | per-feed declared list; default = "every file in `current/` not matching `*.bib` / `*.md`" |

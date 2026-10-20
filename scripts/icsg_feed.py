@@ -105,7 +105,7 @@ from pysuto.feedpipe import (
     register_feed,
 )
 from pysuto.diag import FeedDiagnostics
-from build_trade_shares import _decoded_edges, check_provenance, icsg_production
+from build_trade_shares import _decoded_edges, check_parents, icsg_production
 
 ACC_ID = load_config().pipeline.acc_id
 
@@ -474,7 +474,7 @@ def load_trade_shares(inputs: InputRegistries):
         print(f"   trade_shares : not registered — uniform fan")
         return None, None
     version_dir = inputs.params.resolve(TRADE_SHARES_ID)
-    check_provenance(version_dir, inputs)
+    check_parents(version_dir, inputs)
     df = pd.read_csv(version_dir / "params.csv")
     entry = inputs.params.entry(TRADE_SHARES_ID)
     print(f"   trade_shares : {TRADE_SHARES_ID} v{entry['version']} "

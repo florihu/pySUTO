@@ -80,6 +80,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from pysuto.acc import AccountingStructure
 from pysuto.config import load_config
+from pysuto.input_registry import PARAMS_PARENTS, InputRegistries
 from pysuto.param_relation import conc_for, conc_nominal_lookup
 
 # ---------------------------------------------------------------------------
@@ -269,30 +270,28 @@ def _latest_feed_froot(label: str) -> np.ndarray:
     return np.load(os.path.join(run, "result.npz"))["F_root"]
 
 
-# What the weights are read from besides the BACI feed run (#53): the registered
-# inputs the lookups below resolve.  Written beside params.csv, where the params
-# registry hashes it, so a rebuild from another run is a new version.
-PROVENANCE_FILE   = "provenance.json"
-PROVENANCE_INPUTS = {"feed": ("baci", "icsg"), "params": ("conc", "eff")}
-
-
-def provenance(inputs) -> dict:
-    """The BACI feed run and input versions the weights are built from, as in force now."""
+# The weights' parents (#53), in a sidecar's vocabulary: the BACI feed run they
+# read (``upstream``) and the registered inputs the lookups below resolve
+# (``inputs``).  Written beside params.csv, where the params registry hashes it,
+# so a rebuild from another run is a new version.
+def parents(inputs: InputRegistries) -> dict:
+    """The parents the weights are built from, as they stand now."""
     return {
-        "feed_runs": {"baci": os.path.basename(_latest_feed_run("baci"))},
-        "inputs":    {kind: {id_: getattr(inputs, kind).entry(id_)["version"] for id_ in ids}
-                      for kind, ids in PROVENANCE_INPUTS.items()},
+        "upstream": {"feed_run_ids": [os.path.basename(_latest_feed_run("baci"))]},
+        "inputs":   {"feed":   {i: inputs.feed.entry(i)["version"] for i in ("baci", "icsg")},
+                     "params": {i: inputs.params.entry(i)["version"] for i in ("conc", "eff")}},
     }
 
 
-def write_provenance(out_dir: str, inputs) -> dict:
-    prov = provenance(inputs)
-    with open(os.path.join(out_dir, PROVENANCE_FILE), "w", encoding="utf-8") as f:
-        json.dump(prov, f, indent=2, sort_keys=True)
-    return prov
+def write_parents(out_dir: str, inputs: InputRegistries) -> dict:
+    """Record the weights' parents beside their params.csv and return them."""
+    built_from = parents(inputs)
+    with open(os.path.join(out_dir, PARAMS_PARENTS), "w", encoding="utf-8") as f:
+        json.dump(built_from, f, indent=2, sort_keys=True)
+    return built_from
 
 
-def check_provenance(version_dir, inputs) -> None:
+def check_parents(version_dir: os.PathLike, inputs: InputRegistries) -> None:
     """Raise unless the weights at *version_dir* were built from the BACI feed run
     and input versions now in force.
 
@@ -300,20 +299,20 @@ def check_provenance(version_dir, inputs) -> None:
     with stale ones before anyone noticed (6.2 pp of sum-row z², ADR 0024, 0027);
     ``icsg_feed`` calls this before it fans (#53).
     """
-    path = os.path.join(version_dir, PROVENANCE_FILE)
+    path = os.path.join(version_dir, PARAMS_PARENTS)
     if not os.path.isfile(path):
         raise ValueError(
-            f"trade_shares at {version_dir} records no provenance, so its weights cannot "
-            f"be checked against the BACI feed run and inputs in force — rebuild them: "
-            f"python scripts/build_trade_shares.py")
+            f"trade_shares at {version_dir} records no {PARAMS_PARENTS}, so its weights "
+            f"cannot be checked against the BACI feed run and inputs in force — rebuild "
+            f"them: python scripts/build_trade_shares.py")
     with open(path, encoding="utf-8") as f:
-        built = json.load(f)
-    now = provenance(inputs)
-    if built != now:
+        built_from = json.load(f)
+    now = parents(inputs)
+    if built_from != now:
         raise ValueError(
-            f"trade_shares at {version_dir} is stale: built from {built}, but {now} is "
-            f"in force — rebuild them (python scripts/build_trade_shares.py), then the "
-            f"ICSG feed")
+            f"trade_shares at {version_dir} is stale: built from {built_from}, but {now} "
+            f"is in force — rebuild them (python scripts/build_trade_shares.py), then "
+            f"the ICSG feed")
 
 
 def _conc_lookup() -> dict:
@@ -330,13 +329,11 @@ def _conc_lookup() -> dict:
 
 def _input_registries():
     """Read-only: a lookup never versions a ``current/`` (#93)."""
-    from pysuto.input_registry import InputRegistries
     return InputRegistries.load(root=_INPUT_ROOT)
 
 
 def _register_inputs():
     """Version every edited ``current/`` — ``main``'s call, as a pipeline step's."""
-    from pysuto.input_registry import InputRegistries
     return InputRegistries.initialize(root=_INPUT_ROOT)
 
 
@@ -652,8 +649,8 @@ def main() -> None:
     out_csv = os.path.join(OUT_DIR, "params.csv")
     shares.to_csv(out_csv, index=False)
     print(f"   wrote {len(shares):,} weight rows → {out_csv}")
-    prov = write_provenance(OUT_DIR, _input_registries())
-    print(f"   built from : {prov['feed_runs']['baci']}, {prov['inputs']}")
+    built_from = write_parents(OUT_DIR, _input_registries())
+    print(f"   built from : {built_from['upstream']['feed_run_ids']}, {built_from['inputs']}")
     print(f"   consumer groups: "
           f"{shares.groupby(['root_sector_from','root_sector_to','root_region_to','root_time']).ngroups:,}")
 

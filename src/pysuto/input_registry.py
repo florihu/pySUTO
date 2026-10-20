@@ -34,8 +34,8 @@ Snapshots may still share inodes among themselves — nothing writes there.
 
 Load-bearing files (changes trigger a version bump):
 
-* ``params/<id>/`` — ``params.csv``, plus ``provenance.json`` where a builder
-                     writes one (what the params were built from, #53)
+* ``params/<id>/`` — ``params.csv``, plus ``parents.json`` where a builder
+                     records what it was built from (#53)
 * ``acc/<id>/``    — ``root.ods``, ``bounds.ods``, ``rules.ods``, ``masks.csv``
                      (``masks.csv`` optional; absent file hashes to empty)
 * ``mask/<id>/``   — ``rules.csv`` (separate-kind mask overlay)
@@ -71,9 +71,10 @@ _DEFAULT_LOAD_BEARING: dict[str, tuple[str, ...]] = {
 
 _FEED_IGNORE_SUFFIXES = (".bib", ".md")
 
-# A params builder may record what it read (#53). Load-bearing only where present,
-# so the ids without one keep their hashes and are not re-versioned.
-_PARAMS_PROVENANCE = "provenance.json"
+# A params builder may record its parents — the runs and inputs it read, in a
+# sidecar's vocabulary (#53). Load-bearing only where present, so the ids without
+# one keep their hashes and are not re-versioned.
+PARAMS_PARENTS = "parents.json"
 
 
 def _sha256_file(path: Path) -> str:
@@ -304,8 +305,8 @@ class InputRegistry:
                 if p.is_file() and not p.name.lower().endswith(_FEED_IGNORE_SUFFIXES)
             )
         names = list(_DEFAULT_LOAD_BEARING[self.kind])
-        if self.kind == "params" and (current / _PARAMS_PROVENANCE).is_file():
-            names.append(_PARAMS_PROVENANCE)
+        if self.kind == "params" and (current / PARAMS_PARENTS).is_file():
+            names.append(PARAMS_PARENTS)
         return names
 
     def _resolve_label(

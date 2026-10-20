@@ -16,8 +16,8 @@ import pandas as pd
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
-from icsg_feed import (non_producer_mask, observed_zero_sigma,    # noqa: E402
-                       stamp_observed_zeros)
+from icsg_feed import (load_trade_shares, non_producer_mask,     # noqa: E402
+                       observed_zero_sigma, stamp_observed_zeros)
 from pysuto.collector import FeedCollector                        # noqa: E402
 from pysuto.conc import ConcordanceTable, WeightMatrix            # noqa: E402
 from pysuto.unc import PropagationResult                          # noqa: E402
@@ -165,14 +165,13 @@ def test_only_a_non_producers_production_bounded_legs_may_carry_an_observed_zero
 # ---------------------------------------------------------------------------
 
 def test_the_feed_refuses_weights_it_cannot_check(tmp_path):
-    """A trade_shares version that records no provenance cannot be checked against
+    """A trade_shares version that records no parents cannot be checked against
     the BACI feed run and inputs in force, so the ICSG build refuses it."""
-    from icsg_feed import load_trade_shares
     from pysuto.input_registry import InputRegistries
 
     out = tmp_path / "params" / "trade_shares" / "current"
     out.mkdir(parents=True)
     (out / "params.csv").write_text("weight\n1.0\n")
     inputs = InputRegistries.initialize(root=tmp_path)
-    with pytest.raises(ValueError, match="records no provenance"):
+    with pytest.raises(ValueError, match="records no parents.json"):
         load_trade_shares(inputs)

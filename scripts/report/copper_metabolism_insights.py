@@ -95,7 +95,7 @@ plt.rcParams.update({"font.family": "sans-serif", "axes.edgecolor": INK2,
 
 def load_eff() -> dict:
     """Efficiency nominals from the registered eff params — never hard-coded."""
-    inputs = InputRegistries.initialize(root="data/input")
+    inputs = InputRegistries.load(root="data/input")
     p = pd.read_csv(inputs.params.resolve("eff") / "params.csv", sep=None,
                     engine="python", comment="#", dtype=str)
     e = {r["param_id"]: float(r["value_nominal"]) for _, r in p.iterrows()
@@ -122,7 +122,7 @@ def load_run(opt: str) -> pd.DataFrame:
 
 def load_icsg() -> pd.DataFrame:
     """The ICSG feed rows with the root region attached (input divisors applied)."""
-    inputs = InputRegistries.initialize(root="data/input")
+    inputs = InputRegistries.load(root="data/input")
     fdir = inputs.feed.resolve("icsg")
     raw = pd.read_csv(fdir / "values.csv")
     rmap = pd.read_excel(fdir / "conc.xlsx", sheet_name="region_map")
@@ -323,7 +323,7 @@ def china_smelter_scrap_share(cc: pd.DataFrame) -> tuple[pd.DataFrame, tuple[flo
     s, q = by_year(c), by_year(k)
     t = pd.DataFrame({"share_prior": s.prior / (s.prior + q.prior),
                       "share_post": s.post / (s.post + q.post)})
-    inputs = InputRegistries.initialize(root="data/input")
+    inputs = InputRegistries.load(root="data/input")
     p = pd.read_csv(inputs.params.resolve("scrap_share") / "params.csv", sep=None,
                     engine="python", comment="#", dtype=str)
     row = p[(p.a_sector_to == "Smelting") & (p.a_region_to == "China")].iloc[0]

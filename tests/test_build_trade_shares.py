@@ -630,14 +630,14 @@ def _registered_trade_shares(tmp_path, monkeypatch):
     out = root / "params" / "trade_shares" / "current"
     out.mkdir(parents=True)
     (out / "params.csv").write_text("weight\n1.0\n")
-    B.write_provenance(str(out), B._input_registries())
+    B.write_parents(str(out), B._input_registries())
     inputs = InputRegistries.initialize(root=root)
     return B, root, inputs
 
 
 def test_weights_built_from_the_inputs_in_force_pass(tmp_path, monkeypatch):
     B, _, inputs = _registered_trade_shares(tmp_path, monkeypatch)
-    B.check_provenance(inputs.params.resolve("trade_shares"), inputs)
+    B.check_parents(inputs.params.resolve("trade_shares"), inputs)
 
 
 def test_a_newer_baci_feed_run_makes_the_weights_stale(tmp_path, monkeypatch):
@@ -646,7 +646,7 @@ def test_a_newer_baci_feed_run_makes_the_weights_stale(tmp_path, monkeypatch):
     B, _, inputs = _registered_trade_shares(tmp_path, monkeypatch)
     (tmp_path / "runs" / "feed_baci_20261020_100000_bbbbbbbb").mkdir()
     with pytest.raises(ValueError, match="feed_baci_20261020_100000_bbbbbbbb"):
-        B.check_provenance(inputs.params.resolve("trade_shares"), inputs)
+        B.check_parents(inputs.params.resolve("trade_shares"), inputs)
 
 
 def test_a_new_icsg_version_makes_the_weights_stale(tmp_path, monkeypatch):
@@ -656,14 +656,14 @@ def test_a_new_icsg_version_makes_the_weights_stale(tmp_path, monkeypatch):
     (root / "feed" / "icsg" / "current" / "values.csv").write_text("x\n2\n")
     inputs = InputRegistries.initialize(root=root)   # icsg_feed registers it first
     with pytest.raises(ValueError, match="icsg"):
-        B.check_provenance(inputs.params.resolve("trade_shares"), inputs)
+        B.check_parents(inputs.params.resolve("trade_shares"), inputs)
 
 
-def test_weights_without_a_provenance_record_are_refused(tmp_path, monkeypatch):
-    B, root, _ = _registered_trade_shares(tmp_path, monkeypatch)
+def test_weights_that_record_no_parents_are_refused(tmp_path, monkeypatch):
     from pysuto.input_registry import InputRegistries
 
-    (root / "params" / "trade_shares" / "current" / "provenance.json").unlink()
+    B, root, _ = _registered_trade_shares(tmp_path, monkeypatch)
+    (root / "params" / "trade_shares" / "current" / "parents.json").unlink()
     inputs = InputRegistries.initialize(root=root)
-    with pytest.raises(ValueError, match="records no provenance"):
-        B.check_provenance(inputs.params.resolve("trade_shares"), inputs)
+    with pytest.raises(ValueError, match="records no parents.json"):
+        B.check_parents(inputs.params.resolve("trade_shares"), inputs)
