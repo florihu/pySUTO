@@ -606,3 +606,64 @@ def test_eff_lookup_does_not_version_an_edited_current(tmp_path, monkeypatch):
 
     assert B._eff_smelting() == pytest.approx(0.98)
     assert not (tmp_path / "params" / "eff" / "v2").exists()
+
+
+# ---- #53: the weights name the BACI feed run and inputs they are built from --
+
+def _registered_trade_shares(tmp_path, monkeypatch):
+    """A registry holding the builder's inputs and one BACI feed run, with
+    trade_shares built on them and registered as `main` does."""
+    import build_trade_shares as B
+    from pysuto.input_registry import InputRegistries
+
+    root = tmp_path / "input"
+    for kind, id_, name in (("feed", "baci", "values.csv"), ("feed", "icsg", "values.csv"),
+                            ("params", "conc", "params.csv"), ("params", "eff", "params.csv")):
+        f = root / kind / id_ / "current" / name
+        f.parent.mkdir(parents=True)
+        f.write_text("x\n1\n")
+    (tmp_path / "runs" / "feed_baci_20261019_100000_aaaaaaaa").mkdir(parents=True)
+    monkeypatch.setattr(B, "_INPUT_ROOT", str(root))
+    monkeypatch.setattr(B, "FEED_REG", str(tmp_path / "runs"))
+    InputRegistries.initialize(root=root)
+
+    out = root / "params" / "trade_shares" / "current"
+    out.mkdir(parents=True)
+    (out / "params.csv").write_text("weight\n1.0\n")
+    B.write_provenance(str(out), B._input_registries())
+    inputs = InputRegistries.initialize(root=root)
+    return B, root, inputs
+
+
+def test_weights_built_from_the_inputs_in_force_pass(tmp_path, monkeypatch):
+    B, _, inputs = _registered_trade_shares(tmp_path, monkeypatch)
+    B.check_provenance(inputs.params.resolve("trade_shares"), inputs)
+
+
+def test_a_newer_baci_feed_run_makes_the_weights_stale(tmp_path, monkeypatch):
+    """baci_feed.py re-run, build_trade_shares.py skipped: the ICSG feed would fan
+    with weights from the previous BACI run — four rounds of it cost 6.2 pp of z²."""
+    B, _, inputs = _registered_trade_shares(tmp_path, monkeypatch)
+    (tmp_path / "runs" / "feed_baci_20261020_100000_bbbbbbbb").mkdir()
+    with pytest.raises(ValueError, match="feed_baci_20261020_100000_bbbbbbbb"):
+        B.check_provenance(inputs.params.resolve("trade_shares"), inputs)
+
+
+def test_a_new_icsg_version_makes_the_weights_stale(tmp_path, monkeypatch):
+    from pysuto.input_registry import InputRegistries
+
+    B, root, _ = _registered_trade_shares(tmp_path, monkeypatch)
+    (root / "feed" / "icsg" / "current" / "values.csv").write_text("x\n2\n")
+    inputs = InputRegistries.initialize(root=root)   # icsg_feed registers it first
+    with pytest.raises(ValueError, match="icsg"):
+        B.check_provenance(inputs.params.resolve("trade_shares"), inputs)
+
+
+def test_weights_without_a_provenance_record_are_refused(tmp_path, monkeypatch):
+    B, root, _ = _registered_trade_shares(tmp_path, monkeypatch)
+    from pysuto.input_registry import InputRegistries
+
+    (root / "params" / "trade_shares" / "current" / "provenance.json").unlink()
+    inputs = InputRegistries.initialize(root=root)
+    with pytest.raises(ValueError, match="records no provenance"):
+        B.check_provenance(inputs.params.resolve("trade_shares"), inputs)

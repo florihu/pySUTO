@@ -69,6 +69,7 @@ Scrap is an ICSG Use type but is NOT traded → deliberately excluded.
 from __future__ import annotations
 
 import glob
+import json
 import os
 import sys
 
@@ -255,13 +256,64 @@ def compute_trade_share_weights(
 # I/O helpers
 # ---------------------------------------------------------------------------
 
-def _latest_feed_froot(label: str) -> np.ndarray:
+def _latest_feed_run(label: str) -> str:
     dirs = sorted(glob.glob(os.path.join(FEED_REG, f"feed_{label}_*")))
     if not dirs:
         raise FileNotFoundError(f"no feed_{label}_* run under {FEED_REG}")
-    run = dirs[-1]
+    return dirs[-1]
+
+
+def _latest_feed_froot(label: str) -> np.ndarray:
+    run = _latest_feed_run(label)
     print(f"   {label:10s} ← {os.path.basename(run)}")
     return np.load(os.path.join(run, "result.npz"))["F_root"]
+
+
+# What the weights are read from besides the BACI feed run (#53): the registered
+# inputs the lookups below resolve.  Written beside params.csv, where the params
+# registry hashes it, so a rebuild from another run is a new version.
+PROVENANCE_FILE   = "provenance.json"
+PROVENANCE_INPUTS = {"feed": ("baci", "icsg"), "params": ("conc", "eff")}
+
+
+def provenance(inputs) -> dict:
+    """The BACI feed run and input versions the weights are built from, as in force now."""
+    return {
+        "feed_runs": {"baci": os.path.basename(_latest_feed_run("baci"))},
+        "inputs":    {kind: {id_: getattr(inputs, kind).entry(id_)["version"] for id_ in ids}
+                      for kind, ids in PROVENANCE_INPUTS.items()},
+    }
+
+
+def write_provenance(out_dir: str, inputs) -> dict:
+    prov = provenance(inputs)
+    with open(os.path.join(out_dir, PROVENANCE_FILE), "w", encoding="utf-8") as f:
+        json.dump(prov, f, indent=2, sort_keys=True)
+    return prov
+
+
+def check_provenance(version_dir, inputs) -> None:
+    """Raise unless the weights at *version_dir* were built from the BACI feed run
+    and input versions now in force.
+
+    Any ICSG or BACI change invalidates the weights, and four rounds fanned ICSG
+    with stale ones before anyone noticed (6.2 pp of sum-row z², ADR 0024, 0027);
+    ``icsg_feed`` calls this before it fans (#53).
+    """
+    path = os.path.join(version_dir, PROVENANCE_FILE)
+    if not os.path.isfile(path):
+        raise ValueError(
+            f"trade_shares at {version_dir} records no provenance, so its weights cannot "
+            f"be checked against the BACI feed run and inputs in force — rebuild them: "
+            f"python scripts/build_trade_shares.py")
+    with open(path, encoding="utf-8") as f:
+        built = json.load(f)
+    now = provenance(inputs)
+    if built != now:
+        raise ValueError(
+            f"trade_shares at {version_dir} is stale: built from {built}, but {now} is "
+            f"in force — rebuild them (python scripts/build_trade_shares.py), then the "
+            f"ICSG feed")
 
 
 def _conc_lookup() -> dict:
@@ -600,6 +652,8 @@ def main() -> None:
     out_csv = os.path.join(OUT_DIR, "params.csv")
     shares.to_csv(out_csv, index=False)
     print(f"   wrote {len(shares):,} weight rows → {out_csv}")
+    prov = write_provenance(OUT_DIR, _input_registries())
+    print(f"   built from : {prov['feed_runs']['baci']}, {prov['inputs']}")
     print(f"   consumer groups: "
           f"{shares.groupby(['root_sector_from','root_sector_to','root_region_to','root_time']).ngroups:,}")
 

@@ -327,6 +327,23 @@ def test_input_registries_pins_per_kind(tmp_path: Path) -> None:
     assert inputs.params.entry("conc")["version"] == 1
 
 
+def test_a_params_provenance_file_is_load_bearing(tmp_path: Path) -> None:
+    """Weights rebuilt from a new feed run can be byte-identical; the version must
+    still change, or it keeps naming the old run (#53). An id without the file is
+    hashed as before, so no existing version is re-registered."""
+    _params_id(tmp_path, "trade_shares", "w\n1\n", {"provenance.json": '{"run": "a"}'})
+    _params_id(tmp_path, "conc", "x\n")
+    InputRegistry("params", root=tmp_path).initialize()
+    _write(tmp_path / "params" / "trade_shares" / "current" / "provenance.json", '{"run": "b"}')
+
+    reg = InputRegistry("params", root=tmp_path).initialize()
+
+    assert reg.latest_version("trade_shares") == 2
+    assert reg.latest_version("conc") == 1
+    hashes = json.loads((tmp_path / "params" / "registry.json").read_text())
+    assert list(hashes["conc"]["versions"][-1]["hashes"]) == ["params.csv"]
+
+
 def test_load_reads_the_registered_version_and_registers_nothing(tmp_path: Path) -> None:
     """A read-only caller must not version a mid-edit current/: a diagnostic's
     lookup registered baci v25, a version no run uses (#93)."""

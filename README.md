@@ -200,11 +200,13 @@ cross-cutting (import nothing from the data layer):
 > `build_trade_shares.py` reads both: the netted BACI matrix *and* the ICSG feed's own production
 > (`icsg_intake_production`), which is what the [ADR 0024](docs/adr/0024-fan-domestic-leg-bounded-by-own-production.md)
 > domestic bound is computed against. Fan ICSG with stale weights and that bound is applied to the
-> *previous* release's production, silently. Nothing detects it — `icsg_feed.py` loads whatever
-> version is registered and prints it, with no check that it post-dates the `values.csv` it is
+> *previous* release's production, silently. Nothing detected it — `icsg_feed.py` loaded whatever
+> version was registered and printed it, with no check that it post-dated the `values.csv` it was
 > fanning. This happened for four consecutive rounds and cost 6.2 percentage points of sum-row z²;
-> rebuilding alone moved 21,709 kt CC from domestic residual onto import legs. The full order after
-> a feed change is:
+> rebuilding alone moved 21,709 kt CC from domestic residual onto import legs. Since #53 the builder
+> writes `provenance.json` beside `params.csv` — the BACI feed run and the `baci`, `icsg`, `conc` and
+> `eff` versions it read — and `icsg_feed.py` refuses weights whose record differs from what is in
+> force. The full order after a feed change is:
 >
 > ```
 > parse → <feed>_clean.py --to-feed → build_baci_reexport.py → baci_feed.py
@@ -1165,7 +1167,7 @@ Load-bearing files per kind:
 
 | Kind | Load-bearing files |
 |---|---|
-| `params/<id>/` | `params.csv` |
+| `params/<id>/` | `params.csv`, plus `provenance.json` where a builder writes one (`trade_shares`, #53) |
 | `acc/<id>/` | `root.ods`, `bounds.ods`, `rules.ods`, `masks.csv` (optional; an absent file hashes to empty) |
 | `mask/<id>/` | `rules.csv` |
 | `feed/<id>/` | per-feed declared list; default = "every file in `current/` not matching `*.bib` / `*.md`" |
