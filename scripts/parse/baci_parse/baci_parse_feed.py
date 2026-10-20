@@ -18,8 +18,10 @@ What this script does
        740319  Other refined copper           → Cathode    of 740311's a year, 1995–2024)
 3. Drops rows with missing or zero quantity.
 4. Aggregates by (Year, Sector, Region_from, Region_to) — sum quantity *and value*.
-4b. Drops a declared code's rows in the years they duplicate another code's
-    declarations (#88, ``MIRROR_DUPLICATES``).
+4b. Drops refined copper declared into a country it only passes through (#95,
+    ``TRANSIT_DECLARATIONS``), then keeps the larger of two codes' declarations
+    per partner in the years they repeat each other's (#88, #95,
+    ``MIRROR_DUPLICATES``).
 5. Reconstructs the quantity of legs whose value contradicts it, on either side
    of the band (ADR 0033, below).
 6. Converts quantity from tonnes (BACI native) to kt  (÷ 1000).
@@ -92,6 +94,7 @@ OUT_PATH     = os.path.join("data", "input", "feed", "baci", "v0", "values.csv")
 HS_CODES = {260300, 740110, 740120, 740200, 740311, 740312, 740313, 740319}
 
 CATHODE_HS = 740311          # ~99.99 % Cu — its unit value is the copper price
+REFINED_HS = {740311, 740312, 740313, 740319}   # HS 7403.1x, one Cathode sector (#91)
 RECON_HS   = {260300}        # ADR 0033 scope: only concentrate mass enters
                              # ADR 0029's cap = 0.35·X + U, so reconstructing
                              # matte/anode/cathode cannot move the forced term.
@@ -113,13 +116,25 @@ MIN_IN_BAND      = 2                # fewer than this and the spread is not
                                     # measurable — which is ignorance, not
                                     # precision, so σ goes to the cap.
 
-# A code whose rows repeat copper another code already declares: code → (first,
-# last) such year (#88).  BACI 178 "Congo" carries DR Congo's refined copper as its
-# partners declare it (#84).  DR Congo's own declarations (180, all of HS 7403.1x,
-# #91) fall 5–323 kt short of ICSG production in every year through 2014 and 476 kt
-# in 2024, which 178 fills.  In 2015–2023 they lie within −74 … +422 kt of it, and 178
-# (226–465 kt a year) would push them past it: it counts the copper twice.
-MIRROR_DUPLICATES = {178: (2015, 2023)}
+# A code whose rows repeat copper another code already declares: code → (the code it
+# mirrors, first, last such year) (#88, #95).  BACI 178 "Congo" carries DR Congo's
+# refined copper as its partners declare it (#84).  DR Congo's own declarations (180,
+# all of HS 7403.1x, #91) fall 5–323 kt short of ICSG production in every year through
+# 2014 and 476 kt in 2024, which 178 fills.  In 2015–2023 they lie within −74 … +422 kt
+# of it, and 178 (226–465 kt a year) on top would count the copper twice — but not to
+# every partner: 178 → UAE is 80–252 kt a year against 180 → UAE 53–142, and dropping 178
+# outright (#88) left the UAE re-exporting cathode it no longer imported (Δz² +25,625 on
+# opt_20261019_142026_83bfe843).  So per partner the larger declaration is kept (#95).
+MIRROR_DUPLICATES = {178: (180, 2015, 2023)}
+
+# Exporter codes → countries their refined copper only passes through, dropped in every
+# year (#95).  DR Congo's cathode leaves through Dar es Salaam and Beira, and the final
+# buyer declares DR Congo as origin too, so the leg into the port country counts it
+# twice.  In 2015–2023 Tanzania recorded 1,553 kt of refined copper from DR Congo and
+# exported 213 kt, Mozambique 382 kt and 16 kt; neither refines copper (ICSG production
+# 0).  Only HS 7403.1x: DR Congo's concentrate into them was not analysed.
+TRANSIT_DECLARATIONS = {(178, 180): (834,     # Tanzania (Dar es Salaam)
+                                     508)}    # Mozambique (Beira)
 
 OUT_DIR       = os.path.dirname(OUT_PATH)
 RECON_PATH    = os.path.join(OUT_DIR, "quantity_recon.csv")
@@ -127,22 +142,70 @@ CV_SCALE_PATH = os.path.join(OUT_DIR, "quantity_cv_scale.csv")
 
 
 # ---------------------------------------------------------------------------
-# #88 — a code that duplicates another code's declarations
+# #88, #95 — declarations that repeat copper declared elsewhere
 # ---------------------------------------------------------------------------
 
-def drop_mirror_duplicates(agg, duplicates) -> pd.DataFrame:
-    """``agg`` without a declared code's rows, either side, in its duplicate years
-    ``(first, last)``.  A declaration that matches no rows raises: it is stale."""
-    for code, (first, last) in duplicates.items():
-        rows = (((agg["Region_from"] == code) | (agg["Region_to"] == code))
-                & agg["Year"].between(first, last))
-        if not rows.any():
-            raise ValueError(f"MIRROR_DUPLICATES: no rows of code {code} in {first}–{last}")
-        by = agg.loc[rows].groupby("Sector")["q"].sum() / 1e3
-        logger.info("#88 code %d in %d–%d repeats another code's declarations: %d rows "
-                    "dropped, kt by sector %s", code, first, last, int(rows.sum()),
-                    by.round(1).to_dict())
-        agg = agg.loc[~rows]
+def drop_transit_declarations(agg, transit) -> pd.DataFrame:
+    """``agg`` without the refined-copper rows (HS 7403.1x) that a declared exporter's
+    codes send into a country the copper only passes through, in every year.  A declared
+    pair that matches no rows raises: it is stale."""
+    for exporters, hubs in transit.items():
+        for hub in hubs:
+            rows = (agg["Region_from"].isin(exporters) & (agg["Region_to"] == hub)
+                    & agg["Sector"].isin(REFINED_HS))
+            if not rows.any():
+                raise ValueError(f"TRANSIT_DECLARATIONS: no refined-copper rows of codes "
+                                 f"{exporters} into {hub}")
+            by = agg.loc[rows].groupby("Year")["q"].sum() / 1e3
+            logger.info("#95 refined copper of codes %s into %d is a transit declaration: "
+                        "%d rows dropped, kt by year %s", exporters, hub, int(rows.sum()),
+                        by.round(1).to_dict())
+            agg = agg.loc[~rows]
+    return agg.reset_index(drop=True)
+
+
+def reconcile_mirror_duplicates(agg, duplicates) -> pd.DataFrame:
+    """``agg`` with only the larger of two codes' declarations per year, product, partner
+    and direction (export or import) in the years ``(first, last)`` they repeat each
+    other's copper; the kept rows keep their code, and every other year is untouched.
+
+    The product is refined copper pooled over HS 7403.1x, and every other HS code on its
+    own.  The Cathode sector reads the refined codes as one (#91), and the two sides of one
+    shipment need not declare the same one: in 2015–2017 DR Congo (180) declares 52–71 kt a
+    year to the UAE as 740319 that the UAE declares 740311 under 178, so a per-code max
+    would keep that copper twice.  The winning code is the one whose pooled declaration is
+    larger, the mirrored code on a tie; rows between the two codes are left to the feed's
+    cross-region scope (ADR 0014).  A declaration whose either code has no rows in its
+    years raises: it is stale.
+    """
+    for code, (own, first, last) in duplicates.items():
+        win = agg["Year"].between(first, last)
+        for c in (code, own):
+            if not (win & ((agg["Region_from"] == c) | (agg["Region_to"] == c))).any():
+                raise ValueError(f"MIRROR_DUPLICATES: no rows of code {c} "
+                                 f"in {first}–{last}")
+        pair = [code, own]
+        out_ = agg["Region_from"].isin(pair) & ~agg["Region_to"].isin(pair)
+        in_ = agg["Region_to"].isin(pair) & ~agg["Region_from"].isin(pair)
+        d = pd.DataFrame({
+            "Year":      agg["Year"],
+            "product":   agg["Sector"].mask(agg["Sector"].isin(REFINED_HS), CATHODE_HS),
+            "direction": out_,
+            "partner":   agg["Region_to"].where(out_, agg["Region_from"]),
+            "decl":      agg["Region_from"].where(out_, agg["Region_to"]),
+            "Sector":    agg["Sector"],
+            "q":         agg["q"]})[win & (out_ | in_)]
+        key = ["Year", "product", "direction", "partner"]
+        tot = (d.groupby(key + ["decl"])["q"].sum()
+                .unstack("decl", fill_value=0.0).reindex(columns=pair, fill_value=0.0))
+        loser = pd.Series(np.where(tot[code] > tot[own], own, code), index=tot.index)
+        lost = loser.reindex(pd.MultiIndex.from_frame(d[key])).to_numpy()
+        drop = d.index[d["decl"].to_numpy() == lost]
+        by = d.loc[drop].groupby(["decl", "Sector"])["q"].sum() / 1e3
+        logger.info("#95 codes %d and %d in %d–%d repeat each other's declarations: the "
+                    "larger per partner kept, %d rows dropped, kt by code and sector %s",
+                    code, own, first, last, len(drop), by.round(1).to_dict())
+        agg = agg.drop(index=drop)
     return agg.reset_index(drop=True)
 
 
@@ -341,7 +404,8 @@ def main() -> None:
     )
     for col in ["Year", "Sector", "Region_from", "Region_to"]:
         agg[col] = agg[col].astype(int)
-    agg = drop_mirror_duplicates(agg, MIRROR_DUPLICATES)
+    agg = drop_transit_declarations(agg, TRANSIT_DECLARATIONS)
+    agg = reconcile_mirror_duplicates(agg, MIRROR_DUPLICATES)
 
     # --- ADR 0033: rebuild the quantity of legs whose value contradicts it ---
     p_cu = copper_price(agg)

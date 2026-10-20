@@ -27,6 +27,20 @@ Amended 2026-10-19 (#91): the Cathode sector reads all refined copper, HS 740311
 740313 billets and 740319 other refined, unwrought; the last three were dropped before. Their cross-region
 trade is 0.41–1.35 Mt a year, 4.5–15.1 % of 740311's in the same year (1995–2024, gross; Austria's 2003 refined
 exports: 77.7 %). ADR 0033's copper price stays HS 740311 alone. To be measured with #88 by #92.
+Amended 2026-10-20 (#95): in 2015–2023 the BACI parse keeps, per year, product, partner and direction, the
+**larger** of 178's and 180's declarations instead of dropping 178 (`MIRROR_DUPLICATES = {178: (180, 2015,
+2023)}`), and it drops DR Congo's refined copper into Tanzania and Mozambique in every year as **transit
+declarations** (`TRANSIT_DECLARATIONS`). Dropping 178 outright left the UAE re-exporting cathode it no longer
+imported (Δz² +25,625 on `opt_20261019_142026_83bfe843`): 178 → UAE is 80–252 kt a year in 2015–2023 against
+180 → UAE 53–142 (gross, all of HS 7403.1x), and the UAE keeps the 80–252. Refined copper is one product in the
+comparison, because DR Congo declares 52–71 kt a year of its UAE copper as 740319 in 2015–2017 where the UAE
+declares 740311 under 178. In 2015–2023 Tanzania recorded 1,553 kt of refined copper from DR Congo and exported
+213, Mozambique 382 and 16; neither refines copper, and the final buyer declares DR Congo as origin too. DR
+Congo's refined exports less its ICSG production go from +152, −24, +415, +422, +371, +391, +203, +146, −74 kt
+under #88's rule to −41, +60, +530, +432, +232, +293, +74, +63, −134 in 2015–2023 (BACI HS92 V202601, gross).
+2017–2018 stay high through South Africa, a model region with a refinery that the re-export netting already
+treats as a hub. DR Congo's concentrate into the two ports was not analysed. Both rules run before ADR 0033's
+reconstruction; to be measured.
 
 ## Context
 

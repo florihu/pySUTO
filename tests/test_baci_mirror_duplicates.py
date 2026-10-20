@@ -1,11 +1,12 @@
-"""A BACI code that repeats copper another code already declares (#88), and the parse's
-HS scope (#91).
+"""Two BACI codes that declare the same copper (#88, #95), transit declarations (#95), and
+the parse's HS scope (#91).
 
-BACI 178 "Congo" carries DR Congo's refined copper as its partners declare it (#84). DR
-Congo's own declarations (180, all of HS 7403.1x, #91) fall short of ICSG production
-through 2014 and in 2024, which 178 fills; in 2015–2023 they reach or exceed it, and 178
-counts the copper twice. The parse drops a declared code's rows, either side, in its
-duplicate years only.
+BACI 178 "Congo" carries DR Congo's refined copper as its partners declare it (#84); 180
+is DR Congo's own. In 2015–2023 the two repeat each other's shipments, so per year,
+product, partner and direction the parse keeps the larger declaration; outside that
+window both stay. DR Congo's refined copper declared into Tanzania and Mozambique only
+passes through their ports, and its final buyer declares DR Congo as origin too, so
+those legs are dropped in every year.
 """
 from __future__ import annotations
 
@@ -14,14 +15,16 @@ import sys
 
 import pandas as pd
 import pytest
-from numpy.testing import assert_array_equal
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..",
                                 "scripts", "parse", "baci_parse"))
-from baci_parse_feed import HS_CODES, copper_price, drop_mirror_duplicates  # noqa: E402
+from baci_parse_feed import (  # noqa: E402
+    HS_CODES, copper_price, drop_transit_declarations, reconcile_mirror_duplicates)
 
-CATHODE, CONC = 740311, 260300
-DUP = {178: (2015, 2023)}
+CATHODE, OTHER_REFINED, CONC = 740311, 740319, 260300
+UAE, CHINA, ITALY, SOUTH_AFRICA, TANZANIA, MOZAMBIQUE = 784, 156, 381, 710, 834, 508
+DUP     = {178: (180, 2015, 2023)}
+TRANSIT = {(178, 180): (TANZANIA, MOZAMBIQUE)}
 CURRENT_CONC = os.path.join(os.path.dirname(__file__), "..", "data", "input", "feed", "baci",
                             "current", "conc.xlsx")
 
@@ -33,26 +36,105 @@ def _agg(rows):
                          for y, k, i, j, q in rows])
 
 
-def test_a_declared_codes_rows_are_dropped_in_its_duplicate_years_only():
-    """Regression (#88): on opt_20261015_093646_ddd9d3d9, 178's 2020–2023 cathode sat
-    on top of a code 180 that already matched ICSG's production, and DR Congo's refined
-    output rose 777 kt CC above its prior over 2020–2023 (183 on the run before #84)."""
-    agg = _agg([(2014, CATHODE, 178, 784, 121e3),
-                (2015, CATHODE, 178, 784, 80e3),
-                (2023, CONC,    178, 156, 18e3),
-                (2021, CATHODE, 180, 178, 1e3),
-                (2020, CATHODE, 180, 784, 110e3),
-                (2024, CATHODE, 178, 784, 150e3)])
-    out = drop_mirror_duplicates(agg, DUP)
-    assert_array_equal(out[["Year", "Region_from", "Region_to"]].to_numpy(),
-                       [[2014, 178, 784], [2020, 180, 784], [2024, 178, 784]])
+def _rows(out):
+    return sorted(map(tuple, out[["Year", "Sector", "Region_from", "Region_to", "q"]]
+                      .to_numpy().tolist()))
 
 
-def test_a_declaration_matching_no_rows_raises():
-    agg = _agg([(2014, CATHODE, 178, 784, 121e3)])
-    with pytest.raises(ValueError, match="178"):
-        drop_mirror_duplicates(agg, DUP)
+# ---------------------------------------------------------------------------
+# mirror duplicates — the larger declaration per partner (#95)
+# ---------------------------------------------------------------------------
 
+def test_the_larger_declaration_per_partner_is_kept_and_counted_once():
+    """Regression (#95): #88 dropped 178 outright in 2015–2023, and on
+    opt_20261019_142026_83bfe843 the UAE re-exported cathode it no longer imported
+    (Δz² +25,625). Its 178 declaration (242 kt in 2019) is the larger of the two and
+    is kept; 180's 121 kt is the same copper and goes."""
+    agg = _agg([(2019, CATHODE,       178, UAE, 242e3),
+                (2019, CATHODE,       180, UAE, 106e3),
+                (2019, OTHER_REFINED, 180, UAE,  15e3)])
+    out = reconcile_mirror_duplicates(agg, DUP)
+    assert _rows(out) == [(2019, CATHODE, 178, UAE, 242e3)]
+
+
+def test_refined_codes_are_pooled_per_partner_not_compared_code_by_code():
+    """One shipment declared 740311 by the UAE (under 178) and 740319 by DR Congo (180)
+    is still one shipment: a per-code max would keep both, 52–71 kt a year twice in
+    2015–2017. The winning code keeps every one of its rows, each under its own HS code."""
+    agg = _agg([(2015, CATHODE,       178, UAE,    80e3),
+                (2015, CATHODE,       180, UAE,     8e3),
+                (2015, OTHER_REFINED, 180, UAE,    52e3),
+                (2015, CATHODE,       178, CHINA,  30e3),
+                (2015, CATHODE,       180, CHINA,  25e3),
+                (2015, OTHER_REFINED, 180, CHINA,  20e3)])
+    out = reconcile_mirror_duplicates(agg, DUP)
+    assert _rows(out) == [(2015, CATHODE,       178, UAE,   80e3),
+                          (2015, CATHODE,       180, CHINA, 25e3),
+                          (2015, OTHER_REFINED, 180, CHINA, 20e3)]
+
+
+def test_a_partner_declared_under_one_code_only_is_kept():
+    """Per product and direction: 178's concentrate to China is not compared with 180's
+    cathode to China, and 180's import from the UAE is not compared with 178's export
+    to it."""
+    agg = _agg([(2020, CATHODE, 180, CHINA, 500e3),
+                (2020, CONC,    178, CHINA,  18e3),
+                (2020, CATHODE, 178, ITALY,  50e3),
+                (2020, CATHODE, 178, UAE,   245e3),
+                (2020, CATHODE, UAE, 180,     1e3)])
+    out = reconcile_mirror_duplicates(agg, DUP)
+    assert _rows(out) == _rows(agg)
+
+
+def test_rows_outside_the_window_are_untouched():
+    """Through 2014 and in 2024 180 falls short of ICSG production and 178 fills it."""
+    agg = _agg([(2014, CATHODE, 178, UAE, 121e3),
+                (2014, CATHODE, 180, UAE,  40e3),
+                (2024, CATHODE, 178, UAE, 150e3),
+                (2024, CATHODE, 180, UAE, 130e3),
+                (2016, CATHODE, 178, UAE, 131e3),
+                (2016, CATHODE, 180, UAE,  53e3)])
+    out = reconcile_mirror_duplicates(agg, DUP)
+    assert _rows(out) == _rows(agg.iloc[[0, 1, 2, 3, 4]])
+
+
+@pytest.mark.parametrize("code, rows", [
+    (178, [(2014, CATHODE, 178, UAE, 121e3), (2019, CATHODE, 180, UAE, 106e3)]),
+    (180, [(2019, CATHODE, 178, UAE, 242e3)])])
+def test_a_mirror_declaration_matching_no_rows_raises(code, rows):
+    with pytest.raises(ValueError, match=f"code {code}"):
+        reconcile_mirror_duplicates(_agg(rows), DUP)
+
+
+# ---------------------------------------------------------------------------
+# transit declarations (#95)
+# ---------------------------------------------------------------------------
+
+def test_transit_declarations_drop_only_refined_rows_into_the_declared_partners():
+    """Dropped in every year, from either DR Congo code. Concentrate (not analysed),
+    South Africa's own exports to Tanzania and Tanzania's exports stay."""
+    agg = _agg([(2019, CATHODE,       180, TANZANIA,     265e3),
+                (2019, OTHER_REFINED, 180, TANZANIA,       5e3),
+                (2023, CATHODE,       180, MOZAMBIQUE,   126e3),
+                (2012, CATHODE,       178, TANZANIA,      10e3),
+                (2019, CONC,          180, TANZANIA,      30e3),
+                (2019, CATHODE,       180, CHINA,        500e3),
+                (2019, CATHODE,       SOUTH_AFRICA, TANZANIA, 4e3),
+                (2019, CATHODE,       TANZANIA, CHINA,    20e3)])
+    out = drop_transit_declarations(agg, TRANSIT)
+    assert _rows(out) == _rows(agg.iloc[4:])
+
+
+def test_a_transit_declaration_matching_no_rows_raises():
+    agg = _agg([(2019, CATHODE, 180, TANZANIA, 265e3),
+                (2019, CONC,    180, MOZAMBIQUE, 30e3)])
+    with pytest.raises(ValueError, match=str(MOZAMBIQUE)):
+        drop_transit_declarations(agg, TRANSIT)
+
+
+# ---------------------------------------------------------------------------
+# the parse's HS scope (#91)
+# ---------------------------------------------------------------------------
 
 def test_the_parse_reads_every_code_the_tracked_sector_map_maps():
     """The parse's code list and the concordance's sector map are one scope (#91)."""
