@@ -1,8 +1,13 @@
 # The posterior is the QP's linearisation at its active set: a binding lower bound pins its edge, and dependent hard rows are dropped, not softened
 
-**Status:** proposed — 2026-10-14 (#27, `fix/uncprop-active-set`). It is accepted when a copper
-uncprop run completes every year with `σ_a* ≤ σ_a` and a REP reports how the pinned set moves with
-`bind_tol`. Read-only checks on the reference chain `opt_20261013_122432_24e811b7` (const
+**Status:** accepted — 2026-10-20 on `uncprop_20261020_082104_b26ec19c` (final chain
+`opt_20261019_171746_3272682b`; REP
+[`…issue27-stage5-active-set`](../rep/analysis_uncprop_20261020_082104_b26ec19c_20261020_issue27-stage5-active-set.md)):
+all 30 years complete with `σ_a* ≤ σ_a` on every edge-year; 245,943 edge-years bound-active at `bind_tol`
+1e-6 kt (160,087 at 1e-8, 306,201 at 1e-4), carrying 10,417 kt; an LU of `S` on the same chain still puts κ
+outside [0, 1] on 365 edges of 1995 and 279 of 2016. Proposed 2026-10-14 (#27, `fix/uncprop-active-set`) with the
+condition that a copper uncprop run completes every year with `σ_a* ≤ σ_a` and a REP reports how the pinned set
+moves with `bind_tol`. Read-only checks on the reference chain `opt_20261013_122432_24e811b7` (const
 `const_20261013_114216_1ad3239e`):
 - 2020: 9,022 of 28,482 edges bound-active, 16,640 of 56,222 rows kept, 82 hard rows dependent;
 - 1995: 9,445 edges bound-active, 119 hard rows dependent;
