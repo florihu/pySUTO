@@ -14,7 +14,7 @@ scripts/report/results_figs.py; tables in docs/manuscript/figs/).
 Every number is from the reference chain named in S14, the final chain of the
 manuscript-ready milestone (opt_20261019_171746_3272682b <-
 const_20261019_170151_13460e94 <- imp_20261019_165706_dd1ae143; PSUT run
-psut_20261019_172448_9cfdd6a9), re-derived on 2026-10-19: S1-S14 from the run
+psut_20261019_172448_9cfdd6a9; Stage-5 run uncprop_20261020_082104_b26ec19c), re-derived on 2026-10-19: S1-S14 from the run
 sidecars, arrays and input versions by scripts/report/manuscript_numbers.py,
 S15-S17 by scripts/report/results_figs.py. A historical measurement quoted
 from a decision record or report names its round, issue or run.
@@ -306,21 +306,22 @@ $$
 \tag{S10}
 $$
 
-the generalised-least-squares update of the reconciliation lineage ([Byron, 1978](#ref-byron1978); [van der Ploeg, 1982](#ref-vanderploeg1982)). Only the marginal variances are needed: with the sparse Cholesky factorisation $S = L L^\top$ (CHOLMOD through `scikit-sparse` when installed, otherwise a SuperLU fallback; the reference environment has the fallback), computed per year from scratch,
+the generalised-least-squares update of the reconciliation lineage ([Byron, 1978](#ref-byron1978); [van der Ploeg, 1982](#ref-vanderploeg1982)). Only the marginal variances are needed,
 
 $$
-\sigma^2_{a^*\!,i} = \sigma^2_{a,i}\bigl(1 - \sigma^2_{a,i}\,
-\| L^{-1} g_i \|_2^2\bigr), \qquad g_i = \text{column } i \text{ of } G_t.
+\sigma^2_{a^*\!,i} = \sigma^2_{a,i}\,(1 - \kappa_i), \qquad \kappa_i = \sigma^2_{a,i}\, g_i^\top S^{-1} g_i, \qquad g_i = \text{column } i \text{ of } G_t,
 \tag{S11}
 $$
 
-Intervals are $[\,\max(a^*_i - z\,\sigma_{a^*\!,i},\ l_i),\ \min(a^*_i + z\,\sigma_{a^*\!,i},\ u_i)\,]$ with $z = \Phi^{-1}(1-\alpha/2)$, $\alpha = 0.05$. The prior is conditioned with the same floor and ceiling as in Stage 4, so the posterior is propagated against the prior the solver actually saw.
+and $\kappa_i$, the posterior contraction, is the leverage of edge $i$ in the whitened system $M = [G_t\,\Sigma_a^{1/2},\ \Sigma_c^{1/2}]$ ($S = M M^\top$), read off a dense QR factorisation of $M^\top$ per year, so it lies in $[0, 1]$ by construction. $S$ itself is never formed: it squares $M$'s condition number, and with $\sigma_a$ spanning $10^{-8}$ to $10^{6}$ kt an LU of $S$ on the reference chain puts $\kappa$ outside $[0, 1]$ on 365 edges of 1995 and 279 of 2016 and misplaces it by more than $10^{-3}$ on edges carrying 6,111 kt in 2016. Eq. (S10) assumes equality constraints, so the system is the QP's linearisation at its solution (ADR 0044): a hard inequality row enters only where it binds, $G a^* - c \ge -10^{-6}$ kt; a binding lower bound pins its edge ($\sigma^2_{a,i} \to 0$, so $\sigma_{a^*\!,i} = 0$) instead of adding a row; a binding band is an equality; slack rows drop out; and hard rows linearly dependent on the others, found by a pivoted Cholesky factorisation of the unit-diagonal Gram matrix of the hard rows over the live edges, are dropped, so the hard rows keep exactly zero $\sigma_c$.
+
+Intervals are $a^*_i \pm z\,\sigma_{a^*\!,i}$ with $z = \Phi^{-1}(1-\alpha/2)$, $\alpha = 0.05$, clipped at the structural lower bound of edges that have one — not at the stored prior box or the flat-prior zero pin, which never reach the QP. The prior is conditioned with the same floor and ceiling as in Stage 4, so the posterior is propagated against the prior the solver actually saw.
 
 ### S6.2 Invariants, limitations and status on copper
 
 Three properties are enforced by tests: monotone shrinkage ($\sigma^2_{a^*} \le \sigma^2_a$ elementwise), positive semidefiniteness of the update, and recovery of the hard-constraints-only reduction of [Byron (1978)](#ref-byron1978) in the limit $\Sigma_c \to 0$. Hard-balanced edges obtain zero-width intervals — the correct limiting behaviour, not an artefact. The update is the linear-Gaussian (Laplace) approximation of the true posterior, increasingly approximate for wide pedigree tails.
 
-The stage has not been executed on the copper chain. The implementation takes the zero-variance mask from the rows' *hard* flag, which is set for the one-sided band rows and, since ADR 0039, the non-negativity rows as well as for the mass balances; on the reference chain that is 40,863–40,905 zero-variance rows per year against 28,482 edges, so $G_h\Sigma_aG_h^\top$ has rank at most 28,482 and $S$ is singular. The required amendment is an active-set reduction: only bands and bounds that bind at $a^*$ (zero residual up to tolerance) count as equalities, slack rows are dropped. A second amendment concerns the interval clipping, which reads the stored $[l,u]$ including the flat-prior zero pin, so a pinned edge that carries flow would receive an interval excluding its own $a^*$. Both are recorded as issue #27 in the repository; no posterior number appears in the paper.
+On the reference chain the stage runs on every year (`uncprop_20261020_082104_b26ec19c`; 49–126 s per year, 33.7 min in all, the years one after another, each QR on the machine's linear-algebra threads). The active set per year: 2,958–9,794 edges pinned at a binding lower bound (245,943 of 854,460 edge-years), 9,395–14,089 binding bands, 80–663 dependent hard rows dropped and 15,753–22,414 rows kept; the largest hard residual at $a^*$ is $1.7\times10^{-7}$ kt, and $\sigma_{a^*} \le \sigma_a$ holds on every edge-year. The pinned set depends on the tolerance in number but not in mass: 160,087 edge-years at $10^{-8}$ kt and 306,201 at $10^{-4}$, carrying 7,585 and 11,663 kt against 10,417 kt at the $10^{-6}$ used. Posterior contraction by prior class (all years): on feed-observed contained-copper edges the median $\kappa$ is 0.045 and the mass-weighted $\kappa$ 0.928; on imputed ones 0.082 and 0.979; in gross mass 0.034 and 0.977 (feed) and 0.076 and 0.982 (imputed). The typical edge keeps most of its prior $\sigma$, the large flows contract strongly. The trace contraction (1.000 in every year) and the flat class are uninformative, because the flat priors' $\sigma = 10^{6}$ dominate both. The posterior is the estimator's sensitivity under the stated $\sigma$; whether its intervals are calibrated against the model's own residuals is not tested (issue #87), and the $\sigma$ of a total needs the posterior covariance, which the stage does not persist (issue #81). Evidence: REP `analysis_uncprop_20261020_082104_b26ec19c_20261020_issue27-stage5-active-set.md`.
 
 <a id="si-stage6"></a>
 
@@ -516,7 +517,7 @@ Every modelling decision is an architecture decision record in the repository (`
 
 <a id="tab-si-adr"></a>
 
-**Table S13.** Decision records 0001–0043 (status as of 2026-10-19).
+**Table S13.** Decision records 0001–0044 (status as of 2026-10-20).
 
 | ADR | Decision | Status | F/C | Rejected alternative |
 | --- | --- | --- | --- | --- |
@@ -563,6 +564,7 @@ Every modelling decision is an architecture decision record in the repository (`
 | 0041 | A signed edge carries no one-signed hard ratio band; the producer stock change gets a concentration row | split: band rule and row accepted, the producer stock-change seed rejected on measurement | F | one-signed bands on signed edges; a 1% seed on the producer stock change |
 | 0042 | Stage 4 owns the model; a QP backend solves a standard-form QP | proposed | F | a backend handed the semantic problem; Clarabel's conic form as the contract |
 | 0043 | A stock change is drawn from its region's cathode supply; BACI's cathode trade carries no stock prior | accepted, over a failed pre-registered item | C | imports first with an unconditional production bound; keeping the 98/1/1 BACI fan |
+| 0044 | The posterior is the QP's linearisation at its active set: a binding lower bound pins its edge, dependent hard rows are dropped | accepted | F | dropping the bounds altogether; a relative $\sigma_c$ on hard rows |
 
 <a id="si-coverage"></a>
 
@@ -647,7 +649,7 @@ Inputs live in a versioned registry of four kinds (feeds, accounting structure, 
 | 2 imputation | `imp_20261019_165706_dd1ae143` | acc copper v4; conc v10, ore_grade v8, eff v4, stock_bounds v6, stripping_ratio v2 |
 | 3 constraints | `const_20261019_170151_13460e94` | $+$ scrap_share v3 |
 | 4 solver | `opt_20261019_171746_3272682b` | prior mode cold; settings of Table [S5](#tab-si-settings) |
-| 5 posterior | — | not run (issue #27) |
+| 5 posterior | `uncprop_20261020_082104_b26ec19c` | from the solver run above; `bind_tol` $10^{-6}$ kt, `rank_tol` $10^{-10}$ (ADR 0044) |
 | 6 tables | `psut_20261019_172448_9cfdd6a9` | from the solver run above |
 
 **Table S17.** The reference chain of this paper. Every number in the main text and this Supporting Information derives from these runs; the base run of the measurement series is `opt_20260916_124721_c4d1d944`, re-solved at the reference tolerance as `opt_20260930_093914_523d57d7`.
