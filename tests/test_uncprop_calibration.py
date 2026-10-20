@@ -139,7 +139,7 @@ class TestDrawnFromTheModel:
     def test_standardised_shifts_are_standard_normal(self, tmp_path, monkeypatch):
         f = _stats(np.random.default_rng(87), tmp_path, monkeypatch).edge_frame()
         assert f["calibrated"].all()                   # no bounds, κ well above 0.01
-        _moments_ok(f["z_kappa"].to_numpy(), 1.0)
+        _moments_ok(f["std_shift"].to_numpy(), 1.0)
 
     def test_birge_ratio_is_one(self, tmp_path, monkeypatch):
         """Σz² is χ²(dof) exactly: SD(R) = √(2/dof); five of them."""
@@ -153,7 +153,7 @@ class TestDrawnFromTheModel:
         st = _stats(np.random.default_rng(88), tmp_path, monkeypatch, understate=3.0)
         run = st.birge().set_index("year").loc["all"]
         assert abs(run["birge_ratio"] / 9.0 - 1.0) < 5.0 * np.sqrt(2.0 / _DOF)
-        _moments_ok(st.edge_frame()["z_kappa"].to_numpy(), 9.0)
+        _moments_ok(st.edge_frame()["std_shift"].to_numpy(), 9.0)
 
     def test_understated_sigma_fattens_the_tail_share(self, tmp_path, monkeypatch):
         """|z/√κ| > 3 when z/√κ ~ N(0, 9) is |N(0, 1)| > 1: 31.7 %. Shares of
@@ -252,22 +252,82 @@ class TestBirgeRatio:
         for y in results:
             assert b.loc[y, "zsq_edges"] == pytest.approx(od.loc[y, "zsq_edges"], rel=1e-10)
             soft = od.loc[y, ["zsq_sum_rows", "zsq_soft_ratios"]].fillna(0.0).sum()
-            assert b.loc[y, "zsq_soft_rows"] == pytest.approx(soft, rel=1e-6)
+            assert b.loc[y, "zsq_soft_rows"] == pytest.approx(soft, rel=1e-10)
+
+
+# One year, edges e0..e4 (σ_a² = [4, 1, 1, 1, 1]); e1 and e4 have lower bounds at 0
+# and sit on them at a*, so Stage 5 pins both. e1's prior is already 0 (a degenerate
+# pin); e4's prior is 2 and a soft row pulled it onto the bound.
+_PIN_ROWS = [  # (coefficients, type, variant, is_hard, cone, c, σ_c)
+    ([1, -1, -1, 0,  0], "massbal", "massbal", True,  "zero",   0.0, 0.0),
+    ([0, -1,  0, 0,  0], "bound",   "lower",   True,  "nonneg", 0.0, 0.0),
+    ([0,  0,  0, 0, -1], "bound",   "lower",   True,  "nonneg", 0.0, 0.0),
+    ([0,  0,  0, 1,  0], "sum",     "anchor",  False, "free",   4.0, 1.0),
+    ([0,  0,  0, 0,  1], "sum",     "anchor",  False, "free",   0.0, 0.5),
+]
+
+
+def _pin_stats(a_prior, tmp_path, monkeypatch):
+    from pysuto.constraints import ConstraintRun
+    from pysuto.diag.stats import UncPropStatsDiagnostic
+    from pysuto.solver import OptimResult
+    G = sp.csr_matrix(np.array([r[0] for r in _PIN_ROWS], dtype=float))
+    c = np.array([r[5] for r in _PIN_ROWS])
+    a_star, a_prior = np.array([3.0, 0.0, 3.0, 4.0, 0.0]), np.asarray(a_prior, dtype=float)
+    rm = pd.DataFrame({
+        "constraint_id": [f"r{i}" for i in range(len(_PIN_ROWS))],
+        "type": [r[1] for r in _PIN_ROWS], "variant": [r[2] for r in _PIN_ROWS],
+        "is_hard": [r[3] for r in _PIN_ROWS], "cone_type": [r[4] for r in _PIN_ROWS],
+        "time": "2020",
+    })
+    cr = ConstraintRun(
+        G=G, row_meta=rm, a0=a_prior, sigma_a=np.array([2.0, 1.0, 1.0, 1.0, 1.0]),
+        u=np.full(5, 10.0), l=np.zeros(5),
+        timestep_data={"2020": {"c": c, "sigma_c": np.array([r[6] for r in _PIN_ROWS])}},
+        run_id="pin", acc_id="a", agg_id="g", created_at="2026-10-20T00:00:00",
+        G_blocks={"2020": G}, edge_cols_by_t={"2020": np.arange(5)},
+    )
+    opt = {"2020": OptimResult(
+        timestep="2020", F_opt=a_star, eps_opt=np.zeros(0), c_star=c,
+        residuals=G @ a_star - c, objective=0.0, iterations=0, solve_time_s=0.0,
+        solver_status="Solved", convergence={}, cols_t=np.arange(5),
+        rows_t=np.arange(len(_PIN_ROWS)), a_prior=a_prior,
+    )}
+    unc = _prop(cr, opt, tmp_path, monkeypatch).compute("o")
+    return UncPropStatsDiagnostic(unc, opt, cr), unc.per_timestep["2020"]
+
+
+class TestDegeneratePins:
+
+    def test_a_pin_on_its_own_prior_adds_no_dof_and_no_zsq(self, tmp_path, monkeypatch):
+        st, ts = _pin_stats([3.0, 0.0, 3.0, 4.0, 2.0], tmp_path, monkeypatch)
+        np.testing.assert_array_equal(ts.bound_active, [False, True, False, False, True])
+        y = st.birge().set_index("year").loc["2020"]
+        assert (y["n_bound_active"], y["n_bound_active_at_prior"]) == (2, 1)
+        assert y["dof"] == ts.diagnostics["n_rows_kept"] + 1           # e4 only
+        assert y["zsq_edges"] == pytest.approx(4.0, rel=1e-12)        # e4: (0 − 2)/1
+
+    def test_an_edge_pulled_onto_its_bound_adds_one_dof(self, tmp_path, monkeypatch):
+        st, ts = _pin_stats([3.0, 1.0, 2.0, 4.0, 2.0], tmp_path, monkeypatch)
+        y = st.birge().set_index("year").loc["2020"]
+        assert (y["n_bound_active"], y["n_bound_active_at_prior"]) == (2, 0)
+        assert y["dof"] == ts.diagnostics["n_rows_kept"] + 2
 
 
 # ---------------------------------------------------------------------------
 # 3. The Birge-scaled interval sits beside the stored one
 # ---------------------------------------------------------------------------
 
-def _interval_stub():
+def _interval_stub(conditioning=None):
     """One year, three edges; e1 and e2 have lower-bound rows (−a ≤ −l) with
     l = 2 and l = 0; e0 has none. a* = [5, 3, 3], σ* = [1, 1, 1]."""
     from pysuto.diag.stats import UncPropStatsDiagnostic
     z = norm.ppf(0.975)
     a = np.array([5.0, 3.0, 3.0])
     lower = np.array([5 - z, max(3 - z, 2.0), 3 - z])
+    G = sp.csr_matrix(np.array([[0.0, -1.0, 0.0], [0.0, 0.0, -1.0]]))
     cr = SimpleNamespace(
-        G=sp.csr_matrix(np.array([[0.0, -1.0, 0.0], [0.0, 0.0, -1.0]])),
+        G=G, G_blocks={"2020": G},
         row_meta=pd.DataFrame({"type": ["bound", "bound"], "variant": ["lower", "lower"],
                                "cone_type": ["nonneg", "nonneg"], "time": "2020"}),
         a0=a.copy(), sigma_a=np.full(3, 2.0), l=np.zeros(3), u=np.full(3, 100.0),
@@ -278,7 +338,7 @@ def _interval_stub():
         bound_active=np.zeros(3, dtype=bool), diagnostics={})})
     opt = {"2020": SimpleNamespace(F_opt=a, a_prior=a.copy(), residuals=np.array([-1.0, -3.0]),
                                    cols_t=np.arange(3), rows_t=np.arange(2))}
-    return UncPropStatsDiagnostic(unc, opt, cr), lower, a + z
+    return UncPropStatsDiagnostic(unc, opt, cr, conditioning=conditioning), lower, a + z
 
 
 class TestBirgeInterval:
@@ -304,6 +364,12 @@ class TestBirgeInterval:
         np.testing.assert_array_equal(f["lower"].to_numpy(), lower)
         np.testing.assert_array_equal(f["upper"].to_numpy(), upper)
         assert "lower_birge" not in f.columns
+
+    def test_an_ablation_run_has_no_birge_interval(self):
+        """Its σ_a* comes from the reduced S(t), its a* from the full fit."""
+        st, _, _ = _interval_stub(conditioning={"exclude_scale_totals": True})
+        with pytest.raises(ValueError, match="ablation"):
+            st.birge_interval(st.edge_frame(), birge_ratio=4.0)
 
 
 # ---------------------------------------------------------------------------
@@ -365,6 +431,12 @@ _NOT_SCALE = [i for i, r in enumerate(_ABL_ROWS)
 
 
 class TestScaleTotalAblation:
+
+    def test_a_row_meta_without_type_or_variant_raises(self):
+        from pysuto.uncprop import KalmanUncProp
+        cr, _ = _ablation_run()
+        with pytest.raises(ValueError, match="variant"):
+            KalmanUncProp._scale_total_mask(cr.row_meta.drop(columns="variant"))
 
     def test_scale_total_rows_are_read_from_type_and_variant(self):
         from pysuto.uncprop import SCALE_TOTAL_VARIANTS, KalmanUncProp

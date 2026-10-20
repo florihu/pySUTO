@@ -43,14 +43,20 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
+from scipy.stats import norm
 
 from ._plot import _CAT8, _INK, _savefig, _seq_cmap
 from .solver import PlotSpec, _apply_modern_style, _short, _slug
 from .stats._core import filter_regions
 from .stats.uncprop import (
-    CALIB_EXPECTED_SHARE, CALIB_KAPPA_MIN, KAPPA_CUT, PRIOR_CLASSES, QUADRANTS, Z_CUT,
-    UncPropStatsDiagnostic,
+    CALIB_EXPECTED_SHARE, CALIB_KAPPA_MIN, CALIB_QUANTILES, KAPPA_CUT, PRIOR_CLASSES,
+    QUADRANTS, Z_CUT, UncPropStatsDiagnostic, quantile_column, quantile_label,
 )
+
+# Why an ablation run (#87) gets no shift calibration and no Birge interval.
+_ABLATION_NOTE  = ("not produced on a scale-total ablation run: z comes from the full "
+                   "fit, κ and σ_a* from the reduced S(t)")
+_CALIBRATION_ID = "UD-R-03"                      # the figure an ablation run skips
 
 _N_BANDS  = 12                                   # identities per valuation in UD-R-02
 _Z_TICKS  = (-1000, -100, -10, -3, 0, 3, 10, 100, 1000)
@@ -126,6 +132,7 @@ class UncPropDiag:
         self._conditioning  = conditioning
         self._stats_obj: Optional[UncPropStatsDiagnostic] = None
         self._default_odir: Optional[str] = None
+        self._cal_cache: dict = {}
 
     @property
     def opt_results(self) -> dict:
@@ -264,13 +271,17 @@ class UncPropDiag:
     # ------------------------------------------------------------------
 
     def summary(self) -> str:
-        """Print and return a text digest: trace contraction per year and the
-        share of Σ weight per prior class × quadrant, per valuation."""
+        """Print and return a text digest: trace contraction per year; the share of
+        Σ weight per prior class × quadrant, per valuation; the shift calibration
+        ``z/√κ`` per valuation × prior class (one line instead on an ablation run);
+        the Birge ratio over the run and per year, with the bound-active edges whose
+        prior sits on the bound that ``dof`` leaves out; and the raw beside the
+        Birge-scaled interval (not on an ablation run)."""
         f  = self.stats.edge_frame()
         tc = self.stats.trace_contraction(f)
         years = self.stats.years
         lines = [f"UncPropDiag ({self.label or 'unlabeled'})"]
-        ablation = bool((self._conditioning or {}).get("exclude_scale_totals"))
+        ablation = self.stats.ablation
         lines.append(f"  years     : {len(years)} ({years[0]}–{years[-1]})  "
                      f"method={getattr(self._unc, 'method', '?')}  "
                      f"alpha={getattr(self._unc, 'alpha', float('nan')):g}"
@@ -296,42 +307,58 @@ class UncPropDiag:
             for cls, row in pv.iterrows():
                 share = row / total * 100.0 if total > 0 else row * np.nan
                 lines.append("    " + f"{cls:<12}" + "".join(f"{s:>17.1f}%" for s in share))
-        lines += self._calibration_lines(f)
+        lines += self._calibration_lines()
         text = "\n".join(lines)
         print(text)
         return text
 
-    def _calibration_lines(self, f) -> list[str]:
+    def _calibration(self, regions=None, timesteps=None) -> pd.DataFrame:
+        """:meth:`UncPropStatsDiagnostic.calibration` of the filtered frame at the
+        run's Birge ratio, computed once per filter."""
+        key = (tuple(regions) if regions else None,
+               tuple(str(t) for t in timesteps) if timesteps is not None else None)
+        if key not in self._cal_cache:
+            self._cal_cache[key] = self.stats.calibration(self._frame(regions, timesteps),
+                                                          self.stats.birge_ratio())
+        return self._cal_cache[key]
+
+    def _calibration_lines(self) -> list[str]:
         """Summary lines of the shift calibration (per valuation × prior class) and
         the Birge ratio (run and per year) with the scaled interval (#87)."""
-        from scipy.stats import norm
         st = self.stats
-        R = st.birge_ratio()
-        cal = st.calibration(f, R)
-        expected = " / ".join(f"q{q * 100:g} {norm.ppf(0.5 + q / 2):.2f}" for q in (0.5, 0.9, 0.99))
-        lines = [f"  shift calibration z/√κ — not bound-active, κ ≥ {CALIB_KAPPA_MIN:g}, not flat; "
-                 f"N(0, 1): {CALIB_EXPECTED_SHARE * 100:.2f} % beyond {Z_CUT:g}, |z/√κ| {expected}"]
-        head = (f"{'':<12}{'n':>10}{'>3':>9}{'>3 wt':>9}{'q50':>8}{'q90':>8}{'q99':>9}"
-                f"{'max':>10}{'>3·√R':>9}{'>3·√R wt':>10}")
-        for val in self._valuations(cal):
-            cv = cal[cal["valuation"] == val].set_index("prior_class")
-            lines.append(f"    {val}")
-            lines.append("    " + head)
-            for cls in self._classes(cv.reset_index()):
-                r = cv.loc[cls]
-                lines.append(
-                    "    " + f"{cls:<12}{int(r['n_calibrated']):>10,}"
-                    + f"{r['share_gt3'] * 100:>8.2f}%{r['share_gt3_weighted'] * 100:>8.2f}%"
-                    + f"{r['q50_abs']:>8.2f}{r['q90_abs']:>8.2f}{r['q99_abs']:>9.2f}"
-                    + f"{r['max_abs']:>10.1f}"
-                    + f"{r['share_gt3_birge'] * 100:>8.2f}%"
-                    + f"{r['share_gt3_birge_weighted'] * 100:>9.2f}%")
+        lines: list[str] = []
+        if st.ablation:
+            lines.append(f"  shift calibration z/√κ, Birge-scaled interval: {_ABLATION_NOTE}")
+        else:
+            cal = self._calibration()
+            expected = " / ".join(f"{quantile_label(q)} {norm.ppf(0.5 + q / 2):.2f}"
+                                  for q in CALIB_QUANTILES)
+            lines.append(f"  shift calibration z/√κ — not bound-active, κ ≥ {CALIB_KAPPA_MIN:g}, "
+                         f"not flat; N(0, 1): {CALIB_EXPECTED_SHARE * 100:.2f} % beyond "
+                         f"{Z_CUT:g}, |z/√κ| {expected}")
+            head = (f"{'':<12}{'n':>10}{'>3':>9}{'>3 wt':>9}"
+                    + "".join(f"{quantile_label(q):>8}" for q in CALIB_QUANTILES)
+                    + f"{'max':>10}{'>3·√R':>9}{'>3·√R wt':>10}")
+            for val in self._valuations(cal):
+                cv = cal[cal["valuation"] == val].set_index("prior_class")
+                lines.append(f"    {val}")
+                lines.append("    " + head)
+                for cls in self._classes(cv.reset_index()):
+                    r = cv.loc[cls]
+                    lines.append(
+                        "    " + f"{cls:<12}{int(r['n_calibrated']):>10,}"
+                        + f"{r['share_gt3'] * 100:>8.2f}%{r['share_gt3_weighted'] * 100:>8.2f}%"
+                        + "".join(f"{r[quantile_column(q)]:>8.2f}" for q in CALIB_QUANTILES)
+                        + f"{r['max_abs']:>10.1f}"
+                        + f"{r['share_gt3_birge'] * 100:>8.2f}%"
+                        + f"{r['share_gt3_birge_weighted'] * 100:>9.2f}%")
 
         b = st.birge()
         run = b[b["year"] == "all"].iloc[0]
+        R = float(run["birge_ratio"])
         lines.append("  Birge ratio R = Σz²/dof — Σz² the QP objective at a* (edge defects + "
                      "soft-row residuals); dof = rows kept + scale totals left out + "
-                     "bound-active edges")
+                     "bound-active edges whose prior is off the bound")
         if not np.isfinite(R):
             lines.append("    run      : R undefined — Stage 5 recorded no active-set counts "
                          "(full-G path)")
@@ -339,14 +366,18 @@ class UncPropDiag:
         lines.append(f"    run      : R = {R:.3f}   Σz² {run['zsq_total']:,.0f} (edges "
                      f"{run['zsq_edges']:,.0f} + soft rows {run['zsq_soft_rows']:,.0f})   "
                      f"dof {run['dof']:,.0f}")
+        lines.append(f"    left out : {run['n_bound_active_at_prior']:,.0f} of "
+                     f"{run['n_bound_active']:,.0f} bound-active edge-years have their prior "
+                     f"on the bound (a* = l = a_prior): no degree of freedom")
         cells = [f"{y} {r:.2f}" for y, r in zip(b["year"], b["birge_ratio"]) if y != "all"]
         for k in range(0, len(cells), 6):
             head = "    per year : " if k == 0 else " " * 15
             lines.append(head + "  ".join(cells[k:k + 6]))
-        alpha = float(getattr(self._unc, "alpha", float("nan")))
-        level = f"{(1.0 - alpha) * 100:g} %"
-        lines.append(f"    {level} interval: raw a* ± {run['z_alpha']:.3f}·σ_a*   Birge-scaled "
-                     f"a* ± {run['z_alpha']:.3f}·√R·σ_a* = a* ± {run['z_alpha_birge']:.3f}·σ_a*")
+        if not st.ablation:
+            alpha = float(getattr(self._unc, "alpha", float("nan")))
+            lines.append(f"    {(1.0 - alpha) * 100:g} % interval: raw a* ± "
+                         f"{run['z_alpha']:.3f}·σ_a*   Birge-scaled a* ± "
+                         f"{run['z_alpha']:.3f}·√R·σ_a* = a* ± {run['z_alpha_birge']:.3f}·σ_a*")
         return lines
 
     def plot(
@@ -359,7 +390,8 @@ class UncPropDiag:
         timesteps: Optional[list] = None,
     ) -> list[str]:
         """Render figures from the :attr:`PLOTS` registry plus
-        ``contraction_summary.csv``, ``calibration.csv`` and ``birge.csv``.
+        ``contraction_summary.csv``, ``calibration.csv`` and ``birge.csv``. A
+        scale-total ablation run gets neither UD-R-03 nor ``calibration.csv``.
 
         Parameters
         ----------
@@ -397,6 +429,9 @@ class UncPropDiag:
         for pid, spec in self.PLOTS.items():
             if pid not in selected:
                 continue
+            if pid == _CALIBRATION_ID and self.stats.ablation:
+                print(f"   {pid}  {_ABLATION_NOTE}")
+                continue
             fig = getattr(self, spec.method)(regions=regions, timesteps=timesteps)
             p = _savefig(fig, os.path.join(odir, f"{spec.filename}{suffix}.png"), dpi=dpi)
             print(f"   {pid}  → {p}  ✓")
@@ -404,14 +439,16 @@ class UncPropDiag:
             if not show:
                 plt.close(fig)
 
-        frame = self._frame(regions, timesteps)
         csv = os.path.join(odir, f"contraction_summary{suffix}.csv")
-        self.stats.contraction_summary(frame).to_csv(csv, index=False)
-        cal = os.path.join(odir, f"calibration{suffix}.csv")
-        self.stats.calibration(frame, self.stats.birge_ratio()).to_csv(cal, index=False)
+        self.stats.contraction_summary(self._frame(regions, timesteps)).to_csv(csv, index=False)
+        paths.append(csv)
+        if not self.stats.ablation:
+            cal = os.path.join(odir, f"calibration{suffix}.csv")
+            self._calibration(regions, timesteps).to_csv(cal, index=False)
+            paths.append(cal)
         birge = os.path.join(odir, "birge.csv")
         self.stats.birge().to_csv(birge, index=False)
-        paths += [csv, cal, birge]
+        paths.append(birge)
         return paths
 
     # ------------------------------------------------------------------
@@ -506,7 +543,6 @@ class UncPropDiag:
         import matplotlib.pyplot as plt
         from matplotlib.lines import Line2D
         from matplotlib.patches import Patch
-        from scipy.stats import norm
 
         f = self._frame(regions)
         base = (f"UD-R-02  Prior vs posterior bands — top {_N_BANDS} identities by "
@@ -578,19 +614,20 @@ class UncPropDiag:
 
     def _fig_calibration(self, regions=None, timesteps=None):
         import matplotlib.pyplot as plt
-        from scipy.stats import norm
 
-        f = self._frame(regions, timesteps)
         base = (f"UD-R-03  Shift calibration: QQ of z/√κ vs N(0, 1) — not bound-active, "
                 f"κ ≥ {CALIB_KAPPA_MIN:g}, not flat")
+        if self.stats.ablation:
+            return self._placeholder(f"{base} — {_ABLATION_NOTE}", regions)
+        f = self._frame(regions, timesteps)
         c = f[f["calibrated"].to_numpy(dtype=bool)]
         if c.empty:
             return self._placeholder(base + " — no calibrated edge-years", regions)
 
         R = self.stats.birge_ratio()
-        cal = self.stats.calibration(f, R).set_index(["prior_class", "valuation"])
+        cal = self._calibration(regions, timesteps).set_index(["prior_class", "valuation"])
         classes, vals = self._classes(c), self._valuations(c)
-        y_lim = max(float(np.nanmax(np.abs(_symlog(c["z_kappa"].to_numpy())))) * 1.05,
+        y_lim = max(float(np.nanmax(np.abs(_symlog(c["std_shift"].to_numpy())))) * 1.05,
                     float(_symlog(10.0)))
         ticks = [v for v in _Z_TICKS if abs(_symlog(v)) <= y_lim]
         n_max = int(c.groupby(["prior_class", "valuation"], observed=True).size().max())
@@ -604,7 +641,7 @@ class UncPropDiag:
             for j, val in enumerate(vals):
                 ax = axes[i, j]
                 y = np.sort(c.loc[(c["prior_class"] == cls) & (c["valuation"] == val),
-                                  "z_kappa"].to_numpy(dtype=float))
+                                  "std_shift"].to_numpy(dtype=float))
                 if y.size:
                     x = norm.ppf((np.arange(1, y.size + 1) - 0.5) / y.size)
                     k = _qq_index(y.size)

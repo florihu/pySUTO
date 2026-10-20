@@ -192,6 +192,21 @@ class TestCalibrationOutputs:
         assert b.loc["all", "birge_ratio"] == pytest.approx(
             b.loc[list(unc.per_timestep), "zsq_total"].sum() / dof, rel=1e-12)
 
+    def test_an_ablation_run_skips_the_calibration_but_keeps_the_birge_ratio(
+            self, chain, diag, tmp_path):
+        """z comes from the full fit, κ from the reduced S(t): z/√κ is not N(0, 1)."""
+        from pysuto.diag import UncPropDiag
+        unc, results, cr, acc = chain
+        abl = UncPropDiag(unc, results, cr, label="toy", acc=acc,
+                          conditioning={"exclude_scale_totals": True})
+        names = [os.path.basename(p) for p in abl.plot(odir=str(tmp_path / "a"))]
+        assert names == [f"{s}.png" for s in STEMS[:2]] + ["contraction_summary.csv",
+                                                            "birge.csv"]
+        text = abl.summary()
+        assert "not produced on a scale-total ablation run" in text
+        assert "Birge-scaled a*" not in text
+        assert abl.stats.birge_ratio() == pytest.approx(diag.stats.birge_ratio(), rel=1e-12)
+
 
 # ---------------------------------------------------------------------------
 # 2. from_uncprop_id round trip

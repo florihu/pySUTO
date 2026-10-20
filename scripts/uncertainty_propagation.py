@@ -34,14 +34,14 @@ from datetime import datetime
 # ---------------------------------------------------------------------------
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
-OPT_DIR     = os.path.join("data", "proc", "opt")
-CONST_DIR   = os.path.join("data", "proc", "const")
-UNCPROP_DIR = os.path.join("data", "proc", "uncprop")
-IMP_DIR     = os.path.join("data", "proc", "imp")
-ALPHA       = 0.05
-BIND_TOL    = 1e-6      # kt — a hard inequality row binds when G·a* − c ≥ −BIND_TOL (#27)
-RANK_TOL    = 1e-10     # pivot tolerance for hard rows dependent on the others (#27)
-EXCLUDE_SCALE_TOTALS = False  # True leaves the scale totals out of S(t) — ablation (#87)
+OPT_DIR              = os.path.join("data", "proc", "opt")
+CONST_DIR            = os.path.join("data", "proc", "const")
+UNCPROP_DIR          = os.path.join("data", "proc", "uncprop")
+IMP_DIR              = os.path.join("data", "proc", "imp")
+ALPHA                = 0.05
+BIND_TOL             = 1e-6    # kt — a hard inequality row binds when G·a* − c ≥ −BIND_TOL (#27)
+RANK_TOL             = 1e-10   # pivot tolerance for hard rows dependent on the others (#27)
+EXCLUDE_SCALE_TOTALS = False   # True leaves the scale totals out of S(t) — ablation (#87)
 # ---------------------------------------------------------------------------
 # END USER CONFIGURATION
 # ---------------------------------------------------------------------------
@@ -66,11 +66,11 @@ def main(opt_run_id: str, label: str = "") -> None:
               opt_run_id, ALPHA, EXCLUDE_SCALE_TOTALS)
 
     prop = KalmanUncProp(
-        opt_dir     = OPT_DIR,
-        const_dir   = CONST_DIR,
-        uncprop_dir = UNCPROP_DIR,
-        bind_tol    = BIND_TOL,
-        rank_tol    = RANK_TOL,
+        opt_dir              = OPT_DIR,
+        const_dir            = CONST_DIR,
+        uncprop_dir          = UNCPROP_DIR,
+        bind_tol             = BIND_TOL,
+        rank_tol             = RANK_TOL,
         exclude_scale_totals = EXCLUDE_SCALE_TOTALS,
     )
 

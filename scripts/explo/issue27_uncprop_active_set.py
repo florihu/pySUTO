@@ -155,7 +155,8 @@ def lu_vs_qr(diag, sidecar, years=LU_YEARS, block: int = 2000) -> pd.DataFrame:
         sc = condition_sigma_c(np.asarray(cr.timestep_data[t]["sigma_c"], dtype=float)[rows],
                                floor=cfg["sigma_c_floor"], hard_mask=hard[rows])
         red = prop._reduce_at_active_set(G_t, c_t, sa[cols] ** 2, hard[rows], cone[rows],
-                                         lb[rows], np.asarray(res.residuals, dtype=float))
+                                         lb[rows], np.asarray(res.residuals, dtype=float),
+                                         np.zeros(rows.size, dtype=bool))
         s2 = np.where(red.bound_active, 0.0, sa[cols] ** 2)
         live = np.flatnonzero(s2 > 0.0)
         G_k = G_t[red.keep].tocsc()

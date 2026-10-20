@@ -242,9 +242,9 @@ def test_trace_contraction_per_year():
 def test_standardised_shift_and_its_calibration_set(frame):
     """z/√κ wherever κ > 0; calibrated = not bound-active, κ ≥ 0.01, not flat —
     only e0 here (e1, e3, e5 have κ = 0, e2 is flat, e4 bound-active and flat)."""
-    assert frame.loc[("1995", 0), "z_kappa"] == pytest.approx(-4 / np.sqrt(0.75))
-    assert frame.loc[("1996", 4), "z_kappa"] == pytest.approx(-5.0)
-    assert np.isnan(frame.loc[("1995", 1), "z_kappa"])
+    assert frame.loc[("1995", 0), "std_shift"] == pytest.approx(-4 / np.sqrt(0.75))
+    assert frame.loc[("1996", 4), "std_shift"] == pytest.approx(-5.0)
+    assert np.isnan(frame.loc[("1995", 1), "std_shift"])
     np.testing.assert_array_equal(frame["calibrated"].to_numpy(), [True] + [False] * 5)
 
 
@@ -252,7 +252,7 @@ def test_calibration_shares_and_quantiles_per_class_and_valuation():
     f = pd.DataFrame({
         "valuation":   ["CC"] * 5 + ["Mass"] * 2,
         "prior_class": ["imputed"] * 4 + ["flat"] + ["imputed"] * 2,
-        "z_kappa":     [0.5, -4.0, 1.0, 10.0, 0.0, 2.0, -3.5],
+        "std_shift":   [0.5, -4.0, 1.0, 10.0, 0.0, 2.0, -3.5],
         "calibrated":  [True, True, True, False, False, True, True],
         "weight":      [1.0, 3.0, 6.0, 100.0, 5.0, 2.0, 2.0],
     })

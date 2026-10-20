@@ -21,7 +21,7 @@ One row per edge × year of a persisted ``UncPropResult``, joined to the opt run
 * ``bound_active`` — the edges Stage 5 pinned (σ_a* = 0) because their lower
   bound binds at ``a*``, read from the persisted active set (all ``False``
   where Stage 5 recorded none: the full-G path);
-* ``z_kappa``      — the **standardised shift** ``z/√κ`` (NaN where κ = 0): under
+* ``std_shift``    — the **standardised shift** ``z/√κ`` (NaN where κ = 0): under
   the active-set linearisation ``a* − a_prior ~ N(0, σ_a²·κ)``, so it is
   N(0, 1) when σ is right;
 * ``calibrated``   — the edge-years the calibration reads: not bound-active,
@@ -30,14 +30,17 @@ One row per edge × year of a persisted ``UncPropResult``, joined to the opt run
 
 Calibration (#87): :meth:`UncPropStatsDiagnostic.calibration` tabulates the tail
 share ``|z/√κ| > 3`` (N(0, 1) expects :data:`CALIB_EXPECTED_SHARE`) and the
-quantiles of ``|z/√κ|`` per valuation × prior class;
+quantiles :data:`CALIB_QUANTILES` of ``|z/√κ|`` per valuation × prior class;
 :meth:`~UncPropStatsDiagnostic.birge` the **Birge ratio** ``R = Σz²/dof`` per year
 and over the run, where ``Σz²`` is the QP objective at ``a*`` (edge defects plus
 soft-row residuals, as in SolverDiag's objective decomposition) and ``dof`` the
 active-set problem's independent constraints (Stage 5's ``n_rows_kept`` +
-``n_scale_totals_left_out`` + ``n_bound_active``);
+``n_scale_totals_left_out`` + the bound-active edges whose prior is off the bound);
 :meth:`~UncPropStatsDiagnostic.birge_interval` the Birge-scaled interval
-``a* ± z_α·√R·σ_a*`` beside the stored one.
+``a* ± z_α·√R·σ_a*`` beside the stored one. On a scale-total ablation run
+(``exclude_scale_totals`` in the conditioning) ``z`` comes from the full fit but
+``κ`` from the reduced ``S(t)``, so ``z/√κ`` is not N(0, 1) there and the
+calibration and the Birge interval are not produced; the Birge ratio still is.
 """
 
 from __future__ import annotations
@@ -45,6 +48,9 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 from scipy.stats import norm
+
+from pysuto._conditioning import condition_sigma_c
+from pysuto.uncprop import DEFAULT_BIND_TOL, KalmanUncProp
 
 # Quadrant cuts (GLOSSARY.md "Prior-carried / confirmed / overruled / unexplained move").
 KAPPA_CUT   = 0.5
@@ -54,8 +60,18 @@ Z_CUT       = 3.0
 # numbers near zero; under N(0, 1) a share CALIB_EXPECTED_SHARE lies beyond Z_CUT.
 CALIB_KAPPA_MIN       = 0.01
 CALIB_EXPECTED_SHARE  = float(2.0 * norm.sf(Z_CUT))
+CALIB_QUANTILES       = (0.5, 0.9, 0.99)
 _CALIB_EXCLUDED_CLASS = "flat"
-_QUANTILES            = (0.5, 0.9, 0.99)
+
+
+def quantile_label(q: float) -> str:
+    """The name of the ``q`` quantile (``q50``)."""
+    return f"q{q * 100:g}"
+
+
+def quantile_column(q: float) -> str:
+    """The calibration-table column of the ``q`` quantile of ``|z/√κ|`` (``q50_abs``)."""
+    return f"{quantile_label(q)}_abs"
 
 QUADRANTS     = ["prior-carried", "confirmed", "overruled", "unexplained move"]
 PRIOR_CLASSES = ["from a feed", "imputed", "flat", "zero-pinned"]
@@ -154,6 +170,8 @@ class UncPropStatsDiagnostic:
             raise KeyError(f"opt results lack the uncprop year(s) {missing}")
         self._frame_cache = None
         self._birge_cache = None
+        self.ablation = bool(self._cond.get("exclude_scale_totals", False))
+        self._z_alpha = float(norm.ppf(1.0 - float(uncprop_result.alpha) / 2.0))
 
     # ------------------------------------------------------------------
     # Edge frame
@@ -230,10 +248,10 @@ class UncPropStatsDiagnostic:
         f["quadrant"]     = quadrant(f["kappa"], f["z"])
         kappa = f["kappa"].to_numpy()
         with np.errstate(divide="ignore", invalid="ignore"):
-            f["z_kappa"] = np.where(kappa > 0.0, f["z"].to_numpy() / np.sqrt(kappa), np.nan)
+            f["std_shift"] = np.where(kappa > 0.0, f["z"].to_numpy() / np.sqrt(kappa), np.nan)
         f["calibrated"] = (~f["bound_active"].to_numpy() & (kappa >= CALIB_KAPPA_MIN)
                            & (f["prior_class"].to_numpy() != _CALIB_EXCLUDED_CLASS)
-                           & np.isfinite(f["z_kappa"].to_numpy()))
+                           & np.isfinite(f["std_shift"].to_numpy()))
 
         em = getattr(self._acc, "edge_meta", None) if self._acc is not None else None
         if em is not None:
@@ -281,19 +299,21 @@ class UncPropStatsDiagnostic:
         ``weight_kt``; over the calibrated edge-years, the share with
         ``|z/√κ| > 3`` (``share_gt3``; N(0, 1) expects :data:`CALIB_EXPECTED_SHARE`),
         the same share weighted by ``max(|a_prior|, |a*|)``, the quantiles
-        ``q50_abs`` / ``q90_abs`` / ``q99_abs`` and ``max_abs`` of ``|z/√κ|``, and
-        both shares beyond the Birge-scaled cut ``3·√R`` (NaN without
-        ``birge_ratio``). A cell without a calibrated edge-year has NaN statistics.
+        :data:`CALIB_QUANTILES` (columns :func:`quantile_column`) and ``max_abs`` of
+        ``|z/√κ|``, and both shares beyond the Birge-scaled cut ``3·√R`` (NaN
+        without ``birge_ratio``). A cell without a calibrated edge-year has NaN
+        statistics.
         """
         cut_birge = Z_CUT * np.sqrt(birge_ratio)
+        birge = np.isfinite(cut_birge)
         rows = []
         for (val, cls), d in frame.groupby(["valuation", "prior_class"], sort=True,
                                            observed=True):
             c = d[d["calibrated"].to_numpy(dtype=bool)]
-            a = np.abs(c["z_kappa"].to_numpy(dtype=float))
+            a = np.abs(c["std_shift"].to_numpy(dtype=float))
             w = c["weight"].to_numpy(dtype=float)
-            q = np.quantile(a, _QUANTILES) if a.size else np.full(len(_QUANTILES), np.nan)
-            birge = np.isfinite(cut_birge)
+            q = (np.quantile(a, CALIB_QUANTILES) if a.size
+                 else np.full(len(CALIB_QUANTILES), np.nan))
             rows.append({
                 "valuation":                val,
                 "prior_class":              cls,
@@ -302,9 +322,7 @@ class UncPropStatsDiagnostic:
                 "weight_kt":                float(w.sum()),
                 "share_gt3":                _share(a > Z_CUT),
                 "share_gt3_weighted":       _share(a > Z_CUT, w),
-                "q50_abs":                  q[0],
-                "q90_abs":                  q[1],
-                "q99_abs":                  q[2],
+                **{quantile_column(qq): v for qq, v in zip(CALIB_QUANTILES, q)},
                 "max_abs":                  float(a.max()) if a.size else np.nan,
                 "share_gt3_birge":          _share(a > cut_birge) if birge else np.nan,
                 "share_gt3_birge_weighted": _share(a > cut_birge, w) if birge else np.nan,
@@ -319,21 +337,28 @@ class UncPropStatsDiagnostic:
         per-period prior the QP used); ``zsq_soft_rows`` sums the squared
         standardised residual ``(G·a* − c)/σ_c`` over its soft rows (``cone_type ==
         "free"``, the QP's slack rows; σ_c conditioned as the QP did). Their sum
-        ``zsq_total`` is the QP objective at ``a*``. ``dof = n_rows_kept +
-        n_scale_totals_left_out + n_bound_active`` from Stage 5's per-year
-        diagnostics, NaN where Stage 5 recorded none (the full-G path); an
-        ablation's left-out scale totals still count, because ``a*`` was fitted
-        with them. ``z_alpha`` and ``z_alpha_birge = z_alpha·√R`` are the
-        half-widths of the raw and the Birge-scaled interval in units of ``σ_a*``.
+        ``zsq_total`` is the QP objective at ``a*``.
+
+        ``dof = n_rows_kept + n_scale_totals_left_out + n_bound_active −
+        n_bound_active_at_prior`` from Stage 5's per-year diagnostics, NaN where
+        Stage 5 recorded none (the full-G path). An ablation's left-out scale totals
+        count, because ``a*`` was fitted with them. A bound-active edge whose prior
+        already sits on its bound (``|a_prior − l| ≤ bind_tol``) does not: its
+        ``a* = l = a_prior`` is zero by construction, not a draw
+        (``n_bound_active_at_prior``). ``z_alpha`` and ``z_alpha_birge =
+        z_alpha·√R`` are the half-widths of the raw and the Birge-scaled interval in
+        units of ``σ_a*``; the latter is NaN on an ablation run.
         """
         if self._birge_cache is not None:
             return self._birge_cache
-        # Local import to keep diag at the leaf of the import graph (as SolverDiag).
-        from pysuto._conditioning import condition_sigma_c
-
         f = self.edge_frame()
-        g = f.assign(zsq=f["z"].to_numpy() ** 2).groupby("year")
-        zsq_e, n_e = g["zsq"].sum(), g.size()
+        lb = self._lower_bounds()[f["edge_id"].to_numpy()]
+        bind_tol = float(self._cond.get("bind_tol", DEFAULT_BIND_TOL))
+        with np.errstate(invalid="ignore"):
+            at_prior = (f["bound_active"].to_numpy()
+                        & (np.abs(f["a_prior"].to_numpy() - lb) <= bind_tol))
+        g = f.assign(zsq=f["z"].to_numpy() ** 2, at_prior=at_prior).groupby("year")
+        zsq_e, n_e, n_at = g["zsq"].sum(), g.size(), g["at_prior"].sum()
         cone   = self._cr.row_meta["cone_type"].to_numpy()
         tdata  = {str(k): v for k, v in self._cr.timestep_data.items()}
         per_ts = {str(k): v for k, v in self._unc.per_timestep.items()}
@@ -362,22 +387,25 @@ class UncPropStatsDiagnostic:
                 "n_rows_kept":             d.get("n_rows_kept", np.nan),
                 "n_scale_totals_left_out": d.get("n_scale_totals_left_out", 0),
                 "n_bound_active":          d.get("n_bound_active", np.nan),
+                "n_bound_active_at_prior": int(n_at[y]),
             })
         b = pd.DataFrame(rows)
         b.loc[len(b)] = {"year": "all", **b.drop(columns="year").sum(skipna=False).to_dict()}
         b["zsq_total"]     = b["zsq_edges"] + b["zsq_soft_rows"]
-        b["dof"]           = b["n_rows_kept"] + b["n_scale_totals_left_out"] + b["n_bound_active"]
+        b["dof"]           = (b["n_rows_kept"] + b["n_scale_totals_left_out"]
+                              + b["n_bound_active"] - b["n_bound_active_at_prior"])
         b["birge_ratio"]   = b["zsq_total"] / b["dof"]
-        b["z_alpha"]       = float(norm.ppf(1.0 - float(self._unc.alpha) / 2.0))
-        b["z_alpha_birge"] = b["z_alpha"] * np.sqrt(b["birge_ratio"])
+        b["z_alpha"]       = self._z_alpha
+        b["z_alpha_birge"] = (np.nan if self.ablation
+                              else self._z_alpha * np.sqrt(b["birge_ratio"]))
         for col in ("n_edges", "n_soft_rows", "n_rows_kept", "n_scale_totals_left_out",
-                    "n_bound_active", "dof"):
+                    "n_bound_active", "n_bound_active_at_prior", "dof"):
             if b[col].notna().all():
                 b[col] = b[col].astype(np.int64)
         self._birge_cache = b[["year", "n_edges", "zsq_edges", "n_soft_rows", "zsq_soft_rows",
                                "zsq_total", "n_rows_kept", "n_scale_totals_left_out",
-                               "n_bound_active", "dof", "birge_ratio", "z_alpha",
-                               "z_alpha_birge"]]
+                               "n_bound_active", "n_bound_active_at_prior", "dof",
+                               "birge_ratio", "z_alpha", "z_alpha_birge"]]
         return self._birge_cache
 
     def birge_ratio(self) -> float:
@@ -392,11 +420,14 @@ class UncPropStatsDiagnostic:
         ``R`` defaults to the run-level :meth:`birge_ratio`. The lower end clips at
         the edge's lower-bound row ``l`` the way Stage 5 clips the stored one
         (``min(max(·, l), a*)``). ``frame``'s ``lower`` / ``upper`` are not touched.
+        Raises on an ablation run, whose ``σ_a*`` is not the fitted estimator's.
         """
+        if self.ablation:
+            raise ValueError("no Birge interval on a scale-total ablation run: its σ_a* "
+                             "comes from the reduced S(t), its a* from the full fit")
         R    = self.birge_ratio() if birge_ratio is None else float(birge_ratio)
-        z    = float(norm.ppf(1.0 - float(self._unc.alpha) / 2.0))
         a    = frame["a_post"].to_numpy(dtype=float)
-        half = z * np.sqrt(R) * frame["sigma_a_star"].to_numpy(dtype=float)
+        half = self._z_alpha * np.sqrt(R) * frame["sigma_a_star"].to_numpy(dtype=float)
         lower, upper = a - half, a + half
         lb  = self._lower_bounds()[frame["edge_id"].to_numpy(dtype=np.int64)]
         has = ~np.isnan(lb)
@@ -404,21 +435,24 @@ class UncPropStatsDiagnostic:
         return pd.DataFrame({"lower_birge": lower, "upper_birge": upper}, index=frame.index)
 
     def _lower_bounds(self) -> np.ndarray:
-        """Each edge's lower-bound row ``l``, NaN without one. The rows with
-        ``type == "bound"`` and ``variant == "lower"`` read ``coef·a ≤ c`` with a
-        single negative ``coef`` (−1, ADR 0039), so ``l = c / coef``."""
-        rm  = self._cr.row_meta
+        """Each edge's lower-bound row ``l`` (NaN without one), by Stage 5's own
+        extraction (:meth:`KalmanUncProp._lower_bound_values`) over each year's
+        block of the partition; all NaN on the full-G path."""
         out = np.full(int(self._cr.G.shape[1]), np.nan)
-        if not {"type", "variant", "time"} <= set(rm.columns):
+        blocks = {str(k): v for k, v in (getattr(self._cr, "G_blocks", None) or {}).items()}
+        if not blocks:
             return out
-        rows = np.flatnonzero(((rm["type"] == "bound") & (rm["variant"] == "lower")).to_numpy())
-        coo  = self._cr.G.tocsr()[rows].tocoo()
-        time = rm["time"].astype(str).to_numpy()[rows]
-        c    = np.full(rows.size, np.nan)
-        for y, td in self._cr.timestep_data.items():
-            m = time == str(y)
-            c[m] = np.asarray(td["c"], dtype=float)[rows[m]]
-        out[coo.col] = c[coo.row] / coo.data
+        is_lower = KalmanUncProp._lower_bound_mask(self._cr.row_meta)
+        tdata = {str(k): v for k, v in self._cr.timestep_data.items()}
+        for y in self.years:
+            res = self._opt[y]
+            rows_t, cols_t = getattr(res, "rows_t", None), getattr(res, "cols_t", None)
+            if rows_t is None or cols_t is None:
+                continue
+            rows_t = np.asarray(rows_t, dtype=np.int64)
+            c_t = np.asarray(tdata[y]["c"], dtype=float)[rows_t]
+            out[np.asarray(cols_t, dtype=np.int64)] = KalmanUncProp._lower_bound_values(
+                blocks[y].tocsr(), c_t, is_lower[rows_t])
         return out
 
     @staticmethod
