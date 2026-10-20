@@ -81,6 +81,19 @@ N_WORKERS           = os.cpu_count() or 1
 # opt_20261019_171746_3272682b), and Stage 4 fell only 745 → 563 s because the
 # feasibility probe dominates (ADR 0039 am.).
 DIRECT_SOLVE_METHOD = "faer"
+# The period QP's decision variables (#33): "flows" solves for a, so Clarabel's cost
+# is J − Σ(a_prior/σ_a)², a constant ≈ 1e6 against J ≈ 1e5; "defects" solves the
+# same QP for d = a − a_prior (q = 0, cost = J). Probed on
+# const_20261019_170151_13460e94, years 1995/2008/2009/2015/2016/2022
+# (scripts/explo/issue33_conditioning_probe.py): at feas/gap 1e-8 "defects" reached
+# Solved in every year in 71–81 iterations (20–22 s vs 52–68 s), its J within 0.2 of
+# a certified dual lower bound, while "flows" stopped 516–4,349 above that bound
+# (opt_20261019_171746_3272682b 945–4,363 above it), hard-row residuals ≤ 9e-7 kt vs
+# ≤ 1e-7 kt. The sidecar's objective stays J − Σ(a_prior/σ_a)² under both; gap_rel is
+# relative to Clarabel's own cost, so TOL_GAP_REL is ~10× tighter in absolute terms
+# under "defects". Switching is a measured change (REP + run id); the feasibility
+# probe has no σ-weighted cost and is unaffected.
+QP_VARIABLES        = "flows"
 
 
 # ---------------------------------------------------------------------------
@@ -114,7 +127,8 @@ def main(const_run_id: str, label: str = "", prior_mode: str = "warm") -> None:
                             max_iter=MAX_ITER,
                             prior_mode=prior_mode,
                             n_workers=N_WORKERS,
-                            direct_solve_method=DIRECT_SOLVE_METHOD,)
+                            direct_solve_method=DIRECT_SOLVE_METHOD,
+                            qp_variables=QP_VARIABLES,)
 
     _log.info("Solving ConstraintRun '%s'", const_run_id)
     results = solver.solve_all(
