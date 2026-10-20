@@ -74,8 +74,8 @@ class OptimResult:
     eps_opt:       np.ndarray      # (n_free,) — slack on soft rows in original row order
     c_star:        np.ndarray      # (M,) — c + ε (ε=0 for hard rows). Diagnostic.
     residuals:     np.ndarray      # (M,) — G @ F_opt - c (original row order)
-    objective:     float           # Clarabel's cost: J − Σ(a_prior/σ_a)² for qp_variables
-                                   # 'flows', J itself for 'defects' (#33)
+    objective:     float           # J − Σ(a_prior/σ_a)², the flows form's cost, under
+                                   # either qp_variables (#33)
     iterations:    int
     solve_time_s:  float
     solver_status: str             # str(clarabel SolverStatus enum)
@@ -154,8 +154,12 @@ class ClarabelSolver:
     ``qp_variables='flows'`` (the default) solves for ``a``: ``q = −2·Σ_a^{-1}·a_prior``
     and Clarabel's cost is J − Σ(a_prior/σ_a)². ``'defects'`` solves the same QP for
     the defect ``d = a − a_prior`` (same P and A, ``q = 0``, ``b = c − G·a_prior``), so
-    the cost is J itself; ``F_opt`` is returned as ``a_prior + d`` either way. Block
-    path only (serial and parallel); the feasibility probe has no σ-weighted cost.
+    its cost is J itself. ``F_opt`` comes back as ``a_prior + d`` and ``objective`` in
+    the flows convention (J − Σ(a_prior/σ_a)²) either way; ``convergence`` and
+    ``iter_history`` keep Clarabel's own cost. gap_rel's denominator is that cost, so
+    the same ``tol_gap_rel`` is ~10× tighter in absolute terms under ``'defects'``
+    (J ≈ 1e5 against |J − Σ(a_prior/σ_a)²| ≈ 1e6 on copper). Block path only (serial
+    and parallel); the feasibility probe has no σ-weighted cost.
     """
 
     def __init__(
@@ -919,15 +923,16 @@ class ClarabelSolver:
             inv_scf = np.zeros(0)
         P_diag_t = 2.0 * np.concatenate([inv_sa_t, inv_scf])
         P_t      = sp.diags(P_diag_t, format="csc")
-        if self.qp_variables == "defects":
-            # Solve for d = a − a_prior (#33): the same QP with q = 0, so Clarabel's
-            # cost is J itself, not J minus the constant Σ(a_prior/σ_a)² (≈ 1e6 vs
-            # J ≈ 1e5), and q no longer enters its dual-residual scaling.
-            q_t = np.zeros(n_a_t + n_free_t)
-            b_t = b_t - G_p_t @ a_prior_t
-        else:
-            q_t = np.concatenate([-2.0 * inv_sa_t * a_prior_t,
-                                  np.zeros(n_free_t)])
+        # Prior offset (#33): Clarabel solves for x = a − a_shift. "flows": a_shift = 0;
+        # "defects": a_shift = a_prior, so q = 0 and Clarabel's cost is J itself rather
+        # than J − Σ(a_prior/σ_a)² (2015 of const_20261019_170151_13460e94: 1,288,065
+        # against an optimal J of 117,282). const_t moves the reported objective back
+        # to the flows convention.
+        a_shift  = a_prior_t if self.qp_variables == "defects" else np.zeros(n_a_t)
+        q_t      = np.concatenate([-2.0 * inv_sa_t * (a_prior_t - a_shift),
+                                   np.zeros(n_free_t)])
+        b_t      = b_t - G_p_t @ a_shift
+        const_t  = float(inv_sa_t @ (a_shift * (2.0 * a_prior_t - a_shift)))
 
         cones_t: list = []
         if n_free_t   > 0: cones_t.append(clarabel.ZeroConeT(n_free_t))
@@ -998,9 +1003,7 @@ class ClarabelSolver:
             )
 
         x         = np.asarray(sol.x)
-        F_opt_t   = x[:n_a_t]
-        if self.qp_variables == "defects":
-            F_opt_t = a_prior_t + F_opt_t
+        F_opt_t   = a_shift + x[:n_a_t]
         eps_opt_t = x[n_a_t:] if n_free_t else np.zeros(0)
 
         # ε back into row-order on the per-t row block
@@ -1021,7 +1024,7 @@ class ClarabelSolver:
             eps_opt       = eps_opt_t,
             c_star        = c_star_t,
             residuals     = residuals_t,
-            objective     = float(sol.obj_val),
+            objective     = float(sol.obj_val) - const_t,
             iterations    = int(sol.iterations),
             solve_time_s  = elapsed,
             solver_status = status,
@@ -1034,7 +1037,7 @@ class ClarabelSolver:
 
         logger.info(
             "t=%s  status=%s  iters=%d  obj=%.4e  gap=%.2e  dres=%.2e  step=%.2f  time=%.2fs  (per-t: %d cols × %d rows)",
-            t, status, sol.iterations, sol.obj_val,
+            t, status, sol.iterations, result.objective,
             convergence["gap_abs"], convergence["res_dual"],
             convergence["step_length"], elapsed,
             n_a_t, m_t,
@@ -1075,8 +1078,8 @@ class ClarabelSolver:
         omits it cannot be compared to another on that axis (Round P, G5); it
         defaults to this solver's own ``prior_mode`` when the caller passes
         nothing. How the last ``solve_all`` ran — ``n_workers`` (threads
-        used), ``max_threads`` and ``direct_solve_method`` — is added to it,
-        and its wall-clock lands in ``stage_summary.solve_wall_s``.
+        used), ``max_threads``, ``direct_solve_method`` and ``qp_variables`` — is
+        added to it, and its wall-clock lands in ``stage_summary.solve_wall_s``.
         """
         stage_config = ({"prior_mode": self.prior_mode}
                         if stage_config is None else stage_config)

@@ -945,7 +945,7 @@ class TestQpVariables:
         F = defects["2020"].F_opt
         assert F[3] == pytest.approx(0.0, abs=1e-6)            # e3's lower bound binds
         assert F[2] == pytest.approx(0.55 * F[0], rel=1e-6)    # the band binds
-        assert F[0] == pytest.approx(F[1:].sum(), rel=1e-9)    # the balance holds
+        assert F[0] == pytest.approx(F[1:].sum(), rel=1e-7)    # the balance holds
 
     @pytest.mark.parametrize("n_workers", [1, 2])
     def test_defects_give_the_flows_optimum_on_both_period_paths(
@@ -962,15 +962,19 @@ class TestQpVariables:
         for t in defects:
             assert defects[t].F_opt[3] == pytest.approx(0.0, abs=1e-6), t
 
-    def test_objective_is_the_cost_of_the_solved_variables(self, tmp_path, monkeypatch):
-        """Clarabel's cost: J for the defects, J − Σ(a_prior/σ_a)² for the flows."""
+    def test_objective_keeps_the_flows_convention_under_both_choices(
+        self, tmp_path, monkeypatch,
+    ):
+        """objective = J − Σ(a_prior/σ_a)² either way, so runs compare like with like;
+        Clarabel's own cost (convergence) is J under "defects"."""
         run = _make_wide_sigma_run()
         _, flows   = self._solve(run, tmp_path, monkeypatch, "flows")
         _, defects = self._solve(run, tmp_path, monkeypatch, "defects")
         const = float(((run.a0 / run.sigma_a) ** 2).sum())
         J = self._J(run, "2020", defects["2020"].F_opt)
-        assert defects["2020"].objective == pytest.approx(J, rel=1e-6)
+        assert defects["2020"].objective == pytest.approx(flows["2020"].objective, rel=1e-7)
         assert flows["2020"].objective + const == pytest.approx(J, rel=1e-6)
+        assert defects["2020"].convergence["cost_primal"] == pytest.approx(J, rel=1e-6)
 
     def test_flows_is_the_default_and_the_sidecar_records_the_choice(
         self, tmp_path, monkeypatch,

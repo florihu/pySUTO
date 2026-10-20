@@ -57,6 +57,7 @@ import clarabel                                           # noqa: E402
 
 import pysuto.solver as solver_mod                        # noqa: E402
 import run_solver as RS                                   # noqa: E402
+from pysuto._conditioning import condition_sigma_c        # noqa: E402
 from pysuto.solver import ClarabelSolver                  # noqa: E402
 
 CONST_RUN_ID = "const_20261019_170151_13460e94"
@@ -80,9 +81,8 @@ def year_qp(cr, solver: ClarabelSolver, t: str) -> dict:
     cols   = np.asarray(cr.edge_cols_by_t[t])
     rows   = np.where(cr.row_meta["time"].astype(str).to_numpy() == t)[0]
     rm     = cr.row_meta.iloc[rows]
-    sc     = np.asarray(cr.timestep_data[t]["sigma_c"], dtype=float)[rows]
-    sc     = np.maximum(np.where(np.isnan(sc), solver.sigma_c_floor, sc),
-                        solver.sigma_c_floor)
+    sc     = condition_sigma_c(np.asarray(cr.timestep_data[t]["sigma_c"], dtype=float)[rows],
+                               floor=solver.sigma_c_floor)
     return dict(cols=cols, rows=rows, G=cr.G_blocks[t].tocsr(),
                 ct=rm["cone_type"].to_numpy(), typ=rm["type"].to_numpy(),
                 c=np.asarray(cr.timestep_data[t]["c"], dtype=float)[rows],

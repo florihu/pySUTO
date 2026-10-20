@@ -89,8 +89,10 @@ DIRECT_SOLVE_METHOD = "faer"
 # Solved in every year in 71–81 iterations (20–22 s vs 52–68 s), its J within 0.2 of
 # a certified dual lower bound, while "flows" stopped 516–4,349 above that bound
 # (opt_20261019_171746_3272682b 945–4,363 above it), hard-row residuals ≤ 9e-7 kt vs
-# ≤ 1e-7 kt. Switching is a measured change (REP + run id); the feasibility probe has
-# no σ-weighted cost and is unaffected.
+# ≤ 1e-7 kt. The sidecar's objective stays J − Σ(a_prior/σ_a)² under both; gap_rel is
+# relative to Clarabel's own cost, so TOL_GAP_REL is ~10× tighter in absolute terms
+# under "defects". Switching is a measured change (REP + run id); the feasibility
+# probe has no σ-weighted cost and is unaffected.
 QP_VARIABLES        = "flows"
 
 
