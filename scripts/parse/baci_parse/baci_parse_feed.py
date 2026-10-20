@@ -19,9 +19,9 @@ What this script does
 3. Drops rows with missing or zero quantity.
 4. Aggregates by (Year, Sector, Region_from, Region_to) — sum quantity *and value*.
 4b. Drops refined copper declared into a country it only passes through (#95,
-    ``TRANSIT_DECLARATIONS``), then keeps the larger of two codes' declarations
-    per partner in the years they repeat each other's (#88, #95,
-    ``MIRROR_DUPLICATES``).
+    ``TRANSIT_DECLARATIONS``); then, in the years one code repeats another's
+    declarations, keeps the larger refined-copper export per partner and drops
+    the code's other rows (#88, #95, ``MIRROR_DUPLICATES``).
 5. Reconstructs the quantity of legs whose value contradicts it, on either side
    of the band (ADR 0033, below).
 6. Converts quantity from tonnes (BACI native) to kt  (÷ 1000).
@@ -122,19 +122,23 @@ MIN_IN_BAND      = 2                # fewer than this and the spread is not
 # all of HS 7403.1x, #91) fall 5–323 kt short of ICSG production in every year through
 # 2014 and 476 kt in 2024, which 178 fills.  In 2015–2023 they lie within −74 … +422 kt
 # of it, and 178 (226–465 kt a year) on top would count the copper twice — but not to
-# every partner: 178 → UAE is 80–252 kt a year against 180 → UAE 53–142, and dropping 178
-# outright (#88) left the UAE re-exporting cathode it no longer imported (Δz² +25,625 on
-# opt_20261019_142026_83bfe843).  So per partner the larger declaration is kept (#95).
+# every partner: 178 → UAE is 80–252 kt a year against 180 → UAE 53–142 kt, and dropping
+# 178 outright (#88) left the UAE re-exporting cathode it no longer imported (common-set
+# Δz² +25,625 vs opt_20261015_093646_ddd9d3d9, on opt_20261019_142026_83bfe843).  So per
+# partner the larger refined-copper export is kept (#95); every other row of 178 in the
+# window is still dropped (#88), since no evidence covers it.
 MIRROR_DUPLICATES = {178: (180, 2015, 2023)}
 
-# Exporter codes → countries their refined copper only passes through, dropped in every
-# year (#95).  DR Congo's cathode leaves through Dar es Salaam and Beira, and the final
-# buyer declares DR Congo as origin too, so the leg into the port country counts it
-# twice.  In 2015–2023 Tanzania recorded 1,553 kt of refined copper from DR Congo and
-# exported 213 kt, Mozambique 382 kt and 16 kt; neither refines copper (ICSG production
-# 0).  Only HS 7403.1x: DR Congo's concentrate into them was not analysed.
-TRANSIT_DECLARATIONS = {(178, 180): (834,     # Tanzania (Dar es Salaam)
-                                     508)}    # Mozambique (Beira)
+# Exporter code → countries its refined copper only passes through, dropped in every
+# year (#95).  DR Congo's refined copper leaves through Dar es Salaam and Beira, and the
+# final buyer declares DR Congo as origin too, so the leg into the port country counts it
+# twice.  180 → Tanzania is 302.3, 130.5, 35.6, 98.0, 264.9, 247.4, 196.3, 134.7, 143.2 kt
+# in 2015–2023 (0.1 kt in 2024); 180 → Mozambique 15.8, 61.1, 28.3, 47.2, 103.0, 126.0 kt in
+# 2018–2023 (0.1 kt in 2015); none before 2015, and 178 sends neither anything.  Tanzania
+# exported 213 kt of refined copper in 2015–2023, Mozambique 16 kt; neither refines copper
+# (ICSG production 0).  Only HS 7403.1x: concentrate into them was not analysed.
+TRANSIT_DECLARATIONS = {180: (834,    # Tanzania (Dar es Salaam)
+                              508)}   # Mozambique (Beira)
 
 OUT_DIR       = os.path.dirname(OUT_PATH)
 RECON_PATH    = os.path.join(OUT_DIR, "quantity_recon.csv")
@@ -146,66 +150,68 @@ CV_SCALE_PATH = os.path.join(OUT_DIR, "quantity_cv_scale.csv")
 # ---------------------------------------------------------------------------
 
 def drop_transit_declarations(agg, transit) -> pd.DataFrame:
-    """``agg`` without the refined-copper rows (HS 7403.1x) that a declared exporter's
-    codes send into a country the copper only passes through, in every year.  A declared
-    pair that matches no rows raises: it is stale."""
-    for exporters, hubs in transit.items():
+    """``agg`` without the refined-copper rows (HS 7403.1x) that a declared exporter sends
+    into a country the copper only passes through, in every year.  A declared (exporter,
+    hub) pair that matches no rows raises: it is stale."""
+    for exporter, hubs in transit.items():
         for hub in hubs:
-            rows = (agg["Region_from"].isin(exporters) & (agg["Region_to"] == hub)
+            rows = ((agg["Region_from"] == exporter) & (agg["Region_to"] == hub)
                     & agg["Sector"].isin(REFINED_HS))
             if not rows.any():
-                raise ValueError(f"TRANSIT_DECLARATIONS: no refined-copper rows of codes "
-                                 f"{exporters} into {hub}")
+                raise ValueError(f"TRANSIT_DECLARATIONS: no refined-copper rows of code "
+                                 f"{exporter} into {hub}")
             by = agg.loc[rows].groupby("Year")["q"].sum() / 1e3
-            logger.info("#95 refined copper of codes %s into %d is a transit declaration: "
-                        "%d rows dropped, kt by year %s", exporters, hub, int(rows.sum()),
+            logger.info("#95 refined copper of code %d into %d is a transit declaration: "
+                        "%d rows dropped, kt by year %s", exporter, hub, int(rows.sum()),
                         by.round(1).to_dict())
             agg = agg.loc[~rows]
     return agg.reset_index(drop=True)
 
 
 def reconcile_mirror_duplicates(agg, duplicates) -> pd.DataFrame:
-    """``agg`` with only the larger of two codes' declarations per year, product, partner
-    and direction (export or import) in the years ``(first, last)`` they repeat each
-    other's copper; the kept rows keep their code, and every other year is untouched.
+    """``agg`` reconciled in the years ``(first, last)`` a code repeats the copper its
+    mirrored code declares; every other year is untouched.
 
-    The product is refined copper pooled over HS 7403.1x, and every other HS code on its
-    own.  The Cathode sector reads the refined codes as one (#91), and the two sides of one
-    shipment need not declare the same one: in 2015–2017 DR Congo (180) declares 52–71 kt a
-    year to the UAE as 740319 that the UAE declares 740311 under 178, so a per-code max
-    would keep that copper twice.  The winning code is the one whose pooled declaration is
-    larger, the mirrored code on a tie; rows between the two codes are left to the feed's
-    cross-region scope (ADR 0014).  A declaration whose either code has no rows in its
-    years raises: it is stale.
+    Refined-copper exports (HS 7403.1x, the two codes as exporter) keep, per year and
+    partner, the code whose declaration is larger, its rows under their own HS and region
+    codes; the mirrored code wins a tie (#95).  Every other row of the code, either side,
+    is dropped (#88): the evidence covers only refined exports.  The comparison pools the
+    refined codes per partner because the Cathode sector reads them as one (#91) and the
+    two sides of one shipment need not declare the same code: in 2015–2017 DR Congo (180)
+    declares 52–71 kt a year to the UAE as 740319 that the UAE declares 740311 under 178,
+    so a per-code max would keep that copper twice.  A declaration raises as stale when
+    either code has no rows in its years, or when it drops nothing.
     """
-    for code, (own, first, last) in duplicates.items():
-        win = agg["Year"].between(first, last)
-        for c in (code, own):
-            if not (win & ((agg["Region_from"] == c) | (agg["Region_to"] == c))).any():
+    for code, (mirrored, first, last) in duplicates.items():
+        in_window = agg["Year"].between(first, last)
+        for c in (code, mirrored):
+            of_c = (agg["Region_from"] == c) | (agg["Region_to"] == c)
+            if not (in_window & of_c).any():
                 raise ValueError(f"MIRROR_DUPLICATES: no rows of code {c} "
                                  f"in {first}–{last}")
-        pair = [code, own]
-        out_ = agg["Region_from"].isin(pair) & ~agg["Region_to"].isin(pair)
-        in_ = agg["Region_to"].isin(pair) & ~agg["Region_from"].isin(pair)
-        d = pd.DataFrame({
-            "Year":      agg["Year"],
-            "product":   agg["Sector"].mask(agg["Sector"].isin(REFINED_HS), CATHODE_HS),
-            "direction": out_,
-            "partner":   agg["Region_to"].where(out_, agg["Region_from"]),
-            "decl":      agg["Region_from"].where(out_, agg["Region_to"]),
-            "Sector":    agg["Sector"],
-            "q":         agg["q"]})[win & (out_ | in_)]
-        key = ["Year", "product", "direction", "partner"]
-        tot = (d.groupby(key + ["decl"])["q"].sum()
-                .unstack("decl", fill_value=0.0).reindex(columns=pair, fill_value=0.0))
-        loser = pd.Series(np.where(tot[code] > tot[own], own, code), index=tot.index)
-        lost = loser.reindex(pd.MultiIndex.from_frame(d[key])).to_numpy()
-        drop = d.index[d["decl"].to_numpy() == lost]
-        by = d.loc[drop].groupby(["decl", "Sector"])["q"].sum() / 1e3
-        logger.info("#95 codes %d and %d in %d–%d repeat each other's declarations: the "
-                    "larger per partner kept, %d rows dropped, kt by code and sector %s",
-                    code, own, first, last, len(drop), by.round(1).to_dict())
-        agg = agg.drop(index=drop)
+        codes = [code, mirrored]
+        refined_export = (in_window & agg["Sector"].isin(REFINED_HS)
+                          & agg["Region_from"].isin(codes) & ~agg["Region_to"].isin(codes))
+        declared = (agg[refined_export].groupby(["Year", "Region_to", "Region_from"])["q"]
+                    .sum().unstack("Region_from", fill_value=0.0)
+                    .reindex(columns=codes, fill_value=0.0))
+        smaller = pd.Series(np.where(declared[code] > declared[mirrored], mirrored, code),
+                            index=declared.index)
+        partner_year = pd.MultiIndex.from_arrays([agg["Year"], agg["Region_to"]])
+        smaller_code = smaller.reindex(partner_year).to_numpy()
+        outdeclared = refined_export & (agg["Region_from"].to_numpy() == smaller_code)
+        of_code = (agg["Region_from"] == code) | (agg["Region_to"] == code)
+        other = in_window & of_code & ~refined_export
+        if not (outdeclared | other).any():
+            raise ValueError(f"MIRROR_DUPLICATES: code {code} drops nothing against "
+                             f"{mirrored} in {first}–{last}")
+        refined_by = agg.loc[outdeclared].groupby("Region_from")["q"].sum() / 1e3
+        other_by = agg.loc[other].groupby("Sector")["q"].sum() / 1e3
+        logger.info("#95 codes %d and %d in %d–%d: the smaller refined-copper export per "
+                    "partner dropped, kt by code %s; #88 code %d's other rows dropped, kt by "
+                    "sector %s", code, mirrored, first, last, refined_by.round(1).to_dict(),
+                    code, other_by.round(1).to_dict())
+        agg = agg.loc[~(outdeclared | other)]
     return agg.reset_index(drop=True)
 
 

@@ -101,9 +101,11 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
   its cathode-use rows carry z² 48,500 in 1995–2014 on `opt_20261015_093646_ddd9d3d9`). Chile gains 101–162 kt a
   year of exports in 1995–2010, DR Congo 245–772 kt a year in 2015–2019. China's and Italy's imports rise. ADR
   0033's copper price stays 740311.
-- **#88, the mirror duplicate.** `baci_parse_feed.drop_mirror_duplicates` drops a declared code's rows, either side,
-  in its duplicate years: `MIRROR_DUPLICATES = {178: (2015, 2023)}`, which is 3,163.8 kt of refined copper, 70.5
-  of concentrate, 23.1 of anode and 2.2 of matte (gross).
+- **#88, the mirror duplicate.** `baci_parse_feed.reconcile_mirror_duplicates` (since #95; was
+  `drop_mirror_duplicates`) works in a declared code's duplicate years, `MIRROR_DUPLICATES = {178: (180, 2015,
+  2023)}`. It keeps the larger of 178's and 180's refined-copper exports per partner (#95), and it drops 178's other
+  rows (#88: 70.5 kt of concentrate, 23.1 kt of anode, 2.2 kt of matte, gross). #88 alone dropped 3,163.8 kt of
+  refined copper too. #95 also adds `TRANSIT_DECLARATIONS = {180: (834, 508)}`.
   - On the full scope, code 180 alone lies within −74 … +422 kt (gross) of ICSG's DR Congo production in
     2015–2023, and 178's 226–465 kt a year would push it past; it falls 5–323 kt short in every year through
     2014 and 476 kt in 2024, where 178 stays.
