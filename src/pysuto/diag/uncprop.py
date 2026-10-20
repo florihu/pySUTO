@@ -106,6 +106,16 @@ class UncPropDiag:
         self._default_odir: Optional[str] = None
 
     @property
+    def opt_results(self) -> dict:
+        """The opt run's per-timestep ``OptimResult`` dict this diag was built from."""
+        return self._opt
+
+    @property
+    def constraint_run(self):
+        """The ``ConstraintRun`` this diag was built from."""
+        return self._cr
+
+    @property
     def acc(self):
         """The ``AccountingStructure`` (injected or lazily loaded); ``None`` when
         it cannot be loaded (toy fixtures)."""

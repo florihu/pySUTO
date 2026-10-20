@@ -17,8 +17,8 @@ tolerance (opt_20260916_124721_c4d1d944, gap_rel 1e-3) and at the tolerance of
 Table S5 (opt_20260930_093914_523d57d7, gap_rel 1e-6): the same QP, only the
 termination rule differs. The eight expectations of Table 3 and their
 thresholds were fixed before the numbers were read (SI S15) and are reported
-whichever way they fall. No Stage-5 (posterior sigma) number is quoted: none
-exists for the copper chain (issue #27). Re-running the script on a later run
+whichever way they fall. Stage-5 (posterior sigma) numbers are from uncprop_20261020_082104_b26ec19c
+(issue #27, REP analysis_uncprop_20261020_082104_b26ec19c_20261020_issue27-stage5-active-set.md). Re-running the script on a later run
 regenerates the figures, Table 3 and numbers.json; the prose then needs its
 numbers refreshed by hand against numbers.json.
 
@@ -63,7 +63,7 @@ The edge adjustment is localised on trade (Figure 4b, d). Two sector keys carry 
 
 The copper that moves is small downstream and larger upstream (Figure 4c). Over 30 years the account retains 1.000 of the prior refined output, 0.996 of mine output in contained copper and 0.949 of concentrate intake, but only 0.864 of the crude-ore mass; scrap is retained at 0.991 into smelters and 1.016 into refineries. Chile's concentrate exports retain 1.013 over 2010–2019. A4 fails: the ore-mass step holds in 26 of 30 years, the cathode–concentrate step in nine, because both copper stages sit within 0.01 of the prior.
 
-Termination accuracy is a first-order modelling choice (A5). Re-solving the base constraint set at the tightened tolerance, with nothing else changed, moves ore-mass retention from 0.779 to 0.861, concentrate output from 0.873 to 0.930, scrap into smelters from 0.995 to 0.772 and Chile's export retention from 0.574 to 0.893; five of nine stages move by more than 0.02. A retention figure from a $\sigma$-weighted reconciliation needs its termination rule beside it. No posterior $\sigma$ is reported, because Stage 5 has not run on the copper chain (issue #27); uncertainty enters these results only through $\sigma$ in $z$.
+Termination accuracy is a first-order modelling choice (A5). Re-solving the base constraint set at the tightened tolerance, with nothing else changed, moves ore-mass retention from 0.779 to 0.861, concentrate output from 0.873 to 0.930, scrap into smelters from 0.995 to 0.772 and Chile's export retention from 0.574 to 0.893; five of nine stages move by more than 0.02. A retention figure from a $\sigma$-weighted reconciliation needs its termination rule beside it. Under the stated $\sigma$, Stage 5 contracts the large flows strongly: the mass-weighted contraction of the feed-observed contained-copper edges is 0.93, so their posterior $\sigma$ is set by the constraints rather than by their own feed, while the median such edge contracts by only 0.04. These are contractions under the model; whether the intervals are calibrated is not tested (issue #87).
 
 <a id="fig-reconciliation"></a>
 

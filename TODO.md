@@ -146,6 +146,22 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
   BACI map with values netted under the old one: run nothing BACI-side but that chain. The si.md S8
   concordance row changes with the chain that ships it.
 
+## #27 MEASURED 2026-10-20 — Stage 5 runs on copper; ADR 0044 accepted
+
+`diag/uncprop-measure` (main + `fix/uncprop-active-set`, built by the #27 session), run
+`uncprop_20261020_082104_b26ec19c` on the final chain `opt_20261019_171746_3272682b`, REP
+`docs/rep/analysis_uncprop_20261020_082104_b26ec19c_20261020_issue27-stage5-active-set.md`;
+`scripts/explo/issue27_uncprop_active_set.py`.
+- **All 30 years complete** with σ_a* ≤ σ_a on every edge-year. Per year: 2,958–9,794 edges bound-active, 9,395–14,089
+  bands binding, 80–663 dependent hard rows dropped.
+- **`bind_tol`:** pinned edge-years 160,087 at 1e-8, 245,943 at 1e-6, 306,201 at 1e-4. The kt they carry stays at
+  7,585–11,663 kt.
+- **An LU of `S` still fails on this chain:** κ outside [0, 1] on 365 edges in 1995 and 279 in 2016. The QR keeps
+  every κ in [0, 1].
+- **κ under the model:** feed-observed CC edges have median 0.045 and mass-weighted 0.928. Calibration is #87, the σ
+  of totals #81.
+- The manuscript's Stage-5 statements now quote this run.
+
 ## #37 MEASURED 2026-10-19 — FAILS ON ITEMS 3 AND 4 (one mechanism); items 1–2 hold; shipped, fix ticket #98
 
 `diag/stock-bounds-v6`, run `opt_20261019_171746_3272682b` vs `opt_20261019_161937_fd301f58`, REP

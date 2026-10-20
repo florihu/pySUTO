@@ -9,8 +9,9 @@ Pipeline
 --------
 1  Instantiate KalmanUncProp (defaults match ClarabelSolver's σ conditioning)
 2  compute(opt_run_id, alpha=0.05) — cross-discovers const_run_id via the
-   opt sidecar, builds S(t) = G·diag(σ²_a)·Gᵀ + diag(σ²_c(t)) per t, and
-   solves for the marginal diagonal of the posterior covariance
+   opt sidecar, reduces each period at the QP's active set at a* (#27),
+   builds S(t) = G·diag(σ²_a)·Gᵀ + diag(σ²_c(t)) on it, and solves for the
+   marginal diagonal of the posterior covariance
 3  persist(result, opt_run_id, label) — writes per-t .npz arrays and a
    harmonized sidecar under data/proc/uncprop/<uncprop_run_id>/
 4  Render the UncPropDiag portfolio (UD-R-01/02 + contraction_summary.csv)
@@ -37,6 +38,8 @@ CONST_DIR   = os.path.join("data", "proc", "const")
 UNCPROP_DIR = os.path.join("data", "proc", "uncprop")
 IMP_DIR     = os.path.join("data", "proc", "imp")
 ALPHA       = 0.05
+BIND_TOL    = 1e-6      # kt — a hard inequality row binds when G·a* − c ≥ −BIND_TOL (#27)
+RANK_TOL    = 1e-10     # pivot tolerance for hard rows dependent on the others (#27)
 # ---------------------------------------------------------------------------
 # END USER CONFIGURATION
 # ---------------------------------------------------------------------------
@@ -63,6 +66,8 @@ def main(opt_run_id: str, label: str = "") -> None:
         opt_dir     = OPT_DIR,
         const_dir   = CONST_DIR,
         uncprop_dir = UNCPROP_DIR,
+        bind_tol    = BIND_TOL,
+        rank_tol    = RANK_TOL,
     )
 
     result = prop.compute(opt_run_id, alpha=ALPHA)
