@@ -4,8 +4,8 @@ test_uncprop_diag.py
 Smoke and round-trip tests for :class:`pysuto.diag.UncPropDiag`.
 
 The chain is real but tiny: the block-path toy of ``test_solver_diag`` (engine
-ConstraintRun with mass balances made full-rank, plus one soft row per year,
-solved by Clarabel) propagated by ``KalmanUncProp``. The tests cover:
+ConstraintRun with mass balances — region B's two are redundant — plus one soft
+row per year, solved by Clarabel) propagated by ``KalmanUncProp``. The tests cover:
   1. the portfolio (2 figures + ``contraction_summary.csv``) renders live;
   2. ``from_uncprop_id`` reloads result, opt run, const run, imp run (prior
      classes) and the sidecar's σ conditioning, and renders under ``diag/``;
@@ -28,12 +28,11 @@ import pytest
 STEMS = ["ud_r_01_contraction_shift", "ud_r_02_prior_posterior_bands"]
 
 
-def _full_rank_block_run(tmp_path, monkeypatch, agg_id=""):
-    """The block-path toy of ``test_solver_diag`` minus region B's Ore balance, plus
-    one soft row per year (``Mining B → Ore B`` = 50 kt, σ_c 2), solved by
-    Clarabel → (year-local results, ConstraintRun, acc). Region B is a closed
-    two-node loop whose Mining and Ore balances are each other's negatives; with
-    both, the hard rows are rank-deficient and Stage 5's ``S_t`` is singular."""
+def _block_run(tmp_path, monkeypatch, agg_id=""):
+    """The block-path toy of ``test_solver_diag`` plus one soft row per year
+    (``Mining B → Ore B`` = 50 kt, σ_c 2), solved by Clarabel → (year-local
+    results, ConstraintRun, acc). Region B is a closed two-node loop whose Mining
+    and Ore balances are each other's negatives: Stage 5 must drop one (#27)."""
     import dataclasses
     import pandas as pd
     import scipy.sparse as sp
@@ -47,7 +46,6 @@ def _full_rank_block_run(tmp_path, monkeypatch, agg_id=""):
     cr = engine.run(_make_toy_agg_result(acc), timesteps=["2020", "2021"], persist=False)
 
     rm   = cr.row_meta
-    keep = ~((rm["sector"] == "Ore") & (rm["region"] == "B")).to_numpy()
     em   = acc.edge_meta.reset_index(drop=True)
     soft = em.index[(em["from_sector"] == "Mining") & (em["from_region"] == "B")]
     years = em.loc[soft, "time"].astype(str).tolist()
@@ -57,16 +55,16 @@ def _full_rank_block_run(tmp_path, monkeypatch, agg_id=""):
                              "constraint_id": f"soft_mining_b_{y}", "type": "sum",
                              "variant": "anchor", "is_hard": False, "cone_type": "free",
                              "time": y, "valuation": "Mass"} for y in years])
-    G  = sp.vstack([cr.G.tocsr()[keep], soft_G]).tocsr()
-    rm = pd.concat([rm[keep], soft_rm], ignore_index=True)
+    G  = sp.vstack([cr.G.tocsr(), soft_G]).tocsr()
+    rm = pd.concat([rm, soft_rm], ignore_index=True)
     rm["is_hard"] = rm["is_hard"].astype(bool)
     row_time = rm["time"].astype(str).to_numpy()
     n_soft = len(soft)
     cr = dataclasses.replace(
         cr, G=G, row_meta=rm, agg_id=agg_id,
         timestep_data={t: {**d,
-                           "c": np.r_[np.asarray(d["c"])[keep], np.full(n_soft, 50.0)],
-                           "sigma_c": np.r_[np.asarray(d["sigma_c"])[keep],
+                           "c": np.r_[np.asarray(d["c"]), np.full(n_soft, 50.0)],
+                           "sigma_c": np.r_[np.asarray(d["sigma_c"]),
                                             np.full(n_soft, 2.0)]}
                        for t, d in cr.timestep_data.items()},
         G_blocks={t: G[np.flatnonzero(row_time == t)][:, cols].tocsr()
@@ -91,7 +89,7 @@ def _propagate(results, cr, tmp_path, monkeypatch):
 
 @pytest.fixture
 def chain(tmp_path, monkeypatch):
-    results, cr, acc = _full_rank_block_run(tmp_path, monkeypatch)
+    results, cr, acc = _block_run(tmp_path, monkeypatch)
     return _propagate(results, cr, tmp_path, monkeypatch), results, cr, acc
 
 
@@ -124,6 +122,18 @@ class TestLivePortfolio:
         assert s["n_edges"].sum() == n
         assert set(s["quadrant"]) <= {"prior-carried", "confirmed", "overruled",
                                       "unexplained move"}
+
+    def test_redundant_balance_is_dropped_not_fatal(self, chain):
+        unc = chain[0]
+        assert all(ts.diagnostics["n_hard_dependent"] == 1
+                   for ts in unc.per_timestep.values())
+
+    def test_frame_bound_active_is_stage5s_pinned_set(self, diag, chain):
+        unc = chain[0]
+        f = diag.stats.edge_frame()
+        for t, ts in unc.per_timestep.items():
+            ft = f[f["year"] == t].set_index("edge_id").loc[ts.cols_t]
+            np.testing.assert_array_equal(ft["bound_active"].to_numpy(), ts.bound_active)
 
     def test_frame_kappa_matches_stage5_sigma(self, diag, chain):
         unc = chain[0]
@@ -161,7 +171,7 @@ class TestFromUncpropId:
         from pysuto.solver import ClarabelSolver
         from pysuto.uncprop import KalmanUncProp
 
-        results, cr, acc = _full_rank_block_run(tmp_path, monkeypatch)
+        results, cr, acc = _block_run(tmp_path, monkeypatch)
         dirs = {k: str(tmp_path / k) for k in ("const", "opt", "uncprop", "imp")}
         ConstraintRunRegistry(dirs["const"]).register(cr)
         const_run_id = cr.run_id
@@ -208,7 +218,7 @@ class TestFromUncpropId:
         imp_id = ImputationRunRegistry(dirs["imp"]).register(
             agg, label="toy", parents={"inputs": {}, "upstream": {}})
 
-        results, cr, acc = _full_rank_block_run(tmp_path, monkeypatch, agg_id=imp_id)
+        results, cr, acc = _block_run(tmp_path, monkeypatch, agg_id=imp_id)
         ConstraintRunRegistry(dirs["const"]).register(cr)
         opt_run_id = ClarabelSolver(const_dir=dirs["const"], verbose_first_solve=False) \
             .persist(run_id=cr.run_id, results=results, output_dir=dirs["opt"],

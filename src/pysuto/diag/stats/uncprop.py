@@ -18,8 +18,9 @@ One row per edge × year of a persisted ``UncPropResult``, joined to the opt run
   ``"all"`` when no imputation run is supplied;
 * ``quadrant``     — prior-carried / confirmed / overruled / unexplained move,
   cut at :data:`KAPPA_CUT` and :data:`Z_CUT`;
-* ``bound_active`` — the edge has an ADR 0039 lower-bound row and ``a* ≤``
-  :data:`BIND_TOL_KT`.
+* ``bound_active`` — the edges Stage 5 pinned (σ_a* = 0) because their lower
+  bound binds at ``a*``, read from the persisted active set (all ``False``
+  where Stage 5 recorded none: the full-G path).
 """
 
 from __future__ import annotations
@@ -30,8 +31,6 @@ import pandas as pd
 # Quadrant cuts (GLOSSARY.md "Prior-carried / confirmed / overruled / unexplained move").
 KAPPA_CUT   = 0.5
 Z_CUT       = 3.0
-# An edge's lower bound binds when its posterior is within this of 0 (kt).
-BIND_TOL_KT = 1e-6
 
 QUADRANTS     = ["prior-carried", "confirmed", "overruled", "unexplained move"]
 PRIOR_CLASSES = ["from a feed", "imputed", "flat", "zero-pinned"]
@@ -87,18 +86,6 @@ def quadrant(kappa, z) -> np.ndarray:
     out = out.astype(object)
     out[np.isnan(kappa) | np.isnan(az)] = ""
     return out
-
-
-def _lower_bound_cols(constraint_run) -> np.ndarray:
-    """Global edge columns that carry an ADR 0039 lower-bound row (read from the
-    row's ``type`` / ``variant`` columns and its single nonzero in ``G``)."""
-    rm = constraint_run.row_meta
-    if not {"type", "variant"} <= set(rm.columns):
-        return np.zeros(0, dtype=np.int64)
-    rows = np.flatnonzero(((rm["type"] == "bound") & (rm["variant"] == "lower")).to_numpy())
-    if rows.size == 0:
-        return np.zeros(0, dtype=np.int64)
-    return np.unique(constraint_run.G.tocsr()[rows].tocoo().col).astype(np.int64)
 
 
 class UncPropStatsDiagnostic:
@@ -172,8 +159,6 @@ class UncPropStatsDiagnostic:
         a0      = np.asarray(self._cr.a0, dtype=float)
         sigma_a = self._sigma_a()
         classes = self._prior_classes()
-        has_lb  = np.zeros(E, dtype=bool)
-        has_lb[_lower_bound_cols(self._cr)] = True
 
         parts = []
         for t, ts in self._unc.per_timestep.items():
@@ -204,6 +189,9 @@ class UncPropStatsDiagnostic:
                 "sigma_a_star": np.asarray(ts.sigma_a_star, dtype=float),
                 "lower":        np.asarray(ts.lower, dtype=float),
                 "upper":        np.asarray(ts.upper, dtype=float),
+                "bound_active": (np.asarray(ts.bound_active, dtype=bool)
+                                 if getattr(ts, "bound_active", None) is not None
+                                 else np.zeros(cols.size, dtype=bool)),
             }))
         f = pd.concat(parts, ignore_index=True)
 
@@ -214,7 +202,6 @@ class UncPropStatsDiagnostic:
         cols = f["edge_id"].to_numpy()
         f["prior_class"]  = classes[cols] if classes is not None else "all"
         f["quadrant"]     = quadrant(f["kappa"], f["z"])
-        f["bound_active"] = has_lb[cols] & (f["a_post"].to_numpy() <= BIND_TOL_KT)
 
         em = getattr(self._acc, "edge_meta", None) if self._acc is not None else None
         if em is not None:

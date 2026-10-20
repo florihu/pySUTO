@@ -573,6 +573,10 @@ when at least one of its edges (its nonzero coefficients) carries `|a*|` above t
 tolerance, and **on zero flows** otherwise.
 _Avoid_: "active constraints", "binding constraints" for the mass balances — equalities always hold.
 
+**Bound-active** — an edge whose lower bound is in the active set; its posterior is pinned at the
+bound (`σ_a* = 0`).
+_Avoid_: "deleted", "at zero" — a signed edge at zero is not bound-active.
+
 **Prior class** — where an edge's prior comes from, one of four: **from a feed** (a data feed
 covers the edge), **imputed** (a Stage-2 imputer wrote it), **flat** (no information of its own:
 a flat prior, anchored or not, and the fabricated waste-rock satellites) and **zero-pinned** (a

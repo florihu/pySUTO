@@ -24,7 +24,7 @@ One chain (opt → const → imp) and one year. Vocabulary follows GLOSSARY.md:
 * **region slice**    — a region's columns and the rows touching them, laid out
   in Clarabel's standard form ``[G_free −I; G_zero 0; G_nonneg 0]``.
 
-``tol`` is :data:`~pysuto.diag.stats.uncprop.BIND_TOL_KT`, the Stage-5 bind
+``tol`` is :data:`~pysuto.uncprop.DEFAULT_BIND_TOL`, the Stage-5 bind
 tolerance. A row's edges are its nonzero coefficients: entries ``G`` stores as
 zero are ignored everywhere.
 """
@@ -37,7 +37,7 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
-from .uncprop import BIND_TOL_KT
+from pysuto.uncprop import DEFAULT_BIND_TOL as BIND_TOL_KT
 
 # Supply-chain order of the sectors; sinks (FU, Tailings, Slag, WR, stock legs)
 # sort after every chain sector.

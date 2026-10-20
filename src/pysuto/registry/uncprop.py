@@ -29,7 +29,8 @@ class UncPropRunRegistry(BaseOutputRegistry):
         └── uncprop_<ts>_<code>/
             ├── metadata.json                ← harmonized sidecar
             └── timesteps/
-                └── t_{label}.npz            (sigma_a_star, lower, upper)
+                └── t_{label}.npz            (sigma_a_star, lower, upper
+                                                  [, cols_t, bound_active])
 
     Diagnostics scalars (``trace_prior``, ``trace_post``, ``max_resid_hard``,
     ``psd_min_diag``) live in the sidecar's ``stage_summary.per_timestep``
@@ -72,9 +73,11 @@ class UncPropRunRegistry(BaseOutputRegistry):
                 "lower":        ts.lower,
                 "upper":        ts.upper,
             }
-            # Block path (year-local) carries cols_t; legacy omits it.
+            # Block path (year-local) carries cols_t and its active set; legacy omits them.
             if ts.cols_t is not None:
                 arrays["cols_t"] = ts.cols_t
+            if ts.bound_active is not None:
+                arrays["bound_active"] = ts.bound_active
             np.savez(os.path.join(ts_dir, f"t_{t}.npz"), **arrays)
 
         # ── 2. summary (caller's per_timestep + ordered keys) ─────────
@@ -128,6 +131,8 @@ class UncPropRunRegistry(BaseOutputRegistry):
                 upper        = npz["upper"],
                 diagnostics  = dict(per_ts.get(t, {})),
                 cols_t       = npz["cols_t"] if "cols_t" in npz.files else None,
+                bound_active = (npz["bound_active"] if "bound_active" in npz.files
+                                else None),
             )
 
         return UncPropResult(
