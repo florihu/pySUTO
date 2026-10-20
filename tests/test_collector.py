@@ -15,6 +15,8 @@ Run with:
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import numpy as np
 import pytest
 
@@ -27,7 +29,8 @@ from pysuto.agg import AggregationResult
 # ---------------------------------------------------------------------------
 
 class _MockRegistry:
-    """Dict-backed registry with the interface FeedCollector uses."""
+    """Dict-backed registry with the interface FeedCollector uses — the real
+    registry's: a feed id resolves to its run, ``<fid>_run`` here (#53)."""
 
     def __init__(self, feeds: dict):
         # feeds = {feed_id: {"F_root": np.ndarray, "sigma_root": np.ndarray}}
@@ -38,6 +41,12 @@ class _MockRegistry:
 
     def ids(self):
         return list(self._feeds.keys())
+
+    def resolve(self, fid):
+        return SimpleNamespace(run_id=f"{fid}_run", run_dir=f"runs/{fid}_run")
+
+    def load_sidecar(self, fid):
+        return {"parents": {"inputs": {"feed": {"id": fid}}}}
 
     def load_result(self, fid):
         return self._feeds[fid]
@@ -115,6 +124,23 @@ class TestFeedCollectorSelect:
     def test_select_mixed_str_and_tuple(self, collector):
         collector.select([("feed_a", None), "feed_b"])
         assert collector._feed_ids == ["feed_a", "feed_b"]
+
+    def test_select_records_each_feeds_run_id(self, collector):
+        """Stage 2's lineage is these run ids; a feed without one drops out of
+        ``parents.upstream`` (#53)."""
+        collector.select(["feed_a", "feed_b"])
+        assert [s["feed_run_id"] for s in collector.selected] == ["feed_a_run", "feed_b_run"]
+
+    def test_a_registry_error_on_resolve_propagates(self, registry, acc):
+        """The collector used to swallow TypeError/AttributeError/KeyError here as a
+        fallback for test doubles, recording the feed with no run id (#53)."""
+        class _Broken(type(registry)):
+            def resolve(self, key):
+                raise KeyError(f"registry index for {key!r} is corrupt")
+
+        broken = _Broken(registry._feeds)
+        with pytest.raises(KeyError, match="corrupt"):
+            FeedCollector(registry=broken, acc_struct=acc).select(["feed_a"])
 
 
 # ===========================================================================

@@ -467,7 +467,7 @@ def main(feed_ids: list[str], label: str) -> None:
         agg_result.n_covered, agg_result.n_edges,
     )
 
-    feed_run_ids = [s["feed_run_id"] for s in collector.selected if s["feed_run_id"]]
+    feed_run_ids = [s["feed_run_id"] for s in collector.selected]
     logger.info("B  Resolved feed_run_ids: %s", feed_run_ids)
 
     # Size-damped leg σ (ADR 0017), then the plausibility screen — the screen's

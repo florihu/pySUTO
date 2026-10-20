@@ -114,25 +114,19 @@ class FeedCollector:
                     f"Feed key '{key}' not found in registry. "
                     f"Known input feed_ids: {known}"
                 )
+            entry         = self._registry.resolve(key)
+            registry_path = entry.run_dir
+            run_id        = entry.run_id
+            # Resolve the input-feed-id via the sidecar (since run-id
+            # no longer embeds it).
             try:
-                entry         = self._registry.resolve(key)
-                registry_path = entry.run_dir
-                run_id        = entry.run_id
-                # Resolve the input-feed-id via the sidecar (since run-id
-                # no longer embeds it).
-                try:
-                    sidecar    = self._registry.load_sidecar(key)
-                    feed_id_lab = (sidecar.get("parents", {})
-                                          .get("inputs", {})
-                                          .get("feed", {})
-                                          .get("id")) or fid
-                except (FileNotFoundError, AttributeError, KeyError):
-                    feed_id_lab = fid
-            except (TypeError, AttributeError, KeyError):
-                # Duck-typed mocks in tests (no entry object); fall back.
-                registry_path = None
-                run_id        = pinned
-                feed_id_lab   = fid
+                sidecar    = self._registry.load_sidecar(key)
+                feed_id_lab = (sidecar.get("parents", {})
+                                      .get("inputs", {})
+                                      .get("feed", {})
+                                      .get("id")) or fid
+            except (FileNotFoundError, KeyError):
+                feed_id_lab = fid
             lookup_keys.append(key)
             feed_ids_resolved.append(feed_id_lab)
             triples.append({
