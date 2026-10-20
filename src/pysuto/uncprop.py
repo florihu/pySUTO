@@ -43,6 +43,11 @@ hard rows at exactly zero σ_c. Intervals clip at the structural zero only
 (edges with a lower-bound row); ``l`` / ``u`` of the ConstraintRun carry the
 prior box and the zero pin, which never reached the QP.
 
+``exclude_scale_totals`` (#87, default off) leaves the scale totals and scrap
+level anchors (:data:`SCALE_TOTAL_VARIANTS`) out of ``S(t)``: an ablation that
+measures how much of the contraction comes from the model's own Σ f_agg totals,
+whose information the prior already carries. ``a*`` is untouched.
+
 See ``docs/rep/plans/stage5_uncprop_integration_plan.md`` for the full
 derivation and architectural decisions.
 
@@ -88,6 +93,13 @@ DEFAULT_SIGMA_C_FLOOR          = 1e-9
 # rank_tol is the pivot tolerance of the unit-diagonal Gram of the hard rows.
 DEFAULT_BIND_TOL               = 1e-6
 DEFAULT_RANK_TOL               = 1e-10
+
+# Scale-total ablation (#87). Sum rows whose c is the model's own Σ f_agg: the
+# supply / use total-output scale totals (ADR 0006) and the ICSG scrap level
+# anchors (ADR 0031), read from row_meta ``type`` / ``variant``. Their prior
+# information is already in σ_a, so ``exclude_scale_totals`` leaves them out of
+# S(t) to measure how much of the contraction they add.
+SCALE_TOTAL_VARIANTS = ("supplytotout", "usetotout", "smelterscrap", "directrefscrap")
 
 
 # =============================================================================
@@ -192,6 +204,7 @@ class KalmanUncProp(BaseUncProp):
         sigma_c_floor:          float = DEFAULT_SIGMA_C_FLOOR,
         bind_tol:               float = DEFAULT_BIND_TOL,
         rank_tol:               float = DEFAULT_RANK_TOL,
+        exclude_scale_totals:   bool  = False,
     ) -> None:
         self.opt_dir      = opt_dir
         self.const_dir    = const_dir
@@ -203,6 +216,7 @@ class KalmanUncProp(BaseUncProp):
         self.sigma_c_floor          = sigma_c_floor
         self.bind_tol               = bind_tol
         self.rank_tol               = rank_tol
+        self.exclude_scale_totals   = bool(exclude_scale_totals)
 
         self._opt_registry     = OptimRunRegistry(opt_dir)
         self._const_registry   = ConstraintRunRegistry(const_dir)
@@ -235,6 +249,9 @@ class KalmanUncProp(BaseUncProp):
 
         if const_run.G_blocks:
             return self._compute_via_blocks(const_run, opt_results, alpha)
+        if self.exclude_scale_totals:
+            raise ValueError("exclude_scale_totals needs the block path (a ConstraintRun "
+                             "with G_blocks); the full-G path has no active set")
 
         # 2) Condition σ_a once (time-invariant; same rules as solver).
         _, sigma_a = condition_prior(
@@ -351,6 +368,8 @@ class KalmanUncProp(BaseUncProp):
         cone          = rm["cone_type"].to_numpy()
         equality_mask = cone == "zero"
         lower_bound   = self._lower_bound_mask(rm)
+        left_out      = (self._scale_total_mask(rm) if self.exclude_scale_totals
+                         else np.zeros(len(rm), dtype=bool))
         row_time      = rm["time"].astype(str).to_numpy()
 
         z = float(norm.ppf(1.0 - alpha / 2.0))
@@ -377,7 +396,7 @@ class KalmanUncProp(BaseUncProp):
 
             red = self._reduce_at_active_set(
                 G_t, c_t, sigma_a2_t, hm_t, cone[rows_t], lower_bound[rows_t],
-                np.asarray(opt_t.residuals, dtype=float),
+                np.asarray(opt_t.residuals, dtype=float), left_out=left_out[rows_t],
             )
             sigma_a2_eff_t = np.where(red.bound_active, 0.0, sigma_a2_t)
             live = np.flatnonzero(sigma_a2_eff_t > 0.0)
@@ -468,6 +487,16 @@ class KalmanUncProp(BaseUncProp):
         return is_lower.to_numpy()
 
     @staticmethod
+    def _scale_total_mask(row_meta) -> np.ndarray:
+        """Rows that are scale totals or scrap level anchors
+        (:data:`SCALE_TOTAL_VARIANTS`, read from ``type`` / ``variant``)."""
+        if not {"type", "variant"} <= set(row_meta.columns):
+            return np.zeros(len(row_meta), dtype=bool)
+        is_scale = ((row_meta["type"] == "sum")
+                    & row_meta["variant"].isin(SCALE_TOTAL_VARIANTS))
+        return is_scale.to_numpy()
+
+    @staticmethod
     def _check_partition(t_label: str, cols_t: np.ndarray, rows_t: np.ndarray,
                          opt_t) -> None:
         """The opt result must be year-local over this period's own partition:
@@ -493,12 +522,15 @@ class KalmanUncProp(BaseUncProp):
         cone:        np.ndarray,
         lower_bound: np.ndarray,
         resid:       np.ndarray,
+        left_out:    Optional[np.ndarray] = None,
     ) -> _PeriodReduction:
         """Reduce one period at the QP's active set at ``a*``.
 
         Kept rows: hard equalities, soft rows and binding bands, minus rows left
         without a live edge and hard rows linearly dependent on the others. A
         binding lower bound adds no row: it pins its edge (σ_a² → 0, σ_a* = 0).
+        Rows flagged in ``left_out`` (the scale-total ablation) are dropped too;
+        ``n_scale_totals_left_out`` counts those that would have been kept.
         """
         G_t     = G_t.tocsr()
         nonneg  = hard & (cone == "nonneg")
@@ -514,6 +546,10 @@ class KalmanUncProp(BaseUncProp):
 
         keep = (hard & (cone == "zero")) | ~hard | (binding & ~lower_bound)
         keep &= np.asarray(abs(G_t) @ live.astype(float)).ravel() > 0.0
+        n_left_out = 0
+        if left_out is not None:
+            n_left_out = int((keep & left_out).sum())
+            keep &= ~left_out
         dependent = self._dependent_hard_rows(G_t, live, np.flatnonzero(keep & hard))
         keep[dependent] = False
 
@@ -526,6 +562,7 @@ class KalmanUncProp(BaseUncProp):
                 "n_bands_binding":  int((binding & ~lower_bound).sum()),
                 "n_hard_dependent": int(dependent.size),
                 "n_rows_kept":      int(keep.sum()),
+                "n_scale_totals_left_out": n_left_out,
             },
         )
 
@@ -618,6 +655,7 @@ class KalmanUncProp(BaseUncProp):
             "sigma_c_floor":          self.sigma_c_floor,
             "bind_tol":               self.bind_tol,
             "rank_tol":               self.rank_tol,
+            "exclude_scale_totals":   self.exclude_scale_totals,
         }
         run_id = self._uncprop_registry.register(
             result,

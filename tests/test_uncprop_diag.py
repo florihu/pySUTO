@@ -25,7 +25,9 @@ import numpy as np
 import pytest
 
 
-STEMS = ["ud_r_01_contraction_shift", "ud_r_02_prior_posterior_bands"]
+STEMS = ["ud_r_01_contraction_shift", "ud_r_02_prior_posterior_bands",
+         "ud_r_03_shift_calibration"]
+CSVS  = ["contraction_summary.csv", "calibration.csv", "birge.csv"]
 
 
 def _block_run(tmp_path, monkeypatch, agg_id=""):
@@ -109,7 +111,7 @@ class TestLivePortfolio:
     def test_figures_and_summary_csv_written(self, diag, tmp_path):
         paths = diag.plot(odir=str(tmp_path / "diag"))
         names = [os.path.basename(p) for p in paths]
-        assert names == [f"{s}.png" for s in STEMS] + ["contraction_summary.csv"]
+        assert names == [f"{s}.png" for s in STEMS] + CSVS
         for p in paths:
             assert os.path.getsize(p) > 0
 
@@ -158,6 +160,38 @@ class TestSummary:
         assert "no imputation run" in text
         assert text in capsys.readouterr().out
 
+    def test_summary_reports_calibration_and_the_birge_ratio(self, diag):
+        text = diag.summary()
+        r = diag.stats.birge_ratio()
+        assert "z/√κ" in text and "0.27 %" in text
+        assert f"R = {r:.3f}" in text
+        assert "Birge-scaled" in text
+
+
+class TestCalibrationOutputs:
+
+    def test_calibration_csv_is_the_stats_table(self, diag, tmp_path):
+        import pandas as pd
+        diag.plot(odir=str(tmp_path / "d"), plot_ids=[])
+        cal = pd.read_csv(tmp_path / "d" / "calibration.csv")
+        f = diag.stats.edge_frame()
+        ref = diag.stats.calibration(f, diag.stats.birge_ratio())
+        assert list(cal.columns) == list(ref.columns)
+        assert cal["n_edge_years"].sum() == len(f)
+        assert cal["n_calibrated"].sum() == int(f["calibrated"].sum())
+
+    def test_birge_csv_has_every_year_and_the_run(self, diag, chain, tmp_path):
+        import pandas as pd
+        unc = chain[0]
+        diag.plot(odir=str(tmp_path / "d"), plot_ids=[])
+        b = pd.read_csv(tmp_path / "d" / "birge.csv", dtype={"year": str}).set_index("year")
+        assert list(b.index) == list(unc.per_timestep) + ["all"]
+        dof = sum(ts.diagnostics["n_rows_kept"] + ts.diagnostics["n_bound_active"]
+                  for ts in unc.per_timestep.values())
+        assert b.loc["all", "dof"] == dof
+        assert b.loc["all", "birge_ratio"] == pytest.approx(
+            b.loc[list(unc.per_timestep), "zsq_total"].sum() / dof, rel=1e-12)
+
 
 # ---------------------------------------------------------------------------
 # 2. from_uncprop_id round trip
@@ -191,7 +225,7 @@ class TestFromUncpropId:
         assert diag.stats._cond["sigma_a_floor_abs"] == pytest.approx(1e-6)
         paths = diag.plot()
         expected = os.path.join(dirs["uncprop"], unc_id, "diag")
-        assert len(paths) == len(STEMS) + 1
+        assert len(paths) == len(STEMS) + len(CSVS)
         assert all(p.startswith(expected) and os.path.exists(p) for p in paths)
 
     def test_roundtrip_reads_prior_classes_from_the_imp_run(self, tmp_path, monkeypatch):
@@ -250,7 +284,7 @@ class TestRegistry:
 
     def test_every_spec_method_exists_and_stems_are_unique(self):
         from pysuto.diag import UncPropDiag
-        assert list(UncPropDiag.PLOTS) == ["UD-R-01", "UD-R-02"]
+        assert list(UncPropDiag.PLOTS) == ["UD-R-01", "UD-R-02", "UD-R-03"]
         for spec in UncPropDiag.PLOTS.values():
             assert callable(getattr(UncPropDiag, spec.method))
             assert spec.desc
@@ -260,16 +294,17 @@ class TestRegistry:
     def test_subset_and_unknown_id(self, diag, tmp_path):
         paths = diag.plot(odir=str(tmp_path / "d"), plot_ids=["UD-R-02"])
         assert [os.path.basename(p) for p in paths] == [
-            "ud_r_02_prior_posterior_bands.png", "contraction_summary.csv"]
+            "ud_r_02_prior_posterior_bands.png"] + CSVS
         with pytest.raises(ValueError, match="UD-R-99"):
             diag.plot(odir=str(tmp_path / "d"), plot_ids=["UD-R-99"])
 
     def test_regions_filter_suffixes_outputs(self, diag, tmp_path):
         paths = diag.plot(odir=str(tmp_path / "d"), regions=["A"])
         names = sorted(os.path.basename(p) for p in paths)
-        assert names == ["contraction_summary__a.csv",
+        assert names == ["birge.csv", "calibration__a.csv", "contraction_summary__a.csv",
                          "ud_r_01_contraction_shift__a.png",
-                         "ud_r_02_prior_posterior_bands__a.png"]
+                         "ud_r_02_prior_posterior_bands__a.png",
+                         "ud_r_03_shift_calibration__a.png"]
         f = diag._frame(regions=["A"])
         assert 0 < len(f) and ((f["from_region"] == "A") | (f["to_region"] == "A")).all()
 
