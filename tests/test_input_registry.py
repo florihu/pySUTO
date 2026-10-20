@@ -327,6 +327,44 @@ def test_input_registries_pins_per_kind(tmp_path: Path) -> None:
     assert inputs.params.entry("conc")["version"] == 1
 
 
+def test_a_params_parents_file_is_load_bearing(tmp_path: Path) -> None:
+    """Weights rebuilt from a new feed run can be byte-identical; the version must
+    still change, or it keeps naming the old run (#53). An id without the file is
+    hashed as before, so no existing version is re-registered."""
+    _params_id(tmp_path, "trade_shares", "w\n1\n", {"parents.json": '{"run": "a"}'})
+    _params_id(tmp_path, "conc", "x\n")
+    InputRegistry("params", root=tmp_path).initialize()
+    _write(tmp_path / "params" / "trade_shares" / "current" / "parents.json", '{"run": "b"}')
+
+    reg = InputRegistry("params", root=tmp_path).initialize()
+
+    assert reg.latest_version("trade_shares") == 2
+    assert reg.latest_version("conc") == 1
+    hashes = json.loads((tmp_path / "params" / "registry.json").read_text())
+    assert list(hashes["conc"]["versions"][-1]["hashes"]) == ["params.csv"]
+
+
+def test_load_reads_the_registered_version_and_registers_nothing(tmp_path: Path) -> None:
+    """A read-only caller must not version a mid-edit current/: a diagnostic's
+    lookup registered baci v25, a version no run uses (#93)."""
+    _params_id(tmp_path, "eff", "v;1\n")
+    _feed_id(tmp_path, "baci", {"data.csv": "x,1\n"})
+    InputRegistries.initialize(root=tmp_path)
+    _write(tmp_path / "params" / "eff" / "current" / "params.csv", "v;2\n")
+    _feed_id(tmp_path, "baci", {"data.csv": "x,2\n"})
+    before = {k: (tmp_path / k / "registry.json").read_bytes() for k in ("params", "feed")}
+
+    inputs = InputRegistries.load(root=tmp_path)
+
+    assert inputs.params.entry("eff")["version"] == 1
+    assert (inputs.params.resolve("eff") / "params.csv").read_text() == "v;1\n"
+    assert inputs.feed.entry("baci")["version"] == 1
+    assert not (tmp_path / "params" / "eff" / "v2").exists()
+    assert not (tmp_path / "feed" / "baci" / "v2").exists()
+    assert {k: (tmp_path / k / "registry.json").read_bytes()
+            for k in ("params", "feed")} == before
+
+
 # =============================================================================
 # Registry JSON shape
 # =============================================================================

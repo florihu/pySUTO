@@ -619,3 +619,23 @@ def test_every_refined_copper_code_lands_on_cathode_under_the_tracked_map(tmp_pa
     assert legs[["sector", "region_from", "region_to"]].values.tolist() == \
         [["Cathode", "Austria", "Italy"]]
     assert legs.cc.sum() == pytest.approx(79.5)
+
+
+# ---- #93: a lookup reads the registered version and registers nothing ------
+
+def test_eff_lookup_does_not_version_an_edited_current(tmp_path, monkeypatch):
+    """A read-only diagnostic called `_eff_nominals` seconds after a branch switch
+    had edited an input's current/, and the lookup registered baci v25, a version
+    no run uses (#93). A lookup reads the latest registered version."""
+    import build_baci_reexport as R
+    from pysuto.input_registry import InputRegistries
+
+    csv = tmp_path / "params" / "eff" / "current" / "params.csv"
+    csv.parent.mkdir(parents=True)
+    csv.write_text("param_type;a_sector_to;value_nominal\nefficiency;Smelting;0.98\n")
+    InputRegistries.initialize(root=tmp_path)
+    csv.write_text("param_type;a_sector_to;value_nominal\nefficiency;Smelting;0.95\n")
+    monkeypatch.setattr(R, "_INPUT_ROOT", str(tmp_path))
+
+    assert R._eff_nominals() == {"Smelting": 0.98}
+    assert not (tmp_path / "params" / "eff" / "v2").exists()

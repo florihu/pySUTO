@@ -229,3 +229,24 @@ def test_tailings_for_carried_year_use_that_years_production():
     assert tail_cc / t23["g"] == pytest.approx(tail_mass)
     # observed rows are unchanged by the carried ones
     assert set(tails[tails.time == "2022"]["src"]) == {"icsg"}
+
+
+# ---- #93: a lookup reads the registered version and registers nothing ------
+
+def test_eff_lookup_does_not_version_an_edited_current(tmp_path, monkeypatch):
+    """The params lookups are importable helpers; a diagnostic calling one must
+    not register what current/ holds mid-edit (#93)."""
+    import build_ore_grade as O
+    from pysuto.input_registry import InputRegistries
+
+    csv = tmp_path / "params" / "eff" / "current" / "params.csv"
+    csv.parent.mkdir(parents=True)
+    csv.write_text("param_id;param_type;value_nominal\n"
+                   "effmfflotation;efficiency;0.9\neffsxew;efficiency;0.8\n")
+    InputRegistries.initialize(root=tmp_path)
+    csv.write_text("param_id;param_type;value_nominal\n"
+                   "effmfflotation;efficiency;0.85\neffsxew;efficiency;0.8\n")
+    monkeypatch.setattr(O, "_INPUT_ROOT", str(tmp_path))
+
+    assert O._eff_nominals() == (pytest.approx(0.9), pytest.approx(0.8))
+    assert not (tmp_path / "params" / "eff" / "v2").exists()

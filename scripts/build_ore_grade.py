@@ -77,6 +77,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from pysuto.acc import AccountingStructure
 from pysuto.config import load_config
+from pysuto.input_registry import InputRegistries
 
 # ---------------------------------------------------------------------------
 # USER CONFIGURATION
@@ -345,8 +346,7 @@ def _latest_feed_froot(label: str) -> np.ndarray:
 
 
 def _eff_nominals() -> tuple[float, float]:
-    from pysuto.input_registry import InputRegistries
-    inputs = InputRegistries.initialize(root=_INPUT_ROOT)
+    inputs = InputRegistries.load(root=_INPUT_ROOT)       # read-only (#93)
     csv = inputs.params.resolve("eff") / "params.csv"
     p = pd.read_csv(csv, sep=None, engine="python", comment="#", dtype=str)
     eff = {row["param_id"]: float(row["value_nominal"]) for _, row in p.iterrows()
@@ -356,8 +356,7 @@ def _eff_nominals() -> tuple[float, float]:
 
 def _conc_nominals() -> tuple[float, float]:
     """Product conc nominals (Concentrate, CSXEW) from the conc params file."""
-    from pysuto.input_registry import InputRegistries
-    inputs = InputRegistries.initialize(root=_INPUT_ROOT)
+    inputs = InputRegistries.load(root=_INPUT_ROOT)       # read-only (#93)
     csv = inputs.params.resolve("conc") / "params.csv"
     p = pd.read_csv(csv, sep=None, engine="python", comment="#", dtype=str)
     conc = {row["param_id"]: float(row["value_nominal"]) for _, row in p.iterrows()
@@ -412,6 +411,7 @@ def load_factor_fallback() -> pd.DataFrame:
 def main() -> None:
     print("=" * 60)
     print("Building in-situ ore-grade params (ADR 0015)")
+    InputRegistries.initialize(root=_INPUT_ROOT)   # the step registers; lookups read (#93)
 
     acc_id = load_config().pipeline.acc_id
     acc = AccountingStructure.load(id=acc_id, storage_dir=ACC_DIR)
@@ -459,7 +459,6 @@ def main() -> None:
     params.to_csv(OUT_CSV, index=False)
     print(f"   wrote {len(params):,} param rows → {OUT_CSV}")
 
-    from pysuto.input_registry import InputRegistries
     inputs = InputRegistries.initialize(root=_INPUT_ROOT)
     entry = inputs.params.entry("ore_grade")
     print(f"   registered ore_grade v{entry['version']} ({entry['code']})")

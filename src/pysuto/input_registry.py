@@ -34,7 +34,8 @@ Snapshots may still share inodes among themselves — nothing writes there.
 
 Load-bearing files (changes trigger a version bump):
 
-* ``params/<id>/`` — ``params.csv``
+* ``params/<id>/`` — ``params.csv``, plus ``parents.json`` where a builder
+                     records what it was built from (#53)
 * ``acc/<id>/``    — ``root.ods``, ``bounds.ods``, ``rules.ods``, ``masks.csv``
                      (``masks.csv`` optional; absent file hashes to empty)
 * ``mask/<id>/``   — ``rules.csv`` (separate-kind mask overlay)
@@ -69,6 +70,11 @@ _DEFAULT_LOAD_BEARING: dict[str, tuple[str, ...]] = {
 }
 
 _FEED_IGNORE_SUFFIXES = (".bib", ".md")
+
+# A params builder may record its parents — the runs and inputs it read, in a
+# sidecar's vocabulary (#53). Load-bearing only where present, so the ids without
+# one keep their hashes and are not re-versioned.
+PARAMS_PARENTS = "parents.json"
 
 
 def _sha256_file(path: Path) -> str:
@@ -298,7 +304,10 @@ class InputRegistry:
                 p.name for p in current.iterdir()
                 if p.is_file() and not p.name.lower().endswith(_FEED_IGNORE_SUFFIXES)
             )
-        return list(_DEFAULT_LOAD_BEARING[self.kind])
+        names = list(_DEFAULT_LOAD_BEARING[self.kind])
+        if self.kind == "params" and (current / PARAMS_PARENTS).is_file():
+            names.append(PARAMS_PARENTS)
+        return names
 
     def _resolve_label(
         self,
@@ -404,4 +413,17 @@ class InputRegistries:
                 label_overrides.get("params"), pins.get("params")),
             mask=InputRegistry("mask", root).initialize(
                 label_overrides.get("mask"), pins.get("mask")),
+        )
+
+    @classmethod
+    def load(cls, root: Path | str = Path("data/input")) -> "InputRegistries":
+        """Read-only view: resolves against what is registered and never versions
+        a ``current/``. For lookups and diagnostics; a pipeline step registers its
+        inputs with :meth:`initialize` (#93: a diagnostic's lookup through
+        ``initialize`` registered a mid-edit ``current/`` as baci v25)."""
+        return cls(
+            feed=InputRegistry("feed", root),
+            acc=InputRegistry("acc", root),
+            params=InputRegistry("params", root),
+            mask=InputRegistry("mask", root),
         )

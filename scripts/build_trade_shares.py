@@ -69,6 +69,7 @@ Scrap is an ICSG Use type but is NOT traded → deliberately excluded.
 from __future__ import annotations
 
 import glob
+import json
 import os
 import sys
 
@@ -79,6 +80,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 
 from pysuto.acc import AccountingStructure
 from pysuto.config import load_config
+from pysuto.input_registry import PARAMS_PARENTS, InputRegistries
 from pysuto.param_relation import conc_for, conc_nominal_lookup
 
 # ---------------------------------------------------------------------------
@@ -255,13 +257,62 @@ def compute_trade_share_weights(
 # I/O helpers
 # ---------------------------------------------------------------------------
 
-def _latest_feed_froot(label: str) -> np.ndarray:
+def _latest_feed_run(label: str) -> str:
     dirs = sorted(glob.glob(os.path.join(FEED_REG, f"feed_{label}_*")))
     if not dirs:
         raise FileNotFoundError(f"no feed_{label}_* run under {FEED_REG}")
-    run = dirs[-1]
+    return dirs[-1]
+
+
+def _latest_feed_froot(label: str) -> np.ndarray:
+    run = _latest_feed_run(label)
     print(f"   {label:10s} ← {os.path.basename(run)}")
     return np.load(os.path.join(run, "result.npz"))["F_root"]
+
+
+# The weights' parents (#53), in a sidecar's vocabulary: the BACI feed run they
+# read (``upstream``) and the registered inputs the lookups below resolve
+# (``inputs``).  Written beside params.csv, where the params registry hashes it,
+# so a rebuild from another run is a new version.
+def parents(inputs: InputRegistries) -> dict:
+    """The parents the weights are built from, as they stand now."""
+    return {
+        "upstream": {"feed_run_ids": [os.path.basename(_latest_feed_run("baci"))]},
+        "inputs":   {"feed":   {i: inputs.feed.entry(i)["version"] for i in ("baci", "icsg")},
+                     "params": {i: inputs.params.entry(i)["version"] for i in ("conc", "eff")}},
+    }
+
+
+def write_parents(out_dir: str, inputs: InputRegistries) -> dict:
+    """Record the weights' parents beside their params.csv and return them."""
+    built_from = parents(inputs)
+    with open(os.path.join(out_dir, PARAMS_PARENTS), "w", encoding="utf-8") as f:
+        json.dump(built_from, f, indent=2, sort_keys=True)
+    return built_from
+
+
+def check_parents(version_dir: os.PathLike, inputs: InputRegistries) -> None:
+    """Raise unless the weights at *version_dir* were built from the BACI feed run
+    and input versions now in force.
+
+    Any ICSG or BACI change invalidates the weights, and four rounds fanned ICSG
+    with stale ones before anyone noticed (6.2 pp of sum-row z², ADR 0024, 0027);
+    ``icsg_feed`` calls this before it fans (#53).
+    """
+    path = os.path.join(version_dir, PARAMS_PARENTS)
+    if not os.path.isfile(path):
+        raise ValueError(
+            f"trade_shares at {version_dir} records no {PARAMS_PARENTS}, so its weights "
+            f"cannot be checked against the BACI feed run and inputs in force — rebuild "
+            f"them: python scripts/build_trade_shares.py")
+    with open(path, encoding="utf-8") as f:
+        built_from = json.load(f)
+    now = parents(inputs)
+    if built_from != now:
+        raise ValueError(
+            f"trade_shares at {version_dir} is stale: built from {built_from}, but {now} "
+            f"is in force — rebuild them (python scripts/build_trade_shares.py), then "
+            f"the ICSG feed")
 
 
 def _conc_lookup() -> dict:
@@ -277,7 +328,12 @@ def _conc_lookup() -> dict:
 
 
 def _input_registries():
-    from pysuto.input_registry import InputRegistries
+    """Read-only: a lookup never versions a ``current/`` (#93)."""
+    return InputRegistries.load(root=_INPUT_ROOT)
+
+
+def _register_inputs():
+    """Version every edited ``current/`` — ``main``'s call, as a pipeline step's."""
     return InputRegistries.initialize(root=_INPUT_ROOT)
 
 
@@ -526,6 +582,7 @@ def main() -> None:
     print("=" * 60)
     print("Building BACI trade-share weights (ADR 0002 option D)")
     print(f"   sectors: {SECTORS}  (Scrap excluded — not traded)")
+    _register_inputs()
 
     acc_id = load_config().pipeline.acc_id
     acc = AccountingStructure.load(id=acc_id, storage_dir=ACC_DIR)
@@ -592,12 +649,13 @@ def main() -> None:
     out_csv = os.path.join(OUT_DIR, "params.csv")
     shares.to_csv(out_csv, index=False)
     print(f"   wrote {len(shares):,} weight rows → {out_csv}")
+    built_from = write_parents(OUT_DIR, _input_registries())
+    print(f"   built from : {built_from['upstream']['feed_run_ids']}, {built_from['inputs']}")
     print(f"   consumer groups: "
           f"{shares.groupby(['root_sector_from','root_sector_to','root_region_to','root_time']).ngroups:,}")
 
     # Snapshot/version the artifact via the params registry (provenance).
-    inputs = _input_registries()
-    entry = inputs.params.entry("trade_shares")
+    entry = _register_inputs().params.entry("trade_shares")
     print(f"   registered trade_shares v{entry['version']} ({entry['code']})")
 
 

@@ -105,7 +105,7 @@ from pysuto.feedpipe import (
     register_feed,
 )
 from pysuto.diag import FeedDiagnostics
-from build_trade_shares import _decoded_edges, icsg_production
+from build_trade_shares import _decoded_edges, check_parents, icsg_production
 
 ACC_ID = load_config().pipeline.acc_id
 
@@ -466,13 +466,16 @@ def load_trade_shares(inputs: InputRegistries):
 
     Returns (df, entry) or (None, None) when the artifact is not registered, so
     the ICSG build falls back to the uniform producer fan (unchanged behaviour).
-    Run scripts/build_trade_shares.py to (re)generate it.
+    Raises ValueError when the weights were built from another BACI feed run or
+    other input versions than those in force (#53). Run
+    scripts/build_trade_shares.py to (re)generate it.
     """
     if TRADE_SHARES_ID not in inputs.params.ids():
         print(f"   trade_shares : not registered — uniform fan")
         return None, None
-    path = inputs.params.resolve(TRADE_SHARES_ID) / "params.csv"
-    df = pd.read_csv(path)
+    version_dir = inputs.params.resolve(TRADE_SHARES_ID)
+    check_parents(version_dir, inputs)
+    df = pd.read_csv(version_dir / "params.csv")
     entry = inputs.params.entry(TRADE_SHARES_ID)
     print(f"   trade_shares : {TRADE_SHARES_ID} v{entry['version']} "
           f"(code={entry['code']}, {len(df):,} weight rows)")
