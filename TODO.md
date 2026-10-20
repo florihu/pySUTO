@@ -66,6 +66,16 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
 
 # OPEN (2026-09-16, out of Round L)
 
+## #72 MEASURED 2026-10-20 — qdldl REJECTED ON MEASUREMENT; `DIRECT_SOLVE_METHOD` stays faer
+
+`diag/qdldl-measure`, run `opt_20261020_090246_99da4a39` (qdldl) against the final chain `opt_20261019_171746_3272682b`
+(faer), both on `const_20261019_170151_13460e94`; REP
+`docs/rep/analysis_opt_20261020_090246_99da4a39_20261020_issue72-qdldl.md`; `scripts/explo/issue72_qdldl_diag.py`.
+- **Fails the one quality item:** scored on the same QPs, Σ_t J +1,337.5 (+0.043 % vs `opt_20261019_171746_3272682b`),
+  lower in 13/30 years; the other seven items hold (30/30 Solved, hard violations equal, Round-E (a)–(d)).
+- **Gains little:** period solves 233.6 → 51.8 s, Stage 4 744.8 → 563.1 s; the first-year probe (444 s) is the
+  remaining lever (#55 item 6).
+
 ## #92 MEASURED 2026-10-19 — FAILS ON ITEM 4 (no new sink), fix ticket #95; items 1–3, 5, 6 hold
 
 `diag/refined-scope-measure`, run `opt_20261019_142026_83bfe843` vs `opt_20261015_093646_ddd9d3d9`, REP

@@ -74,8 +74,11 @@ REDUCED_TOL_GAP_ABS = 10.0
 # gave the objective of opt_20261012_122124_40b1b370 bit for bit (#70).
 N_WORKERS           = os.cpu_count() or 1
 # Clarabel's linear solver for the period QPs. "faer" is what "auto" picked in
-# opt_20261012_122124_40b1b370 (sidecar linsolver_name); "qdldl" solved the same
-# periods ≈ 5× faster but moved each objective by −122 … +311 (#72).
+# opt_20261012_122124_40b1b370 (sidecar linsolver_name). "qdldl" was rejected on
+# measurement (#72): on const_20261019_170151_13460e94 its period solves took 52 s vs
+# 234 s, but its posteriors scored Σ_t J +1,337.5 (+0.043 %) above faer's on the same
+# QPs (opt_20261020_090246_99da4a39 vs opt_20261019_171746_3272682b), and Stage 4 fell
+# only 745 → 563 s because the feasibility probe dominates.
 DIRECT_SOLVE_METHOD = "faer"
 
 
