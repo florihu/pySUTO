@@ -128,7 +128,7 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 - Input registries (`feed|acc|params|mask`) are sha256-bumped and hardlinked: edit only `current/`, never a `vN/` directory (ADR 0023).
 - A parameter's value and its provenance live in its row of `data/input/params/<id>/current/params.csv` (`value_*`, `source`, `comment`), and the user edits it between turns. Read the row before quoting it, cite it as `<id> vN`, and keep values out of GLOSSARY.md and code comments; `python scripts/input_status.py` lists `current/` edits not yet registered.
 - Registries have no locking: never run two stage drivers concurrently in one checkout — index entries get lost.
-- Runs cited by a REP, ADR or `TODO.md` are permanent. Figures go to `<run>/diag/`, `figs/psut/`, `figs/report/`, `docs/rep/figs/`; `docs/rep/` is git-tracked.
+- Runs cited by a REP, ADR or `TODO.md` are permanent, except the const runs of superseded chains, which the user may prune (2026-10-20: all but the final and previous reference chains'). An opt whose const is gone can no longer be loaded by `SolverDiag`; its `diag/*_<year>.csv` tables, where written, are then its only row-level record — never delete them. Figures go to `<run>/diag/`, `figs/psut/`, `figs/report/`, `docs/rep/figs/`; `docs/rep/` is git-tracked.
 
 ## Invariants no test enforces (the ADR is the source of truth)
 
