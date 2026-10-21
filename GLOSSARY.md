@@ -632,8 +632,9 @@ _Avoid_: "reduced χ²", "goodness of fit".
 `Cathode→MESC` and `CP→PSC`, each a net addition to a stock (negative = a draw-down), structural
 lower bound −1e6. No one-signed hard band sits on it. For `USC` / `MESC` the prior is a reported
 value or the **net-stock seed** and no imputer writes it; for `PSC` an unreported year is still the
-recipe's eff-less `0 ± 0` (a seed at 1 % of `CP→Cathode` was rejected on measurement,
-[ADR 0041](docs/adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md); #36).
+recipe's eff-less `0`, priced at `± 0.3 kt` since #36 (to be measured; a seed at 1 % of `CP→Cathode`
+was rejected on measurement,
+[ADR 0041](docs/adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md)).
 _Avoid_: "stock leg", "stock edge", "Δstock edge".
 
 **Exchange location** — a region in which ICSG reports exchange stocks: the LME warehouse
@@ -737,9 +738,9 @@ Mass→CC fraction) — they are different coefficient families.
 exceptions**: Mining has *no* `eff` row (eff defaults to 1.0, so CC is conserved CO→Ore) and its
 `WR` satellite output follows the **stripping ratio** (below) on Mass
 (`WR_Mass = stripping_ratio·Ore_Mass`), not the generic `(1−eff)·Σin` SEM-residual rule; `CP` has no `eff` row either, so the recipe writes
-its SEM output `PSC` — a **stock-change leg**, not a residual — as `0 ± 0` on every unreported
-region-year, a hidden hard pin that stands until a tighter price than the measured 1 % seed is found
-([ADR 0041](docs/adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md), #36).
+its SEM output `PSC` — a **stock-change leg**, not a residual — as `0` on every unreported
+region-year, at `σ 0.3 kt` rather than the hidden hard pin `0 ± 0` it was until #36 (to be measured;
+[ADR 0041](docs/adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md)).
 _Avoid_: confusing the recipe's **SEM residual-output** (Slag / Tailings / WR, reached via a
 *supply* edge; `PSC` shares the `entity_sub` but is a stock-change leg) with a **SEM secondary
 input** (Scrap, reached via a *use* edge) — both carry `entity_sub == "SEM"`, and only the edge

@@ -427,6 +427,41 @@ def test_cp_pool_eff_one(imputer, acc):
     assert f[acc.eid("CP", "PSC", "CC")] == pytest.approx(0.0)
 
 
+def test_effless_cp_psc_zero_carries_the_resolution_sigma(tmp_path, acc):
+    """#36 item 2: CP has no eff row, so the recipe writes PSC = (1 − 1.0)·Σin = 0 at
+    σ 0 — a missing parameter, not an observation, and Stage 3 floored it to a σ
+    1e-6 pin. On the signed leg (structural l < 0) the zero is priced at the feeds'
+    resolution instead; its Mass twin follows through the conc row. Nothing else
+    moves: every value is unchanged, and Mining's eff-less copperless WR CC, an
+    unsigned output, keeps its exact zero."""
+    for val in ("CC", "Mass"):
+        acc.bounds.l[acc.eid("CP", "PSC", val)] = -1.0e6      # signed, as in the acc
+    eff, conc, og = tmp_path / "eff.csv", tmp_path / "conc.csv", tmp_path / "og.csv"
+    write_eff_csv(eff); write_ore_grade_csv(og)
+    write_conc_csv(conc)
+    rows = pd.read_csv(conc, sep=";", dtype=str, keep_default_na=False).to_dict("records")
+    _write(conc, rows + [_conc_pair("psc_use", "PSC", "SB", "use", 0.9975)])
+
+    def run(**kw):
+        imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=float("inf"), **kw)
+        imp.prepare(acc)
+        return _run(imp, acc, {("CSXEW", "CP", "CC"): 30.0, ("CER", "CP", "CC"): 70.0,
+                               ("CO", "Mining", "CC"): 100.0})
+
+    f0, s0 = run()
+    f1, s1 = run(effless_stock_sigma=0.3)
+    e_cc, e_m = acc.eid("CP", "PSC", "CC"), acc.eid("CP", "PSC", "Mass")
+    np.testing.assert_array_equal(f1, f0)
+    assert f1[e_cc] == 0.0 and f1[e_m] == 0.0                 # the prior stays 0
+    assert s0[e_cc] == 0.0 and s0[e_m] == 0.0                 # the hidden pin
+    assert s1[e_cc] == pytest.approx(0.3)
+    assert s1[e_m] == pytest.approx(0.3 / 0.9975)
+    e_wr = acc.eid("Mining", "WR", "CC")
+    assert f1[e_wr] == 0.0 and s1[e_wr] == 0.0
+    moved = ~((s1 == s0) | (np.isnan(s1) & np.isnan(s0)))
+    np.testing.assert_array_equal(np.flatnonzero(moved), sorted([e_cc, e_m]))
+
+
 def test_cp_pool_partial_primary_counts_missing_as_zero(imputer, acc):
     # ADR 0010 amendment: a missing pooled primary counts as 0 when ≥1 primary
     # is known — CP's CER/CSXEW are parallel technology routes (a region with

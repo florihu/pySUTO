@@ -21,6 +21,12 @@ stock leg among the uses is still missing, and closes the supply from them once 
 reported — inert on copper, where a Cathode node-year has 94 stock legs and at most 18 are
 reported at the cascade fixpoint (in-memory replay of `imp_20261021_100015_ea05007a`'s
 cascade: 0 fills added).
+**Amended 2026-10-21 (#98):** a PSC row is emitted only where the region-year's `CP→PSC` leg is
+not feed-covered (`STOCK_BOUNDS_SKIP_REPORTED`), so a reported producer stock change is held by its
+own σ alone; on `const_20261021_100441_814be306` 223 of the 1,410 rows go (18 territories,
+1996–2024), and the near-pin rows on regions with no refinery output stay. Rejected: centring the
+row on the reported value — the leg's prior already is that value, so the row would state it twice.
+To be measured.
 
 The three stock-change legs are the only signed edges of the account, so whatever σ they carry is
 the price of routing a contradiction of the cathode balance into a stock instead of surfacing it
