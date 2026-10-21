@@ -479,6 +479,29 @@ def test_no_overwrite_observed(imputer, acc):
     assert sigma[e_out] == 2.0
 
 
+MINE_CHAIN = (("CO", "Mining"), ("Mining", "Ore"), ("Ore", "MF"), ("Ore", "SXEW"),
+              ("MF", "Concentrate"), ("SXEW", "CSXEW"))
+
+
+def test_a_non_miners_observed_zero_output_leaves_no_mine_prior(imputer, acc):
+    """#97, #31: Belgium mines nothing, yet its Concentrate node must supply what leaves
+    it (its residual exports on the real chain), so the flow balance wrote a mine there
+    and the recipes backed it out to the ore: CO→Mining 479 kt CC of prior over
+    1995–2024 on imp_20261019_165706_dd1ae143. Fed as observed zeros (covered at 0), its
+    mine and SX-EW output are never written and the chain above them is derived at 0."""
+    pull = {("Concentrate", "Smelting", "CC"): 50.0}
+    f, _ = _run(imputer, acc, pull)
+    assert f[acc.eid("MF", "Concentrate", "CC")] == pytest.approx(50.0)   # the phantom
+    assert f[acc.eid("Ore", "MF", "CC")] == pytest.approx(62.5)
+
+    zeros = dict(pull)
+    zeros.update({("MF", "Concentrate", "CC"): 0.0, ("SXEW", "CSXEW", "CC"): 0.0})
+    f, _ = _run(imputer, acc, zeros)
+    for fs, ts in MINE_CHAIN:
+        for val in ("CC", "Mass"):
+            assert f[acc.eid(fs, ts, val)] == 0.0, (fs, ts, val)
+
+
 def test_conc_by_construction(imputer, acc):
     # Every written CC/Mass twin satisfies CC = conc * Mass
     f, _ = _run(imputer, acc, {("Ore", "MF", "CC"): 100.0})

@@ -470,6 +470,13 @@ class TestProductionRecipes:
         assert use["Concentrate"].iloc[0] == pytest.approx(800.0)
         assert use["Cathode"].iloc[0] == pytest.approx(1300.0)
 
+    def test_sxew_cathode_production_is_the_sxew_supply_alone(self):
+        """The ICSG feed's non-producer test reads a region's SX-EW output here
+        (#97): the SXEW/Cathode supply row, without the refined cathode around it."""
+        prod, use = _recipes(P=1000.0, S=200.0, sxew=50.0)
+        assert prod["CSXEW"].iloc[0] == pytest.approx(50.0)
+        assert "CSXEW" not in use, "ICSG reports no intake of SX-EW cathode"
+
 
 # ---------------------------------------------------------------------------
 # #67: a region-year inside a declared ICSG aggregate is a reporting gap

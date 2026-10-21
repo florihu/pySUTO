@@ -1,10 +1,11 @@
 """
 test_icsg_feed.py
 =================
-The ICSG feed's observed zeros (#76, narrowed by #78): a weighted fan's domestic leg at
-trade-share weight 0, in a fan the trade shares bound by the region's own production, in
-a region that produces none of that product, leaves Stage 1 covered at 0, priced on its
-fans' usage, and reaches Stage 2 as covered.
+The ICSG feed's observed zeros (#76, narrowed by #78, extended by #96, #97, #31): in a
+region ICSG covers that produces none of a product that year, by its raw ICSG production
+(ADR 0024's bound), a weighted fan's domestic leg at trade-share weight 0 and the edge the
+region's own mine or SX-EW output leaves on are covered at 0, priced, and reach Stage 2 as
+covered.
 """
 from __future__ import annotations
 
@@ -16,8 +17,9 @@ import pandas as pd
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
-from icsg_feed import (load_trade_shares, non_producer_mask,     # noqa: E402
-                       observed_zero_sigma, stamp_observed_zeros)
+from icsg_feed import (OBSERVED_ZERO_FLOOR_KT, icsg_coverage,    # noqa: E402
+                       load_trade_shares, non_producer_mask, observed_zero_sigma,
+                       production_zero_mask, raw_production, stamp_observed_zeros)
 from pysuto.collector import FeedCollector                        # noqa: E402
 from pysuto.conc import ConcordanceTable, WeightMatrix            # noqa: E402
 from pysuto.unc import PropagationResult                          # noqa: E402
@@ -69,10 +71,11 @@ def _builder_weights(usage, imports):
 
 
 def _collected(raw_use_only, mock_acc_struct, maps, usage, w_domestic, w_import,
-               producer=False):
+               producer=False, output_zero=()):
     """Fan ``usage`` over the toy legs with these weights, stamp the observed zeros
-    (A produces none of the product unless ``producer``), and load the result through
-    the collector at Stage 2's min_flow_kt."""
+    (A produces none of the product unless ``producer``; ``output_zero`` lists the edges
+    the production-edge mask allows), and load the result through the collector at
+    Stage 2's min_flow_kt."""
     uw = pd.DataFrame([
         {"root_sector_from": "Concentrate", "root_sector_to": "Refining",
          "root_region_from": r, "root_region_to": "A", "root_time": 0, "weight": w}
@@ -84,7 +87,10 @@ def _collected(raw_use_only, mock_acc_struct, maps, usage, w_domestic, w_import,
     F_root = WeightMatrix(ct).apply(F_src)
     result = PropagationResult(F_root=F_root, sigma_root=0.05 * np.abs(F_root),
                                cv_root=np.full_like(F_root, 0.05), cv_src=0.05)
-    n = stamp_observed_zeros(ct, F_src, result, np.full(len(F_root), not producer))
+    production_zero = np.zeros(len(F_root), dtype=bool)
+    production_zero[list(output_zero)] = True
+    n = stamp_observed_zeros(ct, F_src, result, np.full(len(F_root), not producer),
+                             production_zero)
     registry = _MockRegistry({"icsg": {"F_root": result.F_root, "sigma_root": result.sigma_root,
                                        "observed_zero": result.observed_zero}})
     coll = FeedCollector(registry, _MockAccStruct(len(F_root)), min_flow_kt=0.01)
@@ -119,7 +125,8 @@ def test_a_fan_with_no_positive_weight_stays_undistributed(raw_use_only, mock_ac
     zeros = np.zeros(ct.n_root_edges)
     result = PropagationResult(F_root=zeros, sigma_root=zeros.copy(), cv_root=zeros, cv_src=0.05)
     assert ct.tab.empty and stamp_observed_zeros(
-        ct, np.zeros(0), result, np.ones(ct.n_root_edges, dtype=bool)) == 0
+        ct, np.zeros(0), result, np.ones(ct.n_root_edges, dtype=bool),
+        np.zeros(ct.n_root_edges, dtype=bool)) == 0
 
 
 def test_a_producers_zero_weight_leg_stays_open_to_the_imputer(
@@ -133,8 +140,67 @@ def test_a_producers_zero_weight_leg_stays_open_to_the_imputer(
     assert np.isnan(F[DOMESTIC]) and np.isnan(Sigma[DOMESTIC])   # not covered: imputable
 
 
+OUTPUT = 4                       # Smelting(A) → Concentrate(A): a process's product edge
+
+
+def test_an_output_zero_reaches_stage_2_covered_at_the_feeds_resolution(
+        raw_use_only, mock_acc_struct, maps):
+    """#97, #31: a non-producer's output edge is fed by no ICSG row, so it left Stage 1
+    uncovered and the imputers wrote a mine there. Stamped, it is covered at 0 with no
+    fan usage to price it on: σ is the floor, ICSG's reporting resolution."""
+    n, F, Sigma = _collected(raw_use_only, mock_acc_struct, maps, 10.0,
+                             *_builder_weights(usage=10.0, imports=8.0), producer=True,
+                             output_zero=(OUTPUT,))
+    assert n == 1
+    assert F[OUTPUT] == 0.0 and Sigma[OUTPUT] == pytest.approx(OBSERVED_ZERO_FLOOR_KT)
+    assert F[DOMESTIC] == pytest.approx(2.0)   # the fan is untouched
+
+
+def test_an_output_edge_the_feed_fills_is_not_an_observed_zero(
+        raw_use_only, mock_acc_struct, maps):
+    _, F, Sigma = _collected(raw_use_only, mock_acc_struct, maps, 10.0,
+                             *_builder_weights(usage=10.0, imports=8.0), producer=True,
+                             output_zero=(IMPORT,))
+    assert F[IMPORT] == pytest.approx(8.0) and Sigma[IMPORT] == pytest.approx(0.4)
+
+
 # ---------------------------------------------------------------------------
-# non_producer_mask
+# icsg_coverage: who can say zero
+# ---------------------------------------------------------------------------
+
+def _region_map(*pairs):
+    return pd.DataFrame(pairs, columns=["src_region", "root_region"])
+
+
+def _cov(*regions, years=("2018",)):
+    return {(r, y) for r in regions for y in years}
+
+
+def test_a_region_icsg_lists_in_any_table_is_covered_and_an_aggregate_never_is():
+    """Any ICSG row, in any table, covers its region in every year: Germany's refining
+    and semis rows make its missing mine row a 0. Zimbabwe and ICSG's "Others" fold into
+    ROW, a sum of members that never says zero. Luxembourg is a root region ICSG reports
+    only jointly with Belgium: no row maps to it, so it is not covered either (#97)."""
+    raw = pd.DataFrame({"Region": ["Germany", "Germany", "Chile", "Others  4/", "Zimbabwe",
+                                   "Belgium-Luxembourg"]})
+    rmap = _region_map(("Germany", "Germany"), ("Chile", "Chile"), ("Others  4/", "ROW"),
+                       ("Zimbabwe", "ROW"), ("Belgium-Luxembourg", "Belgium"),
+                       ("Luxembourg", "Luxembourg"))
+    assert icsg_coverage(raw, rmap, ["2017", "2018"], {}) == _cov(
+        "Germany", "Chile", "Belgium", years=("2017", "2018"))
+
+
+def test_a_region_year_icsg_reports_inside_its_own_aggregate_is_not_covered():
+    """#67: ICSG reports Sweden inside its "Scandinavia" row until 2003. A missing
+    Swedish row there is a reporting gap, not a zero."""
+    raw = pd.DataFrame({"Region": ["Sweden", "Scandinavia"]})
+    rmap = _region_map(("Sweden", "Sweden"), ("Scandinavia", "ROW"))
+    assert icsg_coverage(raw, rmap, ["2003", "2004"],
+                         {("Sweden", "2003"): "Scandinavia"}) == {("Sweden", "2004")}
+
+
+# ---------------------------------------------------------------------------
+# non_producer_mask: the fans' domestic legs (#78, #96)
 # ---------------------------------------------------------------------------
 
 def _edges(*rows):
@@ -147,17 +213,123 @@ def _production(*rows):
                                        "production_cc"])
 
 
-def test_only_a_non_producers_production_bounded_legs_may_carry_an_observed_zero():
-    """Germany mines no concentrate, so its domestic concentrate leg at weight 0 is an
-    observation (#32); Spain mines some. Cathode and anode legs are not stamped, whatever
-    the region produces (#96): the feed carries no production edge to test them on."""
+def test_only_a_non_producers_concentrate_and_cathode_legs_may_carry_an_observed_zero():
+    """Germany mines no concentrate (#32) and France refines no cathode (#96), so their
+    domestic legs at weight 0 are observations; Spain mines and Italy refines, so theirs
+    are residuals of imports above usage. A missing row is 0 (Chile here). Anode legs
+    are not stamped, whatever the region produces."""
     edges = _edges((0, "Concentrate", "Germany", "2018"), (1, "Concentrate", "Spain", "2018"),
                    (2, "Cathode", "Italy", "2018"), (3, "Concentrate", "Chile", "2018"),
-                   (4, "Anode", "Belgium", "2018"))
+                   (4, "Anode", "Belgium", "2018"), (5, "Cathode", "France", "2018"))
     prod = _production(("Concentrate", "Spain", "2018", 40.0),
-                       ("Concentrate", "Germany", "2018", 0.0))
-    assert non_producer_mask(edges, prod, 6).tolist() == [True, False, False, True, False,
-                                                          False]
+                       ("Concentrate", "Germany", "2018", 0.0),
+                       ("Cathode", "Italy", "2018", 50.0),
+                       ("Cathode", "France", "2018", 0.0))
+    covered = _cov("Germany", "Spain", "Italy", "Chile", "Belgium", "France")
+    assert non_producer_mask(edges, prod, covered, 7).tolist() == [
+        True, False, False, True, False, True, False]
+
+
+def test_an_uncovered_or_aggregate_regions_zero_is_not_an_observation():
+    """ROW sums the members ICSG lists and Luxembourg never appears in ICSG: a 0 there
+    says nothing about their production."""
+    edges = _edges((0, "Cathode", "ROW", "2018"), (1, "Concentrate", "Luxembourg", "2018"))
+    prod = _production(("Cathode", "ROW", "2018", 0.0),
+                       ("Concentrate", "Luxembourg", "2018", 0.0))
+    covered = icsg_coverage(pd.DataFrame({"Region": ["Zimbabwe", "Germany"]}),
+                            _region_map(("Zimbabwe", "ROW"), ("Germany", "Germany"),
+                                        ("Luxembourg", "Luxembourg")), ["2018"], {})
+    assert not non_producer_mask(edges, prod, covered, 2).any()
+
+
+def test_the_cathode_test_reads_raw_icsg_production(monkeypatch):
+    """#96: the feed's F_root carries no cathode production edge (it read 0 for anode in
+    all 1,410 region-years while raw production was positive in 933), so the test reads
+    the ADR 0024 bound's raw ICSG production. ICSG reports Italy's refinery and nothing
+    for France; France's row must still say 0."""
+    import build_baci_reexport as R
+
+    monkeypatch.setattr(
+        R, "icsg_intake_production",
+        lambda sectors=None: ({}, {("Cathode", "Italy", "2018"): 50.0}, set()))
+    edges = _edges((0, "Cathode", "Italy", "2018"), (1, "Cathode", "France", "2018"))
+    prod = raw_production(edges)
+    cathode = prod[prod["root_sector_from"] == "Cathode"]
+    assert dict(zip(cathode["root_region_to"], cathode["production_cc"])) == {
+        "Italy": 50.0, "France": 0.0}
+    assert non_producer_mask(edges, prod, _cov("Italy", "France"), 2).tolist() == [
+        False, True]
+
+
+# ---------------------------------------------------------------------------
+# production_zero_mask: the mine and SX-EW output edges (#97, #31)
+# ---------------------------------------------------------------------------
+
+CHAIN = (("CO", "Mining"), ("Mining", "Ore"), ("Ore", "MF"), ("Ore", "SXEW"),
+         ("MF", "Concentrate"), ("MF", "Tailings"), ("SXEW", "CSXEW"), ("CSXEW", "CP"))
+
+
+def _chain(*regions, t="2018"):
+    """Every region's mine chain, both valuations, as the decoded edge frame."""
+    rows = [(f, s, r, r, t, v) for r in regions for f, s in CHAIN for v in ("Mass", "CC")]
+    out = pd.DataFrame(rows, columns=["root_sector_from", "root_sector_to",
+                                      "root_region_from", "root_region_to", "root_time",
+                                      "valuation"])
+    out.insert(0, "edge_id", np.arange(len(out), dtype=np.int64))
+    return out
+
+
+def _stamped(edges, mask):
+    hit = edges[mask[edges["edge_id"].to_numpy()]]
+    return sorted(zip(hit["root_region_to"], hit["root_sector_from"], hit["root_sector_to"],
+                      hit["valuation"]))
+
+
+def test_a_covered_non_miner_says_zero_on_its_mine_and_sxew_output_only():
+    """Germany mines nothing and runs no SX-EW plant (#97). The edges the feed books
+    ICSG's Mining/Concentrate and SXEW/Cathode supply on carry the zero, in CC as ICSG
+    reports it. The rest of the chain is not stamped twice: the hard balances and the
+    efficiencies take CO→Mining, Ore, Tailings, CSXEW→CP and the Mass twins with it."""
+    edges = _chain("Germany")
+    prod = _production(("Concentrate", "Germany", "2018", 0.0),
+                       ("CSXEW", "Germany", "2018", 0.0))
+    mask = production_zero_mask(edges, prod, _cov("Germany"), len(edges))
+    assert _stamped(edges, mask) == [("Germany", "MF", "Concentrate", "CC"),
+                                     ("Germany", "SXEW", "CSXEW", "CC")]
+
+
+def test_a_miner_and_row_say_no_output_zero():
+    """Chile mines and runs SX-EW; ROW's 0 would be a sum of members, not a report."""
+    edges = _chain("Chile", "ROW")
+    prod = _production(("Concentrate", "Chile", "2018", 5000.0),
+                       ("CSXEW", "Chile", "2018", 1500.0),
+                       ("Concentrate", "ROW", "2018", 0.0), ("CSXEW", "ROW", "2018", 0.0))
+    assert not production_zero_mask(edges, prod, _cov("Chile"), len(edges)).any()
+
+
+def test_a_miner_without_sxew_says_zero_on_its_sxew_output_only():
+    """Papua New Guinea mines concentrate and reports no SX-EW cathode."""
+    edges = _chain("Papua New Guinea")
+    prod = _production(("Concentrate", "Papua New Guinea", "2018", 100.0))
+    mask = production_zero_mask(edges, prod, _cov("Papua New Guinea"), len(edges))
+    assert _stamped(edges, mask) == [("Papua New Guinea", "SXEW", "CSXEW", "CC")]
+
+
+def test_the_output_test_reads_raw_icsg_mine_and_sxew_production(monkeypatch):
+    """Chile's mine and SX-EW rows are in ICSG and Germany's are not. No edge of these
+    chains leaves a Concentrate node, so the production rows must not depend on which
+    edges the frame holds: a missing row reads as 0 and would stamp Chile."""
+    import build_baci_reexport as R
+
+    monkeypatch.setattr(
+        R, "icsg_intake_production",
+        lambda sectors=None: ({}, {("Concentrate", "Chile", "2018"): 5000.0,
+                                   ("CSXEW", "Chile", "2018"): 1500.0}, set()))
+    edges = _chain("Chile", "Germany")
+    mask = production_zero_mask(edges, raw_production(edges), _cov("Chile", "Germany"),
+                                len(edges))
+    assert _stamped(edges, mask) == [("Germany", "MF", "Concentrate", "CC"),
+                                     ("Germany", "SXEW", "CSXEW", "CC")]
 
 
 # ---------------------------------------------------------------------------

@@ -67,9 +67,16 @@ OBSERVED_ZERO_FLOOR_KT = 0.3
 # (ADR 0043) whose zero the net-stock seed prices (ADR 0040), not an observed zero.
 STOCK_SECTORS_TO       = ("MESC", "USC")
 # The products whose zero-weight domestic leg is an observed zero in a region that makes
-# none of them (#78): concentrate, the one product whose producing edge (MF→Concentrate)
-# the ICSG feed itself carries. Cathode non-producers are #96.
-OBSERVED_ZERO_SECTORS  = ("Concentrate",)
+# none of them, by its raw ICSG production (ADR 0024's bound): concentrate (#78) and
+# cathode (#96). Anode is not stamped.
+OBSERVED_ZERO_SECTORS  = ("Concentrate", "Cathode")
+# The edges a region's own mine and SX-EW output leave on, as (process, product): the
+# edges this feed books ICSG's Mining/Concentrate and SXEW/Cathode supply rows on. Where
+# the region makes none of the product, the edge is an observed zero (#97, #31).
+PRODUCTION_EDGES       = (("MF", "Concentrate"), ("SXEW", "CSXEW"))
+# Regions whose zero is never a report: ROW is the sum of the members ICSG lists, with
+# its "Others" rows among them.
+AGGREGATE_REGIONS      = ("ROW",)
 # ACC_ID is loaded from config/config.yaml → pipeline.acc_id below, after
 # the pysuto package is added to sys.path.
 
@@ -105,7 +112,8 @@ from pysuto.feedpipe import (
     register_feed,
 )
 from pysuto.diag import FeedDiagnostics
-from build_trade_shares import _decoded_edges, check_parents, icsg_production
+from build_baci_reexport import AGGREGATES_ID, icsg_aggregate_members
+from build_trade_shares import _decoded_edges, check_parents, icsg_raw_production
 
 ACC_ID = load_config().pipeline.acc_id
 
@@ -318,40 +326,116 @@ def observed_zero_sigma(legs: pd.DataFrame, F_src: np.ndarray,
     return out
 
 
-def non_producer_mask(edges: pd.DataFrame, production: pd.DataFrame,
-                      n_edges: int) -> np.ndarray:
-    """Per root edge: True where an observed zero may sit (#78).
+def icsg_coverage(raw_df: pd.DataFrame, region_map_df: pd.DataFrame, years,
+                  aggregate_of: dict) -> set[tuple[str, str]]:
+    """The ``(region, year)`` pairs ICSG covers, where a missing production is a 0 (#97).
 
-    The edge carries a product in ``OBSERVED_ZERO_SECTORS`` and its region produces none
-    of it that year: "a non-producer must say zero, not nothing" (ADR 0024). A
-    zero-weight domestic leg anywhere else stays open to the imputer: in a producer it is
-    the fan's residual where imports exceed usage, not an observation.
+    A region is covered when any ICSG row maps to it, in any table and any year. ICSG's
+    mine, smelter, refinery and SX-EW tables list every producing country by name, the
+    small ones under "Others", so a region ICSG lists anywhere and not in a table that
+    year produces none of that table's product. Years without any ICSG row for the region
+    count too: Mauritania before 2006, Panama before 2019 and Botswana in 2019–20 had no
+    mine. Not covered: ``AGGREGATE_REGIONS``, whose production is a sum of members; a root
+    region no row maps to (Luxembourg, reported jointly with Belgium); and a region-year
+    ICSG reports inside one of its own aggregate rows, ``aggregate_of``
+    (``build_baci_reexport.icsg_aggregate_members``), a reporting gap (#67).
+    """
+    root = raw_df["Region"].map(dict(zip(region_map_df["src_region"],
+                                         region_map_df["root_region"])))
+    regions = set(root.dropna()) - set(AGGREGATE_REGIONS)
+    return {(r, str(t)) for r in regions for t in years} - set(aggregate_of)
 
-    ``edges``: ``edge_id, root_sector_from, root_region_to, root_time``; ``production``:
-    the trade-share builder's ``icsg_production`` frame (a missing row is 0).
+
+def raw_production(edges: pd.DataFrame) -> pd.DataFrame:
+    """Raw ICSG production, CC, of every product the observed zeros test (#96, #97).
+
+    ``build_trade_shares.icsg_raw_production`` reads it by ADR 0027's definitions, the
+    ADR 0024 bound's own (cathode = refined + SX-EW, CSXEW = SX-EW supply), with an
+    explicit 0 for every product in every region-year of ``edges``, so a row never
+    depends on which edges the frame holds. Keyed ``root_sector_from`` = product.
+    """
+    products = sorted(set(OBSERVED_ZERO_SECTORS) | {p for _, p in PRODUCTION_EDGES})
+    region_years = edges[["root_region_to", "root_time"]].drop_duplicates()
+    grid = pd.concat([region_years.assign(root_sector_from=p) for p in products],
+                     ignore_index=True)
+    return icsg_raw_production(products, grid)
+
+
+def _produces_none(product, region, time, production: pd.DataFrame,
+                   covered: set) -> np.ndarray:
+    """True where a covered region-year's ICSG production of ``product`` is 0.
+
+    "A non-producer must say zero, not nothing" (ADR 0024). A missing production row is 0.
     """
     p = production.set_index(["root_sector_from", "root_region_to",
                               "root_time"])["production_cc"]
-    key = pd.MultiIndex.from_frame(edges[["root_sector_from", "root_region_to", "root_time"]])
+    key = pd.MultiIndex.from_arrays([np.asarray(product), np.asarray(region),
+                                     np.asarray(time)])
     own = p.reindex(key).fillna(0.0).to_numpy()
+    seen = pd.MultiIndex.from_arrays([np.asarray(region), np.asarray(time)]).isin(covered)
+    return seen & (own == 0.0)
+
+
+def non_producer_mask(edges: pd.DataFrame, production: pd.DataFrame, covered: set,
+                      n_edges: int) -> np.ndarray:
+    """Per root edge: True where a fan's zero-weight domestic leg may be an observed zero.
+
+    The edge carries a product in ``OBSERVED_ZERO_SECTORS`` into a covered region-year
+    that produces none of it (#78, #96). A zero-weight domestic leg anywhere else stays
+    open to the imputer: in a producer it is the fan's residual where imports exceed
+    usage, not an observation.
+
+    ``edges``: ``edge_id, root_sector_from, root_region_to, root_time``; ``production``:
+    ``raw_production``; ``covered``: ``icsg_coverage``.
+    """
+    none = _produces_none(edges["root_sector_from"], edges["root_region_to"],
+                          edges["root_time"], production, covered)
     mask = np.zeros(n_edges, dtype=bool)
     mask[edges["edge_id"].to_numpy()] = (edges["root_sector_from"]
-                                         .isin(OBSERVED_ZERO_SECTORS).to_numpy()
-                                         & (own == 0.0))
+                                         .isin(OBSERVED_ZERO_SECTORS).to_numpy() & none)
+    return mask
+
+
+def production_zero_mask(edges: pd.DataFrame, production: pd.DataFrame, covered: set,
+                         n_edges: int) -> np.ndarray:
+    """Per root edge: True on a covered non-producer's mine or SX-EW output (#97, #31).
+
+    The edge is a ``PRODUCTION_EDGES`` pair in CC, the valuation ICSG reports, in a
+    covered region-year that produces none of the product. Only the output edge is
+    stamped; hard rows carry the zero up the chain. The efficiency bands (output ≥
+    eff_min · input) hold Ore→MF and Ore→SXEW at the output's zero, and the mass
+    balances follow: MF's and SXEW's own leave their tailings nothing, the Ore node's
+    takes Mining→Ore, Mining's takes CO→Mining, and CSXEW's takes CSXEW→CP. The conc
+    relations take the Mass twins. Stamping any of these edges as well would price the
+    same zero twice.
+
+    ``edges``: ``edge_id, root_sector_from, root_sector_to, root_region_to, root_time,
+    valuation``; ``production``: ``raw_production``; ``covered``: ``icsg_coverage``.
+    """
+    pair = pd.MultiIndex.from_frame(edges[["root_sector_from", "root_sector_to"]])
+    out = edges[pair.isin(PRODUCTION_EDGES) & (edges["valuation"] == "CC").to_numpy()]
+    mask = np.zeros(n_edges, dtype=bool)
+    mask[out["edge_id"].to_numpy()] = _produces_none(
+        out["root_sector_to"], out["root_region_to"], out["root_time"], production, covered)
     return mask
 
 
 def stamp_observed_zeros(ct: ConcordanceTable, F_src: np.ndarray, result,
-                         non_producer: np.ndarray) -> int:
-    """Mark the feed's observed zeros on ``result`` and give them their σ (#76, #78).
+                         non_producer: np.ndarray, production_zero: np.ndarray) -> int:
+    """Mark the feed's observed zeros on ``result`` and give them their σ (#76–#97).
 
-    Only the zero-weight domestic legs ``non_producer`` allows are stamped. Sets
+    Two kinds: the zero-weight domestic legs ``non_producer`` allows, priced on their fans'
+    usage (``observed_zero_sigma``), and the output edges ``production_zero`` marks. No fan
+    distributes usage onto an output edge, so #78's rule leaves it the floor,
+    ``OBSERVED_ZERO_FLOOR_KT``, the resolution ICSG reports at (ADR 0025). An edge the
+    feed fills (``sigma_root > 0``) is a flow, never an observed zero. Sets
     ``result.observed_zero`` and overwrites ``result.sigma_root`` there, after
     propagation, so no per-edge CV multiplier reaches them. Returns their count.
     """
     legs = ct.zero_weight_domestic_legs(STOCK_SECTORS_TO)
     legs = legs[non_producer[legs["edge_id"].to_numpy()]]
     sigma0 = observed_zero_sigma(legs, F_src, result.sigma_root)
+    sigma0[production_zero & ~(result.sigma_root > 0)] = OBSERVED_ZERO_FLOOR_KT
     result.observed_zero = ~np.isnan(sigma0)
     result.sigma_root[result.observed_zero] = sigma0[result.observed_zero]
     return int(result.observed_zero.sum())
@@ -518,12 +602,19 @@ def main() -> None:
     # D — source flow vector + uncertainty propagation
     F_src  = build_F_src(raw_df, ct)
     result, row_summary = propagate(wm, F_src, meta, acc)
-    non_producer = non_producer_mask(
-        _decoded_edges(acc), icsg_production(acc, result.F_root, list(OBSERVED_ZERO_SECTORS)),
-        len(result.F_root))
-    n_zero = stamp_observed_zeros(ct, F_src, result, non_producer)
-    print(f"   observed zeros: {n_zero:,} domestic legs at trade-share weight 0 in regions "
-          f"that produce none of the product (#76, #78)")
+    edges      = _decoded_edges(acc)
+    input_ref[AGGREGATES_ID] = inputs.params.entry(AGGREGATES_ID)
+    covered    = icsg_coverage(
+        raw_df, tables["region_map"], sorted(edges["root_time"].unique()),
+        icsg_aggregate_members(inputs.params.resolve(AGGREGATES_ID) / "params.csv"))
+    production = raw_production(edges)
+    non_producer    = non_producer_mask(edges, production, covered, len(result.F_root))
+    production_zero = production_zero_mask(edges, production, covered, len(result.F_root))
+    n_zero = stamp_observed_zeros(ct, F_src, result, non_producer, production_zero)
+    n_out  = int((result.observed_zero & production_zero).sum())
+    print(f"   observed zeros: {n_zero:,} in region-years ICSG covers that produce none of "
+          f"the product: {n_zero - n_out:,} domestic legs at trade-share weight 0 (#76, "
+          f"#78, #96), {n_out:,} mine and SX-EW output edges (#97, #31)")
 
     # E — register + persist (via DataFeedRegistry / feedpipe)
     parents = {"inputs": input_ref, "upstream": {}}

@@ -116,7 +116,6 @@ assert "Scrap" not in TRADED_SECTORS and "Scrap" not in SECTORS, "Scrap is not t
 # cannot be read off the ICSG F_root — there is no ICSG-anchored CP→Cathode
 # edge — so `icsg_raw_production` derives all three from the raw ICSG rows.
 BOUND_DOMESTIC_SECTORS = ["Concentrate", "Cathode", "Anode"]
-PRODUCER_OF = {"Concentrate": "MF", "Matte": "Smelting", "Anode": "CFR"}
 
 # ADR 0020's withhold, retained but disabled by ADR 0021 (the ADR-0019 pattern:
 # keep the detector, drop the remedy).  The gate existed because a refining
@@ -492,31 +491,12 @@ def baci_observed_regions(acc, baci_froot) -> set[str]:
     return set(cross.loc[v > 0, "root_region_to"].unique())
 
 
-def icsg_production(acc, icsg_froot, sectors) -> pd.DataFrame:
-    """Per (product sector, region, year): the region's own ICSG production of
-    the product in CC, read off the producing-process → product edge of the
-    ICSG ``F_root`` (``PRODUCER_OF``). Rows for ``sectors`` only; keyed the way
-    ``compute_trade_share_weights`` expects (``root_sector_from`` = product)."""
-    ei = _decoded_edges(acc)
-    frames = []
-    for sec in sectors:
-        m = ((ei["root_sector_from"] == PRODUCER_OF[sec]) & (ei["root_sector_to"] == sec)
-             & (ei["root_region_from"] == ei["root_region_to"]) & (ei["valuation"] == "CC"))
-        sub = ei.loc[m, ["root_region_to", "root_time", "edge_id"]].copy()
-        sub["production_cc"] = np.nan_to_num(icsg_froot[sub["edge_id"].values], nan=0.0)
-        g = sub.groupby(["root_region_to", "root_time"])["production_cc"].sum().reset_index()
-        g.insert(0, "root_sector_from", sec)
-        frames.append(g)
-    cols = ["root_sector_from", "root_region_to", "root_time", "production_cc"]
-    return pd.concat(frames, ignore_index=True)[cols] if frames else pd.DataFrame(columns=cols)
-
-
 def icsg_raw_production(sectors, edges: pd.DataFrame) -> pd.DataFrame:
     """Per (product, consumer region, year) that region's own ICSG production, CC.
 
-    `icsg_production` reads the producing-process → product edge of the ICSG
-    ``F_root``, which exists only where ICSG anchors that edge: there is no
-    ICSG-anchored ``CP→Cathode`` edge, so cathode production is invisible to it.
+    The ICSG ``F_root`` carries a producing-process → product edge only where ICSG
+    anchors one: there is no ICSG-anchored ``CP→Cathode`` edge, so cathode production
+    is invisible to it (the ICSG feed's non-producer test reads this frame too, #96).
     This reads the raw ICSG rows instead, through the definitions ADR 0027 states
     (cathode = refined + SX-EW; anode = smelter intake · eff_Smelting · eff_CFR),
     and is the *same* helper the re-export netting uses for its ``P`` — imported

@@ -8,7 +8,9 @@ bound now covers Cathode and Anode as well as Concentrate (see *Amendment* below
 [`…india-concentrate-residual-domestic`](../rep/analysis_20260910_india-concentrate-residual-domestic.md).
 **Amended 2026-10-14 (#76), narrowed 2026-10-19 (#78)**: a domestic concentrate leg the bound
 sets to 0, in a region that mines no concentrate, is an *observed zero* (see *Amendment (#76)*
-below); to be measured by #78.
+below); to be measured by #78. **Amended 2026-10-21 (#96, #97, #31)**: a non-producer also says
+zero on its domestic cathode leg and on its own mine and SX-EW output (see *Amendment (#96, #97,
+#31)* below); to be measured.
 
 ## Context
 
@@ -216,3 +218,33 @@ zero now covers a domestic concentrate leg in a region whose own ICSG concentrat
 Switzerland, …) would qualify by the same test, but the feed carries no cathode production edge to
 read it from; keying the test on the bound's raw ICSG production is #96. Every other zero-weight
 domestic leg stays open to the imputer, as before #76.
+
+## Amendment (#96, #97, #31, 2026-10-21): a non-producer says zero on its own output
+
+**A region-year ICSG covers that produces none of a product now carries that zero on the edge its
+own output would leave on, not only on a zero-weight domestic leg.** On the reference chain
+`opt_20261020_112726_2f451f31` (`const_20261019_170151_13460e94`), summed over the region-years
+with no ICSG mine production, the solver built mine and SX-EW output where ICSG reports none,
+prior → posterior in kt CC: Ore→SXEW 3 → 1,667 (Belgium 474, Germany 341, the UAE 341),
+CO→Mining 895 → 3,030, MF→Concentrate 625 → 1,168 (#97, #31). Belgium's 479 kt CC of CO→Mining
+prior was written by the imputers, not reported. And #78's test read production off the feed's
+`F_root`, which carries no cathode production edge, so 246 zero-weight domestic `Cathode→FU` legs
+of non-refiners stayed imputable (#96).
+- **Production** is the bound's own: raw ICSG rows by ADR 0027's definitions
+  (`build_trade_shares.icsg_raw_production`), now also for SX-EW cathode (the SXEW/Cathode supply).
+- **Covered:** a region any ICSG row maps to, in any year, except ROW (a sum of members), a region
+  no row maps to (Luxembourg), and a region-year ICSG reports inside its own aggregate (#67).
+- **Stamped:** `MF→Concentrate` and `SXEW→CSXEW` in CC, the edges the feed books ICSG's mine and
+  SX-EW supply on, at σ = 0.3 kt CC (#76's rule with no fan usage: ICSG's reporting resolution,
+  ADR 0025). The hard efficiency bands and mass balances carry the zero to Ore, Mining, CO,
+  the tailings and CSXEW→CP, so none of those is stamped twice. `OBSERVED_ZERO_SECTORS` adds Cathode.
+
+Dry count on icsg v16 and trade_shares v38: 1,489 output zeros (516 `MF→Concentrate` region-years
+in 21 regions, 973 `SXEW→CSXEW` in 38) and 253 cathode legs (France, Greece, the Netherlands,
+Switzerland and Taiwan 30 each). The 82 concentrate legs are those of
+`feed_icsg_20261021_095747_f99c73a2`, leg for leg. To be measured. The solver must now settle in
+the open what a phantom mine supplied: 582 kt CC of concentrate export priors leave these
+regions' Concentrate nodes (Malaysia 144, the UAE 132) and 556 kt CC of smelter-recipe
+concentrate intake sits on their domestic legs (Belgium 371, Italy 160). The crude-ore feed
+reports ore in 60 of the region-years, most of it in Malaysia 1995–99 (1.9–3.9 Mt of ore a year,
+with an ore-grade row).
