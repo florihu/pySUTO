@@ -8,9 +8,9 @@ bound now covers Cathode and Anode as well as Concentrate (see *Amendment* below
 [`…india-concentrate-residual-domestic`](../rep/analysis_20260910_india-concentrate-residual-domestic.md).
 **Amended 2026-10-14 (#76), narrowed 2026-10-19 (#78)**: a domestic concentrate leg the bound
 sets to 0, in a region that mines no concentrate, is an *observed zero* (see *Amendment (#76)*
-below); to be measured by #78. **Amended 2026-10-21 (#96, #97, #31)**: a non-producer also says
-zero on its domestic cathode leg and on its own mine and SX-EW output (see *Amendment (#96, #97,
-#31)* below); to be measured.
+below); to be measured by #78. **Amended 2026-10-21 (#96, #97, #31)**: a region-year with no ICSG
+SX-EW output says zero on its own SX-EW output; the mine-output and cathode-leg zeros were measured
+and rejected (see *Amendment (#96, #97, #31)* below).
 
 ## Context
 
@@ -258,3 +258,19 @@ To be measured. The solver must now settle in the open what a phantom mine suppl
 concentrate export priors leave the stamped regions' Concentrate nodes (the UAE 132, Switzerland
 59), and 556 kt CC of smelter-recipe concentrate intake sits on their domestic legs (Belgium 371,
 Italy 160).
+
+**Measured 2026-10-21: SX-EW zeros ship; mine-output and cathode-leg zeros are rejected.** REP
+[`…issue97-observed-zero-output`](../rep/analysis_opt_20261021_111957_5c6d13bc_20261021_issue97-observed-zero-output.md).
+The full build (`opt_20261021_105350_b1fea245`, against `opt_20261021_101810_d34c6527`) cut the
+phantom SX-EW but raised common-set sum-row z² **+37.8 %**: the phantom chains had been filling
+gaps between ICSG usage and recorded supply — Matte use totals +170,357 (Italy +115,164), Cathode
++149,730 (the Netherlands, Switzerland, the UAE, Malaysia), Concentrate +36,100 — and world Cathode
+CC retention fell 1.001 → 0.990. The SX-EW zeros alone (`PRODUCTION_EDGES = (("SXEW", "CSXEW"),)`,
+`OBSERVED_ZERO_SECTORS = ("Concentrate",)` as #78 shipped; `opt_20261021_111957_5c6d13bc`) cut
+Ore→SXEW where neither mine nor SX-EW is reported 1,344 → 33 kt CC and in mining region-years
+without ICSG SX-EW 1,911 → 42, at common-set z² **+1.10 %**, Round-E holding; they ship over 95
+stock legs newly above |z| 5 (65 CC, 60 of them Russia's, −102 kt CC over 30 years), where
+Russia's lost phantom SX-EW now draws on stocks. The phantom mine chains of non-mining regions
+remain (CO→Mining 2,028 kt CC posterior over 1995–2024, part re-routed through concentrate) and so
+do #96's cathode legs: closing them is a data question (ICSG usage above BACI imports plus ICSG
+production in hubs), stated as a limitation with the +37.8 % above as its measured cost.

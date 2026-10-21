@@ -429,10 +429,10 @@ non-flat-prior imputations that feed-`Coverage` excludes.
 
 **Observed zero** — an edge a feed reports at exactly 0 with a σ > 0 (the feed result's
 `observed_zero` mask): covered, so no imputer fills it, and any flow the solver puts on it is
-priced. The ICSG feed gives one to a **non-producer**'s domestic concentrate or cathode leg at
+priced. The ICSG feed gives one to a **non-producer**'s domestic concentrate leg at
 trade-share weight 0, priced like the **net-stock seed** on the usage its fans distribute, and to
-the edge its own mine or SX-EW output would leave on, unless another input reports that output
-there, priced at ICSG's reporting resolution
+its own SX-EW output where ICSG reports none and no other input reports SX-EW there, priced at
+ICSG's reporting resolution
 ([ADR 0024](docs/adr/0024-fan-domestic-leg-bounded-by-own-production.md) amendments). A zero weight
 in a producer, where imports exceed usage, is a residual, not an observation, and stays imputable. Distinct from
 an uncovered edge (no feed observed it; NaN in Stage 2) and from the net-stock seed (a prior no

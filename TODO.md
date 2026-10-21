@@ -66,6 +66,24 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
 
 # OPEN (2026-09-16, out of Round L)
 
+## manuscript_ready_2 (label, 2026-10-20) — rounds shipped 2026-10-20/21
+
+Each against the previous one; REPs under `docs/rep/`.
+- **#33 SHIPPED** (ADR 0039 am.): the period QP is solved for the defects at gap 1e-8 — `opt_20261020_112726_2f451f31`,
+  Σ_t J −66,702 (−2.13 % vs `opt_20261019_171746_3272682b`), common-set z² −5.43 %, crude-ore Mass retention
+  0.864 → 0.998; shipped over items 3 and 5 at the numerical floor; follow-up #99 (Stage 5 binding via multipliers).
+- **#95 SHIPPED** (ADR 0014 am.): the larger of 178's and 180's refined declarations, DR Congo's transit legs dropped —
+  `opt_20261021_094942_d1ac7a81`, the UAE's cathode rows close, common-set z² −5.28 %.
+- **#63 SHIPPED** (ADR 0030 am.): imported anode off the direct-to-refinery route — `opt_20261021_101810_d34c6527`,
+  Austria −90.9 %, common-set z² −6.72 %; the ICSG clean step now reads gross baci vN (build order in CLAUDE.md).
+- **#93, #53 (items 1, 3), #83 fixed**; **#87** code merged (Birge R = 5.95 on `uncprop_20261020_120031_b2c16162`),
+  its REP on the final chain.
+- **#97 SHIPPED, #31/#96 REJECTED on measurement** (ADR 0024 am.): SX-EW zeros where ICSG reports none —
+  `opt_20261021_111957_5c6d13bc`, phantom SX-EW 3,255 → 75 kt CC, z² +1.10 %, over Russia's 60 new stock legs; the
+  full build (mine-output + cathode-leg zeros, `opt_20261021_105350_b1fea245`) +37.8 %: the phantom chains fill
+  gaps between ICSG usage and recorded supply — a stated limitation.
+- **Next:** #98 + #36 item 2 (built, `fix/psc-rows`), #38 (built, behaviour-neutral on copper), final chain.
+
 ## #72 MEASURED 2026-10-20 — qdldl REJECTED ON MEASUREMENT; `DIRECT_SOLVE_METHOD` stays faer
 
 `diag/qdldl-measure`, run `opt_20261020_090246_99da4a39` (qdldl) against the final chain `opt_20261019_171746_3272682b`
