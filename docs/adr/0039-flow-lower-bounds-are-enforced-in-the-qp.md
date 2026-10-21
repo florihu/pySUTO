@@ -47,3 +47,19 @@ the open numerical item.
    no quality gain, Stage 4 only 745 → 563 s behind the 444-s probe, and every number of the
    reference chain would move. A comparison across a linear-solver change, like one across the
    tolerance change above, mixes the solver's floor into the model's effect.
+
+**Amended 2026-10-21 (#33, measured):**
+1. **The period QP is solved for the defects at 1e-8; the floor is gone.** Solved for the flows,
+   Clarabel's cost is J − Σ(a_prior/σ_a)², a constant ten times the misfit, so its relative gap
+   certified nothing: a read-only probe bounded each answer from below with the Lagrange dual and
+   found the flows posteriors 945–4,363 above the optimum per year. Solved for d = a − a_prior
+   (same P and A, q = 0, b = c − G·a_prior, cost = J) at feas = gap_rel = gap_abs = 1e-8, every
+   year reaches Solved in 64–81 iterations within 0.2 of that bound. On the final chain (run
+   `opt_20261020_112726_2f451f31`; REP
+   [`…issue33-defects`](../rep/analysis_opt_20261020_112726_2f451f31_20261020_issue33-defects.md)):
+   Σ_t J −66,702 (−2.13 % vs `opt_20261019_171746_3272682b`), lower in 30/30 years; common-set
+   sum-row z² −5.43 %; world crude-ore Mass retention 0.864 → 0.998; Stage 4 745 → 604 s. Shipped
+   over two items that fail at the numerical floor: equality-row residuals of 1.05–1.62e-6 kt in
+   3 of 30 years, and Stage 5's bound-active count below 90 % of the base's in 2011 and 2012 — a
+   fringe within 1e-4 kt of its bounds that the 1e-6 kt cutoff sorts either way (#99). The
+   reduced tolerances stay as the AlmostSolved acceptance; no year needs them.

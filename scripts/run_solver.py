@@ -60,9 +60,12 @@ MAX_ITER = 2000
 # numerical floor (InsufficientProgress after ~150–250 iterations, ≈ 30–60 s/year)
 # and accept that floor as AlmostSolved through the reduced tolerances (gap_rel
 # 1e-5 is not reached there, 1e-4 is).
+# #33 (ADR 0039 am. 2026-10-21): solved for the defects, every year of the final chain
+# reaches Solved at gap 1e-8 in 64–81 iterations within 0.2 of a certified lower bound on J
+# (opt_20261020_112726_2f451f31 vs opt_20261019_171746_3272682b: Σ_t J −66,702).
 TOL_FEAS            = 1e-8
-TOL_GAP_REL         = 1e-6
-TOL_GAP_ABS         = 1e-2
+TOL_GAP_REL         = 1e-8
+TOL_GAP_ABS         = 1e-8
 REDUCED_TOL_FEAS    = 1e-6
 REDUCED_TOL_GAP_REL = 1e-4
 REDUCED_TOL_GAP_ABS = 10.0
@@ -91,9 +94,11 @@ DIRECT_SOLVE_METHOD = "faer"
 # (opt_20261019_171746_3272682b 945–4,363 above it), hard-row residuals ≤ 9e-7 kt vs
 # ≤ 1e-7 kt. The sidecar's objective stays J − Σ(a_prior/σ_a)² under both; gap_rel is
 # relative to Clarabel's own cost, so TOL_GAP_REL is ~10× tighter in absolute terms
-# under "defects". Switching is a measured change (REP + run id); the feasibility
-# probe has no σ-weighted cost and is unaffected.
-QP_VARIABLES        = "flows"
+# under "defects". Measured on the full chain (#33, ADR 0039 am. 2026-10-21):
+# opt_20261020_112726_2f451f31 lowers Σ_t J by 66,702 (−2.13 % vs
+# opt_20261019_171746_3272682b) in 30/30 years; the feasibility probe has no σ-weighted cost
+# and is unaffected.
+QP_VARIABLES        = "defects"
 
 
 # ---------------------------------------------------------------------------
