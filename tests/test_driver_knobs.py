@@ -69,3 +69,41 @@ def test_a_knob_of_the_wrong_type_fails_before_anything_is_loaded():
     r = _run("opt", "--set", "TOL_GAP_REL='x'")
     assert r.returncode != 0
     assert "TOL_GAP_REL" in r.stderr and "expected float" in r.stderr
+
+
+class TestCascadeOrder:
+    """#104: the Stage 2 cascade order is a knob; it must stay a permutation of the
+    five cascade imputers, and the terminal pass (time, share, flat) stays fixed."""
+
+    def test_the_default_order_is_todays_cascade(self):
+        mod = _load("imp")
+        assert mod.CASCADE_ORDER == ("trade", "network", "conc", "ore_grade", "eff")
+        assert "CASCADE_ORDER" in mod.KNOBS
+
+    def test_the_cascade_is_built_in_the_given_order(self):
+        mod = _load("imp")
+        by_id = {k: object() for k in mod.CASCADE_ORDER}
+        order = ("network", "trade", "eff", "conc", "ore_grade")
+        assert mod.cascade_in_order(by_id, order) == [by_id[k] for k in order]
+
+    @pytest.mark.parametrize("order", [
+        ("trade", "network", "conc", "ore_grade", "time"),        # unknown
+        ("trade", "trade", "conc", "ore_grade", "eff"),           # repeated
+        ("trade", "network", "conc", "ore_grade"),                # missing
+    ])
+    def test_an_order_that_is_not_a_permutation_is_refused(self, order):
+        mod = _load("imp")
+        with pytest.raises(ValueError, match="permutation"):
+            mod.cascade_in_order({k: object() for k in mod.CASCADE_ORDER}, order)
+
+    def test_a_bad_order_fails_on_the_command_line_before_anything_is_loaded(self):
+        r = _run("imp", "--set", 'CASCADE_ORDER=("trade","trade","conc","ore_grade","eff")')
+        assert r.returncode != 0 and "permutation" in r.stderr
+        assert "Traceback" not in r.stderr
+
+
+def test_the_feasibility_check_knob_replaces_the_bool():
+    mod = _load("opt")
+    assert mod.FEASIBILITY_CHECK == "first"
+    assert "FEASIBILITY_CHECK" in mod.KNOBS and "FEASIBILITY_CHECK_FIRST_ONLY" not in mod.KNOBS
+    assert not hasattr(mod, "FEASIBILITY_CHECK_FIRST_ONLY")

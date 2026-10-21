@@ -1139,6 +1139,61 @@ class TestPreFixBlockRunGuard:
         assert not any(issubclass(w.category, UserWarning) for w in recwarn.list)
 
 
+def _make_second_year_infeasible_run(bad=("2021",)):
+    """One edge, two periods: a hard balance e0 = c and the bound −e0 ≤ 0. c = 5 is
+    feasible; c = −5 in the years ``bad`` is not."""
+    G_t = sp.csr_matrix(np.array([[1.0], [-1.0]]))
+    data = {t: (np.array([-5.0 if t in bad else 5.0, 0.0]), np.zeros(2),
+                np.array([5.0]), np.array([1.0])) for t in ("2020", "2021")}
+    return _block_run(G_t, ["zero", "nonneg"], data, run_id="half_bad")
+
+
+class TestFeasibilityCheckMode:
+    """#104: FEASIBILITY_CHECK = "first" | "all" | "none" — a sweep point skips the
+    probe; a period that cannot be solved still raises, only not localised by it."""
+
+    @staticmethod
+    def _solver(run, monkeypatch):
+        from pysuto.solver import ClarabelSolver
+        s = ClarabelSolver(const_dir="unused", verbose_first_solve=False)
+        monkeypatch.setattr(s, "load_run", lambda _rid: run)
+        return s
+
+    def test_first_probes_only_the_first_year(self, monkeypatch):
+        s = self._solver(_make_second_year_infeasible_run(), monkeypatch)
+        with pytest.raises(RuntimeError) as exc:
+            s.solve_all("half_bad", feasibility_check="first")
+        assert "Feasibility check FAILED" not in str(exc.value)
+        assert "'2021'" in str(exc.value)
+
+    def test_all_probes_every_year_before_solving(self, monkeypatch):
+        s = self._solver(_make_second_year_infeasible_run(), monkeypatch)
+        with pytest.raises(RuntimeError, match="Feasibility check FAILED at timestep '2021'"):
+            s.solve_all("half_bad", feasibility_check="all")
+
+    def test_none_skips_the_probe_and_the_period_solve_still_raises(self, monkeypatch):
+        s = self._solver(_make_second_year_infeasible_run(bad=("2020",)), monkeypatch)
+        with pytest.raises(RuntimeError) as exc:
+            s.solve_all("half_bad", feasibility_check="none")
+        assert "Feasibility check FAILED" not in str(exc.value)
+        assert "'2020'" in str(exc.value)
+
+    def test_none_solves_a_feasible_run(self, monkeypatch):
+        s = self._solver(_make_second_year_infeasible_run(bad=()), monkeypatch)
+        res = s.solve_all("half_bad", feasibility_check="none")
+        assert [r.F_opt[0] for r in res.values()] == pytest.approx([5.0, 5.0], rel=1e-7)
+
+    def test_the_legacy_bool_maps_onto_the_mode(self, monkeypatch):
+        s = self._solver(_make_second_year_infeasible_run(), monkeypatch)
+        with pytest.raises(RuntimeError, match="Feasibility check FAILED at timestep '2021'"):
+            s.solve_all("half_bad", feasibility_check_first_only=False)
+
+    def test_an_unknown_mode_is_refused(self, monkeypatch):
+        s = self._solver(_make_second_year_infeasible_run(bad=()), monkeypatch)
+        with pytest.raises(ValueError, match="feasibility_check"):
+            s.solve_all("half_bad", feasibility_check="some")
+
+
 class TestFeasibilityCheck:
 
     def test_infeasible_raises(self, monkeypatch):

@@ -692,7 +692,7 @@ Solver diagnostics live in [diag/](src/pysuto/diag/) (`SolverDiag`, 12 figures: 
 | `sigma_c_floor` | `1e-9` | σ_c floor for free rows |
 | `tol_feas` / `tol_gap_abs` / `tol_gap_rel` | `1e-8` | Clarabel tolerances |
 | `max_iter` | `200` | Clarabel iteration cap |
-| `feasibility_check_first_only` | `True` | Check only `t=0` for feasibility (much faster) |
+| `feasibility_check` | `"first"` | Feasibility pre-check scope: `"first"` (fast), `"all"` (localises an infeasible year) or `"none"` (sweep points; a failed period still raises); the old bool `feasibility_check_first_only` maps onto it (#104) |
 | `verbose_first_solve` | `True` | Print Clarabel iteration log for `t=0` only (serial solve) |
 | `n_workers` | `1` | Periods solved concurrently (cold only); the driver sets `N_WORKERS = os.cpu_count()` |
 | `direct_solve_method` | `"faer"` | Clarabel's linear solver for the period QPs, pinned to one thread |
@@ -705,7 +705,7 @@ solver = ClarabelSolver(const_dir="data/proc/const")
 results = solver.solve_all(
     run_id="copper_const_v0",
     timesteps=[str(t) for t in range(2010, 2024)],
-    feasibility_check_first_only=True,
+    feasibility_check="first",
 )
 # results[t] is an OptimResult with F_opt, eps_opt, residuals, …
 optim_run_id = solver.persist(
@@ -1074,7 +1074,7 @@ solver = ClarabelSolver(const_dir="data/proc/const")
 results = solver.solve_all(
     run_id=constraint_run.run_id,
     timesteps=[str(t) for t in range(2010, 2024)],
-    feasibility_check_first_only=True,
+    feasibility_check="first",
 )
 optim_run_id = solver.persist(
     run_id=constraint_run.run_id,
