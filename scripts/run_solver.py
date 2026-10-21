@@ -100,6 +100,15 @@ DIRECT_SOLVE_METHOD = "faer"
 # and is unaffected.
 QP_VARIABLES        = "defects"
 
+# The knobs a pipeline step may override with --set (#100, pysuto.knobs). Paths are
+# not knobs.
+KNOBS = (
+    "TIMESTEPS", "FEASIBILITY_CHECK_FIRST_ONLY", "MAX_ITER",
+    "TOL_FEAS", "TOL_GAP_REL", "TOL_GAP_ABS",
+    "REDUCED_TOL_FEAS", "REDUCED_TOL_GAP_REL", "REDUCED_TOL_GAP_ABS",
+    "N_WORKERS", "DIRECT_SOLVE_METHOD", "QP_VARIABLES",
+)
+
 
 # ---------------------------------------------------------------------------
 # END USER CONFIGURATION
@@ -111,11 +120,13 @@ from pysuto.acc     import AccountingStructure
 from pysuto.solver  import ClarabelSolver
 from pysuto.diag    import SolverDiag
 from pysuto.logging import get_logger, add_run_handler
+from pysuto.knobs   import add_knob_args, overrides_from_cli, write_run_id
 
 _log = get_logger("init_run_solver")
 
 
-def main(const_run_id: str, label: str = "", prior_mode: str = "warm") -> None:
+def main(const_run_id: str, label: str = "", prior_mode: str = "warm",
+         overrides: dict | None = None) -> str:
     os.makedirs("logs", exist_ok=True)
     add_run_handler(
         f"logs/init_run_solver_{datetime.now():%Y%m%d_%H%M%S}.log"
@@ -158,6 +169,7 @@ def main(const_run_id: str, label: str = "", prior_mode: str = "warm") -> None:
             "reduced_tol_gap_rel":          REDUCED_TOL_GAP_REL,
             "reduced_tol_gap_abs":          REDUCED_TOL_GAP_ABS,
             "feasibility_check_first_only": FEASIBILITY_CHECK_FIRST_ONLY,
+            "overrides":                    dict(overrides or {}),
         },
     )
 
@@ -184,6 +196,7 @@ def main(const_run_id: str, label: str = "", prior_mode: str = "warm") -> None:
     diag.plot(odir=diag_dir)
 
     _log.info("=== init_run_solver DONE ===")
+    return optim_run_id
 
 
 if __name__ == "__main__":
@@ -203,5 +216,8 @@ if __name__ == "__main__":
         help="ClarabelSolver prior mode: 'cold' (default) or 'warm'."
     )
 
+    add_knob_args(parser)
     args = parser.parse_args()
-    main(args.const_run_id, args.label, args.prior_mode)
+    overrides = overrides_from_cli(parser, args, KNOBS, globals())
+    write_run_id(args.run_id_file,
+                 main(args.const_run_id, args.label, args.prior_mode, overrides))
