@@ -131,7 +131,7 @@ Stage 2 — combining multiple feeds' observations of the *same* root edge by in
 weights `Ω` into a single `f_agg` / `σ_agg`.
 
 **Imputation**:
-Stage 2 — filling root edges that **no feed covered**, via an ordered pipeline of imputers;
+Stage 2 — filling root edges that **no feed covered**, via an engine of imputers run in order;
 every fill is recorded in the `ImputationLog`.
 
 **Imputer**:
@@ -159,12 +159,14 @@ _Avoid_: "the solver" (that is Stage 4 as a whole), "solver backend".
 Stage 5 — the closed-form posterior standard deviation `σ_a*` and confidence intervals; its
 per-edge summary is the **posterior contraction** `κ`.
 
-**Engine** ≡ **pipeline**:
+**Engine**:
 The orchestrator for a stage — it holds a registered, ordered list of plugins and runs them
-(`ImputationEngine`, `ConstraintEngine`). "Engine" and "pipeline" are used interchangeably.
+(`ImputationEngine`, `ConstraintEngine`).
+_Avoid_: "pipeline" for one stage's engine — the **pipeline** is the ordered stages (below).
 
 **Register** / **plugin**:
-`.register(...)` appends an imputer or builder to an engine; each stage is a plugin pipeline.
+`.register(...)` appends an imputer or builder to an engine; each stage's engine runs its
+plugins in order.
 
 **Chaining**:
 Running plugins in **registration order** so each consumes the previous one's output. Imputers
@@ -192,7 +194,7 @@ Seeding the prior `a₀(t)` for a timestep with the previous year's optimum `a*(
 
 **Run** / **run-id**:
 One persisted execution of a stage, keyed `{stage}_{YYYYMMDD_HHMMSS}_{uuid}`
-(`stage ∈ {feed, imp, const, opt, uncprop, psut}`).
+(`stage ∈ {feed, imp, const, opt, uncprop, psut, sweep}`).
 
 **Registry**:
 A per-stage store of runs. The **input registry** versions the input *bytes*
@@ -206,6 +208,44 @@ A run's self-contained provenance record — `parents.inputs` (input-registry re
 **Diagnostic** (diag):
 A per-stage plot suite that consumes a run's output (`AggDiagnostic`, `SolverDiag`, …); never
 imported into the data layer.
+
+**Pipeline**:
+The ordered stages, feed → imp → const → opt (→ uncprop → psut), each run by its driver and
+consuming the previous stage's run. A pipeline may start or stop at any stage.
+_Avoid_: "pipeline" for one stage's engine; "workflow".
+
+**Chain**:
+One lineage of runs through the pipeline, linked by `parents.upstream` — e.g. the **reference
+chain** is the feed, imp, const and opt runs the manuscript cites.
+_Avoid_: "chaining" (that is plugin order inside an engine); "the run" for a whole lineage.
+
+**Knob**:
+A tuning constant of a stage driver (`P_PROP`, `ANCHOR_CV`, `TOL_GAP_REL`, the cascade order);
+its value is recorded in the run's sidecar. Changing a knob is a measured change.
+_Avoid_: "hyperparameter"; "parameter" / "param" (those are the `params` input tables);
+"setting", "config".
+
+**Sweep**:
+A set of chains that share their inputs and differ only in knob values, run and recorded as one
+`sweep` run. Two **modes**: a **random sweep** draws `n_points` points from the axes' ranges
+with a seeded sampler (the default); a **grid sweep** runs every combination of the axes'
+listed values.
+_Avoid_: "experiment", "study" (a REP), "search" (nothing is optimised).
+
+**Point**:
+One chain of a sweep — its inputs plus one knob value. The **base point** is the chain the
+other points are compared with.
+_Avoid_: "scenario", "variant", "configuration".
+
+**Axis**:
+One knob (or a tied set of knobs that must share a value, such as `P_PROP` in imp and const)
+with its **range**: a list of values to choose from, or an interval or distribution to draw
+from. A grid sweep accepts lists only.
+_Avoid_: "dimension", "factor", "parameter grid".
+
+**Flagged ambiguity — "pipeline".** Before 2026-10-21 the glossary used "pipeline" for one
+stage's **engine**; README and CLAUDE.md always meant the six stages. It now means only the
+latter.
 
 ## Solver / time-partition vocabulary
 
@@ -258,7 +298,7 @@ reassembled by the diag when it needs the whole picture."
 
 ## Concordance vocabulary
 
-**Two mapping levels** — the feed pipeline composes *two* independent raw→root mappings, each of
+**Two mapping levels** — the feed stage composes *two* independent raw→root mappings, each of
 which can be 1:1, fan-in, or fan-out. The fan-in/fan-out terms below name the **second** level only.
 
 - **Mapping 1 — raw rows → source edges.** Defined by the concordance **variable map**
