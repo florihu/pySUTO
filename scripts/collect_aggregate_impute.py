@@ -130,6 +130,13 @@ STOCK_SECTORS = ("MESC", "USC")
 # (p95/1.645 × max(FU, 100 kt)) gave the exchange-location legs σ ≈ 553 kt.
 STOCK_SEED_CV           = 0.01
 STOCK_SEED_ABS_FLOOR_KT = 0.3     # icsg_feed's OBSERVED_ZERO_* mirror these (#76)
+# CP has no `eff` row, so the NetworkImputer's recipe writes CC PSC = (1 − 1.0)·Σin
+# = 0 at σ 0 wherever ICSG does not report it and CP has an input (854 region-years
+# on imp_20261021_100015_ea05007a, 857 with three time-interpolated copies), and
+# Stage 3 floors that to σ 1e-6: a hidden pin of a stock change. The zero stays; it is
+# priced at the seed's floor alone, the feeds' resolution (ADR 0025), not at the
+# rejected 1 % of CP→Cathode (#36, ADR 0041 am.). 0.0 restores the pin.
+EFFLESS_STOCK_SIGMA_KT  = STOCK_SEED_ABS_FLOOR_KT
 
 # FlatPriorImputer mode
 #   "magnitude_aware" (legacy) — σ = CV(j) · scale(j) via cv_by_mask + 3-level cascade
@@ -529,6 +536,7 @@ def main(feed_ids: list[str], label: str) -> None:
         p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG, cv_cap=1.5,
         id="network",
         stock_sectors=STOCK_SECTORS,
+        effless_stock_sigma=EFFLESS_STOCK_SIGMA_KT,
     )
     param_refs.append(inputs.params.entry("stripping_ratio"))
     engine.register_cascade(
@@ -693,6 +701,7 @@ def main(feed_ids: list[str], label: str) -> None:
             "stock_sectors":      list(STOCK_SECTORS),
             "stock_seed_cv":      STOCK_SEED_CV,
             "stock_seed_abs_floor": STOCK_SEED_ABS_FLOOR_KT,
+            "effless_stock_sigma": EFFLESS_STOCK_SIGMA_KT,
         },
     )
     run_dir = os.path.join(IMP_DIR, run_id)

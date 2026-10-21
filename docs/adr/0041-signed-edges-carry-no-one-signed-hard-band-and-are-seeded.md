@@ -17,6 +17,13 @@ round, and the two seed commits (485aac4, bd41e29) are reverted so that the bran
 gone) and [ADR 0039](0039-flow-lower-bounds-are-enforced-in-the-qp.md) (the signed legs' negative half
 was still forbidden, by the concentration band). Closes #36 item 2 for the band and the row only; feed
 follow-up #40.
+**Amended 2026-10-21 (#36 item 2):** the eff-less hidden pin is priced at the no-trade floor alone.
+Where a process has no `efficiency` row, the NetworkImputer writes the `0` it closes on a signed
+output (structural l < 0, i.e. `CP→PSC`) at σ 0.3 kt, the feeds' resolution, instead of σ 0, which
+Stage 3 floored to 1e-6: a zero closed by a missing parameter is not an observation. The prior stays 0 and
+nothing is seeded; Mining's copperless `WR` CC, the other eff-less output, is unsigned and keeps its
+exact zero. On `imp_20261021_100015_ea05007a` this reprices 857 CC `PSC` legs (38 regions, every
+year; 3 of them time-interpolated copies) and the 857 Mass legs that follow them. To be measured.
 
 On X.0 the producer stock change `CP→PSC` was flat at 0 in Mass and "varying" in CC for three reasons.
 No concentration row matched `*→PSC` and ICSG reports PSC in CC only, so no imputer could derive a Mass

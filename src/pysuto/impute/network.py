@@ -161,6 +161,7 @@ class NetworkImputer(BaseImputer):
         stock_sectors: tuple = (),
         stripping_ratio_csv: str | None = None,
         stripping_sigma: float = 1.0e6,
+        effless_stock_sigma: float = 0.0,
     ) -> None:
         self.id = id or type(self).__name__
         self._eff_csv = eff_csv
@@ -177,6 +178,12 @@ class NetworkImputer(BaseImputer):
         # residual of a node balance (Round X, ADR 0040). They are counted when
         # known and treated as 0 when missing, like cross-region legs.
         self._stock_sectors = tuple(stock_sectors)
+        # A process with no `efficiency` row closes at eff = 1.0, so its SEM output is
+        # written as an exact 0 at σ 0: a missing parameter, not an observation. On a
+        # signed output (structural l < 0: CP→PSC, a stock-change leg) that zero was a
+        # hidden pin (Stage 3 floors σ 0 to 1e-6); it gets σ = effless_stock_sigma
+        # instead, the prior staying 0 (#36, ADR 0041 am.). 0.0 keeps the pin.
+        self.effless_stock_sigma = float(effless_stock_sigma)
         # Waste rock (Mining→WR) is a satellite mass flow (ADR 0038): outside the Mining
         # balance and fixed in Stage 3 by the hard stripping relation WR = k·Ore. The
         # prior carries WR Mass = k·Ore Mass so it satisfies that row, at the flat
@@ -486,6 +493,8 @@ class NetworkImputer(BaseImputer):
             f_w = total - float(sum(f[x] for x in W if x != w and not np.isnan(f[x])))
             method = "network_forward" if S_src == "inputs" else "network_backward"
             s_w = lp_combine([(1.0 - eff) * sig_S, eff_term, eps * abs(f_w)], p)
+            if rec.eff_param_id is None and self._lower[w] < 0.0:   # eff-less stock leg
+                s_w = max(s_w, self.effless_stock_sigma)
             self._w(w, f_w, s_w, f, sigma, entries, step, method,
                     known_PR if S_src == "inputs" else [P], [1.0 - eff], rec.eff_param_id)
             if relaxed_close:
