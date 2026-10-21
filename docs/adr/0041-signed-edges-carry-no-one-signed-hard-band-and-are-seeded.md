@@ -58,3 +58,10 @@ outside the anchor; the garbled US PSC 2006–2012 (#35) now carries a Mass twin
 `stock_bounds` params are a Stage-3 input only; the manuscript SI's share-transfer row is stale
 until the Results are re-baselined; retention on PSC is quoted beside the mass moved, as for the other
 signed legs.
+
+**Measured 2026-10-21 (#36 item 2): rejected.** Priced at the 0.3 kt floor, the 857 eff-less CC PSC
+legs and their Mass twins (`opt_20261021_115215_653c8677`, against `opt_20261021_111957_5c6d13bc`)
+act as a sink again, as the seed did in Round Y: the near-pin PSC rows (σ_c < 0.01 kt) go from
+Σz² 0.04 to 1,437 (Slovakia 2016 z +37.8, the United Kingdom 1996 +12.8) and 18 stock legs rise
+above |z| 5 (Uzbekistan 5, −27.1 kt CC). `EFFLESS_STOCK_SIGMA_KT = 0.0` keeps the hidden pin, now
+stated: CC PSC is held at zero wherever ICSG does not report it and CP has no `eff` row.
