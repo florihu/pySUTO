@@ -16,6 +16,11 @@ Re-measured by #37 (2026-10-19, run `opt_20261019_171746_3272682b`): the 0.1 kt 
 kept — its 428 near-pin rows sit only where there is no refinery output — and stock_bounds is
 regenerated on the repaired stock series (v6, p95 0.0489 → 0.0276). The zero-centred PSC rows pull
 ICSG-reported values toward zero, the pull this ADR retired on MESC/USC (#98).
+Narrowed 2026-10-21 (#38, to be measured): the balance refuses supply-from-uses only while a
+stock leg among the uses is still missing, and closes the supply from them once every one is
+reported — inert on copper, where a Cathode node-year has 94 stock legs and at most 18 are
+reported at the cascade fixpoint (in-memory replay of `imp_20261021_100015_ea05007a`'s
+cascade: 0 fills added).
 
 The three stock-change legs are the only signed edges of the account, so whatever σ they carry is
 the price of routing a contradiction of the cathode balance into a stock instead of surfacing it

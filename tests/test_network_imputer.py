@@ -831,11 +831,12 @@ def test_flow_balance_counts_a_missing_stock_leg_as_zero(stock_acc, tmp_path):
     assert np.isnan(f[e_mesc])
 
 
-def test_flow_balance_never_derives_supply_from_uses_that_include_a_stock_leg(stock_acc, tmp_path):
-    """FU 80 known, MESC unknown (counts as 0), CP→Cathode unknown: the balance must
-    not write production = 80 from the uses — production is the recipe's job and the
-    stock leg's 0 is an expectation, not a report. Without a stock leg on the node
-    (CSXEW: SXEW→CSXEW unknown, CSXEW→CP known) the supply closure still fires."""
+def test_flow_balance_never_derives_supply_from_uses_that_include_a_missing_stock_leg(
+        stock_acc, tmp_path):
+    """FU 80 known, MESC missing (counts as 0), CP→Cathode unknown: the balance must
+    not write production = 80 from the uses — production is the recipe's job and a
+    missing stock leg's 0 is an expectation, not a report. Without a stock leg on the
+    node (CSXEW: SXEW→CSXEW unknown, CSXEW→CP known) the supply closure still fires."""
     seeds = {("Cathode", "FU", "CC", "2020"): 80.0, ("CSXEW", "CP", "CC", "2020"): 30.0}
     imp = _stock_imputer(tmp_path, stock_acc, ("MESC",))
     f, method = _run2(imp, stock_acc, seeds)
@@ -843,6 +844,30 @@ def test_flow_balance_never_derives_supply_from_uses_that_include_a_stock_leg(st
     assert not method.get(e_prod, "").startswith("network_balance")   # incl. _capped/_clipped
     e_sx = stock_acc.eid("SXEW", "CSXEW", "CC")
     assert f[e_sx] == pytest.approx(30.0) and method[e_sx] == "network_balance"
+
+
+@pytest.fixture
+def stock2_acc(monkeypatch):
+    import test_network_imputer as mod
+    monkeypatch.setattr(mod, "NODES", _STOCK_NODES + [("USC", "SB", "FD")])
+    monkeypatch.setattr(mod, "EDGES", _STOCK_EDGES + [("Cathode", "USC")])
+    return MockAcc()
+
+
+def test_flow_balance_derives_supply_from_uses_once_every_stock_leg_is_reported(
+        stock2_acc, tmp_path):
+    """#38, W.1's US 1998 CP→Cathode fill: FU 80, MESC 5 and USC 3 all reported, the
+    CP recipe gated (no CER/CSXEW): every use is a report, so the balance derives
+    production = 88 from them as for any node. With USC still missing it refuses."""
+    imp = _stock_imputer(tmp_path, stock2_acc, ("MESC", "USC"))
+    e_prod = stock2_acc.eid("CP", "Cathode", "CC")
+    uses = {("Cathode", "FU", "CC", "2020"): 80.0, ("Cathode", "MESC", "CC", "2020"): 5.0}
+
+    f, method = _run2(imp, stock2_acc, {**uses, ("Cathode", "USC", "CC", "2020"): 3.0})
+    assert f[e_prod] == pytest.approx(88.0) and method[e_prod] == "network_balance"
+
+    f, method = _run2(imp, stock2_acc, uses)
+    assert np.isnan(f[e_prod]) and e_prod not in method
 
 
 def test_flow_balance_never_refills_an_observed_zero(stock_acc, tmp_path):
