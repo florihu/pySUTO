@@ -85,7 +85,12 @@ Each against the previous one; REPs under `docs/rep/`.
 - **#98 SHIPPED, #36 item 2 REJECTED** (ADR 0040, 0041 am.): PSC rows skip ICSG-reported legs —
   `opt_20261021_121332_acc68135`, PSC rows Σz² 348.9 → 0.0, common set +0.005 %; the 0.3 kt floor on eff-less PSC
   re-opens Round Y's sink (near-pin rows 0.04 → 1,437) and is reverted. **#38 SHIPPED** (replay: 0 fills added).
-- **Next:** the final chain on `opt_20261021_121332_acc68135` — Stage 5 + #87's REP and ablation, Stage 6, figures,
+- **#110 SHIPPED** (ADR 0035 am.): the 2005 yearbook's merged refinery cells pair their values by the SX-EW table —
+  Russia's 1995–2003 primary refined output (500–662 kt/yr) had been booked as electrowon and dropped;
+  `opt_20261021_131744_58504ad3` (icsg v17, baci v31, trade_shares v39), Russia's 1995–2003 scale-total Σz²
+  171,895 → 2,842, its stock legs beyond |z| 5 −1,030 → 0 kt CC, common-set z² −20.7 %. Found while gathering
+  the limitation numbers: Russia carried 18.4 % of the scale-total objective.
+- **Next:** the final chain on `opt_20261021_131744_58504ad3` — Stage 5 + #87's REP and ablation, Stage 6, figures,
   `manuscript_numbers.py`, limitations.
 
 ## #72 MEASURED 2026-10-20 — qdldl REJECTED ON MEASUREMENT; `DIRECT_SOLVE_METHOD` stays faer
