@@ -617,6 +617,8 @@ def production_recipes(mining, conc_in, scrap_sm, anode_in, scrap_cfr, sxew,
                      — no ICSG series; a converter consumes at least its own
                      smelter's matte, and its anode output nets off the scrap it
                      also pools.       P = smelter intake · eff_Smelting
+        CSXEW        no intake         P = SXEW/Cathode supply (the ICSG feed's
+                                           non-producer test, #97)
 
     CFR pools matte **and** scrap (ADR 0005), so anode production must count both:
     Belgium 2015 smelts 146 kt of scrap but feeds its converter a further 155 kt
@@ -637,6 +639,7 @@ def production_recipes(mining, conc_in, scrap_sm, anode_in, scrap_cfr, sxew,
         "Matte":       matte_p,
         "Anode":       matte_p.add(scrap_cfr, fill_value=0.0) * eff["CFR"],
         "Cathode":     (anode_in * eff["ER"]).add(sxew, fill_value=0.0),
+        "CSXEW":       sxew,
     }
     use = {
         "Concentrate": conc_in,
@@ -685,7 +688,7 @@ def icsg_intake_production(sectors=SECTORS) -> tuple:
 
     intake, production, reported = {}, {}, set()
     for s in sectors:
-        for (reg, yr), v in use[s].items():
+        for (reg, yr), v in use.get(s, pd.Series(dtype=float)).items():
             intake[(s, reg, yr)] = float(v)
             reported.add((s, reg))
         for (reg, yr), v in prod[s].items():

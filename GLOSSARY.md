@@ -429,13 +429,21 @@ non-flat-prior imputations that feed-`Coverage` excludes.
 
 **Observed zero** — an edge a feed reports at exactly 0 with a σ > 0 (the feed result's
 `observed_zero` mask): covered, so no imputer fills it, and any flow the solver puts on it is
-priced. The ICSG feed gives one to a domestic concentrate leg at trade-share weight 0 in a region
-that mines no concentrate, priced like the **net-stock seed** on the usage its fans distribute
+priced. The ICSG feed gives one to a **non-producer**'s domestic concentrate or cathode leg at
+trade-share weight 0, priced like the **net-stock seed** on the usage its fans distribute, and to
+the edge its own mine or SX-EW output would leave on, unless another input reports that output
+there, priced at ICSG's reporting resolution
 ([ADR 0024](docs/adr/0024-fan-domestic-leg-bounded-by-own-production.md) amendments). A zero weight
 in a producer, where imports exceed usage, is a residual, not an observation, and stays imputable. Distinct from
 an uncovered edge (no feed observed it; NaN in Stage 2) and from the net-stock seed (a prior no
 feed reports). _Avoid_: "fed zero"; "zero pin" (the `l = u = 0` bound on no-data edges,
 [ADR 0013](docs/adr/0013-no-data-flat-prior-anchor.md)).
+
+**Non-producer** — a region-year ICSG covers whose own ICSG production of a product is 0: ICSG
+lists the region in some table, in some year, but reports none of that product for it that
+year. Never ROW (a sum of members), a region ICSG never lists (Luxembourg) or a region-year ICSG
+reports inside one of its own aggregates: their zero is a gap, not a report. _Avoid_: "non-miner"
+for a region that only lacks SX-EW; "unreported region".
 
 ## Defect, residual & violation vocabulary
 
