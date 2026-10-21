@@ -318,9 +318,16 @@ next to 5,678 kt of copper content on one edge.
 **Mirror duplicate** — a BACI flow under one code that repeats copper another code already declares,
 so mapping both to one region counts it twice. The test is the balance, not the customs record: in
 the years the true exporter's own declarations already reach about its production, so that the
-second code would push them past it, the second code's flows are duplicates and are dropped; in the
-years they fall clearly short, the second code fills the gap and is kept ([ADR 0014](docs/adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)). _Avoid_:
+second code would push them past it, the two codes' flows are duplicates and only one declaration
+survives; in the years they fall clearly short, the second code fills the gap and is kept
+([ADR 0014](docs/adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)). _Avoid_:
 "mis-coded flow" for every year of such a code — it is a duplicate only where the balance says so.
+
+**Transit declaration** — a BACI flow of refined copper (HS 7403.1x) into a country it only passes
+through, whose final buyer declares the true exporter as origin too, so the same copper is exported
+twice ([ADR 0014](docs/adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)). _Distinct from_: a
+**re-export**, which the record shows leaving the hub again. _Avoid_: "transit" alone, which the
+**transit residual ledger** uses for what the re-export netting leaves behind.
 
 **Reporting territory** — the real-world territory a feed's rows describe, which is *not* the same
 as the **source region label** those rows carry. A feed may rename a territory mid-series (ICSG's
