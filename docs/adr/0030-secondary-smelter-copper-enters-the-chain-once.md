@@ -4,6 +4,8 @@
 once [ADR 0031](0031-icsg-scrap-series-anchor-their-level-not-only-their-share.md) anchored the
 smelter-scrap *level* and the ADR 0010 amendment closed the pure-secondary recipe (common-set z²
 +10.9 % → +7.4 %). Amends [ADR 0021](0021-icsg-refined-production-anchors-anode-into-er.md).
+**Amended 2026-10-21 (#63):** imported anode refined beyond primary output leaves the direct
+route; see the amendment at the end. Built, to be measured (#63's REP).
 
 > ⚠ **This rule shipped incomplete and nothing caught it.** The subtraction below keys on
 > `(Region, Year)` using the feed's **source** region label, so it silently did nothing for any
@@ -170,3 +172,70 @@ rewrote. Re-measure with the same script before merging either.
   --to-feed` and `python scripts/explo/scrap_share_study.py` re-apply this decision.
 - GLOSSARY.md carries the vocabulary: *smelter scrap*, *direct-to-refinery scrap*, ICSG's two
   output classifications, *direct melt*.
+
+## Amendment — 2026-10-21 (#63): imported anode is not direct-to-refinery scrap
+
+ICSG's secondary refined production also holds the imported blister and anode a region refines
+beyond its primary output, and the rule above booked that copper as direct-to-refinery scrap.
+Austria refines about 60 kt CC a year of it (ICSG table 12, BACI HS 740200), so its 2019 direct
+route was 128.1 − 60.0·0.9845 = 69.0 kt CC (70.1 kt CC of `Scrap→CFR`). The matte prior then fell to
+a fabricated pin (3.33, σ 0.057), the `scrap_share` ceiling bound, and the solver cut smelter scrap
+62 → 4.5 kt CC (`opt_20261015_093646_ddd9d3d9`). On `opt_20261019_161937_fd301f58`, Austria still
+carries a sum-row z² of 68,713 (5.97 % of 1,150,207), led by smelter scrap 2019–2024 and
+direct-refinery scrap. The Round O feed gate's "Austria 1.000" closed only because the imports
+were counted as scrap.
+
+```
+A_imp     = min(max(0, eff_ER · N − P), S_ref)
+Scrap→CFR = max(0, S_ref − S_sm · eff_CFR · eff_ER − A_imp) / (eff_CFR · eff_ER)
+```
+
+The terms of the rule:
+
+- **`N` is BACI's net cross-region anode imports** in kt CC: HS 740200 legs into the region minus
+  legs out of it, with root self-trade dropped (ADR 0014). Gross mass is converted with the conc
+  params' Anode nominal, keyed by exporter.
+- **`P` is ICSG primary refined production.** The cap `S_ref` is refined output less primary
+  output.
+- **Imports are refined as primary first.** Only the part beyond `P` can sit in the secondary
+  series.
+- **Some cases contribute 0:** net exports, a region-year with no BACI row, and an ICSG territory
+  mapped to ROW. ROW's trade belongs to 186 economies, not to the territory (ADR 0032).
+
+`icsg_clean.py --baci-version N` reads the **gross** BACI parse vN through
+`InputRegistries.load()`, which is the version `build_baci_reexport.py --source-version N` nets
+next. A netted version raises, for two reasons:
+
+- The netting re-attributes anode legs, 10,901 of them in baci v29.
+- The netting reads this parse's output through `icsg_intake_production`.
+
+The baci and conc versions are recorded in `parents.json` beside the feed's `values.csv`. The
+registry hashes that file, so a parse against another BACI version is another icsg version, and
+#53's check then forces the trade-share rebuild. The new build order is: BACI parse → register →
+`icsg_clean.py --baci-version N --to-feed` → `build_baci_reexport.py --source-version N` → … as
+before. `icsg_imported_anode.csv` lists every region-year that loses copper this way.
+
+**Dry estimate** (read-only: baci v28, conc v10, the parse input behind icsg v15). Over 1995–2024
+the direct route falls by 770 kt CC world-wide:
+
+- Austria −616 kt CC, in 27 of 30 years; 2019 goes from 69.0 to 13.2 kt CC.
+- Belgium −95 kt CC, in 3 years.
+- Italy −54 kt CC, in 5 years.
+- Slovakia −3.5 and the United Kingdom −1.9 kt CC.
+
+Without imports the branch reproduces icsg v15's 783 direct-route rows exactly. The triage's
+Belgium −145 and Italy −83 were gross imports; on v28 that gives −143 and −89.
+
+**Knock-on, not changed here.** `production_recipes` (ADR 0027's netting) takes a converter's
+matte intake as `max(P_matte, anode_in/eff_CFR − scrap_cfr)`, which assumes every anode refined
+at home was also converted there. With the smaller direct route, Austria's matte intake rises from
+60 to about 117 kt CC in 2019. Only the matte netting reads that number; #63's REP checks it.
+
+**Rejected:** filling `P` from the region's own primary smelter production `Sm_prim` first,
+`A_imp = max(0, eff_ER·N − (P − Sm_prim·eff_CFR·eff_ER))`. The anode balance makes it exact, but
+only if ICSG's smelter and refined series close. They do not: in 2010–2024 China's primary smelter
+output is 88–102 % of its primary refined output, while it imports 0.36–0.76 Mt CC of anode a
+year. That rule would move China by −4,723, Germany by −284 and Korea by −234 kt CC over 30 years,
+on statistical gaps.
+
+**Status:** built, to be measured (#63's REP) by the Round-E stop rule.

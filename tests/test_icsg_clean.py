@@ -6,6 +6,7 @@ CFR, assumed every anode a region makes is refined at home — false for the
 anode/blister exporters (Zambia, Bulgaria, Congo D.R.), whose matte was then
 left with no anchored outlet.
 """
+import json
 import os
 import sys
 
@@ -16,8 +17,10 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..",
                                 "scripts", "parse", "icsg_parse"))
 from icsg_clean import (aggregate_declaration, apply_input_divisors,  # noqa: E402
-                        merge_territories, refining_anode_rows, relabel_by_vintage,
-                        secondary_excess, split_aggregates, territory_aliases)
+                        direct_refinery_route, merge_territories, net_anode_imports,
+                        read_net_anode_imports, refining_anode_rows, relabel_by_vintage,
+                        secondary_excess, secondary_routes, split_aggregates,
+                        territory_aliases)
 
 _COLS = ["Region", "Type", "Year", "Value", "Process", "Supply_Use", "Unit",
          "Year_loaded_from_file"]
@@ -171,6 +174,154 @@ def test_refinery_scrap_without_smelter_row_is_unchanged():
     out2 = apply_input_divisors(df2, _EFF)
     assert np.isclose(out2[out2["Type"] == "Secondary"]["Value"].iloc[0], 90.0 / 0.965)
     assert secondary_excess(df2, _EFF).empty
+
+
+# ---------------------------------------------------------------------------
+# #63 — imported anode refined beyond primary output leaves the direct route
+# ---------------------------------------------------------------------------
+# Austria refines ~60 kt Cu a year of imported blister and anode (ICSG table 12,
+# BACI 740200) and publishes it as secondary refined output, so ADR 0030's
+# S_ref − S_sm·k booked it as direct-to-refinery scrap: 2019 70.1 kt Cu.
+
+_ER = 0.997
+
+
+def _imports(**by_region_year):
+    """Net anode imports, kt CC, keyed (Region, Year): ``Austria_2020=56.0``."""
+    keys = [tuple(k.rsplit("_", 1)) for k in by_region_year]
+    return pd.Series(list(by_region_year.values()),
+                     index=pd.MultiIndex.from_tuples([(r, int(y)) for r, y in keys],
+                                                     names=["Region", "Year"]))
+
+
+def _scrap_cfr(out, region, year=2020):
+    m = ((out["Process"] == "Refining") & (out["Type"] == "Secondary")
+         & (out["Region"] == region) & (out["Year"] == year))
+    return out.loc[m, "Value"].item()
+
+
+def test_imported_anode_beyond_primary_output_leaves_the_direct_route():
+    """Austria 2019: 128.1 kt secondary refined = total refined, 60.0 kt of it
+    from its secondary smelter, 56.0 kt CC of anode imported net."""
+    df = _frame([_row("Austria", "Smelting", "Secondary", 60.0),
+                 _row("Austria", "Refining", "Secondary", 128.1)])
+    out = apply_input_divisors(df, _EFF, _imports(Austria_2020=56.0))
+    assert _scrap_cfr(out, "Austria") == pytest.approx(
+        (128.1 - 60.0 * _K - _ER * 56.0) / _K, rel=1e-12)
+    # the smelter scrap and the ER anchor do not move
+    sm = out[(out["Process"] == "Smelting") & (out["Type"] == "Secondary")]["Value"].item()
+    assert sm == pytest.approx(60.0 / 0.965, rel=1e-12)
+    assert out[out["Type"] == "Anode"]["Value"].item() == pytest.approx(128.1 / _ER, rel=1e-12)
+
+
+def test_a_region_without_anode_imports_keeps_adr_0030s_route_bit_for_bit():
+    df = _frame([_row("Austria", "Smelting", "Secondary", 60.0),
+                 _row("Austria", "Refining", "Secondary", 128.1),
+                 _row("Germany", "Smelting", "Secondary", 100.0),
+                 _row("Germany", "Refining", "Primary", 300.0),
+                 _row("Germany", "Refining", "Secondary", 200.0)])
+    new = apply_input_divisors(df, _EFF, _imports(Austria_2020=56.0))
+    today = apply_input_divisors(df, _EFF)
+    assert _scrap_cfr(new, "Germany") == (200.0 - 100.0 * _K) / _K
+    pd.testing.assert_frame_equal(new[new["Region"] == "Germany"],
+                                  today[today["Region"] == "Germany"], check_exact=True)
+    assert _scrap_cfr(new, "Austria") < _scrap_cfr(today, "Austria")
+
+
+def test_primary_refined_output_absorbs_imported_anode_first():
+    """Belgium 2019: 133.9 kt CC of anode imported net into a refinery making
+    209.6 kt of primary copper — refined as primary, none of it is secondary."""
+    df = _frame([_row("Belgium", "Smelting", "Secondary", 139.9),
+                 _row("Belgium", "Refining", "Primary", 209.6),
+                 _row("Belgium", "Refining", "Secondary", 147.0)])
+    new = apply_input_divisors(df, _EFF, _imports(Belgium_2020=133.9))
+    assert _scrap_cfr(new, "Belgium") == _scrap_cfr(apply_input_divisors(df, _EFF), "Belgium")
+    # only the part beyond the primary output is subtracted
+    beyond = apply_input_divisors(df, _EFF, _imports(Belgium_2020=215.0))
+    assert _scrap_cfr(beyond, "Belgium") == pytest.approx(
+        (147.0 - 139.9 * _K - (_ER * 215.0 - 209.6)) / _K, rel=1e-12)
+
+
+def test_the_cap_binds_when_net_imports_exceed_refined_less_primary_output():
+    """At most the secondary refined series, (P + S_ref) − P, is imported anode."""
+    direct, imported = direct_refinery_route(np.array([50.0]), np.array([10.0]),
+                                             np.array([100.0]), np.array([200.0]), _ER)
+    assert _ER * 200.0 - 100.0 > 50.0
+    assert imported[0] == 50.0
+    assert direct[0] == 0.0
+
+
+def test_net_anode_exports_contribute_nothing():
+    df = _frame([_row("Italy", "Refining", "Secondary", 9.8)])
+    out = apply_input_divisors(df, _EFF, _imports(Italy_2020=-8.6))
+    assert _scrap_cfr(out, "Italy") == 9.8 / _K
+    direct, imported = direct_refinery_route(np.array([9.8]), np.array([0.0]),
+                                             np.array([0.0]), np.array([-8.6]), _ER)
+    assert imported[0] == 0.0 and direct[0] == 9.8
+
+
+def test_a_region_year_missing_from_baci_has_no_anode_imports():
+    """BACI has no row for Austria 2021: N = 0 there, explicitly, not NaN."""
+    df = _frame([_row("Austria", "Smelting", "Secondary", 60.0, year=2021),
+                 _row("Austria", "Refining", "Secondary", 128.1, year=2021)])
+    routes = secondary_routes(df, _EFF, _imports(Austria_2020=56.0))
+    assert routes["net_anode_imports_kt"].tolist() == [0.0]
+    assert routes["imported_anode_kt"].tolist() == [0.0]
+    out = apply_input_divisors(df, _EFF, _imports(Austria_2020=56.0))
+    assert _scrap_cfr(out, "Austria", 2021) == (128.1 - 60.0 * _K) / _K
+
+
+# BACI codes → root: 40 Austria, 276 Germany, 380 Italy, 56/58 Belgium, 4/8 ROW
+_ROOT_OF_CODE = {40: "Austria", 276: "Germany", 380: "Italy", 56: "Belgium",
+                 58: "Belgium", 4: "ROW", 8: "ROW"}
+_SECTOR_OF = {740200: "Anode", 740311: "Cathode"}
+_CONC = {("Anode", "*"): 0.94, ("Cathode", "*"): 0.9975}
+_ROOT_OF_LABEL = {"Austria": "Austria", "Germany": "Germany", "Italy": "Italy",
+                  "Belgium": "Belgium", "Belgium-Luxembourg": "Belgium", "Egypt": "ROW"}
+
+
+def _baci(rows):
+    return pd.DataFrame(rows, columns=["Year", "Sector", "Region_from", "Region_to", "Value"])
+
+
+def test_net_anode_imports_are_cross_region_cc_imports_less_exports():
+    trade = _baci([(2019, 740200, 276, 40, 30.0),     # Germany → Austria
+                   (2019, 740200, 380, 40, 10.0),     # Italy → Austria
+                   (2019, 740200, 40, 380, 5.0),      # Austria → Italy
+                   (2019, 740311, 276, 40, 99.0),     # cathode: not anode
+                   (2019, 740200, 58, 56, 7.0),       # Belgium self-trade (ADR 0014)
+                   (2019, 740200, 4, 8, 11.0)])       # inside the ROW bucket
+    n = net_anode_imports(trade, _SECTOR_OF, _ROOT_OF_CODE, _CONC, _ROOT_OF_LABEL)
+    assert n[("Austria", 2019)] == pytest.approx(0.94 * (30.0 + 10.0 - 5.0), rel=1e-12)
+    assert n[("Italy", 2019)] == pytest.approx(0.94 * (5.0 - 10.0), rel=1e-12)
+    assert n[("Germany", 2019)] == pytest.approx(-0.94 * 30.0, rel=1e-12)
+    assert ("Belgium", 2019) not in n.index
+
+
+def test_a_row_territory_gets_no_anode_imports_and_an_alias_its_roots():
+    """ROW is 186 economies: its imports are not Egypt's.  Both Belgian labels
+    denote one territory (ADR 0032)."""
+    trade = _baci([(2010, 740200, 276, 4, 20.0), (2010, 740200, 276, 56, 8.0)])
+    n = net_anode_imports(trade, _SECTOR_OF, _ROOT_OF_CODE, _CONC, _ROOT_OF_LABEL)
+    assert "Egypt" not in n.index.get_level_values("Region")
+    assert n[("Belgium", 2010)] == n[("Belgium-Luxembourg", 2010)] == pytest.approx(0.94 * 8.0)
+
+
+def test_an_unmapped_baci_code_raises():
+    trade = _baci([(2019, 740200, 999, 40, 1.0)])
+    with pytest.raises(ValueError, match="region map"):
+        net_anode_imports(trade, _SECTOR_OF, _ROOT_OF_CODE, _CONC, _ROOT_OF_LABEL)
+
+
+def test_a_netted_baci_version_is_refused(tmp_path):
+    """The netting reads this parse's ICSG input; reading its output would make
+    the ICSG input depend on itself."""
+    (tmp_path / "feed" / "baci" / "v2").mkdir(parents=True)
+    (tmp_path / "feed" / "baci" / "v2" / "reexport_ledger.csv").write_text("sector\n")
+    (tmp_path / "feed" / "registry.json").write_text(json.dumps({"baci": {
+        "label": "baci", "versions": [{"version": 2, "code": "x", "date": "d", "hashes": {}}]}}))
+    with pytest.raises(ValueError, match="netted"):
+        read_net_anode_imports(2, _ROOT_OF_LABEL, root=tmp_path)
 
 
 # ---------------------------------------------------------------------------
