@@ -894,10 +894,10 @@ world.to_piot().sankey("2020").write_html("copper_process_network_2020.html")
 | [feedpipe.py](src/pysuto/feedpipe.py) | `run_feed_pipeline`, `step_A_read_metadata`/`_B_build_concordance`/`_C_build_weight_matrix`/`_D_apply_and_propagate`, `register_feed` | Stage 1 orchestration. |
 | [unc.py](src/pysuto/unc.py) | `PedigreeScores`, `UncertaintyMixin`, `PropagationResult` | Pedigree→CV (Laner et al.); Lp / power-mean propagation through `W`. |
 | [meta.py](src/pysuto/meta.py) | `DataFeedMetadata` | Parses the Excel sidecar. |
-| [registry/](src/pysuto/registry/) | `BaseOutputRegistry`, `DataFeedRegistry`, `ImputationRunRegistry`, `ConstraintRunRegistry`, `OptimRunRegistry`, `UncPropRunRegistry`, `PsutRunRegistry`, `_RegistryEntry`, `make_run_id`, `build_sidecar`, `stage_lock`, `LockHeld` | Harmonized output registries (Stages 1–6); shared run-id pattern + sidecar schema; the advisory stage lock on `data/proc` (#101). **Subpackage layout:** `base.py`, `feed.py`, `imputation.py`, `constraint.py`, `optim.py`, `uncprop.py`, `psut.py`, `lock.py`, `_sidecar.py`. |
+| [registry/](src/pysuto/registry/) | `BaseOutputRegistry`, `DataFeedRegistry`, `ImputationRunRegistry`, `ConstraintRunRegistry`, `OptimRunRegistry`, `UncPropRunRegistry`, `PsutRunRegistry`, `SweepRunRegistry`, `_RegistryEntry`, `make_run_id`, `build_sidecar`, `stage_lock`, `LockHeld` | Harmonized output registries (Stages 1–6); shared run-id pattern + sidecar schema; the advisory stage lock on `data/proc` (#101). **Subpackage layout:** `base.py`, `feed.py`, `imputation.py`, `constraint.py`, `optim.py`, `uncprop.py`, `psut.py`, `sweep.py`, `lock.py`, `_sidecar.py`. |
 | [input_registry.py](src/pysuto/input_registry.py) | `InputRegistry`, `InputRegistries` | Per-kind versioned snapshot store for `feed`, `acc`, `params`, `mask` inputs; hardlink dedup; auto-bump on content-hash change. |
 | [knobs.py](src/pysuto/knobs.py) | `parse_overrides`, `apply_overrides`, `add_knob_args`, `overrides_from_cli`, `write_run_id` | The driver knob protocol: `--set KNOB=VALUE` against a driver's `KNOBS`, and `--run-id-file` (#100). |
-| [pipeline.py](src/pysuto/pipeline.py) | `Pipeline`, `Chain`, `StepFailed`, `STEPS`, `TIED`, `split_key` | Stage drivers composed as subprocess steps; one chain per `run(overrides, label)` with `<stage>.<KNOB>` overrides (#103). |
+| [pipeline.py](src/pysuto/pipeline.py) | `Pipeline`, `Chain`, `StepFailed`, `Axis`, `Sweep`, `STEPS`, `TIED`, `STEP_GB`, `split_key` | Stage drivers composed as subprocess steps; one chain per `run(overrides, label)` with `<stage>.<KNOB>` overrides (#103); random (Latin hypercube) or grid sweeps of chains, resumable, recorded via `SweepRunRegistry` (#105). |
 | [utils.py](src/pysuto/utils.py) | `_NpEncoder`, io helpers | JSON serialisation, numpy-safe dump/load. |
 | [logging.py](src/pysuto/logging.py) | `get_logger`, `add_run_handler` | Structured run logging; one file per run. |
 | [config.py](src/pysuto/config.py) | `load_config`, `Config`, `PipelineConfig` | Typed loader for `config/config.yaml` (`pipeline.acc_id` only). |
@@ -1223,6 +1223,42 @@ upstream from `base`. Knobs listed in `pipeline.TIED` (the cross-stage `P_PROP`)
 set together and to one value. A driver exiting non-zero raises `StepFailed` with the tail
 of its output (`logs/pipeline/<label>_<step>.log`). Every registry-writing driver takes
 `data/proc/.stage.lock` (#101), so a pipeline and a hand-run driver cannot interleave.
+
+A **sweep** runs a set of chains that differ only in knob values and records them as one
+`sweep` run (#105), after scikit-learn's `ParameterSampler` / `ParameterGrid`. An `Axis`
+is one knob, or a tied set sharing one value, with a list of values or a scipy
+distribution (`Axis.interval(keys, lo, hi, log=False)`). A **random** sweep (the default)
+draws `n_points` from a seeded, scrambled Latin hypercube, so every list level gets the
+same share of points; a **grid** sweep runs every combination of list values:
+
+```python
+from pysuto.pipeline import Axis, Sweep
+
+sweep = Sweep(Pipeline(base=base), [
+    Axis.interval(("imp.P_PROP", "const.P_PROP"), 1.1, 1.5),           # tied
+    Axis.interval("const.SIGMA_C_ABS_FLOOR", 1e-6, 1e-3, log=True),
+    Axis("imp.CASCADE_ORDER", [("trade", "network", "conc", "ore_grade", "eff"),
+                               ("network", "trade", "conc", "ore_grade", "eff")]),
+], n_points=30, seed=20261021)
+sweep.plan()       # distinct runs per step: a sweep over solver knobs runs imp and const once
+sweep_id = sweep.run(label="knob study")
+```
+
+Points are drawn at declaration and run one after another; within a sweep a step whose
+upstream runs and overrides an earlier point already ran reuses that run. A point whose
+driver fails is recorded `failed` with its output tail and the sweep goes on. Unless set,
+sweep points pass `opt.FEASIBILITY_CHECK = "none"` (#104). Before the first point the
+sweep refuses to start when the planned runs (`STEP_GB` per step run) plus a 3 GB reserve
+exceed the free disk; it records the git commit and refuses to `resume` at another one.
+`scripts/sweep.py` declares a sweep in its USER CONFIGURATION block (`--dry-run`,
+`--resume <sweep_id>`).
+
+```
+data/proc/sweep/sweep_<YYYYMMDD_HHMMSS>_<8hex>/
+    metadata.json     parents.upstream = the base chain; stage_config = steps, mode,
+                      n_points, seed, axes, fixed, commit, dirty, scipy
+    manifest.json     per point: overrides, status, run ids, reused steps, times, error
+```
 
 ---
 

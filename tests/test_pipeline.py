@@ -1,19 +1,27 @@
-"""test_pipeline.py — pysuto.pipeline: Pipeline and Chain (#103).
+"""test_pipeline.py — pysuto.pipeline: Pipeline and Chain (#103), Axis and Sweep (#105).
 
 The stage drivers are replaced by one fake driver script, written to ``tmp_path`` under
 the three real names, that speaks the same command-line protocol (upstream flags, label,
 ``--set``, ``--run-id-file``) and writes a sidecar into a fake ``data/proc``. Setting
-``FAKE_FAIL=<stage>`` makes that stage exit 3 with "boom" on stderr.
+``FAKE_FAIL=<stage>`` makes that stage exit 3 with "boom" on stderr; ``FAKE_FAIL_SET=<pair>``
+does the same for any stage given that ``--set`` pair.
 """
 from __future__ import annotations
 
 import json
+import math
+import os
+import subprocess
 import uuid
+from collections import Counter
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 
-from pysuto.pipeline import STEPS, Chain, Pipeline, StepFailed
+from pysuto.pipeline import (GIT_LOCATION_VARS, STEPS, Axis, Chain, Pipeline, StepFailed,
+                             Sweep)
+from pysuto.registry import SweepRunRegistry
 
 FAKE_DRIVER = r'''
 import argparse, json, os, sys, uuid
@@ -30,7 +38,7 @@ p.add_argument("--set", action="append", default=[], dest="sets")
 p.add_argument("--run-id-file")
 a = p.parse_args()
 print(f"{STAGE} starting", flush=True)
-if os.environ.get("FAKE_FAIL") == STAGE:
+if os.environ.get("FAKE_FAIL") == STAGE or os.environ.get("FAKE_FAIL_SET") in a.sets:
     print("boom", file=sys.stderr)
     sys.exit(3)
 rid = f"{STAGE}_20261021_120000_{uuid.uuid4().hex[:8]}"
@@ -155,3 +163,238 @@ class TestPipelineRefusals:
         with pytest.raises(ValueError):
             _pipeline(repo).run({"imp.P_PROP": 1.5}, label="x")
         assert len(list((repo.root / "data" / "proc" / "imp").iterdir())) == 1
+
+
+# =============================================================================
+# Axis and Sweep (#105)
+# =============================================================================
+
+class TestAxis:
+
+    def test_a_linear_interval_maps_the_unit_interval_onto_lo_hi(self):
+        ax = Axis.interval("const.ANCHOR_CV", 0.005, 0.02)
+        assert ax.keys == ("const.ANCHOR_CV",)
+        assert [ax.sample(u) for u in (0.0, 0.5, 1.0)] == pytest.approx([0.005, 0.0125, 0.02],
+                                                                       rel=1e-12)
+
+    def test_a_log_interval_puts_the_geometric_mean_at_the_middle(self):
+        ax = Axis.interval("const.SIGMA_C_ABS_FLOOR", 1e-6, 1e-3, log=True)
+        got = [ax.sample(u) for u in (0.0, 0.5, 1.0)]
+        assert got == pytest.approx([1e-6, math.sqrt(1e-9), 1e-3], rel=1e-10)
+        assert all(type(v) is float for v in got)
+
+    def test_a_list_axis_splits_the_unit_interval_into_equal_bins(self):
+        ax = Axis("imp.TIME_WINDOW", [2, 3, 5])
+        assert [ax.sample(u) for u in (0.0, 0.33, 0.34, 0.66, 0.67, 0.999, 1.0)] == \
+            [2, 2, 3, 3, 5, 5, 5]
+
+    def test_an_axis_needs_a_non_empty_list_or_a_distribution(self):
+        with pytest.raises(ValueError):
+            Axis("imp.Q_REG", [])
+        with pytest.raises(TypeError):
+            Axis("imp.Q_REG", 3.0)
+
+
+class TestSweepPoints:
+
+    def test_random_points_are_reproducible_from_the_seed(self, repo):
+        axes = [Axis.interval("const.ANCHOR_CV", 0.005, 0.02), Axis("imp.TIME_WINDOW", [2, 3])]
+        a = Sweep(_pipeline(repo), axes, n_points=8, seed=7).points()
+        b = Sweep(_pipeline(repo), axes, n_points=8, seed=7).points()
+        c = Sweep(_pipeline(repo), axes, n_points=8, seed=8).points()
+        assert a == b and a != c and len(a) == 8
+        assert all(0.005 <= p["const.ANCHOR_CV"] <= 0.02 for p in a)
+
+    def test_the_hypercube_gives_every_list_level_the_same_number_of_points(self, repo):
+        sweep = Sweep(_pipeline(repo), [Axis("imp.TIME_WINDOW", [2, 3, 5]),
+                                        Axis.interval("const.ANCHOR_CV", 0.005, 0.02)],
+                      n_points=12, seed=1)
+        assert Counter(p["imp.TIME_WINDOW"] for p in sweep.points()) == {2: 4, 3: 4, 5: 4}
+
+    def test_a_tied_axis_fans_one_value_to_every_key(self, repo):
+        pts = Sweep(_pipeline(repo), [Axis.interval(("imp.P_PROP", "const.P_PROP"), 1.1, 1.5)],
+                    n_points=4, seed=0).points()
+        assert all(p["imp.P_PROP"] == p["const.P_PROP"] for p in pts)
+
+    def test_a_grid_runs_every_combination(self, repo):
+        sweep = Sweep(_pipeline(repo), [Axis("imp.TIME_WINDOW", [2, 3, 5]),
+                                        Axis("const.STOCK_BOUNDS_MODE", ["soft", "hard"])],
+                      mode="grid")
+        got = {(p["imp.TIME_WINDOW"], p["const.STOCK_BOUNDS_MODE"]) for p in sweep.points()}
+        assert got == {(w, m) for w in (2, 3, 5) for m in ("soft", "hard")}
+
+    def test_sweep_points_skip_the_feasibility_probe_unless_told_otherwise(self, repo):
+        ax = [Axis("const.ANCHOR_CV", [0.01, 0.02])]
+        assert all(p["opt.FEASIBILITY_CHECK"] == "none"
+                   for p in Sweep(_pipeline(repo), ax, mode="grid").points())
+        fixed = Sweep(_pipeline(repo), ax, mode="grid", fixed={"opt.FEASIBILITY_CHECK": "first"})
+        assert all(p["opt.FEASIBILITY_CHECK"] == "first" for p in fixed.points())
+        no_opt = Sweep(_pipeline(repo, steps=("imp", "const")), ax, mode="grid")
+        assert all("opt.FEASIBILITY_CHECK" not in p for p in no_opt.points())
+
+    @pytest.mark.parametrize("kw,err", [
+        ({"mode": "grid", "n_points": 4}, ValueError),
+        ({"mode": "grid", "seed": 1}, ValueError),
+        ({"mode": "random", "seed": 1}, ValueError),
+        ({"mode": "random", "n_points": 4}, ValueError),
+        ({"mode": "lhs", "n_points": 4, "seed": 1}, ValueError),
+    ])
+    def test_each_mode_takes_only_its_own_arguments(self, repo, kw, err):
+        with pytest.raises(err):
+            Sweep(_pipeline(repo), [Axis("const.ANCHOR_CV", [0.01, 0.02])], **kw)
+
+    def test_a_grid_refuses_a_distribution_axis(self, repo):
+        with pytest.raises(ValueError, match="grid"):
+            Sweep(_pipeline(repo), [Axis.interval("const.ANCHOR_CV", 0.005, 0.02)], mode="grid")
+
+    def test_bad_keys_are_refused_when_the_sweep_is_declared(self, repo):
+        with pytest.raises(KeyError):
+            Sweep(_pipeline(repo, steps=("const", "opt")), [Axis("imp.Q_REG", [2.0])],
+                  mode="grid")
+        with pytest.raises(ValueError, match="share one value|set together"):
+            Sweep(_pipeline(repo), [Axis("imp.P_PROP", [1.2, 1.4]),
+                                    Axis("const.P_PROP", [1.2, 1.4])], mode="grid")
+        with pytest.raises(ValueError, match="more than one axis"):
+            Sweep(_pipeline(repo), [Axis("const.ANCHOR_CV", [0.01]),
+                                    Axis("const.ANCHOR_CV", [0.02])], mode="grid")
+
+
+class TestSweepPlan:
+
+    def test_a_sweep_over_a_later_step_plans_one_run_of_each_earlier_step(self, repo):
+        sweep = Sweep(_pipeline(repo), [Axis("opt.TOL_GAP_REL", [1e-6, 1e-7, 1e-8])],
+                      mode="grid")
+        assert sweep.plan() == {"imp": 1, "const": 1, "opt": 3}
+
+    def test_a_sweep_over_an_early_step_plans_every_later_step_per_point(self, repo):
+        sweep = Sweep(_pipeline(repo), [Axis("const.ANCHOR_CV", [0.01, 0.02]),
+                                        Axis("opt.TOL_GAP_REL", [1e-6, 1e-8])], mode="grid")
+        assert sweep.plan() == {"imp": 1, "const": 2, "opt": 4}
+
+    def test_the_disk_need_follows_the_plan(self, repo, monkeypatch):
+        """Three solver-only points write one imp, one const and three opt runs:
+        0.08 + 0.85 + 3 × 0.08 + 3 GB reserve = 4.17 GB."""
+        import pysuto.pipeline as pl
+        sweep = Sweep(_pipeline(repo), [Axis("opt.TOL_GAP_REL", [1e-6, 1e-7, 1e-8])],
+                      mode="grid")
+        assert sweep.disk_need_gb() == pytest.approx(4.17, rel=1e-9)
+        monkeypatch.setattr(pl.shutil, "disk_usage",
+                            lambda _p: SimpleNamespace(total=0, used=0, free=4.2 * 1024 ** 3))
+        assert sweep.run("fits")
+
+
+def _runs(repo, stage):
+    return sorted(p.name for p in (repo.root / "data" / "proc" / stage).iterdir())
+
+
+def _git(repo, *args, cwd=None):
+    """git in the fake checkout, never in the repository running the tests: a
+    pre-commit hook exports GIT_DIR / GIT_INDEX_FILE, and an inherited one would
+    point these commands at the real index."""
+    env = {k: v for k, v in os.environ.items() if k not in GIT_LOCATION_VARS}
+    return subprocess.run(["git", "-c", "user.email=t@t", "-c", "user.name=t", *args],
+                          cwd=cwd or repo.root, check=True, capture_output=True,
+                          text=True, env=env).stdout.strip()
+
+
+class TestSweepRun:
+
+    def test_points_run_in_order_and_a_failed_point_does_not_stop_the_sweep(
+            self, repo, monkeypatch):
+        monkeypatch.setenv("FAKE_FAIL_SET", "ANCHOR_CV=0.02")
+        sweep = Sweep(_pipeline(repo), [Axis("const.ANCHOR_CV", [0.01, 0.02, 0.03])],
+                      mode="grid")
+        sid = sweep.run(label="s1")
+        reg = SweepRunRegistry(str(repo.root / "data" / "proc" / "sweep"))
+        pts = reg.load_manifest(sid)["points"]
+        assert [p["status"] for p in pts] == ["done", "failed", "done"]
+        assert "boom" in pts[1]["error"] and pts[1]["runs"]["opt"] is None
+        assert pts[0]["overrides"] == {"const.ANCHOR_CV": 0.01, "opt.FEASIBILITY_CHECK": "none"}
+        assert _sidecar(repo, "const", pts[2]["runs"]["const"])["label"] == f"{sid} p002"
+        side = reg.load_sidecar(sid)
+        assert side["stage_summary"]["n_done"] == 2 and side["stage_summary"]["n_failed"] == 1
+        assert side["parents"]["upstream"]["opt_run_id"] == repo.base.opt
+        assert side["stage_config"]["mode"] == "grid"
+
+    def test_a_point_that_changes_only_a_later_step_reuses_the_earlier_runs(self, repo):
+        sid = Sweep(_pipeline(repo), [Axis("opt.TOL_GAP_REL", [1e-6, 1e-8])],
+                    mode="grid").run(label="s2")
+        pts = SweepRunRegistry(str(repo.root / "data" / "proc" / "sweep")).load_manifest(sid)["points"]
+        assert pts[0]["runs"]["const"] == pts[1]["runs"]["const"]
+        assert pts[0]["runs"]["opt"] != pts[1]["runs"]["opt"]
+        assert len(_runs(repo, "const")) == 2 and len(_runs(repo, "opt")) == 3
+
+    def test_resume_reruns_only_the_points_not_done(self, repo, monkeypatch):
+        monkeypatch.setenv("FAKE_FAIL_SET", "ANCHOR_CV=0.02")
+        sweep = Sweep(_pipeline(repo), [Axis("const.ANCHOR_CV", [0.01, 0.02])], mode="grid")
+        sid = sweep.run(label="s3")
+        n_opt = len(_runs(repo, "opt"))
+        monkeypatch.delenv("FAKE_FAIL_SET")
+        assert sweep.run(label="s3", resume=sid) == sid
+        pts = SweepRunRegistry(str(repo.root / "data" / "proc" / "sweep")).load_manifest(sid)["points"]
+        assert [p["status"] for p in pts] == ["done", "done"]
+        assert len(_runs(repo, "opt")) == n_opt + 1
+
+    def test_resume_refuses_a_sweep_declared_differently(self, repo):
+        sid = Sweep(_pipeline(repo), [Axis("const.ANCHOR_CV", [0.01])], mode="grid").run("s4")
+        other = Sweep(_pipeline(repo), [Axis("const.ANCHOR_CV", [0.02])], mode="grid")
+        with pytest.raises(ValueError, match="declared"):
+            other.run("s4", resume=sid)
+
+    def test_resume_refuses_a_manifest_from_another_commit(self, repo):
+        _git(repo, "init", "-q")
+        _git(repo, "add", "scripts")
+        _git(repo, "commit", "-q", "-m", "one")
+        sweep = Sweep(_pipeline(repo), [Axis("const.ANCHOR_CV", [0.01])], mode="grid")
+        sid = sweep.run("s5")
+        (repo.root / "scripts" / "extra.py").write_text("")
+        _git(repo, "add", "scripts")
+        _git(repo, "commit", "-q", "-m", "two")
+        with pytest.raises(RuntimeError, match="commit"):
+            sweep.run("s5", resume=sid)
+
+    def test_the_commit_is_the_checkouts_even_inside_a_git_hook(self, repo, monkeypatch,
+                                                                tmp_path_factory):
+        """A hook exports GIT_DIR / GIT_INDEX_FILE of the repository being committed;
+        the sweep must read its own checkout and leave that other index alone."""
+        _git(repo, "init", "-q")
+        _git(repo, "add", "scripts")
+        _git(repo, "commit", "-q", "-m", "one")
+        other = tmp_path_factory.mktemp("other")
+        _git(repo, "init", "-q", cwd=other)
+        (other / "f.txt").write_text("x")
+        _git(repo, "add", "f.txt", cwd=other)
+        index = other / ".git" / "index"
+        before = index.read_bytes()
+        monkeypatch.setenv("GIT_DIR", str(other / ".git"))
+        monkeypatch.setenv("GIT_INDEX_FILE", str(index))
+        sid = Sweep(_pipeline(repo), [Axis("const.ANCHOR_CV", [0.01])], mode="grid").run("h")
+        side = SweepRunRegistry(str(repo.root / "data" / "proc" / "sweep")).load_sidecar(sid)
+        monkeypatch.delenv("GIT_DIR")
+        monkeypatch.delenv("GIT_INDEX_FILE")
+        assert side["stage_config"]["commit"] == _git(repo, "rev-parse", "HEAD")
+        assert index.read_bytes() == before
+
+    def test_the_disk_guard_stops_a_sweep_before_anything_runs(self, repo, monkeypatch):
+        import pysuto.pipeline as pl
+        monkeypatch.setattr(pl.shutil, "disk_usage",
+                            lambda _p: SimpleNamespace(total=0, used=0, free=4 * 1024 ** 3))
+        sweep = Sweep(_pipeline(repo), [Axis("const.ANCHOR_CV", [0.01, 0.02])], mode="grid")
+        with pytest.raises(RuntimeError, match="GB"):
+            sweep.run("s6")
+        assert not (repo.root / "data" / "proc" / "sweep").exists()
+
+
+def test_the_sweep_driver_dry_run_lists_the_points_and_writes_nothing(repo):
+    import os
+    import sys
+    from pathlib import Path
+    real = Path(__file__).resolve().parents[1]
+    r = subprocess.run([sys.executable, str(real / "scripts" / "sweep.py"), "--dry-run",
+                        "--base", repo.base.opt], cwd=repo.root, capture_output=True,
+                       text=True, env=dict(os.environ, PYTHONPATH=str(real / "src")),
+                       timeout=120)
+    assert r.returncode == 0, r.stderr[-800:]
+    assert "p003" in r.stdout and "plan:" in r.stdout and "GB" in r.stdout
+    assert not (repo.root / "data" / "proc" / "sweep").exists()
+    assert len(_runs(repo, "imp")) == 1

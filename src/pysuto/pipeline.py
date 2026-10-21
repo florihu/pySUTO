@@ -16,20 +16,36 @@ steps run one after another in one checkout, which the stage lock enforces (#101
 
 Override keys are ``<stage>.<KNOB>``, after scikit-learn's ``step__param``. Knobs that
 must share one value across stages are listed in :data:`TIED`.
+
+A :class:`Sweep` runs a set of chains that differ only in knob values and records them
+as one resumable ``sweep`` run (#105), after scikit-learn's ``ParameterSampler`` and
+``ParameterGrid``: a **random** sweep (the default) draws ``n_points`` from the axes'
+ranges with a seeded, scrambled Latin hypercube; a **grid** sweep runs every
+combination of the axes' listed values::
+
+    Sweep(pipeline, [Axis.interval(("imp.P_PROP", "const.P_PROP"), 1.1, 1.5),
+                     Axis.interval("const.ANCHOR_CV", 0.005, 0.02, log=True),
+                     Axis("imp.TIME_WINDOW", [2, 3, 5])],
+          n_points=30, seed=20261021).run(label="knob study")
 """
 
 from __future__ import annotations
 
+import itertools
 import json
 import os
 import re
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
+import time
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Mapping, Optional
+from typing import Mapping, Optional, Sequence
+
+import numpy as np
 
 from pysuto.logging import get_logger
 
@@ -197,3 +213,317 @@ def _is_contiguous_slice(steps: tuple) -> bool:
 def _tail(path: str, n: int = _TAIL_LINES) -> str:
     with open(path, encoding="utf-8", errors="replace") as f:
         return "".join(f.readlines()[-n:])
+
+
+# =============================================================================
+# Axis and Sweep (#105)
+# =============================================================================
+
+# Disk one run of each step writes (imp_20261019_165706_dd1ae143 80 MB,
+# const_20261019_170151_13460e94 851 MB, opt_20261020_112726_2f451f31 74 MB) and the
+# reserve a sweep leaves free; the pre-flight guard refuses a sweep that would not fit.
+STEP_GB    = {"imp": 0.08, "const": 0.85, "opt": 0.08}
+RESERVE_GB = 3.0
+MODES      = ("random", "grid")
+
+
+class Axis:
+    """One knob, or a tied set of knobs that share one value, with its range
+    (GLOSSARY.md "Axis").
+
+    Parameters
+    ----------
+    keys : one ``<stage>.<KNOB>`` key or a tuple of keys set to the same value.
+    values : a list of values — chosen from in a random sweep, the levels of a grid —
+        or a frozen ``scipy.stats`` distribution (random sweeps only), drawn through
+        its ``ppf``. :meth:`interval` builds the uniform or log-uniform one.
+    """
+
+    def __init__(self, keys, values) -> None:
+        self.keys = (keys,) if isinstance(keys, str) else tuple(keys)
+        if not self.keys:
+            raise ValueError("an axis needs at least one key")
+        if isinstance(values, (list, tuple)):
+            if not values:
+                raise ValueError(f"axis {self.keys}: empty value list")
+            self.values = list(values)
+        elif hasattr(values, "ppf"):
+            self.values = values
+        else:
+            raise TypeError(f"axis {self.keys}: values must be a list or a frozen "
+                            f"scipy.stats distribution, got {type(values).__name__}")
+
+    @classmethod
+    def interval(cls, keys, lo: float, hi: float, log: bool = False) -> "Axis":
+        """Uniform on ``[lo, hi]``, or log-uniform when ``log`` (for a knob that spans
+        decades, such as a σ floor)."""
+        from scipy.stats import loguniform, uniform
+        if not lo < hi:
+            raise ValueError(f"interval needs lo < hi, got [{lo}, {hi}]")
+        return cls(keys, loguniform(lo, hi) if log else uniform(lo, hi - lo))
+
+    @property
+    def is_list(self) -> bool:
+        return isinstance(self.values, list)
+
+    def sample(self, u: float):
+        """The axis value at unit coordinate ``u`` ∈ [0, 1]: equal bins over a list,
+        the quantile of a distribution."""
+        if self.is_list:
+            n = len(self.values)
+            return _plain(self.values[min(int(u * n), n - 1)])
+        return _plain(self.values.ppf(u))
+
+    def describe(self) -> dict:
+        """A JSON-safe statement of the axis, for the sweep's sidecar."""
+        if self.is_list:
+            return {"keys": list(self.keys), "values": [_plain(v) for v in self.values]}
+        dist = self.values
+        return {"keys": list(self.keys), "distribution": dist.dist.name,
+                "args": [_plain(a) for a in dist.args],
+                "kwds": {k: _plain(v) for k, v in dist.kwds.items()}}
+
+
+def _plain(v):
+    """numpy scalars → Python scalars, so values repr and serialise as literals."""
+    return v.item() if isinstance(v, np.generic) else v
+
+
+class Sweep:
+    """A set of chains that share the pipeline's base and differ only in knob values,
+    run one after another and recorded as one ``sweep`` run (GLOSSARY.md "Sweep").
+
+    Parameters
+    ----------
+    pipeline : the steps every point runs and the base chain they start from.
+    axes : the varied knobs; no key may appear on two axes.
+    mode : ``"random"`` (default; needs ``n_points`` and ``seed``) or ``"grid"`` (list
+        axes only; takes neither).
+    fixed : overrides applied to every point under the axes' values. Unless ``fixed``
+        or an axis sets it, a sweep whose steps include ``opt`` passes
+        ``opt.FEASIBILITY_CHECK = "none"``: the probe is ≈ 7 of Stage 4's ≈ 11 min,
+        and an infeasible period still fails its point (#104).
+    """
+
+    def __init__(self, pipeline: Pipeline, axes: Sequence[Axis], mode: str = "random",
+                 n_points: Optional[int] = None, seed: Optional[int] = None,
+                 fixed: Optional[Mapping[str, object]] = None) -> None:
+        if mode not in MODES:
+            raise ValueError(f"mode {mode!r}; expected one of {MODES}")
+        if mode == "random" and (n_points is None or seed is None):
+            raise ValueError("a random sweep needs n_points and seed")
+        if mode == "grid" and (n_points is not None or seed is not None):
+            raise ValueError("a grid sweep runs every combination; it takes no n_points "
+                             "or seed")
+        if mode == "random" and (not isinstance(n_points, int) or n_points < 1):
+            raise ValueError(f"n_points must be a positive int, got {n_points!r}")
+        axes = list(axes)
+        if not axes:
+            raise ValueError("a sweep needs at least one axis")
+        keys = [k for ax in axes for k in ax.keys]
+        if len(set(keys)) != len(keys):
+            raise ValueError(f"a key appears on more than one axis: {keys}")
+        if mode == "grid" and not all(ax.is_list for ax in axes):
+            raise ValueError("a grid sweep needs list axes; draw from a distribution in a "
+                             "random sweep")
+        self.pipeline, self.axes, self.mode = pipeline, axes, mode
+        self.n_points, self.seed = n_points, seed
+        base_fixed = ({"opt.FEASIBILITY_CHECK": "none"}
+                      if "opt" in pipeline.steps and "opt.FEASIBILITY_CHECK" not in keys
+                      else {})
+        self.fixed = base_fixed | dict(fixed or {})
+        self._points = self._draw()
+        for pt in self._points:
+            pipeline.check_overrides(pt)
+
+    # ------------------------------------------------------------------
+    def points(self) -> list:
+        """Every point's overrides, drawn once at declaration (same seed ⇒ same points)."""
+        return [dict(p) for p in self._points]
+
+    def _draw(self) -> list:
+        if self.mode == "grid":
+            rows = itertools.product(*(ax.values for ax in self.axes))
+            values = [[_plain(v) for v in row] for row in rows]
+        else:
+            from scipy.stats import qmc
+            u = qmc.LatinHypercube(d=len(self.axes), scramble=True,
+                                   seed=self.seed).random(self.n_points)
+            values = [[ax.sample(ui) for ax, ui in zip(self.axes, row)] for row in u]
+        out = []
+        for row in values:
+            pt = dict(self.fixed)
+            for ax, v in zip(self.axes, row):
+                pt.update({k: v for k in ax.keys})
+            out.append(pt)
+        return out
+
+    def plan(self, indices: Optional[Sequence[int]] = None) -> dict:
+        """How many distinct runs each step needs over the points ``indices`` (default
+        all): a step is rerun only when its own or an earlier step's overrides differ,
+        so a sweep over solver knobs plans one imp and one const run."""
+        idx = range(len(self._points)) if indices is None else indices
+        by_point = [self.pipeline.check_overrides(self._points[i]) for i in idx]
+        plan, prefix = {}, [()] * len(by_point)
+        for step in self.pipeline.steps:
+            prefix = [pre + (repr(sorted(bs[step].items())),)
+                      for pre, bs in zip(prefix, by_point)]
+            plan[step] = len(set(prefix))
+        return plan
+
+    def disk_need_gb(self, indices: Optional[Sequence[int]] = None) -> float:
+        """Disk the planned runs write plus :data:`RESERVE_GB`."""
+        return sum(STEP_GB[s] * n for s, n in self.plan(indices).items()) + RESERVE_GB
+
+    def declaration(self) -> dict:
+        """What defines the sweep's points, as recorded in its sidecar and manifest."""
+        return {"steps": list(self.pipeline.steps), "mode": self.mode,
+                "n_points": len(self._points), "seed": self.seed,
+                "axes": [ax.describe() for ax in self.axes],
+                "fixed": {k: _plain(v) for k, v in self.fixed.items()}}
+
+    # ------------------------------------------------------------------
+    def run(self, label: str, resume: Optional[str] = None) -> str:
+        """Run every point not yet done and return the sweep run id.
+
+        A new sweep is registered before its first point runs, with every point
+        ``pending``; the manifest is rewritten after each step. A point whose driver
+        fails is recorded ``failed`` with the output tail and the sweep goes on;
+        nothing is retried or loosened. Within a sweep a step whose upstream runs and
+        overrides an earlier point already ran reuses that run. ``resume`` continues
+        a sweep: it refuses a sweep declared differently or a checkout at another
+        commit, and reruns every point not ``done``.
+        """
+        from pysuto.registry import SweepRunRegistry
+        reg = SweepRunRegistry(os.path.join(self.pipeline.cwd, "data", "proc", "sweep"))
+        decl = self.declaration()
+        commit, dirty = _git_state(self.pipeline.cwd)
+        if resume is None:
+            self._check_disk(None)
+            manifest = {"declaration": decl, "commit": commit, "points": [
+                {"index": i, "overrides": {k: _plain(v) for k, v in pt.items()},
+                 "status": "pending", "runs": {s: None for s in self.pipeline.steps},
+                 "reused": [], "started_at": None, "finished_at": None, "error": None,
+                 "log": None}
+                for i, pt in enumerate(self._points)]}
+            base = self.pipeline.base
+            sid = reg.register(
+                label=label, manifest=manifest,
+                parents={"inputs": {}, "upstream": {
+                    "feed_run_ids": list(base.feed_run_ids), "imp_run_id": base.imp,
+                    "const_run_id": base.const, "opt_run_id": base.opt}},
+                stage_config=decl | {"commit": commit, "dirty": dirty,
+                                     "scipy": _scipy_version()},
+                stage_summary=_summary(manifest, 0.0))
+            manifest = reg.load_manifest(sid)
+        else:
+            sid, manifest = resume, reg.load_manifest(resume)
+            if json.loads(json.dumps(manifest["declaration"])) != json.loads(json.dumps(decl)):
+                raise ValueError(f"sweep {sid} was declared differently; resume it with "
+                                 f"the declaration in its sidecar")
+            if manifest["commit"] != commit:
+                raise RuntimeError(f"sweep {sid} ran at commit {manifest['commit']}, the "
+                                   f"checkout is at {commit}; its points would not compare")
+            self._check_disk([p["index"] for p in manifest["points"]
+                              if p["status"] != "done"])
+
+        memo = self._memo_from(manifest)
+        t0 = time.perf_counter()
+        for pt in manifest["points"]:
+            if pt["status"] == "done":
+                continue
+            self._run_point(sid, pt, memo, reg, manifest)
+        reg.update(sid, manifest=manifest,
+                   stage_summary=_summary(manifest, time.perf_counter() - t0))
+        return sid
+
+    def _run_point(self, sid, pt, memo, reg, manifest) -> None:
+        i = pt["index"]
+        by_stage = self.pipeline.check_overrides(self._points[i])
+        pt.update(status="running", started_at=_now(), error=None, log=None, reused=[],
+                  runs={s: None for s in self.pipeline.steps})
+        reg.update(sid, manifest=manifest)
+        chain = self.pipeline.base
+        try:
+            for step in self.pipeline.steps:
+                key = _memo_key(step, chain, by_stage[step])
+                if key in memo:
+                    rid = memo[key]
+                    pt["reused"].append(step)
+                else:
+                    rid = self.pipeline.run_step(step, chain, by_stage[step],
+                                                 f"{sid} p{i:03d}")
+                    memo[key] = rid
+                chain = replace(chain, **{step: rid})
+                pt["runs"][step] = rid
+                reg.update(sid, manifest=manifest)
+            pt["status"] = "done"
+        except StepFailed as exc:
+            pt.update(status="failed", error=exc.tail, log=exc.log_path)
+            _log.warning("sweep %s point %d failed in step %s (log %s)",
+                         sid, i, exc.step, exc.log_path)
+        pt["finished_at"] = _now()
+        reg.update(sid, manifest=manifest)
+
+    def _memo_from(self, manifest) -> dict:
+        """Steps already run by any point of this sweep, keyed for reuse."""
+        memo: dict = {}
+        for pt in manifest["points"]:
+            by_stage = self.pipeline.check_overrides(self._points[pt["index"]])
+            chain = self.pipeline.base
+            for step in self.pipeline.steps:
+                rid = pt["runs"].get(step)
+                if rid is None:
+                    break
+                memo.setdefault(_memo_key(step, chain, by_stage[step]), rid)
+                chain = replace(chain, **{step: rid})
+        return memo
+
+    def _check_disk(self, indices: Optional[Sequence[int]]) -> None:
+        need = self.disk_need_gb(indices)
+        free = shutil.disk_usage(self.pipeline.cwd).free / 1024 ** 3
+        if free < need:
+            raise RuntimeError(f"the sweep's planned runs {self.plan(indices)} need "
+                               f"≈ {need:.2f} GB free ({RESERVE_GB} GB reserve included); "
+                               f"{free:.2f} GB are free")
+
+
+def _memo_key(step: str, chain: Chain, knobs: Mapping[str, object]) -> tuple:
+    upstream = {"imp": tuple(chain.feed_run_ids), "const": chain.imp,
+                "opt": chain.const}[step]
+    return step, upstream, repr(sorted(knobs.items()))
+
+
+def _summary(manifest: dict, wall_s: float) -> dict:
+    status = [p["status"] for p in manifest["points"]]
+    return {"n_points": len(status),
+            **{f"n_{s}": status.count(s) for s in ("done", "failed", "pending", "running")},
+            "wall_s_last_run": wall_s}
+
+
+# Variables that point git at a repository other than the one at cwd. A git hook
+# exports them, so a sweep started from one would otherwise read the hook's repository.
+GIT_LOCATION_VARS = ("GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE", "GIT_OBJECT_DIRECTORY",
+                     "GIT_ALTERNATE_OBJECT_DIRECTORIES", "GIT_COMMON_DIR", "GIT_PREFIX")
+
+
+def _git_state(cwd: str) -> tuple:
+    """(HEAD commit, dirty tracked files) of the checkout at ``cwd``, (None, None)
+    outside git."""
+    env = {k: v for k, v in os.environ.items() if k not in GIT_LOCATION_VARS}
+    head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=cwd, capture_output=True,
+                          text=True, env=env)
+    if head.returncode != 0:
+        return None, None
+    status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"],
+                            cwd=cwd, capture_output=True, text=True, env=env)
+    return head.stdout.strip(), bool(status.stdout.strip())
+
+
+def _scipy_version() -> str:
+    import scipy
+    return scipy.__version__
+
+
+def _now() -> str:
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
