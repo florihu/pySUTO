@@ -1070,6 +1070,11 @@ class ClarabelSolver:
         free row). ``a_prior`` defaults to the cold seed, the conditioned ``f_agg``
         slice; pass ``OptimResult.a_prior`` to score under a warm run's prior. Lets a
         sweep score each point's answer under the base chain's σ (#102).
+
+        ``max_hard_violation`` (kt) is the largest breach of the period's hard rows by
+        ``F`` — ``|G·F − c|`` on zero rows, ``max(0, G·F − c)`` on nonneg rows. A
+        posterior from a QP with other hard rows can break these; ``J`` is then not
+        a comparison at a feasible point.
         """
         cols_t = run.edge_cols_by_t[t]
         F = np.asarray(F, dtype=float)
@@ -1087,7 +1092,11 @@ class ClarabelSolver:
         sc_t   = np.asarray(run.timestep_data[t]["sigma_c"], dtype=float)[rows_t]
         sc_t   = np.maximum(np.where(np.isnan(sc_t), self.sigma_c_floor, sc_t),
                             self.sigma_c_floor)
-        zsq    = np.where(free, ((run.G_blocks[t] @ F - c_t) / sc_t) ** 2, 0.0)
+        cone   = rm_t["cone_type"].to_numpy()
+        resid  = run.G_blocks[t] @ F - c_t
+        zsq    = np.where(free, (resid / sc_t) ** 2, 0.0)
+        breach = np.concatenate([np.abs(resid[cone == "zero"]),
+                                 np.maximum(resid[cone == "nonneg"], 0.0), [0.0]])
         out = {
             "edges":       edges,
             "sum_rows":    float(zsq[free & (typ == "sum")].sum()),
@@ -1095,6 +1104,7 @@ class ClarabelSolver:
             "other_soft":  float(zsq[free & (typ != "sum") & (typ != "ratio")].sum()),
         }
         out["total"] = edges + out["sum_rows"] + out["soft_ratios"] + out["other_soft"]
+        out["max_hard_violation"] = float(breach.max())
         return out
 
     def solve_timestep(

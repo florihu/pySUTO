@@ -1049,7 +1049,9 @@ class TestObjectiveAt:
         run = _make_wide_sigma_run()
         s, res = self._solve(run, tmp_path, monkeypatch, "flows")
         got = s.objective_at(run, "2020", res["2020"].F_opt)
-        assert set(got) == {"total", "edges", "sum_rows", "soft_ratios", "other_soft"}
+        assert set(got) == {"total", "edges", "sum_rows", "soft_ratios", "other_soft",
+                            "max_hard_violation"}
+        assert got["max_hard_violation"] <= 1e-6
         parts = got["edges"] + got["sum_rows"] + got["soft_ratios"] + got["other_soft"]
         assert parts == pytest.approx(got["total"], rel=1e-12)
         assert got["sum_rows"] > 0 and got["soft_ratios"] == 0 and got["other_soft"] == 0
@@ -1066,6 +1068,9 @@ class TestObjectiveAt:
         assert got["edges"] == pytest.approx(1.0, rel=1e-12)
         assert got["sum_rows"] == pytest.approx(26.0, rel=1e-12)
         assert got["total"] == pytest.approx(27.0, rel=1e-12)
+        # Hard rows: balance 105 − 40 − 80 + 20 − 0.002 = 4.998; band 80 − 0.55·105 =
+        # 22.25 > 0; bound −e3 = 20 > 0. The largest breach is the band's.
+        assert got["max_hard_violation"] == pytest.approx(22.25, rel=1e-12)
 
     def test_a_posterior_of_the_wrong_length_is_refused(self, tmp_path):
         from pysuto.solver import ClarabelSolver

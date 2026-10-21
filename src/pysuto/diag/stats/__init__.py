@@ -43,6 +43,7 @@ from .const    import ConstStatsDiagnostic
 from .solver   import SolverStatsDiagnostic
 from .uncprop  import UncPropStatsDiagnostic
 from .problem  import ProblemStatsDiagnostic
+from .sweep    import SweepStatsDiagnostic
 
 __all__ = [
     "CoverageDiagnostic",
@@ -51,4 +52,5 @@ __all__ = [
     "SolverStatsDiagnostic",
     "UncPropStatsDiagnostic",
     "ProblemStatsDiagnostic",
+    "SweepStatsDiagnostic",
 ]

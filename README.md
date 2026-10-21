@@ -914,7 +914,7 @@ world.to_piot().sankey("2020").write_html("copper_process_network_2020.html")
 | [psut.py](src/pysuto/psut.py) | `PSUT`, `OptimResultsLike`, `classify_blocks`, `BLOCKS` | Stage-6 tidy-canonical PSUT: `from_opt_run` / `from_results`, block views `S`/`U`/`Y`/`E`/`O`/`P`/`W`, `realized_conc`, `aggregate` (region/sector pushforward with `region_crossed`), `sankey` (thin delegate to `diag.psut`), `to_piot`, period selection (`periods`, `latest`, `at`); every valuation in one table with a `primary`; persists to `data/proc/psut/` via `PsutRunRegistry`. |
 | [piot.py](src/pysuto/piot.py) | `PIOT`, `market_share_network`, `market_shares`, `CONSTRUCTS`, `LEVELS` | Stage-6 PIOT as a construct family: the market-share process network (`Z()`, `D()`, process-network `sankey()`), levels `A`/`L` (`x`, `y`, `A`, `L`), `intensity`, `footprint`, `embodied_trade`, `ew_mfa`, `multipliers`, `sda`; `suh_product` is a stub until #20. A derived view of a PSUT, never persisted. |
 | [_conditioning.py](src/pysuto/_conditioning.py) | `condition_prior`, `condition_sigma_c` | Shared σ_a / σ_c conditioning rules — guarantees uncprop sees the same effective prior the solver did. |
-| [diag/](src/pysuto/diag/) | `FeedDiagnostics`, `AggDiagnostic`, `ImpDiagnostic`, `ConstDiagnostic`, `SolverDiag`, `UncPropDiag`, `sankey_figure`, `sankey_tables`, `SankeySpec`; `stats/`: `CoverageDiagnostic`, `StatsDiagnostic`, `ConstStatsDiagnostic`, `SolverStatsDiagnostic`, `UncPropStatsDiagnostic` | Cross-stage diagnostic plot suites (figures), row-level stats tables (CSVs) and the Stage-6 supply-use Sankey (Plotly, lazy). **Subpackage layout:** `feed.py`, `agg.py`, `imp.py`, `const.py`, `solver.py`, `uncprop.py`, `psut.py`, `_plot.py`, `stats/{_core,coverage,val,const,solver,objective,uncprop}.py`. |
+| [diag/](src/pysuto/diag/) | `FeedDiagnostics`, `AggDiagnostic`, `ImpDiagnostic`, `ConstDiagnostic`, `SolverDiag`, `UncPropDiag`, `SweepDiag`, `sankey_figure`, `sankey_tables`, `SankeySpec`; `stats/`: `CoverageDiagnostic`, `StatsDiagnostic`, `ConstStatsDiagnostic`, `SolverStatsDiagnostic`, `UncPropStatsDiagnostic`, `SweepStatsDiagnostic` | Cross-stage diagnostic plot suites (figures), row-level stats tables (CSVs) and the Stage-6 supply-use Sankey (Plotly, lazy). **Subpackage layout:** `feed.py`, `agg.py`, `imp.py`, `const.py`, `solver.py`, `uncprop.py`, `sweep.py`, `psut.py`, `_plot.py`, `stats/{_core,coverage,val,const,solver,objective,uncprop,sweep}.py`. |
 
 ---
 
@@ -1258,7 +1258,20 @@ data/proc/sweep/sweep_<YYYYMMDD_HHMMSS>_<8hex>/
     metadata.json     parents.upstream = the base chain; stage_config = steps, mode,
                       n_points, seed, axes, fixed, commit, dirty, scipy
     manifest.json     per point: overrides, status, run ids, reused steps, times, error
+    diag/             scripts/sweep_diag.py: points.csv, categories.csv,
+                      retention_by_year.csv, sensitivity.csv, SW-R-01…04 figures
 ```
+
+`scripts/sweep_diag.py <sweep_run_id>` scores every done point against the base chain
+(#107). Its outcomes are the cross-evaluated objective `J_base_at_point`, which is each
+point's posterior scored under the base QP by `ClarabelSolver.objective_at` and split by
+family. On `opt_20261019_171746_3272682b` against `opt_20261020_112726_2f451f31` it gives
+the 66,702 of #33. It also reports the mass moved by valuation and category, retention by
+category and year, and `J_own`. It ranks the axes per outcome: SRRC and Spearman ρ for
+numeric axes in a random sweep, the main-effect range for list axes, and the two-way
+interaction range in a full grid. Gross-mass totals are dominated by the waste-rock
+satellite, so `mass_moved_CC` is the scale-free one; `--category` promotes a category to
+outcome columns.
 
 ---
 
