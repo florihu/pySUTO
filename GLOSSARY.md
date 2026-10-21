@@ -691,7 +691,8 @@ scrap enters: **smelter scrap** feeds `Smelting` with the primary concentrate an
 **secondary refined production** (refined copper made from scrap by *either* route) — and the
 second contains the first. Direct-to-refinery scrap is therefore secondary refined *minus* the
 smelter route; in fifteen countries the two published figures are identical and the direct route
-is nil. **Direct melt** — scrap fabricators use without refining — is a third quantity, outside
+is nil. It is also minus any imported anode the region refines beyond its primary output, which
+enters as anode trade (Austria, #63). **Direct melt** — scrap fabricators use without refining — is a third quantity, outside
 this model's boundary ([ADR 0030](docs/adr/0030-secondary-smelter-copper-enters-the-chain-once.md)).
 Since [ADR 0031](docs/adr/0031-icsg-scrap-series-anchor-their-level-not-only-their-share.md) both
 inflows are stated to the model **twice**: as a **level** (a scrap level anchor, where ICSG reports

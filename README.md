@@ -209,9 +209,16 @@ cross-cutting (import nothing from the data layer):
 > force. The full order after a feed change is:
 >
 > ```
-> parse → <feed>_clean.py --to-feed → build_baci_reexport.py → baci_feed.py
->                                   → build_trade_shares.py  → icsg_feed.py → Stage 2
+> BACI parse → register gross baci vN → icsg_clean.py --baci-version N --to-feed (→ icsg)
+>   → build_baci_reexport.py --source-version N → baci_feed.py
+>   → build_trade_shares.py → icsg_feed.py → Stage 2
 > ```
+>
+> Since #63 the ICSG parse reads BACI too: `icsg_clean.py --baci-version N` nets imported anode
+> off the direct-to-refinery route using the registered **gross** BACI parse vN and records N in
+> the ICSG input's `parents.json`. `build_baci_reexport.py --source-version N` refuses to net when
+> that record names another version or none, so a BACI parse change re-runs the ICSG parse before
+> the netting.
 >
 > Check which weights a run used: `data/proc/feed/registry/<feed_id>/metadata.json` →
 > `trade_shares.version`.
@@ -225,7 +232,7 @@ four correctness rounds were defects here rather than in the model.
 
 | | chain | writes |
 |---|---|---|
-| **ICSG** | `icsg_{2005,2014,2023f}.py` (one per yearbook vintage) → `icsg_comb.py` (combine vintages) → `process_icsg.py` (stock levels → NAS per vintage + merge) → `icsg_clean.py --to-feed` | `data/input/feed/icsg/current/values.csv` |
+| **ICSG** | `icsg_{2005,2014,2023f}.py` (one per yearbook vintage) → `icsg_comb.py` (combine vintages) → `process_icsg.py` (stock levels → NAS per vintage + merge) → `icsg_clean.py --baci-version N --to-feed` (reads the registered gross BACI parse vN for imported anode, #63) | `data/input/feed/icsg/current/values.csv` + `parents.json` |
 | **BACI** | `baci_parse/baci_parse_feed.py` | `data/input/feed/baci/v0/values.csv` + `quantity_recon.csv`, `quantity_cv_scale.csv` |
 
 Three behaviours a reader should not have to discover from the code:
@@ -1317,7 +1324,7 @@ indistinguishable from real data once it reaches the model:
 
 | Test file | Scope |
 |---|---|
-| [test_icsg_clean.py](tests/test_icsg_clean.py) | ADR 0021 anode placement, secondary-excess clipping, input divisors; `territory_aliases` / `merge_territories` ([ADR 0032](docs/adr/0032-one-territory-one-label.md)) |
+| [test_icsg_clean.py](tests/test_icsg_clean.py) | ADR 0021 anode placement, secondary-excess clipping, input divisors; `territory_aliases` / `merge_territories` ([ADR 0032](docs/adr/0032-one-territory-one-label.md)); imported anode off the direct route and BACI net anode imports (ADR 0030 am., #63) |
 | [test_icsg_2014_region_fill.py](tests/test_icsg_2014_region_fill.py) | Which country a row belongs to when the yearbook's label sits on the middle row of its block, and the sheet's own WORLD/TOTALS block ([ADR 0035](docs/adr/0035-the-yearbooks-label-is-not-on-the-row-it-owns.md)) |
 | [test_icsg_comb_renamed_collisions.py](tests/test_icsg_comb_renamed_collisions.py) | Rows a rename folds onto one key sum *within* a vintage; a cross-vintage restatement is left to the dedup ([ADR 0036](docs/adr/0036-a-renamed-type-is-a-second-stream-not-a-restatement.md)) |
 | [test_baci_quantity_recon.py](tests/test_baci_quantity_recon.py) | Value-implied Cu fraction detector, its two gates on each side of the band (above: raise; below: lower, the PNG kg-as-t regression), `g_ref` calibration, σ scale composition across sidecar files ([ADR 0033](docs/adr/0033-baci-quantity-contradicts-its-own-value.md)) |
