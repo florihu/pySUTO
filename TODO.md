@@ -82,7 +82,11 @@ Each against the previous one; REPs under `docs/rep/`.
   `opt_20261021_111957_5c6d13bc`, phantom SX-EW 3,255 → 75 kt CC, z² +1.10 %, over Russia's 60 new stock legs; the
   full build (mine-output + cathode-leg zeros, `opt_20261021_105350_b1fea245`) +37.8 %: the phantom chains fill
   gaps between ICSG usage and recorded supply — a stated limitation.
-- **Next:** #98 + #36 item 2 (built, `fix/psc-rows`), #38 (built, behaviour-neutral on copper), final chain.
+- **#98 SHIPPED, #36 item 2 REJECTED** (ADR 0040, 0041 am.): PSC rows skip ICSG-reported legs —
+  `opt_20261021_121332_acc68135`, PSC rows Σz² 348.9 → 0.0, common set +0.005 %; the 0.3 kt floor on eff-less PSC
+  re-opens Round Y's sink (near-pin rows 0.04 → 1,437) and is reverted. **#38 SHIPPED** (replay: 0 fills added).
+- **Next:** the final chain on `opt_20261021_121332_acc68135` — Stage 5 + #87's REP and ablation, Stage 6, figures,
+  `manuscript_numbers.py`, limitations.
 
 ## #72 MEASURED 2026-10-20 — qdldl REJECTED ON MEASUREMENT; `DIRECT_SOLVE_METHOD` stays faer
 

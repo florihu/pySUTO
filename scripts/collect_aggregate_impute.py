@@ -136,7 +136,11 @@ STOCK_SEED_ABS_FLOOR_KT = 0.3     # icsg_feed's OBSERVED_ZERO_* mirror these (#7
 # Stage 3 floors that to σ 1e-6: a hidden pin of a stock change. The zero stays; it is
 # priced at the seed's floor alone, the feeds' resolution (ADR 0025), not at the
 # rejected 1 % of CP→Cathode (#36, ADR 0041 am.). 0.0 restores the pin.
-EFFLESS_STOCK_SIGMA_KT  = STOCK_SEED_ABS_FLOOR_KT
+# Rejected on measurement (2026-10-21, opt_20261021_115215_653c8677 vs
+# opt_20261021_111957_5c6d13bc): at 0.3 kt the freed legs become a sink again — the
+# near-pin PSC rows' Σz² 0.04 → 1,437 (Slovakia 2016 z +37.8), 18 stock legs newly above
+# |z| 5 — so the pin stays.
+EFFLESS_STOCK_SIGMA_KT  = 0.0
 
 # FlatPriorImputer mode
 #   "magnitude_aware" (legacy) — σ = CV(j) · scale(j) via cv_by_mask + 3-level cascade
