@@ -1005,6 +1005,76 @@ class TestQpVariables:
             s.solve_all("toy_run")
 
 
+class TestObjectiveAt:
+    """#102: ``objective_at`` scores any year-local posterior under a const run's QP,
+    so a sweep compares points on one objective (each answer under the base σ)."""
+
+    _solve = staticmethod(TestQpVariables._solve)
+    _J     = staticmethod(TestQpVariables._J)
+
+    @pytest.mark.parametrize("qp_variables", ["flows", "defects"])
+    def test_it_reproduces_the_solvers_objective_at_its_own_posterior(
+        self, tmp_path, monkeypatch, qp_variables,
+    ):
+        run = _make_wide_sigma_run(periods=("2020", "2021"))
+        s, res = self._solve(run, tmp_path, monkeypatch, qp_variables)
+        for t, r in res.items():
+            cols = run.edge_cols_by_t[t]
+            const = float(((run.a0[cols] / run.sigma_a[cols]) ** 2).sum())
+            got = s.objective_at(run, t, r.F_opt)
+            assert got["total"] == pytest.approx(r.objective + const, rel=1e-10)
+            assert got["total"] == pytest.approx(self._J(run, t, r.F_opt), rel=1e-10)
+
+    def test_under_defects_it_is_clarabels_own_cost(self, tmp_path, monkeypatch):
+        run = _make_wide_sigma_run()
+        s, res = self._solve(run, tmp_path, monkeypatch, "defects")
+        got = s.objective_at(run, "2020", res["2020"].F_opt)
+        assert got["total"] == pytest.approx(res["2020"].convergence["cost_primal"],
+                                             rel=1e-6)
+
+    def test_a_feasible_perturbation_scores_higher(self, tmp_path, monkeypatch):
+        """Raising e0 and e1 together keeps the balance and the band, so the point
+        stays feasible and must cost more than the optimum (a nudge that breaks a
+        hard row may cost less: the optimum is over the feasible set only)."""
+        run = _make_wide_sigma_run()
+        s, res = self._solve(run, tmp_path, monkeypatch, "defects")
+        F = res["2020"].F_opt
+        base = s.objective_at(run, "2020", F)["total"]
+        for step in (0.5, 1.0):
+            G = F.copy()
+            G[[0, 1]] += step
+            assert s.objective_at(run, "2020", G)["total"] > base
+
+    def test_the_family_split_sums_to_the_total(self, tmp_path, monkeypatch):
+        run = _make_wide_sigma_run()
+        s, res = self._solve(run, tmp_path, monkeypatch, "flows")
+        got = s.objective_at(run, "2020", res["2020"].F_opt)
+        assert set(got) == {"total", "edges", "sum_rows", "soft_ratios", "other_soft"}
+        parts = got["edges"] + got["sum_rows"] + got["soft_ratios"] + got["other_soft"]
+        assert parts == pytest.approx(got["total"], rel=1e-12)
+        assert got["sum_rows"] > 0 and got["soft_ratios"] == 0 and got["other_soft"] == 0
+
+    def test_a_hand_worked_point(self, tmp_path):
+        """Prior (100, 40, 80, −20, 0.002) at σ (5, 1e5, 2, 2, 1e-3); F = prior except
+        e0 = 105: edges (5/5)² = 1. Rows: e0 = 110 at σ 5 → ((105 − 110)/5)² = 1;
+        e1 + e2 = 105 at σ 3 → ((120 − 105)/3)² = 25. Total 27."""
+        from pysuto.solver import ClarabelSolver
+        run = _make_wide_sigma_run()
+        s = ClarabelSolver(const_dir=str(tmp_path / "c"), opt_dir=str(tmp_path / "o"))
+        F = np.array([105.0, 40.0, 80.0, -20.0, 0.002])
+        got = s.objective_at(run, "2020", F)
+        assert got["edges"] == pytest.approx(1.0, rel=1e-12)
+        assert got["sum_rows"] == pytest.approx(26.0, rel=1e-12)
+        assert got["total"] == pytest.approx(27.0, rel=1e-12)
+
+    def test_a_posterior_of_the_wrong_length_is_refused(self, tmp_path):
+        from pysuto.solver import ClarabelSolver
+        run = _make_wide_sigma_run()
+        s = ClarabelSolver(const_dir=str(tmp_path / "c"), opt_dir=str(tmp_path / "o"))
+        with pytest.raises(ValueError, match="2020"):
+            s.objective_at(run, "2020", np.zeros(4))
+
+
 class TestPreFixBlockRunGuard:
 
     def _block_const_run(self):

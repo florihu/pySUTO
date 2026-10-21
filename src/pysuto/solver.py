@@ -1044,6 +1044,51 @@ class ClarabelSolver:
         )
         return result, solver_t
 
+    def objective_at(
+        self,
+        run:     ConstraintRun,
+        t:       str,
+        F:       np.ndarray,
+        a_prior: Optional[np.ndarray] = None,
+    ) -> dict:
+        """Score a year-local posterior ``F`` (over ``run.edge_cols_by_t[t]``) under
+        period ``t``'s QP, conditioned exactly as :meth:`_solve_period` conditions it.
+
+        Returns ``J = Σ((F − a_prior)/σ_a)² + Σ_free((G_t·F − c_t)/σ_c)²`` as ``total``
+        — the defects form's cost, and the flows form's ``objective`` plus
+        ``Σ(a_prior/σ_a)²`` — split by family as the objective decomposition splits
+        it: ``edges`` (defects), ``sum_rows`` (free ``type == "sum"`` rows),
+        ``soft_ratios`` (free ``type == "ratio"`` rows) and ``other_soft`` (any other
+        free row). ``a_prior`` defaults to the cold seed, the conditioned ``f_agg``
+        slice; pass ``OptimResult.a_prior`` to score under a warm run's prior. Lets a
+        sweep score each point's answer under the base chain's σ (#102).
+        """
+        cols_t = run.edge_cols_by_t[t]
+        F = np.asarray(F, dtype=float)
+        if F.shape != cols_t.shape:
+            raise ValueError(f"period {t!r} has {cols_t.size} edges, F has shape {F.shape}")
+        a_0, sigma_a = self._condition_prior(run.a_prior_global, run.sigma_a)
+        prior = a_0[cols_t] if a_prior is None else np.asarray(a_prior, dtype=float)
+        edges = float((((F - prior) / sigma_a[cols_t]) ** 2).sum())
+
+        rows_t = np.where(run.row_meta["time"].astype(str).to_numpy() == t)[0]
+        rm_t   = run.row_meta.iloc[rows_t]
+        free   = rm_t["cone_type"].to_numpy() == "free"
+        typ    = rm_t["type"].astype(str).to_numpy()
+        c_t    = np.asarray(run.timestep_data[t]["c"], dtype=float)[rows_t]
+        sc_t   = np.asarray(run.timestep_data[t]["sigma_c"], dtype=float)[rows_t]
+        sc_t   = np.maximum(np.where(np.isnan(sc_t), self.sigma_c_floor, sc_t),
+                            self.sigma_c_floor)
+        zsq    = np.where(free, ((run.G_blocks[t] @ F - c_t) / sc_t) ** 2, 0.0)
+        out = {
+            "edges":       edges,
+            "sum_rows":    float(zsq[free & (typ == "sum")].sum()),
+            "soft_ratios": float(zsq[free & (typ == "ratio")].sum()),
+            "other_soft":  float(zsq[free & (typ != "sum") & (typ != "ratio")].sum()),
+        }
+        out["total"] = edges + out["sum_rows"] + out["soft_ratios"] + out["other_soft"]
+        return out
+
     def solve_timestep(
         self,
         run_id:  str,
