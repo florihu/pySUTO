@@ -103,7 +103,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from pysuto.acc import AccountingStructure
 from pysuto.config import load_config
-from pysuto.registry import ImputationRunRegistry
+from pysuto.registry import ImputationRunRegistry, stage_lock
 from pysuto.input_registry import InputRegistries
 from pysuto.param_relation import expand_edge_index
 from pysuto.flow_node_balance import contradicted_flow_nodes
@@ -658,4 +658,5 @@ if __name__ == "__main__":
     add_knob_args(parser)
     args = parser.parse_args()
     overrides = overrides_from_cli(parser, args, KNOBS, globals())
-    write_run_id(args.run_id_file, main(args.imp_run_id, args.label, overrides))
+    with stage_lock("constraints"):   # registries have no locking (#101)
+        write_run_id(args.run_id_file, main(args.imp_run_id, args.label, overrides))

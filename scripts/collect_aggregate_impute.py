@@ -51,7 +51,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from pysuto.acc      import AccountingStructure
 from pysuto.config   import load_config
-from pysuto.registry import DataFeedRegistry, ImputationRunRegistry
+from pysuto.registry import DataFeedRegistry, ImputationRunRegistry, stage_lock
 from pysuto.input_registry import InputRegistries
 from pysuto.collector import FeedCollector
 from pysuto.param_relation import (conc_for, conc_nominal_lookup, conc_sectors,
@@ -742,4 +742,5 @@ if __name__ == "__main__":
     add_knob_args(parser)
     args = parser.parse_args()
     overrides = overrides_from_cli(parser, args, KNOBS, globals())
-    write_run_id(args.run_id_file, main(args.feed_ids, args.label, overrides))
+    with stage_lock("collect_aggregate_impute"):   # registries have no locking (#101)
+        write_run_id(args.run_id_file, main(args.feed_ids, args.label, overrides))

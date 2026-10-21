@@ -46,7 +46,7 @@ FIGS_DIR  = os.path.join("figs", "psut")   # where --sankey writes its figures
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from pysuto.psut import PSUT
-from pysuto.registry import PsutRunRegistry
+from pysuto.registry import PsutRunRegistry, stage_lock
 from pysuto.logging import get_logger, add_run_handler
 
 _log = get_logger("init_psut")
@@ -136,5 +136,6 @@ if __name__ == "__main__":
     parser.add_argument("--no-png", action="store_true",
                         help="Skip the static PNG copies (needs kaleido and a browser).")
     args = parser.parse_args()
-    main(args.opt_run_id, args.label, args.primary, args.timesteps, args.data_dir,
-         args.sankey, args.figs_dir, not args.no_png)
+    with stage_lock("psut", root=os.path.join(args.data_dir, "proc")):   # #101
+        main(args.opt_run_id, args.label, args.primary, args.timesteps, args.data_dir,
+             args.sankey, args.figs_dir, not args.no_png)

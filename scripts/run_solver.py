@@ -121,6 +121,7 @@ from pysuto.solver  import ClarabelSolver
 from pysuto.diag    import SolverDiag
 from pysuto.logging import get_logger, add_run_handler
 from pysuto.knobs   import add_knob_args, overrides_from_cli, write_run_id
+from pysuto.registry import stage_lock
 
 _log = get_logger("init_run_solver")
 
@@ -219,5 +220,6 @@ if __name__ == "__main__":
     add_knob_args(parser)
     args = parser.parse_args()
     overrides = overrides_from_cli(parser, args, KNOBS, globals())
-    write_run_id(args.run_id_file,
-                 main(args.const_run_id, args.label, args.prior_mode, overrides))
+    with stage_lock("run_solver"):   # registries have no locking (#101)
+        write_run_id(args.run_id_file,
+                     main(args.const_run_id, args.label, args.prior_mode, overrides))
