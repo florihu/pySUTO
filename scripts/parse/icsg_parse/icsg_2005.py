@@ -105,6 +105,10 @@ def icsg_2005(id=2005):
     stock_collect = []
     price_collect = []
 
+    # The SX-EW table decides which merged refinery cells hold an electrowon value
+    sxew = sxew_region_years(clean_flows(pd.read_excel(path, sheet_name='SXEW', header=1),
+                                         'SXEW', 'SXEW', 'Supply', rename_dict))
+
     for sheet, name in sheet_dict.items():
 
         logger.debug(f"Processing sheet: {sheet} with data type: {name[0]}, process: {name[1]}, flow type: {name[2]}")
@@ -122,7 +126,7 @@ def icsg_2005(id=2005):
         df_init = pd.read_excel(path, sheet_name=sheet, header=header)
        
         if data_type =='Flow':
-            flow = clean_flows(df_init, sheet, process, flow_type, rename_dict)            
+            flow = clean_flows(df_init, sheet, process, flow_type, rename_dict, sxew=sxew)
             flow_collect.append(flow)
 
 
@@ -558,13 +562,43 @@ def clean_pmc_stocks(df_raw):
 
     return df_clean
 
-def clean_flows(df_init, sheet, process, flow_type, rename_dict):
+def sxew_region_years(df_sxew):
+    """(Region, Year) pairs the yearbook's SX-EW table reports output for."""
+    return set(zip(df_sxew['Region'], df_sxew['Year'].astype(int)))
+
+
+def _cell_types(types, n_values, region, col, sxew):
+    """
+    The types one cell's values belong to, in order.
+
+    A merged cell lists every source type its country reports in some year, but
+    holds values only for the types of that year. Where it holds fewer values
+    than types and the yearbook's own SX-EW table reports no output for the
+    region-year, the cell's Electrowon type has none: its values are the other
+    types'. Russia's refinery cell reads 'Electrowon Primary Secondary' over
+    '500.0 / 50.0' in 1995, a year of no Russian SX-EW, and a positional pairing
+    booked its primary refined output as electrowon and its secondary as primary.
+    """
+    if sxew is None or n_values >= len(types) or 'Electrowon' not in types:
+        return types
+    name = str(region).strip()
+    year = re.search(r'\d{4}', str(col))
+    if year is None or (REGION_RENAME.get(name, name), int(year.group())) in sxew:
+        return types
+    return [t for t in types if t != 'Electrowon']
+
+
+def clean_flows(df_init, sheet, process, flow_type, rename_dict, sxew=None):
     """
     Parse and clean a raw ICSG flows sheet into tidy long-format DataFrame.
 
     Key rule:
     Drop 'Total' rows ONLY when another Type with a non-zero value exists
     for the same (Region, Year). Otherwise keep the Total.
+
+    ``sxew`` holds the (Region, Year) pairs of the SX-EW table
+    (``sxew_region_years``); a cell with fewer values than types drops its
+    Electrowon type outside them (``_cell_types``).
     """
 
     import numpy as np
@@ -647,23 +681,19 @@ def clean_flows(df_init, sheet, process, flow_type, rename_dict):
         if not isinstance(types, list):
             types = [types]  # wrap single element
 
-        n_types = len(types)
-
-        # Extract values per column and split by newline
-        values_lists = []
+        # One row per type; each column's values pair with the types positionally
+        new_rows = {t: {'Region': row['Region'], 'Type': t} for t in types}
         for col in value_cols:
             val = str(row[col])
             val_list = [v.strip() for v in val.replace('_x000d_\n', '\n').split('\n')]
+            cell_types = _cell_types(types, len(val_list), row['Region'], col, sxew)
             # Pad with NaN if fewer values than types
-            val_list += [np.nan] * (n_types - len(val_list))
-            values_lists.append(val_list)
-
-        # Create one row per type
-        for i, t in enumerate(types):
-            new_row = {'Region': row['Region'], 'Type': t}
-            for j, col in enumerate(value_cols):
-                new_row[col] = values_lists[j][i]
-            exploded_rows.append(new_row)
+            val_list += [np.nan] * (len(cell_types) - len(val_list))
+            for t in types:
+                new_rows[t][col] = np.nan
+            for t, v in zip(cell_types, val_list):
+                new_rows[t][col] = v
+        exploded_rows.extend(new_rows.values())
 
     # Convert back to DataFrame
     df_exploded = pd.DataFrame(exploded_rows)
