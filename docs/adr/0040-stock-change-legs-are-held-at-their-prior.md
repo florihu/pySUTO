@@ -16,6 +16,12 @@ Re-measured by #37 (2026-10-19, run `opt_20261019_171746_3272682b`): the 0.1 kt 
 kept — its 428 near-pin rows sit only where there is no refinery output — and stock_bounds is
 regenerated on the repaired stock series (v6, p95 0.0489 → 0.0276). The zero-centred PSC rows pull
 ICSG-reported values toward zero, the pull this ADR retired on MESC/USC (#98).
+**Amended 2026-10-21 (#98):** a PSC row is emitted only where the region-year's `CP→PSC` leg is
+not feed-covered (`STOCK_BOUNDS_SKIP_REPORTED`), so a reported producer stock change is held by its
+own σ alone; on `const_20261021_100441_814be306` 223 of the 1,410 rows go (18 territories,
+1996–2024), and the near-pin rows on regions with no refinery output stay. Rejected: centring the
+row on the reported value — the leg's prior already is that value, so the row would state it twice.
+To be measured.
 
 The three stock-change legs are the only signed edges of the account, so whatever σ they carry is
 the price of routing a contradiction of the cathode balance into a stock instead of surfacing it

@@ -56,7 +56,9 @@ Constraint types (registered in order)
                                  row family — they are held at their prior by
                                  the Stage-2 net-stock seed σ (1 % / 0.3 kt,
                                  ADR 0040), and a zero-centred row pulled the
-                                 reported stock changes toward zero.
+                                 reported stock changes toward zero. For the
+                                 same reason a PSC leg a feed reports gets no
+                                 row (STOCK_BOUNDS_SKIP_REPORTED, #98).
 7b Scrap-share bands          — RatioBoundBuilder (scrap_share/params.csv, per
                                  SCRAP_SHARE_MODE); per (region, P∈{Smelting,CFR})
                                  hard band bl·Σ(CC inputs to P) ≤ Σ(Scrap→P) ≤
@@ -266,6 +268,13 @@ STOCK_BOUNDS_SCALE_ABS_FLOOR = 0.1
 # bounds went infeasible under the flat-prior-zero pin (denominator collapse);
 # see docs/rep/analysis_const_20260625_130524_...flat-prior-zero-pin-cold.md.
 STOCK_BOUNDS_MODE = "soft"
+# The soft PSC rows are centred at zero, so on a region-year whose CP→PSC leg ICSG
+# reports, the row pulls the reported stock change toward zero — the pull ADR 0040
+# retired on MESC/USC (#37, opt_20261019_171746_3272682b: Iran 2016 reported −63.0,
+# posterior −40.5 kt CC, row z −10.1). True emits a row only where the leg is not
+# feed-covered (agg_result.coverage); the near-pin rows on regions with no refinery
+# output stay (#98, ADR 0040 am.). False restores a row on every region-year.
+STOCK_BOUNDS_SKIP_REPORTED = True
 # Scrap-share bands: per (region, process P∈{Smelting,CFR}) hard nonneg-cone band
 # bl·Σ(CC inputs to P) ≤ Σ(Scrap→P, CC) ≤ bu·Σ(CC inputs to P), bands derived
 # per-region from observed ICSG scrap shares (scripts/explo/scrap_share_study.py).
@@ -562,7 +571,8 @@ def main(imp_run_id: str, label: str) -> None:
     if STOCK_BOUNDS_MODE == "soft":
         _register_builder(RatioConstraintBuilder, "stock_bounds",
                           sigma_rel_floor=RATIO_SIGMA_REL_FLOOR,
-                          scale_abs_floor=STOCK_BOUNDS_SCALE_ABS_FLOOR)
+                          scale_abs_floor=STOCK_BOUNDS_SCALE_ABS_FLOOR,
+                          covered=_cov if STOCK_BOUNDS_SKIP_REPORTED else None)
     else:
         _register_builder(RatioBoundBuilder, "stock_bounds", kind="stock_bounds")
     # 7b. Scrap-share bands — hard (nonneg cone) by default; see SCRAP_SHARE_MODE
@@ -611,6 +621,7 @@ def main(imp_run_id: str, label: str) -> None:
             "fabricated_anchor_cv": FABRICATED_ANCHOR_CV,
             "feed_share_observed":  FEED_SHARE_OBSERVED,
             "stock_bounds_mode": STOCK_BOUNDS_MODE,
+            "stock_bounds_skip_reported": STOCK_BOUNDS_SKIP_REPORTED,
             "scrap_share_mode":  SCRAP_SHARE_MODE,
             "scrap_level_anchor": SCRAP_LEVEL_ANCHOR,
             "massbal_mask":      MASSBAL_MASK,

@@ -197,6 +197,7 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
         sigma_rel_floor: float = 0.02,
         scale_abs_floor: float = 1.0,
         hard: bool = False,
+        covered: np.ndarray | None = None,
     ) -> "RatioConstraintBuilder":
         """
         Load from params CSV (same schema as ParametricImputer.from_csv).
@@ -206,6 +207,11 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
 
         ``mask`` (optional): name of a mask in ``acc_struct.masks``. Pairs
         where either edge falls outside the mask are dropped.
+
+        ``covered`` (optional): per-edge feed coverage (``agg_result.coverage``). A
+        net-stock row (``param_type == "stock_bound"``) is centred at zero, so where
+        a feed reports its stock leg (the numerator, b side) it would pull that report
+        toward zero: no row is emitted there (#98, ADR 0040 am.).
         """
         df = pd.read_csv(path, sep=None, engine="python", dtype=str).fillna("*")
         resolver = ParamRelationResolver(acc_struct)
@@ -232,7 +238,8 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
             # tag scale_mode="denominator" so build_dynamic scales σ_c off the THROUGHPUT
             # denominator (|r|·den = 0 here would otherwise collapse it to the abs floor
             # → quasi-hard). All other ratios keep the CSV unc modes + symmetric scale.
-            if str(row.get("param_type", "")).strip() == "stock_bound":
+            is_stock = str(row.get("param_type", "")).strip() == "stock_bound"
+            if is_stock:
                 vmax = float_or(row.get("value_max", "nan"), np.nan)
                 sigma = abs(vmax) / Z95_STOCK if not np.isnan(vmax) else 0.0
                 scale_mode = "denominator"
@@ -244,6 +251,8 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
                 if not hard:            # a hard row carries σ_c = 0 whatever σ is
                     sigma = _relative_sigma(sigma, nominal, param_id)
                 scale_mode = "symmetric"
+            # a zero-centred net-stock row has no place on a reported stock leg (#98)
+            skip_reported = is_stock and covered is not None
 
             # A user param_id, if present, becomes the grammar `variant` slot
             # (underscore-free); otherwise the ratio variant is "ratioeq".
@@ -262,6 +271,8 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
                     )
                     continue
                 for bk in buckets:
+                    if skip_reported and covered[bk["b_edges"]].any():
+                        continue
                     cid = build_constraint_id(
                         TYPE_RATIO, variant,
                         _safe(bk["region"], field="region"), bk["valuation"],
@@ -284,6 +295,8 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
 
             for r in resolver.resolve_row(row):
                 if scope is not None and not (scope[r.a_edge_id] and scope[r.b_edge_id]):
+                    continue
+                if skip_reported and covered[r.b_edge_id]:
                     continue
                 # edge_i (coeff +1) is the numerator; edge_j (coeff −r) the denom.
                 num   = _decode_edge(ei_idx, r.b_edge_id)

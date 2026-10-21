@@ -976,6 +976,32 @@ class TestRatioConstraintBuilder:
         a   = (blk.row_meta["time"].astype(str) == "2020").to_numpy()
         assert blk.sigma_c[a][0] == pytest.approx((p95 / Z95_STOCK) * 10_000.0, rel=1e-6)
 
+    def test_stock_bound_skips_a_feed_covered_stock_leg(self, toy_acc, tmp_path):
+        """#98: the net-stock row is centred at zero, so on a region-year whose stock
+        leg a feed reports it would pull the data point toward zero. Given the
+        per-edge coverage, the builder emits no row there and the row it would have
+        emitted everywhere else; coverage of the throughput (a-side) is irrelevant."""
+        from pysuto.constraints import RatioConstraintBuilder
+
+        path = self._write_stock_bound_csv(tmp_path, value_max=0.1)
+        full = RatioConstraintBuilder.from_csv(
+            path, toy_acc, sigma_rel_floor=0.02, scale_abs_floor=0.1).build_static(toy_acc)
+        assert full.G_rows.shape[0] == 2                       # region A × 2020, 2021
+
+        covered = np.zeros(toy_acc.n_edges, dtype=bool)
+        covered[4] = True        # Mining/A→Waste 2020: the stock leg is reported
+        covered[5] = True        # Mining/A→Ore 2021: a covered throughput keeps its row
+        part = RatioConstraintBuilder.from_csv(
+            path, toy_acc, sigma_rel_floor=0.02, scale_abs_floor=0.1,
+            covered=covered).build_static(toy_acc)
+        assert part.G_rows.shape[0] == 1
+        assert part.row_meta["time"].astype(str).tolist() == ["2021"]
+        kept = (full.row_meta["time"].astype(str) == "2021").to_numpy()
+        assert part.row_meta["constraint_id"].tolist() == \
+            full.row_meta.loc[kept, "constraint_id"].tolist()
+        np.testing.assert_array_equal(part.G_rows.toarray(), full.G_rows.toarray()[kept])
+        np.testing.assert_array_equal(part.sigma_c, full.sigma_c[kept])
+
     def test_ratio_single_pair_mass_output_ratio(self, toy_acc, tmp_path):
         """Stripping-ratio shape: a single-pair Mass ratio between two Mining
         outputs (WR/Ore) → +1·Waste − r·Ore (no agg)."""
