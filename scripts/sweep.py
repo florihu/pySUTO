@@ -25,6 +25,11 @@ import shutil
 import sys
 from datetime import datetime
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
+
+from pysuto.logging  import get_logger, add_run_handler
+from pysuto.pipeline import STEP_GB, Axis, Chain, Pipeline, Sweep
+
 # ---------------------------------------------------------------------------
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
@@ -48,21 +53,14 @@ FIXED: dict = {}
 STEP_MINUTES = {"imp": 3.0, "const": 3.0, "opt": 5.0}
 
 
-def axes():
-    """The varied knobs. A placeholder until the knob study (#108) settles them."""
-    from pysuto.pipeline import Axis
-    return [
-        Axis.interval(("imp.P_PROP", "const.P_PROP"), 1.1, 1.5),
-    ]
+# The varied knobs. A placeholder until the knob study (#108) settles them.
+AXES = [
+    Axis.interval(("imp.P_PROP", "const.P_PROP"), 1.1, 1.5),
+]
 
 # ---------------------------------------------------------------------------
 # END USER CONFIGURATION
 # ---------------------------------------------------------------------------
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
-
-from pysuto.logging  import get_logger, add_run_handler
-from pysuto.pipeline import STEP_GB, Chain, Pipeline, Sweep
 
 _log = get_logger("sweep")
 
@@ -72,7 +70,7 @@ def build(base_opt_run_id: str) -> Sweep:
     pipeline = Pipeline(steps=STEPS, base=base, cwd=os.getcwd(),
                         scripts_dir=os.path.dirname(os.path.abspath(__file__)))
     kw = {"n_points": N_POINTS, "seed": SEED} if MODE == "random" else {}
-    return Sweep(pipeline, axes(), mode=MODE, fixed=FIXED, **kw)
+    return Sweep(pipeline, AXES, mode=MODE, fixed=FIXED, **kw)
 
 
 def dry_run(sweep: Sweep) -> None:

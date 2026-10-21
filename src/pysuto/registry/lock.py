@@ -7,7 +7,9 @@ The output registries have no locking of their own: two drivers writing one chec
 lose index entries, and a lost const entry orphans its 0.85 GB run directory. A driver
 wraps its ``main()`` in :func:`stage_lock`; a second driver started meanwhile fails
 fast with :class:`LockHeld`, naming the holder. A lock left behind by a process that
-no longer exists is stale and taken over with a warning.
+no longer exists is stale and taken over with a warning. A lock file that names no
+holder is a driver between creating and writing it, so it counts as held; one left
+empty by a crash in that instant has to be removed by hand.
 """
 
 from __future__ import annotations
@@ -76,7 +78,10 @@ def stage_lock(driver: str, root: str = os.path.join("data", "proc")) -> Iterato
     if not _create(path, driver):
         held = _holder(path)
         pid = held.get("pid")
-        if isinstance(pid, int) and _alive(pid):
+        if not isinstance(pid, int):
+            raise LockHeld(f"{path} names no holder yet (a driver is writing it); if no "
+                           f"driver is running, remove it by hand")
+        if _alive(pid):
             raise LockHeld(
                 f"{path} is held by {held.get('driver', '?')} (pid {pid}, since "
                 f"{held.get('started_at', '?')}); registries have no locking, so stage "
@@ -91,5 +96,6 @@ def stage_lock(driver: str, root: str = os.path.join("data", "proc")) -> Iterato
     try:
         yield path
     finally:
-        with contextlib.suppress(FileNotFoundError):
-            os.remove(path)
+        if _holder(path).get("pid") == os.getpid():
+            with contextlib.suppress(FileNotFoundError):
+                os.remove(path)

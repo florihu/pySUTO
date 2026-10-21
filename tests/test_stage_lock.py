@@ -50,6 +50,21 @@ class TestStageLock:
                 raise RuntimeError("solver failed")
         assert not (tmp_path / ".stage.lock").exists()
 
+    def test_a_lock_being_written_is_held_not_stale(self, tmp_path):
+        """O_EXCL creates the file before its holder writes it; an empty lock is a
+        live driver between those two steps, not a dead one."""
+        (tmp_path / ".stage.lock").write_text("")
+        with pytest.raises(LockHeld):
+            with stage_lock("constraints", root=str(tmp_path)):
+                pass
+        assert (tmp_path / ".stage.lock").exists()
+
+    def test_on_exit_a_driver_removes_only_its_own_lock(self, tmp_path):
+        with stage_lock("constraints", root=str(tmp_path)):
+            (tmp_path / ".stage.lock").write_text(json.dumps(
+                {"pid": os.getpid() + 1, "driver": "other", "started_at": "now"}))
+        assert json.loads((tmp_path / ".stage.lock").read_text())["driver"] == "other"
+
     def test_the_root_is_created_when_missing(self, tmp_path):
         root = tmp_path / "data" / "proc"
         with stage_lock("collect_aggregate_impute", root=str(root)):

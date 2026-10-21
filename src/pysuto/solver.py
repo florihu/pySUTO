@@ -39,7 +39,7 @@ import scipy.sparse as sp
 
 import clarabel
 
-from ._conditioning import condition_prior
+from ._conditioning import condition_prior, condition_sigma_c
 from .constraints import ConstraintRun
 from .registry import ConstraintRunRegistry, OptimRunRegistry
 from .logging import get_logger
@@ -1089,9 +1089,8 @@ class ClarabelSolver:
         free   = rm_t["cone_type"].to_numpy() == "free"
         typ    = rm_t["type"].astype(str).to_numpy()
         c_t    = np.asarray(run.timestep_data[t]["c"], dtype=float)[rows_t]
-        sc_t   = np.asarray(run.timestep_data[t]["sigma_c"], dtype=float)[rows_t]
-        sc_t   = np.maximum(np.where(np.isnan(sc_t), self.sigma_c_floor, sc_t),
-                            self.sigma_c_floor)
+        sc_t   = condition_sigma_c(np.asarray(run.timestep_data[t]["sigma_c"])[rows_t],
+                                   floor=self.sigma_c_floor)
         cone   = rm_t["cone_type"].to_numpy()
         resid  = run.G_blocks[t] @ F - c_t
         zsq    = np.where(free, (resid / sc_t) ** 2, 0.0)

@@ -1364,6 +1364,8 @@ unc  ─────────────────────────
 meta  →  registry
 collector  →  agg  →  impute  →  constraints  →  solver  →  uncprop
 _conditioning  ←  solver, uncprop          (shared σ-conditioning helper)
+knobs          ←  the stage drivers        (the --set / --run-id-file protocol)
+pipeline       ←  registry, logging        (runs the drivers as subprocesses; never imports scripts/)
 psut           ←  acc, registry            (Stage 6 — reads a persisted opt run)
 piot           ←  psut                     (Stage 6 — a derived view of a PSUT)
 diag           ──── consumer; never imported into the data layer

@@ -81,7 +81,7 @@ class TestOutcomes:
         assert r["max_hard_violation_base"] <= 1e-6     # same hard rows: still feasible
         fam = r[["J_base_at_point_edges", "J_base_at_point_sum_rows",
                  "J_base_at_point_soft_ratios", "J_base_at_point_other_soft"]].sum()
-        assert fam == pytest.approx(r["J_base_at_point"], rel=1e-9, abs=1e-9)
+        assert fam == pytest.approx(r["J_base_at_point"], rel=1e-10, abs=1e-10)
 
     def test_mass_moved_splits_by_valuation_and_by_category(self, sweep):
         r = sweep.points_frame().loc[1]
@@ -109,6 +109,24 @@ class TestOutcomes:
         names = {p.split("/")[-1] for p in paths}
         assert names == {"points.csv", "categories.csv", "retention_by_year.csv",
                          "sensitivity.csv"}
+
+
+def test_an_opt_only_sweep_is_scored_against_the_base_const(sweep):
+    """A sweep over solver knobs runs no const step: its points' QP is the base's."""
+    reg = SweepRunRegistry(sweep.root + "/sweep")
+    man = reg.load_manifest(sweep.sweep_run_id)
+    for pt in man["points"]:
+        pt["runs"].pop("const")
+    man["declaration"]["steps"] = ["opt"]
+    reg.update(sweep.sweep_run_id, manifest=man)
+    stats = SweepStatsDiagnostic(sweep.sweep_run_id, root=sweep.root, edge_groups=GROUPS)
+    df = stats.points_frame()
+    assert df.loc[0, "J_base_at_point"] == 0.0
+    # Without a const step a point is scored under the base QP twice over: its own
+    # J is the base's J at its posterior.
+    J_base_opt = df.loc[0, "J_own"]
+    assert df.loc[1, "J_own"] == pytest.approx(J_base_opt + df.loc[1, "J_base_at_point"],
+                                               rel=1e-10)
 
 
 class TestSensitivityTable:
@@ -148,6 +166,21 @@ class TestSensitivityTable:
         assert o["main_effect_range"] == pytest.approx(2.0, rel=1e-12)
         assert np.isnan(o["srrc"]) and np.isnan(o["spearman"])
 
+    def test_a_nominal_axis_is_controlled_for_so_it_does_not_leak_into_the_others(self):
+        """y = a + 1000·[o is the second order]: rank(y) is exactly 0.5·rank(a) plus a
+        shift per level, so with o's levels in the regression SRRC(a) is 0.5; left out,
+        o's effect would leak into a's coefficient."""
+        orders = [["trade", "network"], ["network", "trade"]]
+        a = np.linspace(1.1, 1.5, 10)
+        o = [orders[i % 2] for i in range(10)]
+        y = a + 1000.0 * np.array([i % 2 for i in range(10)])
+        frame = pd.DataFrame({"o": o, "a": a, "y": y})
+        axes = [{"keys": ["o"], "values": orders},
+                {"keys": ["a"], "distribution": "uniform"}]
+        t = sensitivity_table(frame, axes, ["y"], mode="random").set_index(
+            ["axis", "statistic"])["value"]
+        assert t[("a", "srrc")] == pytest.approx(0.5, rel=1e-9)
+
     def test_a_tied_axis_is_labelled_by_all_its_keys(self):
         frame = pd.DataFrame({"imp.P_PROP": np.linspace(1.1, 1.5, 6),
                               "y": np.linspace(0, 1, 6)})
@@ -162,4 +195,5 @@ def test_the_diag_draws_its_four_figures_and_names_the_top_axis(sweep, tmp_path)
     assert len(paths) == 4 and all(p.endswith(".png") for p in paths)
     text = diag.summary()
     assert "const.ANCHOR_CV" in text and "failed" in text
+    assert "top axis per outcome" in text and "mass_moved_total" in text
     assert "hard-row floor" in text and "breaking" not in text

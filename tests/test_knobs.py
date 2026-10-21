@@ -65,7 +65,8 @@ class TestParseOverrides:
     def test_a_pair_without_equals_is_refused_and_a_later_pair_wins(self):
         with pytest.raises(ValueError):
             parse_overrides(["P_PROP"], KNOBS, _ns())
-        assert parse_overrides(["P_PROP=1.1", "P_PROP=1.2"], KNOBS, _ns()) == {"P_PROP": 1.2}
+        got = parse_overrides(["P_PROP=1.1", "P_PROP=1.2"], KNOBS, _ns())
+        assert got == {"P_PROP": 1.2}
 
     def test_a_float_repr_round_trips_exactly(self):
         x = 0.1 + 0.2

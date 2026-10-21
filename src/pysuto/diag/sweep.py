@@ -36,8 +36,10 @@ _N_CATEGORIES = 12
 # A point breaks the base's hard rows when it misses one by more than this (kt). The base
 # itself sits at its equality floor, ≈ 1.6e-6 kt on opt_20261020_112726_2f451f31 (#33).
 HARD_BREACH_TOL_KT = 1e-3
-_FAMILY_LABELS = {"edges": "edge defects", "sum_rows": "sum-row residuals",
-                  "soft_ratios": "soft-ratio residuals", "other_soft": "other soft residuals"}
+_FAMILY_LABELS = {"edges":       "edge defects",
+                  "sum_rows":    "sum-row residuals",
+                  "soft_ratios": "soft-ratio residuals",
+                  "other_soft":  "other soft residuals"}
 
 
 class SweepDiag:
@@ -71,10 +73,17 @@ class SweepDiag:
         df = self.stats.points_frame()
         return df[df["status"] == "done"].reset_index(drop=True)
 
-    def _ranking(self) -> pd.DataFrame:
-        stat = "srrc" if self.stats.mode == "random" else "main_effect_range"
+    def _stat(self) -> tuple:
+        """The statistic that ranks the axes: (column value, label)."""
+        if self.stats.mode == "random":
+            return "srrc", "SRRC"
+        return "main_effect_range", "main-effect range"
+
+    def _ranking(self, outcome: Optional[str] = None) -> pd.DataFrame:
+        stat = self._stat()[0]
         t = self.stats.sensitivity()
-        t = t[(t["outcome"] == self.outcome) & (t["statistic"] == stat)].dropna(subset=["value"])
+        t = t[(t["outcome"] == (outcome or self.outcome)) & (t["statistic"] == stat)]
+        t = t.dropna(subset=["value"])
         return t.reindex(t["value"].abs().sort_values(ascending=False).index)
 
     # ------------------------------------------------------------------
@@ -93,7 +102,7 @@ class SweepDiag:
 
     def _fig_sensitivity(self, plt):
         rank = self._ranking()
-        stat = "SRRC" if self.stats.mode == "random" else "main-effect range"
+        stat = self._stat()[1]
         fig, ax = plt.subplots(figsize=(7, 0.5 * max(len(rank), 2) + 1.5))
         if len(rank):
             ax.barh(np.arange(len(rank)), rank["value"], color=_CAT8[0], height=0.6)
@@ -137,7 +146,8 @@ class SweepDiag:
         bottom_pos = np.zeros(len(done))
         bottom_neg = np.zeros(len(done))
         for k, f in enumerate(FAMILIES):
-            v = done[f"J_base_at_point_{f}"].to_numpy(dtype=float) if len(done) else np.zeros(0)
+            v = (done[f"J_base_at_point_{f}"].to_numpy(dtype=float) if len(done)
+                 else np.zeros(0))
             base = np.where(v >= 0, bottom_pos, bottom_neg)
             ax.bar(done["index"], v, bottom=base, color=_CAT8[k], width=0.7,
                    edgecolor="white", linewidth=1, label=_FAMILY_LABELS[f])
@@ -169,7 +179,8 @@ class SweepDiag:
         ax.set_xlabel("retention Σa*/Σa_prior (all years)")
         ax.set_title(f"SW-R-04  retention of the {len(top)} most-moved categories")
         if top:
-            ax.legend(frameon=False, fontsize=8, loc="upper left", bbox_to_anchor=(1.01, 1.0))
+            ax.legend(frameon=False, fontsize=8, loc="upper left",
+                      bbox_to_anchor=(1.01, 1.0))
         _apply_modern_style(ax)
         return fig
 
@@ -182,9 +193,16 @@ class SweepDiag:
                  "  status: " + ", ".join(f"{s} {n}" for s, n in
                                           df["status"].value_counts().items())]
         rank = self._ranking()
-        stat = "SRRC" if self.stats.mode == "random" else "main-effect range"
+        stat = self._stat()[1]
         lines.append(f"  axes by |{stat}| of {self.outcome}:")
-        lines += [f"    {r.axis:<40s} {r.value:+.4g}  (n = {r.n})" for r in rank.itertuples()]
+        lines += [f"    {r.axis:<40s} {r.value:+.4g}  (n = {r.n})"
+                  for r in rank.itertuples()]
+        lines.append(f"  top axis per outcome (|{stat}|):")
+        for out in self.stats.outcomes():
+            top = self._ranking(out)
+            if len(top):
+                lines.append(f"    {out:<34s} {top['axis'].iloc[0]} "
+                             f"({top['value'].iloc[0]:+.3g})")
         unranked = {axis_label(a) for a in self.stats.axes} - set(rank["axis"])
         if unranked:
             lines.append(f"  without a {stat}: {', '.join(sorted(unranked))} "
@@ -194,13 +212,14 @@ class SweepDiag:
                          f"{self.stats.base_max_hard_violation:.2g} kt")
             bad = df[df["max_hard_violation_base"] > HARD_BREACH_TOL_KT]
             if len(bad):
-                lines.append(f"  points breaking the base's hard rows (> {HARD_BREACH_TOL_KT:g}"
-                             f" kt): {list(bad['index'])} — their J_base_at_point is not a "
-                             f"comparison at a feasible point")
+                lines.append(f"  points breaking the base's hard rows "
+                             f"(> {HARD_BREACH_TOL_KT:g} kt): {list(bad['index'])} — their "
+                             f"J_base_at_point is not a comparison at a feasible point")
         failed = df[df["status"] == "failed"]["index"].tolist()
         if failed:
             lines.append(f"  failed points: {failed} (their logs are in the manifest)")
-        lines.append("  J_own compares only points whose σ-defining knobs equal the base's.")
+        lines.append("  J_own compares only points whose σ-defining knobs equal the "
+                     "base's.")
         text = "\n".join(lines)
         print(text)
         return text

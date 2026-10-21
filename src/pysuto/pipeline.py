@@ -46,8 +46,11 @@ from pathlib import Path
 from typing import Mapping, Optional, Sequence
 
 import numpy as np
+import scipy
+from scipy.stats import loguniform, qmc, uniform
 
 from pysuto.logging import get_logger
+from pysuto.registry import SweepRunRegistry
 
 _log = get_logger("pysuto.pipeline")
 
@@ -96,7 +99,8 @@ class StepFailed(RuntimeError):
     """A step's driver exited non-zero; ``tail`` holds the end of its output."""
 
     def __init__(self, step: str, returncode: int, tail: str, log_path: str) -> None:
-        self.step, self.returncode, self.tail, self.log_path = step, returncode, tail, log_path
+        self.step, self.returncode = step, returncode
+        self.tail, self.log_path = tail, log_path
         super().__init__(f"step {step!r} exited {returncode} (log {log_path}):\n{tail}")
 
 
@@ -121,12 +125,11 @@ class Pipeline:
     scripts_dir : where the drivers live; default ``<cwd>/scripts``.
     log_dir : where each step's combined stdout/stderr is written; default
         ``<cwd>/logs/pipeline``.
-    python : the interpreter the drivers run under; default this one.
     """
 
     def __init__(self, steps: tuple = STEPS, base: Optional[Chain] = None,
                  cwd: Optional[str] = None, scripts_dir: Optional[str] = None,
-                 log_dir: Optional[str] = None, python: str = sys.executable) -> None:
+                 log_dir: Optional[str] = None) -> None:
         steps = tuple(steps)
         if not _is_contiguous_slice(steps):
             raise ValueError(f"steps {steps} must be a contiguous slice of {STEPS}")
@@ -137,7 +140,6 @@ class Pipeline:
         self.cwd         = str(cwd or REPO_ROOT)
         self.scripts_dir = str(scripts_dir or os.path.join(self.cwd, "scripts"))
         self.log_dir     = str(log_dir or os.path.join(self.cwd, "logs", "pipeline"))
-        self.python      = python
 
     # ------------------------------------------------------------------
     def check_overrides(self, overrides: Mapping[str, object]) -> dict:
@@ -156,16 +158,19 @@ class Pipeline:
                 raise ValueError(f"tied knobs {' and '.join(live)} must be set together; "
                                  f"only {', '.join(given)} is")
             if len({repr(overrides[k]) for k in given}) > 1:
-                raise ValueError(f"tied knobs {' and '.join(live)} must share one value, got "
-                                 + ", ".join(f"{k}={overrides[k]!r}" for k in given))
+                got = ", ".join(f"{k}={overrides[k]!r}" for k in given)
+                raise ValueError(f"tied knobs {' and '.join(live)} must share one value, "
+                                 f"got {got}")
         return by_stage
 
     def run(self, overrides: Mapping[str, object], label: str) -> Chain:
-        """Run every step with its overrides and return the new chain."""
+        """Run every step with its overrides and return the new chain: the base's runs
+        before the steps, the new runs, and no run after them."""
         by_stage = self.check_overrides(overrides)
-        chain = self.base
+        chain = replace(self.base, **{s: None for s in _after(self.steps)})
         for step in self.steps:
-            chain = replace(chain, **{step: self.run_step(step, chain, by_stage[step], label)})
+            rid = self.run_step(step, chain, by_stage[step], label)
+            chain = replace(chain, **{step: rid})
         return chain
 
     def run_step(self, step: str, upstream: Chain, knobs: Mapping[str, object],
@@ -189,7 +194,7 @@ class Pipeline:
         return run_id
 
     def _command(self, step, upstream, knobs, label, rid_file) -> list:
-        cmd = [self.python, os.path.join(self.scripts_dir, _SCRIPTS[step])]
+        cmd = [sys.executable, os.path.join(self.scripts_dir, _SCRIPTS[step])]
         if step == "imp":
             for feed in upstream.feed_run_ids:
                 cmd += ["--feed-id", feed]
@@ -201,6 +206,11 @@ class Pipeline:
         for knob, value in knobs.items():
             cmd += ["--set", f"{knob}={value!r}"]
         return cmd + ["--run-id-file", rid_file]
+
+
+def _after(steps: tuple) -> tuple:
+    """The stages after a contiguous slice of :data:`STEPS`."""
+    return STEPS[STEPS.index(steps[-1]) + 1:]
 
 
 def _is_contiguous_slice(steps: tuple) -> bool:
@@ -257,7 +267,6 @@ class Axis:
     def interval(cls, keys, lo: float, hi: float, log: bool = False) -> "Axis":
         """Uniform on ``[lo, hi]``, or log-uniform when ``log`` (for a knob that spans
         decades, such as a σ floor)."""
-        from scipy.stats import loguniform, uniform
         if not lo < hi:
             raise ValueError(f"interval needs lo < hi, got [{lo}, {hi}]")
         return cls(keys, loguniform(lo, hi) if log else uniform(lo, hi - lo))
@@ -346,7 +355,6 @@ class Sweep:
             rows = itertools.product(*(ax.values for ax in self.axes))
             values = [[_plain(v) for v in row] for row in rows]
         else:
-            from scipy.stats import qmc
             u = qmc.LatinHypercube(d=len(self.axes), scramble=True,
                                    seed=self.seed).random(self.n_points)
             values = [[ax.sample(ui) for ax, ui in zip(self.axes, row)] for row in u]
@@ -377,7 +385,10 @@ class Sweep:
 
     def declaration(self) -> dict:
         """What defines the sweep's points, as recorded in its sidecar and manifest."""
-        return {"steps": list(self.pipeline.steps), "mode": self.mode,
+        base = self.pipeline.base
+        return {"base": {"feed_run_ids": list(base.feed_run_ids), "imp": base.imp,
+                         "const": base.const, "opt": base.opt},
+                "steps": list(self.pipeline.steps), "mode": self.mode,
                 "n_points": len(self._points), "seed": self.seed,
                 "axes": [ax.describe() for ax in self.axes],
                 "fixed": {k: _plain(v) for k, v in self.fixed.items()}}
@@ -394,7 +405,6 @@ class Sweep:
         a sweep: it refuses a sweep declared differently or a checkout at another
         commit, and reruns every point not ``done``.
         """
-        from pysuto.registry import SweepRunRegistry
         reg = SweepRunRegistry(os.path.join(self.pipeline.cwd, "data", "proc", "sweep"))
         decl = self.declaration()
         commit, dirty = _git_state(self.pipeline.cwd)
@@ -413,17 +423,25 @@ class Sweep:
                     "feed_run_ids": list(base.feed_run_ids), "imp_run_id": base.imp,
                     "const_run_id": base.const, "opt_run_id": base.opt}},
                 stage_config=decl | {"commit": commit, "dirty": dirty,
-                                     "scipy": _scipy_version()},
+                                     "scipy": scipy.__version__},
                 stage_summary=_summary(manifest, 0.0))
             manifest = reg.load_manifest(sid)
         else:
             sid, manifest = resume, reg.load_manifest(resume)
-            if json.loads(json.dumps(manifest["declaration"])) != json.loads(json.dumps(decl)):
+            if _canonical(manifest["declaration"]) != _canonical(decl):
                 raise ValueError(f"sweep {sid} was declared differently; resume it with "
                                  f"the declaration in its sidecar")
             if manifest["commit"] != commit:
                 raise RuntimeError(f"sweep {sid} ran at commit {manifest['commit']}, the "
                                    f"checkout is at {commit}; its points would not compare")
+            drawn = [_canonical({k: _plain(v) for k, v in pt.items()})
+                     for pt in self._points]
+            if [_canonical(p["overrides"]) for p in manifest["points"]] != drawn:
+                raise ValueError(f"sweep {sid}: this declaration's points were drawn "
+                                 f"differently (another scipy?); resume it where it ran")
+            if dirty:
+                _log.warning("resuming sweep %s in a checkout with uncommitted changes to "
+                             "tracked files; its points may not compare", sid)
             self._check_disk([p["index"] for p in manifest["points"]
                               if p["status"] != "done"])
 
@@ -488,6 +506,12 @@ class Sweep:
                                f"{free:.2f} GB are free")
 
 
+def _canonical(obj) -> str:
+    """One JSON form for values read back from a manifest and values in memory (a tuple
+    and the list it serialises to compare equal)."""
+    return json.dumps(obj, sort_keys=True)
+
+
 def _memo_key(step: str, chain: Chain, knobs: Mapping[str, object]) -> tuple:
     upstream = {"imp": tuple(chain.feed_run_ids), "const": chain.imp,
                 "opt": chain.const}[step]
@@ -518,11 +542,6 @@ def _git_state(cwd: str) -> tuple:
     status = subprocess.run(["git", "status", "--porcelain", "--untracked-files=no"],
                             cwd=cwd, capture_output=True, text=True, env=env)
     return head.stdout.strip(), bool(status.stdout.strip())
-
-
-def _scipy_version() -> str:
-    import scipy
-    return scipy.__version__
 
 
 def _now() -> str:

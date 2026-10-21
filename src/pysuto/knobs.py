@@ -59,7 +59,8 @@ def parse_overrides(pairs: Iterable[str], knobs: Iterable[str],
             value = ast.literal_eval(text.strip())
         except (ValueError, SyntaxError):
             if not isinstance(default, str):
-                raise ValueError(f"--set {name}: {text!r} is not a Python literal") from None
+                raise ValueError(f"--set {name}: {text!r} is not a Python "
+                                 f"literal") from None
             value = text.strip()
         _check_type(name, value, default)
         out[name] = value
@@ -94,7 +95,7 @@ def add_knob_args(parser) -> None:
                         help="Override a knob of this driver (repeatable); VALUE is a "
                              "Python literal. See the driver's KNOBS.")
     parser.add_argument("--run-id-file", default=None, metavar="PATH",
-                        help="Write the persisted run id to PATH (used by pysuto.pipeline).")
+                        help="Write the persisted run id to PATH (pysuto.pipeline).")
 
 
 def write_run_id(path: str | None, run_id: str) -> None:

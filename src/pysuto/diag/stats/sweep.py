@@ -94,12 +94,24 @@ def sensitivity_table(frame: pd.DataFrame, axes: Sequence[dict],
         if mode == "random":
             numeric = [ax for ax in axes if _is_numeric_axis(ax)]
             z_y = _standardised_ranks(y) if n > 2 else None
-            zs = {axis_label(ax): _standardised_ranks(cols[axis_label(ax)].to_numpy(dtype=float))
+            zs = {axis_label(ax):
+                  _standardised_ranks(cols[axis_label(ax)].to_numpy(dtype=float))
                   for ax in numeric}
             usable = [k for k, z in zs.items() if z is not None]
+            # A nominal list axis has no order to rank, so it gets no SRRC; its levels
+            # still enter as indicators, or its effect would leak into the others'.
+            dummies = []
+            for ax in axes:
+                if ax in numeric:
+                    continue
+                lev = _levels(ax, cols[axis_label(ax)])
+                for k in np.unique(lev)[1:]:
+                    d = (lev == k).astype(float)
+                    if d.std() > 0:
+                        dummies.append((d - d.mean()) / d.std())
             coef = {}
-            if z_y is not None and usable and n > len(usable) + 1:
-                X = np.column_stack([zs[k] for k in usable])
+            if z_y is not None and usable and n > len(usable) + len(dummies) + 1:
+                X = np.column_stack([zs[k] for k in usable] + dummies)
                 beta = np.linalg.lstsq(X, z_y, rcond=None)[0]
                 coef = dict(zip(usable, beta))
             for ax in axes:
@@ -207,8 +219,10 @@ class SweepStatsDiagnostic:
         groups = self._groups(base_run)
         n_e = base_run.G.shape[1]
         if len(groups) != n_e:
-            raise ValueError(f"edge_groups has {len(groups)} rows, the base run {n_e} edges")
-        cat = (groups["category"].astype(str) + " " + groups["valuation"].astype(str)).to_numpy()
+            raise ValueError(f"edge_groups has {len(groups)} rows, the base run "
+                             f"{n_e} edges")
+        cat = (groups["category"].astype(str) + " "
+               + groups["valuation"].astype(str)).to_numpy()
         cats, cat_code = np.unique(cat, return_inverse=True)
         vals, val_code = np.unique(groups["valuation"].astype(str).to_numpy(),
                                    return_inverse=True)
@@ -246,7 +260,9 @@ class SweepStatsDiagnostic:
             for ax in self.axes:
                 for k in ax["keys"]:
                     row[k] = pt["overrides"].get(k)
-            opt_id, const_id = pt["runs"].get("opt"), pt["runs"].get("const")
+            # A sweep without a const step solves the base's QP at every point.
+            opt_id = pt["runs"].get("opt")
+            const_id = pt["runs"].get("const") or self.base_const
             if pt["status"] != "done" or opt_id is None:
                 point_rows.append(row)
                 continue
@@ -260,9 +276,11 @@ class SweepStatsDiagnostic:
             row["mass_moved_total"] = float(moved.sum())
             for v, m in zip(vals, by(val_code, len(vals), moved)):
                 row[f"mass_moved_{v}"] = float(m)
-            at_base = {t: solver.objective_at(base_run, t, res[t].F_opt, base_res[t].a_prior)
+            at_base = {t: solver.objective_at(base_run, t, res[t].F_opt,
+                                              base_res[t].a_prior)
                        for t in years}
-            row["J_base_at_point"] = sum(at_base[t]["total"] - J_b[t]["total"] for t in years)
+            row["J_base_at_point"] = sum(at_base[t]["total"] - J_b[t]["total"]
+                                         for t in years)
             for f in FAMILIES:
                 row[f"J_base_at_point_{f}"] = sum(at_base[t][f] - J_b[t][f] for t in years)
             row["max_hard_violation_base"] = max(at_base[t]["max_hard_violation"]

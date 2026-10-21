@@ -58,6 +58,15 @@ class TestDriverKnobs:
         pairs = [f"{k}={ns[k]!r}" for k in mod.KNOBS]
         assert parse_overrides(pairs, mod.KNOBS, ns) == {k: ns[k] for k in mod.KNOBS}
 
+    def test_every_knob_value_can_be_recorded_in_the_sidecar(self, stage):
+        """stage_config["overrides"] goes through the registries' JSON encoder."""
+        import json
+        from pysuto.registry import _NpEncoder
+        mod = _load(stage)
+        ns = vars(mod)
+        back = json.loads(json.dumps({k: ns[k] for k in mod.KNOBS}, cls=_NpEncoder))
+        assert set(back) == set(mod.KNOBS)
+
     def test_an_unknown_knob_fails_before_anything_is_loaded(self, stage):
         r = _run(stage, "--set", "NOT_A_KNOB=1")
         assert r.returncode != 0
@@ -105,5 +114,6 @@ class TestCascadeOrder:
 def test_the_feasibility_check_knob_replaces_the_bool():
     mod = _load("opt")
     assert mod.FEASIBILITY_CHECK == "first"
-    assert "FEASIBILITY_CHECK" in mod.KNOBS and "FEASIBILITY_CHECK_FIRST_ONLY" not in mod.KNOBS
+    assert "FEASIBILITY_CHECK" in mod.KNOBS
+    assert "FEASIBILITY_CHECK_FIRST_ONLY" not in mod.KNOBS
     assert not hasattr(mod, "FEASIBILITY_CHECK_FIRST_ONLY")
