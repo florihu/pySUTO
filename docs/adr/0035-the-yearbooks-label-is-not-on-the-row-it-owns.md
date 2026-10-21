@@ -5,6 +5,8 @@
 [ADR 0033](0033-baci-quantity-contradicts-its-own-value.md): ROW's forced deletion is **not** a
 missing-export defect and **not** [ADR 0014](0014-bilateral-feeds-scoped-to-cross-region-edges.md)'s
 folded internal trade. It is phantom mine production, and the model was right to refuse it.
+**Amended 2026-10-21 (#110)**: the 2005 yearbook's merged refinery cells list more source types
+than they hold values; the SX-EW table decides which type has none (see *Amendment (#110)* below).
 
 ## Context
 
@@ -118,3 +120,21 @@ which is a modelling decision, not a parse repair. Recorded in [TODO](../../TODO
 **The `Mining/Total` route is now unused for the 2014 vintage.** `RENAME_TOT`'s
 `('Mining','Total') → 'Concentrate'` mapping stays: it is still correct for a country that genuinely
 reports only a total, and the parse test covers that case.
+
+## Amendment (#110, 2026-10-21): a merged cell lists more types than it holds values
+
+The 2005 refinery table merges a country's source types into one cell, and the cell lists every type
+the country reports in *some* year. Russia's reads `Electrowon Primary Secondary` over `500.0 / 50.0`
+in 1995 (Total 550), a year the yearbook's SX-EW table gives Russia no output. `clean_flows` paired the
+values positionally, so the 500 kt of primary refined copper became electrowon, which the refinery
+table's `SKIP_PAIRS` drops, and the 50 kt of secondary became primary. Russia's 1995–2003 anode intake
+read 50–296 kt against 545–842 kt of smelter output — the only region whose intake jumps at the
+2003→2004 vintage seam (×5.11; every other region 0.60–1.42). The solver deleted Russia's mine chain to
+match it (`CO→Mining` 6,226 → 3,506 kt CC over 1995–2003) and drew 1,030 kt CC from stocks beyond
+|z| 5 to meet BACI's exports: 18.4 % of the scale-total objective in one region (15.4 % on
+`opt_20261019_171746_3272682b`, the earliest chain checked). Where a cell holds fewer values than types and the SX-EW table reports no output for the
+region-year, its Electrowon type is dropped before pairing (`_cell_types`); the rule changes Russia
+1995–2004, Iran 1995–96 and Others 1999–2000 and no other cell. Measured on
+`opt_20261021_131744_58504ad3` (icsg v17, baci v31, trade_shares v39) against
+`opt_20261021_121332_acc68135`: Russia's 1995–2003 scale-total Σz² 171,895 → 2,842, its stock legs
+beyond |z| 5 1,030 → 0 kt CC, common-set sum-row z² **−20.7 %**, Round-E holding.
