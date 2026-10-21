@@ -19,7 +19,8 @@ import pytest
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 from icsg_feed import (OBSERVED_ZERO_FLOOR_KT, icsg_coverage,    # noqa: E402
                        load_trade_shares, non_producer_mask, observed_zero_sigma,
-                       production_zero_mask, raw_production, stamp_observed_zeros)
+                       production_zero_mask, raw_production, reported_elsewhere,
+                       stamp_observed_zeros)
 from pysuto.collector import FeedCollector                        # noqa: E402
 from pysuto.conc import ConcordanceTable, WeightMatrix            # noqa: E402
 from pysuto.unc import PropagationResult                          # noqa: E402
@@ -293,7 +294,7 @@ def test_a_covered_non_miner_says_zero_on_its_mine_and_sxew_output_only():
     edges = _chain("Germany")
     prod = _production(("Concentrate", "Germany", "2018", 0.0),
                        ("CSXEW", "Germany", "2018", 0.0))
-    mask = production_zero_mask(edges, prod, _cov("Germany"), len(edges))
+    mask = production_zero_mask(edges, prod, _cov("Germany"), len(edges), set())
     assert _stamped(edges, mask) == [("Germany", "MF", "Concentrate", "CC"),
                                      ("Germany", "SXEW", "CSXEW", "CC")]
 
@@ -304,14 +305,15 @@ def test_a_miner_and_row_say_no_output_zero():
     prod = _production(("Concentrate", "Chile", "2018", 5000.0),
                        ("CSXEW", "Chile", "2018", 1500.0),
                        ("Concentrate", "ROW", "2018", 0.0), ("CSXEW", "ROW", "2018", 0.0))
-    assert not production_zero_mask(edges, prod, _cov("Chile"), len(edges)).any()
+    assert not production_zero_mask(edges, prod, _cov("Chile"), len(edges), set()).any()
 
 
 def test_a_miner_without_sxew_says_zero_on_its_sxew_output_only():
     """Papua New Guinea mines concentrate and reports no SX-EW cathode."""
     edges = _chain("Papua New Guinea")
     prod = _production(("Concentrate", "Papua New Guinea", "2018", 100.0))
-    mask = production_zero_mask(edges, prod, _cov("Papua New Guinea"), len(edges))
+    mask = production_zero_mask(edges, prod, _cov("Papua New Guinea"), len(edges),
+                                set())
     assert _stamped(edges, mask) == [("Papua New Guinea", "SXEW", "CSXEW", "CC")]
 
 
@@ -327,9 +329,50 @@ def test_the_output_test_reads_raw_icsg_mine_and_sxew_production(monkeypatch):
                                    ("CSXEW", "Chile", "2018"): 1500.0}, set()))
     edges = _chain("Chile", "Germany")
     mask = production_zero_mask(edges, raw_production(edges), _cov("Chile", "Germany"),
-                                len(edges))
+                                len(edges), set())
     assert _stamped(edges, mask) == [("Germany", "MF", "Concentrate", "CC"),
                                      ("Germany", "SXEW", "CSXEW", "CC")]
+
+
+def _ore_grade(*rows):
+    return pd.DataFrame(rows, columns=["a_sector_from", "a_region_from", "a_time"])
+
+
+def test_crude_ore_and_ore_grade_rows_report_mining_and_sxew_elsewhere():
+    """Malaysia's crude ore is reported in 1995 (Mamut), not in 2000, and a zero ore mass
+    reports nothing. An ore-grade row reports the output its from-sector names."""
+    ore = pd.DataFrame({"Region": ["Malaysia", "Malaysia", "Korea"],
+                        "Year": [1995, 2000, 1995], "Value": [3931.0, 0.0, 3.8]})
+    rmap = _region_map(("Malaysia", "Malaysia"), ("Korea", "Korea, Rep."))
+    grades = _ore_grade(("CO", "Spain", "2002"), ("SXEW", "Spain", "2009"),
+                        ("MF", "Spain", "2009"))
+    assert reported_elsewhere(ore, rmap, grades) == {
+        ("Concentrate", "Malaysia", "1995"), ("Concentrate", "Korea, Rep.", "1995"),
+        ("Concentrate", "Spain", "2002"), ("CSXEW", "Spain", "2009")}
+
+
+def test_a_covered_non_miner_with_crude_ore_mining_keeps_no_mine_zero():
+    """#97 guard: ICSG lists Malaysia but not its 1995 mine, which the crude-ore feed
+    reports at 3.9 Mt of ore: ICSG's missing row is missing data, and a zero there would
+    contradict the crude-ore feed (ADR 0019). No input reports SX-EW, so that zero
+    stands."""
+    edges = _chain("Malaysia", t="1995")
+    prod = _production(("Concentrate", "Malaysia", "1995", 0.0),
+                       ("CSXEW", "Malaysia", "1995", 0.0))
+    ore = pd.DataFrame({"Region": ["Malaysia"], "Year": [1995], "Value": [3931.0]})
+    elsewhere = reported_elsewhere(ore, _region_map(("Malaysia", "Malaysia")),
+                                   _ore_grade())
+    mask = production_zero_mask(edges, prod, _cov("Malaysia", years=("1995",)),
+                                len(edges), elsewhere)
+    assert _stamped(edges, mask) == [("Malaysia", "SXEW", "CSXEW", "CC")]
+
+
+def test_an_sxew_ore_grade_row_spares_the_sxew_zero():
+    edges = _chain("Spain", t="2009")
+    prod = _production(("Concentrate", "Spain", "2009", 50.0))
+    mask = production_zero_mask(edges, prod, _cov("Spain", years=("2009",)), len(edges),
+                                {("CSXEW", "Spain", "2009")})
+    assert not mask.any()
 
 
 # ---------------------------------------------------------------------------

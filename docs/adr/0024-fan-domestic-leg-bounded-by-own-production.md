@@ -238,13 +238,23 @@ of non-refiners stayed imputable (#96).
   SX-EW supply on, at σ = 0.3 kt CC (#76's rule with no fan usage: ICSG's reporting resolution,
   ADR 0025). The hard efficiency bands and mass balances carry the zero to Ore, Mining, CO,
   the tailings and CSXEW→CP, so none of those is stamped twice. `OBSERVED_ZERO_SECTORS` adds Cathode.
+- **Not stamped where another input reports the output.** That is crude ore > 0 in the crude-ore
+  feed, or an ore-grade row starting at CO, for the mine; an ore-grade row starting at SXEW, for
+  SX-EW. There ICSG has folded a small producer into "Others": its missing row is missing data,
+  and a zero would contradict the other input (ADR 0019).
 
-Dry count on icsg v16 and trade_shares v38: 1,489 output zeros (516 `MF→Concentrate` region-years
-in 21 regions, 973 `SXEW→CSXEW` in 38) and 253 cathode legs (France, Greece, the Netherlands,
-Switzerland and Taiwan 30 each). The 82 concentrate legs are those of
-`feed_icsg_20261021_095747_f99c73a2`, leg for leg. To be measured. The solver must now settle in
-the open what a phantom mine supplied: 582 kt CC of concentrate export priors leave these
-regions' Concentrate nodes (Malaysia 144, the UAE 132) and 556 kt CC of smelter-recipe
-concentrate intake sits on their domestic legs (Belgium 371, Italy 160). The crude-ore feed
-reports ore in 60 of the region-years, most of it in Malaysia 1995–99 (1.9–3.9 Mt of ore a year,
-with an ore-grade row).
+Dry count on icsg v16, trade_shares v38, crude_ore v3 and ore_grade v8: 1,429 output zeros and 253
+cathode legs (France, Greece, the Netherlands, Switzerland and Taiwan 30 each).
+- `MF→Concentrate`: 456 region-years in 20 regions. The guard spares the 60 region-years where the
+  crude-ore feed reports ore: Slovakia 28, Korea 12, Germany 2015–22, Malaysia 1995–99 (1.9–3.9 Mt
+  of ore a year), France 1995–97, Japan 2005–06 and Spain 2002–03. Their ore-grade rows add none.
+- `SXEW→CSXEW`: 973 region-years in 38 regions. 457 of them are in region-years with ICSG mine
+  output but no ICSG SX-EW output, so the zero there reads "this mine has no SX-EW plant"; the REP
+  reports them apart from the 516 with neither. No ore-grade SX-EW row falls in any of the 973.
+- The 82 concentrate legs are those of `feed_icsg_20261021_095747_f99c73a2`, leg for leg. 24 of
+  them sit in region-years the guard spares, and they stay stamped as #78 shipped them.
+
+To be measured. The solver must now settle in the open what a phantom mine supplied: 451 kt CC of
+concentrate export priors leave the stamped regions' Concentrate nodes (the UAE 132, Switzerland
+59), and 556 kt CC of smelter-recipe concentrate intake sits on their domestic legs (Belgium 371,
+Italy 160).

@@ -77,6 +77,13 @@ PRODUCTION_EDGES       = (("MF", "Concentrate"), ("SXEW", "CSXEW"))
 # Regions whose zero is never a report: ROW is the sum of the members ICSG lists, with
 # its "Others" rows among them.
 AGGREGATE_REGIONS      = ("ROW",)
+# Other registered inputs that report a mine or an SX-EW plant: where one does, ICSG's
+# missing row is missing data (a small producer under "Others"), and the output edge is
+# not stamped (ADR 0019). The crude-ore feed reports mining wherever its ore mass is
+# > 0; an ore-grade row reports the product its from-sector names, by region-year.
+CRUDE_ORE_ID           = "crude_ore"
+ORE_GRADE_ID           = "ore_grade"
+ORE_GRADE_ACTIVITY     = {"CO": "Concentrate", "SXEW": "CSXEW"}
 # ACC_ID is loaded from config/config.yaml → pipeline.acc_id below, after
 # the pysuto package is added to sys.path.
 
@@ -346,6 +353,26 @@ def icsg_coverage(raw_df: pd.DataFrame, region_map_df: pd.DataFrame, years,
     return {(r, str(t)) for r in regions for t in years} - set(aggregate_of)
 
 
+def reported_elsewhere(crude_ore_df: pd.DataFrame, crude_ore_region_map: pd.DataFrame,
+                       ore_grade_df: pd.DataFrame) -> set[tuple[str, str, str]]:
+    """``(product, region, year)`` where another registered input reports the output (#97).
+
+    Mining (``Concentrate``) wherever the crude-ore feed's ore mass is > 0, and wherever
+    an ore-grade row starts at ``CO``; SX-EW (``CSXEW``) wherever one starts at
+    ``SXEW`` (``ORE_GRADE_ACTIVITY``). There ICSG's missing row is a gap, and a zero
+    stamped on it would contradict that input (ADR 0019).
+    """
+    region = crude_ore_df["Region"].map(dict(zip(crude_ore_region_map["src_region"],
+                                                 crude_ore_region_map["root_region"])))
+    ore = crude_ore_df.assign(region=region, year=crude_ore_df["Year"].astype(str))
+    ore = ore.groupby(["region", "year"])["Value"].sum()
+    out = {("Concentrate", r, y) for (r, y), v in ore.items() if v > 0}
+    rows = ore_grade_df[ore_grade_df["a_sector_from"].isin(list(ORE_GRADE_ACTIVITY))]
+    out |= set(zip(rows["a_sector_from"].map(ORE_GRADE_ACTIVITY), rows["a_region_from"],
+                   rows["a_time"].astype(str)))
+    return out
+
+
 def raw_production(edges: pd.DataFrame) -> pd.DataFrame:
     """Raw ICSG production, CC, of every product the observed zeros test (#96, #97).
 
@@ -397,11 +424,12 @@ def non_producer_mask(edges: pd.DataFrame, production: pd.DataFrame, covered: se
 
 
 def production_zero_mask(edges: pd.DataFrame, production: pd.DataFrame, covered: set,
-                         n_edges: int) -> np.ndarray:
+                         n_edges: int, elsewhere: set) -> np.ndarray:
     """Per root edge: True on a covered non-producer's mine or SX-EW output (#97, #31).
 
     The edge is a ``PRODUCTION_EDGES`` pair in CC, the valuation ICSG reports, in a
-    covered region-year that produces none of the product. Only the output edge is
+    covered region-year that produces none of the product, and no other input reports
+    that output there (``elsewhere``, from ``reported_elsewhere``). Only the output edge is
     stamped; hard rows carry the zero up the chain. The efficiency bands (output ≥
     eff_min · input) hold Ore→MF and Ore→SXEW at the output's zero, and the mass
     balances follow: MF's and SXEW's own leave their tailings nothing, the Ore node's
@@ -414,9 +442,11 @@ def production_zero_mask(edges: pd.DataFrame, production: pd.DataFrame, covered:
     """
     pair = pd.MultiIndex.from_frame(edges[["root_sector_from", "root_sector_to"]])
     out = edges[pair.isin(PRODUCTION_EDGES) & (edges["valuation"] == "CC").to_numpy()]
+    key = [out["root_sector_to"], out["root_region_to"], out["root_time"]]
     mask = np.zeros(n_edges, dtype=bool)
-    mask[out["edge_id"].to_numpy()] = _produces_none(
-        out["root_sector_to"], out["root_region_to"], out["root_time"], production, covered)
+    mask[out["edge_id"].to_numpy()] = (
+        _produces_none(*key, production, covered)
+        & ~pd.MultiIndex.from_arrays([k.to_numpy() for k in key]).isin(elsewhere))
     return mask
 
 
@@ -603,13 +633,23 @@ def main() -> None:
     F_src  = build_F_src(raw_df, ct)
     result, row_summary = propagate(wm, F_src, meta, acc)
     edges      = _decoded_edges(acc)
-    input_ref[AGGREGATES_ID] = inputs.params.entry(AGGREGATES_ID)
+    reader     = InputRegistries.load(root=_INPUT_ROOT)
+    ore_dir    = reader.feed.resolve(CRUDE_ORE_ID)
+    input_ref[AGGREGATES_ID] = reader.params.entry(AGGREGATES_ID)
+    input_ref[CRUDE_ORE_ID]  = reader.feed.entry(CRUDE_ORE_ID)
+    input_ref[ORE_GRADE_ID]  = reader.params.entry(ORE_GRADE_ID)
     covered    = icsg_coverage(
         raw_df, tables["region_map"], sorted(edges["root_time"].unique()),
-        icsg_aggregate_members(inputs.params.resolve(AGGREGATES_ID) / "params.csv"))
+        icsg_aggregate_members(reader.params.resolve(AGGREGATES_ID) / "params.csv"))
+    elsewhere  = reported_elsewhere(
+        pd.read_csv(ore_dir / "values.csv"),
+        pd.read_excel(ore_dir / "conc.xlsx", sheet_name="region_map"),
+        pd.read_csv(reader.params.resolve(ORE_GRADE_ID) / "params.csv",
+                    sep=None, engine="python", dtype=str))
     production = raw_production(edges)
     non_producer    = non_producer_mask(edges, production, covered, len(result.F_root))
-    production_zero = production_zero_mask(edges, production, covered, len(result.F_root))
+    production_zero = production_zero_mask(edges, production, covered, len(result.F_root),
+                                           elsewhere)
     n_zero = stamp_observed_zeros(ct, F_src, result, non_producer, production_zero)
     n_out  = int((result.observed_zero & production_zero).sum())
     print(f"   observed zeros: {n_zero:,} in region-years ICSG covers that produce none of "
