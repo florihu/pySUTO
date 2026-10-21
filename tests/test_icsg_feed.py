@@ -214,11 +214,21 @@ def _production(*rows):
                                        "production_cc"])
 
 
-def test_only_a_non_producers_concentrate_and_cathode_legs_may_carry_an_observed_zero():
+def _full_scope(monkeypatch):
+    """The mechanism with every product it supports: the shipped knobs keep only the
+    SX-EW output zeros and #78's concentrate legs (ADR 0024 am., measured 2026-10-21)."""
+    import icsg_feed
+    monkeypatch.setattr(icsg_feed, "OBSERVED_ZERO_SECTORS", ("Concentrate", "Cathode"))
+    monkeypatch.setattr(icsg_feed, "PRODUCTION_EDGES",
+                        (("MF", "Concentrate"), ("SXEW", "CSXEW")))
+
+
+def test_only_a_non_producers_concentrate_and_cathode_legs_may_carry_an_observed_zero(monkeypatch):
     """Germany mines no concentrate (#32) and France refines no cathode (#96), so their
     domestic legs at weight 0 are observations; Spain mines and Italy refines, so theirs
     are residuals of imports above usage. A missing row is 0 (Chile here). Anode legs
     are not stamped, whatever the region produces."""
+    _full_scope(monkeypatch)
     edges = _edges((0, "Concentrate", "Germany", "2018"), (1, "Concentrate", "Spain", "2018"),
                    (2, "Cathode", "Italy", "2018"), (3, "Concentrate", "Chile", "2018"),
                    (4, "Anode", "Belgium", "2018"), (5, "Cathode", "France", "2018"))
@@ -248,6 +258,7 @@ def test_the_cathode_test_reads_raw_icsg_production(monkeypatch):
     all 1,410 region-years while raw production was positive in 933), so the test reads
     the ADR 0024 bound's raw ICSG production. ICSG reports Italy's refinery and nothing
     for France; France's row must still say 0."""
+    _full_scope(monkeypatch)
     import build_baci_reexport as R
 
     monkeypatch.setattr(
@@ -286,11 +297,12 @@ def _stamped(edges, mask):
                       hit["valuation"]))
 
 
-def test_a_covered_non_miner_says_zero_on_its_mine_and_sxew_output_only():
+def test_a_covered_non_miner_says_zero_on_its_mine_and_sxew_output_only(monkeypatch):
     """Germany mines nothing and runs no SX-EW plant (#97). The edges the feed books
     ICSG's Mining/Concentrate and SXEW/Cathode supply on carry the zero, in CC as ICSG
     reports it. The rest of the chain is not stamped twice: the hard balances and the
     efficiencies take CO→Mining, Ore, Tailings, CSXEW→CP and the Mass twins with it."""
+    _full_scope(monkeypatch)
     edges = _chain("Germany")
     prod = _production(("Concentrate", "Germany", "2018", 0.0),
                        ("CSXEW", "Germany", "2018", 0.0))
@@ -321,6 +333,7 @@ def test_the_output_test_reads_raw_icsg_mine_and_sxew_production(monkeypatch):
     """Chile's mine and SX-EW rows are in ICSG and Germany's are not. No edge of these
     chains leaves a Concentrate node, so the production rows must not depend on which
     edges the frame holds: a missing row reads as 0 and would stamp Chile."""
+    _full_scope(monkeypatch)
     import build_baci_reexport as R
 
     monkeypatch.setattr(
