@@ -1,4 +1,5 @@
 """Unit tests for the feed-time re-export re-attribution (ADR 0027)."""
+import json
 import os
 import shutil
 import sys
@@ -9,6 +10,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 from build_baci_reexport import (  # noqa: E402
+    check_icsg_baci_version,
     check_region_map,
     cv_scale,
     icsg_aggregate_members,
@@ -639,3 +641,26 @@ def test_eff_lookup_does_not_version_an_edited_current(tmp_path, monkeypatch):
 
     assert R._eff_nominals() == {"Smelting": 0.98}
     assert not (tmp_path / "params" / "eff" / "v2").exists()
+
+
+# ---- #63: the netting and the ICSG parse read the same gross BACI version ---
+
+def _icsg_parents(d, baci):
+    (d / "parents.json").write_text(json.dumps(
+        {"inputs": {"feed": {"baci": baci}, "params": {"conc": 10}}}))
+    return d
+
+
+def test_an_icsg_input_parsed_against_the_netted_version_passes(tmp_path):
+    check_icsg_baci_version(_icsg_parents(tmp_path, 28), 28)
+
+
+def test_an_icsg_input_parsed_against_another_baci_version_is_refused(tmp_path):
+    """Its imported-anode subtraction would carry another release's anode trade."""
+    with pytest.raises(ValueError, match=r"baci v26.*nets baci v28.*--baci-version 28"):
+        check_icsg_baci_version(_icsg_parents(tmp_path, 26), 28)
+
+
+def test_an_icsg_input_recording_no_baci_version_is_refused(tmp_path):
+    with pytest.raises(ValueError, match=r"records no baci version.*--baci-version 28"):
+        check_icsg_baci_version(tmp_path, 28)

@@ -213,7 +213,8 @@ The baci and conc versions are recorded in `parents.json` beside the feed's `val
 registry hashes that file, so a parse against another BACI version is another icsg version, and
 #53's check then forces the trade-share rebuild. The new build order is: BACI parse → register →
 `icsg_clean.py --baci-version N --to-feed` → `build_baci_reexport.py --source-version N` → … as
-before. `icsg_imported_anode.csv` lists every region-year that loses copper this way.
+before. The netting refuses an ICSG input whose `parents.json` names another N, or none.
+`icsg_imported_anode.csv` lists every region-year that loses copper this way.
 
 **Dry estimate** (read-only: baci v28, conc v10, the parse input behind icsg v15). Over 1995–2024
 the direct route falls by 770 kt CC world-wide:

@@ -168,6 +168,9 @@ OUT_DIR       = os.path.join(_INPUT_ROOT, "feed", FEED_ID, "current")
 # Hand-authored params input: which root regions an ICSG aggregate row contains,
 # and in which years (#67).
 AGGREGATES_ID = "icsg_aggregates"
+# Written beside the ICSG input's values.csv by `icsg_clean.py --to-feed`: the
+# gross BACI version its imported-anode subtraction read (#63).
+ICSG_PARENTS = "parents.json"
 
 assert "Scrap" not in SECTORS, "Scrap is not traded"
 
@@ -560,6 +563,28 @@ def check_region_map(src_dir: str, current_dir: str = OUT_DIR) -> None:
             + " — re-run the BACI parse, register it, and net that version")
 
 
+def check_icsg_baci_version(icsg_dir: os.PathLike, source_version: int) -> None:
+    """Raise unless the ICSG input at *icsg_dir* was parsed against baci *source_version*.
+
+    The ICSG parse nets imported anode off the direct-to-refinery route using a
+    gross BACI version (#63, ADR 0030 am.), and the netting reads that ICSG input
+    back through ``icsg_intake_production``. Both must read the same gross version,
+    or the ICSG input carries another release's anode trade, silently.
+    """
+    path = os.path.join(icsg_dir, ICSG_PARENTS)
+    recorded = None
+    if os.path.isfile(path):
+        with open(path, encoding="utf-8") as f:
+            recorded = json.load(f).get("inputs", {}).get("feed", {}).get(FEED_ID)
+    if recorded != source_version:
+        read = (f"was parsed against baci v{recorded}" if recorded is not None
+                else f"records no baci version ({ICSG_PARENTS})")
+        raise ValueError(
+            f"the ICSG input at {icsg_dir} {read}, but this nets baci v{source_version} — "
+            f"re-run python scripts/parse/icsg_parse/icsg_clean.py --baci-version "
+            f"{source_version} --to-feed, then this script")
+
+
 def _conc_lookup() -> dict:
     """`conc` supply nominals keyed ``(sector, exporter region)``.
 
@@ -770,7 +795,7 @@ def main(source_version: int = SOURCE_VERSION) -> None:
     print(f"   sectors    : {SECTORS}")
     src_dir = _source_dir(source_version)
     check_region_map(src_dir)
-    _register_inputs()
+    check_icsg_baci_version(_register_inputs().feed.resolve("icsg"), source_version)
 
     conc_lookup = _conc_lookup()
     _wild = {s_: v for (s_, r_), v in conc_lookup.items() if r_ == "*"}

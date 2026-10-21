@@ -75,7 +75,7 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 - Six stages, one driver each: `scripts/*_feed.py` (1) → `collect_aggregate_impute.py` (2) → `constraints.py` (3) → `run_solver.py` (4) → `uncertainty_propagation.py` (5) → `psut.py` (6). README prose still says "five"; six is correct.
 - Run ids are `{feed|imp|const|opt|uncprop|psut}_{YYYYMMDD_HHMMSS}_{8hex}`; feed runs embed the feed name (`feed_<feed_id>_…`).
 - Per-stage `registry.json` is a trimmed index. Lineage lives in each run's `metadata.json` (`parents.inputs` = input versions, `parents.upstream` = parent run ids) — read the sidecar for provenance.
-- Feed build order is load-bearing (ADR 0024, 0027): `build_baci_reexport.py → baci_feed.py`, then `build_trade_shares.py → icsg_feed.py`. Any ICSG or BACI change invalidates the trade-share weights (stale ones once cost 6.2 pp of z²); `icsg_feed.py` refuses weights whose `parents.json` names another BACI feed run or input version (#53) — rebuild them when it does.
+- Feed build order is load-bearing (ADR 0024, 0027, 0030 am.): BACI parse → register gross baci vN → `icsg_clean.py --baci-version N --to-feed` → `build_baci_reexport.py --source-version N` → `baci_feed.py` → `build_trade_shares.py` → `icsg_feed.py`. The netting refuses an ICSG input parsed against another N (#63); `icsg_feed.py` refuses trade-share weights whose `parents.json` names another BACI feed run or input version (#53; stale ones once cost 6.2 pp of z²).
 - `run_solver.py --prior-mode` defaults to `cold` in code although its help text, docstring and GLOSSARY.md say warm — cold is what runs; trust the sidecar's `prior_mode`.
 
 ## Environment & commands

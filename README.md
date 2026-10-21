@@ -209,14 +209,16 @@ cross-cutting (import nothing from the data layer):
 > force. The full order after a feed change is:
 >
 > ```
-> parse → <feed>_clean.py --to-feed → build_baci_reexport.py → baci_feed.py
->                                   → build_trade_shares.py  → icsg_feed.py → Stage 2
+> BACI parse → register gross baci vN → icsg_clean.py --baci-version N --to-feed (→ icsg)
+>   → build_baci_reexport.py --source-version N → baci_feed.py
+>   → build_trade_shares.py → icsg_feed.py → Stage 2
 > ```
 >
 > Since #63 the ICSG parse reads BACI too: `icsg_clean.py --baci-version N` nets imported anode
-> off the direct-to-refinery route using the registered **gross** BACI parse vN, the version
-> `build_baci_reexport.py --source-version N` nets next. A BACI parse change therefore re-runs the
-> ICSG parse before the netting.
+> off the direct-to-refinery route using the registered **gross** BACI parse vN and records N in
+> the ICSG input's `parents.json`. `build_baci_reexport.py --source-version N` refuses to net when
+> that record names another version or none, so a BACI parse change re-runs the ICSG parse before
+> the netting.
 >
 > Check which weights a run used: `data/proc/feed/registry/<feed_id>/metadata.json` →
 > `trade_shares.version`.
