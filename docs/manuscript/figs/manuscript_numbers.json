@@ -2499,6 +2499,14 @@
    "value": 1.0860765242532252e-06,
    "unit": "kt"
   },
+  "si:S6.2.trace_contraction": {
+   "label": "smallest and largest yearly trace contraction 1 − Σσ_a*²/Σσ_a²",
+   "value": [
+    0.9998803227671071,
+    0.9999921797500876
+   ],
+   "unit": ""
+  },
   "method:L175.birge_ratio": {
    "label": "run Birge ratio Σz²/dof (#87; also results.md:68, S6.2)",
    "value": 5.212664149884306,
@@ -2691,6 +2699,36 @@
   "method:L352.sum_share_austria": {
    "label": "Austria's share (#63)",
    "value": 0.00829830633296139,
+   "unit": ""
+  },
+  "method:L352.sum_top_years": {
+   "label": "each of the four largest regions' four years with the largest share of its scale-total Σz² (Uzbekistan: the text's 1995–1998)",
+   "value": {
+    "Congo, D.R.": {
+     "2019": 0.2545858039008957,
+     "2008": 0.1547474856437052,
+     "2012": 0.08676366571259952,
+     "2004": 0.08249743708879279
+    },
+    "South Africa": {
+     "2021": 0.1859263697387618,
+     "2020": 0.13231173876127136,
+     "2023": 0.1269321127666412,
+     "2024": 0.12107362244319197
+    },
+    "Zambia": {
+     "2021": 0.10630351376447887,
+     "2017": 0.0900349091203451,
+     "2018": 0.07478978177570007,
+     "1995": 0.07464912741818032
+    },
+    "Uzbekistan": {
+     "1995": 0.4519879700015113,
+     "1997": 0.1777544474634861,
+     "1998": 0.10938527564133327,
+     "1996": 0.060635909548925365
+    }
+   },
    "unit": ""
   },
   "method:L352.anode_use_total_worst": {

@@ -5,10 +5,11 @@ from the same opt run, and its limitations name the mine chains the solver keeps
 where ICSG reports no mine output, the stock legs beyond |z| 5 and the regions that
 carry the scale-total objective.
 """
+from __future__ import annotations
+
 import os
 import sys
 
-import numpy as np
 import pandas as pd
 import pytest
 
@@ -62,4 +63,14 @@ def test_scale_total_shares_rank_the_regions_by_their_z_squared():
     shares = M.sum_shares_by_region(s)
     assert list(shares) == ["Congo, D.R.", "Zambia"]
     assert shares["Congo, D.R."] == pytest.approx(25.0 / 50.0)
-    assert np.isclose(sum(shares.values()), 1.0)
+    assert sum(shares.values()) == pytest.approx(1.0, rel=1e-12)
+
+
+def test_a_regions_scale_total_z_squared_is_located_in_its_largest_years():
+    s = pd.DataFrame({"type": ["sum"] * 4 + ["ratio"],
+                      "region": ["Uzbekistan"] * 4 + ["Uzbekistan"],
+                      "year": ["1995", "1995", "1997", "2010", "1995"],
+                      "z": [6.0, 0.0, 2.0, 1.0, 50.0]})
+    top = M.top_year_shares(s, ["Uzbekistan"], n=2)
+    assert list(top["Uzbekistan"]) == ["1995", "1997"]
+    assert top["Uzbekistan"]["1995"] == pytest.approx(36.0 / 41.0, rel=1e-12)

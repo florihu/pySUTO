@@ -5,6 +5,8 @@ merge message once closed #98 before its measurement, and a sentence about
 "the fixed #63/#95 items" reads the same way to GitHub. Issues close through
 ``gh issue close --comment`` with their REP; a commit names an issue bare.
 """
+from __future__ import annotations
+
 import os
 import subprocess
 
@@ -25,6 +27,9 @@ def _run(tmp_path, message):
     "Merge branch 'fix/psc-rows': PSC rows skip reported legs (#98)",
     "docs(rep): the prefix #3 and suffixes stay legal",
     "fix(parse): a merged cell drops its Electrowon type (#110)\n\n# fixes #110 in a comment line",
+    "test(hooks): the hook reads the message only (#98)\n"
+    "# ------------------------ >8 ------------------------\n"
+    "+    \"Merge branch 'fix/psc-rows': fix #98\",",
 ])
 def test_a_message_naming_issues_bare_passes(tmp_path, message):
     assert _run(tmp_path, message).returncode == 0
@@ -36,6 +41,7 @@ def test_a_message_naming_issues_bare_passes(tmp_path, message):
     "feat(diag): calibration, closes #87",
     "refactor: Resolves: #12",
     "chore: fixes florihu/pySUTO#53",
+    "docs: Fixes https://github.com/florihu/pySUTO/issues/98",
 ])
 def test_a_closing_keyword_before_an_issue_is_refused(tmp_path, message):
     r = _run(tmp_path, message)

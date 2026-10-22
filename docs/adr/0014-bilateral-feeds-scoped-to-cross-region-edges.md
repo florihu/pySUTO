@@ -7,11 +7,13 @@ bilateral feed now carries **inferred** legs as well as observed ones (re-attrib
 flagged in the ledger and σ-compounded), and a re-attributed pair whose two ends fold to the same
 root region is dropped as mapped self-trade exactly as a source row would be.
 Amended 2026-10-14 (#77): BACI 490 "Other Asia, nes" maps to **Taiwan**, not ROW — the known quirk
-below is resolved; measured by #79.
+below is resolved; measured by #79 and shipped (`opt_20261014_131552_f320b5f7`: Taiwan's undistributed ICSG usage
+15,566 kt CC → 0, common-set z² +1.41 %).
 Amended 2026-10-15 (#84): BACI 178 "Congo" maps to **Congo, D.R.** (it carries DR Congo's cathode:
 3,890 kt exported in 2012–2024, gross baci v19, against Brazzaville's 79 kt of ICSG production) and 711 "Southern African
 Customs Union" to **South Africa** (its trade until BACI splits it in 2000), not ROW. Neither
-creates mapped self-trade: BACI has no 178 ↔ 180 or 711 ↔ 710 rows. Measured by #86.
+creates mapped self-trade: BACI has no 178 ↔ 180 or 711 ↔ 710 rows. Measured by #86 and shipped over its items 5 and 6 (`opt_20261015_093646_ddd9d3d9`: ROW's 2012–2024
+cathode ledger gap +5,829 → +1,951 kt CC, common-set z² −0.75 %).
 Amended 2026-10-19 (#88, with the HS scope of the next amendment): in 2015–2023, 178's rows are **mirror
 duplicates** and the BACI parse drops them (`MIRROR_DUPLICATES`; 3,163.8 kt of refined copper, 70.5 of
 concentrate, 23.1 of anode, 2.2 of matte, gross). DR Congo's own declarations (180), counted over all of HS
@@ -26,7 +28,8 @@ explains (ADR 0019). 178's 2004–2010 concentrate stays open in #88.
 Amended 2026-10-19 (#91): the Cathode sector reads all refined copper, HS 740311 cathodes, 740312 wire bars,
 740313 billets and 740319 other refined, unwrought; the last three were dropped before. Their cross-region
 trade is 0.41–1.35 Mt a year, 4.5–15.1 % of 740311's in the same year (1995–2024, gross; Austria's 2003 refined
-exports: 77.7 %). ADR 0033's copper price stays HS 740311 alone. Measured with #88 by #92.
+exports: 77.7 %). ADR 0033's copper price stays HS 740311 alone. Measured with #88 by #92 and shipped (`opt_20261019_142026_83bfe843`: Austria's 1995–2014
+cathode-use z² 48,500 → 2,624, common-set z² −5.57 %).
 Amended 2026-10-20 (#95): in 2015–2023 the BACI parse keeps, per year and partner, the **larger** of 178's
 and 180's refined-copper exports (HS 7403.1x pooled; `MIRROR_DUPLICATES = {178: (180, 2015, 2023)}`), and it drops
 180's refined copper into Tanzania and Mozambique in every year as **transit declarations** (`TRANSIT_DECLARATIONS
@@ -115,4 +118,4 @@ every unaffected region.
   Taiwan therefore has no trade data (the origin of the Taiwan noisy-zero scrap faucet). Revisit
   as a data decision. **Resolved 2026-10-14 (#77):** 490 is Taiwan's trade in UN Comtrade and BACI,
   and folding it into ROW gave ROW Taiwan's cathode imports, which zeroed ROW's domestic semis share
-  (#76). It maps to Taiwan; measured by #79.
+  (#76). It maps to Taiwan; measured by #79 and shipped (`opt_20261014_131552_f320b5f7`).

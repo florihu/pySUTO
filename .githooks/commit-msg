@@ -5,8 +5,10 @@
 # Enable once per clone:  git config core.hooksPath .githooks   (docs/agents/issue-tracker.md)
 set -euo pipefail
 
-hits=$(grep -v '^#' "$1" \
-       | grep -oiE '\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+([[:alnum:]_.-]+/[[:alnum:]_.-]+)?#[0-9]+' \
+# The message ends at `git commit -v`'s scissors line; the diff below it is not the message.
+REF='(([[:alnum:]_.-]+/[[:alnum:]_.-]+)?#[0-9]+|https?://github\.com/[^[:space:]]+/issues/[0-9]+)'
+hits=$(sed -n '/^# -* >8 -*$/q;p' "$1" | grep -v '^#' \
+       | grep -oiE "\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+$REF" \
        || true)
 [ -z "$hits" ] && exit 0
 

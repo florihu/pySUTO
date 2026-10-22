@@ -10,7 +10,9 @@ optimisation run, so the text can be refreshed onto a new reference chain.
 
 The JSON goes to ``docs/manuscript/figs/manuscript_numbers.json`` by default and is
 committed with the manuscript, so a refresh onto a later chain diffs the new file
-against git HEAD key by key and edits the text at each changed key's location.
+against git HEAD key by key and edits the text at each changed key's location. A run
+on any other opt run overwrites it: pass ``--json <path>`` for an exploratory run,
+or restore the file with ``git checkout``.
 
 Run it from the repository root of the checkout that holds ``data/``. It walks
 the chain opt → const → imp → feed runs → input versions through the run
@@ -1110,6 +1112,9 @@ def stage5_numbers(N: Numbers, proc: Path, ch: Chain, acc) -> None:
           sum(v["n_bound_active"] for v in per.values()))
     N.add("si:S6.2.max_resid_hard_kt", "largest hard residual at a*",
           max(v["max_resid_hard"] for v in per.values()), "kt")
+    trace = [1 - v["trace_post"] / v["trace_prior"] for v in per.values()]
+    N.add("si:S6.2.trace_contraction", "smallest and largest yearly trace contraction "
+          "1 − Σσ_a*²/Σσ_a²", [min(trace), max(trace)])
 
     diag = proc / "uncprop" / run / "diag"
     b = pd.read_csv(diag / "birge.csv")
@@ -1175,6 +1180,17 @@ def phantom_mine_chain(e: pd.DataFrame, mine: set) -> dict:
             "by_region":         {r: float(x) for r, x in by[by > 1.0].items()}}
 
 
+def top_year_shares(s: pd.DataFrame, regions: list, n: int) -> dict:
+    """Per region, its ``n`` years with the largest share of its scale-total Σz²."""
+    x = s[(s.type == "sum") & s.region.isin(regions)]
+    z2 = (x.z ** 2).groupby([x.region, x.year]).sum()
+    out = {}
+    for r in regions:
+        y = z2.loc[r].sort_values(ascending=False)
+        out[r] = {str(k): float(v / y.sum()) for k, v in y.head(n).items()}
+    return out
+
+
 def sum_shares_by_region(s: pd.DataFrame) -> dict:
     """Each region's share of the scale-total Σz², largest first."""
     x = s[s.type == "sum"]
@@ -1219,6 +1235,9 @@ def limitation_numbers(N: Numbers, inp: Path, ch: Chain, e: pd.DataFrame, s: pd.
     N.add("method:L352.sum_share_top_regions", "regions' shares of the scale-total Σz², largest "
           "six (#111)", top)
     N.add("method:L352.sum_share_austria", "Austria's share (#63)", sh.get("Austria"))
+    N.add("method:L352.sum_top_years", "each of the four largest regions' four years with the "
+          "largest share of its scale-total Σz² (Uzbekistan: the text's 1995–1998)",
+          top_year_shares(s, list(top)[:4], n=4))
     an = s[(s.type == "sum") & (s.variant == "usetotout") & (s.sector == "Anode")
            & (s.valuation == "CC")]
     worst = {}

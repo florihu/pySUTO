@@ -20,10 +20,10 @@ Infer the repo from `git remote -v`; `gh` does this automatically when run insid
 
 ## Rounds
 
-A **round** is a GitHub milestone with its due date on the target day (`manuscript ready`, `manuscript ready 3`); labels stay for categories (`pipeline`, `documentation`) and triage states. Round 2 ran as the label `manuscript_ready_2`, and all its issues are closed.
+A **round** is a GitHub milestone with its due date on the target Thursday, the maintainer's last working day of the week (`manuscript ready`, `manuscript ready 3`); labels stay for categories (`pipeline`, `documentation`) and triage states. Round 2 ran as the label `manuscript_ready_2`, and all its issues are closed.
 
 - **Open**: `gh api -X POST repos/{owner}/{repo}/milestones -f title="<round>" -f due_on="<YYYY-MM-DD>T23:59:59Z"`, then `gh issue edit <n> --milestone "<round>"` and one comment per issue giving its rank and why it is in.
-- **Close**: every open issue of the round ends one of three ways, each with a comment: closed with its REP, moved to the next round (`--milestone`), or moved out (`--remove-milestone`). Then `python scripts/issue_audit.py` reports no open issue in a closed round, and `gh api -X PATCH repos/{owner}/{repo}/milestones/<number> -f state=closed`.
+- **Close**: every open issue of the round ends one of three ways, each with a comment: closed with its REP, moved to the next round (`--milestone`), or moved out (`--remove-milestone`). When `gh issue list --milestone "<round>" --state open` returns nothing, `gh api -X PATCH repos/{owner}/{repo}/milestones/<number> -f state=closed`; from then on the audit's R check guards the round.
 
 `python scripts/issue_audit.py` checks this file, [triage-labels.md](triage-labels.md) and [measure-tickets.md](measure-tickets.md) against the tracker; run it when a round opens and before it closes.
 

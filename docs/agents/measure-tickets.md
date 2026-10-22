@@ -13,8 +13,20 @@ in the main checkout.
    *Done when* the comment is posted before the first stage driver of the measurement starts.
 2. **Run** the chain, one stage driver at a time (CLAUDE.md "Pipeline"). Set a knob for one run
    through the driver's `--set KNOB=VALUE` (Stages 2–4, #100). For Stage 5, until #100 covers it,
-   use an in-memory override; the sidecar records it and the driver file stays as committed:
-   `python -c "import sys; sys.path.insert(0, 'scripts'); import uncertainty_propagation as U; U.EXCLUDE_SCALE_TOTALS = True; U.main('<opt>', '<label>')"`.
+   override the knob in memory under the driver's stage lock (#101); the sidecar records the
+   value and the driver file stays as committed:
+
+   ```bash
+   python - <<'EOF'
+   import sys; sys.path.insert(0, "scripts")
+   import uncertainty_propagation as U
+   from pysuto.registry import stage_lock
+   U.EXCLUDE_SCALE_TOTALS = True
+   with stage_lock("uncertainty_propagation"):
+       U.main("<opt_run_id>", "<label>")
+   EOF
+   ```
+
    *Done when* every year returns Solved, or the failure is itself the result.
 3. **Measure** with a read-only `scripts/explo/issue<N>_<slug>_diag.py <base> <new>` that prints
    every decision item. *Done when* each item has a number from the two runs.
