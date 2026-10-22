@@ -12,4 +12,6 @@ The skills speak in terms of five canonical triage roles. This file maps those r
 
 When a skill mentions a role (e.g. "apply the AFK-ready triage label"), use the corresponding label string from this table.
 
+Every open issue carries exactly one of these states; category labels (`enhancement`, `pipeline`, `documentation`) sit beside it. A ticket waiting on another is `ready-for-agent` with a native blocking edge ([issue-tracker.md](issue-tracker.md)), not `needs-triage`. `scripts/issue_audit.py` reads this table and checks the rule.
+
 Edit the right-hand column to match whatever vocabulary you actually use.

@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+# commit-msg: refuse a GitHub closing keyword before an issue number. An issue closes through
+# `gh issue close <n> --comment` with its REP; pushed to main, "fix #98" closes it as a side
+# effect (a merge message once closed #98 before its measurement). `git merge` runs this hook too.
+# Enable once per clone:  git config core.hooksPath .githooks   (docs/agents/issue-tracker.md)
+set -euo pipefail
+
+hits=$(grep -v '^#' "$1" \
+       | grep -oiE '\b(close[sd]?|fix(e[sd])?|resolve[sd]?):?[[:space:]]+([[:alnum:]_.-]+/[[:alnum:]_.-]+)?#[0-9]+' \
+       || true)
+[ -z "$hits" ] && exit 0
+
+cat >&2 <<EOF
+commit-msg: GitHub would close an issue when this commit reaches main:
+$hits
+Name the issue bare, e.g. "(#98)", and close it with: gh issue close <n> --comment "<REP>"
+EOF
+exit 1

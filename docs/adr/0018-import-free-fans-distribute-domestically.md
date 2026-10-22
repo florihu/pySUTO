@@ -17,7 +17,7 @@ converged to 3e-12 relative), and the rebuild on icsg v13 with baci v16
 (`feed_baci_20261012_130305_1cdad15b`) reproduces v29 to 1.6e-11 relative on all 146,311 weights.
 Amended 2026-10-14 (#77): BACI 490 "Other Asia, nes" maps to Taiwan, so Taiwan is observed and its
 exception below no longer holds; the deferred option "Fix the BACI-490 mapping first" is taken.
-To be measured by #79.
+Measured by #79.
 
 ## Context
 

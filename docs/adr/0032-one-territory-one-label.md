@@ -7,7 +7,7 @@ silently skipped for 19 of Belgium's 30 years. Corrects the Round P.2 scope reco
 member by the handover year's shares, and its handover-year duplicate is dropped; see the amendment
 at the end. Built, not yet measured. **Amended 2026-10-15 (#85):** a vintage that publishes a
 territory under another territory's label is relabelled, and its rows are dropped in the years the
-territory reports itself; see the second amendment. Built, to be measured by #86.
+territory reports itself; see the second amendment. Built and measured by #86.
 
 ## Context
 

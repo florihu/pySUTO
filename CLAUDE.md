@@ -89,7 +89,7 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 - Pipeline: `scripts/acc.py --id copper` → parse (`scripts/parse/`) → feeds → `collect_aggregate_impute.py --feed-id …` → `constraints.py --imp-run-id <id> <label>` (label is positional) → `run_solver.py --const-run-id <id>` (also renders diag) → `uncertainty_propagation.py <opt_run_id>` (also renders diag; re-render with `uncprop_diag.py <uncprop_run_id>`) → `psut.py <opt_run_id> [--sankey 2020]`.
 - Before a full chain run `df -h .` and keep ≥ 3 GB free: const ≈ 0.7 GB, opt ≈ 0.08 GB per run (≈ 0.5 GB with the per-year tables). A Stage-3 `zipfile` `OSError` means the disk is full, not a bug. Deleting runs is the user's call; afterwards prune their ids from `data/proc/<stage>/registry.json`.
 - `run_solver.py` writes no per-year `diag/edges_<year>.csv` / `constraints_<year>.csv` (427 of the 504 MB of `opt_20261006_105904_61c5efe9`). Write them only for the years a diagnostic reads — `scripts/solver_stats.py <opt_run_id> --years …` — and never append `--years all` to a script that runs the stage drivers back to back (#46).
-- Maintenance scripts (`scripts/migrate_registries.py`, `scripts/explo/prune_runs.py`) run with `--dry-run` first. No lint, formatter, type-checker, CI or Makefile exist; `.githooks/pre-commit` runs `python -m pytest tests/` on commits that touch Python (enable per clone: `git config core.hooksPath .githooks`).
+- Maintenance scripts (`scripts/migrate_registries.py`, `scripts/explo/prune_runs.py`) run with `--dry-run` first. No lint, formatter, type-checker, CI or Makefile exist; `.githooks/pre-commit` runs `python -m pytest tests/` on commits that touch Python and `.githooks/commit-msg` refuses issue-closing keywords (enable per clone: `git config core.hooksPath .githooks`).
 
 ## Numerical & performance conventions
 
@@ -156,15 +156,15 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 ## Git workflow
 
 - Branches `feat/…`, `fix/…`, `diag/…`; merge with `--no-ff`, titled `Merge branch '<b>': <result> (ADR N, Round X)`.
-- Commits: `type(scope): finding as a sentence`; types feat/fix/docs/measure/chore/test/refactor; scope is a module or artefact (`feed`, `impute`, `constraints`, `diag`, `psut`, `piot`, `rep`, `adr`, `glossary`, `params`); issues as `#NN`.
+- Commits: `type(scope): finding as a sentence`; types feat/fix/docs/measure/chore/test/refactor; scope is a module or artefact (`feed`, `impute`, `constraints`, `diag`, `psut`, `piot`, `rep`, `adr`, `glossary`, `params`); issues bare as `(#NN)`. Pass long messages with `-F <file>` written to the scratchpad; `git merge -F -` reads no stdin.
 - Commit only when asked. Never stage `data/` (except `current/` inputs via `git add -f`), `logs/` or `leg/`.
 
 ## Agent skills
 
 - **Source** — Matt Pocock's skills come from the read-only `mattpocock-skills` plugin, enabled at project scope in `.claude/settings.json`; the rules below adapt them to pySUTO. `.claude/skills/` holds only pySUTO's own skills.
-- **Issue tracker** — GitHub issues via `gh`. See `docs/agents/issue-tracker.md`.
+- **Issue tracker** — GitHub issues via `gh`; rounds are milestones, issues close only through `gh issue close --comment`. See `docs/agents/issue-tracker.md`; `scripts/issue_audit.py` checks it.
 - **Triage labels** — `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
 - **Domain docs** — single-context: `GLOSSARY.md` (glossary) + `docs/adr/`. See `docs/agents/domain.md`.
 - **`/implement`** — commits to the current branch: start it on a `feat/`, `fix/` or `diag/` branch, never `main`. There is no type checker; where it says typecheck, run the single test file. Commit first, then review the range since the branch point with `mattpocock-skills:code-review` (not the built-in `/code-review`); review fixes go in a second commit.
-- **Measure tickets** — `to-tickets` gives every σ-rule, builder, imputer, feed or knob change its own measure ticket, blocked by the build ticket and closed by a `measure(...)` commit plus its REP. `/implement` never runs the pipeline; a ticketless run whose change needs a REP says so at close-out.
+- **Measure tickets** — `to-tickets` gives every σ-rule, builder, imputer, feed or knob change its own measure ticket, blocked by the build ticket and closed by a `measure(...)` commit plus its REP; the steps are in `docs/agents/measure-tickets.md`. `/implement` never runs the pipeline; a ticketless run whose change needs a REP says so at close-out.
 - **`/implement-spec`** — code-only specs; it never takes a measure ticket. Those run afterwards in the main checkout, one at a time (worktrees have no `data/proc`; registries have no locking).
