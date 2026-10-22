@@ -768,6 +768,14 @@ The formula holds for equality constraints; the QP also has hard **inequalities*
 
 Per year the sidecar records `n_bound_active`, `n_bands_binding`, `n_hard_dependent` and `n_rows_kept`. The full-G (legacy) path has no active set and warns when hard inequality rows are present.
 
+##### Totals and ratios (#81)
+
+The marginals do not give the σ of a total: the constraints correlate the edges, so adding the σ_a* of a node's legs in quadrature misstates the node total. The exact variance of an aggregate $w^\top a^*$ comes from the same QR. With $u = \mathrm{diag}(\sigma_a)\,w$ over the live edges, padded with zeros to $v$ over $M^\top$'s soft rows,
+
+$$\mathrm{var}(w^\top a^*) = w^\top\Sigma_a w - (G\Sigma_a w)^\top S^{-1} (G\Sigma_a w) = \lVert u\rVert^2 - \lVert Q^\top v\rVert^2 .$$
+
+`compute(..., aggregates=AggregateSpec(names, W))` returns the K×K prior and posterior covariance of K totals, their value at `a*` and the quadrature σ, in memory. The years are separate QPs, so a total over several years sums the years' contributions, and totals of different years never covary. A ratio or index of totals gets its σ by the delta method on that covariance. `draws={year: k}` returns posterior deviations $\mathrm{diag}(\sigma_a)\,(I - QQ^\top)\,\xi$ from the caller's generator. They satisfy every kept hard row and pin exactly, so a function through the Leontief inverse gets its delta-method σ by finite differences along them. `force_pinned` / `force_free` override the slack rule edge by edge, for the degenerate bounds #99 found at `bind_tol`. [`scripts/report/table3_intervals.py`](scripts/report/table3_intervals.py) puts Birge-scaled intervals beside Table 3 and SI S18b.
+
 ##### Sanity invariants (checked in tests)
 
 - **Monotonicity:** $\sigma^2_{a^*,i} \leq \sigma^2_{a,i}$ for every $i$.

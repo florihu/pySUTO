@@ -93,7 +93,7 @@ def _make_toy_3edge_2t(run_id: str = "toy_3e"):
     )
 
 
-def _compute_block_toy(tmp_path, monkeypatch):
+def _compute_block_toy(tmp_path, monkeypatch, **compute_kw):
     """2 years × 3 edges, one hard mass balance (a0 = a1) per year, σ_a = 1, on
     the block (year-local) path. Returns (const_run, opt_results, UncPropResult)."""
     from pysuto.uncprop import KalmanUncProp
@@ -146,7 +146,7 @@ def _compute_block_toy(tmp_path, monkeypatch):
                         lambda _rid: {"parents": {"upstream": {"const_run_id": cr.run_id}}})
     monkeypatch.setattr(prop._opt_registry, "load", lambda _rid: opt_results)
     monkeypatch.setattr(prop._const_registry, "load", lambda _rid: cr)
-    return cr, opt_results, prop.compute("opt_fake", alpha=0.05)
+    return cr, opt_results, prop.compute("opt_fake", alpha=0.05, **compute_kw)
 
 
 def _solve_and_persist(const_run, tmp_path):
@@ -748,7 +748,12 @@ _FOUR_EDGE_SIGMA_A2 = np.array([4.0, 1.0, 1.0, 1.0])
 
 
 def _one_year_posterior(rows, sigma_a2, a_star, monkeypatch, tmp_path):
-    """Stage 5 (block path) on a one-year toy given as row tuples → UncPropTimestep.
+    """Stage 5 (block path) on a one-year toy given as row tuples → UncPropTimestep."""
+    return _one_year_result(rows, sigma_a2, a_star, monkeypatch, tmp_path).per_timestep["2020"]
+
+
+def _one_year_result(rows, sigma_a2, a_star, monkeypatch, tmp_path, **compute_kw):
+    """Stage 5 (block path) on a one-year toy given as row tuples → UncPropResult.
     The ConstraintRun zero-pins the last edge (l = u = 0)."""
     from pysuto.constraints import ConstraintRun
     from pysuto.solver import OptimResult
@@ -784,7 +789,7 @@ def _one_year_posterior(rows, sigma_a2, a_star, monkeypatch, tmp_path):
                         lambda _rid: {"parents": {"upstream": {"const_run_id": "as"}}})
     monkeypatch.setattr(prop._opt_registry, "load", lambda _rid: opt)
     monkeypatch.setattr(prop._const_registry, "load", lambda _rid: cr)
-    return prop.compute("opt_fake", alpha=0.05).per_timestep["2020"]
+    return prop.compute("opt_fake", alpha=0.05, **compute_kw)
 
 
 def _four_edge_posterior(a_star, monkeypatch, tmp_path, extra_rows=()):
@@ -918,3 +923,146 @@ class TestActiveSet:
                            parents={"inputs": {}, "upstream": {}})
         np.testing.assert_array_equal(reg.load(rid).per_timestep["2020"].bound_active,
                                       ts.bound_active)
+
+
+# ---------------------------------------------------------------------------
+# 10) Math — aggregates (#81): the posterior covariance of linear totals wᵀa*,
+#     posterior draws, and the active-set overrides of #99's degenerate family
+# ---------------------------------------------------------------------------
+
+# Aggregates over e0..e3 of _FOUR_EDGE_ROWS, one column each.
+_AGG_NAMES = ["e0", "e1+e2", "balance", "e3", "mixed", "total"]
+_AGG_W = np.array([
+    [1, 0, 0, 0],                 # e0
+    [0, 1, 1, 0],                 # e1 + e2, equal to e0 under the hard balance
+    [1, -1, -1, 0],               # the balance itself: known exactly
+    [0, 0, 0, 1],                 # e3
+    [0, 2, 0, 0.5],               # mixed weights
+    [1, 1, 1, 1],                 # every edge
+], dtype=float).T                 # (4 edges × 6 aggregates)
+
+
+def _agg_spec(W=_AGG_W, names=_AGG_NAMES):
+    from pysuto.uncprop import AggregateSpec
+    return AggregateSpec(names=list(names), W=sp.csr_matrix(W))
+
+
+def _dense_cov(rows, sigma_a2, hard):
+    """Reference posterior covariance Σ − Σ·Gᵀ·S⁻¹·G·Σ on an explicitly reduced
+    system of ``_FOUR_EDGE_ROWS`` (S = G·Σ·Gᵀ + diag(σ_c²), solved densely)."""
+    G = np.array([_FOUR_EDGE_ROWS[i][0] for i in rows], dtype=float)
+    sc2 = np.array([0.0 if h else _FOUR_EDGE_ROWS[i][6] ** 2 for i, h in zip(rows, hard)])
+    Sig = np.diag(sigma_a2)
+    S = G @ Sig @ G.T + np.diag(sc2)
+    return Sig - Sig @ G.T @ np.linalg.solve(S, G @ Sig)
+
+
+class TestAggregates:
+
+    def test_covariance_is_the_dense_posterior_of_the_aggregates(self, tmp_path,
+                                                                 monkeypatch):
+        """e2's lower bound binds: the reference keeps its bound row as a hard
+        equality with the full prior, independent of the implementation's pin."""
+        a_star = np.array([3.0, 3.0, 0.0, 4.0])
+        res = _one_year_result(_FOUR_EDGE_ROWS, _FOUR_EDGE_SIGMA_A2, a_star, monkeypatch,
+                               tmp_path, aggregates=_agg_spec())
+        ag  = res.aggregates
+        ref = _dense_cov([0, 3, 5], _FOUR_EDGE_SIGMA_A2, [True, True, False])
+        s   = res.per_timestep["2020"].sigma_a_star
+        assert ag.names == _AGG_NAMES
+        np.testing.assert_allclose(ag.cov_post, _AGG_W.T @ ref @ _AGG_W, rtol=1e-10, atol=1e-11)
+        np.testing.assert_allclose(ag.cov_prior, _AGG_W.T @ np.diag(_FOUR_EDGE_SIGMA_A2) @ _AGG_W,
+                                   rtol=1e-12)
+        np.testing.assert_allclose(ag.value, _AGG_W.T @ a_star, rtol=1e-12)
+        np.testing.assert_allclose(ag.sigma_quadrature, np.sqrt((_AGG_W ** 2).T @ s ** 2),
+                                   rtol=1e-12)
+        np.testing.assert_allclose(np.diag(ag.cov_post)[[0, 3]], s[[0, 3]] ** 2, rtol=1e-10)
+        assert ag.cov_post[2, 2] == pytest.approx(0.0, abs=1e-11)
+
+    def test_a_balance_makes_a_total_better_known_than_its_parts(self, tmp_path,
+                                                                 monkeypatch):
+        """e0 = e1 + e2 with σ_a² = (4, 1, 1): var(e1 + e2) = 4/3 exactly, against
+        5/3 from the edge variances in quadrature (cov(e1, e2) = −1/6)."""
+        res = _one_year_result(_FOUR_EDGE_ROWS, _FOUR_EDGE_SIGMA_A2, [5, 3, 2, 4],
+                               monkeypatch, tmp_path, aggregates=_agg_spec())
+        ag = res.aggregates
+        assert ag.cov_post[1, 1] == pytest.approx(4.0 / 3.0, rel=1e-10)
+        assert ag.sigma_quadrature[1] ** 2 == pytest.approx(5.0 / 3.0, rel=1e-10)
+
+    def test_years_add_and_never_covary(self, tmp_path, monkeypatch):
+        """Each year is its own QP: an aggregate over two years has the sum of the
+        years' variances, and aggregates of different years have no covariance."""
+        W = np.zeros((6, 5))
+        W[0, 0] = 1.0                              # e0 (2020)
+        W[3, 1] = 1.0                              # e3 (2021)
+        W[[0, 3], 2] = 1.0                         # e0 + e3
+        W[[0, 3], 3], W[[1, 4], 3] = 1.0, -1.0     # both years' balances: exactly 0
+        W[[2, 5], 4] = 1.0                         # the free edges e2 + e5
+        names = ["e0", "e3", "e0+e3", "balances", "e2+e5"]
+        _, _, res = _compute_block_toy(tmp_path, monkeypatch, aggregates=_agg_spec(W, names))
+        year = np.array([[0.5, 0.5, 0.0], [0.5, 0.5, 0.0], [0.0, 0.0, 1.0]])
+        ref = np.kron(np.eye(2), year)             # the block-diagonal posterior
+        np.testing.assert_allclose(res.aggregates.cov_post, W.T @ ref @ W, rtol=1e-10, atol=1e-12)
+        assert res.aggregates.cov_post[0, 1] == 0.0
+
+    def test_draws_keep_every_hard_row_and_reproduce_the_posterior(self, tmp_path,
+                                                                   monkeypatch):
+        """e2 pinned, the band e1 = 2·e3 binding: every draw satisfies both hard
+        rows and the pin exactly; their covariance converges to the posterior."""
+        res = _one_year_result(_FOUR_EDGE_ROWS, _FOUR_EDGE_SIGMA_A2, [8, 8, 0, 4], monkeypatch,
+                               tmp_path, draws={"2020": 50_000}, rng=np.random.default_rng(81))
+        d = res.draws["2020"]
+        assert d.shape == (50_000, 4)
+        assert (d[:, 2] == 0.0).all()
+        G_hard = np.array([_FOUR_EDGE_ROWS[i][0] for i in (0, 4)], dtype=float)
+        np.testing.assert_allclose(d @ G_hard.T, 0.0, atol=1e-12)
+        ref = _dense_cov([0, 3, 4, 5], _FOUR_EDGE_SIGMA_A2, [True, True, True, False])
+        np.testing.assert_allclose(np.cov(d, rowvar=False), ref, atol=0.02)
+
+    def test_draws_need_a_generator(self, tmp_path, monkeypatch):
+        with pytest.raises(ValueError, match="rng"):
+            _one_year_result(_FOUR_EDGE_ROWS, _FOUR_EDGE_SIGMA_A2, [5, 3, 2, 4], monkeypatch,
+                             tmp_path, draws={"2020": 10})
+
+    def test_force_free_unpins_a_binding_bound(self, tmp_path, monkeypatch):
+        res = _one_year_result(_FOUR_EDGE_ROWS, _FOUR_EDGE_SIGMA_A2, [3, 3, 0, 4], monkeypatch,
+                               tmp_path, force_free=np.array([False, False, True, False]))
+        ts  = res.per_timestep["2020"]
+        ref = _dense_posterior([0, 5], _FOUR_EDGE_SIGMA_A2, [True, False])
+        np.testing.assert_allclose(ts.sigma_a_star ** 2, ref, rtol=1e-10, atol=1e-12)
+        np.testing.assert_array_equal(ts.bound_active, [False] * 4)
+        assert (ts.diagnostics["n_forced_free"], ts.diagnostics["n_forced_pinned"]) == (1, 0)
+
+    def test_force_pinned_pins_a_slack_bound(self, tmp_path, monkeypatch):
+        """The reference keeps e1's bound row r2 as a hard equality."""
+        res = _one_year_result(_FOUR_EDGE_ROWS, _FOUR_EDGE_SIGMA_A2, [5, 3, 2, 4], monkeypatch,
+                               tmp_path, force_pinned=np.array([False, True, False, False]))
+        ts  = res.per_timestep["2020"]
+        ref = _dense_posterior([0, 2, 5], _FOUR_EDGE_SIGMA_A2, [True, True, False])
+        assert ts.sigma_a_star[1] == 0.0
+        np.testing.assert_allclose(ts.sigma_a_star ** 2, ref, rtol=1e-10, atol=1e-12)
+        np.testing.assert_array_equal(ts.bound_active, [False, True, False, False])
+        assert (ts.diagnostics["n_forced_free"], ts.diagnostics["n_forced_pinned"]) == (0, 1)
+
+    def test_aggregate_rows_must_span_every_edge(self, tmp_path, monkeypatch):
+        with pytest.raises(ValueError, match="one row per edge"):
+            _one_year_result(_FOUR_EDGE_ROWS, _FOUR_EDGE_SIGMA_A2, [5, 3, 2, 4], monkeypatch,
+                             tmp_path, aggregates=_agg_spec(_AGG_W[:3], _AGG_NAMES))
+
+    def test_aggregates_need_the_block_path(self, tmp_path, monkeypatch):
+        from pysuto.solver import OptimResult
+        from pysuto.uncprop import KalmanUncProp
+        cr  = _make_toy_2x2()
+        opt = {"2020": OptimResult(
+            timestep="2020", F_opt=np.ones(2), eps_opt=np.zeros(0), c_star=np.zeros(1),
+            residuals=np.zeros(1), objective=0.0, iterations=0, solve_time_s=0.0,
+            solver_status="Solved", convergence={},
+        )}
+        prop = KalmanUncProp(opt_dir=str(tmp_path / "opt"), const_dir=str(tmp_path / "const"),
+                             uncprop_dir=str(tmp_path / "uncprop"))
+        monkeypatch.setattr(prop._opt_registry, "load_sidecar",
+                            lambda _rid: {"parents": {"upstream": {"const_run_id": cr.run_id}}})
+        monkeypatch.setattr(prop._opt_registry, "load", lambda _rid: opt)
+        monkeypatch.setattr(prop._const_registry, "load", lambda _rid: cr)
+        with pytest.raises(ValueError, match="block path"):
+            prop.compute("opt_fake", aggregates=_agg_spec(np.eye(2), ["a", "b"]))
