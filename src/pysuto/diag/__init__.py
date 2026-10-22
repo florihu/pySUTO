@@ -29,6 +29,11 @@ Public surface (re-exported here so call sites can keep using
                                 class, prior vs posterior bands over time.
 * :class:`UncPropStatsDiagnostic`— Stage 5: the all-years edge frame behind it
                                 (σ_a*, κ, z, prior class, κ–z quadrant).
+* :class:`SweepDiag`         — sweeps: each point scored against the base chain
+                                (mass moved, retention, the cross-evaluated
+                                objective) and the axes ranked (#107).
+* :class:`SweepStatsDiagnostic`— the tables behind it (points, categories,
+                                retention by year, sensitivity).
 * :func:`sankey_figure` / :func:`sankey_tables` / :class:`SankeySpec`
                              — Stage 6: the bipartite supply-use Sankey of a
                                 PSUT (Plotly, imported lazily).
@@ -50,6 +55,7 @@ from .const    import ConstDiagnostic
 from .agg      import AggDiagnostic
 from .solver   import SolverDiag
 from .uncprop  import UncPropDiag
+from .sweep    import SweepDiag
 from .psut     import SankeySpec, sankey_figure, sankey_tables
 from .stats    import (
     CoverageDiagnostic,
@@ -57,6 +63,7 @@ from .stats    import (
     ConstStatsDiagnostic,
     SolverStatsDiagnostic,
     UncPropStatsDiagnostic,
+    SweepStatsDiagnostic,
 )
 
 __all__ = [
@@ -72,6 +79,8 @@ __all__ = [
     "SolverStatsDiagnostic",
     "UncPropDiag",
     "UncPropStatsDiagnostic",
+    "SweepDiag",
+    "SweepStatsDiagnostic",
     "SankeySpec",
     "sankey_figure",
     "sankey_tables",

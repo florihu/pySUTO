@@ -98,7 +98,7 @@ from pysuto.acc      import AccountingStructure
 from pysuto.config   import load_config
 from pysuto.meta     import DataFeedMetadata
 from pysuto.conc     import ConcordanceTable, WeightMatrix
-from pysuto.registry import DataFeedRegistry
+from pysuto.registry import DataFeedRegistry, stage_lock
 from pysuto.input_registry import InputRegistries
 from pysuto.feedpipe import (
     step_A_read_metadata,
@@ -502,4 +502,5 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    with stage_lock("baci_feed"):   # registries have no locking (#101)
+        main()

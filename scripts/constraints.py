@@ -105,7 +105,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from pysuto.acc import AccountingStructure
 from pysuto.config import load_config
-from pysuto.registry import ImputationRunRegistry
+from pysuto.registry import ImputationRunRegistry, stage_lock
 from pysuto.input_registry import InputRegistries
 from pysuto.param_relation import expand_edge_index
 from pysuto.flow_node_balance import contradicted_flow_nodes
@@ -119,6 +119,7 @@ from pysuto.constraints import (
     FlowBoundsBuilder,
 )
 from pysuto.logging import get_logger, add_run_handler
+from pysuto.knobs import add_knob_args, overrides_from_cli, write_run_id
 
 cfg    = load_config()
 ACC_ID = cfg.pipeline.acc_id
@@ -311,10 +312,24 @@ ENFORCE_LOWER_BOUNDS = True
 # the relation, not a second copy of the ore prior, sets it. False = soft (W.2a).
 STRIPPING_RATIO_HARD = True
 
+# The knobs a pipeline step may override with --set (#100, pysuto.knobs). Paths and
+# ACC_ID are not knobs. scale_total_cv's defaults bind at import, so main() passes
+# the four knobs it reads explicitly.
+KNOBS = (
+    "P_PROP", "SIGMA_A_CV_MIN", "SIGMA_A_ABS_FLOOR", "ANCHOR_CV", "SIGMA_C_CV_MIN",
+    "FABRICATED_ANCHOR_CV", "FEED_SHARE_OBSERVED", "UNCLOSED_SECTORS",
+    "UNCLOSED_ANCHOR_CV", "SIGMA_C_ABS_FLOOR", "SCALE_TOTAL_ABS_FLOOR", "PRIOR_BOX_K",
+    "NODATA_ANCHOR_CV", "NODATA_ANCHOR_EXCLUDE", "NODATA_ANCHOR_DATA_AWARE",
+    "PIN_FLAT_PRIOR_ZEROS", "RATIO_SIGMA_REL_FLOOR", "RATIO_SCALE_ABS_FLOOR",
+    "STOCK_BOUNDS_SCALE_ABS_FLOOR", "STOCK_BOUNDS_MODE", "SCRAP_SHARE_MODE",
+    "SCRAP_LEVEL_ANCHOR", "MASSBAL_MASK", "ENFORCE_LOWER_BOUNDS",
+    "STRIPPING_RATIO_HARD", "STOCK_BOUNDS_SKIP_REPORTED",
+)
+
 _log = get_logger("init_copper_constraints")
 
 
-def main(imp_run_id: str, label: str) -> None:
+def main(imp_run_id: str, label: str, overrides: dict | None = None) -> str:
     from datetime import datetime
     add_run_handler(f"logs/init_copper_constraints_{datetime.now():%Y%m%d_%H%M%S}.log")
 
@@ -430,7 +445,10 @@ def main(imp_run_id: str, label: str) -> None:
         if tot <= 0.0:
             return FABRICATED_ANCHOR_CV
         feed_share = _absf[ids[_cov[ids]]].sum() / tot
-        return scale_total_cv(feed_share, abs(float(_f_agg_signed[ids].sum())))
+        return scale_total_cv(feed_share, abs(float(_f_agg_signed[ids].sum())),
+                              anchor_cv=ANCHOR_CV, fabricated_cv=FABRICATED_ANCHOR_CV,
+                              feed_share_observed=FEED_SHARE_OBSERVED,
+                              abs_floor=SCALE_TOTAL_ABS_FLOOR)
 
     _log.info("Registering SumConstraintBuilder — supply/use total-output scale totals")
     engine.register(SumConstraintBuilder.from_mask_anchor(
@@ -627,6 +645,7 @@ def main(imp_run_id: str, label: str) -> None:
             "massbal_mask":      MASSBAL_MASK,
             "enforce_lower_bounds": ENFORCE_LOWER_BOUNDS,
             "stripping_ratio_hard": STRIPPING_RATIO_HARD,
+            "overrides":         dict(overrides or {}),
         },
     )
 
@@ -637,6 +656,7 @@ def main(imp_run_id: str, label: str) -> None:
               constraint_run.row_meta["type"].value_counts().to_string())
     _log.info("Cone type breakdown:\n%s",
               constraint_run.row_meta["cone_type"].value_counts().to_string())
+    return constraint_run.run_id
 
 
 if __name__ == "__main__":
@@ -646,5 +666,14 @@ if __name__ == "__main__":
         help="ImputationRun ID to load from data/proc/imp/.",
     )
     parser.add_argument("label", help="Label for this constraint run")
+    parser.add_argument("--imp-dir", default=IMP_DIR,
+                        help=f"Where the imputation run is read from (default {IMP_DIR}).")
+    parser.add_argument("--const-dir", default=OUTPUT_DIR,
+                        help=f"Where the run is written (default {OUTPUT_DIR}); a sweep's "
+                             f"scratch store (#108).")
+    add_knob_args(parser)
     args = parser.parse_args()
-    main(args.imp_run_id, args.label)
+    IMP_DIR, OUTPUT_DIR = args.imp_dir, args.const_dir
+    overrides = overrides_from_cli(parser, args, KNOBS, globals())
+    with stage_lock("constraints"):   # registries have no locking (#101)
+        write_run_id(args.run_id_file, main(args.imp_run_id, args.label, overrides))

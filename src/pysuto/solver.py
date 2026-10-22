@@ -39,7 +39,7 @@ import scipy.sparse as sp
 
 import clarabel
 
-from ._conditioning import condition_prior
+from ._conditioning import condition_prior, condition_sigma_c
 from .constraints import ConstraintRun
 from .registry import ConstraintRunRegistry, OptimRunRegistry
 from .logging import get_logger
@@ -96,6 +96,9 @@ class OptimResult:
 # =============================================================================
 
 _OK_STATUSES = {"Solved", "AlmostSolved"}
+
+# Which timesteps the feasibility pre-check probes (solve_all, #104).
+FEASIBILITY_CHECKS = ("first", "all", "none")
 
 # Linear-solver threads per period QP: one. Measured on
 # const_20261012_113828_12c562c7 against opt_20261012_122124_40b1b370 (#70): the
@@ -539,7 +542,8 @@ class ClarabelSolver:
         self,
         run_id:    str,
         timesteps: Optional[list] = None,
-        feasibility_check_first_only: bool = True,
+        feasibility_check: str = "first",
+        feasibility_check_first_only: Optional[bool] = None,
     ) -> dict[str, OptimResult]:
         """
         Solve every requested timestep. Performs the feasibility pre-check
@@ -547,10 +551,21 @@ class ClarabelSolver:
 
         Parameters
         ----------
+        feasibility_check:
+            Which timesteps the pre-check probes before any solve: ``"first"``
+            (default, fast), ``"all"`` (localises a mid-series infeasibility at
+            ≈ 7 min a year on copper) or ``"none"`` (a sweep point, #104). Without
+            the probe an infeasible period still raises in its own solve — any
+            status outside Solved/AlmostSolved does — only not localised by it.
         feasibility_check_first_only:
-            If True (default), only the first timestep is checked — fast.
-            If False, all timesteps are checked before any solve begins.
+            The former bool, kept for callers that pass it: True ≡ ``"first"``,
+            False ≡ ``"all"``. When given it overrides ``feasibility_check``.
         """
+        if feasibility_check_first_only is not None:
+            feasibility_check = "first" if feasibility_check_first_only else "all"
+        if feasibility_check not in FEASIBILITY_CHECKS:
+            raise ValueError(f"feasibility_check={feasibility_check!r}; expected one of "
+                             f"{FEASIBILITY_CHECKS}")
         run = self.load_run(run_id)
 
         if timesteps is None:
@@ -561,13 +576,14 @@ class ClarabelSolver:
             if missing:
                 raise KeyError(f"timesteps not in run: {sorted(missing)}")
 
+        check_labels = {"first": ts_labels[:1], "all": ts_labels,
+                        "none": []}[feasibility_check]
+
         # A failed call must not leave the previous call's facts for persist().
         self._solve_config, self._solve_summary = {}, {}
         t0 = time.perf_counter()
         if run.G_blocks:
-            results = self._solve_all_via_blocks(
-                run, ts_labels, feasibility_check_first_only,
-            )
+            results = self._solve_all_via_blocks(run, ts_labels, check_labels)
             self._solve_config = {
                 "n_workers":           min(self.n_workers, len(ts_labels)),
                 "max_threads":         _PERIOD_MAX_THREADS,
@@ -575,9 +591,7 @@ class ClarabelSolver:
                 "qp_variables":        self.qp_variables,
             }
         else:
-            results = self._solve_all_legacy(
-                run, ts_labels, feasibility_check_first_only,
-            )
+            results = self._solve_all_legacy(run, ts_labels, check_labels)
             self._solve_config = {"n_workers": 1}
         # Wall-clock after loading: feasibility probe + period solves.
         self._solve_summary = {"solve_wall_s": time.perf_counter() - t0}
@@ -587,7 +601,7 @@ class ClarabelSolver:
         self,
         run:       ConstraintRun,
         ts_labels: list[str],
-        feasibility_check_first_only: bool,
+        check_labels: list[str],
     ) -> dict[str, OptimResult]:
         """Legacy path: full-G QP per timestep with solver.update() warm-start.
         Used only when run.G_blocks is empty (test fixtures predating Slice 2)."""
@@ -597,15 +611,12 @@ class ClarabelSolver:
                 f"(run.G_blocks); the legacy full-G path solves for the flows only"
             )
         # Feasibility pre-check
-        check_labels = ts_labels[:1] if feasibility_check_first_only else ts_labels
-        logger.info(
-            "Feasibility pre-check on %d/%d timesteps%s…",
-            len(check_labels), len(ts_labels),
-            " (first only)" if feasibility_check_first_only else "",
-        )
+        logger.info("Feasibility pre-check on %d/%d timesteps…",
+                    len(check_labels), len(ts_labels))
         for t in check_labels:
             self.feasibility_check(run, t)
-        logger.info("Feasibility pre-check passed.")
+        if check_labels:
+            logger.info("Feasibility pre-check passed.")
 
         # Build skeleton once (P, A, cones are time-invariant)
         skel    = self._problem_skeleton(run)
@@ -753,22 +764,19 @@ class ClarabelSolver:
         self,
         run:       ConstraintRun,
         ts_labels: list[str],
-        feasibility_check_first_only: bool,
+        check_labels: list[str],
     ) -> dict[str, OptimResult]:
         """Per-t solve path using run.G_blocks. Each per-t QP is ~30× smaller
         than the legacy full-G QP. When every per-t A_t matches (typical case
         with no time-varying ratios), one Clarabel instance is built and
         reused via solver.update(P, q, b) — keeping the KKT factorisation
         across the whole timestep loop."""
-        check_labels = ts_labels[:1] if feasibility_check_first_only else ts_labels
-        logger.info(
-            "Feasibility pre-check on %d/%d timesteps%s…",
-            len(check_labels), len(ts_labels),
-            " (first only)" if feasibility_check_first_only else "",
-        )
+        logger.info("Feasibility pre-check on %d/%d timesteps…",
+                    len(check_labels), len(ts_labels))
         for t in check_labels:
             self.feasibility_check(run, t)
-        logger.info("Feasibility pre-check passed.")
+        if check_labels:
+            logger.info("Feasibility pre-check passed.")
 
         a_0_global, sigma_a_global = self._condition_prior(
             run.a_prior_global, run.sigma_a,
@@ -1043,6 +1051,60 @@ class ClarabelSolver:
             n_a_t, m_t,
         )
         return result, solver_t
+
+    def objective_at(
+        self,
+        run:     ConstraintRun,
+        t:       str,
+        F:       np.ndarray,
+        a_prior: Optional[np.ndarray] = None,
+    ) -> dict:
+        """Score a year-local posterior ``F`` (over ``run.edge_cols_by_t[t]``) under
+        period ``t``'s QP, conditioned exactly as :meth:`_solve_period` conditions it.
+
+        Returns ``J = Σ((F − a_prior)/σ_a)² + Σ_free((G_t·F − c_t)/σ_c)²`` as ``total``
+        — the defects form's cost, and the flows form's ``objective`` plus
+        ``Σ(a_prior/σ_a)²`` — split by family as the objective decomposition splits
+        it: ``edges`` (defects), ``sum_rows`` (free ``type == "sum"`` rows),
+        ``soft_ratios`` (free ``type == "ratio"`` rows) and ``other_soft`` (any other
+        free row). ``a_prior`` defaults to the cold seed, the conditioned ``f_agg``
+        slice; pass ``OptimResult.a_prior`` to score under a warm run's prior. Lets a
+        sweep score each point's answer under the base chain's σ (#102).
+
+        ``max_hard_violation`` (kt) is the largest breach of the period's hard rows by
+        ``F`` — ``|G·F − c|`` on zero rows, ``max(0, G·F − c)`` on nonneg rows. A
+        posterior from a QP with other hard rows can break these; ``J`` is then not
+        a comparison at a feasible point.
+        """
+        cols_t = run.edge_cols_by_t[t]
+        F = np.asarray(F, dtype=float)
+        if F.shape != cols_t.shape:
+            raise ValueError(f"period {t!r} has {cols_t.size} edges, F has shape {F.shape}")
+        a_0, sigma_a = self._condition_prior(run.a_prior_global, run.sigma_a)
+        prior = a_0[cols_t] if a_prior is None else np.asarray(a_prior, dtype=float)
+        edges = float((((F - prior) / sigma_a[cols_t]) ** 2).sum())
+
+        rows_t = np.where(run.row_meta["time"].astype(str).to_numpy() == t)[0]
+        rm_t   = run.row_meta.iloc[rows_t]
+        free   = rm_t["cone_type"].to_numpy() == "free"
+        typ    = rm_t["type"].astype(str).to_numpy()
+        c_t    = np.asarray(run.timestep_data[t]["c"], dtype=float)[rows_t]
+        sc_t   = condition_sigma_c(np.asarray(run.timestep_data[t]["sigma_c"])[rows_t],
+                                   floor=self.sigma_c_floor)
+        cone   = rm_t["cone_type"].to_numpy()
+        resid  = run.G_blocks[t] @ F - c_t
+        zsq    = np.where(free, (resid / sc_t) ** 2, 0.0)
+        breach = np.concatenate([np.abs(resid[cone == "zero"]),
+                                 np.maximum(resid[cone == "nonneg"], 0.0), [0.0]])
+        out = {
+            "edges":       edges,
+            "sum_rows":    float(zsq[free & (typ == "sum")].sum()),
+            "soft_ratios": float(zsq[free & (typ == "ratio")].sum()),
+            "other_soft":  float(zsq[free & (typ != "sum") & (typ != "ratio")].sum()),
+        }
+        out["total"] = edges + out["sum_rows"] + out["soft_ratios"] + out["other_soft"]
+        out["max_hard_violation"] = float(breach.max())
+        return out
 
     def solve_timestep(
         self,

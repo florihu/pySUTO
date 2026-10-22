@@ -692,7 +692,7 @@ Solver diagnostics live in [diag/](src/pysuto/diag/) (`SolverDiag`, 12 figures: 
 | `sigma_c_floor` | `1e-9` | σ_c floor for free rows |
 | `tol_feas` / `tol_gap_abs` / `tol_gap_rel` | `1e-8` | Clarabel tolerances |
 | `max_iter` | `200` | Clarabel iteration cap |
-| `feasibility_check_first_only` | `True` | Check only `t=0` for feasibility (much faster) |
+| `feasibility_check` | `"first"` | Feasibility pre-check scope: `"first"` (fast), `"all"` (localises an infeasible year) or `"none"` (sweep points; a failed period still raises); the old bool `feasibility_check_first_only` maps onto it (#104) |
 | `verbose_first_solve` | `True` | Print Clarabel iteration log for `t=0` only (serial solve) |
 | `n_workers` | `1` | Periods solved concurrently (cold only); the driver sets `N_WORKERS = os.cpu_count()` |
 | `direct_solve_method` | `"faer"` | Clarabel's linear solver for the period QPs, pinned to one thread |
@@ -705,7 +705,7 @@ solver = ClarabelSolver(const_dir="data/proc/const")
 results = solver.solve_all(
     run_id="copper_const_v0",
     timesteps=[str(t) for t in range(2010, 2024)],
-    feasibility_check_first_only=True,
+    feasibility_check="first",
 )
 # results[t] is an OptimResult with F_opt, eps_opt, residuals, …
 optim_run_id = solver.persist(
@@ -894,8 +894,10 @@ world.to_piot().sankey("2020").write_html("copper_process_network_2020.html")
 | [feedpipe.py](src/pysuto/feedpipe.py) | `run_feed_pipeline`, `step_A_read_metadata`/`_B_build_concordance`/`_C_build_weight_matrix`/`_D_apply_and_propagate`, `register_feed` | Stage 1 orchestration. |
 | [unc.py](src/pysuto/unc.py) | `PedigreeScores`, `UncertaintyMixin`, `PropagationResult` | Pedigree→CV (Laner et al.); Lp / power-mean propagation through `W`. |
 | [meta.py](src/pysuto/meta.py) | `DataFeedMetadata` | Parses the Excel sidecar. |
-| [registry/](src/pysuto/registry/) | `BaseOutputRegistry`, `DataFeedRegistry`, `ImputationRunRegistry`, `ConstraintRunRegistry`, `OptimRunRegistry`, `UncPropRunRegistry`, `PsutRunRegistry`, `_RegistryEntry`, `make_run_id`, `build_sidecar` | Harmonized output registries (Stages 1–6); shared run-id pattern + sidecar schema. **Subpackage layout:** `base.py`, `feed.py`, `imputation.py`, `constraint.py`, `optim.py`, `uncprop.py`, `psut.py`, `_sidecar.py`. |
+| [registry/](src/pysuto/registry/) | `BaseOutputRegistry`, `DataFeedRegistry`, `ImputationRunRegistry`, `ConstraintRunRegistry`, `OptimRunRegistry`, `UncPropRunRegistry`, `PsutRunRegistry`, `SweepRunRegistry`, `_RegistryEntry`, `make_run_id`, `build_sidecar`, `stage_lock`, `LockHeld` | Harmonized output registries (Stages 1–6); shared run-id pattern + sidecar schema; the advisory stage lock on `data/proc` (#101). **Subpackage layout:** `base.py`, `feed.py`, `imputation.py`, `constraint.py`, `optim.py`, `uncprop.py`, `psut.py`, `sweep.py`, `lock.py`, `_sidecar.py`. |
 | [input_registry.py](src/pysuto/input_registry.py) | `InputRegistry`, `InputRegistries` | Per-kind versioned snapshot store for `feed`, `acc`, `params`, `mask` inputs; hardlink dedup; auto-bump on content-hash change. |
+| [knobs.py](src/pysuto/knobs.py) | `parse_overrides`, `apply_overrides`, `add_knob_args`, `overrides_from_cli`, `write_run_id` | The driver knob protocol: `--set KNOB=VALUE` against a driver's `KNOBS`, and `--run-id-file` (#100). |
+| [pipeline.py](src/pysuto/pipeline.py) | `Pipeline`, `Chain`, `StepFailed`, `Axis`, `Sweep`, `STEPS`, `TIED`, `STEP_GB`, `split_key` | Stage drivers composed as subprocess steps; one chain per `run(overrides, label)` with `<stage>.<KNOB>` overrides (#103); random (Latin hypercube) or grid sweeps of chains, resumable, recorded via `SweepRunRegistry` (#105); a sweep may keep only its last step's runs, the others passing through a scratch store (#108). |
 | [utils.py](src/pysuto/utils.py) | `_NpEncoder`, io helpers | JSON serialisation, numpy-safe dump/load. |
 | [logging.py](src/pysuto/logging.py) | `get_logger`, `add_run_handler` | Structured run logging; one file per run. |
 | [config.py](src/pysuto/config.py) | `load_config`, `Config`, `PipelineConfig` | Typed loader for `config/config.yaml` (`pipeline.acc_id` only). |
@@ -907,12 +909,12 @@ world.to_piot().sankey("2020").write_html("copper_process_network_2020.html")
 | [agg.py](src/pysuto/agg.py) | `AggregationMath`, `AggregationResult` | Build `Ω`, compute `f_agg`, `σ_agg`, coverage. |
 | [impute/](src/pysuto/impute/) | `ImputationEngine`, `BaseImputer`, `TradeImputer`, `NetworkImputer`, `ProcessRecipe`, `ParametricImputer`, `FormulaImputer`, `TimeImputer`, `ShareImputer`, `FlatPriorImputer`, `ParametricRelation`, `FormulaRelation`, `SourceTerm`, `ParamRef`, `ImputationLog`, `ImputationMetadata` | Ordered imputation pipeline; per-edge provenance logging. **Subpackage layout:** `engine.py`, `base.py`, `trade.py`, `network.py`, `parametric.py`, `formula.py`, `time.py`, `share.py`, `flat_prior.py`. |
 | [constraints/](src/pysuto/constraints/) | `ConstraintEngine`, `BaseConstraintBuilder`, `MassBalanceBuilder`, `SumConstraintBuilder`, `RatioConstraintBuilder`, `RatioBoundBuilder`, `FlowBoundsBuilder`, `ConstraintBlock`, `ConstraintRun` | Plugin constraint pipeline; persists to `data/proc/const/` via `ConstraintRunRegistry` (lives in [registry/](src/pysuto/registry/)). **Subpackage layout:** `engine.py`, `base.py`, `mass_balance.py`, `sum.py`, `ratio.py`, `flow_bound.py`, `run.py`. |
-| [solver.py](src/pysuto/solver.py) | `ClarabelSolver`, `OptimResult` | σ-weighted QP via Clarabel, one per timestep; warm or cold prior. |
+| [solver.py](src/pysuto/solver.py) | `ClarabelSolver`, `OptimResult` | σ-weighted QP via Clarabel, one per timestep; warm or cold prior. `ClarabelSolver.objective_at` scores any year-local posterior under a const run's QP, split by family (#102). |
 | [uncprop.py](src/pysuto/uncprop.py) | `BaseUncProp`, `KalmanUncProp`, `UncPropResult`, `UncPropTimestep` | Stage-5 posterior uncertainty: active set and a QR of the whitened system per year (block path), sparse Cholesky (full-G path); persists to `data/proc/uncprop/` via `UncPropRunRegistry`. |
 | [psut.py](src/pysuto/psut.py) | `PSUT`, `OptimResultsLike`, `classify_blocks`, `BLOCKS` | Stage-6 tidy-canonical PSUT: `from_opt_run` / `from_results`, block views `S`/`U`/`Y`/`E`/`O`/`P`/`W`, `realized_conc`, `aggregate` (region/sector pushforward with `region_crossed`), `sankey` (thin delegate to `diag.psut`), `to_piot`, period selection (`periods`, `latest`, `at`); every valuation in one table with a `primary`; persists to `data/proc/psut/` via `PsutRunRegistry`. |
 | [piot.py](src/pysuto/piot.py) | `PIOT`, `market_share_network`, `market_shares`, `CONSTRUCTS`, `LEVELS` | Stage-6 PIOT as a construct family: the market-share process network (`Z()`, `D()`, process-network `sankey()`), levels `A`/`L` (`x`, `y`, `A`, `L`), `intensity`, `footprint`, `embodied_trade`, `ew_mfa`, `multipliers`, `sda`; `suh_product` is a stub until #20. A derived view of a PSUT, never persisted. |
 | [_conditioning.py](src/pysuto/_conditioning.py) | `condition_prior`, `condition_sigma_c` | Shared σ_a / σ_c conditioning rules — guarantees uncprop sees the same effective prior the solver did. |
-| [diag/](src/pysuto/diag/) | `FeedDiagnostics`, `AggDiagnostic`, `ImpDiagnostic`, `ConstDiagnostic`, `SolverDiag`, `UncPropDiag`, `sankey_figure`, `sankey_tables`, `SankeySpec`; `stats/`: `CoverageDiagnostic`, `StatsDiagnostic`, `ConstStatsDiagnostic`, `SolverStatsDiagnostic`, `UncPropStatsDiagnostic` | Cross-stage diagnostic plot suites (figures), row-level stats tables (CSVs) and the Stage-6 supply-use Sankey (Plotly, lazy). **Subpackage layout:** `feed.py`, `agg.py`, `imp.py`, `const.py`, `solver.py`, `uncprop.py`, `psut.py`, `_plot.py`, `stats/{_core,coverage,val,const,solver,objective,uncprop}.py`. |
+| [diag/](src/pysuto/diag/) | `FeedDiagnostics`, `AggDiagnostic`, `ImpDiagnostic`, `ConstDiagnostic`, `SolverDiag`, `UncPropDiag`, `SweepDiag`, `sankey_figure`, `sankey_tables`, `SankeySpec`; `stats/`: `CoverageDiagnostic`, `StatsDiagnostic`, `ConstStatsDiagnostic`, `SolverStatsDiagnostic`, `UncPropStatsDiagnostic`, `SweepStatsDiagnostic` | Cross-stage diagnostic plot suites (figures), row-level stats tables (CSVs) and the Stage-6 supply-use Sankey (Plotly, lazy). **Subpackage layout:** `feed.py`, `agg.py`, `imp.py`, `const.py`, `solver.py`, `uncprop.py`, `sweep.py`, `psut.py`, `_plot.py`, `stats/{_core,coverage,val,const,solver,objective,uncprop,sweep}.py`. |
 
 ---
 
@@ -1072,7 +1074,7 @@ solver = ClarabelSolver(const_dir="data/proc/const")
 results = solver.solve_all(
     run_id=constraint_run.run_id,
     timesteps=[str(t) for t in range(2010, 2024)],
-    feasibility_check_first_only=True,
+    feasibility_check="first",
 )
 optim_run_id = solver.persist(
     run_id=constraint_run.run_id,
@@ -1191,6 +1193,106 @@ Downstream runs record `(id, version)` in their sidecar
 `parents.inputs.*` so any output run-id can be traced back to the exact
 input-bytes that produced it.
 
+### Pipeline and knobs
+
+A **knob** is an UPPER_CASE constant of a driver's `# USER CONFIGURATION` block that the
+driver lists in its `KNOBS` tuple. Every Stage 2–4 driver takes `--set KNOB=VALUE`
+(repeatable; VALUE a Python literal, type-checked against the constant before `main()`
+loads anything) and `--run-id-file PATH`; the applied pairs land in the sidecar's
+`stage_config["overrides"]` beside the effective values, which the existing keys keep
+recording ([knobs.py](src/pysuto/knobs.py), #100):
+
+```bash
+python scripts/run_solver.py --const-run-id <id> --set TOL_GAP_REL=1e-6 --set QP_VARIABLES=flows
+```
+
+[pipeline.py](src/pysuto/pipeline.py) composes the drivers as steps (#103). It runs each
+one as a subprocess through that protocol, never importing `scripts/`, and threads the
+run ids into a `Chain` ([ADR 0045](docs/adr/0045-knobs-are-overridden-at-the-driver-boundary.md)):
+
+```python
+from pysuto.pipeline import Chain, Pipeline
+
+base  = Chain.from_opt_run("opt_20261020_112726_2f451f31")     # resolves const, imp, feeds
+chain = Pipeline(steps=("imp", "const", "opt"), base=base).run(
+    {"imp.P_PROP": 1.5, "const.P_PROP": 1.5}, label="p = 1.5")  # <stage>.<KNOB> keys
+```
+
+`steps` is any contiguous slice of `("imp", "const", "opt")`; the first step reads its
+upstream from `base`. Knobs listed in `pipeline.TIED` (the cross-stage `P_PROP`) must be
+set together and to one value. A driver exiting non-zero raises `StepFailed` with the tail
+of its output (`logs/pipeline/<label>_<step>.log`). Every registry-writing driver takes
+`data/proc/.stage.lock` (#101), so a pipeline and a hand-run driver cannot interleave.
+
+A **sweep** runs a set of chains that differ only in knob values and records them as one
+`sweep` run (#105), after scikit-learn's `ParameterSampler` / `ParameterGrid`. An `Axis`
+is one knob, or a tied set sharing one value, with a list of values or a scipy
+distribution (`Axis.interval(keys, lo, hi, log=False)`). A **random** sweep (the default)
+draws `n_points` from a seeded, scrambled Latin hypercube, so every list level gets the
+same share of points; a **grid** sweep runs every combination of list values:
+
+```python
+from pysuto.pipeline import Axis, Sweep
+
+sweep = Sweep(Pipeline(base=base), [
+    Axis.interval(("imp.P_PROP", "const.P_PROP"), 1.1, 1.5),           # tied
+    Axis.interval("const.SIGMA_C_ABS_FLOOR", 1e-6, 1e-3, log=True),
+    Axis("imp.CASCADE_ORDER", [("trade", "network", "conc", "ore_grade", "eff"),
+                               ("network", "trade", "conc", "ore_grade", "eff")]),
+], n_points=30, seed=20261021)
+sweep.plan()       # distinct runs per step: a sweep over solver knobs runs imp and const once
+sweep_id = sweep.run(label="knob study")
+```
+
+Points are drawn at declaration and run one after another; within a sweep a step whose
+upstream runs and overrides an earlier point already ran reuses that run. A point whose
+driver fails is recorded `failed` with its output tail and the sweep goes on. Unless set,
+sweep points pass `opt.FEASIBILITY_CHECK = "none"` (#104). Before the first point the
+sweep refuses to start when the planned runs (`STEP_GB` per step run) plus a 3 GB reserve
+exceed the free disk; it records the git commit and refuses to `resume` at another one.
+`scripts/sweep.py` declares a sweep in its USER CONFIGURATION block (`--dry-run`,
+`--resume <sweep_id>`).
+
+With `keep_intermediate=False` (`KEEP_INTERMEDIATE` in `scripts/sweep.py`, #108) only the
+last step's runs reach `data/proc`. The pipeline passes `--imp-dir` / `--const-dir` so each
+point's imp and const runs (≈ 0.93 GB) land in `<scratch_dir>/<sweep_id>/`, a RAM-backed
+tmpfs (`/dev/shm/pysuto-sweep`), and deletes a run as soon as no remaining point reuses
+it. A point then costs the opt run's 0.08 GB of disk, and the manifest still names its imp
+and const runs, so the point can be rebuilt from its overrides. Those opt runs cannot be
+loaded by `SolverDiag` afterwards (their const is gone); the solve renders its diag while
+the const still exists. A reboot empties the store, and `resume` reruns the dropped steps of
+the points not done.
+
+```
+data/proc/sweep/sweep_<YYYYMMDD_HHMMSS>_<8hex>/
+    metadata.json     parents.upstream = the base chain; stage_config = steps, mode,
+                      n_points, seed, axes, fixed, commit, dirty, scipy
+    manifest.json     per point: overrides, status, run ids, reused steps, times, error
+    diag/             scripts/sweep_diag.py: points.csv, categories.csv,
+                      retention_by_year.csv, sensitivity.csv, SW-R-01…04 figures
+```
+
+`scripts/sweep_diag.py <sweep_run_id>` scores every done point against the base chain
+(#107), reading only the base's const run and the points' opt runs. Every point gets the
+cross-evaluated objective `J_base_at_point`, which is each point's posterior scored under
+the base QP by `ClarabelSolver.objective_at` and split by family. On
+`opt_20261019_171746_3272682b` against `opt_20261020_112726_2f451f31` it gives the 66,702
+of #33. Every point also gets the mass moved by valuation, and by category with retention
+by category and year. Further **outcomes** are declared (`Outcome(name, measure, select)`,
+#108). The measure is `mass_moved`, `retention` (the change against the base) or `total`
+(the relative change of the posterior, which also sees a knob that moves prior and
+posterior together). The selector is a dict over the edge table's columns or a callable
+mask that must match at least one edge. `MaxAbs` takes the worst of several and is NaN
+when any part is. The script declares Table S16's nine stages both ways, their maxima and
+Round-E (c)'s exporter retention. Through the same edge table it reproduces the #110 REP's
+Round-E numbers for `opt_20261021_121332_acc68135` → `opt_20261021_131744_58504ad3`:
+Chile's Concentrate→Smelting CC export retention over 1995–2024 is 1.0205 → 1.0222, and
+the CC mass moved is 285,108 → 256,349 kt CC. The axes are ranked per outcome. A random
+sweep gets SRRC and Spearman ρ for numeric axes and two-level list axes (in their declared
+order), plus the rank regression's R²; where R² < 0.5 the summary names the top axis by ρ.
+List axes get the main-effect range, and a full grid gets the two-way interaction range. Gross-mass totals are dominated by the
+waste-rock satellite, so `mass_moved_CC` is the scale-free one.
+
 ---
 
 ## File structure
@@ -1282,6 +1384,8 @@ unc  ─────────────────────────
 meta  →  registry
 collector  →  agg  →  impute  →  constraints  →  solver  →  uncprop
 _conditioning  ←  solver, uncprop          (shared σ-conditioning helper)
+knobs          ←  the stage drivers        (the --set / --run-id-file protocol)
+pipeline       ←  registry, logging        (runs the drivers as subprocesses; never imports scripts/)
 psut           ←  acc, registry            (Stage 6 — reads a persisted opt run)
 piot           ←  psut                     (Stage 6 — a derived view of a PSUT)
 diag           ──── consumer; never imported into the data layer

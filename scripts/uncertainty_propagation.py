@@ -51,6 +51,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from pysuto.diag    import UncPropDiag
 from pysuto.uncprop import KalmanUncProp
 from pysuto.logging import get_logger, add_run_handler
+from pysuto.registry import stage_lock
 
 _log = get_logger("init_uncertainty_propagation")
 
@@ -118,4 +119,5 @@ if __name__ == "__main__":
         help="Optional label for the uncprop run sidecar.",
     )
     args = parser.parse_args()
-    main(args.opt_run_id, args.label)
+    with stage_lock("uncertainty_propagation"):   # registries have no locking (#101)
+        main(args.opt_run_id, args.label)

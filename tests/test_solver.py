@@ -1005,6 +1005,81 @@ class TestQpVariables:
             s.solve_all("toy_run")
 
 
+class TestObjectiveAt:
+    """#102: ``objective_at`` scores any year-local posterior under a const run's QP,
+    so a sweep compares points on one objective (each answer under the base σ)."""
+
+    _solve = staticmethod(TestQpVariables._solve)
+    _J     = staticmethod(TestQpVariables._J)
+
+    @pytest.mark.parametrize("qp_variables", ["flows", "defects"])
+    def test_it_reproduces_the_solvers_objective_at_its_own_posterior(
+        self, tmp_path, monkeypatch, qp_variables,
+    ):
+        run = _make_wide_sigma_run(periods=("2020", "2021"))
+        s, res = self._solve(run, tmp_path, monkeypatch, qp_variables)
+        for t, r in res.items():
+            cols = run.edge_cols_by_t[t]
+            const = float(((run.a0[cols] / run.sigma_a[cols]) ** 2).sum())
+            got = s.objective_at(run, t, r.F_opt)
+            assert got["total"] == pytest.approx(r.objective + const, rel=1e-10)
+            assert got["total"] == pytest.approx(self._J(run, t, r.F_opt), rel=1e-10)
+
+    def test_under_defects_it_is_clarabels_own_cost(self, tmp_path, monkeypatch):
+        run = _make_wide_sigma_run()
+        s, res = self._solve(run, tmp_path, monkeypatch, "defects")
+        got = s.objective_at(run, "2020", res["2020"].F_opt)
+        assert got["total"] == pytest.approx(res["2020"].convergence["cost_primal"],
+                                             rel=1e-6)
+
+    def test_a_feasible_perturbation_scores_higher(self, tmp_path, monkeypatch):
+        """Raising e0 and e1 together keeps the balance and the band, so the point
+        stays feasible and must cost more than the optimum (a nudge that breaks a
+        hard row may cost less: the optimum is over the feasible set only)."""
+        run = _make_wide_sigma_run()
+        s, res = self._solve(run, tmp_path, monkeypatch, "defects")
+        F = res["2020"].F_opt
+        base = s.objective_at(run, "2020", F)["total"]
+        for step in (0.5, 1.0):
+            G = F.copy()
+            G[[0, 1]] += step
+            assert s.objective_at(run, "2020", G)["total"] > base
+
+    def test_the_family_split_sums_to_the_total(self, tmp_path, monkeypatch):
+        run = _make_wide_sigma_run()
+        s, res = self._solve(run, tmp_path, monkeypatch, "flows")
+        got = s.objective_at(run, "2020", res["2020"].F_opt)
+        assert set(got) == {"total", "edges", "sum_rows", "soft_ratios", "other_soft",
+                            "max_hard_violation"}
+        assert got["max_hard_violation"] <= 1e-6
+        parts = got["edges"] + got["sum_rows"] + got["soft_ratios"] + got["other_soft"]
+        assert parts == pytest.approx(got["total"], rel=1e-12)
+        assert got["sum_rows"] > 0 and got["soft_ratios"] == 0 and got["other_soft"] == 0
+
+    def test_a_hand_worked_point(self, tmp_path):
+        """Prior (100, 40, 80, −20, 0.002) at σ (5, 1e5, 2, 2, 1e-3); F = prior except
+        e0 = 105: edges (5/5)² = 1. Rows: e0 = 110 at σ 5 → ((105 − 110)/5)² = 1;
+        e1 + e2 = 105 at σ 3 → ((120 − 105)/3)² = 25. Total 27."""
+        from pysuto.solver import ClarabelSolver
+        run = _make_wide_sigma_run()
+        s = ClarabelSolver(const_dir=str(tmp_path / "c"), opt_dir=str(tmp_path / "o"))
+        F = np.array([105.0, 40.0, 80.0, -20.0, 0.002])
+        got = s.objective_at(run, "2020", F)
+        assert got["edges"] == pytest.approx(1.0, rel=1e-12)
+        assert got["sum_rows"] == pytest.approx(26.0, rel=1e-12)
+        assert got["total"] == pytest.approx(27.0, rel=1e-12)
+        # Hard rows: balance 105 − 40 − 80 + 20 − 0.002 = 4.998; band 80 − 0.55·105 =
+        # 22.25 > 0; bound −e3 = 20 > 0. The largest breach is the band's.
+        assert got["max_hard_violation"] == pytest.approx(22.25, rel=1e-12)
+
+    def test_a_posterior_of_the_wrong_length_is_refused(self, tmp_path):
+        from pysuto.solver import ClarabelSolver
+        run = _make_wide_sigma_run()
+        s = ClarabelSolver(const_dir=str(tmp_path / "c"), opt_dir=str(tmp_path / "o"))
+        with pytest.raises(ValueError, match="2020"):
+            s.objective_at(run, "2020", np.zeros(4))
+
+
 class TestPreFixBlockRunGuard:
 
     def _block_const_run(self):
@@ -1067,6 +1142,61 @@ class TestPreFixBlockRunGuard:
         )}
         warn_if_prefix_block_run(results, const_run)
         assert not any(issubclass(w.category, UserWarning) for w in recwarn.list)
+
+
+def _make_second_year_infeasible_run(bad=("2021",)):
+    """One edge, two periods: a hard balance e0 = c and the bound −e0 ≤ 0. c = 5 is
+    feasible; c = −5 in the years ``bad`` is not."""
+    G_t = sp.csr_matrix(np.array([[1.0], [-1.0]]))
+    data = {t: (np.array([-5.0 if t in bad else 5.0, 0.0]), np.zeros(2),
+                np.array([5.0]), np.array([1.0])) for t in ("2020", "2021")}
+    return _block_run(G_t, ["zero", "nonneg"], data, run_id="half_bad")
+
+
+class TestFeasibilityCheckMode:
+    """#104: FEASIBILITY_CHECK = "first" | "all" | "none" — a sweep point skips the
+    probe; a period that cannot be solved still raises, only not localised by it."""
+
+    @staticmethod
+    def _solver(run, monkeypatch):
+        from pysuto.solver import ClarabelSolver
+        s = ClarabelSolver(const_dir="unused", verbose_first_solve=False)
+        monkeypatch.setattr(s, "load_run", lambda _rid: run)
+        return s
+
+    def test_first_probes_only_the_first_year(self, monkeypatch):
+        s = self._solver(_make_second_year_infeasible_run(), monkeypatch)
+        with pytest.raises(RuntimeError) as exc:
+            s.solve_all("half_bad", feasibility_check="first")
+        assert "Feasibility check FAILED" not in str(exc.value)
+        assert "'2021'" in str(exc.value)
+
+    def test_all_probes_every_year_before_solving(self, monkeypatch):
+        s = self._solver(_make_second_year_infeasible_run(), monkeypatch)
+        with pytest.raises(RuntimeError, match="Feasibility check FAILED at timestep '2021'"):
+            s.solve_all("half_bad", feasibility_check="all")
+
+    def test_none_skips_the_probe_and_the_period_solve_still_raises(self, monkeypatch):
+        s = self._solver(_make_second_year_infeasible_run(bad=("2020",)), monkeypatch)
+        with pytest.raises(RuntimeError) as exc:
+            s.solve_all("half_bad", feasibility_check="none")
+        assert "Feasibility check FAILED" not in str(exc.value)
+        assert "'2020'" in str(exc.value)
+
+    def test_none_solves_a_feasible_run(self, monkeypatch):
+        s = self._solver(_make_second_year_infeasible_run(bad=()), monkeypatch)
+        res = s.solve_all("half_bad", feasibility_check="none")
+        assert [r.F_opt[0] for r in res.values()] == pytest.approx([5.0, 5.0], rel=1e-7)
+
+    def test_the_legacy_bool_maps_onto_the_mode(self, monkeypatch):
+        s = self._solver(_make_second_year_infeasible_run(), monkeypatch)
+        with pytest.raises(RuntimeError, match="Feasibility check FAILED at timestep '2021'"):
+            s.solve_all("half_bad", feasibility_check_first_only=False)
+
+    def test_an_unknown_mode_is_refused(self, monkeypatch):
+        s = self._solver(_make_second_year_infeasible_run(bad=()), monkeypatch)
+        with pytest.raises(ValueError, match="feasibility_check"):
+            s.solve_all("half_bad", feasibility_check="some")
 
 
 class TestFeasibilityCheck:

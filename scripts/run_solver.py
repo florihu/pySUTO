@@ -36,13 +36,13 @@ from datetime import datetime
 CONST_DIR  = os.path.join("data", "proc", "const")
 OUTPUT_DIR = os.path.join("data", "proc", "opt")
 TIMESTEPS  = None #[1995]           # None → all timesteps in the run
-# Sensitivity cold run: scan every year up front so an infeasibility introduced
-# by the flat-prior-zero pin halts at — and localises — the first breaking year,
-# rather than only checking year 0. See branch sensitivity/no-flat-prior-zeros.
-# Back to the first-only default since Round C: the 30-probe scan costs ~350 s
-# per probe (~3 h) on the full hard system, and each year's QP reports its own
-# status anyway — flip to False only to localise a mid-series infeasibility.
-FEASIBILITY_CHECK_FIRST_ONLY = True
+# Feasibility pre-check: which years the probe checks before any solve — "first"
+# (the default since Round C), "all" (localises a mid-series infeasibility; ~350 s
+# per probe, ~3 h on the full hard system) or "none" (#104: a sweep point; the probe
+# is ≈ 7 of Stage 4's ≈ 11 min). Each year's QP reports its own status anyway: a
+# status outside Solved/AlmostSolved raises with or without the probe, which only
+# localises it.
+FEASIBILITY_CHECK = "first"
 # Clarabel iteration cap. The default (200) is too low for the pinned, soft-stock
 # 1.37M-row phase-1 feasibility QP (converges but not within 200 iters → spurious
 # MaxIterations reported as infeasible). max_iter is a CAP, so easy runs still stop
@@ -100,6 +100,15 @@ DIRECT_SOLVE_METHOD = "faer"
 # and is unaffected.
 QP_VARIABLES        = "defects"
 
+# The knobs a pipeline step may override with --set (#100, pysuto.knobs). Paths are
+# not knobs.
+KNOBS = (
+    "TIMESTEPS", "FEASIBILITY_CHECK", "MAX_ITER",
+    "TOL_FEAS", "TOL_GAP_REL", "TOL_GAP_ABS",
+    "REDUCED_TOL_FEAS", "REDUCED_TOL_GAP_REL", "REDUCED_TOL_GAP_ABS",
+    "N_WORKERS", "DIRECT_SOLVE_METHOD", "QP_VARIABLES",
+)
+
 
 # ---------------------------------------------------------------------------
 # END USER CONFIGURATION
@@ -111,11 +120,14 @@ from pysuto.acc     import AccountingStructure
 from pysuto.solver  import ClarabelSolver
 from pysuto.diag    import SolverDiag
 from pysuto.logging import get_logger, add_run_handler
+from pysuto.knobs   import add_knob_args, overrides_from_cli, write_run_id
+from pysuto.registry import stage_lock
 
 _log = get_logger("init_run_solver")
 
 
-def main(const_run_id: str, label: str = "", prior_mode: str = "warm") -> None:
+def main(const_run_id: str, label: str = "", prior_mode: str = "warm",
+         overrides: dict | None = None) -> str:
     os.makedirs("logs", exist_ok=True)
     add_run_handler(
         f"logs/init_run_solver_{datetime.now():%Y%m%d_%H%M%S}.log"
@@ -138,8 +150,8 @@ def main(const_run_id: str, label: str = "", prior_mode: str = "warm") -> None:
     _log.info("Solving ConstraintRun '%s'", const_run_id)
     results = solver.solve_all(
         const_run_id,
-        timesteps                    = TIMESTEPS,
-        feasibility_check_first_only = FEASIBILITY_CHECK_FIRST_ONLY,
+        timesteps         = TIMESTEPS,
+        feasibility_check = FEASIBILITY_CHECK,
     )
 
     optim_run_id = solver.persist(
@@ -157,7 +169,8 @@ def main(const_run_id: str, label: str = "", prior_mode: str = "warm") -> None:
             "reduced_tol_feas":             REDUCED_TOL_FEAS,
             "reduced_tol_gap_rel":          REDUCED_TOL_GAP_REL,
             "reduced_tol_gap_abs":          REDUCED_TOL_GAP_ABS,
-            "feasibility_check_first_only": FEASIBILITY_CHECK_FIRST_ONLY,
+            "feasibility_check":            FEASIBILITY_CHECK,
+            "overrides":                    dict(overrides or {}),
         },
     )
 
@@ -184,6 +197,7 @@ def main(const_run_id: str, label: str = "", prior_mode: str = "warm") -> None:
     diag.plot(odir=diag_dir)
 
     _log.info("=== init_run_solver DONE ===")
+    return optim_run_id
 
 
 if __name__ == "__main__":
@@ -202,6 +216,14 @@ if __name__ == "__main__":
         choices=["warm", "cold"],
         help="ClarabelSolver prior mode: 'cold' (default) or 'warm'."
     )
+    parser.add_argument("--const-dir", default=CONST_DIR,
+                        help=f"Where the constraint run is read from "
+                             f"(default {CONST_DIR}).")
 
+    add_knob_args(parser)
     args = parser.parse_args()
-    main(args.const_run_id, args.label, args.prior_mode)
+    CONST_DIR = args.const_dir
+    overrides = overrides_from_cli(parser, args, KNOBS, globals())
+    with stage_lock("run_solver"):   # registries have no locking (#101)
+        write_run_id(args.run_id_file,
+                     main(args.const_run_id, args.label, args.prior_mode, overrides))

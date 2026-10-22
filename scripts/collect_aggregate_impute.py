@@ -51,7 +51,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from pysuto.acc      import AccountingStructure
 from pysuto.config   import load_config
-from pysuto.registry import DataFeedRegistry, ImputationRunRegistry
+from pysuto.registry import DataFeedRegistry, ImputationRunRegistry, stage_lock
 from pysuto.input_registry import InputRegistries
 from pysuto.collector import FeedCollector
 from pysuto.param_relation import (conc_for, conc_nominal_lookup, conc_sectors,
@@ -69,6 +69,7 @@ from pysuto.impute   import (
     FlatPriorImputer,
 )
 from pysuto.logging  import get_logger, add_run_handler
+from pysuto.knobs    import add_knob_args, overrides_from_cli, write_run_id
 from pysuto.diag     import (
     AggDiagnostic, CoverageDiagnostic, ImpDiagnostic, StatsDiagnostic,
     ownership_violations,
@@ -90,6 +91,13 @@ ALPHA_MIN_REG = 0.05     # inverse-multiplier effective-sensitivity floor
 # Imputation cascade — conc/eff/formula iterate to a fixpoint (re-run until a
 # full sweep fills no new edges). Safety cap on passes (chain depth ≈ 8).
 CASCADE_MAX_ITER = 10
+# Cascade order (#104): imputers are write-once, so where two writer scopes overlap
+# the earlier imputer writes the edge (GLOSSARY "Writer scope"). A knob, so a sweep
+# can run named alternative orders; it must stay a permutation of CASCADE_IDS. The
+# terminal pass (time → share → flat) is fixed: flat must be last and only share may
+# write the stock legs (ADR 0040).
+CASCADE_IDS   = ("trade", "network", "conc", "ore_grade", "eff")
+CASCADE_ORDER = CASCADE_IDS
 
 # NetworkImputer — waste rock is a satellite mass flow outside the Mining balance
 # (ADR 0038), fixed in Stage 3 by the hard stripping relation WR_Mass = k·Ore_Mass
@@ -227,6 +235,20 @@ LEG_SIGMA_AREF = {"Anode": 0.213367, "Cathode": 0.26827266,
 # smaller looser (cv capped at LEG_SIGMA_CV_CAP). γ=1.0 or None disables.
 LEG_SIGMA_GAMMA  = 0.5
 LEG_SIGMA_CV_CAP = 1.0
+
+# The knobs a pipeline step may override with --set (#100, pysuto.knobs). Paths,
+# ACC_ID, CV_GEO4 (a pedigree constant) and STOCK_SECTORS (ADR 0040 membership,
+# kept in four places, #39) are not knobs.
+KNOBS = (
+    "P_PROP", "Q_REG", "ALPHA_MIN_REG", "CASCADE_MAX_ITER", "CASCADE_ORDER",
+    "TIME_WINDOW", "TIME_MIN_OBS", "TIME_GAP_INFLATION", "TIME_METHOD",
+    "TIME_INTERPOLATE_ONLY", "TIME_SCOPE_SAME_REGION",
+    "STOCK_SEED_CV", "STOCK_SEED_ABS_FLOOR_KT", "EFFLESS_STOCK_SIGMA_KT",
+    "FLAT_MODE", "FLAT_SIGMA_HIGH", "FLAT_DEFAULT_CV",
+    "FLAT_CV_LO_SUPPLY", "FLAT_CV_HI_SUPPLY", "FLAT_CV_LO_USE", "FLAT_CV_HI_USE",
+    "OUTLIER_LEG_K", "OUTLIER_LEG_CV", "UNCLOSED_SECTORS", "UNCLOSED_CV",
+    "LEG_SIGMA_AREF", "LEG_SIGMA_GAMMA", "LEG_SIGMA_CV_CAP",
+)
 
 # ---------------------------------------------------------------------------
 # Domestic-use FormulaRelations — all RETIRED; the NetworkImputer closes these legs
@@ -443,7 +465,18 @@ def _screen_contradicted_nodes(acc, agg_result, logger):
     return report
 
 
-def main(feed_ids: list[str], label: str) -> None:
+def cascade_in_order(by_id: dict, order) -> list:
+    """The cascade imputers of ``by_id`` in ``order``, which must be a permutation of
+    ``by_id``'s ids (#104); anything else — an unknown, repeated or missing id —
+    raises ``ValueError``."""
+    order = tuple(order)
+    if sorted(order) != sorted(by_id):
+        raise ValueError(f"CASCADE_ORDER {order} must be a permutation of "
+                         f"{tuple(by_id)}")
+    return [by_id[k] for k in order]
+
+
+def main(feed_ids: list[str], label: str, overrides: dict | None = None) -> str:
     log_path = os.path.join(
         "logs",
         f"collect_aggregate_impute_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log",
@@ -544,13 +577,13 @@ def main(feed_ids: list[str], label: str) -> None:
     )
     param_refs.append(inputs.params.entry("stripping_ratio"))
     engine.register_cascade(
-        [
-            trade,
-            network,
-            _build_parametric("conc",      "conc"),
-            _build_parametric("ore_grade", "ore_grade"),
-            _build_parametric("eff",       "eff"),
-        ],
+        cascade_in_order({
+            "trade":     trade,
+            "network":   network,
+            "conc":      _build_parametric("conc",      "conc"),
+            "ore_grade": _build_parametric("ore_grade", "ore_grade"),
+            "eff":       _build_parametric("eff",       "eff"),
+        }, CASCADE_ORDER),
         max_iter=CASCADE_MAX_ITER,
     )
 
@@ -682,6 +715,7 @@ def main(feed_ids: list[str], label: str) -> None:
             "q":               Q_REG,
             "alpha_min":       ALPHA_MIN_REG,
             "cascade_max_iter": CASCADE_MAX_ITER,
+            "cascade_order":   list(CASCADE_ORDER),
             "flat_mode":       FLAT_MODE,
             "outlier_leg_k":   OUTLIER_LEG_K,
             "outlier_leg_cv":  OUTLIER_LEG_CV,
@@ -706,6 +740,7 @@ def main(feed_ids: list[str], label: str) -> None:
             "stock_seed_cv":      STOCK_SEED_CV,
             "stock_seed_abs_floor": STOCK_SEED_ABS_FLOOR_KT,
             "effless_stock_sigma": EFFLESS_STOCK_SIGMA_KT,
+            "overrides":          dict(overrides or {}),
         },
     )
     run_dir = os.path.join(IMP_DIR, run_id)
@@ -726,6 +761,7 @@ def main(feed_ids: list[str], label: str) -> None:
     StatsDiagnostic(agg_result, acc_struct=acc, year="1995").write(diag_dir)
 
     logger.info("=== collect_aggregate_impute DONE ===")
+    return run_id
 
 
 if __name__ == "__main__":
@@ -735,5 +771,16 @@ if __name__ == "__main__":
         help="Feed run ID to include. Repeat for each feed.",
     )
     parser.add_argument("--label", help="Human-readable label stored in the run's sidecar")
+    parser.add_argument("--imp-dir", default=IMP_DIR,
+                        help=f"Where the run is written (default {IMP_DIR}); a sweep's "
+                             f"scratch store (#108).")
+    add_knob_args(parser)
     args = parser.parse_args()
-    main(args.feed_ids, args.label)
+    IMP_DIR = args.imp_dir
+    overrides = overrides_from_cli(parser, args, KNOBS, globals())
+    try:
+        cascade_in_order(dict.fromkeys(CASCADE_IDS), CASCADE_ORDER)
+    except ValueError as exc:
+        parser.error(str(exc))
+    with stage_lock("collect_aggregate_impute"):   # registries have no locking (#101)
+        write_run_id(args.run_id_file, main(args.feed_ids, args.label, overrides))
