@@ -291,8 +291,10 @@ def load_flows_struc(df_init, sheet, process, flow_type, rename_dict, name):
     df['Region'] = df['Region'].str.strip()
     df['Type'] = df['Type'].astype(str).str.strip()
 
-    # ── 15. remove missing or zero values ─────────────────────────────────────
-    df = df[df['Value'].notna() & (df['Value'] != 0)]
+    # ── 15. remove missing values ─────────────────────────────────────────────────
+    # Zeros are kept: a later yearbook's revision to zero must supersede an
+    # older vintage's value in icsg_comb, which drops them after its dedup (#111).
+    df = df[df['Value'].notna()]
 
     # ── 16. conditional removal of Total rows ─────────────────────────────────
     total_mask = df['Type'].str.contains(r'\bTotal\b', case=False, na=False)

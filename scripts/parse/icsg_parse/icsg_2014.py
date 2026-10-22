@@ -183,9 +183,11 @@ def clean_flows(df_init, sheet, process, flow_type, rename_dict):
     }
     df['Region'] = df['Region'].replace(REGION_RENAME)
 
-    # ── 16. drop nulls and zeros ──────────────────────────────────────────────
+    # ── 16. drop nulls ────────────────────────────────────────────────────────
+    # Zeros are kept: a later yearbook's revision to zero must supersede this
+    # vintage's value in icsg_comb, which drops them after its dedup (#111).
     df = df[df['Region'].notna()]
-    df = df[df['Value'].notna() & (df['Value'] != 0)]
+    df = df[df['Value'].notna()]
 
     # ── 17. attach metadata ───────────────────────────────────────────────────
     df['Process']    = process
