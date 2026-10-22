@@ -5,7 +5,7 @@ once [ADR 0031](0031-icsg-scrap-series-anchor-their-level-not-only-their-share.m
 smelter-scrap *level* and the ADR 0010 amendment closed the pure-secondary recipe (common-set z²
 +10.9 % → +7.4 %). Amends [ADR 0021](0021-icsg-refined-production-anchors-anode-into-er.md).
 **Amended 2026-10-21 (#63):** imported anode refined beyond primary output leaves the direct
-route; see the amendment at the end. Built, to be measured (#63's REP).
+route; see the amendment at the end. Measured 2026-10-21: ships (#63's REP).
 
 > ⚠ **This rule shipped incomplete and nothing caught it.** The subtraction below keys on
 > `(Region, Year)` using the feed's **source** region label, so it silently did nothing for any
@@ -239,4 +239,6 @@ output is 88–102 % of its primary refined output, while it imports 0.36–0.76
 year. That rule would move China by −4,723, Germany by −284 and Korea by −234 kt CC over 30 years,
 on statistical gaps.
 
-**Status:** built, to be measured (#63's REP) by the Round-E stop rule.
+**Status:** measured 2026-10-21 and shipped (#63's REP, `opt_20261021_101810_d34c6527` vs
+`opt_20261021_094942_d1ac7a81`): all five items hold; Austria's common-set sum-row z² 68,232 → 6,196 (−90.9 %),
+common-set sum-row z² 1,018,103 → 949,738 (−6.72 %), Round-E holding.
