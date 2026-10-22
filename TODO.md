@@ -99,6 +99,30 @@ Each against the previous one; REPs under `docs/rep/`.
   the numerical floor (1.1e-6 kt), A4 0/30 because the ore-mass deletion was the solver's stop (#33). Follow-ups
   outside the milestone: #111 (DR Congo, South Africa, Zambia, Uzbekistan: 34.7 % of scale-total Σz²), #99, #81.
 
+## #111 MEASURED 2026-10-22 — the four regions are two feed defects and five contradictions; F2 ships (−0.672 %), F1 rejected (+1.67 %)
+
+`diag/anode-deletion-diagnosis`; REPs `docs/rep/analysis_opt_20261021_131744_58504ad3_20261022_issue111-four-region-diagnosis.md`
+(diagnosis, `scripts/explo/issue111_four_region_diag.py`) and
+`docs/rep/analysis_opt_20261022_112855_928da10c_20261022_issue111-zero-revision.md` (measurement,
+`scripts/explo/issue111_f1f2_measure.py`).
+- **F2 shipped:** a newer yearbook's exact zero now supersedes the older value (`icsg_comb.latest_vintage`). It removes
+  DR Congo's stale 35 kt primary refining 2015–2022 and nothing else. `opt_20261022_112855_928da10c` (icsg v18, baci
+  v33, trade_shares v41): common-set scale-total Σz² **−0.672 % vs `opt_20261021_131744_58504ad3`**, DR Congo
+  76,170 → 65,581; Round-E holds. **Reference chain.**
+- **F1 rejected on measurement** (ADR 0027 am.): the `imports_exhausted` withhold at the feeds' 0.3 kt resolution
+  releases 867 kt CC of ICSG usage into contradictions. `opt_20261022_105118_b7a659a8`: +1.67 %, South Africa +5,297.
+- **Stated, not fixed (ADR 0019), for the limitations:**
+  - C1: DR Congo's BACI 7402 exports without an ICSG smelter (2004–2019);
+  - C2: South Africa 2020–2024, ICSG smelter at 0 against BACI anode exports;
+  - C3: Zambia's Swiss merchanting;
+  - C4: Uzbekistan's 1995–1998 export coverage;
+  - C5: South Africa 2017–2018, BACI concentrate exports equal to the mine output while ICSG reports a smelter (hidden
+    by the withhold).
+- **Status:** #31 and #96 close as not planned; #108 is unblocked; the manuscript refresh reads the new reference chain.
+- **#99 closed on measurement** the same day (REP `…issue99-binding-from-multipliers.md`). A multiplier rule on one
+  iterate is a slack cutoff in disguise, so #81 reports the degenerate cross-region `Cathode→FU` family pinned and
+  free.
+
 ## #106 MEASURED 2026-10-22 — the pipeline work (#100–#105, #107, #108) moves nothing; closed over the imputation log's row order
 
 `diag/pipeline-gate-measure`; REP `docs/rep/analysis_opt_20261022_091224_7ce11edb_20261022_pipeline-driver-gate.md`;
