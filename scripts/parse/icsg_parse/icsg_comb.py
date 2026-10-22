@@ -193,8 +193,9 @@ def remove_total_if_specific_exists(df):
 
     group_cols = ['Region', 'Process', 'Year', 'Supply_Use']
 
+    # a zero specific is a revision marker, not a value (#111): it must not drop a Total
     has_specific = (
-        df['Type'].ne('Total')
+        (df['Type'].ne('Total') & df['Value'].ne(0))
         .groupby(df[group_cols].apply(tuple, axis=1))
         .transform('any')
     )
@@ -216,6 +217,20 @@ def sum_renamed_collisions(f, f_key):
     """
     return f.groupby(f_key + ['Year_loaded_from_file'], as_index=False,
                      dropna=False)['Value'].sum()[f.columns]
+
+
+def latest_vintage(f, f_key):
+    """The newest vintage's value of every flow cell; a revision to zero removes it.
+
+    The parsers keep exact zeros so that a later yearbook's revision to zero
+    supersedes an older value here.  Dropped at parse, the 2025 yearbook's zero
+    for DR Congo's primary refining 2015-2022 let the 2023 yearbook's 35 kt
+    survive (#111).  Zeros go after the dedup, so downstream a zero is still
+    "not reported".
+    """
+    f = (f.sort_values('Year_loaded_from_file', kind='mergesort')
+          .drop_duplicates(subset=f_key, keep='last'))
+    return f[f['Value'] != 0].reset_index(drop=True)
 
 
 def main(ys=[2005, 2014, 2023, 2025],
@@ -266,11 +281,7 @@ def main(ys=[2005, 2014, 2023, 2025],
 
     f = sum_renamed_collisions(f, f_key)
 
-    f = (
-        f.sort_values('Year_loaded_from_file', kind='mergesort')
-        .drop_duplicates(subset=f_key, keep='last')
-        .reset_index(drop=True)
-    )
+    f = latest_vintage(f, f_key)
 
     assert not f.duplicated(subset=f_key).any()
 

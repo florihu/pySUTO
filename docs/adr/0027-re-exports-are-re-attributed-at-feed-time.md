@@ -276,3 +276,22 @@ carried as obligations rather than options.
 - **Chile's mine chain is the next round.** Why the model deletes ~31 % of Chile's ICSG-reported
   mine output and ~60 % of its ore, in every run to date. Until it is understood, an exporter-
   retention change is not by itself a verdict on a structural change — read the ore chain first.
+
+## Amendment (#111, 2026-10-22): the exhausted-imports withhold stays — a sub-resolution threshold rejected on measurement
+
+The withhold fires on any group whose netting takes `T = I` while use remains, however small `I` is:
+64 groups on baci v33, among them South Africa's 2017–2018 smelter and refinery intake against
+0.03–0.26 kt of imports. Flagging only gross imports at the feeds' 0.3 kt resolution
+([ADR 0025](0025-scale-totals-carry-the-feeds-reporting-resolution-as-a-sigma-floor.md)) would release
+867 kt CC of ICSG usage in 54 groups to [ADR 0018](0018-import-free-fans-distribute-domestically.md)'s
+all-domestic fan. Measured with the ICSG zero-revision fix on `opt_20261022_105118_b7a659a8` against
+`opt_20261021_131744_58504ad3`, the release adds ≈ +17,000 of scale-total Σz² (common set **+1.67 %**,
+both fixes together). The released usage carries contradictions the withhold had kept out of the prior:
+DR Congo's 2004–2014 refinery intake against a smelter ICSG does not report (2007 +7,208, 2013 +6,452);
+South Africa's 2017–2018 smelter intake against BACI concentrate exports equal to its whole mine output
+(+3,880); Portugal's cathode use as a non-producer (2001 +1,848). The withhold is kept as written. What it
+withholds is ICSG usage that recorded production and imports cannot supply, and it is stated as a
+limitation.
+
+**Status:** rejected on measurement — `opt_20261022_105118_b7a659a8`, REP
+[`…issue111-four-region-diagnosis`](../rep/analysis_opt_20261021_131744_58504ad3_20261022_issue111-four-region-diagnosis.md).
