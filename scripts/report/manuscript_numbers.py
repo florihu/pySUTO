@@ -8,6 +8,12 @@ optimisation run, so the text can be refreshed onto a new reference chain.
     python scripts/report/manuscript_numbers.py <opt_run_id> [--json OUT]
         [--data-dir data] [--base OPT] [--base-retol OPT] [--numbers PATH]
 
+The JSON goes to ``docs/manuscript/figs/manuscript_numbers.json`` by default and is
+committed with the manuscript, so a refresh onto a later chain diffs the new file
+against git HEAD key by key and edits the text at each changed key's location. A run
+on any other opt run overwrites it: pass ``--json <path>`` for an exploratory run,
+or restore the file with ``git checkout``.
+
 Run it from the repository root of the checkout that holds ``data/``. It walks
 the chain opt → const → imp → feed runs → input versions through the run
 sidecars (``parents.upstream`` / ``parents.inputs``), finds the PSUT and
@@ -37,6 +43,12 @@ Groups, after the 2026-10-19 inventories of method/results and SI:
   9  Results numbers that ``results_figs.py`` does not write to numbers.json:
      |z| > 3 shares by year, China's secondary share by year, the ROW band in
      HHI, and ratios of numbers.json keys when that file belongs to this run
+ 10  Stage 5: the default posterior built from the opt run (the #87 scale-total
+     ablation beside it): active set per year, Birge ratio, calibration of the
+     shifts, contraction by prior class with and without the scale totals
+ 11  limitations (method.md §3.2.8): the mine chains kept where ICSG reports no
+     mine output, stock legs beyond |z| 5, the world producer stock change
+     against ICSG, the regions that carry the scale-total objective
 
 Historical measurements (REP/ADR figures) and the tables ``results_figs.py``
 generates are deliberately absent; so are repository statistics (lines,
@@ -59,6 +71,7 @@ import scipy.sparse as sp
 sys.path.insert(0, "src")
 
 from pysuto.acc import AccountingStructure              # noqa: E402
+from pysuto.diag.uncprop import UncPropDiag             # noqa: E402
 from pysuto.param_relation import expand_edge_index     # noqa: E402
 
 # =============================================================================
@@ -69,6 +82,9 @@ from pysuto.param_relation import expand_edge_index     # noqa: E402
 BASE_RUN       = "opt_20260916_124721_c4d1d944"
 BASE_RETOL_RUN = "opt_20260930_093914_523d57d7"
 NUMBERS_JSON   = "docs/manuscript/figs/numbers.json"
+NUMBERS_OUT    = "docs/manuscript/figs/manuscript_numbers.json"   # committed: the refresh's diff base
+Z_BIG          = 5.0                         # a stock leg beyond |z| 5 is a limitation (§3.2.8)
+PSC_FIRST_YEAR = 1996                        # ICSG reports no producer stock change for 1995
 PARAM_TABLES   = ["conc", "eff", "stripping_ratio", "ore_grade", "stock_bounds",
                   "scrap_share"]
 SUM_VARIANTS   = {"supplytotout": "sum_supply", "usetotout": "sum_use",
@@ -550,6 +566,8 @@ def soft_rows(proc: Path, ch: Chain, rm: pd.DataFrame) -> pd.DataFrame:
     time = rm.time.astype(str).to_numpy()
     soft = ~rm.is_hard.to_numpy(dtype=bool)
     cid, typ = rm.constraint_id.astype(str).to_numpy(), rm.type.astype(str).to_numpy()
+    var, sec = rm.variant.astype(str).to_numpy(), rm.sector.astype(str).to_numpy()
+    reg, val = rm.region.astype(str).to_numpy(), rm.valuation.astype(str).to_numpy()
     parts = []
     for y in ch.years:
         idx = np.flatnonzero(soft & (time == y))
@@ -562,7 +580,8 @@ def soft_rows(proc: Path, ch: Chain, rm: pd.DataFrame) -> pd.DataFrame:
         with np.errstate(divide="ignore", invalid="ignore"):
             z = np.where(sc > 0, (cstar[idx] - c) / sc, np.nan)
         parts.append(pd.DataFrame({"constraint_id": cid[idx], "type": typ[idx], "year": y,
-                                   "c": c, "sigma_c": sc, "z": z}))
+                                   "variant": var[idx], "sector": sec[idx], "region": reg[idx],
+                                   "valuation": val[idx], "c": c, "sigma_c": sc, "z": z}))
     return pd.concat(parts, ignore_index=True)
 
 
@@ -1045,6 +1064,193 @@ def results_numbers(N: Numbers, e: pd.DataFrame, s: pd.DataFrame, numbers_path: 
 
 
 # =============================================================================
+# 10  Stage 5
+# =============================================================================
+
+def stage5_runs(sidecars: dict) -> tuple:
+    """``(default, ablation)``: the latest uncprop run without and the latest with
+    ``exclude_scale_totals`` among ``sidecars`` (run id → sidecar); None where absent."""
+    abl = {r for r, m in sidecars.items()
+           if m.get("stage_config", {}).get("exclude_scale_totals", False)}
+    default = sorted(set(sidecars) - abl)
+    return (default[-1] if default else None, max(abl) if abl else None)
+
+
+def _kappa(proc: Path, run: str, acc) -> pd.DataFrame:
+    """Median and mass-weighted posterior contraction per valuation × prior class."""
+    d = UncPropDiag.from_uncprop_id(run, uncprop_dir=str(proc / "uncprop"),
+                                    opt_dir=str(proc / "opt"), const_dir=str(proc / "const"),
+                                    imp_dir=str(proc / "imp"), acc=acc)
+    f = d.stats.edge_frame()
+    f = f[np.isfinite(f.kappa)]
+    g = f.groupby(["valuation", "prior_class"], observed=True)
+    return pd.DataFrame({"median":   g.kappa.median(),
+                         "weighted": g.apply(lambda x: np.sum(x.kappa * x.weight) / np.sum(x.weight))})
+
+
+def stage5_numbers(N: Numbers, proc: Path, ch: Chain, acc) -> None:
+    """Group 10: the default posterior's active set, Birge ratio and calibration (#87),
+    and the contraction with and without the scale totals."""
+    runs = {r: _sidecar(proc / "uncprop" / r) for r in ch.uncprop}
+    run, ablation = stage5_runs(runs)
+    if run is None:
+        return
+    per = runs[run]["stage_summary"]["per_timestep"]
+
+    def span(k):
+        return [min(v[k] for v in per.values()), max(v[k] for v in per.values())]
+
+    N.add("method:L175.uncprop_run_id", "the default Stage-5 run (also header, S6.2, S17)", run)
+    N.add("method:L175.pinned_per_year", "edges pinned at a binding lower bound, per year (also S6.2)",
+          span("n_bound_active"))
+    N.add("method:L175.bands_binding_per_year", "bands binding, per year (also S6.2)",
+          span("n_bands_binding"))
+    N.add("method:L175.dependent_hard_per_year", "dependent hard rows dropped, per year (also S6.2)",
+          span("n_hard_dependent"))
+    N.add("si:S6.2.rows_kept_per_year", "rows kept, per year", span("n_rows_kept"))
+    N.add("si:S6.2.pinned_edge_years", "edge-years pinned, all years",
+          sum(v["n_bound_active"] for v in per.values()))
+    N.add("si:S6.2.max_resid_hard_kt", "largest hard residual at a*",
+          max(v["max_resid_hard"] for v in per.values()), "kt")
+    trace = [1 - v["trace_post"] / v["trace_prior"] for v in per.values()]
+    N.add("si:S6.2.trace_contraction", "smallest and largest yearly trace contraction "
+          "1 − Σσ_a*²/Σσ_a²", [min(trace), max(trace)])
+
+    diag = proc / "uncprop" / run / "diag"
+    b = pd.read_csv(diag / "birge.csv")
+    b["year"] = b.year.astype(str)
+    allr, yr = b[b.year == "all"].iloc[0], b[b.year != "all"]
+    N.add("method:L175.birge_ratio", "run Birge ratio Σz²/dof (#87; also results.md:68, S6.2)",
+          allr.birge_ratio)
+    N.add("si:S6.2.birge_zsq_dof", "the run's Σz² and dof", [allr.zsq_total, allr.dof])
+    N.add("si:S6.2.birge_ratio_by_year", "smallest and largest yearly Birge ratio",
+          [yr.birge_ratio.min(), yr.birge_ratio.max()])
+    c = pd.read_csv(diag / "calibration.csv").set_index(["valuation", "prior_class"])
+    for v in ("CC", "Mass"):
+        for cls in ("from a feed", "imputed"):
+            r = c.loc[(v, cls)]
+            N.add(f"method:L175.calibration.{v}.{cls}", f"|z/√κ| > 3 share, the same Birge-scaled, "
+                  f"median |z/√κ|: {v} {cls} (#87; also results.md:68, S6.2)",
+                  [r.share_gt3, r.share_gt3_birge, r.q50_abs])
+
+    k = _kappa(proc, run, acc)
+    for v in ("CC", "Mass"):
+        for cls in ("from a feed", "imputed"):
+            N.add(f"si:S6.2.kappa.{v}.{cls}", f"median and mass-weighted contraction: {v} {cls} "
+                  "(also results.md:68)", [k.loc[(v, cls), "median"], k.loc[(v, cls), "weighted"]])
+    if ablation is not None:
+        ka = _kappa(proc, ablation, acc)
+        N.add("method:L175.uncprop_ablation_run_id", "the #87 scale-total ablation (also S6.2)",
+              ablation)
+        for v in ("CC", "Mass"):
+            N.add(f"method:L175.kappa_weighted_ablation.{v}", f"mass-weighted contraction of "
+                  f"feed-observed {v} edges, default → without scale totals (also S6.2)",
+                  [k.loc[(v, "from a feed"), "weighted"], ka.loc[(v, "from a feed"), "weighted"]])
+
+
+# =============================================================================
+# 11  limitations
+# =============================================================================
+
+def mine_region_years(ic: pd.DataFrame) -> set:
+    """(root region, year) pairs with positive ICSG concentrate output."""
+    m = ic[ic.reg.notna() & (ic.Process == "Mining") & (ic.Type == "Concentrate")
+           & (ic.Supply_Use == "Supply")]
+    g = m.groupby(["reg", m.Year.astype(str)]).Value.sum()
+    return {(r, y) for (r, y), v in g.items() if v > 0}
+
+
+def phantom_mine_chain(e: pd.DataFrame, mine: set) -> dict:
+    """The CC mine chain the solver keeps in region-years without ICSG mine output."""
+    cc = e[e.valuation == "CC"]
+    no_mine = ~pd.MultiIndex.from_arrays([cc.region_from, cc.time.astype(str)]).isin(list(mine))
+    dom = (cc.region_from == cc.region_to).to_numpy()
+
+    def step(sf, st):
+        return cc[dom & no_mine & (cc.sector_from == sf).to_numpy() & (cc.sector_to == st).to_numpy()]
+
+    mf = step("MF", "Concentrate")
+    out = cc[no_mine & (cc.sector_from == "Concentrate").to_numpy()]
+    by = mf.groupby("region_from").post.sum().sort_values(ascending=False)
+    return {"mf_conc_post_kt":   float(mf.post.sum()),
+            "mf_conc_prior_kt":  float(mf.prior.sum()),
+            "co_mining_post_kt": float(step("CO", "Mining").post.sum()),
+            "export_share":      float(out[out.region_from != out.region_to].post.sum()
+                                       / out.post.sum()),
+            "by_region":         {r: float(x) for r, x in by[by > 1.0].items()}}
+
+
+def top_year_shares(s: pd.DataFrame, regions: list, n: int) -> dict:
+    """Per region, its ``n`` years with the largest share of its scale-total Σz²."""
+    x = s[(s.type == "sum") & s.region.isin(regions)]
+    z2 = (x.z ** 2).groupby([x.region, x.year]).sum()
+    out = {}
+    for r in regions:
+        y = z2.loc[r].sort_values(ascending=False)
+        out[r] = {str(k): float(v / y.sum()) for k, v in y.head(n).items()}
+    return out
+
+
+def sum_shares_by_region(s: pd.DataFrame) -> dict:
+    """Each region's share of the scale-total Σz², largest first."""
+    x = s[s.type == "sum"]
+    z2 = (x.z ** 2).groupby(x.region).sum().sort_values(ascending=False)
+    return {r: float(v / z2.sum()) for r, v in z2.items()}
+
+
+def limitation_numbers(N: Numbers, inp: Path, ch: Chain, e: pd.DataFrame, s: pd.DataFrame,
+                       sigma_a: np.ndarray) -> None:
+    """Group 11: the numbers of method.md §3.2.8."""
+    ic = _icsg(inp, ch.versions["icsg"])
+    p = phantom_mine_chain(e, mine_region_years(ic))
+    N.add("method:L352.phantom_mf_conc_kt", "MF→Concentrate CC posterior where ICSG reports no "
+          "mine output, 30 years (#31)", p["mf_conc_post_kt"], "kt CC")
+    N.add("method:L352.phantom_regions", "its regions above 1 kt CC, largest first", p["by_region"],
+          "kt CC")
+    N.add("method:L352.phantom_export_share", "the share of that concentrate exported",
+          p["export_share"])
+    N.add("method:L352.phantom_co_mining_kt", "CO→Mining CC posterior there", p["co_mining_post_kt"],
+          "kt CC")
+
+    fam = (((e.sector_from == "Cathode") & e.sector_to.isin(["MESC", "USC"]))
+           | ((e.sector_from == "CP") & (e.sector_to == "PSC")))
+    st = e[fam & (e.valuation == "CC")]
+    z = (st.post - st.prior) / sigma_a[st.edge_id.to_numpy()]
+    big = st[np.abs(z.to_numpy()) > Z_BIG]
+    N.add("method:L352.stock_legs_beyond_z5", "CC stock legs with |z| > 5: count and Σ posterior "
+          "(#95)", [len(big), big.post.sum()], "kt CC")
+    N.add("method:L352.stock_legs_beyond_z5_by_region", "their Σ posterior by region (Kazakhstan: "
+          "the text's figure)", big.groupby("region_from").post.sum().sort_values().to_dict(), "kt CC")
+
+    years = [int(y) for y in ch.years if int(y) >= PSC_FIRST_YEAR]
+    rep = ic[ic.Type == "PSC"]
+    icsg = rep.groupby(rep.Year.astype(int)).Value.sum().reindex(years).fillna(0.0)
+    psc = (e[(e.sector_from == "CP") & (e.sector_to == "PSC") & (e.valuation == "CC")]
+           .groupby("year").post.sum().reindex(years).fillna(0.0))
+    N.add("method:L352.world_psc_gap_kt", f"Σ|world CP→PSC posterior − ICSG's reported PSC|, "
+          f"{years[0]}–{years[-1]} (#98)", float((psc - icsg).abs().sum()), "kt CC")
+
+    sh = sum_shares_by_region(s)
+    top = dict(list(sh.items())[:6])
+    N.add("method:L352.sum_share_top_regions", "regions' shares of the scale-total Σz², largest "
+          "six (#111)", top)
+    N.add("method:L352.sum_share_austria", "Austria's share (#63)", sh.get("Austria"))
+    N.add("method:L352.sum_top_years", "each of the four largest regions' four years with the "
+          "largest share of its scale-total Σz² (Uzbekistan: the text's 1995–1998)",
+          top_year_shares(s, list(top)[:4], n=4))
+    an = s[(s.type == "sum") & (s.variant == "usetotout") & (s.sector == "Anode")
+           & (s.valuation == "CC")]
+    worst = {}
+    for r in list(top)[:4]:
+        x = an[an.region == r]
+        if len(x):
+            i = x.z.abs().idxmax()
+            worst[r] = [x.year[i], x.c[i], x.c[i] + x.z[i] * x.sigma_c[i]]
+    N.add("method:L352.anode_use_total_worst", "largest-|z| CC anode use total of the four regions "
+          "with the largest shares: year, c, c* (#111)", worst, "kt CC")
+
+
+# =============================================================================
 # output
 # =============================================================================
 
@@ -1116,7 +1322,7 @@ def main(opt: str, out_json, data_dir: str, base: str, retol: str, numbers: str)
     cdir = proc / "const" / ch.const
     rm = pd.read_parquet(cdir / "row_meta.parquet",
                          columns=["constraint_id", "type", "variant", "is_hard", "cone_type",
-                                  "time"])
+                                  "time", "sector", "region", "valuation"])
     l, u = np.load(cdir / "l.npy"), np.load(cdir / "u.npy")
     edges_per_year = int(ei.groupby("time").size().max())
     row_numbers(N, rm, P, l, u, edges_per_year)
@@ -1124,8 +1330,9 @@ def main(opt: str, out_json, data_dir: str, base: str, retol: str, numbers: str)
     e = edge_frame(proc, ch, ei)
     s = soft_rows(proc, ch, rm)
     strip = P["stripping_ratio"].iloc[0]
+    sigma_a = np.load(cdir / "sigma_a.npy")
     stage4_numbers(N, e, s, rm, sp.load_npz(cdir / "G.npz").tocsr(),
-                   np.load(cdir / "a0.npy"), np.load(cdir / "sigma_a.npy"), P,
+                   np.load(cdir / "a0.npy"), sigma_a, P,
                    {"lo": float(strip.value_min), "hi": float(strip.value_max)})
     band_hi = float(P["conc"].set_index("param_id").loc["concconcentratesupply", "value_max"])
     N.add("si:S13.T_S16.conc_band_hi", "concentrate grade cap c_hi in the forced deletion",
@@ -1135,6 +1342,8 @@ def main(opt: str, out_json, data_dir: str, base: str, retol: str, numbers: str)
     params_numbers(N, P)
     feed_input_numbers(N, inp, ch)
     results_numbers(N, e, s, Path(numbers), opt)
+    stage5_numbers(N, proc, ch, acc)
+    limitation_numbers(N, inp, ch, e, s, sigma_a)
 
     print(render(N, ch))
     if out_json:
@@ -1153,7 +1362,8 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("opt_run_id")
-    ap.add_argument("--json", default=None, help="write the numbers to this JSON file")
+    ap.add_argument("--json", default=NUMBERS_OUT,
+                    help="write the numbers to this JSON file (default: the committed diff base)")
     ap.add_argument("--data-dir", default="data", help="the checkout's data/ directory")
     ap.add_argument("--base", default=BASE_RUN, help="base run of the common set")
     ap.add_argument("--base-retol", default=BASE_RETOL_RUN,

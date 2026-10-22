@@ -8,7 +8,8 @@ bound now covers Cathode and Anode as well as Concentrate (see *Amendment* below
 [`…india-concentrate-residual-domestic`](../rep/analysis_20260910_india-concentrate-residual-domestic.md).
 **Amended 2026-10-14 (#76), narrowed 2026-10-19 (#78)**: a domestic concentrate leg the bound
 sets to 0, in a region that mines no concentrate, is an *observed zero* (see *Amendment (#76)*
-below); to be measured by #78. **Amended 2026-10-21 (#96, #97, #31)**: a region-year with no ICSG
+below); measured by #78 and shipped (`opt_20261019_152525_6ca5c00a`: Germany's mine-chain
+scale-total z² 101,078 → 0, common-set z² −7.0 %). **Amended 2026-10-21 (#96, #97, #31)**: a region-year with no ICSG
 SX-EW output says zero on its own SX-EW output; the mine-output and cathode-leg zeros were measured
 and rejected (see *Amendment (#96, #97, #31)* below).
 
@@ -201,7 +202,7 @@ fans each member's row onto the same leg) — the net-stock seed's pricing
 seed and supply-mix fan (ADR 0040, 0043); zero-weight import legs stay uncovered (no trade on that
 route is not the same statement). Where the region's own production then has nowhere to go, the
 solver must settle that conflict in the open. ROW's 1995–2011 surplus traces to an input error,
-BACI 490 folded into ROW (#77, to be measured by #79). This amendment is to be measured by #78.
+BACI 490 folded into ROW (#77, measured by #79, `opt_20261014_131552_f320b5f7`). This amendment is measured by #78 (`opt_20261019_152525_6ca5c00a`).
 
 **Narrowed on measurement (#78, 2026-10-19).** The first build stamped every zero-weight domestic
 leg: 367 on icsg v15 + trade_shares v36. The run (`opt_20261019_145258_6bbfa0b5`) raised common-set

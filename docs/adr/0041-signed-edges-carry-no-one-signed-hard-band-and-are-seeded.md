@@ -23,7 +23,8 @@ output (structural l < 0, i.e. `CP→PSC`) at σ 0.3 kt, the feeds' resolution, 
 Stage 3 floored to 1e-6: a zero closed by a missing parameter is not an observation. The prior stays 0 and
 nothing is seeded; Mining's copperless `WR` CC, the other eff-less output, is unsigned and keeps its
 exact zero. On `imp_20261021_100015_ea05007a` this reprices 857 CC `PSC` legs (38 regions, every
-year; 3 of them time-interpolated copies) and the 857 Mass legs that follow them. To be measured.
+year; 3 of them time-interpolated copies) and the 857 Mass legs that follow them. Rejected on measurement (#98's REP,
+`opt_20261021_115215_653c8677`; see *Measured 2026-10-21* below).
 
 On X.0 the producer stock change `CP→PSC` was flat at 0 in Mass and "varying" in CC for three reasons.
 No concentration row matched `*→PSC` and ICSG reports PSC in CC only, so no imputer could derive a Mass
