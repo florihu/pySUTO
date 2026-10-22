@@ -99,6 +99,24 @@ Each against the previous one; REPs under `docs/rep/`.
   the numerical floor (1.1e-6 kt), A4 0/30 because the ore-mass deletion was the solver's stop (#33). Follow-ups
   outside the milestone: #111 (DR Congo, South Africa, Zambia, Uzbekistan: 34.7 % of scale-total Σz²), #99, #81.
 
+## #106 MEASURED 2026-10-22 — the pipeline work (#100–#105, #107, #108) moves nothing; closed over the imputation log's row order
+
+`diag/pipeline-gate-measure`; REP `docs/rep/analysis_opt_20261022_091224_7ce11edb_20261022_pipeline-driver-gate.md`;
+`scripts/explo/issue106_driver_gate.py`. Both chains were rerun from the feeds of the final chain
+`opt_20261021_131744_58504ad3` through `pysuto.pipeline` at `e668821`:
+- **Chain 2** `opt_20261022_091224_7ce11edb`: no overrides.
+- **Chain 3** `opt_20261022_093350_82d7c31d`: all 66 knobs explicit at their defaults, imp and const through the
+  `/dev/shm` scratch store.
+
+Results:
+- **Arrays:** each chain reproduces 527 of 528 stored arrays bit for bit, `F_opt` in 30/30 years.
+- **Sidecars and lock:** the overrides are recorded as expected, `feasibility_check` reads `"first"`, and no lock is
+  left behind.
+- **The 528th, `imputation_log.parquet`:** it holds the same 793,237 rows in another order (15,665 / 15,651 rows of
+  `network`). A set iteration in `NetworkImputer._flow_balances` (since `e9f3874`) follows the per-process hash seed:
+  fix ticket #113.
+- **Status:** ADR 0045's condition holds. #108's sweep waits for #111's chain.
+
 ## #72 MEASURED 2026-10-20 — qdldl REJECTED ON MEASUREMENT; `DIRECT_SOLVE_METHOD` stays faer
 
 `diag/qdldl-measure`, run `opt_20261020_090246_99da4a39` (qdldl) against the final chain `opt_20261019_171746_3272682b`
