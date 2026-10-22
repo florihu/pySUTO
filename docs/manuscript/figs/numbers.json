@@ -1,57 +1,57 @@
 {
-  "opt_run_id": "opt_20261019_171746_3272682b",
-  "psut_run_id": "psut_20261019_172448_9cfdd6a9",
+  "opt_run_id": "opt_20261021_131744_58504ad3",
+  "psut_run_id": "psut_20261022_081135_823c49b0",
   "tolerance_pair": [
     "opt_20260916_124721_c4d1d944",
     "opt_20260930_093914_523d57d7"
   ],
-  "n_rows": 1685939,
+  "n_rows": 1687240,
   "n_edges": 28482,
-  "zsq_total_30y": 3126851.263831207,
+  "zsq_total_30y": 2574347.167637301,
   "zsq_by_family_30y": {
-    "edges": 1968688.9111699357,
-    "sum_rows": 1149838.7141383886,
-    "soft_ratios": 8323.638522882738
+    "edges": 1814186.3772359348,
+    "sum_rows": 755225.4055143929,
+    "soft_ratios": 4935.3848869740295
   },
-  "max_hard_residual_kt": 1.7363767301527474e-07,
+  "max_hard_residual_kt": 1.0860765242532252e-06,
   "share_gt3": {
     "edges": {
-      "min": 0.004107857594270065,
-      "max": 0.020714837441190927,
-      "mean": 0.010314116518034783
+      "min": 0.003756758654588863,
+      "max": 0.014956814830419211,
+      "mean": 0.007960583292371792
     },
     "sum_rows": {
-      "min": 0.17086527929901424,
-      "max": 0.28396436525612473,
-      "mean": 0.2233566939758854
+      "min": 0.12086776859504132,
+      "max": 0.2259371833839919,
+      "mean": 0.18133014092282504
     },
     "soft_ratios": {
       "min": 0.0,
-      "max": 0.00027771991946122336,
-      "mean": 0.0001134113203996125
+      "max": 0.0003470294280955025,
+      "mean": 6.713591995019031e-05
     }
   },
   "edge_share_top": {
-    "Cathode\u2192FU": 0.54258,
-    "Anode\u2192ER": 0.315257,
-    "Matte\u2192CFR": 0.04319,
-    "Concentrate\u2192Smelting": 0.031077,
-    "Cathode\u2192MESC": 0.013158,
-    "Cathode\u2192USC": 0.012711,
-    "SXEW\u2192CSXEW": 0.008272,
-    "ER\u2192CER": 0.007327,
-    "other": 0.026429
+    "Cathode\u2192FU": 0.559748,
+    "Anode\u2192ER": 0.339683,
+    "Matte\u2192CFR": 0.029254,
+    "Concentrate\u2192Smelting": 0.02336,
+    "CP\u2192Cathode": 0.01371,
+    "Cathode\u2192USC": 0.006567,
+    "Cathode\u2192MESC": 0.004543,
+    "Scrap\u2192CFR": 0.004239,
+    "other": 0.018895
   },
   "sum_share_top": {
-    "Cathode": 0.235073,
-    "Concentrate": 0.126455,
-    "Anode": 0.117723,
-    "Smelting": 0.111654,
-    "Matte": 0.084518,
-    "MF": 0.081369,
-    "CFR": 0.062624,
-    "Mining": 0.048132,
-    "other": 0.132452
+    "Cathode": 0.269576,
+    "Concentrate": 0.166503,
+    "Anode": 0.120409,
+    "MF": 0.095771,
+    "Matte": 0.080215,
+    "Smelting": 0.069637,
+    "CFR": 0.061742,
+    "ER": 0.036965,
+    "other": 0.099182
   },
   "hub_regions": [
     "France",
@@ -69,24 +69,24 @@
     "United Arab Emirates"
   ],
   "hub_share": {
-    "cross_region": 0.9369648034039805,
-    "hub": 0.7438745678881821
+    "cross_region": 0.946065355761087,
+    "hub": 0.7841776908516324
   },
   "retention_30y": {
-    "CO\u2192Mining Mass": 0.863527,
-    "MF\u2192Concentrate CC": 0.99568,
-    "Concentrate\u2192Smelting CC": 0.948552,
-    "Anode\u2192ER CC": 0.98525,
-    "CP\u2192Cathode CC": 0.999998,
-    "Cathode\u2192FU CC": 0.983512,
-    "Scrap\u2192Smelting CC": 0.991497,
-    "Smelting\u2192Matte CC": 0.966176,
-    "Scrap\u2192CFR CC": 1.016483
+    "CO\u2192Mining Mass": 0.999048,
+    "MF\u2192Concentrate CC": 1.010093,
+    "Concentrate\u2192Smelting CC": 0.963478,
+    "Anode\u2192ER CC": 0.987726,
+    "CP\u2192Cathode CC": 0.997407,
+    "Cathode\u2192FU CC": 0.988269,
+    "Scrap\u2192Smelting CC": 1.010694,
+    "Smelting\u2192Matte CC": 0.97805,
+    "Scrap\u2192CFR CC": 1.028713
   },
-  "chile_export_retention_2010_19": 1.0127756139066104,
-  "a4_years_both": 6,
-  "a4_years_cathode_concentrate": 9,
-  "a4_years_concentrate_ore": 26,
+  "chile_export_retention_2010_19": 1.0251904272460413,
+  "a4_years_both": 0,
+  "a4_years_cathode_concentrate": 1,
+  "a4_years_concentrate_ore": 10,
   "tolerance_pair_retention": {
     "CO\u2192Mining Mass": {
       "old": 0.779262,
@@ -150,76 +150,76 @@
   "secondary_pooled_2020_24": {
     "Chile+Peru": {
       "prior": 0.0,
-      "post": 3.2e-05
+      "post": 1.4e-05
     },
     "China": {
       "prior": 0.226855,
-      "post": 0.245789
+      "post": 0.239757
     },
     "EU-14": {
-      "prior": 0.376109,
-      "post": 0.355095
+      "prior": 0.364592,
+      "post": 0.370513
     },
     "India": {
       "prior": 0.004548,
-      "post": 0.005404
+      "post": 0.005327
     },
     "JP/KR/TW": {
-      "prior": 0.235324,
-      "post": 0.250558
+      "prior": 0.235093,
+      "post": 0.249386
     },
     "Rest": {
-      "prior": 0.058238,
-      "post": 0.063274
+      "prior": 0.058203,
+      "post": 0.063198
     },
     "United States": {
       "prior": 0.04577,
-      "post": 0.045496
+      "post": 0.045478
     },
     "World": {
-      "prior": 0.164338,
-      "post": 0.17268
+      "prior": 0.162974,
+      "post": 0.171832
     }
   },
-  "icsg_input_share_pooled": 0.16541445702311167,
+  "icsg_input_share_pooled": 0.1641058741577901,
   "icsg_published_share": {
-    "1995": 0.180145,
-    "2010": 0.177059,
-    "2020": 0.160291,
-    "2024": 0.178274
+    "1995": 0.172729,
+    "2010": 0.175851,
+    "2020": 0.158137,
+    "2024": 0.17631
   },
   "world_secondary_2024": {
-    "prior": 0.17030899291886717,
-    "post": 0.17761399467220965
+    "prior": 0.1686274446274227,
+    "post": 0.17736576837017684
   },
   "hhi_2024": {
     "mining_prior": {
-      "upper": 0.111582,
-      "lower": 0.109937,
-      "row_share": 0.040563,
+      "upper": 0.111015,
+      "lower": 0.109378,
+      "row_share": 0.040459,
       "top": "Chile",
-      "top_share": 0.239912
+      "top_share": 0.239298
     },
     "mining_post": {
-      "upper": 0.106372,
-      "lower": 0.104508,
-      "row_share": 0.043169,
+      "upper": 0.110782,
+      "lower": 0.109041,
+      "row_share": 0.041727,
       "top": "Chile",
-      "top_share": 0.226839
+      "top_share": 0.238828
     },
     "smelting_prior": {
-      "upper": 0.280676,
-      "lower": 0.280243,
-      "row_share": 0.02081,
+      "upper": 0.278385,
+      "lower": 0.277955,
+      "row_share": 0.020725,
       "top": "China",
-      "top_share": 0.51587
+      "top_share": 0.513753
     },
     "smelting_post": {
-      "upper": 0.281483,
-      "lower": 0.280989,
-      "row_share": 0.022211,
+      "upper": 0.280712,
+      "lower": 0.280227,
+      "row_share": 0.022012,
       "top": "China",
-      "top_share": 0.516593
+      "top_share": 0.516
     },
     "refining_prior": {
       "upper": 0.228105,
@@ -229,119 +229,119 @@
       "top_share": 0.452604
     },
     "refining_post": {
-      "upper": 0.228354,
-      "lower": 0.227962,
-      "row_share": 0.019801,
+      "upper": 0.229976,
+      "lower": 0.229583,
+      "row_share": 0.019827,
       "top": "China",
-      "top_share": 0.452888
+      "top_share": 0.454732
     },
     "use_prior": {
-      "upper": 0.355306,
-      "lower": 0.351134,
+      "upper": 0.355303,
+      "lower": 0.35113,
       "row_share": 0.064598,
       "top": "China",
-      "top_share": 0.585307
+      "top_share": 0.585304
     },
     "use_post": {
-      "upper": 0.351155,
-      "lower": 0.348783,
-      "row_share": 0.048704,
+      "upper": 0.352381,
+      "lower": 0.350009,
+      "row_share": 0.04871,
       "top": "China",
-      "top_share": 0.582622
+      "top_share": 0.583709
     }
   },
   "hhi_1995_post": {
-    "mining": 0.119141,
-    "smelting": 0.081699,
-    "refining": 0.091584,
-    "use": 0.094157
+    "mining": 0.116349,
+    "smelting": 0.076601,
+    "refining": 0.085942,
+    "use": 0.091698
   },
   "partners_2024": {
     "Chile_export": {
-      "China": 0.544613,
-      "EU-14": 0.075799,
-      "India": 0.026422,
-      "JP/KR/TW": 0.163089,
-      "Rest": 0.074801,
-      "United States": 0.115276
+      "China": 0.54774,
+      "EU-14": 0.075157,
+      "India": 0.026251,
+      "JP/KR/TW": 0.162433,
+      "Rest": 0.074162,
+      "United States": 0.114258
     },
     "Peru_export": {
-      "China": 0.712157,
-      "EU-14": 0.084838,
-      "India": 0.013815,
-      "JP/KR/TW": 0.112208,
-      "Rest": 0.05423,
-      "United States": 0.022752
+      "China": 0.710301,
+      "EU-14": 0.085109,
+      "India": 0.013874,
+      "JP/KR/TW": 0.11288,
+      "Rest": 0.054994,
+      "United States": 0.022842
     },
     "China_import": {
-      "Chile": 0.250792,
-      "Congo, D.R.": 0.164739,
-      "Kazakhstan": 0.055973,
-      "Mexico": 0.036278,
-      "Peru": 0.168186,
-      "Rest": 0.324032
+      "Chile": 0.253814,
+      "Congo, D.R.": 0.164255,
+      "Kazakhstan": 0.055787,
+      "Mexico": 0.036382,
+      "Peru": 0.166588,
+      "Rest": 0.323174
     }
   },
   "partners_1995": {
     "Chile_export": {
-      "China": 0.034571,
-      "EU-14": 0.258925,
-      "India": 0.012996,
-      "JP/KR/TW": 0.361685,
-      "Rest": 0.240305,
-      "United States": 0.091518
+      "China": 0.034285,
+      "EU-14": 0.258822,
+      "India": 0.012825,
+      "JP/KR/TW": 0.364016,
+      "Rest": 0.240298,
+      "United States": 0.089754
     },
     "Peru_export": {
-      "China": 0.066169,
-      "EU-14": 0.195542,
-      "India": 1.7e-05,
-      "JP/KR/TW": 0.367992,
-      "Rest": 0.28204,
-      "United States": 0.08824
+      "China": 0.066193,
+      "EU-14": 0.194373,
+      "India": 1.9e-05,
+      "JP/KR/TW": 0.368098,
+      "Rest": 0.283459,
+      "United States": 0.087857
     },
     "China_import": {
-      "Chile": 0.193793,
-      "Congo, D.R.": 0.000223,
-      "Kazakhstan": 0.00577,
-      "Mexico": 0.000107,
-      "Peru": 0.066863,
-      "Rest": 0.733244
+      "Chile": 0.198354,
+      "Congo, D.R.": 4e-06,
+      "Kazakhstan": 0.005796,
+      "Mexico": 7.9e-05,
+      "Peru": 0.068128,
+      "Rest": 0.727638
     }
   },
   "trade_totals_kt": {
     "Chile_export": {
-      "1995": 2202.4151910337014,
-      "2024": 5456.51260574905
+      "1995": 2227.9239387945836,
+      "2024": 5507.229510720723
     },
     "Peru_export": {
-      "1995": 397.01426683904646,
-      "2024": 2798.366006166249
+      "1995": 396.3516859464607,
+      "2024": 2787.3501376721074
     },
     "China_import": {
-      "1995": 392.8944212161848,
-      "2024": 11849.213714923288
+      "1995": 385.0944636727612,
+      "2024": 11884.772343726228
     }
   },
   "embodied_period": "2024",
-  "embodied_china_from_chile_peru_kt": 6030.810565443606,
-  "direct_conc_china_from_chile_peru_kt": 4222.416962846792,
-  "embodied_ratio": 1.4282839943352206,
-  "china_footprint_kt": 16123.412963024533,
-  "china_domestic_extraction_kt": 1982.026268231876,
+  "embodied_china_from_chile_peru_kt": 6335.010427382868,
+  "direct_conc_china_from_chile_peru_kt": 4253.600713344878,
+  "embodied_ratio": 1.4893288896411823,
+  "china_footprint_kt": 16726.88242610359,
+  "china_domestic_extraction_kt": 2308.7931410658307,
   "china_footprint_origins": {
-    "Chile": 3575.9,
-    "Congo, D.R.": 2683.9,
-    "Peru": 2454.9,
-    "China": 1923.6,
-    "ROW": 802.5,
-    "Kazakhstan": 775.2,
-    "Zambia": 531.3,
-    "Mexico": 526.3
+    "Chile": 3885.7,
+    "Congo, D.R.": 2684.6,
+    "Peru": 2449.3,
+    "China": 2241.3,
+    "ROW": 799.1,
+    "Kazakhstan": 774.1,
+    "Zambia": 531.9,
+    "Mexico": 516.8
   },
-  "world_extraction_kt": 28899.819314543467,
+  "world_extraction_kt": 29620.395927307836,
   "chile_share_to_china": {
-    "1995": 0.03457120208402084,
-    "2024": 0.5446127283814073
+    "1995": 0.03428533982275523,
+    "2024": 0.5477395130297362
   },
   "ledger": [
     {
@@ -349,15 +349,15 @@
       "expectation": "every hard identity closes",
       "metric": "max |G\u00b7a* \u2212 c| over hard mass balances, all years",
       "threshold": "< 1e-06 kt",
-      "value": "1.7e-07 kt",
-      "outcome": "PASS"
+      "value": "1.1e-06 kt",
+      "outcome": "FAIL"
     },
     {
       "id": "A2",
       "expectation": "compatibility is family-specific",
       "metric": "share of rows with |z| > 3 per year: edges below, scale totals above",
       "threshold": "edges < 0.05 and scale totals > 0.20, every year",
-      "value": "edges 0.004\u20130.021 (30/30 yr); scale totals 0.171\u20130.284 (21/30 yr)",
+      "value": "edges 0.004\u20130.015 (30/30 yr); scale totals 0.121\u20130.226 (9/30 yr)",
       "outcome": "FAIL"
     },
     {
@@ -365,7 +365,7 @@
       "expectation": "the adjustment localises on transit trade",
       "metric": "share of edge \u03a3z\u00b2 on cross-region legs into merchant hubs (no ICSG processing)",
       "threshold": "\u2265 0.50",
-      "value": "0.744 (all cross-region legs 0.937)",
+      "value": "0.784 (all cross-region legs 0.946)",
       "outcome": "PASS"
     },
     {
@@ -373,7 +373,7 @@
       "expectation": "the adjustment grows upstream",
       "metric": "retention Cathode CC > Concentrate CC > Ore Mass, gap per step, years passing",
       "threshold": "\u2265 0.02 per step in \u2265 25 of 30 years",
-      "value": "6/30 years both steps (cathode\u2013concentrate 9, concentrate\u2013ore 26)",
+      "value": "0/30 years both steps (cathode\u2013concentrate 1, concentrate\u2013ore 10)",
       "outcome": "FAIL"
     },
     {
@@ -389,7 +389,7 @@
       "expectation": "secondary share: fidelity and regional order",
       "metric": "input-side share, pooled 2020\u201324: |world posterior \u2212 ICSG-implied|; EU-14 > China > US; EU-14 / world",
       "threshold": "< 0.02; order holds; \u2265 2\u00d7",
-      "value": "|0.173 \u2212 0.165| = 0.007; EU-14 0.355 > China 0.246 > US 0.045; 2.06\u00d7",
+      "value": "|0.172 \u2212 0.164| = 0.008; EU-14 0.371 > China 0.240 > US 0.045; 2.16\u00d7",
       "outcome": "PASS"
     },
     {
@@ -397,7 +397,7 @@
       "expectation": "concentration rises downstream and is reconciliation-invariant",
       "metric": "HHI (ROW as one region) 2024 posterior per step; |HHI_post \u2212 HHI_prior| per step",
       "threshold": "refining, use > mining and > 0.25; mining < 0.15; |\u0394| < 0.01",
-      "value": "HHI mining 0.106, smelting 0.281, refining 0.228, use 0.351; |\u0394| max 0.005 (mining)",
+      "value": "HHI mining 0.111, smelting 0.281, refining 0.230, use 0.352; |\u0394| max 0.003 (use)",
       "outcome": "FAIL"
     },
     {
@@ -405,7 +405,7 @@
       "expectation": "embodied exceeds direct; Chile's exports turned to China",
       "metric": "China's embodied mined Cu from Chile+Peru / direct concentrate imports from them, 2024; Chile's export share to China 1995 and 2024",
       "threshold": "\u2265 1.10; < 0.10 \u2192 > 0.50",
-      "value": "6,031 / 4,222 kt CC = 1.43; 0.035 \u2192 0.545",
+      "value": "6,335 / 4,254 kt CC = 1.49; 0.034 \u2192 0.548",
       "outcome": "PASS"
     }
   ],
@@ -414,12 +414,12 @@
     "region": "China",
     "provenance_cc": {
       "feed": {
-        "n_edges": 969,
-        "kt": 88367.6
+        "n_edges": 999,
+        "kt": 88313.6
       },
       "network": {
-        "n_edges": 686,
-        "kt": 216500.7
+        "n_edges": 899,
+        "kt": 219433.8
       },
       "trade": {
         "n_edges": 202,
@@ -430,55 +430,49 @@
         "kt": 142.9
       },
       "ore_grade": {
-        "n_edges": 15,
-        "kt": 2627.4
+        "n_edges": 1,
+        "kt": 0.0
       },
       "eff": {
         "n_edges": 0,
         "kt": 0.0
       },
       "time_interp": {
-        "n_edges": 24,
-        "kt": 80.3
+        "n_edges": 1,
+        "kt": 9.3
       },
       "net_stock_share": {
-        "n_edges": 706,
+        "n_edges": 722,
         "kt": 0.0
       },
       "flat_prior": {
-        "n_edges": 11602,
+        "n_edges": 11380,
         "kt": 0.0
       }
     },
     "feed_cc_edges_per_year": {
-      "min": 831,
-      "max": 1146
+      "min": 871,
+      "max": 1181
     },
     "chain_profile_cc_kt": {
       "CO\u2192Mining": {
-        "network": 23936.9,
-        "ore_grade": 2627.4,
-        "time_interp": 10.6
+        "network": 26590.5
       },
       "Mining\u2192Ore": {
-        "network": 26564.3,
-        "time_interp": 10.6
+        "network": 26590.5
       },
       "Ore\u2192MF": {
-        "network": 20826.8,
-        "time_interp": 10.6
+        "network": 20853.0
       },
       "Ore\u2192SXEW": {
         "network": 5737.5
       },
       "MF\u2192Concentrate": {
         "feed": 16580.4,
-        "network": 81.0,
-        "time_interp": 8.5
+        "network": 102.0
       },
       "MF\u2192Tailings": {
-        "network": 4165.4,
-        "time_interp": 2.1
+        "network": 4170.6
       },
       "SXEW\u2192CSXEW": {
         "feed": 4159.7
@@ -487,66 +481,56 @@
         "network": 1577.8
       },
       "Concentrate\u2192Smelting": {
-        "feed": 7731.9,
-        "network": 150.3,
-        "time_interp": 3.4
+        "feed": 7731.8,
+        "network": 158.2
       },
       "Smelting\u2192Matte": {
-        "network": 20771.9,
-        "time_interp": 3.3
+        "network": 20860.0
       },
       "Smelting\u2192Slag": {
-        "network": 753.4,
-        "time_interp": 0.1
+        "network": 756.6
       },
       "Matte\u2192CFR": {
-        "network": 20578.2,
-        "time_interp": 3.3
+        "network": 20658.5
       },
       "CFR\u2192Anode": {
-        "network": 20931.8,
-        "time_interp": 3.2
+        "network": 20957.8
       },
       "CFR\u2192Slag": {
-        "network": 267.8
+        "network": 268.1
       },
       "Anode\u2192ER": {
         "feed": 19202.0,
-        "network": 8.4,
-        "time_interp": 3.1
+        "network": 8.4
       },
       "ER\u2192CER": {
-        "network": 20503.4,
-        "time_interp": 3.1
+        "network": 20503.4
       },
       "ER\u2192Slag": {
         "network": 61.7
       },
       "CER\u2192CP": {
-        "network": 20503.4,
-        "time_interp": 3.1
+        "network": 20503.4
       },
       "CSXEW\u2192CP": {
         "network": 4159.7
       },
       "CP\u2192Cathode": {
-        "network": 24663.1,
-        "time_interp": 3.1
+        "network": 24663.1
       },
       "Cathode\u2192FU": {
-        "feed": 15256.6,
-        "network": 257.9,
-        "time_interp": 3.1
+        "feed": 15238.5,
+        "network": 253.0
       },
       "Scrap\u2192Smelting": {
         "feed": 3491.7
       },
       "Scrap\u2192CFR": {
-        "feed": 644.6,
+        "feed": 590.6,
         "time_interp": 9.3
       },
       "Concentrate (trade)": {
-        "feed": 10207.3,
+        "feed": 10207.4,
         "trade": 119.0
       },
       "Matte (trade)": {
@@ -557,7 +541,7 @@
         "trade": 497.2
       },
       "Cathode (trade)": {
-        "feed": 9717.9,
+        "feed": 9736.1,
         "conc": 142.9
       }
     },
@@ -565,7 +549,7 @@
       "mass balance": {
         "cone": "zero",
         "rows": 1316,
-        "prior_breach": 449,
+        "prior_breach": 411,
         "binding": null,
         "binding_on_flow": null,
         "binding_on_zero_flows": null
@@ -581,38 +565,38 @@
       "conc band": {
         "cone": "nonneg",
         "rows": 19314,
-        "prior_breach": 137,
-        "binding": 13546,
-        "binding_on_flow": 5022,
-        "binding_on_zero_flows": 8524
+        "prior_breach": 151,
+        "binding": 13670,
+        "binding_on_flow": 4432,
+        "binding_on_zero_flows": 9238
       },
       "eff band": {
         "cone": "nonneg",
         "rows": 470,
-        "prior_breach": 45,
-        "binding": 126,
-        "binding_on_flow": 90,
-        "binding_on_zero_flows": 36
+        "prior_breach": 37,
+        "binding": 120,
+        "binding_on_flow": 74,
+        "binding_on_zero_flows": 46
       },
       "scrap-share band": {
         "cone": "nonneg",
         "rows": 188,
-        "prior_breach": 5,
-        "binding": 40,
-        "binding_on_flow": 10,
-        "binding_on_zero_flows": 30
+        "prior_breach": 4,
+        "binding": 45,
+        "binding_on_flow": 6,
+        "binding_on_zero_flows": 39
       },
       "lower bound": {
         "cone": "nonneg",
         "rows": 19552,
         "prior_breach": 0,
-        "binding": 8610,
+        "binding": 9243,
         "binding_on_flow": 0,
-        "binding_on_zero_flows": 8610
+        "binding_on_zero_flows": 9243
       },
       "soft ratio": {
         "cone": "free",
-        "rows": 14404,
+        "rows": 14400,
         "prior_breach": null,
         "binding": null,
         "binding_on_flow": null,
@@ -620,7 +604,7 @@
       },
       "scale total & scrap anchor": {
         "cone": "free",
-        "rows": 939,
+        "rows": 975,
         "prior_breach": null,
         "binding": null,
         "binding_on_flow": null,
@@ -628,15 +612,15 @@
       }
     },
     "block": {
-      "rows": 56230,
+      "rows": 56262,
       "edges": 28482,
       "rows_by_cone": {
-        "free": 15343,
+        "free": 15375,
         "zero": 1363,
         "nonneg": 39524
       },
-      "nnz": 178661,
-      "nnz_stored": 182427
+      "nnz": 178419,
+      "nnz_stored": 182181
     },
     "region_slice": {
       "edges": 364,
@@ -647,7 +631,7 @@
       "partial": 523,
       "free_rows": 422,
       "nnz": 2545,
-      "binding_on_flow": 61
+      "binding_on_flow": 57
     }
   }
 }

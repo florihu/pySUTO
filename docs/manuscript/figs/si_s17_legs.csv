@@ -1,95 +1,95 @@
 country,year,sector_from,region_from,region_to,prior,post,retention
-Chile,2000,Anode,Chile,United States,71.814211,72.10712,1.004079
-Chile,2000,Anode,Chile,Mexico,49.683922,49.827402,1.002888
-Chile,2000,Anode,Chile,Belgium,24.740567,23.242998,0.939469
-Chile,2000,Anode,Chile,China,6.888574,6.875222,0.998062
-Chile,2000,Anode,Chile,Canada,4.19874,4.215556,1.004005
-Chile,2000,Cathode,Chile,Italy,351.117976,352.652151,1.004369
-Chile,2000,Cathode,Chile,France,285.989424,252.038148,0.881285
-Chile,2000,Cathode,Chile,United States,282.432469,233.577827,0.827022
-Chile,2000,Cathode,Chile,China,249.68708,251.183348,1.005993
-Chile,2000,Cathode,Chile,"Korea, Rep.",235.497816,236.968367,1.006244
-Chile,2000,Concentrate,Chile,Japan,577.983993,599.367433,1.036997
-Chile,2000,Concentrate,Chile,China,149.488581,140.997884,0.943202
-Chile,2000,Concentrate,Chile,"Korea, Rep.",119.194737,122.467167,1.027454
-Chile,2000,Concentrate,Chile,Brazil,107.547295,107.247377,0.997211
-Chile,2000,Concentrate,Chile,Germany,84.120464,81.960427,0.974322
-Chile,2000,Matte,Chile,United Kingdom,2.046619,1.349529,0.659394
-Chile,2024,Anode,Chile,China,107.675572,108.019004,1.00319
-Chile,2024,Anode,Chile,India,35.770059,32.177422,0.899563
-Chile,2024,Anode,Chile,ROW,34.029973,35.97646,1.057199
-Chile,2024,Anode,Chile,"Korea, Rep.",32.190958,30.654632,0.952275
-Chile,2024,Anode,Chile,Canada,26.485346,25.037311,0.945327
-Chile,2024,Cathode,Chile,United States,631.170792,628.971153,0.996515
-Chile,2024,Cathode,Chile,China,512.600905,509.977252,0.994882
-Chile,2024,Cathode,Chile,Brazil,188.622541,227.777152,1.207582
-Chile,2024,Cathode,Chile,"Korea, Rep.",130.843453,130.629111,0.998362
-Chile,2024,Cathode,Chile,France,85.540287,75.167679,0.87874
-Chile,2024,Concentrate,Chile,China,2387.334659,2353.689949,0.985907
-Chile,2024,Concentrate,Chile,Japan,512.852851,528.399097,1.030313
-Chile,2024,Concentrate,Chile,"Korea, Rep.",148.424248,125.554536,0.845917
-Chile,2024,Concentrate,Chile,India,146.612601,111.549769,0.760847
-Chile,2024,Concentrate,Chile,Germany,77.403778,72.777603,0.940233
-Chile,2024,Matte,Chile,"Korea, Rep.",1.866186,1.550106,0.830628
-Chile,2024,Matte,Chile,ROW,1.345362,1.423293,1.057926
-Peru,2000,Anode,Peru,Netherlands,19.599119,2.539287,0.129561
-Peru,2000,Anode,Peru,United States,5.301393,5.544828,1.045919
-Peru,2000,Anode,Peru,Mexico,3.767948,3.898948,1.034767
-Peru,2000,Cathode,Peru,United States,348.698171,297.648485,0.853599
-Peru,2000,Cathode,Peru,Italy,30.329475,30.976365,1.021329
-Peru,2000,Cathode,Peru,Brazil,14.316034,14.760911,1.031075
-Peru,2000,Cathode,Peru,United Kingdom,11.558397,18.97096,1.641314
-Peru,2000,Cathode,Peru,Taiwan,8.940092,9.060257,1.013441
-Peru,2000,Concentrate,Peru,Japan,26.651308,26.432934,0.991806
-Peru,2000,Concentrate,Peru,China,21.981134,21.584042,0.981935
-Peru,2000,Concentrate,Peru,India,20.857408,21.456352,1.028716
-Peru,2000,Concentrate,Chile,Peru,20.004265,20.073878,1.00348
-Peru,2000,Concentrate,Peru,ROW,15.833528,17.355947,1.096152
-Peru,2000,Matte,Mexico,Peru,1.33051,1.218427,0.915759
-Peru,2024,Anode,Peru,China,13.573061,14.490108,1.067564
-Peru,2024,Cathode,Peru,China,103.426809,109.227564,1.056086
-Peru,2024,Cathode,Peru,United States,61.226862,63.633691,1.03931
-Peru,2024,Cathode,Peru,Italy,47.315804,50.689905,1.07131
-Peru,2024,Cathode,Peru,Brazil,40.18092,50.613393,1.259637
-Peru,2024,Cathode,Peru,Mexico,4.946135,5.357383,1.083145
-Peru,2024,Concentrate,Peru,China,2043.144608,1868.727014,0.914633
-Peru,2024,Concentrate,Peru,Japan,233.012033,235.620941,1.011196
-Peru,2024,Concentrate,Peru,"Korea, Rep.",74.151754,67.554908,0.911036
-Peru,2024,Concentrate,Peru,Spain,68.727167,83.250485,1.211318
-Peru,2024,Concentrate,Peru,ROW,49.267752,63.503536,1.288947
-Peru,2024,Matte,Peru,"Korea, Rep.",1.979148,2.232769,1.128147
-China,2000,Anode,Japan,China,10.464523,10.432368,0.996927
-China,2000,Anode,United States,China,6.912801,6.881424,0.995461
-China,2000,Anode,Chile,China,6.888574,6.875222,0.998062
-China,2000,Anode,"Korea, Rep.",China,6.701049,6.606749,0.985928
-China,2000,Anode,ROW,China,6.60435,6.144326,0.930345
-China,2000,Cathode,Chile,China,249.68708,251.183348,1.005993
-China,2000,Cathode,Japan,China,72.386525,72.413203,1.000369
-China,2000,Cathode,United States,China,61.520847,61.520972,1.000002
-China,2000,Cathode,Philippines,China,52.038132,50.365333,0.967854
-China,2000,Cathode,China,"Korea, Rep.",42.44842,42.469429,1.000495
-China,2000,Concentrate,Chile,China,149.488581,140.997884,0.943202
-China,2000,Concentrate,Mongolia,China,127.28156,122.049853,0.958897
-China,2000,Concentrate,Australia,China,73.650206,74.428875,1.010573
-China,2000,Concentrate,Canada,China,38.920131,37.782958,0.970782
-China,2000,Concentrate,Peru,China,21.981134,21.584042,0.981935
-China,2024,Anode,Zambia,China,200.755155,233.635602,1.163784
-China,2024,Anode,"Congo, D.R.",China,116.401168,116.366365,0.999701
-China,2024,Anode,Chile,China,107.675572,108.019004,1.00319
-China,2024,Anode,ROW,China,65.785181,62.469303,0.949595
-China,2024,Anode,South Africa,China,46.010541,7.03518,0.152904
-China,2024,Cathode,"Congo, D.R.",China,1506.071691,1505.832347,0.999841
-China,2024,Cathode,Chile,China,512.600905,509.977252,0.994882
-China,2024,Cathode,Kazakhstan,China,308.425073,249.135488,0.807767
-China,2024,Cathode,Japan,China,247.990436,247.914132,0.999692
-China,2024,Cathode,Russia,China,245.099933,250.564279,1.022294
-China,2024,Concentrate,Chile,China,2387.334659,2353.689949,0.985907
-China,2024,Concentrate,Peru,China,2043.144608,1868.727014,0.914633
-China,2024,Concentrate,ROW,China,773.842904,540.125391,0.697978
-China,2024,Concentrate,Mexico,China,466.446025,413.097928,0.885629
-China,2024,Concentrate,Kazakhstan,China,462.24883,414.09571,0.895829
-China,2024,Matte,ROW,China,15.095663,8.625645,0.571399
-China,2024,Matte,Indonesia,China,8.024958,5.674018,0.707046
-China,2024,Matte,India,China,3.795657,5.505055,1.450356
-China,2024,Matte,"Korea, Rep.",China,2.527,3.077173,1.217718
-China,2024,Matte,China,"Korea, Rep.",1.777311,1.48,0.832719
+Chile,2000,Anode,Chile,United States,71.814211,72.172608,1.004991
+Chile,2000,Anode,Chile,Mexico,49.683922,49.924211,1.004836
+Chile,2000,Anode,Chile,Belgium,24.740567,23.463483,0.948381
+Chile,2000,Anode,Chile,China,6.888574,6.876468,0.998243
+Chile,2000,Anode,Chile,Canada,4.19874,4.216244,1.004169
+Chile,2000,Cathode,Chile,Italy,351.11773,352.70355,1.004516
+Chile,2000,Cathode,Chile,France,285.976217,252.079237,0.881469
+Chile,2000,Cathode,Chile,United States,282.431681,233.632579,0.827218
+Chile,2000,Cathode,Chile,China,249.689111,251.267052,1.00632
+Chile,2000,Cathode,Chile,"Korea, Rep.",235.497811,237.048179,1.006583
+Chile,2000,Concentrate,Chile,Japan,578.002213,605.77709,1.048053
+Chile,2000,Concentrate,Chile,China,149.496684,141.588935,0.947104
+Chile,2000,Concentrate,Chile,"Korea, Rep.",119.19919,123.168955,1.033304
+Chile,2000,Concentrate,Chile,Brazil,107.548806,107.620393,1.000666
+Chile,2000,Concentrate,Chile,Germany,84.123273,83.169966,0.988668
+Chile,2000,Matte,Chile,United Kingdom,2.046619,1.388038,0.67821
+Chile,2024,Anode,Chile,China,107.675572,108.055479,1.003528
+Chile,2024,Anode,Chile,India,35.770059,32.223095,0.90084
+Chile,2024,Anode,Chile,ROW,34.029973,35.954326,1.056549
+Chile,2024,Anode,Chile,"Korea, Rep.",32.190958,30.64971,0.952122
+Chile,2024,Anode,Chile,Canada,26.485346,25.042885,0.945537
+Chile,2024,Cathode,Chile,United States,631.170792,629.216582,0.996904
+Chile,2024,Cathode,Chile,China,512.600945,510.572404,0.996043
+Chile,2024,Cathode,Chile,Brazil,188.622541,227.865752,1.208052
+Chile,2024,Cathode,Chile,"Korea, Rep.",130.843456,130.682437,0.998769
+Chile,2024,Cathode,Chile,France,85.540287,75.193551,0.879043
+Chile,2024,Concentrate,Chile,China,2387.396459,2397.899312,1.004399
+Chile,2024,Concentrate,Chile,Japan,512.870057,533.371543,1.039974
+Chile,2024,Concentrate,Chile,"Korea, Rep.",148.411081,125.181778,0.84348
+Chile,2024,Concentrate,Chile,India,146.620461,111.898467,0.763185
+Chile,2024,Concentrate,Chile,Germany,77.401402,73.252355,0.946396
+Chile,2024,Matte,Chile,"Korea, Rep.",1.866186,1.546154,0.82851
+Chile,2024,Matte,Chile,ROW,1.345362,1.417433,1.05357
+Peru,2000,Anode,Peru,Netherlands,19.599119,1.550268,0.079099
+Peru,2000,Anode,Peru,United States,5.301393,5.548464,1.046605
+Peru,2000,Anode,Peru,Mexico,3.767948,3.905628,1.03654
+Peru,2000,Cathode,Peru,United States,348.696101,297.792743,0.854018
+Peru,2000,Cathode,Peru,Italy,30.329472,30.984696,1.021604
+Peru,2000,Cathode,Peru,Brazil,14.316034,14.766839,1.03149
+Peru,2000,Cathode,Peru,United Kingdom,11.557151,18.975939,1.641922
+Peru,2000,Cathode,Peru,Taiwan,8.938673,9.064246,1.014048
+Peru,2000,Concentrate,Peru,Japan,26.650702,26.413974,0.991117
+Peru,2000,Concentrate,Peru,China,21.981133,21.575549,0.981549
+Peru,2000,Concentrate,Peru,India,20.857112,21.495609,1.030613
+Peru,2000,Concentrate,Chile,Peru,20.00535,20.094064,1.004435
+Peru,2000,Concentrate,Peru,ROW,15.833522,17.434659,1.101123
+Peru,2000,Matte,Mexico,Peru,1.33051,1.212277,0.911137
+Peru,2024,Anode,Peru,China,13.573061,14.491529,1.067668
+Peru,2024,Cathode,Peru,China,103.426809,109.234599,1.056154
+Peru,2024,Cathode,Peru,United States,61.226862,63.636561,1.039357
+Peru,2024,Cathode,Peru,Italy,47.315804,50.692739,1.07137
+Peru,2024,Cathode,Peru,Brazil,40.18092,50.616246,1.259708
+Peru,2024,Cathode,Peru,Mexico,4.946135,5.357892,1.083248
+Peru,2024,Concentrate,Peru,China,2043.08857,1855.701401,0.908282
+Peru,2024,Concentrate,Peru,Japan,233.007331,236.031754,1.01298
+Peru,2024,Concentrate,Peru,"Korea, Rep.",74.141191,67.381128,0.908822
+Peru,2024,Concentrate,Peru,Spain,68.727318,83.224811,1.210942
+Peru,2024,Concentrate,Peru,ROW,49.267726,63.327156,1.285368
+Peru,2024,Matte,Peru,"Korea, Rep.",1.979148,2.230964,1.127235
+China,2000,Anode,Japan,China,10.464523,10.431951,0.996887
+China,2000,Anode,United States,China,6.912801,6.879304,0.995154
+China,2000,Anode,Chile,China,6.888574,6.876468,0.998243
+China,2000,Anode,"Korea, Rep.",China,6.701049,6.601103,0.985085
+China,2000,Anode,ROW,China,6.60435,6.138991,0.929538
+China,2000,Cathode,Chile,China,249.689111,251.267052,1.00632
+China,2000,Cathode,Japan,China,72.386414,72.416023,1.000409
+China,2000,Cathode,United States,China,61.52087,61.521005,1.000002
+China,2000,Cathode,Philippines,China,52.038106,50.363624,0.967822
+China,2000,Cathode,China,"Korea, Rep.",42.448418,42.468726,1.000478
+China,2000,Concentrate,Chile,China,149.496684,141.588935,0.947104
+China,2000,Concentrate,Mongolia,China,127.28156,118.74889,0.932962
+China,2000,Concentrate,Australia,China,73.650205,74.211785,1.007625
+China,2000,Concentrate,Canada,China,38.920129,37.784715,0.970827
+China,2000,Concentrate,Peru,China,21.981133,21.575549,0.981549
+China,2024,Anode,Zambia,China,200.755155,233.724663,1.164227
+China,2024,Anode,"Congo, D.R.",China,116.401168,116.469174,1.000584
+China,2024,Anode,Chile,China,107.675572,108.055479,1.003528
+China,2024,Anode,ROW,China,65.785181,62.494495,0.949978
+China,2024,Anode,South Africa,China,46.010541,0.0,0.0
+China,2024,Cathode,"Congo, D.R.",China,1506.07165,1505.852033,0.999854
+China,2024,Cathode,Chile,China,512.600945,510.572404,0.996043
+China,2024,Cathode,Kazakhstan,China,308.425073,249.15819,0.80784
+China,2024,Cathode,Japan,China,247.990436,247.755739,0.999054
+China,2024,Cathode,Russia,China,245.099933,250.567802,1.022309
+China,2024,Concentrate,Chile,China,2387.396459,2397.899312,1.004399
+China,2024,Concentrate,Peru,China,2043.08857,1855.701401,0.908282
+China,2024,Concentrate,ROW,China,773.821564,550.542007,0.711459
+China,2024,Concentrate,Mexico,China,466.433312,415.618487,0.891057
+China,2024,Concentrate,Kazakhstan,China,462.236494,413.858361,0.895339
+China,2024,Matte,ROW,China,15.095663,9.117747,0.603998
+China,2024,Matte,Indonesia,China,8.024958,5.707956,0.711275
+China,2024,Matte,India,China,3.795657,5.504009,1.450081
+China,2024,Matte,"Korea, Rep.",China,2.527,3.085579,1.221045
+China,2024,Matte,China,"Korea, Rep.",1.777311,1.475588,0.830236

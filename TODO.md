@@ -90,8 +90,14 @@ Each against the previous one; REPs under `docs/rep/`.
   `opt_20261021_131744_58504ad3` (icsg v17, baci v31, trade_shares v39), Russia's 1995–2003 scale-total Σz²
   171,895 → 2,842, its stock legs beyond |z| 5 −1,030 → 0 kt CC, common-set z² −20.7 %. Found while gathering
   the limitation numbers: Russia carried 18.4 % of the scale-total objective.
-- **Next:** the final chain on `opt_20261021_131744_58504ad3` — Stage 5 + #87's REP and ablation, Stage 6, figures,
-  `manuscript_numbers.py`, limitations.
+- **#87 MEASURED** (ADR 0044): on the final chain the Birge ratio is 5.21 (`uncprop_20261021_134829_ad7e8d62`); the
+  shifts have a narrower core and a heavier tail than N(0, 1) (13.0 % of feed CC edges beyond 3, 4.1 % Birge-scaled);
+  the scale totals carry 0.10 of the 0.93 feed-CC contraction (`uncprop_20261022_081020_2176b072`). The manuscript
+  quotes the Birge-scaled interval.
+- **Final chain** `opt_20261021_131744_58504ad3` (Stage 5 above, `psut_20261022_081135_823c49b0`): figures, Table 3,
+  `manuscript_numbers.py` refresh of Method/Results/SI, limitations rewritten (2026-10-22). Ledger: A1 now fails at
+  the numerical floor (1.1e-6 kt), A4 0/30 because the ore-mass deletion was the solver's stop (#33). Follow-ups
+  outside the milestone: #111 (DR Congo, South Africa, Zambia, Uzbekistan: 34.7 % of scale-total Σz²), #99, #81.
 
 ## #72 MEASURED 2026-10-20 — qdldl REJECTED ON MEASUREMENT; `DIRECT_SOLVE_METHOD` stays faer
 
