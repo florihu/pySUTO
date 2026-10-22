@@ -8,7 +8,10 @@ scratch store `/dev/shm/pysuto-gate`; 529.9 s)
 `const_20261021_130426_c5331a7f`; 529.3 s)
 **Chain:** the reference's feeds `feed_icsg_20261021_125725_b033ebc4`, `feed_baci_20261021_125615_bc691704`,
 `feed_crude_ore_20260603_095651_558f7369`; both chains run by `pysuto.pipeline.Pipeline` in the main checkout at
-`e668821` (`feat/pipeline-sweep` merged into main), one after another, no other driver running
+`e668821` (`feat/pipeline-sweep` merged into main), one after another, no other driver running. From 09:01:22 to
+09:13:22 another session held the checkout on its own branch at the same commit (git reflog). Its two commits there
+touched docs, `scripts/report/manuscript_numbers.py`, tests and a commit-msg hook, none of the files the drivers read
+(`src/`, the three drivers)
 **Feeds/params:** the reference's (acc copper v4; conc v10, eff v4, ore_grade v8, stripping_ratio v2, stock_bounds v6,
 scrap_share v3)
 **Date:** 2026-10-22 · **Branch:** `diag/pipeline-gate-measure` · **Issues:** #106 (gates #100, #101, #103, #104 and
@@ -74,11 +77,11 @@ whether some input could make the order change a value, for instance two balance
 ## 4. Consequence
 
 - **What the gate certifies:** the build tickets change no number the solver, Stage 5 or Stage 6 reads.
-- **Whether #106 closes:** the rule's items 1 and 2 fail on the log's row order alone. The maintainer decides whether
-  #106 closes on that reading or waits for the follow-up below.
-- **Follow-up (proposed, not filed):** visit the balances in sorted order (`sorted(by_to.keys() & by_from.keys())`),
-  so that the imputation log, and any value the order could ever touch, is reproducible across processes. That is a
-  change to an imputer, so it needs its own check that every array stays bit-identical to this reference.
+- **#106 closes on this reading** (the maintainer's decision, 2026-10-22): items 1 and 2 fail on the log's row order
+  alone, an effect older than the build tickets.
+- **Follow-up #113:** visit the balances in sorted order (`sorted(by_to.keys() & by_from.keys())`), so that the
+  imputation log, and any value the order could ever touch, is reproducible across processes. That is a change to an
+  imputer, so it needs its own check that every array stays bit-identical to this reference.
 - **What the gate wrote:**
   - Chain 2 wrote 1.0 GB to `data/proc`: imp 80 MB, const 851 MB, opt 74 MB. Its imp and const runs duplicate the
     reference's arrays; pruning them is the maintainer's call.
