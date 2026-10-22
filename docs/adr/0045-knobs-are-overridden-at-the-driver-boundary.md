@@ -19,10 +19,13 @@ by hand (a test checks it against the module), and function defaults bound at im
 passed explicitly (`scale_total_cv` in Stage 3). Knobs that must agree across stages are declared in
 `pipeline.TIED` and refused when set apart; derived constants are not knobs.
 
-**Amendment (2026-10-22, #108).** The knob study keeps only Stage 4 of each point, which
-reopened the in-process option: imp and const held in memory would not take the ≈ 0.93 GB per
-point that limits a full-chain sweep to ≈ 9 points on 12 GB of free disk. It is rejected again,
-for the reasons above. Instead a sweep points its imp and const steps at a RAM-backed scratch
-store through two new driver flags (`--imp-dir`, `--const-dir`, defaulting to today's
-`data/proc` paths), and deletes a run once no remaining point reuses it. A point then costs the
-opt run's 0.08 GB, and #106's gate still covers the drivers.
+## Amendment (#108, 2026-10-22): a sweep keeps only Stage 4 through a scratch store
+
+The knob study keeps only Stage 4 of each point, which reopened the in-process option. Imp and
+const held in memory would not take the ≈ 0.93 GB per point (`imp_20261021_125954_b112b170`
+80 MB, `const_20261021_130426_c5331a7f` 851 MB) that limits a full-chain sweep to ≈ 9 points,
+with 11.6 GB free and the 3 GB reserve on 2026-10-22. It is rejected again, for the reasons
+above. Instead a sweep points its imp and const steps at a RAM-backed scratch store through two
+new driver flags (`--imp-dir`, `--const-dir`, defaulting to today's `data/proc` paths), and
+deletes a run once no remaining point reuses it. A point then costs the opt run's 0.08 GB, and
+#106's gate still covers the drivers.

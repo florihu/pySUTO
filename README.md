@@ -1282,13 +1282,15 @@ by category and year. Further **outcomes** are declared (`Outcome(name, measure,
 #108). The measure is `mass_moved`, `retention` (the change against the base) or `total`
 (the relative change of the posterior, which also sees a knob that moves prior and
 posterior together). The selector is a dict over the edge table's columns or a callable
-mask. `MaxAbs` takes the worst of several. The script declares Table S16's nine stages
-both ways, their maxima and Round-E (c)'s exporter retention. Through the same edge table
-it reproduces the #110 REP's Round-E (c) and (d) numbers for `opt_20261021_121332_acc68135`
-and `opt_20261021_131744_58504ad3` (Chile 1.0205 / 1.0222, CC mass moved 285,108 /
-256,349 kt). The axes are ranked per outcome: SRRC and Spearman ρ for numeric axes in a
-random sweep, with the rank regression's R²; the main-effect range for list axes; and the
-two-way interaction range in a full grid. Gross-mass totals are dominated by the
+mask that must match at least one edge. `MaxAbs` takes the worst of several and is NaN
+when any part is. The script declares Table S16's nine stages both ways, their maxima and
+Round-E (c)'s exporter retention. Through the same edge table it reproduces the #110 REP's
+Round-E numbers for `opt_20261021_121332_acc68135` → `opt_20261021_131744_58504ad3`:
+Chile's Concentrate→Smelting CC export retention over 1995–2024 is 1.0205 → 1.0222, and
+the CC mass moved is 285,108 → 256,349 kt CC. The axes are ranked per outcome. A random
+sweep gets SRRC and Spearman ρ for numeric axes and two-level list axes (in their declared
+order), plus the rank regression's R²; where R² < 0.5 the summary names the top axis by ρ.
+List axes get the main-effect range, and a full grid gets the two-way interaction range. Gross-mass totals are dominated by the
 waste-rock satellite, so `mass_moved_CC` is the scale-free one.
 
 ---

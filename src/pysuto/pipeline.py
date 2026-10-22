@@ -418,6 +418,12 @@ class Sweep:
     def _scratch_steps(self) -> tuple:
         return () if self.keep_intermediate else self.pipeline.steps[:-1]
 
+    def scratch_need_gb(self) -> float:
+        """Room one point's dropped runs take in the scratch store; 0 when every run is
+        kept. Points that share no run (a hypercube over imp knobs) hold one point's
+        dropped runs at a time; a grid whose points share runs can hold more."""
+        return sum(STEP_GB[s] for s in self._scratch_steps())
+
     def disk_need_gb(self, indices: Optional[Sequence[int]] = None) -> float:
         """Disk the planned runs write to ``data/proc`` plus :data:`RESERVE_GB`."""
         return sum(STEP_GB[s] * n for s, n in self.plan(indices).items()
@@ -507,15 +513,17 @@ class Sweep:
         if not self._scratch_steps():
             return self.pipeline
         p = self.pipeline
-        return Pipeline(p.steps, p.base, p.cwd, p.scripts_dir, p.log_dir, run_dirs={
-            s: os.path.join(self.scratch_dir, sid, s) for s in self._scratch_steps()})
+        dirs = {**p.run_dirs, **{s: os.path.join(self.scratch_dir, sid, s)
+                                 for s in self._scratch_steps()}}
+        return Pipeline(steps=p.steps, base=p.base, cwd=p.cwd, scripts_dir=p.scripts_dir,
+                        log_dir=p.log_dir, run_dirs=dirs)
 
     def _release(self, pt, remaining, memo, runner) -> None:
         """Delete the scratch runs of ``pt`` that no point in ``remaining`` will reuse."""
         pre = self._prefixes()
         for k, step in enumerate(self.pipeline.steps):
             rid = pt["runs"].get(step)
-            if step not in runner.run_dirs or rid is None:
+            if step not in self._scratch_steps() or rid is None:
                 continue
             if any(pre[j][k] == pre[pt["index"]][k] for j in remaining):
                 continue
@@ -559,7 +567,7 @@ class Sweep:
             chain = self.pipeline.base
             for step in self.pipeline.steps:
                 rid = pt["runs"].get(step)
-                if rid is None or (step in runner.run_dirs and not os.path.isdir(
+                if rid is None or (step in self._scratch_steps() and not os.path.isdir(
                         os.path.join(runner.run_dirs[step], rid))):
                     break
                 memo.setdefault(_memo_key(step, chain, by_stage[step]), rid)
@@ -574,10 +582,8 @@ class Sweep:
                                f"≈ {need:.2f} GB free ({RESERVE_GB} GB reserve included); "
                                f"{free:.2f} GB are free")
         if self._scratch_steps():
-            # Points that share no run (a hypercube over imp knobs) hold one point's
-            # dropped runs at a time; a grid whose points share runs can hold more.
             os.makedirs(self.scratch_dir, exist_ok=True)
-            need = sum(STEP_GB[s] for s in self._scratch_steps())
+            need = self.scratch_need_gb()
             free = shutil.disk_usage(self.scratch_dir).free / 1024 ** 3
             if free < need:
                 raise RuntimeError(f"the scratch store {self.scratch_dir} needs ≈ "
@@ -592,8 +598,8 @@ def _canonical(obj) -> str:
 
 
 def _memo_key(step: str, chain: Chain, knobs: Mapping[str, object]) -> tuple:
-    upstream = {"imp": tuple(chain.feed_run_ids), "const": chain.imp,
-                "opt": chain.const}[step]
+    up = _UPSTREAM[step]
+    upstream = tuple(chain.feed_run_ids) if up is None else getattr(chain, up)
     return step, upstream, repr(sorted(knobs.items()))
 
 

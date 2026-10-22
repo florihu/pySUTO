@@ -44,6 +44,9 @@ from pysuto.solver import ClarabelSolver
 
 FAMILIES = ("edges", "sum_rows", "soft_ratios", "other_soft")
 MEASURES = ("mass_moved", "retention", "total")
+# Below this R² the rank regression does not explain the ranks additively, and the
+# ranking is read off Spearman's ρ instead of the SRRC (#108's reporting rule).
+R2_MIN = 0.5
 
 
 # =============================================================================
@@ -84,7 +87,7 @@ class MaxAbs:
     parts: tuple
 
 
-def _mask(select, edges: pd.DataFrame) -> np.ndarray:
+def _mask(name: str, select, edges: pd.DataFrame) -> np.ndarray:
     if select is None:
         return np.ones(len(edges), dtype=bool)
     if callable(select):
@@ -98,8 +101,16 @@ def _mask(select, edges: pd.DataFrame) -> np.ndarray:
             vals = [str(x) for x in (v if isinstance(v, (list, tuple, set)) else [v])]
             m &= edges[col].astype(str).isin(vals).to_numpy()
     if m.shape != (len(edges),):
-        raise ValueError(f"a selector returned shape {m.shape}, expected ({len(edges)},)")
+        raise ValueError(f"outcome {name!r}: its selector returned shape {m.shape}, "
+                         f"expected ({len(edges)},)")
+    if not m.any():
+        raise ValueError(f"outcome {name!r}: its selector {select!r} matches no edge")
     return m
+
+
+def _max_abs(values) -> float:
+    """max |v|, NaN when any value is NaN."""
+    return float(np.max(np.abs(np.asarray(values, dtype=float))))
 
 
 def _measure(o: Outcome, m: np.ndarray, F_p, P_p, F_b, P_b) -> float:
@@ -149,8 +160,9 @@ def sensitivity_table(frame: pd.DataFrame, axes: Sequence[dict],
     axis's first key) and the outcome columns; ``axes`` are the declaration's axis
     dicts (``keys`` plus ``values`` or ``distribution``). Rows with a non-finite
     outcome are dropped per outcome. Returns ``outcome, axis, statistic, value, n``
-    with statistic ``srrc`` / ``spearman`` (numeric axes, random mode) and the rank
-    regression's ``r2`` (axis ``(rank regression)``), ``main_effect_range`` (list axes)
+    with statistic ``srrc`` / ``spearman`` (numeric axes and two-level list axes, ranked
+    in their declared order, random mode) and the rank regression's ``r2`` (axis
+    ``(rank regression)``), ``main_effect_range`` (list axes)
     and ``interaction_range`` (pairs of list axes in a full grid, axis ``a×b``); NaN
     where a statistic is undefined. A low ``r2`` says the ranks are not additive in
     the axes: interactions or non-monotone effects, where Spearman's ρ is the safer read.
@@ -170,9 +182,11 @@ def sensitivity_table(frame: pd.DataFrame, axes: Sequence[dict],
                   _standardised_ranks(cols[axis_label(ax)].to_numpy(dtype=float))
                   for ax in numeric}
             usable = [k for k, z in zs.items() if z is not None]
-            # A nominal list axis has no order to rank, so it gets no SRRC; its levels
-            # still enter as indicators, or its effect would leak into the others'.
-            dummies = []
+            # A nominal list axis enters as level indicators, or its effect would leak
+            # into the others'. Two levels have an order (second vs first), so their one
+            # standardised indicator is the axis's standardised rank and gets an SRRC;
+            # more levels have none.
+            dummies, ranked = [], {}
             for ax in axes:
                 if ax in numeric:
                     continue
@@ -181,19 +195,23 @@ def sensitivity_table(frame: pd.DataFrame, axes: Sequence[dict],
                     d = (lev == k).astype(float)
                     if d.std() > 0:
                         dummies.append((d - d.mean()) / d.std())
+                        if len(ax["values"]) == 2:
+                            ranked[axis_label(ax)] = (len(dummies) - 1, lev)
             coef, r2 = {}, np.nan
-            if z_y is not None and usable and n > len(usable) + len(dummies) + 1:
+            k = len(usable) + len(dummies)
+            if z_y is not None and k and n > k + 1:
                 X = np.column_stack([zs[k] for k in usable] + dummies)
                 beta = np.linalg.lstsq(X, z_y, rcond=None)[0]
                 coef = dict(zip(usable, beta))
+                coef.update({lab: beta[len(usable) + j] for lab, (j, _) in ranked.items()})
                 r2 = float(1.0 - np.sum((z_y - X @ beta) ** 2) / np.sum(z_y ** 2))
             rows.append((out, "(rank regression)", "r2", r2, n))
             for ax in axes:
                 lab = axis_label(ax)
-                is_num = ax in numeric
-                rho = (float(spearmanr(cols[lab].to_numpy(dtype=float), y).correlation)
-                       if is_num and zs.get(lab) is not None and z_y is not None
-                       else np.nan)
+                x = (cols[lab].to_numpy(dtype=float) if zs.get(lab) is not None
+                     else ranked[lab][1] if lab in ranked else None)
+                rho = (float(spearmanr(x, y).correlation)
+                       if x is not None and z_y is not None else np.nan)
                 rows.append((out, lab, "srrc", float(coef.get(lab, np.nan)), n))
                 rows.append((out, lab, "spearman", rho, n))
 
@@ -222,6 +240,20 @@ def sensitivity_table(frame: pd.DataFrame, axes: Sequence[dict],
                 rows.append((out, f"{axis_label(a)}×{axis_label(b)}", "interaction_range",
                              val, n))
     return pd.DataFrame(rows, columns=["outcome", "axis", "statistic", "value", "n"])
+
+
+def top_axis(sens: pd.DataFrame, outcome: str, r2_min: float = R2_MIN) -> Optional[tuple]:
+    """The axis that moves ``outcome`` most in a random sweep: by |SRRC| where the rank
+    regression's R² reaches ``r2_min``, else by |Spearman's ρ|. Returns ``(axis,
+    statistic, value)``, None when no axis has that statistic."""
+    t = sens[sens["outcome"] == outcome]
+    r2 = t[t["statistic"] == "r2"]["value"]
+    stat = "srrc" if len(r2) and r2.iloc[0] >= r2_min else "spearman"
+    t = t[t["statistic"] == stat].dropna(subset=["value"])
+    if not len(t):
+        return None
+    row = t.loc[t["value"].abs().idxmax()]
+    return row["axis"], stat, float(row["value"])
 
 
 # =============================================================================
@@ -296,7 +328,7 @@ class SweepStatsDiagnostic:
         if len(edges) != n_e:
             raise ValueError(f"the edge table has {len(edges)} rows, the base run "
                              f"{n_e} edges")
-        masks = {o.name: _mask(o.select, edges) for o in self._leaf_outcomes()}
+        masks = {o.name: _mask(o.name, o.select, edges) for o in self._leaf_outcomes()}
         cat = (edges["category"].astype(str) + " "
                + edges["valuation"].astype(str)).to_numpy()
         cats, cat_code = np.unique(cat, return_inverse=True)
@@ -362,7 +394,7 @@ class SweepStatsDiagnostic:
             leaf = {o.name: _measure(o, masks[o.name], F_p, P_p, F_b, P_b)
                     for o in self._leaf_outcomes()}
             for o in self.outcome_defs:
-                row[o.name] = (max(abs(leaf[q.name]) for q in o.parts)
+                row[o.name] = (_max_abs([leaf[q.name] for q in o.parts])
                                if isinstance(o, MaxAbs) else leaf[o.name])
 
             m_cat = by(cat_code, len(cats), moved)

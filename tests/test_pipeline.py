@@ -333,7 +333,6 @@ class TestSweepPlan:
                                                        free=4.2 * 1024 ** 3))
         assert sweep.run("fits")
 
-
     def test_a_sweep_that_keeps_only_its_last_step_counts_only_those_runs_on_disk(
             self, repo, tmp_path_factory):
         """Two const points: 2 × 0.08 GB of opt runs + 3 GB reserve; imp and const go to
@@ -519,6 +518,14 @@ class TestSweepKeepsOnlyItsLastStep:
         assert pts[1]["status"] == "done" and pts[1]["reused"] == []
         assert pts[1]["runs"]["imp"] != first_imp
         assert not (shm / sid).exists()
+
+    def test_a_sweep_that_keeps_every_run_deletes_none_from_a_callers_run_dir(
+            self, repo, shm):
+        dirs = {"imp": str(shm / "imp"), "const": str(shm / "const")}
+        Sweep(_pipeline(repo, run_dirs=dirs), [Axis("const.ANCHOR_CV", [0.01, 0.02])],
+              mode="grid").run("k4")
+        assert len(list((shm / "imp").iterdir())) == 1
+        assert len(list((shm / "const").iterdir())) == 2
 
     def test_keeping_only_the_last_step_needs_a_scratch_dir(self, repo):
         with pytest.raises(ValueError, match="scratch_dir"):

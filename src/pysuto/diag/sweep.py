@@ -30,7 +30,7 @@ import pandas as pd
 
 from ._plot import _CAT8, _INK, _savefig
 from .solver import PlotSpec, _apply_modern_style, _short
-from .stats.sweep import FAMILIES, SweepStatsDiagnostic, axis_label
+from .stats.sweep import FAMILIES, R2_MIN, SweepStatsDiagnostic, axis_label, top_axis
 
 _N_CATEGORIES = 12
 # A point breaks the base's hard rows when it misses one by more than this (kt). The base
@@ -201,12 +201,21 @@ class SweepDiag:
         lines.append(f"  axes by |{stat}| of {self.outcome}{fit}:")
         lines += [f"    {r.axis:<40s} {r.value:+.4g}  (n = {r.n})"
                   for r in rank.itertuples()]
-        lines.append(f"  top axis per outcome (|{stat}|):")
-        for out in self.stats.outcomes():
-            top = self._ranking(out)
-            if len(top):
-                lines.append(f"    {out:<34s} {top['axis'].iloc[0]} "
-                             f"({top['value'].iloc[0]:+.3g})")
+        if self.stats.mode == "random":
+            lines.append(f"  top axis per outcome (|SRRC|, or |Spearman ρ| where the "
+                         f"R² is below {R2_MIN:g}):")
+            sens = self.stats.sensitivity()
+            for out in self.stats.outcomes():
+                top = top_axis(sens, out)
+                if top:
+                    lines.append(f"    {out:<34s} {top[0]} ({top[1]} {top[2]:+.3g})")
+        else:
+            lines.append(f"  top axis per outcome (|{stat}|):")
+            for out in self.stats.outcomes():
+                top = self._ranking(out)
+                if len(top):
+                    lines.append(f"    {out:<34s} {top['axis'].iloc[0]} "
+                                 f"({top['value'].iloc[0]:+.3g})")
         unranked = {axis_label(a) for a in self.stats.axes} - set(rank["axis"])
         if unranked:
             lines.append(f"  without a {stat}: {', '.join(sorted(unranked))} "

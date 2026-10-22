@@ -28,7 +28,7 @@ from datetime import datetime
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from pysuto.logging  import get_logger, add_run_handler
-from pysuto.pipeline import RESERVE_GB, STEP_GB, Axis, Chain, Pipeline, Sweep
+from pysuto.pipeline import RESERVE_GB, Axis, Chain, Pipeline, Sweep
 
 # ---------------------------------------------------------------------------
 # USER CONFIGURATION
@@ -117,7 +117,7 @@ def dry_run(sweep: Sweep) -> None:
     if not sweep.keep_intermediate:
         _log.info("  only %s runs are kept; the others pass through %s (≈ %.2f GB at a "
                   "time)", sweep.pipeline.steps[-1], sweep.scratch_dir,
-                  sum(STEP_GB[s] for s in sweep.pipeline.steps[:-1]))
+                  sweep.scratch_need_gb())
 
 
 def main() -> None:

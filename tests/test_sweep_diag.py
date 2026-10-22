@@ -14,7 +14,7 @@ import pandas as pd
 import pytest
 
 from pysuto.diag import SweepDiag, SweepStatsDiagnostic
-from pysuto.diag.stats.sweep import MaxAbs, Outcome, sensitivity_table
+from pysuto.diag.stats.sweep import MaxAbs, Outcome, _max_abs, sensitivity_table, top_axis
 from pysuto.registry import ConstraintRunRegistry, OptimRunRegistry, SweepRunRegistry
 from pysuto.solver import ClarabelSolver
 from tests.test_solver import _make_wide_sigma_run
@@ -135,7 +135,8 @@ def test_a_sweep_whose_points_keep_no_const_run_is_scored_all_the_same(sweep):
         pt["runs"].pop("const")
     man["declaration"]["steps"] = ["opt"]
     reg.update(sweep.sweep_run_id, manifest=man)
-    df = SweepStatsDiagnostic(sweep.sweep_run_id, root=sweep.root, edges=EDGES).points_frame()
+    df = SweepStatsDiagnostic(sweep.sweep_run_id, root=sweep.root,
+                              edges=EDGES).points_frame()
     for col in ("J_base_at_point", "mass_moved_total"):
         np.testing.assert_allclose(df[col], expected[col], rtol=1e-12)
 
@@ -178,6 +179,17 @@ class TestDeclaredOutcomes:
         assert r["worst"] == max(abs(r[c]) for c in ("A→B", "B→C", "C→D"))
         assert r["worst"] > 0.0
 
+    def test_max_abs_is_nan_when_any_part_is_wherever_it_sits(self):
+        assert np.isnan(_max_abs([np.nan, 1.0])) and np.isnan(_max_abs([1.0, np.nan]))
+        assert _max_abs([-3.0, 2.0]) == 3.0
+
+    def test_a_selector_that_matches_no_edge_is_refused(self, sweep):
+        """A misspelt value would otherwise give NaN at every point, which the ranking
+        drops without a word."""
+        sweep.outcome_defs = (Outcome("chile", "total", {"region_from": "Chlie"}),)
+        with pytest.raises(ValueError, match="no edge"):
+            sweep.points_frame(refresh=True)
+
     def test_an_unknown_measure_or_column_is_refused(self, sweep):
         with pytest.raises(ValueError, match="measure"):
             Outcome("bad", "share")
@@ -218,7 +230,10 @@ class TestSensitivityTable:
         assert t[("w", "main_effect_range")] == pytest.approx(2.0, rel=1e-12)
         assert t[("m×w", "interaction_range")] == pytest.approx(0.0, abs=1e-12)
 
-    def test_a_nominal_axis_has_a_main_effect_but_no_rank_statistic(self):
+    def test_a_two_level_nominal_axis_is_ranked_in_its_declared_order(self):
+        """Its standardised indicator (second level vs first) is its standardised rank,
+        so it gets an SRRC and a Spearman ρ like a numeric axis (#108: the cascade
+        order must be judged by the same rule)."""
         orders = [["trade", "network"], ["network", "trade"]]
         frame = pd.DataFrame({"o": [orders[0], orders[1]] * 4,
                               "a": np.linspace(1.1, 1.5, 8),
@@ -228,7 +243,28 @@ class TestSensitivityTable:
         t = sensitivity_table(frame, axes, ["y"], mode="random")
         o = t[t["axis"] == "o"].set_index("statistic")["value"]
         assert o["main_effect_range"] == pytest.approx(2.0, rel=1e-12)
+        assert o["srrc"] == pytest.approx(1.0, rel=1e-9)
+        assert o["spearman"] == pytest.approx(1.0, rel=1e-12)
+
+    def test_a_nominal_axis_of_three_levels_has_no_rank_statistic(self):
+        levels = [["a"], ["b"], ["c"]]
+        frame = pd.DataFrame({"o": levels * 4, "x": np.linspace(0, 1, 12),
+                              "y": [1.0, 3.0, 2.0] * 4})
+        axes = [{"keys": ["o"], "values": levels},
+                {"keys": ["x"], "distribution": "uniform"}]
+        t = sensitivity_table(frame, axes, ["y"], mode="random")
+        o = t[t["axis"] == "o"].set_index("statistic")["value"]
         assert np.isnan(o["srrc"]) and np.isnan(o["spearman"])
+        assert o["main_effect_range"] == pytest.approx(2.0, rel=1e-12)
+
+    def test_the_top_axis_is_read_off_spearman_where_the_ranks_are_not_additive(self):
+        sens = pd.DataFrame([("y", "a", "srrc", 0.9, 9), ("y", "b", "srrc", 0.1, 9),
+                             ("y", "a", "spearman", 0.2, 9), ("y", "b", "spearman", 0.6, 9),
+                             ("y", "(rank regression)", "r2", 0.3, 9)],
+                            columns=["outcome", "axis", "statistic", "value", "n"])
+        assert top_axis(sens, "y") == ("b", "spearman", 0.6)
+        sens.loc[4, "value"] = 0.8
+        assert top_axis(sens, "y") == ("a", "srrc", 0.9)
 
     def test_a_nominal_axis_is_controlled_for_so_it_does_not_leak_into_the_others(self):
         """y = a + 1000·[o is the second order]: rank(y) is exactly 0.5·rank(a) plus a
