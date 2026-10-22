@@ -194,7 +194,11 @@ class SweepDiag:
                                           df["status"].value_counts().items())]
         rank = self._ranking()
         stat = self._stat()[1]
-        lines.append(f"  axes by |{stat}| of {self.outcome}:")
+        r2 = self.stats.sensitivity()
+        r2 = r2[(r2["outcome"] == self.outcome) & (r2["statistic"] == "r2")]["value"]
+        fit = (f" (R² of the rank regression {r2.iloc[0]:.2f})"
+               if len(r2) and np.isfinite(r2.iloc[0]) else "")
+        lines.append(f"  axes by |{stat}| of {self.outcome}{fit}:")
         lines += [f"    {r.axis:<40s} {r.value:+.4g}  (n = {r.n})"
                   for r in rank.itertuples()]
         lines.append(f"  top axis per outcome (|{stat}|):")
@@ -218,8 +222,6 @@ class SweepDiag:
         failed = df[df["status"] == "failed"]["index"].tolist()
         if failed:
             lines.append(f"  failed points: {failed} (their logs are in the manifest)")
-        lines.append("  J_own compares only points whose σ-defining knobs equal the "
-                     "base's.")
         text = "\n".join(lines)
         print(text)
         return text

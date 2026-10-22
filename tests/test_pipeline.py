@@ -4,7 +4,9 @@ The stage drivers are replaced by one fake driver script, written to ``tmp_path`
 the three real names, that speaks the same command-line protocol (upstream flags, label,
 ``--set``, ``--run-id-file``) and writes a sidecar into a fake ``data/proc``. Setting
 ``FAKE_FAIL=<stage>`` makes that stage exit 3 with "boom" on stderr;
-``FAKE_FAIL_SET=<pair>`` does the same for any stage given that ``--set`` pair.
+``FAKE_FAIL_SET=<pair>`` does the same for any stage given that ``--set`` pair. Like the
+real drivers, the fake one writes its run under ``--imp-dir`` / ``--const-dir`` when given,
+and exits 4 when its upstream run is not in the directory it was told to read.
 """
 from __future__ import annotations
 
@@ -37,15 +39,26 @@ if STAGE == "const":
     p.add_argument("pos_label")
 p.add_argument("--set", action="append", default=[], dest="sets")
 p.add_argument("--run-id-file")
+if STAGE in ("imp", "const"):
+    p.add_argument("--imp-dir", default=os.path.join("data", "proc", "imp"))
+if STAGE in ("const", "opt"):
+    p.add_argument("--const-dir", default=os.path.join("data", "proc", "const"))
 a = p.parse_args()
 print(f"{STAGE} starting", flush=True)
 if os.environ.get("FAKE_FAIL") == STAGE or os.environ.get("FAKE_FAIL_SET") in a.sets:
     print("boom", file=sys.stderr)
     sys.exit(3)
+read = {"const": (a.imp_run_id, getattr(a, "imp_dir", None)),
+        "opt": (a.const_run_id, getattr(a, "const_dir", None))}.get(STAGE)
+if read and not os.path.isdir(os.path.join(read[1], read[0])):
+    print(f"no upstream run {read[0]} in {read[1]}", file=sys.stderr)
+    sys.exit(4)
 rid = f"{STAGE}_20261021_120000_{uuid.uuid4().hex[:8]}"
 up = {"imp": {"feed_run_ids": a.feed_ids}, "const": {"imp_run_id": a.imp_run_id},
       "opt": {"const_run_id": a.const_run_id}}[STAGE]
-d = os.path.join("data", "proc", STAGE, rid)
+out = {"imp": getattr(a, "imp_dir", None), "const": getattr(a, "const_dir", None),
+       "opt": os.path.join("data", "proc", "opt")}[STAGE]
+d = os.path.join(out, rid)
 os.makedirs(d)
 label = a.pos_label if STAGE == "const" else a.label
 with open(os.path.join(d, "metadata.json"), "w") as f:
@@ -85,9 +98,10 @@ def repo(tmp_path):
                            base=Chain(feed_run_ids=FEEDS, imp=imp, const=const, opt=opt))
 
 
-def _pipeline(repo, steps=STEPS):
+def _pipeline(repo, steps=STEPS, run_dirs=None):
     return Pipeline(steps=steps, base=repo.base, cwd=str(repo.root),
-                    scripts_dir=str(repo.root / "scripts"), log_dir=str(repo.root / "logs"))
+                    scripts_dir=str(repo.root / "scripts"), log_dir=str(repo.root / "logs"),
+                    run_dirs=run_dirs)
 
 
 class TestChain:
@@ -137,6 +151,32 @@ class TestPipelineRun:
         assert exc.value.step == "const" and exc.value.returncode == 3
         assert "const starting" in exc.value.tail
         assert len(_runs(repo, "opt")) == 1                       # the base only
+
+
+class TestPipelineRunDirs:
+
+    def test_a_step_with_a_run_dir_writes_there_and_the_next_step_reads_it_there(
+            self, repo, tmp_path_factory):
+        scratch = tmp_path_factory.mktemp("scratch")
+        dirs = {"imp": str(scratch / "imp"), "const": str(scratch / "const")}
+        chain = _pipeline(repo, run_dirs=dirs).run({}, label="elsewhere")
+        assert (scratch / "imp" / chain.imp).is_dir()
+        assert (scratch / "const" / chain.const).is_dir()
+        assert (repo.root / "data" / "proc" / "opt" / chain.opt).is_dir()
+        assert len(_runs(repo, "imp")) == 1 and len(_runs(repo, "const")) == 1
+
+    def test_a_step_reads_a_base_run_from_data_proc_whatever_its_stages_run_dir(
+            self, repo, tmp_path_factory):
+        """An opt-only pipeline's upstream is the base const, which lives in data/proc."""
+        scratch = tmp_path_factory.mktemp("scratch")
+        chain = _pipeline(repo, steps=("const", "opt"),
+                          run_dirs={"const": str(scratch / "const")}).run({}, label="b")
+        assert chain.imp == repo.base.imp and (scratch / "const" / chain.const).is_dir()
+
+    @pytest.mark.parametrize("dirs", [{"opt": "x"}, {"imp": "x"}])
+    def test_run_dirs_name_only_imp_or_const_steps_of_the_pipeline(self, repo, dirs):
+        with pytest.raises(ValueError, match="run_dirs"):
+            _pipeline(repo, steps=("const", "opt"), run_dirs=dirs)
 
 
 class TestPipelineRefusals:
@@ -294,6 +334,17 @@ class TestSweepPlan:
         assert sweep.run("fits")
 
 
+    def test_a_sweep_that_keeps_only_its_last_step_counts_only_those_runs_on_disk(
+            self, repo, tmp_path_factory):
+        """Two const points: 2 × 0.08 GB of opt runs + 3 GB reserve; imp and const go to
+        the scratch store."""
+        sweep = Sweep(_pipeline(repo), [Axis("const.ANCHOR_CV", [0.01, 0.02])], mode="grid",
+                      keep_intermediate=False,
+                      scratch_dir=str(tmp_path_factory.mktemp("shm")))
+        assert sweep.disk_need_gb() == pytest.approx(3.16, rel=1e-9)
+        assert sweep.declaration()["keep_intermediate"] is False
+
+
 def _runs(repo, stage):
     return sorted(p.name for p in (repo.root / "data" / "proc" / stage).iterdir())
 
@@ -427,6 +478,52 @@ class TestSweepRun:
         with pytest.raises(RuntimeError, match="GB"):
             sweep.run("s6")
         assert not (repo.root / "data" / "proc" / "sweep").exists()
+
+
+class TestSweepKeepsOnlyItsLastStep:
+
+    @pytest.fixture
+    def shm(self, tmp_path_factory):
+        return tmp_path_factory.mktemp("shm")
+
+    def _sweep(self, repo, shm, values=(0.01, 0.02)):
+        return Sweep(_pipeline(repo), [Axis("const.ANCHOR_CV", list(values))], mode="grid",
+                     keep_intermediate=False, scratch_dir=str(shm))
+
+    def test_only_the_opt_runs_are_left_and_the_scratch_store_is_emptied(self, repo, shm):
+        sid = self._sweep(repo, shm).run("k1")
+        pts = _sweeps(repo).load_manifest(sid)["points"]
+        assert [p["status"] for p in pts] == ["done", "done"]
+        assert _runs(repo, "imp") == [repo.base.imp]
+        assert _runs(repo, "const") == [repo.base.const]
+        assert sorted(p["runs"]["opt"] for p in pts) == sorted(
+            set(_runs(repo, "opt")) - {repo.base.opt})
+        assert all(p["runs"]["const"] for p in pts)          # the lineage is recorded
+        assert not (shm / sid).exists()
+
+    def test_a_scratch_run_lives_until_the_last_point_that_reuses_it(self, repo, shm):
+        """Both points vary only const, so the second reuses the first's imp run."""
+        sid = self._sweep(repo, shm).run("k2")
+        pts = _sweeps(repo).load_manifest(sid)["points"]
+        assert pts[1]["reused"] == ["imp"]
+        assert pts[0]["runs"]["imp"] == pts[1]["runs"]["imp"]
+
+    def test_resume_reruns_a_step_whose_scratch_run_is_gone(self, repo, shm, monkeypatch):
+        monkeypatch.setenv("FAKE_FAIL_SET", "ANCHOR_CV=0.02")
+        sweep = self._sweep(repo, shm)
+        sid = sweep.run("k3")
+        first_imp = _sweeps(repo).load_manifest(sid)["points"][0]["runs"]["imp"]
+        monkeypatch.delenv("FAKE_FAIL_SET")
+        sweep.run("k3", resume=sid)
+        pts = _sweeps(repo).load_manifest(sid)["points"]
+        assert pts[1]["status"] == "done" and pts[1]["reused"] == []
+        assert pts[1]["runs"]["imp"] != first_imp
+        assert not (shm / sid).exists()
+
+    def test_keeping_only_the_last_step_needs_a_scratch_dir(self, repo):
+        with pytest.raises(ValueError, match="scratch_dir"):
+            Sweep(_pipeline(repo), [Axis("const.ANCHOR_CV", [0.01])], mode="grid",
+                  keep_intermediate=False)
 
 
 def test_the_sweep_driver_dry_run_lists_the_points_and_writes_nothing(repo):

@@ -69,6 +69,10 @@ _SCRIPTS = {
     "opt":   "run_solver.py",
 }
 _TAIL_LINES = 40
+# The stage whose run each step reads; a step's driver takes ``--<stage>-dir`` for the
+# directories it reads and writes outside ``data/proc`` (opt runs always land there).
+_UPSTREAM  = {"imp": None, "const": "imp", "opt": "const"}
+_DIR_STEPS = ("imp", "const")
 
 
 @dataclass(frozen=True)
@@ -125,11 +129,15 @@ class Pipeline:
     scripts_dir : where the drivers live; default ``<cwd>/scripts``.
     log_dir : where each step's combined stdout/stderr is written; default
         ``<cwd>/logs/pipeline``.
+    run_dirs : per imp or const step, the directory its run is written to and the next
+        step reads it from, instead of ``data/proc/<stage>`` — a sweep's scratch store.
+        A stage outside ``steps`` is always read from ``data/proc``: it is the base's.
     """
 
     def __init__(self, steps: tuple = STEPS, base: Optional[Chain] = None,
                  cwd: Optional[str] = None, scripts_dir: Optional[str] = None,
-                 log_dir: Optional[str] = None) -> None:
+                 log_dir: Optional[str] = None,
+                 run_dirs: Optional[Mapping[str, str]] = None) -> None:
         steps = tuple(steps)
         if not _is_contiguous_slice(steps):
             raise ValueError(f"steps {steps} must be a contiguous slice of {STEPS}")
@@ -140,6 +148,11 @@ class Pipeline:
         self.cwd         = str(cwd or REPO_ROOT)
         self.scripts_dir = str(scripts_dir or os.path.join(self.cwd, "scripts"))
         self.log_dir     = str(log_dir or os.path.join(self.cwd, "logs", "pipeline"))
+        self.run_dirs    = {k: str(v) for k, v in (run_dirs or {}).items()}
+        bad = [k for k in self.run_dirs if k not in _DIR_STEPS or k not in steps]
+        if bad:
+            raise ValueError(f"run_dirs {bad}: only the pipeline's imp and const steps "
+                             f"can write elsewhere than data/proc (steps {steps})")
 
     # ------------------------------------------------------------------
     def check_overrides(self, overrides: Mapping[str, object]) -> dict:
@@ -203,6 +216,9 @@ class Pipeline:
             cmd += ["--imp-run-id", upstream.imp, label]
         else:
             cmd += ["--const-run-id", upstream.const, "--label", label]
+        for stage in (_UPSTREAM[step], step):
+            if stage in self.run_dirs:
+                cmd += [f"--{stage}-dir", self.run_dirs[stage]]
         for knob, value in knobs.items():
             cmd += ["--set", f"{knob}={value!r}"]
         return cmd + ["--run-id-file", rid_file]
@@ -312,11 +328,19 @@ class Sweep:
         or an axis sets it, a sweep whose steps include ``opt`` passes
         ``opt.FEASIBILITY_CHECK = "none"``: the probe is ≈ 7 of Stage 4's ≈ 11 min,
         and an infeasible period still fails its point (#104).
+    keep_intermediate : ``False`` keeps only the last step's runs (#108): every earlier
+        step writes to ``<scratch_dir>/<sweep id>/<stage>`` and its run is deleted as soon
+        as no remaining point reuses it; the manifest still names it, so a point can be
+        rebuilt from its overrides. Default ``True`` keeps every run in ``data/proc``.
+    scratch_dir : where the dropped runs live meanwhile, a RAM-backed tmpfs such as
+        ``/dev/shm/pysuto-sweep``; needed when ``keep_intermediate`` is ``False``.
     """
 
     def __init__(self, pipeline: Pipeline, axes: Sequence[Axis], mode: str = "random",
                  n_points: Optional[int] = None, seed: Optional[int] = None,
-                 fixed: Optional[Mapping[str, object]] = None) -> None:
+                 fixed: Optional[Mapping[str, object]] = None,
+                 keep_intermediate: bool = True,
+                 scratch_dir: Optional[str] = None) -> None:
         if mode not in MODES:
             raise ValueError(f"mode {mode!r}; expected one of {MODES}")
         if mode == "random" and (n_points is None or seed is None):
@@ -335,8 +359,12 @@ class Sweep:
         if mode == "grid" and not all(ax.is_list for ax in axes):
             raise ValueError("a grid sweep needs list axes; draw from a distribution in a "
                              "random sweep")
+        if not keep_intermediate and scratch_dir is None:
+            raise ValueError("a sweep that keeps only its last step's runs needs a "
+                             "scratch_dir for the others")
         self.pipeline, self.axes, self.mode = pipeline, axes, mode
         self.n_points, self.seed = n_points, seed
+        self.keep_intermediate, self.scratch_dir = keep_intermediate, scratch_dir
         base_fixed = ({"opt.FEASIBILITY_CHECK": "none"}
                       if "opt" in pipeline.steps and "opt.FEASIBILITY_CHECK" not in keys
                       else {})
@@ -366,22 +394,34 @@ class Sweep:
             out.append(pt)
         return out
 
+    def _prefixes(self) -> list:
+        """Per point and step, what decides that step's run: its own and every earlier
+        step's overrides. Two points share a step's run exactly when these are equal."""
+        out = []
+        for pt in self._points:
+            by_stage, pre, row = self.pipeline.check_overrides(pt), (), []
+            for step in self.pipeline.steps:
+                pre += (repr(sorted(by_stage[step].items())),)
+                row.append(pre)
+            out.append(row)
+        return out
+
     def plan(self, indices: Optional[Sequence[int]] = None) -> dict:
         """How many distinct runs each step needs over the points ``indices`` (default
         all): a step is rerun only when its own or an earlier step's overrides differ,
         so a sweep over solver knobs plans one imp and one const run."""
         idx = range(len(self._points)) if indices is None else indices
-        by_point = [self.pipeline.check_overrides(self._points[i]) for i in idx]
-        plan, prefix = {}, [()] * len(by_point)
-        for step in self.pipeline.steps:
-            prefix = [pre + (repr(sorted(bs[step].items())),)
-                      for pre, bs in zip(prefix, by_point)]
-            plan[step] = len(set(prefix))
-        return plan
+        pre = self._prefixes()
+        return {step: len({pre[i][k] for i in idx})
+                for k, step in enumerate(self.pipeline.steps)}
+
+    def _scratch_steps(self) -> tuple:
+        return () if self.keep_intermediate else self.pipeline.steps[:-1]
 
     def disk_need_gb(self, indices: Optional[Sequence[int]] = None) -> float:
-        """Disk the planned runs write plus :data:`RESERVE_GB`."""
-        return sum(STEP_GB[s] * n for s, n in self.plan(indices).items()) + RESERVE_GB
+        """Disk the planned runs write to ``data/proc`` plus :data:`RESERVE_GB`."""
+        return sum(STEP_GB[s] * n for s, n in self.plan(indices).items()
+                   if s not in self._scratch_steps()) + RESERVE_GB
 
     def declaration(self) -> dict:
         """What defines the sweep's points, as recorded in its sidecar and manifest."""
@@ -391,7 +431,8 @@ class Sweep:
                 "steps": list(self.pipeline.steps), "mode": self.mode,
                 "n_points": len(self._points), "seed": self.seed,
                 "axes": [ax.describe() for ax in self.axes],
-                "fixed": {k: _plain(v) for k, v in self.fixed.items()}}
+                "fixed": {k: _plain(v) for k, v in self.fixed.items()},
+                "keep_intermediate": self.keep_intermediate}
 
     # ------------------------------------------------------------------
     def run(self, label: str, resume: Optional[str] = None) -> str:
@@ -445,17 +486,44 @@ class Sweep:
             self._check_disk([p["index"] for p in manifest["points"]
                               if p["status"] != "done"])
 
-        memo = self._memo_from(manifest)
+        runner = self._runner(sid)
+        memo = self._memo_from(manifest, runner)
         t0 = time.perf_counter()
-        for pt in manifest["points"]:
+        points = manifest["points"]
+        for pos, pt in enumerate(points):
             if pt["status"] == "done":
                 continue
-            self._run_point(sid, pt, memo, reg, manifest)
+            self._run_point(sid, pt, memo, reg, manifest, runner)
+            self._release(pt, [q["index"] for q in points[pos + 1:]
+                               if q["status"] != "done"], memo, runner)
+        if self._scratch_steps():
+            shutil.rmtree(os.path.join(self.scratch_dir, sid), ignore_errors=True)
         reg.update(sid, manifest=manifest,
                    stage_summary=_summary(manifest, time.perf_counter() - t0))
         return sid
 
-    def _run_point(self, sid, pt, memo, reg, manifest) -> None:
+    def _runner(self, sid: str) -> Pipeline:
+        """The pipeline the points run: this one, its dropped steps sent to scratch."""
+        if not self._scratch_steps():
+            return self.pipeline
+        p = self.pipeline
+        return Pipeline(p.steps, p.base, p.cwd, p.scripts_dir, p.log_dir, run_dirs={
+            s: os.path.join(self.scratch_dir, sid, s) for s in self._scratch_steps()})
+
+    def _release(self, pt, remaining, memo, runner) -> None:
+        """Delete the scratch runs of ``pt`` that no point in ``remaining`` will reuse."""
+        pre = self._prefixes()
+        for k, step in enumerate(self.pipeline.steps):
+            rid = pt["runs"].get(step)
+            if step not in runner.run_dirs or rid is None:
+                continue
+            if any(pre[j][k] == pre[pt["index"]][k] for j in remaining):
+                continue
+            shutil.rmtree(os.path.join(runner.run_dirs[step], rid), ignore_errors=True)
+            for key in [m for m, v in memo.items() if v == rid]:
+                del memo[key]
+
+    def _run_point(self, sid, pt, memo, reg, manifest, runner) -> None:
         i = pt["index"]
         by_stage = self.pipeline.check_overrides(self._points[i])
         pt.update(status="running", started_at=_now(), error=None, log=None, reused=[],
@@ -469,8 +537,7 @@ class Sweep:
                     rid = memo[key]
                     pt["reused"].append(step)
                 else:
-                    rid = self.pipeline.run_step(step, chain, by_stage[step],
-                                                 f"{sid} p{i:03d}")
+                    rid = runner.run_step(step, chain, by_stage[step], f"{sid} p{i:03d}")
                     memo[key] = rid
                 chain = replace(chain, **{step: rid})
                 pt["runs"][step] = rid
@@ -483,15 +550,17 @@ class Sweep:
         pt["finished_at"] = _now()
         reg.update(sid, manifest=manifest)
 
-    def _memo_from(self, manifest) -> dict:
-        """Steps already run by any point of this sweep, keyed for reuse."""
+    def _memo_from(self, manifest, runner) -> dict:
+        """Steps already run by any point of this sweep and still on hand, keyed for
+        reuse (a released scratch run, or one a reboot cleared, is not)."""
         memo: dict = {}
         for pt in manifest["points"]:
             by_stage = self.pipeline.check_overrides(self._points[pt["index"]])
             chain = self.pipeline.base
             for step in self.pipeline.steps:
                 rid = pt["runs"].get(step)
-                if rid is None:
+                if rid is None or (step in runner.run_dirs and not os.path.isdir(
+                        os.path.join(runner.run_dirs[step], rid))):
                     break
                 memo.setdefault(_memo_key(step, chain, by_stage[step]), rid)
                 chain = replace(chain, **{step: rid})
@@ -504,6 +573,16 @@ class Sweep:
             raise RuntimeError(f"the sweep's planned runs {self.plan(indices)} need "
                                f"≈ {need:.2f} GB free ({RESERVE_GB} GB reserve included); "
                                f"{free:.2f} GB are free")
+        if self._scratch_steps():
+            # Points that share no run (a hypercube over imp knobs) hold one point's
+            # dropped runs at a time; a grid whose points share runs can hold more.
+            os.makedirs(self.scratch_dir, exist_ok=True)
+            need = sum(STEP_GB[s] for s in self._scratch_steps())
+            free = shutil.disk_usage(self.scratch_dir).free / 1024 ** 3
+            if free < need:
+                raise RuntimeError(f"the scratch store {self.scratch_dir} needs ≈ "
+                                   f"{need:.2f} GB for one point's dropped runs; "
+                                   f"{free:.2f} GB are free")
 
 
 def _canonical(obj) -> str:

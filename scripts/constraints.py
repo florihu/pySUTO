@@ -655,8 +655,14 @@ if __name__ == "__main__":
         help="ImputationRun ID to load from data/proc/imp/.",
     )
     parser.add_argument("label", help="Label for this constraint run")
+    parser.add_argument("--imp-dir", default=IMP_DIR,
+                        help=f"Where the imputation run is read from (default {IMP_DIR}).")
+    parser.add_argument("--const-dir", default=OUTPUT_DIR,
+                        help=f"Where the run is written (default {OUTPUT_DIR}); a sweep's "
+                             f"scratch store (#108).")
     add_knob_args(parser)
     args = parser.parse_args()
+    IMP_DIR, OUTPUT_DIR = args.imp_dir, args.const_dir
     overrides = overrides_from_cli(parser, args, KNOBS, globals())
     with stage_lock("constraints"):   # registries have no locking (#101)
         write_run_id(args.run_id_file, main(args.imp_run_id, args.label, overrides))

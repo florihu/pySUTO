@@ -4,17 +4,20 @@ sweep.py
 :class:`SweepStatsDiagnostic` — the tables behind :class:`pysuto.diag.SweepDiag` (#107).
 
 A sweep's points are scored against its **base chain** (GLOSSARY.md "Sweep",
-"Point"), on three outcomes:
+"Point", "Outcome"). Every point gets
 
-* **posterior distance** — ``mass_moved = Σ_years Σ |a*_point − a*_base|`` (kt) over a
-  category's edges, and **retention** ``Σa*/Σa_prior`` by category (GLOSSARY.md
-  "Retention"); a category is ``sector_from→sector_to valuation``;
-* **cross-evaluated objective** — ``J_base_at_point = Σ_t J_base(a*_point(t)) −
+* the **cross-evaluated objective** — ``J_base_at_point = Σ_t J_base(a*_point(t)) −
   Σ_t J_base(a*_base(t))``: each point's answer scored under the base QP
   (:meth:`pysuto.solver.ClarabelSolver.objective_at`), ≥ 0 while the point is feasible
   for the base's hard rows (``max_hard_violation_base`` says whether it is);
-* **own objective** — ``J_own = Σ_t J_point(a*_point(t))``, comparable across points
-  only when their σ-defining knobs equal the base's.
+* the **posterior distance** ``mass_moved = Σ_years Σ |a*_point − a*_base|`` (kt), in
+  total and per valuation, and per category in the category tables with the
+  **retention** ``Σa*/Σa_prior`` (GLOSSARY.md "Retention"); a category is
+  ``sector_from→sector_to valuation``;
+* every declared :class:`Outcome` and :class:`MaxAbs` — any edge set, three measures.
+
+Only the base's const run and the points' opt runs are read, so a sweep that kept only
+Stage 4 (#108) is scored like any other.
 
 :func:`sensitivity_table` ranks the axes per outcome: in a random sweep the
 standardised rank regression coefficient (SRRC) and Spearman's ρ of each numeric axis,
@@ -27,7 +30,8 @@ from __future__ import annotations
 import itertools
 import json
 import os
-from typing import Optional, Sequence
+from dataclasses import dataclass
+from typing import Any, Optional, Sequence, Union
 
 import numpy as np
 import pandas as pd
@@ -39,6 +43,72 @@ from pysuto.registry import OptimRunRegistry, SweepRunRegistry
 from pysuto.solver import ClarabelSolver
 
 FAMILIES = ("edges", "sum_rows", "soft_ratios", "other_soft")
+MEASURES = ("mass_moved", "retention", "total")
+
+
+# =============================================================================
+# Outcomes
+# =============================================================================
+
+@dataclass(frozen=True)
+class Outcome:
+    """A named scalar of a point's answer against the base's (GLOSSARY.md "Outcome").
+
+    Parameters
+    ----------
+    name : the column it becomes in :meth:`SweepStatsDiagnostic.points_frame`.
+    measure : over the selected edges, every year pooled —
+        ``"mass_moved"`` ``Σ|a*_p − a*_b|`` (kt);
+        ``"retention"`` ``Σa*_p/Σa_prior,p − Σa*_b/Σa_prior,b``, the change in retention
+        against the base;
+        ``"total"`` ``Σa*_p/Σa*_b − 1``, the relative change of the posterior, which
+        also sees a knob that moves prior and posterior together.
+    select : the edges — a dict ``column → value or list of values`` over the edge table
+        (``sector_from``, ``sector_to``, ``region_from``, ``region_to``, ``valuation``,
+        ``time``, ``category``), a callable ``edges → bool mask``, or None for every edge.
+    """
+    name:    str
+    measure: str
+    select:  Any = None
+
+    def __post_init__(self) -> None:
+        if self.measure not in MEASURES:
+            raise ValueError(f"outcome {self.name!r}: measure {self.measure!r}; expected "
+                             f"one of {MEASURES}")
+
+
+@dataclass(frozen=True)
+class MaxAbs:
+    """The largest |value| among ``parts`` — the worst of several outcomes."""
+    name:  str
+    parts: tuple
+
+
+def _mask(select, edges: pd.DataFrame) -> np.ndarray:
+    if select is None:
+        return np.ones(len(edges), dtype=bool)
+    if callable(select):
+        m = np.asarray(select(edges), dtype=bool)
+    else:
+        m = np.ones(len(edges), dtype=bool)
+        for col, v in select.items():
+            if col not in edges.columns:
+                raise KeyError(f"selector column {col!r} is not in the edge table "
+                               f"{list(edges.columns)}")
+            vals = [str(x) for x in (v if isinstance(v, (list, tuple, set)) else [v])]
+            m &= edges[col].astype(str).isin(vals).to_numpy()
+    if m.shape != (len(edges),):
+        raise ValueError(f"a selector returned shape {m.shape}, expected ({len(edges)},)")
+    return m
+
+
+def _measure(o: Outcome, m: np.ndarray, F_p, P_p, F_b, P_b) -> float:
+    with np.errstate(divide="ignore", invalid="ignore"):
+        if o.measure == "mass_moved":
+            return float(np.abs(F_p[m] - F_b[m]).sum())
+        if o.measure == "retention":
+            return float(F_p[m].sum() / P_p[m].sum() - F_b[m].sum() / P_b[m].sum())
+        return float(F_p[m].sum() / F_b[m].sum() - 1.0)
 
 
 # =============================================================================
@@ -79,9 +149,11 @@ def sensitivity_table(frame: pd.DataFrame, axes: Sequence[dict],
     axis's first key) and the outcome columns; ``axes`` are the declaration's axis
     dicts (``keys`` plus ``values`` or ``distribution``). Rows with a non-finite
     outcome are dropped per outcome. Returns ``outcome, axis, statistic, value, n``
-    with statistic ``srrc`` / ``spearman`` (numeric axes, random mode),
-    ``main_effect_range`` (list axes) and ``interaction_range`` (pairs of list axes in
-    a full grid, axis ``a×b``); NaN where a statistic is undefined.
+    with statistic ``srrc`` / ``spearman`` (numeric axes, random mode) and the rank
+    regression's ``r2`` (axis ``(rank regression)``), ``main_effect_range`` (list axes)
+    and ``interaction_range`` (pairs of list axes in a full grid, axis ``a×b``); NaN
+    where a statistic is undefined. A low ``r2`` says the ranks are not additive in
+    the axes: interactions or non-monotone effects, where Spearman's ρ is the safer read.
     """
     rows = []
     for out in outcomes:
@@ -109,11 +181,13 @@ def sensitivity_table(frame: pd.DataFrame, axes: Sequence[dict],
                     d = (lev == k).astype(float)
                     if d.std() > 0:
                         dummies.append((d - d.mean()) / d.std())
-            coef = {}
+            coef, r2 = {}, np.nan
             if z_y is not None and usable and n > len(usable) + len(dummies) + 1:
                 X = np.column_stack([zs[k] for k in usable] + dummies)
                 beta = np.linalg.lstsq(X, z_y, rcond=None)[0]
                 coef = dict(zip(usable, beta))
+                r2 = float(1.0 - np.sum((z_y - X @ beta) ** 2) / np.sum(z_y ** 2))
+            rows.append((out, "(rank regression)", "r2", r2, n))
             for ax in axes:
                 lab = axis_label(ax)
                 is_num = ax in numeric
@@ -161,16 +235,16 @@ class SweepStatsDiagnostic:
     ----------
     sweep_run_id : the ``sweep`` run.
     root : the ``data/proc`` directory holding the sweep, const and opt registries.
-    edge_groups : per global edge (row order = edge id) its ``category`` and
-        ``valuation``; default from the base const run's accounting structure
-        (``sector_from→sector_to`` and the valuation).
-    outcome_categories : categories (``"MF→Concentrate CC"``) promoted to outcome
-        columns ``mass_moved_<cat>`` and ``retention_<cat>`` of :meth:`points_frame`.
+    edges : the edge table, one row per global edge (row order = edge id), with at
+        least ``category`` and ``valuation`` plus any column a selector reads; default
+        from the base const run's accounting structure (the expanded edge index, its
+        ``time``, and ``category`` = ``sector_from→sector_to``).
+    outcomes : the declared :class:`Outcome` and :class:`MaxAbs` columns.
     """
 
     def __init__(self, sweep_run_id: str, root: str = os.path.join("data", "proc"),
-                 edge_groups: Optional[pd.DataFrame] = None,
-                 outcome_categories: Sequence[str] = ()) -> None:
+                 edges: Optional[pd.DataFrame] = None,
+                 outcomes: Sequence[Union[Outcome, MaxAbs]] = ()) -> None:
         reg = SweepRunRegistry(os.path.join(root, "sweep"))
         self.sweep_run_id = sweep_run_id
         self.root = root
@@ -179,8 +253,8 @@ class SweepStatsDiagnostic:
         self.declaration = self.manifest["declaration"]
         up = self.sidecar["parents"]["upstream"]
         self.base_const, self.base_opt = up["const_run_id"], up["opt_run_id"]
-        self._edge_groups = edge_groups
-        self.outcome_categories = tuple(outcome_categories)
+        self._edges = edges
+        self.outcome_defs = tuple(outcomes)
         self.base_max_hard_violation: Optional[float] = None
         self._cache: dict = {}
 
@@ -200,31 +274,33 @@ class SweepStatsDiagnostic:
     def _opt(self, opt_run_id: str) -> dict:
         return OptimRunRegistry(os.path.join(self.root, "opt")).load(opt_run_id)
 
-    def _groups(self, const_run) -> pd.DataFrame:
-        if self._edge_groups is None:
+    def _edge_table(self, const_run) -> pd.DataFrame:
+        if self._edges is None:
             acc = AccountingStructure.load(const_run.acc_id,
                                            storage_dir=os.path.join(self.root, "acc"))
             ei = expand_edge_index(acc.edge_index, acc.node_index).sort_values("edge_id")
-            self._edge_groups = pd.DataFrame({
-                "category":  (ei["sector_from"].astype(str) + "→"
-                              + ei["sector_to"].astype(str)).to_numpy(),
-                "valuation": ei["valuation"].astype(str).to_numpy()})
-        return self._edge_groups
+            cols = ["sector_from", "sector_to", "region_from", "region_to", "valuation",
+                    "time"]
+            self._edges = ei[cols].astype(str).reset_index(drop=True)
+            self._edges["category"] = (self._edges["sector_from"] + "→"
+                                       + self._edges["sector_to"])
+        return self._edges
 
     # ------------------------------------------------------------------
     def _compute(self) -> None:
         solver = self._solver()
         base_run = solver.load_run(self.base_const)
         base_res = self._opt(self.base_opt)
-        groups = self._groups(base_run)
+        edges = self._edge_table(base_run)
         n_e = base_run.G.shape[1]
-        if len(groups) != n_e:
-            raise ValueError(f"edge_groups has {len(groups)} rows, the base run "
+        if len(edges) != n_e:
+            raise ValueError(f"the edge table has {len(edges)} rows, the base run "
                              f"{n_e} edges")
-        cat = (groups["category"].astype(str) + " "
-               + groups["valuation"].astype(str)).to_numpy()
+        masks = {o.name: _mask(o.select, edges) for o in self._leaf_outcomes()}
+        cat = (edges["category"].astype(str) + " "
+               + edges["valuation"].astype(str)).to_numpy()
         cats, cat_code = np.unique(cat, return_inverse=True)
-        vals, val_code = np.unique(groups["valuation"].astype(str).to_numpy(),
+        vals, val_code = np.unique(edges["valuation"].astype(str).to_numpy(),
                                    return_inverse=True)
         years = list(base_res)
         year_of = np.full(n_e, -1, dtype=np.int64)
@@ -260,9 +336,7 @@ class SweepStatsDiagnostic:
             for ax in self.axes:
                 for k in ax["keys"]:
                     row[k] = pt["overrides"].get(k)
-            # A sweep without a const step solves the base's QP at every point.
             opt_id = pt["runs"].get("opt")
-            const_id = pt["runs"].get("const") or self.base_const
             if pt["status"] != "done" or opt_id is None:
                 point_rows.append(row)
                 continue
@@ -285,19 +359,16 @@ class SweepStatsDiagnostic:
                 row[f"J_base_at_point_{f}"] = sum(at_base[t][f] - J_b[t][f] for t in years)
             row["max_hard_violation_base"] = max(at_base[t]["max_hard_violation"]
                                                  for t in years)
-            own_run = base_run if const_id == self.base_const else solver.load_run(const_id)
-            own = {t: solver.objective_at(own_run, t, res[t].F_opt, res[t].a_prior)
-                   for t in years}
-            row["J_own"] = sum(own[t]["total"] for t in years)
-            for f in FAMILIES:
-                row[f"J_own_{f}"] = sum(own[t][f] for t in years)
+            leaf = {o.name: _measure(o, masks[o.name], F_p, P_p, F_b, P_b)
+                    for o in self._leaf_outcomes()}
+            for o in self.outcome_defs:
+                row[o.name] = (max(abs(leaf[q.name]) for q in o.parts)
+                               if isinstance(o, MaxAbs) else leaf[o.name])
 
             m_cat = by(cat_code, len(cats), moved)
             ret_p = ratio(by(cat_code, len(cats), F_p), by(cat_code, len(cats), P_p))
             for c, m, rp, rb in zip(cats, m_cat, ret_p, ret_b):
                 cat_rows.append((pt["index"], c, float(m), float(rp), float(rb)))
-                if c in self.outcome_categories:
-                    row[f"mass_moved_{c}"], row[f"retention_{c}"] = float(m), float(rp)
             ret_by_p = ratio(by(cy, len(cats) * len(years), F_p),
                              by(cy, len(cats) * len(years), P_p))
             for j in range(len(cats) * len(years)):
@@ -312,6 +383,15 @@ class SweepStatsDiagnostic:
             "years": pd.DataFrame(year_rows, columns=[
                 "index", "category", "year", "retention", "retention_base"]),
         }
+
+    def _leaf_outcomes(self) -> list:
+        """The declared outcomes and the parts of every :class:`MaxAbs`, once each."""
+        out: dict = {}
+        for o in self.outcome_defs:
+            for q in (o.parts if isinstance(o, MaxAbs) else (o,)):
+                if out.setdefault(q.name, q) != q:
+                    raise ValueError(f"two different outcomes are named {q.name!r}")
+        return list(out.values())
 
     def _get(self, key: str, refresh: bool) -> pd.DataFrame:
         if refresh or not self._cache:

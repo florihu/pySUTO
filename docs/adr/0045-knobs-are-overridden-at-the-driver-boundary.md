@@ -18,3 +18,11 @@ memory between steps and costs ≈ 20 lines per driver; its price is string pars
 by hand (a test checks it against the module), and function defaults bound at import that must be
 passed explicitly (`scale_total_cv` in Stage 3). Knobs that must agree across stages are declared in
 `pipeline.TIED` and refused when set apart; derived constants are not knobs.
+
+**Amendment (2026-10-22, #108).** The knob study keeps only Stage 4 of each point, which
+reopened the in-process option: imp and const held in memory would not take the ≈ 0.93 GB per
+point that limits a full-chain sweep to ≈ 9 points on 12 GB of free disk. It is rejected again,
+for the reasons above. Instead a sweep points its imp and const steps at a RAM-backed scratch
+store through two new driver flags (`--imp-dir`, `--const-dir`, defaulting to today's
+`data/proc` paths), and deletes a run once no remaining point reuses it. A point then costs the
+opt run's 0.08 GB, and #106's gate still covers the drivers.

@@ -758,8 +758,12 @@ if __name__ == "__main__":
         help="Feed run ID to include. Repeat for each feed.",
     )
     parser.add_argument("--label", help="Human-readable label stored in the run's sidecar")
+    parser.add_argument("--imp-dir", default=IMP_DIR,
+                        help=f"Where the run is written (default {IMP_DIR}); a sweep's "
+                             f"scratch store (#108).")
     add_knob_args(parser)
     args = parser.parse_args()
+    IMP_DIR = args.imp_dir
     overrides = overrides_from_cli(parser, args, KNOBS, globals())
     try:
         cascade_in_order(dict.fromkeys(CASCADE_IDS), CASCADE_ORDER)

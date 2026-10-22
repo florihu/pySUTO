@@ -28,34 +28,60 @@ from datetime import datetime
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from pysuto.logging  import get_logger, add_run_handler
-from pysuto.pipeline import STEP_GB, Axis, Chain, Pipeline, Sweep
+from pysuto.pipeline import RESERVE_GB, STEP_GB, Axis, Chain, Pipeline, Sweep
 
 # ---------------------------------------------------------------------------
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
 
+# The knob study of #108; its decisions are recorded on the issue (2026-10-22).
 # The chain every point starts from: its feed runs feed the imp step, and every point
-# is compared with it. The reference chain of ADR 0039 am. (#33).
-BASE_OPT_RUN_ID = "opt_20261020_112726_2f451f31"
+# is compared with it. The final reference chain (#110, 2026-10-21).
+BASE_OPT_RUN_ID = "opt_20261021_131744_58504ad3"
 STEPS           = ("imp", "const", "opt")
 MODE            = "random"          # "random" (seeded Latin hypercube) | "grid"
-N_POINTS        = 4                 # random mode only
-SEED            = 20261021          # random mode only
-LABEL           = "knob sweep"
+N_POINTS        = 64                # random mode only: ≈ 4× the axes
+SEED            = 20261022          # random mode only
+LABEL           = "knob study (#108)"
+
+# Keep only the opt runs: each point's imp and const runs (≈ 0.93 GB) go to a RAM-backed
+# scratch store and are deleted once no remaining point reuses them (#108).
+KEEP_INTERMEDIATE = False
+SCRATCH_DIR       = "/dev/shm/pysuto-sweep"
 
 # Overrides set on every point. A sweep through opt passes opt.FEASIBILITY_CHECK =
 # "none" unless this or an axis sets it (#104).
 FIXED: dict = {}
 
-# Rough minutes per step run, from the 2026-10-21 logs (imp 2.7, const 1.6–4.4, opt
-# ≈ 10 of which ≈ 7 the probe a sweep point skips, plus its diag); re-measure on the
-# first sweep (its manifest timestamps).
-STEP_MINUTES = {"imp": 3.0, "const": 3.0, "opt": 5.0}
+# Rough minutes per step run, from the final reference chain's run times (imp ≈ 3,
+# const ≈ 4.5; opt's period solves 93 s once the probe is skipped, plus loading, saving
+# and its diag); re-measure on the first sweep (its manifest timestamps).
+STEP_MINUTES = {"imp": 3.0, "const": 4.5, "opt": 3.0}
 
+# collect_aggregate_impute.py's CASCADE_IDS; reversed, every pairwise precedence flips.
+CASCADE_SHIPPED  = ("trade", "network", "conc", "ore_grade", "eff")
+CASCADE_REVERSED = tuple(reversed(CASCADE_SHIPPED))
 
-# The varied knobs. A placeholder until the knob study (#108) settles them.
+# The varied knobs (#108): σ-scale knobs log-uniform over a factor 2 either side of the
+# shipped value, shape knobs uniform over a stated interval around it.
 AXES = [
-    Axis.interval(("imp.P_PROP", "const.P_PROP"), 1.1, 1.5),
+    Axis.interval(("imp.P_PROP", "const.P_PROP"), 1.1, 1.5),          # lp.py's range
+    Axis.interval("imp.Q_REG", 1.5, 4.5),
+    Axis.interval("imp.ALPHA_MIN_REG", 0.025, 0.1, log=True),
+    Axis("imp.CASCADE_ORDER", [CASCADE_SHIPPED, CASCADE_REVERSED]),
+    Axis("imp.TIME_WINDOW", [2, 3, 4]),
+    Axis.interval("imp.TIME_GAP_INFLATION", 1.0, 1.1),
+    Axis.interval("imp.STOCK_SEED_CV", 0.005, 0.02, log=True),
+    Axis.interval("imp.OUTLIER_LEG_K", 2.0, 4.0),
+    Axis.interval("imp.OUTLIER_LEG_CV", 2.5, 10.0, log=True),
+    Axis.interval("imp.LEG_SIGMA_GAMMA", 0.3, 0.7),                   # ADR 0017: 0.5, 0.7
+    Axis.interval("imp.LEG_SIGMA_CV_CAP", 0.5, 2.0, log=True),
+    # Tied: below the engine's σ_c cv floor an anchor would be inflated back up to it.
+    Axis.interval(("const.ANCHOR_CV", "const.FABRICATED_ANCHOR_CV",
+                   "const.SIGMA_C_CV_MIN"), 0.005, 0.02, log=True),
+    Axis.interval("const.NODATA_ANCHOR_CV", 0.025, 0.1, log=True),
+    Axis.interval("const.RATIO_SIGMA_REL_FLOOR", 0.01, 0.04, log=True),
+    Axis.interval("const.RATIO_SCALE_ABS_FLOOR", 50.0, 200.0, log=True),
 ]
 
 # ---------------------------------------------------------------------------
@@ -70,7 +96,8 @@ def build(base_opt_run_id: str) -> Sweep:
     pipeline = Pipeline(steps=STEPS, base=base, cwd=os.getcwd(),
                         scripts_dir=os.path.dirname(os.path.abspath(__file__)))
     kw = {"n_points": N_POINTS, "seed": SEED} if MODE == "random" else {}
-    return Sweep(pipeline, AXES, mode=MODE, fixed=FIXED, **kw)
+    return Sweep(pipeline, AXES, mode=MODE, fixed=FIXED,
+                 keep_intermediate=KEEP_INTERMEDIATE, scratch_dir=SCRATCH_DIR, **kw)
 
 
 def dry_run(sweep: Sweep) -> None:
@@ -83,10 +110,14 @@ def dry_run(sweep: Sweep) -> None:
         _log.info("  every point: %s", sweep.fixed)
     plan = sweep.plan()
     minutes = sum(STEP_MINUTES[s] * n for s, n in plan.items())
-    written = sum(STEP_GB[s] * n for s, n in plan.items())
     free = shutil.disk_usage(os.getcwd()).free / 1024 ** 3
-    _log.info("plan: %s runs ≈ %.0f min, ≈ %.1f GB written (%.1f GB with the reserve); "
-              "%.1f GB free", plan, minutes, written, sweep.disk_need_gb(), free)
+    _log.info("plan: %s runs ≈ %.0f min, ≈ %.1f GB written to data/proc (%.1f GB with the "
+              "reserve); %.1f GB free", plan, minutes, sweep.disk_need_gb() - RESERVE_GB,
+              sweep.disk_need_gb(), free)
+    if not sweep.keep_intermediate:
+        _log.info("  only %s runs are kept; the others pass through %s (≈ %.2f GB at a "
+                  "time)", sweep.pipeline.steps[-1], sweep.scratch_dir,
+                  sum(STEP_GB[s] for s in sweep.pipeline.steps[:-1]))
 
 
 def main() -> None:

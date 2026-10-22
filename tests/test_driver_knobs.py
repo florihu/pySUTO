@@ -74,6 +74,17 @@ class TestDriverKnobs:
         assert "Traceback" not in r.stderr
 
 
+@pytest.mark.parametrize("stage, flags", [("imp", ["--imp-dir"]),
+                                          ("const", ["--imp-dir", "--const-dir"]),
+                                          ("opt", ["--const-dir"])])
+def test_each_driver_takes_the_directories_a_sweep_scratch_store_needs(stage, flags):
+    """A sweep that keeps only Stage 4 points imp and const runs elsewhere (#108)."""
+    r = _run(stage, "--help")
+    assert r.returncode == 0, r.stderr[-500:]
+    for flag in flags:
+        assert flag in r.stdout
+
+
 def test_a_knob_of_the_wrong_type_fails_before_anything_is_loaded():
     r = _run("opt", "--set", "TOL_GAP_REL='x'")
     assert r.returncode != 0

@@ -243,6 +243,13 @@ with its **range**: a list of values to choose from, or an interval or distribut
 from. A grid sweep accepts lists only.
 _Avoid_: "dimension", "factor", "parameter grid".
 
+**Outcome**:
+A named scalar that compares a point's answer with the base point's: the cross-evaluated
+objective, the mass moved, or the change in retention or in the posterior total over a chosen
+set of edges. Outcomes are computed from the stored posteriors after the sweep, so a new one
+needs no rerun, and the axes are ranked per outcome.
+_Avoid_: "metric", "response", "objective" (that is the QP's J).
+
 **Flagged ambiguity — "pipeline".** Before 2026-10-21 the glossary used "pipeline" for one
 stage's **engine**; README and CLAUDE.md always meant the six stages. It now means only the
 latter.

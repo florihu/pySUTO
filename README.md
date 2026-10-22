@@ -897,7 +897,7 @@ world.to_piot().sankey("2020").write_html("copper_process_network_2020.html")
 | [registry/](src/pysuto/registry/) | `BaseOutputRegistry`, `DataFeedRegistry`, `ImputationRunRegistry`, `ConstraintRunRegistry`, `OptimRunRegistry`, `UncPropRunRegistry`, `PsutRunRegistry`, `SweepRunRegistry`, `_RegistryEntry`, `make_run_id`, `build_sidecar`, `stage_lock`, `LockHeld` | Harmonized output registries (Stages 1–6); shared run-id pattern + sidecar schema; the advisory stage lock on `data/proc` (#101). **Subpackage layout:** `base.py`, `feed.py`, `imputation.py`, `constraint.py`, `optim.py`, `uncprop.py`, `psut.py`, `sweep.py`, `lock.py`, `_sidecar.py`. |
 | [input_registry.py](src/pysuto/input_registry.py) | `InputRegistry`, `InputRegistries` | Per-kind versioned snapshot store for `feed`, `acc`, `params`, `mask` inputs; hardlink dedup; auto-bump on content-hash change. |
 | [knobs.py](src/pysuto/knobs.py) | `parse_overrides`, `apply_overrides`, `add_knob_args`, `overrides_from_cli`, `write_run_id` | The driver knob protocol: `--set KNOB=VALUE` against a driver's `KNOBS`, and `--run-id-file` (#100). |
-| [pipeline.py](src/pysuto/pipeline.py) | `Pipeline`, `Chain`, `StepFailed`, `Axis`, `Sweep`, `STEPS`, `TIED`, `STEP_GB`, `split_key` | Stage drivers composed as subprocess steps; one chain per `run(overrides, label)` with `<stage>.<KNOB>` overrides (#103); random (Latin hypercube) or grid sweeps of chains, resumable, recorded via `SweepRunRegistry` (#105). |
+| [pipeline.py](src/pysuto/pipeline.py) | `Pipeline`, `Chain`, `StepFailed`, `Axis`, `Sweep`, `STEPS`, `TIED`, `STEP_GB`, `split_key` | Stage drivers composed as subprocess steps; one chain per `run(overrides, label)` with `<stage>.<KNOB>` overrides (#103); random (Latin hypercube) or grid sweeps of chains, resumable, recorded via `SweepRunRegistry` (#105); a sweep may keep only its last step's runs, the others passing through a scratch store (#108). |
 | [utils.py](src/pysuto/utils.py) | `_NpEncoder`, io helpers | JSON serialisation, numpy-safe dump/load. |
 | [logging.py](src/pysuto/logging.py) | `get_logger`, `add_run_handler` | Structured run logging; one file per run. |
 | [config.py](src/pysuto/config.py) | `load_config`, `Config`, `PipelineConfig` | Typed loader for `config/config.yaml` (`pipeline.acc_id` only). |
@@ -1253,6 +1253,16 @@ exceed the free disk; it records the git commit and refuses to `resume` at anoth
 `scripts/sweep.py` declares a sweep in its USER CONFIGURATION block (`--dry-run`,
 `--resume <sweep_id>`).
 
+With `keep_intermediate=False` (`KEEP_INTERMEDIATE` in `scripts/sweep.py`, #108) only the
+last step's runs reach `data/proc`. The pipeline passes `--imp-dir` / `--const-dir` so each
+point's imp and const runs (≈ 0.93 GB) land in `<scratch_dir>/<sweep_id>/`, a RAM-backed
+tmpfs (`/dev/shm/pysuto-sweep`), and deletes a run as soon as no remaining point reuses
+it. A point then costs the opt run's 0.08 GB of disk, and the manifest still names its imp
+and const runs, so the point can be rebuilt from its overrides. Those opt runs cannot be
+loaded by `SolverDiag` afterwards (their const is gone); the solve renders its diag while
+the const still exists. A reboot empties the store, and `resume` reruns the dropped steps of
+the points not done.
+
 ```
 data/proc/sweep/sweep_<YYYYMMDD_HHMMSS>_<8hex>/
     metadata.json     parents.upstream = the base chain; stage_config = steps, mode,
@@ -1263,15 +1273,23 @@ data/proc/sweep/sweep_<YYYYMMDD_HHMMSS>_<8hex>/
 ```
 
 `scripts/sweep_diag.py <sweep_run_id>` scores every done point against the base chain
-(#107). Its outcomes are the cross-evaluated objective `J_base_at_point`, which is each
-point's posterior scored under the base QP by `ClarabelSolver.objective_at` and split by
-family. On `opt_20261019_171746_3272682b` against `opt_20261020_112726_2f451f31` it gives
-the 66,702 of #33. It also reports the mass moved by valuation and category, retention by
-category and year, and `J_own`. It ranks the axes per outcome: SRRC and Spearman ρ for
-numeric axes in a random sweep, the main-effect range for list axes, and the two-way
-interaction range in a full grid. Gross-mass totals are dominated by the waste-rock
-satellite, so `mass_moved_CC` is the scale-free one; `--category` promotes a category to
-outcome columns.
+(#107), reading only the base's const run and the points' opt runs. Every point gets the
+cross-evaluated objective `J_base_at_point`, which is each point's posterior scored under
+the base QP by `ClarabelSolver.objective_at` and split by family. On
+`opt_20261019_171746_3272682b` against `opt_20261020_112726_2f451f31` it gives the 66,702
+of #33. Every point also gets the mass moved by valuation, and by category with retention
+by category and year. Further **outcomes** are declared (`Outcome(name, measure, select)`,
+#108). The measure is `mass_moved`, `retention` (the change against the base) or `total`
+(the relative change of the posterior, which also sees a knob that moves prior and
+posterior together). The selector is a dict over the edge table's columns or a callable
+mask. `MaxAbs` takes the worst of several. The script declares Table S16's nine stages
+both ways, their maxima and Round-E (c)'s exporter retention. Through the same edge table
+it reproduces the #110 REP's Round-E (c) and (d) numbers for `opt_20261021_121332_acc68135`
+and `opt_20261021_131744_58504ad3` (Chile 1.0205 / 1.0222, CC mass moved 285,108 /
+256,349 kt). The axes are ranked per outcome: SRRC and Spearman ρ for numeric axes in a
+random sweep, with the rank regression's R²; the main-effect range for list axes; and the
+two-way interaction range in a full grid. Gross-mass totals are dominated by the
+waste-rock satellite, so `mass_moved_CC` is the scale-free one.
 
 ---
 

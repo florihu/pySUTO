@@ -216,9 +216,13 @@ if __name__ == "__main__":
         choices=["warm", "cold"],
         help="ClarabelSolver prior mode: 'cold' (default) or 'warm'."
     )
+    parser.add_argument("--const-dir", default=CONST_DIR,
+                        help=f"Where the constraint run is read from "
+                             f"(default {CONST_DIR}).")
 
     add_knob_args(parser)
     args = parser.parse_args()
+    CONST_DIR = args.const_dir
     overrides = overrides_from_cli(parser, args, KNOBS, globals())
     with stage_lock("run_solver"):   # registries have no locking (#101)
         write_run_id(args.run_id_file,
