@@ -16,7 +16,7 @@ with ``S(t) = G · diag(σ²_a) · Gᵀ + diag(σ²_c(t)) = L(t) · L(t)ᵀ`` an
 On the block path (``G_blocks`` present, every current run) ``S(t)`` is never
 formed: ``σ²_{a,i} · g_iᵀ S⁻¹ g_i`` is the leverage of edge i in the whitened
 system ``M = [G_t · diag(σ_a), diag(σ_c)]`` (``S = M Mᵀ``), read off a dense QR
-of ``Mᵀ`` (:meth:`KalmanUncProp._leverage`), so it lies in [0, 1]. Forming
+of ``Mᵀ`` (:meth:`KalmanUncProp._whitened_qr`), so it lies in [0, 1]. Forming
 ``S`` squares ``M``'s condition number; with σ_a spanning 1e-8 … 1e6 kt on
 copper, an LU of ``S`` put the contraction outside [0, 1] on 331 edges of 1995
 and 368 of 2016 in ``uncprop_20261014_140949_fcf53674`` (#27). Only the full-G
@@ -48,6 +48,20 @@ level anchors (:data:`SCALE_TOTAL_VARIANTS`) out of ``S(t)``: an ablation that
 measures how much of the contraction comes from the model's own Σ f_agg totals,
 whose information the prior already carries. ``a*`` is untouched.
 
+Aggregates (#81, block path, in memory only). The marginals do not give the σ
+of a total ``wᵀa*``: the constraints correlate the edges, so adding their σ_a*
+in quadrature misstates it. With ``u = diag(σ_a)·w`` on the live edges and
+``v = [u; 0]`` padded over ``Mᵀ``'s soft rows, ``var(wᵀa*) = wᵀΣ_a w −
+(GΣ_a w)ᵀ S⁻¹ (GΣ_a w) = ‖u‖² − ‖Qᵀv‖²``, read off the same QR as κ.
+``compute(..., aggregates=AggregateSpec)`` returns the K×K prior and posterior
+covariance of K such totals; the years are separate QPs, so their contributions
+add and totals of different years never covary. ``draws`` returns posterior
+deviations ``diag(σ_a)·(I − QQᵀ)ξ`` (edge part, ξ ~ N(0, I) from the caller's
+generator): they satisfy every kept hard row and pin exactly, and a smooth
+function of a* gets its delta-method σ from them by finite differences.
+``force_pinned`` / ``force_free`` override the slack rule edge by edge, for the
+degenerate bounds #99 found sitting at ``bind_tol``.
+
 See ``docs/rep/plans/stage5_uncprop_integration_plan.md`` for the full
 derivation and architectural decisions.
 
@@ -62,7 +76,7 @@ from __future__ import annotations
 import time
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Mapping, Optional
 
 import numpy as np
 import scipy.sparse as sp
@@ -135,11 +149,42 @@ class _PeriodReduction:
 
 
 @dataclass
+class AggregateSpec:
+    """K named linear totals ``wᵀa`` of the edges (#81): ``W`` is (n_edges × K),
+    one column per name, over the global edge index; a column may span years."""
+    names: list
+    W:     sp.spmatrix
+
+
+@dataclass
+class AggregateMoments:
+    """The K totals of an :class:`AggregateSpec` at ``a*``, summed over years.
+    Computed in memory; :meth:`KalmanUncProp.persist` does not store them."""
+    names:            list
+    value:            np.ndarray        # Wᵀa*
+    cov_prior:        np.ndarray        # Wᵀ·diag(σ_a²)·W, σ_a conditioned
+    cov_post:         np.ndarray        # the posterior covariance of Wᵀa*
+    sigma_quadrature: np.ndarray        # √((W∘W)ᵀσ_a*²): the edges taken as independent
+
+
+@dataclass
+class _WhitenedQR:
+    """One period's ``Mᵀ = Q R`` (:meth:`KalmanUncProp._whitened_qr`): ``Q``'s rows
+    are ``Mᵀ``'s nonzero rows in ``order``, indices into its ``n_rows`` rows (the
+    live edges, then one per soft row)."""
+    Q:      np.ndarray
+    order:  np.ndarray
+    n_rows: int
+
+
+@dataclass
 class UncPropResult:
     """Container returned by :meth:`BaseUncProp.compute`."""
     method:        str
     alpha:         float
     per_timestep:  dict[str, UncPropTimestep] = field(default_factory=dict)
+    aggregates:    Optional[AggregateMoments] = None   # #81, block path
+    draws:         dict = field(default_factory=dict)   # year → (k, n_t) posterior deviations
 
 
 # =============================================================================
@@ -184,7 +229,7 @@ class KalmanUncProp(BaseUncProp):
          ``psd_min_diag``.
 
     The block path replaces steps 2–5 by ``σ²_{a*} = σ²_a · (1 − κ)``, with the
-    contraction ``κ`` read off a QR of the whitened system (:meth:`_leverage`).
+    contraction ``κ`` read off a QR of the whitened system (:meth:`_whitened_qr`).
 
     σ_a is conditioned with the same rules the solver used (shared
     helper in :mod:`pysuto._conditioning`). σ_c on hard rows is forced
@@ -228,9 +273,29 @@ class KalmanUncProp(BaseUncProp):
     # Public API
     # ------------------------------------------------------------------
 
-    def compute(self, opt_run_id: str, alpha: float = 0.05) -> UncPropResult:
+    def compute(
+        self,
+        opt_run_id:   str,
+        alpha:        float = 0.05,
+        *,
+        aggregates:   Optional[AggregateSpec] = None,
+        draws:        Optional[Mapping[str, int]] = None,
+        rng:          Optional[np.random.Generator] = None,
+        force_pinned: Optional[np.ndarray] = None,
+        force_free:   Optional[np.ndarray] = None,
+    ) -> UncPropResult:
+        """Posterior σ and interval of every edge × year (block path: at the QP's
+        active set).
+
+        Block path only (#81): ``aggregates`` adds the covariance of K linear
+        totals (:class:`AggregateMoments`); ``draws`` maps a year to a number of
+        posterior deviation draws over its ``cols_t``, taken with ``rng``;
+        ``force_pinned`` / ``force_free`` are boolean masks over every edge that
+        pin, or free, an edge whatever its lower bound's slack."""
         if not (0.0 < alpha < 1.0):
             raise ValueError(f"alpha must be in (0, 1); got {alpha}")
+        if draws and rng is None:
+            raise ValueError("draws need a generator: pass rng=np.random.default_rng(seed)")
 
         # 1) Cross-stage hop: opt → const via opt's sidecar.
         opt_sidecar = self._opt_registry.load_sidecar(opt_run_id)
@@ -249,8 +314,34 @@ class KalmanUncProp(BaseUncProp):
         const_run   = self._const_registry.load(const_run_id)
         warn_if_prefix_block_run(opt_results, const_run)
 
+        n_edges = const_run.G.shape[1]
+        if aggregates is not None and aggregates.W.shape != (n_edges, len(aggregates.names)):
+            raise ValueError(
+                f"aggregates.W is {aggregates.W.shape}; it needs one row per edge and one "
+                f"column per name: ({n_edges}, {len(aggregates.names)})"
+            )
+        for name, mask in (("force_pinned", force_pinned), ("force_free", force_free)):
+            if mask is not None and (np.shape(mask) != (n_edges,)
+                                     or np.asarray(mask).dtype != bool):
+                raise ValueError(f"{name} is {np.asarray(mask).dtype} of shape {np.shape(mask)};"
+                                 f" it needs a boolean entry per edge: ({n_edges},)")
+        if force_pinned is not None and force_free is not None and (force_pinned
+                                                                     & force_free).any():
+            raise ValueError(f"{int((force_pinned & force_free).sum())} edges are both "
+                             "force_pinned and force_free")
+        unknown = sorted(set(draws or {}) - set(opt_results))
+        if unknown:
+            raise ValueError(f"draws name year(s) {unknown} that opt run {opt_run_id} lacks")
+
         if const_run.G_blocks:
-            return self._compute_via_blocks(const_run, opt_results, alpha)
+            return self._compute_via_blocks(
+                const_run, opt_results, alpha, aggregates=aggregates, draws=draws or {},
+                rng=rng, force_pinned=force_pinned, force_free=force_free,
+            )
+        if (aggregates is not None or draws or force_pinned is not None
+                or force_free is not None):
+            raise ValueError("aggregates, draws and the force masks need the block path (a "
+                             "ConstraintRun with G_blocks); the full-G path has no active set")
         if self.exclude_scale_totals:
             raise ValueError("exclude_scale_totals needs the block path (a ConstraintRun "
                              "with G_blocks); the full-G path has no active set")
@@ -265,7 +356,6 @@ class KalmanUncProp(BaseUncProp):
         sigma_a2 = sigma_a ** 2
 
         G = const_run.G.tocsc()
-        n_edges = G.shape[1]
         hard_mask = const_run.row_meta["is_hard"].to_numpy().astype(bool)
         if (hard_mask & (const_run.row_meta["cone_type"].to_numpy() == "nonneg")).any():
             logger.warning(
@@ -341,8 +431,14 @@ class KalmanUncProp(BaseUncProp):
     def _compute_via_blocks(
         self,
         const_run,
-        opt_results: dict,
-        alpha:       float,
+        opt_results:  dict,
+        alpha:        float,
+        *,
+        aggregates:   Optional[AggregateSpec] = None,
+        draws:        Optional[Mapping[str, int]] = None,
+        rng:          Optional[np.random.Generator] = None,
+        force_pinned: Optional[np.ndarray] = None,
+        force_free:   Optional[np.ndarray] = None,
     ) -> UncPropResult:
         """Per-t posterior using ``run.G_blocks[t]`` — replaces the ``(M × M)``
         global ``S`` with one year's rows per timestep. Mathematically identical: the
@@ -355,8 +451,8 @@ class KalmanUncProp(BaseUncProp):
 
         Each period is first reduced to the QP's active set at ``a*(t)``
         (:meth:`_reduce_at_active_set`, #27), so the whitened system of
-        :meth:`_leverage` holds the kept rows and the live (not bound-pinned)
-        edges only."""
+        :meth:`_whitened_qr` holds the kept rows and the live (not bound-pinned)
+        edges only. Aggregates and draws (#81) are read off the same QR."""
         _, sigma_a = condition_prior(
             const_run.a0, const_run.sigma_a,
             floor_abs      = self.sigma_a_floor_abs,
@@ -375,6 +471,14 @@ class KalmanUncProp(BaseUncProp):
         row_time      = rm["time"].astype(str).to_numpy()
 
         z = float(norm.ppf(1.0 - alpha / 2.0))
+
+        if aggregates is not None:
+            W   = sp.csr_matrix(aggregates.W, dtype=np.float64)
+            K   = W.shape[1]
+            agg = {"value": np.zeros(K), "cov_prior": np.zeros((K, K)),
+                   "cov_post": np.zeros((K, K)), "quad2": np.zeros(K)}
+        draws = draws or {}
+        out_draws: dict[str, np.ndarray] = {}
 
         per_timestep: dict[str, UncPropTimestep] = {}
         for t_label, opt_t in opt_results.items():
@@ -399,20 +503,44 @@ class KalmanUncProp(BaseUncProp):
             red = self._reduce_at_active_set(
                 G_t, c_t, sigma_a2_t, hm_t, cone[rows_t], lower_bound[rows_t],
                 np.asarray(opt_t.residuals, dtype=float), left_out=left_out[rows_t],
+                force_pinned=None if force_pinned is None else force_pinned[cols_t],
+                force_free=None if force_free is None else force_free[cols_t],
             )
             sigma_a2_eff_t = np.where(red.bound_active, 0.0, sigma_a2_t)
             live = np.flatnonzero(sigma_a2_eff_t > 0.0)
             G_k  = G_t[red.keep]
+            sigma_live = np.sqrt(sigma_a2_eff_t[live])
 
             kappa_t = np.zeros(cols_t.size, dtype=np.float64)
+            qr_t = None
             if G_k.shape[0] and live.size:
-                kappa_t[live] = self._leverage(G_k[:, live],
-                                               np.sqrt(sigma_a2_eff_t[live]),
-                                               sc_t[red.keep])
+                qr_t = self._whitened_qr(G_k[:, live], sigma_live, sc_t[red.keep])
+                kappa_t[live] = self._leverage(qr_t)[:live.size]
 
             var_post_t = sigma_a2_eff_t * (1.0 - kappa_t)
             np.clip(var_post_t, 0.0, None, out=var_post_t)
             sigma_a_star_t = np.sqrt(var_post_t)
+
+            if aggregates is not None:
+                W_t = W[cols_t]
+                nz  = np.unique(W_t.indices)              # the totals this year touches
+                W_t = W_t[:, nz].toarray()
+                U   = sigma_live[:, None] * W_t[live]
+                P   = self._project(qr_t, U)
+                blk = np.ix_(nz, nz)
+                agg["value"][nz]     += W_t.T @ np.asarray(opt_t.F_opt, dtype=float)
+                agg["cov_prior"][blk] += W_t.T @ (sigma_a2_t[:, None] * W_t)
+                agg["cov_post"][blk]  += U.T @ U - P.T @ P
+                agg["quad2"][nz]      += (W_t ** 2).T @ var_post_t
+            if t_label in draws:
+                n_rows = live.size if qr_t is None else qr_t.n_rows
+                xi = rng.standard_normal((n_rows, int(draws[t_label])))
+                if qr_t is not None:
+                    Q, order = qr_t.Q, qr_t.order
+                    xi[order] -= Q @ (Q.T @ xi[order])      # (I − QQᵀ)ξ
+                d_t = np.zeros((xi.shape[1], cols_t.size))
+                d_t[:, live] = (sigma_live[:, None] * xi[:live.size]).T
+                out_draws[t_label] = d_t
 
             # Year-local output (REP §8.2): store only this period's cols_t
             # posterior. F_opt is already the year-local slice from the solver.
@@ -470,10 +598,21 @@ class KalmanUncProp(BaseUncProp):
                 red.counts["n_bound_active"], red.counts["n_hard_dependent"],
             )
 
+        moments = None
+        if aggregates is not None:
+            moments = AggregateMoments(
+                names            = list(aggregates.names),
+                value            = agg["value"],
+                cov_prior        = agg["cov_prior"],
+                cov_post         = agg["cov_post"],
+                sigma_quadrature = np.sqrt(agg["quad2"]),
+            )
         return UncPropResult(
             method       = self.METHOD,
             alpha        = float(alpha),
             per_timestep = per_timestep,
+            aggregates   = moments,
+            draws        = out_draws,
         )
 
     # ------------------------------------------------------------------
@@ -539,6 +678,8 @@ class KalmanUncProp(BaseUncProp):
         lower_bound: np.ndarray,
         resid:       np.ndarray,
         left_out:    np.ndarray,
+        force_pinned: Optional[np.ndarray] = None,
+        force_free:   Optional[np.ndarray] = None,
     ) -> _PeriodReduction:
         """Reduce one period at the QP's active set at ``a*``.
 
@@ -547,7 +688,9 @@ class KalmanUncProp(BaseUncProp):
         binding lower bound adds no row: it pins its edge (σ_a² → 0, σ_a* = 0).
         Rows flagged in ``left_out`` (the scale-total ablation; all ``False``
         otherwise) are dropped too; ``n_scale_totals_left_out`` counts those that
-        would have been kept.
+        would have been kept. ``force_pinned`` / ``force_free`` (per column, #81)
+        pin or free an edge whatever its bound's slack; ``n_forced_pinned`` /
+        ``n_forced_free`` count the edges they move.
         """
         G_t     = G_t.tocsr()
         nonneg  = hard & (cone == "nonneg")
@@ -556,6 +699,13 @@ class KalmanUncProp(BaseUncProp):
         lower = self._lower_bound_values(G_t, c_t, lower_bound)
         bound_active = np.zeros(G_t.shape[1], dtype=bool)
         bound_active[G_t[np.flatnonzero(binding & lower_bound)].tocoo().col] = True
+        n_pinned = n_freed = 0
+        if force_pinned is not None:
+            n_pinned = int((force_pinned & ~bound_active).sum())
+            bound_active |= force_pinned
+        if force_free is not None:
+            n_freed = int((force_free & bound_active).sum())
+            bound_active &= ~force_free
         live = ~bound_active & (sigma_a2_t > 0.0)
 
         keep = (hard & (cone == "zero")) | ~hard | (binding & ~lower_bound)
@@ -575,6 +725,8 @@ class KalmanUncProp(BaseUncProp):
                 "n_hard_dependent":        int(dependent.size),
                 "n_rows_kept":             int(keep.sum()),
                 "n_scale_totals_left_out": n_left_out,
+                "n_forced_pinned":         n_pinned,
+                "n_forced_free":           n_freed,
             },
         )
 
@@ -601,17 +753,18 @@ class KalmanUncProp(BaseUncProp):
         return np.sort(hard_rows[piv[rank:] - 1])
 
     @staticmethod
-    def _leverage(G_k: sp.csr_matrix, sigma_a: np.ndarray,
-                  sigma_c: np.ndarray) -> np.ndarray:
-        """``κ_i = σ²_{a,i} · g_iᵀ S⁻¹ g_i`` for every column ``g_i`` of ``G_k``.
+    def _whitened_qr(G_k: sp.csr_matrix, sigma_a: np.ndarray,
+                     sigma_c: np.ndarray) -> _WhitenedQR:
+        """The QR of the whitened system ``Mᵀ = Q R``, with
+        ``M = [G_k · diag(σ_a), diag(σ_c)]`` so that ``S = M Mᵀ``.
 
-        With ``M = [G_k · diag(σ_a), diag(σ_c)]``, ``S = M Mᵀ`` and ``κ_i`` is the
-        i-th diagonal of the projector onto ``M``'s row space: the squared norm
-        of row i of ``Q`` in ``Mᵀ = Q R``. Householder QR of ``Mᵀ`` with its rows
-        sorted by decreasing norm keeps ``κ`` in [0, 1] to rounding; an LU of
-        ``S`` does not, because forming ``S`` squares ``M``'s condition number
-        (#27). Hard rows (σ_c = 0) add no row to ``Mᵀ``, and edges in no kept
-        row get κ = 0 without entering the QR.
+        ``Mᵀ``'s ``n_rows`` rows are the n columns of ``G_k`` followed by one row
+        per soft constraint row (σ_c > 0; hard rows add none). Householder QR of
+        its nonzero rows sorted by decreasing norm (``order``, indices into those
+        ``n_rows``) keeps the projector ``QQᵀ`` onto ``M``'s row space exact to
+        rounding; an LU of ``S`` does not, because forming ``S`` squares ``M``'s
+        condition number (#27). Rows of edges in no kept row are left out of
+        ``order``: their projector rows are zero.
         """
         m, n = G_k.shape
         soft = np.flatnonzero(sigma_c > 0.0)
@@ -626,13 +779,31 @@ class KalmanUncProp(BaseUncProp):
         if order.size < m:
             # A full-row-rank M has ≥ m nonzero rows; an economic Q of a wide
             # Mᵀ is square and would report κ = 1 on every edge.
-            raise ValueError(f"_leverage: Mᵀ has {order.size} nonzero rows for {m} "
+            raise ValueError(f"_whitened_qr: Mᵀ has {order.size} nonzero rows for {m} "
                              f"kept constraint rows — the kept rows are dependent")
         Q, _ = qr(Mt[order].toarray(order="F"), mode="economic", overwrite_a=True,
                   check_finite=False)
-        lev = np.zeros(n + soft.size, dtype=np.float64)
-        lev[order] = np.einsum("ij,ij->i", Q, Q)
-        return lev[:n]
+        return _WhitenedQR(Q=Q, order=order, n_rows=n + soft.size)
+
+    @staticmethod
+    def _leverage(qr_t: _WhitenedQR) -> np.ndarray:
+        """The projector's diagonal over ``Mᵀ``'s rows; on the first n (the
+        columns of ``G_k``) it is ``κ_i = σ²_{a,i} · g_iᵀ S⁻¹ g_i``, in [0, 1]."""
+        lev = np.zeros(qr_t.n_rows, dtype=np.float64)
+        lev[qr_t.order] = np.einsum("ij,ij->i", qr_t.Q, qr_t.Q)
+        return lev
+
+    @staticmethod
+    def _project(qr_t: Optional[_WhitenedQR], U: np.ndarray) -> np.ndarray:
+        """``Qᵀv`` for each column ``u`` of ``U`` (n × K, over ``G_k``'s columns),
+        padded to ``v = [u; 0]`` over the soft rows: ``‖Qᵀv‖² = (GΣw)ᵀS⁻¹(GΣw)``
+        for ``u = diag(σ_a)·w``. No QR (no kept row) projects to nothing."""
+        if qr_t is None:
+            return np.zeros((0, U.shape[1]))
+        V = np.zeros((qr_t.order.size, U.shape[1]))
+        on_edge = qr_t.order < U.shape[0]
+        V[on_edge] = U[qr_t.order[on_edge]]
+        return qr_t.Q.T @ V
 
     def persist(
         self,

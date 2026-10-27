@@ -673,6 +673,12 @@ own prior is zero by construction); `R > 1` means σ is too small by about `√R
 **Birge-scaled interval** `a* ± z_α·√R·σ_a*` is quoted beside the stored `[lower, upper]`.
 _Avoid_: "reduced χ²", "goodness of fit".
 
+**Aggregate σ** — the posterior σ of a linear total `wᵀa*` (a node total, a stage's Σa*, a
+region's output), including the covariance the constraints induce between its edges. The
+**quadrature σ** `√Σ wᵢ²σ_a*,ᵢ²` treats the edges as independent and misstates a constrained
+total: a mass balance makes a node's total better known than its split. _Avoid_: summing edge
+intervals.
+
 ## Stock-change vocabulary
 
 **Stock-change leg** — one of the three signed edges of the account: `Cathode→USC`,
