@@ -1066,3 +1066,17 @@ class TestAggregates:
         monkeypatch.setattr(prop._const_registry, "load", lambda _rid: cr)
         with pytest.raises(ValueError, match="block path"):
             prop.compute("opt_fake", aggregates=_agg_spec(np.eye(2), ["a", "b"]))
+
+    def test_draws_must_name_a_year_of_the_run(self, tmp_path, monkeypatch):
+        with pytest.raises(ValueError, match="lacks"):
+            _one_year_result(_FOUR_EDGE_ROWS, _FOUR_EDGE_SIGMA_A2, [5, 3, 2, 4], monkeypatch,
+                             tmp_path, draws={"2021": 10}, rng=np.random.default_rng(81))
+
+    def test_force_masks_are_boolean_and_disjoint(self, tmp_path, monkeypatch):
+        mask = np.array([False, True, False, False])
+        with pytest.raises(ValueError, match="both"):
+            _one_year_result(_FOUR_EDGE_ROWS, _FOUR_EDGE_SIGMA_A2, [5, 3, 2, 4], monkeypatch,
+                             tmp_path, force_pinned=mask, force_free=mask)
+        with pytest.raises(ValueError, match="boolean"):
+            _one_year_result(_FOUR_EDGE_ROWS, _FOUR_EDGE_SIGMA_A2, [5, 3, 2, 4], monkeypatch,
+                             tmp_path, force_pinned=mask.astype(int))

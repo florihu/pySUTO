@@ -16,7 +16,7 @@ with ``S(t) = G · diag(σ²_a) · Gᵀ + diag(σ²_c(t)) = L(t) · L(t)ᵀ`` an
 On the block path (``G_blocks`` present, every current run) ``S(t)`` is never
 formed: ``σ²_{a,i} · g_iᵀ S⁻¹ g_i`` is the leverage of edge i in the whitened
 system ``M = [G_t · diag(σ_a), diag(σ_c)]`` (``S = M Mᵀ``), read off a dense QR
-of ``Mᵀ`` (:meth:`KalmanUncProp._leverage`), so it lies in [0, 1]. Forming
+of ``Mᵀ`` (:meth:`KalmanUncProp._whitened_qr`), so it lies in [0, 1]. Forming
 ``S`` squares ``M``'s condition number; with σ_a spanning 1e-8 … 1e6 kt on
 copper, an LU of ``S`` put the contraction outside [0, 1] on 331 edges of 1995
 and 368 of 2016 in ``uncprop_20261014_140949_fcf53674`` (#27). Only the full-G
@@ -168,6 +168,16 @@ class AggregateMoments:
 
 
 @dataclass
+class _WhitenedQR:
+    """One period's ``Mᵀ = Q R`` (:meth:`KalmanUncProp._whitened_qr`): ``Q``'s rows
+    are ``Mᵀ``'s nonzero rows in ``order``, indices into its ``n_rows`` rows (the
+    live edges, then one per soft row)."""
+    Q:      np.ndarray
+    order:  np.ndarray
+    n_rows: int
+
+
+@dataclass
 class UncPropResult:
     """Container returned by :meth:`BaseUncProp.compute`."""
     method:        str
@@ -219,7 +229,7 @@ class KalmanUncProp(BaseUncProp):
          ``psd_min_diag``.
 
     The block path replaces steps 2–5 by ``σ²_{a*} = σ²_a · (1 − κ)``, with the
-    contraction ``κ`` read off a QR of the whitened system (:meth:`_leverage`).
+    contraction ``κ`` read off a QR of the whitened system (:meth:`_whitened_qr`).
 
     σ_a is conditioned with the same rules the solver used (shared
     helper in :mod:`pysuto._conditioning`). σ_c on hard rows is forced
@@ -311,9 +321,17 @@ class KalmanUncProp(BaseUncProp):
                 f"column per name: ({n_edges}, {len(aggregates.names)})"
             )
         for name, mask in (("force_pinned", force_pinned), ("force_free", force_free)):
-            if mask is not None and np.shape(mask) != (n_edges,):
-                raise ValueError(f"{name} has shape {np.shape(mask)}; it needs one entry per "
-                                 f"edge: ({n_edges},)")
+            if mask is not None and (np.shape(mask) != (n_edges,)
+                                     or np.asarray(mask).dtype != bool):
+                raise ValueError(f"{name} is {np.asarray(mask).dtype} of shape {np.shape(mask)};"
+                                 f" it needs a boolean entry per edge: ({n_edges},)")
+        if force_pinned is not None and force_free is not None and (force_pinned
+                                                                     & force_free).any():
+            raise ValueError(f"{int((force_pinned & force_free).sum())} edges are both "
+                             "force_pinned and force_free")
+        unknown = sorted(set(draws or {}) - set(opt_results))
+        if unknown:
+            raise ValueError(f"draws name year(s) {unknown} that opt run {opt_run_id} lacks")
 
         if const_run.G_blocks:
             return self._compute_via_blocks(
@@ -497,7 +515,7 @@ class KalmanUncProp(BaseUncProp):
             qr_t = None
             if G_k.shape[0] and live.size:
                 qr_t = self._whitened_qr(G_k[:, live], sigma_live, sc_t[red.keep])
-                kappa_t[live] = self._leverage(*qr_t)[:live.size]
+                kappa_t[live] = self._leverage(qr_t)[:live.size]
 
             var_post_t = sigma_a2_eff_t * (1.0 - kappa_t)
             np.clip(var_post_t, 0.0, None, out=var_post_t)
@@ -515,9 +533,10 @@ class KalmanUncProp(BaseUncProp):
                 agg["cov_post"][blk]  += U.T @ U - P.T @ P
                 agg["quad2"][nz]      += (W_t ** 2).T @ var_post_t
             if t_label in draws:
-                xi = rng.standard_normal((self._n_rows(qr_t, live.size), int(draws[t_label])))
+                n_rows = live.size if qr_t is None else qr_t.n_rows
+                xi = rng.standard_normal((n_rows, int(draws[t_label])))
                 if qr_t is not None:
-                    Q, order, _ = qr_t
+                    Q, order = qr_t.Q, qr_t.order
                     xi[order] -= Q @ (Q.T @ xi[order])      # (I − QQᵀ)ξ
                 d_t = np.zeros((xi.shape[1], cols_t.size))
                 d_t[:, live] = (sigma_live[:, None] * xi[:live.size]).T
@@ -735,8 +754,8 @@ class KalmanUncProp(BaseUncProp):
 
     @staticmethod
     def _whitened_qr(G_k: sp.csr_matrix, sigma_a: np.ndarray,
-                     sigma_c: np.ndarray) -> tuple:
-        """``(Q, order, n_rows)`` of the whitened system ``Mᵀ = Q R``, with
+                     sigma_c: np.ndarray) -> _WhitenedQR:
+        """The QR of the whitened system ``Mᵀ = Q R``, with
         ``M = [G_k · diag(σ_a), diag(σ_c)]`` so that ``S = M Mᵀ``.
 
         ``Mᵀ``'s ``n_rows`` rows are the n columns of ``G_k`` followed by one row
@@ -760,37 +779,31 @@ class KalmanUncProp(BaseUncProp):
         if order.size < m:
             # A full-row-rank M has ≥ m nonzero rows; an economic Q of a wide
             # Mᵀ is square and would report κ = 1 on every edge.
-            raise ValueError(f"_leverage: Mᵀ has {order.size} nonzero rows for {m} "
+            raise ValueError(f"_whitened_qr: Mᵀ has {order.size} nonzero rows for {m} "
                              f"kept constraint rows — the kept rows are dependent")
         Q, _ = qr(Mt[order].toarray(order="F"), mode="economic", overwrite_a=True,
                   check_finite=False)
-        return Q, order, n + soft.size
+        return _WhitenedQR(Q=Q, order=order, n_rows=n + soft.size)
 
     @staticmethod
-    def _leverage(Q: np.ndarray, order: np.ndarray, n_rows: int) -> np.ndarray:
+    def _leverage(qr_t: _WhitenedQR) -> np.ndarray:
         """The projector's diagonal over ``Mᵀ``'s rows; on the first n (the
         columns of ``G_k``) it is ``κ_i = σ²_{a,i} · g_iᵀ S⁻¹ g_i``, in [0, 1]."""
-        lev = np.zeros(n_rows, dtype=np.float64)
-        lev[order] = np.einsum("ij,ij->i", Q, Q)
+        lev = np.zeros(qr_t.n_rows, dtype=np.float64)
+        lev[qr_t.order] = np.einsum("ij,ij->i", qr_t.Q, qr_t.Q)
         return lev
 
     @staticmethod
-    def _project(qr_t: Optional[tuple], U: np.ndarray) -> np.ndarray:
+    def _project(qr_t: Optional[_WhitenedQR], U: np.ndarray) -> np.ndarray:
         """``Qᵀv`` for each column ``u`` of ``U`` (n × K, over ``G_k``'s columns),
         padded to ``v = [u; 0]`` over the soft rows: ``‖Qᵀv‖² = (GΣw)ᵀS⁻¹(GΣw)``
         for ``u = diag(σ_a)·w``. No QR (no kept row) projects to nothing."""
         if qr_t is None:
             return np.zeros((0, U.shape[1]))
-        Q, order, _ = qr_t
-        V = np.zeros((order.size, U.shape[1]))
-        on_edge = order < U.shape[0]
-        V[on_edge] = U[order[on_edge]]
-        return Q.T @ V
-
-    @staticmethod
-    def _n_rows(qr_t: Optional[tuple], n_live: int) -> int:
-        """Length of ``Mᵀ``'s row space: the live edges plus the soft rows."""
-        return n_live if qr_t is None else qr_t[2]
+        V = np.zeros((qr_t.order.size, U.shape[1]))
+        on_edge = qr_t.order < U.shape[0]
+        V[on_edge] = U[qr_t.order[on_edge]]
+        return qr_t.Q.T @ V
 
     def persist(
         self,

@@ -1,5 +1,7 @@
 """Table 3's intervals (#81): the delta method on the aggregates' covariance, the
 finite-difference σ from posterior draws, the aggregate weights and #99's family."""
+from __future__ import annotations
+
 import os
 import sys
 from types import SimpleNamespace
@@ -8,6 +10,7 @@ import numpy as np
 import pandas as pd
 import pytest
 import scipy.sparse as sp
+from scipy.stats import norm
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts", "report"))
 import table3_intervals as T  # noqa: E402
@@ -76,23 +79,26 @@ def test_evaluate_scales_by_birge_and_adds_quadrature_on_linear_rows_only():
     assert out.loc["sum", "sigma"] == pytest.approx(s_sum, rel=1e-8)
     assert out.loc["sum", "sigma_birge"] == pytest.approx(2.0 * s_sum, rel=1e-8)
     assert out.loc["sum", "hi_birge"] - out.loc["sum", "value"] == pytest.approx(
-        1.959964 * 2.0 * s_sum, rel=1e-5)
+        norm.ppf(0.975) * 2.0 * s_sum, rel=1e-6)
     assert out.loc["sum", "sigma_quadrature"] == pytest.approx(np.hypot(2.5, 3.5) / 10.0)
     assert np.isnan(out.loc["ratio", "sigma_quadrature"])
 
 
-def test_the_degenerate_family_is_cross_region_cathode_use_at_a_zero_prior_with_a_bound():
+def test_the_degenerate_family_is_cross_region_cathode_use_in_the_fringe_of_its_bound():
+    """Edge 0 qualifies; 1 has no bound row, 2 is domestic, 3 has a prior, 4 is
+    another stage, 5 sits 1e-3 kt above its bound: real slack, not the fringe."""
     edges = pd.DataFrame({
-        "edge_id":     [0, 1, 2, 3, 4],
-        "sector_from": ["Cathode", "Cathode", "Cathode", "Cathode", "CP"],
-        "sector_to":   ["FU", "FU", "FU", "FU", "Cathode"],
-        "region_from": ["Chile", "Chile", "Chile", "China", "Chile"],
-        "region_to":   ["China", "China", "Chile", "Japan", "Chile"],
-        "prior":       [0.0, 0.0, 0.0, 5.0, 0.0],
+        "edge_id":     [0, 1, 2, 3, 4, 5],
+        "sector_from": ["Cathode", "Cathode", "Cathode", "Cathode", "CP", "Cathode"],
+        "sector_to":   ["FU", "FU", "FU", "FU", "Cathode", "FU"],
+        "region_from": ["Chile", "Chile", "Chile", "China", "Chile", "Chile"],
+        "region_to":   ["China", "China", "Chile", "Japan", "Chile", "Japan"],
+        "prior":       [0.0, 0.0, 0.0, 5.0, 0.0, 0.0],
+        "post":        [1.4e-6, 0.0, 0.0, 5.0, 0.0, 1e-3],
     })
-    # lower-bound rows on edges 0, 2, 3, 4; edge 1 has none
-    G = sp.csr_matrix((-np.ones(4), ([0, 1, 2, 3], [0, 2, 3, 4])), shape=(5, 5))
-    rm = pd.DataFrame({"type": ["bound"] * 4 + ["massbal"],
-                       "variant": ["lower"] * 4 + ["massbal"]})
-    fam = T.degenerate_family(edges, SimpleNamespace(row_meta=rm, G=G), n_edges=5)
-    np.testing.assert_array_equal(fam, [True, False, False, False, False])
+    # lower-bound rows on every edge but 1
+    G = sp.csr_matrix((-np.ones(5), ([0, 1, 2, 3, 4], [0, 2, 3, 4, 5])), shape=(6, 6))
+    rm = pd.DataFrame({"type": ["bound"] * 5 + ["massbal"],
+                       "variant": ["lower"] * 5 + ["massbal"]})
+    fam = T.degenerate_family(edges, SimpleNamespace(row_meta=rm, G=G), n_edges=6)
+    np.testing.assert_array_equal(fam, [True, False, False, False, False, False])

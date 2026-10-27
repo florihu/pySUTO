@@ -674,10 +674,10 @@ own prior is zero by construction); `R > 1` means σ is too small by about `√R
 _Avoid_: "reduced χ²", "goodness of fit".
 
 **Aggregate σ** — the posterior σ of a linear total `wᵀa*` (a node total, a stage's Σa*, a
-region's output), from the posterior covariance the constraints induce between its edges;
-ratios and indices of totals take it by the delta method (#81). The **quadrature σ**
-`√Σ wᵢ²σ_a*,ᵢ²` treats the edges as independent and misstates a constrained total: a mass balance
-makes a node's total better known than its split. _Avoid_: summing edge intervals.
+region's output), including the covariance the constraints induce between its edges. The
+**quadrature σ** `√Σ wᵢ²σ_a*,ᵢ²` treats the edges as independent and misstates a constrained
+total: a mass balance makes a node's total better known than its split. _Avoid_: summing edge
+intervals.
 
 ## Stock-change vocabulary
 
