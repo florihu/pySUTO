@@ -1,21 +1,21 @@
 """
 make_logo.py
 ============
-The pySUTO wordmark: ``pySUTO`` as pixel letters, coloured like oxidised copper,
-written as one SVG and one transparent PNG from the same cell grid.
+The pySUTO logo: a lavender pixel forest spirit on the left, ``pySUTO`` in
+pastel-green pixel letters on the right, written as one SVG and one transparent PNG
+from the same cell grid.
 
     python scripts/report/make_logo.py [--out figs/logo]
 
 The letters are original glyphs on a 72 x 21 cell grid, drawn in the manner of
 pixel wordmarks (three-cell strokes, one-cell bevels on the curved letters, the
-``p`` and ``y`` hanging below the baseline). Every filled cell takes one shade of
-verdigris from a smooth seeded noise field; a second field exposes patches of bare
-copper and darkens the verdigris cells around them (cuprite rim). The seed is fixed,
-so re-running the script reproduces the same pixels; the knobs that set the look
-live in the USER CONFIGURATION block.
+``p`` and ``y`` hanging below the baseline). The spirit is an original 29 x 26
+sprite (round ears, round eyes, a plain belly, a leaf sprout in the letters' green)
+whose feet sit on the capitals' baseline. Every colour is flat; the colours live in
+the USER CONFIGURATION block.
 
-Writes ``pysuto-wordmark.svg`` (one rect per horizontal run of equal colour,
-``shape-rendering="crispEdges"``) and ``pysuto-wordmark.png`` (``PX_PER_CELL``
+Writes ``pysuto-logo.svg`` (one rect per horizontal run of equal colour,
+``shape-rendering="crispEdges"``) and ``pysuto-logo.png`` (``PX_PER_CELL``
 pixels per cell, RGBA, transparent background) to ``--out``.
 """
 from __future__ import annotations
@@ -29,13 +29,17 @@ from PIL import Image
 # =============================================================================
 # USER CONFIGURATION
 # =============================================================================
-SEED          = 7
-VERDIGRIS     = ["#1f6f62", "#2a8c7a", "#3a9f8e", "#4fb5a2", "#6cc4b0"]  # dark -> light
-COPPER        = ["#5a3620", "#9a5a2b", "#b87333", "#d08a4a"]             # cuprite -> bright
-COPPER_ABOVE  = 0.80     # share of the copper field above which a cell is bare copper
-RIM_PROB      = 0.5      # probability that a verdigris cell touching copper darkens
-SVG_CELL      = 10       # SVG user units per cell
-PX_PER_CELL   = 28       # PNG pixels per cell (72 cells -> 2016 px wide)
+GREEN         = "#8fd1a6"   # pastel green: the letters and the leaf
+MASCOT        = {
+    "b": "#b9a7e3",         # lavender body
+    "l": "#f2eefb",         # belly
+    "e": "#ffffff",         # eye whites
+    "k": "#3b3252",         # pupils and nose
+    "g": GREEN,             # leaf sprout
+}
+MASCOT_GAP    = 6           # empty cells between the spirit and the ``p``
+SVG_CELL      = 10          # SVG user units per cell
+PX_PER_CELL   = 28          # PNG pixels per cell (107 cells -> 2996 px wide)
 
 # =============================================================================
 # GLYPHS: '#' filled, '.' empty. Caps occupy rows 0-16; lowercase rows 5-20.
@@ -158,6 +162,39 @@ WORD       = "pySUTO"
 ROWS       = 21
 LOWER_ROW0 = 5
 GAP        = 2
+BASELINE   = 16             # last row of the capitals
+
+# =============================================================================
+# MASCOT: one character per cell, '.' empty, colours in MASCOT.
+# =============================================================================
+SPIRIT = [
+    "...............ggg...........",
+    ".....bbb......ggg....bbb.....",
+    "....bbbbb.....g.....bbbbb....",
+    "....bbbbbb....g....bbbbbb....",
+    ".....bbbbbbbbbbbbbbbbbbb.....",
+    "....bbbbbbbbbbbbbbbbbbbbb....",
+    "....bbbeebbbbkkkbbbbeebbb....",
+    "...bbbekkebbbbbbbbbekkebbb...",
+    "...bbbekkebbbbbbbbbekkebbb...",
+    "...bbbbeebbbbbbbbbbbeebbbb...",
+    "...bbbbbbbbbbbbbbbbbbbbbbb...",
+    "...bbbbbbbbbbbbbbbbbbbbbbb...",
+    "..bbbbbbbbbbbbbbbbbbbbbbbbb..",
+    "..bbbbbbblllllllllllbbbbbbb..",
+    "..bbbbblllllllllllllllbbbbb..",
+    ".bbbbblllllllllllllllllbbbbb.",
+    ".bbbblllllllllllllllllllbbbb.",
+    ".bbbblllllllllllllllllllbbbb.",
+    ".bbblllllllllllllllllllllbbb.",
+    ".bbblllllllllllllllllllllbbb.",
+    ".bbblllllllllllllllllllllbbb.",
+    ".bbblllllllllllllllllllllbbb.",
+    "..bbblllllllllllllllllllbbb..",
+    "..bbbblllllllllllllllllbbbb..",
+    "...bbbbblllllllllllllbbbbb...",
+    "....bbbbbbb.......bbbbbbb....",
+]
 
 
 # =============================================================================
@@ -183,43 +220,24 @@ def compose(word: str) -> np.ndarray:
     return np.concatenate(blocks[:-1], axis=1)
 
 
-def value_noise(shape: tuple, cell: int, rng: np.random.Generator) -> np.ndarray:
-    """Smooth field in [0, 1]: a coarse random lattice, bilinearly upsampled."""
-    h, w   = shape
-    lat    = rng.random((h // cell + 2, w // cell + 2))
-    ys, xs = np.arange(h) / cell, np.arange(w) / cell
-    y0, x0 = np.floor(ys).astype(int), np.floor(xs).astype(int)
-    fy, fx = (ys - y0)[:, None], (xs - x0)[None, :]
-    fy, fx = fy * fy * (3 - 2 * fy), fx * fx * (3 - 2 * fx)
-    a, b   = lat[y0][:, x0], lat[y0][:, x0 + 1]
-    c, d   = lat[y0 + 1][:, x0], lat[y0 + 1][:, x0 + 1]
-    return (a * (1 - fx) + b * fx) * (1 - fy) + (c * (1 - fx) + d * fx) * fy
-
-
-def patina(mask: np.ndarray, seed: int) -> np.ndarray:
-    """Colour every filled cell.
+def logo() -> np.ndarray:
+    """Place the spirit left of the word, its feet on the capitals' baseline.
 
     Returns
     -------
     np.ndarray
         Object array of hex strings, ``""`` where the cell is empty.
     """
-    rng  = np.random.default_rng(seed)
-    h, w = mask.shape
-    out  = np.full((h, w), "", dtype=object)
+    word   = compose(WORD)
+    sprite = np.array([list(row) for row in SPIRIT])
+    th, tw = sprite.shape
+    wh, ww = word.shape
+    top_w  = th - 1 - BASELINE                 # word row 0 on the logo grid
+    out    = np.full((max(th, top_w + wh), tw + MASCOT_GAP + ww), "", dtype=object)
 
-    tone = 0.75 * value_noise((h, w), 4, rng) + 0.25 * rng.random((h, w))
-    idx  = np.clip((tone * len(VERDIGRIS)).astype(int), 0, len(VERDIGRIS) - 1)
-    out[mask] = np.array(VERDIGRIS, dtype=object)[idx][mask]
-
-    field  = 0.7 * value_noise((h, w), 3, rng) + 0.3 * rng.random((h, w))
-    copper = (field > COPPER_ABOVE) & mask
-    cu_idx = np.clip((rng.random((h, w)) * len(COPPER)).astype(int), 0, len(COPPER) - 1)
-    out[copper] = np.array(COPPER, dtype=object)[cu_idx][copper]
-
-    pad  = np.pad(copper, 1)
-    near = (pad[:-2, 1:-1] | pad[2:, 1:-1] | pad[1:-1, :-2] | pad[1:-1, 2:]) & mask & ~copper
-    out[near & (rng.random((h, w)) < RIM_PROB)] = VERDIGRIS[0]
+    for ch, hx in MASCOT.items():
+        out[:th, :tw][sprite == ch] = hx
+    out[top_w:top_w + wh, tw + MASCOT_GAP:][word] = GREEN
     return out
 
 
@@ -279,13 +297,11 @@ def main() -> None:
     odir = Path(args.out)
     odir.mkdir(parents=True, exist_ok=True)
 
-    mask    = compose(WORD)
-    colours = patina(mask, SEED)
-    write_svg(colours, odir / "pysuto-wordmark.svg")
-    write_png(colours, odir / "pysuto-wordmark.png")
-    n_cu = int(np.isin(colours, COPPER).sum())
-    print(f"grid {mask.shape[1]} x {mask.shape[0]} cells, {int(mask.sum())} filled, "
-          f"{n_cu} bare copper -> {odir}/pysuto-wordmark.{{svg,png}}")
+    colours = logo()
+    write_svg(colours, odir / "pysuto-logo.svg")
+    write_png(colours, odir / "pysuto-logo.png")
+    print(f"grid {colours.shape[1]} x {colours.shape[0]} cells, "
+          f"{int((colours != '').sum())} filled -> {odir}/pysuto-logo.{{svg,png}}")
 
 
 if __name__ == "__main__":
