@@ -24,6 +24,7 @@ data/
 orga/
 figs/ex/
 figs/mn/
+figs/psut/
 #test/
 res/
 logs/
@@ -36,3 +37,5 @@ leg/
 
 # VSCode settings (optional)
 .vscode/
+scripts/report/insights_artifact_page/copper_metabolism.html
+scripts/report/insights_artifact_page/inline.js

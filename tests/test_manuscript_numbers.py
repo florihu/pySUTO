@@ -74,3 +74,35 @@ def test_a_regions_scale_total_z_squared_is_located_in_its_largest_years():
     top = M.top_year_shares(s, ["Uzbekistan"], n=2)
     assert list(top["Uzbekistan"]) == ["1995", "1997"]
     assert top["Uzbekistan"]["1995"] == pytest.approx(36.0 / 41.0, rel=1e-12)
+
+
+def _ledger(rows):
+    return pd.DataFrame(rows, columns=["sector", "region", "time", "X", "P", "U",
+                                       "imports_exhausted"])
+
+
+def test_exports_beyond_production_are_read_per_region_and_year():
+    """#111's contradictions: DR Congo exports anode ICSG gives it no smelter for (P
+    missing), Zambia exports more cathode than it refines; small excesses drop out."""
+    led = _ledger([["Anode", "Congo, D.R.", 2012, 96.1, float("nan"), 25.1, True],
+                   ["Anode", "Congo, D.R.", 2021, 97.8, 131.8, 36.1, False],
+                   ["Cathode", "Zambia", 2014, 1362.6, 499.4, 18.0, False],
+                   ["Cathode", "Zambia", 2021, 333.4, 335.9, 16.0, False],
+                   ["Cathode", "Chile", 2014, 2700.0, 1000.0, 50.0, False],
+                   ["Anode", "Zambia", 2016, 3.0, 0.0, 0.0, False]])
+    regions = ["Congo, D.R.", "Zambia"]
+    assert M.exports_beyond_production(led, "Anode", regions) == {
+        "Congo, D.R.": {"2012": [pytest.approx(96.1), None]}}
+    assert M.exports_beyond_production(led, "Cathode", regions) == {
+        "Zambia": {"2014": [pytest.approx(1362.6), pytest.approx(499.4)]}}
+
+
+def test_withheld_usage_counts_the_exhausted_groups_and_their_icsg_use():
+    led = _ledger([["Anode", "Congo, D.R.", 2012, 96.1, float("nan"), 25.1, True],
+                   ["Cathode", "South Africa", 2021, 55.3, 0.0, 30.0, True],
+                   ["Cathode", "South Africa", 2016, 53.4, 68.8, 55.4, False]])
+    w = M.withheld_usage(led)
+    assert w["groups"] == 2
+    assert w["usage_kt"] == pytest.approx(55.1)
+    assert w["by_region"] == {"South Africa": pytest.approx(30.0),
+                              "Congo, D.R.": pytest.approx(25.1)}

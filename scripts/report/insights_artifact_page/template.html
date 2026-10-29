@@ -148,9 +148,9 @@ footer{padding-block:28px 0;font-size:13px;color:var(--muted);font-family:"IBM P
   <h1>Copper Metabolism 1995–2024</h1>
   <p class="lede">Six readings: five of the reference solver run, on how large the system is and how it grew, the whole chain in one picture, how much of the refinery feed is scrap, where each step has concentrated, and how trade links mines to smelters and cathode to its users; and a sixth, from IWCC data outside the model, on what the world's copper ends up in.</p>
   <div class="runmeta">
-    <span><b>run</b>opt_20260930_092111_e3e0677d</span>
-    <span><b>label</b>roundW1_lower_bounds_tol</span>
-    <span><b>years</b>1995–2024, 30 solved (2 at the numerical floor)</span>
+    <span><b>run</b>opt_20261022_112855_928da10c</span>
+    <span><b>label</b>r111_f2</span>
+    <span><b>years</b>1995–2024, 30 solved (none at the numerical floor)</span>
     <span><b>regions</b>46 + rest of world</span>
     <span><b>basis</b>posterior flows, CC valuation</span>
   </div>
@@ -159,13 +159,13 @@ footer{padding-block:28px 0;font-size:13px;color:var(--muted);font-family:"IBM P
 <!-- ============ PART 1 ============ -->
 <section class="part" id="p1">
   <p class="eyebrow">1 · System size</p>
-  <h2>The system moves 34 Mt of copper a year across its boundary, 2.4 times what it did in 1995.</h2>
-  <p class="insight">Ore in situ carries 28.5 Mt Cu into the chain and scrap another 5.4 Mt. Of that, 26.6 Mt leaves as cathode to final use, 5.4 Mt as tailings and 1.3 Mt as slag; the small remainder is booked as stock change. Every stage of the chain more than doubled since 1995, and the leach route (SX‑EW) grew 4.3×.</p>
+  <h2>The system moves 35 Mt of copper a year across its boundary, 2.3 times what it did in 1995.</h2>
+  <p class="insight">Ore in situ carries 29.6 Mt Cu into the chain and scrap another 5.1 Mt. Of that, 27.3 Mt leaves as cathode to final use, 6.1 Mt as tailings and 1.2 Mt as slag; the small remainder is booked as stock change. Every stage of the chain more than doubled since 1995, and the leach route (SX‑EW) grew 4.3×.</p>
 
   <figure>
     <div class="cap"><h3>Process outputs along the chain</h3><span class="unit">world · Mt Cu</span></div>
     <div id="f1a"></div>
-    <figcaption class="note">One line per process output, upstream light to downstream dark. The lines are stages of one chain, not additive: ore becomes concentrate, concentrate becomes matte, and so on. SX‑EW cathode is the leach route that bypasses smelting and joins the cathode pool directly. Anode and electrorefined copper sit on top of each other (22.2 vs 22.1 Mt in 2024); the table carries both.</figcaption>
+    <figcaption class="note">One line per process output, upstream light to downstream dark. The lines are stages of one chain, not additive: ore becomes concentrate, concentrate becomes matte, and so on. SX‑EW cathode is the leach route that bypasses smelting and joins the cathode pool directly. Anode and electrorefined copper sit on top of each other (22.74 vs 22.67 Mt in 2024); the table carries both.</figcaption>
   </figure>
 
   <div class="grid2">
@@ -188,18 +188,18 @@ footer{padding-block:28px 0;font-size:13px;color:var(--muted);font-family:"IBM P
   </figure>
 
   <ul class="reads">
-    <li><b>Growth is uniform through the pyrometallurgical core.</b> Matte, anode and electrorefined copper all sit at ×2.24, concentrate at ×2.16: what a mass-balanced chain should show.</li>
-    <li><b>Cathode grew faster than the core (×2.46)</b> because two routes added to it: SX‑EW cathode rose from 1.2 to 5.0 Mt Cu (×4.32) and scrap feed from 2.1 to 5.4 Mt (×2.51).</li>
-    <li><b>Mined copper outgrew concentrate (×2.33 vs ×2.16)</b> because a growing share of ore is leached rather than milled; SX‑EW tailings rose ×4.4 with it.</li>
-    <li><b>Losses did not scale with output.</b> Tailings ×2.01 and slag ×2.12 against final use ×2.52: the loss share of the boundary input fell from 23 % to 20 %.</li>
+    <li><b>Growth is uniform through the pyrometallurgical core.</b> Matte, anode and electrorefined copper all sit at ×2.12–2.15, concentrate at ×2.07: what a mass-balanced chain should show.</li>
+    <li><b>Cathode grew faster than the core (×2.33)</b> because two routes added to it: SX‑EW cathode rose from 1.1 to 4.8 Mt Cu (×4.30) and scrap feed from 2.2 to 5.1 Mt (×2.33).</li>
+    <li><b>Mined copper outgrew concentrate (×2.31 vs ×2.07)</b> because a growing share of ore is leached rather than milled; SX‑EW tailings rose ×4.3 with it.</li>
+    <li><b>Losses grew slightly slower than output.</b> Tailings ×2.27 and slag ×2.09 against final use ×2.32: the loss share of the boundary input fell from 22 % to 21 %.</li>
   </ul>
 </section>
 
 <!-- ============ PART 2 ============ -->
 <section class="part" id="p2">
   <p class="eyebrow">2 · The chain in one picture</p>
-  <h2>28 Mt in from the ground, 27 Mt of cathode out, and the traded part of every commodity made visible.</h2>
-  <p class="insight">Hatched links cross a border. In 2024, 61 % of the world's concentrate is smelted in a region other than the one that mined it (11.0 of 18.1 Mt Cu), a third of the cathode is used abroad (9.1 of 27.2 Mt), 7 % of anode changes hands and matte barely moves at all.</p>
+  <h2>30 Mt in from the ground, 27 Mt of cathode out, and the traded part of every commodity made visible.</h2>
+  <p class="insight">Hatched links cross a border. In 2024, 60 % of the world's concentrate is smelted in a region other than the one that mined it (11.3 of 18.8 Mt Cu), a third of the cathode is used abroad (9.5 of 27.5 Mt), 7 % of anode changes hands and matte barely moves at all.</p>
 
   <figure>
     <div class="cap"><h3>World copper system, Sankey of the reconciled flows</h3><span class="unit">world · kt Cu · node labels in Mt Cu</span></div>
@@ -210,8 +210,8 @@ footer{padding-block:28px 0;font-size:13px;color:var(--muted);font-family:"IBM P
   </figure>
 
   <ul class="reads">
-    <li><b>Two routes out of the mine.</b> Of the 28.5 Mt Cu in ore, 21.6 Mt go to milling and flotation and 6.8 Mt to leaching; the mill loses 3.6 Mt to tailings, the leach pads 1.8 Mt.</li>
-    <li><b>Scrap enters late.</b> 4.4 Mt of scrap go to smelters and 1.0 Mt straight to fire refineries, a sixth of the feed at those two stages.</li>
+    <li><b>Two routes out of the mine.</b> Of the 29.6 Mt Cu in ore, 23.1 Mt go to milling and flotation and 6.6 Mt to leaching; the mill loses 4.3 Mt to tailings, the leach pads 1.8 Mt.</li>
+    <li><b>Scrap enters late.</b> 4.1 Mt of scrap go to smelters and 1.0 Mt straight to fire refineries, a fifth of the feed at those two stages.</li>
     <li><b>The chain is tightest in the middle.</b> Smelting, converting and electrorefining each lose under 4 % to slag; the mill is where a fifth of the mined copper is lost.</li>
     <li><b>Trade sits at two points.</b> Concentrate crosses a border before smelting and cathode after refining; matte and anode mostly stay where they are made.</li>
   </ul>
@@ -220,8 +220,8 @@ footer{padding-block:28px 0;font-size:13px;color:var(--muted);font-family:"IBM P
 <!-- ============ PART 3 ============ -->
 <section class="part" id="p3">
   <p class="eyebrow">3 · Scrap versus primary input</p>
-  <h2>The world runs on 0.23 t of scrap per tonne of primary feed, back at its 1995 level after a 2003 trough of 0.12.</h2>
-  <p class="insight">The ratio fell through the early 2000s as primary smelting outran the scrap supply, then recovered. China's refineries feed 0.40 t of scrap per tonne of primary, Japan's 0.30, South Korea's 0.42 and the EU‑14's 0.60; the United States, at 0.05, has all but left secondary refining. Taiwan has no refinery-side feed in the model at all.</p>
+  <h2>The world runs on 0.22 t of scrap per tonne of primary feed, back at its 1995 level after a 2003 trough of 0.13.</h2>
+  <p class="insight">The ratio fell through the early 2000s as primary smelting outran the scrap supply, then recovered. China's refineries feed 0.34 t of scrap per tonne of primary, Japan's 0.30, South Korea's 0.40 and the EU‑14's 0.62; the United States, at 0.05, has all but left secondary refining. Taiwan has almost no refinery-side feed in the model.</p>
 
   <figure>
     <div class="cap"><h3>Scrap feed per tonne of primary feed to smelters and refineries</h3><span class="unit">ratio · kt Cu scrap / kt Cu primary</span></div>
@@ -233,25 +233,25 @@ footer{padding-block:28px 0;font-size:13px;color:var(--muted);font-family:"IBM P
   <figure>
     <div class="cap"><h3>Scrap share of refinery-side feed, 2024, regions above 300 kt</h3><span class="unit">scrap / (scrap + primary)</span></div>
     <div id="f3b"></div>
-    <figcaption class="note">Germany's refinery feed is close to half scrap, South Korea's and Japan's close to a quarter; China is the largest scrap consumer by volume at 3.5 Mt Cu, almost four times the EU‑14 combined.</figcaption>
+    <figcaption class="note">Germany's refinery feed is close to half scrap, South Korea's and Japan's close to a quarter; China is the largest scrap consumer by volume at 3.1 Mt Cu, more than three times the EU‑14 combined.</figcaption>
   </figure>
   <figure>
     <div class="cap"><h3>Scrap feed volume by region group</h3><span class="unit">kt Cu · stacked</span></div>
     <div id="f3c"></div>
-    <figcaption class="note">Volume, not ratio: the world scrap feed grew from 2.1 to 5.4 Mt Cu, and almost all of the growth landed in China. Japan's 0.39 Mt and South Korea's 0.18 Mt are thin bands; Taiwan's is zero and is not drawn.</figcaption>
+    <figcaption class="note">Volume, not ratio: the world scrap feed grew from 2.2 to 5.1 Mt Cu, and almost all of the growth landed in China. Japan's 0.38 Mt and South Korea's 0.18 Mt are thin bands; Taiwan's is zero and is not drawn.</figcaption>
   </figure>
   </div>
 
-  <div class="callout"><b>Read with care.</b> In the reconciled solution China's scrap ratio (0.40) sits above its ICSG-based prior (0.31) and South Korea's (0.42) above its prior (0.34), Japan's (0.30) is close to its prior (0.28), while the EU‑14 posterior (0.60) sits below its prior (0.66); the world ratio (0.23) sits just above the prior (0.21). The solver adds scrap where the chain needs closing, and it adds it in China. The world level is a soft anchor; the regional split is a model outcome, not an observation.</div>
+  <div class="callout"><b>Read with care.</b> In the reconciled solution China's scrap ratio (0.34) sits above its ICSG-based prior (0.31) and South Korea's (0.40) above its prior (0.34), Japan's (0.30) is close to its prior (0.28), while the EU‑14 posterior (0.62) matches its prior (0.62); the world ratio (0.22) sits just above the prior (0.20). The solver adds scrap where the chain needs closing, and it adds it in China. The world level is a soft anchor; the regional split is a model outcome, not an observation.</div>
 
   <ul class="reads">
-    <li><b>The 2003 trough is real, not an artefact.</b> Primary feed grew 43 % between 1995 and 2003 while the scrap feed fell by a quarter (2.1 → 1.6 Mt Cu).</li>
-    <li><b>China's ratio fell from 0.81 to 0.40</b> while its scrap volume rose 7.3× (0.5 → 3.5 Mt Cu): relative decline, absolute dominance.</li>
-    <li><b>The EU‑14 has held a scrap-heavy profile</b> throughout (0.84 → 0.60), with Germany at 46 % scrap share in 2024, the highest of any large region.</li>
-    <li><b>The United States dropped from 0.23 to 0.05 after 2000</b>, consistent with the closure of its secondary smelters; its scrap now goes to direct melt or export, both outside this boundary.</li>
-    <li><b>Japan rose steadily from 0.11 to 0.30.</b> Its primary feed has been flat at 1.1–1.4 Mt Cu for thirty years while scrap feed tripled (128 → 385 kt); the ratio peaked at 0.36 in 2021, and the posterior follows the ICSG-based prior closely.</li>
-    <li><b>South Korea climbed fastest, from 0.17 to 0.42.</b> Its scrap feed rose from 24 to 180 kt Cu while primary feed tripled (143 → 428 kt); the ratio climbed after a 2006 low of 0.08, peaked at 0.45 in 2019 and gives Korea the second-highest scrap share (30 %) among regions above 300 kt.</li>
-    <li><b>Taiwan has no secondary refining in the model.</b> Its refinery-side feed is 0.5 kt Cu of primary and no scrap in 2024: Taiwan's copper use is fabrication from imported cathode and directly melted scrap, both outside the modelled boundary, so no ratio can be drawn for it.</li>
+    <li><b>The 2003 trough is real, not an artefact.</b> Primary feed grew 37 % between 1995 and 2003 while the scrap feed fell by 15 % (2.2 → 1.8 Mt Cu).</li>
+    <li><b>China's ratio fell from 0.84 to 0.34</b> while its scrap volume rose 6.5× (0.5 → 3.1 Mt Cu): relative decline, absolute dominance.</li>
+    <li><b>The EU‑14 has held a scrap-heavy profile</b> throughout (0.83 → 0.62), with Germany at 46 % scrap share in 2024, the highest of any large region.</li>
+    <li><b>The United States dropped from 0.20 to 0.05 after 2000</b>, consistent with the closure of its secondary smelters; its scrap now goes to direct melt or export, both outside this boundary.</li>
+    <li><b>Japan rose steadily from 0.12 to 0.30.</b> Its primary feed has been flat at 1.1–1.4 Mt Cu for thirty years while scrap feed tripled (130 → 384 kt); the ratio peaked at 0.36 in 2018, and the posterior follows the ICSG-based prior closely.</li>
+    <li><b>South Korea climbed fastest, from 0.17 to 0.40.</b> Its scrap feed rose from 24 to 184 kt Cu while primary feed more than tripled (141 → 459 kt); the ratio climbed after a 2006 low of 0.08, peaked at 0.45 in 2019 and gives Korea the second-highest scrap share (29 %) among regions above 300 kt.</li>
+    <li><b>Taiwan has no secondary refining in the model.</b> Its refinery-side feed is 8.1 kt Cu of primary and no scrap in 2024: Taiwan's copper use is fabrication from imported cathode and directly melted scrap, both outside the modelled boundary, so no meaningful ratio can be drawn for it.</li>
   </ul>
 </section>
 
@@ -259,25 +259,25 @@ footer{padding-block:28px 0;font-size:13px;color:var(--muted);font-family:"IBM P
 <section class="part" id="p4">
   <p class="eyebrow">4 · Supply concentration by chain step</p>
   <h2>Mining deconcentrated a little. Everything downstream concentrated into China.</h2>
-  <p class="insight">In 1995 the United States led smelting, refining and final use. By 2024 China holds 51 % of world smelting, 44 % of refined cathode, 57 % of final use and 65 % of scrap feed, while the mining step became <em>less</em> concentrated. The EU‑14 kept a tenth of smelting and halved its share of use.</p>
+  <p class="insight">In 1995 the United States led smelting, refining and final use. By 2024 China holds 52 % of world smelting, 45 % of refined cathode, 58 % of final use and 62 % of scrap feed, while the mining step became <em>less</em> concentrated. The EU‑14 kept a tenth of smelting and more than halved its share of use.</p>
 
   <figure>
     <div class="cap"><h3>Share of world output by region group, per chain step</h3><span class="unit">share of world · stacked to 100 %</span></div>
     <div class="legend" id="lg4"></div>
     <div class="grid3" id="f4a"></div>
-    <figcaption class="note">Mining and concentrate are the producing region's share; smelting and refined cathode the processing region's; scrap feed and final use the consuming region's. The rest of world is 41 named regions plus a residual.</figcaption>
+    <figcaption class="note">Mining and concentrate are the producing region's share; smelting and refined cathode the processing region's; scrap feed and final use the consuming region's. The rest of world is 28 named regions plus a residual.</figcaption>
   </figure>
 
   <div class="grid2">
   <figure>
     <div class="cap"><h3>Concentration index by step, 1995 → 2024</h3><span class="unit">Herfindahl–Hirschman index, Σ share²</span></div>
     <div id="f4b"></div>
-    <figcaption class="note">HHI over all 47 regions. Bands follow the usual antitrust reading: below 0.15 unconcentrated, 0.15–0.25 moderate, above 0.25 high. Smelting crossed into “high” in the 2020s; scrap feed sits at 0.43.</figcaption>
+    <figcaption class="note">HHI over all 47 regions. Bands follow the usual antitrust reading: below 0.15 unconcentrated, 0.15–0.25 moderate, above 0.25 high. Smelting crossed into “high” in the 2020s; scrap feed sits at 0.40.</figcaption>
   </figure>
   <figure>
     <div class="cap"><h3>Share of smelter concentrate intake that is imported</h3><span class="unit">from outside the group / total intake</span></div>
     <div id="f4c"></div>
-    <figcaption class="note">China's smelters now import five sixths of their concentrate, the EU‑14 three fifths from outside the EU‑14. US smelters run almost entirely on domestic concentrate.</figcaption>
+    <figcaption class="note">China's smelters now import four fifths of their concentrate, the EU‑14 three fifths from outside the EU‑14. US smelters run almost entirely on domestic concentrate.</figcaption>
   </figure>
   </div>
 
@@ -287,26 +287,26 @@ footer{padding-block:28px 0;font-size:13px;color:var(--muted);font-family:"IBM P
   </figure>
 
   <ul class="reads">
-    <li><b>Upstream is diversifying.</b> Mining HHI fell from 0.120 to 0.103. Chile's share of mined copper fell from 26 % to 21 % while Peru's rose from 4 % to 12 % and DR Congo's to 17 %, now second. Downstream, Chile keeps 5 % of smelting and 7 % of refined cathode, largely SX‑EW; Peru holds under 2 % of either.</li>
-    <li><b>The chokepoint moved from mine to smelter.</b> Smelting HHI tripled (0.083 → 0.274) on China's rise from 9 % to 51 %, fed by imported concentrate (27 % → 84 % of intake).</li>
-    <li><b>The EU‑14 is a processor, not a consumer.</b> It kept 10 % of smelting and 8 % of refining but fell from 22 % to 10 % of final use.</li>
-    <li><b>The United States exited the middle of the chain.</b> From 16–23 % of smelting, refining and final use in 1995 to 2–6 % in 2024, while keeping 5 % of mining.</li>
-    <li><b>Secondary supply is the most concentrated step of all.</b> Scrap feed HHI 0.43, with China taking 65 % of the world's refinery-bound scrap.</li>
+    <li><b>Upstream is diversifying.</b> Mining HHI fell from 0.116 to 0.111. Chile's share of mined copper held at 24 % while Peru's rose from 4 % to 12 % and DR Congo's to 14 %, now second. Downstream, Chile keeps 4 % of smelting and 7 % of refined cathode, largely SX‑EW; Peru holds under 2 % of either.</li>
+    <li><b>The chokepoint moved from mine to smelter.</b> Smelting HHI more than tripled (0.077 → 0.281) on China's rise from 8 % to 52 %, fed by imported concentrate (25 % → 81 % of intake).</li>
+    <li><b>The EU‑14 is a processor, not a consumer.</b> It kept 10 % of smelting and 8 % of refining but fell from 24 % to 10 % of final use.</li>
+    <li><b>The United States exited the middle of the chain.</b> From 16–22 % of smelting, refining and final use in 1995 to 2–6 % in 2024, while keeping 5 % of mining.</li>
+    <li><b>Secondary supply is the most concentrated step of all.</b> Scrap feed HHI 0.40, with China taking 62 % of the world's refinery-bound scrap.</li>
   </ul>
 </section>
 
 <!-- ============ PART 5 ============ -->
 <section class="part" id="p5">
   <p class="eyebrow">5 · Trade structure</p>
-  <h2>Cross-border trade carries 21.7 Mt Cu a year, 2.9 times 1995, and concentrate has become the form in which copper travels.</h2>
-  <p class="insight">Concentrate trade grew from 2.5 to 11.0 Mt Cu, from 29 % to 61 % of what is produced; cathode trade from 4.1 to 9.1 Mt. China imports 11.4 Mt, more than half of everything traded, where in 1995 the largest importer was Japan at 1.5 Mt. Chile and Peru send most of their concentrate to China, and the DR Congo's 2.0 Mt of cathode go there too.</p>
+  <h2>Cross-border trade carries 22.4 Mt Cu a year, 2.8 times 1995, and concentrate has become the form in which copper travels.</h2>
+  <p class="insight">Concentrate trade grew from 2.3 to 11.3 Mt Cu, from 26 % to 60 % of what is produced; cathode trade from 4.8 to 9.5 Mt. China imports 11.9 Mt, more than half of everything traded, where in 1995 the largest importer was Japan at 1.5 Mt. Chile and Peru send most of their concentrate to China, and the DR Congo's 2.3 Mt of cathode go there too.</p>
 
   <figure>
     <div class="cap"><h3>Trade-linked flow of copper, exporter → importer per commodity</h3><span class="unit">kt Cu · ribbon width on one scale for all three years</span></div>
     <div class="yswitch" role="group" aria-label="Year"><span>Year</span><button type="button" data-y="1995">1995</button><button type="button" data-y="2010">2010</button><button type="button" data-y="2024" aria-pressed="true">2024</button></div>
     <div class="legend" id="lg5a"></div>
     <div class="chart scroll" id="f5a"></div>
-    <figcaption class="note">After Sun et al. (2017), Fig. 4. Each pair of columns is one commodity: a ribbon runs from the exporting region on the left to the importing region on the right, its width proportional to copper content. Regions are the twenty largest traders of 2024, net exporters at the top, net importers at the bottom, the rest pooled; legs between two pooled regions are not drawn. Matte is left out here (155 kt Cu in 2024) but kept in the bars below. Click a region to isolate its legs; hover a ribbon for the value and its share of the exporter's shipments.</figcaption>
+    <figcaption class="note">After Sun et al. (2017), Fig. 4. Each pair of columns is one commodity: a ribbon runs from the exporting region on the left to the importing region on the right, its width proportional to copper content. Regions are the twenty largest traders of 2024, net exporters at the top, net importers at the bottom, the rest pooled; legs between two pooled regions are not drawn. Matte is left out here (146 kt Cu in 2024) but kept in the bars below. Click a region to isolate its legs; hover a ribbon for the value and its share of the exporter's shipments.</figcaption>
   </figure>
 
   <figure>
@@ -321,21 +321,21 @@ footer{padding-block:28px 0;font-size:13px;color:var(--muted);font-family:"IBM P
   <figure>
     <div class="cap"><h3>Traded share of world output, per commodity</h3><span class="unit">cross-border trade / world output</span></div>
     <div id="f5c"></div>
-    <figcaption class="note">Trade intensity: how much of each year's output crosses a border. Concentrate doubled its traded share; cathode's peaked around 2010 and has eased as China's own refining caught up with its use.</figcaption>
+    <figcaption class="note">Trade intensity: how much of each year's output crosses a border. Concentrate more than doubled its traded share; cathode's peaked between 2001 and 2010 and has eased as China's own refining caught up with its use.</figcaption>
   </figure>
   <figure>
     <div class="cap"><h3>World cross-border trade by commodity</h3><span class="unit">Mt Cu · stacked</span></div>
     <div id="f5d"></div>
-    <figcaption class="note">Volume: concentrate overtook cathode as the largest traded form in the late 2010s. Anode is a steady 0.7–1.6 Mt; matte never exceeds 0.2 Mt.</figcaption>
+    <figcaption class="note">Volume: concentrate overtook cathode as the largest traded form in the late 2010s. Anode is a steady 0.7–1.5 Mt; matte never exceeds 0.3 Mt.</figcaption>
   </figure>
   </div>
 
   <ul class="reads">
-    <li><b>The concentrate funnel.</b> Chile → China (2.1 Mt Cu) and Peru → China (1.8 Mt) are the two largest legs in the system; China's smelters take 7.2 of the 11.0 Mt traded, and Chile sends 70 % of its concentrate exports there.</li>
-    <li><b>The cathode counter-flow.</b> DR Congo → China (1.4 Mt), Chile → United States (0.6 Mt) and Chile → China (0.5 Mt) lead; Japan exports 0.7 Mt of cathode while importing 1.2 Mt of concentrate, the profile of a smelting hub.</li>
-    <li><b>Anode is a regional niche.</b> 1.6 Mt in 2024: Zambia into China (0.24 Mt) and India (0.18), the DR Congo and Chile into China, Bulgaria into Germany.</li>
-    <li><b>Matte stays home.</b> 155 kt Cu, under 1 % of what is smelted: the smelter and the converter sit on the same site.</li>
-    <li><b>The importers changed, the exporters less so.</b> Japan took 1.5 Mt in 1995 and 1.2 Mt in 2024, the United States 0.7 and 0.9; China went from a marginal importer to 11.4 Mt. Chile was the largest exporter in both years (2.1 → 5.1 Mt), joined by Peru (2.8) and the DR Congo (2.5).</li>
+    <li><b>The concentrate funnel.</b> Chile → China (2.4 Mt Cu) and Peru → China (1.9 Mt) are the two largest legs in the system; China's smelters take 7.4 of the 11.3 Mt traded, and Chile sends 71 % of its concentrate exports there.</li>
+    <li><b>The cathode counter-flow.</b> DR Congo → China (1.5 Mt), Chile → United States (0.6 Mt) and Chile → China (0.5 Mt) lead; Japan exports 0.8 Mt of cathode while importing 1.3 Mt of concentrate, the profile of a smelting hub.</li>
+    <li><b>Anode is a regional niche.</b> 1.5 Mt in 2024: Zambia into China (0.23 Mt) and India (0.18), the DR Congo and Chile into China, Bulgaria into Germany.</li>
+    <li><b>Matte stays home.</b> 146 kt Cu, under 1 % of what is smelted: the smelter and the converter sit on the same site.</li>
+    <li><b>The importers changed, the exporters less so.</b> Japan took 1.5 Mt in 1995 and 1.3 Mt in 2024, the United States 0.8 and 0.9; China went from a marginal importer to 11.9 Mt. Chile was the largest exporter in both years (2.2 → 5.5 Mt), joined by the DR Congo (2.8) and Peru (2.8).</li>
   </ul>
 </section>
 
@@ -367,7 +367,7 @@ footer{padding-block:28px 0;font-size:13px;color:var(--muted);font-family:"IBM P
 </section>
 
 <footer>
-  Source, chapters 1–5: pySUTO posterior flows, run opt_20260930_092111_e3e0677d (constraints const_20260929_122634_40ebe5c9; feeds ICSG, BACI, USGS via imputation run imp_20260929_113529_ab914090). All figures in copper content; a tonne is a tonne of contained copper. EU‑14 = the 14 EU member states resolved in the model (DE, IT, FR, ES, PL, BE, NL, AT, SE, BG, GR, PT, SK, LU). Hover any chart for values; each figure carries its data table. Trade figures after Sun, Hao, Liu &amp; Zhao (2017), Resources, Conservation &amp; Recycling 124, 50–61. Source, chapter 6: IWCC end-use summary, 2025 release (International Wrought Copper Council, workbook of 2025-09-09, sheet “Copper Content”), copper-content basis, 2012–2024; IWCC data from outside the model boundary, not reconciled by pySUTO.
+  Source, chapters 1–5: pySUTO posterior flows, run opt_20261022_112855_928da10c (constraints const_20261022_111531_df61bf5c; feeds ICSG, BACI, USGS via imputation run imp_20261022_111102_1b49a2b3). All figures in copper content; a tonne is a tonne of contained copper. EU‑14 = the 14 EU member states resolved in the model (DE, IT, FR, ES, PL, BE, NL, AT, SE, BG, GR, PT, SK, LU). Hover any chart for values; each figure carries its data table. Trade figures after Sun, Hao, Liu &amp; Zhao (2017), Resources, Conservation &amp; Recycling 124, 50–61. Source, chapter 6: IWCC end-use summary, 2025 release (International Wrought Copper Council, workbook of 2025-09-09, sheet “Copper Content”), copper-content basis, 2012–2024; IWCC data from outside the model boundary, not reconciled by pySUTO.
 </footer>
 </div>
 
