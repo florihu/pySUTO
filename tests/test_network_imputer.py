@@ -631,7 +631,7 @@ def test_cp_pool_closes_per_year_via_flow_balance(imputer2, acc2):
 
 REPO = Path(__file__).resolve().parents[1]
 
-_FLOW_NODES = """
+_PRINT_FLOW_BALANCES = """
 import sys
 sys.path.insert(0, sys.argv[1])
 from test_network_imputer import MockAcc
@@ -654,10 +654,13 @@ def test_flow_balances_keep_one_order_under_every_hash_seed(tmp_path):
     lists = []
     for seed in ("0", "1", "2"):
         env = dict(os.environ, PYTHONHASHSEED=seed, PYTHONPATH=str(REPO / "src"))
-        r = subprocess.run([sys.executable, "-c", _FLOW_NODES, str(REPO / "tests"), *paths],
-                           env=env, capture_output=True, text=True, timeout=120, check=True)
-        lists.append(ast.literal_eval(r.stdout))
-    assert len(lists[0]) == 12               # Ore, Concentrate, CSXEW × 4 years
+        r = subprocess.run([sys.executable, "-c", _PRINT_FLOW_BALANCES,
+                            str(REPO / "tests"), *paths],
+                           env=env, capture_output=True, text=True, timeout=120)
+        assert r.returncode == 0, r.stderr[-800:]
+        # last line: the project logger writes to stdout too
+        lists.append(ast.literal_eval(r.stdout.splitlines()[-1]))
+    assert len(lists[0]) == 12  # Ore, Concentrate, CSXEW × 4 years
     assert lists[1] == lists[0]
     assert lists[2] == lists[0]
 
