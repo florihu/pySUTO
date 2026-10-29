@@ -23,6 +23,12 @@ values and assert no cross-year contamination — they fail on the pre-fix code 
 """
 from __future__ import annotations
 
+import ast
+import os
+import subprocess
+import sys
+from pathlib import Path
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -617,6 +623,43 @@ def test_cp_pool_closes_per_year_via_flow_balance(imputer2, acc2):
         assert method[e_csxcp] == "network_balance"
         assert f[acc2.eid("CP", "Cathode", "CC", t)] == pytest.approx(csx + cer)
         assert f[acc2.eid("CP", "PSC", "CC", t)] == pytest.approx(0.0)
+
+
+# =============================================================================
+# Flow-balance order across processes (#113)
+# =============================================================================
+
+REPO = Path(__file__).resolve().parents[1]
+
+_FLOW_NODES = """
+import sys
+sys.path.insert(0, sys.argv[1])
+from test_network_imputer import MockAcc
+from pysuto.impute import NetworkImputer
+acc = MockAcc(times=("2020", "2021", "2022", "2023"))
+imp = NetworkImputer(*sys.argv[2:5], p=1.3, cv_cap=float("inf"))
+imp.prepare(acc)
+print(imp._flow_nodes)
+"""
+
+
+def test_flow_balances_keep_one_order_under_every_hash_seed(tmp_path):
+    # The balances were collected from a set of (node, time) keys, whose iteration
+    # order follows the per-process string-hash seed: every Stage 2 run visited them,
+    # and logged their fills, in its own order (#113).
+    paths = [str(tmp_path / n) for n in ("eff.csv", "conc.csv", "ore_grade.csv")]
+    write_eff_csv(paths[0])
+    write_conc_csv(paths[1])
+    write_ore_grade_csv(paths[2])
+    lists = []
+    for seed in ("0", "1", "2"):
+        env = dict(os.environ, PYTHONHASHSEED=seed, PYTHONPATH=str(REPO / "src"))
+        r = subprocess.run([sys.executable, "-c", _FLOW_NODES, str(REPO / "tests"), *paths],
+                           env=env, capture_output=True, text=True, timeout=120, check=True)
+        lists.append(ast.literal_eval(r.stdout))
+    assert len(lists[0]) == 12               # Ore, Concentrate, CSXEW × 4 years
+    assert lists[1] == lists[0]
+    assert lists[2] == lists[0]
 
 
 # =============================================================================
