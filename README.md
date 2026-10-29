@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="figs/logo/pysuto-wordmark.svg" alt="pySUTO" width="420">
+  <img src="figs/logo/pysuto-logo.svg" alt="pySUTO" width="600">
 </p>
 
 **Python Supply–Use Table Optimiser**
