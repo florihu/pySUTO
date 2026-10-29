@@ -2758,7 +2758,7 @@
    "unit": "kt CC"
   },
   "method:L352.anode_exports_beyond_production": {
-   "label": "BACI anode exports X against ICSG production P (None: no ICSG row) of the four regions, year by year where X − P > 5 kt (#111)",
+   "label": "BACI anode exports X against ICSG production P (None: no ICSG row) of the four regions, year by year where X − P > 5 kt CC (#111)",
    "value": {
     "Congo, D.R.": {
      "2005": [
@@ -2890,7 +2890,7 @@
    "unit": "kt CC"
   },
   "method:L352.cathode_exports_beyond_production": {
-   "label": "BACI cathode exports X against ICSG production P (None: no ICSG row) of the four regions, year by year where X − P > 5 kt (#111)",
+   "label": "BACI cathode exports X against ICSG production P (None: no ICSG row) of the four regions, year by year where X − P > 5 kt CC (#111)",
    "value": {
     "Congo, D.R.": {
      "2016": [
@@ -3030,7 +3030,7 @@
    "unit": "kt CC"
   },
   "method:L352.withheld_icsg_usage": {
-   "label": "ICSG usage the netting's imports_exhausted withhold leaves undistributed: groups, kt CC, by region (ADR 0027 am., #111)",
+   "label": "ICSG usage the netting's imports_exhausted withhold leaves undistributed: groups (product × region × year), kt CC, by region (ADR 0027 am., #111)",
    "value": {
     "groups": 64,
     "usage_kt": 1319.9488987341772,
@@ -3046,6 +3046,25 @@
     }
    },
    "unit": "kt CC"
+  },
+  "method:L353.degenerate_family": {
+   "label": "#99's degenerate legs: edge-years and the per-year range (#81)",
+   "value": {
+    "edge_years": 67180,
+    "per_year": [
+     1658,
+     2858
+    ]
+   },
+   "unit": ""
+  },
+  "method:L353.degenerate_interval_shift": {
+   "label": "largest interval-bound move with the family pinned or freed, Birge-scaled (#81, docs/manuscript/figs/table3_intervals.csv)",
+   "value": {
+    "max": 0.0021696398984615015,
+    "quantity": "embodied / direct, China ← Chile+Peru 2024"
+   },
+   "unit": ""
   }
  }
 }

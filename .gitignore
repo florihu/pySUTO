@@ -37,5 +37,7 @@ leg/
 
 # VSCode settings (optional)
 .vscode/
+
+# insight page: build outputs of assemble.py (the tracked copy sits beside its run's data)
 scripts/report/insights_artifact_page/copper_metabolism.html
 scripts/report/insights_artifact_page/inline.js

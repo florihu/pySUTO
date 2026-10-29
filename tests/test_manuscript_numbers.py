@@ -106,3 +106,25 @@ def test_withheld_usage_counts_the_exhausted_groups_and_their_icsg_use():
     assert w["usage_kt"] == pytest.approx(55.1)
     assert w["by_region"] == {"South Africa": pytest.approx(30.0),
                               "Congo, D.R.": pytest.approx(25.1)}
+
+
+def test_the_degenerate_family_is_counted_per_year_within_the_fringe():
+    """#99's legs: cross-region Cathode→FU, either valuation, prior 0, a* within
+    1e-4 kt of its bound; a leg with a prior or real slack is not one."""
+    e = _edges([["Cathode", "Chile", "FU", "China", "CC", "2000", 0.0, 1.4e-6],
+                ["Cathode", "Chile", "FU", "China", "Mass", "2000", 0.0, 0.0],
+                ["Cathode", "Chile", "FU", "Japan", "CC", "2001", 0.0, 5e-5],
+                ["Cathode", "Chile", "FU", "Japan", "CC", "2001", 0.0, 1e-3],
+                ["Cathode", "Chile", "FU", "Chile", "CC", "2001", 0.0, 0.0],
+                ["Cathode", "Chile", "FU", "Peru", "CC", "2001", 3.0, 0.0]])
+    assert M.degenerate_family_counts(e) == {"edge_years": 3, "per_year": [1, 2]}
+
+
+def test_the_interval_shift_is_the_largest_bound_move_pinned_or_free():
+    t = pd.DataFrame({"quantity":           ["a", "b", "c"],
+                      "sigma_birge":        [0.10, 0.20, 0.30],
+                      "sigma_birge_pinned": [0.10, 0.21, 0.30],
+                      "sigma_birge_free":   [0.12, 0.20, float("nan")]})
+    s = M.interval_shift(t, z=2.0)
+    assert s["max"] == pytest.approx(0.04)
+    assert s["quantity"] == "a"

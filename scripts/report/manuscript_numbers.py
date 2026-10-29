@@ -67,6 +67,7 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
+from scipy.stats import norm
 
 sys.path.insert(0, "src")
 
@@ -86,6 +87,8 @@ NUMBERS_OUT    = "docs/manuscript/figs/manuscript_numbers.json"   # committed: t
 Z_BIG          = 5.0                         # a stock leg beyond |z| 5 is a limitation (§3.2.8)
 PSC_FIRST_YEAR = 1996                        # ICSG reports no producer stock change for 1995
 EXCESS_MIN_KT  = 5.0                         # BACI exports above ICSG production (§3.2.8, #111)
+FRINGE_KT      = 1e-4                        # #99's fringe: a* this close to its bound is ambiguous
+INTERVALS_CSV  = "docs/manuscript/figs/table3_intervals.csv"   # scripts/report/table3_intervals.py
 PARAM_TABLES   = ["conc", "eff", "stripping_ratio", "ore_grade", "stock_bounds",
                   "scrap_share"]
 SUM_VARIANTS   = {"supplytotout": "sum_supply", "usetotout": "sum_use",
@@ -683,6 +686,11 @@ def stage4_numbers(N: Numbers, e: pd.DataFrame, s: pd.DataFrame, rm: pd.DataFram
 # 6  forced deletion
 # =============================================================================
 
+def _ledger(inp: Path, ch: Chain) -> pd.DataFrame:
+    """The re-export netting's ledger of the chain's BACI input version (ADR 0027)."""
+    return pd.read_csv(inp / "feed" / "baci" / f"v{ch.versions['baci']}" / "reexport_ledger.csv")
+
+
 def _icsg(inp: Path, version: int) -> pd.DataFrame:
     d = inp / "feed" / "icsg" / f"v{version}"
     raw = pd.read_csv(d / "values.csv")
@@ -961,7 +969,7 @@ def feed_input_numbers(N: Numbers, inp: Path, ch: Chain) -> None:
     N.add("method:L291.recon_below_png_kt", "PNG 2019–22 recorded mass rebuilt downwards",
           png.q_obs.sum() / 1e3 if has_below else None, "kt")
 
-    L = pd.read_csv(bd / "reexport_ledger.csv")
+    L = _ledger(inp, ch)
     N.add("method:L302.reexport_T_kt", "re-export volume moved, Σ T_applied (also Table 2, "
           "L336, S11)", L.T_applied.sum(), "kt CC")
     N.add("si:S9.T_S11.reexport_new_legs", "new origin–destination legs", L.n_new_legs.sum())
@@ -1199,15 +1207,14 @@ def sum_shares_by_region(s: pd.DataFrame) -> dict:
     return {r: float(v / z2.sum()) for r, v in z2.items()}
 
 
-def exports_beyond_production(led: pd.DataFrame, sector: str, regions: list,
-                              min_kt: float = EXCESS_MIN_KT) -> dict:
+def exports_beyond_production(led: pd.DataFrame, sector: str, regions: list) -> dict:
     """Per region and year, the netting ledger's BACI exports ``X`` and ICSG production
-    ``P`` (``None`` where ICSG has no row) of ``sector`` where ``X − P > min_kt`` —
-    #111's contradictions between the two sources (kt CC)."""
-    x = led[(led.sector == sector) & led.region.isin(regions)]
-    x = x[x.X - x.P.fillna(0.0) > min_kt]
+    ``P`` (``None`` where ICSG has no row) of ``sector`` as ``[X, P]`` where
+    ``X − P > EXCESS_MIN_KT`` — #111's contradictions between the two sources (kt CC)."""
+    rows = led[(led.sector == sector) & led.region.isin(regions)]
+    rows = rows[rows.X - rows.P.fillna(0.0) > EXCESS_MIN_KT]
     out: dict = {}
-    for r in x.itertuples(index=False):
+    for r in rows.itertuples(index=False):
         out.setdefault(r.region, {})[str(r.time)] = [float(r.X),
                                                      None if pd.isna(r.P) else float(r.P)]
     return out
@@ -1220,6 +1227,26 @@ def withheld_usage(led: pd.DataFrame) -> dict:
     by = w.groupby("region").U.sum().sort_values(ascending=False)
     return {"groups": int(len(w)), "usage_kt": float(w.U.sum()),
             "by_region": {r: float(v) for r, v in by.items()}}
+
+
+def degenerate_family_counts(e: pd.DataFrame) -> dict:
+    """#99's degenerate family: cross-region Cathode→FU legs, either valuation, whose prior
+    is 0 and whose a* lies within ``FRINGE_KT`` of it — the legs Stage 5's slack threshold
+    sorts by rounding. Their edge-years in all and the fewest and most in one year. The
+    family ``table3_intervals.degenerate_family`` pins and frees also needs a lower-bound
+    row, which every such leg of the copper account carries."""
+    m = ((e.sector_from == "Cathode") & (e.sector_to == "FU") & (e.region_from != e.region_to)
+         & (e.prior == 0.0) & (e.post.abs() <= FRINGE_KT))
+    per = e[m].groupby(e.time.astype(str)).size()
+    return {"edge_years": int(m.sum()), "per_year": [int(per.min()), int(per.max())]}
+
+
+def interval_shift(t: pd.DataFrame, z: float) -> dict:
+    """The largest move of an interval bound, ``z·|σ_alt − σ|`` over the Birge-scaled σ of
+    every quantity of ``table3_intervals.csv``, with the family pinned or freed (#81, #99)."""
+    alt = t[["sigma_birge_pinned", "sigma_birge_free"]].sub(t.sigma_birge, axis=0).abs().max(axis=1)
+    i = alt.idxmax()
+    return {"max": float(z * alt[i]), "quantity": str(t.quantity[i])}
 
 
 def limitation_numbers(N: Numbers, inp: Path, ch: Chain, e: pd.DataFrame, s: pd.DataFrame,
@@ -1256,16 +1283,17 @@ def limitation_numbers(N: Numbers, inp: Path, ch: Chain, e: pd.DataFrame, s: pd.
 
     sh = sum_shares_by_region(s)
     top = dict(list(sh.items())[:6])
+    four = list(top)[:4]
     N.add("method:L352.sum_share_top_regions", "regions' shares of the scale-total Σz², largest "
           "six (#111)", top)
     N.add("method:L352.sum_share_austria", "Austria's share (#63)", sh.get("Austria"))
     N.add("method:L352.sum_top_years", "each of the four largest regions' four years with the "
           "largest share of its scale-total Σz² (Uzbekistan: the text's 1995–1998)",
-          top_year_shares(s, list(top)[:4], n=4))
+          top_year_shares(s, four, n=4))
     an = s[(s.type == "sum") & (s.variant == "usetotout") & (s.sector == "Anode")
            & (s.valuation == "CC")]
     worst = {}
-    for r in list(top)[:4]:
+    for r in four:
         x = an[an.region == r]
         if len(x):
             i = x.z.abs().idxmax()
@@ -1273,15 +1301,22 @@ def limitation_numbers(N: Numbers, inp: Path, ch: Chain, e: pd.DataFrame, s: pd.
     N.add("method:L352.anode_use_total_worst", "largest-|z| CC anode use total of the four regions "
           "with the largest shares: year, c, c* (#111)", worst, "kt CC")
 
-    led = pd.read_csv(inp / "feed" / "baci" / f"v{ch.versions['baci']}" / "reexport_ledger.csv")
+    led = _ledger(inp, ch)
     for sector in ("Anode", "Cathode"):
         N.add(f"method:L352.{sector.lower()}_exports_beyond_production",
               f"BACI {sector.lower()} exports X against ICSG production P (None: no ICSG row) "
-              f"of the four regions, year by year where X − P > {EXCESS_MIN_KT:g} kt (#111)",
-              exports_beyond_production(led, sector, list(top)[:4]), "kt CC")
+              f"of the four regions, year by year where X − P > {EXCESS_MIN_KT:g} kt CC (#111)",
+              exports_beyond_production(led, sector, four), "kt CC")
     N.add("method:L352.withheld_icsg_usage", "ICSG usage the netting's imports_exhausted withhold "
-          "leaves undistributed: groups, kt CC, by region (ADR 0027 am., #111)",
-          withheld_usage(led), "kt CC")
+          "leaves undistributed: groups (product × region × year), kt CC, by region (ADR 0027 am., "
+          "#111)", withheld_usage(led), "kt CC")
+    N.add("method:L353.degenerate_family", "#99's degenerate legs: edge-years and the per-year "
+          "range (#81)", degenerate_family_counts(e))
+    shift = None
+    if Path(INTERVALS_CSV).is_file():
+        shift = interval_shift(pd.read_csv(INTERVALS_CSV), z=float(norm.ppf(0.975)))
+    N.add("method:L353.degenerate_interval_shift", "largest interval-bound move with the "
+          f"family pinned or freed, Birge-scaled (#81, {INTERVALS_CSV})", shift)
 
 
 # =============================================================================
