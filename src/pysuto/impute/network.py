@@ -339,7 +339,9 @@ class NetworkImputer(BaseImputer):
         by_to = {k: g["edge_id"].to_numpy() for k, g in cc.groupby(["to_id", "time"])}
         by_from = {k: g["edge_id"].to_numpy() for k, g in cc.groupby(["from_id", "time"])}
         balances = []
-        for key in by_to.keys() & by_from.keys():  # nodes/years with both in- and out-edges
+        # nodes/years with both in- and out-edges, sorted: a set iterates in string-hash
+        # order, which changes with every process (#113)
+        for key in sorted(by_to.keys() & by_from.keys()):
             if key[0] not in flow_ids:
                 continue
             inc = tuple(int(e) for e in by_to[key])
