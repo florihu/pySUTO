@@ -99,6 +99,20 @@ Each against the previous one; REPs under `docs/rep/`.
   the numerical floor (1.1e-6 kt), A4 0/30 because the ore-mass deletion was the solver's stop (#33). Follow-ups
   outside the milestone: #111 (DR Congo, South Africa, Zambia, Uzbekistan: 34.7 % of scale-total Σz²), #99, #81.
 
+## #114 + #81 DONE 2026-10-29 — the manuscript reads the final chain opt_20261022_112855_928da10c, with intervals beside Table 3
+
+Branch `diag/manuscript-refresh-3`.
+- **Runs:** Stage 5 `uncprop_20261029_090754_0446e784` (Birge R 5.18), its #87 ablation
+  `uncprop_20261029_095641_3837af29`, Stage 6 `psut_20261029_095807_61a70a1a`; `results_figs.py`,
+  `manuscript_numbers.py` and `table3_intervals.py` (#81) on that chain.
+- **Text:** 195 keyed numbers refreshed. §3.2.8 states #111's C1–C5 and #99's outcome with keyed numbers.
+  Table 3, S18b and S19 carry Birge-scaled 95 % intervals.
+- **Ledger:** outcomes unchanged (A1, A2, A4, A5, B2 fail; A3, B1, B3 pass). B2 refining 0.230 [0.226, 0.234]
+  lies below the 0.25 line, and A4 fails in every year also at the intervals' upper ends. #99's degenerate
+  family moves no interval bound by more than 0.002.
+- **Artifact:** the Copper Metabolism page reads the same chain (version 9).
+- **Results prose:** ≈ 1,038 words against the 1,000 budget.
+
 ## #111 MEASURED 2026-10-22 — the four regions are two feed defects and five contradictions; F2 ships (−0.672 %), F1 rejected (+1.67 %)
 
 `diag/anode-deletion-diagnosis`; REPs `docs/rep/analysis_opt_20261021_131744_58504ad3_20261022_issue111-four-region-diagnosis.md`
