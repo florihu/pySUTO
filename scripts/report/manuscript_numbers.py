@@ -85,6 +85,7 @@ NUMBERS_JSON   = "docs/manuscript/figs/numbers.json"
 NUMBERS_OUT    = "docs/manuscript/figs/manuscript_numbers.json"   # committed: the refresh's diff base
 Z_BIG          = 5.0                         # a stock leg beyond |z| 5 is a limitation (§3.2.8)
 PSC_FIRST_YEAR = 1996                        # ICSG reports no producer stock change for 1995
+EXCESS_MIN_KT  = 5.0                         # BACI exports above ICSG production (§3.2.8, #111)
 PARAM_TABLES   = ["conc", "eff", "stripping_ratio", "ore_grade", "stock_bounds",
                   "scrap_share"]
 SUM_VARIANTS   = {"supplytotout": "sum_supply", "usetotout": "sum_use",
@@ -1198,6 +1199,29 @@ def sum_shares_by_region(s: pd.DataFrame) -> dict:
     return {r: float(v / z2.sum()) for r, v in z2.items()}
 
 
+def exports_beyond_production(led: pd.DataFrame, sector: str, regions: list,
+                              min_kt: float = EXCESS_MIN_KT) -> dict:
+    """Per region and year, the netting ledger's BACI exports ``X`` and ICSG production
+    ``P`` (``None`` where ICSG has no row) of ``sector`` where ``X − P > min_kt`` —
+    #111's contradictions between the two sources (kt CC)."""
+    x = led[(led.sector == sector) & led.region.isin(regions)]
+    x = x[x.X - x.P.fillna(0.0) > min_kt]
+    out: dict = {}
+    for r in x.itertuples(index=False):
+        out.setdefault(r.region, {})[str(r.time)] = [float(r.X),
+                                                     None if pd.isna(r.P) else float(r.P)]
+    return out
+
+
+def withheld_usage(led: pd.DataFrame) -> dict:
+    """The ICSG usage ADR 0027's ``imports_exhausted`` withhold leaves undistributed:
+    the groups, their usage ``U`` and its split by region, largest first (kt CC)."""
+    w = led[led.imports_exhausted.astype(bool)]
+    by = w.groupby("region").U.sum().sort_values(ascending=False)
+    return {"groups": int(len(w)), "usage_kt": float(w.U.sum()),
+            "by_region": {r: float(v) for r, v in by.items()}}
+
+
 def limitation_numbers(N: Numbers, inp: Path, ch: Chain, e: pd.DataFrame, s: pd.DataFrame,
                        sigma_a: np.ndarray) -> None:
     """Group 11: the numbers of method.md §3.2.8."""
@@ -1248,6 +1272,16 @@ def limitation_numbers(N: Numbers, inp: Path, ch: Chain, e: pd.DataFrame, s: pd.
             worst[r] = [x.year[i], x.c[i], x.c[i] + x.z[i] * x.sigma_c[i]]
     N.add("method:L352.anode_use_total_worst", "largest-|z| CC anode use total of the four regions "
           "with the largest shares: year, c, c* (#111)", worst, "kt CC")
+
+    led = pd.read_csv(inp / "feed" / "baci" / f"v{ch.versions['baci']}" / "reexport_ledger.csv")
+    for sector in ("Anode", "Cathode"):
+        N.add(f"method:L352.{sector.lower()}_exports_beyond_production",
+              f"BACI {sector.lower()} exports X against ICSG production P (None: no ICSG row) "
+              f"of the four regions, year by year where X − P > {EXCESS_MIN_KT:g} kt (#111)",
+              exports_beyond_production(led, sector, list(top)[:4]), "kt CC")
+    N.add("method:L352.withheld_icsg_usage", "ICSG usage the netting's imports_exhausted withhold "
+          "leaves undistributed: groups, kt CC, by region (ADR 0027 am., #111)",
+          withheld_usage(led), "kt CC")
 
 
 # =============================================================================
