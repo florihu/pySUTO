@@ -4,7 +4,9 @@
 `opt_20261022_091224_7ce11edb` (no overrides) and `opt_20261022_093350_82d7c31d` (all 66 knobs explicit at their
 defaults) reproduce `opt_20261021_131744_58504ad3` in every stored array, `F_opt` in 30/30 years, except one. The
 imputation log holds the same rows in another order. That order is drawn per process by a NetworkImputer set
-iteration older than this decision (#113).
+iteration older than this decision (#113). Since `0d49c45` the balances are visited in sorted order: two runs under
+different hash seeds reproduce `imp_20261022_111102_1b49a2b3` in every array and write one log (2026-11-02, #113,
+`imp_20261102_094925_95744204`).
 
 A sensitivity study varies the stage drivers' tuning constants (**knobs**) across many chains. The
 knobs live as UPPER_CASE constants in each driver's `# USER CONFIGURATION` block, read inside `main()`,
