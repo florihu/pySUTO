@@ -5,7 +5,7 @@ const sum=(...as)=>Y.map((_,i)=>as.reduce((t,a)=>t+a[i],0));
 
 function niceTicks(lo,hi,n){const r=hi-lo||1;const raw=r/n;const p=Math.pow(10,Math.floor(Math.log10(raw)));const c=raw/p;const s=(c<1.5?1:c<3.5?2:c<7.5?5:10)*p;const t=[];for(let v=Math.floor(lo/s)*s;v<=hi+1e-9;v+=s)t.push(+v.toFixed(10));if(t[t.length-1]<hi)t.push(+(t[t.length-1]+s).toFixed(10));return t;}
 const svgEl=(t,a)=>{const e=document.createElementNS('http://www.w3.org/2000/svg',t);for(const k in a)e.setAttribute(k,a[k]);return e;};
-function legend(el,items){const d=el||document.createElement('div');d.className='legend';d.innerHTML=items.map(s=>`<span class="key"><i class="${s.sq?'sq':''}${s.dash?' dash':''}" style="background:${s.dash?'':s.color}"></i>${s.name}</span>`).join('');return d;}
+function legend(el,items){const d=el||document.createElement('div');d.className='legend';d.innerHTML=items.map(s=>`<span class="key"><i class="${s.sq?'sq':''}${s.dash?' dash':''}" style="${s.dash?(s.color?'color:'+s.color:''):'background:'+s.color}"></i>${s.name}</span>`).join('');return d;}
 function tipRows(title,rows){return `<b>${title}</b>`+rows.map(r=>`<div class="row"><span><i style="background:${r.color}"></i>${r.name}</span><span>${r.val}</span></div>`).join('');}
 // clampBottom (opt-in): keep a tooltip taller than the pointer's headroom inside the chart
 function attachTip(wrap,svg,W,onMove,clampBottom){const tip=document.createElement('div');tip.className='tip';tip.hidden=true;wrap.appendChild(tip);

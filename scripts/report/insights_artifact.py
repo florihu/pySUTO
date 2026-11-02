@@ -4,8 +4,9 @@ insights_artifact.py
 Data block of the "Copper Metabolism 1995–2024" insight artifact, read off one
 opt run: absolute process outputs and system-boundary flows, a World Sankey with
 the traded part of every commodity split out, scrap-versus-primary ratios,
-concentration by chain step and the bilateral structure of the four traded
-commodities. Every value is copper content in kt Cu and posterior unless the key
+concentration by chain step, the bilateral structure of the four traded
+commodities and two trade-linked chains (smelting route, SX-EW route) for every year.
+Every value is copper content in kt Cu and posterior unless the key
 says ``_prior``.
 
     python scripts/report/insights_artifact.py <opt_run_id> [--years 1995 2010 2024]
@@ -35,6 +36,7 @@ SNAPSHOTS  = [1995, 2010, 2024]     # years embedded for the Sankey and the trad
 TOP_N      = 20                     # named regions in the trade figures; the rest is pooled
 MIN_KT     = 300.0                  # scrap-share bars: regions whose feed exceeds this
 LEG_MIN_KT = 0.1                    # bilateral legs below this are not written
+CHAIN_N    = 10                     # named regions per column of a trade-linked chain
 EU14 = ["Germany", "Italy", "France", "Spain", "Poland", "Belgium", "Netherlands",
         "Austria", "Sweden", "Bulgaria", "Greece", "Portugal", "Slovakia", "Luxembourg"]
 TRADED = ["Concentrate", "Matte", "Anode", "Cathode"]
@@ -119,6 +121,21 @@ SANKEY_LINKS = [
     ("CFR",      "Slag",     "Slag",                  "loss",        ("CFR", "Slag"),             False),
     ("ER",       "Slag",     "Slag",                  "loss",        ("ER", "Slag"),              False),
 ]
+# Trade-linked chains (after Sun et al. 2017, Fig. 4): columns are chain steps, each gap is one
+# commodity running from the region that makes it to the region that uses it, domestic and
+# cross-border alike. Column: (label, input from outside the chain: (label, [(from, to)])).
+CHAIN_COLS = [("Mining &\nconcentration",        None),
+              ("Smelting",                       ("Scrap", [("Scrap", "Smelting")])),
+              ("Converting &\nfire refining",     ("Scrap", [("Scrap", "CFR")])),
+              ("Electrorefining &\ncathode pool", ("SX-EW cathode", [("CSXEW", "CP")])),
+              ("Final use",                      None)]
+CHAIN_GAPS = [("Concentrate", "Concentrate", "Smelting"),
+              ("Matte",       "Matte",       "CFR"),
+              ("Anode",       "Anode",       "ER"),
+              ("Cathode",     "Cathode",     "FU")]
+# The SX-EW route. Its cathode leaves the cathode pool mixed with ER cathode, so its second
+# gap is each region's cathode shipments times the SX-EW share of that region's pool.
+SXEW_COLS  = [("Mining\n(ore to leaching)", None), ("SX-EW", None), ("Final use", None)]
 
 
 # ---------------------------------------------------------------------------
@@ -179,6 +196,10 @@ def group_conc(region: str) -> str:
     if region in ("United States", "Chile", "Peru"):
         return region
     return "Rest of world"
+
+
+def group_eu(regions: pd.Series) -> pd.Series:
+    return regions.where(~regions.isin(EU14), "EU-14")
 
 
 def group_scrap(region: str) -> str:
@@ -330,6 +351,91 @@ def trade_block(cc: pd.DataFrame, years: list) -> dict:
     return out
 
 
+def chain_legs(df: pd.DataFrame) -> pd.DataFrame:
+    """One gap of a chain: value per year, from and to region (EU-14 pooled), split into the
+    part that stays in its region (``dom``) and the part that crosses a border (``trd``)."""
+    d = df[["year", "from_region", "to_region", "a_post"]].rename(
+        columns={"from_region": "f", "to_region": "t", "a_post": "v"})
+    d["dom"] = d.v.where(d.f == d.t, 0.0)
+    d["trd"] = d.v - d.dom
+    d["f"], d["t"] = group_eu(d.f), group_eu(d.t)
+    return d.groupby(["year", "f", "t"], as_index=False)[["v", "dom", "trd"]].sum()
+
+
+def sxew_cathode(cc: pd.DataFrame) -> pd.DataFrame:
+    """Cathode shipments to final use times the SX-EW share of the shipping region's pool."""
+    sx   = flow(cc, "CSXEW", "CP").groupby(["year", "to_region"]).a_post.sum()
+    pool = sx.add(flow(cc, "CER", "CP").groupby(["year", "to_region"]).a_post.sum(),
+                  fill_value=0.0)
+    share = (sx / pool).fillna(0.0)
+    d = flow(cc, "Cathode", "FU").copy()
+    d["a_post"] = d.a_post * share.reindex(
+        pd.MultiIndex.from_arrays([d.year, d.from_region])).fillna(0.0).to_numpy()
+    return d
+
+
+def chain_block(cols: list, labels: list, gaps: list, adds: list) -> dict:
+    """One trade-linked chain for every year. ``gaps`` holds one ``chain_legs`` frame per gap,
+    ``adds`` one year × region series (or None) per column. Each column names its CHAIN_N
+    largest regions by 1995–2024 throughput, largest first, and pools ROW and the rest into
+    "Other"; links are [from index, to index, domestic, cross-border] in kt Cu."""
+    names = []
+    for j in range(len(cols)):
+        inn = gaps[j-1].groupby(["year", "t"]).v.sum() if j > 0 else None
+        out = gaps[j].groupby(["year", "f"]).v.sum() if j < len(gaps) else None
+        if inn is not None:
+            inn.index.names = ["year", "r"]
+            if adds[j] is not None:
+                inn = inn.add(adds[j], fill_value=0.0)
+        if out is not None:
+            out.index.names = ["year", "r"]
+        tp = (out if inn is None else inn if out is None
+              else pd.concat([inn, out], axis=1).fillna(0.0).max(axis=1))
+        cum = tp.groupby("r").sum().drop("ROW", errors="ignore").sort_values(ascending=False)
+        names.append(cum.index[:CHAIN_N].tolist() + ["Other"])
+    pos = [{r: i for i, r in enumerate(n)} for n in names]
+    years = {}
+    for y in YEARS:
+        links = []
+        for g, d in enumerate(gaps):
+            d = d[d.year == y]
+            fi = d.f.map(pos[g]).fillna(pos[g]["Other"]).astype(int).to_numpy()
+            ti = d.t.map(pos[g+1]).fillna(pos[g+1]["Other"]).astype(int).to_numpy()
+            s = d[["dom", "trd"]].groupby([fi, ti]).sum()
+            s = s[s.dom + s.trd >= LEG_MIN_KT]
+            links.append([[int(f), int(t), round(float(r.dom), 1), round(float(r.trd), 1)]
+                          for (f, t), r in s.iterrows()])
+        add = []
+        for j, a in enumerate(adds):
+            if a is None:
+                add.append(None)
+                continue
+            a = a.xs(y, level="year")
+            a = a.groupby(a.index.map(lambda r: r if r in pos[j] else "Other")).sum()
+            add.append([round(float(a.get(r, 0.0)), 1) for r in names[j]])
+        years[str(y)] = {"links": links, "add": add}
+    return {"cols": [{"label": c[0], "add": c[1][0] if c[1] else None, "regions": n}
+                     for c, n in zip(cols, names)],
+            "gaps": labels, "years": years}
+
+
+def chain_blocks(cc: pd.DataFrame) -> dict:
+    adds = []
+    for _, add in CHAIN_COLS:
+        if add is None:
+            adds.append(None)
+            continue
+        a = pd.concat([flow(cc, sf, st) for sf, st in add[1]])
+        a = a.assign(r=group_eu(a.to_region)).groupby(["year", "r"]).a_post.sum()
+        adds.append(a)
+    main = chain_block(CHAIN_COLS, [g[0] for g in CHAIN_GAPS],
+                       [chain_legs(flow(cc, sf, st)) for _, sf, st in CHAIN_GAPS], adds)
+    sxew = chain_block(SXEW_COLS, ["Ore", "SX-EW cathode"],
+                       [chain_legs(flow(cc, "Ore", "SXEW")), chain_legs(sxew_cathode(cc))],
+                       [None] * len(SXEW_COLS))
+    return {"chain": main, "chain_sxew": sxew}
+
+
 # ---------------------------------------------------------------------------
 # checks and headline numbers
 # ---------------------------------------------------------------------------
@@ -394,6 +500,25 @@ def report(cc: pd.DataFrame, data: dict) -> None:
     print(f"== Chile concentrate exports 2024: {x.a_post.sum():.0f} kt, to China "
           f"{x[x.to_region == 'China'].a_post.sum() / x.a_post.sum() * 100:.0f} %; "
           f"retention Σpost/Σprior {x.a_post.sum() / x.a_prior.sum():.3f}")
+    for key in ("chain", "chain_sxew"):
+        B = data[key]
+        print(f"== {key}: named regions per column, gap totals, region balance in + add − out")
+        for c in B["cols"]:
+            print(f"   {c['label']!r:36s} {', '.join(c['regions'][:-1])}")
+        for y in SNAPSHOTS:
+            g = B["years"][str(y)]
+            tot = [sum(l[2] + l[3] for l in ls) for ls in g["links"]]
+            trd = [sum(l[3] for l in ls) for ls in g["links"]]
+            print(f"   {y}: " + "; ".join(f"{lab} {t:.0f} kt ({x / t * 100:.0f} % crosses a border)"
+                                         for lab, t, x in zip(B["gaps"], tot, trd)))
+            for j in range(1, len(B["cols"]) - 1):
+                n = len(B["cols"][j]["regions"])
+                bal = list(g["add"][j]) if g["add"][j] else [0.0] * n
+                for l in g["links"][j-1]:
+                    bal[l[1]] += l[2] + l[3]
+                for l in g["links"][j]:
+                    bal[l[0]] -= l[2] + l[3]
+                print(f"      {B['cols'][j]['label']!r:36s} min {min(bal):8.1f}  max {max(bal):8.1f} kt")
 
 
 # ---------------------------------------------------------------------------
@@ -416,6 +541,7 @@ def main() -> None:
     data.update(conc_block(cc))
     data["sankey"] = sankey_block(cc, args.years)
     data["trade"]  = trade_block(cc, args.years)
+    data.update(chain_blocks(cc))
     out.parent.mkdir(parents=True, exist_ok=True)
     out.write_text(json.dumps(data, separators=(",", ":")))
     print(f"wrote {out} ({out.stat().st_size / 1024:.0f} kB); run {args.opt} "

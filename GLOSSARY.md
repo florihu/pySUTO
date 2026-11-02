@@ -1249,7 +1249,8 @@ generic stage drivers. The copper case is the first. _Avoid_: "model" (the QP, t
 
 **ROW** — *Rest of World*, the residual region aggregate for countries not individually
 represented. Canonical sentinel: the string `"ROW"` in a node's `region`.
-_Avoid_: "RoW" (normalise to upper-case), "rest-of-world".
+_Avoid_: "RoW" (normalise to upper-case), "rest-of-world"; "Other regions", a figure's pool of
+the regions it does not name, which holds ROW together with the named regions left out.
 
 **`row` mask** — the named edge mask selecting edges that touch ROW on **either** endpoint
 (`region_from == "ROW"` **or** `region_to == "ROW"`). A registered input mask

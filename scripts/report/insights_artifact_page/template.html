@@ -8,12 +8,17 @@
   color-scheme:light;
   --bg:#f5f4f0; --surface:#fcfcfb; --ink:#161614; --ink2:#4f4e4a; --muted:#86847e;
   --grid:#e3e2dc; --axis:#c5c4bd; --border:rgba(22,22,20,.12); --wash:rgba(22,22,20,.045);
-  --c-china:#2a78d6; --c-eu:#eb6834; --c-us:#1baf7a; --c-rest:#b3b2a9;
-  --c-4:#eda100; --c-ref:#4a3aa7; --c-chile:#eda100; --c-peru:#e87ba4;
-  --r1:#6da7ec; --r2:#3987e5; --r3:#256abf; --r4:#184f95; --r5:#0d366b;
-  --k-ore:#6da7ec; --k-conc:#2a78d6; --k-matte:#e87ba4; --k-anode:#eda100; --k-ref:#184f95;
-  --k-cath:#4a3aa7; --k-scrap:#eb6834; --k-loss:#b3b2a9; --k-slag:#86847e; --k-stock:#c98500;
-  --k-use:#1baf7a;
+  /* one palette for chapters 1-5 (#115): a region (--c-*) and a flow (--k-*) keep their colour in
+     every figure and no hex means two things. Flows are an ordinal copper ramp in chain order (ore
+     light -> cathode dark; cathode also colours the final-use sink), scrap its own green, losses and
+     unnamed regions neutral greys. Regions sit outside the copper and scrap bands; stacks interleave
+     the hue families (China, EU-14, Japan, US, South Korea | China, EU-14, Chile, US, Peru) so each
+     theme's set passes the dataviz validator's adjacent floors (normal dE >= 15, CVD >= 6 with direct
+     labels). */
+  --c-china:#f1677e; --c-eu:#3b60ca; --c-us:#0099c9; --c-japan:#c251a0; --c-korea:#992877;
+  --c-chile:#829600; --c-peru:#787600; --c-rest:#c4c3bd;
+  --k-ore:#fb923c; --k-conc:#ea580c; --k-matte:#c2410c; --k-anode:#903300; --k-cath:#5c1800;
+  --k-scrap:#009c60; --k-stock:#64748b; --k-loss:#a8a29e; --k-slag:#57534e;
   --warn-bg:#fbf3e4; --warn-line:#c98500;
   /* chapter 6: the 16 IWCC end-use categories in legend order, one hue family per group,
      lightness alternating within a family; each theme's set passes the dataviz validator's
@@ -28,12 +33,10 @@
     color-scheme:dark;
     --bg:#121211; --surface:#1a1a19; --ink:#f2f1ec; --ink2:#c3c2b7; --muted:#8e8d87;
     --grid:#2c2c2a; --axis:#3a3a37; --border:rgba(255,255,255,.12); --wash:rgba(255,255,255,.06);
-    --c-china:#3987e5; --c-eu:#d95926; --c-us:#199e70; --c-rest:#6b6a66;
-    --c-4:#c98500; --c-ref:#9085e9; --c-chile:#c98500; --c-peru:#d55181;
-    --r1:#0d366b; --r2:#1c5cab; --r3:#3987e5; --r4:#6da7ec; --r5:#9ec5f4;
-    --k-ore:#9ec5f4; --k-conc:#3987e5; --k-matte:#d55181; --k-anode:#c98500; --k-ref:#6da7ec;
-    --k-cath:#9085e9; --k-scrap:#d95926; --k-loss:#6b6a66; --k-slag:#8e8d87; --k-stock:#eda100;
-    --k-use:#199e70;
+    --c-china:#d44d67; --c-eu:#4d75e0; --c-us:#009ed0; --c-japan:#a63888; --c-korea:#d661ad;
+    --c-chile:#677700; --c-peru:#999600; --c-rest:#5a5955;
+    --k-ore:#fed7aa; --k-conc:#fdba74; --k-matte:#fb923c; --k-anode:#ea580c; --k-cath:#c2410c;
+    --k-scrap:#26b373; --k-stock:#94a3b8; --k-loss:#8a847e; --k-slag:#bdb7b1;
     --warn-bg:#2a2416; --warn-line:#c98500;
     --eu1:#0081a2; --eu2:#334eff; --eu3:#0a9fdd; --eu4:#0060ba; --eu5:#6f87ff; --eu6:#ff4544;
     --eu7:#b90216; --eu8:#00ad86; --eu9:#02771e; --eu10:#9f9800; --eu11:#855700; --eu12:#d27c01;
@@ -44,12 +47,10 @@
   color-scheme:dark;
   --bg:#121211; --surface:#1a1a19; --ink:#f2f1ec; --ink2:#c3c2b7; --muted:#8e8d87;
   --grid:#2c2c2a; --axis:#3a3a37; --border:rgba(255,255,255,.12); --wash:rgba(255,255,255,.06);
-  --c-china:#3987e5; --c-eu:#d95926; --c-us:#199e70; --c-rest:#6b6a66;
-  --c-4:#c98500; --c-ref:#9085e9; --c-chile:#c98500; --c-peru:#d55181;
-  --r1:#0d366b; --r2:#1c5cab; --r3:#3987e5; --r4:#6da7ec; --r5:#9ec5f4;
-  --k-ore:#9ec5f4; --k-conc:#3987e5; --k-matte:#d55181; --k-anode:#c98500; --k-ref:#6da7ec;
-  --k-cath:#9085e9; --k-scrap:#d95926; --k-loss:#6b6a66; --k-slag:#8e8d87; --k-stock:#eda100;
-  --k-use:#199e70;
+  --c-china:#d44d67; --c-eu:#4d75e0; --c-us:#009ed0; --c-japan:#a63888; --c-korea:#d661ad;
+  --c-chile:#677700; --c-peru:#999600; --c-rest:#5a5955;
+  --k-ore:#fed7aa; --k-conc:#fdba74; --k-matte:#fb923c; --k-anode:#ea580c; --k-cath:#c2410c;
+  --k-scrap:#26b373; --k-stock:#94a3b8; --k-loss:#8a847e; --k-slag:#bdb7b1;
   --warn-bg:#2a2416; --warn-line:#c98500;
   --eu1:#0081a2; --eu2:#334eff; --eu3:#0a9fdd; --eu4:#0060ba; --eu5:#6f87ff; --eu6:#ff4544;
   --eu7:#b90216; --eu8:#00ad86; --eu9:#02771e; --eu10:#9f9800; --eu11:#855700; --eu12:#d27c01;
@@ -80,7 +81,6 @@ figcaption.note{font-size:13.5px;color:var(--ink2);margin-top:8px;max-width:78ch
 .legend .key{display:inline-flex;align-items:center;gap:7px}
 .legend .key i{display:inline-block;width:14px;height:3px;border-radius:2px}
 .legend .key i.sq{width:11px;height:11px;border-radius:2px}
-.legend .key i.hatch{width:18px;height:11px;border-radius:2px;background:repeating-linear-gradient(45deg,currentColor 0 3px,transparent 3px 6px)}
 .legend .key i.dash{background:repeating-linear-gradient(90deg,currentColor 0 4px,transparent 4px 7px);color:var(--muted)}
 .legend .key i.tick{width:2px;height:12px;background:var(--ink);border-radius:0}
 .glegend{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px 18px;font-size:12.5px;line-height:1.3;color:var(--ink2);margin:0 0 10px}
@@ -118,6 +118,11 @@ figcaption.note{font-size:13.5px;color:var(--ink2);margin-top:8px;max-width:78ch
 .yswitch button{font:inherit;color:var(--ink2);background:var(--wash);border:1px solid var(--border);border-radius:3px;padding:3px 10px;cursor:pointer}
 .yswitch button[aria-pressed="true"]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
 .yswitch button:focus-visible{outline:2px solid var(--c-china);outline-offset:1px}
+.yslide{display:flex;align-items:center;gap:12px;margin:0 0 10px;font-family:"IBM Plex Mono",ui-monospace,monospace;font-size:12px;color:var(--muted)}
+.yslide label{display:flex;align-items:center;gap:10px;flex:1;max-width:460px}
+.yslide span{letter-spacing:.06em;text-transform:uppercase}
+.yslide input{flex:1;min-width:0;accent-color:var(--ink)}
+.yslide output{font-size:14px;color:var(--ink);min-width:3em}
 table{border-collapse:collapse;width:100%;font-size:14px;font-variant-numeric:tabular-nums}
 th,td{padding:7px 10px;text-align:right;border-bottom:1px solid var(--grid);vertical-align:baseline}
 th{font-weight:600;color:var(--ink2);font-size:12.5px;letter-spacing:.02em}
@@ -199,14 +204,14 @@ footer{padding-block:28px 0;font-size:13px;color:var(--muted);font-family:"IBM P
 <section class="part" id="p2">
   <p class="eyebrow">2 · The chain in one picture</p>
   <h2>30 Mt in from the ground, 27 Mt of cathode out, and the traded part of every commodity made visible.</h2>
-  <p class="insight">Hatched links cross a border. In 2024, 60 % of the world's concentrate is smelted in a region other than the one that mined it (11.3 of 18.8 Mt Cu), a third of the cathode is used abroad (9.5 of 27.5 Mt), 7 % of anode changes hands and matte barely moves at all.</p>
+  <p class="insight">Full-colour links cross a border, pale ones stay in their region. In 2024, 60 % of the world's concentrate is smelted in a region other than the one that mined it (11.3 of 18.8 Mt Cu), a third of the cathode is used abroad (9.5 of 27.5 Mt), 7 % of anode changes hands and matte barely moves at all.</p>
 
   <figure>
-    <div class="cap"><h3>World copper system, Sankey of the reconciled flows</h3><span class="unit">world · kt Cu · node labels in Mt Cu</span></div>
+    <div class="cap"><h3>World copper system, Sankey of the reconciled flows</h3><span class="unit">world · Mt Cu · one scale for all three years</span></div>
     <div class="yswitch" role="group" aria-label="Year"><span>Year</span><button type="button" data-y="1995">1995</button><button type="button" data-y="2010">2010</button><button type="button" data-y="2024" aria-pressed="true">2024</button></div>
     <div class="legend" id="lg2"></div>
     <div class="chart scroll" id="f2a"></div>
-    <figcaption class="note">Processes are dark bars, system-boundary sources and sinks are coloured by what they are. Commodity nodes are folded into the links between the process that makes them and the process that uses them; the link colour names the commodity. Within each column the vertical order is chosen by the layout to minimise crossings. Hover a link for its value and its share of the sending process; hover a node to isolate its flows. Negative stock changes are drawn as inflows from the stock.</figcaption>
+    <figcaption class="note">Processes are dark bars, system-boundary sources and sinks are coloured by what they are. Commodity nodes are folded into the links between the process that makes them and the process that uses them; the link colour names the commodity. Within each column the vertical order is chosen by the layout to minimise crossings. Hover a link for its value and its share of the sending process; hover a node to isolate its flows. Negative stock changes are drawn as inflows from the stock. All three years share one scale, so the 1995 system is drawn smaller.</figcaption>
   </figure>
 
   <ul class="reads">
@@ -302,11 +307,19 @@ footer{padding-block:28px 0;font-size:13px;color:var(--muted);font-family:"IBM P
   <p class="insight">Concentrate trade grew from 2.3 to 11.3 Mt Cu, from 26 % to 60 % of what is produced; cathode trade from 4.8 to 9.5 Mt. China imports 11.9 Mt, more than half of everything traded, where in 1995 the largest importer was Japan at 1.5 Mt. Chile and Peru send most of their concentrate to China, and the DR Congo's 2.3 Mt of cathode go there too.</p>
 
   <figure>
-    <div class="cap"><h3>Trade-linked flow of copper, exporter → importer per commodity</h3><span class="unit">kt Cu · ribbon width on one scale for all three years</span></div>
-    <div class="yswitch" role="group" aria-label="Year"><span>Year</span><button type="button" data-y="1995">1995</button><button type="button" data-y="2010">2010</button><button type="button" data-y="2024" aria-pressed="true">2024</button></div>
+    <div class="cap"><h3>Trade-linked flow of copper along the smelting route</h3><span class="unit">Mt Cu · one scale for every year and both chains</span></div>
+    <div class="yslide"><label><span>Year</span><input type="range" min="1995" max="2024" step="1" value="2024" aria-label="Year"></label><output>2024</output></div>
     <div class="legend" id="lg5a"></div>
     <div class="chart scroll" id="f5a"></div>
-    <figcaption class="note">After Sun et al. (2017), Fig. 4. Each pair of columns is one commodity: a ribbon runs from the exporting region on the left to the importing region on the right, its width proportional to copper content. Regions are the twenty largest traders of 2024, net exporters at the top, net importers at the bottom, the rest pooled; legs between two pooled regions are not drawn. Matte is left out here (146 kt Cu in 2024) but kept in the bars below. Click a region to isolate its legs; hover a ribbon for the value and its share of the exporter's shipments.</figcaption>
+    <figcaption class="note">After Sun et al. (2017), Fig. 4, drawn to scale. Each column is one step of the chain, its boxes the ten largest regions of that step over 1995–2024 (EU‑14 as one), with ROW and the rest pooled as Other regions. Each gap carries one commodity from the region that makes it to the region that uses it: pale ribbons stay in their region, full ribbons cross a border (between EU‑14 members included). A box is as tall as the larger of what its region receives and what it ships; scrap and SX‑EW cathode enter from the left below the incoming ribbons, and the space left under the outgoing ribbons is slag and stock change. Final use leaves out stock changes (exchange stocks +187 kt Cu, user stocks −56 kt in 2024). Click a region to isolate its ribbons; hover for values.</figcaption>
+  </figure>
+
+  <figure>
+    <div class="cap"><h3>Trade-linked flow of copper along the SX‑EW route</h3><span class="unit">Mt Cu · same scale as the smelting route</span></div>
+    <div class="yslide"><label><span>Year</span><input type="range" min="1995" max="2024" step="1" value="2024" aria-label="Year"></label><output>2024</output></div>
+    <div class="legend" id="lg5e"></div>
+    <div class="chart scroll" id="f5e"></div>
+    <figcaption class="note">Ore leached and electrowon where it is mined, so the first gap never crosses a border; the space under SX‑EW's outgoing ribbons is what leaching leaves in the tailings. SX‑EW cathode joins electrorefined cathode in each region's cathode pool and is not traded under its own name: the second gap gives each region's cathode shipments times the SX‑EW share of its pool (Chile 63 %, DR Congo 99 % in 2024), an assumption of this figure, not of the model.</figcaption>
   </figure>
 
   <figure>
@@ -333,7 +346,7 @@ footer{padding-block:28px 0;font-size:13px;color:var(--muted);font-family:"IBM P
   <ul class="reads">
     <li><b>The concentrate funnel.</b> Chile → China (2.4 Mt Cu) and Peru → China (1.9 Mt) are the two largest legs in the system; China's smelters take 7.4 of the 11.3 Mt traded, and Chile sends 71 % of its concentrate exports there.</li>
     <li><b>The cathode counter-flow.</b> DR Congo → China (1.5 Mt), Chile → United States (0.6 Mt) and Chile → China (0.5 Mt) lead; Japan exports 0.8 Mt of cathode while importing 1.3 Mt of concentrate, the profile of a smelting hub.</li>
-    <li><b>Anode is a regional niche.</b> 1.5 Mt in 2024: Zambia into China (0.23 Mt) and India (0.18), the DR Congo and Chile into China, Bulgaria into Germany.</li>
+    <li><b>Anode is a regional niche.</b> 1.5 Mt in 2024: Zambia into China (0.23 Mt) and India (0.18), the DR Congo and Chile into China, and within the EU‑14 Bulgaria into Germany.</li>
     <li><b>Matte stays home.</b> 146 kt Cu, under 1 % of what is smelted: the smelter and the converter sit on the same site.</li>
     <li><b>The importers changed, the exporters less so.</b> Japan took 1.5 Mt in 1995 and 1.3 Mt in 2024, the United States 0.8 and 0.9; China went from a marginal importer to 11.9 Mt. Chile was the largest exporter in both years (2.2 → 5.5 Mt), joined by the DR Congo (2.8) and Peru (2.8).</li>
   </ul>

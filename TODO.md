@@ -110,7 +110,7 @@ Branch `diag/manuscript-refresh-3`.
 - **Ledger:** outcomes unchanged (A1, A2, A4, A5, B2 fail; A3, B1, B3 pass). B2 refining 0.230 [0.226, 0.234]
   lies below the 0.25 line, and A4 fails in every year also at the intervals' upper ends. #99's degenerate
   family moves no interval bound by more than 0.002.
-- **Artifact:** the Copper Metabolism page reads the same chain (version 9).
+- **Artifact:** the Copper Metabolism page reads the same chain (version 9; version 10, 2026-11-02, redraws chapter 5 as trade-linked chains for every year; version 11 gives a flow or region one colour in every figure, and its chapters 1–5 have a Word version, #115; the manuscript figures follow in #116).
 - **Results prose:** ≈ 1,038 words against the 1,000 budget.
 
 ## #111 MEASURED 2026-10-22 — the four regions are two feed defects and five contradictions; F2 ships (−0.672 %), F1 rejected (+1.67 %)
