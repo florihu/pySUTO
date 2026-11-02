@@ -6,7 +6,8 @@ const Y=D.meta.years, N=Y.length;
 // ---------- shared ----------
 const rname=r=>r==='Congo, D.R.'?'DR Congo':r==='Korea, Rep.'?'South Korea':r==='ROW'?'ROW (residual)':r==='Other'?'Other regions':r;
 const mt=v=>fmt(v/1000,v>=10000?1:2)+' Mt';
-const KIND={ore:'var(--k-ore)',concentrate:'var(--k-conc)',matte:'var(--k-matte)',anode:'var(--k-anode)',refined:'var(--k-ref)',cathode:'var(--k-cath)',scrap:'var(--k-scrap)',loss:'var(--k-loss)',stock:'var(--k-stock)',use:'var(--k-use)',process:'var(--ink)'};
+const KIND={ore:'var(--k-ore)',concentrate:'var(--k-conc)',matte:'var(--k-matte)',anode:'var(--k-anode)',refined:'var(--k-cath)',cathode:'var(--k-cath)',scrap:'var(--k-scrap)',loss:'var(--k-loss)',stock:'var(--k-stock)',use:'var(--k-cath)',process:'var(--ink)'};
+const OP_DOM=.25,OP_TRD=.7;   // fill opacity of flows that stay in their region / cross a border (Sankey, chains)
 const COMM={Concentrate:'var(--k-conc)',Matte:'var(--k-matte)',Anode:'var(--k-anode)',Cathode:'var(--k-cath)'};
 const state={year:2024,focus:null};
 function attachTipEl(wrap,svg,W,fn){const tip=document.createElement('div');tip.className='tip';tip.hidden=true;wrap.appendChild(tip);
@@ -36,10 +37,10 @@ function areaChart(root,o){
 
 // ================= PART 1: system size =================
 const P=D.process_out;
-const P_SERIES=[['Ore mined','Mining (ore)','var(--r1)'],['Concentrate','Concentrate','var(--r2)'],['Smelter matte','Smelter matte','var(--r3)'],['Anode','Anode','var(--r4)'],['Refined cathode','Cathode','var(--r5)'],['SX‑EW cathode','SX-EW cathode','var(--c-4)']];
+const P_SERIES=[['Ore mined','Mining (ore)','var(--k-ore)'],['Concentrate','Concentrate','var(--k-conc)'],['Smelter matte','Smelter matte','var(--k-matte)'],['Anode','Anode','var(--k-anode)'],['Refined cathode','Cathode','var(--k-cath)'],['SX‑EW cathode','SX-EW cathode','var(--k-cath)',true]];
 const f1a=document.getElementById('f1a');
-f1a.appendChild(legend(null,P_SERIES.map(([n,k,c])=>({name:n,color:c}))));
-lineChart(f1a,{aria:'Process outputs along the chain, Mt Cu',series:P_SERIES.map(([n,k,c])=>({name:n,values:P[k],color:c})),
+f1a.appendChild(legend(null,P_SERIES.map(([n,k,c,dash])=>({name:n,color:c,dash}))));
+lineChart(f1a,{aria:'Process outputs along the chain, Mt Cu',series:P_SERIES.map(([n,k,c,dash])=>({name:n,values:P[k],color:c,dash})),
   yfmt:v=>fmt(v/1000,0),tipfmt:v=>fmt(v,0)+' kt',endVal:v=>fmt(v/1000,1),ydomain:[0,30000],nticks:6,table:false});
 dataTable(f1a,Object.keys(P),Y.map((y,i)=>[y,...Object.keys(P).map(k=>fmt(P[k][i],0))]),'Year');
 
@@ -52,8 +53,8 @@ const f1b=document.getElementById('f1b');
 f1b.appendChild(legend(null,[{name:'Ore in situ',color:'var(--k-ore)',sq:1},{name:'Scrap (smelters + refineries)',color:'var(--k-scrap)',sq:1}]));
 areaChart(f1b,{aria:'Boundary inputs, Mt Cu',series:[{name:'Ore in situ',values:SI['Ore in situ (nature)'],color:'var(--k-ore)'},{name:'Scrap',values:scrapTot,color:'var(--k-scrap)'}],max:36000,yfmt:v=>fmt(v/1000,0),nticks:6});
 const f1c=document.getElementById('f1c');
-f1c.appendChild(legend(null,[{name:'Final use',color:'var(--k-use)',sq:1},{name:'Stock changes',color:'var(--k-stock)',sq:1},{name:'Tailings',color:'var(--k-loss)',sq:1},{name:'Slag',color:'var(--k-slag)',sq:1}]));
-areaChart(f1c,{aria:'Boundary outputs, Mt Cu',series:[{name:'Final use',values:SO['Final use'],color:'var(--k-use)'},{name:'Stock changes',values:stockTot,color:'var(--k-stock)'},{name:'Tailings',values:tailTot,color:'var(--k-loss)'},{name:'Slag',values:slagTot,color:'var(--k-slag)'}],max:36000,yfmt:v=>fmt(v/1000,0),nticks:6});
+f1c.appendChild(legend(null,[{name:'Final use',color:'var(--k-cath)',sq:1},{name:'Stock changes',color:'var(--k-stock)',sq:1},{name:'Tailings',color:'var(--k-loss)',sq:1},{name:'Slag',color:'var(--k-slag)',sq:1}]));
+areaChart(f1c,{aria:'Boundary outputs, Mt Cu',series:[{name:'Final use',values:SO['Final use'],color:'var(--k-cath)'},{name:'Stock changes',values:stockTot,color:'var(--k-stock)'},{name:'Tailings',values:tailTot,color:'var(--k-loss)'},{name:'Slag',values:slagTot,color:'var(--k-slag)'}],max:36000,yfmt:v=>fmt(v/1000,0),nticks:6});
 
 (function(){const i10=Y.indexOf(2010);
   const r=(name,a,cls)=>`<tr class="${cls||''}"><td>${name}</td><td class="num">${fmt(a[0]/1000,2)}</td><td class="num">${fmt(a[i10]/1000,2)}</td><td class="num">${fmt(a[N-1]/1000,2)}</td><td class="num">${a[0]>0?'×'+(a[N-1]/a[0]).toFixed(2):'–'}</td></tr>`;
@@ -64,41 +65,48 @@ areaChart(f1c,{aria:'Boundary outputs, Mt Cu',series:[{name:'Final use',values:S
 
 // ================= year switch (Sankey + trade) =================
 const switches=[...document.querySelectorAll('.yswitch')];
-function setYear(y){state.year=y;switches.forEach(s=>s.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.y===y?'true':'false')));renderSankey();renderRibbons();renderBars();}
+function setYear(y){state.year=y;switches.forEach(s=>s.querySelectorAll('button').forEach(b=>b.setAttribute('aria-pressed',+b.dataset.y===y?'true':'false')));renderSankey();renderBars();}
 switches.forEach(s=>s.querySelectorAll('button').forEach(b=>b.addEventListener('click',()=>setYear(+b.dataset.y))));
 
 // ================= PART 2: Sankey =================
 const lg2=document.getElementById('lg2');
-legend(lg2,[{name:'Ore',color:'var(--k-ore)',sq:1},{name:'Concentrate',color:'var(--k-conc)',sq:1},{name:'Matte',color:'var(--k-matte)',sq:1},{name:'Anode',color:'var(--k-anode)',sq:1},{name:'Refined (ER, SX‑EW)',color:'var(--k-ref)',sq:1},{name:'Cathode',color:'var(--k-cath)',sq:1},{name:'Scrap',color:'var(--k-scrap)',sq:1},{name:'Tailings, slag',color:'var(--k-loss)',sq:1},{name:'Stock change',color:'var(--k-stock)',sq:1},{name:'Final use',color:'var(--k-use)',sq:1}]);
-lg2.insertAdjacentHTML('beforeend','<span class="key"><i class="hatch" style="color:var(--ink2)"></i>hatched: crosses a border</span>');
+legend(lg2,[{name:'Ore',color:'var(--k-ore)',sq:1},{name:'Concentrate',color:'var(--k-conc)',sq:1},{name:'Matte',color:'var(--k-matte)',sq:1},{name:'Anode',color:'var(--k-anode)',sq:1},{name:'Cathode (to final use)',color:'var(--k-cath)',sq:1},{name:'Scrap',color:'var(--k-scrap)',sq:1},{name:'Tailings, slag',color:'var(--k-loss)',sq:1},{name:'Stock change',color:'var(--k-stock)',sq:1}]);
+lg2.insertAdjacentHTML('beforeend',`<span class="key"><i class="sq" style="background:var(--ink2);opacity:${OP_DOM}"></i>stays in its region</span><span class="key"><i class="sq" style="background:var(--ink2);opacity:${OP_TRD}"></i>crosses a border</span>`);
 function sankeyTable(root){const src=D.sankey[String(state.year)];const lab=id=>src.nodes.find(n=>n.id===id).label;
   dataTable(root,['To','Commodity','Crosses a border','kt Cu'],src.links.map(l=>[lab(l.source),lab(l.target),l.label,l.traded?'yes':'no',fmt(l.value,0)]),'From');}
+// one scale for every year: the largest snapshot fills SK_H, the others keep its px per kt
+const SK_W=980,SK_H=560,SK_PAD=18,SK_M={t:18,r:150,b:18,l:12};
+function sankeyLayout(y,H){const src=D.sankey[String(y)];
+  const g={nodes:src.nodes.map(n=>Object.assign({},n)),links:src.links.map(l=>Object.assign({},l))};
+  d3.sankey().nodeId(d=>d.id).nodeWidth(14).nodePadding(SK_PAD).nodeAlign(d=>d.layer).extent([[SK_M.l,SK_M.t],[SK_W-SK_M.r,H-SK_M.b]]).iterations(64)(g);return g;}
+const kyOf=g=>{const n=g.nodes.find(n=>n.value>0);return (n.y1-n.y0)/n.value;};
+let SK_KY=null;
+function sankeyAtScale(y){
+  if(SK_KY===null)SK_KY=Math.min(...D.meta.snapshots.map(s=>kyOf(sankeyLayout(s,SK_H))));
+  const cols={};sankeyLayout(y,SK_H).nodes.forEach(n=>{const c=cols[n.layer]=cols[n.layer]||{v:0,k:0};c.v+=n.value;c.k++;});
+  const H=Math.min(SK_H,Math.ceil(Math.max(...Object.values(cols).map(c=>SK_KY*c.v+(c.k-1)*SK_PAD))+SK_M.t+SK_M.b));
+  return {graph:sankeyLayout(y,H),H};}
 function renderSankey(){
   const root=document.getElementById('f2a');root.innerHTML='';
   if(!(window.d3&&d3.sankey)){root.innerHTML='<p class="small">The Sankey needs the d3 library, which did not load; the flows are in the table below.</p>';sankeyTable(root);return;}
-  const src=D.sankey[String(state.year)];
-  const graph={nodes:src.nodes.map(n=>Object.assign({},n)),links:src.links.map(l=>Object.assign({},l))};
-  const W=980,H=560,m={t:18,r:150,b:18,l:12};
-  const sk=d3.sankey().nodeId(d=>d.id).nodeWidth(14).nodePadding(18).nodeAlign(d=>d.layer).extent([[m.l,m.t],[W-m.r,H-m.b]]).iterations(64);
-  sk(graph);
+  const W=SK_W,m=SK_M,{graph,H}=sankeyAtScale(state.year);
   const wrap=document.createElement('div');wrap.className='chart';
   const svg=svgEl('svg',{viewBox:`0 0 ${W} ${H}`,role:'img','aria-label':'World copper system '+state.year});
-  const defs=svgEl('defs',{});
-  ['concentrate','matte','anode','cathode'].forEach(k=>{const p=svgEl('pattern',{id:'hatch-'+k,patternUnits:'userSpaceOnUse',width:7,height:7,patternTransform:'rotate(45)'});
-    const a=svgEl('rect',{width:7,height:7,style:`fill:${KIND[k]};fill-opacity:.22`});const b=svgEl('rect',{width:3,height:7,style:`fill:${KIND[k]};fill-opacity:.85`});p.appendChild(a);p.appendChild(b);defs.appendChild(p);});
-  svg.appendChild(defs);
   const path=d3.sankeyLinkHorizontal();const linkEls=[];
-  graph.links.forEach(l=>{const p=svgEl('path',{d:path(l),class:'sklink',style:`fill:none;stroke:${l.traded?'url(#hatch-'+l.kind+')':KIND[l.kind]};stroke-opacity:${l.traded?1:.45};stroke-width:${Math.max(1,l.width).toFixed(1)}`});p.__l=l;svg.appendChild(p);linkEls.push(p);});
+  graph.links.forEach(l=>{const p=svgEl('path',{d:path(l),class:'sklink',style:`fill:none;stroke:${KIND[l.kind]};stroke-opacity:${l.traded?OP_TRD:OP_DOM};stroke-width:${Math.max(1,l.width).toFixed(1)}`});p.__l=l;svg.appendChild(p);linkEls.push(p);});
   graph.nodes.forEach(n=>{const r=svgEl('rect',{x:n.x0.toFixed(1),y:n.y0.toFixed(1),width:(n.x1-n.x0).toFixed(1),height:Math.max(1.5,n.y1-n.y0).toFixed(1),rx:2,style:`fill:${KIND[n.kind]}`});r.__n=n;svg.appendChild(r);});
   const cols={};graph.nodes.forEach(n=>(cols[n.layer]=cols[n.layer]||[]).push(n));
-  Object.keys(cols).forEach(k=>{const labs=cols[k].slice().sort((a,b)=>a.y0-b.y0).map(n=>({n,y:(n.y0+n.y1)/2,ty:(n.y0+n.y1)/2}));const gap=30;
-    for(let i=1;i<labs.length;i++)if(labs[i].ty-labs[i-1].ty<gap)labs[i].ty=labs[i-1].ty+gap;
-    const over=labs.length?labs[labs.length-1].ty+14-(H-m.b):0;if(over>0)labs.forEach(l=>l.ty-=over);
-    for(let i=labs.length-2;i>=0;i--)if(labs[i+1].ty-labs[i].ty<gap)labs[i].ty=labs[i+1].ty-gap;
-    labs.forEach(l=>{const n=l.n;const right=n.layer<=3||n.layer===7;const x=right?n.x1+8:n.x0-8;const anchor=right?'start':'end';
-      if(Math.abs(l.ty-l.y)>2)svg.appendChild(svgEl('line',{x1:right?n.x1+2:n.x0-2,y1:l.y,x2:right?n.x1+6:n.x0-6,y2:l.ty,class:'axis'}));
-      const t=svgEl('text',{x,y:l.ty-2,class:'lab halo','text-anchor':anchor});t.textContent=n.label;svg.appendChild(t);
-      const v=svgEl('text',{x,y:l.ty+11,class:'val halo','text-anchor':anchor});v.textContent=mt(n.value);svg.appendChild(v);});});
+  // every label sits right of its node, long names on two lines, so neighbouring columns never share a gap
+  const LH=15,lines=n=>n.label.replace(' & ',' &\n').replace('SX-EW ','SX-EW\n').replace('Electrorefining','Electro-\nrefining').split('\n');
+  Object.keys(cols).forEach(k=>{const labs=cols[k].slice().sort((a,b)=>a.y0-b.y0).map(n=>({n,ls:lines(n),y:(n.y0+n.y1)/2,ty:(n.y0+n.y1)/2}));
+    const gap=(a,b)=>((a.ls.length+1)+(b.ls.length+1))*LH/2+4;
+    for(let i=1;i<labs.length;i++)if(labs[i].ty-labs[i-1].ty<gap(labs[i-1],labs[i]))labs[i].ty=labs[i-1].ty+gap(labs[i-1],labs[i]);
+    const last=labs[labs.length-1],over=labs.length?last.ty+(last.ls.length+1)*LH/2-(H-m.b):0;if(over>0)labs.forEach(l=>l.ty-=over);
+    for(let i=labs.length-2;i>=0;i--)if(labs[i+1].ty-labs[i].ty<gap(labs[i],labs[i+1]))labs[i].ty=labs[i+1].ty-gap(labs[i],labs[i+1]);
+    labs.forEach(l=>{const n=l.n,x=n.x1+8,top=l.ty-(l.ls.length+1)*LH/2+LH-3;
+      if(Math.abs(l.ty-l.y)>2)svg.appendChild(svgEl('line',{x1:n.x1+2,y1:l.y,x2:n.x1+6,y2:l.ty,class:'axis'}));
+      const t=svgEl('text',{x,y:top,class:'lab halo'});l.ls.forEach((s,i)=>{const sp=svgEl('tspan',{x,dy:i?LH:0});sp.textContent=s;t.appendChild(sp);});svg.appendChild(t);
+      const v=svgEl('text',{x,y:top+l.ls.length*LH,class:'val halo'});v.textContent=mt(n.value);svg.appendChild(v);});});
   wrap.appendChild(svg);
   attachTipEl(wrap,svg,W,(e,px)=>{if(!e){linkEls.forEach(p=>p.classList.remove('dim'));return null;}
     const l=e.target.__l,n=e.target.__n;
@@ -113,30 +121,30 @@ function renderSankey(){
 // ================= PART 3: scrap versus primary =================
 const S=D.scrap;
 const f3a=document.getElementById('f3a');
-f3a.appendChild(legend(null,[{name:'World',color:'var(--ink)'},{name:'China',color:'var(--c-china)'},{name:'EU‑14',color:'var(--c-eu)'},{name:'United States',color:'var(--c-us)'},{name:'Japan',color:'var(--c-4)'},{name:'South Korea',color:'var(--c-ref)'},{name:'World, ICSG-based prior',dash:true}]));
+f3a.appendChild(legend(null,[{name:'World',color:'var(--ink)'},{name:'China',color:'var(--c-china)'},{name:'EU‑14',color:'var(--c-eu)'},{name:'Japan',color:'var(--c-japan)'},{name:'United States',color:'var(--c-us)'},{name:'South Korea',color:'var(--c-korea)'},{name:'World, ICSG-based prior',dash:true}]));
 lineChart(f3a,{series:[
   {name:'World',values:S.World.ratio,color:'var(--ink)',width:2.5},
   {name:'China',values:S.China.ratio,color:'var(--c-china)'},
   {name:'EU‑14',values:S['EU-14'].ratio,color:'var(--c-eu)'},
+  {name:'Japan',values:S.Japan.ratio,color:'var(--c-japan)'},
   {name:'United States',values:S['United States'].ratio,color:'var(--c-us)'},
-  {name:'Japan',values:S.Japan.ratio,color:'var(--c-4)'},
-  {name:'South Korea',values:S['South Korea'].ratio,color:'var(--c-ref)'},
+  {name:'South Korea',values:S['South Korea'].ratio,color:'var(--c-korea)'},
   {name:'World prior',values:S.World.ratio_prior,color:'var(--muted)',dash:true,label:false}],
   tipfmt:v=>fmt(v,2),endVal:v=>fmt(v,2),yfmt:v=>fmt(v,1),ydomain:[0,1.0],nticks:5});
 
-const gcol=r=>r==='China'?'var(--c-china)':r==='United States'?'var(--c-us)':r==='Japan'?'var(--c-4)':r==='Korea, Rep.'?'var(--c-ref)':['Germany','Poland','Spain','Bulgaria','Italy','France','Belgium','Netherlands','Austria','Sweden','Greece','Portugal','Slovakia','Luxembourg'].includes(r)?'var(--c-eu)':'var(--c-rest)';
+const gcol=r=>r==='China'?'var(--c-china)':r==='United States'?'var(--c-us)':r==='Japan'?'var(--c-japan)':r==='Korea, Rep.'?'var(--c-korea)':['Germany','Poland','Spain','Bulgaria','Italy','France','Belgium','Netherlands','Austria','Sweden','Greece','Portugal','Slovakia','Luxembourg'].includes(r)?'var(--c-eu)':'var(--c-rest)';
 const f3b=document.getElementById('f3b');
-f3b.appendChild(legend(null,[{name:'China',color:'var(--c-china)',sq:1},{name:'EU‑14 member',color:'var(--c-eu)',sq:1},{name:'United States',color:'var(--c-us)',sq:1},{name:'Japan',color:'var(--c-4)',sq:1},{name:'South Korea',color:'var(--c-ref)',sq:1},{name:'Other',color:'var(--c-rest)',sq:1}]));
+f3b.appendChild(legend(null,[{name:'China',color:'var(--c-china)',sq:1},{name:'EU‑14 member',color:'var(--c-eu)',sq:1},{name:'Japan',color:'var(--c-japan)',sq:1},{name:'United States',color:'var(--c-us)',sq:1},{name:'South Korea',color:'var(--c-korea)',sq:1},{name:'Other',color:'var(--c-rest)',sq:1}]));
 barChart(f3b,{rows:D.scrap_regions_2024.map(r=>({name:rname(r.region),v:r.share,color:gcol(r.region),
   tip:[{name:'Scrap share',color:gcol(r.region),val:pct(r.share)},{name:'Scrap, kt Cu',color:'transparent',val:fmt(r.scrap,0)},{name:'Primary, kt Cu',color:'transparent',val:fmt(r.primary,0)}],
   cells:[pct(r.share),fmt(r.scrap,0),fmt(r.primary,0)]})),max:0.5,xfmt:v=>Math.round(v*100)+' %',cols:['Scrap share','Scrap kt Cu','Primary kt Cu']});
 
 const f3c=document.getElementById('f3c');
-f3c.appendChild(legend(null,[{name:'China',color:'var(--c-china)',sq:1},{name:'EU‑14',color:'var(--c-eu)',sq:1},{name:'United States',color:'var(--c-us)',sq:1},{name:'Japan',color:'var(--c-4)',sq:1},{name:'South Korea',color:'var(--c-ref)',sq:1},{name:'Rest of world',color:'var(--c-rest)',sq:1}]));
-areaChart(f3c,{aria:'Scrap feed volume by region group, kt Cu',series:[['China','var(--c-china)'],['EU-14','var(--c-eu)'],['United States','var(--c-us)'],['Japan','var(--c-4)'],['South Korea','var(--c-ref)'],['Rest of world','var(--c-rest)']].map(([g,c])=>({name:g==='EU-14'?'EU‑14':g,values:S[g].scrap,color:c})),nticks:5});
+f3c.appendChild(legend(null,[{name:'China',color:'var(--c-china)',sq:1},{name:'EU‑14',color:'var(--c-eu)',sq:1},{name:'Japan',color:'var(--c-japan)',sq:1},{name:'United States',color:'var(--c-us)',sq:1},{name:'South Korea',color:'var(--c-korea)',sq:1},{name:'Rest of world',color:'var(--c-rest)',sq:1}]));
+areaChart(f3c,{aria:'Scrap feed volume by region group, kt Cu',series:[['China','var(--c-china)'],['EU-14','var(--c-eu)'],['Japan','var(--c-japan)'],['United States','var(--c-us)'],['South Korea','var(--c-korea)'],['Rest of world','var(--c-rest)']].map(([g,c])=>({name:g==='EU-14'?'EU‑14':g,values:S[g].scrap,color:c})),nticks:5});
 
 // ================= PART 4: concentration =================
-const C=D.conc;const GROUPS=[['China','var(--c-china)'],['EU-14','var(--c-eu)'],['United States','var(--c-us)'],['Chile','var(--c-chile)'],['Peru','var(--c-peru)'],['Rest of world','var(--c-rest)']];
+const C=D.conc;const GROUPS=[['China','var(--c-china)'],['EU-14','var(--c-eu)'],['Chile','var(--c-chile)'],['United States','var(--c-us)'],['Peru','var(--c-peru)'],['Rest of world','var(--c-rest)']];
 legend(document.getElementById('lg4'),GROUPS.map(([g,c])=>({name:g==='EU-14'?'EU‑14':g,color:c,sq:1})));
 const STEPS=['Mining','Concentrate','Smelting','Refined cathode','Final use','Scrap feed'];
 const STEPSUB={'Mining':'ore, producing region','Concentrate':'producing region','Smelting':'matte, processing region','Refined cathode':'processing region','Final use':'consuming region','Scrap feed':'secondary input, consuming region'};
@@ -167,41 +175,91 @@ lineChart(f4c,{width:520,height:280,rightPad:112,series:[
   `</tbody></table><p class="small" style="margin:8px 0 0">2024 values in %, 1995 in parentheses.</p>`;})();
 
 // ================= PART 5: trade structure =================
-const T=D.trade,COMMS=T.commodities,RIB=['Concentrate','Anode','Cathode'];
+const T=D.trade,COMMS=T.commodities;
 function tradeOrder(){const R=T.years['2024'].regions;const named=T.order.filter(r=>r!=='Other');named.sort((a,b)=>R[b].net-R[a].net);return named.concat(['Other']);}
-legend(document.getElementById('lg5a'),RIB.map(c=>({name:c,color:COMM[c],sq:1})));
-function renderRibbons(){
-  const root=document.getElementById('f5a');root.innerHTML='';
-  const yr=T.years[String(state.year)],order=tradeOrder(),idx={};order.forEach((r,i)=>idx[r]=i);
-  const nR=order.length,rowH=26,boxW=108,W=1000,m={t:42,r:6,b:6,l:6};const nc=RIB.length+1,gapW=(W-m.l-m.r-nc*boxW)/(nc-1);const H=m.t+nR*rowH+m.b;
-  let maxv=0;Object.values(T.years).forEach(yy=>RIB.forEach(c=>{const ex={},im={};yy.legs[c].forEach(l=>{ex[l.f]=(ex[l.f]||0)+l.v;im[l.t]=(im[l.t]||0)+l.v;});Object.values(ex).concat(Object.values(im)).forEach(v=>{if(v>maxv)maxv=v;});}));
-  const k=(rowH-6)/maxv;const colX=j=>m.l+j*(boxW+gapW),rowY=i=>m.t+i*rowH;
-  const wrap=document.createElement('div');wrap.className='chart';const svg=svgEl('svg',{viewBox:`0 0 ${W} ${H}`,role:'img','aria-label':'Trade-linked copper flows '+state.year});
+
+// trade-linked chains: a column per chain step, a gap per commodity, every year on one scale
+const GAPC=Object.assign({Ore:'var(--k-ore)','SX-EW cathode':'var(--k-cath)'},COMM);
+const ADDC={Scrap:'var(--k-scrap)','SX-EW cathode':'var(--k-cath)'};
+const chainState={year:2024,focus:null};
+const PAD=3,SCALE_KT=5000;
+// a region's box is the larger of what it receives (plus scrap or SX-EW) and what it ships
+function chainBoxes(B,y){const g=B.years[String(y)];
+  return B.cols.map((c,j)=>{const n=c.regions.length,inn=Array(n).fill(0),out=Array(n).fill(0),add=g.add[j]||Array(n).fill(0);
+    if(j>0)g.links[j-1].forEach(l=>inn[l[1]]+=l[2]+l[3]);if(j<B.gaps.length)g.links[j].forEach(l=>out[l[0]]+=l[2]+l[3]);
+    return c.regions.map((r,i)=>({r,i,inn:inn[i],add:add[i],out:out[i],h:Math.max(inn[i]+add[i],out[i])}));});}
+const stackKt=(B,y)=>Math.max(...chainBoxes(B,y).map(col=>col.reduce((s,b)=>s+b.h,0)));
+const stackPx=(B,y,k)=>Math.max(...chainBoxes(B,y).map(col=>col.reduce((s,b)=>s+(b.h>0?b.h*k+PAD:0),0)-PAD));
+const CHK=(720-10*PAD)/Math.max(...Y.map(y=>stackKt(D.chain,y)));   // px per kt, both chains, all years
+const CHAINS=[{B:D.chain,id:'f5a',lg:'lg5a'},{B:D.chain_sxew,id:'f5e',lg:'lg5e'}];
+CHAINS.forEach(o=>{o.plotH=Math.max(...Y.map(y=>stackPx(o.B,y,CHK)));
+  const lg=document.getElementById(o.lg);
+  legend(lg,o.B.gaps.map(c=>({name:c,color:GAPC[c],sq:1})).concat([...new Set(o.B.cols.map(c=>c.add).filter(Boolean))].map(a=>({name:a+' in',color:ADDC[a],sq:1}))));
+  lg.insertAdjacentHTML('beforeend',`<span class="key"><i class="sq" style="background:var(--ink2);opacity:${OP_DOM}"></i>stays in its region</span><span class="key"><i class="sq" style="background:var(--ink2);opacity:${OP_TRD}"></i>crosses a border</span>`);});
+function renderChain(o){
+  const B=o.B,root=document.getElementById(o.id);root.innerHTML='';
+  const y=chainState.year,g=B.years[String(y)],boxes=chainBoxes(B,y),nc=B.cols.length;
+  const W=1000,boxW=104,m={t:64,r:8,b:26,l:64};const gapW=(W-m.l-m.r-nc*boxW)/(nc-1);const H=m.t+o.plotH+m.b;
+  const colX=j=>m.l+j*(boxW+gapW),one=s=>s.replace('\n',' ');
+  boxes.forEach(col=>{let yy=m.t;col.forEach(b=>{b.y=yy;b.hp=b.h*CHK;if(b.h>0)yy+=b.hp+PAD;});});
+  const wrap=document.createElement('div');wrap.className='chart';
+  const svg=svgEl('svg',{viewBox:`0 0 ${W} ${H}`,role:'img','aria-label':'Trade-linked copper flows, '+B.gaps.join(', ')+', '+y});
+  // scale bar: the same kt per pixel in every year and in both chains
+  const sx=30,sb=SCALE_KT*CHK;
+  svg.appendChild(svgEl('line',{x1:sx,x2:sx,y1:m.t,y2:m.t+sb,style:'stroke:var(--ink);stroke-width:2'}));
+  [m.t,m.t+sb].forEach(v=>svg.appendChild(svgEl('line',{x1:sx-5,x2:sx+5,y1:v,y2:v,style:'stroke:var(--ink);stroke-width:1.5'})));
+  const st=svgEl('text',{x:sx,y:m.t+sb+16,'text-anchor':'middle',class:'lab'});st.textContent=fmt(SCALE_KT/1000)+' Mt';svg.appendChild(st);
   const ribs=[];
-  RIB.forEach((c,j)=>{const legs=yr.legs[c].filter(l=>idx[l.f]!=null&&idx[l.t]!=null).map(l=>Object.assign({c},l));
-    const outSum={},inSum={};legs.forEach(l=>{outSum[l.f]=(outSum[l.f]||0)+l.v;inSum[l.t]=(inSum[l.t]||0)+l.v;});
-    const outOff={},inOff={};
-    legs.slice().sort((a,b)=>idx[a.t]-idx[b.t]||idx[a.f]-idx[b.f]).forEach(l=>{if(outOff[l.f]==null)outOff[l.f]=rowY(idx[l.f])+rowH/2-k*outSum[l.f]/2;l.ya=outOff[l.f];outOff[l.f]+=k*l.v;});
-    legs.slice().sort((a,b)=>idx[a.f]-idx[b.f]||idx[a.t]-idx[b.t]).forEach(l=>{if(inOff[l.t]==null)inOff[l.t]=rowY(idx[l.t])+rowH/2-k*inSum[l.t]/2;l.yb=inOff[l.t];inOff[l.t]+=k*l.v;});
+  B.gaps.forEach((c,j)=>{const A=boxes[j],Z=boxes[j+1];
+    const L=g.links[j].map(l=>({j,c,f:l[0],t:l[1],dom:l[2],trd:l[3]}));
+    const oOff=A.map(b=>b.y),iOff=Z.map(b=>b.y);
+    L.slice().sort((a,b)=>a.t-b.t).forEach(l=>{l.ya=oOff[l.f];oOff[l.f]+=(l.dom+l.trd)*CHK;});
+    L.slice().sort((a,b)=>a.f-b.f).forEach(l=>{l.yb=iOff[l.t];iOff[l.t]+=(l.dom+l.trd)*CHK;});
     const xR=colX(j)+boxW,xL=colX(j+1),xm=(xR+xL)/2;
-    legs.sort((a,b)=>b.v-a.v).forEach(l=>{const w=Math.max(0.8,k*l.v);const d=`M${xR},${l.ya.toFixed(1)} C${xm},${l.ya.toFixed(1)} ${xm},${l.yb.toFixed(1)} ${xL},${l.yb.toFixed(1)} L${xL},${(l.yb+w).toFixed(1)} C${xm},${(l.yb+w).toFixed(1)} ${xm},${(l.ya+w).toFixed(1)} ${xR},${(l.ya+w).toFixed(1)} Z`;
-      const p=svgEl('path',{d,class:'rib',style:`fill:${COMM[c]};fill-opacity:.55`});l.share=l.v/outSum[l.f];p.__l=l;svg.appendChild(p);ribs.push(p);});
-    const hx=xR+gapW/2;const t=svgEl('text',{x:hx,y:m.t-24,'text-anchor':'middle',class:'lab'});t.textContent=c;svg.appendChild(t);
-    const u=svgEl('text',{x:hx,y:m.t-9,'text-anchor':'middle'});u.textContent=mt(T.ts[c].trade[Y.indexOf(state.year)])+' traded · exporter → importer';svg.appendChild(u);});
-  const boxes=[];
-  for(let j=0;j<nc;j++)order.forEach((r,i)=>{const x=colX(j),y=rowY(i)+2;const b=svgEl('rect',{x,y,width:boxW,height:rowH-4,rx:3,class:'rbox'+(state.focus===r?' on':'')});b.__r=r;svg.appendChild(b);boxes.push(b);
-    const t=svgEl('text',{x:x+boxW/2,y:y+(rowH-4)/2+4,'text-anchor':'middle',class:'rlab'});t.textContent=rname(r);svg.appendChild(t);});
-  const applyFocus=()=>ribs.forEach(p=>p.classList.toggle('dim',!!state.focus&&p.__l.f!==state.focus&&p.__l.t!==state.focus));
+    L.sort((a,b)=>(b.dom+b.trd)-(a.dom+a.trd)).forEach(l=>{let ya=l.ya,yb=l.yb;
+      [['dom',l.dom,OP_DOM],['trd',l.trd,OP_TRD]].forEach(([part,v,op])=>{if(v<=0)return;const w=v*CHK,wd=Math.max(0.6,w);
+        const d=`M${xR},${ya.toFixed(1)} C${xm},${ya.toFixed(1)} ${xm},${yb.toFixed(1)} ${xL},${yb.toFixed(1)} L${xL},${(yb+wd).toFixed(1)} C${xm},${(yb+wd).toFixed(1)} ${xm},${(ya+wd).toFixed(1)} ${xR},${(ya+wd).toFixed(1)} Z`;
+        const p=svgEl('path',{d,class:'rib',style:`fill:${GAPC[c]};fill-opacity:${op}`});p.__l=Object.assign({part},l);svg.appendChild(p);ribs.push(p);ya+=w;yb+=w;});});
+    const tot=L.reduce((s,l)=>s+l.dom+l.trd,0),trd=L.reduce((s,l)=>s+l.trd,0),hx=xR+gapW/2;
+    [[c,'lab',m.t-36],[mt(tot),'',m.t-22],[pct(tot?trd/tot:0)+' traded','',m.t-8]].forEach(([s,cl,yy])=>{const t=svgEl('text',{x:hx,y:yy,'text-anchor':'middle',class:cl});t.textContent=s;svg.appendChild(t);});});
+  // outside inputs (scrap, SX-EW cathode) enter each box below the incoming ribbons
+  B.cols.forEach((c,j)=>{if(!c.add)return;boxes[j].forEach(b=>{if(b.add<=0)return;
+    const s=svgEl('rect',{x:colX(j)-16,y:(b.y+b.inn*CHK).toFixed(1),width:16,height:Math.max(0.6,b.add*CHK).toFixed(1),class:'rib',style:`fill:${ADDC[c.add]};fill-opacity:.75`});
+    s.__s={j,b};svg.appendChild(s);});});
+  // boxes, labelled with what the region ships (the last column: what it receives), Mt Cu
+  B.cols.forEach((c,j)=>{const x=colX(j),lines=c.label.split('\n'),val=b=>j<B.gaps.length?b.out:b.inn;
+    lines.forEach((s,k)=>{const t=svgEl('text',{x:x+boxW/2,y:m.t-8-14*(lines.length-k),'text-anchor':'middle',class:'lab'});t.textContent=s;svg.appendChild(t);});
+    const tt=svgEl('text',{x:x+boxW/2,y:m.t-8,'text-anchor':'middle'});tt.textContent=mt(boxes[j].reduce((s,b)=>s+val(b),0));svg.appendChild(tt);
+    boxes[j].forEach(b=>{if(b.h<=0)return;const r=svgEl('rect',{x,y:b.y.toFixed(1),width:boxW,height:Math.max(0.8,b.hp).toFixed(1),rx:2,class:'rbox'+(chainState.focus===b.r?' on':'')});
+      r.__b={j,b};svg.appendChild(r);
+      if(b.hp>=11){const t=svgEl('text',{x:x+6,y:(b.y+Math.min(b.hp/2,10)+4).toFixed(1),class:'rlab'});t.textContent=rname(b.r)+' '+fmt(val(b)/1000,1);svg.appendChild(t);}});});
+  const touches=(l,r)=>B.cols[l.j].regions[l.f]===r||B.cols[l.j+1].regions[l.t]===r;
+  const applyFocus=()=>ribs.forEach(p=>p.classList.toggle('dim',!!chainState.focus&&!touches(p.__l,chainState.focus)));
   applyFocus();
-  svg.addEventListener('click',e=>{const r=e.target.__r;if(!r)return;state.focus=state.focus===r?null:r;boxes.forEach(b=>b.classList.toggle('on',b.__r===state.focus));applyFocus();});
+  svg.addEventListener('click',e=>{const h=e.target.__b;if(!h)return;chainState.focus=chainState.focus===h.b.r?null:h.b.r;CHAINS.forEach(renderChain);});
   wrap.appendChild(svg);
-  attachTipEl(wrap,svg,W,(e,px)=>{if(!e){applyFocus();return null;}const l=e.target.__l,r=e.target.__r;
-    if(l){ribs.forEach(p=>p.classList.toggle('dim',p.__l!==l));return {x:px,html:tipRows(l.c+' · '+state.year,[{name:rname(l.f)+' → '+rname(l.t),color:COMM[l.c],val:fmt(l.v,0)+' kt'},{name:'share of '+rname(l.f)+' '+l.c.toLowerCase()+' exports',color:'transparent',val:pct(l.share)}])};}
-    if(r){ribs.forEach(p=>p.classList.toggle('dim',p.__l.f!==r&&p.__l.t!==r));const R=yr.regions[r];return {x:px,html:tipRows(rname(r)+' · '+state.year+' · kt Cu',COMMS.map(c=>({name:c,color:COMM[c],val:fmt(R.exports[c],0)+' out · '+fmt(R.imports[c],0)+' in'})))};}
+  attachTipEl(wrap,svg,W,(e,px)=>{if(!e){applyFocus();return null;}const l=e.target.__l,h=e.target.__b,s=e.target.__s;
+    if(l){ribs.forEach(p=>p.classList.toggle('dim',p.__l!==l&&!(p.__l.j===l.j&&p.__l.f===l.f&&p.__l.t===l.t)));
+      const fr=B.cols[l.j].regions[l.f],to=B.cols[l.j+1].regions[l.t],self=fr===to;
+      const within=self?(fr==='EU-14'?'between EU-14 members':fr==='Other'?'between pooled regions':'crosses a border'):'crosses a border';
+      return {x:px,html:tipRows(l.c+' · '+y+' · kt Cu',[{name:rname(fr)+' → '+rname(to),color:GAPC[l.c],val:fmt(l.dom+l.trd,0)},
+        {name:'stays in its region',color:'transparent',val:fmt(l.dom,0)},{name:within,color:'transparent',val:fmt(l.trd,0)},
+        {name:'share of '+rname(fr)+'’s '+l.c.toLowerCase()+' shipments',color:'transparent',val:pct((l.dom+l.trd)/boxes[l.j][l.f].out)}])};}
+    if(h||s){const j=(h||s).j,b=(h||s).b,c=B.cols[j],rows=[];
+      ribs.forEach(p=>p.classList.toggle('dim',!touches(p.__l,b.r)));
+      if(j>0)rows.push({name:B.gaps[j-1]+' received',color:GAPC[B.gaps[j-1]],val:fmt(b.inn,0)});
+      if(c.add)rows.push({name:c.add+' in',color:ADDC[c.add],val:fmt(b.add,0)});
+      if(j<B.gaps.length)rows.push({name:B.gaps[j]+' shipped',color:GAPC[B.gaps[j]],val:fmt(b.out,0)});
+      return {x:px,html:tipRows(rname(b.r)+' · '+one(c.label)+' · '+y+' · kt Cu',rows)};}
     applyFocus();return null;});
   root.appendChild(wrap);
-  dataTable(root,['To','Commodity','kt Cu'],RIB.flatMap(c=>yr.legs[c].slice().sort((a,b)=>b.v-a.v).slice(0,25).map(l=>[rname(l.f),rname(l.t),c,fmt(l.v,0)])),'From');
+  dataTable(root,['To','Commodity','Stays in its region, kt','Crosses a border, kt'],
+    B.gaps.flatMap((c,j)=>g.links[j].slice().sort((a,b)=>(b[2]+b[3])-(a[2]+a[3])).map(l=>[rname(B.cols[j].regions[l[0]]),rname(B.cols[j+1].regions[l[1]]),c,fmt(l[2],0),fmt(l[3],0)])),'From');
 }
+const slides=[...document.querySelectorAll('.yslide')];
+slides.forEach(s=>s.querySelector('input').addEventListener('input',e=>{chainState.year=+e.target.value;
+  slides.forEach(t=>{t.querySelector('input').value=chainState.year;t.querySelector('output').textContent=chainState.year;});CHAINS.forEach(renderChain);}));
+CHAINS.forEach(renderChain);
 
 const lg5b=document.getElementById('lg5b');legend(lg5b,COMMS.map(c=>({name:c,color:COMM[c],sq:1})));
 lg5b.insertAdjacentHTML('beforeend','<span class="key"><i class="tick"></i>net trade</span>');
