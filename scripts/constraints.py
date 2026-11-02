@@ -311,6 +311,10 @@ ENFORCE_LOWER_BOUNDS = True
 # WR = k·Ore to feasibility tolerance; the imputer leaves WR to the flat prior so
 # the relation, not a second copy of the ore prior, sets it. False = soft (W.2a).
 STRIPPING_RATIO_HARD = True
+# Draw the run's ConstDiagnostic figures and 1995 prior table into <run>/diag/
+# (≈ 4.4 of the stage's ≈ 8.6 min). A sweep that deletes its const runs turns it off
+# (#108); no stage reads these files.
+DIAG_PLOT = True
 
 # The knobs a pipeline step may override with --set (#100, pysuto.knobs). Paths and
 # ACC_ID are not knobs. scale_total_cv's defaults bind at import, so main() passes
@@ -323,7 +327,7 @@ KNOBS = (
     "PIN_FLAT_PRIOR_ZEROS", "RATIO_SIGMA_REL_FLOOR", "RATIO_SCALE_ABS_FLOOR",
     "STOCK_BOUNDS_SCALE_ABS_FLOOR", "STOCK_BOUNDS_MODE", "SCRAP_SHARE_MODE",
     "SCRAP_LEVEL_ANCHOR", "MASSBAL_MASK", "ENFORCE_LOWER_BOUNDS",
-    "STRIPPING_RATIO_HARD", "STOCK_BOUNDS_SKIP_REPORTED",
+    "STRIPPING_RATIO_HARD", "STOCK_BOUNDS_SKIP_REPORTED", "DIAG_PLOT",
 )
 
 _log = get_logger("init_copper_constraints")
@@ -618,7 +622,7 @@ def main(imp_run_id: str, label: str, overrides: dict | None = None) -> str:
         agg_result   = agg_result,
         timesteps    = [str(t) for t in acc.time_range],
         persist      = True,
-        diag_plot    = True,
+        diag_plot    = DIAG_PLOT,
         label        = label,
         parents      = parents,
         stage_config = {

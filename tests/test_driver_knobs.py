@@ -122,6 +122,14 @@ class TestCascadeOrder:
         assert "Traceback" not in r.stderr
 
 
+def test_the_constraint_diagnostics_are_a_knob_on_by_default():
+    """#108: a sweep deletes its const runs from the scratch store, so drawing their
+    figures (≈ 4.4 of Stage 3's ≈ 8.6 min) is time it switches off."""
+    mod = _load("const")
+    assert mod.DIAG_PLOT is True
+    assert "DIAG_PLOT" in mod.KNOBS
+
+
 def test_the_feasibility_check_knob_replaces_the_bool():
     mod = _load("opt")
     assert mod.FEASIBILITY_CHECK == "first"
