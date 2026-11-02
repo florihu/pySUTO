@@ -36,8 +36,8 @@ from pysuto.pipeline import RESERVE_GB, Axis, Chain, Pipeline, Sweep
 
 # The knob study of #108; its decisions are recorded on the issue (2026-10-22).
 # The chain every point starts from: its feed runs feed the imp step, and every point
-# is compared with it. The final reference chain (#110, 2026-10-21).
-BASE_OPT_RUN_ID = "opt_20261021_131744_58504ad3"
+# is compared with it. The final reference chain (#111, 2026-10-22).
+BASE_OPT_RUN_ID = "opt_20261022_112855_928da10c"
 STEPS           = ("imp", "const", "opt")
 MODE            = "random"          # "random" (seeded Latin hypercube) | "grid"
 N_POINTS        = 64                # random mode only: ≈ 4× the axes
@@ -50,13 +50,16 @@ KEEP_INTERMEDIATE = False
 SCRATCH_DIR       = "/dev/shm/pysuto-sweep"
 
 # Overrides set on every point. A sweep through opt passes opt.FEASIBILITY_CHECK =
-# "none" unless this or an axis sets it (#104).
-FIXED: dict = {}
+# "none" unless this or an axis sets it (#104). The const runs are deleted, so their
+# diagnostics are not drawn.
+FIXED: dict = {"const.DIAG_PLOT": False}
 
-# Rough minutes per step run, from the final reference chain's run times (imp ≈ 3,
-# const ≈ 4.5; opt's period solves 93 s once the probe is skipped, plus loading, saving
-# and its diag); re-measure on the first sweep (its manifest timestamps).
-STEP_MINUTES = {"imp": 3.0, "const": 4.5, "opt": 3.0}
+# Minutes per step run on the final chain, process start included: imp 2.8
+# (imp_20261102_094925_95744204); const 4.4 with DIAG_PLOT off (2026-11-02, 8.6 with
+# its diagnostics); opt 2.7 once the probe is skipped (#106 gate, opt_20261022_093350_
+# 82d7c31d: solve and save 1.3, reloading the const run and SolverDiag 1.1).
+# Re-measure on the first sweep (its manifest timestamps).
+STEP_MINUTES = {"imp": 2.8, "const": 4.4, "opt": 2.7}
 
 # collect_aggregate_impute.py's CASCADE_IDS; reversed, every pairwise precedence flips.
 CASCADE_SHIPPED  = ("trade", "network", "conc", "ore_grade", "eff")
