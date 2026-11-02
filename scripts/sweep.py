@@ -54,11 +54,12 @@ SCRATCH_DIR       = "/dev/shm/pysuto-sweep"
 # diagnostics are not drawn.
 FIXED: dict = {"const.DIAG_PLOT": False}
 
-# Rough minutes per step run, from the #106 gate's step logs (logs/pipeline/r106_*:
-# imp 2.7; const 4.2 without its diagnostics, 8.6 with; opt 2.5 once the probe is
-# skipped — solve 1.3, saving and its diag 1.1); re-measure on the first sweep (its
-# manifest timestamps).
-STEP_MINUTES = {"imp": 3.0, "const": 4.5, "opt": 3.0}
+# Minutes per step run on the final chain, process start included: imp 2.8
+# (imp_20261102_094925_95744204); const 4.4 with DIAG_PLOT off (2026-11-02, 8.6 with
+# its diagnostics); opt 2.7 once the probe is skipped (#106 gate, opt_20261022_093350_
+# 82d7c31d: solve and save 1.3, reloading the const run and SolverDiag 1.1).
+# Re-measure on the first sweep (its manifest timestamps).
+STEP_MINUTES = {"imp": 2.8, "const": 4.4, "opt": 2.7}
 
 # collect_aggregate_impute.py's CASCADE_IDS; reversed, every pairwise precedence flips.
 CASCADE_SHIPPED  = ("trade", "network", "conc", "ore_grade", "eff")

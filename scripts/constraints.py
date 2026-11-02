@@ -311,9 +311,9 @@ ENFORCE_LOWER_BOUNDS = True
 # WR = k·Ore to feasibility tolerance; the imputer leaves WR to the flat prior so
 # the relation, not a second copy of the ore prior, sets it. False = soft (W.2a).
 STRIPPING_RATIO_HARD = True
-# Draw the run's ConstDiagnostic figures and 1995 prior table into <run>/diag/
-# (≈ 4.4 of the stage's ≈ 8.6 min). A sweep that deletes its const runs turns it off
-# (#108); no stage reads these files.
+# Draw the run's ConstDiagnostic figures and 1995 prior table into <run>/diag/, about
+# half the stage's time. A sweep that deletes its const runs turns it off (#108); no
+# stage reads these files.
 DIAG_PLOT = True
 
 # The knobs a pipeline step may override with --set (#100, pysuto.knobs). Paths and
