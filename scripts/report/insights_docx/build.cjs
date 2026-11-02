@@ -10,8 +10,9 @@ shoot.cjs writes and the two tables, which are computed from the run's data.json
 
 text.md grammar: `# ` the title, the `> ` lines under it the dek, `## ` a section, other lines
 paragraphs; `### Figure: <png>[, <png>] | <title> | full|half` and `### Table: ledger|shares |
-<title>` open a numbered block, followed by one `> ` subtitle and its `- ` bullets. `**…**` is
-bold. Two PNGs make panels (a) and (b), labelled by the year that ends each file name.
+<title>` open a numbered block, followed by one `> ` subtitle, a figure's `Alt: ` text and its
+`- ` bullets. `**…**` is bold. Two PNGs make panels (a) and (b), labelled by the year that ends
+each file name.
 */
 const fs = require("fs"), path = require("path");
 const { Document, Packer, Paragraph, TextRun, ImageRun, Table, TableRow, TableCell, WidthType,
@@ -42,16 +43,18 @@ const subtitle = s => new Paragraph({ keepNext: true, spacing: { after: 120, lin
 
 // ---------- figures ----------
 function pngSize(file) { const b = fs.readFileSync(file); return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) }; }
-function figure(files, width) {
+function figure(files, width, label, title, alt) {
   const out = [];
   files.forEach((f, i) => {
     const file = path.join(pngDir, f + ".png"), { w, h } = pngSize(file), W = FIG_W_CM[width] * PX_PER_CM;
-    if (files.length > 1) out.push(new Paragraph({ keepNext: true, spacing: { before: i ? 120 : 0, after: 20 },
-      children: [new TextRun({ text: `(${"ab"[i]}) ${f.match(/(\d{4})$/)[1]}`, bold: true, font: SANS, size: 19 })] }));
+    const panel = files.length > 1 ? `(${"ab"[i]}) ${f.match(/(\d{4})$/)[1]}` : "";
+    if (panel) out.push(new Paragraph({ keepNext: true, spacing: { before: i ? 120 : 0, after: 20 },
+      children: [new TextRun({ text: panel, bold: true, font: SANS, size: 19 })] }));
     // a page may break between panels (two panels plus caption outgrow a page); never after the last
     out.push(new Paragraph({ alignment: AlignmentType.CENTER, keepNext: i === files.length - 1,
       spacing: { after: 100 }, children: [new ImageRun({ type: "png", data: fs.readFileSync(file),
-        transformation: { width: Math.round(W), height: Math.round(W * h / w) } })] }));
+        transformation: { width: Math.round(W), height: Math.round(W * h / w) },
+        altText: { name: f, title: `${label}${panel ? ` ${panel}` : ""}. ${title}`, description: alt } })] }));
   });
   return out;
 }
@@ -108,7 +111,11 @@ let nFig = 0, nTab = 0, block = null;
 const lines = md.split("\n");
 function closeBlock() {
   if (!block) return;
-  if (block.kind === "Figure") children.push(caption(`Figure ${++nFig}`, block.title), subtitle(block.sub), ...figure(block.files, block.width));
+  if (block.kind === "Figure") {
+    if (!block.alt) throw new Error(`${block.files[0]}: figure without Alt text`);
+    const label = `Figure ${++nFig}`;
+    children.push(caption(label, block.title), subtitle(block.sub), ...figure(block.files, block.width, label, block.title, block.alt));
+  }
   else children.push(caption(`Table ${++nTab}`, block.title), subtitle(block.sub), TABLES[block.files[0]](), new Paragraph({ keepNext: true, spacing: { after: 60 }, children: [] }));
   block.bullets.forEach((b, i) => children.push(bullet(b, i < block.bullets.length - 1)));
   block = null;
@@ -120,6 +127,7 @@ for (const raw of lines) {
   if ((m = s.match(/^### (Figure|Table): ([^|]+)\|([^|]+)(?:\|\s*(\w+))?$/))) {
     closeBlock(); block = { kind: m[1], files: m[2].split(",").map(x => x.trim()), title: m[3].trim(), width: (m[4] || "full").trim(), sub: "", bullets: [] };
   } else if (block && s.startsWith("> ")) block.sub = s.slice(2);
+  else if (block && s.startsWith("Alt: ")) block.alt = s.slice(5);
   else if (block && s.startsWith("- ")) block.bullets.push(s.slice(2));
   else if (s.startsWith("## ")) { closeBlock(); children.push(new Paragraph({ heading: HeadingLevel.HEADING_1, keepNext: true, children: runs(s.slice(3)) })); }
   else if (s.startsWith("# ")) children.push(new Paragraph({ spacing: { after: 120 }, children: [new TextRun({ text: s.slice(2), font: SERIF, size: 52 })] }));
