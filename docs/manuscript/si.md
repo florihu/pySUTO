@@ -26,7 +26,7 @@ from a decision record or report names its round, issue or run.
 
 *pySUTO: uncertainty-carrying compilation and reconciliation of physical supply–use tables*
 
-This Supporting Information states the complete rules of the six pySUTO stages summarised in the Method section of the main text, and the full parametrisation of the copper application. Sections [S1](#si-notation) to [S7](#si-stage6) mirror the pipeline; Sections [S8](#si-structure) to [S11](#si-decisions) give the copper accounting structure, the source corrections, the parameter tables and the decision records; Section [S12](#si-coverage) tabulates coverage and constraint-row statistics of the reference run; Section [S13](#si-evaluation) gives the evaluation metrics and the comparison protocol; Section [S14](#si-provenance) gives the provenance schema and the reference chain; Sections [S15](#si-hypotheses) to [S17](#si-legs) support the Results: the hypothesis protocol and outcomes (S15), the solver-diagnostic portfolio of the reference run (S16) and the bilateral legs of the trade insight (S17). Numerical values are those recorded in the sidecars of the reference chain (Table [S17](#tab-si-chain)). Where the main text cites “ADR $nnnn$”, the record is `docs/adr/nnnn-*.md` in the repository and a row of Table [S13](#tab-si-adr).
+This Supporting Information states the complete rules of the six pySUTO stages summarised in the Method section of the main text, and the full parametrisation of the copper application. Sections [S1](#si-notation) to [S7](#si-stage6) mirror the pipeline; Sections [S8](#si-structure) to [S11](#si-decisions) give the copper accounting structure, the source corrections, the parameter tables and the decision records; Section [S12](#si-coverage) tabulates coverage and constraint-row statistics of the reference run; Section [S13](#si-evaluation) gives the evaluation metrics and the comparison protocol; Section [S14](#si-provenance) gives the provenance schema and the reference chain; Sections [S15](#si-hypotheses) to [S17](#si-legs) support the Results: the hypothesis protocol and outcomes with the knob study of A6 (S15), the solver-diagnostic portfolio of the reference run (S16) and the bilateral legs of the trade insight (S17). Numerical values are those recorded in the sidecars of the reference chain (Table [S17](#tab-si-chain)). Where the main text cites “ADR $nnnn$”, the record is `docs/adr/nnnn-*.md` in the repository and a row of Table [S13](#tab-si-adr).
 
 <a id="si-notation"></a>
 
@@ -666,11 +666,11 @@ Inputs live in a versioned registry of four kinds (feeds, accounting structure, 
 
 ## S15 Hypothesis protocol and outcomes
 
-Implemented in `scripts/report/results_figs.py`: one command on the reference chain of Table [S17](#tab-si-chain) regenerates Figures 3–5, Table 3 and every number the Results cite (`docs/manuscript/figs/numbers.json`), together with the tables of this section and of S16–S17.
+Implemented in `scripts/report/results_figs.py`: one command on the reference chain of Table [S17](#tab-si-chain) regenerates Figures 3–5, Table 3 and every number the Results cite (`docs/manuscript/figs/numbers.json`), together with the tables of this section and of S16–S17. A6 is judged on the knob sweep of S15.4, scored by `scripts/sweep_diag.py`.
 
 ### S15.1 Protocol
 
-The eight expectations of Table 3 were written with their metric and threshold before the numbers of the reference run were read, in the form of the round reports (ADR 0028: re-measure, do not assume; the stop rule of S13.1). Each is a claim about the reconciled account rather than about copper, and a failed row is reported as such. Two operational choices were fixed at implementation, not after the outcome. The year convention: levels are quoted for 2024, shares pooled over 2020–2024, and retention over the 30-year pool unless a per-year count is the metric. The merchant-hub set of A3: the posterior cannot define it, because the imputer books a small processing output in every region, so it is taken from the ICSG feed — the 13 model regions with no smelter, refinery or SX-EW production row in any year (France, Greece, Luxembourg, Malaysia, Mauritania, Netherlands, Panama, Papua New Guinea, Portugal, Singapore, Switzerland, Taiwan, United Arab Emirates). The threshold of A4 was set with the previous run in view (concentrate CC retention 0.938, cathode 0.969); on the reference run both stages sit close to the prior (MF→Concentrate CC 1.010, CP→Cathode CC 0.998), so the cathode–concentrate step was expected to fail before its count was read, and is reported as it fell.
+The nine expectations of Table 3 were written with their metric and threshold before the numbers of the reference run were read, in the form of the round reports (ADR 0028: re-measure, do not assume; the stop rule of S13.1). A6 was written with the sweep's design on 2026-10-22 (issue #108), before the sweep ran. Each is a claim about the reconciled account rather than about copper, and a failed row is reported as such. Two operational choices were fixed at implementation, not after the outcome. The year convention: levels are quoted for 2024, shares pooled over 2020–2024, and retention over the 30-year pool unless a per-year count is the metric. The merchant-hub set of A3: the posterior cannot define it, because the imputer books a small processing output in every region, so it is taken from the ICSG feed — the 13 model regions with no smelter, refinery or SX-EW production row in any year (France, Greece, Luxembourg, Malaysia, Mauritania, Netherlands, Panama, Papua New Guinea, Portugal, Singapore, Switzerland, Taiwan, United Arab Emirates). The threshold of A4 was set with the previous run in view (concentrate CC retention 0.938, cathode 0.969); on the reference run both stages sit close to the prior (MF→Concentrate CC 1.010, CP→Cathode CC 0.998), so the cathode–concentrate step was expected to fail before its count was read, and is reported as it fell.
 
 ### S15.2 Definitions
 
@@ -681,6 +681,7 @@ The eight expectations of Table 3 were written with their metric and threshold b
 | merchant-hub share (A3) | $\sum z^2$ of edges with from-region $\ne$ to-region and to-region in the hub set, over the edge family's $\sum z^2$ |
 | retention by stage | $\sum a^*/\sum a_{\mathrm{prior}}$ over the edges of one (from-sector, to-sector, valuation) category, per year or over 1995–2024; the nine stages of Table S19 |
 | tolerance pair (A5) | `const_20260916_123437_8e8e9676` solved at gap$_{\mathrm{rel}}$ $10^{-3}$ (`opt_20260916_124721_c4d1d944`) and at $10^{-6}$ (`opt_20260930_093914_523d57d7`); retention per stage over 30 years, $\Delta$ = new $-$ old |
+| knob sweep (A6) | Stages 2–4 of the reference chain rerun at the 64 points of a Latin hypercube (seed 20261022) over the 15 knobs of Table S22b; retention per stage pooled over 1995–2024 ($\sum_t \sum a^* / \sum_t \sum a_{\mathrm{prior}}$), $\Delta$ = point $-$ reference; a point meets A6 when every stage's $\lvert\Delta\rvert < 0.02$ (S15.4) |
 | secondary share (B1), input basis | $\sum(\mathrm{Scrap}\to\mathrm{Smelting} + \mathrm{Scrap}\to\mathrm{CFR}) / \sum(\mathrm{Scrap}\to\mathrm{Smelting} + \mathrm{Scrap}\to\mathrm{CFR} + \mathrm{Concentrate}\to\mathrm{Smelting} + \mathrm{SXEW}\to\mathrm{CSXEW})$ in CC, by the region of the receiving process; groups: China; EU-14 (Germany, Italy, France, Spain, Poland, Belgium, Netherlands, Austria, Sweden, Bulgaria, Greece, Portugal, Slovakia, Luxembourg); United States; Japan, Korea and Taiwan; India; Chile and Peru; Rest |
 | ICSG-implied share | the same ratio from the ICSG feed's own rows (scrap into smelting and refining, concentrate intake of smelters, SX-EW cathode), pooled 2020–24: 0.164. Not independent of the prior — the row tests fidelity. ICSG's published share of refined output (secondary refined over total refined incl. SX-EW), reconstructed from the nested feed rows: 0.173 (1995), 0.176 (2010), 0.158 (2020), 0.176 (2024) |
 | HHI (B2) | $\mathrm{HHI}_t = \sum_r s_r^2$ over regions $r$ of one step's world output in CC in year $t$: mining = Mining→Ore, smelting = Smelting→Matte, refining = CP→Cathode (electrolytic and SX-EW cathode), use = Cathode→FU by destination. Upper: ROW as one region; lower: ROW's term omitted (ROW's share 0.01–0.07). Bands 0.15 / 0.25, the conventional moderate / high thresholds; tests use the upper value |
@@ -697,11 +698,12 @@ The eight expectations of Table 3 were written with their metric and threshold b
 | A3 | the adjustment localises on transit trade | share of edge $\sum z^2$ on cross-region legs into merchant hubs | $\ge 0.50$ | 0.787 (all cross-region legs 0.947) | pass |
 | A4 | the adjustment grows upstream | retention cathode CC $>$ concentrate CC $>$ ore Mass, gap per step, years passing | $\ge 0.02$ per step in $\ge 25$ of 30 years | 0/30 both steps, also at the upper ends of the intervals (cathode–concentrate 1, upper end 3; concentrate–ore 10, upper end 24) | fail |
 | A5 | termination accuracy does not move the answer | $\lvert\Delta\,\mathrm{retention}\rvert$ per stage, tolerance pair, 30-year pool | $< 0.02$ every stage | 4/9 stages within; max 0.223 (Scrap→Smelting CC) | fail |
+| A6 | judgement values do not move the answer | largest $\lvert\Delta\,\mathrm{retention}\rvert$ over the nine stages per point, knob sweep, 30-year pool | $< 0.02$ at every point | 59/64 points; max 0.0298 (Scrap→CFR CC, point 47); other stages $\le 0.0048$ | fail |
 | B1 | secondary share: fidelity and regional order | input-side share pooled 2020–24: $\lvert$world posterior $-$ ICSG-implied$\rvert$; EU-14 $>$ China $>$ US; EU-14 / world | $< 0.02$; order holds; $\ge 2\times$ | $\lvert 0.172 - 0.164\rvert = 0.007$ [0.005, 0.010]; 0.370 [0.367, 0.374] $>$ 0.240 [0.234, 0.245] $>$ 0.045 [0.044, 0.047]; 2.16$\times$ [2.12, 2.20] | pass |
 | B2 | concentration rises downstream and is reconciliation-invariant | HHI (upper) 2024 posterior per step; $\lvert\mathrm{HHI}_{\mathrm{post}} - \mathrm{HHI}_{\mathrm{prior}}\rvert$ per step | refining, use $>$ mining and $> 0.25$; mining $< 0.15$; $\lvert\Delta\rvert < 0.01$ | mining 0.111 [0.108, 0.114], smelting 0.281 [0.275, 0.287], refining 0.230 [0.226, 0.234], use 0.352 [0.344, 0.361]; $\Delta$ mining 0.000 [−0.003, 0.003], smelting 0.002 [−0.004, 0.008], refining 0.002 [−0.002, 0.006], use $-0.003$ [−0.012, 0.006] | fail (refining $< 0.25$) |
 | B3 | embodied exceeds direct; Chile's exports turned to China | China's embodied mined Cu from Chile+Peru / direct concentrate imports from them, 2024; Chile's export share to China 1995 and 2024 | $\ge 1.10$; $< 0.10 \to > 0.50$ | 6,335 / 4,254 kt CC $= 1.49$ [1.42, 1.55]; 0.034 [0.029, 0.040] $\to$ 0.548 [0.523, 0.572] | pass |
 
-**Table S18b.** The ledger with its measured values (`table3_ledger.csv`); brackets give Birge-scaled 95% posterior intervals, $\Delta = \mathrm{HHI}_{\mathrm{post}} - \mathrm{HHI}_{\mathrm{prior}}$ signed (issue #81, `table3_intervals.csv`). Per-year values of the decomposition (Σz² per family, the maximum hard residual and the share of $\lvert z\rvert > 3$) are in `si_s15_decomposition.csv`; the A4 gradient per year in `si_s15_a4_gradient.csv`.
+**Table S18b.** The ledger with its measured values (`table3_ledger.csv`; A6 from the sweep's `verdicts.csv`, S15.4); brackets give Birge-scaled 95% posterior intervals, $\Delta = \mathrm{HHI}_{\mathrm{post}} - \mathrm{HHI}_{\mathrm{prior}}$ signed (issue #81, `table3_intervals.csv`). Per-year values of the decomposition (Σz² per family, the maximum hard residual and the share of $\lvert z\rvert > 3$) are in `si_s15_decomposition.csv`; the A4 gradient per year in `si_s15_a4_gradient.csv`.
 
 | stage | prior | posterior | retention [95%] | pair: gap $10^{-3}$ | pair: gap $10^{-6}$ | $\Delta$ |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -750,6 +752,73 @@ The eight expectations of Table 3 were written with their metric and threshold b
 | Rest | 4,959 | 133 | 406 | 194 | 151 | 420 | 3,495 |
 
 **Table S22.** Embodied extraction 2024, kt CC (B3): rows the mining region, columns the region of final use; the six largest of each and Rest. World extraction 29,620 kt CC; China's footprint 16,727 kt CC (column sum), of which 6,335 from Chile and Peru against 4,254 kt CC of direct concentrate imports from them.
+
+<a id="si-knobs"></a>
+
+### S15.4 Knob study (A6)
+
+A *knob* is a configuration value of a stage driver set by judgement rather than measured. The sweep `sweep_20261102_145601_8413cace` (`scripts/sweep.py`) reruns Stages 2–4 of the reference chain at the 64 points of a Latin hypercube (seed 20261022) over the 15 knobs of Table [S22b](#tab-si-knobs): $\sigma$-scale knobs log-uniform over a factor two either side of the shipped value, shape knobs uniform over a stated interval around it, and the cascade order as shipped or reversed (reversal flips every pairwise precedence). Held at their shipped values are the structural modes, each compared in its decision record; the values calibrated to data (the feeds' resolution floors, the leg reference scale); the conditioning floors; and the solver's settings (termination is A5). All 64 points solved, and each meets the reference's hard rows to $1.3 \times 10^{-6}$ kt, against the reference's own $1.1 \times 10^{-6}$ kt.
+
+Each point is scored against the reference (`scripts/sweep_diag.py`, issue #117) by the change in pooled retention per stage of Table S19 and per contained-copper category, and by the concentrate export retention of Chile, Peru and Indonesia over 2010–2019, the Round-E (c) item of the stop rule (S13.1). Knobs are ranked per outcome by the standardised rank regression coefficient (SRRC), or by Spearman's $\rho$ where the rank regression explains less than half of the rank variance ($R^2 < 0.5$). A knob is *influential* where $\lvert\mathrm{SRRC}\rvert \ge 0.2$ with $R^2 \ge 0.5$; this rule was fixed with A6. The *swing* sizes what the coefficients only rank: the outcome's mean over the points in the top third of the knob's values minus its mean over the bottom third, or the reversed order's mean minus the shipped order's.
+
+A6 holds at 59 of 64 points and fails on one stage (Table [S22c](#tab-si-knob-outcomes), Figure [S1](#fig-si-knob-criteria)). Scrap into refineries (Scrap→CFR CC) reaches 0.030 at point 47. All five breaches have the no-data anchor's coefficient of variation between 0.080 and 0.093, a range that holds eight points. At each breach the stage lies above 0.02 in 12 to 24 of the 30 years, so the breach shifts the series rather than one year. Every other stage stays within 0.005 pooled; year by year only scrap into smelters leaves 0.02, in 1995 (at most 0.043).
+
+Two $\sigma$ knobs carry the ranking:
+- **The scale totals' coefficient of variation** ranks first on smelting, refining, final use and all three exporters ($\lvert\mathrm{SRRC}\rvert$ 0.83–0.95, $R^2 \ge 0.87$), with opposite signs for Chile ($-0.95$) and Indonesia ($+0.86$). It is tied to the fabricated-total coefficient of variation and to the soft-row floor, which would otherwise lift it back.
+- **The no-data anchor's coefficient of variation** ranks first on both scrap legs.
+
+The leg-$\sigma$ exponent ranks first on the two concentrate stages ($+0.55$, $R^2$ 0.61). The cascade order ranks first on crude-ore mass ($+0.81$), where its swing is 0.001. Ten of the 15 knobs are influential on none of the twelve outcomes of Table S22c.
+
+Round-E (c) holds for Peru at 64 points, for Chile at 62 and for Indonesia at 18; Indonesia's export retention spans $\pm 0.033$. Outside Table S19, the slag legs move most of all contained-copper categories, again driven by the scale totals' coefficient of variation: CFR→Slag $-0.052$ to $+0.039$, Smelting→Slag $-0.036$ to $+0.046$, ER→Slag $-0.045$ to $+0.032$.
+
+The sweep's portfolio (`data/proc/sweep/<run>/diag/`, figures SW-R-01, 02 and 04–07) and the round report `docs/rep/analysis_sweep_20261102_145601_8413cace_20261105_knob-study.md` hold the rest, including the per-year rankings.
+
+<a id="tab-si-knobs"></a>
+
+| knob (driver constant) | stage | shipped | range |
+| --- | --- | --- | --- |
+| `P_PROP`, the L$_p$ exponent $p$ of Eq. (1) (Stages 2 and 3, tied) | 2, 3 | 1.3 | uniform [1.1, 1.5] |
+| `Q_REG`, knee sharpness of the regularised sensitivity | 2 | 3.0 | uniform [1.5, 4.5] |
+| `ALPHA_MIN_REG`, floor of the regularised sensitivity | 2 | 0.05 | log [0.025, 0.1] |
+| `CASCADE_ORDER`, imputer cascade | 2 | trade, network, conc, ore grade, eff | shipped or reversed |
+| `TIME_WINDOW`, time-imputer window (years) | 2 | 3 | 2, 3 or 4 |
+| `TIME_GAP_INFLATION`, $\sigma$ multiplier per year of gap | 2 | 1.05 | uniform [1.0, 1.1] |
+| `STOCK_SEED_CV`, stock-change seed coefficient of variation | 2 | 0.01 | log [0.005, 0.02] |
+| `OUTLIER_LEG_K`, outlier-leg screen (exports over covered supply) | 2 | 3.0 | uniform [2, 4] |
+| `OUTLIER_LEG_CV`, coefficient of variation of a screened leg | 2 | 5.0 | log [2.5, 10] |
+| `LEG_SIGMA_GAMMA`, leg-$\sigma$ exponent (ADR 0017) | 2 | 0.5 | uniform [0.3, 0.7] |
+| `LEG_SIGMA_CV_CAP`, leg-$\sigma$ cap | 2 | 1.0 | log [0.5, 2] |
+| `ANCHOR_CV` = `FABRICATED_ANCHOR_CV` = `SIGMA_C_CV_MIN`, scale totals' coefficient of variation (tied) | 3 | 0.01 | log [0.005, 0.02] |
+| `NODATA_ANCHOR_CV`, no-data anchor's coefficient of variation (Eq. S8) | 3 | 0.05 | log [0.025, 0.1] |
+| `RATIO_SIGMA_REL_FLOOR`, soft-ratio relative $\sigma$ floor | 3 | 0.02 | log [0.01, 0.04] |
+| `RATIO_SCALE_ABS_FLOOR`, soft-ratio scale floor (kt) | 3 | 100 | log [50, 200] |
+
+**Table S22b.** The 15 knobs of the sweep, their shipped values and the ranges sampled (A6; issue #108). "log" is log-uniform.
+
+<a id="tab-si-knob-outcomes"></a>
+
+| outcome | limit | max $\lvert\Delta\rvert$ | points within | top knob | SRRC ($R^2$) | swing |
+| --- | --- | --- | --- | --- | --- | --- |
+| CO→Mining Mass | 0.02 | 0.0010 | 64 | cascade order | $+0.81$ (0.85) | $+0.0010$ |
+| MF→Concentrate CC | 0.02 | 0.0026 | 64 | leg-$\sigma$ exponent | $+0.55$ (0.61) | $+0.0011$ |
+| Concentrate→Smelting CC | 0.02 | 0.0025 | 64 | leg-$\sigma$ exponent | $+0.55$ (0.61) | $+0.0011$ |
+| Anode→ER CC | 0.02 | 0.0031 | 64 | scale-total cv | $-0.90$ (0.90) | $-0.0024$ |
+| CP→Cathode CC | 0.02 | 0.0034 | 64 | scale-total cv | $-0.94$ (0.90) | $-0.0027$ |
+| Cathode→FU CC | 0.02 | 0.0028 | 64 | scale-total cv | $-0.90$ (0.87) | $-0.0020$ |
+| Scrap→Smelting CC | 0.02 | 0.0048 | 64 | no-data anchor cv | $+0.75$ (0.94) | $+0.0037$ |
+| Smelting→Matte CC | 0.02 | 0.0028 | 64 | scale-total cv | $-0.95$ (0.91) | $-0.0024$ |
+| Scrap→CFR CC | 0.02 | 0.0298 | 59 | no-data anchor cv | $+0.84$ (0.99) | $+0.0235$ |
+| Chile, concentrate exports 2010–19 | 0.01 | 0.0103 | 62 | scale-total cv | $-0.95$ (0.97) | $-0.0082$ |
+| Peru, concentrate exports 2010–19 | 0.01 | 0.0023 | 64 | scale-total cv | $-0.83$ (0.91) | $-0.0018$ |
+| Indonesia, concentrate exports 2010–19 | 0.01 | 0.0329 | 18 | scale-total cv | $+0.86$ (0.98) | $+0.0386$ |
+
+**Table S22c.** Change in pooled retention against the reference over the 64 points of the knob sweep: the nine stages of A6 (1995–2024) and the exporters of Round-E (c) (2010–2019). *Points within* counts the points with $\lvert\Delta\rvert$ below the limit; the top knob is the one with the largest $\lvert\mathrm{SRRC}\rvert$ (every $R^2 \ge 0.5$), its swing in the outcome's unit. All values are from the sweep's `verdicts.csv`, `points.csv` and `sensitivity.csv`.
+
+<a id="fig-si-knob-criteria"></a>
+
+![Figure S1](figs/si_s15_knob_criteria.png)
+
+**Figure S1.** The twelve outcomes of Table S22c per point of the knob sweep against their limits (shaded): A6's nine stages ($\pm 0.02$) and Round-E (c)'s exporters ($\pm 0.01$). Each point is coloured by its rank on the row's top knob (dark low, yellow high), named on the right with its SRRC and the count outside the band. Figure SW-R-05 of the sweep's portfolio (`scripts/sweep_diag.py`).
 
 <a id="si-portfolio"></a>
 

@@ -99,6 +99,23 @@ Each against the previous one; REPs under `docs/rep/`.
   the numerical floor (1.1e-6 kt), A4 0/30 because the ore-mass deletion was the solver's stop (#33). Follow-ups
   outside the milestone: #111 (DR Congo, South Africa, Zambia, Uzbekistan: 34.7 % of scale-total Σz²), #99, #81.
 
+## #108 MEASURED 2026-11-05 — the knob study: A6 fails narrowly (59/64, Scrap→CFR CC), two σ knobs carry the ranking
+
+Branch `diag/knob-study-rep`.
+- **Sweep and scoring.** The run is `sweep_20261102_145601_8413cace`: 64 points, 15 knobs, seed 20261022, on
+  `opt_20261022_112855_928da10c`, taking 10.2 h. The #117 library scored it: `scripts/sweep_diag.py` wrote six figures
+  and eight tables to its `diag/`. The REP is `docs/rep/analysis_sweep_20261102_145601_8413cace_20261105_knob-study.md`.
+- **A6 fails.** It holds at 59/64 points. The worst is 0.0298, at p047 on Scrap→CFR CC, and all five breaches have
+  `NODATA_ANCHOR_CV` ≥ 0.080. The other eight stages stay ≤ 0.0048, two orders below A5's 0.223.
+- **Round-E (c) fails on Indonesia.** Peru 64/64, Chile 62/64, Indonesia 18/64 (±0.033).
+- **Influential knobs.** The scale-total cv (`ANCHOR_CV`, tied) leads on smelting, refining, final use and the
+  exporters (|SRRC| 0.83–0.95), with Chile and Indonesia at opposite signs. `NODATA_ANCHOR_CV` leads on the scrap legs.
+  Ten knobs are influential on no criterion outcome. The slag legs (±0.05) are the most knob-sensitive CC flows and sit
+  outside every criterion.
+- **Text.** Table 3 gains row A6, §4.1 gains two sentences, and the SI gains S15.4 (Tables S22b, S22c, Figure S1 =
+  SW-R-05). Group 12 of `manuscript_numbers.py` keys every number (115 new keys, none changed).
+- **Results prose.** 1,036 → 1,128 words against the 1,000 budget.
+
 ## #114 + #81 DONE 2026-10-29 — the manuscript reads the final chain opt_20261022_112855_928da10c, with intervals beside Table 3
 
 Branch `diag/manuscript-refresh-3`.
