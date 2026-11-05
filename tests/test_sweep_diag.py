@@ -1,4 +1,4 @@
-"""test_sweep_diag.py — the sweep diagnostic (#107).
+"""test_sweep_diag.py — the sweep diagnostic (#107, #117).
 
 A toy sweep is persisted under ``tmp_path``: the base chain is a solved
 ``_make_wide_sigma_run`` (two periods), one point solves the same QP with edge e0's
@@ -8,13 +8,15 @@ the base runs, the loosened one, and a failed one. Edges 0–4 are 2020's, 5–9
 from __future__ import annotations
 
 import dataclasses
+import os
 
 import numpy as np
 import pandas as pd
 import pytest
 
 from pysuto.diag import SweepDiag, SweepStatsDiagnostic
-from pysuto.diag.stats.sweep import MaxAbs, Outcome, _max_abs, sensitivity_table, top_axis
+from pysuto.diag.stats.sweep import (Criterion, EveryCategory, MaxAbs, Outcome, _max_abs,
+                                     sensitivity_by_year, sensitivity_table, top_axis)
 from pysuto.registry import ConstraintRunRegistry, OptimRunRegistry, SweepRunRegistry
 from pysuto.solver import ClarabelSolver
 from tests.test_solver import _make_wide_sigma_run
@@ -38,11 +40,31 @@ def _solve_and_persist(root, run):
                      const_run_id=run.run_id)
 
 
+def _toy_run():
+    return dataclasses.replace(_make_wide_sigma_run(periods=("2020", "2021")),
+                               run_id="const_base")
+
+
 @pytest.fixture
 def sweep(tmp_path):
+    return _persist_sweep(tmp_path, _toy_run())
+
+
+@pytest.fixture
+def odd_sweep(tmp_path):
+    """The toy sweep on a base whose C→D edge e3 is signed (structural lower bound
+    below 0) and whose A→B CC category has a zero prior in both years."""
+    run = _toy_run()
+    l, a0 = run.l.copy(), run.a0.copy()
+    l[[3, 8]], a0[[0, 5]] = -1e4, 0.0
+    td = {t: {**d, "a_prior": np.where(np.arange(5) == 0, 0.0, d["a_prior"])}
+          for t, d in run.timestep_data.items()}
+    return _persist_sweep(tmp_path, dataclasses.replace(run, l=l, a0=a0,
+                                                        timestep_data=td))
+
+
+def _persist_sweep(tmp_path, base):
     root = tmp_path / "data" / "proc"
-    base = dataclasses.replace(_make_wide_sigma_run(periods=("2020", "2021")),
-                               run_id="const_base")
     loose = dataclasses.replace(base, run_id="const_loose",
                                 sigma_a=base.sigma_a * np.tile([3.0, 1, 1, 1, 1], 2))
     base_opt, loose_opt = _solve_and_persist(root, base), _solve_and_persist(root, loose)
@@ -121,7 +143,8 @@ class TestOutcomes:
         paths = sweep.write(str(tmp_path / "out"))
         names = {p.split("/")[-1] for p in paths}
         assert names == {"points.csv", "categories.csv", "retention_by_year.csv",
-                         "sensitivity.csv"}
+                         "sensitivity.csv", "year_profiles.csv",
+                         "sensitivity_by_year.csv", "verdicts.csv"}
 
 
 def test_a_sweep_whose_points_keep_no_const_run_is_scored_all_the_same(sweep):
@@ -203,6 +226,157 @@ class TestDeclaredOutcomes:
         assert "t" in sweep.outcomes()
         assert "t" in set(sweep.sensitivity()["outcome"])
 
+    def test_a_max_abs_outcome_is_scored_but_never_ranked(self, sweep):
+        """|·| folds a one-way effect into a V that no additive rank regression fits."""
+        parts = tuple(Outcome(c, "total", {"category": c}) for c in ("A→B", "B→C"))
+        sweep.outcome_defs = parts + (MaxAbs("worst", parts),)
+        assert "worst" in sweep.points_frame(refresh=True).columns
+        assert "worst" not in sweep.outcomes()
+        assert "worst" not in set(sweep.sensitivity()["outcome"])
+
+
+class TestWindows:
+
+    BC = {"category": "B→C"}                                    # edges 1, 2, 6, 7
+
+    def test_a_pooled_retention_is_the_ratio_of_sums_over_its_window(self, sweep):
+        sweep.outcome_defs = (Outcome("all", "retention", self.BC),
+                              Outcome("span", "retention", self.BC, ("2020", "2021")),
+                              Outcome("y21", "retention", self.BC, ("2021", "2021")))
+        r = sweep.points_frame(refresh=True).loc[1]
+        (F_p, P_p), (F_b, P_b) = _flows(sweep, 1), _flows(sweep, 0)
+        w = [6, 7]
+        assert r["y21"] == pytest.approx(
+            F_p[w].sum() / P_p[w].sum() - F_b[w].sum() / P_b[w].sum(), rel=1e-12)
+        assert r["span"] == r["all"]                     # the default is the full span
+
+    def test_a_one_year_window_equals_that_years_profile_value(self, sweep):
+        sweep.outcome_defs = (Outcome("all", "retention", self.BC),
+                              Outcome("y21", "retention", self.BC, ("2021", "2021")))
+        pts = sweep.points_frame(refresh=True)
+        yp = sweep.year_profiles()
+        assert list(yp.columns) == ["index", "outcome", "year", "value"]
+        assert set(yp[yp["outcome"] == "all"]["year"]) == {"2020", "2021"}
+        assert set(yp[yp["outcome"] == "y21"]["year"]) == {"2021"}
+        at = yp.set_index(["index", "outcome", "year"])["value"]
+        for i in (0, 1):
+            assert at[(i, "all", "2021")] == pytest.approx(pts.loc[i, "y21"], rel=1e-12,
+                                                           abs=1e-15)
+        assert set(yp["index"]) == {0, 1}                # the failed point has none
+
+    def test_only_retention_outcomes_get_a_year_profile(self, sweep):
+        sweep.outcome_defs = (Outcome("r", "retention", self.BC), Outcome("t", "total"),
+                              Outcome("m", "mass_moved"))
+        sweep.points_frame(refresh=True)
+        assert set(sweep.year_profiles()["outcome"]) == {"r"}
+
+    def test_a_window_outside_the_base_years_is_refused(self, sweep):
+        sweep.outcome_defs = (Outcome("w", "retention", self.BC, ("2019", "2021")),)
+        with pytest.raises(ValueError, match="2019"):
+            sweep.points_frame(refresh=True)
+
+    def test_the_window_is_named_wherever_the_outcome_is_ranked(self, sweep):
+        sweep.outcome_defs = (Outcome("all", "retention", self.BC),
+                              Outcome("y21", "retention", self.BC, ("2021", "2021")))
+        sweep.points_frame(refresh=True)
+        win = sweep.sensitivity().groupby("outcome")["window"].first()
+        assert (win["all"], win["y21"]) == ("2020–2021", "2021")
+
+
+class TestCategoriesWithoutRetention:
+
+    def test_a_signed_or_zero_prior_category_has_no_retention_but_its_mass_moved(
+            self, odd_sweep):
+        cat = odd_sweep.category_frame()
+        p1 = cat[cat["index"] == 1].set_index("category")
+        assert p1.loc["C→D Mass", "no_retention"] == "signed"
+        assert p1.loc["A→B CC", "no_retention"] == "zero prior"
+        assert p1.loc["B→C CC", "no_retention"] == ""
+        for c in ("C→D Mass", "A→B CC"):
+            assert np.isnan(p1.loc[c, "retention"]) and np.isnan(p1.loc[c, "retention_base"])
+            assert np.isfinite(p1.loc[c, "mass_moved"])
+        assert np.isfinite(p1.loc["B→C CC", "retention"])
+        assert p1.loc["A→B CC", "mass_moved"] > 0.0      # e0's σ is the knob
+        yr = odd_sweep.retention_by_year()
+        undefined = yr["category"].isin(["C→D Mass", "A→B CC"])
+        assert yr[undefined]["retention"].isna().all()
+        assert yr[~undefined]["retention"].notna().all()
+
+    def test_a_retention_outcome_over_a_signed_edge_is_refused(self, odd_sweep):
+        odd_sweep.outcome_defs = (Outcome("cd", "retention", {"category": "C→D"}),)
+        with pytest.raises(ValueError, match="signed"):
+            odd_sweep.points_frame(refresh=True)
+
+    def test_every_category_expands_to_one_retention_outcome_per_category(self, sweep):
+        explicit = Outcome("bc", "retention", {"category": "B→C", "valuation": "Mass"})
+        sweep.outcome_defs = (EveryCategory("Mass"), explicit)
+        df = sweep.points_frame(refresh=True)
+        made = [c for c in df.columns if c.startswith("d_retention[")]
+        assert made == ["d_retention[B→C Mass]", "d_retention[C→D Mass]"]
+        np.testing.assert_allclose(df["d_retention[B→C Mass]"], df["bc"], rtol=1e-12)
+
+    def test_the_expansion_skips_the_categories_without_retention(self, odd_sweep):
+        odd_sweep.outcome_defs = (EveryCategory("CC"), EveryCategory("Mass"))
+        df = odd_sweep.points_frame(refresh=True)
+        assert [c for c in df.columns if c.startswith("d_retention[")] == [
+            "d_retention[B→C CC]", "d_retention[B→C Mass]"]
+
+    def test_a_declared_outcome_equal_to_an_expanded_one_is_scored_once(self, sweep):
+        stage = Outcome("d_retention[B→C CC]", "retention",
+                        {"category": "B→C", "valuation": "CC"})
+        sweep.outcome_defs = (stage, EveryCategory("CC"))
+        sweep.points_frame(refresh=True)
+        assert sweep.outcomes().count("d_retention[B→C CC]") == 1
+
+    def test_categories_follow_the_declared_chain_order_not_the_alphabet(self, sweep):
+        renamed = EDGES.replace({"A": "Mine", "B": "Conc", "C": "Smelt", "D": "Ref"})
+        renamed["category"] = renamed["sector_from"] + "→" + renamed["sector_to"]
+        stats = SweepStatsDiagnostic(sweep.sweep_run_id, root=sweep.root, edges=renamed)
+        assert list(stats.category_table()["category"]) == [
+            "Mine→Conc CC", "Conc→Smelt CC", "Conc→Smelt Mass", "Smelt→Ref Mass"]
+
+
+class TestCriteria:
+
+    AB = Outcome("ab", "retention", {"category": "A→B"})       # e0's σ is the knob
+    BC = Outcome("bc", "retention", {"category": "B→C"})
+
+    def test_a_criterion_holds_at_the_base_and_fails_where_a_point_passes_its_limit(
+            self, sweep):
+        sweep.outcome_defs = (self.AB,)
+        moved = abs(sweep.points_frame(refresh=True).loc[1, "ab"])
+        assert moved > 0.0
+        sweep.criteria = (Criterion("loose", (self.AB,), 2 * moved),
+                          Criterion("tight", (self.AB,), moved / 2))
+        sweep.points_frame(refresh=True)
+        v = sweep.verdicts().set_index("item")
+        assert list(v.columns) == ["limit", "points_meeting", "points_done",
+                                   "worst_point", "worst_outcome", "worst_window",
+                                   "worst_value"]
+        assert (v.loc["loose", "points_meeting"], v.loc["loose", "points_done"]) == (2, 2)
+        assert (v.loc["tight", "points_meeting"], v.loc["tight", "points_done"]) == (1, 2)
+        assert v.loc["tight", "worst_point"] == 1
+        assert v.loc["tight", "worst_outcome"] == "ab"
+        assert v.loc["tight", "worst_window"] == "2020–2021"
+        assert v.loc["tight", "worst_value"] == pytest.approx(moved, rel=1e-12)
+
+    def test_a_criterion_over_a_max_abs_names_the_part_that_set_its_worst(self, sweep):
+        worst = MaxAbs("worst", (self.AB, self.BC))
+        sweep.outcome_defs = ()
+        sweep.criteria = (Criterion("A6", (worst,), 1e-12),)
+        pts = sweep.points_frame(refresh=True)
+        assert {"ab", "bc"} <= set(pts.columns)          # scored without being declared
+        top = max(("ab", "bc"), key=lambda c: abs(pts.loc[1, c]))
+        v = sweep.verdicts().iloc[0]
+        assert (v["item"], v["worst_point"], v["worst_outcome"]) == ("A6", 1, top)
+        assert v["worst_value"] == pytest.approx(abs(pts.loc[1, top]), rel=1e-12)
+
+    def test_a_criterion_needs_outcomes_and_a_positive_limit(self):
+        with pytest.raises(ValueError, match="limit"):
+            Criterion("A6", (self.AB,), 0.0)
+        with pytest.raises(ValueError, match="outcome"):
+            Criterion("A6", (), 0.02)
+
 
 class TestSensitivityTable:
 
@@ -219,16 +393,54 @@ class TestSensitivityTable:
         assert t[("a", "spearman")] == pytest.approx(1.0, rel=1e-12)
         assert t[("(rank regression)", "r2")] == pytest.approx(1.0, rel=1e-9)
 
-    def test_the_grid_main_effect_is_the_spread_of_the_level_means(self):
+    def test_a_list_axis_swing_is_the_spread_of_its_level_means(self):
         frame = pd.DataFrame({"m": ["soft", "hard"] * 3, "w": [2, 2, 3, 3, 5, 5],
                               "y": [1.0, 11.0, 2.0, 12.0, 3.0, 13.0]})
         axes = [{"keys": ["m"], "values": ["soft", "hard"]},
                 {"keys": ["w"], "values": [2, 3, 5]}]
         t = sensitivity_table(frame, axes, ["y"], mode="grid").set_index(
             ["axis", "statistic"])["value"]
-        assert t[("m", "main_effect_range")] == pytest.approx(10.0, rel=1e-12)
-        assert t[("w", "main_effect_range")] == pytest.approx(2.0, rel=1e-12)
+        assert t[("m", "swing")] == pytest.approx(10.0, rel=1e-12)
+        assert t[("w", "swing")] == pytest.approx(2.0, rel=1e-12)
         assert t[("m×w", "interaction_range")] == pytest.approx(0.0, abs=1e-12)
+
+    def test_a_numeric_axis_swing_is_its_top_third_mean_minus_its_bottom_third_mean(self):
+        """Nine points, thirds by the axis's value (not by row order): y averages 8 over
+        x ∈ {0.7, 0.8, 0.9} and 2 over x ∈ {0.1, 0.2, 0.3}, so the swing is +6 in y's
+        own unit — whatever the middle third does."""
+        x = np.arange(1, 10) / 10.0
+        y = np.array([1.0, 2.0, 3.0, 50.0, -50.0, 0.0, 7.0, 8.0, 9.0])
+        perm = np.random.default_rng(5).permutation(9)
+        frame = pd.DataFrame({"a": x[perm], "b": np.linspace(0, 1, 9), "y": y[perm]})
+        axes = [{"keys": ["a"], "distribution": "uniform"},
+                {"keys": ["b"], "distribution": "uniform"}]
+        t = sensitivity_table(frame, axes, ["y"], mode="random").set_index(
+            ["axis", "statistic"])["value"]
+        assert t[("a", "swing")] == pytest.approx(6.0, rel=1e-12)
+        top, bottom = np.argsort(frame["b"])[-3:], np.argsort(frame["b"])[:3]
+        assert t[("b", "swing")] == pytest.approx(
+            frame["y"].to_numpy()[top].mean() - frame["y"].to_numpy()[bottom].mean(),
+            rel=1e-12)
+
+    def test_the_per_year_table_is_the_sensitivity_table_of_each_years_slice(self):
+        rng = np.random.default_rng(11)
+        frame = pd.DataFrame({"index": np.arange(12), "a": rng.uniform(0, 1, 12),
+                              "o": [["x"], ["y"]] * 6})
+        axes = [{"keys": ["a"], "distribution": "uniform"},
+                {"keys": ["o"], "values": [["x"], ["y"]]}]
+        profiles = pd.DataFrame([(i, out, yr, rng.normal())
+                                 for i in range(12) for out in ("r1", "r2")
+                                 for yr in ("2020", "2021", "2022")],
+                                columns=["index", "outcome", "year", "value"])
+        t = sensitivity_by_year(frame, axes, profiles, mode="random")
+        assert list(t.columns) == ["year", "outcome", "axis", "statistic", "value", "n"]
+        for yr in ("2020", "2021", "2022"):
+            wide = profiles[profiles["year"] == yr].pivot(
+                index="index", columns="outcome", values="value")
+            expect = sensitivity_table(frame.join(wide, on="index"), axes, ["r1", "r2"],
+                                       mode="random")
+            got = t[t["year"] == yr].drop(columns="year").reset_index(drop=True)
+            pd.testing.assert_frame_equal(got, expect, rtol=1e-12)
 
     def test_a_two_level_nominal_axis_is_ranked_in_its_declared_order(self):
         """Its standardised indicator (second level vs first) is its standardised rank,
@@ -242,7 +454,7 @@ class TestSensitivityTable:
                 {"keys": ["a"], "distribution": "uniform"}]
         t = sensitivity_table(frame, axes, ["y"], mode="random")
         o = t[t["axis"] == "o"].set_index("statistic")["value"]
-        assert o["main_effect_range"] == pytest.approx(2.0, rel=1e-12)
+        assert o["swing"] == pytest.approx(2.0, rel=1e-12)
         assert o["srrc"] == pytest.approx(1.0, rel=1e-9)
         assert o["spearman"] == pytest.approx(1.0, rel=1e-12)
 
@@ -255,7 +467,7 @@ class TestSensitivityTable:
         t = sensitivity_table(frame, axes, ["y"], mode="random")
         o = t[t["axis"] == "o"].set_index("statistic")["value"]
         assert np.isnan(o["srrc"]) and np.isnan(o["spearman"])
-        assert o["main_effect_range"] == pytest.approx(2.0, rel=1e-12)
+        assert o["swing"] == pytest.approx(2.0, rel=1e-12)
 
     def test_the_top_axis_is_read_off_spearman_where_the_ranks_are_not_additive(self):
         sens = pd.DataFrame([("y", "a", "srrc", 0.9, 9), ("y", "b", "srrc", 0.1, 9),
@@ -289,12 +501,35 @@ class TestSensitivityTable:
         assert set(t[t["statistic"] != "r2"]["axis"]) == {"imp.P_PROP=const.P_PROP"}
 
 
-def test_the_diag_draws_its_four_figures_and_names_the_top_axis(sweep, tmp_path):
+SW_R = ("sw_r_01", "sw_r_02", "sw_r_04", "sw_r_05", "sw_r_06", "sw_r_07")
+
+
+def test_the_diag_draws_six_figures_and_prints_a_verdict_per_criterion(sweep, tmp_path):
+    ab = Outcome("d_retention[A→B CC]", "retention", {"category": "A→B", "valuation": "CC"})
+    sweep.outcome_defs = (ab, EveryCategory("CC"), MaxAbs("worst", (ab,)))
+    sweep.criteria = (Criterion("A6", (ab,), 0.02), Criterion("E", (MaxAbs("w", (ab,)),),
+                                                             1e-12))
     diag = SweepDiag(sweep)
     paths = diag.plot(str(tmp_path / "figs"), show=False)
-    assert len(paths) == 4 and all(p.endswith(".png") for p in paths)
+    assert [os.path.basename(p)[:7] for p in paths] == list(SW_R)
+    assert all(p.endswith(".png") and os.path.exists(p) for p in paths)
     text = diag.summary()
-    assert "const.ANCHOR_CV" in text and "failed" in text
+    lines = text.splitlines()
+    assert any(ln.split()[:1] == ["A6"] for ln in lines)
+    assert any(ln.split()[:1] == ["E"] and "1/2" in ln for ln in lines)
+    assert not any(ln.split()[:1] in (["worst"], ["w"]) for ln in lines)
+    assert "const.ANCHOR_CV" in text and "failed points: [2]" in text
     assert "top axis per outcome" in text and "mass_moved_total" in text
     assert "J_own" not in text
     assert "hard-row floor" in text and "breaking" not in text
+
+
+def test_the_diag_draws_its_figures_with_nothing_declared(odd_sweep, tmp_path):
+    """No criterion and no retention outcome: SW-R-02, 05, 06 and 07 say so on an empty
+    panel, and SW-R-04 names the categories it leaves out."""
+    diag = SweepDiag(odd_sweep)
+    paths = diag.plot(str(tmp_path / "figs"), show=False)
+    assert [os.path.basename(p)[:7] for p in paths] == list(SW_R)
+    text = diag.summary()
+    assert "no criterion declared" in text
+    assert "A→B CC (zero prior)" in text and "C→D Mass (signed)" in text
