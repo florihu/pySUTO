@@ -16,9 +16,12 @@ constraint run const_20260916_123437_8e8e9676 solved at the former production
 tolerance (opt_20260916_124721_c4d1d944, gap_rel 1e-3) and at the ADR 0039
 tolerance (opt_20260930_093914_523d57d7, gap_rel 1e-6), both for the flows: the
 same QP, only the termination rule differs. The reference run itself solves for
-the defects at gap 1e-8 (Table S5, issue #33). The eight expectations of Table 3 and their
+the defects at gap 1e-8 (Table S5, issue #33). The nine expectations of Table 3 and their
 thresholds were fixed before the numbers were read (SI S15) and are reported
-whichever way they fall. Stage-5 (posterior sigma) numbers are from uncprop_20261029_090754_0446e784,
+whichever way they fall. H-A6 is judged on the knob sweep sweep_20261102_145601_8413cace
+(64 points around this run, issue #108): its numbers come from the sweep's diag tables
+(scripts/sweep_diag.py), keyed in docs/manuscript/figs/manuscript_numbers.json (group 12 of
+scripts/report/manuscript_numbers.py), not from numbers.json. Stage-5 (posterior sigma) numbers are from uncprop_20261029_090754_0446e784,
 the calibration's method from the #87 REP
 (analysis_uncprop_20261021_134829_ad7e8d62_20261022_issue87-calibration.md), and the
 Birge-scaled intervals beside Table 3 from scripts/report/table3_intervals.py on the same
@@ -45,7 +48,7 @@ set each against (all "verify:" — none is in refs.bib yet):
 
 ## 4 Results
 
-Section [4.1](#sec-results-reconciliation) asks whether heterogeneous copper statistics can be reconciled into one consistent PSUT, whether the adjustment this takes is compatible with their stated uncertainty, and where and how much copper moves (Figure [4](#fig-reconciliation), Table [3](#tab-ledger) rows A1–A5). Section [4.2](#sec-results-system) asks what the reconciled, uncertainty-weighted account shows that the source statistics cannot show separately (Figure [5](#fig-copper-system), rows B1–B3).
+Section [4.1](#sec-results-reconciliation) asks whether heterogeneous copper statistics can be reconciled into one consistent PSUT, whether the adjustment this takes is compatible with their stated uncertainty, and where and how much copper moves (Figure [4](#fig-reconciliation), Table [3](#tab-ledger) rows A1–A6). Section [4.2](#sec-results-system) asks what the reconciled, uncertainty-weighted account shows that the source statistics cannot show separately (Figure [5](#fig-copper-system), rows B1–B3).
 
 <a id="sec-results-reconciliation"></a>
 
@@ -67,7 +70,7 @@ The edge adjustment is localised on trade (Figure 4b, d). Two sector keys carry 
 
 Little copper moves at any stage (Figure 4c): over 30 years the account retains 0.998 of the prior refined output, 1.010 of mine output in contained copper, 0.963 of concentrate intake and 0.999 of the crude-ore mass; scrap is retained at 1.011 into smelters and 1.026 into refineries. Chile's concentrate exports retain 1.025 over 2010–2019. A4 fails in every year: the concentrate–ore step holds in ten, the cathode–concentrate step in one, because all three stages stay close to their priors (within 0.04 over the period). The upstream deletion it was written for (0.864 of the crude-ore mass on the previous reference chain) was where the solver stopped; solved for the defects, the same problem retains 0.998 (issue #33).
 
-Termination accuracy is a first-order modelling choice (A5). Re-solving the base constraint set at the tightened tolerance, with nothing else changed, moves ore-mass retention from 0.779 to 0.861, scrap into smelters from 0.995 to 0.772 and Chile's export retention from 0.574 to 0.893; five of nine stages move by more than 0.02. A retention figure from a $\sigma$-weighted reconciliation needs its termination rule beside it. Under the stated $\sigma$, Stage 5 contracts the large flows strongly: the mass-weighted contraction of the feed-observed contained-copper edges is 0.93, so their posterior $\sigma$ is set by the constraints rather than by their own feed, while the median such edge contracts by only 0.065. The model's own residuals say its stated $\sigma$ are too small (Birge ratio 5.18; 13.1% of those edges beyond 3 standardised units against 0.27% expected), so intervals in this paper are Birge-scaled and remain lower bounds in the tail (Section 3.1.7, issue #87).
+Termination accuracy is a first-order modelling choice (A5). Re-solving the base constraint set at the tightened tolerance, with nothing else changed, moves ore-mass retention from 0.779 to 0.861, scrap into smelters from 0.995 to 0.772 and Chile's export retention from 0.574 to 0.893; five of nine stages move by more than 0.02. A retention figure from a $\sigma$-weighted reconciliation needs its termination rule beside it. Judgement values move it far less (A6): over a 64-point Latin hypercube of the 15 knobs set by judgement (SI S15.4), no stage moves by more than 0.005 except scrap into refineries, which reaches 0.030 at five points, all with the no-data anchor's coefficient of variation above 0.08. Two $\sigma$ knobs carry almost all the movement — the scale totals' coefficient of variation for smelting, refining and exports (Indonesia's export retention leaves ±0.01 at 46 points), the no-data anchor's for scrap — and ten of the 15 are influential on no stage. Under the stated $\sigma$, Stage 5 contracts the large flows strongly: the mass-weighted contraction of the feed-observed contained-copper edges is 0.93, so their posterior $\sigma$ is set by the constraints rather than by their own feed, while the median such edge contracts by only 0.065. The model's own residuals say its stated $\sigma$ are too small (Birge ratio 5.18; 13.1% of those edges beyond 3 standardised units against 0.27% expected), so intervals in this paper are Birge-scaled and remain lower bounds in the tail (Section 3.1.7, issue #87).
 
 <a id="fig-reconciliation"></a>
 
@@ -84,11 +87,12 @@ Termination accuracy is a first-order modelling choice (A5). Re-solving the base
 | A3 | the adjustment localises on transit trade | share of edge $\sum z^2$ on cross-region legs into merchant hubs $\ge 0.50$ | 0.787 (all cross-region legs 0.947) — pass |
 | A4 | the adjustment grows upstream | retention cathode CC $>$ concentrate CC $>$ ore Mass by $\ge 0.02$ per step in $\ge 25$ of 30 years | 0/30, also at the upper ends of the intervals (cathode–concentrate 1, concentrate–ore 10) — fail |
 | A5 | termination accuracy does not move the answer | $\lvert\Delta\,\mathrm{retention}\rvert < 0.02$ per stage, base run at gap 1e-3 vs 1e-6 | 4/9 stages within; max 0.223 (scrap into smelters) — fail |
+| A6 | judgement values do not move the answer | $\lvert\Delta\,\mathrm{retention}\rvert < 0.02$ per stage at every point of a 64-point sweep over 15 knobs | 59/64 points; max 0.030 (scrap into refineries), other stages $\le 0.005$ — fail |
 | B1 | secondary share: fidelity and regional order | pooled 2020–24: $\lvert$world posterior $-$ ICSG-implied$\rvert < 0.02$; EU-14 $>$ China $>$ US; EU-14 $\ge 2\times$ world | 0.007 [0.005, 0.010]; 0.370 [0.367, 0.374] $>$ 0.240 [0.234, 0.245] $>$ 0.045 [0.044, 0.047]; 2.16$\times$ [2.12, 2.20] — pass |
 | B2 | concentration rises downstream and is reconciliation-invariant | HHI 2024: refining, use $>$ mining and $> 0.25$; mining $< 0.15$; $\lvert\mathrm{HHI}_{\mathrm{post}} - \mathrm{HHI}_{\mathrm{prior}}\rvert < 0.01$ | mining 0.111 [0.108, 0.114], smelting 0.281 [0.275, 0.287], refining 0.230 [0.226, 0.234], use 0.352 [0.344, 0.361]; max $\lvert\Delta\rvert$ 0.003 (use; $\Delta$ [−0.012, 0.006]) — fail |
 | B3 | embodied exceeds direct; Chile's exports turned to China | China's embodied mined Cu from Chile+Peru $\ge 1.10\times$ its direct concentrate imports from them (2024); Chile's export share to China $< 0.10$ (1995), $> 0.50$ (2024) | 6,335 / 4,254 kt CC $= 1.49$ [1.42, 1.55]; 0.034 [0.029, 0.040] $\to$ 0.548 [0.523, 0.572] — pass |
 
-**Table 3.** The pre-registered expectations of this section and their outcomes on the reference run. Thresholds were fixed before the numbers were read; definitions, the reason each benchmark is or is not independent of the inputs, and the per-row numbers are in SI S15. Brackets give Birge-scaled 95% posterior intervals ($\sqrt{R} = 2.28$), from the covariance the constraints induce between the flows of each total, ratios and indices by the delta method and the embodied ratio from 200 posterior draws (Section 3.1.7, issue #81); pinning or freeing the bounds the active set leaves ambiguous moves none of them by more than 0.002 (issue #99).
+**Table 3.** The pre-registered expectations of this section and their outcomes on the reference run. Thresholds were fixed before the numbers were read; definitions, the reason each benchmark is or is not independent of the inputs, and the per-row numbers are in SI S15; A6 is judged on a knob sweep around the reference run (SI S15.4). Brackets give Birge-scaled 95% posterior intervals ($\sqrt{R} = 2.28$), from the covariance the constraints induce between the flows of each total, ratios and indices by the delta method and the embodied ratio from 200 posterior draws (Section 3.1.7, issue #81); pinning or freeing the bounds the active set leaves ambiguous moves none of them by more than 0.002 (issue #99).
 
 <a id="sec-results-system"></a>
 

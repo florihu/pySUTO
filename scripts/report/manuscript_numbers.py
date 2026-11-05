@@ -49,6 +49,8 @@ Groups, after the 2026-10-19 inventories of method/results and SI:
  11  limitations (method.md §3.2.8): the mine chains kept where ICSG reports no
      mine output, stock legs beyond |z| 5, the world producer stock change
      against ICSG, the regions that carry the scale-total objective
+ 12  knob study (#108): A6 and Round-E (c) on the latest sweep whose base is the opt
+     run, read from the tables ``scripts/sweep_diag.py`` writes to its ``diag/``
 
 Historical measurements (REP/ADR figures) and the tables ``results_figs.py``
 generates are deliberately absent; so are repository statistics (lines,
@@ -72,6 +74,7 @@ from scipy.stats import norm
 sys.path.insert(0, "src")
 
 from pysuto.acc import AccountingStructure              # noqa: E402
+from pysuto.diag.stats.sweep import influential, rank_statistic, top_axis  # noqa: E402
 from pysuto.diag.uncprop import UncPropDiag             # noqa: E402
 from pysuto.param_relation import expand_edge_index     # noqa: E402
 
@@ -157,6 +160,7 @@ class Chain:
     feeds:    dict                  # feed id → feed run id
     psut:     list
     uncprop:  list
+    sweep:    list                  # sweep runs whose base is the opt run
     meta:     dict                  # "opt" / "const" / "imp" / feed id → sidecar
     versions: dict                  # input id → version
     years:    list
@@ -199,6 +203,7 @@ def walk_chain(proc: Path, opt: str) -> Chain:
     return Chain(opt=opt, const=const, imp=imp, feeds=feeds,
                  psut=_built_from(proc / "psut", opt),
                  uncprop=_built_from(proc / "uncprop", opt),
+                 sweep=_built_from(proc / "sweep", opt),
                  meta=meta, versions=versions,
                  years=[str(y) for y in om["stage_summary"]["timesteps"]])
 
@@ -1320,6 +1325,110 @@ def limitation_numbers(N: Numbers, inp: Path, ch: Chain, e: pd.DataFrame, s: pd.
 
 
 # =============================================================================
+# 12  knob study (#108)
+# =============================================================================
+
+def _criterion_row(sens: pd.DataFrame, pts: pd.DataFrame, out: str, limit: float) -> dict:
+    """One outcome of a criterion: its largest |Δ|, the points within the limit and its
+    top knob by the sweep library's rule, with that knob's statistic, R² and swing."""
+    stat, r2 = rank_statistic(sens, out)
+    knob, _, value = top_axis(sens, out)
+    swing = sens[(sens.outcome == out) & (sens.axis == knob) & (sens.statistic == "swing")]
+    return {"max_abs": pts[out].abs().max(), "within": int((pts[out].abs() < limit).sum()),
+            "top_knob": knob, "statistic": stat, "value": value, "r2": r2,
+            "swing": float(swing["value"].iloc[0])}
+
+
+def knob_numbers(N: Numbers, proc: Path, ch: Chain) -> None:
+    """Group 12: A6 and Round-E (c) on the latest sweep built on the opt run, read from the
+    tables ``scripts/sweep_diag.py`` writes to its ``diag/`` (#117); nothing without one."""
+    if not ch.sweep:
+        print("group 12: no sweep is built on this run; A6 keeps its numbers")
+        return
+    sid = ch.sweep[-1]
+    d = proc / "sweep" / sid / "diag"
+    if not (d / "verdicts.csv").is_file():
+        raise FileNotFoundError(f"{d / 'verdicts.csv'} is missing: run "
+                                f"scripts/sweep_diag.py {sid} first")
+    pts = pd.read_csv(d / "points.csv")
+    pts = pts[pts.status == "done"]
+    sens = pd.read_csv(d / "sensitivity.csv")
+    outs = pd.read_csv(d / "outcomes.csv").fillna({"criteria": "", "category": ""})
+    prof = pd.read_csv(d / "year_profiles.csv", dtype={"year": str})
+    verdict = pd.read_csv(d / "verdicts.csv").set_index("item")
+    axes = _sidecar(proc / "sweep" / sid)["stage_config"]["axes"]
+    a6, re_c = verdict.loc["A6"], verdict.loc["Round-E (c)"]
+    stages = outs[outs.criteria.str.contains("A6", regex=False)].outcome.tolist()
+    exporters = outs[outs.criteria.str.contains("Round-E", regex=False)].outcome.tolist()
+    rows = {o: _criterion_row(sens, pts, o, a6.limit) for o in stages}
+    rows.update({o: _criterion_row(sens, pts, o, re_c.limit) for o in exporters})
+
+    worst = a6.worst_outcome
+    breach = pts[pts[stages].abs().max(axis=1) >= a6.limit]
+    driver = rows[worst]["top_knob"].split("=")[0]          # a tied knob's first key
+    lo, hi = breach[driver].min(), breach[driver].max()
+    others = max(rows[o]["max_abs"] for o in stages if o != worst)
+    never = len(axes) - len(set().union(*(influential(sens, o) for o in rows)))
+    N.add("si:S15.4.sweep_run_id", "the knob sweep built on this run (latest)", sid)
+    for key in ("results:L73", "si:S15.4"):
+        N.add(f"{key}.a6_n_points", "knob sweep: points scored", len(pts))
+        N.add(f"{key}.a6_n_knobs", "knob sweep: knobs (a tied set counts once)", len(axes))
+        N.add(f"{key}.a6_other_stages_max", f"largest |Δ pooled retention| on the stages "
+              f"other than {worst}", others)
+        N.add(f"{key}.a6_breach_driver_range", f"{driver} at the points breaking A6 (min, max)",
+              [lo, hi])
+        N.add(f"{key}.a6_never_influential", "knobs influential on none of the criterion "
+              "outcomes (|SRRC| ≥ 0.2 with R² ≥ 0.5)", never)
+    for key in ("results:L90.A6", "si:S15.T_S18b.A6"):
+        N.add(f"{key}.points_meeting", "points meeting A6", int(a6.points_meeting))
+        N.add(f"{key}.points_done", "points scored", int(a6.points_done))
+        N.add(f"{key}.worst", f"largest |Δ pooled retention| ({worst}, point "
+              f"{int(a6.worst_point)})", a6.worst_value)
+        N.add(f"{key}.others_max", "largest |Δ| on the other eight stages", others)
+    for o in exporters:
+        N.add(f"results:L73.outside[{o}]", f"points with |Δ| ≥ {re_c.limit:g}",
+              len(pts) - rows[o]["within"])
+    for o, r in rows.items():
+        for k, v in r.items():
+            N.add(f"si:S15.T_S22c.{o}.{k}", f"{k} of {o}", v)
+
+    N.add("si:S15.4.a6_breach_driver_points", f"points with {driver} in the breaches' range",
+          int(pts[driver].between(lo, hi).sum()))
+    years = prof[(prof.outcome == worst) & prof["index"].isin(breach["index"])]
+    n_years = years[years.value.abs() >= a6.limit].groupby("index").size()
+    N.add("si:S15.4.a6_breach_years", f"years with |Δ| ≥ {a6.limit:g} on {worst} at a breaking "
+          "point (min, max)", [int(n_years.min()), int(n_years.max())])
+    yearly = {}
+    for o in stages:
+        if o == worst:
+            continue
+        p = prof[(prof.outcome == o) & (prof.value.abs() >= a6.limit)]
+        if len(p):
+            yearly[o] = {"years": sorted(set(p.year)), "max": float(p.value.abs().max())}
+    N.add("si:S15.4.a6_other_stages_by_year", f"stages other than {worst} leaving "
+          f"{a6.limit:g} in a single year", yearly)
+    by_knob = {}
+    for o, r in rows.items():
+        by_knob.setdefault(r["top_knob"], []).append(o)
+    lead = max(by_knob, key=lambda k: len(by_knob[k]))
+    N.add("si:S15.4.lead_knob", "the knob ranked first on most criterion outcomes", lead)
+    N.add("si:S15.4.lead_knob_outcomes", "its outcomes", by_knob[lead])
+    N.add("si:S15.4.lead_knob_abs_range", "its |statistic| on them (min, max)",
+          [min(abs(rows[o]["value"]) for o in by_knob[lead]),
+           max(abs(rows[o]["value"]) for o in by_knob[lead])])
+    N.add("si:S15.4.lead_knob_r2_min", "the smallest R² among them",
+          min(rows[o]["r2"] for o in by_knob[lead]))
+    free = outs[(outs.measure == "retention") & (outs.valuation == "CC")
+                & (outs.category != "") & (outs.criteria == "")].outcome
+    span = {o: [pts[o].min(), pts[o].max()] for o in free}
+    widest = sorted(span, key=lambda o: span[o][1] - span[o][0], reverse=True)[:3]
+    N.add("si:S15.4.widest_free_categories", "the three CC categories outside the criteria "
+          "with the widest Δ (min, max)", {o: span[o] for o in widest})
+    N.add("si:S15.4.max_hard_violation", "largest hard-row miss of a point under the "
+          "reference's rows", pts.max_hard_violation_base.max(), "kt")
+
+
+# =============================================================================
 # output
 # =============================================================================
 
@@ -1413,12 +1522,14 @@ def main(opt: str, out_json, data_dir: str, base: str, retol: str, numbers: str)
     results_numbers(N, e, s, Path(numbers), opt)
     stage5_numbers(N, proc, ch, acc)
     limitation_numbers(N, inp, ch, e, s, sigma_a)
+    knob_numbers(N, proc, ch)
 
     print(render(N, ch))
     if out_json:
         payload = {"opt_run_id": opt, "generated": date.today().isoformat(),
                    "chain": {"const": ch.const, "imp": ch.imp, "feeds": ch.feeds,
-                             "psut": ch.psut, "uncprop": ch.uncprop, "versions": ch.versions},
+                             "psut": ch.psut, "uncprop": ch.uncprop, "sweep": ch.sweep,
+                             "versions": ch.versions},
                    "base_runs": {"base": base, "base_retol": retol},
                    "numbers": {k: {"label": it.label, "value": it.value, "unit": it.unit}
                                for k, it in N.items.items()}}

@@ -2,8 +2,8 @@
 sweep_diag.py
 =============
 Score a sweep run's points against its base chain, rank and size its axes and judge its
-criteria (#107, #108, #117): writes ``points.csv``, ``categories.csv``,
-``retention_by_year.csv``, ``sensitivity.csv``, ``year_profiles.csv``,
+criteria (#107, #108, #117): writes ``points.csv``, ``outcomes.csv``,
+``categories.csv``, ``retention_by_year.csv``, ``sensitivity.csv``, ``year_profiles.csv``,
 ``sensitivity_by_year.csv``, ``verdicts.csv`` and the SW-R-01, 02 and 04–07 figures
 under ``data/proc/sweep/<id>/diag/``, and prints the verdicts and the ranking.
 
