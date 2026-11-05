@@ -128,3 +128,20 @@ def test_the_interval_shift_is_the_largest_bound_move_pinned_or_free():
     s = M.interval_shift(t, z=2.0)
     assert s["max"] == pytest.approx(0.04)
     assert s["quantity"] == "a"
+
+
+def test_a_criterion_outcome_reads_its_top_knob_and_swing_by_the_sweep_rule():
+    """Group 12 (#108): the knob that ranks first is the sweep library's — by |SRRC|
+    where R² ≥ 0.5 — and its swing and R² come with it; within counts |Δ| < limit."""
+    sens = pd.DataFrame([("y", "(rank regression)", "r2", 0.9, 4),
+                         ("y", "a", "srrc", -0.8, 4), ("y", "b", "srrc", 0.3, 4),
+                         ("y", "a", "spearman", -0.5, 4), ("y", "b", "spearman", 0.6, 4),
+                         ("y", "a", "swing", -0.004, 4), ("y", "b", "swing", 0.001, 4)],
+                        columns=["outcome", "axis", "statistic", "value", "n"])
+    pts = pd.DataFrame({"y": [0.001, -0.03, 0.01, 0.025]})
+    r = M._criterion_row(sens, pts, "y", 0.02)
+    assert (r["top_knob"], r["statistic"], r["value"]) == ("a", "srrc", -0.8)
+    assert (r["swing"], r["r2"]) == (-0.004, 0.9)
+    assert (r["within"], r["max_abs"]) == (2, 0.03)
+    sens.loc[0, "value"] = 0.3                                # ranks not additive: ρ
+    assert M._criterion_row(sens, pts, "y", 0.02)["top_knob"] == "b"
