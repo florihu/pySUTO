@@ -30,10 +30,12 @@ Public surface (re-exported here so call sites can keep using
 * :class:`UncPropStatsDiagnostic`— Stage 5: the all-years edge frame behind it
                                 (σ_a*, κ, z, prior class, κ–z quadrant).
 * :class:`SweepDiag`         — sweeps: each point scored against the base chain
-                                (mass moved, retention, the cross-evaluated
-                                objective) and the axes ranked (#107).
+                                (mass moved, pooled retention, the cross-evaluated
+                                objective), the axes ranked and sized, the
+                                declared criteria judged (#107, #117).
 * :class:`SweepStatsDiagnostic`— the tables behind it (points, categories,
-                                retention by year, sensitivity).
+                                retention by year, sensitivity, year profiles,
+                                verdicts).
 * :func:`sankey_figure` / :func:`sankey_tables` / :class:`SankeySpec`
                              — Stage 6: the bipartite supply-use Sankey of a
                                 PSUT (Plotly, imported lazily).

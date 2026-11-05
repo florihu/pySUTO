@@ -1276,8 +1276,10 @@ data/proc/sweep/sweep_<YYYYMMDD_HHMMSS>_<8hex>/
     metadata.json     parents.upstream = the base chain; stage_config = steps, mode,
                       n_points, seed, axes, fixed, commit, dirty, scipy
     manifest.json     per point: overrides, status, run ids, reused steps, times, error
-    diag/             scripts/sweep_diag.py: points.csv, categories.csv,
-                      retention_by_year.csv, sensitivity.csv, SW-R-01…04 figures
+    diag/             scripts/sweep_diag.py: points.csv, outcomes.csv, categories.csv,
+                      retention_by_year.csv, sensitivity.csv, year_profiles.csv,
+                      sensitivity_by_year.csv, verdicts.csv, SW-R-01, 02, 04–07
+                      figures (SW-R-03 retired, #117)
 ```
 
 `scripts/sweep_diag.py <sweep_run_id>` scores every done point against the base chain
@@ -1285,21 +1287,39 @@ data/proc/sweep/sweep_<YYYYMMDD_HHMMSS>_<8hex>/
 cross-evaluated objective `J_base_at_point`, which is each point's posterior scored under
 the base QP by `ClarabelSolver.objective_at` and split by family. On
 `opt_20261019_171746_3272682b` against `opt_20261020_112726_2f451f31` it gives the 66,702
-of #33. Every point also gets the mass moved by valuation, and by category with retention
-by category and year. Further **outcomes** are declared (`Outcome(name, measure, select)`,
-#108). The measure is `mass_moved`, `retention` (the change against the base) or `total`
-(the relative change of the posterior, which also sees a knob that moves prior and
-posterior together). The selector is a dict over the edge table's columns or a callable
-mask that must match at least one edge. `MaxAbs` takes the worst of several and is NaN
-when any part is. The script declares Table S16's nine stages both ways, their maxima and
-Round-E (c)'s exporter retention. Through the same edge table it reproduces the #110 REP's
-Round-E numbers for `opt_20261021_121332_acc68135` → `opt_20261021_131744_58504ad3`:
-Chile's Concentrate→Smelting CC export retention over 1995–2024 is 1.0205 → 1.0222, and
-the CC mass moved is 285,108 → 256,349 kt CC. The axes are ranked per outcome. A random
-sweep gets SRRC and Spearman ρ for numeric axes and two-level list axes (in their declared
-order), plus the rank regression's R²; where R² < 0.5 the summary names the top axis by ρ.
-List axes get the main-effect range, and a full grid gets the two-way interaction range. Gross-mass totals are dominated by the
-waste-rock satellite, so `mass_moved_CC` is the scale-free one.
+of #33. Every point also gets the mass moved by valuation, and by category with the
+**pooled retention** by category and year. A category with a signed edge (structural
+lower bound below 0) or a zero prior has no retention, only its mass moved. Further
+**outcomes** are declared (`Outcome(name, measure, select, window)`, #108, #117). The
+measure is `mass_moved`, `retention` (the change in pooled retention against the base,
+refused over a signed edge) or `total` (the relative change of the posterior, which also
+sees a knob that moves prior and posterior together), pooled over the outcome's window,
+by default the base's full span. The selector is a dict over the edge table's columns or
+a callable mask that must match at least one edge. `MaxAbs` takes the worst of several
+and is NaN when any part is; it is scored and judged, never ranked, because its |·| folds
+a one-way effect into a V. `EveryCategory(valuation)` declares one retention outcome per
+category of a valuation that has a retention. A **criterion**, `Criterion(item, outcomes,
+limit)`, is met at a point when every |outcome| is below its limit; its verdict counts
+the done points that meet it and names the worst point, outcome and value. The script
+declares every CC category, Table S16's nine stages both ways, their maxima, Round-E
+(c)'s exporter retention over 2010–2019, and #108's criteria A6 (the nine stages, 0.02)
+and Round-E (c) (the exporters, 0.01). Through the same edge table it reproduces the
+#110 REP's Round-E numbers for `opt_20261021_121332_acc68135` →
+`opt_20261021_131744_58504ad3`: Chile's Concentrate→Smelting CC export retention over
+1995–2024 is 1.0205 → 1.0222, and the CC mass moved is 285,108 → 256,349 kt CC. The axes
+are ranked and sized per outcome. A random sweep gets SRRC and Spearman ρ for numeric
+axes and two-level list axes (in their declared order), plus the rank regression's R²;
+where R² < 0.5 the ranking is read off ρ. An axis is influential when |SRRC| ≥ 0.2 with
+R² ≥ 0.5 (#108's rule). Every axis gets a **swing**, the outcome's mean over the top
+third of the axis's values minus its mean over the bottom third (for a list axis the
+spread of its level means, signed as its SRRC, second level minus first, when it has
+two), which sizes what SRRC and ρ only rank; a full grid also gets
+the two-way interaction range. Every retention outcome gets a **year profile**, ranked
+year by year by the same rule. The figures are SW-R-01 (sensitivity map), SW-R-02 (each
+criterion outcome against its top axis), SW-R-04 (CC retention boxes), SW-R-05 (criterion
+bands), SW-R-06 (year envelope) and SW-R-07 (per-year sensitivity); SW-R-03 is retired.
+Gross-mass totals are dominated by the waste-rock satellite, so `mass_moved_CC` is the
+scale-free one.
 
 ---
 
