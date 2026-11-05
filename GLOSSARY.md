@@ -245,10 +245,27 @@ _Avoid_: "dimension", "factor", "parameter grid".
 
 **Outcome**:
 A named scalar that compares a point's answer with the base point's: the cross-evaluated
-objective, the mass moved, or the change in retention or in the posterior total over a chosen
-set of edges. Outcomes are computed from the stored posteriors after the sweep, so a new one
-needs no rerun, and the axes are ranked per outcome.
+objective, the mass moved, or the change in pooled retention or in the posterior total over a
+chosen set of edges. Outcomes are computed from the stored posteriors after the sweep, so a new
+one needs no rerun, and the axes are ranked per outcome.
 _Avoid_: "metric", "response", "objective" (that is the QP's J).
+
+**Swing**:
+How far an axis moves an outcome, in the outcome's own unit: the outcome's mean over the points
+in the top third of the axis's values minus its mean over the bottom third (for a list axis, the
+spread of the means per value). It sizes an effect that SRRC and Spearman's ρ only rank.
+_Avoid_: "effect size", "sensitivity" (the ranking), "main-effect range" for a numeric axis.
+
+**Criterion**:
+A limit on one or more of a sweep's outcomes, named by its item (A6) and fixed before the sweep
+is read; its **verdict** is how many points meet it and which point and outcome come nearest to
+the limit or exceed it. A pre-registered item of the manuscript is a criterion.
+_Avoid_: "threshold", "test", "stop rule" (the Round-E rule that judges a σ or repricing change).
+
+**Year profile**:
+An outcome evaluated once per year of its window instead of pooled, so that the axes can be
+ranked year by year.
+_Avoid_: "time series" (that is the data), "trajectory" (the imputation steps).
 
 **Flagged ambiguity — "pipeline".** Before 2026-10-21 the glossary used "pipeline" for one
 stage's **engine**; README and CLAUDE.md always meant the six stages. It now means only the
@@ -617,6 +634,12 @@ mass: `1` keeps the prior scale, `< 1` is deletion, `> 1` inflation (second row 
 _Avoid_: "adaptation", "recovery", "survival"; a retention quoted without its category and year;
 a retention on a signed category whose prior sum is near zero (`MESC` / `USC` / `PSC`) — the ratio
 is undefined there, so quote the mass moved `Σ|a* − a_prior|` beside it.
+
+**Pooled retention** — a retention whose sums run over a stated **window** of years: `Σ_t Σa* /
+Σ_t Σa_prior`, one ratio of sums, so the large years weigh most. It is always quoted with its
+category and window (e.g. Scrap→CFR CC, 1995–2024); a sweep's retention outcomes are pooled.
+_Avoid_: a pooled retention quoted without its window; "average retention" (it is not a mean of
+the yearly ratios); a pooled retention on a signed category.
 
 **Posterior contraction (`κ`)** — the share of an edge's prior variance the constraints remove in
 one year, `κ = 1 − σ_a*² / σ_a²`: `0` leaves the prior uncertainty untouched, `1` pins the edge. It
