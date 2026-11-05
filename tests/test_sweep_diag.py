@@ -142,7 +142,8 @@ class TestOutcomes:
     def test_write_produces_the_tables(self, sweep, tmp_path):
         paths = sweep.write(str(tmp_path / "out"))
         names = {p.split("/")[-1] for p in paths}
-        assert names == {"points.csv", "categories.csv", "retention_by_year.csv",
+        assert names == {"points.csv", "outcomes.csv", "categories.csv",
+                         "retention_by_year.csv",
                          "sensitivity.csv", "year_profiles.csv",
                          "sensitivity_by_year.csv", "verdicts.csv"}
 
@@ -270,6 +271,10 @@ class TestWindows:
         sweep.points_frame(refresh=True)
         assert set(sweep.year_profiles()["outcome"]) == {"r"}
 
+    def test_a_window_of_years_that_are_not_time_labels_is_refused(self):
+        with pytest.raises(ValueError, match="str"):
+            Outcome("w", "retention", None, (2020, 2021))
+
     def test_a_window_outside_the_base_years_is_refused(self, sweep):
         sweep.outcome_defs = (Outcome("w", "retention", self.BC, ("2019", "2021")),)
         with pytest.raises(ValueError, match="2019"):
@@ -359,6 +364,8 @@ class TestCriteria:
         assert v.loc["tight", "worst_outcome"] == "ab"
         assert v.loc["tight", "worst_window"] == "2020–2021"
         assert v.loc["tight", "worst_value"] == pytest.approx(moved, rel=1e-12)
+        at = sweep.criterion_frame().set_index(["item", "index"])
+        assert at.loc[("tight", 0), "value"] == 0.0 and at.loc[("tight", 0), "meets"]
 
     def test_a_criterion_over_a_max_abs_names_the_part_that_set_its_worst(self, sweep):
         worst = MaxAbs("worst", (self.AB, self.BC))
@@ -403,6 +410,12 @@ class TestSensitivityTable:
         assert t[("m", "swing")] == pytest.approx(10.0, rel=1e-12)
         assert t[("w", "swing")] == pytest.approx(2.0, rel=1e-12)
         assert t[("m×w", "interaction_range")] == pytest.approx(0.0, abs=1e-12)
+        # Two levels have an order, so their swing has the sign of their SRRC: second
+        # level's mean minus the first's.
+        axes[0] = {"keys": ["m"], "values": ["hard", "soft"]}
+        t = sensitivity_table(frame, axes, ["y"], mode="grid").set_index(
+            ["axis", "statistic"])["value"]
+        assert t[("m", "swing")] == pytest.approx(-10.0, rel=1e-12)
 
     def test_a_numeric_axis_swing_is_its_top_third_mean_minus_its_bottom_third_mean(self):
         """Nine points, thirds by the axis's value (not by row order): y averages 8 over
@@ -509,7 +522,7 @@ def test_the_diag_draws_six_figures_and_prints_a_verdict_per_criterion(sweep, tm
     sweep.outcome_defs = (ab, EveryCategory("CC"), MaxAbs("worst", (ab,)))
     sweep.criteria = (Criterion("A6", (ab,), 0.02), Criterion("E", (MaxAbs("w", (ab,)),),
                                                              1e-12))
-    diag = SweepDiag(sweep)
+    diag = SweepDiag(sweep, valuation="CC")
     paths = diag.plot(str(tmp_path / "figs"), show=False)
     assert [os.path.basename(p)[:7] for p in paths] == list(SW_R)
     assert all(p.endswith(".png") and os.path.exists(p) for p in paths)
@@ -527,7 +540,7 @@ def test_the_diag_draws_six_figures_and_prints_a_verdict_per_criterion(sweep, tm
 def test_the_diag_draws_its_figures_with_nothing_declared(odd_sweep, tmp_path):
     """No criterion and no retention outcome: SW-R-02, 05, 06 and 07 say so on an empty
     panel, and SW-R-04 names the categories it leaves out."""
-    diag = SweepDiag(odd_sweep)
+    diag = SweepDiag(odd_sweep, valuation="CC")
     paths = diag.plot(str(tmp_path / "figs"), show=False)
     assert [os.path.basename(p)[:7] for p in paths] == list(SW_R)
     text = diag.summary()

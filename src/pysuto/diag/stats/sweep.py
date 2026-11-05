@@ -89,9 +89,10 @@ class Outcome:
         if self.measure not in MEASURES:
             raise ValueError(f"outcome {self.name!r}: measure {self.measure!r}; expected "
                              f"one of {MEASURES}")
-        if self.window is not None and len(self.window) != 2:
+        if self.window is not None and (len(self.window) != 2 or not all(
+                isinstance(y, str) for y in self.window)):
             raise ValueError(f"outcome {self.name!r}: window {self.window!r}; expected "
-                             f"(first year, last year)")
+                             f"(first year, last year) as time labels (str)")
 
 
 @dataclass(frozen=True)
@@ -110,7 +111,6 @@ class EveryCategory:
     scored; :meth:`SweepStatsDiagnostic.category_table` names the categories without
     one."""
     valuation: str
-    window:    Optional[tuple] = None
 
 
 @dataclass(frozen=True)
@@ -136,6 +136,10 @@ class Criterion:
         if not self.limit > 0:
             raise ValueError(f"criterion {self.item!r}: limit {self.limit!r}; expected "
                              f"> 0")
+
+    def leaves(self) -> list:
+        """The outcomes it judges, a :class:`MaxAbs` by its parts, each once."""
+        return _once(q for o in self.outcomes for q in _parts(o))
 
 
 def _parts(o) -> tuple:
@@ -188,13 +192,14 @@ def _window_label(first: str, last: str) -> str:
     return first if first == last else f"{first}–{last}"
 
 
-def _measure(o: Outcome, m: np.ndarray, F_p, P_p, F_b, P_b) -> float:
+def _measure(o: Outcome, idx: np.ndarray, F_p, P_p, F_b, P_b) -> float:
     if o.measure == "mass_moved":
-        return float(np.abs(F_p[m] - F_b[m]).sum())
+        return float(np.abs(F_p[idx] - F_b[idx]).sum())
     if o.measure == "retention":
-        return float(_ratio(F_p[m].sum(), P_p[m].sum()) - _ratio(F_b[m].sum(), P_b[m].sum()))
+        return float(_ratio(F_p[idx].sum(), P_p[idx].sum())
+                     - _ratio(F_b[idx].sum(), P_b[idx].sum()))
     with np.errstate(divide="ignore", invalid="ignore"):
-        return float(F_p[m].sum() / F_b[m].sum() - 1.0)
+        return float(F_p[idx].sum() / F_b[idx].sum() - 1.0)
 
 
 # =============================================================================
@@ -229,11 +234,16 @@ def _standardised_ranks(x: np.ndarray) -> Optional[np.ndarray]:
 
 def _swing(axis: dict, column: pd.Series, y: np.ndarray) -> float:
     """The outcome's mean over the top third of the axis's values minus its mean over
-    the bottom third; for a list axis the spread of its level means."""
+    the bottom third; for a list axis the spread of its level means, signed (second
+    level minus first, the order its SRRC ranks) when it has two."""
     lev = _levels(axis, column)
     if lev is not None:
         means = pd.Series(y).groupby(lev).mean()
-        return float(means.max() - means.min()) if len(means) > 1 else np.nan
+        if len(means) < 2:
+            return np.nan
+        if len(axis["values"]) == 2:
+            return float(means[1] - means[0])
+        return float(means.max() - means.min())
     k = len(y) // 3
     if k == 0:
         return np.nan
@@ -368,14 +378,12 @@ def influential(sens: pd.DataFrame, outcome: str) -> set:
     return set(t[t["value"].abs() >= SRRC_MIN]["axis"])
 
 
-def top_axis(sens: pd.DataFrame, outcome: str, r2_min: float = R2_MIN) -> Optional[tuple]:
-    """The axis that moves ``outcome`` most: by |SRRC| where the rank regression's R²
-    reaches ``r2_min``, else by |Spearman's ρ|, by |swing| in a grid. Returns ``(axis,
-    statistic, value)``, None when no axis has that statistic."""
-    t = sens[sens["outcome"] == outcome]
-    r2 = t[t["statistic"] == "r2"]["value"]
-    stat = ("swing" if not len(r2) else "srrc" if r2.iloc[0] >= r2_min else "spearman")
-    t = t[t["statistic"] == stat].dropna(subset=["value"])
+def top_axis(sens: pd.DataFrame, outcome: str) -> Optional[tuple]:
+    """The axis that moves ``outcome`` most by the |statistic| :func:`rank_statistic`
+    picks. Returns ``(axis, statistic, value)``, None when no axis has that statistic."""
+    stat = rank_statistic(sens, outcome)[0]
+    t = sens[(sens["outcome"] == outcome) & (sens["statistic"] == stat)]
+    t = t.dropna(subset=["value"])
     if not len(t):
         return None
     row = t.loc[t["value"].abs().idxmax()]
@@ -491,8 +499,7 @@ class SweepStatsDiagnostic:
                 raise ValueError(f"no category of valuation {o.valuation!r} has a "
                                  f"retention")
             flat += [Outcome(f"d_retention[{r.category}]", "retention",
-                             {"category": r.edge_category, "valuation": r.valuation},
-                             o.window)
+                             {"category": r.edge_category, "valuation": r.valuation})
                      for r in rows.itertuples()]
         return _once(flat)
 
@@ -502,10 +509,10 @@ class SweepStatsDiagnostic:
             return 0, len(years) - 1
         pos = []
         for y in o.window:
-            if str(y) not in years:
+            if y not in years:
                 raise ValueError(f"outcome {o.name!r}: window year {y!r} is not a year of "
                                  f"the base ({years[0]}–{years[-1]})")
-            pos.append(years.index(str(y)))
+            pos.append(years.index(y))
         if pos[0] > pos[1]:
             raise ValueError(f"outcome {o.name!r}: window {o.window!r} runs backwards")
         return pos[0], pos[1]
@@ -546,7 +553,8 @@ class SweepStatsDiagnostic:
 
         declared = self._declared(ctab)
         leaves = _once(q for o in declared for q in _parts(o))
-        span, idx, rows_ot = {}, {}, []
+        judged_by = {c.item: {q.name for q in c.leaves()} for c in self.criteria}
+        span, idx, outcome_rows = {}, {}, []
         for o in leaves:
             span[o.name] = self._span(o, years)
             lo, hi = span[o.name]
@@ -560,16 +568,15 @@ class SweepStatsDiagnostic:
                                  f"retention is undefined; measure its mass moved or total")
             idx[o.name] = np.flatnonzero(m)
             codes = np.unique(cat_code[m])
-            whole = (len(codes) == 1 and (lo, hi) == (0, len(years) - 1)
-                     and m.sum() == cat_size[codes[0]])
+            is_category = (len(codes) == 1 and (lo, hi) == (0, len(years) - 1)
+                           and m.sum() == cat_size[codes[0]])
             vals = np.unique(edges["valuation"].astype(str).to_numpy()[m])
-            limits = [c for c in self.criteria
-                      if o.name in {q.name for p in c.outcomes for q in _parts(p)}]
-            rows_ot.append((o.name, o.measure, _window_label(years[lo], years[hi]),
-                            vals[0] if len(vals) == 1 else "mixed",
-                            cats[codes[0]] if whole else "",
-                            min((c.limit for c in limits), default=np.nan),
-                            ", ".join(c.item for c in limits)))
+            limits = [c for c in self.criteria if o.name in judged_by[c.item]]
+            outcome_rows.append((o.name, o.measure, _window_label(years[lo], years[hi]),
+                                 vals[0] if len(vals) == 1 else "mixed",
+                                 cats[codes[0]] if is_category else "",
+                                 min((c.limit for c in limits), default=np.nan),
+                                 ", ".join(c.item for c in limits)))
         retention = [o for o in leaves if o.measure == "retention"]
         ret_year_b = {o.name: _ratio(by(year_of[idx[o.name]], len(years), F_b[idx[o.name]]),
                                      by(year_of[idx[o.name]], len(years), P_b[idx[o.name]]))
@@ -656,12 +663,12 @@ class SweepStatsDiagnostic:
             "profiles": pd.DataFrame(prof_rows, columns=["index", "outcome", "year",
                                                          "value"]),
             "category_table": ctab.drop(columns=["edge_category", "code"]),
-            "outcome_table": pd.DataFrame(rows_ot, columns=[
+            "outcome_table": pd.DataFrame(outcome_rows, columns=[
                 "outcome", "measure", "window", "valuation", "category", "limit",
                 "criteria"]),
         }
         self._max_abs = [o.name for o in declared if isinstance(o, MaxAbs)]
-        self._windows = {r[0]: r[2] for r in rows_ot}
+        self._windows = {r[0]: r[2] for r in outcome_rows}
         self._full_window = _window_label(years[0], years[-1])
 
     def _ensure(self, refresh: bool = False) -> None:
@@ -741,7 +748,7 @@ class SweepStatsDiagnostic:
         done = self._done()
         rows = []
         for c in self.criteria:
-            names = list(dict.fromkeys(q.name for o in c.outcomes for q in _parts(o)))
+            names = [q.name for q in c.leaves()]
             v = np.abs(done[names].to_numpy(dtype=float))
             for i in range(len(done)):
                 finite = np.isfinite(v[i])
@@ -769,15 +776,17 @@ class SweepStatsDiagnostic:
             "worst_outcome", "worst_window", "worst_value"])
 
     def write(self, odir: str) -> list:
-        """Write points.csv, categories.csv, retention_by_year.csv, sensitivity.csv,
-        year_profiles.csv, sensitivity_by_year.csv and verdicts.csv."""
+        """Write points.csv, outcomes.csv (each outcome's measure, window and criteria),
+        categories.csv, retention_by_year.csv, sensitivity.csv, year_profiles.csv,
+        sensitivity_by_year.csv and verdicts.csv."""
         os.makedirs(odir, exist_ok=True)
         out = []
         pts = self.points_frame()
         for c in pts.columns:
             if pts[c].map(lambda v: isinstance(v, (list, tuple, dict))).any():
                 pts[c] = pts[c].map(repr)
-        for name, df in (("points.csv", pts), ("categories.csv", self.category_frame()),
+        for name, df in (("points.csv", pts), ("outcomes.csv", self.outcome_table()),
+                         ("categories.csv", self.category_frame()),
                          ("retention_by_year.csv", self.retention_by_year()),
                          ("sensitivity.csv", self.sensitivity()),
                          ("year_profiles.csv", self.year_profiles()),

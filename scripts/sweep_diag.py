@@ -74,7 +74,7 @@ def main(sweep_run_id: str) -> None:
     outcomes, criteria = declarations()
     stats = SweepStatsDiagnostic(sweep_run_id, root=ROOT, outcomes=outcomes,
                                  criteria=criteria)
-    diag = SweepDiag(stats)
+    diag = SweepDiag(stats, valuation="CC")
     odir = os.path.join(ROOT, "sweep", sweep_run_id, "diag")
     diag.plot(odir, show=False)
     diag.summary()

@@ -1276,7 +1276,7 @@ data/proc/sweep/sweep_<YYYYMMDD_HHMMSS>_<8hex>/
     metadata.json     parents.upstream = the base chain; stage_config = steps, mode,
                       n_points, seed, axes, fixed, commit, dirty, scipy
     manifest.json     per point: overrides, status, run ids, reused steps, times, error
-    diag/             scripts/sweep_diag.py: points.csv, categories.csv,
+    diag/             scripts/sweep_diag.py: points.csv, outcomes.csv, categories.csv,
                       retention_by_year.csv, sensitivity.csv, year_profiles.csv,
                       sensitivity_by_year.csv, verdicts.csv, SW-R-01, 02, 04–07
                       figures (SW-R-03 retired, #117)
@@ -1312,7 +1312,8 @@ axes and two-level list axes (in their declared order), plus the rank regression
 where R² < 0.5 the ranking is read off ρ. An axis is influential when |SRRC| ≥ 0.2 with
 R² ≥ 0.5 (#108's rule). Every axis gets a **swing**, the outcome's mean over the top
 third of the axis's values minus its mean over the bottom third (for a list axis the
-spread of its level means), which sizes what SRRC and ρ only rank; a full grid also gets
+spread of its level means, signed as its SRRC, second level minus first, when it has
+two), which sizes what SRRC and ρ only rank; a full grid also gets
 the two-way interaction range. Every retention outcome gets a **year profile**, ranked
 year by year by the same rule. The figures are SW-R-01 (sensitivity map), SW-R-02 (each
 criterion outcome against its top axis), SW-R-04 (CC retention boxes), SW-R-05 (criterion

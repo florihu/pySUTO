@@ -36,6 +36,7 @@ Plot catalogue — :attr:`SweepDiag.PLOTS` (ids are stable; SW-R-03 is retired)
 
 from __future__ import annotations
 
+import json
 import os
 import textwrap
 
@@ -44,8 +45,8 @@ import pandas as pd
 
 from ._plot import _CAT8, _CAT_EXT, _INK, _savefig, _seq_cmap
 from .solver import PlotSpec, _apply_modern_style, _short
-from .stats.sweep import (R2_MIN, SRRC_MIN, MaxAbs, SweepStatsDiagnostic, axis_label,
-                          influential, rank_statistic, top_axis)
+from .stats.sweep import (R2_MIN, SRRC_MIN, SweepStatsDiagnostic, axis_label, influential,
+                          rank_statistic, top_axis)
 
 # A point breaks the base's hard rows when it misses one by more than this (kt). The base
 # itself sits at its equality floor, ≈ 1.6e-6 kt on opt_20261020_112726_2f451f31 (#33).
@@ -65,7 +66,8 @@ class SweepDiag:
     Parameters
     ----------
     stats : the sweep's :class:`SweepStatsDiagnostic`, with its outcomes and criteria.
-    valuation : the valuation of SW-R-04, SW-R-06 and the map's mass-moved column.
+    valuation : the valuation of SW-R-04, SW-R-06 and the map's mass-moved column (the
+        case's, e.g. ``"CC"`` for copper).
     """
 
     PLOTS: "dict[str, PlotSpec]" = {
@@ -83,7 +85,7 @@ class SweepDiag:
                             "per-year ranking of the influential axes"),
     }
 
-    def __init__(self, stats: SweepStatsDiagnostic, valuation: str = "CC") -> None:
+    def __init__(self, stats: SweepStatsDiagnostic, valuation: str) -> None:
         self.stats = stats
         self.valuation = valuation
         self._memo: dict = {}
@@ -105,12 +107,7 @@ class SweepDiag:
 
     def _criterion_outcomes(self) -> list:
         """(item, outcome, limit) per outcome a criterion judges, a MaxAbs by its parts."""
-        out = []
-        for c in self.stats.criteria:
-            for o in c.outcomes:
-                out += [(c.item, q.name, c.limit)
-                        for q in (o.parts if isinstance(o, MaxAbs) else (o,))]
-        return list(dict.fromkeys(out))
+        return [(c.item, q.name, c.limit) for c in self.stats.criteria for q in c.leaves()]
 
     def _retention_outcomes(self, valuation=None) -> pd.DataFrame:
         ot = self.stats.outcome_table()
@@ -125,10 +122,12 @@ class SweepDiag:
 
     @staticmethod
     def _axis_x(decl: dict, column: pd.Series) -> tuple:
-        """Plot positions of an axis's values and, for a list axis, its level labels."""
+        """Plot positions of an axis's values and, for a list axis, its level labels
+        (values compared as JSON, as the statistics compare them)."""
         if "values" in decl:
-            levels = [repr(v) for v in decl["values"]]
-            return np.array([levels.index(repr(v)) for v in column], dtype=float), levels
+            levels = [json.dumps(v) for v in decl["values"]]
+            return np.array([levels.index(json.dumps(v)) for v in column],
+                            dtype=float), levels
         return column.to_numpy(dtype=float), None
 
     @staticmethod
