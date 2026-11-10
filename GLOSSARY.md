@@ -692,6 +692,13 @@ _Avoid_: "pull", "normalised residual".
 scaled by the prior σ and shrinks toward 0 as `κ → 0`; the **standardised shift** `z/√κ` is scaled
 by the shift's own σ. Only the shift is compared with N(0, 1).
 
+**Flagged ambiguity — "sensitivity".** Three meanings live in the manuscript and the code: (1)
+the **posterior σ_a\*** is the estimator's *local sensitivity under the stated σ* (Stage 5; it is
+not a calibrated interval); (2) a **knob sensitivity** is a sweep's ranking of its axes on an
+outcome (SRRC / Spearman ρ, sized by the **swing**); (3) the pedigree *sensitivities* of a feed are
+the CV contributions of its data-quality scores (SI S2). Say which one; "uncertainty of an edge"
+is (1), "sensitivity to a knob" is (2).
+
 **Birge ratio (`R`)** — `Σz²/dof` of a year or the run: the QP objective at `a*` over the
 independent constraints of the active-set problem (soft rows kept, independent hard rows kept,
 scale totals an ablation left out, bound-active edges whose prior is off the bound — a pin on its

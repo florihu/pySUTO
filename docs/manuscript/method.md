@@ -5,7 +5,9 @@ were retired). Method is numbered Section 3, as in the paper; equations,
 figures and tables keep their numbers. Figures 1 and 2 are Mermaid drawings.
 Structure: 3.1 framework (six stages, each closing with its copper instance)
 / 3.2 application to copper / 3.3 evaluation / 3.4 availability.
-Word budgets (approx.): 3.1 1,400 / 3.2 1,250 / 3.3 250 / 3.4 150.
+Word budgets (approx.): 3.1 1,400 / 3.2 1,250 / 3.3 600 / 3.4 150 (3.3 raised from
+250 on 2026-11-10 for the sensitivity protocol, drafted as bullet points like
+Results 4.2; prose follows once the content is agreed).
 Every number is from the reference chain, the final chain of the
 manuscript-ready-3 milestone (#111's ICSG zero-revision fix),
   opt_20261022_112855_928da10c <- const_20261022_111531_df61bf5c
@@ -98,7 +100,7 @@ flowchart TB
   style s5 stroke-dasharray:5 4
 ```
 
-**Figure 1.** The pySUTO pipeline. Six sequential stages transform per-source raw data into reconciled flows and derived tables; every inter-stage artifact carries values and standard deviations together. Solid arrows show the data artifacts handed between stages; Stage 6 reads the reconciled flows $a^*$ of Stage 4 directly. Stage 5 (dashed) is implemented and tested but has not been executed on the copper chain (Section [3.1.7](#sec-stage5)). The substrate is the content-hashed input registry and the per-run provenance sidecars that link every result to exact input versions, upstream runs and configuration; the bottom strip is the copper-specific feed build order.
+**Figure 1.** The pySUTO pipeline. Six sequential stages transform per-source raw data into reconciled flows and derived tables; every inter-stage artifact carries values and standard deviations together. Solid arrows show the data artifacts handed between stages; Stage 6 reads the reconciled flows $a^*$ of Stage 4 directly. Stage 5 (dashed) runs after the solver on the reconciled flows and feeds no later stage; Stage 6 carries point estimates only (Section [3.1.7](#sec-stage5)). The substrate is the content-hashed input registry and the per-run provenance sidecars that link every result to exact input versions, upstream runs and configuration; the bottom strip is the copper-specific feed build order.
 
 *Redrawn in Mermaid from the TikZ figure in method.tex; the stages run top to bottom.*
 
@@ -186,6 +188,8 @@ Stage 6 materialises $a^*$ as a tidy physical supply–use table, every edge of 
 #### 3.1.9 Implementation and provenance
 
 Every number above is reproducible from the repository. Inputs of four kinds — feeds, accounting structure, parameter tables and masks — live in a content-hashed registry: load-bearing files are SHA-256-hashed, any change creates a new immutable version, and runs may pin old ones. Each stage writes its outputs under a run identifier with a sidecar recording the exact input versions, the upstream run identifiers, every configuration knob and summary statistics, so that the chain from raw feed to table is reconstructable from any run directory ([Pauliuk et al., 2024](#ref-pauliuk2024traceability); [Stodden and Miguez, 2014](#ref-stodden2014best); [Wilkinson et al., 2016](#ref-wilkinson2016fair)). The package comprises 22,052 lines of Python in 68 modules with 1,284 tests and four extension seams — feeds, imputers, constraint builders and posterior propagators subclass a common interface ([Pauliuk et al., 2015](#ref-pauliuk2015transparency); [Pauliuk, 2020](#ref-pauliuk2020cumulative)).
+
+- A *knob sweep* is one run of the framework: Stages 2–4 are rerun at every point of a seeded Latin hypercube (or a grid) over named driver constants, each point a chain with sidecars of its own, and the points are scored afterwards from their stored posteriors against the base chain, so an outcome defined later needs no rerun (Section [3.3](#sec-evaluation), SI S15.4).
 
 <a id="sec-application"></a>
 
@@ -357,6 +361,13 @@ Several limitations stand. Concentrate is produced where ICSG reports no mine ou
 ### 3.3 Evaluation
 
 Each run is judged with a fixed set of quantities (formulas in SI S13). The *defect* of an edge is $a^* - a_{\mathrm{prior}}$, standardised as $z = (a^* - a_{\mathrm{prior}})/\sigma_a$; the *residual* of a soft row is its slack $\varepsilon$, standardised as $z = \varepsilon/\sigma_c$. The objective of Eq. [(2)](#eq-qp) is $\sum z^2$ over edges and soft rows, so an item's *objective share* $z^2/\sum z^2$ within its family — edge defects, scale-total residuals, soft-ratio residuals — is what it cost the optimiser; the ranking of identities by share across years is the primary defect diagnostic. *Retention* is $\sum a^*/\sum a_{\mathrm{prior}}$ over the edges of one category in one valuation and year: 1 keeps the prior scale, below 1 is deletion. Deletion at a mine node splits into a *forced* part, $\sum \max(0,\, P - 0.35X - U)$, which no optimiser could avoid because copper leaves the node only as domestic intake $U$ or as export mass $X$ at a grade capped at 0.35, and a *discretionary* remainder that $\sigma$ and anchoring can move. Runs are compared on a *common set*, $\sum z^2$ over the scale-total rows present in every run compared, over all 30 years. Every change is one round, one ADR and one report, measured against its predecessor and the base run of the study; a $\sigma$ or repricing change ships only under a stop rule — objective by anchor band, mass moved, world retention of ore, concentrate and cathode not falling by more than 0.01, the posterior-to-prior mass ratio of small nodes within 0.05, and the concentrate export retention of Chile, Peru and Indonesia within 0.01. On the reference run the common-set objective is 700,082, 52.7% below the base run re-solved at the ADR 0039 tolerance (58.0% below the base as originally solved, a figure that mixes the modelling rounds with the solver's termination); 8,068 kt CC of mine output is deleted over 30 years in the region-years that lose output, 3,270 of them (40.5%) forced, and gains elsewhere more than offset it, so mine output rises by 4,039 kt CC net; world concentrate retention over 1995–2024 is 1.010; and 254 region-years sit on the export-grade cap.
+
+**Uncertainty and sensitivity protocol.** Three items are reported: the posterior uncertainty as a finding, and the termination pair and the knob sweep under rules fixed before their numbers were read (SI S15):
+
+- *Posterior uncertainty.* $\sigma_{a^*}$ of Stage 5 (Section [3.1.7](#sec-stage5)) is the estimator's local sensitivity under the stated $\sigma$, summarised per prior class by the mass-weighted and the median contraction $\kappa$. Its calibration is read from the standardised shifts $z/\sqrt{\kappa}$ of the edge-years not pinned at a bound, with $\kappa \ge 0.01$ and not flat, against $N(0,1)$, and from the Birge ratio $R = \sum z^2/\mathrm{dof}$ per year and over the run; intervals are quoted Birge-scaled.
+- *Termination (A5).* The base constraint run solved twice, at the former production tolerance (relative gap $10^{-3}$) and at the ADR 0039 tolerance ($10^{-6}$), so only the termination rule differs; the outcome is the change in pooled retention over 1995–2024 per stage of Table S19.
+- *Judgement values (A6).* A knob sweep of 64 points of a Latin hypercube (seed 20261022) over the 15 driver constants set by judgement (SI Table S22b): $\sigma$-scale knobs log-uniform over a factor two either side of the shipped value, shape knobs uniform over a stated interval, the imputer cascade order shipped or reversed; the structural modes, the values calibrated to data, the conditioning floors and the solver's settings held fixed. Each point is scored against the reference run by the change in pooled retention per stage and per contained-copper category, and by the concentrate export retention of Chile, Peru and Indonesia over 2010–2019, the Round-E (c) item of the stop rule.
+- *Ranking.* Per outcome, the standardised rank regression coefficient (SRRC) where the rank regression explains at least half of the rank variance ($R^2 \ge 0.5$), Spearman's $\rho$ below that; a knob is *influential* at $\lvert\mathrm{SRRC}\rvert \ge 0.2$ under the same condition; the *swing*, the outcome's mean over the top third of the knob's values minus its mean over the bottom third, gives the effect in the outcome's unit.
 
 <a id="sec-availability"></a>
 
