@@ -1,7 +1,7 @@
 <p align="center">
   <picture>
     <source media="(prefers-color-scheme: dark)" srcset="figs/logo/pysuto-logo-dark.png">
-    <img src="figs/logo/pysuto-logo-light.png" alt="pySUTO: Python Supply–Use Table Optimiser" width="600">
+    <img src="figs/logo/pysuto-logo-light.png" alt="pySUTO: Python-based Supply–Use Table Optimiser" width="600">
   </picture>
 </p>
 
