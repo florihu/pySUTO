@@ -1,8 +1,9 @@
 <p align="center">
-  <img src="figs/logo/pysuto-logo.svg" alt="pySUTO" width="600">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="figs/logo/pysuto-logo-dark.png">
+    <img src="figs/logo/pysuto-logo-light.png" alt="pySUTO: Python Supply–Use Table Optimiser" width="600">
+  </picture>
 </p>
-
-**Python Supply–Use Table Optimiser**
 
 > ⭐ If pySUTO is useful to your work, please leave a star on [GitHub](https://github.com/florihu/pySUTO) — it helps others find the project.
 >
