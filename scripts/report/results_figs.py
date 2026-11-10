@@ -1,20 +1,30 @@
 """
 results_figs.py
 ===============
-Manuscript Results (Section 4) from one reference run: the three key-tile figures
-(Fig. 3 the problem, Fig. 4 reconciliation, Fig. 5 copper system), the
-pre-registered hypothesis ledger (Table 3) and every number the prose cites, so
-that a later run swaps in by re-running this script.
+Manuscript Results (Section 4) from one reference run: the four key-tile figures
+(Fig. 3 the problem, Fig. 4 reconciliation, Fig. 5 uncertainty and sensitivity,
+Fig. 6 copper system), the pre-registered hypothesis ledger (Table 3) and every
+number the prose cites, so that a later run swaps in by re-running this script.
 
     python scripts/report/results_figs.py <opt_run_id> --psut-run-id <psut_run_id>
-        [--tol-pair <opt_old> <opt_new>] [--out docs/manuscript/figs]
+        [--tol-pair <opt_old> <opt_new>] [--uncprop-run-id <id> --sweep-id <id>]
+        [--out docs/manuscript/figs]
 
 Reads persisted run artifacts and the registered feeds only; nothing upstream is
 modified. Writes ``fig3_problem.png``, ``fig4_reconciliation.png``,
-``fig5_copper_system.png``, ``table3_ledger.csv``, ``numbers.json`` and the SI
+``fig5_uncertainty.png`` (only with both ``--uncprop-run-id`` and ``--sweep-id``),
+``fig6_copper_system.png``, ``table3_ledger.csv``, ``numbers.json`` and the SI
 tables (``si_*.csv`` and one ``si_tables.md`` with the same tables rendered) to
 ``--out``. The thresholds of the ledger are frozen in the USER CONFIGURATION
 block (SI S15) and reported whichever way they fall.
+
+Fig. 5 reads the Stage-5 run propagated from the opt run (``UncPropDiag`` →
+its all-years edge frame, Birge table and shift calibration; SI S6) and the knob
+sweep built on it (the tables ``scripts/sweep_diag.py`` writes to the sweep's
+``diag/``: ``points.csv``, ``sensitivity.csv``, ``outcomes.csv``,
+``verdicts.csv``; SI S15.4). Panel (d) sets the A5 tolerance pair beside the
+sweep's spread per stage; the pair is the base constraint run solved twice, the
+sweep the reference chain re-run 64 times, both as Δ pooled retention.
 
 Fig. 3 is the problem one Stage-4 period is handed (``PROBLEM_YEAR``): edge
 provenance, the chain profile, prior breach and active set per constraint family,
@@ -43,6 +53,7 @@ from matplotlib.gridspec import GridSpecFromSubplotSpec  # noqa: E402
 from matplotlib.lines import Line2D                   # noqa: E402
 from matplotlib.patches import Patch, Rectangle       # noqa: E402
 from matplotlib.transforms import blended_transform_factory  # noqa: E402
+from scipy.stats import norm, spearmanr               # noqa: E402
 
 sys.path.insert(0, "src")
 sys.path.insert(0, "scripts")
@@ -54,6 +65,8 @@ from pysuto.diag.stats import ProblemStatsDiagnostic                 # noqa: E40
 from pysuto.diag.stats.objective import (family_frame, objective_decomposition,  # noqa: E402
                                          rank_identities, share_by_key)
 from pysuto.diag.stats.problem import NO_PRIOR_OF_ITS_OWN, PROVENANCE_ORDER  # noqa: E402
+from pysuto.diag.stats.sweep import influential, rank_statistic, top_axis  # noqa: E402
+from pysuto.diag.uncprop import UncPropDiag                           # noqa: E402
 from pysuto.registry.psut import PsutRunRegistry                      # noqa: E402
 
 # ---------------------------------------------------------------------------
@@ -74,6 +87,22 @@ STAGES = [("CO", "Mining", "Mass"), ("MF", "Concentrate", "CC"),
           ("Smelting", "Matte", "CC"), ("Scrap", "CFR", "CC")]
 A4_STAGES = {"cathode": ("CP", "Cathode", "CC"), "concentrate": ("MF", "Concentrate", "CC"),
              "ore": ("CO", "Mining", "Mass")}
+
+# Fig. 5: Stage 5 (a–c) and the knob sweep (d–e). The prior classes drawn; the flat
+# and zero-pinned classes are uninformative (SI S6.2) and stay in the SI figures.
+CALIB_CLASSES = ["from a feed", "imputed"]
+CALIB_VALS    = ["CC", "Mass"]
+CLASS_LABEL   = {"from a feed": "feed-observed", "imputed": "imputed"}
+A6_BAND       = 0.02                        # |Δ pooled retention| limit of A5 and A6
+QQ_BULK, QQ_TAIL = 1500, 500                # QQ points drawn: thinned bulk + full tails
+KNOB_LABEL = {"const.ANCHOR_CV": "scale-total cv", "const.NODATA_ANCHOR_CV": "no-data anchor cv",
+              "imp.LEG_SIGMA_GAMMA": "leg-σ exponent", "imp.CASCADE_ORDER": "cascade order",
+              "imp.STOCK_SEED_CV": "stock-seed cv", "imp.P_PROP": "Lp exponent p",
+              "imp.Q_REG": "knee sharpness q", "imp.ALPHA_MIN_REG": "sensitivity floor",
+              "imp.TIME_WINDOW": "time window", "imp.TIME_GAP_INFLATION": "gap inflation",
+              "imp.OUTLIER_LEG_K": "outlier-leg k", "imp.OUTLIER_LEG_CV": "outlier-leg cv",
+              "imp.LEG_SIGMA_CV_CAP": "leg-σ cap", "const.RATIO_SIGMA_REL_FLOOR": "ratio σ floor",
+              "const.RATIO_SCALE_ABS_FLOOR": "ratio scale floor"}
 
 # Concentration steps: one commodity per step, producer (or consumer) region.
 HHI_STEPS = {"mining":   ("Mining", "Ore", "region_from"),
@@ -152,6 +181,90 @@ def load_frames(opt: str):
     from pysuto.diag import SolverDiag                      # heavy: only when needed
     d = SolverDiag.from_opt_id(opt)
     return d.stats.edge_frame(), d.stats.constraint_frame()
+
+
+def stage5_frames(uncprop_id: str, opt: str) -> dict:
+    """The Stage-5 run propagated from ``opt``: its edge frame summarised per prior
+    class (Fig. 5a), the calibrated standardised shifts of the CC classes (5b), the
+    Birge table (5c) and the calibration table of SI S6."""
+    up = json.load(open(Path("data/proc/uncprop") / uncprop_id / "metadata.json"))["parents"]["upstream"]
+    if up.get("opt_run_id") != opt:
+        raise RuntimeError(f"uncprop run {uncprop_id} propagates {up.get('opt_run_id')}, not {opt}")
+    st = UncPropDiag.from_uncprop_id(uncprop_id).stats
+    f = st.edge_frame()
+    R = st.birge_ratio()
+    rows = []
+    for val in CALIB_VALS:
+        for cls in CALIB_CLASSES:
+            g = f[(f.valuation == val) & (f.prior_class == cls)]
+            k, w = g.kappa.to_numpy(dtype=float), g.weight.to_numpy(dtype=float)
+            ok = np.isfinite(k)
+            rows.append({"valuation": val, "prior_class": cls, "edge_years": int(ok.sum()),
+                         "weight_kt": float(w[ok].sum()),
+                         "kappa_weighted": float((w[ok] * k[ok]).sum() / w[ok].sum()),
+                         "kappa_median": float(np.median(k[ok]))})
+    c = f[f.calibrated.to_numpy(dtype=bool) & (f.valuation == "CC")]
+    qq = {cls: np.sort(c.loc[c.prior_class == cls, "std_shift"].to_numpy(dtype=float))
+          for cls in CALIB_CLASSES}
+    cat = (f.from_sector.astype(str) + "→" + f.to_sector.astype(str) + " " + f.valuation.astype(str))
+    ok = np.isfinite(f.kappa.to_numpy(dtype=float))
+    g = f[ok].assign(category=cat[ok], wk=f.weight[ok] * f.kappa[ok]).groupby("category", sort=True)
+    by_cat = pd.DataFrame({"edge_years": g.size(), "weight_kt": g.weight.sum(),
+                           "kappa_weighted": g.wk.sum() / g.weight.sum(),
+                           "kappa_median": g.kappa.median()}).reset_index()
+    return dict(run_id=uncprop_id, birge=st.birge(), R=R, calibration=st.calibration(f, R),
+                contraction=pd.DataFrame(rows), qq=qq, by_category=by_cat)
+
+
+def _outcome_label(o: str) -> str:
+    inner = o[o.index("[") + 1:o.rindex("]")] if "[" in o else o
+    return f"{inner} exports 2010–19" if o.startswith("d_export_retention") else inner
+
+
+def sweep_frames(sweep_id: str, opt: str) -> dict:
+    """The knob sweep built on ``opt``, from the tables ``scripts/sweep_diag.py`` wrote:
+    the points' criterion outcomes (Fig. 5d) and, over the knobs influential on at
+    least one of them, the rank statistic and swing per outcome (5e)."""
+    d = Path("data/proc/sweep") / sweep_id
+    meta = json.load(open(d / "metadata.json"))
+    if meta["parents"]["upstream"].get("opt_run_id") != opt:
+        raise RuntimeError(f"sweep {sweep_id} is built on {meta['parents']['upstream'].get('opt_run_id')}, not {opt}")
+    if not (d / "diag" / "verdicts.csv").is_file():
+        raise FileNotFoundError(f"{d / 'diag' / 'verdicts.csv'} is missing: run scripts/sweep_diag.py {sweep_id} first")
+    pts = pd.read_csv(d / "diag" / "points.csv")
+    pts = pts[pts.status == "done"].reset_index(drop=True)
+    sens = pd.read_csv(d / "diag" / "sensitivity.csv")
+    outs = pd.read_csv(d / "diag" / "outcomes.csv").fillna({"criteria": "", "category": ""})
+    verdicts = pd.read_csv(d / "diag" / "verdicts.csv").set_index("item")
+    cats = pd.read_csv(d / "diag" / "categories.csv")
+    cats = cats[cats.retention.notna() & cats.retention_base.notna()]
+    cats = cats.assign(d=cats.retention - cats.retention_base).groupby("category", sort=True)
+    by_cat = pd.DataFrame({"max_abs_delta": cats.d.apply(lambda v: float(v.abs().max())),
+                           "retention_base": cats.retention_base.first()}).reset_index()
+    stages = [f"d_retention[{STAGE_LABEL[s]}]" for s in STAGES]
+    exporters = outs[outs.criteria.str.contains("Round-E", regex=False)].outcome.tolist()
+    crit = stages + exporters
+    missing = [o for o in crit if o not in pts.columns]
+    if missing:
+        raise KeyError(f"sweep {sweep_id} lacks the criterion outcome(s) {missing}")
+    infl_sets = {o: influential(sens, o) for o in crit}
+    knobs = sorted(set().union(*infl_sets.values()),
+                   key=lambda k: (-sum(k in infl_sets[o] for o in crit), k))
+    stat = {o: rank_statistic(sens, o)[0] for o in crit}
+
+    def cell(k, o, which):
+        r = sens[(sens.outcome == o) & (sens.axis == k) & (sens.statistic == which)]
+        return float(r["value"].iloc[0]) if len(r) else np.nan
+
+    srrc = pd.DataFrame({o: [cell(k, o, stat[o]) for k in knobs] for o in crit}, index=knobs)
+    swing = pd.DataFrame({o: [cell(k, o, "swing") for k in knobs] for o in crit}, index=knobs)
+    infl = pd.DataFrame({o: [k in infl_sets[o] for k in knobs] for o in crit}, index=knobs)
+    top = {o: top_axis(sens, o) for o in crit}
+    return dict(run_id=sweep_id, points=pts, sens=sens, stages=stages, exporters=exporters,
+                verdicts=verdicts, srrc=srrc, swing=swing, influential=infl, top=top,
+                stat=stat, n_axes=len(meta["stage_config"]["axes"]), by_category=by_cat,
+                outcome_label={o: _outcome_label(o) for o in crit},
+                knob_label={k: KNOB_LABEL.get(k.split("=")[0], k.split("=")[0].split(".")[-1]) for k in knobs})
 
 
 def merchant_hubs(icsg: pd.DataFrame, regions) -> list:
@@ -741,7 +854,158 @@ def fig4(A: dict, out: Path) -> Path:
     return path
 
 
-def fig5(B: dict, out: Path) -> Path:
+def _symlog(z) -> np.ndarray:
+    z = np.asarray(z, dtype=float)
+    return np.sign(z) * np.log10(1.0 + np.abs(z))
+
+
+def _qq_index(n: int) -> np.ndarray:
+    """Ranks of a sorted sample to draw: both tails in full, the bulk thinned."""
+    if n <= QQ_BULK + 2 * QQ_TAIL:
+        return np.arange(n)
+    bulk = np.linspace(QQ_TAIL, n - QQ_TAIL - 1, QQ_BULK).round().astype(np.int64)
+    return np.unique(np.r_[np.arange(QQ_TAIL), bulk, np.arange(n - QQ_TAIL, n)])
+
+
+def _fmt_swing(v: float) -> str:
+    """The swing in thousandths of retention, one decimal (the cells are narrow)."""
+    return f"{v * 1e3:+.1f}" if np.isfinite(v) else ""
+
+
+def fig5(U: dict, S: dict, A: dict, out: Path) -> Path:
+    fig = plt.figure(figsize=(7.2, 7.8))
+    outer = fig.add_gridspec(2, 1, hspace=0.42, left=0.18, right=0.935, top=0.95, bottom=0.165,
+                             height_ratios=[1, 1.25])
+    top = GridSpecFromSubplotSpec(1, 3, subplot_spec=outer[0], wspace=0.5, width_ratios=[1, 1.1, 1])
+    bot = GridSpecFromSubplotSpec(1, 2, subplot_spec=outer[1], wspace=0.5, width_ratios=[1, 1.5])
+
+    # (a) contraction by prior class ----------------------------------------------
+    ax = fig.add_subplot(top[0])
+    ct = U["contraction"]
+    rows = [(v, c) for v in CALIB_VALS for c in CALIB_CLASSES]
+    ys = np.arange(len(rows))[::-1]
+    for yi, (v, c) in zip(ys, rows):
+        r = ct[(ct.valuation == v) & (ct.prior_class == c)].iloc[0]
+        ax.plot([r.kappa_median, r.kappa_weighted], [yi, yi], color=INK2, lw=0.8, zorder=1)
+        ax.scatter([r.kappa_median], [yi], s=24, facecolor=SURFACE, edgecolor=PALETTE[0], lw=1.1, zorder=3)
+        ax.scatter([r.kappa_weighted], [yi], s=24, color=PALETTE[0], zorder=3)
+    ax.set_yticks(ys); ax.set_yticklabels([f"{CLASS_LABEL[c]} · {v}" for v, c in rows], fontsize=6.5)
+    ax.set_xlim(0, 1); ax.set_xticks([0, 0.25, 0.5, 0.75, 1]); ax.set_ylim(-0.7, len(rows) - 0.3)
+    ax.set_xlabel("posterior contraction κ, 1995–2024")
+    ax.legend(handles=[Line2D([], [], marker="o", ls="", markerfacecolor=SURFACE, markeredgecolor=PALETTE[0], label="median edge"),
+                       Line2D([], [], marker="o", ls="", color=PALETTE[0], label="mass-weighted")],
+              frameon=False, loc="upper center", bbox_to_anchor=(0.5, -0.22), fontsize=6, ncol=2,
+              columnspacing=1.0, handletextpad=0.4)
+    _style(ax, grid_axis="x")
+    _tag(ax, "a", "What the constraints pin")
+
+    # (b) calibration of the shifts -------------------------------------------------
+    ax = fig.add_subplot(top[1])
+    R = U["R"]; cal = U["calibration"].set_index(["valuation", "prior_class"])
+    n_max = max(int(v.size) for v in U["qq"].values())
+    x_lim = float(norm.ppf(1.0 - 0.5 / n_max)) * 1.05 + 0.2
+    xs = np.linspace(-x_lim, x_lim, 200)
+    ax.plot(xs, _symlog(xs), color=INK2, lw=0.8, ls="--", label="N(0, 1)")
+    ax.plot(xs, _symlog(np.sqrt(R) * xs), color=PALETTE[1], lw=0.9, label=f"N(0, R), R = {R:.2f}")
+    for i, cls in enumerate(CALIB_CLASSES):
+        yv = U["qq"][cls]
+        if not yv.size:
+            continue
+        xq = norm.ppf((np.arange(1, yv.size + 1) - 0.5) / yv.size)
+        k = _qq_index(yv.size)
+        r = cal.loc[("CC", cls)]
+        ax.scatter(xq[k], _symlog(yv[k]), s=3.5, color=[PALETTE[0], PALETTE[3]][i], linewidths=0,
+                   label=f"{CLASS_LABEL[cls]} CC: {r.share_gt3 * 100:.1f}% beyond 3")
+    ticks = (-100, -10, -3, 0, 3, 10, 100)
+    ax.set_yticks([_symlog(v) for v in ticks]); ax.set_yticklabels([str(v) for v in ticks])
+    for yv in (_symlog(3), -_symlog(3)):
+        ax.axhline(yv, color=GRID, lw=0.7, ls=":")
+    ax.set_xlim(-x_lim, x_lim); ax.set_ylim(-_symlog(250), _symlog(250))
+    ax.set_xlabel("N(0, 1) quantile"); ax.set_ylabel("standardised shift z/√κ")
+    ax.legend(frameon=False, fontsize=5.6, loc="upper center", bbox_to_anchor=(0.5, -0.2), ncol=2,
+              handlelength=1.4, columnspacing=1.0, handletextpad=0.4)
+    _style(ax, grid_axis="both")
+    _tag(ax, "b", "Are the stated σ right?")
+
+    # (c) Birge ratio per year ---------------------------------------------------------
+    ax = fig.add_subplot(top[2])
+    b = U["birge"]; by = b[b.year != "all"]
+    x = by.year.astype(int).to_numpy()
+    e = (by.zsq_edges / by.dof).to_numpy(); s = (by.zsq_soft_rows / by.dof).to_numpy()
+    ax.bar(x, e, color=FAMILY_COLOR["edges"], width=0.8, label="edge defects")
+    ax.bar(x, s, bottom=e, color=FAMILY_COLOR["sum_rows"], width=0.8, label="soft-row residuals")
+    ax.axhline(1.0, color=INK2, lw=0.8, ls="--")
+    ax.axhline(R, color=INK, lw=0.8, ls=":")
+    ax.text(YEARS[0] + 0.3, R, f"run R = {R:.2f}", fontsize=6, color=INK, va="bottom", ha="left")
+    ax.set_ylabel("Birge ratio R = Σz² / dof"); ax.set_xlabel("year")
+    ax.set_xlim(YEARS[0] - 0.6, YEARS[-1] + 0.6); ax.set_xticks([1995, 2005, 2015, 2024])
+    ax.legend(frameon=False, loc="upper left", fontsize=6, bbox_to_anchor=(0.0, 0.93))
+    _style(ax)
+    _tag(ax, "c", "The misfit by year")
+
+    # (d) termination against the knobs, per stage ---------------------------------------
+    ax = fig.add_subplot(bot[0])
+    pts, stages = S["points"], S["stages"]
+    ys = np.arange(len(stages))[::-1]
+    ax.axvspan(-A6_BAND, A6_BAND, color=PALETTE[2], alpha=0.12, lw=0)
+    ax.boxplot([pts[o].to_numpy(dtype=float) for o in stages], positions=ys, vert=False,
+               widths=0.55, whis=(0, 100), showfliers=False, patch_artist=True,
+               boxprops=dict(facecolor=PALETTE[0], edgecolor=INK2, lw=0.6),
+               medianprops=dict(color=INK, lw=0.8), whiskerprops=dict(color=INK2, lw=0.6),
+               capprops=dict(color=INK2, lw=0.6))
+    if A.get("pair") is not None:
+        pair = A["pair"].set_index("stage")
+        for yi, o in zip(ys, stages):
+            lab = S["outcome_label"][o]
+            if lab in pair.index:
+                ax.scatter([pair.loc[lab, "delta"]], [yi], marker="D", s=20, color=PALETTE[1], zorder=4)
+    ax.axvline(0, color=INK2, lw=0.6)
+    ax.set_yticks(ys); ax.set_yticklabels([S["outcome_label"][o] for o in stages], fontsize=6.5)
+    ax.set_ylim(-0.7, len(stages) - 0.3)
+    ax.set_xscale("symlog", linthresh=A6_BAND, linscale=0.9)
+    ax.set_xlim(-0.3, 0.12)
+    ax.set_xticks([-0.2, -0.05, -0.02, 0, 0.02, 0.05, 0.1])
+    ax.set_xticklabels(["−0.2", "−0.05", "", "0", "", "0.05", ""], fontsize=6.5)
+    ax.set_xlabel("Δ pooled retention, 1995–2024 (linear within ±0.02)")
+    ax.legend(handles=[Patch(facecolor=PALETTE[0], edgecolor=INK2, label="64 knob points (box IQR, whiskers min–max)"),
+                       Line2D([], [], marker="D", ls="", color=PALETTE[1], label="termination pair, gap 1e-3 → 1e-6 (A5)"),
+                       Patch(facecolor=PALETTE[2], alpha=0.12, label="±0.02 limit of A5 and A6")],
+              frameon=False, loc="upper center", bbox_to_anchor=(0.5, -0.17), fontsize=5.8, ncol=1)
+    _style(ax, grid_axis="x")
+    _tag(ax, "d", "Termination against the knobs")
+
+    # (e) the influential knobs ------------------------------------------------------------
+    ax = fig.add_subplot(bot[1])
+    M, T, I = S["srrc"], S["swing"], S["influential"]
+    im = ax.imshow(M.to_numpy(dtype=float), cmap="RdBu_r", vmin=-1, vmax=1, aspect="auto")
+    for i in range(M.shape[0]):
+        for j in range(M.shape[1]):
+            v, r = T.iat[i, j], M.iat[i, j]
+            ax.text(j, i, _fmt_swing(v), ha="center", va="center", fontsize=5.2,
+                    color=SURFACE if abs(r) >= 0.6 else INK)
+            if bool(I.iat[i, j]):
+                ax.add_patch(Rectangle((j - 0.5, i - 0.5), 1, 1, fill=False, edgecolor=INK, lw=0.8))
+    ax.axvline(len(S["stages"]) - 0.5, color=INK, lw=0.9)
+    ax.set_xticks(range(M.shape[1]))
+    ax.set_xticklabels([S["outcome_label"][o] for o in M.columns], rotation=50, ha="right",
+                       rotation_mode="anchor", fontsize=6)
+    ax.set_yticks(range(M.shape[0])); ax.set_yticklabels([S["knob_label"][k] for k in M.index], fontsize=6.5)
+    ax.tick_params(length=0)
+    for sp in ax.spines.values():
+        sp.set_visible(False)
+    cb = fig.colorbar(im, ax=ax, fraction=0.03, pad=0.03, ticks=[-1, -0.5, 0, 0.5, 1])
+    cb.set_label("SRRC"); cb.outline.set_visible(False); cb.ax.tick_params(length=2, labelsize=6)
+    ax.text(1.0, 1.01, "cell text: swing × 10³", transform=ax.transAxes, fontsize=5.8,
+            color=INK2, ha="right", va="bottom")
+    _tag(ax, "e", "Which knob moves what")
+
+    path = out / "fig5_uncertainty.png"
+    fig.savefig(path, dpi=300)
+    plt.close(fig)
+    return path
+
+
+def fig6(B: dict, out: Path) -> Path:
     x = np.array(YEARS)
     fig = plt.figure(figsize=(7.2, 9.4))
     outer = fig.add_gridspec(3, 2, hspace=0.62, wspace=0.3, left=0.1, right=0.93, top=0.965, bottom=0.05,
@@ -820,10 +1084,81 @@ def fig5(B: dict, out: Path) -> Path:
     ax.tick_params(length=0)
     _tag(ax, "d", f"Where the copper in final use was mined ({B['embodied_period']})")
 
-    path = out / "fig5_copper_system.png"
+    path = out / "fig6_copper_system.png"
     fig.savefig(path, dpi=300)
     plt.close(fig)
     return path
+
+
+# ---------------------------------------------------------------------------
+# numbers of Fig. 5
+# ---------------------------------------------------------------------------
+
+def stage5_numbers(U: dict) -> dict:
+    b = U["birge"]; by = b[b.year != "all"].set_index("year")
+    cal = U["calibration"].set_index(["valuation", "prior_class"])
+    ct = U["contraction"].set_index(["valuation", "prior_class"])
+    return {
+        "uncprop_run_id": U["run_id"],
+        "birge_ratio": U["R"],
+        "z_alpha_birge": float(b.loc[b.year == "all", "z_alpha_birge"].iloc[0]),
+        "birge_by_year": {"min": float(by.birge_ratio.min()), "min_year": str(by.birge_ratio.idxmin()),
+                          "max": float(by.birge_ratio.max()), "max_year": str(by.birge_ratio.idxmax()),
+                          "edge_share_of_zsq": {y: round(float(r.zsq_edges / r.zsq_total), 6) for y, r in by.iterrows()}},
+        "contraction": {f"{v} {c}": {"edge_years": int(ct.loc[(v, c), "edge_years"]),
+                                     "weight_kt": float(ct.loc[(v, c), "weight_kt"]),
+                                     "kappa_weighted": round(float(ct.loc[(v, c), "kappa_weighted"]), 6),
+                                     "kappa_median": round(float(ct.loc[(v, c), "kappa_median"]), 6)}
+                        for v in CALIB_VALS for c in CALIB_CLASSES},
+        "calibration": {f"{v} {c}": {"n_calibrated": int(cal.loc[(v, c), "n_calibrated"]),
+                                     "share_gt3": round(float(cal.loc[(v, c), "share_gt3"]), 6),
+                                     "share_gt3_weighted": round(float(cal.loc[(v, c), "share_gt3_weighted"]), 6),
+                                     "share_gt3_birge": round(float(cal.loc[(v, c), "share_gt3_birge"]), 6),
+                                     "median_abs_shift": round(float(np.median(np.abs(U["qq"][c]))), 6) if v == "CC" else None}
+                        for v in CALIB_VALS for c in CALIB_CLASSES},
+        "expected_share_gt3": float(2.0 * norm.sf(3.0)),
+    }
+
+
+def link_numbers(U: dict, S: dict) -> dict:
+    """Per valuation, over the categories with a retention in the sweep: Spearman's ρ
+    between the sweep's largest |Δ pooled retention| and the mass-weighted 1 − κ, and
+    the categories heading both lists."""
+    m = U["by_category"].merge(S["by_category"], on="category", how="inner")
+    stages = m[m.category.isin([STAGE_LABEL[t] for t in STAGES])].set_index("category")
+    out = {"stages": {c: {"kappa_weighted": round(float(r.kappa_weighted), 6),
+                          "max_abs_delta": round(float(r.max_abs_delta), 6)} for c, r in stages.iterrows()}}
+    for val in CALIB_VALS:
+        t = m[m.category.str.endswith(" " + val)]
+        r = spearmanr(t.max_abs_delta, 1.0 - t.kappa_weighted)
+        top_d = t.sort_values("max_abs_delta", ascending=False).head(3)
+        top_k = t.sort_values("kappa_weighted").head(3)
+        out[val] = {"n_categories": int(len(t)), "spearman_rho": float(r.correlation),
+                    "p_value": float(r.pvalue),
+                    "top_by_delta": {c: {"max_abs_delta": round(float(d), 6), "kappa_weighted": round(float(k), 6)}
+                                     for c, d, k in zip(top_d.category, top_d.max_abs_delta, top_d.kappa_weighted)},
+                    "least_contracted": {c: round(float(k), 6) for c, k in zip(top_k.category, top_k.kappa_weighted)}}
+    return out
+
+
+def sweep_numbers(S: dict) -> dict:
+    pts, v = S["points"], S["verdicts"]
+    knobs = list(S["srrc"].index)
+    return {
+        "sweep_run_id": S["run_id"], "n_points": int(len(pts)), "n_knobs": int(S["n_axes"]),
+        "verdicts": {i: {"limit": float(r.limit), "points_meeting": int(r.points_meeting),
+                         "points_done": int(r.points_done), "worst_outcome": r.worst_outcome,
+                         "worst_value": float(r.worst_value)} for i, r in v.iterrows()},
+        "influential_knobs": [S["knob_label"][k] for k in knobs],
+        "never_influential": int(S["n_axes"] - len(knobs)),
+        "by_outcome": {S["outcome_label"][o]: {"max_abs": float(pts[o].abs().max()),
+                                               "within_limit": int((pts[o].abs() < (A6_BAND if o in S["stages"] else float(v.loc["Round-E (c)", "limit"]))).sum()),
+                                               "top_knob": S["knob_label"].get(S["top"][o][0], S["top"][o][0]),
+                                               "statistic": S["stat"][o], "value": float(S["top"][o][2]),
+                                               "swing": float(S["swing"].loc[S["top"][o][0], o]) if S["top"][o][0] in S["swing"].index else None,
+                                               "influential": [S["knob_label"][k] for k in knobs if bool(S["influential"].loc[k, o])]}
+                       for o in S["stages"] + S["exporters"]},
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -875,9 +1210,13 @@ def write_outputs(out: Path, ledger: pd.DataFrame, numbers: dict, tables: dict) 
 # main
 # ---------------------------------------------------------------------------
 
-def main(opt: str, psut_id: str, tol_pair=None, out: Path = OUT_DIR) -> None:
+def main(opt: str, psut_id: str, tol_pair=None, uncprop_id=None, sweep_id=None,
+         out: Path = OUT_DIR) -> None:
     out.mkdir(parents=True, exist_ok=True)
-    print(f"reference run {opt} · psut {psut_id} · tolerance pair {tol_pair}")
+    if bool(uncprop_id) != bool(sweep_id):
+        raise ValueError("Fig. 5 needs both --uncprop-run-id and --sweep-id (or neither)")
+    print(f"reference run {opt} · psut {psut_id} · tolerance pair {tol_pair} · "
+          f"uncprop {uncprop_id} · sweep {sweep_id}")
 
     # ---- Fig. 3: the problem ------------------------------------------------------------
     P = ProblemStatsDiagnostic.from_opt_id(opt, PROBLEM_YEAR)
@@ -927,11 +1266,16 @@ def main(opt: str, psut_id: str, tol_pair=None, out: Path = OUT_DIR) -> None:
              embodied_kt=emb_kt, direct_kt=direct_kt, embodied_ratio=emb_kt / direct_kt,
              chile_china_1995=chile_share_to_china(cc, 1995), chile_china_2024=chile_share_to_china(cc, 2024))
 
+    # ---- Stage 5 and the knob sweep (Fig. 5) ---------------------------------------------
+    U = stage5_frames(uncprop_id, opt) if uncprop_id else None
+    S = sweep_frames(sweep_id, opt) if sweep_id else None
+
     # ---- ledger, figures, outputs -----------------------------------------------------
     ledger = build_ledger(A, B)
     print(ledger[["id", "value", "outcome"]].to_string(index=False))
-    p3, p4, p5 = fig3(P, out), fig4(A, out), fig5(B, out)
-    print("figures:", p3, p4, p5)
+    p3, p4, p6 = fig3(P, out), fig4(A, out), fig6(B, out)
+    p5 = fig5(U, S, A, out) if U and S else None
+    print("figures:", p3, p4, p5, p6)
 
     ret_all = A["retention"][A["retention"].year == "all"].set_index("stage")
     h24 = B["hhi"][B["hhi"].year == "2024"]
@@ -973,6 +1317,9 @@ def main(opt: str, psut_id: str, tol_pair=None, out: Path = OUT_DIR) -> None:
         "chile_share_to_china": {"1995": B["chile_china_1995"], "2024": B["chile_china_2024"]},
         "ledger": ledger.to_dict("records"),
         "problem": problem_numbers(P),
+        "stage5": stage5_numbers(U) if U else None,
+        "sweep": sweep_numbers(S) if S else None,
+        "link": link_numbers(U, S) if U and S else None,
     }
     hhi_tbl = B["hhi"][B["hhi"].year.isin(["1995", "2024"])].copy()
     # Stored at six decimals: the SI tables print three (or whole kt) and the prose is
@@ -991,6 +1338,13 @@ def main(opt: str, psut_id: str, tol_pair=None, out: Path = OUT_DIR) -> None:
     }
     if A["pair"] is not None:
         tables["si_s15_tolerance_pair"] = A["pair"].round(6)
+    if U:
+        tables["si_s6_contraction_by_class"] = U["contraction"].round(6)
+        tables["si_s6_contraction_by_category"] = (
+            U["by_category"].merge(S["by_category"], on="category", how="left").round(6)
+            if S else U["by_category"].round(6))
+        tables["si_s6_calibration"] = U["calibration"].round(6)
+        tables["si_s6_birge_by_year"] = U["birge"].round(6)
     write_outputs(out, ledger, numbers, tables)
     print("written to", out)
 
@@ -1000,6 +1354,8 @@ if __name__ == "__main__":
     ap.add_argument("opt_run_id")
     ap.add_argument("--psut-run-id", required=True)
     ap.add_argument("--tol-pair", nargs=2, metavar=("OPT_OLD", "OPT_NEW"), default=None)
+    ap.add_argument("--uncprop-run-id", default=None, help="Stage-5 run propagated from the opt run (Fig. 5a–c)")
+    ap.add_argument("--sweep-id", default=None, help="knob sweep built on the opt run, scored by sweep_diag.py (Fig. 5d–e)")
     ap.add_argument("--out", default=str(OUT_DIR))
     a = ap.parse_args()
-    main(a.opt_run_id, a.psut_run_id, a.tol_pair, Path(a.out))
+    main(a.opt_run_id, a.psut_run_id, a.tol_pair, a.uncprop_run_id, a.sweep_id, Path(a.out))

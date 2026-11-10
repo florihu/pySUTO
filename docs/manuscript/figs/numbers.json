@@ -633,5 +633,375 @@
       "nnz": 2545,
       "binding_on_flow": 56
     }
+  },
+  "stage5": {
+    "uncprop_run_id": "uncprop_20261029_090754_0446e784",
+    "birge_ratio": 5.183413905171077,
+    "z_alpha_birge": 4.462271962501615,
+    "birge_by_year": {
+      "min": 1.830285139021764,
+      "min_year": "2000",
+      "max": 11.942480430433735,
+      "max_year": "2017",
+      "edge_share_of_zsq": {
+        "1995": 0.317378,
+        "1996": 0.492178,
+        "1997": 0.498451,
+        "1998": 0.531346,
+        "1999": 0.686774,
+        "2000": 0.683756,
+        "2001": 0.528544,
+        "2002": 0.355697,
+        "2003": 0.381343,
+        "2004": 0.628055,
+        "2005": 0.760016,
+        "2006": 0.737618,
+        "2007": 0.787272,
+        "2008": 0.622329,
+        "2009": 0.645803,
+        "2010": 0.824593,
+        "2011": 0.66904,
+        "2012": 0.704205,
+        "2013": 0.76789,
+        "2014": 0.808464,
+        "2015": 0.806759,
+        "2016": 0.74911,
+        "2017": 0.902656,
+        "2018": 0.849259,
+        "2019": 0.707919,
+        "2020": 0.757069,
+        "2021": 0.703145,
+        "2022": 0.730203,
+        "2023": 0.686585,
+        "2024": 0.616431
+      }
+    },
+    "contraction": {
+      "CC from a feed": {
+        "edge_years": 32407,
+        "weight_kt": 2139689.353897701,
+        "kappa_weighted": 0.930998,
+        "kappa_median": 0.065353
+      },
+      "CC imputed": {
+        "edge_years": 56293,
+        "weight_kt": 5253180.10038433,
+        "kappa_weighted": 0.97826,
+        "kappa_median": 0.194274
+      },
+      "Mass from a feed": {
+        "edge_years": 28811,
+        "weight_kt": 57672741.87698157,
+        "kappa_weighted": 0.973173,
+        "kappa_median": 0.036994
+      },
+      "Mass imputed": {
+        "edge_years": 55096,
+        "weight_kt": 200605746.0369482,
+        "kappa_weighted": 0.967794,
+        "kappa_median": 0.213215
+      }
+    },
+    "calibration": {
+      "CC from a feed": {
+        "n_calibrated": 18844,
+        "share_gt3": 0.130705,
+        "share_gt3_weighted": 0.052463,
+        "share_gt3_birge": 0.041233,
+        "median_abs_shift": 0.458674
+      },
+      "CC imputed": {
+        "n_calibrated": 47187,
+        "share_gt3": 0.075169,
+        "share_gt3_weighted": 0.011562,
+        "share_gt3_birge": 0.024774,
+        "median_abs_shift": 0.161654
+      },
+      "Mass from a feed": {
+        "n_calibrated": 17312,
+        "share_gt3": 0.182937,
+        "share_gt3_weighted": 0.004593,
+        "share_gt3_birge": 0.087454,
+        "median_abs_shift": null
+      },
+      "Mass imputed": {
+        "n_calibrated": 47492,
+        "share_gt3": 0.056746,
+        "share_gt3_weighted": 0.000314,
+        "share_gt3_birge": 0.01655,
+        "median_abs_shift": null
+      }
+    },
+    "expected_share_gt3": 0.0026997960632601866
+  },
+  "sweep": {
+    "sweep_run_id": "sweep_20261102_145601_8413cace",
+    "n_points": 64,
+    "n_knobs": 15,
+    "verdicts": {
+      "A6": {
+        "limit": 0.02,
+        "points_meeting": 59,
+        "points_done": 64,
+        "worst_outcome": "d_retention[Scrap\u2192CFR CC]",
+        "worst_value": 0.0297788905746085
+      },
+      "Round-E (c)": {
+        "limit": 0.01,
+        "points_meeting": 18,
+        "points_done": 64,
+        "worst_outcome": "d_export_retention[Indonesia]",
+        "worst_value": 0.0329205569751268
+      }
+    },
+    "influential_knobs": [
+      "scale-total cv",
+      "leg-\u03c3 exponent",
+      "no-data anchor cv",
+      "cascade order",
+      "stock-seed cv"
+    ],
+    "never_influential": 10,
+    "by_outcome": {
+      "CO\u2192Mining Mass": {
+        "max_abs": 0.0010234396797687,
+        "within_limit": 64,
+        "top_knob": "cascade order",
+        "statistic": "srrc",
+        "value": 0.8143729331435249,
+        "swing": 0.0010209024063432,
+        "influential": [
+          "leg-\u03c3 exponent",
+          "cascade order"
+        ]
+      },
+      "MF\u2192Concentrate CC": {
+        "max_abs": 0.0025860792312399,
+        "within_limit": 64,
+        "top_knob": "leg-\u03c3 exponent",
+        "statistic": "srrc",
+        "value": 0.5470281812867122,
+        "swing": 0.0011206018635882,
+        "influential": [
+          "scale-total cv",
+          "leg-\u03c3 exponent",
+          "no-data anchor cv",
+          "cascade order"
+        ]
+      },
+      "Concentrate\u2192Smelting CC": {
+        "max_abs": 0.0024667630293206,
+        "within_limit": 64,
+        "top_knob": "leg-\u03c3 exponent",
+        "statistic": "srrc",
+        "value": 0.5470281812867122,
+        "swing": 0.0010688875700748,
+        "influential": [
+          "scale-total cv",
+          "leg-\u03c3 exponent",
+          "no-data anchor cv",
+          "cascade order"
+        ]
+      },
+      "Anode\u2192ER CC": {
+        "max_abs": 0.0031276167536904,
+        "within_limit": 64,
+        "top_knob": "scale-total cv",
+        "statistic": "srrc",
+        "value": -0.9041597359490052,
+        "swing": -0.0023723388979862,
+        "influential": [
+          "scale-total cv",
+          "no-data anchor cv"
+        ]
+      },
+      "CP\u2192Cathode CC": {
+        "max_abs": 0.003399054797911,
+        "within_limit": 64,
+        "top_knob": "scale-total cv",
+        "statistic": "srrc",
+        "value": -0.9361580955682384,
+        "swing": -0.0026724547710477,
+        "influential": [
+          "scale-total cv"
+        ]
+      },
+      "Cathode\u2192FU CC": {
+        "max_abs": 0.0028371547739134,
+        "within_limit": 64,
+        "top_knob": "scale-total cv",
+        "statistic": "srrc",
+        "value": -0.8954813717078238,
+        "swing": -0.0020226702508302,
+        "influential": [
+          "scale-total cv",
+          "leg-\u03c3 exponent",
+          "stock-seed cv"
+        ]
+      },
+      "Scrap\u2192Smelting CC": {
+        "max_abs": 0.0047678412788201,
+        "within_limit": 64,
+        "top_knob": "no-data anchor cv",
+        "statistic": "srrc",
+        "value": 0.7485934468028592,
+        "swing": 0.0036648888786212,
+        "influential": [
+          "leg-\u03c3 exponent",
+          "no-data anchor cv",
+          "cascade order"
+        ]
+      },
+      "Smelting\u2192Matte CC": {
+        "max_abs": 0.0027646058041749,
+        "within_limit": 64,
+        "top_knob": "scale-total cv",
+        "statistic": "srrc",
+        "value": -0.9538182443897468,
+        "swing": -0.0023676205656648,
+        "influential": [
+          "scale-total cv"
+        ]
+      },
+      "Scrap\u2192CFR CC": {
+        "max_abs": 0.0297788905746085,
+        "within_limit": 59,
+        "top_knob": "no-data anchor cv",
+        "statistic": "srrc",
+        "value": 0.8353426027688774,
+        "swing": 0.0235190167011747,
+        "influential": [
+          "scale-total cv",
+          "leg-\u03c3 exponent",
+          "no-data anchor cv"
+        ]
+      },
+      "Chile exports 2010\u201319": {
+        "max_abs": 0.010264091459625,
+        "within_limit": 62,
+        "top_knob": "scale-total cv",
+        "statistic": "srrc",
+        "value": -0.9457909697840088,
+        "swing": -0.008235015431188,
+        "influential": [
+          "scale-total cv",
+          "leg-\u03c3 exponent",
+          "no-data anchor cv"
+        ]
+      },
+      "Peru exports 2010\u201319": {
+        "max_abs": 0.002297466871814,
+        "within_limit": 64,
+        "top_knob": "scale-total cv",
+        "statistic": "srrc",
+        "value": -0.8282020255120818,
+        "swing": -0.00177232575005,
+        "influential": [
+          "scale-total cv",
+          "cascade order"
+        ]
+      },
+      "Indonesia exports 2010\u201319": {
+        "max_abs": 0.0329205569751268,
+        "within_limit": 18,
+        "top_knob": "scale-total cv",
+        "statistic": "srrc",
+        "value": 0.8589268271833664,
+        "swing": 0.0385696452708694,
+        "influential": [
+          "scale-total cv",
+          "leg-\u03c3 exponent",
+          "cascade order"
+        ]
+      }
+    }
+  },
+  "link": {
+    "stages": {
+      "Anode\u2192ER CC": {
+        "kappa_weighted": 0.985652,
+        "max_abs_delta": 0.003128
+      },
+      "CO\u2192Mining Mass": {
+        "kappa_weighted": 0.98871,
+        "max_abs_delta": 0.001023
+      },
+      "CP\u2192Cathode CC": {
+        "kappa_weighted": 0.995376,
+        "max_abs_delta": 0.003399
+      },
+      "Cathode\u2192FU CC": {
+        "kappa_weighted": 0.939255,
+        "max_abs_delta": 0.002837
+      },
+      "Concentrate\u2192Smelting CC": {
+        "kappa_weighted": 0.804489,
+        "max_abs_delta": 0.002467
+      },
+      "MF\u2192Concentrate CC": {
+        "kappa_weighted": 0.983899,
+        "max_abs_delta": 0.002586
+      },
+      "Scrap\u2192CFR CC": {
+        "kappa_weighted": 0.926705,
+        "max_abs_delta": 0.029779
+      },
+      "Scrap\u2192Smelting CC": {
+        "kappa_weighted": 0.947286,
+        "max_abs_delta": 0.004768
+      },
+      "Smelting\u2192Matte CC": {
+        "kappa_weighted": 0.991099,
+        "max_abs_delta": 0.002765
+      }
+    },
+    "CC": {
+      "n_categories": 23,
+      "spearman_rho": 0.48616600790513836,
+      "p_value": 0.018665349998827286,
+      "top_by_delta": {
+        "CFR\u2192Slag CC": {
+          "max_abs_delta": 0.052348,
+          "kappa_weighted": 0.455373
+        },
+        "Smelting\u2192Slag CC": {
+          "max_abs_delta": 0.045876,
+          "kappa_weighted": 0.497983
+        },
+        "ER\u2192Slag CC": {
+          "max_abs_delta": 0.045366,
+          "kappa_weighted": 0.28325
+        }
+      },
+      "least_contracted": {
+        "ER\u2192Slag CC": 0.28325,
+        "CFR\u2192Slag CC": 0.455373,
+        "Smelting\u2192Slag CC": 0.497983
+      }
+    },
+    "Mass": {
+      "n_categories": 24,
+      "spearman_rho": 0.1991737381287295,
+      "p_value": 0.35079181188497033,
+      "top_by_delta": {
+        "Scrap\u2192CFR Mass": {
+          "max_abs_delta": 0.047586,
+          "kappa_weighted": 0.50734
+        },
+        "Scrap\u2192Smelting Mass": {
+          "max_abs_delta": 0.036883,
+          "kappa_weighted": 0.612352
+        },
+        "CFR\u2192Slag Mass": {
+          "max_abs_delta": 0.024586,
+          "kappa_weighted": 0.988293
+        }
+      },
+      "least_contracted": {
+        "Scrap\u2192CFR Mass": 0.50734,
+        "Concentrate\u2192Smelting Mass": 0.598973,
+        "Scrap\u2192Smelting Mass": 0.612352
+      }
+    }
   }
 }

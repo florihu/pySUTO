@@ -1,0 +1,5 @@
+valuation,prior_class,edge_years,weight_kt,kappa_weighted,kappa_median
+CC,from a feed,32407,2139689.353898,0.930998,0.065353
+CC,imputed,56293,5253180.100384,0.97826,0.194274
+Mass,from a feed,28811,57672741.876982,0.973173,0.036994
+Mass,imputed,55096,200605746.036948,0.967794,0.213215
