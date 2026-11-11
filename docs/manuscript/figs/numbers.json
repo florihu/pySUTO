@@ -732,7 +732,193 @@
         "median_abs_shift": null
       }
     },
-    "expected_share_gt3": 0.0026997960632601866
+    "expected_share_gt3": 0.0026997960632601866,
+    "contraction_by_category": {
+      "CP\u2192Cathode CC": {
+        "edge_years": 1410,
+        "pinned": 0,
+        "pinned_share": 0.0,
+        "weight_kt": 586044.0797142698,
+        "kappa_weighted": 0.995376,
+        "kappa_median": 0.994975
+      },
+      "CER\u2192CP CC": {
+        "edge_years": 1410,
+        "pinned": 0,
+        "pinned_share": 0.0,
+        "weight_kt": 488589.9128766657,
+        "kappa_weighted": 0.995075,
+        "kappa_median": 0.994806
+      },
+      "ER\u2192CER CC": {
+        "edge_years": 1410,
+        "pinned": 0,
+        "pinned_share": 0.0,
+        "weight_kt": 488589.9128766705,
+        "kappa_weighted": 0.995057,
+        "kappa_median": 0.994661
+      },
+      "CFR\u2192Anode CC": {
+        "edge_years": 1410,
+        "pinned": 0,
+        "pinned_share": 0.0,
+        "weight_kt": 494249.8266568848,
+        "kappa_weighted": 0.994873,
+        "kappa_median": 0.994982
+      },
+      "Smelting\u2192Matte CC": {
+        "edge_years": 1410,
+        "pinned": 0,
+        "pinned_share": 0.0,
+        "weight_kt": 485716.7827462563,
+        "kappa_weighted": 0.991099,
+        "kappa_median": 0.993347
+      },
+      "Mining\u2192Ore CC": {
+        "edge_years": 1410,
+        "pinned": 4,
+        "pinned_share": 0.002837,
+        "weight_kt": 643873.0167724261,
+        "kappa_weighted": 0.990967,
+        "kappa_median": 0.991365
+      },
+      "CO\u2192Mining CC": {
+        "edge_years": 1410,
+        "pinned": 4,
+        "pinned_share": 0.002837,
+        "weight_kt": 643873.016772426,
+        "kappa_weighted": 0.990967,
+        "kappa_median": 0.991364
+      },
+      "CSXEW\u2192CP CC": {
+        "edge_years": 1410,
+        "pinned": 628,
+        "pinned_share": 0.44539,
+        "weight_kt": 97419.77875877239,
+        "kappa_weighted": 0.989118,
+        "kappa_median": 0.96687
+      },
+      "SXEW\u2192CSXEW CC": {
+        "edge_years": 1410,
+        "pinned": 628,
+        "pinned_share": 0.44539,
+        "weight_kt": 97419.77875877178,
+        "kappa_weighted": 0.989117,
+        "kappa_median": 0.96687
+      },
+      "Matte\u2192CFR CC": {
+        "edge_years": 66270,
+        "pinned": 32577,
+        "pinned_share": 0.49158,
+        "weight_kt": 486667.1613053437,
+        "kappa_weighted": 0.987691,
+        "kappa_median": 0.329583
+      },
+      "Ore\u2192MF CC": {
+        "edge_years": 1410,
+        "pinned": 5,
+        "pinned_share": 0.003546,
+        "weight_kt": 511697.4452357698,
+        "kappa_weighted": 0.986947,
+        "kappa_median": 0.990384
+      },
+      "Anode\u2192ER CC": {
+        "edge_years": 66270,
+        "pinned": 35971,
+        "pinned_share": 0.542795,
+        "weight_kt": 496602.99101091025,
+        "kappa_weighted": 0.985652,
+        "kappa_median": 0.50626
+      },
+      "MF\u2192Concentrate CC": {
+        "edge_years": 1410,
+        "pinned": 5,
+        "pinned_share": 0.003546,
+        "weight_kt": 416359.7386276426,
+        "kappa_weighted": 0.983899,
+        "kappa_median": 0.982899
+      },
+      "Ore\u2192SXEW CC": {
+        "edge_years": 1410,
+        "pinned": 627,
+        "pinned_share": 0.444681,
+        "weight_kt": 134267.33946074964,
+        "kappa_weighted": 0.963022,
+        "kappa_median": 0.926013
+      },
+      "Scrap\u2192Smelting CC": {
+        "edge_years": 1410,
+        "pinned": 535,
+        "pinned_share": 0.379433,
+        "weight_kt": 78182.42354488651,
+        "kappa_weighted": 0.947286,
+        "kappa_median": 0.942072
+      },
+      "Cathode\u2192FU CC": {
+        "edge_years": 66270,
+        "pinned": 22335,
+        "pinned_share": 0.33703,
+        "weight_kt": 603356.0182083651,
+        "kappa_weighted": 0.939255,
+        "kappa_median": 0.414768
+      },
+      "Scrap\u2192CFR CC": {
+        "edge_years": 1410,
+        "pinned": 565,
+        "pinned_share": 0.400709,
+        "weight_kt": 22566.7719105109,
+        "kappa_weighted": 0.926705,
+        "kappa_median": 0.765315
+      },
+      "Concentrate\u2192Smelting CC": {
+        "edge_years": 66270,
+        "pinned": 42676,
+        "pinned_share": 0.643972,
+        "weight_kt": 434106.6418701729,
+        "kappa_weighted": 0.804489,
+        "kappa_median": 0.414544
+      },
+      "MF\u2192Tailings CC": {
+        "edge_years": 1410,
+        "pinned": 5,
+        "pinned_share": 0.003546,
+        "weight_kt": 104597.73182678618,
+        "kappa_weighted": 0.689522,
+        "kappa_median": 0.7816
+      },
+      "SXEW\u2192Tailings CC": {
+        "edge_years": 1410,
+        "pinned": 647,
+        "pinned_share": 0.458865,
+        "weight_kt": 37949.19633953713,
+        "kappa_weighted": 0.525251,
+        "kappa_median": 0.58081
+      },
+      "Smelting\u2192Slag CC": {
+        "edge_years": 1410,
+        "pinned": 0,
+        "pinned_share": 0.0,
+        "weight_kt": 18434.212396639596,
+        "kappa_weighted": 0.497983,
+        "kappa_median": 0.259933
+      },
+      "CFR\u2192Slag CC": {
+        "edge_years": 1410,
+        "pinned": 0,
+        "pinned_share": 0.0,
+        "weight_kt": 7533.411527127732,
+        "kappa_weighted": 0.455373,
+        "kappa_median": 0.156503
+      },
+      "ER\u2192Slag CC": {
+        "edge_years": 1410,
+        "pinned": 0,
+        "pinned_share": 0.0,
+        "weight_kt": 1520.5313179649024,
+        "kappa_weighted": 0.28325,
+        "kappa_median": 0.793461
+      }
+    }
   },
   "sweep": {
     "sweep_run_id": "sweep_20261102_145601_8413cace",
@@ -917,44 +1103,6 @@
     }
   },
   "link": {
-    "stages": {
-      "Anode\u2192ER CC": {
-        "kappa_weighted": 0.985652,
-        "max_abs_delta": 0.003128
-      },
-      "CO\u2192Mining Mass": {
-        "kappa_weighted": 0.98871,
-        "max_abs_delta": 0.001023
-      },
-      "CP\u2192Cathode CC": {
-        "kappa_weighted": 0.995376,
-        "max_abs_delta": 0.003399
-      },
-      "Cathode\u2192FU CC": {
-        "kappa_weighted": 0.939255,
-        "max_abs_delta": 0.002837
-      },
-      "Concentrate\u2192Smelting CC": {
-        "kappa_weighted": 0.804489,
-        "max_abs_delta": 0.002467
-      },
-      "MF\u2192Concentrate CC": {
-        "kappa_weighted": 0.983899,
-        "max_abs_delta": 0.002586
-      },
-      "Scrap\u2192CFR CC": {
-        "kappa_weighted": 0.926705,
-        "max_abs_delta": 0.029779
-      },
-      "Scrap\u2192Smelting CC": {
-        "kappa_weighted": 0.947286,
-        "max_abs_delta": 0.004768
-      },
-      "Smelting\u2192Matte CC": {
-        "kappa_weighted": 0.991099,
-        "max_abs_delta": 0.002765
-      }
-    },
     "CC": {
       "n_categories": 23,
       "spearman_rho": 0.48616600790513836,

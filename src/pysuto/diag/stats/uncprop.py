@@ -465,6 +465,46 @@ class UncPropStatsDiagnostic:
         out["n_edges"] = out["n_edges"].astype(np.int64)
         return out
 
+    @staticmethod
+    def contraction_by_category(frame: pd.DataFrame) -> pd.DataFrame:
+        """Posterior contraction per **category** — ``from_sector→to_sector valuation``,
+        the sweep's label — over the edge-years with a finite ``kappa``.
+
+        Columns: ``valuation``, ``category``, ``n_edge_years``, ``n_pinned`` (bound-active
+        edge-years, whose ``kappa`` is 1 by construction), ``weight_kt`` (Σ ``weight``),
+        ``kappa_weighted`` (Σ weight·κ / Σ weight over every edge-year of the category)
+        and ``kappa_median`` (the median κ over the edge-years *not* pinned; NaN where
+        all are). Sorted by valuation, then category. Needs the edge-meta columns, so
+        the frame must have been built with an accounting structure.
+        """
+        need = ["from_sector", "to_sector", "valuation", "weight", "kappa", "bound_active"]
+        missing = [c for c in need if c not in frame.columns]
+        if missing:
+            raise KeyError(f"contraction_by_category needs the column(s) {missing}: "
+                           "build the edge frame with an accounting structure")
+        f = frame[np.isfinite(frame["kappa"].to_numpy(dtype=float))]
+        pinned = f["bound_active"].to_numpy(dtype=bool)
+        w, k = f["weight"].to_numpy(dtype=float), f["kappa"].to_numpy(dtype=float)
+        cat = (f["from_sector"].astype(str) + "→" + f["to_sector"].astype(str) + " "
+               + f["valuation"].astype(str))
+        g = pd.DataFrame({"valuation":  f["valuation"].to_numpy(),
+                          "category":   cat.to_numpy(),
+                          "w":          w,
+                          "wk":         w * k,
+                          "pinned":     pinned,
+                          "k_unpinned": np.where(pinned, np.nan, k)}) \
+              .groupby(["valuation", "category"], sort=True)
+        out = pd.DataFrame({
+            "n_edge_years":   g.size(),
+            "n_pinned":       g["pinned"].sum(),
+            "weight_kt":      g["w"].sum(),
+            "kappa_weighted": g["wk"].sum() / g["w"].sum(),
+            "kappa_median":   g["k_unpinned"].median(),
+        }).reset_index()
+        for col in ("n_edge_years", "n_pinned"):
+            out[col] = out[col].astype(np.int64)
+        return out
+
 
 def _share(mask: np.ndarray, weight=None) -> float:
     """Share of ``True`` in ``mask``, weighted by ``weight`` when given; NaN when

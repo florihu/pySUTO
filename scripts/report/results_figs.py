@@ -19,8 +19,8 @@ tables (``si_*.csv`` and one ``si_tables.md`` with the same tables rendered) to
 block (SI S15) and reported whichever way they fall.
 
 Fig. 5 reads the Stage-5 run propagated from the opt run (``UncPropDiag`` →
-its all-years edge frame, Birge table and shift calibration; SI S6) and the knob
-sweep built on it (the tables ``scripts/sweep_diag.py`` writes to the sweep's
+its all-years edge frame, its contraction per category, Birge table and shift
+calibration; SI S6) and the knob sweep built on it (the tables ``scripts/sweep_diag.py`` writes to the sweep's
 ``diag/``: ``points.csv``, ``sensitivity.csv``, ``outcomes.csv``,
 ``verdicts.csv``; SI S15.4). Panel (d) sets the A5 tolerance pair beside the
 sweep's spread per stage; the pair is the base constraint run solved twice, the
@@ -206,14 +206,18 @@ def stage5_frames(uncprop_id: str, opt: str) -> dict:
     c = f[f.calibrated.to_numpy(dtype=bool) & (f.valuation == "CC")]
     qq = {cls: np.sort(c.loc[c.prior_class == cls, "std_shift"].to_numpy(dtype=float))
           for cls in CALIB_CLASSES}
-    cat = (f.from_sector.astype(str) + "→" + f.to_sector.astype(str) + " " + f.valuation.astype(str))
-    ok = np.isfinite(f.kappa.to_numpy(dtype=float))
-    g = f[ok].assign(category=cat[ok], wk=f.weight[ok] * f.kappa[ok]).groupby("category", sort=True)
-    by_cat = pd.DataFrame({"edge_years": g.size(), "weight_kt": g.weight.sum(),
-                           "kappa_weighted": g.wk.sum() / g.weight.sum(),
-                           "kappa_median": g.kappa.median()}).reset_index()
+    by_cat = st.contraction_by_category(f)
+    by_cat["pinned_share"] = by_cat.n_pinned / by_cat.n_edge_years
     return dict(run_id=uncprop_id, birge=st.birge(), R=R, calibration=st.calibration(f, R),
                 contraction=pd.DataFrame(rows), qq=qq, by_category=by_cat)
+
+
+def drawn_categories(U: dict, S: dict) -> pd.DataFrame:
+    """The rows of Fig. 5a: the contained-copper categories that have a retention in
+    the sweep (the ones 5d–e and the link compare), most pinned first."""
+    cat = U["by_category"]
+    cat = cat[(cat.valuation == "CC") & cat.category.isin(S["by_category"].category)]
+    return cat.sort_values("kappa_weighted", ascending=False).reset_index(drop=True)
 
 
 def _outcome_label(o: str) -> str:
@@ -873,29 +877,35 @@ def _fmt_swing(v: float) -> str:
 
 
 def fig5(U: dict, S: dict, A: dict, out: Path) -> Path:
-    fig = plt.figure(figsize=(7.2, 7.8))
-    outer = fig.add_gridspec(2, 1, hspace=0.42, left=0.18, right=0.935, top=0.95, bottom=0.165,
-                             height_ratios=[1, 1.25])
-    top = GridSpecFromSubplotSpec(1, 3, subplot_spec=outer[0], wspace=0.5, width_ratios=[1, 1.1, 1])
+    fig = plt.figure(figsize=(7.2, 8.6))
+    outer = fig.add_gridspec(2, 1, hspace=0.36, left=0.18, right=0.935, top=0.955, bottom=0.15,
+                             height_ratios=[1.3, 1.25])
+    top = GridSpecFromSubplotSpec(1, 3, subplot_spec=outer[0], wspace=0.72, width_ratios=[1.2, 1.0, 0.95])
     bot = GridSpecFromSubplotSpec(1, 2, subplot_spec=outer[1], wspace=0.5, width_ratios=[1, 1.5])
 
-    # (a) contraction by prior class ----------------------------------------------
+    # (a) contraction by category ------------------------------------------------
     ax = fig.add_subplot(top[0])
-    ct = U["contraction"]
-    rows = [(v, c) for v in CALIB_VALS for c in CALIB_CLASSES]
-    ys = np.arange(len(rows))[::-1]
-    for yi, (v, c) in zip(ys, rows):
-        r = ct[(ct.valuation == v) & (ct.prior_class == c)].iloc[0]
-        ax.plot([r.kappa_median, r.kappa_weighted], [yi, yi], color=INK2, lw=0.8, zorder=1)
-        ax.scatter([r.kappa_median], [yi], s=24, facecolor=SURFACE, edgecolor=PALETTE[0], lw=1.1, zorder=3)
-        ax.scatter([r.kappa_weighted], [yi], s=24, color=PALETTE[0], zorder=3)
-    ax.set_yticks(ys); ax.set_yticklabels([f"{CLASS_LABEL[c]} · {v}" for v, c in rows], fontsize=6.5)
-    ax.set_xlim(0, 1); ax.set_xticks([0, 0.25, 0.5, 0.75, 1]); ax.set_ylim(-0.7, len(rows) - 0.3)
-    ax.set_xlabel("posterior contraction κ, 1995–2024")
-    ax.legend(handles=[Line2D([], [], marker="o", ls="", markerfacecolor=SURFACE, markeredgecolor=PALETTE[0], label="median edge"),
+    cat = U["categories"]
+    stage_set = {STAGE_LABEL[t] for t in STAGES}
+    ys = np.arange(len(cat))[::-1]
+    for yi, r in zip(ys, cat.itertuples()):
+        if np.isfinite(r.kappa_median):
+            ax.plot([r.kappa_median, r.kappa_weighted], [yi, yi], color=INK2, lw=0.7, zorder=1)
+            ax.scatter([r.kappa_median], [yi], s=16, facecolor=SURFACE, edgecolor=PALETTE[0], lw=0.9, zorder=3)
+        ax.scatter([r.kappa_weighted], [yi], s=16, color=PALETTE[0], zorder=3)
+        ax.text(1.04, yi, f"{r.pinned_share:.0%}", fontsize=5, color=INK2, va="center", ha="left")
+    ax.text(1.04, len(cat) - 0.3, "pinned", fontsize=5, color=INK2, va="bottom", ha="left")
+    ax.set_yticks(ys)
+    ax.set_yticklabels([c.replace(" CC", "") for c in cat.category], fontsize=5.6)
+    for lab, c in zip(ax.get_yticklabels(), cat.category):
+        if c in stage_set:
+            lab.set_fontweight("bold")
+    ax.set_xlim(0, 1); ax.set_xticks([0, 0.25, 0.5, 0.75, 1]); ax.set_ylim(-0.7, len(cat) - 0.3)
+    ax.set_xlabel("posterior contraction κ, 1995–2024, contained copper")
+    ax.legend(handles=[Line2D([], [], marker="o", ls="", markerfacecolor=SURFACE, markeredgecolor=PALETTE[0], label="median unpinned edge"),
                        Line2D([], [], marker="o", ls="", color=PALETTE[0], label="mass-weighted")],
-              frameon=False, loc="upper center", bbox_to_anchor=(0.5, -0.22), fontsize=6, ncol=2,
-              columnspacing=1.0, handletextpad=0.4)
+              frameon=False, loc="upper center", bbox_to_anchor=(0.5, -0.1), fontsize=6, ncol=1,
+              handletextpad=0.4)
     _style(ax, grid_axis="x")
     _tag(ax, "a", "What the constraints pin")
 
@@ -922,7 +932,7 @@ def fig5(U: dict, S: dict, A: dict, out: Path) -> Path:
         ax.axhline(yv, color=GRID, lw=0.7, ls=":")
     ax.set_xlim(-x_lim, x_lim); ax.set_ylim(-_symlog(250), _symlog(250))
     ax.set_xlabel("N(0, 1) quantile"); ax.set_ylabel("standardised shift z/√κ")
-    ax.legend(frameon=False, fontsize=5.6, loc="upper center", bbox_to_anchor=(0.5, -0.2), ncol=2,
+    ax.legend(frameon=False, fontsize=5.6, loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=2,
               handlelength=1.4, columnspacing=1.0, handletextpad=0.4)
     _style(ax, grid_axis="both")
     _tag(ax, "b", "Are the stated σ right?")
@@ -1117,6 +1127,13 @@ def stage5_numbers(U: dict) -> dict:
                                      "median_abs_shift": round(float(np.median(np.abs(U["qq"][c]))), 6) if v == "CC" else None}
                         for v in CALIB_VALS for c in CALIB_CLASSES},
         "expected_share_gt3": float(2.0 * norm.sf(3.0)),
+        "contraction_by_category": ({r.category: {"edge_years": int(r.n_edge_years), "pinned": int(r.n_pinned),
+                                                  "pinned_share": round(float(r.pinned_share), 6),
+                                                  "weight_kt": float(r.weight_kt),
+                                                  "kappa_weighted": round(float(r.kappa_weighted), 6),
+                                                  "kappa_median": (round(float(r.kappa_median), 6)
+                                                                   if np.isfinite(r.kappa_median) else None)}
+                                     for r in U["categories"].itertuples()} if "categories" in U else None),
     }
 
 
@@ -1125,9 +1142,7 @@ def link_numbers(U: dict, S: dict) -> dict:
     between the sweep's largest |Δ pooled retention| and the mass-weighted 1 − κ, and
     the categories heading both lists."""
     m = U["by_category"].merge(S["by_category"], on="category", how="inner")
-    stages = m[m.category.isin([STAGE_LABEL[t] for t in STAGES])].set_index("category")
-    out = {"stages": {c: {"kappa_weighted": round(float(r.kappa_weighted), 6),
-                          "max_abs_delta": round(float(r.max_abs_delta), 6)} for c, r in stages.iterrows()}}
+    out = {}
     for val in CALIB_VALS:
         t = m[m.category.str.endswith(" " + val)]
         r = spearmanr(t.max_abs_delta, 1.0 - t.kappa_weighted)
@@ -1269,6 +1284,8 @@ def main(opt: str, psut_id: str, tol_pair=None, uncprop_id=None, sweep_id=None,
     # ---- Stage 5 and the knob sweep (Fig. 5) ---------------------------------------------
     U = stage5_frames(uncprop_id, opt) if uncprop_id else None
     S = sweep_frames(sweep_id, opt) if sweep_id else None
+    if U and S:
+        U["categories"] = drawn_categories(U, S)
 
     # ---- ledger, figures, outputs -----------------------------------------------------
     ledger = build_ledger(A, B)

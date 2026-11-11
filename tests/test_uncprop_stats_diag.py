@@ -280,3 +280,43 @@ def test_contraction_summary_sums_weight_per_cell():
     assert s.loc[("1996", "Mass", "flat", "overruled"), "n_edges"] == 1
     assert s["n_edges"].sum() == 6
     assert s["weight_kt"].sum() == pytest.approx(37.5)
+
+
+def test_contraction_by_category_weights_every_edge_and_medians_the_unpinned():
+    f = pd.DataFrame({
+        "valuation":    ["CC", "CC", "CC", "CC"],
+        "from_sector":  ["Conc"] * 4,
+        "to_sector":    ["Smelt"] * 4,
+        "weight":       [1.0, 3.0, 6.0, 10.0],
+        "kappa":        [0.2, 0.6, 1.0, 1.0],
+        "bound_active": [False, False, True, True],
+    })
+    c = UncPropStatsDiagnostic.contraction_by_category(f).set_index("category")
+    r = c.loc["Conc→Smelt CC"]
+    assert r["valuation"] == "CC"
+    assert (r["n_edge_years"], r["n_pinned"]) == (4, 2)
+    assert r["weight_kt"] == pytest.approx(20.0)
+    assert r["kappa_weighted"] == pytest.approx(0.9, rel=1e-12)     # (0.2·1 + 0.6·3 + 6 + 10) / 20
+    assert r["kappa_median"] == pytest.approx(0.4, rel=1e-12)       # median of the unpinned [0.2, 0.6]
+
+
+def test_contraction_by_category_separates_valuations_and_leaves_out_nonfinite_kappa():
+    f = pd.DataFrame({
+        "valuation":    ["Mass", "CC", "CC"],
+        "from_sector":  ["Mine", "Mine", "Mine"],
+        "to_sector":    ["Ore", "Ore", "Ore"],
+        "weight":       [2.0, 4.0, 4.0],
+        "kappa":        [0.5, np.nan, 0.8],
+        "bound_active": [False, False, True],
+    })
+    c = UncPropStatsDiagnostic.contraction_by_category(f)
+    assert list(c["category"]) == ["Mine→Ore CC", "Mine→Ore Mass"]      # sorted by valuation
+    cc = c.set_index("category").loc["Mine→Ore CC"]
+    assert (cc["n_edge_years"], cc["n_pinned"]) == (1, 1)              # the NaN κ edge is left out
+    assert cc["weight_kt"] == pytest.approx(4.0)
+    assert cc["kappa_weighted"] == pytest.approx(0.8)
+    assert np.isnan(cc["kappa_median"])                                 # every edge-year pinned
+    mass = c.set_index("category").loc["Mine→Ore Mass"]
+    assert mass["kappa_median"] == pytest.approx(0.5)
+    with pytest.raises(KeyError, match="from_sector"):
+        UncPropStatsDiagnostic.contraction_by_category(f.drop(columns="from_sector"))
