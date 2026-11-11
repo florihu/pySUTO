@@ -36,8 +36,8 @@ _REPO_ROOT  = os.path.dirname(_SCRIPT_DIR)
 
 sys.path.insert(0, os.path.join(_REPO_ROOT, "src"))
 
-from pysuto.acc import AccountingStructure, read_acc_spec_json, write_build_record
-from pysuto.input_registry import ACC_ODS_FILES, ACC_SPEC, InputRegistries
+from pysuto.acc import AccountingStructure, read_acc_spec_dir, write_build_record
+from pysuto.input_registry import InputRegistries
 
 
 # =============================================================================
@@ -84,7 +84,8 @@ def parse_args() -> argparse.Namespace:
 # =============================================================================
 
 def build_acc(acc_path: Path, id: str, storage_dir: str) -> AccountingStructure:
-    """Build from ``acc.json`` when *acc_path* holds it, else from root.ods + rules.ods.
+    """Build from ``acc.json`` when *acc_path* holds it, else from root.ods + rules.ods
+    (:func:`pysuto.acc.read_acc_spec_dir` picks the reader).
 
     Raises
     ------
@@ -92,27 +93,8 @@ def build_acc(acc_path: Path, id: str, storage_dir: str) -> AccountingStructure:
         *acc_path* holds ``acc.json`` and any file of the ODS/CSV format: one of the two
         would be ignored.
     """
-    if (acc_path / ACC_SPEC).is_file():
-        ods_beside_json = [n for n in ACC_ODS_FILES if (acc_path / n).is_file()]
-        if ods_beside_json:
-            raise ValueError(
-                f"{acc_path} holds {ACC_SPEC} and {ods_beside_json}: an acc spec is "
-                f"read from {ACC_SPEC} or from root.ods + rules.ods, never both "
-                f"(ADR 0046)"
-            )
-        return AccountingStructure.from_spec(
-            read_acc_spec_json(str(acc_path / ACC_SPEC)), id, storage_dir=storage_dir)
-    return AccountingStructure(
-        id               = id,
-        root_file_path   = str(acc_path / "root.ods"),
-        rules_file_path  = str(acc_path / "rules.ods"),
-        bounds_file_path = (
-            str(acc_path / "bounds.ods")
-            if (acc_path / "bounds.ods").is_file()
-            else None
-        ),
-        storage_dir = storage_dir,
-    )
+    return AccountingStructure.from_spec(read_acc_spec_dir(acc_path), id,
+                                         storage_dir=storage_dir)
 
 
 # =============================================================================

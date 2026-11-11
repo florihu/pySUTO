@@ -4,14 +4,16 @@ network.py
 Process-recipe traversal imputer.
 
 Where the other imputers fill one *edge* at a time, :class:`NetworkImputer`
-reasons about *nodes*: it pushes copper content (``CC``) through a supply-use
-network until nothing more is determinable, then derives ``Mass`` twins via the
-concentration coefficient. Two node kinds carry conservation in CC:
+reasons about *nodes*: it pushes the content valuation (copper: ``CC``) through a
+supply-use network until nothing more is determinable, then derives gross-mass
+twins (copper: ``Mass``) via the concentration coefficient. The valuations and the
+boundary roles are read through ``acc.valuations`` and ``acc.roles`` (ADR 0034).
+Two node kinds carry conservation in content:
 
 * **Process node** — a mass-closing *recipe*: ``product_CC = eff·Σ(inputs_CC)``
   and ``waste_CC = (1−eff)·Σ(inputs_CC)``, where the recovery efficiency ``eff``
   acts on the pooled primary inputs (Scrap included). The ``(1−eff)`` complement
-  is routed to the SEM residual-output node.
+  is routed to the residual-output node, an SB node of boundary role ``secondary``.
 * **Flow node** — plain CC balance ``Σ(supply in) = Σ(uses out)``; this joins the
   product of one process to the input of the next, and resolves the Ore branch
   split (MF pyro vs SXEW hydro) from whichever side the data pins.
@@ -35,6 +37,7 @@ from dataclasses import dataclass
 import numpy as np
 import pandas as pd
 
+from pysuto.acc import BoundaryRole, boundary_role_values
 from pysuto.logging import get_logger
 from pysuto.lp import lp_combine
 from pysuto.param_relation import (
@@ -51,6 +54,7 @@ from .parametric import _reg_sensitivity
 logger = get_logger(__name__)
 
 _EPS = 1e-12  # guard for divisions by (1−eff) when eff≈1
+_SECONDARY = BoundaryRole.SECONDARY.value  # the residual-output / secondary-input role
 
 
 # ---------------------------------------------------------------------------
@@ -61,9 +65,9 @@ _EPS = 1e-12  # guard for divisions by (1−eff) when eff≈1
 class ProcessRecipe:
     """One Process node's CC supply-use skeleton (edge ids, no parameters).
 
-    inputs   use-side CC edge ids into the process (any region; incl. Scrap).
-    product  the single supply CC edge to a Flow node, or None.
-    wastes   supply CC edge ids to SB nodes with entity_sub == "SEM".
+    inputs   use-side content edge ids into the process (any region; incl. Scrap).
+    product  the single supply content edge to a Flow node, or None.
+    wastes   supply content edge ids to SB nodes of boundary role ``secondary``.
     """
 
     process_sector: str
@@ -75,16 +79,15 @@ class ProcessRecipe:
 
 
 def derive_process_recipes(acc) -> list[ProcessRecipe]:
-    """Build :class:`ProcessRecipe` skeletons from ``acc`` (masks + entity_sub).
+    """Build :class:`ProcessRecipe` skeletons from ``acc`` (masks + roles).
 
-    Reads ``edge_meta`` + the ``supply``/``use`` masks + ``entity_sub`` — all of
-    which survive the save/load round-trip — so it works whether or not
-    ``acc.ruleset`` is set.
+    Reads ``edge_meta``, the ``supply``/``use`` masks, the content valuation and the
+    boundary roles — all of which survive the save/load round-trip.
     """
     em = acc.edge_meta
     supply = np.asarray(acc.masks["supply"], dtype=bool)
     use = np.asarray(acc.masks["use"], dtype=bool)
-    is_cc = (em["valuation"].to_numpy() == "CC")
+    is_cc = (em["valuation"].to_numpy() == acc.valuations.content)
 
     sup = em[supply & is_cc & (em["from_entity"].to_numpy() == "Process")]
     use_e = em[use & is_cc & (em["to_entity"].to_numpy() == "Process")]
@@ -97,7 +100,7 @@ def derive_process_recipes(acc) -> list[ProcessRecipe]:
         product = int(flow_out["edge_id"].iloc[0]) if len(flow_out) else None
         waste_rows = g[
             (g["to_entity"].to_numpy() == "SB")
-            & (g["to_entity_sub"].to_numpy() == "SEM")
+            & (boundary_role_values(acc.roles, g["to_sector"]) == _SECONDARY)
         ]
         wastes = tuple(int(e) for e in waste_rows["edge_id"])
 
@@ -247,8 +250,9 @@ class NetworkImputer(BaseImputer):
         if self._stripping_csv:
             self._stripping = self._load_stripping(self._stripping_csv, resolver)
 
-        # input edge -> from-node entity_sub (classifies primary vs SEM secondary)
-        sub_from = dict(zip(em["edge_id"].to_numpy(), em["from_entity_sub"].to_numpy()))
+        # input edge -> from-node boundary role (classifies primary vs secondary input)
+        role_from = dict(zip(em["edge_id"].to_numpy(),
+                             boundary_role_values(acc.roles, em["from_sector"])))
         # input edge -> from/to region (classifies same-region vs cross-region import)
         reg_from = dict(zip(em["edge_id"].to_numpy(), em["from_region"].to_numpy()))
         reg_to   = dict(zip(em["edge_id"].to_numpy(), em["to_region"].to_numpy()))
@@ -259,8 +263,8 @@ class NetworkImputer(BaseImputer):
             eff, eff_sig, eff_eps, pid = product_eff.get(
                 rec.product, (1.0, 0.0, 0.0, None)
             )
-            secondary = tuple(i for i in rec.inputs if sub_from.get(i) == "SEM")
-            non_sem = [i for i in rec.inputs if sub_from.get(i) != "SEM"]
+            secondary = tuple(i for i in rec.inputs if role_from.get(i) == _SECONDARY)
+            non_sem = [i for i in rec.inputs if role_from.get(i) != _SECONDARY]
             # same-region non-SEM inputs block the forward gate; cross-region imports
             # are pooled-when-known / 0-when-missing and never block (ADR 0010).
             primary = tuple(i for i in non_sem if reg_from.get(i) == reg_to.get(i))
@@ -334,7 +338,7 @@ class NetworkImputer(BaseImputer):
         determinacy guard in :meth:`_do_flow_balance` could never fire.
         """
         em = acc.edge_meta
-        cc = em[em["valuation"].to_numpy() == "CC"]
+        cc = em[em["valuation"].to_numpy() == acc.valuations.content]
         flow_ids = set(acc.node_index.index[acc.node_index["entity"].to_numpy() == "Flow"])
         by_to = {k: g["edge_id"].to_numpy() for k, g in cc.groupby(["to_id", "time"])}
         by_from = {k: g["edge_id"].to_numpy() for k, g in cc.groupby(["from_id", "time"])}

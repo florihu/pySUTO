@@ -12,11 +12,16 @@ from typing import TYPE_CHECKING, Optional
 
 import pandas as pd
 
+from pysuto.acc import legacy_boundary_role_values
+from pysuto.logging import get_logger
+
 from ._sidecar import _now_iso, build_sidecar
 from .base import BaseOutputRegistry
 
 if TYPE_CHECKING:                                  # break Stage-6 import cycle
     from pysuto.psut import PSUT
+
+_log = get_logger("pysuto.registry.psut")
 
 
 class PsutRunRegistry(BaseOutputRegistry):
@@ -29,6 +34,7 @@ class PsutRunRegistry(BaseOutputRegistry):
         └── psut_<ts>_<code>/
             ├── metadata.json            ← harmonized sidecar
             ├── nodes.parquet            ← node universe the views are labelled from
+            │                              (with each SB node's boundary ``role``)
             └── timesteps/
                 └── t_{period}.parquet   ← the tidy rows of that period
 
@@ -129,6 +135,12 @@ class PsutRunRegistry(BaseOutputRegistry):
         frames = [pd.read_parquet(os.path.join(ts_dir, f"t_{t}.parquet"))
                   for t in summary.get("timesteps", [])]
         nodes  = pd.read_parquet(os.path.join(run_dir, "nodes.parquet"))
+        if "role" not in nodes.columns:
+            # Persisted before roles (#119): bind the copper case's boundary labels.
+            nodes["role"] = legacy_boundary_role_values(nodes["entity"],
+                                                        nodes["entity_sub"])
+            _log.warning("PSUT run %s predates roles (#119): bound its SB nodes' roles "
+                         "from the copper case's entity_sub labels", run_id)
 
         # Slice-1 sidecars (one valuation) carried a single ``valuation`` key.
         valuations = list(config.get("valuations") or [config.get("valuation", "")])

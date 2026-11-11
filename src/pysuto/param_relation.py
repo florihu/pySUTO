@@ -23,7 +23,7 @@ get_edge_cache(acc_struct)                            Per-acc_struct edge cache
 sigma_from_row(row, nominal)                          σ via unc_type ∈ {sd, min_max, pedigree}
 float_or(val, default)                                Lenient float parse
 specificity(row)                                      Count non-wildcard A-fields
-conc_nominal_lookup(*paths)                           (sector, region) → conc nominal
+conc_nominal_lookup(*paths, gross)                    (sector, region) → conc nominal
 conc_sectors(lookup)                                  Sectors a lookup covers
 conc_for(lookup, sectors, regions)                    Vectorised lookup, region-wildcard fallback
 ResolvedRelation                                      Resolver output dataclass
@@ -136,12 +136,14 @@ def specificity(row: pd.Series) -> int:
     )
 
 
-def conc_nominal_lookup(*paths) -> dict:
+def conc_nominal_lookup(*paths, gross: str) -> dict:
     """``(sector, region) -> concentration nominal`` from conc-family params CSVs.
 
     Reads the **supply** rows — those pinning a concrete ``a_sector_from`` on the
-    Mass side — and keys each by its ``a_region_from``, or ``"*"`` for a
-    region-wildcarded row, which then serves as that sector's fallback.
+    gross-mass side (``a_valuation == gross``, the label the acc binds to the
+    ``gross`` role: ``acc.valuations.gross``) — and keys each by its
+    ``a_region_from``, or ``"*"`` for a region-wildcarded row, which then serves as
+    that sector's fallback.
 
     The key is the region the commodity came *from*, because a traded
     commodity's concentration is a property of what the exporter produced, not
@@ -162,7 +164,7 @@ def conc_nominal_lookup(*paths) -> dict:
         p = p[p["param_type"] == "concentration"]
         for _, row in p.iterrows():
             sector = str(row.get("a_sector_from", "*")).strip()
-            if sector in WILDCARD or str(row.get("a_valuation", "")).strip() != "Mass":
+            if sector in WILDCARD or str(row.get("a_valuation", "")).strip() != gross:
                 continue
             region = str(row.get("a_region_from", "*")).strip()
             if region in WILDCARD:

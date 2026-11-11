@@ -52,6 +52,7 @@ import pytest
 import scipy.sparse as sp
 from numpy.testing import assert_array_equal
 
+from pysuto.acc import Valuations
 from pysuto.diag.stats import ProblemStatsDiagnostic
 from pysuto.diag.stats.problem import row_family
 
@@ -80,7 +81,7 @@ def _acc():
                         "from_sector": _NODES[a][0], "from_region": _NODES[a][1],
                         "to_sector": _NODES[b][0], "to_region": _NODES[b][1]}
                        for i, (a, b, t, v) in enumerate(_EDGES)])
-    return SimpleNamespace(edge_meta=em)
+    return SimpleNamespace(edge_meta=em, valuations=Valuations(content="CC", gross="Mass"))
 
 
 class _Log:

@@ -6,6 +6,10 @@ from types import SimpleNamespace
 from pysuto.conc import ConcordanceTable, WeightMatrix
 from pysuto.feedpipe import build_F_src, matched_raw_total
 
+# The Supply_Use vocabulary of the raw rows: each value mapped to the endpoint it
+# classifies (the case declares it, #119).
+AUX_SIDES = {"Supply": "from", "Use": "to"}
+
 
 # =============================================================================
 # FIXTURE
@@ -173,7 +177,7 @@ def build_ct(raw_df, mock_acc_struct, maps, allow_unmatched=True):
     return ConcordanceTable.from_raw(
         raw_df=raw_df,
         acc_struct=mock_acc_struct,
-        aux_col="Supply_Use",
+        aux_col="Supply_Use", aux_sides=AUX_SIDES,
         allow_unmatched_edges=allow_unmatched,
         id="test_ct",
         **maps,
@@ -293,7 +297,7 @@ class TestManyToOneFanIn:
         return ConcordanceTable.from_raw(
             raw_df=raw_df_fanin,
             acc_struct=mock_acc_struct,
-            aux_col="Supply_Use",
+            aux_col="Supply_Use", aux_sides=AUX_SIDES,
             allow_unmatched_edges=False,
             id="test_fanin",
             **maps_fanin,
@@ -479,7 +483,7 @@ class TestStructuralValidityGuard:
         with pytest.raises(ValueError, match="(?i)structurally impossible"):
             ConcordanceTable.from_raw(
                 raw_df=_guard_raw("Mining", "Concentrate"), acc_struct=_guard_acc(),
-                aux_col="Supply_Use", allow_unmatched_edges=True,
+                aux_col="Supply_Use", aux_sides=AUX_SIDES, allow_unmatched_edges=True,
                 id="g", **_guard_maps(classify_product=True),
             )
 
@@ -488,7 +492,7 @@ class TestStructuralValidityGuard:
         with pytest.raises(ValueError, match="(?i)structurally impossible"):
             ConcordanceTable.from_raw(
                 raw_df=_guard_raw("Mining", "Concentrate"), acc_struct=_guard_acc(),
-                aux_col="Supply_Use", allow_unmatched_edges=False,
+                aux_col="Supply_Use", aux_sides=AUX_SIDES, allow_unmatched_edges=False,
                 id="g", **_guard_maps(classify_product=True),
             )
 
@@ -496,7 +500,7 @@ class TestStructuralValidityGuard:
         # MF→Concentrate is a real edge → lands uniquely, no error.
         ct = ConcordanceTable.from_raw(
             raw_df=_guard_raw("MF", "Concentrate"), acc_struct=_guard_acc(),
-            aux_col="Supply_Use", allow_unmatched_edges=True,
+            aux_col="Supply_Use", aux_sides=AUX_SIDES, allow_unmatched_edges=True,
             id="g", **_guard_maps(classify_product=True),
         )
         assert set(zip(ct.tab["root_sector_from"], ct.tab["root_sector_to"])) == {
@@ -508,7 +512,7 @@ class TestStructuralValidityGuard:
         # across Mining→Ore and Mining→WR; weights resolve the split. No raise.
         ct = ConcordanceTable.from_raw(
             raw_df=_guard_raw("Mining", "Concentrate"), acc_struct=_guard_acc(),
-            aux_col="Supply_Use", allow_unmatched_edges=True,
+            aux_col="Supply_Use", aux_sides=AUX_SIDES, allow_unmatched_edges=True,
             id="g", **_guard_maps(classify_product=False),
         )
         assert set(zip(ct.tab["root_sector_from"], ct.tab["root_sector_to"])) == {
@@ -534,7 +538,7 @@ class TestSingleEndpointUseFanOut:
     def _ct(self, raw_use_only, mock_acc_struct, maps):
         return ConcordanceTable.from_raw(
             raw_df=raw_use_only, acc_struct=mock_acc_struct,
-            aux_col="Supply_Use", id="use_fanout", **maps,
+            aux_col="Supply_Use", aux_sides=AUX_SIDES, id="use_fanout", **maps,
         )
 
     def test_single_src_edge_with_open_producer_region(self, raw_use_only, mock_acc_struct, maps):
@@ -589,7 +593,7 @@ class TestSingleEndpointUseFanOut:
         raw = pd.DataFrame({"Process": ["Refining"], "Region": ["A"], "Year": [0],
                             "Unit": ["kg"], "Supply_Use": ["Use"]})
         ct = ConcordanceTable.from_raw(
-            raw_df=raw, acc_struct=acc, aux_col="Supply_Use",
+            raw_df=raw, acc_struct=acc, aux_col="Supply_Use", aux_sides=AUX_SIDES,
             sector_map_df=sector_map, region_map_df=region_map, time_map_df=time_map,
             valuation_map_df=val_map, var_map_df=var_map, id="ent",
         )
@@ -689,7 +693,7 @@ class TestUserWeightsRegionTimeKeyed:
     def _ct(self, raw_use_only, mock_acc_struct, maps, uw):
         return ConcordanceTable.from_raw(
             raw_df=raw_use_only, acc_struct=mock_acc_struct,
-            aux_col="Supply_Use", id="use_fanout_uw",
+            aux_col="Supply_Use", aux_sides=AUX_SIDES, id="use_fanout_uw",
             user_weights_df=uw, **maps,
         )
 
@@ -767,14 +771,15 @@ class TestFanPolicy:
     def test_unweighted_fan_not_distributed(self, raw_use_only, mock_acc_struct, maps):
         ct = ConcordanceTable.from_raw(
             raw_df=raw_use_only, acc_struct=mock_acc_struct,
-            aux_col="Supply_Use", id="t", drop_unweighted_fans=True, **maps)
+            aux_col="Supply_Use", aux_sides=AUX_SIDES, id="t", drop_unweighted_fans=True,
+            **maps)
         assert len(ct.tab) == 0
         assert ct.undistributed_raw_rows == [0]
 
     def test_weighted_fan_kept_and_normalised(self, raw_use_only, mock_acc_struct, maps):
         ct = ConcordanceTable.from_raw(
             raw_df=raw_use_only, acc_struct=mock_acc_struct,
-            aux_col="Supply_Use", id="t", user_weights_df=self._uw(),
+            aux_col="Supply_Use", aux_sides=AUX_SIDES, id="t", user_weights_df=self._uw(),
             drop_unweighted_fans=True, **maps)
         w = dict(zip(ct.tab["edge_id"], ct.tab["weight_value"]))
         assert w[6] == pytest.approx(0.7) and w[7] == pytest.approx(0.3)
@@ -785,7 +790,7 @@ class TestFanPolicy:
         uw = self._uw(wa=None, wb=3.0).dropna(subset=["weight"])
         ct = ConcordanceTable.from_raw(
             raw_df=raw_use_only, acc_struct=mock_acc_struct,
-            aux_col="Supply_Use", id="t", user_weights_df=uw,
+            aux_col="Supply_Use", aux_sides=AUX_SIDES, id="t", user_weights_df=uw,
             drop_unweighted_fans=True, **maps)
         assert set(ct.tab["edge_id"]) == {7}
         assert ct.tab["weight_value"].iloc[0] == pytest.approx(1.0)
@@ -795,6 +800,7 @@ class TestFanPolicy:
         ct = ConcordanceTable.from_raw(
             raw_df=raw_use_only, acc_struct=mock_acc_struct,
             aux_col="Supply_Use", id="t", user_weights_df=self._uw(0.0, 0.0),
+            aux_sides=AUX_SIDES,
             drop_unweighted_fans=True, **maps)
         assert len(ct.tab) == 0
         assert ct.undistributed_raw_rows == [0]
@@ -804,7 +810,8 @@ class TestFanPolicy:
         # single root leg); only the N>1 heterogeneous-use fan is dropped.
         ct = ConcordanceTable.from_raw(
             raw_df=raw_df, acc_struct=mock_acc_struct,
-            aux_col="Supply_Use", id="t", drop_unweighted_fans=True, **maps)
+            aux_col="Supply_Use", aux_sides=AUX_SIDES, id="t", drop_unweighted_fans=True,
+            **maps)
         assert sorted(ct.undistributed_raw_rows) == [3]
         sizes = ct.tab.groupby(ConcordanceTable.SRC_COLS).size()
         assert (sizes == 1).all() and len(sizes) == 3
@@ -815,6 +822,7 @@ class TestFanPolicy:
         return ConcordanceTable.from_raw(
             raw_df=raw_use_only, acc_struct=mock_acc_struct,
             aux_col="Supply_Use", id="t", user_weights_df=self._uw(w_domestic, w_import),
+            aux_sides=AUX_SIDES,
             drop_unweighted_fans=True, **maps)
 
     def test_a_zero_weight_domestic_leg_is_listed_with_its_fan(
@@ -863,7 +871,7 @@ class TestFanPolicy:
             warnings.simplefilter("ignore")
             ct = ConcordanceTable.from_raw(
                 raw_df=raw_use_only, acc_struct=acc,
-                aux_col="Supply_Use", id="t",
+                aux_col="Supply_Use", aux_sides=AUX_SIDES, id="t",
                 leg_filter={"Refining": "Concentrate"}, **m)
         assert set(ct.tab["edge_id"]) == {6, 7}          # Ore leg (9) dropped
         assert set(np.round(ct.tab["weight_value"], 6)) == {0.5}
@@ -873,7 +881,7 @@ class TestFanPolicy:
         with pytest.raises(ValueError, match="structurally nonexistent"):
             ConcordanceTable.from_raw(
                 raw_df=raw_use_only, acc_struct=mock_acc_struct,
-                aux_col="Supply_Use", id="t",
+                aux_col="Supply_Use", aux_sides=AUX_SIDES, id="t",
                 leg_filter={"Refining": "Cathode"}, **m)
 
 

@@ -314,15 +314,16 @@ def check_parents(version_dir: os.PathLike, inputs: InputRegistries) -> None:
             f"the ICSG feed")
 
 
-def _conc_lookup() -> dict:
+def _conc_lookup(gross: str) -> dict:
     """``(traded sector, exporter region) -> conc nominal``; ``"*"`` is the fallback.
+    ``gross`` is the acc's gross-mass valuation label (``acc.valuations.gross``).
 
     Keyed by region rather than by sector alone so that a region-resolved family
     cannot be silently collapsed to one arbitrary row by the caller. Every row
     is region-wildcarded today, so this resolves to one value per sector.
     """
     inputs = _input_registries()
-    lookup = conc_nominal_lookup(inputs.params.resolve("conc") / "params.csv")
+    lookup = conc_nominal_lookup(inputs.params.resolve("conc") / "params.csv", gross=gross)
     return {(s, r): v for (s, r), v in lookup.items() if s in TRADED_SECTORS}
 
 
@@ -566,7 +567,7 @@ def main() -> None:
 
     acc_id = load_config().pipeline.acc_id
     acc = AccountingStructure.load(id=acc_id, storage_dir=ACC_DIR)
-    conc_lookup = _conc_lookup()
+    conc_lookup = _conc_lookup(acc.valuations.gross)
     _wild = {s_: v for (s_, r_), v in conc_lookup.items() if r_ == "*"}
     _reg = len(conc_lookup) - len(_wild)
     print(f"   conc: {_wild}" + (f"  (+{_reg} region-resolved rows)" if _reg else ""))

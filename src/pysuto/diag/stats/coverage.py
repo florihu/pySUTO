@@ -25,7 +25,8 @@ File 1 — ``coverage_supply_use_<year>.csv``
 
 File 2 — ``coverage_system_boundary_<year>.csv``
     Raw/secondary boundary-crossing coverage. Scope = edges with an ``SB``
-    endpoint whose ``entity_sub != "FD"`` (final demand lives in File 1).
+    endpoint whose boundary role is not ``final_demand`` (final demand lives in
+    File 1; roles read through ``acc.roles``, ADR 0034).
     ``input`` = ``from_entity=="SB"``; ``output`` = ``to_entity=="SB"``.
     Columns = the SB ``entity_sub`` category (``Nature`` / ``SEM``). Rows =
     ``(non-SB region, valuation, direction)``.
@@ -40,6 +41,8 @@ import os
 
 import numpy as np
 import pandas as pd
+
+from pysuto.acc import BoundaryRole, boundary_role_values
 
 
 class CoverageDiagnostic:
@@ -126,7 +129,10 @@ class CoverageDiagnostic:
         e = e[from_sb ^ to_sb].copy()                # exactly one SB endpoint
         from_sb = e["from_entity"].to_numpy() == "SB"
         e["category"] = np.where(from_sb, e["from_entity_sub"], e["to_entity_sub"])
-        e = e[e["category"] != "FD"].copy()          # FD belongs to File 1
+        sb_sector = np.where(from_sb, e["from_sector"], e["to_sector"])
+        final_demand = (boundary_role_values(self.acc.roles, sb_sector)
+                        == BoundaryRole.FINAL_DEMAND.value)
+        e = e[~final_demand].copy()                  # final demand belongs to File 1
         from_sb = e["from_entity"].to_numpy() == "SB"
         e["direction"] = np.where(from_sb, "input", "output")
         e["region"]    = np.where(from_sb, e["to_region"], e["from_region"])

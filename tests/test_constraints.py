@@ -43,7 +43,7 @@ def _make_toy_acc(with_bounds: bool = True):
 
     This avoids needing ODS files in tests.
     """
-    from pysuto.acc import AccountingStructure, EdgeBounds
+    from pysuto.acc import AccountingStructure, BoundaryRole, EdgeBounds
 
     # Build a minimal structure without calling __init__
     acc = AccountingStructure.__new__(AccountingStructure)
@@ -101,6 +101,8 @@ def _make_toy_acc(with_bounds: bool = True):
 
     # RuleSet placeholder (not needed for mask computation above)
     acc.ruleset = None
+    # the SB node's boundary role (a residual output, like copper's slag)
+    acc.roles = {"Waste": BoundaryRole.SECONDARY}
 
     # Bounds: all default except edge_id=0 has upper=100
     bounds          = EdgeBounds.__new__(EdgeBounds)

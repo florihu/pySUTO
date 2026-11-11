@@ -45,7 +45,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from pysuto.acc      import AccountingStructure, check_built_acc
+from pysuto.acc      import EDGE_UNIVERSE_KEYS, AccountingStructure, check_built_acc
 from pysuto.config   import load_config
 from pysuto.registry import DataFeedRegistry, ImputationRunRegistry, stage_lock
 from pysuto.input_registry import InputRegistries, check_feed_accs, input_pins
@@ -359,7 +359,8 @@ def _screen_outlier_trade_legs(acc, agg_result, conc_csv: str, logger,
     cov = np.asarray(agg_result.coverage, dtype=bool)
     f = np.nan_to_num(np.asarray(agg_result.f_agg, dtype=float))
 
-    conc_lookup = conc_nominal_lookup(*[c for c in (conc_csv, grade_csv) if c])
+    conc_lookup = conc_nominal_lookup(*[c for c in (conc_csv, grade_csv) if c],
+                                      gross=acc.valuations.gross)
     sectors = conc_sectors(conc_lookup)
 
     eid = ei["edge_id"].to_numpy()
@@ -509,7 +510,8 @@ def main(feed_ids: list[str], label: str, overrides: dict | None = None, *,
 
     # ── A  Load infrastructure ────────────────────────────────────────────────
     # A pinned acc version is verifiable only against a structure with a build record.
-    check_built_acc(acc_dir, acc_entry, require_record=pins is not None)
+    check_built_acc(acc_dir, acc_entry, inputs.acc, EDGE_UNIVERSE_KEYS,
+                    require_record=pins is not None)
     logger.info("A  Loading AccountingStructure '%s' from %s", acc_id, acc_dir)
     acc = AccountingStructure.load(id=acc_id, storage_dir=acc_dir)
 

@@ -444,7 +444,8 @@ extraction entering the system — crude ore, `CO`), `FD` (final demand leaving 
 final-demand categories `FU` / `MESC` / `USC`), `SEM` (secondary / residual material — `Scrap`
 recycling inputs, the `Slag` / `Tailings` / `WR` residual outputs, and `PSC`, the producer
 stock-change leg). `entity_sub` is
-meaningful only on `SB` nodes (`Flow` / `Process` nodes leave it empty). _Note:_ `FD` is
+meaningful only on `SB` nodes (`Flow` / `Process` nodes leave it empty). It is the case's
+**label**; the library reads the boundary **role** the case binds it to (see Role, ADR 0034). _Note:_ `FD` is
 structurally an SB-*output* (`entity_to == "SB"`) yet semantically belongs to the **use** side — a
 commodity consumed by final demand, with a real `Flow` commodity on its origin endpoint; only
 `Nature` and `SEM` are pure raw/secondary boundary crossings with no `Flow` endpoint.
@@ -1264,6 +1265,9 @@ role** of an `SB` node, `nature | secondary | final_demand` (the three system-bo
 above; a `secondary` node is an input when reached by a use edge and a residual output when reached
 by a supply edge), and the **valuation role**, `content | gross` (contained-metal mass vs gross
 product mass). The entity kinds `Process | Flow | SB` are reserved framework words, not roles.
+A case declares the binding in its acc spec (a `role` key on each SB sector and each valuation);
+the library reads it as `acc.roles` (SB sector → `BoundaryRole`) and `acc.valuations.content` /
+`.gross` (the bound labels), never a label ([ADR 0034](docs/adr/0034-roles-are-the-frameworks-labels-are-the-cases.md)).
 _Avoid_: reading a label (`SEM`, `CC`) as the concept — labels are the case's, roles are the
 framework's; "entity kind" for a role.
 
@@ -1285,8 +1289,8 @@ its feeds, param families, relation sources and cascade, anchor families and σ 
 generic stage drivers. The copper case is the first. _Avoid_: "model" (the QP, the PIOT),
 "study" (a REP analysis), "scenario".
 
-**Acc spec** — the declaration of one accounting structure: its sectors (each with an entity),
-regions, valuations and times, its supply and use adjacency, tradable flows and entity-pair
+**Acc spec** — the declaration of one accounting structure: its sectors (each with an entity,
+and a boundary role on an SB sector), regions, valuations (each with a valuation role) and times, its supply and use adjacency, tradable flows and entity-pair
 accounting rows, and optionally its bound and mask records. An `acc.json` and the copper case's
 four ODS/CSV files are two formats of it, each with its reader (`read_acc_spec_json`,
 `read_acc_spec_ods`; [ADR 0046](docs/adr/0046-an-accounting-structure-is-declared-by-a-spec.md)).

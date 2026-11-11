@@ -213,15 +213,6 @@ class InputRegistry:
     def latest_version(self, id: str) -> int:
         return self._require_entry(id)["versions"][-1]["version"]
 
-    def changed_files(self, id: str, version_a: int, version_b: int) -> list[str]:
-        """The load-bearing files whose recorded hashes differ between two versions
-        of ``id``, sorted. A file a version's record lacks hashes as absent (``""``),
-        as :meth:`initialize` hashes a missing optional file."""
-        self._require_entry(id)
-        a = self._require_version(id, version_a)["hashes"]
-        b = self._require_version(id, version_b)["hashes"]
-        return sorted(f for f in set(a) | set(b) if a.get(f, "") != b.get(f, ""))
-
     def pending(self) -> dict[str, int | None]:
         """Ids whose ``current/`` differs from their latest snapshot, mapped to that
         snapshot's version (``None`` if never registered). Read-only: nothing is
@@ -449,26 +440,33 @@ def input_pins(imp_sidecar: dict, acc_id: str) -> dict[str, dict[str, int]]:
 
 def check_feed_accs(feed_sidecars: dict, acc_registry: InputRegistry,
                     acc_entry: dict) -> None:
-    """Check that every feed run was built on Stage 2's acc input entry (#53).
+    """Check that every feed run was built on an acc compatible with Stage 2's acc
+    input entry (#53, #119).
 
     Parameters
     ----------
     feed_sidecars : ``{feed_run_id: sidecar}`` of the selected feed runs.
-    acc_registry : the acc registry, whose per-file hashes tell two versions apart.
+    acc_registry : the acc registry, whose ``vN/`` snapshots hold the specs compared.
     acc_entry : Stage 2's own acc input entry ``{id, version, ...}``.
 
-    A feed built on another version that differs only in :data:`ACC_MASKS` is
-    logged as a warning; identical versions pass silently.
+    A feed built on another version of the acc passes when the two versions' specs
+    agree on the keys that define the edge universe (``pysuto.acc.EDGE_UNIVERSE_KEYS``:
+    sectors, regions, valuations, times, supply, use, tradable, accounting); a
+    difference in the other keys (bounds, masks) is logged as a warning, a role-only
+    difference is not one, and the format of a version (ODS files or acc.json) does not
+    count. Identical versions pass silently.
 
     Raises
     ------
     KeyError
         A feed sidecar records no ``parents.inputs.acc``.
     ValueError
-        A feed was built on another acc id, or on a version differing in a file other
-        than :data:`ACC_MASKS`; the message names the feed run, both versions and the
-        files.
+        A feed was built on another acc id, or on a version whose spec differs in an
+        edge-universe key; the message names the feed run, both versions and the keys.
     """
+    # function-local: pysuto.acc imports this module (ACC_SPEC, ACC_ODS_FILES)
+    from pysuto.acc import EDGE_UNIVERSE_KEYS, require_compatible_acc
+
     own = (acc_entry["id"], acc_entry["version"])
     for run_id, sidecar in feed_sidecars.items():
         ref = sidecar.get("parents", {}).get("inputs", {}).get("acc")
@@ -481,15 +479,11 @@ def check_feed_accs(feed_sidecars: dict, acc_registry: InputRegistry,
         if theirs[0] != own[0]:
             raise ValueError(f"feed run {run_id} was built on acc {theirs[0]} "
                              f"v{theirs[1]}, this run uses acc {own[0]} v{own[1]}")
-        changed = acc_registry.changed_files(own[0], theirs[1], own[1])
-        structural = [f for f in changed if f != ACC_MASKS]
-        if structural:
-            raise ValueError(f"feed run {run_id} was built on acc {own[0]} v{theirs[1]}, "
-                             f"this run uses v{own[1]}; they differ in "
-                             f"{', '.join(structural)}: rebuild the feed")
-        _log.warning("feed run %s was built on acc %s v%d, this run uses v%d; they "
-                     "differ only in %s", run_id, own[0], theirs[1], own[1],
-                     ", ".join(changed))
+        require_compatible_acc(
+            acc_registry, own[0], theirs[1], own[1], EDGE_UNIVERSE_KEYS,
+            context=(f"feed run {run_id} was built on acc {own[0]} v{theirs[1]}, "
+                     f"this run uses v{own[1]}"),
+            remedy="rebuild the feed")
 
 
 # ──────────────────────────────────────────────────────────────────────

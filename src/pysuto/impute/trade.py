@@ -69,7 +69,7 @@ class TradeImputer(BaseImputer):
                 (em["from_region"].to_numpy() != em["to_region"].to_numpy())
                 & (em["from_entity"].to_numpy() == "Flow")
                 & (em["to_entity"].to_numpy() == "Process")
-                & (em["valuation"].to_numpy() == "CC"),
+                & (em["valuation"].to_numpy() == acc.valuations.content),
                 "edge_id",
             ].to_numpy()
         )

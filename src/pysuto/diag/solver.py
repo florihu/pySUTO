@@ -57,6 +57,8 @@ from typing import NamedTuple, Optional
 import numpy as np
 import pandas as pd
 
+from pysuto.acc import BoundaryRole, boundary_role_values
+
 from ._plot import _CAT8, _CAT_EXT, _INK, _STATUS, _savefig, _seq_cmap
 from .stats._core import boundary_edges, filter_regions, sector_totals
 from .stats.objective import (
@@ -77,9 +79,10 @@ _MAX_SERIES  = 8      # categorical hues per panel; the tail folds into "other"
 _TOP_KEYS    = 20     # sector keys shown in SD-R-13
 _TOP_IDS     = 25     # identities shown in SD-R-14
 _N_PROFILES  = 12     # identities profiled in SD-R-15
-# entity_sub tie-break for the SB legend order (label literals — see ADR 0034;
-# only an ordering hint, never a filter).
-_BOUNDARY_FAMILY_ORDER = {"Nature": 0, "SEM": 1, "FD": 2}
+# Boundary-role tie-break for the SB legend order (ADR 0034; only an ordering hint,
+# never a filter).
+_BOUNDARY_ROLE_ORDER = {BoundaryRole.NATURE.value: 0, BoundaryRole.SECONDARY.value: 1,
+                        BoundaryRole.FINAL_DEMAND.value: 2}
 
 
 class PlotSpec(NamedTuple):
@@ -972,9 +975,11 @@ class SolverDiag:
             if sub.empty:
                 subsets.append((dlabel, None, None))
                 continue
-            fam_of = (sub.drop_duplicates("sb_sector").set_index("sb_sector")["sb_entity_sub"]
-                         .astype(str).to_dict())
-            hint = {s: _BOUNDARY_FAMILY_ORDER.get(f, 99) for s, f in fam_of.items()}
+            # a toy run's acc cannot be loaded (acc is None): no role tie-break then
+            sb = sub["sb_sector"].drop_duplicates().astype(str).to_numpy()
+            roles = self.acc.roles if self.acc is not None else {}
+            hint = {s: _BOUNDARY_ROLE_ORDER.get(r, 99)
+                    for s, r in zip(sb, boundary_role_values(roles, sb))}
             vals_d = self._valuations(sub)
             named = self._named_groups(
                 sector_totals(sub, "sb_sector", years=self._years, valuations=vals_d), hint)

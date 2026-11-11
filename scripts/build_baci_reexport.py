@@ -129,6 +129,8 @@ HS_OF = {"Concentrate": 260300, "Matte": 740110, "Anode": 740200, "Cathode": 740
 
 # An aggregate region has no warehouse — see the module docstring.
 HUB_EXCLUDE = {"ROW"}
+# The copper acc's gross-mass valuation: the conc rows' a_valuation (#119)
+GROSS_VALUATION = "Mass"
 
 # Mirrors `collect_aggregate_impute.OUTLIER_LEG_K` (reference = production +
 # imports). Kept as its own constant: this is a Stage-1 restatement, and the
@@ -592,7 +594,7 @@ def _conc_lookup() -> dict:
     *from*, because a traded commodity's concentration belongs to its producer.
     """
     from build_trade_shares import _conc_lookup as _c
-    return _c()
+    return _c(GROSS_VALUATION)
 
 
 def _eff_nominals() -> dict:

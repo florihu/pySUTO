@@ -56,7 +56,6 @@ FAMILIES = ["mass balance", "stripping", "conc band", "eff band", "scrap-share b
 CONES = ["free", "zero", "nonneg"]                 # Clarabel's cone order
 
 _BAND_FAMILY = {"conc": "conc band", "eff": "eff band", "scrap_share": "scrap-share band"}
-_VALUATION_ORDER = ["Mass", "CC"]
 
 
 def _position(values: pd.Series, order: list) -> np.ndarray:
@@ -147,6 +146,9 @@ class ProblemStatsDiagnostic:
         self._cr  = constraint_run
         self._imp = imp_result
         self._em  = acc_struct.edge_meta.reset_index(drop=True)
+        # the region slice orders gross before content; the totals default to content
+        self._valuation_order = [acc_struct.valuations.gross, acc_struct.valuations.content]
+        self._content         = acc_struct.valuations.content
         self._prov_cache  = None
         self._edge_cache  = None
         self._row_cache   = None
@@ -251,9 +253,10 @@ class ProblemStatsDiagnostic:
     def _categories(present) -> list:
         return PROVENANCE_ORDER + sorted(set(present) - set(PROVENANCE_ORDER))
 
-    def provenance_totals(self, valuation: str = "CC") -> pd.DataFrame:
+    def provenance_totals(self, valuation: str | None = None) -> pd.DataFrame:
         """Edge count and Σ ``f_agg`` per provenance category for the year, in
-        kt of ``valuation`` (kt CC for ``"CC"``)."""
+        kt of ``valuation`` (default: the content valuation, kt CC for copper)."""
+        valuation = self._content if valuation is None else valuation
         e = self.edge_frame()
         e = e[e["valuation"] == valuation]
         g = e.groupby("provenance")["f"].agg(n_edges="size", kt="sum")
@@ -262,17 +265,20 @@ class ProblemStatsDiagnostic:
         g.index.name = "provenance"
         return g
 
-    def feed_edges_by_year(self, valuation: str = "CC") -> pd.Series:
-        """Feed-covered edges per year over the whole run (the caption's range)."""
+    def feed_edges_by_year(self, valuation: str | None = None) -> pd.Series:
+        """Feed-covered edges per year over the whole run (the caption's range);
+        ``valuation=None`` means the content valuation."""
+        valuation = self._content if valuation is None else valuation
         cov = np.asarray(self._imp.coverage, dtype=bool)
         m = cov & (self._em["valuation"].astype(str).to_numpy() == valuation)
         years = pd.Series(self._em["time"].astype(str).to_numpy()[m])
         return years.value_counts().sort_index()
 
-    def chain_profile(self, valuation: str = "CC") -> pd.DataFrame:
-        """Σ ``f_agg`` (kt of ``valuation``) per domestic sector pair in chain
-        order and per traded commodity, one column per provenance category,
-        plus ``kind``."""
+    def chain_profile(self, valuation: str | None = None) -> pd.DataFrame:
+        """Σ ``f_agg`` (kt of ``valuation``, default the content valuation) per
+        domestic sector pair in chain order and per traded commodity, one column
+        per provenance category, plus ``kind``."""
+        valuation = self._content if valuation is None else valuation
         e = self.edge_frame()
         e = e[(e["valuation"] == valuation) & ~e["signed"]].copy()
         leg = e["leg"].to_numpy()
@@ -394,7 +400,7 @@ class ProblemStatsDiagnostic:
         k["j"] = np.flatnonzero(keep.to_numpy())
         out_leg = (k["from_region"] == region).to_numpy()
         leg = k["leg"].to_numpy()
-        k["k_val"]  = _position(k["valuation"], _VALUATION_ORDER)
+        k["k_val"]  = _position(k["valuation"], self._valuation_order)
         k["k_leg"]  = leg.astype(np.int64)
         k["k_from"] = _position(k["from_sector"], CHAIN_ORDER)
         # legs: imports, then exports

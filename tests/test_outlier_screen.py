@@ -5,6 +5,8 @@ import sys
 import numpy as np
 import pandas as pd
 
+from pysuto.acc import Valuations
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 from collect_aggregate_impute import (  # noqa: E402
     OUTLIER_LEG_CV,
@@ -33,6 +35,8 @@ _EDGES = [
 class _Acc:
     def __init__(self):
         self.node_index = pd.DataFrame(_NODES, columns=["sector", "entity", "region"])
+        self.valuations = Valuations(content="CC", gross="Mass")
+        self.roles      = {}
         rows, eid = [], 0
         for f, t in _EDGES:
             for val in ("Mass", "CC"):
@@ -127,6 +131,8 @@ class _ReexpAcc(_Acc):
     def __init__(self):
         self.node_index = pd.DataFrame(
             _REEXP_NODES, columns=["sector", "entity", "region"])
+        self.valuations = Valuations(content="CC", gross="Mass")
+        self.roles      = {}
         rows, eid = [], 0
         for f, t in _REEXP_EDGES:
             for val in ("Mass", "CC"):

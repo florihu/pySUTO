@@ -40,8 +40,9 @@ import scipy.sparse as sp
 import clarabel
 
 from ._conditioning import condition_prior, condition_sigma_c
-from .acc import AccountingStructure, check_built_acc
+from .acc import EDGE_UNIVERSE_KEYS, AccountingStructure, check_built_acc
 from .constraints import ConstraintRun
+from .input_registry import InputRegistry
 from .registry import ConstraintRunRegistry, OptimRunRegistry
 from .logging import get_logger
 
@@ -171,6 +172,7 @@ class ClarabelSolver:
         const_dir: str = "data/proc/const",
         opt_dir:   str = "data/proc/opt",
         acc_dir:   str = "data/proc/acc",
+        input_dir: str = "data/input",
         sigma_a_floor_abs:      float = 1e-8,
         sigma_a_floor_rel:      float = 1e-5,
         sigma_a_ceiling_factor: float = 1e5,
@@ -207,6 +209,7 @@ class ClarabelSolver:
         self.const_dir              = const_dir
         self.opt_dir                = opt_dir
         self.acc_dir                = acc_dir
+        self.input_dir              = input_dir
         self.prior_mode             = prior_mode
         self.n_workers              = n_workers
         self.direct_solve_method    = direct_solve_method
@@ -834,18 +837,20 @@ class ClarabelSolver:
 
     def _warm_prior_acc(self, run: ConstraintRun):
         """The built AccountingStructure a warm run aligns each year's prior by
-        (#53): its build record checked against the const run's acc ref, then loaded
-        from ``acc_dir``.
+        (#53): its build record checked against the const run's acc ref (the two acc
+        input versions' edge universes, read from ``input_dir``), then loaded from
+        ``acc_dir``.
 
         Raises
         ------
         ValueError
             The const run names no acc id and version, or the structure was built from
-            another acc input version.
+            an acc input version with another edge universe.
         RuntimeError
             The structure cannot be loaded from ``acc_dir``.
         """
-        check_built_acc(self.acc_dir, run.acc_ref)
+        check_built_acc(self.acc_dir, run.acc_ref,
+                        InputRegistry("acc", root=self.input_dir), EDGE_UNIVERSE_KEYS)
         try:
             return AccountingStructure.load(run.acc_id, storage_dir=self.acc_dir)
         except (AssertionError, OSError) as exc:

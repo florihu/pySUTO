@@ -2,6 +2,7 @@
 import numpy as np
 import pandas as pd
 
+from pysuto.acc import Valuations
 from pysuto.flow_node_balance import contradicted_flow_nodes, flow_node_balance
 
 # nodes: (sector, entity, region) — one smelter + matte flow + refinery per region
@@ -16,6 +17,7 @@ for r in _REGIONS:
 class _Acc:
     def __init__(self):
         self.node_index = pd.DataFrame(_NODES, columns=["sector", "entity", "region"])
+        self.valuations = Valuations(content="CC", gross="Mass")
         rows, eid = [], 0
         for f, t in _EDGES:
             for val in ("Mass", "CC"):

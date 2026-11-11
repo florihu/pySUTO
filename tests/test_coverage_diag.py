@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from pysuto.acc import BoundaryRole
 from pysuto.agg import AggregationResult
 from pysuto.diag import CoverageDiagnostic
 from pysuto.impute import ImputationLog
@@ -54,6 +55,8 @@ class CovAcc:
             },
             index=[0, 1, 2, 3, 4, 5, 6],
         )
+        self.roles = {"FU": BoundaryRole.FINAL_DEMAND, "CO": BoundaryRole.NATURE,
+                      "Scrap": BoundaryRole.SECONDARY, "Slag": BoundaryRole.SECONDARY}
         self.edge_index = pd.DataFrame(
             {
                 "edge_id":   [0, 1, 2, 3, 4, 5, 6, 7, 8],

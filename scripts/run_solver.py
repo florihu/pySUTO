@@ -116,7 +116,8 @@ KNOBS = (
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from pysuto.acc     import AccountingStructure, check_built_acc
+from pysuto.acc     import EDGE_UNIVERSE_KEYS, AccountingStructure, check_built_acc
+from pysuto.input_registry import InputRegistry
 from pysuto.solver  import ClarabelSolver
 from pysuto.diag    import SolverDiag
 from pysuto.logging import get_logger, add_run_handler
@@ -133,7 +134,8 @@ def main(const_run_id: str, label: str = "", prior_mode: str = "warm",
 
     ``data_dir`` holds ``proc/``; the constraint run is read from ``const_dir``
     (default ``<data_dir>/proc/const``), the run written to ``<data_dir>/proc/opt``
-    and the accounting structure read from ``<data_dir>/proc/acc``.
+    and the accounting structure read from ``<data_dir>/proc/acc`` (checked against the
+    acc input registry under ``<data_dir>/input``).
     """
     os.makedirs("logs", exist_ok=True)
     add_run_handler(
@@ -142,6 +144,7 @@ def main(const_run_id: str, label: str = "", prior_mode: str = "warm",
     proc    = os.path.join(data_dir, "proc")
     opt_dir = os.path.join(proc, "opt")
     acc_dir = os.path.join(proc, "acc")
+    input_dir = os.path.join(data_dir, "input")
     if const_dir is None:
         const_dir = os.path.join(proc, "const")
 
@@ -149,10 +152,12 @@ def main(const_run_id: str, label: str = "", prior_mode: str = "warm",
     # The diagnostics below load the built acc: check its build record against the
     # const run's acc ref before the solve, so a refused run persists nothing (#53).
     const_parents = ConstraintRunRegistry(const_dir).load_sidecar(const_run_id)["parents"]
-    check_built_acc(acc_dir, const_parents["inputs"].get("acc", {}))
+    check_built_acc(acc_dir, const_parents["inputs"].get("acc", {}),
+                    InputRegistry("acc", root=input_dir), EDGE_UNIVERSE_KEYS)
     _log.info("Loading ClarabelSolver (const_dir=%s)", const_dir)
     # Termination tolerances: see the USER CONFIGURATION block (Round W.1).
     solver = ClarabelSolver(const_dir=const_dir, opt_dir=opt_dir, acc_dir=acc_dir,
+                            input_dir=input_dir,
                             tol_feas=TOL_FEAS,
                             tol_gap_rel=TOL_GAP_REL, tol_gap_abs=TOL_GAP_ABS,
                             reduced_tol_feas=REDUCED_TOL_FEAS,

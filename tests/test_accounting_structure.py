@@ -4,7 +4,7 @@ import pandas as pd
 import sparse
 import os
 
-from pysuto.acc import AccountingStructure, EdgeBounds
+from pysuto.acc import EDGE_UNIVERSE_KEYS, AccountingStructure, EdgeBounds
 
 
 # =============================================================================
@@ -1491,6 +1491,16 @@ class TestBuildRecord:
         AccountingStructure(id="t", root=root_simple, storage_dir=store).save()
         return store
 
+    @staticmethod
+    def _inputs(tmp_path, specs=None):
+        """The acc input registry the record's versions are read from: t v1 … v4, each
+        with its own regions (another edge universe) unless *specs* says otherwise."""
+        from test_acc_roles import COPPER_LABELS, acc_input_versions
+        if specs is None:
+            specs = [dict(COPPER_LABELS, regions=[f"R{i}" for i in range(n)])
+                     for n in (1, 2, 3, 4)]
+        return acc_input_versions(tmp_path / "input", "t", specs)
+
     def test_the_record_holds_the_entrys_id_version_and_code(self, root_simple, tmp_path):
         import json
         from pysuto.acc import BUILD_RECORD, write_build_record
@@ -1506,17 +1516,41 @@ class TestBuildRecord:
         from pysuto.acc import check_built_acc, write_build_record
         store = self._built(root_simple, tmp_path)
         write_build_record(store, self.ENTRY)
+        reg = self._inputs(tmp_path)
         with caplog.at_level(logging.WARNING):
-            check_built_acc(store, {"id": "t", "version": 4})
-            check_built_acc(store, {"id": "t", "version": 4}, require_record=True)
+            check_built_acc(store, {"id": "t", "version": 4}, reg, EDGE_UNIVERSE_KEYS)
+            check_built_acc(store, {"id": "t", "version": 4}, reg, EDGE_UNIVERSE_KEYS,
+                            require_record=True)
         assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
-    def test_another_version_raises_naming_both(self, root_simple, tmp_path):
+    def test_another_edge_universe_raises_naming_both_versions_and_the_key(
+            self, root_simple, tmp_path):
         from pysuto.acc import check_built_acc, write_build_record
         store = self._built(root_simple, tmp_path)
         write_build_record(store, self.ENTRY)
-        with pytest.raises(ValueError, match=r"t v4.*t v3"):
-            check_built_acc(store, {"id": "t", "version": 3, "code": "0342a990"})
+        with pytest.raises(ValueError, match=r"t v4.*t v3; they differ in \['regions'\]"):
+            check_built_acc(store, {"id": "t", "version": 3, "code": "0342a990"},
+                            self._inputs(tmp_path), EDGE_UNIVERSE_KEYS)
+
+    def test_another_version_with_the_same_edge_universe_passes(self, root_simple,
+                                                                tmp_path, caplog):
+        """#119: the final chain's const run (acc v4) stays valid against a structure
+        rebuilt from v5, which adds only the role column; a bounds or masks change passes
+        Stages 2, 4 and 6 with a warning, and Stage 3, whose G holds them, refuses it."""
+        import logging
+        from pysuto.acc import ALL_SPEC_KEYS, check_built_acc, write_build_record
+        from test_acc_roles import BOUNDS_ONLY, COPPER_LABELS, MASKS_ONLY, ROLE_ONLY
+        store = self._built(root_simple, tmp_path)
+        write_build_record(store, self.ENTRY)
+        reg = self._inputs(tmp_path, [MASKS_ONLY, BOUNDS_ONLY, ROLE_ONLY, COPPER_LABELS])
+        with caplog.at_level(logging.WARNING):
+            check_built_acc(store, {"id": "t", "version": 3}, reg, ALL_SPEC_KEYS)
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+        for v in (1, 2):
+            check_built_acc(store, {"id": "t", "version": v}, reg, EDGE_UNIVERSE_KEYS)
+        assert "only in ['masks']" in caplog.text and "only in ['bounds']" in caplog.text
+        with pytest.raises(ValueError, match=r"they differ in \['bounds'\]"):
+            check_built_acc(store, {"id": "t", "version": 2}, reg, ALL_SPEC_KEYS)
 
     def test_a_structure_without_the_record_warns_and_continues(self, root_simple,
                                                                 tmp_path, caplog):
@@ -1526,7 +1560,8 @@ class TestBuildRecord:
         from pysuto.acc import check_built_acc
         store = self._built(root_simple, tmp_path)
         with caplog.at_level(logging.WARNING):
-            check_built_acc(store, {"id": "t", "version": 4})
+            check_built_acc(store, {"id": "t", "version": 4}, self._inputs(tmp_path),
+                            EDGE_UNIVERSE_KEYS)
         assert "no build record" in caplog.text and "t v4" in caplog.text
 
     def test_a_structure_without_the_record_raises_when_one_is_required(self, root_simple,
@@ -1535,7 +1570,8 @@ class TestBuildRecord:
         from pysuto.acc import check_built_acc
         store = self._built(root_simple, tmp_path)
         with pytest.raises(ValueError, match="no build record"):
-            check_built_acc(store, {"id": "t", "version": 4}, require_record=True)
+            check_built_acc(store, {"id": "t", "version": 4}, self._inputs(tmp_path),
+                            EDGE_UNIVERSE_KEYS, require_record=True)
 
     @pytest.mark.parametrize("ref", [{}, {"id": "t"}, {"version": 4},
                                      {"id": "", "version": 4}, {"id": "t", "version": None}])
@@ -1545,7 +1581,7 @@ class TestBuildRecord:
         store = self._built(root_simple, tmp_path)
         write_build_record(store, self.ENTRY)
         with pytest.raises(ValueError, match="acc ref"):
-            check_built_acc(store, ref)
+            check_built_acc(store, ref, self._inputs(tmp_path), EDGE_UNIVERSE_KEYS)
 
 
 if __name__ == "__main__":

@@ -11,24 +11,24 @@ pivot *views* of that table, reindexed onto the node universe so their labels
 are identical across periods (issues #18/#19, ADR 0037).
 
 Blocks (PIOLab / ADR 0007), read off the endpoint entity kinds and, for the
-boundary blocks, the ``SB`` node's ``entity_sub``::
+boundary blocks, the ``SB`` node's boundary role (``acc.roles``, ADR 0034)::
 
-    S  Process   → Flow         supply (useful output)
-    U  Flow      → Process      use
-    Y  Flow      → SB·FD        final use
-    E  SB·Nature → Process      nature input
-    O  SB·SEM    → Process      secondary input
-    P  Process   → SB·SEM       residual output
-    W  Process   → SB·Nature    discard to nature (empty in copper)
+    S  Process         → Flow                 supply (useful output)
+    U  Flow            → Process              use
+    Y  Flow            → SB·final_demand      final use
+    E  SB·nature       → Process              nature input
+    O  SB·secondary    → Process              secondary input
+    P  Process         → SB·secondary         residual output
+    W  Process         → SB·nature            discard to nature (empty in copper)
 
 Every admissible edge lands in exactly one block; an edge outside this table
-is an error, never a silent omission. The boundary labels ``Nature`` / ``SEM``
-/ ``FD`` are read in one place, :func:`classify_blocks` — the site to switch
-to ``acc.roles`` when issue #26 §1 (ADR 0034) lands.
+is an error, never a silent omission. The node universe carries each SB node's
+role in a ``role`` column, so a persisted PSUT labels its boundary views without
+the accounting structure.
 
-The table carries **every** valuation of the structure; ``primary`` (copper:
-``CC``) is the valuation the views default to, and :meth:`PSUT.realized_conc`
-is the ratio of two valuations from the same table.
+The table carries **every** valuation of the structure; ``primary`` (default:
+the content valuation, copper ``CC``) is the valuation the views default to, and
+:meth:`PSUT.realized_conc` is the ratio of two valuations from the same table.
 
 Construction contract
 ---------------------
@@ -57,7 +57,9 @@ from typing import Mapping, Optional, Protocol, Sequence
 import numpy as np
 import pandas as pd
 
-from .acc import AccountingStructure, check_built_acc
+from .acc import (EDGE_UNIVERSE_KEYS, AccountingStructure, BoundaryRole,
+                  boundary_role_values, check_built_acc)
+from .input_registry import InputRegistry
 from .logging import get_logger
 from .registry import ConstraintRunRegistry, OptimRunRegistry
 
@@ -78,30 +80,34 @@ class OptimResultsLike(Protocol):
     cols_t:   Optional[np.ndarray]
 
 
-# block ← (from_entity, from_entity_sub, to_entity, to_entity_sub); None = any.
-# The boundary labels are the copper case's entity_sub values (ADR 0037 §2).
+_NATURE       = BoundaryRole.NATURE.value
+_SECONDARY    = BoundaryRole.SECONDARY.value
+_FINAL_DEMAND = BoundaryRole.FINAL_DEMAND.value
+
+# block ← (from_entity, from_role, to_entity, to_role); None = any. The roles are
+# the framework's boundary roles (ADR 0034); the labels bound to them are the case's.
 _BLOCK_RULES = (
-    ("S", "Process", None,     "Flow",    None),
-    ("U", "Flow",    None,     "Process", None),
-    ("Y", "Flow",    None,     "SB",      "FD"),
-    ("E", "SB",      "Nature", "Process", None),
-    ("O", "SB",      "SEM",    "Process", None),
-    ("P", "Process", None,     "SB",      "SEM"),
-    ("W", "Process", None,     "SB",      "Nature"),
+    ("S", "Process", None,       "Flow",    None),
+    ("U", "Flow",    None,       "Process", None),
+    ("Y", "Flow",    None,       "SB",      _FINAL_DEMAND),
+    ("E", "SB",      _NATURE,    "Process", None),
+    ("O", "SB",      _SECONDARY, "Process", None),
+    ("P", "Process", None,       "SB",      _SECONDARY),
+    ("W", "Process", None,       "SB",      _NATURE),
 )
 BLOCKS = tuple(rule[0] for rule in _BLOCK_RULES)
 
-# (entity, entity_sub, level name) of each block's row and column labels. The
-# level names are the framework's role words (GLOSSARY "Role"); the labels are
-# the case's sectors.
+# (entity, role, level name) of each block's row and column labels. The level
+# names are the framework's role words (GLOSSARY "Role"); the labels are the
+# case's sectors.
 _ROW_COL = {
-    "S": (("Process", None, "process"),   ("Flow", None, "flow")),
-    "U": (("Flow", None, "flow"),         ("Process", None, "process")),
-    "Y": (("Flow", None, "flow"),         ("SB", "FD", "final_demand")),
-    "E": (("SB", "Nature", "nature"),     ("Process", None, "process")),
-    "O": (("SB", "SEM", "secondary"),     ("Process", None, "process")),
-    "P": (("Process", None, "process"),   ("SB", "SEM", "secondary")),
-    "W": (("Process", None, "process"),   ("SB", "Nature", "nature")),
+    "S": (("Process", None, "process"),       ("Flow", None, "flow")),
+    "U": (("Flow", None, "flow"),             ("Process", None, "process")),
+    "Y": (("Flow", None, "flow"),             ("SB", _FINAL_DEMAND, "final_demand")),
+    "E": (("SB", _NATURE, "nature"),          ("Process", None, "process")),
+    "O": (("SB", _SECONDARY, "secondary"),    ("Process", None, "process")),
+    "P": (("Process", None, "process"),       ("SB", _SECONDARY, "secondary")),
+    "W": (("Process", None, "process"),       ("SB", _NATURE, "nature")),
 }
 
 _TABLE_COLUMNS = [
@@ -111,7 +117,8 @@ _TABLE_COLUMNS = [
     "val",
 ]
 
-_NODE_COLUMNS = ["sector", "entity", "region", "entity_sub"]
+# ``role``: an SB node's boundary role value; None on a Process or Flow node.
+_NODE_COLUMNS = ["sector", "entity", "region", "entity_sub", "role"]
 
 
 def boundary_labels(nodes: pd.DataFrame, block: str) -> pd.MultiIndex:
@@ -119,40 +126,37 @@ def boundary_labels(nodes: pd.DataFrame, block: str) -> pd.MultiIndex:
     touches — ``Y`` → final demand, ``E``/``W`` → nature, ``O``/``P`` →
     secondary — read from the same rules as :func:`classify_blocks`."""
     side = 1 if block in ("Y", "P", "W") else 0
-    ent, sub, name = _ROW_COL[block][side]
-    n = nodes[(nodes["entity"] == ent) & (nodes["entity_sub"] == sub)].sort_values(["region", "sector"])
+    ent, role, name = _ROW_COL[block][side]
+    n = (nodes[(nodes["entity"] == ent) & (nodes["role"] == role)]
+         .sort_values(["region", "sector"]))
     return pd.MultiIndex.from_arrays(
         [n["region"].to_numpy(), n["sector"].to_numpy()], names=["region", name]
     )
 
 
-def _entity_sub(edge_meta: pd.DataFrame, col: str) -> np.ndarray:
-    if col in edge_meta.columns:
-        return edge_meta[col].to_numpy(dtype=object)
-    return np.full(len(edge_meta), None, dtype=object)
-
-
-def classify_blocks(edge_meta: pd.DataFrame) -> pd.Series:
-    """Block label per row of ``edge_meta``; ``None`` for an edge no rule matches."""
+def classify_blocks(edge_meta: pd.DataFrame, roles: dict) -> pd.Series:
+    """Block label per row of ``edge_meta``; ``None`` for an edge no rule matches.
+    ``roles`` maps an SB sector label to its boundary role (``acc.roles``)."""
     fe = edge_meta["from_entity"].to_numpy()
     te = edge_meta["to_entity"].to_numpy()
-    fs = _entity_sub(edge_meta, "from_entity_sub")
-    ts = _entity_sub(edge_meta, "to_entity_sub")
+    fr = boundary_role_values(roles, edge_meta["from_sector"])
+    tr = boundary_role_values(roles, edge_meta["to_sector"])
     block = pd.Series([None] * len(edge_meta), index=edge_meta.index, dtype=object)
-    for label, f_ent, f_sub, t_ent, t_sub in _BLOCK_RULES:
+    for label, f_ent, f_role, t_ent, t_role in _BLOCK_RULES:
         m = (fe == f_ent) & (te == t_ent)
-        if f_sub is not None:
-            m &= (fs == f_sub)
-        if t_sub is not None:
-            m &= (ts == t_sub)
+        if f_role is not None:
+            m &= (fr == f_role)
+        if t_role is not None:
+            m &= (tr == t_role)
         block[m] = label
     return block
 
 
-def _unclassified_report(edge_meta: pd.DataFrame, block: pd.Series) -> str:
-    bad  = edge_meta[block.isna().to_numpy()]
-    cols = [c for c in ("from_entity", "from_entity_sub", "to_entity", "to_entity_sub")
-            if c in bad.columns]
+def _unclassified_report(edge_meta: pd.DataFrame, block: pd.Series, roles: dict) -> str:
+    bad  = edge_meta[block.isna().to_numpy()].copy()
+    bad["from_role"] = boundary_role_values(roles, bad["from_sector"])
+    bad["to_role"]   = boundary_role_values(roles, bad["to_sector"])
+    cols = ["from_entity", "from_role", "to_entity", "to_role"]
     counts = bad.groupby(cols, dropna=False).size()
     return "; ".join(f"{tuple(k) if isinstance(k, tuple) else (k,)}: {n} edge(s)"
                      for k, n in counts.items())
@@ -287,7 +291,7 @@ class PSUT(_TidyView):
         results: Mapping[str, OptimResultsLike],
         acc: AccountingStructure,
         *,
-        primary: str = "CC",
+        primary: Optional[str] = None,
     ) -> "PSUT":
         """Build from ``{timestep: result}`` (the solver's output shape).
 
@@ -295,7 +299,10 @@ class PSUT(_TidyView):
         ``cols_t`` on the block path, positionally on the legacy path — and
         every edge of that timestep, in every valuation, becomes one row
         carrying its block. An edge no block rule matches raises.
+        ``primary=None`` means the content valuation (``acc.valuations.content``).
         """
+        if primary is None:
+            primary = acc.valuations.content
         if primary not in acc.valuation:
             raise ValueError(
                 f"primary {primary!r} is not one of {acc.valuation} "
@@ -305,11 +312,11 @@ class PSUT(_TidyView):
             raise ValueError("results is empty — nothing to materialise")
 
         meta  = acc.edge_meta
-        block = classify_blocks(meta)
+        block = classify_blocks(meta, acc.roles)
         if block.isna().any():
             raise ValueError(
-                "edges outside the PSUT block taxonomy — (from_entity, from_entity_sub, "
-                f"to_entity, to_entity_sub): {_unclassified_report(meta, block)}"
+                "edges outside the PSUT block taxonomy — (from_entity, from_role, "
+                f"to_entity, to_role): {_unclassified_report(meta, block, acc.roles)}"
             )
         time = meta["time"].to_numpy()
         keep = ["edge_id", "valuation",
@@ -336,6 +343,8 @@ class PSUT(_TidyView):
         nodes = acc.node_index.copy()
         if "entity_sub" not in nodes.columns:
             nodes["entity_sub"] = None
+        role  = boundary_role_values(acc.roles, nodes["sector"])
+        nodes["role"] = np.where(role == "", None, role)
         nodes = nodes[_NODE_COLUMNS]
 
         counts = (table[table["valuation"] == primary]["block"]
@@ -354,17 +363,20 @@ class PSUT(_TidyView):
         opt_run_id: str,
         timesteps: Optional[Sequence] = None,
         *,
-        primary:   str = "CC",
+        primary:   Optional[str] = None,
         opt_dir:   str = "data/proc/opt",
         const_dir: str = "data/proc/const",
         acc_dir:   str = "data/proc/acc",
+        input_dir: str = "data/input",
     ) -> "PSUT":
         """Build from a persisted optimiser run.
 
         The accounting structure is found through provenance: the opt sidecar
         names its ``const_run_id``, whose sidecar names the ``acc`` id and version;
-        the structure under ``acc_dir`` is checked against that version (#53). All
-        timesteps of the run are loaded unless ``timesteps`` lists a subset.
+        the structure under ``acc_dir`` is checked against that version (#53), the two
+        versions' edge universes read from the acc registry under ``input_dir``. All
+        timesteps of the run are loaded unless ``timesteps`` lists a subset;
+        ``primary=None`` means the content valuation.
         """
         opt_reg = OptimRunRegistry(opt_dir)
         sidecar = opt_reg.load_sidecar(opt_run_id)
@@ -386,7 +398,8 @@ class PSUT(_TidyView):
             )
         logger.info("Loading OptimRun %r → ConstraintRun %r → acc %r",
                     opt_run_id, const_run_id, acc_id)
-        check_built_acc(acc_dir, acc_ref)
+        check_built_acc(acc_dir, acc_ref, InputRegistry("acc", root=input_dir),
+                        EDGE_UNIVERSE_KEYS)
         acc     = AccountingStructure.load(acc_id, storage_dir=acc_dir)
         results = opt_reg.load(opt_run_id)
         if timesteps is not None:
@@ -478,12 +491,13 @@ class PSUT(_TidyView):
         nodes["sector"] = nodes["sector"].map(lambda x: sector_map.get(x, x))
         nodes = nodes.drop_duplicates(ignore_index=True)
 
-        kinds = nodes[["sector", "entity", "entity_sub"]].drop_duplicates()
+        kinds = nodes[["sector", "entity", "entity_sub", "role"]].drop_duplicates()
         clash = kinds[kinds.duplicated("sector", keep=False)].sort_values("sector")
         if not clash.empty:
             raise ValueError(
                 "sector map merges different entity kinds — a sector must name one kind: "
-                + "; ".join(f"{r.sector}: {r.entity}/{r.entity_sub}" for r in clash.itertuples())
+                + "; ".join(f"{r.sector}: {r.entity}/{r.entity_sub}/{r.role}"
+                            for r in clash.itertuples())
             )
 
         key = [c for c in tbl.columns if c not in ("edge_id", "val")]
@@ -535,9 +549,9 @@ class PSUT(_TidyView):
         if name not in _ROW_COL:
             raise KeyError(f"unknown block {name!r}; blocks are {BLOCKS}")
         period, valuation = self.resolve(period, valuation)
-        (r_ent, r_sub, r_name), (c_ent, c_sub, c_name) = _ROW_COL[name]
-        row_idx = self._labels(r_ent, r_sub, r_name)
-        col_idx = self._labels(c_ent, c_sub, c_name)
+        (r_ent, r_role, r_name), (c_ent, c_role, c_name) = _ROW_COL[name]
+        row_idx = self._labels(r_ent, r_role, r_name)
+        col_idx = self._labels(c_ent, c_role, c_name)
         tbl = self.table
         sub = tbl[(tbl["block"] == name) & (tbl["period"] == period)
                   & (tbl["valuation"] == valuation)]
@@ -580,10 +594,10 @@ class PSUT(_TidyView):
         """Discard to nature: rows ``(region, process)``, columns ``(region, nature)``."""
         return self.block("W", period, valuation)
 
-    def _labels(self, entity: str, sub: Optional[str], name: str) -> pd.MultiIndex:
+    def _labels(self, entity: str, role: Optional[str], name: str) -> pd.MultiIndex:
         n = self.nodes[self.nodes["entity"] == entity]
-        if sub is not None:
-            n = n[n["entity_sub"] == sub]
+        if role is not None:
+            n = n[n["role"] == role]
         n = n.sort_values(["region", "sector"])
         return pd.MultiIndex.from_arrays(
             [n["region"].to_numpy(), n["sector"].to_numpy()], names=["region", name]
