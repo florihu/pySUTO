@@ -1281,7 +1281,8 @@ generic stage drivers. The copper case is the first. _Avoid_: "model" (the QP, t
 **Acc spec** — the declaration of one accounting structure: its sectors (each with an entity),
 regions, valuations and times, its supply and use adjacency, tradable flows and entity-pair
 accounting rows, and optionally its bound and mask records. An `acc.json` and the copper case's
-four ODS/CSV files are two readers of it ([ADR 0046](docs/adr/0046-an-accounting-structure-is-declared-by-a-spec.md)).
+four ODS/CSV files are two formats of it, each with its reader (`read_acc_spec_json`,
+`read_acc_spec_ods`; [ADR 0046](docs/adr/0046-an-accounting-structure-is-declared-by-a-spec.md)).
 _Avoid_: "case spec" (#26's typed `CaseSpec`, which references an acc by registry id), "root
 file" (one of the files a reader reads).
 

@@ -897,7 +897,7 @@ world.to_piot().sankey("2020").write_html("copper_process_network_2020.html")
 
 | File | Public API | Responsibility |
 |---|---|---|
-| [acc.py](src/pysuto/acc.py) | `AccountingStructure`, `RuleSet`, `read_acc_spec_ods`, `read_acc_spec_json` | Built from an acc spec (`AccountingStructure.from_spec`; ODS files and `acc.json` are its two readers). Root node/edge index, supply–use topology, structural edge masks (`supply_edge_mask`, `use_edge_mask`, `sb_edge_mask`, `tradable_edge_mask`), per-edge bounds. |
+| [acc.py](src/pysuto/acc.py) | `AccountingStructure`, `RuleSet`, `read_acc_spec_ods`, `read_acc_spec_json` | Built from an acc spec (`AccountingStructure.from_spec`); the ODS/CSV files and `acc.json` are its two formats, read by `read_acc_spec_ods` / `read_acc_spec_json`. Root node/edge index, supply–use topology, structural edge masks (`supply_edge_mask`, `use_edge_mask`, `sb_edge_mask`, `tradable_edge_mask`), per-edge bounds. |
 | [conc.py](src/pysuto/conc.py) | `ConcordanceTable`, `WeightMatrix` | src→root edge mapping; sparse CSR `W`. |
 | [feed.py](src/pysuto/feed.py) | `DataFeed` (ABC) | Owns `weight_matrix`, pedigree, `F_src`, persistence. |
 | [feedpipe.py](src/pysuto/feedpipe.py) | `run_feed_pipeline`, `step_A_read_metadata`/`_B_build_concordance`/`_C_build_weight_matrix`/`_D_apply_and_propagate`, `register_feed` | Stage 1 orchestration. |

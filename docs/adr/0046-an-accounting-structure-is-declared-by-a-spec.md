@@ -1,4 +1,4 @@
-# An accounting structure is declared by a spec; ODS and JSON are two readers of it
+# An accounting structure is declared by a spec; ODS and JSON are two formats of it, each with a reader
 
 **Status:** proposed (2026-11-11; #57, groundwork for #26 §1). The copper account built from the
 files of `acc/copper` v4 by the code before (`afef59c`) and after the change (`feat/acc-spec`)
@@ -15,12 +15,16 @@ spreadsheet. We decide that a structure is declared by one in-memory **acc spec*
 tables: sectors with their entity and optional sub, regions, valuations, times, supply and use
 adjacency lists, tradable flows, entity-pair accounting rows, and optional bound and mask
 records. `AccountingStructure.from_spec` is its one constructor. The four files and a single
-`acc.json` are two readers that produce the dict, and `AccountingStructure(root_file_path=…,
+`acc.json` are two formats of the spec, each with its reader (`read_acc_spec_ods`,
+`read_acc_spec_json`) that produces the dict, and `AccountingStructure(root_file_path=…,
 rules_file_path=…)` reads the files into a spec and builds through `from_spec`. A version
 holding `acc.json` beside any of the four files is refused, not resolved by precedence. The
-input registry hashes `acc.json` where present, as it does `parents.json` (#53), so the ids
-without one keep their hashes and are not re-versioned. When #26 §1 lands, its `role` is one
-more key on the `sectors` and `valuations` entries.
+spec is validated, never coerced: a missing or unknown key at the top level or in a `sectors`
+or `accounting` entry, a non-string label, a non-bool `same_region`, and a rule naming an
+undeclared sector or entity all raise. The input registry hashes `acc.json` where present, as
+it does `parents.json` (#53). Hashes are compared as whole dicts, so an `"acc.json": ""` key
+on the ids without one would re-version every one of them. When #26 §1 lands, its `role` is
+one more key on the `sectors` and `valuations` entries.
 
 ## Considered options
 

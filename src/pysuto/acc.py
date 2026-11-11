@@ -9,8 +9,8 @@ Acc spec
 --------
 An accounting structure is declared by one dict, the **acc spec** (ADR 0046)::
 
-    {"sectors":    [{"name": "Mining", "entity": "Process"},
-                    {"name": "Scrap",  "entity": "SB", "sub": "SEM"}, ...],  # sub optional
+    {"sectors":    [{"name": "Mining", "entity": "Process"},        # "sub" optional
+                    {"name": "Scrap",  "entity": "SB", "sub": "SEM"}, ...],
      "regions":    ["Chile", ...],                  # nodes = sectors × regions
      "valuations": ["Mass", "CC"],
      "times":      ["1995", ...],                   # every label a str
@@ -124,6 +124,8 @@ except ImportError:
     def get_logger(name):
         return logging.getLogger(name)
 
+from pysuto.masks import read_masks_csv
+
 
 # =============================================================================
 # Zero-dependency ODS reader  (stdlib only: zipfile + xml.etree)
@@ -207,7 +209,7 @@ def _ods_sheet_names(path: str) -> list:
 
 
 def _read_bounds_file(path: str) -> list:
-    """Read a bounds spreadsheet from an ODS or XLSX file as records (one dict per rule)."""
+    """Read a bounds spreadsheet (ODS or XLSX) as records, one dict per rule."""
     ext = os.path.splitext(path)[1].lower()
     if ext in ('.xlsx', '.xls'):
         xl = pd.ExcelFile(path)
@@ -225,19 +227,25 @@ def _read_bounds_file(path: str) -> list:
 
 _INF = np.inf
 DEFAULT_UPPER_BOUND: float = 1e9   # practical large value (not +inf) as default upper
+DEFAULT_STORAGE_DIR: str   = r"data/proc/acc"
 
 
 # =============================================================================
-# Acc spec  — the one declaration; ODS and JSON are two readers of it (ADR 0046)
+# Acc spec  — one declaration; ODS/CSV and JSON are its two formats (ADR 0046)
 # =============================================================================
 
 _SPEC_REQUIRED: tuple = ("sectors", "regions", "valuations", "times",
                          "supply", "use", "tradable", "accounting")
 _SPEC_OPTIONAL: tuple = ("bounds", "masks")
 
+# The keys of one entry (#119 adds "role" to the sectors entries).
+_SECTOR_KEYS:     tuple = ("name", "entity", "sub")
+_SECTOR_OPTIONAL: tuple = ("sub",)
+_ACCOUNTING_KEYS: tuple = ("from", "to", "same_region")
+
 
 def _read_root_ods(path: str) -> dict:
-    """The root ODS file as the spec's ``sectors``, ``regions``, ``valuations``, ``times``.
+    """The root ODS file as the spec's sectors, regions, valuations and times.
 
     Sheets: Sector_Entity (Sector_name, Entity_name, optional Entity_name_1 → ``sub``),
     Region (Region_name), Valuation (Valuation_name), Time (Time_name).
@@ -266,7 +274,7 @@ def _read_root_ods(path: str) -> dict:
 
 
 def _read_matrix(path: str, sheet: str) -> dict:
-    """A 0/1 rules sheet as adjacency lists: row sector → the column sectors marked "1"."""
+    """A 0/1 rules sheet as adjacency lists: row sector → column sectors marked "1"."""
     df = _read_ods(path, sheet)
     row_col = df.columns[0]              # first column = from-sector
     adjacency: dict = {}
@@ -279,7 +287,7 @@ def _read_matrix(path: str, sheet: str) -> dict:
 
 
 def _read_rules_ods(path: str) -> dict:
-    """The rules ODS file as the spec's ``supply``, ``use``, ``tradable``, ``accounting``.
+    """The rules ODS file as the spec's supply, use, tradable and accounting entries.
 
     Sheets: Supply and Use (0/1 matrices, first column = from-sector), Trade (Flow,
     Traded), Accounting (Entity_from, Entity_to, Same_reg).
@@ -287,17 +295,20 @@ def _read_rules_ods(path: str) -> dict:
     if not os.path.exists(path):
         raise FileNotFoundError(f"Rules file not found: '{path}'")
 
+    def _is_one(value) -> bool:
+        return bool(pd.notna(value) and str(value).strip() == "1")
+
     trade = _read_ods(path, "Trade")
     trade.columns = [c.strip().lower() for c in trade.columns]
     tradable = [str(row["flow"]).strip() for _, row in trade.iterrows()
-                if pd.notna(row.get("traded")) and str(row.get("traded", "")).strip() == "1"]
+                if _is_one(row.get("traded"))]
 
     acc = _read_ods(path, "Accounting")
     acc.columns = [c.strip() for c in acc.columns]
     accounting = [
         {"from":        str(row["Entity_from"]).strip(),
          "to":          str(row["Entity_to"]).strip(),
-         "same_region": pd.notna(row.get("Same_reg")) and str(row["Same_reg"]).strip() == "1"}
+         "same_region": _is_one(row.get("Same_reg"))}
         for _, row in acc.iterrows()
     ]
     return {
@@ -332,7 +343,6 @@ def read_acc_spec_ods(root_path:   str,
     if bounds_path is not None:
         spec["bounds"] = _read_bounds_file(bounds_path)
     if masks_path is not None:
-        from pysuto.masks import read_masks_csv
         spec["masks"] = read_masks_csv(masks_path)
     return spec
 
@@ -343,22 +353,46 @@ def read_acc_spec_json(path: str) -> dict:
         return json.load(f)
 
 
-def _validate_spec(spec: dict) -> None:
-    """Raise on a missing or unknown key, a non-string label, or an accounting pair whose
-    entity no sector declares. Nothing is coerced."""
-    for key in _SPEC_REQUIRED:
-        if key not in spec:
-            raise KeyError(f"acc spec is missing required key {key!r}")
-    unknown = sorted(set(spec) - set(_SPEC_REQUIRED) - set(_SPEC_OPTIONAL))
+def _check_keys(entry, keys: tuple, optional: tuple, where: str) -> None:
+    """``KeyError`` naming a missing key of *entry*; ``ValueError`` on an unknown key."""
+    if not isinstance(entry, dict):
+        raise TypeError(f"acc spec: {where} must be a dict; got {entry!r}")
+    for key in keys:
+        if key not in optional and key not in entry:
+            raise KeyError(f"acc spec: {where} is missing required key {key!r}")
+    unknown = sorted(set(entry) - set(keys), key=str)
     if unknown:
-        raise ValueError(f"acc spec has unknown key(s) {unknown}; "
-                         f"expected {list(_SPEC_REQUIRED) + list(_SPEC_OPTIONAL)}")
+        raise ValueError(f"acc spec: {where} has unknown key(s) {unknown}; "
+                         f"expected {list(keys)}")
 
-    labels = ([s["name"] for s in spec["sectors"]] + [s["entity"] for s in spec["sectors"]]
+
+def _validate_spec(spec: dict) -> None:
+    """Raise on a missing or unknown key, a value of the wrong type, or a rule naming a
+    sector or entity the spec does not declare. Nothing is coerced."""
+    _check_keys(spec, _SPEC_REQUIRED + _SPEC_OPTIONAL, _SPEC_OPTIONAL, "the top level")
+    for i, sector in enumerate(spec["sectors"]):
+        _check_keys(sector, _SECTOR_KEYS, _SECTOR_OPTIONAL, f"sectors[{i}]")
+    for i, rule in enumerate(spec["accounting"]):
+        _check_keys(rule, _ACCOUNTING_KEYS, (), f"accounting[{i}]")
+        if not isinstance(rule["same_region"], bool):
+            raise TypeError(f"acc spec: accounting[{i}] same_region must be a bool; "
+                            f"got {rule['same_region']!r}")
+
+    labels = ([s[k] for s in spec["sectors"] for k in _SECTOR_KEYS if k in s]
               + list(spec["regions"]) + list(spec["valuations"]) + list(spec["times"]))
     not_str = [x for x in labels if not isinstance(x, str)]
     if not_str:
         raise TypeError(f"acc spec labels must be strings; got {not_str[:5]!r}")
+
+    sectors = {s["name"] for s in spec["sectors"]}
+    named = {key: set(spec[key]) | {t for tos in spec[key].values() for t in tos}
+             for key in ("supply", "use")}
+    named["tradable"] = set(spec["tradable"])
+    for key, names in named.items():
+        undeclared = sorted(names - sectors, key=str)
+        if undeclared:
+            raise ValueError(f"acc spec: {key} names sector(s) {undeclared}, which no "
+                             f"sectors entry declares")
 
     entities = {s["entity"] for s in spec["sectors"]}
     for rule in spec["accounting"]:
@@ -692,9 +726,7 @@ class AccountingStructure:
     """
 
     def __init__(self, id, root=None, rules=None, **kwargs):
-        self.id          = id or "accounting_structure"
-        self.storage_dir = kwargs.get("storage_dir", r"data/proc/acc")
-        self.logger      = get_logger(self.__class__.__name__)
+        self._set_identity(id, kwargs.get("storage_dir", DEFAULT_STORAGE_DIR))
 
         root_file   = kwargs.get("root_file_path",   None)
         rules_file  = kwargs.get("rules_file_path",  None)
@@ -740,7 +772,6 @@ class AccountingStructure:
             self.rules   = rules or []
             self._classify_rules()
 
-        from pysuto.masks import read_masks_csv
         self._build(
             bounds = None if bounds_path is None else _read_bounds_file(bounds_path),
             masks  = None if masks_path  is None else read_masks_csv(masks_path),
@@ -751,33 +782,42 @@ class AccountingStructure:
     # ------------------------------------------------------------------
 
     @classmethod
-    def from_spec(cls, spec: dict, id: str, **kwargs) -> "AccountingStructure":
+    def from_spec(cls,
+                  spec:        dict,
+                  id:          str,
+                  *,
+                  storage_dir: str = DEFAULT_STORAGE_DIR) -> "AccountingStructure":
         """Build the structure an acc spec declares (keys in the module docstring).
 
         Parameters
         ----------
         spec : dict
-            The acc spec, e.g. from :func:`read_acc_spec_json` or :func:`read_acc_spec_ods`.
+            The acc spec, e.g. from :func:`read_acc_spec_json` or
+            :func:`read_acc_spec_ods`.
         id : str
             Unique identifier for this structure.
-        **kwargs
-            ``storage_dir`` (default ``"data/proc/acc"``).
+        storage_dir : str
+            Directory for saving/loading the structure (default ``"data/proc/acc"``).
 
         Raises
         ------
         KeyError
-            A required key is missing (the message names it).
+            A required key is missing, at the top level or in an entry (the message
+            names it).
         ValueError
-            An unknown key, or an ``accounting`` pair naming an entity no sector declares.
+            An unknown key, or a rule naming a sector or entity no sector entry declares.
         TypeError
-            A sector, region, valuation or time label that is not a string.
+            A label that is not a string, or a ``same_region`` that is not a bool.
         """
-        obj             = cls.__new__(cls)
-        obj.id          = id or "accounting_structure"
-        obj.storage_dir = kwargs.get("storage_dir", r"data/proc/acc")
-        obj.logger      = get_logger(cls.__name__)
+        obj = cls.__new__(cls)
+        obj._set_identity(id, storage_dir)
         obj._init_from_spec(spec)
         return obj
+
+    def _set_identity(self, id, storage_dir: str) -> None:
+        self.id          = id or "accounting_structure"
+        self.storage_dir = storage_dir
+        self.logger      = get_logger(self.__class__.__name__)
 
     def _init_from_spec(self, spec: dict) -> None:
         _validate_spec(spec)
@@ -841,7 +881,7 @@ class AccountingStructure:
         self._set_root(_read_root_ods(path))
 
     def _set_root(self, spec: dict) -> None:
-        """Node universe = the spec's ``sectors`` × ``regions``; time and valuation axes."""
+        """Node universe = the spec's sectors × regions; the time and valuation axes."""
         sectors, regions = spec["sectors"], spec["regions"]
         self.root_nodes = pd.DataFrame(
             [(s["name"], s["entity"], region, s.get("sub"))
@@ -1419,7 +1459,7 @@ class AccountingStructure:
     def load(cls, id, **kwargs):
         obj             = cls.__new__(cls)
         obj.id          = id
-        obj.storage_dir = kwargs.get("storage_dir", r"data/proc/acc")
+        obj.storage_dir = kwargs.get("storage_dir", DEFAULT_STORAGE_DIR)
         path            = os.path.join(obj.storage_dir, id)
         assert os.path.isdir(path), \
             f"Directory '{id}' not found in {obj.storage_dir}"

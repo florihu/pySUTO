@@ -10,6 +10,7 @@ ODS path; they are written with a stdlib writer so the test needs no ODS library
 from __future__ import annotations
 
 import importlib.util
+import itertools
 import json
 import sys
 import zipfile
@@ -103,8 +104,8 @@ RULES_SHEETS = {
 }
 
 BOUNDS_SHEETS = {
-    "Sheet1": [["Sector_from", "Region_from", "Sector_to", "Region_to", "Time", "Valuation",
-                "Lower", "Upper"],
+    "Sheet1": [["Sector_from", "Region_from", "Sector_to", "Region_to", "Time",
+                "Valuation", "Lower", "Upper"],
                ["Metal",       "*",           "FU",        "*",         "2002", "*",
                 "-5",    "5"]],
 }
@@ -114,17 +115,29 @@ MASKS_CSV = ("mask_name,logic,sector_from,sector_to\n"
              "massbal_scope,exclude,Mining,WR\n")
 
 
+def _ods_cell(value, repeat: int) -> str:
+    """One ``table:table-cell`` the way LibreOffice writes it: a run of equal cells is one
+    cell with ``number-columns-repeated``, a number is a float-typed cell."""
+    attrs = f' table:number-columns-repeated="{repeat}"' if repeat > 1 else ""
+    if value is None:
+        return f"<table:table-cell{attrs}/>"
+    try:
+        float(value)
+        attrs += f' office:value-type="float" office:value="{escape(value)}"'
+    except ValueError:
+        attrs += ' office:value-type="string"'
+    return f"<table:table-cell{attrs}><text:p>{escape(value)}</text:p></table:table-cell>"
+
+
 def _write_ods(path: Path, sheets: dict) -> None:
-    """Minimal ODS: ``content.xml`` in a zip, one table per sheet; ``None`` = empty cell."""
+    """Minimal ODS: ``content.xml`` in a zip, one table per sheet; ``None`` = empty cell.
+    Every row ends in the repeated empty cell LibreOffice pads it with."""
     tables = []
     for name, rows in sheets.items():
         xml_rows = []
         for row in rows:
-            cells = "".join(
-                "<table:table-cell/>" if v is None else
-                f"<table:table-cell><text:p>{escape(v)}</text:p></table:table-cell>"
-                for v in row
-            )
+            runs = [(v, len(list(g))) for v, g in itertools.groupby(row)]
+            cells = "".join(_ods_cell(v, n) for v, n in runs + [(None, 1000)])
             xml_rows.append(f"<table:table-row>{cells}</table:table-row>")
         tables.append(f'<table:table table:name="{escape(name)}">'
                       f'{"".join(xml_rows)}</table:table>')
@@ -182,6 +195,21 @@ def test_the_ods_reader_yields_the_spec(tmp_path):
     """Matrices with "1" cells become adjacency lists; an empty row declares no pair."""
     p = _write_ods_case(tmp_path)
     assert read_acc_spec_ods(p["root"], p["rules"], p["bounds"], p["masks"]) == SPEC
+
+
+def test_the_ods_fixture_holds_repeated_and_float_typed_cells(tmp_path):
+    """Guard: the reader test above keeps covering LibreOffice's two cell forms — the
+    Supply row "Mining, 1, 1, -, -" and the float-typed year cells."""
+    p = _write_ods_case(tmp_path)
+    with zipfile.ZipFile(p["rules"]) as zf:
+        rules = zf.read("content.xml").decode()
+    with zipfile.ZipFile(p["root"]) as zf:
+        root = zf.read("content.xml").decode()
+    assert ('<table:table-cell table:number-columns-repeated="2" office:value-type="float"'
+            ' office:value="1"><text:p>1</text:p>') in rules
+    assert '<table:table-cell table:number-columns-repeated="2"/>' in rules
+    assert ('<table:table-cell office:value-type="float" office:value="2001">'
+            '<text:p>2001</text:p>') in root
 
 
 def test_the_ods_reader_omits_the_optional_files_it_is_not_given(tmp_path):
@@ -293,6 +321,56 @@ def test_a_label_that_is_not_a_string_raises():
         AccountingStructure.from_spec(spec, "toy")
 
 
+@pytest.mark.parametrize("same_region", ["false", 0, None])
+def test_a_same_region_that_is_not_a_bool_raises(same_region):
+    """"false" is truthy: it would make the pair same-region-only without a word."""
+    accounting = ([dict(SPEC["accounting"][0], same_region=same_region)]
+                  + SPEC["accounting"][1:])
+    with pytest.raises(TypeError, match="same_region must be a bool"):
+        AccountingStructure.from_spec(dict(SPEC, accounting=accounting), "toy")
+
+
+@pytest.mark.parametrize("key, value, undeclared", [
+    # an undeclared from-sector, then undeclared to-sectors and tradable flow
+    ("supply",   {"Mining": ["Ore", "WR"], "Refining": []},           "Refining"),
+    ("supply",   {"Mining": ["Ore", "Waste"], "Smelting": ["Metal"]}, "Waste"),
+    ("use",      {"Ore": ["Smelting"], "Metal": ["FU", "Export"]},    "Export"),
+    ("tradable", ["Ore", "Concentrate"],                              "Concentrate"),
+])
+def test_a_rule_naming_an_undeclared_sector_raises_naming_it(key, value, undeclared):
+    with pytest.raises(ValueError, match=rf"{key} names sector\(s\) \['{undeclared}'\]"):
+        AccountingStructure.from_spec(dict(SPEC, **{key: value}), "toy")
+
+
+@pytest.mark.parametrize("key, entry", [
+    ("sectors",    {"name": "WR", "entity": "SB", "Sub": "SEM"}),
+    ("accounting", {"from": "Process", "to": "Flow", "same_region": True, "note": "x"}),
+])
+def test_an_entry_with_an_unknown_key_raises(key, entry):
+    """A misspelt "Sub" would otherwise drop the node's entity_sub without a word."""
+    entries = [entry] + SPEC[key][1:]
+    with pytest.raises(ValueError, match=rf"{key}\[0\] has unknown key"):
+        AccountingStructure.from_spec(dict(SPEC, **{key: entries}), "toy")
+
+
+@pytest.mark.parametrize("key, entry, missing", [
+    ("sectors",    {"name": "Mining"},                 "entity"),
+    ("accounting", {"from": "Process", "to": "Flow"}, "same_region"),
+])
+def test_an_entry_missing_a_key_raises_naming_it(key, entry, missing):
+    entries = [entry] + SPEC[key][1:]
+    with pytest.raises(KeyError, match=rf"{key}\[0\] is missing required key "
+                                       rf"'{missing}'"):
+        AccountingStructure.from_spec(dict(SPEC, **{key: entries}), "toy")
+
+
+def test_from_spec_takes_storage_dir_and_refuses_any_other_keyword(tmp_path):
+    acc = AccountingStructure.from_spec(SPEC, "toy", storage_dir=str(tmp_path))
+    assert acc.storage_dir == str(tmp_path)
+    with pytest.raises(TypeError, match="bounds_file_path"):
+        AccountingStructure.from_spec(SPEC, "toy", bounds_file_path="bounds.ods")
+
+
 # =============================================================================
 # 5. scripts/acc.py picks the reader from what current/ holds
 # =============================================================================
@@ -314,8 +392,8 @@ def test_acc_script_builds_from_acc_json_what_it_builds_from_the_ods_files(tmp_p
     _write_json_case(tmp_path / "json" / "acc" / "toy" / "current")
     _run_acc_script(monkeypatch, tmp_path, tmp_path / "ods",  tmp_path / "out_ods")
     _run_acc_script(monkeypatch, tmp_path, tmp_path / "json", tmp_path / "out_json")
-    for name in ("edge_index.csv", "edge_index_all.csv", "node_index.csv", "root_nodes.csv",
-                 "bounds_l.npy", "bounds_u.npy", "masks_user.npz"):
+    for name in ("edge_index.csv", "edge_index_all.csv", "node_index.csv",
+                 "root_nodes.csv", "bounds_l.npy", "bounds_u.npy", "masks_user.npz"):
         assert ((tmp_path / "out_json" / "toy" / name).read_bytes()
                 == (tmp_path / "out_ods" / "toy" / name).read_bytes()), name
 
@@ -324,7 +402,7 @@ def test_acc_script_builds_from_acc_json_what_it_builds_from_the_ods_files(tmp_p
 def test_acc_script_refuses_a_current_dir_holding_acc_json_and_an_ods_file(tmp_path,
                                                                           monkeypatch,
                                                                           ods_file):
-    """root.ods is the acceptance case; any of the four would be ignored beside acc.json."""
+    """root.ods is the acceptance case; any of the four is ignored beside acc.json."""
     _write_ods_case(tmp_path / "ods")
     current = tmp_path / "input" / "acc" / "toy" / "current"
     _write_json_case(current)

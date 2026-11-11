@@ -37,10 +37,7 @@ _REPO_ROOT  = os.path.dirname(_SCRIPT_DIR)
 sys.path.insert(0, os.path.join(_REPO_ROOT, "src"))
 
 from pysuto.acc import AccountingStructure, read_acc_spec_json
-from pysuto.input_registry import ACC_SPEC, InputRegistries
-
-# The ODS/CSV reader's files; a version holding acc.json must hold none of them.
-_ODS_FILES = ("root.ods", "rules.ods", "bounds.ods", "masks.csv")
+from pysuto.input_registry import ACC_ODS_FILES, ACC_SPEC, InputRegistries
 
 
 # =============================================================================
@@ -92,15 +89,16 @@ def build_acc(acc_path: Path, id: str, storage_dir: str) -> AccountingStructure:
     Raises
     ------
     ValueError
-        *acc_path* holds ``acc.json`` and any of the ODS/CSV reader's files: one of the
-        two readers would be ignored.
+        *acc_path* holds ``acc.json`` and any file of the ODS/CSV format: one of the two
+        would be ignored.
     """
     if (acc_path / ACC_SPEC).is_file():
-        both = [name for name in _ODS_FILES if (acc_path / name).is_file()]
-        if both:
+        ods_beside_json = [n for n in ACC_ODS_FILES if (acc_path / n).is_file()]
+        if ods_beside_json:
             raise ValueError(
-                f"{acc_path} holds {ACC_SPEC} and {both}: an acc spec is read from "
-                f"{ACC_SPEC} or from root.ods + rules.ods, never both (ADR 0046)"
+                f"{acc_path} holds {ACC_SPEC} and {ods_beside_json}: an acc spec is "
+                f"read from {ACC_SPEC} or from root.ods + rules.ods, never both "
+                f"(ADR 0046)"
             )
         return AccountingStructure.from_spec(
             read_acc_spec_json(str(acc_path / ACC_SPEC)), id, storage_dir=storage_dir)

@@ -63,9 +63,12 @@ _log = get_logger("input_registry")
 
 _KINDS = ("feed", "acc", "params", "mask")
 
+# The ODS/CSV format of an acc spec (ADR 0046): its four files.
+ACC_ODS_FILES: tuple[str, ...] = ("root.ods", "bounds.ods", "rules.ods", "masks.csv")
+
 _DEFAULT_LOAD_BEARING: dict[str, tuple[str, ...]] = {
     "params": ("params.csv",),
-    "acc":    ("root.ods", "bounds.ods", "rules.ods", "masks.csv"),
+    "acc":    ACC_ODS_FILES,
     "mask":   ("rules.csv",),
     # "feed" handled in InputRegistry._load_bearing_files
 }
@@ -77,8 +80,9 @@ _FEED_IGNORE_SUFFIXES = (".bib", ".md")
 # one keep their hashes and are not re-versioned.
 PARAMS_PARENTS = "parents.json"
 
-# An acc id may declare its whole structure in one acc spec instead of the four files
-# above (#57, ADR 0046). Load-bearing where present, for the same reason.
+# An acc id may declare its whole structure in one acc.json instead of the four files
+# above (#57, ADR 0046). Load-bearing where present, for the same reason: the hashes
+# are compared as whole dicts, so an "acc.json": "" key would re-version every acc id.
 ACC_SPEC = "acc.json"
 
 
