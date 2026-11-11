@@ -1301,6 +1301,23 @@ sidecar" (a built structure is not a run).
 **Acc ref** — `{id, version}` naming one acc input version, as a sidecar's `parents.inputs.acc`
 records it.
 
+**Toy case** — the synthetic case of the fictional metal orium (`pysuto.cases.toy`, #59): three
+regions, five years, both valuations, generated from a **ground truth** and observed through three
+**synthetic feeds**. A **Case** in the sense above, declared in code; it keeps copper's reserved
+labels (ADR 0034) and registers no hard bands, so every hard row is an equality and Stage 5's
+posterior has no active set to choose (#27). _Avoid_: "toy fixture" (the per-test structures
+built in `tests/`), "test case", "demo".
+
+**Ground truth** — the balanced per-edge values a synthetic case is generated from, in every
+valuation and year; every `Process` and `Flow` node closes. Never a property of a real case: a
+real case has a prior and a posterior, and no truth to score them against. _Avoid_: "true value"
+for a copper edge; "truth" for the prior or the posterior.
+
+**Synthetic feed** — a datafeed derived from a **ground truth**: reclassified into its own
+vocabulary, noisy at exactly its pedigree CV, with gaps and **planted defects** (deliberate errors,
+named only by the case's `reveal()`). It enters Stage 1 like any feed. _Avoid_: "mock feed",
+"simulated data" (the feed is not simulated, the truth behind it is).
+
 ## ROW pedigree-penalty vocabulary
 
 **ROW** — *Rest of World*, the residual region aggregate for countries not individually

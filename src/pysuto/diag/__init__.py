@@ -39,6 +39,9 @@ Public surface (re-exported here so call sites can keep using
 * :func:`sankey_figure` / :func:`sankey_tables` / :class:`SankeySpec`
                              — Stage 6: the bipartite supply-use Sankey of a
                                 PSUT (Plotly, imported lazily).
+* :class:`TruthDiag`         — a synthetic case's stage estimates scored against
+                                its ground truth: error by stage, calibration,
+                                residual rank (the toy case, #59).
 
 Design conventions
 ------------------
@@ -59,6 +62,7 @@ from .solver   import SolverDiag
 from .uncprop  import UncPropDiag
 from .sweep    import SweepDiag
 from .psut     import SankeySpec, sankey_figure, sankey_tables
+from .truth    import TruthDiag
 from .stats    import (
     CoverageDiagnostic,
     StatsDiagnostic,
@@ -86,4 +90,5 @@ __all__ = [
     "SankeySpec",
     "sankey_figure",
     "sankey_tables",
+    "TruthDiag",
 ]
