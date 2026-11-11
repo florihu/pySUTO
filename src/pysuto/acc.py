@@ -5,6 +5,27 @@ AccountingStructure — defines the admissible node/edge space for a
 physical accounting system, plus per-edge lower/upper bounds used by
 the linear optimiser.
 
+Acc spec
+--------
+An accounting structure is declared by one dict, the **acc spec** (ADR 0046)::
+
+    {"sectors":    [{"name": "Mining", "entity": "Process"},
+                    {"name": "Scrap",  "entity": "SB", "sub": "SEM"}, ...],  # sub optional
+     "regions":    ["Chile", ...],                  # nodes = sectors × regions
+     "valuations": ["Mass", "CC"],
+     "times":      ["1995", ...],                   # every label a str
+     "supply":     {"Mining": ["Ore", "WR"], ...},  # adjacency lists
+     "use":        {"Ore": ["MF", "SXEW"], ...},
+     "tradable":   ["Concentrate", ...],
+     "accounting": [{"from": "Flow", "to": "Process", "same_region": False}, ...],
+     "bounds":     [...],    # optional: records with the bounds file's column names
+     "masks":      [...]}    # optional: records with the masks.csv column names
+
+``AccountingStructure.from_spec`` builds from it. Two readers produce it:
+``read_acc_spec_json`` from one ``acc.json``, ``read_acc_spec_ods`` from the four files
+described below, which ``AccountingStructure(root_file_path=..., rules_file_path=...)``
+reads the same way.
+
 Root loading
 ------------
 The root classification is read from an ODS/Excel file with four sheets:
@@ -86,6 +107,7 @@ boolean masks of shape ``(n_edges,)``. Built-in entries: ``supply``, ``use``,
 from __future__ import annotations
 
 import inspect
+import json
 import os
 import pickle
 from functools import cached_property
@@ -184,8 +206,8 @@ def _ods_sheet_names(path: str) -> list:
     return [t.attrib.get(f'{{{_T}}}name') for t in tables]
 
 
-def _read_bounds_file(path: str) -> pd.DataFrame:
-    """Read a bounds spreadsheet from an ODS or XLSX file."""
+def _read_bounds_file(path: str) -> list:
+    """Read a bounds spreadsheet from an ODS or XLSX file as records (one dict per rule)."""
     ext = os.path.splitext(path)[1].lower()
     if ext in ('.xlsx', '.xls'):
         xl = pd.ExcelFile(path)
@@ -194,15 +216,167 @@ def _read_bounds_file(path: str) -> pd.DataFrame:
         for col in ("lower", "upper"):
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors="coerce")
-        return df
     else:
         sheets = _ods_sheet_names(path)
         sheet = "bounds" if "bounds" in sheets else sheets[0]
-        return _read_ods(path, sheet)
+        df = _read_ods(path, sheet)
+    return df.to_dict("records")
 
 
 _INF = np.inf
 DEFAULT_UPPER_BOUND: float = 1e9   # practical large value (not +inf) as default upper
+
+
+# =============================================================================
+# Acc spec  — the one declaration; ODS and JSON are two readers of it (ADR 0046)
+# =============================================================================
+
+_SPEC_REQUIRED: tuple = ("sectors", "regions", "valuations", "times",
+                         "supply", "use", "tradable", "accounting")
+_SPEC_OPTIONAL: tuple = ("bounds", "masks")
+
+
+def _read_root_ods(path: str) -> dict:
+    """The root ODS file as the spec's ``sectors``, ``regions``, ``valuations``, ``times``.
+
+    Sheets: Sector_Entity (Sector_name, Entity_name, optional Entity_name_1 → ``sub``),
+    Region (Region_name), Valuation (Valuation_name), Time (Time_name).
+    """
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Root file not found: '{path}'")
+    se  = _read_ods(path, "Sector_Entity")
+    reg = _read_ods(path, "Region")
+    val = _read_ods(path, "Valuation")
+    tim = _read_ods(path, "Time")
+
+    sectors = []
+    for _, row in se.iterrows():
+        sector = {"name":   str(row["Sector_name"]).strip(),
+                  "entity": str(row["Entity_name"]).strip()}
+        if "Entity_name_1" in se.columns and pd.notna(row["Entity_name_1"]):
+            sector["sub"] = str(row["Entity_name_1"]).strip()
+        sectors.append(sector)
+
+    return {
+        "sectors":    sectors,
+        "regions":    [str(r).strip() for r in reg["Region_name"]],
+        "valuations": [str(v) for v in val["Valuation_name"]],
+        "times":      [str(t) for t in tim["Time_name"]],
+    }
+
+
+def _read_matrix(path: str, sheet: str) -> dict:
+    """A 0/1 rules sheet as adjacency lists: row sector → the column sectors marked "1"."""
+    df = _read_ods(path, sheet)
+    row_col = df.columns[0]              # first column = from-sector
+    adjacency: dict = {}
+    for _, row in df.iterrows():
+        sector_from = str(row[row_col]).strip()
+        for col in df.columns[1:]:
+            if pd.notna(row[col]) and str(row[col]).strip() == "1":
+                adjacency.setdefault(sector_from, []).append(str(col).strip())
+    return adjacency
+
+
+def _read_rules_ods(path: str) -> dict:
+    """The rules ODS file as the spec's ``supply``, ``use``, ``tradable``, ``accounting``.
+
+    Sheets: Supply and Use (0/1 matrices, first column = from-sector), Trade (Flow,
+    Traded), Accounting (Entity_from, Entity_to, Same_reg).
+    """
+    if not os.path.exists(path):
+        raise FileNotFoundError(f"Rules file not found: '{path}'")
+
+    trade = _read_ods(path, "Trade")
+    trade.columns = [c.strip().lower() for c in trade.columns]
+    tradable = [str(row["flow"]).strip() for _, row in trade.iterrows()
+                if pd.notna(row.get("traded")) and str(row.get("traded", "")).strip() == "1"]
+
+    acc = _read_ods(path, "Accounting")
+    acc.columns = [c.strip() for c in acc.columns]
+    accounting = [
+        {"from":        str(row["Entity_from"]).strip(),
+         "to":          str(row["Entity_to"]).strip(),
+         "same_region": pd.notna(row.get("Same_reg")) and str(row["Same_reg"]).strip() == "1"}
+        for _, row in acc.iterrows()
+    ]
+    return {
+        "supply":     _read_matrix(path, "Supply"),
+        "use":        _read_matrix(path, "Use"),
+        "tradable":   tradable,
+        "accounting": accounting,
+    }
+
+
+def read_acc_spec_ods(root_path:   str,
+                      rules_path:  str,
+                      bounds_path: Optional[str] = None,
+                      masks_path:  Optional[str] = None) -> dict:
+    """Read an acc spec from the ODS/CSV files of the copper case.
+
+    Parameters
+    ----------
+    root_path, rules_path : str
+        ``root.ods`` and ``rules.ods`` (sheets in the module docstring).
+    bounds_path : str, optional
+        ``bounds.ods`` (or ``.xlsx``); its rows become the spec's ``bounds`` records.
+    masks_path : str, optional
+        ``masks.csv``; its rows become the spec's ``masks`` records.
+
+    Returns
+    -------
+    dict
+        The acc spec; ``bounds`` / ``masks`` only when their file is given.
+    """
+    spec = {**_read_root_ods(root_path), **_read_rules_ods(rules_path)}
+    if bounds_path is not None:
+        spec["bounds"] = _read_bounds_file(bounds_path)
+    if masks_path is not None:
+        from pysuto.masks import read_masks_csv
+        spec["masks"] = read_masks_csv(masks_path)
+    return spec
+
+
+def read_acc_spec_json(path: str) -> dict:
+    """Read an acc spec from one ``acc.json``: the document is the spec dict itself."""
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _validate_spec(spec: dict) -> None:
+    """Raise on a missing or unknown key, a non-string label, or an accounting pair whose
+    entity no sector declares. Nothing is coerced."""
+    for key in _SPEC_REQUIRED:
+        if key not in spec:
+            raise KeyError(f"acc spec is missing required key {key!r}")
+    unknown = sorted(set(spec) - set(_SPEC_REQUIRED) - set(_SPEC_OPTIONAL))
+    if unknown:
+        raise ValueError(f"acc spec has unknown key(s) {unknown}; "
+                         f"expected {list(_SPEC_REQUIRED) + list(_SPEC_OPTIONAL)}")
+
+    labels = ([s["name"] for s in spec["sectors"]] + [s["entity"] for s in spec["sectors"]]
+              + list(spec["regions"]) + list(spec["valuations"]) + list(spec["times"]))
+    not_str = [x for x in labels if not isinstance(x, str)]
+    if not_str:
+        raise TypeError(f"acc spec labels must be strings; got {not_str[:5]!r}")
+
+    entities = {s["entity"] for s in spec["sectors"]}
+    for rule in spec["accounting"]:
+        for end in ("from", "to"):
+            if rule[end] not in entities:
+                raise ValueError(
+                    f"acc spec: accounting pair {rule['from']!r} → {rule['to']!r} names "
+                    f"entity {rule[end]!r}, which no sector declares; "
+                    f"declared: {sorted(entities)}"
+                )
+
+
+def _rule_tables(spec: dict) -> tuple:
+    """The spec's rule entries as the four tables :meth:`RuleSet.from_tables` takes."""
+    supply_pairs = {(f, t) for f, tos in spec["supply"].items() for t in tos}
+    use_pairs    = {(f, t) for f, tos in spec["use"].items()    for t in tos}
+    accounting   = {(r["from"], r["to"]): r["same_region"] for r in spec["accounting"]}
+    return supply_pairs, use_pairs, set(spec["tradable"]), accounting
 
 
 # =============================================================================
@@ -211,7 +385,8 @@ DEFAULT_UPPER_BOUND: float = 1e9   # practical large value (not +inf) as default
 
 class RuleSet:
     """
-    Parsed representation of the four rules sheets.
+    The four admissibility tables. ``RuleSet(path)`` reads them from the rules ODS file;
+    :meth:`from_tables` takes them in memory (the acc-spec path).
 
     Attributes
     ----------
@@ -228,59 +403,26 @@ class RuleSet:
     """
 
     def __init__(self, rules_file_path: str):
-        if not os.path.exists(rules_file_path):
-            raise FileNotFoundError(f"Rules file not found: '{rules_file_path}'")
+        self._set_tables(*_rule_tables(_read_rules_ods(rules_file_path)))
 
-        self.supply_pairs   = self._parse_supply(rules_file_path)
-        self.use_pairs      = self._parse_use(rules_file_path)
-        self.tradable_flows = self._parse_trade(rules_file_path)
-        self.accounting     = self._parse_accounting(rules_file_path)
+    @classmethod
+    def from_tables(cls,
+                    supply_pairs: set,
+                    use_pairs:    set,
+                    tradable:     set,
+                    accounting:   dict) -> "RuleSet":
+        """Build from the four tables: ``(sector_from, sector_to)`` supply and use pairs,
+        the tradable flow sectors, and ``(entity_from, entity_to) → same_region``."""
+        obj = cls.__new__(cls)
+        obj._set_tables(supply_pairs, use_pairs, tradable, accounting)
+        return obj
+
+    def _set_tables(self, supply_pairs, use_pairs, tradable, accounting) -> None:
+        self.supply_pairs   = set(supply_pairs)
+        self.use_pairs      = set(use_pairs)
+        self.tradable_flows = set(tradable)
+        self.accounting     = dict(accounting)
         self.all_pairs      = self.supply_pairs | self.use_pairs
-
-    # ------------------------------------------------------------------
-
-    def _parse_supply(self, path: str) -> set:
-        df = _read_ods(path, "Supply")
-        row_col = df.columns[0]          # first column = from-sector
-        pairs = set()
-        for _, row in df.iterrows():
-            sector_from = str(row[row_col]).strip()
-            for col in df.columns[1:]:
-                if pd.notna(row[col]) and str(row[col]).strip() == "1":
-                    pairs.add((sector_from, str(col).strip()))
-        return pairs
-
-    def _parse_use(self, path: str) -> set:
-        df = _read_ods(path, "Use")
-        row_col = df.columns[0]          # first column = from-sector (Flow/SB)
-        pairs = set()
-        for _, row in df.iterrows():
-            sector_from = str(row[row_col]).strip()
-            for col in df.columns[1:]:
-                if pd.notna(row[col]) and str(row[col]).strip() == "1":
-                    pairs.add((sector_from, str(col).strip()))
-        return pairs
-
-    def _parse_trade(self, path: str) -> set:
-        df = _read_ods(path, "Trade")
-        df.columns = [c.strip().lower() for c in df.columns]
-        # normalise column names to lowercase
-        tradable = set()
-        for _, row in df.iterrows():
-            if pd.notna(row.get("traded")) and str(row.get("traded","")).strip() == "1":
-                tradable.add(str(row["flow"]).strip())
-        return tradable
-
-    def _parse_accounting(self, path: str) -> dict:
-        df = _read_ods(path, "Accounting")
-        df.columns = [c.strip() for c in df.columns]
-        mapping = {}
-        for _, row in df.iterrows():
-            ef = str(row["Entity_from"]).strip()
-            et = str(row["Entity_to"]).strip()
-            same = pd.notna(row.get("Same_reg")) and str(row["Same_reg"]).strip() == "1"
-            mapping[(ef, et)] = same
-        return mapping
 
     # ------------------------------------------------------------------
 
@@ -504,7 +646,11 @@ class AccountingStructure:
 
     Initialisation modes
     --------------------
-    A) From ODS/Excel files (recommended)::
+    A) From an acc spec (see the module docstring)::
+
+        acc = AccountingStructure.from_spec(spec, "toy", storage_dir="data/proc/acc")
+
+    A') From ODS/Excel files — read into an acc spec, then built as A::
 
         acc = AccountingStructure(
             id             = "copper",
@@ -550,8 +696,30 @@ class AccountingStructure:
         self.storage_dir = kwargs.get("storage_dir", r"data/proc/acc")
         self.logger      = get_logger(self.__class__.__name__)
 
+        root_file   = kwargs.get("root_file_path",   None)
+        rules_file  = kwargs.get("rules_file_path",  None)
+        bounds_path = kwargs.get("bounds_file_path", None)
+        if bounds_path is not None and not os.path.exists(bounds_path):
+            self.logger.warning(
+                f"Bounds file not found: '{bounds_path}'. "
+                f"Using default bounds (l=0, u={DEFAULT_UPPER_BOUND:.0e})."
+            )
+            bounds_path = None
+        # Optional acc-local user masks (data/input/acc/<id>/current/masks.csv)
+        masks_path = kwargs.get("masks_file_path", None)
+        if masks_path is None and root_file is not None:
+            masks_path = os.path.join(os.path.dirname(root_file), "masks.csv")
+        if masks_path is not None and not os.path.exists(masks_path):
+            masks_path = None
+
+        # ── A'. ODS files → acc spec → the from_spec build ────────────
+        if root_file is not None and rules_file is not None:
+            self.logger.info(f"Reading acc spec from: {root_file}, {rules_file}")
+            self._init_from_spec(
+                read_acc_spec_ods(root_file, rules_file, bounds_path, masks_path))
+            return
+
         # ── 1. Root (node universe, time, valuation) ─────────────────
-        root_file = kwargs.get("root_file_path", None)
         if root_file is not None:
             self._load_root_from_file(root_file)
         elif kwargs.get("init_from_file", False):
@@ -565,18 +733,68 @@ class AccountingStructure:
             self.valuation  = list(dict.fromkeys(root["valuation"]))
 
         # ── 2. Rules ──────────────────────────────────────────────────
-        rules_file = kwargs.get("rules_file_path", None)
         if rules_file is not None:
-            self.ruleset = RuleSet(rules_file)
-            self.logger.info(self.ruleset.summary())
-            self.rules       = []          # legacy list stays empty
-            self._node_rules = []
-            self._edge_rules = []
+            self._set_ruleset(RuleSet(rules_file))
         else:
             self.ruleset = None
             self.rules   = rules or []
             self._classify_rules()
 
+        from pysuto.masks import read_masks_csv
+        self._build(
+            bounds = None if bounds_path is None else _read_bounds_file(bounds_path),
+            masks  = None if masks_path  is None else read_masks_csv(masks_path),
+        )
+
+    # ------------------------------------------------------------------
+    # Acc spec  (ADR 0046)
+    # ------------------------------------------------------------------
+
+    @classmethod
+    def from_spec(cls, spec: dict, id: str, **kwargs) -> "AccountingStructure":
+        """Build the structure an acc spec declares (keys in the module docstring).
+
+        Parameters
+        ----------
+        spec : dict
+            The acc spec, e.g. from :func:`read_acc_spec_json` or :func:`read_acc_spec_ods`.
+        id : str
+            Unique identifier for this structure.
+        **kwargs
+            ``storage_dir`` (default ``"data/proc/acc"``).
+
+        Raises
+        ------
+        KeyError
+            A required key is missing (the message names it).
+        ValueError
+            An unknown key, or an ``accounting`` pair naming an entity no sector declares.
+        TypeError
+            A sector, region, valuation or time label that is not a string.
+        """
+        obj             = cls.__new__(cls)
+        obj.id          = id or "accounting_structure"
+        obj.storage_dir = kwargs.get("storage_dir", r"data/proc/acc")
+        obj.logger      = get_logger(cls.__name__)
+        obj._init_from_spec(spec)
+        return obj
+
+    def _init_from_spec(self, spec: dict) -> None:
+        _validate_spec(spec)
+        self._set_root(spec)
+        self._set_ruleset(RuleSet.from_tables(*_rule_tables(spec)))
+        self._build(bounds=spec.get("bounds"), masks=spec.get("masks"))
+
+    def _set_ruleset(self, ruleset: "RuleSet") -> None:
+        self.ruleset = ruleset
+        self.logger.info(self.ruleset.summary())
+        self.rules       = []          # legacy list stays empty
+        self._node_rules = []
+        self._edge_rules = []
+
+    def _build(self, bounds: Optional[list], masks: Optional[list]) -> None:
+        """Steps 3–6, shared by every initialisation mode: indices and tensors, the
+        bounds and user-mask records of the spec (``None`` = none declared), the masks."""
         # ── 3. Build indices and tensors ──────────────────────────────
         self._build_node_index()
         self._build_dim_indices()
@@ -599,20 +817,13 @@ class AccountingStructure:
         self._report_reduction(n_theoretical, n_after_node_rules, self.n_edges)
 
         # ── 4. Bounds ─────────────────────────────────────────────────
-        bounds_path  = kwargs.get("bounds_file_path", None)
-        self.bounds  = self._load_bounds(bounds_path)
-        self.logger.info(self.bounds.summary())
+        self._set_bounds(bounds)
 
         # ── 5. Structural edge masks (for ConstraintEngine) ───────────
         self._build_edge_masks()
 
-        # ── 6. Optional acc-local user masks (data/input/acc/<id>/current/masks.csv) ──
-        masks_path = kwargs.get("masks_file_path", None)
-        if masks_path is None and root_file is not None:
-            cand = os.path.join(os.path.dirname(root_file), "masks.csv")
-            if os.path.exists(cand):
-                masks_path = cand
-        self._load_masks_file(masks_path)
+        # ── 6. Optional acc-local user masks ──────────────────────────
+        self._set_user_masks(masks)
 
         self.logger.info(
             f"AccountingStructure '{self.id}' initialised: "
@@ -625,53 +836,23 @@ class AccountingStructure:
     # ------------------------------------------------------------------
 
     def _load_root_from_file(self, path: str) -> None:
-        """
-        Read root definition from the four-sheet ODS file.
-
-        Sheets
-        ------
-        Sector_Entity : Sector_name, Entity_name  (one row per sector)
-        Region        : Region_name
-        Valuation     : Valuation_name
-        Time          : Time_name
-        """
-        if not os.path.exists(path):
-            raise FileNotFoundError(f"Root file not found: '{path}'")
+        """Read the root from the four-sheet ODS file (see :func:`read_acc_spec_ods`)."""
         self.logger.info(f"Loading root from: {path}")
+        self._set_root(_read_root_ods(path))
 
-        se  = _read_ods(path, "Sector_Entity")
-        reg = _read_ods(path, "Region")
-        val = _read_ods(path, "Valuation")
-        tim = _read_ods(path, "Time")
-
-        # Build entity_sub lookup from optional Entity_name_1 column
-        if "Entity_name_1" in se.columns:
-            sub_map = {
-                (str(row["Sector_name"]).strip(), str(row["Entity_name"]).strip()):
-                str(row["Entity_name_1"]).strip() if pd.notna(row["Entity_name_1"]) else None
-                for _, row in se.iterrows()
-            }
-        else:
-            sub_map = {}
-
-        # Build all (sector, entity, region) triples
-        records = []
-        for _, row in se.iterrows():
-            sector = str(row["Sector_name"]).strip()
-            entity = str(row["Entity_name"]).strip()
-            entity_sub = sub_map.get((sector, entity), None)
-            for _, rrow in reg.iterrows():
-                region = str(rrow["Region_name"]).strip()
-                records.append((sector, entity, region, entity_sub))
-
+    def _set_root(self, spec: dict) -> None:
+        """Node universe = the spec's ``sectors`` × ``regions``; time and valuation axes."""
+        sectors, regions = spec["sectors"], spec["regions"]
         self.root_nodes = pd.DataFrame(
-            records, columns=["sector", "entity", "region", "entity_sub"]
+            [(s["name"], s["entity"], region, s.get("sub"))
+             for s in sectors for region in regions],
+            columns=["sector", "entity", "region", "entity_sub"],
         )
-        self.time_range = [str(t) for t in tim["Time_name"].tolist()]
-        self.valuation  = [str(v) for v in val["Valuation_name"].tolist()]
+        self.time_range = list(spec["times"])
+        self.valuation  = list(spec["valuations"])
 
         self.logger.info(
-            f"  Root: {len(se)} sectors × {len(reg)} regions = "
+            f"  Root: {len(sectors)} sectors × {len(regions)} regions = "
             f"{len(self.root_nodes)} node definitions | "
             f"{len(self.time_range)} time points | "
             f"{len(self.valuation)} valuations"
@@ -710,45 +891,23 @@ class AccountingStructure:
         print(report)   # also print to stdout for immediate visibility
 
     # ------------------------------------------------------------------
-    # Bounds loading  (extended to handle ODS + column-name variants)
+    # Bounds  (records with the bounds file's column names)
     # ------------------------------------------------------------------
 
-    def _load_bounds(self, path: Optional[str]) -> EdgeBounds:
-        bounds_df = None
-        if path is not None:
-            if not os.path.exists(path):
-                self.logger.warning(
-                    f"Bounds file not found: '{path}'. "
-                    f"Using default bounds (l=0, u={DEFAULT_UPPER_BOUND:.0e})."
-                )
-            else:
-                self.logger.info(f"Loading edge bounds from: {path}")
-                # Try sheet name "bounds" first, fall back to first sheet
-                try:
-                    bounds_df = _read_bounds_file(path)
-                    self.logger.info(
-                        f"  Loaded {len(bounds_df)} bound rule(s)."
-                    )
-                except Exception as e:
-                    self.logger.warning(f"Could not read bounds file: {e}")
-                    bounds_df = None
-
-        return EdgeBounds(
+    def _set_bounds(self, records: Optional[list]) -> None:
+        if records:
+            self.logger.info(f"  Loaded {len(records)} bound rule(s).")
+        self.bounds = EdgeBounds(
             edge_index=self.edge_index,
             node_index=self.node_index,
-            bounds_df=bounds_df,
+            bounds_df=pd.DataFrame(records) if records else None,
         )
+        self.logger.info(self.bounds.summary())
 
     def reload_bounds(self, path: str) -> None:
         """Hot-reload bounds from a new file without rebuilding the structure."""
         self.logger.info(f"Reloading edge bounds from: {path}")
-        bounds_df = _read_bounds_file(path)
-        self.bounds = EdgeBounds(
-            edge_index=self.edge_index,
-            node_index=self.node_index,
-            bounds_df=bounds_df,
-        )
-        self.logger.info(self.bounds.summary())
+        self._set_bounds(_read_bounds_file(path))
 
     # ------------------------------------------------------------------
     # Structural edge masks  (used by ConstraintEngine)
@@ -774,7 +933,7 @@ class AccountingStructure:
           supply: entity_from in {Process} → entity_to in {Flow, SB}
           use:    entity_from in {Flow, SB} → entity_to in {Process}
 
-        User-defined masks are layered on top by ``_load_masks_file`` (acc-local)
+        User-defined masks are layered on top by ``_set_user_masks`` (acc-local)
         and ``apply_mask_overlay`` (separate mask input kind).
         """
         ei = self.edge_index
@@ -848,20 +1007,21 @@ class AccountingStructure:
                                  name, csv_path)
             self.masks[name] = arr
 
-    def _load_masks_file(self, path: Optional[str]) -> None:
-        """Load acc-local ``masks.csv`` if present and merge into ``self.masks``.
+    def _set_user_masks(self, records: Optional[list]) -> None:
+        """Resolve the acc-local user-mask records (``masks.csv`` rows, or the spec's
+        ``masks``) and merge them into ``self.masks``.
 
-        Called once at the end of ``__init__``. Missing file is a no-op. The names
-        are recorded in ``user_mask_names`` so :meth:`save` can persist them —
-        :meth:`load` never sees ``masks.csv`` again.
+        Called once at the end of the build; ``None`` or no records is a no-op. The
+        names are recorded in ``user_mask_names`` so :meth:`save` can persist them —
+        :meth:`load` never sees the records again.
         """
         self.user_mask_names: list[str] = []
-        if path is None or not os.path.exists(path):
+        if not records:
             return
         from pysuto.masks import MaskRuleSet
 
-        self.logger.info("Loading user masks from: %s", path)
-        resolved = MaskRuleSet.from_csv(path).resolve(
+        self.logger.info("Loading %d user-mask rule(s)", len(records))
+        resolved = MaskRuleSet.from_records(records).resolve(
             self.edge_index, self.node_index
         )
         for name, arr in resolved.items():

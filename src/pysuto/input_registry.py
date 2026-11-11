@@ -37,7 +37,8 @@ Load-bearing files (changes trigger a version bump):
 * ``params/<id>/`` — ``params.csv``, plus ``parents.json`` where a builder
                      records what it was built from (#53)
 * ``acc/<id>/``    — ``root.ods``, ``bounds.ods``, ``rules.ods``, ``masks.csv``
-                     (``masks.csv`` optional; absent file hashes to empty)
+                     (``masks.csv`` optional; absent file hashes to empty), plus
+                     ``acc.json`` where an id declares its acc spec in one file (#57)
 * ``mask/<id>/``   — ``rules.csv`` (separate-kind mask overlay)
 * ``feed/<id>/``   — per-feed declared list, or default = "every file in
   ``current/`` whose suffix is not ``.bib`` / ``.md``".
@@ -75,6 +76,10 @@ _FEED_IGNORE_SUFFIXES = (".bib", ".md")
 # sidecar's vocabulary (#53). Load-bearing only where present, so the ids without
 # one keep their hashes and are not re-versioned.
 PARAMS_PARENTS = "parents.json"
+
+# An acc id may declare its whole structure in one acc spec instead of the four files
+# above (#57, ADR 0046). Load-bearing where present, for the same reason.
+ACC_SPEC = "acc.json"
 
 
 def _sha256_file(path: Path) -> str:
@@ -307,6 +312,8 @@ class InputRegistry:
         names = list(_DEFAULT_LOAD_BEARING[self.kind])
         if self.kind == "params" and (current / PARAMS_PARENTS).is_file():
             names.append(PARAMS_PARENTS)
+        if self.kind == "acc" and (current / ACC_SPEC).is_file():
+            names.append(ACC_SPEC)
         return names
 
     def _resolve_label(

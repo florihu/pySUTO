@@ -27,6 +27,8 @@ User entry points
      missing or wildcard (``*``, empty, ``nan``) cells match everything.
    - For a given ``mask_name``, ``include`` rows are OR-unioned, then
      ``exclude`` rows are AND-NOT'd. Row order within the file is preserved.
+   - The same rows as records (one dict per row) are the ``masks`` entry of an
+     acc spec (:meth:`MaskRuleSet.from_records`).
 
 2. **Python API** — :meth:`AccountingStructure.register_mask` accepts a raw
    boolean array, or a callable receiving the expanded edge index and returning
@@ -98,12 +100,20 @@ class MaskRuleSet:
 
     @classmethod
     def from_csv(cls, path: Union[str, Path]) -> "MaskRuleSet":
-        df = pd.read_csv(path, dtype=str, comment="#").fillna("*")
+        return cls.from_records(read_masks_csv(path), source=str(path))
+
+    @classmethod
+    def from_records(cls, records: list[dict], source: str = "acc spec") -> "MaskRuleSet":
+        """Rules from ``masks.csv``-shaped records, one dict per row (the ``masks`` entry
+        of an acc spec). An absent or wildcard cell matches everything."""
+        if not records:
+            return cls([])
+        df = pd.DataFrame(records).fillna("*")
         required = {"mask_name", "logic"}
         missing = required - set(df.columns)
         if missing:
             raise ValueError(
-                f"masks CSV {path!r} is missing required columns: {sorted(missing)}. "
+                f"masks {source!r} is missing required columns: {sorted(missing)}. "
                 f"Required: mask_name, logic; optional: {list(_SELECTOR_COLS)}"
             )
 
@@ -115,7 +125,7 @@ class MaskRuleSet:
             logic = str(row["logic"]).strip().lower()
             if logic not in ("include", "exclude"):
                 raise ValueError(
-                    f"masks CSV {path!r} row {i}: logic must be 'include' or 'exclude', got {logic!r}"
+                    f"masks {source!r} row {i}: logic must be 'include' or 'exclude', got {logic!r}"
                 )
             selectors = {
                 col: str(row.get(col, "*")).strip()
@@ -193,6 +203,11 @@ def coerce_mask(
             f"register_mask({name!r}): expected shape ({n_edges},), got {out.shape}"
         )
     return out
+
+
+def read_masks_csv(path: Union[str, Path]) -> list[dict]:
+    """``masks.csv`` as records: one dict per row, every cell a string, ``*`` where blank."""
+    return pd.read_csv(path, dtype=str, comment="#").fillna("*").to_dict("records")
 
 
 def load_masks_csv(
