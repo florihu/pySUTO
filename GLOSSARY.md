@@ -1302,3 +1302,41 @@ term in the Stage-2 FlatPrior (imputed edges). See
 **Flagged ambiguity — "row".** Three distinct meanings live in this codebase: (1) **ROW** the
 region / the `row` mask; (2) a DataFrame row; (3) a constraint `row_meta` row. In feed, mask and
 penalty contexts, "row" always means **ROW** (Rest of World).
+
+## Facility-level vocabulary
+
+Vocabulary of the facility-level extension of the account (REMASS second half; agreed 2026-11-10,
+nothing built yet). The country × sector account of the copper case is unchanged — the facility level
+nests under it.
+
+**Facility** — one physical site with a mass balance of its own: a mine, a smelter, a refinery. A
+facility is a **region** nested in its country (Region = the geography of a node), so a facility
+node is an ordinary `(sector, entity, region)` triple and a transfer between two facilities is an
+ordinary use edge. _Avoid_: "company" (a facility's owner, not the site); "asset" (S&P's and
+Climate TRACE's word — it also names a financial stake); "plant" (excludes mines).
+
+**Remainder facility** — the one facility per country × sector that carries the share of the
+country's flow no registered facility covers. _Avoid_: "other", "unallocated"; "residual" (a soft
+row's slack).
+
+**Nesting row** — the sum row that ties a country × sector flow to the sum of its facilities' flows,
+remainder facility included; the country × sector flow is the reconciled value of the country
+account, not an observation. _Avoid_: "control total" (removed, ADR 0006); "scale total" (a soft
+sum whose RHS is an input).
+
+**Owner share** — a company's percentage interest in a facility in one year; a facility's shares sum
+to 100 %. _Avoid_: "ownership" (the retired writer-scope sense); "stake".
+
+**Operator** — the company running a facility in one year, one per facility, whatever its owner
+share. _Avoid_: "owner" for the operator.
+
+**Company-level view** — an aggregation of facility flows by owner share or by operator, the way the
+country level aggregates nodes by region; a derived view, never a node of the account. _Avoid_:
+"company level" as if companies were nodes; "company account".
+
+**Transport link** — one routed segment of an edge between two facilities, or between a facility and
+a border crossing, with a mode (rail, road, pipeline, sea) and, where a statistic exists, a
+throughput; a **route** is the ordered chain of links an edge takes. Routing is a derived view on
+the reconciled edges, like the PIOT on the PSUT (ADR 0037). _Avoid_: "transport infrastructure"
+for one link; "hub" (a region whose trade is re-exported — see re-export netting); "node" for a
+port (a port is not a node of the account).

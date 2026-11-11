@@ -1,0 +1,963 @@
+"""
+imp.py
+======
+``ImpDiagnostic`` — Stage 2 diagnostic suite.
+
+Per-step F_root/σ distributions (log scale), coverage and fill-count
+evolution, TimeImputer timeseries.
+"""
+
+from __future__ import annotations
+
+import os
+from typing import Any, Optional
+
+import numpy as np
+import pandas as pd
+
+from ._plot import _C, _grouped_box_grid, _savefig
+
+
+def ownership_violations(log_df: pd.DataFrame, edge_meta: pd.DataFrame) -> pd.DataFrame:
+    """Imputation-log rows that break the Trade↔Network ownership partition (ADR 0010).
+
+    The partition is explicit and structural: the NetworkImputer writes **only**
+    same-region edges (its ``_w`` same-region guard); the TradeImputer writes
+    **only** cross-region ``Flow→Process`` CC edges. A clean run therefore has
+    *no*:
+
+      * cross-region edge filled by a ``network_*`` method, nor
+      * same-region edge filled by ``trade_seed``.
+
+    Returns the offending rows (columns ``edge_id, method, from_region,
+    to_region``); an empty frame means the partition held. Read-only — intended
+    as a post-run assertion after :meth:`ImputationEngine.run`.
+    """
+    cols = ["edge_id", "method", "from_region", "to_region"]
+    if log_df is None or len(log_df) == 0:
+        return pd.DataFrame(columns=cols)
+    em = edge_meta[["edge_id", "from_region", "to_region"]]
+    df = log_df[["edge_id", "method"]].merge(em, on="edge_id", how="left")
+    cross  = df["from_region"].astype(str) != df["to_region"].astype(str)
+    method = df["method"].astype(str)
+    bad = (cross & method.str.startswith("network_")) | \
+          (~cross & method.str.startswith("trade_seed"))
+    return df.loc[bad, cols].reset_index(drop=True)
+
+
+class ImpDiagnostic:
+    """
+    Per-step imputation diagnostics for Stage 2 of the pySUTO pipeline.
+
+    Produces two figures:
+
+    Figure 1 — 2×2 panel  (<label>_imputation_steps.png)
+        [0,0]  F_root distribution per step (log scale, overlapping histograms)
+        [0,1]  Coverage count per step (# finite edges at each pipeline step)
+        [1,0]  CV (σ/|f|) distribution per step (log scale)
+        [1,1]  Count of edges imputed per step
+
+    Figure 2 — σ-by-method boxplot  (<label>_imputation_sigma_box.png)
+        Single-panel log boxplot grouped by log["method"], with a leftmost
+        "covered" baseline box (Stage 2a observed σ before any imputation).
+        Outliers shown as red dots. n=… annotation above each box.
+
+    Figure 2b — CV-by-method boxplot  (<label>_imputation_cv_box.png)
+        Mirror of fig 2 with linear y-axis and CV (σ/|f|) instead of σ.
+
+    Figure 3 — timeseries  (<label>_imputation_timeseries.png)
+        Up to 6 panels showing time-series of TimeImputer-filled flows,
+        distinguishing raw (feed-covered) from imputed points.
+        Only produced when acc_struct is provided.
+
+    Parameters
+    ----------
+    agg_result : AggregationResult
+        Result after ImputationEngine.run(). Must have .imputation_log set.
+    acc_struct : optional
+        AccountingStructure — required for Figure 2 (timeseries). If None,
+        Figure 2 is skipped.
+    label : str
+        Optional label for figure titles and output filenames.
+    """
+
+    _TIME_METHODS = {"time_linear", "time_mean"}
+
+    # Valuation panels for the sector/region |f| boxplots (one column each).
+    _BOX_VALUATIONS = ("Mass", "CC")
+
+    # method label → palette key used by both boxplots and step coloring.
+    _METHOD_COLORS = {
+        "covered":                "grey",
+        "parametric":             "blue",
+        "parametric_capped":      "red",
+        "formula":                "green",
+        "formula_clipped":        "orange",
+        "formula_capped":         "red",
+        "formula_clipped_capped": "red",
+        "time_linear":            "purple",
+        "time_mean":              "purple",
+        "locf":                   "navy",
+        "nocb":                   "navy",
+        "flat_prior":             "red",
+    }
+
+    # imputer_id → short token used in the canonical step id (sN <short>·pP).
+    _IMPUTER_SHORT = {
+        "FormulaImputer":    "formula",
+        "ParametricImputer": "param",
+        "TimeImputer":       "time",
+        "FlatPriorImputer":  "flat",
+    }
+
+    def __init__(self, agg_result, acc_struct=None, label: str = "",
+                 year: str | None = "1995") -> None:
+        self.agg_result = agg_result
+        self.acc_struct = acc_struct
+        self.label      = label
+        self.year       = year
+        self._log_df    = agg_result.imputation_log.as_dataframe()
+        # Canonical short step id (sN <imputer>·pP) shared by every panel and
+        # boxplot. Built before the snapshots/colour map, which both consume it.
+        self._step_ids  = self._build_step_ids()
+        self._snapshots = self._build_snapshots()
+        # Single source of truth: snapshot label → matplotlib color.  All
+        # panels (fig 1 a..d, both boxplots) read from this map so step N
+        # always renders in the same colour everywhere.
+        self._step_color = self._build_step_color_map()
+        # Year focus: the distribution panels and the new sector/region
+        # boxplots restrict to a single year (over edge_id order). Engages only
+        # when acc_struct exposes per-edge times AND ≥1 edge matches the year;
+        # otherwise pool all years. ``_fig3_timeseries`` deliberately ignores
+        # this (it stays multi-year by design).
+        self._year_mask, self._year_ids = self._build_year_filter()
+        self._year_suffix = f" ({self.year})" if self._year_mask is not None else ""
+
+    def _build_year_filter(self):
+        """Return (mask, edge_id_set) restricting to ``self.year``; (None, None)
+        when no acc_struct, no year, or the year is absent from the data."""
+        if self.acc_struct is None or self.year is None:
+            return None, None
+        ei = self.acc_struct.edge_index.sort_values("edge_id")
+        mask = (ei["time"].astype(str) == str(self.year)).to_numpy()
+        if not mask.any():
+            return None, None
+        ids = set(ei["edge_id"].to_numpy()[mask].tolist())
+        return mask, ids
+
+    def _year_log(self):
+        """Imputation log restricted to the active year's edges (or full)."""
+        if self._year_ids is None:
+            return self._log_df
+        return self._log_df[self._log_df["edge_id"].isin(self._year_ids)]
+
+    @classmethod
+    def from_saved(
+        cls,
+        run_id: str,
+        storage_dir: str = "data/proc/imp",
+        acc_struct=None,
+        label: str = "",
+    ) -> "ImpDiagnostic":
+        """
+        Load an imputation run from ImputationRunRegistry and construct
+        ImpDiagnostic. ``run_id`` must be a registered run in ``storage_dir``.
+        """
+        from pysuto.registry import ImputationRunRegistry
+        registry = ImputationRunRegistry(storage_dir=storage_dir)
+        agg      = registry.load(run_id)
+        return cls(agg, acc_struct=acc_struct, label=label or run_id)
+
+    # ------------------------------------------------------------------
+    # Public interface
+    # ------------------------------------------------------------------
+
+    def plot(
+        self,
+        odir: str | None = None,
+        show: bool = True,
+        dpi:  int  = 150,
+    ) -> list[str]:
+        """Produce and optionally save the three diagnostic figures."""
+        import matplotlib.pyplot as plt
+
+        paths = []
+
+        # Figure 1 — per-step trajectories (2×2)
+        fig1 = self._fig1_steps()
+        if odir is not None:
+            p = _savefig(fig1, os.path.join(odir, "imputation_steps.png"), dpi=dpi)
+            paths.append(p)
+            print(f"   Imputation step diagnostics → {p}  ✓")
+        if show:
+            plt.show()
+        plt.close(fig1)
+
+        # Figure 2 — σ-by-method boxplot (1×1)
+        fig2 = self._fig2_sigma_box()
+        if fig2 is not None:
+            if odir is not None:
+                p = _savefig(fig2, os.path.join(odir, "imputation_sigma_box.png"), dpi=dpi)
+                paths.append(p)
+                print(f"   Imputation σ boxplot       → {p}  ✓")
+            if show:
+                plt.show()
+            plt.close(fig2)
+
+        # Figure 2b — CV-by-method boxplot (1×1, parallel to σ box)
+        fig_cv = self._fig_cv_box()
+        if fig_cv is not None:
+            if odir is not None:
+                p = _savefig(fig_cv, os.path.join(odir, "imputation_cv_box.png"), dpi=dpi)
+                paths.append(p)
+                print(f"   Imputation CV boxplot      → {p}  ✓")
+            if show:
+                plt.show()
+            plt.close(fig_cv)
+
+        # Figures 4a–d — sector/region |f| boxplots for the focus year.
+        # Each returns None when edge metadata / year data is unavailable.
+        for fn, fname in (
+            (self._fig_box_from_sector, "imputation_box_from_sector.png"),
+            (self._fig_box_to_sector,   "imputation_box_to_sector.png"),
+            (self._fig_box_from_region, "imputation_box_from_region.png"),
+            (self._fig_box_to_region,   "imputation_box_to_region.png"),
+        ):
+            figb = fn()
+            if figb is None:
+                continue
+            if odir is not None:
+                p = _savefig(figb, os.path.join(odir, fname), dpi=dpi)
+                paths.append(p)
+                print(f"   Imputation |f| boxplot     → {p}  ✓")
+            if show:
+                plt.show()
+            plt.close(figb)
+
+        # Figure 3 — TimeImputer timeseries (n×3, optional)
+        if self.acc_struct is not None:
+            fig3 = self._fig3_timeseries()
+            if fig3 is not None:
+                if odir is not None:
+                    p = _savefig(fig3, os.path.join(odir, "imputation_timeseries.png"), dpi=dpi)
+                    paths.append(p)
+                    print(f"   Imputation timeseries      → {p}  ✓")
+                if show:
+                    plt.show()
+                plt.close(fig3)
+
+        # Cross-valuation consistency table (report-only, needs acc_struct)
+        if self.acc_struct is not None:
+            self.cross_valuation_check(odir=odir)
+
+        return paths
+
+    def cross_valuation_check(self, odir: str | None = None,
+                              floor: float = 1e-6) -> pd.DataFrame:
+        """Report-only gate: feed-covered CC/Mass twins where CC > Mass.
+
+        Pairs every edge address (from_id, to_id, time) across its two
+        valuations; where BOTH are feed-covered, copper content exceeding gross
+        mass is physically impossible (implied conc > 1) and marks inconsistent
+        observations (e.g. a mapped self-trade Mass next to a production-scale
+        CC — the China matte case). No data is mutated; the offending pairs are
+        returned, written to ``cross_valuation_check.csv`` when ``odir`` is
+        given, and announced loudly. ``floor`` suppresses ~0-vs-0 noise pairs.
+        """
+        cols = ["from_sector", "from_region", "to_sector", "to_region", "time",
+                "f_mass", "sigma_mass", "f_cc", "sigma_cc", "implied_conc"]
+        ni = getattr(self.acc_struct, "node_index", None)
+        if self.acc_struct is None or ni is None or \
+                getattr(self.acc_struct, "edge_index", None) is None:
+            return pd.DataFrame(columns=cols)
+        agg = self.agg_result
+        ei = self.acc_struct.edge_index[["edge_id", "from_id", "to_id",
+                                         "time", "valuation"]].copy()
+        cov = pd.Series(np.asarray(agg.coverage, dtype=bool),
+                        index=np.arange(len(agg.f_agg)))
+        ei["covered"] = cov.reindex(ei["edge_id"]).to_numpy()
+        ei["f"] = np.asarray(agg.f_agg)[ei["edge_id"].to_numpy()]
+        ei["sigma"] = np.asarray(agg.sigma_agg)[ei["edge_id"].to_numpy()]
+        mass = ei[ei["valuation"] == "Mass"]
+        cc = ei[ei["valuation"] == "CC"]
+        pair = mass.merge(cc, on=["from_id", "to_id", "time"],
+                          suffixes=("_mass", "_cc"))
+        both = pair[pair["covered_mass"] & pair["covered_cc"]]
+        bad = both[(both["f_cc"] > both["f_mass"]) & (both["f_cc"] > floor)]
+        out = pd.DataFrame({
+            "from_sector": ni.loc[bad["from_id"], "sector"].to_numpy(),
+            "from_region": ni.loc[bad["from_id"], "region"].to_numpy(),
+            "to_sector":   ni.loc[bad["to_id"], "sector"].to_numpy(),
+            "to_region":   ni.loc[bad["to_id"], "region"].to_numpy(),
+            "time":        bad["time"].to_numpy(),
+            "f_mass":      bad["f_mass"].to_numpy(),
+            "sigma_mass":  bad["sigma_mass"].to_numpy(),
+            "f_cc":        bad["f_cc"].to_numpy(),
+            "sigma_cc":    bad["sigma_cc"].to_numpy(),
+            "implied_conc": (bad["f_cc"] / bad["f_mass"].replace(0.0, np.nan)).to_numpy(),
+        }).sort_values("implied_conc", ascending=False).reset_index(drop=True)
+        if odir is not None:
+            p = os.path.join(odir, "cross_valuation_check.csv")
+            out.to_csv(p, index=False)
+            print(f"   Cross-valuation check      → {p}  "
+                  f"({'CLEAN' if out.empty else f'{len(out)} VIOLATIONS'})")
+        if not out.empty:
+            print(f"   ⚠  cross-valuation check: {len(out)} covered CC/Mass "
+                  f"pair(s) with CC > Mass (physically impossible) — worst "
+                  f"implied conc {out['implied_conc'].max():.1f}×")
+        return out
+
+    def summary(self) -> str:
+        """Print and return a text summary of the imputation pipeline."""
+        log_df  = self._log_df
+        agg     = self.agg_result
+        n_edges = len(agg.f_agg)
+        n_final = int(np.isfinite(agg.f_agg).sum())
+        n_imp   = len(log_df)
+        n_miss  = n_edges - n_final
+
+        lines = [
+            f"{'─'*60}",
+            f"  IMPUTATION DIAGNOSTICS{' — ' + self.label if self.label else ''}",
+            f"{'─'*60}",
+            f"  Root edges total       : {n_edges:>8,}",
+            f"  Covered after pipeline : {n_final:>8,}  ({n_final/n_edges*100:.1f} %)",
+            f"  Filled by imputers     : {n_imp:>8,}  ({n_imp/n_edges*100:.1f} %)",
+            f"  Still missing          : {n_miss:>8,}  ({n_miss/n_edges*100:.1f} %)",
+        ]
+
+        if not log_df.empty:
+            lines.append(f"\n  Fills per step:")
+            for step, grp in log_df.groupby("step"):
+                dom = grp["method"].value_counts().index[0]
+                sid = self._step_label(int(step))
+                lines.append(f"    {sid:<18}  {dom:<22}  {len(grp):>6,} fills")
+
+        lines.append(f"{'─'*60}")
+        text = "\n".join(lines)
+        print(text)
+        return text
+
+    # ------------------------------------------------------------------
+    # Snapshot reconstruction
+    # ------------------------------------------------------------------
+
+    def _build_snapshots(self) -> list[tuple[str, np.ndarray, np.ndarray]]:
+        """Reconstruct per-step (f, sigma) arrays from ImputationLog."""
+        log_df = self._log_df
+        if log_df.empty:
+            f = self.agg_result.f_agg
+            s = self.agg_result.sigma_agg
+            return [("pre", f.copy(), s.copy())]
+
+        imputed_ids = log_df["edge_id"].values
+
+        f0 = self.agg_result.f_agg.copy()
+        s0 = self.agg_result.sigma_agg.copy()
+        f0[imputed_ids] = np.nan
+        s0[imputed_ids] = np.nan
+
+        snapshots = [("pre", f0.copy(), s0.copy())]
+        f_curr = f0.copy()
+        s_curr = s0.copy()
+
+        for step in sorted(log_df["step"].unique()):
+            mask   = log_df["step"] == step
+            ids    = log_df.loc[mask, "edge_id"].values
+            f_curr[ids] = log_df.loc[mask, "f_after"].values
+            s_curr[ids] = log_df.loc[mask, "sigma_after"].values
+            snapshots.append((self._step_label(int(step)), f_curr.copy(), s_curr.copy()))
+
+        return snapshots
+
+    def _build_step_ids(self) -> dict[int, str]:
+        """Map each committed step to a short descriptive id ``sN <short>·pP``.
+
+        ``<short>`` is the imputer token from :pyattr:`_IMPUTER_SHORT` (falling
+        back to the id minus its ``Imputer`` suffix); ``·pP`` is appended only
+        for cascade steps (those with a ``pass``). When the log carries no
+        ``imputer_id`` (e.g. minimal test fixtures), fall back to the step's
+        dominant method.
+        """
+        if self._log_df.empty:
+            return {}
+        ids: dict[int, str] = {}
+        for step, grp in self._log_df.groupby("step"):
+            step = int(step)
+            imp = grp["imputer_id"].dropna()
+            if imp.empty:
+                ids[step] = f"s{step} {self._step_dominant_method(step)}"
+                continue
+            raw = str(imp.iloc[0])
+            short = self._IMPUTER_SHORT.get(raw) or raw.removesuffix("Imputer").lower()
+            pass_no = grp["pass"].dropna()
+            if not pass_no.empty:
+                ids[step] = f"s{step} {short}·p{int(pass_no.iloc[0])}"
+            else:
+                ids[step] = f"s{step} {short}"
+        return ids
+
+    def _step_label(self, step: int) -> str:
+        """Canonical step id for ``step`` (falls back to ``sN``)."""
+        return self._step_ids.get(int(step), f"s{int(step)}")
+
+    def _step_dominant_method(self, step: int) -> str:
+        """Most-common method label across all fills for one pipeline step."""
+        if self._log_df.empty:
+            return "covered"
+        sub = self._log_df[self._log_df["step"] == step]
+        if sub.empty:
+            return "covered"
+        return str(sub["method"].value_counts().index[0])
+
+    def _build_step_color_map(self) -> dict[str, str]:
+        """
+        Map snapshot labels to matplotlib colors via each step's dominant
+        method. The "pre" snapshot is grey; everything else inherits from
+        ``_METHOD_COLORS``.
+        """
+        mapping: dict[str, str] = {"pre": _C["grey"]}
+        for step, label in self._step_ids.items():
+            method = self._step_dominant_method(step)
+            mapping[label] = _C[self._METHOD_COLORS.get(method, "grey")]
+        return mapping
+
+    # ------------------------------------------------------------------
+    # Figure 1 — 2×2 step panels
+    # ------------------------------------------------------------------
+
+    def _fig1_steps(self):
+        import matplotlib.pyplot as plt
+
+        fig, axes = plt.subplots(2, 2, figsize=(14, 9))
+        suffix = f" — {self.label}" if self.label else ""
+        fig.suptitle(
+            f"Imputation pipeline — per-step diagnostics{suffix}{self._year_suffix}",
+            fontsize=13, fontweight="bold",
+        )
+        self._panel_f_dist(axes[0, 0])
+        self._panel_coverage(axes[0, 1])
+        self._panel_cv_dist(axes[1, 0])
+        self._panel_imputed_count(axes[1, 1])
+        plt.tight_layout()
+        return fig
+
+    def _panel_f_dist(self, ax) -> None:
+        m = self._year_mask
+        for lbl, f, _ in self._snapshots:
+            fv = f if m is None else f[m]
+            vals = fv[np.isfinite(fv) & (fv > 0)]
+            if not len(vals):
+                continue
+            ax.hist(np.log10(vals), bins=60, alpha=0.45,
+                    color=self._step_color[lbl], label=lbl,
+                    density=True, histtype="stepfilled", edgecolor="none")
+        # The dashed 1995 reference curve is redundant once the whole panel is
+        # already restricted to a single year, so only draw it for the all-year view.
+        if m is None:
+            self._overlay_year_reference(ax, what="f", year="1995")
+        ax.set_title("F_root distribution per step", fontweight="bold")
+        ax.set_xlabel("log₁₀(f)  [log kt]")
+        ax.set_ylabel("density")
+        ax.legend(fontsize=7, framealpha=0.6)
+        ax.grid(axis="y", alpha=0.3)
+
+    def _overlay_year_reference(self, ax, what: str, year: str = "1995") -> None:
+        """Overlay a fully-observed year's raw distribution as a reference curve."""
+        if self.acc_struct is None:
+            return
+        ei = self.acc_struct.edge_index
+        mask_year = (ei["time"].astype(str) == year).to_numpy()
+        if not mask_year.any():
+            return
+        _, f_pre, s_pre = self._snapshots[0]
+        if what == "f":
+            vals = np.abs(f_pre[mask_year])
+            vals = vals[np.isfinite(vals) & (vals > 0)]
+            if not len(vals):
+                return
+            vals = np.log10(vals)
+        elif what == "cv":
+            with np.errstate(divide="ignore", invalid="ignore"):
+                cv = np.where(
+                    np.abs(f_pre[mask_year]) > 0,
+                    s_pre[mask_year] / np.abs(f_pre[mask_year]),
+                    np.nan,
+                )
+            cv = cv[np.isfinite(cv) & (cv > 0)]
+            if not len(cv):
+                return
+            vals = np.log10(cv)
+        else:
+            return
+        ax.hist(vals, bins=60, density=True, histtype="step",
+                color="black", linestyle="--", linewidth=1.4,
+                label=f"ref {year}")
+
+    def _panel_coverage(self, ax) -> None:
+        m       = self._year_mask
+        labels  = [s[0] for s in self._snapshots]
+        counts  = [int(np.isfinite(s[1] if m is None else s[1][m]).sum())
+                   for s in self._snapshots]
+        n_total = len(self._snapshots[0][1]) if m is None else int(m.sum())
+
+        bars = ax.barh(
+            labels, counts,
+            color=[self._step_color[lbl] for lbl in labels],
+            edgecolor="white",
+        )
+        for bar, cnt in zip(bars, counts):
+            ax.text(
+                cnt + n_total * 0.005,
+                bar.get_y() + bar.get_height() / 2,
+                f"{cnt:,}  ({cnt/n_total*100:.1f} %)",
+                va="center", fontsize=8,
+            )
+        ax.set_title("Coverage per step (# finite edges)", fontweight="bold")
+        ax.set_xlabel("# root edges")
+        ax.set_xlim(0, n_total * 1.28)
+        ax.grid(axis="x", alpha=0.3)
+
+    def _panel_cv_dist(self, ax) -> None:
+        """
+        Per-step CV (= σ / |f|) histogram on a log10 axis. CV strips out
+        the magnitude coupling and exposes whether a step actually inflates
+        relative uncertainty. Reference lines at CV = 0.1, 1, 10, 100.
+        """
+        m = self._year_mask
+        for lbl, fv, sv in self._snapshots:
+            if m is not None:
+                fv, sv = fv[m], sv[m]
+            with np.errstate(divide="ignore", invalid="ignore"):
+                cv = np.where(np.abs(fv) > 0, sv / np.abs(fv), np.nan)
+            vals = cv[np.isfinite(cv) & (cv > 0)]
+            if not len(vals):
+                continue
+            ax.hist(np.log10(vals), bins=60, alpha=0.45,
+                    color=self._step_color[lbl], label=lbl,
+                    density=True, histtype="stepfilled", edgecolor="none")
+        for ref in (0.1, 1.0, 10.0, 100.0):
+            ax.axvline(np.log10(ref), color=_C["red"], lw=0.7, ls="--", alpha=0.5)
+        if m is None:
+            self._overlay_year_reference(ax, what="cv", year="1995")
+        ax.set_title("CV (σ/|f|) distribution per step", fontweight="bold")
+        ax.set_xlabel("log₁₀(CV)")
+        ax.set_ylabel("density")
+        ax.legend(fontsize=7, framealpha=0.6)
+        ax.grid(axis="y", alpha=0.3)
+
+    def _panel_imputed_count(self, ax) -> None:
+        log_df = self._year_log()
+        if log_df.empty:
+            ax.text(0.5, 0.5, "No fills recorded",
+                    ha="center", va="center", transform=ax.transAxes)
+            ax.set_title("Fills per step", fontweight="bold")
+            return
+
+        step_counts = log_df.groupby("step").size()
+        steps  = [int(s) for s in step_counts.index]
+        labels = [self._step_label(s) for s in steps]
+        counts = step_counts.values
+        # Read from the shared step→color map; identical to the other
+        # panels, so step N renders in the same colour everywhere.
+        colors = [self._step_color.get(lbl, _C["grey"]) for lbl in labels]
+
+        bars = ax.bar(
+            labels, counts,
+            color=colors,
+            edgecolor="white",
+        )
+        for bar, cnt in zip(bars, counts):
+            ax.text(
+                bar.get_x() + bar.get_width() / 2,
+                bar.get_height() * 1.05,
+                f"{cnt:,}", ha="center", va="bottom", fontsize=8,
+            )
+        ax.set_yscale("log")
+        ax.set_title("Edges imputed per step", fontweight="bold")
+        ax.set_xlabel("pipeline step")
+        ax.set_ylabel("# edges filled  (log₁₀)")
+        ax.tick_params(axis="x", labelrotation=30)
+        ax.grid(axis="y", alpha=0.3)
+
+    # ------------------------------------------------------------------
+    # Figure 2 — σ-by-method log boxplot
+    # ------------------------------------------------------------------
+
+    def _fig2_sigma_box(self):
+        """
+        Single-panel σ boxplot grouped by pipeline step from the imputation
+        log, with a leftmost "covered" baseline box (Stage 2a observed σ before
+        any imputation). Outliers shown as red dots. Logarithmic y-axis.
+        """
+        import matplotlib.pyplot as plt
+
+        log_df = self._year_log()
+        groups: list[tuple[str, np.ndarray]] = []
+
+        # 1. Covered baseline = Stage-2a observed σ (pre-snapshot before any fills)
+        if self._snapshots:
+            _, _, s_pre = self._snapshots[0]
+            if self._year_mask is not None:
+                s_pre = s_pre[self._year_mask]
+            covered = s_pre[np.isfinite(s_pre) & (s_pre > 0)]
+            if len(covered):
+                groups.append(("covered", covered))
+
+        # 2. One box per pipeline step in the log (skip empty-σ rows)
+        if not log_df.empty:
+            for step in sorted(log_df["step"].unique()):
+                sub  = log_df[log_df["step"] == step]
+                vals = pd.to_numeric(sub["sigma_after"], errors="coerce").to_numpy()
+                vals = vals[np.isfinite(vals) & (vals > 0)]
+                if len(vals):
+                    groups.append((self._step_label(int(step)), vals))
+
+        if not groups:
+            return None
+
+        fig, ax = plt.subplots(figsize=(max(8, 1.4 * len(groups)), 6))
+        suffix = f" — {self.label}" if self.label else ""
+        fig.suptitle(
+            f"σ by pipeline step{suffix}{self._year_suffix}",
+            fontsize=13, fontweight="bold",
+        )
+
+        labels  = [g[0] for g in groups]
+        data    = [np.log10(g[1]) for g in groups]
+        ns      = [len(g[1]) for g in groups]
+        colors  = [
+            _C[self._METHOD_COLORS["covered"]] if lbl == "covered"
+            else self._step_color.get(lbl, _C["grey"])
+            for lbl in labels
+        ]
+
+        bp = ax.boxplot(
+            data,
+            labels=labels,
+            patch_artist=True,
+            showfliers=True,
+            flierprops=dict(
+                marker="o", markersize=2.5,
+                markerfacecolor=_C["red"], markeredgecolor=_C["red"],
+                alpha=0.5,
+            ),
+            medianprops=dict(color="black", linewidth=1.2),
+        )
+        for patch, color in zip(bp["boxes"], colors):
+            patch.set_facecolor(color)
+            patch.set_alpha(0.55)
+            patch.set_edgecolor("black")
+
+        # Annotate box counts
+        ymax = max(d.max() for d in data)
+        for i, n in enumerate(ns):
+            ax.text(i + 1, ymax + 0.2, f"n={n:,}",
+                    ha="center", va="bottom", fontsize=8)
+
+        ax.set_ylabel("log₁₀(σ)  [log kt]")
+        ax.set_xlabel("pipeline step")
+        ax.tick_params(axis="x", labelrotation=25)
+        ax.grid(axis="y", alpha=0.3)
+
+        plt.tight_layout()
+        return fig
+
+    # ------------------------------------------------------------------
+    # Figure 2b — CV-by-method boxplot (linear, parallel to σ box)
+    # ------------------------------------------------------------------
+
+    def _fig_cv_box(self):
+        """
+        Single-panel CV boxplot grouped by pipeline step from the imputation
+        log, with a leftmost "covered" baseline box (Stage 2a observed CV before
+        any imputation). Linear y-axis.
+        """
+        import matplotlib.pyplot as plt
+
+        log_df = self._year_log()
+        groups: list[tuple[str, np.ndarray]] = []
+
+        # 1. Covered baseline = Stage-2a observed CV (pre-snapshot before fills).
+        if self._snapshots:
+            _, f_pre, s_pre = self._snapshots[0]
+            if self._year_mask is not None:
+                f_pre, s_pre = f_pre[self._year_mask], s_pre[self._year_mask]
+            with np.errstate(divide="ignore", invalid="ignore"):
+                cv_pre = np.where(np.abs(f_pre) > 0, s_pre / np.abs(f_pre), np.nan)
+            covered = cv_pre[np.isfinite(cv_pre) & (cv_pre > 0)]
+            if len(covered):
+                groups.append(("covered", covered))
+
+        # 2. One box per pipeline step in the log.
+        if not log_df.empty:
+            for step in sorted(log_df["step"].unique()):
+                sub    = log_df[log_df["step"] == step]
+                f_vals = pd.to_numeric(sub["f_after"], errors="coerce").to_numpy()
+                s_vals = pd.to_numeric(sub["sigma_after"], errors="coerce").to_numpy()
+                with np.errstate(divide="ignore", invalid="ignore"):
+                    cv = np.where(np.abs(f_vals) > 0, s_vals / np.abs(f_vals), np.nan)
+                cv = cv[np.isfinite(cv) & (cv > 0)]
+                if len(cv):
+                    groups.append((self._step_label(int(step)), cv))
+
+        if not groups:
+            return None
+
+        fig, ax = plt.subplots(figsize=(max(8, 1.4 * len(groups)), 6))
+        suffix = f" — {self.label}" if self.label else ""
+        fig.suptitle(
+            f"CV by pipeline step{suffix}{self._year_suffix}",
+            fontsize=13, fontweight="bold",
+        )
+
+        labels  = [g[0] for g in groups]
+        data    = [g[1] for g in groups]
+        ns      = [len(g[1]) for g in groups]
+        colors  = [
+            _C[self._METHOD_COLORS["covered"]] if lbl == "covered"
+            else self._step_color.get(lbl, _C["grey"])
+            for lbl in labels
+        ]
+
+        bp = ax.boxplot(
+            data,
+            labels=labels,
+            patch_artist=True,
+            showfliers=True,
+            flierprops=dict(
+                marker="o", markersize=2.5,
+                markerfacecolor=_C["red"], markeredgecolor=_C["red"],
+                alpha=0.5,
+            ),
+            medianprops=dict(color="black", linewidth=1.2),
+        )
+        for patch, color in zip(bp["boxes"], colors):
+            patch.set_facecolor(color)
+            patch.set_alpha(0.55)
+            patch.set_edgecolor("black")
+
+        ymax = max(d.max() for d in data)
+        for i, n in enumerate(ns):
+            ax.text(i + 1, ymax * 1.02, f"n={n:,}",
+                    ha="center", va="bottom", fontsize=8)
+
+        ax.set_ylabel("CV (σ/|f|)")
+        ax.set_xlabel("pipeline step")
+        ax.tick_params(axis="x", labelrotation=25)
+        ax.grid(axis="y", alpha=0.3)
+
+        plt.tight_layout()
+        return fig
+
+    # ------------------------------------------------------------------
+    # Figures 4a–d — sector/region |f| boxplots (focus year, valuation panels)
+    # ------------------------------------------------------------------
+
+    def _fig_box_by(self, group_col: str, title_suffix: str,
+                    stack_valuations_as_rows: bool = False):
+        """Valuation-panelled boxplot of log₁₀|f_agg| grouped by an edge-meta
+        column (e.g. ``from_sector``), restricted to the focus year. The
+        valuations in :pyattr:`_BOX_VALUATIONS` are laid out as columns by
+        default, or stacked as rows when ``stack_valuations_as_rows`` is set
+        (used for region plots, whose long labels need the full figure width).
+        Categories share a global median-sorted x-order. Returns ``None`` when
+        edge metadata or year data is unavailable.
+        """
+        if self.acc_struct is None or self.year is None:
+            return None
+        try:
+            em = self.acc_struct.edge_meta.sort_values("edge_id").reset_index(drop=True)
+        except Exception:
+            return None
+        if group_col not in em.columns:
+            return None
+
+        eid = em["edge_id"].to_numpy()
+        f   = np.abs(np.asarray(self.agg_result.f_agg, dtype=float))[eid]
+        yr  = em["time"].astype(str).to_numpy() == str(self.year)
+        if not yr.any():
+            return None
+        val = em["valuation"].astype(str).to_numpy()
+        lbl = em[group_col].astype(str).to_numpy()
+
+        cells: dict = {}
+        has_data = False
+        yr_key = str(self.year)
+        for V in self._BOX_VALUATIONS:
+            m = yr & (val == V) & np.isfinite(f) & (f > 0)
+            with np.errstate(divide="ignore", invalid="ignore"):
+                logf = np.log10(f[m])
+            # Key the cell so the valuation is on the requested axis.
+            key = (V, yr_key) if stack_valuations_as_rows else (yr_key, V)
+            cells[key] = (lbl[m], logf)
+            has_data = has_data or bool(m.any())
+        if not has_data:
+            return None
+
+        if stack_valuations_as_rows:
+            row_keys, col_keys = list(self._BOX_VALUATIONS), [yr_key]
+        else:
+            row_keys, col_keys = [yr_key], list(self._BOX_VALUATIONS)
+
+        label_suffix = f" · {self.label}" if self.label else ""
+        return _grouped_box_grid(
+            cells=cells,
+            row_keys=row_keys,
+            col_keys=col_keys,
+            group_label=title_suffix,
+            y_label="log₁₀ |f|",
+            suptitle=f"|f| by {title_suffix} — {self.year}{label_suffix}",
+            cell_title=lambda a, b: f"{self.year} · {a if a in self._BOX_VALUATIONS else b}",
+        )
+
+    def _fig_box_from_sector(self):
+        return self._fig_box_by("from_sector", "from-sector")
+
+    def _fig_box_to_sector(self):
+        return self._fig_box_by("to_sector", "to-sector")
+
+    def _fig_box_from_region(self):
+        return self._fig_box_by("from_region", "from-region",
+                                stack_valuations_as_rows=True)
+
+    def _fig_box_to_region(self):
+        return self._fig_box_by("to_region", "to-region",
+                                stack_valuations_as_rows=True)
+
+    # ------------------------------------------------------------------
+    # Figure 3 — timeseries (requires acc_struct)
+    # ------------------------------------------------------------------
+
+    def _fig3_timeseries(self):
+        import matplotlib.pyplot as plt
+
+        acc     = self.acc_struct
+        log_df  = self._log_df
+        time_df = log_df[log_df["method"].isin(self._TIME_METHODS)].copy()
+        if time_df.empty:
+            return None
+
+        ei      = acc.edge_index.set_index("edge_id")
+        time_df = time_df.join(ei[["from_id", "to_id", "time", "valuation"]], on="edge_id")
+
+        # Rank groups by mean |f_after|, then pick top-6 that have ≥1
+        # bilateral-valid imputed point (avoids showing empty panels).
+        group_keys = ["from_id", "to_id", "valuation"]
+        grp_mean   = (
+            time_df.groupby(group_keys)["f_after"]
+            .apply(lambda x: np.abs(x).mean())
+            .sort_values(ascending=False)
+        )
+        if grp_mean.empty:
+            return None
+
+        try:
+            time_order = {t: float(t) for t in acc.time_range}
+        except (ValueError, TypeError):
+            time_order = {t: i for i, t in enumerate(acc.time_range)}
+
+        agg_f        = self.agg_result.f_agg
+        imputed_set  = set(log_df["edge_id"].values)
+        time_imp_set = set(time_df["edge_id"].values)
+
+        def _has_valid_imputed(key):
+            from_id, to_id, valuation = key
+            grp = ei[
+                (ei["from_id"] == from_id) &
+                (ei["to_id"]   == to_id)   &
+                (ei["valuation"] == valuation)
+            ]
+            raw_ts: set[float] = set()
+            for eid, row in grp.iterrows():
+                f_val = agg_f[eid]
+                if np.isfinite(f_val) and eid not in imputed_set:
+                    raw_ts.add(time_order.get(str(row["time"]), 0))
+            for eid, row in grp.iterrows():
+                if eid not in time_imp_set:
+                    continue
+                f_val = agg_f[eid]
+                if not np.isfinite(f_val):
+                    continue
+                t_num = time_order.get(str(row["time"]), 0)
+                if (any((t_num - d) in raw_ts for d in (1, 2, 3)) and
+                        any((t_num + d) in raw_ts for d in (1, 2, 3))):
+                    return True
+            return False
+
+        top_groups = []
+        for key in grp_mean.index:
+            if _has_valid_imputed(key):
+                top_groups.append(key)
+                if len(top_groups) == 6:
+                    break
+
+        if not top_groups:
+            return None
+
+        n     = len(top_groups)
+        ncols = min(3, n)
+        nrows = (n + ncols - 1) // ncols
+        fig, axes = plt.subplots(nrows, ncols, figsize=(6 * ncols, 4 * nrows), squeeze=False)
+        suffix = f" — {self.label}" if self.label else ""
+        fig.suptitle(f"TimeImputer timeseries{suffix}", fontsize=13, fontweight="bold")
+
+        for panel_idx, key in enumerate(top_groups):
+            ax = axes[panel_idx // ncols][panel_idx % ncols]
+            from_id, to_id, valuation = key
+
+            group_edges = ei[
+                (ei["from_id"] == from_id) &
+                (ei["to_id"]   == to_id)   &
+                (ei["valuation"] == valuation)
+            ]
+
+            # Pass 1: collect raw observations and candidate imputed entries.
+            raw_t_set: set[float] = set()
+            raw_t, raw_f = [], []
+            imp_candidates: list[tuple[float, float]] = []
+            for eid, row in group_edges.iterrows():
+                f_val = agg_f[eid]
+                if not np.isfinite(f_val):
+                    continue
+                t_num = time_order.get(str(row["time"]), 0)
+                if eid in time_imp_set:
+                    imp_candidates.append((t_num, f_val))
+                elif eid not in imputed_set:
+                    raw_t_set.add(t_num)
+                    raw_t.append(t_num)
+                    raw_f.append(f_val)
+
+            # Pass 2: only keep imputed points with ≥1 raw obs in [t-3,t-1]
+            # AND ≥1 raw obs in [t+1,t+3] — i.e. true bilateral gap fills.
+            imp_t, imp_f = [], []
+            for t_num, f_val in imp_candidates:
+                has_before = any((t_num - d) in raw_t_set for d in (1, 2, 3))
+                has_after  = any((t_num + d) in raw_t_set for d in (1, 2, 3))
+                if has_before and has_after:
+                    imp_t.append(t_num)
+                    imp_f.append(f_val)
+
+            if raw_t:
+                ax.scatter(raw_t, raw_f, s=30, color=_C["grey"],
+                           label="raw", zorder=3, alpha=0.85)
+            if imp_t:
+                ax.scatter(imp_t, imp_f, s=50, marker="x", color=_C["orange"],
+                           label="imputed", zorder=4, linewidths=1.8)
+
+            n_from = acc.decode_node(int(from_id))
+            n_to   = acc.decode_node(int(to_id))
+            ax.set_title(
+                f"{n_from[0]}/{n_from[2]} → {n_to[0]}/{n_to[2]}  [{valuation}]",
+                fontsize=8, fontweight="bold",
+            )
+            ax.set_xlabel("time")
+            ax.set_ylabel("f (kt)")
+            ax.legend(fontsize=7)
+            ax.grid(alpha=0.3)
+
+        for idx in range(n, nrows * ncols):
+            axes[idx // ncols][idx % ncols].set_visible(False)
+
+        plt.tight_layout()
+        return fig

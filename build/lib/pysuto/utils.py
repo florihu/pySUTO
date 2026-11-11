@@ -1,0 +1,452 @@
+
+#import polars as pl
+
+import os
+import inspect
+from pathlib import Path
+import pandas as pd
+import logging
+import re
+import numpy as np
+import matplotlib.pyplot as plt
+import datetime
+import json
+import warnings
+from datetime import date, datetime
+import enum
+import dataclasses
+import math
+
+from typing import Dict, List, Optional, Any
+ 
+
+_TS_RE = re.compile(r'(\d{8}_\d{6})')
+
+
+def get_path(name):
+    '''
+    Get the path of the specified file or folder within the root directory.
+    Searches recursively starting from the directory of the current script.
+    
+    Parameters:
+    - name: str, the name of the file or folder to search for.
+
+    Returns:
+    - str or None: the full path to the file or folder if found, otherwise None.
+    '''
+    # Set the root directory to the directory where this script is located
+    root_directory = 'data/input/raw'
+    # Convert the root directory to a Path object for easier manipulation
+    root_directory = Path(root_directory)
+    
+    # Use rglob to recursively search for files and directories with the given name
+    for path in root_directory.rglob(name):
+        return str(path)  # Return the first match as a string
+    
+    # If not found assertion error
+    raise AssertionError(f"File or folder '{name}' not found in '{root_directory}'.")
+
+# def save_fig(name, dpi=600, format='pdf', bbox_inches='tight'):
+
+#     '''
+#     save fig to the fig folder.. distinguish between figs from explo scripts and results scripts
+#     '''
+
+#     base_folder = 'figs'
+#     # Get the calling script’s filename
+#     calling_script = inspect.stack()[1].filename
+#     script_name = os.path.basename(calling_script).replace('.py', '')
+
+#     # if script in explo folder save in fig/explo else in fig/results
+#     if 'test' in calling_script:
+#         base_folder = os.path.join(base_folder, 'explo')
+#     elif 'results' in calling_script:
+#         base_folder = os.path.join(base_folder, 'results')
+
+
+#     path = os.path.join(base_folder, script_name)
+#     if not os.path.exists(path):
+#         os.makedirs(path)
+
+#     file_path = os.path.join(path, name)
+    
+#     # add format to file_path
+#     file_path = file_path + '.' + format
+
+#     plt.savefig(file_path, dpi=dpi, format=format, bbox_inches=bbox_inches)
+#       # Close the figure to free up memory
+
+#     return None
+
+# def save_fig_plotnine(plot, name, w=8, h=6, dpi=600, format='png'):
+#     base_folder = 'fig'
+#     # Get the calling script’s filename
+#     calling_script = inspect.stack()[1].filename
+#     script_name = os.path.basename(calling_script).replace('.py', '')
+
+#     path = os.path.join(base_folder, script_name)
+#     if not os.path.exists(path):
+#         os.makedirs(path)
+
+#     file_path = os.path.join(path, name)
+
+#     plot.save(file_path, format = format, width=w, height=h, dpi=dpi)
+
+
+# def df_to_latex(df, filename, multicolumn=False, longtable=False):
+#     base_folder = 'tab'
+
+#     calling_script = inspect.stack()[1].filename
+#     script_name = os.path.basename(calling_script).replace('.py', '')
+
+#     path = os.path.join(base_folder, script_name)
+#     if not os.path.exists(path):
+#         os.makedirs(path)
+    
+#     # Convert DataFrame to LaTeX table format
+#     latex_table = df.to_latex(float_format="%.2f", multicolumn=multicolumn, longtable=longtable)
+#     # Write LaTeX table to a .tex file
+#     with open(f'{path}/{filename}.tex', 'w') as f:
+#         f.write(latex_table)
+#     return None
+
+# def df_to_gpkg(df, filename, crs):
+#     '''
+#     Save a DataFrame to a GeoPackage file in the data/gpkg folder. given it is a Geodataframe object
+#     '''
+#     base_folder = 'data/int'
+
+#     assert 'geometry' in df.columns, 'The DataFrame must have a geometry column to be saved as a GeoPackage file.'
+#     # transform to gdf
+#     df = gpd.GeoDataFrame(df, geometry='geometry', crs = crs)
+
+#     calling_script = inspect.stack()[1].filename
+#     script_name = os.path.basename(calling_script).replace('.py', '')
+
+#     path = os.path.join(base_folder, script_name)
+#     if not os.path.exists(path):
+#         os.makedirs(path)
+
+#     file_path = os.path.join(path, filename + '.gpkg')
+
+#     df.to_file(file_path, driver='GPKG')
+
+#     return None
+
+# def df_to_csv_int(data, name):
+#     ''' 
+    
+#     Save data to a csv file in the data/int folder.
+#     Parameters:
+#     - data: pd.DataFrame, the data to save.
+#     - name: str, the name of the file to save the data to.
+
+#     Returns:
+#     - None
+
+#     '''
+#     base_folder = r'data\int'
+#     # Get the calling script’s filename
+#      data.to_csv(file_path)
+
+#     return None
+
+
+# def df_to_excel(filename, df, sheet_name):
+#     base_folder = r'data\int'
+#     # Get the calling script’s filename
+#     calling_script = inspect.stack()[1].filename
+#     script_name = os.path.basename(calling_script).replace('.py', '')
+
+#     path = os.path.join(base_folder, script_name)
+#     if not os.path.exists(path):
+#         os.makedirs(path)
+
+#     file_path = os.path.join(path, filename + '.xlsx')
+
+#     # Use 'a' mode if file exists; otherwise, create a new file with 'w' mode.
+#     if os.path.exists(file_path):
+#         mode = 'a'
+#         sheet_option = 'replace'
+#     else:
+#         mode = 'w'
+#         sheet_option = None  # Not needed when creating a new file
+
+#     with pd.ExcelWriter(file_path, engine='openpyxl', mode=mode, if_sheet_exists=sheet_option) as writer:
+#         df.to_excel(writer, sheet_name=sheet_name, index=True)
+calling_script = inspect.stack()[1].filename
+#     script_name = os.path.basename(calling_script).replace('.py', '')
+
+#     path = os.path.join(base_folder, script_name)
+#     if not os.path.exists(path):
+#         os.makedirs(path)
+
+#     file_path = os.path.join(path, name + '.csv')
+
+#     
+def read_concordance_table(path: str):
+    """
+    Reads a concordance table from an Excel file.
+    The file should have a sheet for each dimension with 'Source_name' and 'Base_name' columns.
+    """
+
+    # Read also base classification and check if there are Base_names that do not correspond to the base
+    base_path = r'data\input\conc\base.xlsx'
+    base_df = pd.read_excel(base_path, sheet_name=None)
+
+    # Assign data type
+
+    type_dict = {'Year': int, 'Valuation': str, 'Region': str, 'Sector': str, 'Entity': str}
+
+    assert path.endswith('.xlsx'), f"Expected an .xlsx file, got: {path}"
+    concordance = pd.read_excel(path, sheet_name=None)
+
+    for sheet, df in concordance.items():
+        base = base_df[sheet]
+
+        df = df[['Source_name', 'Base_name']].copy()
+
+        # assert source name and base name columns exist
+        assert 'Source_name' in df.columns, f"'Source_name' column not found in sheet '{sheet}'"
+        assert 'Base_name' in df.columns, f"'Base_name' column not found in sheet '{sheet}'"
+
+        # Convert the columns to the correct data types
+        df['Source_name'] = df['Source_name'].astype(type_dict.get(sheet, str))
+        df['Base_name'] = df['Base_name'].astype(type_dict.get(sheet, str))
+
+        base['Name'] = base['Name'].astype(type_dict.get(sheet, str))
+
+        # Check if there is a Base_name that does not correspond to base Names
+        missing_base_names = set(df['Base_name']) - set(base['Name']) # compare to sets if it is not empty error
+        if missing_base_names:
+            raise ValueError(f"Base names {missing_base_names} in sheet '{sheet}' do not correspond to base names in the base classification.")
+
+        concordance[sheet] = df
+
+        
+    return concordance
+
+def folder_name_check(folder, name):
+
+    """
+    Check if folder exists if not build it. 
+    Return the path to the folder with the name appended.
+    Parameters:
+    - folder: str, the name of the folder.
+    - name: str, the name to append to the folder path.
+    Returns:
+    - str: the path to the folder with the name appended.
+
+    """
+    if not os.path.exists(folder):
+        os.makedirs(folder)
+        logging.info(f'Folder {folder} created.')
+    
+    path = os.path.join(folder, name)
+
+
+    return path
+
+
+_TS_RE = re.compile(r'(\d{8}_\d{6})')
+
+
+def lookup():
+    structure_path = r'data\input\structure.xlsx'
+    structure = pd.read_excel(structure_path, sheet_name=None)
+
+    # Example: work with the "Supply" sheet
+    supply = structure['Supply']
+
+    # First column = Flow
+    supply = supply.rename(columns={supply.columns[0]: "Process"})
+
+    # Melt matrix into long format: Flow, Process, Value
+    supply_long = supply.melt(
+        id_vars=["Process"],          # keep flows fixed
+        var_name="Flow",        # column headers become "Process"
+        value_name="Value"         # cell values
+    )
+    supply_long['Supply_Use'] = 'Supply'
+    
+    use = structure['Use']
+    use = use.rename(columns={use.columns[0]: "Flow"})
+    use_long = use.melt(
+        id_vars=["Flow"],          # keep flows fixed
+        var_name="Process",        # column headers become "Process"
+        value_name="Value"         # cell values
+    )
+
+    use_long['Supply_Use'] = 'Use'
+
+    # sort columns
+    supply_long = supply_long[['Flow', 'Process', 'Supply_Use', 'Value']]
+    use_long = use_long[['Flow', 'Process', 'Supply_Use', 'Value']]
+
+    # concat
+    structure_long = pd.concat([supply_long, use_long], ignore_index=True)
+
+    trade = structure['Trade']
+
+    entity = structure['Sector2Entity']
+    ent_ent = structure['Accounting']
+
+    collect = {'Structure': structure_long,
+               'Trade': trade,
+               'Sector2Entity': entity,
+               'Accounting': ent_ent
+               }
+
+    return collect
+
+
+def get_latest_index(folder: str) -> str:
+    """
+    Return the path to the latest parquet file in `folder`.
+    Priority for deciding "latest":
+      1) timestamp parsed from filename using pattern YYYYMMDD_HHMMSS
+      2) file modification time (fallback)
+    Raises FileNotFoundError when no .parquet files exist.
+    """
+    if not os.path.isdir(folder):
+        raise FileNotFoundError(f"Folder not found: {folder}")
+
+    files = [f for f in os.listdir(folder) if f.lower().endswith('.parquet')]
+    if not files:
+        raise FileNotFoundError(f"No parquet files found in {folder}")
+
+    candidates = []
+    for f in files:
+        full = os.path.join(folder, f)
+        ts = _parse_timestamp_from_name(f)
+        if ts is None:
+            # fallback to file modification time
+            ts = datetime.fromtimestamp(os.path.getmtime(full))
+        candidates.append((ts, full))
+
+    # pick the newest timestamp
+    latest_path = max(candidates, key=lambda x: x[0])[1]
+    return latest_path
+
+
+def _parse_timestamp_from_name(fname: str):
+    m = _TS_RE.search(fname)
+    if not m:
+        return None
+    ts_text = m.group(1)
+    try:
+        return datetime.strptime(ts_text, "%Y%m%d_%H%M%S")
+    except ValueError:
+        return None
+
+
+
+class _NpEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.integer):
+            return int(obj)
+        if isinstance(obj, np.floating):
+            return float(obj)
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        if isinstance(obj, (datetime, date)):
+            return obj.isoformat()
+        return super().default(obj)
+ 
+ 
+def _json_dump(obj: Any, path: str) -> None:
+    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump(obj, f, indent=2, cls=_NpEncoder)
+ 
+ 
+def _json_load(path: str) -> Any:
+    with open(path, encoding="utf-8") as f:
+        return json.load(f)
+
+
+class _EnPEncoder(json.JSONEncoder):
+    """
+    JSON encoder that handles numpy, pandas, pathlib, datetime,
+    dataclasses and enum types without external dependencies beyond
+    numpy and pandas (both already required by pysuto).
+    """
+ 
+    def default(self, obj: Any) -> Any:  # noqa: C901  (complexity OK here)
+        # ── numpy ────────────────────────────────────────────────────────
+        try:
+            import numpy as np
+ 
+            # Scalars
+            if isinstance(obj, np.integer):
+                return int(obj)
+            if isinstance(obj, np.floating):
+                v = float(obj)
+                # JSON has no NaN / ±Infinity
+                return None if not math.isfinite(v) else v
+            if isinstance(obj, np.bool_):
+                return bool(obj)
+            if isinstance(obj, np.complexfloating):
+                return {"real": float(obj.real), "imag": float(obj.imag)}
+ 
+            # Arrays
+            if isinstance(obj, np.ndarray):
+                # Replace NaN / inf inside the array so the list is clean
+                if np.issubdtype(obj.dtype, np.floating):
+                    clean = np.where(np.isfinite(obj), obj, None)
+                    return clean.tolist()
+                return obj.tolist()
+ 
+        except ImportError:
+            pass
+ 
+        # ── pandas ───────────────────────────────────────────────────────
+        try:
+            import pandas as pd
+ 
+            if obj is pd.NA or obj is pd.NaT:
+                return None
+            if isinstance(obj, pd.Timestamp):
+                return obj.isoformat()
+            # Scalar NA types  (pd.NAType etc.)
+            if hasattr(pd, "isna") and pd.isna(obj):   # type: ignore[arg-type]
+                return None
+ 
+        except (ImportError, TypeError, ValueError):
+            pass
+ 
+        # ── stdlib ───────────────────────────────────────────────────────
+        if isinstance(obj, Path):
+            return str(obj)
+ 
+        if isinstance(obj, datetime):
+            return obj.isoformat()
+ 
+        if isinstance(obj, date):
+            return obj.isoformat()
+ 
+        if isinstance(obj, enum.Enum):
+            return obj.value
+ 
+        if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
+            return dataclasses.asdict(obj)
+ 
+        # ── custom fallback ──────────────────────────────────────────────
+        if hasattr(obj, "to_dict") and callable(obj.to_dict):
+            return obj.to_dict()
+ 
+        # Last resort: str() never raises, preserves round-trip readability
+        return str(obj)
+
+
+
+
+
+
+
+
+
+
+
+if __name__ == '__main__':
+    lookup()
