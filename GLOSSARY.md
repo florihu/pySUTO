@@ -638,6 +638,13 @@ _Avoid_: "adaptation", "recovery", "survival"; a retention quoted without its ca
 a retention on a signed category whose prior sum is near zero (`MESC` / `USC` / `PSC`) — the ratio
 is undefined there, so quote the mass moved `Σ|a* − a_prior|` beside it.
 
+**Category** — the pooling set of a per-category table: one sector pair in one valuation,
+labelled `sector_from→sector_to valuation` (`Scrap→CFR CC`), as the sweep's category tables, the
+Table S19 stages and the posterior contraction per category (Figure 5a) use it; the **retention**
+entry's wider sense (a node, a region, an SB class) also applies where the category is named.
+_Avoid_: "stage" for a category outside Table S19's nine; "flow" (that is one edge); "sector"
+alone (a category is a pair).
+
 **Pooled retention** — a retention whose sums run over a stated **window** of years: `Σ_t Σa* /
 Σ_t Σa_prior`, one ratio of sums, so the large years weigh most. It is always quoted with its
 category and window (e.g. Scrap→CFR CC, 1995–2024).
