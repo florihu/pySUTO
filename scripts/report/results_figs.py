@@ -184,9 +184,9 @@ def load_frames(opt: str):
 
 
 def stage5_frames(uncprop_id: str, opt: str) -> dict:
-    """The Stage-5 run propagated from ``opt``: its edge frame summarised per prior
-    class (Fig. 5a), the calibrated standardised shifts of the CC classes (5b), the
-    Birge table (5c) and the calibration table of SI S6."""
+    """The Stage-5 run propagated from ``opt``: its contraction per category (Fig. 5a)
+    and per prior class (SI S6.2), the calibrated standardised shifts of the CC classes
+    (5b), the Birge table (5c) and the calibration table of SI S6."""
     up = json.load(open(Path("data/proc/uncprop") / uncprop_id / "metadata.json"))["parents"]["upstream"]
     if up.get("opt_run_id") != opt:
         raise RuntimeError(f"uncprop run {uncprop_id} propagates {up.get('opt_run_id')}, not {opt}")
@@ -207,14 +207,13 @@ def stage5_frames(uncprop_id: str, opt: str) -> dict:
     qq = {cls: np.sort(c.loc[c.prior_class == cls, "std_shift"].to_numpy(dtype=float))
           for cls in CALIB_CLASSES}
     by_cat = st.contraction_by_category(f)
-    by_cat["pinned_share"] = by_cat.n_pinned / by_cat.n_edge_years
     return dict(run_id=uncprop_id, birge=st.birge(), R=R, calibration=st.calibration(f, R),
                 contraction=pd.DataFrame(rows), qq=qq, by_category=by_cat)
 
 
 def drawn_categories(U: dict, S: dict) -> pd.DataFrame:
     """The rows of Fig. 5a: the contained-copper categories that have a retention in
-    the sweep (the ones 5d–e and the link compare), most pinned first."""
+    the sweep (the ones 5d–e and the link compare), most contracted first."""
     cat = U["by_category"]
     cat = cat[(cat.valuation == "CC") & cat.category.isin(S["by_category"].category)]
     return cat.sort_values("kappa_weighted", ascending=False).reset_index(drop=True)
@@ -876,7 +875,7 @@ def _fmt_swing(v: float) -> str:
     return f"{v * 1e3:+.1f}" if np.isfinite(v) else ""
 
 
-def fig5(U: dict, S: dict, A: dict, out: Path) -> Path:
+def fig5(U: dict, S: dict, A: dict, cats: pd.DataFrame, out: Path) -> Path:
     fig = plt.figure(figsize=(7.2, 8.6))
     outer = fig.add_gridspec(2, 1, hspace=0.36, left=0.18, right=0.935, top=0.955, bottom=0.15,
                              height_ratios=[1.3, 1.25])
@@ -885,7 +884,7 @@ def fig5(U: dict, S: dict, A: dict, out: Path) -> Path:
 
     # (a) contraction by category ------------------------------------------------
     ax = fig.add_subplot(top[0])
-    cat = U["categories"]
+    cat = cats
     stage_set = {STAGE_LABEL[t] for t in STAGES}
     ys = np.arange(len(cat))[::-1]
     for yi, r in zip(ys, cat.itertuples()):
@@ -1104,7 +1103,7 @@ def fig6(B: dict, out: Path) -> Path:
 # numbers of Fig. 5
 # ---------------------------------------------------------------------------
 
-def stage5_numbers(U: dict) -> dict:
+def stage5_numbers(U: dict, cats=None) -> dict:
     b = U["birge"]; by = b[b.year != "all"].set_index("year")
     cal = U["calibration"].set_index(["valuation", "prior_class"])
     ct = U["contraction"].set_index(["valuation", "prior_class"])
@@ -1133,7 +1132,7 @@ def stage5_numbers(U: dict) -> dict:
                                                   "kappa_weighted": round(float(r.kappa_weighted), 6),
                                                   "kappa_median": (round(float(r.kappa_median), 6)
                                                                    if np.isfinite(r.kappa_median) else None)}
-                                     for r in U["categories"].itertuples()} if "categories" in U else None),
+                                     for r in cats.itertuples()} if cats is not None else None),
     }
 
 
@@ -1284,14 +1283,13 @@ def main(opt: str, psut_id: str, tol_pair=None, uncprop_id=None, sweep_id=None,
     # ---- Stage 5 and the knob sweep (Fig. 5) ---------------------------------------------
     U = stage5_frames(uncprop_id, opt) if uncprop_id else None
     S = sweep_frames(sweep_id, opt) if sweep_id else None
-    if U and S:
-        U["categories"] = drawn_categories(U, S)
+    cats = drawn_categories(U, S) if U and S else None
 
     # ---- ledger, figures, outputs -----------------------------------------------------
     ledger = build_ledger(A, B)
     print(ledger[["id", "value", "outcome"]].to_string(index=False))
     p3, p4, p6 = fig3(P, out), fig4(A, out), fig6(B, out)
-    p5 = fig5(U, S, A, out) if U and S else None
+    p5 = fig5(U, S, A, cats, out) if U and S else None
     print("figures:", p3, p4, p5, p6)
 
     ret_all = A["retention"][A["retention"].year == "all"].set_index("stage")
@@ -1334,7 +1332,7 @@ def main(opt: str, psut_id: str, tol_pair=None, uncprop_id=None, sweep_id=None,
         "chile_share_to_china": {"1995": B["chile_china_1995"], "2024": B["chile_china_2024"]},
         "ledger": ledger.to_dict("records"),
         "problem": problem_numbers(P),
-        "stage5": stage5_numbers(U) if U else None,
+        "stage5": stage5_numbers(U, cats) if U else None,
         "sweep": sweep_numbers(S) if S else None,
         "link": link_numbers(U, S) if U and S else None,
     }

@@ -467,17 +467,19 @@ class UncPropStatsDiagnostic:
 
     @staticmethod
     def contraction_by_category(frame: pd.DataFrame) -> pd.DataFrame:
-        """Posterior contraction per **category** — ``from_sector→to_sector valuation``,
-        the sweep's label — over the edge-years with a finite ``kappa``.
+        """Posterior contraction per **category** — ``from_sector→to_sector
+        valuation``, the sweep's label — over the edge-years with a finite ``kappa``.
 
-        Columns: ``valuation``, ``category``, ``n_edge_years``, ``n_pinned`` (bound-active
-        edge-years, whose ``kappa`` is 1 by construction), ``weight_kt`` (Σ ``weight``),
-        ``kappa_weighted`` (Σ weight·κ / Σ weight over every edge-year of the category)
-        and ``kappa_median`` (the median κ over the edge-years *not* pinned; NaN where
-        all are). Sorted by valuation, then category. Needs the edge-meta columns, so
-        the frame must have been built with an accounting structure.
+        Columns: ``valuation``, ``category``, ``n_edge_years``, ``n_pinned`` and
+        ``pinned_share`` (bound-active edge-years, whose ``kappa`` is 1 by
+        construction), ``weight_kt`` (Σ ``weight``), ``kappa_weighted`` (Σ weight·κ /
+        Σ weight over every edge-year of the category) and ``kappa_median`` (the
+        median κ over the edge-years *not* pinned; NaN where all are). Sorted by
+        valuation, then category. Needs the edge-meta columns, so the frame must
+        have been built with an accounting structure.
         """
-        need = ["from_sector", "to_sector", "valuation", "weight", "kappa", "bound_active"]
+        need = ["from_sector", "to_sector", "valuation", "weight", "kappa",
+                "bound_active"]
         missing = [c for c in need if c not in frame.columns]
         if missing:
             raise KeyError(f"contraction_by_category needs the column(s) {missing}: "
@@ -503,6 +505,7 @@ class UncPropStatsDiagnostic:
         }).reset_index()
         for col in ("n_edge_years", "n_pinned"):
             out[col] = out[col].astype(np.int64)
+        out["pinned_share"] = out["n_pinned"] / out["n_edge_years"]
         return out
 
 

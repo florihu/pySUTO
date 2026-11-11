@@ -295,9 +295,12 @@ def test_contraction_by_category_weights_every_edge_and_medians_the_unpinned():
     r = c.loc["Conc→Smelt CC"]
     assert r["valuation"] == "CC"
     assert (r["n_edge_years"], r["n_pinned"]) == (4, 2)
+    assert r["pinned_share"] == pytest.approx(0.5)
     assert r["weight_kt"] == pytest.approx(20.0)
-    assert r["kappa_weighted"] == pytest.approx(0.9, rel=1e-12)     # (0.2·1 + 0.6·3 + 6 + 10) / 20
-    assert r["kappa_median"] == pytest.approx(0.4, rel=1e-12)       # median of the unpinned [0.2, 0.6]
+    # (0.2·1 + 0.6·3 + 1·6 + 1·10) / 20, the pinned edges included
+    assert r["kappa_weighted"] == pytest.approx(0.9)
+    # median of the unpinned [0.2, 0.6]
+    assert r["kappa_median"] == pytest.approx(0.4)
 
 
 def test_contraction_by_category_separates_valuations_and_leaves_out_nonfinite_kappa():
@@ -310,12 +313,15 @@ def test_contraction_by_category_separates_valuations_and_leaves_out_nonfinite_k
         "bound_active": [False, False, True],
     })
     c = UncPropStatsDiagnostic.contraction_by_category(f)
-    assert list(c["category"]) == ["Mine→Ore CC", "Mine→Ore Mass"]      # sorted by valuation
+    # sorted by valuation, then category
+    assert list(c["category"]) == ["Mine→Ore CC", "Mine→Ore Mass"]
     cc = c.set_index("category").loc["Mine→Ore CC"]
-    assert (cc["n_edge_years"], cc["n_pinned"]) == (1, 1)              # the NaN κ edge is left out
+    # the NaN-κ edge-year is left out of the counts and the statistics
+    assert (cc["n_edge_years"], cc["n_pinned"]) == (1, 1)
     assert cc["weight_kt"] == pytest.approx(4.0)
     assert cc["kappa_weighted"] == pytest.approx(0.8)
-    assert np.isnan(cc["kappa_median"])                                 # every edge-year pinned
+    # every edge-year pinned: no median
+    assert np.isnan(cc["kappa_median"])
     mass = c.set_index("category").loc["Mine→Ore Mass"]
     assert mass["kappa_median"] == pytest.approx(0.5)
     with pytest.raises(KeyError, match="from_sector"):
