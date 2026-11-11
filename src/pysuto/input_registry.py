@@ -37,7 +37,8 @@ Load-bearing files (changes trigger a version bump):
 * ``params/<id>/`` — ``params.csv``, plus ``parents.json`` where a builder
                      records what it was built from (#53)
 * ``acc/<id>/``    — ``root.ods``, ``bounds.ods``, ``rules.ods``, ``masks.csv``
-                     (``masks.csv`` optional; absent file hashes to empty)
+                     (``masks.csv`` optional; absent file hashes to empty), plus
+                     ``acc.json`` where an id declares its acc spec in one file (#57)
 * ``mask/<id>/``   — ``rules.csv`` (separate-kind mask overlay)
 * ``feed/<id>/``   — per-feed declared list, or default = "every file in
   ``current/`` whose suffix is not ``.bib`` / ``.md``".
@@ -62,9 +63,12 @@ _log = get_logger("input_registry")
 
 _KINDS = ("feed", "acc", "params", "mask")
 
+# The ODS/CSV format of an acc spec (ADR 0046): its four files.
+ACC_ODS_FILES: tuple[str, ...] = ("root.ods", "bounds.ods", "rules.ods", "masks.csv")
+
 _DEFAULT_LOAD_BEARING: dict[str, tuple[str, ...]] = {
     "params": ("params.csv",),
-    "acc":    ("root.ods", "bounds.ods", "rules.ods", "masks.csv"),
+    "acc":    ACC_ODS_FILES,
     "mask":   ("rules.csv",),
     # "feed" handled in InputRegistry._load_bearing_files
 }
@@ -75,6 +79,11 @@ _FEED_IGNORE_SUFFIXES = (".bib", ".md")
 # sidecar's vocabulary (#53). Load-bearing only where present, so the ids without
 # one keep their hashes and are not re-versioned.
 PARAMS_PARENTS = "parents.json"
+
+# An acc id may declare its whole structure in one acc.json instead of the four files
+# above (#57, ADR 0046). Load-bearing where present, for the same reason: the hashes
+# are compared as whole dicts, so an "acc.json": "" key would re-version every acc id.
+ACC_SPEC = "acc.json"
 
 
 def _sha256_file(path: Path) -> str:
@@ -307,6 +316,8 @@ class InputRegistry:
         names = list(_DEFAULT_LOAD_BEARING[self.kind])
         if self.kind == "params" and (current / PARAMS_PARENTS).is_file():
             names.append(PARAMS_PARENTS)
+        if self.kind == "acc" and (current / ACC_SPEC).is_file():
+            names.append(ACC_SPEC)
         return names
 
     def _resolve_label(

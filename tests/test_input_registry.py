@@ -13,6 +13,7 @@ Unit tests for pysuto.input_registry:
 
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 from pathlib import Path
@@ -232,6 +233,41 @@ def test_acc_default_load_bearing_set(tmp_path: Path) -> None:
     (tmp_path / "acc" / "copper" / "current" / "root.ods").write_bytes(b"\x02root")
     reg = InputRegistry("acc", root=tmp_path).initialize()
     assert reg.latest_version("copper") == 2
+
+
+def test_an_acc_json_is_load_bearing_where_present(tmp_path: Path) -> None:
+    """acc.json declares a whole accounting structure (#57). An id without one is hashed
+    as before, so no registered version is re-registered."""
+    _acc_id(tmp_path, "toy",    {"acc.json": b'{"regions": ["Montara"]}'})
+    _acc_id(tmp_path, "copper", {"root.ods": b"\x01root", "rules.ods": b"\x01rules"})
+    InputRegistry("acc", root=tmp_path).initialize()
+    (tmp_path / "acc" / "toy" / "current" / "acc.json").write_bytes(b'{"regions": []}')
+
+    assert InputRegistry("acc", root=tmp_path).pending() == {"toy": 1}
+    reg = InputRegistry("acc", root=tmp_path).initialize()
+
+    assert reg.latest_version("toy") == 2
+    assert reg.latest_version("copper") == 1
+    hashes = json.loads((tmp_path / "acc" / "registry.json").read_text())
+    assert sorted(hashes["copper"]["versions"][-1]["hashes"]) == [
+        "bounds.ods", "masks.csv", "root.ods", "rules.ods"]
+    toy = hashes["toy"]["versions"][-1]["hashes"]
+    assert len(toy["acc.json"]) == 64 and toy["root.ods"] == ""
+
+
+def test_input_status_lists_an_edited_acc_json(tmp_path: Path, monkeypatch,
+                                                capsys) -> None:
+    _acc_id(tmp_path, "toy", {"acc.json": b"{}"})
+    InputRegistry("acc", root=tmp_path).initialize()
+    (tmp_path / "acc" / "toy" / "current" / "acc.json").write_bytes(b'{"times": ["2001"]}')
+    script = Path(__file__).resolve().parents[1] / "scripts" / "input_status.py"
+    spec = importlib.util.spec_from_file_location("_input_status", script)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    monkeypatch.setattr(mod, "INPUT_ROOT", str(tmp_path))
+
+    assert mod.main() == 1
+    assert "acc/toy: current/ differs from v1" in capsys.readouterr().out
 
 
 # =============================================================================

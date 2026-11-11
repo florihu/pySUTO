@@ -3,8 +3,9 @@ init_acc.py
 ===========
 Initialise, report, and save the accounting structure.
 
-Reads root.ods / rules.ods / bounds.ods from the **input registry**
-(``data/input/acc/<id>/current/``).  At script start the input registry
+Reads the acc spec from the **input registry** (``data/input/acc/<id>/current/``):
+one ``acc.json`` when the version holds it, else root.ods / rules.ods (+ bounds.ods,
+masks.csv); a version holding both raises (ADR 0046).  At script start the input registry
 is initialised — if the user has edited any of the load-bearing files
 since the last registered version, a new ``vN/`` snapshot is materialised
 under ``data/input/acc/<id>/`` and the version is recorded in
@@ -26,6 +27,7 @@ import logging
 import os
 import sys
 import time
+from pathlib import Path
 
 import pandas as pd
 
@@ -34,8 +36,8 @@ _REPO_ROOT  = os.path.dirname(_SCRIPT_DIR)
 
 sys.path.insert(0, os.path.join(_REPO_ROOT, "src"))
 
-from pysuto.acc import AccountingStructure
-from pysuto.input_registry import InputRegistries
+from pysuto.acc import AccountingStructure, read_acc_spec_json
+from pysuto.input_registry import ACC_ODS_FILES, ACC_SPEC, InputRegistries
 
 
 # =============================================================================
@@ -75,6 +77,42 @@ def parse_args() -> argparse.Namespace:
              "Carried forward from the prior version if omitted.",
     )
     return p.parse_args()
+
+
+# =============================================================================
+# Build: pick the acc-spec reader from what the version holds
+# =============================================================================
+
+def build_acc(acc_path: Path, id: str, storage_dir: str) -> AccountingStructure:
+    """Build from ``acc.json`` when *acc_path* holds it, else from root.ods + rules.ods.
+
+    Raises
+    ------
+    ValueError
+        *acc_path* holds ``acc.json`` and any file of the ODS/CSV format: one of the two
+        would be ignored.
+    """
+    if (acc_path / ACC_SPEC).is_file():
+        ods_beside_json = [n for n in ACC_ODS_FILES if (acc_path / n).is_file()]
+        if ods_beside_json:
+            raise ValueError(
+                f"{acc_path} holds {ACC_SPEC} and {ods_beside_json}: an acc spec is "
+                f"read from {ACC_SPEC} or from root.ods + rules.ods, never both "
+                f"(ADR 0046)"
+            )
+        return AccountingStructure.from_spec(
+            read_acc_spec_json(str(acc_path / ACC_SPEC)), id, storage_dir=storage_dir)
+    return AccountingStructure(
+        id               = id,
+        root_file_path   = str(acc_path / "root.ods"),
+        rules_file_path  = str(acc_path / "rules.ods"),
+        bounds_file_path = (
+            str(acc_path / "bounds.ods")
+            if (acc_path / "bounds.ods").is_file()
+            else None
+        ),
+        storage_dir = storage_dir,
+    )
 
 
 # =============================================================================
@@ -126,17 +164,7 @@ def main() -> AccountingStructure:
     logger.info("=" * 60)
 
     t0 = time.perf_counter()
-    acc = AccountingStructure(
-        id               = args.id,
-        root_file_path   = str(acc_path / "root.ods"),
-        rules_file_path  = str(acc_path / "rules.ods"),
-        bounds_file_path = (
-            str(acc_path / "bounds.ods")
-            if (acc_path / "bounds.ods").is_file()
-            else None
-        ),
-        storage_dir = args.out,
-    )
+    acc = build_acc(acc_path, args.id, args.out)
     logger.info("Structure built in %.1fs", time.perf_counter() - t0)
 
     print()
