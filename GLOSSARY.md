@@ -205,15 +205,6 @@ sidecar.
 A run's self-contained provenance record — `parents.inputs` (input-registry refs) and
 `parents.upstream` (parent run-ids).
 
-**Acc ref**:
-`{id, version}` naming one acc input version, as a sidecar's `parents.inputs.acc` records it.
-
-**Build record** (`build_record.json`):
-The file beside a built accounting structure that names the acc input version (id, version,
-code) it was built from.
-_Avoid_: "source record" (collides with **Source / src edge**, the **source region label** and
-the params `source` column); "acc sidecar" (a built structure is not a run).
-
 **Diagnostic** (diag):
 A per-stage plot suite that consumes a run's output (`AggDiagnostic`, `SolverDiag`, …); never
 imported into the data layer.
@@ -646,6 +637,13 @@ mass: `1` keeps the prior scale, `< 1` is deletion, `> 1` inflation (second row 
 _Avoid_: "adaptation", "recovery", "survival"; a retention quoted without its category and year;
 a retention on a signed category whose prior sum is near zero (`MESC` / `USC` / `PSC`) — the ratio
 is undefined there, so quote the mass moved `Σ|a* − a_prior|` beside it.
+
+**Category** — the pooling set of a per-category table: one sector pair in one valuation,
+labelled `sector_from→sector_to valuation` (`Scrap→CFR CC`), as the sweep's category tables, the
+Table S19 stages and the posterior contraction per category (Figure 5a) use it; the **retention**
+entry's wider sense (a node, a region, an SB class) also applies where the category is named.
+_Avoid_: "stage" for a category outside Table S19's nine; "flow" (that is one edge); "sector"
+alone (a category is a pair).
 
 **Pooled retention** — a retention whose sums run over a stated **window** of years: `Σ_t Σa* /
 Σ_t Σa_prior`, one ratio of sums, so the large years weigh most. It is always quoted with its
@@ -1286,6 +1284,22 @@ imputers never respected.
 its feeds, param families, relation sources and cascade, anchor families and σ policies, run by the
 generic stage drivers. The copper case is the first. _Avoid_: "model" (the QP, the PIOT),
 "study" (a REP analysis), "scenario".
+
+**Acc spec** — the declaration of one accounting structure: its sectors (each with an entity),
+regions, valuations and times, its supply and use adjacency, tradable flows and entity-pair
+accounting rows, and optionally its bound and mask records. An `acc.json` and the copper case's
+four ODS/CSV files are two formats of it, each with its reader (`read_acc_spec_json`,
+`read_acc_spec_ods`; [ADR 0046](docs/adr/0046-an-accounting-structure-is-declared-by-a-spec.md)).
+_Avoid_: "case spec" (#26's typed `CaseSpec`, which references an acc by registry id), "root
+file" (one of the files a reader reads).
+
+**Build record** (`build_record.json`) — the file beside a built accounting structure that names
+the acc input version (id, version, code) it was built from. _Avoid_: "source record" (collides
+with **Source / src edge**, the **source region label** and the params `source` column); "acc
+sidecar" (a built structure is not a run).
+
+**Acc ref** — `{id, version}` naming one acc input version, as a sidecar's `parents.inputs.acc`
+records it.
 
 ## ROW pedigree-penalty vocabulary
 

@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pysuto.masks import MaskRuleSet, coerce_mask, load_masks_csv
+from pysuto.masks import MaskRuleSet, coerce_mask, load_masks_csv, read_masks_csv
 
 
 # ---------------------------------------------------------------------------
@@ -90,6 +90,24 @@ def test_missing_required_columns_raises(tmp_path):
 
     with pytest.raises(ValueError, match="mask_name"):
         MaskRuleSet.from_csv(csv)
+
+
+def test_missing_required_columns_raises_on_a_file_without_rows(tmp_path):
+    """The columns are checked on the header: a file without rows is no exception (the
+    acc masks.csv and the mask input kind's rules.csv both read through here)."""
+    csv = tmp_path / "bad.csv"
+    csv.write_text("mask_nme,logic\n")
+
+    with pytest.raises(ValueError, match="mask_name"):
+        MaskRuleSet.from_csv(csv)
+    with pytest.raises(ValueError, match="mask_name"):
+        read_masks_csv(csv)
+
+
+def test_a_file_without_rows_declares_no_masks(tmp_path):
+    csv = tmp_path / "empty.csv"
+    csv.write_text("mask_name,logic,sector_from\n")
+    assert MaskRuleSet.from_csv(csv).names == []
 
 
 def test_unknown_logic_raises(tmp_path):
