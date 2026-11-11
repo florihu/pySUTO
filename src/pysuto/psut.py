@@ -57,7 +57,7 @@ from typing import Mapping, Optional, Protocol, Sequence
 import numpy as np
 import pandas as pd
 
-from .acc import AccountingStructure
+from .acc import AccountingStructure, check_built_acc
 from .logging import get_logger
 from .registry import ConstraintRunRegistry, OptimRunRegistry
 
@@ -242,8 +242,10 @@ class PSUT(_TidyView):
         views are labelled from.
     valuations, primary
         Every valuation in the table, and the one the views default to.
-    acc_id, opt_run_id, const_run_id
-        Provenance; the run ids are ``None`` for an in-memory handoff.
+    acc_id, acc_ref, opt_run_id, const_run_id
+        Provenance; ``acc_ref`` is the acc input entry the const run names
+        (``{id, version, ...}``), empty and the run ids ``None`` for an in-memory
+        handoff.
     aggregation : list
         The :meth:`aggregate` calls applied so far, oldest first; empty for
         the structure's own resolution. After an aggregation the table has no
@@ -258,6 +260,7 @@ class PSUT(_TidyView):
         valuations:   Sequence[str],
         primary:      str,
         acc_id:       str = "",
+        acc_ref:      Optional[dict] = None,
         opt_run_id:   Optional[str] = None,
         const_run_id: Optional[str] = None,
         aggregation:  Optional[list] = None,
@@ -269,6 +272,7 @@ class PSUT(_TidyView):
         self.valuations   = list(valuations)
         self.primary      = primary
         self.acc_id       = acc_id
+        self.acc_ref      = dict(acc_ref or {})
         self.opt_run_id   = opt_run_id
         self.const_run_id = const_run_id
         self.aggregation  = list(aggregation or [])
@@ -358,7 +362,8 @@ class PSUT(_TidyView):
         """Build from a persisted optimiser run.
 
         The accounting structure is found through provenance: the opt sidecar
-        names its ``const_run_id``, whose sidecar names the ``acc`` id. All
+        names its ``const_run_id``, whose sidecar names the ``acc`` id and version;
+        the structure under ``acc_dir`` is checked against that version (#53). All
         timesteps of the run are loaded unless ``timesteps`` lists a subset.
         """
         opt_reg = OptimRunRegistry(opt_dir)
@@ -371,16 +376,17 @@ class PSUT(_TidyView):
                 f"OptimRun {opt_run_id!r} sidecar has no parents.upstream.const_run_id"
             )
         const_sidecar = ConstraintRunRegistry(const_dir).load_sidecar(const_run_id)
-        acc_id = (const_sidecar.get("parents", {})
-                               .get("inputs", {})
-                               .get("acc", {})
-                               .get("id"))
+        acc_ref = (const_sidecar.get("parents", {})
+                                .get("inputs", {})
+                                .get("acc", {}))
+        acc_id  = acc_ref.get("id")
         if not acc_id:
             raise KeyError(
                 f"ConstraintRun {const_run_id!r} sidecar has no parents.inputs.acc.id"
             )
         logger.info("Loading OptimRun %r → ConstraintRun %r → acc %r",
                     opt_run_id, const_run_id, acc_id)
+        check_built_acc(acc_dir, acc_ref)
         acc     = AccountingStructure.load(acc_id, storage_dir=acc_dir)
         results = opt_reg.load(opt_run_id)
         if timesteps is not None:
@@ -394,6 +400,7 @@ class PSUT(_TidyView):
             results = {t: results[t] for t in wanted}
 
         psut = cls.from_results(results, acc, primary=primary)
+        psut.acc_ref      = dict(acc_ref)
         psut.opt_run_id   = opt_run_id
         psut.const_run_id = const_run_id
         return psut
@@ -417,6 +424,7 @@ class PSUT(_TidyView):
             valuations   = self.valuations,
             primary      = self.primary,
             acc_id       = self.acc_id,
+            acc_ref      = self.acc_ref,
             opt_run_id   = self.opt_run_id,
             const_run_id = self.const_run_id,
             aggregation  = self.aggregation,
@@ -492,6 +500,7 @@ class PSUT(_TidyView):
             valuations   = self.valuations,
             primary      = self.primary,
             acc_id       = self.acc_id,
+            acc_ref      = self.acc_ref,
             opt_run_id   = self.opt_run_id,
             const_run_id = self.const_run_id,
             aggregation  = self.aggregation + [step],

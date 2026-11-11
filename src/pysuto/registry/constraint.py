@@ -150,7 +150,8 @@ class ConstraintRunRegistry(BaseOutputRegistry):
         summary  = sidecar.get("stage_summary", {})
         config   = sidecar.get("stage_config", {})
         parents  = sidecar.get("parents", {})
-        acc_id   = (parents.get("inputs", {}).get("acc", {}).get("id")) or ""
+        acc_ref  = parents.get("inputs", {}).get("acc", {})
+        acc_id   = acc_ref.get("id") or ""
         agg_id   = (parents.get("upstream", {}).get("imp_run_id")) or ""
 
         ts_data: dict[str, dict] = {}
@@ -189,6 +190,7 @@ class ConstraintRunRegistry(BaseOutputRegistry):
             _p             = float(config.get("p", 1.3)),
             G_blocks       = G_blocks,
             edge_cols_by_t = edge_cols_by_t,
+            acc_ref        = dict(acc_ref),
         )
 
     def load_sidecar(self, run_id: str) -> dict:

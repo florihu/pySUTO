@@ -41,6 +41,8 @@ class ConstraintRun:
     acc_id         : AccountingStructure id
     agg_id         : AggregationResult id (if available)
     created_at     : ISO timestamp
+    acc_ref        : the acc input entry ``{id, version, ...}`` the run was built on
+                     (sidecar ``parents.inputs.acc``); empty for an in-memory run
     """
     G:              sp.csr_matrix
     row_meta:       pd.DataFrame
@@ -57,6 +59,7 @@ class ConstraintRun:
     _p:             float = 1.3
     G_blocks:       dict = field(default_factory=dict)
     edge_cols_by_t: dict = field(default_factory=dict)
+    acc_ref:        dict = field(default_factory=dict)
 
     @property
     def a_prior_global(self) -> np.ndarray:

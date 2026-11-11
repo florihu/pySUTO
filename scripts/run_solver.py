@@ -11,14 +11,15 @@ Pipeline
 3  Solve every timestep from the cold prior  a_prior(t) = conditioned f_agg(t)
    (--prior-mode cold, this driver's default; 'warm' carries a_post(t-1)),
    N_WORKERS timesteps at a time (parallel solve; warm needs N_WORKERS = 1)
-4  Persist OptimResults to data/proc/opt/<opt_run_id>/
+4  Persist OptimResults to <data-dir>/proc/opt/<opt_run_id>/
 5  Render the SolverDiag portfolio (12 figures + ranking CSVs + provenance)
-   under data/proc/opt/<opt_run_id>/diag/ (per-year edge/constraint CSVs on
+   under <data-dir>/proc/opt/<opt_run_id>/diag/ (per-year edge/constraint CSVs on
    demand: scripts/solver_stats.py)
 
 Usage::
 
     python scripts/run_solver.py --const-run-id CONST_RUN_ID [--label LABEL]
+                                 [--data-dir data]
 """
 
 from __future__ import annotations
@@ -31,10 +32,9 @@ from datetime import datetime
 # ---------------------------------------------------------------------------
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
-# Pipeline wiring (`const_run_id`) is passed via the `--const-run-id` CLI flag.
+# Pipeline wiring (`const_run_id`) is passed via the `--const-run-id` CLI flag; main()
+# derives every path from `--data-dir` (default data): proc/const, proc/opt, proc/acc.
 
-CONST_DIR  = os.path.join("data", "proc", "const")
-OUTPUT_DIR = os.path.join("data", "proc", "opt")
 TIMESTEPS  = None #[1995]           # None → all timesteps in the run
 # Feasibility pre-check: which years the probe checks before any solve — "first"
 # (the default since Round C), "all" (localises a mid-series infeasibility; ~350 s
@@ -127,16 +127,29 @@ _log = get_logger("init_run_solver")
 
 
 def main(const_run_id: str, label: str = "", prior_mode: str = "warm",
-         overrides: dict | None = None) -> str:
+         overrides: dict | None = None, *, data_dir: str = "data",
+         const_dir: str | None = None) -> str:
+    """Solve constraint run ``const_run_id``; return the opt run id.
+
+    ``data_dir`` holds ``proc/``; the constraint run is read from ``const_dir``
+    (default ``<data_dir>/proc/const``), the run written to ``<data_dir>/proc/opt``
+    and the accounting structure read from ``<data_dir>/proc/acc``.
+    """
     os.makedirs("logs", exist_ok=True)
     add_run_handler(
         f"logs/init_run_solver_{datetime.now():%Y%m%d_%H%M%S}.log"
     )
+    proc    = os.path.join(data_dir, "proc")
+    opt_dir = os.path.join(proc, "opt")
+    acc_dir = os.path.join(proc, "acc")
+    if const_dir is None:
+        const_dir = os.path.join(proc, "const")
 
     _log.info("=== init_run_solver START ===")
-    _log.info("Loading ClarabelSolver (const_dir=%s)", CONST_DIR)
+    _log.info("Loading ClarabelSolver (const_dir=%s)", const_dir)
     # Termination tolerances: see the USER CONFIGURATION block (Round W.1).
-    solver = ClarabelSolver(const_dir=CONST_DIR, tol_feas=TOL_FEAS,
+    solver = ClarabelSolver(const_dir=const_dir, opt_dir=opt_dir, acc_dir=acc_dir,
+                            tol_feas=TOL_FEAS,
                             tol_gap_rel=TOL_GAP_REL, tol_gap_abs=TOL_GAP_ABS,
                             reduced_tol_feas=REDUCED_TOL_FEAS,
                             reduced_tol_gap_rel=REDUCED_TOL_GAP_REL,
@@ -157,7 +170,7 @@ def main(const_run_id: str, label: str = "", prior_mode: str = "warm",
     optim_run_id = solver.persist(
         run_id       = const_run_id,
         results      = results,
-        output_dir   = OUTPUT_DIR,
+        output_dir   = opt_dir,
         const_run_id = const_run_id,
         label        = label,
         stage_config = {
@@ -184,14 +197,14 @@ def main(const_run_id: str, label: str = "", prior_mode: str = "warm",
         "Solved %d timesteps  total_iter=%d  total_time=%.2fs  max|residual|=%.3e",
         len(results), total_iter, total_time, max_residual,
     )
-    _log.info("OptimRun saved as '%s' under %s", optim_run_id, OUTPUT_DIR)
+    _log.info("OptimRun saved as '%s' under %s", optim_run_id, opt_dir)
 
     const_run = solver.load_run(const_run_id)
-    diag_dir  = os.path.join(OUTPUT_DIR, optim_run_id, "diag")
+    diag_dir  = os.path.join(opt_dir, optim_run_id, "diag")
 
     # One AccountingStructure for figures and ranking CSVs (loading it is the
     # expensive step); the diag's stats object owns the all-years frames both read from.
-    acc  = AccountingStructure.load(const_run.acc_id)
+    acc  = AccountingStructure.load(const_run.acc_id, storage_dir=acc_dir)
     diag = SolverDiag(results, const_run, label=label or optim_run_id, acc=acc)
     diag.summary()
     diag.plot(odir=diag_dir)
@@ -204,7 +217,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Solve persisted ConstraintRun.")
     parser.add_argument(
         "--const-run-id", required=True,
-        help="ConstraintRun ID to load from data/proc/const/.",
+        help="ConstraintRun ID to load from --const-dir.",
     )
     parser.add_argument(
         "--label", required=False, default="",
@@ -216,14 +229,17 @@ if __name__ == "__main__":
         choices=["warm", "cold"],
         help="ClarabelSolver prior mode: 'cold' (default) or 'warm'."
     )
-    parser.add_argument("--const-dir", default=CONST_DIR,
-                        help=f"Where the constraint run is read from "
-                             f"(default {CONST_DIR}).")
+    parser.add_argument("--data-dir", default="data",
+                        help="Data root holding proc/ (default 'data').")
+    parser.add_argument("--const-dir", default=None,
+                        help="Where the constraint run is read from "
+                             "(default <data-dir>/proc/const).")
 
     add_knob_args(parser)
     args = parser.parse_args()
-    CONST_DIR = args.const_dir
     overrides = overrides_from_cli(parser, args, KNOBS, globals())
-    with stage_lock("run_solver"):   # registries have no locking (#101)
+    # registries have no locking (#101)
+    with stage_lock("run_solver", root=os.path.join(args.data_dir, "proc")):
         write_run_id(args.run_id_file,
-                     main(args.const_run_id, args.label, args.prior_mode, overrides))
+                     main(args.const_run_id, args.label, args.prior_mode, overrides,
+                          data_dir=args.data_dir, const_dir=args.const_dir))

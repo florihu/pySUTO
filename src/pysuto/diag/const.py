@@ -67,6 +67,8 @@ class ConstDiagnostic:
         self.cr    = constraint_run
         self.label = label
         self.year  = str(year)
+        # The run's own diag/ — set by from_saved; None for a run built in memory.
+        self._default_odir: Optional[str] = None
 
     # ------------------------------------------------------------------
     # Classmethod — load from disk
@@ -105,7 +107,9 @@ class ConstDiagnostic:
         cr.timestep_data = timestep_data
         cr.run_id        = os.path.basename(run_dir)
 
-        return cls(cr, label=label, year=year)
+        instance = cls(cr, label=label, year=year)
+        instance._default_odir = os.path.join(run_dir, "diag")
+        return instance
 
     # ------------------------------------------------------------------
     # Public interface
@@ -117,12 +121,16 @@ class ConstDiagnostic:
         show: bool = False,
         dpi:  int  = 150,
     ) -> list[str]:
-        """Produce and save all three diagnostic figures."""
+        """Produce and save all three diagnostic figures into ``odir``, by default
+        the run's ``diag/`` when this instance came from :meth:`from_saved`."""
         import matplotlib.pyplot as plt
 
-        run_id = getattr(self.cr, "run_id", "const_diag")
         if odir is None:
-            odir = os.path.join("data/proc/const", run_id, "diag")
+            odir = self._default_odir
+        if odir is None:
+            raise ValueError("odir is required. Either pass odir=..., or build the diag "
+                             "via ConstDiagnostic.from_saved(run_dir) so the default "
+                             "lands under the run dir.")
 
         paths = []
 

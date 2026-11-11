@@ -205,6 +205,12 @@ sidecar.
 A run's self-contained provenance record — `parents.inputs` (input-registry refs) and
 `parents.upstream` (parent run-ids).
 
+**Source record** (`source.json`):
+The record a built accounting structure keeps of the acc input-registry entry (id, version,
+code) it was built from. A stage that loads the structure checks it against the acc ref of its
+own sidecar or its parent's; a structure built before the record existed has none.
+_Avoid_: "acc sidecar" (a built structure is not a run).
+
 **Diagnostic** (diag):
 A per-stage plot suite that consumes a run's output (`AggDiagnostic`, `SolverDiag`, …); never
 imported into the data layer.

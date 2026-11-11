@@ -72,7 +72,8 @@ def _block_run(tmp_path, monkeypatch, agg_id=""):
         G_blocks={t: G[np.flatnonzero(row_time == t)][:, cols].tocsr()
                   for t, cols in cr.edge_cols_by_t.items()},
     )
-    s = ClarabelSolver(const_dir=str(tmp_path / "const"), verbose_first_solve=False)
+    s = ClarabelSolver(const_dir=str(tmp_path / "const"), verbose_first_solve=False,
+                       prior_mode="cold")
     monkeypatch.setattr(s, "load_run", lambda _rid: cr)
     return s.solve_all(cr.run_id), cr, acc
 

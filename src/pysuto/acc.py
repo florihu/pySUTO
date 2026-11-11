@@ -86,6 +86,7 @@ boolean masks of shape ``(n_edges,)``. Built-in entries: ``supply``, ``use``,
 from __future__ import annotations
 
 import inspect
+import json
 import os
 import pickle
 from functools import cached_property
@@ -1339,3 +1340,48 @@ class AccountingStructure:
                     obj.user_mask_names.append(name)
             obj.logger.info("   user masks restored: %s", ", ".join(obj.user_mask_names))
         return obj
+
+
+# =============================================================================
+# Source record — which acc input entry a built structure was made from (#53)
+# =============================================================================
+
+# Written by scripts/acc.py beside the saved structure, in <storage_dir>/<id>/.
+SOURCE_RECORD = "source.json"
+
+
+def write_source_record(storage_dir: str, entry: dict) -> str:
+    """Record ``{id, version, code}`` of the acc input entry the structure saved
+    under ``<storage_dir>/<id>/`` was built from; return the record's path."""
+    path = os.path.join(storage_dir, entry["id"], SOURCE_RECORD)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({k: entry[k] for k in ("id", "version", "code")}, f, indent=2)
+    return path
+
+
+def check_built_acc(storage_dir: str, acc_ref: dict) -> None:
+    """Check the structure built under ``<storage_dir>/<id>/`` against ``acc_ref``,
+    the acc input entry (``{id, version, ...}``) a run's sidecar records.
+
+    A structure built before the record existed has none: that is logged as a
+    warning and the caller goes on, so the runs made from it still load.
+
+    Raises
+    ------
+    ValueError
+        The record names another acc id or version than ``acc_ref``.
+    """
+    ref = (acc_ref.get("id"), acc_ref.get("version"))
+    path = os.path.join(storage_dir, str(ref[0]), SOURCE_RECORD)
+    if not os.path.isfile(path):
+        get_logger("AccountingStructure").warning(
+            "%s: the built structure carries no source record (built before #53), so "
+            "it cannot be checked against acc %s v%s", os.path.dirname(path), *ref)
+        return
+    with open(path, encoding="utf-8") as f:
+        rec = json.load(f)
+    if (rec["id"], rec["version"]) != ref:
+        raise ValueError(
+            f"{os.path.dirname(path)} was built from acc {rec['id']} v{rec['version']}, "
+            f"but the run names acc {ref[0]} v{ref[1]}: rebuild the structure with "
+            f"scripts/acc.py, or run against the acc it was built from")

@@ -34,14 +34,10 @@ import numpy as np
 # ---------------------------------------------------------------------------
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
-# Upstream wiring (feed IDs) is passed via repeated `--feed-id` CLI flags.
-# `acc_id` is read from config/config.yaml; every other knob lives inline below.
-
-ACC_DIR      = os.path.join("data", "proc", "acc")
-REGISTRY_DIR = os.path.join("data", "proc", "feed", "registry")
-
-IMP_DIR      = os.path.join("data", "proc", "imp")          # ImputationRunRegistry storage dir
-_INPUT_ROOT  = os.path.join("data", "input")                # root of the input registries
+# Upstream wiring (feed IDs) is passed via repeated `--feed-id` CLI flags. main()
+# reads `acc_id` from `--config` (default config/config.yaml) and derives every path
+# from `--data-dir` (default data): proc/acc, proc/feed/registry, proc/imp, input/.
+# Every other knob lives inline below.
 
 # ---------------------------------------------------------------------------
 # Imports
@@ -49,10 +45,10 @@ _INPUT_ROOT  = os.path.join("data", "input")                # root of the input 
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from pysuto.acc      import AccountingStructure
+from pysuto.acc      import AccountingStructure, check_built_acc
 from pysuto.config   import load_config
 from pysuto.registry import DataFeedRegistry, ImputationRunRegistry, stage_lock
-from pysuto.input_registry import InputRegistries
+from pysuto.input_registry import InputRegistries, pins_from_inputs
 from pysuto.collector import FeedCollector
 from pysuto.param_relation import (conc_for, conc_nominal_lookup, conc_sectors,
                                    expand_edge_index)
@@ -74,9 +70,6 @@ from pysuto.diag     import (
     AggDiagnostic, CoverageDiagnostic, ImpDiagnostic, StatsDiagnostic,
     ownership_violations,
 )
-
-cfg    = load_config()
-ACC_ID = cfg.pipeline.acc_id
 
 # ─────────────────────────────────────────────────────────────────────────────
 # USER CONFIGURATION — every knob that used to live in config/config.yaml.
@@ -237,7 +230,7 @@ LEG_SIGMA_GAMMA  = 0.5
 LEG_SIGMA_CV_CAP = 1.0
 
 # The knobs a pipeline step may override with --set (#100, pysuto.knobs). Paths,
-# ACC_ID, CV_GEO4 (a pedigree constant) and STOCK_SECTORS (ADR 0040 membership,
+# the acc id, CV_GEO4 (a pedigree constant) and STOCK_SECTORS (ADR 0040 membership,
 # kept in four places, #39) are not knobs.
 KNOBS = (
     "P_PROP", "Q_REG", "ALPHA_MIN_REG", "CASCADE_MAX_ITER", "CASCADE_ORDER",
@@ -476,7 +469,76 @@ def cascade_in_order(by_id: dict, order) -> list:
     return [by_id[k] for k in order]
 
 
-def main(feed_ids: list[str], label: str, overrides: dict | None = None) -> str:
+# An acc input version differing from Stage 2's only in this file leaves the edge index
+# the feeds were mapped onto unchanged: masks are named edge subsets (#53).
+_ACC_MASKS_FILE = "masks.csv"
+
+
+def check_feed_accs(feed_sidecars: dict, acc_registry, acc_entry: dict, logger) -> None:
+    """Check that every feed run was built on Stage 2's acc input entry (#53).
+
+    Parameters
+    ----------
+    feed_sidecars : ``{feed_run_id: sidecar}`` of the selected feed runs.
+    acc_registry : the acc :class:`~pysuto.input_registry.InputRegistry`, whose
+        per-file hashes tell two versions apart.
+    acc_entry : Stage 2's own acc input entry ``{id, version, ...}``.
+
+    A feed built on another version that differs only in ``masks.csv`` is logged as
+    a warning; identical versions pass silently.
+
+    Raises
+    ------
+    KeyError
+        A feed sidecar records no ``parents.inputs.acc``.
+    ValueError
+        A feed was built on another acc id, or on a version differing in a file other
+        than ``masks.csv``; the message names the feed run, both versions and the files.
+    """
+    own = (acc_entry["id"], acc_entry["version"])
+    for run_id, sidecar in feed_sidecars.items():
+        ref = sidecar.get("parents", {}).get("inputs", {}).get("acc")
+        if not ref:
+            raise KeyError(f"feed run {run_id} records no parents.inputs.acc, so its acc "
+                           f"cannot be checked against {own[0]} v{own[1]}")
+        theirs = (ref["id"], ref["version"])
+        if theirs == own:
+            continue
+        if theirs[0] != own[0]:
+            raise ValueError(f"feed run {run_id} was built on acc {theirs[0]} "
+                             f"v{theirs[1]}, this run uses acc {own[0]} v{own[1]}")
+        changed = acc_registry.changed_files(own[0], theirs[1], own[1])
+        structural = [f for f in changed if f != _ACC_MASKS_FILE]
+        if structural:
+            raise ValueError(f"feed run {run_id} was built on acc {own[0]} v{theirs[1]}, "
+                             f"this run uses v{own[1]}; they differ in "
+                             f"{', '.join(structural)}: rebuild the feed")
+        logger.warning("B  feed run %s was built on acc %s v%d, this run uses v%d; they "
+                       "differ only in %s", run_id, own[0], theirs[1], own[1],
+                       ", ".join(changed))
+
+
+def input_pins(imp_dir: str, imp_run_id: str, acc_id: str) -> dict:
+    """The pins replaying every input version imp run ``imp_run_id`` recorded in
+    its sidecar's ``parents.inputs`` (``--pin-inputs-from``, #53); the run must have
+    been built on ``acc_id``."""
+    sidecar = ImputationRunRegistry(storage_dir=imp_dir).load_sidecar(imp_run_id)
+    pins = pins_from_inputs(sidecar["parents"]["inputs"])
+    if acc_id not in pins.get("acc", {}):
+        raise ValueError(f"--pin-inputs-from {imp_run_id}: that run was built on acc "
+                         f"{sorted(pins.get('acc', {}))}, this run on {acc_id!r}")
+    return pins
+
+
+def main(feed_ids: list[str], label: str, overrides: dict | None = None, *,
+         data_dir: str = "data", config: str = os.path.join("config", "config.yaml"),
+         imp_dir: str | None = None, pin_inputs_from: str | None = None) -> str:
+    """Run Stage 2 on ``feed_ids``; return the imp run id.
+
+    ``data_dir`` holds ``proc/`` and ``input/``; the run is written to ``imp_dir``
+    (default ``<data_dir>/proc/imp``). ``pin_inputs_from`` names an imp run in
+    ``<data_dir>/proc/imp`` whose recorded input versions this run uses (#53).
+    """
     log_path = os.path.join(
         "logs",
         f"collect_aggregate_impute_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log",
@@ -486,33 +548,46 @@ def main(feed_ids: list[str], label: str, overrides: dict | None = None) -> str:
     logger = get_logger("collect_aggregate_impute")
     logger.info("=== collect_aggregate_impute START ===")
 
+    acc_id       = load_config(config).pipeline.acc_id
+    proc         = os.path.join(data_dir, "proc")
+    acc_dir      = os.path.join(proc, "acc")
+    registry_dir = os.path.join(proc, "feed", "registry")
+    if imp_dir is None:
+        imp_dir = os.path.join(proc, "imp")
     feed_keys = list(feed_ids)
 
     # ── 0  Initialise input registries (scan-and-bump) ────────────────────────
-    inputs = InputRegistries.initialize(root=_INPUT_ROOT)
-    acc_entry = inputs.acc.entry(ACC_ID)
+    pins = None
+    if pin_inputs_from is not None:
+        pins = input_pins(os.path.join(proc, "imp"), pin_inputs_from, acc_id)
+        logger.info("0  Input versions pinned from %s: %s", pin_inputs_from, pins)
+    inputs = InputRegistries.initialize(root=os.path.join(data_dir, "input"), pins=pins)
+    acc_entry = inputs.acc.entry(acc_id)
     logger.info("0  Input acc: %s v%d (code=%s)",
                 acc_entry["id"], acc_entry["version"], acc_entry["code"])
 
     # ── A  Load infrastructure ────────────────────────────────────────────────
-    logger.info("A  Loading AccountingStructure '%s' from %s", ACC_ID, ACC_DIR)
-    acc = AccountingStructure.load(id=ACC_ID, storage_dir=ACC_DIR)
+    logger.info("A  Loading AccountingStructure '%s' from %s", acc_id, acc_dir)
+    acc = AccountingStructure.load(id=acc_id, storage_dir=acc_dir)
+    check_built_acc(acc_dir, acc_entry)
 
-    logger.info("A  Loading DataFeedRegistry from %s", REGISTRY_DIR)
-    registry = DataFeedRegistry(odir=REGISTRY_DIR)
+    logger.info("A  Loading DataFeedRegistry from %s", registry_dir)
+    registry = DataFeedRegistry(odir=registry_dir)
     registry.load_index()
 
     # ── B  Collect and aggregate ──────────────────────────────────────────────
     logger.info("B  Collecting feeds: %s (p=%.2f)", feed_keys, P_PROP)
     collector  = FeedCollector(registry=registry, acc_struct=acc, min_flow_kt=0.01)
-    agg_result = collector.select(feed_keys).aggregate(p=P_PROP)
+    collector.select(feed_keys)
+    feed_run_ids = [s["feed_run_id"] for s in collector.selected]
+    logger.info("B  Resolved feed_run_ids: %s", feed_run_ids)
+    check_feed_accs({r: registry.load_sidecar(r) for r in feed_run_ids},
+                    inputs.acc, acc_entry, logger)
+    agg_result = collector.aggregate(p=P_PROP)
     logger.info(
         "B  Aggregation done: %d covered / %d total edges",
         agg_result.n_covered, agg_result.n_edges,
     )
-
-    feed_run_ids = [s["feed_run_id"] for s in collector.selected]
-    logger.info("B  Resolved feed_run_ids: %s", feed_run_ids)
 
     # Size-damped leg σ (ADR 0017), then the plausibility screen — the screen's
     # cv-5 inflation overrides damping on flagged legs.
@@ -695,8 +770,8 @@ def main(feed_ids: list[str], label: str, overrides: dict | None = None) -> str:
                        "unintended owner\n%s", len(_viol), _viol.head(20).to_string(index=False))
 
     # ── D  Register run ───────────────────────────────────────────────────────
-    logger.info("D  Registering imputation run in %s", IMP_DIR)
-    imp_registry = ImputationRunRegistry(storage_dir=IMP_DIR)
+    logger.info("D  Registering imputation run in %s", imp_dir)
+    imp_registry = ImputationRunRegistry(storage_dir=imp_dir)
     parents = {
         "inputs": {
             "acc":    acc_entry,
@@ -740,10 +815,12 @@ def main(feed_ids: list[str], label: str, overrides: dict | None = None) -> str:
             "stock_seed_cv":      STOCK_SEED_CV,
             "stock_seed_abs_floor": STOCK_SEED_ABS_FLOOR_KT,
             "effless_stock_sigma": EFFLESS_STOCK_SIGMA_KT,
+            "input_pins":         (None if pins is None
+                                   else {"from": pin_inputs_from, "versions": pins}),
             "overrides":          dict(overrides or {}),
         },
     )
-    run_dir = os.path.join(IMP_DIR, run_id)
+    run_dir = os.path.join(imp_dir, run_id)
     logger.info("D  Registered run_id=%s  label=%s → %s", run_id, label, run_dir)
 
     # ── E  Diagnostics ────────────────────────────────────────────────────────
@@ -771,16 +848,26 @@ if __name__ == "__main__":
         help="Feed run ID to include. Repeat for each feed.",
     )
     parser.add_argument("--label", help="Human-readable label stored in the run's sidecar")
-    parser.add_argument("--imp-dir", default=IMP_DIR,
-                        help=f"Where the run is written (default {IMP_DIR}); a sweep's "
-                             f"scratch store (#108).")
+    parser.add_argument("--data-dir", default="data",
+                        help="Data root holding proc/ and input/ (default 'data').")
+    parser.add_argument("--config", default=os.path.join("config", "config.yaml"),
+                        help="Config naming the acc id (default config/config.yaml).")
+    parser.add_argument("--imp-dir", default=None,
+                        help="Where the run is written (default <data-dir>/proc/imp); a "
+                             "sweep's scratch store (#108).")
+    parser.add_argument("--pin-inputs-from", default=None, metavar="IMP_RUN_ID",
+                        help="Use every input version this imp run of <data-dir>/proc/imp "
+                             "recorded in its sidecar, instead of the latest (#53).")
     add_knob_args(parser)
     args = parser.parse_args()
-    IMP_DIR = args.imp_dir
     overrides = overrides_from_cli(parser, args, KNOBS, globals())
     try:
         cascade_in_order(dict.fromkeys(CASCADE_IDS), CASCADE_ORDER)
     except ValueError as exc:
         parser.error(str(exc))
-    with stage_lock("collect_aggregate_impute"):   # registries have no locking (#101)
-        write_run_id(args.run_id_file, main(args.feed_ids, args.label, overrides))
+    # registries have no locking (#101)
+    with stage_lock("collect_aggregate_impute", root=os.path.join(args.data_dir, "proc")):
+        write_run_id(args.run_id_file,
+                     main(args.feed_ids, args.label, overrides, data_dir=args.data_dir,
+                          config=args.config, imp_dir=args.imp_dir,
+                          pin_inputs_from=args.pin_inputs_from))

@@ -40,6 +40,7 @@ import scipy.sparse as sp
 import clarabel
 
 from ._conditioning import condition_prior, condition_sigma_c
+from .acc import AccountingStructure, check_built_acc
 from .constraints import ConstraintRun
 from .registry import ConstraintRunRegistry, OptimRunRegistry
 from .logging import get_logger
@@ -169,6 +170,7 @@ class ClarabelSolver:
         self,
         const_dir: str = "data/proc/const",
         opt_dir:   str = "data/proc/opt",
+        acc_dir:   str = "data/proc/acc",
         sigma_a_floor_abs:      float = 1e-8,
         sigma_a_floor_rel:      float = 1e-5,
         sigma_a_ceiling_factor: float = 1e5,
@@ -204,6 +206,7 @@ class ClarabelSolver:
             )
         self.const_dir              = const_dir
         self.opt_dir                = opt_dir
+        self.acc_dir                = acc_dir
         self.prior_mode             = prior_mode
         self.n_workers              = n_workers
         self.direct_solve_method    = direct_solve_method
@@ -221,10 +224,12 @@ class ClarabelSolver:
         self.max_iter               = max_iter
         self.verbose_first_solve    = verbose_first_solve
         self.capture_iter_history   = capture_iter_history
-        # How the last solve_all ran (worker threads, linear solver, wall-clock);
-        # persist() writes it into the sidecar.
+        # How the last solve_all ran (worker threads, linear solver, wall-clock) and
+        # the inputs it read (the acc of a warm run); persist() writes them into the
+        # sidecar.
         self._solve_config:  dict = {}
         self._solve_summary: dict = {}
+        self._solve_inputs:  dict = {}
 
         self._const_registry = ConstraintRunRegistry(const_dir)
         self._opt_registry   = OptimRunRegistry(opt_dir)
@@ -580,7 +585,7 @@ class ClarabelSolver:
                         "none": []}[feasibility_check]
 
         # A failed call must not leave the previous call's facts for persist().
-        self._solve_config, self._solve_summary = {}, {}
+        self._solve_config, self._solve_summary, self._solve_inputs = {}, {}, {}
         t0 = time.perf_counter()
         if run.G_blocks:
             results = self._solve_all_via_blocks(run, ts_labels, check_labels)
@@ -786,19 +791,7 @@ class ClarabelSolver:
 
         # Edge-template map for the warm-start carry-forward: a_prior(t)=a_post(t-1)
         # aligned by (from_id,to_id,valuation), since cols_t are disjoint per year.
-        # When the AccountingStructure is unavailable (toy fixtures), fall back to
-        # a positional carry-forward — per-year cols_t are emitted in template
-        # order, so equal-length adjacent years align position-for-position.
-        acc_ws = None
-        if self.prior_mode == "warm":
-            try:
-                from pysuto.acc import AccountingStructure
-                acc_ws = AccountingStructure.load(run.acc_id)
-            except Exception:
-                logger.warning(
-                    "warm prior: AccountingStructure %r unavailable — using "
-                    "positional carry-forward by edge order.", run.acc_id,
-                )
+        acc_ws = self._warm_prior_acc(run) if self.prior_mode == "warm" else None
 
         if self.n_workers > 1:
             return self._solve_periods_parallel(
@@ -818,12 +811,9 @@ class ClarabelSolver:
             # f_agg slice.
             a_prior_t = a_0_global[cols_t].copy()
             if self.prior_mode == "warm" and prev_F is not None:
-                if acc_ws is not None:
-                    g   = acc_ws.warm_start_gather(prev_cols, cols_t)
-                    hit = g >= 0
-                    a_prior_t[hit] = prev_F[g[hit]]
-                elif len(prev_F) == len(a_prior_t):
-                    a_prior_t = prev_F.copy()  # positional fallback (no acc)
+                g   = acc_ws.warm_start_gather(prev_cols, cols_t)
+                hit = g >= 0
+                a_prior_t[hit] = prev_F[g[hit]]
 
             results[t], solver_t = self._solve_period(
                 run, t, a_prior_t, inv_sa_global[cols_t], row_time,
@@ -838,6 +828,30 @@ class ClarabelSolver:
             prev_cols, prev_F = cols_t, results[t].F_opt
 
         return results
+
+    def _warm_prior_acc(self, run: ConstraintRun):
+        """The built AccountingStructure a warm run aligns each year's prior by
+        (#53): loaded from ``acc_dir``, checked against the const run's acc ref, and
+        that ref recorded for :meth:`persist`.
+
+        Raises
+        ------
+        RuntimeError
+            The structure cannot be loaded from ``acc_dir``.
+        ValueError
+            It was built from another acc input version than the const run names.
+        """
+        try:
+            acc = AccountingStructure.load(run.acc_id, storage_dir=self.acc_dir)
+        except (AssertionError, OSError) as exc:
+            raise RuntimeError(
+                f"warm prior: AccountingStructure {run.acc_id!r} cannot be loaded from "
+                f"{self.acc_dir} ({exc}); a warm run aligns each year's prior to the "
+                f"previous year's posterior by edge template"
+            ) from exc
+        check_built_acc(self.acc_dir, run.acc_ref)
+        self._solve_inputs = {"acc": dict(run.acc_ref)}
+        return acc
 
     def _solve_periods_parallel(
         self,
@@ -1151,7 +1165,7 @@ class ClarabelSolver:
         opt_run_id = registry.register(
             results,
             parents = {
-                "inputs":   {},
+                "inputs":   dict(self._solve_inputs),
                 "upstream": {"const_run_id": const_id},
             },
             stage_config  = stage_config,

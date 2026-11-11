@@ -146,7 +146,15 @@ class InputRegistry:
         """Scan every ``<id>/current/`` and bump versions where load-bearing
         files changed.  ``pins`` are stored on the instance so subsequent
         :meth:`resolve` / :meth:`entry` calls honor them (pins do not
-        affect bump decisions)."""
+        affect bump decisions).
+
+        Raises
+        ------
+        KeyError
+            A pin names an id or version that is not registered.
+        FileNotFoundError
+            A pinned version's ``v{N}/`` snapshot no longer exists.
+        """
         self._pins = dict(pins or {})
         label_overrides = label_overrides or {}
 
@@ -159,6 +167,13 @@ class InputRegistry:
             self._maybe_bump(child.name, label_overrides.get(child.name))
 
         self._save_index()
+        for id, version in self._pins.items():
+            self._require_entry(id)
+            self._require_version(id, version)
+            if not (self.root / id / f"v{version}").is_dir():
+                raise FileNotFoundError(f"input/{self.kind}/{id}: pinned v{version} is "
+                                        f"registered but {self.root / id / f'v{version}'} "
+                                        f"is gone")
         return self
 
     def resolve(self, id: str, version: int | None = None) -> Path:
@@ -184,6 +199,15 @@ class InputRegistry:
 
     def latest_version(self, id: str) -> int:
         return self._require_entry(id)["versions"][-1]["version"]
+
+    def changed_files(self, id: str, version_a: int, version_b: int) -> list[str]:
+        """The load-bearing files whose recorded hashes differ between two versions
+        of ``id``, sorted. A file a version's record lacks hashes as absent (``""``),
+        as :meth:`initialize` hashes a missing optional file."""
+        self._require_entry(id)
+        a = self._require_version(id, version_a)["hashes"]
+        b = self._require_version(id, version_b)["hashes"]
+        return sorted(f for f in set(a) | set(b) if a.get(f, "") != b.get(f, ""))
 
     def pending(self) -> dict[str, int | None]:
         """Ids whose ``current/`` differs from their latest snapshot, mapped to that
@@ -381,6 +405,20 @@ class InputRegistry:
         if id in self._pins:
             return self._pins[id]
         return rec["versions"][-1]["version"]
+
+
+def pins_from_inputs(inputs: dict) -> dict[str, dict[str, int]]:
+    """``{kind: {id: version}}`` pinning every input version a run's sidecar records
+    in ``parents.inputs`` (one entry, or a list of entries, per kind), so the run's
+    inputs can be replayed through :meth:`InputRegistries.initialize` (#53)."""
+    pins: dict[str, dict[str, int]] = {}
+    for kind, refs in inputs.items():
+        if kind not in _KINDS:
+            raise KeyError(f"parents.inputs: unknown input kind {kind!r}; expected one "
+                           f"of {_KINDS}")
+        for ref in ([refs] if isinstance(refs, dict) else refs):
+            pins.setdefault(kind, {})[ref["id"]] = ref["version"]
+    return pins
 
 
 # ──────────────────────────────────────────────────────────────────────

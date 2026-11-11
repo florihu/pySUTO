@@ -531,6 +531,48 @@ def test_cli_writes_one_parquet_per_period(tmp_path, monkeypatch, toy_acc, F, pa
     assert sidecar["stage_config"]["primary"] == "CC"
 
 
+def test_cli_records_the_acc_version_the_const_run_names(tmp_path, monkeypatch, toy_acc,
+                                                         F, patched_acc_load):
+    """#53 item 4: the psut sidecar carries the const run's full acc ref, not the id."""
+    from pysuto.registry import PsutRunRegistry
+    opt_id, _, _ = _persist_opt_chain(tmp_path, toy_acc, F)
+    monkeypatch.chdir(tmp_path)
+    spec = importlib.util.spec_from_file_location(
+        "psut_cli_acc", os.path.join(os.path.dirname(__file__), "..", "scripts", "psut.py"))
+    cli = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(cli)
+
+    run_id = cli.main(opt_id, data_dir=str(tmp_path))
+    sidecar = PsutRunRegistry(str(tmp_path / "proc" / "psut")).load_sidecar(run_id)
+    assert sidecar["parents"]["inputs"]["acc"] == {"id": "toy", "version": 1}
+
+
+def test_from_opt_run_refuses_an_acc_built_from_another_version(tmp_path, toy_acc, F,
+                                                                patched_acc_load):
+    """The const run names toy v1; the structure in acc_dir was built from toy v2."""
+    from pysuto.psut import PSUT
+    opt_id, opt_dir, const_dir = _persist_opt_chain(tmp_path, toy_acc, F)
+    acc_dir = tmp_path / "proc" / "acc"
+    (acc_dir / "toy").mkdir(parents=True)
+    (acc_dir / "toy" / "source.json").write_text(
+        json.dumps({"id": "toy", "version": 2, "code": "n3wn3w00"}))
+    with pytest.raises(ValueError, match=r"toy v2.*toy v1"):
+        PSUT.from_opt_run(opt_id, opt_dir=opt_dir, const_dir=const_dir,
+                          acc_dir=str(acc_dir))
+
+
+def test_from_opt_run_without_a_source_record_warns_and_loads(tmp_path, toy_acc, F,
+                                                              patched_acc_load, caplog):
+    """The copper structure predates the record: the final chain still renders."""
+    from pysuto.psut import PSUT
+    opt_id, opt_dir, const_dir = _persist_opt_chain(tmp_path, toy_acc, F)
+    with caplog.at_level(logging.WARNING):
+        got = PSUT.from_opt_run(opt_id, opt_dir=opt_dir, const_dir=const_dir,
+                                acc_dir=str(tmp_path / "proc" / "acc"))
+    assert "no source record" in caplog.text
+    assert got.acc_ref == {"id": "toy", "version": 1}
+
+
 # ---------------------------------------------------------------------------
 # 9) Aggregation — a pushforward on the table (issue #24)
 # ---------------------------------------------------------------------------
