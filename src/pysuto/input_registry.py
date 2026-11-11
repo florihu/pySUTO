@@ -62,9 +62,13 @@ _log = get_logger("input_registry")
 
 _KINDS = ("feed", "acc", "params", "mask")
 
+# The acc's optional user masks: named edge subsets, so an acc version differing from
+# another only in this file has the same edge index (#53).
+ACC_MASKS = "masks.csv"
+
 _DEFAULT_LOAD_BEARING: dict[str, tuple[str, ...]] = {
     "params": ("params.csv",),
-    "acc":    ("root.ods", "bounds.ods", "rules.ods", "masks.csv"),
+    "acc":    ("root.ods", "bounds.ods", "rules.ods", ACC_MASKS),
     "mask":   ("rules.csv",),
     # "feed" handled in InputRegistry._load_bearing_files
 }
@@ -170,10 +174,10 @@ class InputRegistry:
         for id, version in self._pins.items():
             self._require_entry(id)
             self._require_version(id, version)
-            if not (self.root / id / f"v{version}").is_dir():
+            snapshot = self.root / id / f"v{version}"
+            if not snapshot.is_dir():
                 raise FileNotFoundError(f"input/{self.kind}/{id}: pinned v{version} is "
-                                        f"registered but {self.root / id / f'v{version}'} "
-                                        f"is gone")
+                                        f"registered but {snapshot} is gone")
         return self
 
     def resolve(self, id: str, version: int | None = None) -> Path:
@@ -414,11 +418,67 @@ def pins_from_inputs(inputs: dict) -> dict[str, dict[str, int]]:
     pins: dict[str, dict[str, int]] = {}
     for kind, refs in inputs.items():
         if kind not in _KINDS:
-            raise KeyError(f"parents.inputs: unknown input kind {kind!r}; expected one "
-                           f"of {_KINDS}")
+            raise ValueError(f"parents.inputs: unknown input kind {kind!r}; expected one "
+                             f"of {_KINDS}")
         for ref in ([refs] if isinstance(refs, dict) else refs):
             pins.setdefault(kind, {})[ref["id"]] = ref["version"]
     return pins
+
+
+def input_pins(imp_sidecar: dict, acc_id: str) -> dict[str, dict[str, int]]:
+    """The pins replaying every input version an imp run's sidecar records
+    (``--pin-inputs-from``, #53); the run must have been built on ``acc_id``."""
+    pins   = pins_from_inputs(imp_sidecar["parents"]["inputs"])
+    run_id = imp_sidecar["run_id"]
+    if acc_id not in pins.get("acc", {}):
+        raise ValueError(f"--pin-inputs-from {run_id}: {run_id} was built on acc "
+                         f"{sorted(pins.get('acc', {}))}, this run on {acc_id!r}")
+    return pins
+
+
+def check_feed_accs(feed_sidecars: dict, acc_registry: InputRegistry,
+                    acc_entry: dict) -> None:
+    """Check that every feed run was built on Stage 2's acc input entry (#53).
+
+    Parameters
+    ----------
+    feed_sidecars : ``{feed_run_id: sidecar}`` of the selected feed runs.
+    acc_registry : the acc registry, whose per-file hashes tell two versions apart.
+    acc_entry : Stage 2's own acc input entry ``{id, version, ...}``.
+
+    A feed built on another version that differs only in :data:`ACC_MASKS` is
+    logged as a warning; identical versions pass silently.
+
+    Raises
+    ------
+    KeyError
+        A feed sidecar records no ``parents.inputs.acc``.
+    ValueError
+        A feed was built on another acc id, or on a version differing in a file other
+        than :data:`ACC_MASKS`; the message names the feed run, both versions and the
+        files.
+    """
+    own = (acc_entry["id"], acc_entry["version"])
+    for run_id, sidecar in feed_sidecars.items():
+        ref = sidecar.get("parents", {}).get("inputs", {}).get("acc")
+        if not ref:
+            raise KeyError(f"feed run {run_id} records no parents.inputs.acc, so its acc "
+                           f"cannot be checked against {own[0]} v{own[1]}")
+        theirs = (ref["id"], ref["version"])
+        if theirs == own:
+            continue
+        if theirs[0] != own[0]:
+            raise ValueError(f"feed run {run_id} was built on acc {theirs[0]} "
+                             f"v{theirs[1]}, this run uses acc {own[0]} v{own[1]}")
+        changed = acc_registry.changed_files(own[0], theirs[1], own[1])
+        structural = [f for f in changed if f != ACC_MASKS]
+        if structural:
+            raise ValueError(f"feed run {run_id} was built on acc {own[0]} v{theirs[1]}, "
+                             f"this run uses v{own[1]}; they differ in "
+                             f"{', '.join(structural)}: rebuild the feed")
+        _log.warning("feed run %s was built on acc %s v%d, this run uses v%d; they "
+                     "differ only in %s", run_id, own[0], theirs[1], own[1],
+                     ", ".join(changed))
 
 
 # ──────────────────────────────────────────────────────────────────────

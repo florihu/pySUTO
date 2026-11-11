@@ -352,9 +352,9 @@ def main(imp_run_id: str, label: str, overrides: dict | None = None, *,
               acc_entry["id"], acc_entry["version"], acc_entry["code"])
 
     # ── A. Load inputs ────────────────────────────────────────────────────
+    check_built_acc(acc_dir, acc_entry)
     _log.info("Loading AccountingStructure '%s' from %s", acc_id, acc_dir)
     acc = AccountingStructure.load(acc_id, storage_dir=acc_dir)
-    check_built_acc(acc_dir, acc_entry)
     _log.info("  nodes=%d  edges=%d  time=%s–%s",
               acc.n_nodes, acc.n_edges, acc.time_range[0], acc.time_range[-1])
 

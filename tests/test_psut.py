@@ -435,8 +435,8 @@ def test_registry_loads_a_slice1_sidecar(tmp_path, psut):
 # 7) from_opt_run: provenance chain opt → const → acc
 # ---------------------------------------------------------------------------
 
-def _persist_opt_chain(tmp_path, toy_acc, F):
-    """A registered OptimRun whose const sidecar names acc 'toy'."""
+def _persist_opt_chain(tmp_path, toy_acc, F, acc_ref=None):
+    """A registered OptimRun whose const sidecar names ``acc_ref`` (default toy v1)."""
     from pysuto.registry import ConstraintRunRegistry, OptimRunRegistry
     from pysuto.registry._sidecar import build_sidecar
 
@@ -447,7 +447,8 @@ def _persist_opt_chain(tmp_path, toy_acc, F):
     run_dir = creg._make_run_dir("const_toy")
     creg._write_sidecar(run_dir, build_sidecar(
         run_id="const_toy", stage="const", label="", created_at="2026-01-01T00:00:00Z",
-        parents={"inputs": {"acc": {"id": "toy", "version": 1}}, "upstream": {}},
+        parents={"inputs": {"acc": acc_ref or {"id": "toy", "version": 1}},
+                 "upstream": {}},
     ))
     creg._add_entry(run_id="const_toy", label="", created_at="2026-01-01T00:00:00Z")
     creg.save()
@@ -554,22 +555,33 @@ def test_from_opt_run_refuses_an_acc_built_from_another_version(tmp_path, toy_ac
     opt_id, opt_dir, const_dir = _persist_opt_chain(tmp_path, toy_acc, F)
     acc_dir = tmp_path / "proc" / "acc"
     (acc_dir / "toy").mkdir(parents=True)
-    (acc_dir / "toy" / "source.json").write_text(
+    (acc_dir / "toy" / "build_record.json").write_text(
         json.dumps({"id": "toy", "version": 2, "code": "n3wn3w00"}))
     with pytest.raises(ValueError, match=r"toy v2.*toy v1"):
         PSUT.from_opt_run(opt_id, opt_dir=opt_dir, const_dir=const_dir,
                           acc_dir=str(acc_dir))
 
 
-def test_from_opt_run_without_a_source_record_warns_and_loads(tmp_path, toy_acc, F,
-                                                              patched_acc_load, caplog):
+def test_from_opt_run_refuses_a_const_run_naming_no_acc_version(tmp_path, toy_acc, F,
+                                                                patched_acc_load):
+    from pysuto.psut import PSUT
+    opt_id, opt_dir, const_dir = _persist_opt_chain(tmp_path, toy_acc, F,
+                                                    acc_ref={"id": "toy"})
+    with pytest.raises(ValueError, match="acc ref"):
+        PSUT.from_opt_run(opt_id, opt_dir=opt_dir, const_dir=const_dir,
+                          acc_dir=str(tmp_path / "proc" / "acc"))
+    assert patched_acc_load == []                  # refused before the load
+
+
+def test_from_opt_run_without_a_build_record_warns_and_loads(tmp_path, toy_acc, F,
+                                                             patched_acc_load, caplog):
     """The copper structure predates the record: the final chain still renders."""
     from pysuto.psut import PSUT
     opt_id, opt_dir, const_dir = _persist_opt_chain(tmp_path, toy_acc, F)
     with caplog.at_level(logging.WARNING):
         got = PSUT.from_opt_run(opt_id, opt_dir=opt_dir, const_dir=const_dir,
                                 acc_dir=str(tmp_path / "proc" / "acc"))
-    assert "no source record" in caplog.text
+    assert "no build record" in caplog.text
     assert got.acc_ref == {"id": "toy", "version": 1}
 
 

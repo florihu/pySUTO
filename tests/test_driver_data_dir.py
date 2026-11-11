@@ -30,13 +30,19 @@ STAGE_DRIVERS = ["collect_aggregate_impute.py", "constraints.py", "run_solver.py
                  "uncertainty_propagation.py"]
 
 
-def _driver(script: str):
-    spec = importlib.util.spec_from_file_location(f"_data_dir_{script[:-3]}",
-                                                  REPO / "scripts" / script)
-    mod = importlib.util.module_from_spec(spec)
-    sys.path.insert(0, str(REPO / "scripts"))
-    spec.loader.exec_module(mod)
-    return mod
+@pytest.fixture
+def driver(monkeypatch):
+    """Load a driver script by path as a module, ``scripts/`` on the path for the test."""
+    monkeypatch.syspath_prepend(str(REPO / "scripts"))
+
+    def load(script: str):
+        spec = importlib.util.spec_from_file_location(f"_data_dir_{script[:-3]}",
+                                                      REPO / "scripts" / script)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        return mod
+
+    return load
 
 
 def _edit_acc_input(case: dict, rules: bytes) -> dict:
@@ -47,9 +53,9 @@ def _edit_acc_input(case: dict, rules: bytes) -> dict:
 
 
 def _make_case(root: Path) -> dict:
-    """acc input toy v1 → v2, the structure built from v2 (with its source record),
+    """acc input toy v1 → v2, the structure built from v2 (with its build record),
     a two-period constraint run on it (mass balances) and a config naming acc toy."""
-    from pysuto.acc import AccountingStructure, write_source_record
+    from pysuto.acc import AccountingStructure, write_build_record
     from pysuto.constraints import ConstraintEngine, MassBalanceBuilder
 
     data = root / "case" / "data"
@@ -70,7 +76,7 @@ def _make_case(root: Path) -> dict:
         root={"nodes": nodes, "time_range": ["2020", "2021"], "valuation": ["Mass"]},
         rules=[lambda ni, nj: (ni["entity"] == "Process") != (nj["entity"] == "Process")])
     acc.save()
-    write_source_record(acc_dir, entry)
+    write_build_record(acc_dir, entry)
 
     class _Agg:
         f_agg     = np.arange(1.0, acc.n_edges + 1)
@@ -105,11 +111,11 @@ def case(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize("script", STAGE_DRIVERS)
 def test_importing_a_driver_reads_no_config_and_touches_no_data(script, tmp_path,
-                                                                monkeypatch):
+                                                                monkeypatch, driver):
     """The working directory has no config/config.yaml: an import-time load_config
     would raise FileNotFoundError."""
     monkeypatch.chdir(tmp_path)
-    _driver(script)
+    driver(script)
     assert not (tmp_path / "data").exists()
 
 
@@ -132,29 +138,30 @@ def test_a_driver_takes_the_stage_lock_of_its_data_dir(script, args, tmp_path):
     assert not (cwd / "data").exists()
 
 
-def test_stages_4_and_5_read_and_write_only_the_given_data_dir(case):
+def test_stages_4_and_5_read_and_write_only_the_given_data_dir(case, driver):
     """The cold chain of the case: an opt run, then its uncprop run, both under the
     case's proc/; the opt sidecar of a cold run records no inputs (unchanged)."""
     from pysuto.registry import OptimRunRegistry, UncPropRunRegistry
     proc = case["data"] / "proc"
-    opt_id = _driver("run_solver.py").main(case["const_run_id"], "case", "cold",
-                                           data_dir=str(case["data"]))
+    opt_id = driver("run_solver.py").main(case["const_run_id"], "case", "cold",
+                                          data_dir=str(case["data"]))
     sidecar = OptimRunRegistry(str(proc / "opt")).load_sidecar(opt_id)
     assert sidecar["parents"] == {"inputs": {},
                                   "upstream": {"const_run_id": case["const_run_id"]}}
     assert (proc / "opt" / opt_id / "diag").is_dir()
 
-    _driver("uncertainty_propagation.py").main(opt_id, "case", data_dir=str(case["data"]))
+    driver("uncertainty_propagation.py").main(opt_id, "case", data_dir=str(case["data"]))
     unc = UncPropRunRegistry(str(proc / "uncprop"))
     assert len(unc.run_ids()) == 1
     assert (proc / "uncprop" / unc.run_ids()[0] / "diag").is_dir()
 
 
-def test_a_warm_stage_4_records_the_acc_it_loaded_from_the_data_dir(case, monkeypatch):
+def test_a_warm_stage_4_records_the_acc_it_loaded_from_the_data_dir(case, monkeypatch,
+                                                                    driver):
     """#53 item 5: the warm prior's acc comes from <data-dir>/proc/acc, is checked
     against the const run's acc ref, and that ref lands in the opt sidecar."""
     from pysuto.registry import OptimRunRegistry
-    rs = _driver("run_solver.py")
+    rs = driver("run_solver.py")
     monkeypatch.setattr(rs, "N_WORKERS", 1)                 # warm is a chain
     opt_id = rs.main(case["const_run_id"], "case", "warm", data_dir=str(case["data"]))
     sidecar = OptimRunRegistry(str(case["data"] / "proc" / "opt")).load_sidecar(opt_id)
@@ -162,62 +169,105 @@ def test_a_warm_stage_4_records_the_acc_it_loaded_from_the_data_dir(case, monkey
     assert sidecar["stage_config"]["prior_mode"] == "warm"
 
 
-def test_a_warm_stage_4_refuses_an_acc_built_from_another_version(case, monkeypatch):
-    from pysuto.acc import write_source_record
-    write_source_record(case["acc_dir"], {**case["entry"], "version": 1})
-    rs = _driver("run_solver.py")
+def test_a_warm_stage_4_refuses_an_acc_built_from_another_version(case, monkeypatch,
+                                                                   driver):
+    from pysuto.acc import write_build_record
+    write_build_record(case["acc_dir"], {**case["entry"], "version": 1})
+    rs = driver("run_solver.py")
     monkeypatch.setattr(rs, "N_WORKERS", 1)
     with pytest.raises(ValueError, match=r"toy v1.*toy v2"):
         rs.main(case["const_run_id"], "case", "warm", data_dir=str(case["data"]))
+
+
+def test_a_cold_stage_4_checks_the_acc_its_diagnostics_load_before_solving(case,
+                                                                           driver):
+    """#53: the cold solve reads no acc, but the diagnostics do; the build record is
+    checked before the solve, so a refused run persists nothing."""
+    from pysuto.acc import write_build_record
+    write_build_record(case["acc_dir"], {**case["entry"], "version": 1})
+    with pytest.raises(ValueError, match=r"toy v1.*toy v2"):
+        driver("run_solver.py").main(case["const_run_id"], "case", "cold",
+                                     data_dir=str(case["data"]))
+    assert not (case["data"] / "proc" / "opt").exists()
 
 
 # ---------------------------------------------------------------------------
 # Stages 2 and 3 check the built acc against their own acc input entry (#53)
 # ---------------------------------------------------------------------------
 
-def test_stage_3_refuses_an_acc_built_from_an_older_input_version(case):
-    """The input moved on to v3; the structure is still the one built from v2."""
+def test_stage_3_refuses_an_acc_built_from_an_older_input_version(case, driver,
+                                                                  monkeypatch):
+    """The input moved on to v3; the structure is still the one built from v2. The
+    record is checked before the structure is loaded."""
+    from pysuto.acc import AccountingStructure
     _edit_acc_input(case, b"rules v3")
+    monkeypatch.setattr(AccountingStructure, "load", classmethod(_no_load))
     with pytest.raises(ValueError, match=r"toy v2.*toy v3"):
-        _driver("constraints.py").main("imp_x", "case", data_dir=str(case["data"]),
+        driver("constraints.py").main("imp_x", "case", data_dir=str(case["data"]),
                                        config=case["config"])
 
 
-def test_stage_3_reads_the_acc_id_from_the_given_config(case):
+def test_stage_3_reads_the_acc_id_from_the_given_config(case, driver):
     """The built acc matches its entry, so Stage 3 gets as far as the imp run."""
     with pytest.raises(KeyError, match="imp_x"):
-        _driver("constraints.py").main("imp_x", "case", data_dir=str(case["data"]),
+        driver("constraints.py").main("imp_x", "case", data_dir=str(case["data"]),
                                        config=case["config"])
 
 
-def test_stage_2_refuses_an_acc_built_from_an_older_input_version(case):
+def test_stage_2_refuses_an_acc_built_from_an_older_input_version(case, driver,
+                                                                  monkeypatch):
+    from pysuto.acc import AccountingStructure
     _edit_acc_input(case, b"rules v3")
+    monkeypatch.setattr(AccountingStructure, "load", classmethod(_no_load))
     with pytest.raises(ValueError, match=r"toy v2.*toy v3"):
-        _driver("collect_aggregate_impute.py").main(
+        driver("collect_aggregate_impute.py").main(
             ["feed_x"], "case", data_dir=str(case["data"]), config=case["config"])
 
 
-def test_stage_2_pins_the_acc_version_an_earlier_imp_run_recorded(case):
-    """Replaying an imp run built on toy v2 pins v2 although v3 is the latest, so the
-    v2 structure passes and Stage 2 gets as far as the feed lookup."""
+def _register_imp_ref(case) -> str:
+    """An imp run of the case built on toy v2 (its acc entry), recording no params."""
     from pysuto.registry import ImputationRunRegistry
     from pysuto.registry._sidecar import build_sidecar
-    _edit_acc_input(case, b"rules v3")
     reg = ImputationRunRegistry(storage_dir=str(case["data"] / "proc" / "imp"))
     reg._write_sidecar(reg._make_run_dir("imp_ref"), build_sidecar(
         run_id="imp_ref", stage="imp", label="", created_at="2026-11-11T00:00:00Z",
         parents={"inputs": {"acc": case["entry"], "params": []}, "upstream": {}}))
     reg._add_entry(run_id="imp_ref", label="", created_at="2026-11-11T00:00:00Z")
     reg.save()
+    return "imp_ref"
+
+
+def test_stage_2_pins_the_acc_version_an_earlier_imp_run_recorded(case, driver):
+    """Replaying an imp run built on toy v2 pins v2 although v3 is the latest, so the
+    v2 structure passes and Stage 2 gets as far as the feed lookup."""
+    _edit_acc_input(case, b"rules v3")
+    imp_ref = _register_imp_ref(case)
     with pytest.raises(KeyError, match="feed_x"):
-        _driver("collect_aggregate_impute.py").main(
+        driver("collect_aggregate_impute.py").main(
             ["feed_x"], "case", data_dir=str(case["data"]), config=case["config"],
-            pin_inputs_from="imp_ref")
+            pin_inputs_from=imp_ref)
+
+
+def test_a_pinned_stage_2_refuses_a_structure_without_a_build_record(case, driver):
+    """Unpinned, a structure built before #53 only warns; a pinned acc version cannot
+    be verified against it."""
+    from pysuto.acc import BUILD_RECORD
+    os.remove(os.path.join(case["acc_dir"], "toy", BUILD_RECORD))
+    imp_ref = _register_imp_ref(case)
+    with pytest.raises(ValueError, match="no build record"):
+        driver("collect_aggregate_impute.py").main(
+            ["feed_x"], "case", data_dir=str(case["data"]), config=case["config"],
+            pin_inputs_from=imp_ref)
 
 
 # ---------------------------------------------------------------------------
 # ConstDiagnostic's default figure directory is the run's own (#58)
 # ---------------------------------------------------------------------------
+
+def _no_load(cls, id, **kwargs):
+    raise AssertionError(f"the structure {id!r} was loaded before its build record "
+                         f"was checked")
+
 
 def test_const_diag_from_a_run_dir_draws_into_that_run_dir(case):
     from pysuto.diag import ConstDiagnostic

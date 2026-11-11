@@ -34,7 +34,7 @@ _REPO_ROOT  = os.path.dirname(_SCRIPT_DIR)
 
 sys.path.insert(0, os.path.join(_REPO_ROOT, "src"))
 
-from pysuto.acc import AccountingStructure, write_source_record
+from pysuto.acc import AccountingStructure, write_build_record
 from pysuto.input_registry import InputRegistries
 
 
@@ -192,7 +192,7 @@ def main() -> AccountingStructure:
     print()
     logger.info("Saving structure …")
     acc.save()
-    write_source_record(args.out, acc_entry)    # the input entry it was built from (#53)
+    write_build_record(args.out, acc_entry)     # the input entry it was built from (#53)
     out_dir = os.path.join(args.out, args.id)
     edge_summary.to_csv(os.path.join(out_dir, "edge_summary.csv"), index=False)
     pair_counts .to_csv(os.path.join(out_dir, "sector_pair_counts.csv"), index=False)

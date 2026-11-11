@@ -116,12 +116,12 @@ KNOBS = (
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from pysuto.acc     import AccountingStructure
+from pysuto.acc     import AccountingStructure, check_built_acc
 from pysuto.solver  import ClarabelSolver
 from pysuto.diag    import SolverDiag
 from pysuto.logging import get_logger, add_run_handler
 from pysuto.knobs   import add_knob_args, overrides_from_cli, write_run_id
-from pysuto.registry import stage_lock
+from pysuto.registry import ConstraintRunRegistry, stage_lock
 
 _log = get_logger("init_run_solver")
 
@@ -146,6 +146,10 @@ def main(const_run_id: str, label: str = "", prior_mode: str = "warm",
         const_dir = os.path.join(proc, "const")
 
     _log.info("=== init_run_solver START ===")
+    # The diagnostics below load the built acc: check its build record against the
+    # const run's acc ref before the solve, so a refused run persists nothing (#53).
+    const_parents = ConstraintRunRegistry(const_dir).load_sidecar(const_run_id)["parents"]
+    check_built_acc(acc_dir, const_parents["inputs"].get("acc", {}))
     _log.info("Loading ClarabelSolver (const_dir=%s)", const_dir)
     # Termination tolerances: see the USER CONFIGURATION block (Round W.1).
     solver = ClarabelSolver(const_dir=const_dir, opt_dir=opt_dir, acc_dir=acc_dir,

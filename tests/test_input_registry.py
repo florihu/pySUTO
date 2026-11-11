@@ -464,6 +464,13 @@ def test_pins_from_inputs_pins_every_version_a_sidecar_records() -> None:
                                         "params": {"conc": 10, "eff": 4}}
 
 
+def test_pins_from_inputs_refuses_an_unknown_kind() -> None:
+    """As InputRegistry does for an unknown kind."""
+    from pysuto.input_registry import pins_from_inputs
+    with pytest.raises(ValueError, match="unknown input kind 'acx'"):
+        pins_from_inputs({"acx": {"id": "copper", "version": 4}})
+
+
 def test_a_pin_to_an_unregistered_version_raises_on_initialize(tmp_path: Path) -> None:
     _params_id(tmp_path, "conc", "v;1\n")
     InputRegistry("params", root=tmp_path).initialize()

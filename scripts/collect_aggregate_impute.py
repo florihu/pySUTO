@@ -48,7 +48,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from pysuto.acc      import AccountingStructure, check_built_acc
 from pysuto.config   import load_config
 from pysuto.registry import DataFeedRegistry, ImputationRunRegistry, stage_lock
-from pysuto.input_registry import InputRegistries, pins_from_inputs
+from pysuto.input_registry import InputRegistries, check_feed_accs, input_pins
 from pysuto.collector import FeedCollector
 from pysuto.param_relation import (conc_for, conc_nominal_lookup, conc_sectors,
                                    expand_edge_index)
@@ -469,67 +469,6 @@ def cascade_in_order(by_id: dict, order) -> list:
     return [by_id[k] for k in order]
 
 
-# An acc input version differing from Stage 2's only in this file leaves the edge index
-# the feeds were mapped onto unchanged: masks are named edge subsets (#53).
-_ACC_MASKS_FILE = "masks.csv"
-
-
-def check_feed_accs(feed_sidecars: dict, acc_registry, acc_entry: dict, logger) -> None:
-    """Check that every feed run was built on Stage 2's acc input entry (#53).
-
-    Parameters
-    ----------
-    feed_sidecars : ``{feed_run_id: sidecar}`` of the selected feed runs.
-    acc_registry : the acc :class:`~pysuto.input_registry.InputRegistry`, whose
-        per-file hashes tell two versions apart.
-    acc_entry : Stage 2's own acc input entry ``{id, version, ...}``.
-
-    A feed built on another version that differs only in ``masks.csv`` is logged as
-    a warning; identical versions pass silently.
-
-    Raises
-    ------
-    KeyError
-        A feed sidecar records no ``parents.inputs.acc``.
-    ValueError
-        A feed was built on another acc id, or on a version differing in a file other
-        than ``masks.csv``; the message names the feed run, both versions and the files.
-    """
-    own = (acc_entry["id"], acc_entry["version"])
-    for run_id, sidecar in feed_sidecars.items():
-        ref = sidecar.get("parents", {}).get("inputs", {}).get("acc")
-        if not ref:
-            raise KeyError(f"feed run {run_id} records no parents.inputs.acc, so its acc "
-                           f"cannot be checked against {own[0]} v{own[1]}")
-        theirs = (ref["id"], ref["version"])
-        if theirs == own:
-            continue
-        if theirs[0] != own[0]:
-            raise ValueError(f"feed run {run_id} was built on acc {theirs[0]} "
-                             f"v{theirs[1]}, this run uses acc {own[0]} v{own[1]}")
-        changed = acc_registry.changed_files(own[0], theirs[1], own[1])
-        structural = [f for f in changed if f != _ACC_MASKS_FILE]
-        if structural:
-            raise ValueError(f"feed run {run_id} was built on acc {own[0]} v{theirs[1]}, "
-                             f"this run uses v{own[1]}; they differ in "
-                             f"{', '.join(structural)}: rebuild the feed")
-        logger.warning("B  feed run %s was built on acc %s v%d, this run uses v%d; they "
-                       "differ only in %s", run_id, own[0], theirs[1], own[1],
-                       ", ".join(changed))
-
-
-def input_pins(imp_dir: str, imp_run_id: str, acc_id: str) -> dict:
-    """The pins replaying every input version imp run ``imp_run_id`` recorded in
-    its sidecar's ``parents.inputs`` (``--pin-inputs-from``, #53); the run must have
-    been built on ``acc_id``."""
-    sidecar = ImputationRunRegistry(storage_dir=imp_dir).load_sidecar(imp_run_id)
-    pins = pins_from_inputs(sidecar["parents"]["inputs"])
-    if acc_id not in pins.get("acc", {}):
-        raise ValueError(f"--pin-inputs-from {imp_run_id}: that run was built on acc "
-                         f"{sorted(pins.get('acc', {}))}, this run on {acc_id!r}")
-    return pins
-
-
 def main(feed_ids: list[str], label: str, overrides: dict | None = None, *,
          data_dir: str = "data", config: str = os.path.join("config", "config.yaml"),
          imp_dir: str | None = None, pin_inputs_from: str | None = None) -> str:
@@ -559,7 +498,9 @@ def main(feed_ids: list[str], label: str, overrides: dict | None = None, *,
     # ── 0  Initialise input registries (scan-and-bump) ────────────────────────
     pins = None
     if pin_inputs_from is not None:
-        pins = input_pins(os.path.join(proc, "imp"), pin_inputs_from, acc_id)
+        ref_sidecar = (ImputationRunRegistry(storage_dir=os.path.join(proc, "imp"))
+                       .load_sidecar(pin_inputs_from))
+        pins = input_pins(ref_sidecar, acc_id)
         logger.info("0  Input versions pinned from %s: %s", pin_inputs_from, pins)
     inputs = InputRegistries.initialize(root=os.path.join(data_dir, "input"), pins=pins)
     acc_entry = inputs.acc.entry(acc_id)
@@ -567,9 +508,10 @@ def main(feed_ids: list[str], label: str, overrides: dict | None = None, *,
                 acc_entry["id"], acc_entry["version"], acc_entry["code"])
 
     # ── A  Load infrastructure ────────────────────────────────────────────────
+    # A pinned acc version is verifiable only against a structure with a build record.
+    check_built_acc(acc_dir, acc_entry, require_record=pins is not None)
     logger.info("A  Loading AccountingStructure '%s' from %s", acc_id, acc_dir)
     acc = AccountingStructure.load(id=acc_id, storage_dir=acc_dir)
-    check_built_acc(acc_dir, acc_entry)
 
     logger.info("A  Loading DataFeedRegistry from %s", registry_dir)
     registry = DataFeedRegistry(odir=registry_dir)
@@ -582,7 +524,7 @@ def main(feed_ids: list[str], label: str, overrides: dict | None = None, *,
     feed_run_ids = [s["feed_run_id"] for s in collector.selected]
     logger.info("B  Resolved feed_run_ids: %s", feed_run_ids)
     check_feed_accs({r: registry.load_sidecar(r) for r in feed_run_ids},
-                    inputs.acc, acc_entry, logger)
+                    inputs.acc, acc_entry)
     agg_result = collector.aggregate(p=P_PROP)
     logger.info(
         "B  Aggregation done: %d covered / %d total edges",
@@ -856,8 +798,9 @@ if __name__ == "__main__":
                         help="Where the run is written (default <data-dir>/proc/imp); a "
                              "sweep's scratch store (#108).")
     parser.add_argument("--pin-inputs-from", default=None, metavar="IMP_RUN_ID",
-                        help="Use every input version this imp run of <data-dir>/proc/imp "
-                             "recorded in its sidecar, instead of the latest (#53).")
+                        help="Use every input version this imp run of "
+                             "<data-dir>/proc/imp recorded in its sidecar, instead of the "
+                             "latest (#53).")
     add_knob_args(parser)
     args = parser.parse_args()
     overrides = overrides_from_cli(parser, args, KNOBS, globals())

@@ -637,8 +637,10 @@ class TestEngineToSolverIntegration:
     def test_block_path_warm_start_chains_posterior(self, tmp_path, monkeypatch):
         """Block-path warm start (the default) stores the per-period prior on
         each OptimResult and chains it: a_prior(t>0) == a_post(t-1)."""
+        import dataclasses
         from pysuto.solver import ClarabelSolver
         acc, cr, storage_dir = self._build_real_run(tmp_path)
+        cr = dataclasses.replace(cr, acc_ref=dict(TestWarmPriorAcc.ACC_REF))
 
         solver = ClarabelSolver(const_dir=storage_dir, verbose_first_solve=False)
         monkeypatch.setattr(solver, "load_run", lambda _rid: cr)
@@ -710,10 +712,23 @@ class TestWarmPriorAcc:
         s, cr, acc, acc_dir = self._solver(tmp_path, monkeypatch)
         self._patch_acc_load(monkeypatch, acc)
         os.makedirs(os.path.join(acc_dir, "toy"))
-        with open(os.path.join(acc_dir, "toy", "source.json"), "w") as f:
+        with open(os.path.join(acc_dir, "toy", "build_record.json"), "w") as f:
             json.dump({"id": "toy", "version": 1, "code": "0ld0ld00"}, f)
         with pytest.raises(ValueError, match=r"toy v1.*toy v2"):
             s.solve_all(cr.run_id)
+
+    def test_a_const_run_without_an_acc_ref_raises_and_records_nothing(self, tmp_path,
+                                                                       monkeypatch):
+        """An in-memory const run (``acc_ref`` ``{}``) names no acc version to check
+        the structure against; the warm path must never persist ``{"acc": {}}``."""
+        import dataclasses
+        s, cr, acc, _ = self._solver(tmp_path, monkeypatch)
+        monkeypatch.setattr(s, "load_run",
+                            lambda _rid: dataclasses.replace(cr, acc_ref={}))
+        self._patch_acc_load(monkeypatch, acc)
+        with pytest.raises(ValueError, match="acc ref"):
+            s.solve_all(cr.run_id)
+        assert s._solve_inputs == {}
 
     def test_a_cold_run_reads_no_acc_and_records_no_inputs(self, tmp_path, monkeypatch):
         from pysuto.registry import OptimRunRegistry

@@ -791,7 +791,10 @@ class ClarabelSolver:
 
         # Edge-template map for the warm-start carry-forward: a_prior(t)=a_post(t-1)
         # aligned by (from_id,to_id,valuation), since cols_t are disjoint per year.
-        acc_ws = self._warm_prior_acc(run) if self.prior_mode == "warm" else None
+        acc_ws = None
+        if self.prior_mode == "warm":
+            acc_ws = self._warm_prior_acc(run)
+            self._solve_inputs = {"acc": dict(run.acc_ref)}    # the input it read
 
         if self.n_workers > 1:
             return self._solve_periods_parallel(
@@ -831,27 +834,26 @@ class ClarabelSolver:
 
     def _warm_prior_acc(self, run: ConstraintRun):
         """The built AccountingStructure a warm run aligns each year's prior by
-        (#53): loaded from ``acc_dir``, checked against the const run's acc ref, and
-        that ref recorded for :meth:`persist`.
+        (#53): its build record checked against the const run's acc ref, then loaded
+        from ``acc_dir``.
 
         Raises
         ------
+        ValueError
+            The const run names no acc id and version, or the structure was built from
+            another acc input version.
         RuntimeError
             The structure cannot be loaded from ``acc_dir``.
-        ValueError
-            It was built from another acc input version than the const run names.
         """
+        check_built_acc(self.acc_dir, run.acc_ref)
         try:
-            acc = AccountingStructure.load(run.acc_id, storage_dir=self.acc_dir)
+            return AccountingStructure.load(run.acc_id, storage_dir=self.acc_dir)
         except (AssertionError, OSError) as exc:
             raise RuntimeError(
                 f"warm prior: AccountingStructure {run.acc_id!r} cannot be loaded from "
                 f"{self.acc_dir} ({exc}); a warm run aligns each year's prior to the "
                 f"previous year's posterior by edge template"
             ) from exc
-        check_built_acc(self.acc_dir, run.acc_ref)
-        self._solve_inputs = {"acc": dict(run.acc_ref)}
-        return acc
 
     def _solve_periods_parallel(
         self,

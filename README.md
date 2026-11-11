@@ -131,12 +131,19 @@ Logging      │ get_logger(name) per module + add_run_handler() —            
              ├────────────────────────────────┬────────────────────────────────┤
 Config /     │ load_config(config.yaml) ·     │ no registry read: the inputs   │
 inputs       │ InputRegistries.initialize()   │ come with the upstream run id; │
-             │ acc/feed/params/mask, hash-    │ St4 and St6 load acc from      │
-             │ bumped — read every run        │ data/proc/acc by its id        │
+             │ acc/feed/params/mask, hash-    │ the built acc's build record   │
+             │ bumped — read every run        │ is checked vs. the acc ref ³   │
              └────────────────────────────────┴────────────────────────────────┘
-¹ only Stages 1–3 fill parents.inputs; Stages 4–5 record parents.upstream alone,
-  and Stage 6 adds the acc id without its version (#53; the const sidecar has it).
+¹ Stages 1–3 fill parents.inputs; Stage 4 records the const run's acc ref there only
+  when warm (the warm prior reads the acc), Stage 5 parents.upstream alone, and
+  Stage 6 the const run's acc ref (id and version).
 ² scripts/icsg_feed.py attaches no run handler.
+³ scripts/acc.py writes build_record.json ({id, version, code} of the acc input version
+  it built from) beside the built acc. The drivers of Stages 2, 3, 4 and 6 check it
+  against their acc ref before they load the acc (#53): another version raises, and a
+  structure without the record warns (raises under Stage 2's --pin-inputs-from).
+  Stage 2 also checks each feed run's acc ref against its own: versions differing only
+  in masks.csv warn, any other file raises.
 
 modules:  Registry=registry/ (BaseOutputRegistry · _sidecar · make_run_id)
           Logging=logging.py   Config=config.py + input_registry.py
