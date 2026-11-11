@@ -1293,6 +1293,14 @@ four ODS/CSV files are two formats of it, each with its reader (`read_acc_spec_j
 _Avoid_: "case spec" (#26's typed `CaseSpec`, which references an acc by registry id), "root
 file" (one of the files a reader reads).
 
+**Build record** (`build_record.json`) — the file beside a built accounting structure that names
+the acc input version (id, version, code) it was built from. _Avoid_: "source record" (collides
+with **Source / src edge**, the **source region label** and the params `source` column); "acc
+sidecar" (a built structure is not a run).
+
+**Acc ref** — `{id, version}` naming one acc input version, as a sidecar's `parents.inputs.acc`
+records it.
+
 ## ROW pedigree-penalty vocabulary
 
 **ROW** — *Rest of World*, the residual region aggregate for countries not individually

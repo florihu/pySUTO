@@ -449,3 +449,77 @@ def test_current_gets_private_inode_so_in_place_writes_cannot_rewrite_snapshots(
     v2 = tmp_path / "params" / "conc" / "v2" / "params.csv"
     assert v2.read_text() == "param_id;value\nx;2\n"
     assert v2.stat().st_ino != current.stat().st_ino
+
+
+# =============================================================================
+# Lineage checks (#53): which files two versions differ in; pins from a sidecar
+# =============================================================================
+
+
+def _acc_versions(root: Path) -> None:
+    """acc ``copper`` v1 → v2 adds a masks.csv, v2 → v3 edits rules.ods."""
+    _acc_id(root, "copper", {"root.ods": b"r", "bounds.ods": b"b", "rules.ods": b"u"})
+    InputRegistry("acc", root=root).initialize()
+    _write(root / "acc" / "copper" / "current" / "masks.csv", "mask_name,logic\n")
+    InputRegistry("acc", root=root).initialize()
+    (root / "acc" / "copper" / "current" / "rules.ods").write_bytes(b"u2")
+    InputRegistry("acc", root=root).initialize()
+
+
+def test_changed_files_names_the_load_bearing_files_two_versions_differ_in(tmp_path: Path) -> None:
+    _acc_versions(tmp_path)
+    reg = InputRegistry("acc", root=tmp_path)
+    assert reg.changed_files("copper", 1, 1) == []
+    assert reg.changed_files("copper", 1, 2) == ["masks.csv"]
+    assert reg.changed_files("copper", 3, 1) == ["masks.csv", "rules.ods"]
+
+
+def test_a_file_one_version_does_not_record_hashes_as_absent(tmp_path: Path) -> None:
+    """copper v1 predates masks.csv in the load-bearing set: its record has no key,
+    which is the empty hash an absent file gets, not a difference."""
+    _acc_versions(tmp_path)
+    reg = InputRegistry("acc", root=tmp_path)
+    del reg._index["copper"]["versions"][0]["hashes"]["masks.csv"]
+    reg._index["copper"]["versions"][1]["hashes"]["masks.csv"] = ""
+    assert reg.changed_files("copper", 1, 2) == []
+
+
+def test_changed_files_of_an_unregistered_version_raises(tmp_path: Path) -> None:
+    _acc_versions(tmp_path)
+    with pytest.raises(KeyError, match="version 9"):
+        InputRegistry("acc", root=tmp_path).changed_files("copper", 1, 9)
+
+
+def test_pins_from_inputs_pins_every_version_a_sidecar_records() -> None:
+    from pysuto.input_registry import pins_from_inputs
+    inputs = {
+        "acc":    {"id": "copper", "version": 4, "code": "dd2e5794"},
+        "params": [{"id": "conc", "version": 10}, {"id": "eff", "version": 4}],
+    }
+    assert pins_from_inputs(inputs) == {"acc": {"copper": 4},
+                                        "params": {"conc": 10, "eff": 4}}
+
+
+def test_pins_from_inputs_refuses_an_unknown_kind() -> None:
+    """As InputRegistry does for an unknown kind."""
+    from pysuto.input_registry import pins_from_inputs
+    with pytest.raises(ValueError, match="unknown input kind 'acx'"):
+        pins_from_inputs({"acx": {"id": "copper", "version": 4}})
+
+
+def test_a_pin_to_an_unregistered_version_raises_on_initialize(tmp_path: Path) -> None:
+    _params_id(tmp_path, "conc", "v;1\n")
+    InputRegistry("params", root=tmp_path).initialize()
+    with pytest.raises(KeyError, match=r"conc: version 7 not registered"):
+        InputRegistries.initialize(root=tmp_path, pins={"params": {"conc": 7}})
+
+
+def test_a_pin_to_a_version_whose_snapshot_is_gone_raises_on_initialize(tmp_path: Path) -> None:
+    import shutil
+    _params_id(tmp_path, "conc", "v;1\n")
+    InputRegistry("params", root=tmp_path).initialize()
+    _write(tmp_path / "params" / "conc" / "current" / "params.csv", "v;2\n")
+    InputRegistry("params", root=tmp_path).initialize()
+    shutil.rmtree(tmp_path / "params" / "conc" / "v1")
+    with pytest.raises(FileNotFoundError, match="v1"):
+        InputRegistry("params", root=tmp_path).initialize(pins={"conc": 1})

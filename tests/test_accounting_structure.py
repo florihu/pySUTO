@@ -1475,5 +1475,78 @@ def test_save_without_user_masks_drops_the_stale_file(root_simple, tmp_path):
     assert loaded.user_mask_names == []
 
 
+# =============================================================================
+# THE BUILD RECORD: WHICH ACC INPUT VERSION A BUILT STRUCTURE CAME FROM (#53)
+# =============================================================================
+
+class TestBuildRecord:
+    """A built structure keeps a build record of the acc input version it was built
+    from; a stage that loads the structure checks the record against its acc ref."""
+
+    ENTRY = {"id": "t", "version": 4, "date": "2026-09-29T10:53:03Z",
+             "code": "dd2e5794", "label": "t"}
+
+    def _built(self, root_simple, tmp_path):
+        store = str(tmp_path / "proc" / "acc")
+        AccountingStructure(id="t", root=root_simple, storage_dir=store).save()
+        return store
+
+    def test_the_record_holds_the_entrys_id_version_and_code(self, root_simple, tmp_path):
+        import json
+        from pysuto.acc import BUILD_RECORD, write_build_record
+        store = self._built(root_simple, tmp_path)
+        path = write_build_record(store, self.ENTRY)
+        assert path == os.path.join(store, "t", BUILD_RECORD)
+        assert BUILD_RECORD == "build_record.json"
+        with open(path, encoding="utf-8") as f:
+            assert json.load(f) == {"id": "t", "version": 4, "code": "dd2e5794"}
+
+    def test_a_matching_ref_passes_silently(self, root_simple, tmp_path, caplog):
+        import logging
+        from pysuto.acc import check_built_acc, write_build_record
+        store = self._built(root_simple, tmp_path)
+        write_build_record(store, self.ENTRY)
+        with caplog.at_level(logging.WARNING):
+            check_built_acc(store, {"id": "t", "version": 4})
+            check_built_acc(store, {"id": "t", "version": 4}, require_record=True)
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
+
+    def test_another_version_raises_naming_both(self, root_simple, tmp_path):
+        from pysuto.acc import check_built_acc, write_build_record
+        store = self._built(root_simple, tmp_path)
+        write_build_record(store, self.ENTRY)
+        with pytest.raises(ValueError, match=r"t v4.*t v3"):
+            check_built_acc(store, {"id": "t", "version": 3, "code": "0342a990"})
+
+    def test_a_structure_without_the_record_warns_and_continues(self, root_simple,
+                                                                tmp_path, caplog):
+        """The copper structure was built before the record existed; the final chain
+        must still render."""
+        import logging
+        from pysuto.acc import check_built_acc
+        store = self._built(root_simple, tmp_path)
+        with caplog.at_level(logging.WARNING):
+            check_built_acc(store, {"id": "t", "version": 4})
+        assert "no build record" in caplog.text and "t v4" in caplog.text
+
+    def test_a_structure_without_the_record_raises_when_one_is_required(self, root_simple,
+                                                                        tmp_path):
+        """A pinned run cannot verify its acc version against an unrecorded build."""
+        from pysuto.acc import check_built_acc
+        store = self._built(root_simple, tmp_path)
+        with pytest.raises(ValueError, match="no build record"):
+            check_built_acc(store, {"id": "t", "version": 4}, require_record=True)
+
+    @pytest.mark.parametrize("ref", [{}, {"id": "t"}, {"version": 4},
+                                     {"id": "", "version": 4}, {"id": "t", "version": None}])
+    def test_an_empty_or_partial_acc_ref_raises(self, root_simple, tmp_path, ref):
+        """Nothing to check against is a defect of the caller's sidecar, never a pass."""
+        from pysuto.acc import check_built_acc, write_build_record
+        store = self._built(root_simple, tmp_path)
+        write_build_record(store, self.ENTRY)
+        with pytest.raises(ValueError, match="acc ref"):
+            check_built_acc(store, ref)
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])

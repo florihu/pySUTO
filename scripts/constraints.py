@@ -82,14 +82,10 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
-# Upstream wiring (`imp_run_id`) is passed via the `--imp-run-id` CLI flag.
-# `acc_id` is read from config/config.yaml; every other knob (P_PROP, σ
-# floors, builder registrations) lives inline below.
-
-ACC_DIR     = os.path.join("data", "proc", "acc")
-IMP_DIR     = os.path.join("data", "proc", "imp")
-_INPUT_ROOT = os.path.join("data", "input")
-OUTPUT_DIR  = os.path.join("data", "proc", "const")
+# Upstream wiring (`imp_run_id`) is passed via the `--imp-run-id` CLI flag. main()
+# reads `acc_id` from `--config` (default config/config.yaml) and derives every path
+# from `--data-dir` (default data): proc/acc, proc/imp, proc/const, input/. Every
+# other knob (P_PROP, σ floors, builder registrations) lives inline below.
 
 # Supply/use total-output SCALE TOTALS pin every process's and every flow's
 # total-output scale to the model's own Stage-2 prior (c = Σ f_agg), preventing
@@ -103,7 +99,7 @@ OUTPUT_DIR  = os.path.join("data", "proc", "const")
 # make sure the package is importable when running from the project root
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from pysuto.acc import AccountingStructure
+from pysuto.acc import AccountingStructure, check_built_acc
 from pysuto.config import load_config
 from pysuto.registry import ImputationRunRegistry, stage_lock
 from pysuto.input_registry import InputRegistries
@@ -120,9 +116,6 @@ from pysuto.constraints import (
 )
 from pysuto.logging import get_logger, add_run_handler
 from pysuto.knobs import add_knob_args, overrides_from_cli, write_run_id
-
-cfg    = load_config()
-ACC_ID = cfg.pipeline.acc_id
 
 # ─────────────────────────────────────────────────────────────────────────────
 # USER CONFIGURATION — every knob that used to live in config/config.yaml.
@@ -317,7 +310,7 @@ STRIPPING_RATIO_HARD = True
 DIAG_PLOT = True
 
 # The knobs a pipeline step may override with --set (#100, pysuto.knobs). Paths and
-# ACC_ID are not knobs. scale_total_cv's defaults bind at import, so main() passes
+# the acc id are not knobs. scale_total_cv's defaults bind at import, so main() passes
 # the four knobs it reads explicitly.
 KNOBS = (
     "P_PROP", "SIGMA_A_CV_MIN", "SIGMA_A_ABS_FLOOR", "ANCHOR_CV", "SIGMA_C_CV_MIN",
@@ -333,24 +326,40 @@ KNOBS = (
 _log = get_logger("init_copper_constraints")
 
 
-def main(imp_run_id: str, label: str, overrides: dict | None = None) -> str:
+def main(imp_run_id: str, label: str, overrides: dict | None = None, *,
+         data_dir: str = "data", config: str = os.path.join("config", "config.yaml"),
+         imp_dir: str | None = None, const_dir: str | None = None) -> str:
+    """Build and persist the constraint run of ``imp_run_id``; return its id.
+
+    ``data_dir`` holds ``proc/`` and ``input/``; the imp run is read from ``imp_dir``
+    (default ``<data_dir>/proc/imp``) and the run written to ``const_dir`` (default
+    ``<data_dir>/proc/const``).
+    """
     from datetime import datetime
     add_run_handler(f"logs/init_copper_constraints_{datetime.now():%Y%m%d_%H%M%S}.log")
 
+    acc_id  = load_config(config).pipeline.acc_id
+    acc_dir = os.path.join(data_dir, "proc", "acc")
+    if imp_dir is None:
+        imp_dir = os.path.join(data_dir, "proc", "imp")
+    if const_dir is None:
+        const_dir = os.path.join(data_dir, "proc", "const")
+
     # ── 0  Initialise input registries (scan-and-bump) ────────────────────
-    inputs    = InputRegistries.initialize(root=_INPUT_ROOT)
-    acc_entry = inputs.acc.entry(ACC_ID)
+    inputs    = InputRegistries.initialize(root=os.path.join(data_dir, "input"))
+    acc_entry = inputs.acc.entry(acc_id)
     _log.info("0  Input acc: %s v%d (code=%s)",
               acc_entry["id"], acc_entry["version"], acc_entry["code"])
 
     # ── A. Load inputs ────────────────────────────────────────────────────
-    _log.info("Loading AccountingStructure '%s' from %s", ACC_ID, ACC_DIR)
-    acc = AccountingStructure.load(ACC_ID, storage_dir=ACC_DIR)
+    check_built_acc(acc_dir, acc_entry)
+    _log.info("Loading AccountingStructure '%s' from %s", acc_id, acc_dir)
+    acc = AccountingStructure.load(acc_id, storage_dir=acc_dir)
     _log.info("  nodes=%d  edges=%d  time=%s–%s",
               acc.n_nodes, acc.n_edges, acc.time_range[0], acc.time_range[-1])
 
-    _log.info("Loading imputation run from %s", IMP_DIR)
-    imp_registry = ImputationRunRegistry(storage_dir=IMP_DIR)
+    _log.info("Loading imputation run from %s", imp_dir)
+    imp_registry = ImputationRunRegistry(storage_dir=imp_dir)
     agg_result = imp_registry.load(imp_run_id)
     _log.info("  f_agg shape=%s  coverage=%d edges  imp_run_id=%s",
               agg_result.f_agg.shape, agg_result.coverage.sum(), imp_run_id)
@@ -385,7 +394,7 @@ def main(imp_run_id: str, label: str, overrides: dict | None = None) -> str:
     # ── B. Assemble constraint engine ─────────────────────────────────────
     engine = ConstraintEngine(
         acc_struct        = acc,
-        storage_dir       = OUTPUT_DIR,
+        storage_dir       = const_dir,
         p                 = P_PROP,
         sigma_a_cv_min    = SIGMA_A_CV_MIN,
         sigma_a_abs_floor = SIGMA_A_ABS_FLOOR,
@@ -667,17 +676,25 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Build and persist constraint matrix.")
     parser.add_argument(
         "--imp-run-id", required=True,
-        help="ImputationRun ID to load from data/proc/imp/.",
+        help="ImputationRun ID to load from --imp-dir.",
     )
     parser.add_argument("label", help="Label for this constraint run")
-    parser.add_argument("--imp-dir", default=IMP_DIR,
-                        help=f"Where the imputation run is read from (default {IMP_DIR}).")
-    parser.add_argument("--const-dir", default=OUTPUT_DIR,
-                        help=f"Where the run is written (default {OUTPUT_DIR}); a sweep's "
-                             f"scratch store (#108).")
+    parser.add_argument("--data-dir", default="data",
+                        help="Data root holding proc/ and input/ (default 'data').")
+    parser.add_argument("--config", default=os.path.join("config", "config.yaml"),
+                        help="Config naming the acc id (default config/config.yaml).")
+    parser.add_argument("--imp-dir", default=None,
+                        help="Where the imputation run is read from "
+                             "(default <data-dir>/proc/imp).")
+    parser.add_argument("--const-dir", default=None,
+                        help="Where the run is written (default <data-dir>/proc/const); "
+                             "a sweep's scratch store (#108).")
     add_knob_args(parser)
     args = parser.parse_args()
-    IMP_DIR, OUTPUT_DIR = args.imp_dir, args.const_dir
     overrides = overrides_from_cli(parser, args, KNOBS, globals())
-    with stage_lock("constraints"):   # registries have no locking (#101)
-        write_run_id(args.run_id_file, main(args.imp_run_id, args.label, overrides))
+    # registries have no locking (#101)
+    with stage_lock("constraints", root=os.path.join(args.data_dir, "proc")):
+        write_run_id(args.run_id_file,
+                     main(args.imp_run_id, args.label, overrides, data_dir=args.data_dir,
+                          config=args.config, imp_dir=args.imp_dir,
+                          const_dir=args.const_dir))

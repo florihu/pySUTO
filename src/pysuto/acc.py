@@ -1539,3 +1539,57 @@ class AccountingStructure:
                     obj.user_mask_names.append(name)
             obj.logger.info("   user masks restored: %s", ", ".join(obj.user_mask_names))
         return obj
+
+
+# =============================================================================
+# Build record — which acc input version a built structure was made from (#53)
+# =============================================================================
+
+# Written by scripts/acc.py beside the saved structure, in <storage_dir>/<id>/.
+BUILD_RECORD = "build_record.json"
+
+
+def write_build_record(storage_dir: str, entry: dict) -> str:
+    """Record ``{id, version, code}`` of the acc input entry the structure saved
+    under ``<storage_dir>/<id>/`` was built from; return the record's path."""
+    path = os.path.join(storage_dir, entry["id"], BUILD_RECORD)
+    with open(path, "w", encoding="utf-8") as f:
+        json.dump({k: entry[k] for k in ("id", "version", "code")}, f, indent=2)
+    return path
+
+
+def check_built_acc(storage_dir: str, acc_ref: dict,
+                    require_record: bool = False) -> None:
+    """Check the build record of the structure under ``<storage_dir>/<id>/`` against
+    ``acc_ref``, the acc input version (``{id, version, ...}``) a run's sidecar names.
+
+    A structure built before the record existed has none: unless ``require_record``,
+    that is logged as a warning and the caller goes on, so the runs made from it still
+    load. Reads only the record, so a caller checks before the (multi-GB) load.
+
+    Raises
+    ------
+    ValueError
+        ``acc_ref`` lacks its id or version; the record names another acc id or
+        version; or ``require_record`` and the structure has no record.
+    """
+    ref = (acc_ref.get("id"), acc_ref.get("version"))
+    if not ref[0] or ref[1] is None:
+        raise ValueError(f"the acc ref {acc_ref!r} names no acc id and version, so the "
+                         f"structure in {storage_dir} cannot be checked against it")
+    path = os.path.join(storage_dir, ref[0], BUILD_RECORD)
+    if not os.path.isfile(path):
+        msg = (f"{os.path.dirname(path)}: the built structure has no build record "
+               f"(built before #53), so it cannot be checked against acc "
+               f"{ref[0]} v{ref[1]}")
+        if require_record:
+            raise ValueError(f"{msg}: rebuild it with scripts/acc.py")
+        get_logger("AccountingStructure").warning(msg)
+        return
+    with open(path, encoding="utf-8") as f:
+        rec = json.load(f)
+    if (rec["id"], rec["version"]) != ref:
+        raise ValueError(
+            f"{os.path.dirname(path)} was built from acc {rec['id']} v{rec['version']}, "
+            f"but the run names acc {ref[0]} v{ref[1]}: rebuild the structure with "
+            f"scripts/acc.py, or run against the acc it was built from")

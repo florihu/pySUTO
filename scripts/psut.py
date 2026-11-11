@@ -83,7 +83,7 @@ def main(
     psut_run_id = registry.register(
         psut,
         parents = {
-            "inputs":   {"acc": {"id": psut.acc_id}},
+            "inputs":   {"acc": psut.acc_ref},
             "upstream": {"opt_run_id": opt_run_id, "const_run_id": psut.const_run_id},
         },
         label = label,

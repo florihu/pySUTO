@@ -174,7 +174,8 @@ def _solve_block_run(tmp_path, monkeypatch):
     engine.register(MassBalanceBuilder())
     cr = engine.run(agg, timesteps=["2020", "2021"], persist=False)
 
-    s = ClarabelSolver(const_dir=str(tmp_path / "const"), verbose_first_solve=False)
+    s = ClarabelSolver(const_dir=str(tmp_path / "const"), verbose_first_solve=False,
+                       prior_mode="cold")
     monkeypatch.setattr(s, "load_run", lambda _rid: cr)
     return s.solve_all(cr.run_id), cr, acc
 

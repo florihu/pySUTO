@@ -103,8 +103,10 @@ class UncPropDiag:
         Figure-title label.
     acc : AccountingStructure | None
         Edge labels and identities. Loaded lazily from ``constraint_run.acc_id``
-        when omitted (several GB for ``copper``); without it every edge is
-        valuation ``"all"`` and its own identity.
+        under ``acc_dir`` when omitted (several GB for ``copper``); without it every
+        edge is valuation ``"all"`` and its own identity.
+    acc_dir : str
+        Where the lazy load looks (default ``data/proc/acc``).
     imp_result : AggregationResult | None
         The imputation run behind the const run (``coverage`` +
         ``imputation_log``) — the source of the prior class. ``None`` → one
@@ -121,12 +123,14 @@ class UncPropDiag:
     }
 
     def __init__(self, uncprop_result, opt_results, constraint_run, label: str = "",
-                 acc=None, imp_result=None, conditioning: Optional[dict] = None) -> None:
+                 acc=None, imp_result=None, conditioning: Optional[dict] = None,
+                 acc_dir: str = "data/proc/acc") -> None:
         self.label          = label
         self._unc           = uncprop_result
         self._opt           = opt_results
         self._cr            = constraint_run
         self._acc           = acc
+        self._acc_dir       = acc_dir
         self._acc_resolved  = acc is not None
         self._imp           = imp_result
         self._conditioning  = conditioning
@@ -152,7 +156,8 @@ class UncPropDiag:
             self._acc_resolved = True
             try:
                 from pysuto.acc import AccountingStructure
-                self._acc = AccountingStructure.load(self._cr.acc_id)
+                self._acc = AccountingStructure.load(self._cr.acc_id,
+                                                     storage_dir=self._acc_dir)
             except Exception:
                 self._acc = None
         return self._acc
@@ -181,9 +186,11 @@ class UncPropDiag:
         imp_dir:     str = "data/proc/imp",
         label:       str = "",
         acc=None,
+        acc_dir:     str = "data/proc/acc",
     ) -> "UncPropDiag":
         """Reconstruct the uncprop result, its opt + const runs and the
-        imputation run from disk."""
+        imputation run from disk; ``acc_dir`` is where ``acc`` is loaded from when
+        not given."""
         # Local import to keep diag at the leaf of the import graph (as SolverDiag).
         from pysuto.registry import (
             ConstraintRunRegistry, ImputationRunRegistry, OptimRunRegistry,
@@ -218,6 +225,7 @@ class UncPropDiag:
         instance = cls(
             result, opt_results, const_run, label=label or uncprop_run_id, acc=acc,
             imp_result=imp_result, conditioning=sidecar.get("stage_config", {}),
+            acc_dir=acc_dir,
         )
         instance._default_odir = os.path.join(uncprop_dir, uncprop_run_id, "diag")
         return instance

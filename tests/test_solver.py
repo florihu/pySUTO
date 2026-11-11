@@ -298,6 +298,7 @@ class TestPersist:
 
         solver = ClarabelSolver(
             const_dir=str(tmp_path / "const"), verbose_first_solve=False,
+            prior_mode="cold",
         )
         monkeypatch.setattr(solver, "load_run", lambda _rid: cr)
         results = solver.solve_all(cr.run_id)
@@ -391,7 +392,8 @@ class TestLowerBoundsEnforced:
         engine.register(MassBalanceBuilder())
         engine.register(FlowBoundsBuilder(enforce_lower=enforce))
         cr = engine.run(_Agg(), timesteps=["2020"], persist=False)
-        s = ClarabelSolver(const_dir=storage_dir, verbose_first_solve=False)
+        s = ClarabelSolver(const_dir=storage_dir, verbose_first_solve=False,
+                           prior_mode="cold")
         monkeypatch.setattr(s, "load_run", lambda _rid: cr)
         r = s.solve_all(cr.run_id)["2020"]
         return cr, r, dict(zip(np.asarray(r.cols_t, dtype=int), r.F_opt))
@@ -436,7 +438,8 @@ class TestEngineToSolverIntegration:
         """Build a ClarabelSolver whose load_run returns the in-memory cr
         (G_blocks round-trip through the registry; this only skips the disk)."""
         from pysuto.solver import ClarabelSolver
-        s = ClarabelSolver(const_dir=storage_dir, verbose_first_solve=False)
+        s = ClarabelSolver(const_dir=storage_dir, verbose_first_solve=False,
+                           prior_mode="cold")
         monkeypatch.setattr(s, "load_run", lambda _rid: cr)
         return s
 
@@ -634,20 +637,108 @@ class TestEngineToSolverIntegration:
     def test_block_path_warm_start_chains_posterior(self, tmp_path, monkeypatch):
         """Block-path warm start (the default) stores the per-period prior on
         each OptimResult and chains it: a_prior(t>0) == a_post(t-1)."""
+        import dataclasses
         from pysuto.solver import ClarabelSolver
         acc, cr, storage_dir = self._build_real_run(tmp_path)
+        cr = dataclasses.replace(cr, acc_ref=dict(TestWarmPriorAcc.ACC_REF))
 
         solver = ClarabelSolver(const_dir=storage_dir, verbose_first_solve=False)
         monkeypatch.setattr(solver, "load_run", lambda _rid: cr)
+        TestWarmPriorAcc._patch_acc_load(monkeypatch, acc)     # the warm prior's acc
         res = solver.solve_all(cr.run_id)
 
         for t in ("2020", "2021"):
             assert res[t].a_prior is not None
             assert len(res[t].a_prior) == len(cr.edge_cols_by_t[t])
 
-        # 2021's prior is 2020's posterior (template-aligned; positional here).
+        # 2021's prior is 2020's posterior (template-aligned).
         assert np.allclose(res["2021"].a_prior, res["2020"].F_opt,
                            atol=1e-9, rtol=1e-9)
+
+
+class TestWarmPriorAcc:
+    """#53 item 5: a warm run aligns each year's prior by edge template, so it loads
+    the built acc from ``acc_dir``, checks it against the const run's acc ref and
+    records that ref in the opt sidecar; it never falls back to a positional
+    carry-forward. A cold run reads no acc and records none."""
+
+    ACC_REF = {"id": "toy", "version": 2, "date": "2026-11-11T00:00:00Z",
+               "code": "c0ffee00", "label": "toy"}
+
+    def _solver(self, tmp_path, monkeypatch, prior_mode="warm"):
+        import dataclasses
+        from pysuto.solver import ClarabelSolver
+        acc, cr, storage_dir = TestEngineToSolverIntegration()._build_real_run(tmp_path)
+        cr = dataclasses.replace(cr, acc_ref=dict(self.ACC_REF))
+        acc_dir = str(tmp_path / "proc" / "acc")
+        s = ClarabelSolver(const_dir=storage_dir, opt_dir=str(tmp_path / "opt"),
+                           acc_dir=acc_dir, verbose_first_solve=False,
+                           prior_mode=prior_mode)
+        monkeypatch.setattr(s, "load_run", lambda _rid: cr)
+        return s, cr, acc, acc_dir
+
+    @staticmethod
+    def _patch_acc_load(monkeypatch, acc):
+        from pysuto.acc import AccountingStructure
+        calls = []
+
+        def fake_load(cls, id, **kwargs):
+            calls.append((id, kwargs.get("storage_dir")))
+            return acc
+
+        monkeypatch.setattr(AccountingStructure, "load", classmethod(fake_load))
+        return calls
+
+    def test_an_acc_that_cannot_be_loaded_raises_naming_the_acc_dir(self, tmp_path,
+                                                                    monkeypatch):
+        s, cr, _, acc_dir = self._solver(tmp_path, monkeypatch)
+        with pytest.raises(RuntimeError, match=rf"{acc_dir}"):
+            s.solve_all(cr.run_id)
+
+    def test_the_acc_comes_from_acc_dir_and_the_opt_sidecar_records_its_ref(
+            self, tmp_path, monkeypatch):
+        from pysuto.registry import OptimRunRegistry
+        s, cr, acc, acc_dir = self._solver(tmp_path, monkeypatch)
+        calls = self._patch_acc_load(monkeypatch, acc)
+        res = s.solve_all(cr.run_id)
+        assert calls == [("toy", acc_dir)]
+        assert np.allclose(res["2021"].a_prior, res["2020"].F_opt, atol=1e-9, rtol=1e-9)
+        opt_id = s.persist(run_id=cr.run_id, results=res, const_run_id=cr.run_id)
+        sidecar = OptimRunRegistry(str(tmp_path / "opt")).load_sidecar(opt_id)
+        assert sidecar["parents"]["inputs"] == {"acc": self.ACC_REF}
+
+    def test_an_acc_built_from_another_version_raises(self, tmp_path, monkeypatch):
+        import os
+        s, cr, acc, acc_dir = self._solver(tmp_path, monkeypatch)
+        self._patch_acc_load(monkeypatch, acc)
+        os.makedirs(os.path.join(acc_dir, "toy"))
+        with open(os.path.join(acc_dir, "toy", "build_record.json"), "w") as f:
+            json.dump({"id": "toy", "version": 1, "code": "0ld0ld00"}, f)
+        with pytest.raises(ValueError, match=r"toy v1.*toy v2"):
+            s.solve_all(cr.run_id)
+
+    def test_a_const_run_without_an_acc_ref_raises_and_records_nothing(self, tmp_path,
+                                                                       monkeypatch):
+        """An in-memory const run (``acc_ref`` ``{}``) names no acc version to check
+        the structure against; the warm path must never persist ``{"acc": {}}``."""
+        import dataclasses
+        s, cr, acc, _ = self._solver(tmp_path, monkeypatch)
+        monkeypatch.setattr(s, "load_run",
+                            lambda _rid: dataclasses.replace(cr, acc_ref={}))
+        self._patch_acc_load(monkeypatch, acc)
+        with pytest.raises(ValueError, match="acc ref"):
+            s.solve_all(cr.run_id)
+        assert s._solve_inputs == {}
+
+    def test_a_cold_run_reads_no_acc_and_records_no_inputs(self, tmp_path, monkeypatch):
+        from pysuto.registry import OptimRunRegistry
+        s, cr, acc, _ = self._solver(tmp_path, monkeypatch, prior_mode="cold")
+        calls = self._patch_acc_load(monkeypatch, acc)
+        res = s.solve_all(cr.run_id)
+        opt_id = s.persist(run_id=cr.run_id, results=res, const_run_id=cr.run_id)
+        assert calls == []
+        sidecar = OptimRunRegistry(str(tmp_path / "opt")).load_sidecar(opt_id)
+        assert sidecar["parents"]["inputs"] == {}
 
 
 def clarabel_default_settings():
@@ -1160,7 +1251,8 @@ class TestFeasibilityCheckMode:
     @staticmethod
     def _solver(run, monkeypatch):
         from pysuto.solver import ClarabelSolver
-        s = ClarabelSolver(const_dir="unused", verbose_first_solve=False)
+        s = ClarabelSolver(const_dir="unused", verbose_first_solve=False,
+                           prior_mode="cold")
         monkeypatch.setattr(s, "load_run", lambda _rid: run)
         return s
 
