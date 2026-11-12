@@ -1456,13 +1456,13 @@ _conditioning  ←  solver, uncprop          (shared σ-conditioning helper)
 knobs          ←  the stage drivers        (the --set / --run-id-file protocol)
 case           ←  cases, the stage drivers (CaseSpec; imports nothing from pysuto)
 stages         ←  cases, the stage drivers (the Stage 2 and 3 bodies over a CaseSpec; driver-level code like the scripts, not the data layer, so it imports diag; never imports cases)
-cases          ──── top, beside the drivers: case instances; never imported by the library
+cases          ──── top, beside the drivers and `python -m pysuto` (`__main__`): case instances; never imported by the library
 pipeline       ←  registry, logging        (runs the drivers as subprocesses; never imports scripts/)
 psut           ←  acc, registry            (Stage 6 — reads a persisted opt run)
 piot           ←  psut                     (Stage 6 — a derived view of a PSUT)
 diag           ──── consumer; never imported into the data layer
 cases          ──── top: imports the library (diag included) like a stage driver;
-                    nothing in pysuto imports it
+                    nothing in pysuto but `__main__` imports it
 utils / logging  ←  imported by any layer, import nothing from pysuto
 ```
 

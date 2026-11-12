@@ -10,8 +10,8 @@ case, wired through the six stages. A Stage 2 and 3 case is a
 * :mod:`pysuto.cases.toy` — the **toy case** (#59): a synthetic three-region orium case
   generated from a planted ground truth.
 
-Import direction: ``cases`` sits at the top of the stack, beside the stage drivers and the ``python -m pysuto`` entry point. It
-imports the library; the library never imports it.
+Import direction: ``cases`` sits at the top of the stack, beside the stage drivers and the
+``python -m pysuto`` entry point. It imports the library; the library never imports it.
 """
 
 from __future__ import annotations

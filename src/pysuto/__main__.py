@@ -12,6 +12,11 @@ hook (``CaseSpec.stage1``) and needs no base; any later ``--from`` takes its ups
 from ``--base <opt_run_id>`` (the base chain's parents, as ``Chain.from_opt_run``). Run it
 from the repository root: the drivers' ``logs/`` and the default ``data`` are relative to
 the working directory.
+
+Output: the command prints one line per stage to stdout, the stage name and the run
+id(s) it produced (``feed`` lists its three feed runs), and nothing else; that is the
+command's result, not a log. The log lines of the pipeline and of the drivers go to
+the logging handlers and ``logs/``.
 """
 
 from __future__ import annotations
