@@ -1315,7 +1315,7 @@ sidecar" (a built structure is not a run).
 records it.
 
 **Toy case** — the synthetic **Case** of the fictional metal orium (`pysuto.cases.toy`, #59),
-declared in code: generated from a **ground truth** and observed through **synthetic feeds**.
+declared in code with its own labels (`Gross`/`Content` valuations, `Raw`/`Sec`/`Demand` boundary subs, bound to roles), generated from a **ground truth** and observed through **synthetic feeds**.
 _Avoid_: "toy fixture" (the per-test structures built in `tests/`), "test case", "demo".
 
 **Ground truth** — the balanced per-edge values a synthetic case is generated from, in every
