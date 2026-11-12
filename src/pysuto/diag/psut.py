@@ -37,7 +37,11 @@ from typing import TYPE_CHECKING, Optional
 import numpy as np
 import pandas as pd
 
+from pysuto.logging import get_logger
+
 from ._plot import _C
+
+_log = get_logger("pysuto.diag.psut")
 
 if TYPE_CHECKING:                                  # no data-layer import at runtime
     from pysuto.psut import _TidyView
@@ -111,16 +115,19 @@ def _node_kind(entity: str, block: str) -> str:
     return _SB_KIND[block]
 
 
-def sankey_tables(view: "_TidyView", spec: Optional[SankeySpec] = None
-                  ) -> tuple[pd.DataFrame, pd.DataFrame]:
+def sankey_tables(view: "_TidyView", spec: Optional[SankeySpec] = None, *,
+                  with_dropped: bool = False) -> tuple:
     """The nodes and links behind :func:`sankey_figure`, as two DataFrames,
     for a PSUT or a PIOT.
 
     ``nodes``: ``node, region, sector, entity, kind, label, color`` — ``node``
     is the 0-based index the links refer to. ``links``: ``source, target,
     value, block, traded, cls, color, hover`` (plus ``commodity`` for a PIOT,
-    one link per commodity). Links below ``spec.min_val`` are dropped, and so
-    is every node left without a link.
+    one link per commodity). Links ≤ 0 or below ``spec.min_val`` are dropped,
+    and so is every node left without a link; links ≤ 0 (a signed stock change,
+    a negative posterior) are logged as a warning with the value they carry.
+    ``with_dropped=True`` returns a third item, the value of the dropped links
+    per block, so that the shown links plus it give the table's total.
     """
     spec = spec or SankeySpec()
     period, valuation = view.resolve(spec.period, spec.valuation)
@@ -140,7 +147,14 @@ def sankey_tables(view: "_TidyView", spec: Optional[SankeySpec] = None
                 .groupby(key, sort=False)["val"].sum()
                 .reset_index()
                 .rename(columns={"val": "value"}))
-    links = links[(links["value"] > 0) & (links["value"] >= spec.min_val)].reset_index(drop=True)
+    keep    = (links["value"] > 0) & (links["value"] >= spec.min_val)
+    dropped = links.loc[~keep].groupby("block")["value"].sum()
+    signed  = links["value"] <= 0
+    if signed.any():
+        _log.warning("sankey_tables %s %s: %d link(s) ≤ 0 left out, %.6g %s in all",
+                     period, valuation, int(signed.sum()),
+                     float(links.loc[signed, "value"].sum()), spec.unit)
+    links = links[keep].reset_index(drop=True)
 
     ends = pd.concat([
         links[["from_region", "from_sector", "from_entity", "block"]]
@@ -169,8 +183,9 @@ def sankey_tables(view: "_TidyView", spec: Optional[SankeySpec] = None
     if has_commodity:
         links["hover"] = links["hover"] + " · " + links["commodity"].astype(str)
         out_cols.append("commodity")
-    return (nodes[["node", "region", "sector", "entity", "kind", "label", "color"]],
-            links[out_cols])
+    tables = (nodes[["node", "region", "sector", "entity", "kind", "label", "color"]],
+              links[out_cols])
+    return tables + (dropped,) if with_dropped else tables
 
 
 def _positions(nodes: pd.DataFrame, links: pd.DataFrame):
