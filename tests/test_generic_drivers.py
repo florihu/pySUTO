@@ -17,11 +17,10 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from pysuto.case import CaseSpec
+from pysuto.case import CaseSpec, check_case
 from pysuto.cases import case_ids, load_case, toy
 from pysuto.registry import (ConstraintRunRegistry, ImputationRunRegistry,
                              OptimRunRegistry, PsutRunRegistry, UncPropRunRegistry)
-from pysuto.stages import check_case
 
 REPO = Path(__file__).resolve().parents[1]
 
@@ -159,3 +158,63 @@ def test_the_default_diagnostic_year_is_the_first_year_of_the_run(chain):
         chain["ids"]["const"])
     assert ConstDiagnostic(cr).year == toy.YEARS[0]
     assert ConstStatsDiagnostic(cr).years == [toy.YEARS[0]]
+
+
+def _load_driver(monkeypatch, script: str):
+    import importlib.util
+    monkeypatch.syspath_prepend(str(REPO / "scripts"))
+    spec = importlib.util.spec_from_file_location(f"_g124_{script[:-3]}",
+                                                  REPO / "scripts" / script)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class _Stop(Exception):
+    pass
+
+
+def test_copper_s_psut_primary_resolves_to_cc_through_driver_knobs(monkeypatch, tmp_path):
+    """One resolution point: ``psut.main`` applies the case's ``driver_knobs``, so the
+    library call and the command line (which passes ``--primary`` None) agree."""
+    mod = _load_driver(monkeypatch, "psut.py")
+    seen = {}
+
+    class _Registry:
+        def __init__(self, *a, **k): pass
+        def load_sidecar(self, run_id): return {"run_id": run_id}
+
+    def _from_opt_run(*a, **k):
+        seen["primary"] = k["primary"]
+        raise _Stop
+
+    monkeypatch.setattr(mod, "OptimRunRegistry", _Registry)
+    monkeypatch.setattr(mod.PSUT, "from_opt_run", staticmethod(_from_opt_run))
+    monkeypatch.chdir(tmp_path)
+    for kwargs, expected in (({}, "CC"), ({"primary": "Mass"}, "Mass")):
+        with pytest.raises(_Stop):
+            mod.main("opt_x", case=load_case("copper"), data_dir=str(tmp_path), **kwargs)
+        assert seen["primary"] == expected
+    with pytest.raises(_Stop):                    # a case without the knob: the content valuation
+        mod.main("opt_x", case=toy.CASE, data_dir=str(tmp_path))
+    assert seen["primary"] is None
+
+
+def test_driver_knobs_are_checked_by_the_knob_protocol():
+    from dataclasses import replace
+    knobs = ("PRIMARY",)
+    ns = {"PRIMARY": None}
+    assert load_case("copper").driver_knobs_for("psut", knobs, ns) == {"PRIMARY": "CC"}
+    misspelt = replace(toy.CASE, driver_knobs={"psut": {"PRIMARI": "CC"}})
+    with pytest.raises(KeyError, match="PRIMARI"):
+        misspelt.driver_knobs_for("psut", knobs, ns)
+    opt_ns = {"QP_VARIABLES": "defects"}
+    wrong = replace(toy.CASE, driver_knobs={"opt": {"QP_VARIABLES": 3}})
+    with pytest.raises(TypeError, match="QP_VARIABLES"):
+        wrong.driver_knobs_for("opt", ("QP_VARIABLES",), opt_ns)
+
+
+def test_the_opt_sidecar_records_the_case_s_driver_knobs(chain):
+    sidecar = OptimRunRegistry(str(chain["root"] / "proc" / "opt")).load_sidecar(
+        chain["ids"]["opt"])
+    assert sidecar["stage_config"]["case_knobs"] == {"QP_VARIABLES": "flows"}

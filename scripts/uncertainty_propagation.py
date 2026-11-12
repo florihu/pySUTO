@@ -47,14 +47,13 @@ EXCLUDE_SCALE_TOTALS = False   # True leaves the scale totals out of S(t) — ab
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from pysuto.case    import CaseSpec
-from pysuto.cases   import load_case
+from pysuto.case    import CaseSpec, check_case
+from pysuto.cases   import add_case_arg, case_from_args
 from pysuto.cases.copper import CASE
 from pysuto.diag    import UncPropDiag
 from pysuto.uncprop import KalmanUncProp
 from pysuto.logging import get_logger, add_run_handler
 from pysuto.registry import OptimRunRegistry, stage_lock
-from pysuto.stages  import check_case
 
 _log = get_logger("init_uncertainty_propagation")
 
@@ -131,15 +130,11 @@ if __name__ == "__main__":
         "--label", default="",
         help="Optional label for the uncprop run sidecar.",
     )
-    parser.add_argument("--case", default="copper",
-                        help="Case id: the module pysuto.cases.<id> (default copper).")
+    add_case_arg(parser)
     parser.add_argument("--data-dir", default="data",
                         help="Data root holding proc/ (default 'data').")
     args = parser.parse_args()
-    try:
-        case = load_case(args.case)
-    except ValueError as exc:
-        parser.error(str(exc))
+    case = case_from_args(parser, args)
     # registries have no locking (#101)
     with stage_lock("uncertainty_propagation", root=os.path.join(args.data_dir, "proc")):
         main(args.opt_run_id, args.label, data_dir=args.data_dir, case=case)

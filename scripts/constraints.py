@@ -39,7 +39,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from dataclasses import replace
 from pysuto.case import CaseSpec
-from pysuto.cases import load_case
+from pysuto.cases import add_case_arg, case_from_args
 from pysuto.cases.copper import CASE
 from pysuto.config import load_config
 from pysuto.registry import stage_lock
@@ -82,8 +82,7 @@ if __name__ == "__main__":
         help="ImputationRun ID to load from --imp-dir.",
     )
     parser.add_argument("label", help="Label for this constraint run")
-    parser.add_argument("--case", default="copper",
-                        help="Case id: the module pysuto.cases.<id> (default copper).")
+    add_case_arg(parser)
     parser.add_argument("--data-dir", default="data",
                         help="Data root holding proc/ and input/ (default 'data').")
     parser.add_argument("--config", default=None,
@@ -97,10 +96,7 @@ if __name__ == "__main__":
                              "a sweep's scratch store (#108).")
     add_knob_args(parser)
     args = parser.parse_args()
-    try:
-        case = load_case(args.case)
-    except ValueError as exc:
-        parser.error(str(exc))
+    case = case_from_args(parser, args)
     overrides = overrides_from_cli(parser, args, tuple(case.const.knobs()),
                                    case.const.knobs())
     case = case.with_knobs("const", overrides)

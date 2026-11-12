@@ -42,3 +42,18 @@ def load_case(case_id: str):
     if not hasattr(module, "CASE"):
         raise ValueError(f"pysuto.cases.{case_id} declares no CASE")
     return module.CASE
+
+
+def add_case_arg(parser) -> None:
+    """Add ``--case <id>`` (default ``copper``) to a stage driver's parser."""
+    parser.add_argument("--case", default="copper",
+                        help="Case id: the module pysuto.cases.<id> (default copper).")
+
+
+def case_from_args(parser, args):
+    """The case ``--case`` names; an unknown id ends the driver through
+    ``parser.error`` (exit 2, listing the known ids)."""
+    try:
+        return load_case(args.case)
+    except ValueError as exc:
+        parser.error(str(exc))

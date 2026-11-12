@@ -15,8 +15,9 @@ case object it resolved; the library never imports ``pysuto.cases`` (README §5)
 declares every value these functions read as a field of its section
 (:class:`pysuto.case.ImpSection`, :class:`pysuto.case.ConstSection`).
 
-The module also holds :func:`check_case`, the guard Stages 4–6 apply to the run they
-read.
+The module is driver-level code, like the scripts: it imports ``diag`` at module level,
+which the data layer never does (README §5). The guard Stages 4–6 apply to the run they
+read, ``check_case``, lives in :mod:`pysuto.case`.
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ import os
 from typing import Optional
 
 from pysuto.acc import ALL_SPEC_KEYS, AccountingStructure, check_built_acc, check_feed_accs
-from pysuto.case import Cascade, CaseContext, CaseSpec
+from pysuto.case import Cascade, CaseContext, CaseSpec, check_case
 from pysuto.collector import FeedCollector
 from pysuto.constraints import ConstraintEngine
 from pysuto.diag import (
@@ -37,15 +38,6 @@ from pysuto.impute import ImputationEngine
 from pysuto.input_registry import InputRegistries, input_pins
 from pysuto.logging import get_logger
 from pysuto.registry import DataFeedRegistry, ImputationRunRegistry
-
-
-def check_case(sidecar: dict, case: CaseSpec) -> None:
-    """Raise ``ValueError`` when the run of ``sidecar`` records another case than
-    ``case``. A run made before the case id was recorded names none and passes."""
-    recorded = (sidecar.get("stage_config", {}).get("case") or {}).get("id")
-    if recorded is not None and recorded != case.id:
-        raise ValueError(f"run {sidecar.get('run_id')!r} was made by case {recorded!r}, "
-                         f"but this driver runs --case {case.id}")
 
 
 def run_imp(case: CaseSpec, feed_ids: list, label: str,
@@ -61,6 +53,8 @@ def run_imp(case: CaseSpec, feed_ids: list, label: str,
     in ``<data_dir>/proc/imp`` whose recorded input versions this run uses (#53).
     """
     spec   = case.imp
+    if spec.validate is not None:
+        spec.validate(spec)
     logger = logger or get_logger("stages")
     acc_id = case.acc_id
     proc         = os.path.join(data_dir, "proc")

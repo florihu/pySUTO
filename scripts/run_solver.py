@@ -117,17 +117,15 @@ KNOBS = (
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from pysuto.acc     import EDGE_UNIVERSE_ROLE_KEYS, AccountingStructure, check_built_acc
-from pysuto.case    import CaseSpec
-from pysuto.cases   import load_case
+from pysuto.case    import CaseSpec, check_case
+from pysuto.cases   import add_case_arg, case_from_args
 from pysuto.cases.copper import CASE
 from pysuto.input_registry import InputRegistry
 from pysuto.solver  import ClarabelSolver
 from pysuto.diag    import SolverDiag
 from pysuto.logging import get_logger, add_run_handler
-from pysuto.knobs   import (add_knob_args, apply_overrides, overrides_from_cli,
-                            write_run_id)
+from pysuto.knobs   import add_knob_args, overrides_from_cli, write_run_id
 from pysuto.registry import ConstraintRunRegistry, stage_lock
-from pysuto.stages  import check_case
 
 _log = get_logger("init_run_solver")
 
@@ -138,14 +136,18 @@ def main(const_run_id: str, label: str = "", prior_mode: str = "warm",
     """Solve constraint run ``const_run_id``; return the opt run id.
 
     ``case`` is recorded in the sidecar and must be the case that made the constraint
-    run; the knobs are this module's constants (the command line applies the case's
-    ``driver_knobs["opt"]`` to them before ``--set``).
+    run. The knobs are this module's constants, except those the case sets in
+    ``driver_knobs["opt"]`` (checked by the knob protocol, a ``--set`` of the same knob
+    wins); the applied case values are recorded in the sidecar as ``case_knobs``.
 
     ``data_dir`` holds ``proc/``; the constraint run is read from ``const_dir``
     (default ``<data_dir>/proc/const``), the run written to ``<data_dir>/proc/opt``
     and the accounting structure read from ``<data_dir>/proc/acc`` (checked against the
     acc input registry under ``<data_dir>/input``).
     """
+    case_knobs = case.driver_knobs_for("opt", KNOBS, globals())
+    cfg = {k: globals()[k] for k in KNOBS}
+    cfg.update({k: v for k, v in case_knobs.items() if k not in (overrides or {})})
     os.makedirs("logs", exist_ok=True)
     add_run_handler(
         f"logs/init_run_solver_{datetime.now():%Y%m%d_%H%M%S}.log"
@@ -169,22 +171,22 @@ def main(const_run_id: str, label: str = "", prior_mode: str = "warm",
     # Termination tolerances: see the USER CONFIGURATION block (Round W.1).
     solver = ClarabelSolver(const_dir=const_dir, opt_dir=opt_dir, acc_dir=acc_dir,
                             input_dir=input_dir,
-                            tol_feas=TOL_FEAS,
-                            tol_gap_rel=TOL_GAP_REL, tol_gap_abs=TOL_GAP_ABS,
-                            reduced_tol_feas=REDUCED_TOL_FEAS,
-                            reduced_tol_gap_rel=REDUCED_TOL_GAP_REL,
-                            reduced_tol_gap_abs=REDUCED_TOL_GAP_ABS,
-                            max_iter=MAX_ITER,
+                            tol_feas=cfg["TOL_FEAS"],
+                            tol_gap_rel=cfg["TOL_GAP_REL"], tol_gap_abs=cfg["TOL_GAP_ABS"],
+                            reduced_tol_feas=cfg["REDUCED_TOL_FEAS"],
+                            reduced_tol_gap_rel=cfg["REDUCED_TOL_GAP_REL"],
+                            reduced_tol_gap_abs=cfg["REDUCED_TOL_GAP_ABS"],
+                            max_iter=cfg["MAX_ITER"],
                             prior_mode=prior_mode,
-                            n_workers=N_WORKERS,
-                            direct_solve_method=DIRECT_SOLVE_METHOD,
-                            qp_variables=QP_VARIABLES,)
+                            n_workers=cfg["N_WORKERS"],
+                            direct_solve_method=cfg["DIRECT_SOLVE_METHOD"],
+                            qp_variables=cfg["QP_VARIABLES"],)
 
     _log.info("Solving ConstraintRun '%s'", const_run_id)
     results = solver.solve_all(
         const_run_id,
-        timesteps         = TIMESTEPS,
-        feasibility_check = FEASIBILITY_CHECK,
+        timesteps         = cfg["TIMESTEPS"],
+        feasibility_check = cfg["FEASIBILITY_CHECK"],
     )
 
     optim_run_id = solver.persist(
@@ -195,15 +197,16 @@ def main(const_run_id: str, label: str = "", prior_mode: str = "warm",
         label        = label,
         stage_config = {
             "prior_mode":                   solver.prior_mode,
-            "max_iter":                     MAX_ITER,
-            "tol_feas":                     TOL_FEAS,
-            "tol_gap_rel":                  TOL_GAP_REL,
-            "tol_gap_abs":                  TOL_GAP_ABS,
-            "reduced_tol_feas":             REDUCED_TOL_FEAS,
-            "reduced_tol_gap_rel":          REDUCED_TOL_GAP_REL,
-            "reduced_tol_gap_abs":          REDUCED_TOL_GAP_ABS,
-            "feasibility_check":            FEASIBILITY_CHECK,
+            "max_iter":                     cfg["MAX_ITER"],
+            "tol_feas":                     cfg["TOL_FEAS"],
+            "tol_gap_rel":                  cfg["TOL_GAP_REL"],
+            "tol_gap_abs":                  cfg["TOL_GAP_ABS"],
+            "reduced_tol_feas":             cfg["REDUCED_TOL_FEAS"],
+            "reduced_tol_gap_rel":          cfg["REDUCED_TOL_GAP_REL"],
+            "reduced_tol_gap_abs":          cfg["REDUCED_TOL_GAP_ABS"],
+            "feasibility_check":            cfg["FEASIBILITY_CHECK"],
             "overrides":                    dict(overrides or {}),
+            "case_knobs":                   case_knobs,
             "case":                         case.ref(),
         },
     )
@@ -250,8 +253,7 @@ if __name__ == "__main__":
         choices=["warm", "cold"],
         help="ClarabelSolver prior mode: 'cold' (default) or 'warm'."
     )
-    parser.add_argument("--case", default="copper",
-                        help="Case id: the module pysuto.cases.<id> (default copper).")
+    add_case_arg(parser)
     parser.add_argument("--data-dir", default="data",
                         help="Data root holding proc/ (default 'data').")
     parser.add_argument("--const-dir", default=None,
@@ -260,11 +262,11 @@ if __name__ == "__main__":
 
     add_knob_args(parser)
     args = parser.parse_args()
+    case = case_from_args(parser, args)
     try:
-        case = load_case(args.case)
-    except ValueError as exc:
-        parser.error(str(exc))
-    apply_overrides(globals(), case.driver_knobs.get("opt", {}))   # the case's values
+        case.driver_knobs_for("opt", KNOBS, globals())      # a bad case value is a usage error
+    except (KeyError, TypeError) as exc:
+        parser.error(exc.args[0] if exc.args else str(exc))
     overrides = overrides_from_cli(parser, args, KNOBS, globals())
     # registries have no locking (#101)
     with stage_lock("run_solver", root=os.path.join(args.data_dir, "proc")):

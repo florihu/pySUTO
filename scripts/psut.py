@@ -39,6 +39,7 @@ from datetime import datetime
 DATA_DIR  = "data"          # holds proc/opt, proc/const, proc/acc; output → proc/psut
 PRIMARY   = None          # valuation the PSUT views default to (None: the acc's content
                           # valuation; copper's case names CC); every valuation is loaded
+KNOBS     = ("PRIMARY",)  # the constants a case may set (CaseSpec.driver_knobs["psut"])
 FIGS_DIR  = os.path.join("figs", "psut")   # where --sankey writes its figures
 # ---------------------------------------------------------------------------
 # END USER CONFIGURATION
@@ -46,14 +47,12 @@ FIGS_DIR  = os.path.join("figs", "psut")   # where --sankey writes its figures
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from pysuto.case import CaseSpec
-from pysuto.cases import load_case
+from pysuto.case import CaseSpec, check_case
+from pysuto.cases import add_case_arg, case_from_args
 from pysuto.cases.copper import CASE
-from pysuto.knobs import apply_overrides
 from pysuto.psut import PSUT
 from pysuto.registry import OptimRunRegistry, PsutRunRegistry, stage_lock
 from pysuto.logging import get_logger, add_run_handler
-from pysuto.stages import check_case
 
 _log = get_logger("init_psut")
 
@@ -61,7 +60,7 @@ _log = get_logger("init_psut")
 def main(
     opt_run_id: str,
     label:      str = "",
-    primary:    str | None = PRIMARY,
+    primary:    str | None = None,       # None: the case's PRIMARY, else the content valuation
     timesteps:  list | None = None,
     data_dir:   str = DATA_DIR,
     sankey:     list | None = None,      # periods to draw; [] → the latest
@@ -76,6 +75,9 @@ def main(
     _log.info("opt_run_id=%s  primary=%s  timesteps=%s  data_dir=%s",
               opt_run_id, primary, timesteps or "all", data_dir)
 
+    case_knobs = case.driver_knobs_for("psut", KNOBS, globals())
+    if primary is None:
+        primary = case_knobs.get("PRIMARY", PRIMARY)
     proc = os.path.join(data_dir, "proc")
     check_case(OptimRunRegistry(os.path.join(proc, "opt")).load_sidecar(opt_run_id), case)
     psut = PSUT.from_opt_run(
@@ -95,7 +97,8 @@ def main(
             "inputs":   {"acc": psut.acc_ref},
             "upstream": {"opt_run_id": opt_run_id, "const_run_id": psut.const_run_id},
         },
-        stage_config = {"primary": psut.primary, "case": case.ref()},
+        stage_config = {"primary": psut.primary, "case_knobs": case_knobs,
+                         "case": case.ref()},
         label = label,
     )
 
@@ -137,8 +140,7 @@ if __name__ == "__main__":
                              "(default: the case's, else the acc's content valuation).")
     parser.add_argument("--timesteps", nargs="+", default=None,
                         help="Subset of timestep labels (default: every timestep of the run).")
-    parser.add_argument("--case", default="copper",
-                        help="Case id: the module pysuto.cases.<id> (default copper).")
+    add_case_arg(parser)
     parser.add_argument("--data-dir", default=DATA_DIR,
                         help=f"Data root holding proc/opt, proc/const, proc/acc (default {DATA_DIR!r}).")
     parser.add_argument("--sankey", nargs="*", default=None, metavar="PERIOD",
@@ -149,13 +151,11 @@ if __name__ == "__main__":
     parser.add_argument("--no-png", action="store_true",
                         help="Skip the static PNG copies (needs kaleido and a browser).")
     args = parser.parse_args()
+    case = case_from_args(parser, args)
     try:
-        case = load_case(args.case)
-    except ValueError as exc:
-        parser.error(str(exc))
-    apply_overrides(globals(), case.driver_knobs.get("psut", {}))   # the case's values
-    if args.primary is None:
-        args.primary = PRIMARY
+        case.driver_knobs_for("psut", KNOBS, globals())     # a bad case value is a usage error
+    except (KeyError, TypeError) as exc:
+        parser.error(exc.args[0] if exc.args else str(exc))
     with stage_lock("psut", root=os.path.join(args.data_dir, "proc")):   # #101
         main(args.opt_run_id, args.label, args.primary, args.timesteps, args.data_dir,
              args.sankey, args.figs_dir, not args.no_png, case)

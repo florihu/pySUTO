@@ -452,6 +452,12 @@ def cascade_in_order(by_id: dict, order) -> list:
     return [by_id[k] for k in order]
 
 
+def validate_imp(spec) -> None:
+    """Raise ``ValueError`` unless ``spec.CASCADE_ORDER`` is a permutation of
+    ``spec.cascade_ids``."""
+    cascade_in_order(dict.fromkeys(spec.cascade_ids), spec.CASCADE_ORDER)
+
+
 def pre_impute(ctx) -> None:
     """After aggregation, before imputation: size-damped leg σ (ADR 0017), then the
     plausibility screen — the screen's cv-5 inflation overrides damping on flagged
@@ -1243,7 +1249,7 @@ CASE = CaseSpec(
     acc_id = "copper",
     imp    = CopperImp(imputers=imputers, pre_impute=pre_impute,
                        post_impute=post_impute, stage_config=imp_stage_config,
-                       diag_year="1995"),
+                       diag_year="1995", validate=validate_imp),
     const  = CopperConst(builders=builders, nodata_anchor_exempt=nodata_anchor_exempt,
                          stage_config=const_stage_config, diag_year="1995"),
     # Stage 6's primary valuation is the acc's content valuation unless named; copper's

@@ -44,8 +44,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from dataclasses     import replace
 from pysuto.case     import CaseSpec
-from pysuto.cases    import load_case
-from pysuto.cases.copper import CASE, cascade_in_order
+from pysuto.cases    import add_case_arg, case_from_args
+from pysuto.cases.copper import CASE
 from pysuto.config   import load_config
 from pysuto.registry import stage_lock
 from pysuto.logging  import get_logger, add_run_handler
@@ -100,8 +100,7 @@ if __name__ == "__main__":
         help="Feed run ID to include. Repeat for each feed.",
     )
     parser.add_argument("--label", help="Human-readable label stored in the run's sidecar")
-    parser.add_argument("--case", default="copper",
-                        help="Case id: the module pysuto.cases.<id> (default copper).")
+    add_case_arg(parser)
     parser.add_argument("--data-dir", default="data",
                         help="Data root holding proc/ and input/ (default 'data').")
     parser.add_argument("--config", default=None,
@@ -116,15 +115,12 @@ if __name__ == "__main__":
                              "latest (#53).")
     add_knob_args(parser)
     args = parser.parse_args()
-    try:
-        case = load_case(args.case)
-    except ValueError as exc:
-        parser.error(str(exc))
+    case = case_from_args(parser, args)
     overrides = overrides_from_cli(parser, args, tuple(case.imp.knobs()), case.imp.knobs())
     case = case.with_knobs("imp", overrides)
-    if hasattr(case.imp, "cascade_ids"):          # the copper case's cascade check
+    if case.imp.validate is not None:
         try:
-            cascade_in_order(dict.fromkeys(case.imp.cascade_ids), case.imp.CASCADE_ORDER)
+            case.imp.validate(case.imp)
         except ValueError as exc:
             parser.error(str(exc))
     # registries have no locking (#101)

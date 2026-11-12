@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field, fields, replace
-from typing import TYPE_CHECKING, Callable, Mapping, Optional
+from typing import TYPE_CHECKING, Callable, Iterable, Mapping, Optional
 
 from pysuto.knobs import check_type
 
@@ -83,6 +83,9 @@ class ImpSection(Section):
     post_impute:  Optional[Callable] = None
     stage_config: Optional[Callable] = None
     diag_year:    Optional[str] = None
+    validate:     Optional[Callable] = None
+    # ``validate(section)`` raises ``ValueError`` for knob values the case cannot run
+    # (copper: a CASCADE_ORDER that is no permutation of its cascade ids).
 
 
 @dataclass(frozen=True)
@@ -128,6 +131,21 @@ class CaseSpec:
         """This case with ``overrides`` replacing knob fields of section ``stage``."""
         return replace(self, **{stage: getattr(self, stage).with_knobs(overrides)})
 
+    def driver_knobs_for(self, stage: str, knobs: Iterable[str],
+                         namespace: Mapping[str, object]) -> dict:
+        """The case's ``driver_knobs[stage]``, checked by the knob protocol: a name
+        outside ``knobs`` raises ``KeyError``, a value of another type than the driver
+        constant's current value in ``namespace`` raises ``TypeError``."""
+        values = dict(self.driver_knobs.get(stage, {}))
+        knobs = tuple(knobs)
+        bad = [k for k in values if k not in knobs]
+        if bad:
+            raise KeyError(f"case {self.id!r} sets {bad}, which are not knobs of the "
+                           f"{stage} driver; its knobs are {', '.join(knobs)}")
+        for name, value in values.items():
+            check_type(name, value, namespace[name])
+        return values
+
     def ref(self) -> dict:
         """The case as a Stage 4–6 run records it (``stage_config["case"]``)."""
         return {"id": self.id, "acc_id": self.acc_id}
@@ -137,6 +155,15 @@ class CaseSpec:
         id, the acc id and that stage's section."""
         return {"id": self.id, "acc_id": self.acc_id,
                 stage: getattr(self, stage).describe()}
+
+
+def check_case(sidecar: dict, case: CaseSpec) -> None:
+    """Raise ``ValueError`` when the run of ``sidecar`` records another case than
+    ``case``. A run made before the case id was recorded names none and passes."""
+    recorded = (sidecar.get("stage_config", {}).get("case") or {}).get("id")
+    if recorded is not None and recorded != case.id:
+        raise ValueError(f"run {sidecar.get('run_id')!r} was made by case {recorded!r}, "
+                         f"but this driver runs --case {case.id}")
 
 
 @dataclass(frozen=True)
