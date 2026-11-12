@@ -36,8 +36,8 @@ def damp_leg_sigma(acc, agg_result, gamma, cv_cap, logger, a_ref_override=None):
     cov = np.asarray(agg_result.coverage, dtype=bool)
     eid = ei["edge_id"].to_numpy()
     f = np.asarray(agg_result.f_agg, dtype=float)
-    # entity_from Flow, any destination — Cathode's bilateral legs are
-    # Flow→SB (final demand), matching the outlier screen's population.
+    # entity_from Flow, any destination — a final-demand product's bilateral
+    # legs are Flow→SB, matching the outlier screen's population.
     bilat = (cov[eid]
              & ei["entity_from"].eq("Flow").to_numpy()
              & (ei["region_from"] != ei["region_to"]).to_numpy()
@@ -83,7 +83,7 @@ def screen_outlier_trade_legs(acc, agg_result, conc_csv: str, logger,
     production) + implied CC imports (Σ covered bilateral Mass legs into the
     region · conc_nominal), so re-exporters are judged against what they
     actually receive. Groups without covered production stay unjudged (the
-    transit-hub population; see the case's OUTLIER_LEG_K note).
+    transit-hub population; the case chooses ``k`` with that in mind).
     Ratio > k ⇒ every covered bilateral Mass leg
     of that group gets sigma_agg = cv·|f_agg|. Returns the report
     DataFrame (flagged groups only; empty frame if none).
@@ -154,15 +154,16 @@ def screen_outlier_trade_legs(acc, agg_result, conc_csv: str, logger,
 
 def screen_contradicted_nodes(acc, agg_result, logger, *, sectors: tuple, cv):
     """σ-inflate the outflow edges of contradicted Flow nodes (ADR 0019) of
-    ``sectors`` to ``cv``·|f| (the case's unclosed-sector labels and σ cv; ``cv=None``
-    detects only).
+    ``sectors`` to ``cv``·|f| (``cv=None`` detects only). The closure threshold is
+    ``flow_node_balance.K_CLOSE``, shared with Stage 3's anchors so both apply one rule.
 
     Detection lives in ``pysuto.flow_node_balance`` so Stage 3 applies the
     identical rule to the scale-total anchors. Returns the report DataFrame
     (failing nodes only; empty frame if none).
 
-    Runs **after** imputation: the inflow side of a Flow node (Smelting→Matte)
-    is never fed, so pre-cascade its prior is 0 and no node looks contradicted.
+    Runs **after** imputation: the inflow side of a Flow node (its Process→Flow
+    product leg) is never fed, so pre-cascade its prior is 0 and no node looks
+    contradicted.
     """
     keys, report = contradicted_flow_nodes(
         acc, agg_result, sectors=sectors)

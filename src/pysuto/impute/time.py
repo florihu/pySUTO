@@ -313,10 +313,8 @@ class TimeImputer(BaseImputer):
 # FlatPriorImputer
 # ---------------------------------------------------------------------------
 
-
-
 # -----------------------------------------------------------------------------
-# Edge scope for the case's TimeImputer
+# Edge scope of a TimeImputer
 # -----------------------------------------------------------------------------
 
 def time_interp_scope(ei, same_region: bool, stock_sectors, logger):
