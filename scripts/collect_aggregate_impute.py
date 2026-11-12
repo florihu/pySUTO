@@ -42,12 +42,13 @@ from datetime import datetime
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from pysuto.acc      import AccountingStructure, check_built_acc
+from pysuto.acc      import (ALL_SPEC_KEYS, AccountingStructure, check_built_acc,
+                             check_feed_accs)
 from pysuto.case     import Cascade, CaseContext, CaseSpec
 from pysuto.cases.copper import CASE, cascade_in_order
 from pysuto.config   import load_config
 from pysuto.registry import DataFeedRegistry, ImputationRunRegistry, stage_lock
-from pysuto.input_registry import InputRegistries, check_feed_accs, input_pins
+from pysuto.input_registry import InputRegistries, input_pins
 from pysuto.collector import FeedCollector
 from pysuto.flow_node_balance import K_CLOSE as UNCLOSED_K
 from pysuto.impute   import ImputationEngine
@@ -113,7 +114,8 @@ def main(feed_ids: list[str], label: str, overrides: dict | None = None, *,
 
     # ── A  Load infrastructure ────────────────────────────────────────────────
     # A pinned acc version is verifiable only against a structure with a build record.
-    check_built_acc(acc_dir, acc_entry, require_record=pins is not None)
+    check_built_acc(acc_dir, acc_entry, inputs.acc, ALL_SPEC_KEYS,
+                    require_record=pins is not None)
     logger.info("A  Loading AccountingStructure '%s' from %s", acc_id, acc_dir)
     acc = AccountingStructure.load(id=acc_id, storage_dir=acc_dir)
 

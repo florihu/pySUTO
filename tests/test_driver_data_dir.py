@@ -45,27 +45,29 @@ def driver(monkeypatch):
     return load
 
 
-def _edit_acc_input(case: dict, rules: bytes) -> dict:
-    """Edit the case's acc input and register it; return the new entry."""
+def _edit_acc_input(case: dict, regions: list) -> dict:
+    """Give the case's acc input another edge universe (*regions*) and register it;
+    return the new entry."""
+    import json
     from pysuto.input_registry import InputRegistry
-    (case["data"] / "input" / "acc" / "toy" / "current" / "rules.ods").write_bytes(rules)
+    from test_acc_roles import COPPER_LABELS
+    (case["data"] / "input" / "acc" / "toy" / "current" / "acc.json").write_text(
+        json.dumps(dict(COPPER_LABELS, regions=regions)))
     return InputRegistry("acc", root=case["data"] / "input").initialize().entry("toy")
 
 
 def _make_case(root: Path) -> dict:
-    """acc input toy v1 → v2, the structure built from v2 (with its build record),
-    a two-period constraint run on it (mass balances) and a config naming acc toy."""
+    """acc input toy v1 → v2 (another edge universe each), the structure built from
+    v2 (with its build record), a two-period constraint run on it (mass balances) and a
+    config naming acc toy."""
     from pysuto.acc import AccountingStructure, write_build_record
     from pysuto.constraints import ConstraintEngine, MassBalanceBuilder
 
     data = root / "case" / "data"
-    current = data / "input" / "acc" / "toy" / "current"
-    current.mkdir(parents=True)
-    for name in ("root.ods", "bounds.ods", "rules.ods"):
-        (current / name).write_bytes(name.encode())
+    (data / "input" / "acc" / "toy" / "current").mkdir(parents=True)
     case = {"data": data}
-    _edit_acc_input(case, b"rules v1")
-    entry = _edit_acc_input(case, b"rules v2")
+    _edit_acc_input(case, ["A"])
+    entry = _edit_acc_input(case, ["A", "B"])
 
     acc_dir = str(data / "proc" / "acc")
     nodes = pd.DataFrame({"sector": ["Mining", "Ore", "Smelting"],
@@ -200,7 +202,7 @@ def test_stage_3_refuses_an_acc_built_from_an_older_input_version(case, driver,
     """The input moved on to v3; the structure is still the one built from v2. The
     record is checked before the structure is loaded."""
     from pysuto.acc import AccountingStructure
-    _edit_acc_input(case, b"rules v3")
+    _edit_acc_input(case, ["A", "B", "C"])
     monkeypatch.setattr(AccountingStructure, "load", classmethod(_no_load))
     with pytest.raises(ValueError, match=r"toy v2.*toy v3"):
         driver("constraints.py").main("imp_x", "case", data_dir=str(case["data"]),
@@ -217,7 +219,7 @@ def test_stage_3_reads_the_acc_id_from_the_given_config(case, driver):
 def test_stage_2_refuses_an_acc_built_from_an_older_input_version(case, driver,
                                                                   monkeypatch):
     from pysuto.acc import AccountingStructure
-    _edit_acc_input(case, b"rules v3")
+    _edit_acc_input(case, ["A", "B", "C"])
     monkeypatch.setattr(AccountingStructure, "load", classmethod(_no_load))
     with pytest.raises(ValueError, match=r"toy v2.*toy v3"):
         driver("collect_aggregate_impute.py").main(
@@ -240,7 +242,7 @@ def _register_imp_ref(case) -> str:
 def test_stage_2_pins_the_acc_version_an_earlier_imp_run_recorded(case, driver):
     """Replaying an imp run built on toy v2 pins v2 although v3 is the latest, so the
     v2 structure passes and Stage 2 gets as far as the feed lookup."""
-    _edit_acc_input(case, b"rules v3")
+    _edit_acc_input(case, ["A", "B", "C"])
     imp_ref = _register_imp_ref(case)
     with pytest.raises(KeyError, match="feed_x"):
         driver("collect_aggregate_impute.py").main(
@@ -383,6 +385,21 @@ class _NoDiag:
         return []
 
 
+def _bind_copper_valuation_roles(monkeypatch):
+    """The toy structure is built procedurally, which binds no roles; the screens and
+    the scale-total resolver read ``acc.valuation_roles`` (#119), so the loaded
+    structure gets copper's."""
+    from pysuto.acc import AccountingStructure, ValuationRoles
+    orig = AccountingStructure.load.__func__
+
+    def load(cls, *args, **kwargs):
+        acc = orig(cls, *args, **kwargs)
+        acc.valuation_roles = ValuationRoles(content="CC", gross="Mass")
+        return acc
+
+    monkeypatch.setattr(AccountingStructure, "load", classmethod(load))
+
+
 def test_stage_2_builds_from_the_case_and_records_it(case, driver, monkeypatch):
     """The toy case's cascade is what runs; the sidecar carries the serialised Stage 2
     section beside every key it recorded before, and the override lands on both."""
@@ -394,6 +411,7 @@ def test_stage_2_builds_from_the_case_and_records_it(case, driver, monkeypatch):
                                      "value_nominal\nconcore,concentration,Ore,Mass,0.01\n")
     InputRegistry("params", root=case["data"] / "input").initialize()
     feed = _register_feed_run(case)
+    _bind_copper_valuation_roles(monkeypatch)
     mod = driver("collect_aggregate_impute.py")
     for name in ("AggDiagnostic", "ImpDiagnostic", "CoverageDiagnostic",
                  "StatsDiagnostic"):
@@ -419,11 +437,12 @@ def test_stage_2_builds_from_the_case_and_records_it(case, driver, monkeypatch):
     assert {s["imputer_id"] for s in sidecar["imputers"]} == {"flat_prior"}
 
 
-def test_stage_3_builds_from_the_case_and_records_it(case, driver):
+def test_stage_3_builds_from_the_case_and_records_it(case, driver, monkeypatch):
     """The toy case's builders are what run; the sidecar carries the serialised Stage 3
     section beside every key it recorded before, and the override lands on both."""
     from pysuto.registry import ConstraintRunRegistry
     imp_id = _register_imp_run(case)
+    _bind_copper_valuation_roles(monkeypatch)
     knobs = {"ANCHOR_CV": 0.02, "DIAG_PLOT": False}
     toy = _toy_case().with_knobs("const", knobs)
 

@@ -288,7 +288,7 @@ def damp_leg_sigma(acc, agg_result, gamma, cv_cap, logger, a_ref_override=None):
     bilat = (cov[eid]
              & ei["entity_from"].eq("Flow").to_numpy()
              & (ei["region_from"] != ei["region_to"]).to_numpy()
-             & ei["valuation"].eq("Mass").to_numpy()
+             & ei["valuation"].eq(acc.valuation_roles.gross).to_numpy()
              & (np.abs(np.nan_to_num(f[eid])) > 0))
     legs = ei[bilat]
     n_damped = 0
@@ -339,19 +339,20 @@ def screen_outlier_trade_legs(acc, agg_result, conc_csv: str, logger,
     cov = np.asarray(agg_result.coverage, dtype=bool)
     f = np.nan_to_num(np.asarray(agg_result.f_agg, dtype=float))
 
-    conc_lookup = conc_nominal_lookup(*[c for c in (conc_csv, grade_csv) if c])
+    conc_lookup = conc_nominal_lookup(*[c for c in (conc_csv, grade_csv) if c],
+                                      gross=acc.valuation_roles.gross)
     sectors = conc_sectors(conc_lookup)
 
     eid = ei["edge_id"].to_numpy()
     bilat = (cov[eid]
              & ei["entity_from"].eq("Flow").to_numpy()
              & (ei["region_from"] != ei["region_to"]).to_numpy()
-             & ei["valuation"].eq("Mass").to_numpy()
+             & ei["valuation"].eq(acc.valuation_roles.gross).to_numpy()
              & ei["sector_from"].isin(sectors).to_numpy())
     prodm = (cov[eid]
              & ei["entity_from"].eq("Process").to_numpy()
              & ei["entity_to"].eq("Flow").to_numpy()
-             & ei["valuation"].eq("CC").to_numpy())
+             & ei["valuation"].eq(acc.valuation_roles.content).to_numpy())
 
     legs = ei[bilat].copy()
     # priced with the EXPORTER's concentration — the grade belongs to the origin

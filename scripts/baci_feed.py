@@ -59,6 +59,8 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 
 FEED_ID = "baci"
+# The copper case's rest-of-world region, for the ROW pedigree penalty (#119).
+ROW_REGION = "ROW"
 # ACC_ID is loaded from config/config.yaml → pipeline.acc_id below, after
 # the pysuto package is added to sys.path.
 
@@ -347,7 +349,7 @@ def propagate(wm: WeightMatrix, F_src: np.ndarray, meta: DataFeedMetadata, acc):
     logger.info("D  Propagating uncertainty")
     return propagate_with_row_penalty(
         wm, F_src, meta, acc,
-        cv_root_scale_extra=load_cv_scales(acc))
+        cv_root_scale_extra=load_cv_scales(acc), row_region=ROW_REGION)
 
 
 # ===========================================================================

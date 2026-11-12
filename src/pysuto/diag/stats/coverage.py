@@ -25,9 +25,10 @@ File 1 — ``coverage_supply_use_<year>.csv``
 
 File 2 — ``coverage_system_boundary_<year>.csv``
     Raw/secondary boundary-crossing coverage. Scope = edges with an ``SB``
-    endpoint whose ``entity_sub != "FD"`` (final demand lives in File 1).
+    endpoint whose boundary role is not ``final_demand`` (final demand lives in
+    File 1; roles read through ``acc.boundary_roles``, ADR 0034).
     ``input`` = ``from_entity=="SB"``; ``output`` = ``to_entity=="SB"``.
-    Columns = the SB ``entity_sub`` category (``Nature`` / ``SEM``). Rows =
+    Columns = the SB node's boundary role (``nature`` / ``secondary``). Rows =
     ``(non-SB region, valuation, direction)``.
 
 Both files: cell = count of ``has_val`` edges, empty buckets = ``0``; restricted
@@ -41,6 +42,8 @@ import os
 import numpy as np
 import pandas as pd
 
+from pysuto.acc import BoundaryRole, boundary_role_values
+
 
 class CoverageDiagnostic:
     """Post-imputation coverage CSVs. See module docstring for the data model.
@@ -52,7 +55,7 @@ class CoverageDiagnostic:
         ``imputation_log``.
     acc_struct :
         ``AccountingStructure`` — supplies ``edge_meta`` (edge↔node join with
-        ``from_*`` / ``to_*`` attributes incl. ``entity_sub``).
+        ``from_*`` / ``to_*`` attributes) and ``boundary_roles``.
     year : str
         The single year both tables are restricted to (default ``"1995"``).
     """
@@ -71,10 +74,6 @@ class CoverageDiagnostic:
 
     def _build_edge_frame(self) -> pd.DataFrame:
         em = self.acc.edge_meta.reset_index(drop=True).copy()
-        # entity_sub may be absent on older accs — guarantee both endpoints have it.
-        for col in ("from_entity_sub", "to_entity_sub"):
-            if col not in em.columns:
-                em[col] = ""
         f = np.asarray(self.agg_result.f_agg, dtype=float)
         em["f_agg"]   = f[em["edge_id"].to_numpy()]
         em["has_val"] = self._compute_has_val(em)
@@ -119,14 +118,16 @@ class CoverageDiagnostic:
         return self._pivot(e, "commodity")
 
     def system_boundary_table(self) -> pd.DataFrame:
-        """File 2 — boundary coverage keyed by SB entity_sub (Nature/SEM)."""
+        """File 2 — boundary coverage keyed by the SB node's boundary role."""
         e = self._edges[self._edges["time"].astype(str) == self.year].copy()
         from_sb = e["from_entity"].to_numpy() == "SB"
         to_sb   = e["to_entity"].to_numpy() == "SB"
         e = e[from_sb ^ to_sb].copy()                # exactly one SB endpoint
         from_sb = e["from_entity"].to_numpy() == "SB"
-        e["category"] = np.where(from_sb, e["from_entity_sub"], e["to_entity_sub"])
-        e = e[e["category"] != "FD"].copy()          # FD belongs to File 1
+        sb_sector = np.where(from_sb, e["from_sector"], e["to_sector"])
+        e["category"] = boundary_role_values(self.acc.boundary_roles, sb_sector)
+        final_demand = e["category"] == BoundaryRole.FINAL_DEMAND.value
+        e = e[~final_demand].copy()                  # final demand belongs to File 1
         from_sb = e["from_entity"].to_numpy() == "SB"
         e["direction"] = np.where(from_sb, "input", "output")
         e["region"]    = np.where(from_sb, e["to_region"], e["from_region"])

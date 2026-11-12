@@ -22,6 +22,7 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
+from pysuto.acc import BALANCE_ENTITIES
 from pysuto.logging import get_logger
 from pysuto.registry import ConstraintRunRegistry, make_run_id
 
@@ -482,7 +483,7 @@ class ConstraintEngine:
                 nodes_in  = set(ei.loc[t_mask, "to_id"].values)
                 nodes_out = set(ei.loc[t_mask, "from_id"].values)
                 for nid in nodes_in & nodes_out:
-                    if str(ni.loc[nid, "entity"]) in {"Flow", "Process"}:
+                    if str(ni.loc[nid, "entity"]) in BALANCE_ENTITIES:
                         expected_mb += 1
         actual_mb = int(type_counts.get(TYPE_MASSBAL, 0))
         if actual_mb == expected_mb:

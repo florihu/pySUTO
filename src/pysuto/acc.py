@@ -9,10 +9,12 @@ Acc spec
 --------
 An accounting structure is declared by one dict, the **acc spec** (ADR 0046)::
 
-    {"sectors":    [{"name": "Mining", "entity": "Process"},        # "sub" optional
-                    {"name": "Scrap",  "entity": "SB", "sub": "SEM"}, ...],
+    {"sectors":    [{"name": "Mining", "entity": "Process"},
+                    {"name": "Scrap",  "entity": "SB", "sub": "SEM",       # sub optional
+                     "role": "secondary"}, ...],                          # SB only
      "regions":    ["Chile", ...],                  # nodes = sectors × regions
-     "valuations": ["Mass", "CC"],
+     "valuations": [{"name": "Mass", "role": "gross"},
+                    {"name": "CC",   "role": "content"}],
      "times":      ["1995", ...],                   # every label a str
      "supply":     {"Mining": ["Ore", "WR"], ...},  # adjacency lists
      "use":        {"Ore": ["MF", "SXEW"], ...},
@@ -24,15 +26,28 @@ An accounting structure is declared by one dict, the **acc spec** (ADR 0046)::
 ``AccountingStructure.from_spec`` builds from it. Two readers produce it:
 ``read_acc_spec_json`` from one ``acc.json``, ``read_acc_spec_ods`` from the four files
 described below, which ``AccountingStructure(root_file_path=..., rules_file_path=...)``
-reads the same way.
+reads the same way; ``read_acc_spec_dir`` picks the reader from what a directory holds.
+
+Roles
+-----
+The labels are the case's; the **roles** are the framework's (ADR 0034, GLOSSARY "Role").
+Every ``SB`` sector binds its label to a :class:`BoundaryRole` (``nature``, ``secondary``,
+``final_demand``) and every valuation to a :class:`ValuationRole` (``content``,
+``gross``). The library reads roles through :attr:`AccountingStructure.boundary_roles` (SB sector
+→ boundary role) and :attr:`AccountingStructure.valuation_roles` (``.content``, ``.gross``),
+never the labels. The entity kinds ``Process | Flow | SB`` are reserved framework words,
+not roles; a ``secondary`` node is an input on a use edge and a residual output on a
+supply edge, so edge direction tells Scrap from Slag. Build and load raise unless
+sector → entity is 1:1, every SB sector and no other carries a known boundary role, and
+there is exactly one ``content`` and one ``gross`` valuation.
 
 Root loading
 ------------
 The root classification is read from an ODS/Excel file with four sheets:
 
-    Sector_Entity : columns  Sector_name, Entity_name
+    Sector_Entity : columns  Sector_name, Entity_name, role (the SB rows)
     Region        : column   Region_name
-    Valuation     : column   Valuation_name
+    Valuation     : columns  Valuation_name, role
     Time          : column   Time_name
 
 Rule loading
@@ -110,12 +125,17 @@ import inspect
 import json
 import os
 import pickle
+from dataclasses import dataclass
+from enum import Enum
 from functools import cached_property
+from pathlib import Path
 from typing import Optional
 
 import numpy as np
 import pandas as pd
 import scipy.sparse as sp
+
+from .input_registry import ACC_ODS_FILES, ACC_SPEC, InputRegistry
 
 try:
     from .logging import get_logger
@@ -125,6 +145,112 @@ except ImportError:
         return logging.getLogger(name)
 
 from pysuto.masks import read_masks_csv
+
+
+# =============================================================================
+# Roles  — the framework's meta-model; a case binds its labels to them (ADR 0034)
+# =============================================================================
+
+class BoundaryRole(str, Enum):
+    """The framework role of an ``SB`` sector (GLOSSARY "Role")."""
+    NATURE       = "nature"
+    SECONDARY    = "secondary"
+    FINAL_DEMAND = "final_demand"
+
+
+class ValuationRole(str, Enum):
+    """The framework role of a valuation: contained metal or gross product mass."""
+    CONTENT = "content"
+    GROSS   = "gross"
+
+
+#: The entity kinds whose nodes carry a balance; ``SB`` nodes are open endpoints.
+BALANCE_ENTITIES = frozenset({"Flow", "Process"})
+
+
+@dataclass(frozen=True)
+class ValuationRoles:
+    """The valuation labels a case binds to the two valuation roles."""
+    content: str
+    gross:   str
+
+
+def boundary_role_values(roles: dict, sectors) -> np.ndarray:
+    """The boundary role of each sector label as its value string (``"nature"``,
+    ``"secondary"``, ``"final_demand"``), ``None`` where the sector carries none.
+
+    Compare the result with ``BoundaryRole.X.value``: numpy does not compare an object
+    array elementwise with a ``str``-Enum scalar.
+    """
+    by_value = {s: BoundaryRole(r).value for s, r in roles.items()}
+    return np.array([by_value.get(s) for s in np.asarray(sectors, dtype=object)],
+                    dtype=object)
+
+
+def _bind_roles(sectors: list, valuations: list) -> tuple:
+    """Validate the role bindings and return ``(roles, valuations)``.
+
+    Parameters
+    ----------
+    sectors : list of dict
+        Records with ``name``, ``entity`` and, on an ``SB`` sector, ``role``.
+    valuations : list of dict
+        Records with ``name`` and ``role``.
+
+    Returns
+    -------
+    tuple
+        ``{SB sector label: BoundaryRole}`` and a :class:`ValuationRoles`.
+
+    Raises
+    ------
+    ValueError
+        A sector declared twice (sector → entity is 1:1), an ``SB`` sector without a
+        boundary role, a role on a ``Process`` or ``Flow`` sector, an unknown role name,
+        a valuation without a role, or not exactly one ``content`` and one ``gross``
+        valuation.
+    """
+    entities: dict = {}
+    for s in sectors:
+        entities.setdefault(s["name"], []).append(s["entity"])
+    twice = {name: ents for name, ents in entities.items() if len(ents) > 1}
+    if twice:
+        raise ValueError(f"acc spec: sector → entity must be 1:1; declared more than "
+                         f"once: {twice}")
+
+    roles: dict = {}
+    for s in sectors:
+        role = s.get("role")
+        if s["entity"] != "SB":
+            if role is not None:
+                raise ValueError(f"acc spec: sector {s['name']!r} is a {s['entity']} "
+                                 f"sector; only an SB sector carries a role, got {role!r}")
+            continue
+        if role is None:
+            raise ValueError(f"acc spec: SB sector {s['name']!r} has no boundary role; "
+                             f"expected one of {[r.value for r in BoundaryRole]}")
+        try:
+            roles[s["name"]] = BoundaryRole(role)
+        except ValueError:
+            raise ValueError(f"acc spec: SB sector {s['name']!r} has unknown boundary "
+                             f"role {role!r}; expected one of "
+                             f"{[r.value for r in BoundaryRole]}") from None
+
+    by_role: dict = {r: [] for r in ValuationRole}
+    for v in valuations:
+        role = v.get("role")
+        try:
+            by_role[ValuationRole(role)].append(v["name"])
+        except ValueError:
+            what = "no role" if role is None else f"unknown role {role!r}"
+            raise ValueError(f"acc spec: valuation {v['name']!r} has {what}; expected "
+                             f"one of {[r.value for r in ValuationRole]}") from None
+    wrong = {r.value: names for r, names in by_role.items() if len(names) != 1}
+    if wrong:
+        raise ValueError(f"acc spec: exactly one content and one gross valuation are "
+                         f"required; got {wrong}")
+    return roles, ValuationRoles(content=by_role[ValuationRole.CONTENT][0],
+                             gross=by_role[ValuationRole.GROSS][0])
 
 
 # =============================================================================
@@ -238,17 +364,20 @@ _SPEC_REQUIRED: tuple = ("sectors", "regions", "valuations", "times",
                          "supply", "use", "tradable", "accounting")
 _SPEC_OPTIONAL: tuple = ("bounds", "masks")
 
-# The keys of one entry (#119 adds "role" to the sectors entries).
-_SECTOR_KEYS:     tuple = ("name", "entity", "sub")
-_SECTOR_OPTIONAL: tuple = ("sub",)
+# The keys of one entry. A sector's "role" is optional here; _bind_roles requires it on
+# an SB sector and refuses it elsewhere (#119).
+_SECTOR_KEYS:     tuple = ("name", "entity", "sub", "role")
+_SECTOR_OPTIONAL: tuple = ("sub", "role")
+_VALUATION_KEYS:  tuple = ("name", "role")
 _ACCOUNTING_KEYS: tuple = ("from", "to", "same_region")
 
 
 def _read_root_ods(path: str) -> dict:
     """The root ODS file as the spec's sectors, regions, valuations and times.
 
-    Sheets: Sector_Entity (Sector_name, Entity_name, optional Entity_name_1 → ``sub``),
-    Region (Region_name), Valuation (Valuation_name), Time (Time_name).
+    Sheets: Sector_Entity (Sector_name, Entity_name, optional Entity_name_1 → ``sub``,
+    ``role`` on the SB rows), Region (Region_name), Valuation (Valuation_name, ``role``),
+    Time (Time_name). An empty ``role`` cell declares no role.
     """
     if not os.path.exists(path):
         raise FileNotFoundError(f"Root file not found: '{path}'")
@@ -263,12 +392,21 @@ def _read_root_ods(path: str) -> dict:
                   "entity": str(row["Entity_name"]).strip()}
         if "Entity_name_1" in se.columns and pd.notna(row["Entity_name_1"]):
             sector["sub"] = str(row["Entity_name_1"]).strip()
+        if "role" in se.columns and pd.notna(row["role"]):
+            sector["role"] = str(row["role"]).strip()
         sectors.append(sector)
+
+    valuations = []
+    for _, row in val.iterrows():
+        valuation = {"name": str(row["Valuation_name"])}
+        if "role" in val.columns and pd.notna(row["role"]):
+            valuation["role"] = str(row["role"]).strip()
+        valuations.append(valuation)
 
     return {
         "sectors":    sectors,
         "regions":    [str(r).strip() for r in reg["Region_name"]],
-        "valuations": [str(v) for v in val["Valuation_name"]],
+        "valuations": valuations,
         "times":      [str(t) for t in tim["Time_name"]],
     }
 
@@ -353,6 +491,33 @@ def read_acc_spec_json(path: str) -> dict:
         return json.load(f)
 
 
+def read_acc_spec_dir(path) -> dict:
+    """Read the acc spec one directory declares (an input registry's ``current/`` or
+    ``vN/``): from ``acc.json`` when it holds one, else from ``root.ods`` + ``rules.ods``
+    with ``bounds.ods`` and ``masks.csv`` where present.
+
+    Raises
+    ------
+    ValueError
+        *path* holds ``acc.json`` and any file of the ODS/CSV format: one of the two
+        would be ignored (ADR 0046).
+    """
+    path = Path(path)
+    if (path / ACC_SPEC).is_file():
+        ods_beside_json = [n for n in ACC_ODS_FILES if (path / n).is_file()]
+        if ods_beside_json:
+            raise ValueError(
+                f"{path} holds {ACC_SPEC} and {ods_beside_json}: an acc spec is "
+                f"read from {ACC_SPEC} or from root.ods + rules.ods, never both "
+                f"(ADR 0046)"
+            )
+        return read_acc_spec_json(str(path / ACC_SPEC))
+    optional = {name: str(path / name) if (path / name).is_file() else None
+                for name in ("bounds.ods", "masks.csv")}
+    return read_acc_spec_ods(str(path / "root.ods"), str(path / "rules.ods"),
+                             optional["bounds.ods"], optional["masks.csv"])
+
+
 def _check_keys(entry, keys: tuple, optional: tuple, where: str) -> None:
     """``KeyError`` naming a missing key of *entry*; ``ValueError`` on an unknown key."""
     if not isinstance(entry, dict):
@@ -368,10 +533,13 @@ def _check_keys(entry, keys: tuple, optional: tuple, where: str) -> None:
 
 def _validate_spec(spec: dict) -> None:
     """Raise on a missing or unknown key, a value of the wrong type, or a rule naming a
-    sector or entity the spec does not declare. Nothing is coerced."""
+    sector or entity the spec does not declare. Nothing is coerced; the roles are
+    validated when the root is set (:func:`_bind_roles`)."""
     _check_keys(spec, _SPEC_REQUIRED + _SPEC_OPTIONAL, _SPEC_OPTIONAL, "the top level")
     for i, sector in enumerate(spec["sectors"]):
         _check_keys(sector, _SECTOR_KEYS, _SECTOR_OPTIONAL, f"sectors[{i}]")
+    for i, valuation in enumerate(spec["valuations"]):
+        _check_keys(valuation, _VALUATION_KEYS, (), f"valuations[{i}]")
     for i, rule in enumerate(spec["accounting"]):
         _check_keys(rule, _ACCOUNTING_KEYS, (), f"accounting[{i}]")
         if not isinstance(rule["same_region"], bool):
@@ -379,7 +547,8 @@ def _validate_spec(spec: dict) -> None:
                             f"got {rule['same_region']!r}")
 
     labels = ([s[k] for s in spec["sectors"] for k in _SECTOR_KEYS if k in s]
-              + list(spec["regions"]) + list(spec["valuations"]) + list(spec["times"]))
+              + list(spec["regions"]) + [v["name"] for v in spec["valuations"]]
+              + list(spec["times"]))
     not_str = [x for x in labels if not isinstance(x, str)]
     if not_str:
         raise TypeError(f"acc spec labels must be strings; got {not_str[:5]!r}")
@@ -411,6 +580,177 @@ def _rule_tables(spec: dict) -> tuple:
     use_pairs    = {(f, t) for f, tos in spec["use"].items()    for t in tos}
     accounting   = {(r["from"], r["to"]): r["same_region"] for r in spec["accounting"]}
     return supply_pairs, use_pairs, set(spec["tradable"]), accounting
+
+
+# =============================================================================
+# Acc compatibility  — two versions compared on the keys a consumer reads (#119)
+# =============================================================================
+
+#: The keys that define the edge universe — what Stage 2 checks against its feed runs
+#: (a feed reads no role).
+EDGE_UNIVERSE_KEYS: tuple = _SPEC_REQUIRED
+#: The edge universe and the roles — what Stages 4 (warm start) and 6 check against the
+#: built acc (the PSUT blocks are read by role).
+EDGE_UNIVERSE_ROLE_KEYS: tuple = _SPEC_REQUIRED + ("role",)
+#: Every key — what Stages 2 and 3 check against the built acc (Stage 2 clips to the
+#: bounds and reads the recipes by role; bounds and masks enter G).
+ALL_SPEC_KEYS: tuple = _SPEC_REQUIRED + _SPEC_OPTIONAL + ("role",)
+
+# The copper case's labels, bound for one legacy path only: a version that declares no
+# roles (acc/copper v4 and older) is compared through them (#119).
+_LEGACY_BOUNDARY_ROLES  = {"Nature": "nature", "SEM": "secondary", "FD": "final_demand"}
+_LEGACY_VALUATION_ROLES = {"Mass": "gross", "CC": "content"}
+
+
+def _declared_roles(spec: dict) -> list:
+    """``(kind, label, role)`` of every SB sector and valuation of a spec, sorted. A
+    label with no role takes the copper binding; any other raises, a role is never
+    guessed."""
+    out = []
+    for s in spec["sectors"]:
+        if s["entity"] == "SB":
+            role = s.get("role") or _LEGACY_BOUNDARY_ROLES.get(s.get("sub"))
+            if role is None:
+                raise ValueError(f"SB sector {s['name']!r} declares no role and "
+                                 f"{s.get('sub')!r} is not a copper boundary label")
+            out.append(("sector", s["name"], role))
+    for v in spec["valuations"]:
+        role = v.get("role") or _LEGACY_VALUATION_ROLES.get(v["name"])
+        if role is None:
+            raise ValueError(f"valuation {v['name']!r} declares no role and is not a "
+                             f"copper valuation")
+        out.append(("valuation", v["name"], role))
+    return sorted(out)
+
+
+def _canonical(spec: dict, key: str):
+    """One key of a spec in the form two specs are compared on. Order is kept where it
+    numbers nodes or edges (sectors, regions, valuations, times) or decides precedence
+    (bound and mask records); adjacency is a set. ``role`` is the bound roles of the SB
+    sectors and valuations (the other keys carry labels only). An absent optional key is
+    an empty list."""
+    if key == "role":
+        return _declared_roles(spec)
+    value = spec.get(key)
+    if key == "sectors":
+        return [(s["name"], s["entity"], s.get("sub")) for s in value]
+    if key == "valuations":
+        return [v["name"] for v in value]
+    if key in ("supply", "use"):
+        return sorted((f, t) for f, tos in value.items() for t in tos)
+    if key == "tradable":
+        return sorted(value)
+    if key == "accounting":
+        return sorted((r["from"], r["to"], bool(r["same_region"])) for r in value)
+    if key in ("bounds", "masks"):
+        return [{k: (None if v is None or (isinstance(v, float) and np.isnan(v)) else v)
+                 for k, v in record.items()} for record in (value or [])]
+    return list(value)
+
+
+def acc_spec_differences(a: dict, b: dict, keys) -> list:
+    """The keys among *keys* on which acc specs *a* and *b* differ (see
+    :func:`_canonical`).
+
+    Raises
+    ------
+    ValueError
+        ``"role"`` is in *keys* and a spec declares no role for a label that is not one
+        of the copper case's.
+    """
+    return [key for key in keys if _canonical(a, key) != _canonical(b, key)]
+
+
+def require_compatible_acc(acc_registry, acc_id: str, version_a: int, version_b: int,
+                           keys, *, context: str = "", remedy: str = "") -> None:
+    """Raise unless versions *version_a* and *version_b* of acc *acc_id* agree on *keys*;
+    log at info level every other key they differ in.
+
+    Both specs are read from the input registry's snapshots (``acc_registry.resolve``,
+    then :func:`read_acc_spec_dir`), so the format of a version (ODS files or
+    ``acc.json``) does not count. ``"role"`` is a key like the others: where a consumer
+    reads roles it is compared, and a version that declares none (v4 and older) is
+    compared through the copper binding.
+
+    Parameters
+    ----------
+    acc_registry
+        The ``acc`` :class:`~pysuto.input_registry.InputRegistry`.
+    keys
+        The keys the consumer reads: :data:`EDGE_UNIVERSE_KEYS` (Stage 2 against its
+        feed runs), :data:`EDGE_UNIVERSE_ROLE_KEYS` (Stages 4 and 6 against the built
+        acc) or :data:`ALL_SPEC_KEYS` (Stages 2 and 3 against the built acc).
+    context, remedy
+        The start and the end of the message: what was compared, what to do.
+
+    Raises
+    ------
+    ValueError
+        The two specs differ in a key of *keys*; the message names those keys.
+    """
+    if version_a == version_b:
+        return
+    a = read_acc_spec_dir(acc_registry.resolve(acc_id, version_a))
+    b = read_acc_spec_dir(acc_registry.resolve(acc_id, version_b))
+    context = context or f"acc {acc_id} v{version_a} and v{version_b}"
+    breaking = acc_spec_differences(a, b, [k for k in ALL_SPEC_KEYS if k in keys])
+    if breaking:
+        raise ValueError(f"{context}; they differ in {breaking}"
+                         + (f": {remedy}" if remedy else ""))
+    ignored = []
+    for key in (k for k in ALL_SPEC_KEYS if k not in keys):
+        try:
+            if _canonical(a, key) != _canonical(b, key):
+                ignored.append(key)
+        except ValueError:                  # undeclared roles: not compared, so no raise
+            ignored.append(key)
+    if ignored:
+        get_logger("AccountingStructure").info(
+            "%s; they differ in %s, which this check does not compare", context, ignored)
+
+
+def check_feed_accs(feed_sidecars: dict, acc_registry: InputRegistry,
+                    acc_entry: dict) -> None:
+    """Check that every feed run was built on an acc compatible with Stage 2's acc
+    input entry (#53, #119).
+
+    Parameters
+    ----------
+    feed_sidecars : ``{feed_run_id: sidecar}`` of the selected feed runs.
+    acc_registry : the acc registry, whose ``vN/`` snapshots hold the specs compared.
+    acc_entry : Stage 2's own acc input entry ``{id, version, ...}``.
+
+    A feed built on another version of the acc passes when the two versions' specs
+    agree on the keys that define the edge universe (:data:`EDGE_UNIVERSE_KEYS`:
+    sectors, regions, valuations, times, supply, use, tradable, accounting). A feed
+    reads no bound, mask or role, so a difference there is logged at info level, and
+    the format of a version (ODS files or acc.json) does not count.
+
+    Raises
+    ------
+    KeyError
+        A feed sidecar records no ``parents.inputs.acc``.
+    ValueError
+        A feed was built on another acc id, or on a version whose spec differs in an
+        edge-universe key; the message names the feed run, both versions and the keys.
+    """
+    own = (acc_entry["id"], acc_entry["version"])
+    for run_id, sidecar in feed_sidecars.items():
+        ref = sidecar.get("parents", {}).get("inputs", {}).get("acc")
+        if not ref:
+            raise KeyError(f"feed run {run_id} records no parents.inputs.acc, so its acc "
+                           f"cannot be checked against {own[0]} v{own[1]}")
+        theirs = (ref["id"], ref["version"])
+        if theirs == own:
+            continue
+        if theirs[0] != own[0]:
+            raise ValueError(f"feed run {run_id} was built on acc {theirs[0]} "
+                             f"v{theirs[1]}, this run uses acc {own[0]} v{own[1]}")
+        require_compatible_acc(
+            acc_registry, own[0], theirs[1], own[1], EDGE_UNIVERSE_KEYS,
+            context=(f"feed run {run_id} was built on acc {own[0]} v{theirs[1]}, "
+                     f"this run uses v{own[1]}"),
+            remedy="rebuild the feed")
 
 
 # =============================================================================
@@ -694,7 +1034,7 @@ class AccountingStructure:
             storage_dir    = "data/proc/acc",      # optional
         )
 
-    B) From Python objects (original API, kept for backwards-compat)::
+    B) From Python objects (original API, kept for the index-machinery tests)::
 
         acc = AccountingStructure(
             id    = "copper",
@@ -702,9 +1042,21 @@ class AccountingStructure:
             rules = [<callable>, ...],
         )
 
+       It takes no acc spec, so it binds **no roles**: :attr:`roles` and
+       :attr:`valuations` are ``None``, and a root with an ``SB`` node raises.
+
     C) From a previously saved directory::
 
         acc = AccountingStructure.load("copper", storage_dir="data/proc/acc")
+
+    Attributes
+    ----------
+    roles : dict or None
+        ``{SB sector label: BoundaryRole}``; ``None`` on mode B.
+    valuations : ValuationRoles or None
+        The labels bound to the ``content`` and ``gross`` roles; ``None`` on mode B.
+    valuation : list of str
+        The valuation axis, in edge order.
 
     Parameters
     ----------
@@ -754,15 +1106,17 @@ class AccountingStructure:
         # ── 1. Root (node universe, time, valuation) ─────────────────
         if root_file is not None:
             self._load_root_from_file(root_file)
-        elif kwargs.get("init_from_file", False):
-            assert "root_file_path" in kwargs
-            self.syst_desc_from_file(kwargs["root_file_path"])
         else:
-            assert root is not None, \
-                "Provide root_file_path= OR root= dict."
-            self.root_nodes = root["nodes"].copy()
-            self.time_range = list(dict.fromkeys(root["time_range"]))
-            self.valuation  = list(dict.fromkeys(root["valuation"]))
+            if kwargs.get("init_from_file", False):
+                assert "root_file_path" in kwargs
+                self.syst_desc_from_file(kwargs["root_file_path"])
+            else:
+                assert root is not None, \
+                    "Provide root_file_path= OR root= dict."
+                self.root_nodes = root["nodes"].copy()
+                self.time_range = list(dict.fromkeys(root["time_range"]))
+                self.valuation  = list(dict.fromkeys(root["valuation"]))
+            self._set_no_roles()
 
         # ── 2. Rules ──────────────────────────────────────────────────
         if rules_file is not None:
@@ -805,9 +1159,11 @@ class AccountingStructure:
             A required key is missing, at the top level or in an entry (the message
             names it).
         ValueError
-            An unknown key, or a rule naming a sector or entity no sector entry declares.
+            An unknown key, a rule naming a sector or entity no sector entry declares,
+            or a role binding that breaks ADR 0034 (see :func:`_bind_roles`).
         TypeError
-            A label that is not a string, or a ``same_region`` that is not a bool.
+            A label that is not a string, an entry that is not a dict, or a
+            ``same_region`` that is not a bool.
         """
         obj = cls.__new__(cls)
         obj._set_identity(id, storage_dir)
@@ -881,15 +1237,17 @@ class AccountingStructure:
         self._set_root(_read_root_ods(path))
 
     def _set_root(self, spec: dict) -> None:
-        """Node universe = the spec's sectors × regions; the time and valuation axes."""
+        """Node universe = the spec's ``sectors`` × ``regions``; time and valuation axes;
+        the role bindings (validated, see :func:`_bind_roles`)."""
         sectors, regions = spec["sectors"], spec["regions"]
+        self.boundary_roles, self.valuation_roles = _bind_roles(sectors, spec["valuations"])
         self.root_nodes = pd.DataFrame(
             [(s["name"], s["entity"], region, s.get("sub"))
              for s in sectors for region in regions],
             columns=["sector", "entity", "region", "entity_sub"],
         )
         self.time_range = list(spec["times"])
-        self.valuation  = list(spec["valuations"])
+        self.valuation  = [v["name"] for v in spec["valuations"]]
 
         self.logger.info(
             f"  Root: {len(sectors)} sectors × {len(regions)} regions = "
@@ -897,6 +1255,19 @@ class AccountingStructure:
             f"{len(self.time_range)} time points | "
             f"{len(self.valuation)} valuations"
         )
+
+    def _set_no_roles(self) -> None:
+        """Mode B binds no roles, so it cannot declare an ``SB`` node (every SB sector
+        carries a boundary role, ADR 0034)."""
+        sb = sorted(set(self.root_nodes.loc[self.root_nodes["entity"] == "SB", "sector"]))
+        if sb:
+            raise ValueError(
+                f"AccountingStructure {self.id!r}: the procedural constructor binds no "
+                f"roles, and SB sector(s) {sb} need a boundary role — declare the "
+                f"structure as an acc spec (AccountingStructure.from_spec)"
+            )
+        self.boundary_roles      = None
+        self.valuation_roles = None
 
     # ------------------------------------------------------------------
     # Edge-reduction report  (NEW)
@@ -1406,14 +1777,14 @@ class AccountingStructure:
         """Structural process-recipe skeletons grouped per Process node.
 
         One recipe per ``(process_sector, region, time)`` with at least one
-        process-incident CC supply edge: its ``inputs`` (use edges into the
-        process, CC, any region), ``product`` (the single supply edge to a
-        ``Flow``), and ``wastes`` (supply edges to ``SB`` nodes with
-        ``entity_sub == "SEM"``). Derived from ``edge_meta`` + the
-        ``supply``/``use`` masks + ``entity_sub`` — works whether or not
-        ``self.ruleset`` is set (it is ``None`` after :meth:`load`). The
-        recipe carries no parameters; :class:`~pysuto.impute.network.NetworkImputer`
-        attaches efficiency/concentration from the params CSVs.
+        process-incident content supply edge: its ``inputs`` (use edges into the
+        process, content valuation, any region), ``product`` (the single supply
+        edge to a ``Flow``), and ``wastes`` (supply edges to ``SB`` nodes of
+        boundary role ``secondary``). Derived from ``edge_meta`` + the
+        ``supply``/``use`` masks + :attr:`roles`, all of which :meth:`load`
+        restores. The recipe carries no parameters;
+        :class:`~pysuto.impute.network.NetworkImputer` attaches
+        efficiency/concentration from the params CSVs.
         """
         from pysuto.impute.network import derive_process_recipes
         return derive_process_recipes(self)
@@ -1445,11 +1816,23 @@ class AccountingStructure:
         elif os.path.exists(masks_path):
             os.remove(masks_path)  # a stale file would resurrect removed masks
 
+        # Roles and rule tables, so load() returns what __init__ built: the rule-derived
+        # masks (supply, use, tradable) are rebuilt from the same tables (#119). Mode B
+        # records None for each (no roles; callable rules are not persistable).
+        rs   = self.ruleset
         meta = {
             "time_range": self.time_range,
             "valuation":  self.valuation,
             "node_to_id": self.node_to_id,
             "id_to_node": self.id_to_node,
+            "boundary_roles": (None if self.boundary_roles is None
+                           else {s: r.value for s, r in self.boundary_roles.items()}),
+            "valuation_roles": (None if self.valuation_roles is None else
+                                {self.valuation_roles.content: ValuationRole.CONTENT.value,
+                                 self.valuation_roles.gross:   ValuationRole.GROSS.value}),
+            "rule_tables": (None if rs is None else
+                            {"supply_pairs": rs.supply_pairs, "use_pairs": rs.use_pairs,
+                             "tradable": rs.tradable_flows, "accounting": rs.accounting}),
         }
         with open(os.path.join(path, "metadata.pkl"), "wb") as f:
             pickle.dump(meta, f)
@@ -1479,6 +1862,13 @@ class AccountingStructure:
 
         with open(os.path.join(path, "metadata.pkl"), "rb") as f:
             meta = pickle.load(f)
+        missing = [k for k in ("boundary_roles", "valuation_roles", "rule_tables") if k not in meta]
+        if missing:
+            raise ValueError(
+                f"acc {id!r} at {path} records no {missing}: it was saved before roles "
+                f"and rule tables were persisted (#119) — rebuild it with "
+                f"scripts/acc.py --id {id}"
+            )
 
         obj.time_range  = meta["time_range"]
         obj.valuation   = meta["valuation"]
@@ -1494,9 +1884,23 @@ class AccountingStructure:
         obj.rules       = []
         obj._node_rules = []
         obj._edge_rules = []
-        obj.ruleset     = None
+        rt = meta["rule_tables"]
+        obj.ruleset     = (None if rt is None else RuleSet.from_tables(
+            rt["supply_pairs"], rt["use_pairs"], rt["tradable"], rt["accounting"]))
         obj.logger      = get_logger(cls.__name__)
         obj.logger.info("Loading AccountingStructure '%s' from %s", id, path)
+
+        # The same validation as the build: the persisted roles bound to the nodes.
+        if meta["boundary_roles"] is None:
+            obj._set_no_roles()
+        else:
+            sectors = obj.node_index.drop_duplicates(["sector", "entity"])
+            obj.boundary_roles, obj.valuation_roles = _bind_roles(
+                [{"name": s, "entity": e, "role": meta["boundary_roles"].get(s)}
+                 for s, e in zip(sectors["sector"], sectors["entity"])],
+                [{"name": v, "role": (meta["valuation_roles"] or {}).get(v)}
+                 for v in obj.valuation],
+            )
 
         l_path = os.path.join(path, "bounds_l.npy")
         u_path = os.path.join(path, "bounds_u.npy")
@@ -1558,20 +1962,25 @@ def write_build_record(storage_dir: str, entry: dict) -> str:
     return path
 
 
-def check_built_acc(storage_dir: str, acc_ref: dict,
+def check_built_acc(storage_dir: str, acc_ref: dict, acc_registry, keys,
                     require_record: bool = False) -> None:
     """Check the build record of the structure under ``<storage_dir>/<id>/`` against
     ``acc_ref``, the acc input version (``{id, version, ...}``) a run's sidecar names.
 
-    A structure built before the record existed has none: unless ``require_record``,
-    that is logged as a warning and the caller goes on, so the runs made from it still
-    load. Reads only the record, so a caller checks before the (multi-GB) load.
+    A record naming another version of the same acc passes when the two versions' specs
+    agree on ``keys`` (:func:`require_compatible_acc`, read from ``acc_registry``):
+    :data:`ALL_SPEC_KEYS` for Stages 2 and 3, :data:`EDGE_UNIVERSE_ROLE_KEYS` for
+    Stages 4 (warm) and 6 (#119). A structure built before
+    the record existed has none: unless ``require_record``, that is logged as a warning
+    and the caller goes on, so the runs made from it still load. Reads the record and
+    the two specs only, so a caller checks before the (multi-GB) load.
 
     Raises
     ------
     ValueError
-        ``acc_ref`` lacks its id or version; the record names another acc id or
-        version; or ``require_record`` and the structure has no record.
+        ``acc_ref`` lacks its id or version; the record names another acc id, or a
+        version whose spec differs in a key of ``keys``; or ``require_record`` and the
+        structure has no record.
     """
     ref = (acc_ref.get("id"), acc_ref.get("version"))
     if not ref[0] or ref[1] is None:
@@ -1588,8 +1997,11 @@ def check_built_acc(storage_dir: str, acc_ref: dict,
         return
     with open(path, encoding="utf-8") as f:
         rec = json.load(f)
-    if (rec["id"], rec["version"]) != ref:
-        raise ValueError(
-            f"{os.path.dirname(path)} was built from acc {rec['id']} v{rec['version']}, "
-            f"but the run names acc {ref[0]} v{ref[1]}: rebuild the structure with "
-            f"scripts/acc.py, or run against the acc it was built from")
+    context = (f"{os.path.dirname(path)} was built from acc {rec['id']} "
+               f"v{rec['version']}, but the run names acc {ref[0]} v{ref[1]}")
+    remedy  = ("rebuild the structure with scripts/acc.py, or run against the acc it "
+               "was built from")
+    if rec["id"] != ref[0]:
+        raise ValueError(f"{context}: {remedy}")
+    require_compatible_acc(acc_registry, ref[0], rec["version"], ref[1], keys,
+                           context=context, remedy=remedy)

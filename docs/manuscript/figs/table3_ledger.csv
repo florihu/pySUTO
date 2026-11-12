@@ -1,7 +1,7 @@
 id,expectation,metric,threshold,value,outcome
 A1,every hard identity closes,"max |G·a* − c| over hard mass balances, all years",< 1e-06 kt,1.1e-06 kt,FAIL
 A2,compatibility is family-specific,"share of rows with |z| > 3 per year: edges below, scale totals above","edges < 0.05 and scale totals > 0.20, every year",edges 0.004–0.012 (30/30 yr); scale totals 0.121–0.226 (9/30 yr),FAIL
-A3,the adjustment localises on transit trade,share of edge Σz² on cross-region legs into merchant hubs (no ICSG processing),≥ 0.50,0.787 (all cross-region legs 0.947),PASS
+A3,the adjustment localises on transit trade,share of edge Σz² on cross-region legs into non-processing regions (no ICSG processing row),≥ 0.50,0.787 (all cross-region legs 0.947),PASS
 A4,the adjustment grows upstream,"retention Cathode CC > Concentrate CC > Ore Mass, gap per step, years passing",≥ 0.02 per step in ≥ 25 of 30 years,"0/30 years both steps (cathode–concentrate 1, concentrate–ore 10)",FAIL
 A5,termination accuracy does not move the answer,"|Δ retention| per stage, base run at gap_rel 1e-3 vs 1e-6, 30-year pool",< 0.02 every stage,4/9 stages within; max 0.223 (Scrap→Smelting CC),FAIL
 B1,secondary share: fidelity and regional order,"input-side share, pooled 2020–24: |world posterior − ICSG-implied|; EU-14 > China > US; EU-14 / world",< 0.02; order holds; ≥ 2×,|0.172 − 0.164| = 0.007; EU-14 0.370 > China 0.240 > US 0.045; 2.16×,PASS

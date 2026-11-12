@@ -4,6 +4,7 @@ The toy accounting structures use copper's sector labels, which the functions ho
 import numpy as np
 import pandas as pd
 
+from pysuto.acc import ValuationRoles
 from pysuto.cases.copper import (
     CASE,
     damp_leg_sigma as _damp_leg_sigma,
@@ -42,6 +43,8 @@ _EDGES = [
 class _Acc:
     def __init__(self):
         self.node_index = pd.DataFrame(_NODES, columns=["sector", "entity", "region"])
+        self.valuation_roles = ValuationRoles(content="CC", gross="Mass")
+        self.boundary_roles      = {}
         rows, eid = [], 0
         for f, t in _EDGES:
             for val in ("Mass", "CC"):
@@ -136,6 +139,8 @@ class _ReexpAcc(_Acc):
     def __init__(self):
         self.node_index = pd.DataFrame(
             _REEXP_NODES, columns=["sector", "entity", "region"])
+        self.valuation_roles = ValuationRoles(content="CC", gross="Mass")
+        self.boundary_roles      = {}
         rows, eid = [], 0
         for f, t in _REEXP_EDGES:
             for val in ("Mass", "CC"):
@@ -181,6 +186,7 @@ class _DampAcc:
     """Two sectors, three bilateral legs each (small/median/big) + extras."""
 
     def __init__(self):
+        self.valuation_roles = ValuationRoles(content="CC", gross="Mass")
         nodes = [
             ("Concentrate", "Flow", "A"),   # 0
             ("Concentrate", "Flow", "B"),   # 1
@@ -313,6 +319,7 @@ class _MatteAcc:
     Edges: 0 Smelting→Matte (inflow), 1 Matte→CFR (outflow)."""
 
     def __init__(self):
+        self.valuation_roles = ValuationRoles(content="CC", gross="Mass")
         self.node_index = pd.DataFrame(
             {"sector": ["Smelting", "Matte", "CFR"],
              "entity": ["Process", "Flow", "Process"],
