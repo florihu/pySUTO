@@ -656,6 +656,14 @@ class TestEngineToSolverIntegration:
                            atol=1e-9, rtol=1e-9)
 
 
+def _toy_acc_inputs(root):
+    """acc input toy v1 → v2, two specs with different regions (another edge universe),
+    so a structure built from one is refused for a run on the other (#53, #119)."""
+    from test_acc_roles import COPPER_LABELS, acc_input_versions
+    return acc_input_versions(root, "toy", [dict(COPPER_LABELS, regions=["A"]),
+                                            dict(COPPER_LABELS, regions=["A", "B"])])
+
+
 class TestWarmPriorAcc:
     """#53 item 5: a warm run aligns each year's prior by edge template, so it loads
     the built acc from ``acc_dir``, checks it against the const run's acc ref and
@@ -671,9 +679,10 @@ class TestWarmPriorAcc:
         acc, cr, storage_dir = TestEngineToSolverIntegration()._build_real_run(tmp_path)
         cr = dataclasses.replace(cr, acc_ref=dict(self.ACC_REF))
         acc_dir = str(tmp_path / "proc" / "acc")
+        _toy_acc_inputs(tmp_path / "input")
         s = ClarabelSolver(const_dir=storage_dir, opt_dir=str(tmp_path / "opt"),
-                           acc_dir=acc_dir, verbose_first_solve=False,
-                           prior_mode=prior_mode)
+                           acc_dir=acc_dir, input_dir=str(tmp_path / "input"),
+                           verbose_first_solve=False, prior_mode=prior_mode)
         monkeypatch.setattr(s, "load_run", lambda _rid: cr)
         return s, cr, acc, acc_dir
 
@@ -714,7 +723,8 @@ class TestWarmPriorAcc:
         os.makedirs(os.path.join(acc_dir, "toy"))
         with open(os.path.join(acc_dir, "toy", "build_record.json"), "w") as f:
             json.dump({"id": "toy", "version": 1, "code": "0ld0ld00"}, f)
-        with pytest.raises(ValueError, match=r"toy v1.*toy v2"):
+        with pytest.raises(ValueError,
+                           match=r"toy v1.*toy v2; they differ in \['regions'\]"):
             s.solve_all(cr.run_id)
 
     def test_a_const_run_without_an_acc_ref_raises_and_records_nothing(self, tmp_path,

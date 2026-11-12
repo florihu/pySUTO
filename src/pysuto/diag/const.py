@@ -266,30 +266,31 @@ class ConstDiagnostic:
 
     def _fig4_sum_residuals(self):
         """Per-family boxplot of log₁₀|ε₀| for the soft sum-anchors active at the
-        focus year (single CC panel — sum anchors are CC-only)."""
+        focus year (one panel, labelled with the valuations of its rows)."""
         suffix = f" — {self.label}" if self.label else ""
 
         eps0, _c, t = self._eps0_at(self.year)
         rm   = self.cr.row_meta
         mask = ((rm["type"].values == "sum") & self._year_row_mask()
                 if eps0 is not None else np.zeros(len(rm), dtype=bool))
+        vlab = "/".join(sorted(rm.loc[mask, "valuation"].dropna().astype(str).unique()))
 
         if mask.any():
             family = rm["variant"][mask].astype(str).to_numpy()
             vals   = np.abs(eps0[mask])
             keep   = np.isfinite(vals) & (vals > 0)
-            cells  = {(self.year, "CC"): (family[keep], np.log10(vals[keep]))}
+            cells  = {(self.year, vlab): (family[keep], np.log10(vals[keep]))}
         else:
-            cells  = {(self.year, "CC"): (np.array([], dtype=str),
+            cells  = {(self.year, vlab): (np.array([], dtype=str),
                                           np.array([], dtype=float))}
 
         return _grouped_box_grid(
             cells=cells,
             row_keys=[self.year],
-            col_keys=["CC"],
+            col_keys=[vlab],
             group_label="anchor family",
             y_label="log₁₀|ε₀|",
-            suptitle=f"Sum-anchor prior residuals (CC, {self.year}){suffix}",
+            suptitle=f"Sum-anchor prior residuals ({vlab}, {self.year}){suffix}",
             cell_title=lambda r, c: f"{c} · {r}",
         )
 

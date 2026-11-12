@@ -79,6 +79,11 @@ PRODUCTION_EDGES       = (("SXEW", "CSXEW"),)
 # Regions whose zero is never a report: ROW is the sum of the members ICSG lists, with
 # its "Others" rows among them.
 AGGREGATE_REGIONS      = ("ROW",)
+# The copper case's labels the library takes as parameters (#119): the rest-of-world
+# region of the ROW pedigree penalty, and the Supply_Use column's vocabulary — each
+# value mapped to the endpoint its rows classify.
+ROW_REGION             = "ROW"
+AUX_SIDES              = {"Supply": "from", "Use": "to"}
 # Other registered inputs that report a mine or an SX-EW plant: where one does, ICSG's
 # missing row is missing data (a small producer under "Others"), and the output edge is
 # not stamped (ADR 0019). The crude-ore feed reports mining wherever its ore mass is
@@ -267,6 +272,7 @@ def build_concordance(
             var_map_df            = var_map_df,
             feed_id               = FEED_ID,
             aux_col               = "Supply_Use",
+            aux_sides             = AUX_SIDES,
             # Fan-out across a node's edges (resolved by weights) is allowed.
             # A classified relation with no edge in the acc is rejected
             # unconditionally by the structural-validity guard in
@@ -476,7 +482,8 @@ def stamp_observed_zeros(ct: ConcordanceTable, F_src: np.ndarray, result,
 def propagate(wm: WeightMatrix, F_src: np.ndarray, meta: DataFeedMetadata, acc):
     print(f"\n{'='*60}")
     print("D  Propagating uncertainty (scipy.sparse)")
-    result, row_summary = propagate_with_row_penalty(wm, F_src, meta, acc)
+    result, row_summary = propagate_with_row_penalty(wm, F_src, meta, acc,
+                                                     row_region=ROW_REGION)
     print(f"   CV_src       : {result.cv_src * 100:.2f} %")
     print(f"   F_root sum   : {result.F_root.sum():,.1f} kt")
     print(f"   mean CV_root : {np.nanmean(result.cv_root) * 100:.2f} %")

@@ -67,6 +67,7 @@ def step_B_build_concordance(
     var_map_df:       pd.DataFrame,
     feed_id:          str,
     aux_col:          Optional[str] = None,
+    aux_sides:        Optional[dict] = None,
     allow_unmatched_edges: bool = True,
     user_weights_df:  Optional[pd.DataFrame] = None,
     leg_filter:       Optional[dict] = None,
@@ -77,6 +78,9 @@ def step_B_build_concordance(
 
     Parameters
     ----------
+    aux_col / aux_sides : the raw column that tells supply rows from use rows, and its
+        values mapped to the endpoint they classify (``"from"`` / ``"to"``); the
+        vocabulary is the case's (#119), passed through to ConcordanceTable.from_raw.
     allow_unmatched_edges : passed through to ConcordanceTable.from_raw so
         that rows that cannot be matched to a root edge are collected in
         ct.unmatched_raw_rows rather than raising an exception.
@@ -104,6 +108,7 @@ def step_B_build_concordance(
         valuation_map_df      = valuation_map_df,
         var_map_df            = var_map_df,
         aux_col               = aux_col,
+        aux_sides             = aux_sides,
         allow_unmatched_edges = allow_unmatched_edges,
         id                    = feed_id,
         user_weights_df       = user_weights_df,
@@ -356,11 +361,13 @@ def _apply_edge_scope_mask(ct, acc_struct, mask_name: str) -> None:
         )
 
 
-def _build_row_penalty_scale(acc_struct, metadata):
+def _build_row_penalty_scale(acc_struct, metadata, row_region=None):
     """Build a per-root-edge CV multiplier that pushes ROW-touching edges to the
     worst geographical pedigree score (``geographical_correlation = 4``).
 
-    A root edge is ROW-touching iff its from- or to-node region is ``"ROW"``.
+    A root edge is ROW-touching iff its from- or to-node region is ``row_region``,
+    the case's label for its rest-of-world region (copper: ``ROW``; #119). It must
+    be one of the structure's regions when the feed opts into the penalty.
     The region is decoded inline from ``acc_struct`` (a downward dependency) —
     the same node-index join used in ``acc.py`` / ``masks.py`` — so feedpipe
     stays within the one-way import direction (no ``param_relation`` import).
@@ -373,6 +380,10 @@ def _build_row_penalty_scale(acc_struct, metadata):
     """
     if not getattr(metadata, "row_penalty", False):
         return None, None, None
+    regions = set(acc_struct.node_index["region"].astype(str))
+    if row_region not in regions:
+        raise ValueError(f"the feed opts into the ROW penalty, so row_region must be "
+                         f"one of the structure's regions; got {row_region!r}")
 
     import dataclasses
 
@@ -385,7 +396,7 @@ def _build_row_penalty_scale(acc_struct, metadata):
     ei = acc_struct.edge_index
     rf = acc_struct.node_index.loc[ei["from_id"].values, "region"].to_numpy().astype(str)
     rt = acc_struct.node_index.loc[ei["to_id"].values,   "region"].to_numpy().astype(str)
-    row_mask = (rf == "ROW") | (rt == "ROW")
+    row_mask = (rf == row_region) | (rt == row_region)
 
     cv_root_scale = np.where(row_mask, ratio, 1.0)
     summary = {"row_penalty": {
@@ -400,7 +411,7 @@ def _build_row_penalty_scale(acc_struct, metadata):
 
 
 def propagate_with_row_penalty(wm, F_src, metadata, acc_struct, p: float = 1.3,
-                               cv_root_scale_extra=None):
+                               cv_root_scale_extra=None, row_region=None):
     """Run step-D propagation and apply the optional ROW pedigree penalty.
 
     Wraps :func:`step_D_apply_and_propagate` so the penalty is wired identically
@@ -416,10 +427,14 @@ def propagate_with_row_penalty(wm, F_src, metadata, acc_struct, p: float = 1.3,
     re-export re-attribution prices the inferred component through it. ``None``
     (the default) leaves every caller's behaviour bit-identical.
 
+    ``row_region`` is the case's rest-of-world region label, required when the feed
+    opts into the penalty (see :func:`_build_row_penalty_scale`).
+
     Returns ``(result, stage_summary)`` where ``stage_summary`` is the
     row_penalty summary dict (or ``None`` when the penalty is off).
     """
-    cv_root_scale, row_summary, row_mask = _build_row_penalty_scale(acc_struct, metadata)
+    cv_root_scale, row_summary, row_mask = _build_row_penalty_scale(acc_struct, metadata,
+                                                                     row_region)
     if cv_root_scale_extra is not None:
         extra = np.asarray(cv_root_scale_extra, dtype=float)
         cv_root_scale = extra if cv_root_scale is None else cv_root_scale * extra
@@ -456,6 +471,8 @@ def run_feed_pipeline(
     parents:          dict,
     feed_id:          Optional[str] = None,
     aux_col:          Optional[str] = None,
+    aux_sides:        Optional[dict] = None,
+    row_region:       Optional[str] = None,
     allow_unmatched_edges: bool = True,
     diag_plot:        bool = True,
     conc_file:        Optional[str] = None,
@@ -478,11 +495,12 @@ def run_feed_pipeline(
                  raw_df, acc_struct,
                  sector_map_df, region_map_df,
                  time_map_df, valuation_map_df, var_map_df,
-                 feed_id=fid, aux_col=aux_col,
+                 feed_id=fid, aux_col=aux_col, aux_sides=aux_sides,
                  allow_unmatched_edges=allow_unmatched_edges)
     _apply_edge_scope_mask(ct, acc_struct, meta.edge_scope_mask)
     wm     = step_C_build_weight_matrix(ct)
-    result, row_summary = propagate_with_row_penalty(wm, F_src, meta, acc_struct, p=p)
+    result, row_summary = propagate_with_row_penalty(wm, F_src, meta, acc_struct, p=p,
+                                                     row_region=row_region)
     entry  = register_feed(
         wm, meta, result, registry,
         parents = parents,

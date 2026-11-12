@@ -45,7 +45,7 @@ def test_off_returns_none():
 def test_marks_row_edges_and_scales_by_ratio():
     meta = DataFeedMetadata(feed_name="x", geographical_correlation=1,
                             row_penalty=True)
-    cv_scale, summary, mask = _build_row_penalty_scale(_acc(), meta)
+    cv_scale, summary, mask = _build_row_penalty_scale(_acc(), meta, "ROW")
 
     # edge 0 domestic untouched; edges 1 (->ROW) and 2 (ROW->) flagged
     np.testing.assert_array_equal(mask, [False, True, True])
@@ -70,7 +70,7 @@ def test_propagate_inflates_row_edges_and_records_provenance():
                             row_penalty=True)
     F_src = np.array([10.0, 20.0, 30.0])
 
-    result, summary = propagate_with_row_penalty(wm, F_src, meta, acc)
+    result, summary = propagate_with_row_penalty(wm, F_src, meta, acc, row_region="ROW")
 
     # provenance: ROW edges (1,2) with non-zero flow flagged; domestic (0) not
     np.testing.assert_array_equal(result.row_penalized, [False, True, True])
@@ -96,12 +96,28 @@ def test_propagate_excludes_zero_flow_row_edges_from_provenance():
                             row_penalty=True)
     F_src = np.array([10.0, 0.0, 30.0])            # ROW edge 1 carries no flow
 
-    result, summary = propagate_with_row_penalty(wm, F_src, meta, acc)
+    result, summary = propagate_with_row_penalty(wm, F_src, meta, acc, row_region="ROW")
 
     np.testing.assert_array_equal(result.row_penalized, [False, False, True])
     assert summary["row_penalty"]["n_penalized"] == 1     # only the fed ROW edge
     assert summary["row_penalty"]["n_row_edges"] == 2     # both ROW edges structurally
     assert int(result.row_penalized.sum()) == summary["row_penalty"]["n_penalized"]
+
+
+def test_the_rest_of_world_label_is_the_callers():
+    """A case calls its rest-of-world region what it likes (#119)."""
+    acc = _acc()
+    acc.node_index["region"] = ["A", "A", "Elsewhere"]
+    meta = DataFeedMetadata(feed_name="x", geographical_correlation=1, row_penalty=True)
+    _, _, mask = _build_row_penalty_scale(acc, meta, "Elsewhere")
+    np.testing.assert_array_equal(mask, [False, True, True])
+
+
+@pytest.mark.parametrize("row_region", [None, "RestOfWorld"])
+def test_opting_in_without_a_region_of_the_structure_raises(row_region):
+    meta = DataFeedMetadata(feed_name="x", geographical_correlation=1, row_penalty=True)
+    with pytest.raises(ValueError, match="row_region"):
+        _build_row_penalty_scale(_acc(), meta, row_region)
 
 
 def test_propagate_off_leaves_result_unpenalised():

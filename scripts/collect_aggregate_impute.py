@@ -44,12 +44,13 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from pysuto.acc      import AccountingStructure, check_built_acc
+from pysuto.acc      import (ALL_SPEC_KEYS, AccountingStructure, check_built_acc,
+                             check_feed_accs)
 from pysuto.case     import Cascade, CaseContext, CaseSpec
 from pysuto.cases.copper import CASE
 from pysuto.config   import load_config
 from pysuto.registry import DataFeedRegistry, ImputationRunRegistry, stage_lock
-from pysuto.input_registry import InputRegistries, check_feed_accs, input_pins
+from pysuto.input_registry import InputRegistries, input_pins
 from pysuto.collector import FeedCollector
 from pysuto.param_relation import (conc_for, conc_nominal_lookup, conc_sectors,
                                    expand_edge_index)
@@ -113,7 +114,7 @@ def _damp_leg_sigma(acc, agg_result, gamma, cv_cap, logger, a_ref_override=None)
     bilat = (cov[eid]
              & ei["entity_from"].eq("Flow").to_numpy()
              & (ei["region_from"] != ei["region_to"]).to_numpy()
-             & ei["valuation"].eq("Mass").to_numpy()
+             & ei["valuation"].eq(acc.valuation_roles.gross).to_numpy()
              & (np.abs(np.nan_to_num(f[eid])) > 0))
     legs = ei[bilat]
     n_damped = 0
@@ -166,19 +167,20 @@ def _screen_outlier_trade_legs(acc, agg_result, conc_csv: str, logger,
     cov = np.asarray(agg_result.coverage, dtype=bool)
     f = np.nan_to_num(np.asarray(agg_result.f_agg, dtype=float))
 
-    conc_lookup = conc_nominal_lookup(*[c for c in (conc_csv, grade_csv) if c])
+    conc_lookup = conc_nominal_lookup(*[c for c in (conc_csv, grade_csv) if c],
+                                      gross=acc.valuation_roles.gross)
     sectors = conc_sectors(conc_lookup)
 
     eid = ei["edge_id"].to_numpy()
     bilat = (cov[eid]
              & ei["entity_from"].eq("Flow").to_numpy()
              & (ei["region_from"] != ei["region_to"]).to_numpy()
-             & ei["valuation"].eq("Mass").to_numpy()
+             & ei["valuation"].eq(acc.valuation_roles.gross).to_numpy()
              & ei["sector_from"].isin(sectors).to_numpy())
     prodm = (cov[eid]
              & ei["entity_from"].eq("Process").to_numpy()
              & ei["entity_to"].eq("Flow").to_numpy()
-             & ei["valuation"].eq("CC").to_numpy())
+             & ei["valuation"].eq(acc.valuation_roles.content).to_numpy())
 
     legs = ei[bilat].copy()
     # priced with the EXPORTER's concentration — the grade belongs to the origin
@@ -323,7 +325,8 @@ def main(feed_ids: list[str], label: str, overrides: dict | None = None, *,
 
     # ── A  Load infrastructure ────────────────────────────────────────────────
     # A pinned acc version is verifiable only against a structure with a build record.
-    check_built_acc(acc_dir, acc_entry, require_record=pins is not None)
+    check_built_acc(acc_dir, acc_entry, inputs.acc, ALL_SPEC_KEYS,
+                    require_record=pins is not None)
     logger.info("A  Loading AccountingStructure '%s' from %s", acc_id, acc_dir)
     acc = AccountingStructure.load(id=acc_id, storage_dir=acc_dir)
 

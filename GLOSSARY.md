@@ -445,7 +445,8 @@ extraction entering the system — crude ore, `CO`), `FD` (final demand leaving 
 final-demand categories `FU` / `MESC` / `USC`), `SEM` (secondary / residual material — `Scrap`
 recycling inputs, the `Slag` / `Tailings` / `WR` residual outputs, and `PSC`, the producer
 stock-change leg). `entity_sub` is
-meaningful only on `SB` nodes (`Flow` / `Process` nodes leave it empty). _Note:_ `FD` is
+meaningful only on `SB` nodes (`Flow` / `Process` nodes leave it empty). It is the case's
+**label**; the library reads the boundary **role** bound to it (see Role). _Note:_ `FD` is
 structurally an SB-*output* (`entity_to == "SB"`) yet semantically belongs to the **use** side — a
 commodity consumed by final demand, with a real `Flow` commodity on its origin endpoint; only
 `Nature` and `SEM` are pure raw/secondary boundary crossings with no `Flow` endpoint.
@@ -512,6 +513,13 @@ lists the region in some table, in some year, but reports none of that product f
 year. Never ROW (a sum of members), a region ICSG never lists (Luxembourg) or a region-year ICSG
 reports inside one of its own aggregates: their zero is a gap, not a report. _Avoid_: "non-miner"
 for a region that only lacks SX-EW; "unreported region".
+
+**Non-processing region** — a model region with no ICSG smelter, refinery or SX-EW production
+row in any year: the set on which ledger row A3 scores the edge objective of cross-region legs.
+It is read from the ICSG feed, not from the posterior, which books some processing output
+everywhere. It mixes trading economies (Switzerland, Singapore), fabricators (France, Portugal)
+and mine-only exporters (Papua New Guinea, Panama). _Avoid_: "merchant hub" or "hub" for this
+set (a hub is a region whose trade the re-export netting re-attributes); "transit region".
 
 ## Defect, residual & violation vocabulary
 
@@ -1265,6 +1273,8 @@ role** of an `SB` node, `nature | secondary | final_demand` (the three system-bo
 above; a `secondary` node is an input when reached by a use edge and a residual output when reached
 by a supply edge), and the **valuation role**, `content | gross` (contained-metal mass vs gross
 product mass). The entity kinds `Process | Flow | SB` are reserved framework words, not roles.
+A case binds its labels to roles in its acc spec
+([ADR 0034](docs/adr/0034-roles-are-the-frameworks-labels-are-the-cases.md)).
 _Avoid_: reading a label (`SEM`, `CC`) as the concept — labels are the case's, roles are the
 framework's; "entity kind" for a role.
 
@@ -1287,11 +1297,12 @@ generic stage drivers. Declared as a `CaseSpec` named `CASE` in `pysuto.cases.<i
 copper case is the first. _Avoid_: "model" (the QP, the PIOT),
 "study" (a REP analysis), "scenario".
 
-**Acc spec** — the declaration of one accounting structure: its sectors (each with an entity),
-regions, valuations and times, its supply and use adjacency, tradable flows and entity-pair
-accounting rows, and optionally its bound and mask records. An `acc.json` and the copper case's
-four ODS/CSV files are two formats of it, each with its reader (`read_acc_spec_json`,
-`read_acc_spec_ods`; [ADR 0046](docs/adr/0046-an-accounting-structure-is-declared-by-a-spec.md)).
+**Acc spec** — the declaration of one accounting structure: its sectors (each with an entity, and
+a boundary role on an SB sector), regions, valuations (each with a valuation role) and times, its
+supply and use adjacency, tradable flows and entity-pair accounting rows, and optionally its bound
+and mask records. An `acc.json` and the copper case's four ODS/CSV files are two formats of it, each
+with its reader (`read_acc_spec_json`, `read_acc_spec_ods`;
+[ADR 0046](docs/adr/0046-an-accounting-structure-is-declared-by-a-spec.md)).
 _Avoid_: "case spec" (#26's typed `CaseSpec`, which references an acc by registry id), "root
 file" (one of the files a reader reads).
 
@@ -1302,6 +1313,24 @@ sidecar" (a built structure is not a run).
 
 **Acc ref** — `{id, version}` naming one acc input version, as a sidecar's `parents.inputs.acc`
 records it.
+
+**Toy case** — the synthetic **Case** of the fictional metal orium (`pysuto.cases.toy`, #59),
+declared in code: generated from a **ground truth** and observed through **synthetic feeds**.
+_Avoid_: "toy fixture" (the per-test structures built in `tests/`), "test case", "demo".
+
+**Ground truth** — the balanced per-edge values a synthetic case is generated from, in every
+valuation and year; every `Process` and `Flow` node closes. Never a property of a real case: a
+real case has a prior and a posterior, and no truth to score them against. _Avoid_: "true value"
+for a copper edge; "truth" for the prior or the posterior.
+
+**Synthetic feed** — a datafeed derived from a **ground truth**: reclassified into its own
+vocabulary, noisy at exactly its pedigree CV, with gaps and **planted defects**. It enters Stage 1
+like any feed. _Avoid_: "mock feed", "simulated data" (the feed is not simulated, the truth behind
+it is).
+
+**Planted defect** — a deliberate error a synthetic case writes into one of its **synthetic
+feeds**, beyond the pedigree noise, for the pipeline to find; the case's `reveal()` names it.
+_Avoid_: "bug", "outlier" (an outlier is found in data, a planted defect is put there).
 
 ## ROW pedigree-penalty vocabulary
 

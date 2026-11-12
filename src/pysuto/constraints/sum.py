@@ -13,6 +13,7 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
+from pysuto.acc import BALANCE_ENTITIES
 from pysuto.logging import get_logger
 from pysuto.param_relation import WILDCARD, ParamRelationResolver, expand_edge_index
 
@@ -95,7 +96,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                         remaining use after filtering are skipped.
         """
         if entity_filter is None:
-            entity_filter = {"Flow", "Process"}
+            entity_filter = BALANCE_ENTITIES
 
         ei       = acc_struct.edge_index
         ni       = acc_struct.node_index

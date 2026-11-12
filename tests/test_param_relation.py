@@ -349,7 +349,15 @@ class TestConcNominalLookup:
         p = _conc_csv(tmp_path, [
             ["concconcentratesupply", "concentration", "Concentrate", "*", "Mass", 0.275],
         ])
-        assert pr.conc_nominal_lookup(p) == {("Concentrate", "*"): 0.275}
+        assert pr.conc_nominal_lookup(p, gross="Mass") == {("Concentrate", "*"): 0.275}
+
+    def test_the_gross_label_is_the_callers(self, tmp_path):
+        """A case whose gross valuation is not called Mass reads its own rows (#119)."""
+        p = _conc_csv(tmp_path, [
+            ["a", "concentration", "Concentrate", "*", "Gross", 0.275],
+            ["b", "concentration", "Matte",       "*", "Mass",  0.6],
+        ])
+        assert pr.conc_nominal_lookup(p, gross="Gross") == {("Concentrate", "*"): 0.275}
 
     def test_use_rows_and_cc_rows_are_ignored(self, tmp_path):
         p = _conc_csv(tmp_path, [
@@ -357,7 +365,7 @@ class TestConcNominalLookup:
             ["concconcentrateuse", "concentration", "*", "*", "Mass", 0.275],
             ["notaconc", "efficiency", "Concentrate", "*", "Mass", 0.8],
         ])
-        assert pr.conc_nominal_lookup(p) == {("Concentrate", "*"): 0.275}
+        assert pr.conc_nominal_lookup(p, gross="Mass") == {("Concentrate", "*"): 0.275}
 
     def test_later_file_layers_over_earlier(self, tmp_path):
         a = _conc_csv(tmp_path, [
@@ -366,7 +374,7 @@ class TestConcNominalLookup:
         b = _conc_csv(tmp_path, [
             ["cgsupplychile2015", "concentration", "Concentrate", "Chile", "Mass", 0.32],
         ], "b.csv")
-        out = pr.conc_nominal_lookup(a, b)
+        out = pr.conc_nominal_lookup(a, b, gross="Mass")
         assert out == {("Concentrate", "*"): 0.275, ("Concentrate", "Chile"): 0.32}
         assert pr.conc_sectors(out) == {"Concentrate"}
 
@@ -378,7 +386,7 @@ class TestConcNominalLookup:
             ["b", "concentration", "Concentrate", "Peru", "Mass", 0.24],
             ["c", "concentration", "Concentrate", "*", "Mass", 0.275],
         ])
-        out = pr.conc_nominal_lookup(p)
+        out = pr.conc_nominal_lookup(p, gross="Mass")
         assert len(out) == 3
         assert out[("Concentrate", "Chile")] == 0.32
         assert out[("Concentrate", "Peru")] == 0.24

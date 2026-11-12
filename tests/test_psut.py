@@ -37,6 +37,8 @@ import pytest
 
 PERIODS    = ["2020", "2021"]
 VALUATIONS = ["Mass", "CC"]
+# The toy's binding of its boundary labels (entity_sub) to roles (#119).
+ROLE_OF_SUB = {"Nature": "nature", "SEM": "secondary", "FD": "final_demand"}
 
 NODES = [
     # sector      entity     region  entity_sub
@@ -90,12 +92,15 @@ def _scale(t: str, val: str) -> float:
 
 def _make_toy_acc():
     """Minimal AccountingStructure for the PSUT — no file I/O, no rules."""
-    from pysuto.acc import AccountingStructure
+    from pysuto.acc import AccountingStructure, BoundaryRole, ValuationRoles
 
     acc = AccountingStructure.__new__(AccountingStructure)
     acc.logger     = logging.getLogger("test_psut_acc")
     acc.id         = "toy"
     acc.node_index = pd.DataFrame(NODES, columns=["sector", "entity", "region", "entity_sub"])
+    acc.boundary_roles = {s: BoundaryRole(ROLE_OF_SUB[sub])
+                          for s, e, _r, sub in NODES if e == "SB"}
+    acc.valuation_roles = ValuationRoles(content="CC", gross="Mass")
     acc.n_nodes    = len(NODES)
     acc.time_range = list(PERIODS)
     acc.valuation  = list(VALUATIONS)
@@ -197,14 +202,16 @@ def test_block_matches_the_edge_endpoints(psut):
 
 
 def test_edge_outside_the_taxonomy_raises(toy_acc):
-    """A Flow → SB·SEM edge matches no block rule: an error, not a silent drop."""
+    """A Flow → SB·secondary edge matches no block rule: an error, not a silent drop."""
     from pysuto.psut import PSUT
     extra = pd.DataFrame([{"edge_id": toy_acc.n_edges, "from_id": 4, "to_id": 5,
                            "time": "2020", "valuation": "CC"}])
     toy_acc.edge_index = pd.concat([toy_acc.edge_index, extra], ignore_index=True)
     toy_acc.n_edges += 1
     F = np.append(_full_vector(toy_acc)[:-1], 1.0)
-    with pytest.raises(ValueError, match=r"outside the PSUT block taxonomy.*'Flow'.*'SB', 'SEM'"):
+    with pytest.raises(ValueError,
+                       match=r"outside the PSUT block taxonomy.*'Flow'.*'SB', "
+                             r"'secondary'"):
         PSUT.from_results(_legacy_results(toy_acc, F), toy_acc)
 
 
@@ -418,6 +425,36 @@ def test_registry_round_trip(tmp_path, psut):
         reg.load("psut_nonexistent")
 
 
+def _register_without_roles(tmp_path, psut, nodes=None) -> tuple:
+    """A PSUT run as Stage 6 persisted it before #119: nodes.parquet has no role."""
+    from pysuto.registry import PsutRunRegistry
+    reg = PsutRunRegistry(str(tmp_path / "psut"))
+    run_id = reg.register(psut, parents={"inputs": {"acc": {"id": "toy"}},
+                                         "upstream": {}})
+    path = tmp_path / "psut" / run_id / "nodes.parquet"
+    nodes = psut.nodes if nodes is None else nodes
+    nodes.drop(columns="role").to_parquet(path, index=False)
+    return reg, run_id
+
+
+def test_a_run_persisted_before_roles_binds_copper_labels_on_load(tmp_path, psut, caplog):
+    """The runs the REPs cite keep loading: Nature/SEM/FD bound as copper binds them."""
+    reg, run_id = _register_without_roles(tmp_path, psut)
+    with caplog.at_level(logging.WARNING):
+        loaded = reg.load(run_id)
+    assert "predates roles" in caplog.text
+    pd.testing.assert_frame_equal(loaded.nodes, psut.nodes)
+    pd.testing.assert_frame_equal(loaded.Y("2020"), psut.Y("2020"))
+
+
+def test_a_run_persisted_before_roles_with_another_label_raises(tmp_path, psut):
+    nodes = psut.nodes.copy()
+    nodes.loc[nodes["sector"] == "Slag", "entity_sub"] = "Residue"
+    reg, run_id = _register_without_roles(tmp_path, psut, nodes)
+    with pytest.raises(ValueError, match=r"SB label\(s\) \['Residue'\]"):
+        reg.load(run_id)
+
+
 def test_registry_loads_a_slice1_sidecar(tmp_path, psut):
     """Runs persisted by Slice 1 recorded one ``valuation``; they still load."""
     from pysuto.registry import PsutRunRegistry
@@ -434,6 +471,14 @@ def test_registry_loads_a_slice1_sidecar(tmp_path, psut):
 # ---------------------------------------------------------------------------
 # 7) from_opt_run: provenance chain opt → const → acc
 # ---------------------------------------------------------------------------
+
+def _toy_acc_inputs(root):
+    """acc input toy v1 → v2, two specs with different regions (another edge universe),
+    so a structure built from one is refused for a run on the other (#53, #119)."""
+    from test_acc_roles import COPPER_LABELS, acc_input_versions
+    return acc_input_versions(root, "toy", [dict(COPPER_LABELS, regions=["A"]),
+                                            dict(COPPER_LABELS, regions=["A", "B"])])
+
 
 def _persist_opt_chain(tmp_path, toy_acc, F, acc_ref=None):
     """A registered OptimRun whose const sidecar names ``acc_ref`` (default toy v1)."""
@@ -557,9 +602,10 @@ def test_from_opt_run_refuses_an_acc_built_from_another_version(tmp_path, toy_ac
     (acc_dir / "toy").mkdir(parents=True)
     (acc_dir / "toy" / "build_record.json").write_text(
         json.dumps({"id": "toy", "version": 2, "code": "n3wn3w00"}))
-    with pytest.raises(ValueError, match=r"toy v2.*toy v1"):
+    _toy_acc_inputs(tmp_path / "input")
+    with pytest.raises(ValueError, match=r"toy v2.*toy v1; they differ in \['regions'\]"):
         PSUT.from_opt_run(opt_id, opt_dir=opt_dir, const_dir=const_dir,
-                          acc_dir=str(acc_dir))
+                          acc_dir=str(acc_dir), input_dir=str(tmp_path / "input"))
 
 
 def test_from_opt_run_refuses_a_const_run_naming_no_acc_version(tmp_path, toy_acc, F,

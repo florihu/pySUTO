@@ -25,6 +25,8 @@ BACI_ID = 'baci'
 NETTING_LEDGER = 'reexport_ledger.csv'
 ANODE = 'Anode'
 ROW_BUCKET = 'ROW'
+# The copper acc's gross-mass valuation: the conc rows' a_valuation (#119)
+GROSS_VALUATION = 'Mass'
 # Hand-authored: which root region an ICSG aggregate row contains, and in which
 # years; the year after is the handover year that publishes both (#67, #73, #74).
 AGGREGATES_CSV = 'data/input/params/icsg_aggregates/current/params.csv'
@@ -384,7 +386,8 @@ def read_net_anode_imports(baci_version, root_of_label, root=INPUT_ROOT):
     net = net_anode_imports(pd.read_csv(src / 'values.csv'),
                             dict(zip(smap['src_sector'].astype(int), smap['root_sector'])),
                             dict(zip(rmap['src_region'].astype(int), rmap['root_region'])),
-                            conc_nominal_lookup(reg.params.resolve('conc') / 'params.csv'),
+                            conc_nominal_lookup(reg.params.resolve('conc') / 'params.csv',
+                                                gross=GROSS_VALUATION),
                             root_of_label)
     parents = {'inputs': {'feed': {BACI_ID: reg.feed.entry(BACI_ID, baci_version)['version']},
                           'params': {'conc': reg.params.entry('conc')['version']}}}

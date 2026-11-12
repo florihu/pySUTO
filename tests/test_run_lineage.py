@@ -1,31 +1,32 @@
-"""test_run_lineage.py — Stage 2's lineage checks (#53 item 2).
+"""test_run_lineage.py — Stage 2's lineage checks (#53 item 2, #119 item 6).
 
 Stage 2 checks every feed run's acc against its own acc input entry, comparing the two
-versions' per-file hashes, and can replay an earlier imp run's input versions
-(``--pin-inputs-from``). Both checks live in :mod:`pysuto.input_registry`.
+versions' specs on the keys that define the edge universe (a role never counts), and can
+replay an earlier imp run's input versions (``--pin-inputs-from``). Both checks live in
+:mod:`pysuto.input_registry`.
 """
 from __future__ import annotations
 
+import json
 import logging
 from pathlib import Path
 
 import pytest
 
-from pysuto.input_registry import (ACC_MASKS, InputRegistries, InputRegistry,
-                                   check_feed_accs, input_pins)
+from pysuto.acc import check_feed_accs, read_acc_spec_dir
+from pysuto.input_registry import InputRegistries, InputRegistry, input_pins
+
+from test_acc_roles import (BOUNDS_ONLY, COPPER_LABELS, MASKS_ONLY, ROLE_ONLY, SECTORS,
+                            acc_input_versions)
+from test_acc_spec import _write_ods_case
+
+_NO_MASKS = {k: v for k, v in COPPER_LABELS.items() if k != "masks"}
+_NEW_RULE = dict(COPPER_LABELS, supply=dict(COPPER_LABELS["supply"], Mining=["Ore"]))
 
 
 def _acc_registry(root: Path) -> InputRegistry:
-    """acc ``copper``: v1 → v2 adds masks.csv, v2 → v3 edits rules.ods."""
-    current = root / "acc" / "copper" / "current"
-    current.mkdir(parents=True)
-    for name, body in (("root.ods", b"r"), ("bounds.ods", b"b"), ("rules.ods", b"u")):
-        (current / name).write_bytes(body)
-    InputRegistry("acc", root=root).initialize()
-    (current / ACC_MASKS).write_text("mask_name,logic\n")
-    InputRegistry("acc", root=root).initialize()
-    (current / "rules.ods").write_bytes(b"u2")
-    return InputRegistry("acc", root=root).initialize()
+    """acc ``copper``: v1 → v2 adds the masks, v2 → v3 edits the supply table."""
+    return acc_input_versions(root, "copper", [_NO_MASKS, COPPER_LABELS, _NEW_RULE])
 
 
 def _feed(version: int) -> dict:
@@ -42,24 +43,52 @@ class TestFeedAccCheck:
                             reg.entry("copper", 2))
         assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
-    def test_a_feed_whose_acc_differs_only_in_masks_is_warned_about(self, tmp_path,
+    def test_a_feed_whose_acc_differs_only_in_masks_is_logged(self, tmp_path,
                                                                     caplog):
         """The final copper chain: imp_20261022_111102_1b49a2b3 (acc v4) aggregates
         feed_crude_ore_20260603_095651_558f7369 (acc v3); v3 → v4 is masks.csv only."""
         reg = _acc_registry(tmp_path / "input")
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.INFO):
             check_feed_accs({"feed_crude_ore_x": _feed(1)}, reg, reg.entry("copper", 2))
-        assert "feed_crude_ore_x" in caplog.text and "masks.csv" in caplog.text
+        assert "feed_crude_ore_x" in caplog.text and "differ in ['masks']" in caplog.text
 
-    def test_a_feed_whose_acc_differs_in_another_file_raises(self, tmp_path):
+    def test_a_feed_whose_acc_differs_in_an_edge_universe_key_raises(self, tmp_path):
         reg = _acc_registry(tmp_path / "input")
-        with pytest.raises(ValueError, match=r"feed_icsg_x.*v3.*v2.*rules\.ods"):
+        with pytest.raises(ValueError, match=r"feed_icsg_x.*v3.*v2.*\['supply'\]"):
             check_feed_accs({"feed_icsg_x": _feed(3)}, reg, reg.entry("copper", 2))
 
-    def test_masks_and_another_file_raise_naming_only_the_structural_one(self, tmp_path):
+    def test_masks_and_another_key_raise_naming_only_the_structural_one(self, tmp_path):
         reg = _acc_registry(tmp_path / "input")
-        with pytest.raises(ValueError, match=r"differ in rules\.ods: rebuild"):
+        with pytest.raises(ValueError, match=r"differ in \['supply'\]: rebuild"):
             check_feed_accs({"feed_icsg_x": _feed(1)}, reg, reg.entry("copper", 3))
+
+    def test_role_masks_and_bounds_differences_pass_and_a_sector_difference_raises(
+            self, tmp_path):
+        """#119: a feed reads no role, bound or mask, so the final chain's feed runs
+        (acc v3/v4) stay valid against v5; a sector difference still raises."""
+        specs = [COPPER_LABELS, ROLE_ONLY, MASKS_ONLY, BOUNDS_ONLY, SECTORS]
+        reg = acc_input_versions(tmp_path / "input", "copper", specs)
+        for v in (2, 3, 4):
+            check_feed_accs({"feed_x": _feed(1)}, reg, reg.entry("copper", v))
+        with pytest.raises(ValueError, match=r"\['sectors'\]: rebuild the feed"):
+            check_feed_accs({"feed_x": _feed(1)}, reg, reg.entry("copper", 5))
+
+    def test_an_acc_that_moved_from_the_ods_files_to_acc_json_keeps_its_feeds(
+            self, tmp_path, caplog):
+        """Every file differs, the structure does not: per-file hashes refused this."""
+        root = tmp_path / "input"
+        current = root / "acc" / "copper" / "current"
+        _write_ods_case(current)
+        reg = InputRegistry("acc", root=root).initialize()
+        spec = read_acc_spec_dir(reg.resolve("copper", 1))
+        for name in ("root.ods", "rules.ods", "bounds.ods", "masks.csv"):
+            (current / name).unlink()
+        (current / "acc.json").write_text(json.dumps(spec))
+        reg = InputRegistry("acc", root=root).initialize()
+        assert reg.latest_version("copper") == 2
+        with caplog.at_level(logging.WARNING):
+            check_feed_accs({"feed_x": _feed(1)}, reg, reg.entry("copper", 2))
+        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
     def test_a_feed_on_another_acc_id_raises(self, tmp_path):
         reg = _acc_registry(tmp_path / "input")

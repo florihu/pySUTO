@@ -39,7 +39,7 @@ import numpy as np
 # make sure the package is importable when running from the project root
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from pysuto.acc import AccountingStructure, check_built_acc
+from pysuto.acc import ALL_SPEC_KEYS, AccountingStructure, check_built_acc
 from pysuto.case import CaseContext, CaseSpec
 from pysuto.cases.copper import CASE
 from pysuto.config import load_config
@@ -111,7 +111,8 @@ def main(imp_run_id: str, label: str, overrides: dict | None = None, *,
               acc_entry["id"], acc_entry["version"], acc_entry["code"])
 
     # ── A. Load inputs ────────────────────────────────────────────────────
-    check_built_acc(acc_dir, acc_entry)
+    # Stage 3 reads the built acc's bounds and masks too: every spec key but role.
+    check_built_acc(acc_dir, acc_entry, inputs.acc, ALL_SPEC_KEYS)
     _log.info("Loading AccountingStructure '%s' from %s", acc_id, acc_dir)
     acc = AccountingStructure.load(acc_id, storage_dir=acc_dir)
     _log.info("  nodes=%d  edges=%d  time=%s–%s",

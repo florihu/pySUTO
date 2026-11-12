@@ -37,13 +37,16 @@ K_CLOSE = 0.5
 MIN_INFLOW_KT = 1.0
 
 
-def flow_node_balance(acc, agg_result, valuation: str = "CC") -> pd.DataFrame:
+def flow_node_balance(acc, agg_result, valuation: str | None = None) -> pd.DataFrame:
     """Per (sector, region, time) Flow-node inflow vs outflow prior sums.
 
     Returns a frame with columns ``sector, region, time, inflow, outflow,
     ratio`` (``ratio = outflow/inflow``), one row per node with inflow > 0.
-    Uses ``f_agg`` — the Stage-2 prior — not the posterior.
+    Uses ``f_agg`` — the Stage-2 prior — not the posterior. ``valuation=None``
+    means the content valuation (``acc.valuation_roles.content``).
     """
+    if valuation is None:
+        valuation = acc.valuation_roles.content
     ei = expand_edge_index(acc.edge_index, acc.node_index)
     f = np.nan_to_num(np.asarray(agg_result.f_agg, dtype=float))
     ei = ei[ei["valuation"].eq(valuation)].copy()
@@ -68,7 +71,7 @@ def contradicted_flow_nodes(
     sectors: tuple[str, ...] = ("Matte",),
     k: float = K_CLOSE,
     min_inflow: float = MIN_INFLOW_KT,
-    valuation: str = "CC",
+    valuation: str | None = None,
 ) -> tuple[set, pd.DataFrame]:
     """Flow nodes whose outflow prior cannot honour their inflow prior.
 

@@ -121,7 +121,7 @@ THRESH = {
     "A1_max_resid":  1e-6,     # kt, every year
     "A2_edges":      0.05,     # share |z|>3, edges, every year (below)
     "A2_sums":       0.20,     # share |z|>3, scale totals, every year (above)
-    "A3_hub":        0.50,     # share of edge Σz² on legs into merchant hubs
+    "A3_hub":        0.50,     # share of edge Σz² on legs into non-processing regions
     "A4_step":       0.02,     # retention gap per step
     "A4_years":      25,       # of 30
     "A5_delta":      0.02,     # |Δ retention| per stage, tolerance pair
@@ -482,7 +482,7 @@ def build_ledger(A: dict, B: dict) -> pd.DataFrame:
         e_ok == 30 and s_ok == 30)
 
     add("A3", "the adjustment localises on transit trade",
-        "share of edge Σz² on cross-region legs into merchant hubs (no ICSG processing)",
+        "share of edge Σz² on cross-region legs into non-processing regions (no ICSG processing row)",
         f"≥ {T['A3_hub']:.2f}", f"{A['hub']['hub']:.3f} (all cross-region legs {A['hub']['cross_region']:.3f})",
         A["hub"]["hub"] >= T["A3_hub"])
 
@@ -607,7 +607,7 @@ def fig3(P, out: Path) -> Path:
     al.set_xlabel("edges (log)"); ar.set_xlabel("kt CC (log)")
     _style(al, grid_axis="x"); _style(ar, grid_axis="x")
     al.spines["left"].set_visible(False); al.spines["right"].set_visible(True)
-    _tag(al, "a", f"What fills the {year} prior, CC", y=1.03)
+    _tag(al, "a", f"Prior provenance, {year}, CC", y=1.03)
 
     # (b) chain profile ------------------------------------------------------------
     ab = fig.add_subplot(g1[0, 1])
@@ -628,7 +628,7 @@ def fig3(P, out: Path) -> Path:
     ab.set_xlabel(f"kt CC, world {year}")
     ab.legend(frameon=False, fontsize=5.8, loc="upper left", bbox_to_anchor=(-0.42, -0.13), ncol=3)
     _style(ab, grid_axis="x")
-    _tag(ab, "b", "Where the feeds sit along the chain", y=1.03)
+    _tag(ab, "b", "World prior along the chain, by provenance", y=1.03)
 
     # (c) rows per family ------------------------------------------------------------
     ac = fig.add_subplot(g2[0, 0])
@@ -643,7 +643,7 @@ def fig3(P, out: Path) -> Path:
               [CONE_LABEL[c] for c in ("zero", "nonneg", "free")],
               frameon=False, fontsize=5.8, loc="upper left", bbox_to_anchor=(0.0, -0.2), ncol=2)
     _style(ac, grid_axis="x")
-    _tag(ac, "c", "What the QP constrains", y=1.04)
+    _tag(ac, "c", "Constraint rows by family and cone", y=1.04)
 
     # (d) prior breach and active set ---------------------------------------------------
     ad = fig.add_subplot(g2[0, 1], sharey=ac)
@@ -797,7 +797,7 @@ def fig4(A: dict, out: Path) -> Path:
     a2.set_ylabel("share of rows |z| > 3"); a2.set_ylim(0, 0.4); a2.set_xlabel("year")
     for ax in (a1, a2):
         _style(ax); _year_axis(ax)
-    _tag(a1, "a", "Compatibility with the stated uncertainty")
+    _tag(a1, "a", "Σz² and share of |z| > 3 by row family")
 
     # (b) localisation ---------------------------------------------------------
     gb = GridSpecFromSubplotSpec(1, 2, subplot_spec=outer[0, 1], wspace=0.9)
@@ -811,7 +811,7 @@ def fig4(A: dict, out: Path) -> Path:
         ax.set_title(FAMILY_LABEL[fam], fontsize=7, loc="left", color=INK2)
         _style(ax, grid_axis="x")
         if j == 0:
-            _tag(ax, "b", "Where the adjustment sits", y=1.09)
+            _tag(ax, "b", "Objective share by sector", y=1.09)
 
     # (c) retention by stage -----------------------------------------------------
     ax = fig.add_subplot(outer[1, 0])
@@ -823,7 +823,7 @@ def fig4(A: dict, out: Path) -> Path:
     ax.set_ylim(0.6, 1.15); ax.set_ylabel("retention Σa* / Σa_prior"); ax.set_xlabel("year")
     ax.legend(frameon=False, ncol=2, loc="lower left", fontsize=6)
     _style(ax); _year_axis(ax)
-    _tag(ax, "c", "How much copper moves, by stage")
+    _tag(ax, "c", "Retention by stage")
 
     # (d) rocket ---------------------------------------------------------------
     gd = GridSpecFromSubplotSpec(1, 2, subplot_spec=outer[1, 1], wspace=0.35)
@@ -906,7 +906,7 @@ def fig5(U: dict, S: dict, A: dict, cats: pd.DataFrame, out: Path) -> Path:
               frameon=False, loc="upper center", bbox_to_anchor=(0.5, -0.1), fontsize=6, ncol=1,
               handletextpad=0.4)
     _style(ax, grid_axis="x")
-    _tag(ax, "a", "What the constraints pin")
+    _tag(ax, "a", "Contraction by CC category")
 
     # (b) calibration of the shifts -------------------------------------------------
     ax = fig.add_subplot(top[1])
@@ -934,7 +934,7 @@ def fig5(U: dict, S: dict, A: dict, cats: pd.DataFrame, out: Path) -> Path:
     ax.legend(frameon=False, fontsize=5.6, loc="upper center", bbox_to_anchor=(0.5, -0.12), ncol=2,
               handlelength=1.4, columnspacing=1.0, handletextpad=0.4)
     _style(ax, grid_axis="both")
-    _tag(ax, "b", "Are the stated σ right?")
+    _tag(ax, "b", "Shifts against N(0, 1)")
 
     # (c) Birge ratio per year ---------------------------------------------------------
     ax = fig.add_subplot(top[2])
@@ -950,7 +950,7 @@ def fig5(U: dict, S: dict, A: dict, cats: pd.DataFrame, out: Path) -> Path:
     ax.set_xlim(YEARS[0] - 0.6, YEARS[-1] + 0.6); ax.set_xticks([1995, 2005, 2015, 2024])
     ax.legend(frameon=False, loc="upper left", fontsize=6, bbox_to_anchor=(0.0, 0.93))
     _style(ax)
-    _tag(ax, "c", "The misfit by year")
+    _tag(ax, "c", "Birge ratio by year")
 
     # (d) termination against the knobs, per stage ---------------------------------------
     ax = fig.add_subplot(bot[0])
@@ -981,7 +981,7 @@ def fig5(U: dict, S: dict, A: dict, cats: pd.DataFrame, out: Path) -> Path:
                        Patch(facecolor=PALETTE[2], alpha=0.12, label="±0.02 limit of A5 and A6")],
               frameon=False, loc="upper center", bbox_to_anchor=(0.5, -0.17), fontsize=5.8, ncol=1)
     _style(ax, grid_axis="x")
-    _tag(ax, "d", "Termination against the knobs")
+    _tag(ax, "d", "Termination and knob sweep")
 
     # (e) the influential knobs ------------------------------------------------------------
     ax = fig.add_subplot(bot[1])
@@ -1006,7 +1006,7 @@ def fig5(U: dict, S: dict, A: dict, cats: pd.DataFrame, out: Path) -> Path:
     cb.set_label("SRRC"); cb.outline.set_visible(False); cb.ax.tick_params(length=2, labelsize=6)
     ax.text(1.0, 1.01, "cell text: swing × 10³", transform=ax.transAxes, fontsize=5.8,
             color=INK2, ha="right", va="bottom")
-    _tag(ax, "e", "Which knob moves what")
+    _tag(ax, "e", "Knob SRRC and swing")
 
     path = out / "fig5_uncertainty.png"
     fig.savefig(path, dpi=300)
@@ -1053,7 +1053,7 @@ def fig6(B: dict, out: Path) -> Path:
     handles += [Line2D([0], [0], color=INK2, lw=0.8, ls=":")]; labels += ["prior (dotted)"]
     ax.legend(handles, labels, frameon=False, loc="upper left", fontsize=6)
     _style(ax); _year_axis(ax)
-    _tag(ax, "b", "Concentration along the chain")
+    _tag(ax, "b", "HHI of producer regions by step")
 
     # (c) partner shares ---------------------------------------------------------------
     gc = GridSpecFromSubplotSpec(1, 3, subplot_spec=outer[1, :], wspace=0.25)
@@ -1069,7 +1069,7 @@ def fig6(B: dict, out: Path) -> Path:
                      f"{tot.loc[1995]:,.0f} → {tot.loc[2024]:,.0f} kt CC", fontsize=7, loc="left", color=INK2)
         if j == 0:
             ax.set_ylabel("share of traded copper")
-            _tag(ax, "c", "Trade partners, posterior", y=1.16)
+            _tag(ax, "c", "Trade partner shares, posterior", y=1.16)
         ax.legend(frameon=False, fontsize=5.5, loc="upper center", ncol=3, bbox_to_anchor=(0.5, -0.26))
         _style(ax, grid_axis="y"); _year_axis(ax)
 
@@ -1091,7 +1091,7 @@ def fig6(B: dict, out: Path) -> Path:
     for s in ax.spines.values():
         s.set_visible(False)
     ax.tick_params(length=0)
-    _tag(ax, "d", f"Where the copper in final use was mined ({B['embodied_period']})")
+    _tag(ax, "d", f"Embodied extraction by region of final use, {B['embodied_period']}")
 
     path = out / "fig6_copper_system.png"
     fig.savefig(path, dpi=300)

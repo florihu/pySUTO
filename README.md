@@ -140,16 +140,28 @@ inputs       │ InputRegistries.initialize()   │ come with the upstream run i
 ² scripts/icsg_feed.py attaches no run handler.
 ³ scripts/acc.py writes build_record.json ({id, version, code} of the acc input version
   it built from) beside the built acc. The drivers of Stages 2, 3, 4 and 6 check it
-  against their acc ref before they load the acc (#53): another version raises, and a
-  structure without the record warns (raises under Stage 2's --pin-inputs-from).
-  Stage 2 also checks each feed run's acc ref against its own: versions differing only
-  in masks.csv warn, any other file raises.
+  against their acc ref before they load the acc (#53), and Stage 2 checks each feed
+  run's acc ref against its own. Two versions are compared by their specs, read from
+  the registry's vN/ (#119), on the keys the consumer reads: a feed run on the
+  edge-universe keys (sectors, regions, valuations, times, supply, use, tradable,
+  accounting); Stages 4 (warm) and 6 against the built acc on those plus the roles;
+  Stages 2 and 3 against the built acc on every key (bounds, masks, roles). A version
+  that declares no roles (acc/copper v4 and older) is compared through the copper
+  binding; any other differing key is logged at info level, and the ODS-or-JSON format
+  does not count. A structure without the record warns (raises under --pin-inputs-from).
 
 modules:  Registry=registry/ (BaseOutputRegistry · _sidecar · make_run_id)
           Logging=logging.py   Config=config.py + input_registry.py
 
 LAYERED MODULE STACK   (imports flow downward only — never upward)
 
+┌────────────────────────────────────────────────────────────────┐
+│  cases (top, beside the stage drivers)  ·  cases/toy — a case  │
+│  declared in code: acc spec, synthetic feeds, params, the six  │
+│  stages wired into a run tree; imported by nothing in pysuto   │
+└──────┬─────────────────────────────────────────────────────────┘
+       │
+       ▼  imports
 ┌────────────────────────────────────────────────────────────────┐
 │  domain  ·  acc → conc → unc (mixin) · masks · param_relation  │
 │          ·  flow_node_balance (St2–St3 prior check)            │
@@ -167,7 +179,8 @@ LAYERED MODULE STACK   (imports flow downward only — never upward)
        ▼  consumed by (never imports back up)
 ┌────────────────────────────────────────────────────────────────┐
 │  diagnostics (leaf)  ·  diag/  — emits PNGs and the Plotly     │
-│  Sankeys; never imported into the data layer                   │
+│  Sankeys; never imported into the data layer · diag/truth.py   │
+│  scores a synthetic case's estimates against its ground truth  │
 └────────────────────────────────────────────────────────────────┘
 
 cross-cutting (import nothing from the data layer):
@@ -313,11 +326,11 @@ For $p \geq 1$ the power-mean of normalized weights is at most 1, so the **diver
 
 ##### ROW pedigree penalty (optional, per feed)
 
-When a feed sets `Row_penalty: TRUE` in its metadata sidecar, every **ROW-touching** root edge (`region_from` or `region_to` $=$ `"ROW"`) is propagated as if its `geographical_correlation` score were the worst value (4). This is a per-edge multiplier $\mathrm{cv\_root\_scale}[j] = \mathrm{CV}_\mathrm{tot}(\text{geo}{=}4)/\mathrm{CV}_\mathrm{tot}(\text{geo}{=}\text{baseline})$ applied to $\mathrm{CV}_\mathrm{root}[j]$, which is exactly equivalent to re-propagating those rows at `geographical_correlation = 4` (deterministic region mapping means a ROW root edge only receives fan-in from ROW source rows). Penalised edges are recorded in a `row_penalized` provenance mask (persisted in `result.npz`) and summarised in the run's `metadata.json`. Stage 2 applies the same geographic penalty — quadrature-added — to *imputed* ROW edges in the FlatPrior fallback. See [ADR 0003](docs/adr/0003-row-geographic-pedigree-penalty.md).
+When a feed sets `Row_penalty: TRUE` in its metadata sidecar, every **ROW-touching** root edge (`region_from` or `region_to` $=$ the caller's `row_region`, copper `"ROW"`) is propagated as if its `geographical_correlation` score were the worst value (4). This is a per-edge multiplier $\mathrm{cv\_root\_scale}[j] = \mathrm{CV}_\mathrm{tot}(\text{geo}{=}4)/\mathrm{CV}_\mathrm{tot}(\text{geo}{=}\text{baseline})$ applied to $\mathrm{CV}_\mathrm{root}[j]$, which is exactly equivalent to re-propagating those rows at `geographical_correlation = 4` (deterministic region mapping means a ROW root edge only receives fan-in from ROW source rows). Penalised edges are recorded in a `row_penalized` provenance mask (persisted in `result.npz`) and summarised in the run's `metadata.json`. Stage 2 applies the same geographic penalty — quadrature-added — to *imputed* ROW edges in the FlatPrior fallback. See [ADR 0003](docs/adr/0003-row-geographic-pedigree-penalty.md).
 
 #### Classes
 
-- **`AccountingStructure`** ([acc.py](src/pysuto/acc.py)) — root node/edge index, supply–use topology, per-edge bounds, structural edge masks (`supply_edge_mask`, `use_edge_mask`, `sb_edge_mask`, `tradable_edge_mask`) consumed by `MassBalanceBuilder` / `FlatPriorImputer`.
+- **`AccountingStructure`** ([acc.py](src/pysuto/acc.py)) — root node/edge index, supply–use topology, per-edge bounds, structural edge masks (`supply_edge_mask`, `use_edge_mask`, `sb_edge_mask`, `tradable_edge_mask`) consumed by `MassBalanceBuilder` / `FlatPriorImputer`. It binds the case's labels to the framework's **roles** ([ADR 0034](docs/adr/0034-roles-are-the-frameworks-labels-are-the-cases.md)): every `SB` sector to a boundary role (`nature` / `secondary` / `final_demand`) and the two valuations to `content` / `gross`, declared by a `role` key in the acc spec (a `role` column on `root.ods`'s Sector_Entity and Valuation sheets). The library reads `acc.boundary_roles` (SB sector → `BoundaryRole`) and `acc.valuation_roles` (`.content` / `.gross`, the bound labels), never a label; `save`/`load` keep the roles and the rule tables, so a loaded structure carries the masks `__init__` built, `tradable` included.
 - **`ConcordanceTable` / `WeightMatrix`** ([conc.py](src/pysuto/conc.py)) — src→root edge mapping and the sparse CSR weight matrix.
 - **`DataFeed`** ([feed.py](src/pysuto/feed.py)) — ABC owning a `weight_matrix`, pedigree scores, `F_src`, and persistence hooks.
 - **`PedigreeScores` / `UncertaintyMixin` / `PropagationResult`** ([unc.py](src/pysuto/unc.py)) — pedigree→CV computation and Lp / power-mean error propagation through `W`.
@@ -866,12 +879,12 @@ See [`docs/rep/plans/stage5_uncprop_integration_plan.md`](docs/rep/plans/stage5_
 
 ### Stage 6 — PSUT/PIOT builder
 
-Downstream of the solver: **materialise** the solved edge vector `a*` (`OptimResult.F_opt`) as numeric **physical supply-use tables (PSUT)** — supply `S`, use `U`, final use `Y`, plus boundary blocks `E`/`O`/`P` — per period and per valuation (`CC`, `Mass`), reusing the existing supply/use masks and `entity_sub`. From each PSUT it builds the symmetric **physical input-output table (PIOT)** following PIOLab (Wieland et al. 2022) and Suh (2004) — by-products endogenised as negative inputs, then `A`, `Z`, `L = (I−A)⁻¹` over a full **MRIO** (region × flow) — and ships the classical analytics: footprints / embodied flows, embodied bilateral trade, ew-MFA headline indicators, and multipliers / SDA. v1 is point-estimate only (Stage-5 σ propagation deferred). Rationale and the deliberate *no pySUT / pymrio dependency* are recorded in [ADR 0007](docs/adr/0007-downstream-psut-piot-follows-piolab-suh-no-external-io-lib.md).
+Downstream of the solver: **materialise** the solved edge vector `a*` (`OptimResult.F_opt`) as numeric **physical supply-use tables (PSUT)** — supply `S`, use `U`, final use `Y`, plus boundary blocks `E`/`O`/`P` — per period and per valuation (`CC`, `Mass`), reusing the existing supply/use masks and the SB nodes' boundary roles. From each PSUT it builds the symmetric **physical input-output table (PIOT)** following PIOLab (Wieland et al. 2022) and Suh (2004) — by-products endogenised as negative inputs, then `A`, `Z`, `L = (I−A)⁻¹` over a full **MRIO** (region × flow) — and ships the classical analytics: footprints / embodied flows, embodied bilateral trade, ew-MFA headline indicators, and multipliers / SDA. v1 is point-estimate only (Stage-5 σ propagation deferred). Rationale and the deliberate *no pySUT / pymrio dependency* are recorded in [ADR 0007](docs/adr/0007-downstream-psut-piot-follows-piolab-suh-no-external-io-lib.md).
 
-**What exists — Slices 1–6 ([#18](https://github.com/florihu/pySUTO/issues/18), [#19](https://github.com/florihu/pySUTO/issues/19), [#24](https://github.com/florihu/pySUTO/issues/24), the supply-use Sankey of [ADR 0037 §1](docs/adr/0037-psut-piot-two-classes-piot-is-a-construct-family.md), [#25](https://github.com/florihu/pySUTO/issues/25), [#21](https://github.com/florihu/pySUTO/issues/21) and [#22](https://github.com/florihu/pySUTO/issues/22)).** [psut.py](src/pysuto/psut.py) ships the **tidy-canonical `PSUT`** ([ADR 0037](docs/adr/0037-psut-piot-two-classes-piot-is-a-construct-family.md)): one row per directed edge per (period, valuation), every row classified into its **block** — `S` Process→Flow, `U` Flow→Process, `Y` Flow→SB·FD, `E` SB·Nature→Process, `O` SB·SEM→Process, `P` Process→SB·SEM, and `W` Process→SB·Nature (empty in copper); an edge outside that taxonomy raises — with the block matrices as pivot *views* labelled from the accounting structure's node index, identical in every period. The table carries **every** valuation; `primary` (`CC`) is the one the views default to. The product-by-product construct (#20) is the one open member of the family; the decisions behind the order are in ADR 0037.
+**What exists — Slices 1–6 ([#18](https://github.com/florihu/pySUTO/issues/18), [#19](https://github.com/florihu/pySUTO/issues/19), [#24](https://github.com/florihu/pySUTO/issues/24), the supply-use Sankey of [ADR 0037 §1](docs/adr/0037-psut-piot-two-classes-piot-is-a-construct-family.md), [#25](https://github.com/florihu/pySUTO/issues/25), [#21](https://github.com/florihu/pySUTO/issues/21) and [#22](https://github.com/florihu/pySUTO/issues/22)).** [psut.py](src/pysuto/psut.py) ships the **tidy-canonical `PSUT`** ([ADR 0037](docs/adr/0037-psut-piot-two-classes-piot-is-a-construct-family.md)): one row per directed edge per (period, valuation), every row classified into its **block** by the SB node's boundary role — `S` Process→Flow, `U` Flow→Process, `Y` Flow→SB·final_demand, `E` SB·nature→Process, `O` SB·secondary→Process, `P` Process→SB·secondary, and `W` Process→SB·nature (empty in copper); an edge outside that taxonomy raises — with the block matrices as pivot *views* labelled from the accounting structure's node index (which carries each SB node's `role`), identical in every period. The table carries **every** valuation; `primary` (default the content valuation, copper `CC`) is the one the views default to. The product-by-product construct (#20) is the one open member of the family; the decisions behind the order are in ADR 0037.
 
-- **`PSUT.from_opt_run(opt_run_id, timesteps=None, primary="CC")`** — loads every timestep and every valuation of a persisted run, resolves the `AccountingStructure` through provenance (opt sidecar → `const_run_id` → const sidecar → `acc` id) and places the year-local `F_opt` on global edge ids via `cols_t`.
-- **`PSUT.from_results(results, acc, primary="CC")`** — in-memory handoff; `results` is the solver's `dict[timestep, OptimResult]`, typed by the `OptimResultsLike` protocol (`timestep`, `F_opt`, `cols_t`), so the PSUT never depends on `OptimResult` internals.
+- **`PSUT.from_opt_run(opt_run_id, timesteps=None, primary=None)`** — loads every timestep and every valuation of a persisted run, resolves the `AccountingStructure` through provenance (opt sidecar → `const_run_id` → const sidecar → `acc` id) and places the year-local `F_opt` on global edge ids via `cols_t`.
+- **`PSUT.from_results(results, acc, primary=None)`** — in-memory handoff; `results` is the solver's `dict[timestep, OptimResult]`, typed by the `OptimResultsLike` protocol (`timestep`, `F_opt`, `cols_t`), so the PSUT never depends on `OptimResult` internals.
 - **Views and selection** — `S`, `U`, `Y`, `E`, `O`, `P`, `W` (or `block(name)`), each taking `(period=None, valuation=None)` and defaulting to the latest period and the primary valuation; boundary levels are named by role (`nature`, `secondary`, `final_demand`); `realized_conc()` is the per-edge `CC/Mass` ratio joined on the edge template; `periods()`, `latest()`, `at(period)`. Time is a column of the table and is never aggregated.
 - **Aggregation** — `aggregate(region=<map|'World'>, sector=<map>, keep_crossings=False)` is a pushforward on the table: the maps apply to both facets, rows are summed over every key column (`period`, `valuation`, `block` and the entity kinds never merge; a sector map may only merge one entity kind), and `keep_crossings=True` stamps `region_crossed` before the relabel so the realized traded share survives a World collapse. Chainable; the steps are recorded in the sidecar.
 - **Supply-use Sankey** — `psut.sankey(period=None, valuation=None, **spec)` returns a Plotly figure: processes and commodities as nodes, the S/U rows as links, boundary blocks as their own nodes, border-crossing use / final-use flows as separate traded links; `min_val`, `split_traded`, `title`, `unit`, `layout` fill a `SankeySpec`; nodes are placed by longest-path depth so residual and input nodes sit beside their process. The plotting code lives in [diag/psut.py](src/pysuto/diag/psut.py) (`sankey_tables` is the pure-pandas half), imported lazily — the data class never imports Plotly at module level.
@@ -904,14 +917,14 @@ world.to_piot().sankey("2020").write_html("copper_process_network_2020.html")
 
 | File | Public API | Responsibility |
 |---|---|---|
-| [acc.py](src/pysuto/acc.py) | `AccountingStructure`, `RuleSet`, `read_acc_spec_ods`, `read_acc_spec_json`, `write_build_record`, `check_built_acc` | Built from an acc spec (`AccountingStructure.from_spec`); the ODS/CSV files and `acc.json` are its two formats, read by `read_acc_spec_ods` / `read_acc_spec_json`. Root node/edge index, supply–use topology, structural edge masks (`supply_edge_mask`, `use_edge_mask`, `sb_edge_mask`, `tradable_edge_mask`), per-edge bounds. The build record beside a built structure names the acc input version it came from; `check_built_acc` checks it against a run's acc ref (#53). |
+| [acc.py](src/pysuto/acc.py) | `AccountingStructure`, `RuleSet`, `BoundaryRole`, `ValuationRole`, `read_acc_spec_ods`, `read_acc_spec_json`, `read_acc_spec_dir`, `require_compatible_acc`, `check_feed_accs`, `write_build_record`, `check_built_acc` | Built from an acc spec (`AccountingStructure.from_spec`); the ODS/CSV files and `acc.json` are its two formats, read by `read_acc_spec_ods` / `read_acc_spec_json` (`read_acc_spec_dir` picks one). The roles a case binds its labels to: `acc.boundary_roles` (SB sector → `BoundaryRole`) and `acc.valuation_roles` (`.content`, `.gross`, the bound labels), which the library reads in place of labels (ADR 0034). Root node/edge index, supply–use topology, structural edge masks (`supply_edge_mask`, `use_edge_mask`, `sb_edge_mask`, `tradable_edge_mask`), per-edge bounds. The build record beside a built structure names the acc input version it came from; `check_built_acc` checks it against a run's acc ref, and `require_compatible_acc` compares two acc versions' specs on the keys a consumer depends on (#53, #119). |
 | [conc.py](src/pysuto/conc.py) | `ConcordanceTable`, `WeightMatrix` | src→root edge mapping; sparse CSR `W`. |
 | [feed.py](src/pysuto/feed.py) | `DataFeed` (ABC) | Owns `weight_matrix`, pedigree, `F_src`, persistence. |
 | [feedpipe.py](src/pysuto/feedpipe.py) | `run_feed_pipeline`, `step_A_read_metadata`/`_B_build_concordance`/`_C_build_weight_matrix`/`_D_apply_and_propagate`, `register_feed` | Stage 1 orchestration. |
 | [unc.py](src/pysuto/unc.py) | `PedigreeScores`, `UncertaintyMixin`, `PropagationResult` | Pedigree→CV (Laner et al.); Lp / power-mean propagation through `W`. |
 | [meta.py](src/pysuto/meta.py) | `DataFeedMetadata` | Parses the Excel sidecar. |
 | [registry/](src/pysuto/registry/) | `BaseOutputRegistry`, `DataFeedRegistry`, `ImputationRunRegistry`, `ConstraintRunRegistry`, `OptimRunRegistry`, `UncPropRunRegistry`, `PsutRunRegistry`, `SweepRunRegistry`, `_RegistryEntry`, `make_run_id`, `build_sidecar`, `stage_lock`, `LockHeld` | Harmonized output registries (Stages 1–6); shared run-id pattern + sidecar schema; the advisory stage lock on `data/proc` (#101). **Subpackage layout:** `base.py`, `feed.py`, `imputation.py`, `constraint.py`, `optim.py`, `uncprop.py`, `psut.py`, `sweep.py`, `lock.py`, `_sidecar.py`. |
-| [input_registry.py](src/pysuto/input_registry.py) | `InputRegistry`, `InputRegistries`, `pins_from_inputs`, `input_pins`, `check_feed_accs` | Per-kind versioned snapshot store for `feed`, `acc`, `params`, `mask` inputs; hardlink dedup; auto-bump on content-hash change; pins that replay a sidecar's input versions and Stage 2's check of its feeds' acc versions (#53). |
+| [input_registry.py](src/pysuto/input_registry.py) | `InputRegistry`, `InputRegistries`, `pins_from_inputs`, `input_pins` | Per-kind versioned snapshot store for `feed`, `acc`, `params`, `mask` inputs; hardlink dedup; auto-bump on content-hash change; pins that replay a sidecar's input versions (#53). Imports nothing from `acc`; the spec-comparing checks of acc versions live in `acc.py` (#119). |
 | [knobs.py](src/pysuto/knobs.py) | `parse_overrides`, `apply_overrides`, `add_knob_args`, `overrides_from_cli`, `write_run_id` | The driver knob protocol: `--set KNOB=VALUE` against a driver's `KNOBS`, and `--run-id-file` (#100). |
 | [case.py](src/pysuto/case.py) | `CaseSpec`, `Section`, `ImpSection`, `ConstSection`, `Cascade`, `CaseContext` | A case as a typed declaration (#120): its acc id and one frozen section per stage, whose UPPER_CASE fields are the stage's knobs and whose functions (`imputers`, `builders`, selectors) build over a `CaseContext`; `with_knobs` applies `--set`, `describe` serialises a section into a run's `stage_config["case"]`. |
 | [cases/](src/pysuto/cases/) | `copper.CASE`, `CopperImp`, `CopperConst`, `imputers`, `builders`, `nodata_anchor_exempt` | Case instances, at the top of the import direction. `copper.py` holds the copper Stage 2 and 3 model: every knob at its shipped value, the imputer cascade and the constraint builders; the Stage 2 and 3 drivers build from it. |
@@ -932,7 +945,8 @@ world.to_piot().sankey("2020").write_html("copper_process_network_2020.html")
 | [psut.py](src/pysuto/psut.py) | `PSUT`, `OptimResultsLike`, `classify_blocks`, `BLOCKS` | Stage-6 tidy-canonical PSUT: `from_opt_run` / `from_results`, block views `S`/`U`/`Y`/`E`/`O`/`P`/`W`, `realized_conc`, `aggregate` (region/sector pushforward with `region_crossed`), `sankey` (thin delegate to `diag.psut`), `to_piot`, period selection (`periods`, `latest`, `at`); every valuation in one table with a `primary`; persists to `data/proc/psut/` via `PsutRunRegistry`. |
 | [piot.py](src/pysuto/piot.py) | `PIOT`, `market_share_network`, `market_shares`, `CONSTRUCTS`, `LEVELS` | Stage-6 PIOT as a construct family: the market-share process network (`Z()`, `D()`, process-network `sankey()`), levels `A`/`L` (`x`, `y`, `A`, `L`), `intensity`, `footprint`, `embodied_trade`, `ew_mfa`, `multipliers`, `sda`; `suh_product` is a stub until #20. A derived view of a PSUT, never persisted. |
 | [_conditioning.py](src/pysuto/_conditioning.py) | `condition_prior`, `condition_sigma_c` | Shared σ_a / σ_c conditioning rules — guarantees uncprop sees the same effective prior the solver did. |
-| [diag/](src/pysuto/diag/) | `FeedDiagnostics`, `AggDiagnostic`, `ImpDiagnostic`, `ConstDiagnostic`, `SolverDiag`, `UncPropDiag`, `SweepDiag`, `sankey_figure`, `sankey_tables`, `SankeySpec`; `stats/`: `CoverageDiagnostic`, `StatsDiagnostic`, `ConstStatsDiagnostic`, `SolverStatsDiagnostic`, `UncPropStatsDiagnostic`, `SweepStatsDiagnostic` | Cross-stage diagnostic plot suites (figures), row-level stats tables (CSVs) and the Stage-6 supply-use Sankey (Plotly, lazy). **Subpackage layout:** `feed.py`, `agg.py`, `imp.py`, `const.py`, `solver.py`, `uncprop.py`, `sweep.py`, `psut.py`, `_plot.py`, `stats/{_core,coverage,val,const,solver,objective,uncprop,sweep}.py`. |
+| [diag/](src/pysuto/diag/) | `FeedDiagnostics`, `AggDiagnostic`, `ImpDiagnostic`, `ConstDiagnostic`, `SolverDiag`, `UncPropDiag`, `SweepDiag`, `sankey_figure`, `sankey_tables`, `SankeySpec`, `TruthDiag`; `stats/`: `CoverageDiagnostic`, `StatsDiagnostic`, `ConstStatsDiagnostic`, `SolverStatsDiagnostic`, `UncPropStatsDiagnostic`, `SweepStatsDiagnostic` | Cross-stage diagnostic plot suites (figures), row-level stats tables (CSVs), the Stage-6 supply-use Sankey (Plotly, lazy) and, for a synthetic case, every stage's estimate scored against its ground truth (`truth.py`: error by stage, calibration and coverage, residual rank). **Subpackage layout:** `feed.py`, `agg.py`, `imp.py`, `const.py`, `solver.py`, `uncprop.py`, `sweep.py`, `psut.py`, `truth.py`, `_plot.py`, `stats/{_core,coverage,val,const,solver,objective,uncprop,sweep}.py`. |
+| [cases/](src/pysuto/cases/) | `toy`: `ACC_SPEC`, `ACC_REF`, `build_acc`, `truth`, `make_feeds`, `SyntheticFeed`, `write_params`, `run_stage1` … `run_stage6`, `soft_residuals`, `scoreboard`, `reveal`, `check_<chapter>_<n>`, `solution` | Cases declared in code, at the top of the import stack beside the stage drivers. `toy.py` is the **toy case** (#59): a three-region orium case generated from a planted ground truth, its three synthetic feeds, its params CSVs, and the six stages wired into a caller-chosen run tree; the tutorial's exercise hooks (#60). It keeps copper's reserved labels (ADR 0034) and registers no hard bands (#27). |
 
 ---
 
@@ -1397,6 +1411,10 @@ pysuto/
 │                          tidy table · block views · realized_conc · aggregate     │
 ├── piot.py                PIOT · market_share_network · market_shares       │
 │                                                                            │
+├── cases/                 cases declared in code (top layer, like drivers)  │
+│   └── toy.py              the toy case: ACC_SPEC · truth · make_feeds ·    │
+│                           write_params · run_stage1..6 · scoreboard        │
+│                                                                            │
 └── diag/                  FeedDiagnostics · AggDiagnostic · ImpDiagnostic  ─┐
     ├── feed.py             ConstDiagnostic · SolverDiag                      │
     ├── agg.py                                                                │
@@ -1405,6 +1423,7 @@ pysuto/
     ├── solver.py                                                             │
     ├── uncprop.py          UncPropDiag (Stage 5)                             │
     ├── psut.py                                                               │
+    ├── truth.py            TruthDiag (a synthetic case against its truth)    │
     ├── _plot.py                                                              │
     └── stats/             CoverageDiagnostic · StatsDiagnostic               │
         ├── _core.py        ConstStatsDiagnostic · SolverStatsDiagnostic      │
@@ -1420,6 +1439,7 @@ pysuto/
 
 ```
 acc  →  conc  →  feed  →  feedpipe
+input_registry ←  acc, solver, psut        (imports nothing from acc; acc.py holds the version checks)
 unc  ───────────────────────────────  (mixin, no upward imports)
 meta  →  registry
 collector  →  agg  →  impute  →  constraints  →  solver  →  uncprop
@@ -1431,6 +1451,8 @@ pipeline       ←  registry, logging        (runs the drivers as subprocesses; 
 psut           ←  acc, registry            (Stage 6 — reads a persisted opt run)
 piot           ←  psut                     (Stage 6 — a derived view of a PSUT)
 diag           ──── consumer; never imported into the data layer
+cases          ──── top: imports the library (diag included) like a stage driver;
+                    nothing in pysuto imports it
 utils / logging  ←  imported by any layer, import nothing from pysuto
 ```
 
@@ -1447,6 +1469,7 @@ Each layer has a dedicated test file in `tests/`. There is no `conftest.py`: fix
 | [test_accounting_structure.py](tests/test_accounting_structure.py) | `AccountingStructure` index, masks, bounds |
 | [test_acc_spec.py](tests/test_acc_spec.py) | The acc spec: dict, `acc.json` and ODS routes build one structure; reader, `RuleSet.from_tables` and validation seams; `scripts/acc.py` reader choice |
 | [test_case.py](tests/test_case.py) | The `CaseSpec`: a section's knobs are its UPPER_CASE fields, `--set` replaces them through `pysuto.knobs`' checks, a section serialises with functions by qualified name; the library never imports `pysuto.cases` (#120) |
+| [test_acc_roles.py](tests/test_acc_roles.py) | Roles, not labels (#119): own-label save/load round-trip, role validation on build and load, the label-literal grep gate, acc compatibility by spec comparison, the copper `root.ods` role column |
 | [test_conc.py](tests/test_conc.py) | Concordance and `WeightMatrix` construction / sparse round-trip |
 | [test_unc.py](tests/test_unc.py) | Pedigree → CV formulas; CV-invariant Lp propagation invariants |
 | [test_feedpipe.py](tests/test_feedpipe.py) | Stage 1 pieces: step D propagation, `DataFeedMetadata` pedigree → CV, `DataFeedRegistry` round-trip, mass-conservation guard, edge-scope mask (`run_feed_pipeline` itself has no test) |
@@ -1464,6 +1487,7 @@ Each layer has a dedicated test file in `tests/`. There is no `conftest.py`: fix
 | [test_uncprop.py](tests/test_uncprop.py) | `KalmanUncProp` closed-form 2×2, PSD/monotonicity, Byron limit, CHOLMOD symbolic-factor reuse, registry round-trip, CI clipping, end-to-end `compute(opt_run_id)`, year-local trace contraction, the active set (#27) and an exact contraction where `S` is singular to working precision |
 | [test_uncprop_stats_diag.py](tests/test_uncprop_stats_diag.py) | `UncPropStatsDiagnostic` edge frame: κ, z, weight, κ–z quadrants, bound-active flag, prior classes, σ_a conditioning, legacy full-length arrays, trace contraction, contraction summary |
 | [test_uncprop_diag.py](tests/test_uncprop_diag.py) | `UncPropDiag` portfolio on a solved, propagated toy chain: live render, `from_uncprop_id` round trip, registry, `plot_ids`, `regions=` suffix, `timesteps=` validation, `summary()` |
+| [test_toy_case.py](tests/test_toy_case.py) | The toy case (#59), the first six-stage end-to-end test: all six stages into a temporary run tree in seconds, hard rows closed to 1e-10, the planted leg the top soft residual, Stage 5's 95 % coverage in a band fixed on the first run, PSUT node balances and Sankey totals; the truth balances, each synthetic feed is noisy at its pedigree CV, every registered imputer writes, the time imputer fills the Bureau's two gaps; `TruthDiag`; the tutorial's `check_*` hooks and `solution` |
 | [test_psut.py](tests/test_psut.py) | Stage 6 Slices 1–4: six-block decomposition (an unclassifiable edge raises), node-universe labels with role-named levels, per-node balance from the table alone, every valuation with a primary, `realized_conc`, year-local `cols_t` mapping, period selection, `PsutRunRegistry` round-trip incl. Slice-1 sidecars, `from_opt_run` provenance chain, CLI; region/sector aggregation (conservation, symmetry, idempotence, commutation, `region_crossed` at root resolution, entity-kind clash); supply-use Sankey tables reconcile with the table, headless Plotly figure, multi-region labels, `min_val`, CLI `--sankey` ([ADR 0037](docs/adr/0037-psut-piot-two-classes-piot-is-a-construct-family.md)) |
 | [test_piot.py](tests/test_piot.py) | Stage 6 Slices 5–6: identity edges for single producers, the market-share split between two producers, conservation of every producer's supply and of every block total, the traded split carried onto the network, level gating, the process-network Sankey agreeing with the supply-use one; Leontief identities `L·y = x` and `(I−A)·L = I`, footprints summing to total extraction, embodied trade with extraction rows and RMC columns, ew-MFA identities incl. the closed-world check, multipliers, a two-factor SDA |
 

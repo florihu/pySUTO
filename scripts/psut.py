@@ -77,6 +77,7 @@ def main(
         opt_dir   = os.path.join(proc, "opt"),
         const_dir = os.path.join(proc, "const"),
         acc_dir   = os.path.join(proc, "acc"),
+        input_dir = os.path.join(data_dir, "input"),
     )
 
     registry    = PsutRunRegistry(os.path.join(proc, "psut"))

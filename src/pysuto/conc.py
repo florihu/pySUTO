@@ -199,6 +199,7 @@ class ConcordanceTable(DataFeed):
                 valuation_map_df: pd.DataFrame,
                 var_map_df: pd.DataFrame,
                 aux_col: Optional[str] = None,
+                aux_sides: Optional[dict] = None,
                 allow_unmatched_edges: bool = True,
                 id: str = "ct_from_raw",
                 user_weights_df: Optional[pd.DataFrame] = None,
@@ -395,14 +396,19 @@ class ConcordanceTable(DataFeed):
 
             return merged, df_work_filtered
 
+        # aux_sides is the case's vocabulary of aux_col (#119): each value maps to the
+        # endpoint its rows classify, "from" (a supply row) or "to" (a use row).
         if aux_col:
+            if aux_sides is None:
+                raise ValueError(f"aux_col={aux_col!r} needs aux_sides: the {aux_col} "
+                                 f"values mapped to 'from' (supply) or 'to' (use)")
+            bad = sorted(set(aux_sides.values()) - {"from", "to"})
+            if bad:
+                raise ValueError(f"aux_sides maps to {bad}; a side is 'from' or 'to'")
             for val in df[aux_col].dropna().unique():
-                if str(val).lower() == "supply":
-                    m, w = process_side(df[df[aux_col] == val], "from")
-                elif str(val).lower() == "use":
-                    m, w = process_side(df[df[aux_col] == val], "to")
-                else:
+                if val not in aux_sides:
                     raise ValueError(f"Unknown {aux_col}: {val}")
+                m, w = process_side(df[df[aux_col] == val], aux_sides[val])
 
                 merged_parts.append(m)
                 work_parts.append(w)
