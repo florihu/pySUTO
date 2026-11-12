@@ -43,7 +43,8 @@ def chain(tmp_path_factory):
     ids["uncprop"] = toy.run_stage5(root, ids["opt"])
     ids["psut"]    = toy.run_stage6(root, ids["opt"])
     return {"root": root, "ids": ids, "seconds": time.perf_counter() - t0,
-            "acc": AccountingStructure.load(toy.ACC_ID, storage_dir=str(root / "acc"))}
+            "acc": AccountingStructure.load(toy.ACC_ID,
+                                            storage_dir=str(root / "proc" / "acc"))}
 
 
 def _edge_key(edge_meta: pd.DataFrame, edge_id: int) -> tuple:
@@ -113,7 +114,7 @@ def test_each_feed_is_noisy_at_its_pedigree_cv_over_its_covered_edges(chain):
     root, acc = chain["root"], chain["acc"]
     truth     = toy.truth_vector(toy.truth(), acc)
     planted   = toy._edge_id(acc, *(toy.reveal()[k] for k in PLANTED_KEY))
-    registry  = DataFeedRegistry(odir=str(root / "feed"))
+    registry  = DataFeedRegistry(odir=str(root / "proc" / "feed" / "registry"))
     registry.load_index()
     ratio = {}
     for feed_id in toy.FEED_IDS:
@@ -130,10 +131,10 @@ def test_each_feed_is_noisy_at_its_pedigree_cv_over_its_covered_edges(chain):
 
 def test_every_registered_imputer_writes_and_the_time_imputer_fills_the_two_gaps(chain):
     root, ids, acc = chain["root"], chain["ids"], chain["acc"]
-    imp      = ImputationRunRegistry(str(root / "imp"))
+    imp      = ImputationRunRegistry(str(root / "proc" / "imp"))
     log      = imp.load(ids["imp"]).imputation_log.as_dataframe()
     registered = {r["imputer_id"] for r in imp.load_sidecar(ids["imp"])["imputers"]}
-    assert registered == set(toy.CASCADE) | {"time_interp", "flat_prior"}
+    assert registered == set(toy.CASE.imp.CASCADE_ORDER) | {"time_interp", "flat_prior"}
     assert all((log["imputer_id"] == i).any() for i in registered), \
         log.groupby("imputer_id").size().to_dict()
 
@@ -191,10 +192,10 @@ def test_six_stages_run_into_a_run_tree_in_under_60_s(chain):
 
 def test_every_hard_row_closes_to_1e_10(chain):
     root, ids = chain["root"], chain["ids"]
-    const = ConstraintRunRegistry(str(root / "const")).load(ids["const"])
+    const = ConstraintRunRegistry(str(root / "proc" / "const")).load(ids["const"])
     hard  = const.row_meta["is_hard"].to_numpy().astype(bool)
     assert hard.sum() == 180 + 15                 # mass balances + stripping rows
-    for t, res in OptimRunRegistry(str(root / "opt")).load(ids["opt"]).items():
+    for t, res in OptimRunRegistry(str(root / "proc" / "opt")).load(ids["opt"]).items():
         assert res.solver_status == "Solved"
         assert np.abs(res.residuals[hard[res.rows_t]]).max() <= 1e-10, t
 
@@ -213,7 +214,7 @@ def test_stage5_coverage_of_the_420_edges_lies_in_its_recorded_band(chain):
     root, ids, acc = chain["root"], chain["ids"], chain["acc"]
     truth   = toy.truth_vector(toy.truth(), acc)
     covered = np.zeros(acc.n_edges, dtype=bool)
-    post    = UncPropRunRegistry(str(root / "uncprop")).load(ids["uncprop"])
+    post    = UncPropRunRegistry(str(root / "proc" / "uncprop")).load(ids["uncprop"])
     for ts in post.per_timestep.values():
         cols = np.asarray(ts.cols_t)
         covered[cols] = (ts.lower <= truth[cols]) & (truth[cols] <= ts.upper)
@@ -227,7 +228,7 @@ def test_stage5_coverage_of_the_420_edges_lies_in_its_recorded_band(chain):
 
 def test_the_psut_supply_and_use_blocks_balance_per_node(chain):
     root, ids, acc = chain["root"], chain["ids"], chain["acc"]
-    table = PsutRunRegistry(str(root / "psut")).load(ids["psut"]).table
+    table = PsutRunRegistry(str(root / "proc" / "psut")).load(ids["psut"]).table
     assert set(table["block"]) == {"S", "U", "Y", "E", "O", "P"}
     scoped = table[acc.masks["massbal_scope"][table["edge_id"].to_numpy()]]
     nodes  = _node_balance(scoped.rename(columns={"period": "time"}), "val")
@@ -239,7 +240,7 @@ def test_the_sankey_tables_sum_to_the_psut_totals(chain, caplog):
     """Per block, the PSUT's total is the Sankey's links plus the links it drops; in the
     planted year the dropped part (negative posteriors, a negative stock change) is not
     zero, and the Sankey says so."""
-    psut = PsutRunRegistry(str(chain["root"] / "psut")).load(chain["ids"]["psut"])
+    psut = PsutRunRegistry(str(chain["root"] / "proc" / "psut")).load(chain["ids"]["psut"])
     for period in psut.periods():
         for valuation in psut.valuations:
             with caplog.at_level("WARNING", logger="pysuto.diag.psut"):

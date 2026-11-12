@@ -38,10 +38,12 @@ class ConstStatsDiagnostic:
     constraint_run : ConstraintRun
         Supplies ``G``, ``a0``, ``row_meta`` and ``timestep_data``.
     years : sequence of str | "all"
-        The years the table is emitted for (default ``("1995",)``).
+        The years the table is emitted for (default: the run's first timestep).
     """
 
-    def __init__(self, constraint_run, years=("1995",)) -> None:
+    def __init__(self, constraint_run, years=None) -> None:
+        if years is None:
+            years = (next(iter(constraint_run.timestep_data)),)
         self._cr = constraint_run
         self.years = resolve_years(years, constraint_run.timestep_data)
         self._lhs_prior = None  # cached G·a0 (year-independent)

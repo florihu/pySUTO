@@ -37,8 +37,7 @@ deliberate error; :func:`reveal` names it.
 Stage 2 runs copper's cascade order, ``trade → network → conc``. The per-pair Milling
 recovery relation is closed by the network (``network_backward``, from the Bureau's
 concentrate output), so copper's ``eff`` ParametricImputer, which runs after the network,
-would write no edge here, as it writes none in copper: it is not registered (a note for
-#124's ``CaseSpec``).
+would write no edge here, as it writes none in copper: it is not registered.
 
 Limitations, stated once
 ------------------------
@@ -61,12 +60,16 @@ Limitations, stated once
 Public API
 ----------
 ``ACC_SPEC``, ``ACC_REF``, :func:`build_acc` — the accounting structure (the #57 acc
-spec) and the acc version every run names; ``GROSS``, ``CONTENT``, ``RAW``, ``SEC``,
+spec) and its default build record; ``GROSS``, ``CONTENT``, ``RAW``, ``SEC``,
 ``DEMAND``, ``UNITS`` — its labels.
 :func:`truth` — the ground truth; :func:`make_feeds` — the three synthetic feeds;
-:func:`write_params` — the ``conc``, ``eff`` and ``stripping_ratio`` CSVs.
-:func:`run_stage1` … :func:`run_stage6` — the six stages into ``run_root/{acc, params,
-feed, imp, const, opt, uncprop, psut}``, each returning its run id(s).
+:func:`write_params` — the ``conc``, ``eff`` and ``stripping_ratio`` CSVs;
+:func:`write_inputs` — the input registries of a run tree.
+``CASE`` — the toy as a :class:`pysuto.case.CaseSpec` (#124): the stage drivers run it
+with ``--case toy --data-dir <run_root>``.
+:func:`run_stage1` … :func:`run_stage6` — the six stages into the data dir ``run_root``
+(``input/{acc, params}``, ``proc/{acc, feed/registry, imp, const, opt, uncprop, psut}``),
+each returning its run id(s); Stages 2 and 3 are the generic ``pysuto.stages`` bodies.
 :func:`soft_residuals`, :func:`scoreboard` — the solver's soft residuals, and the
 estimates of every stage scored against the truth (:class:`pysuto.diag.truth.TruthDiag`).
 ``check_<chapter>_<n>`` and :func:`solution` — the tutorial's exercise hooks (#60).
@@ -87,10 +90,9 @@ import pandas as pd
 
 from pysuto._conditioning import condition_prior, condition_sigma_c
 from pysuto.acc import AccountingStructure, write_build_record
-from pysuto.collector import FeedCollector
+from pysuto.case import Cascade, CaseSpec, ConstSection, ImpSection
 from pysuto.conc import WeightMatrix
 from pysuto.constraints import (
-    ConstraintEngine,
     MassBalanceBuilder,
     RatioConstraintBuilder,
     SumConstraintBuilder,
@@ -105,12 +107,12 @@ from pysuto.feedpipe import (
 )
 from pysuto.impute import (
     FlatPriorImputer,
-    ImputationEngine,
     NetworkImputer,
     ParametricImputer,
     TimeImputer,
     TradeImputer,
 )
+from pysuto.input_registry import InputRegistries
 from pysuto.logging import get_logger
 from pysuto.meta import DataFeedMetadata
 from pysuto.psut import PSUT
@@ -123,6 +125,7 @@ from pysuto.registry import (
     UncPropRunRegistry,
 )
 from pysuto.solver import ClarabelSolver
+from pysuto.stages import run_const, run_imp
 from pysuto.uncprop import KalmanUncProp
 
 _log = get_logger("pysuto.cases.toy")
@@ -200,21 +203,21 @@ ACC_SPEC: dict = {
     ],
 }
 
-# The toy's acc has no input-registry entry; this ref stands in for one, so every run's
-# sidecar names an acc version and the built structure's build record (#53) is checked
-# against it as copper's is. ``code`` is a hash of ACC_SPEC.
+# The ref :func:`build_acc` records when it is given no input-registry entry (a run tree
+# built by :func:`run_stage1` records the registry's entry instead, #124). ``code`` is a
+# hash of ACC_SPEC.
 ACC_REF = {"id": ACC_ID, "version": 1,
            "code": hashlib.sha256(json.dumps(ACC_SPEC, sort_keys=True).encode()
                                   ).hexdigest()[:8]}
 
 
-def build_acc(storage_dir: PathLike) -> AccountingStructure:
+def build_acc(storage_dir: PathLike, ref: Optional[dict] = None) -> AccountingStructure:
     """Build the toy's accounting structure from ``ACC_SPEC`` and save it under
-    ``storage_dir/toy`` with its build record (``ACC_REF``). Returns the structure
-    (420 admissible edges)."""
+    ``storage_dir/toy`` with its build record (``ref``: an acc input entry, default
+    ``ACC_REF``). Returns the structure (420 admissible edges)."""
     acc = AccountingStructure.from_spec(ACC_SPEC, ACC_ID, storage_dir=str(storage_dir))
     acc.save()
-    write_build_record(str(storage_dir), ACC_REF)
+    write_build_record(str(storage_dir), ref or ACC_REF)
     return acc
 
 
@@ -619,7 +622,7 @@ def _a_b(a: tuple, b: tuple) -> dict:
 
 def write_params(params_dir: PathLike) -> "dict[str, Path]":
     """Write the toy's ``conc``, ``eff`` and ``stripping_ratio`` CSVs as
-    ``params_dir/<param_id>/params.csv`` in the project's params schema
+    ``params_dir/<param_id>/current/params.csv`` in the project's params schema
     (``data/input/params/params_template.csv``). Returns ``{param_id: path}``."""
     same_content = ("same",) * 7 + (CONTENT,)
     conc = []
@@ -657,7 +660,7 @@ def write_params(params_dir: PathLike) -> "dict[str, Path]":
 
     out = {}
     for pid, rows in (("conc", conc), ("eff", eff), ("stripping_ratio", strip)):
-        path = Path(params_dir) / pid / "params.csv"
+        path = Path(params_dir) / pid / "current" / "params.csv"
         path.parent.mkdir(parents=True, exist_ok=True)
         pd.DataFrame(rows, columns=_PARAM_COLUMNS).to_csv(path, index=False)
         out[pid] = path
@@ -667,41 +670,56 @@ def write_params(params_dir: PathLike) -> "dict[str, Path]":
 # =============================================================================
 # The six stages
 # =============================================================================
-# Knobs mirror the copper drivers' USER CONFIGURATION blocks unless a comment says why
-# the toy departs from them (#124 turns them into CaseSpec fields).
+# The case (#124): Stages 2 and 3 are the generic ``pysuto.stages`` bodies over ``CASE``;
+# the knobs mirror the copper case's unless a comment says why the toy departs from them.
 
-P_PROP          = 1.3       # Lp exponent, every stage
-Q_REG           = 3.0       # NetworkImputer / ParametricImputer backward-branch knee
-ALPHA_MIN_REG   = 0.05      # inverse-multiplier sensitivity floor
-FLAT_SIGMA_HIGH = 1.0e6     # noisy-zero flat prior σ; the waste-rock fill's σ (ADR 0038)
-# Copper's cascade order without its eff ParametricImputer, which writes no edge after
-# the network (see the module docstring).
-CASCADE         = ("trade", "network", "conc")
-STOCK_SECTORS   = ("Stock",)    # never written by the network's balance (ADR 0040)
-# scripts/collect_aggregate_impute.py: CASCADE_MAX_ITER, TIME_WINDOW, TIME_MIN_OBS,
-# TIME_GAP_INFLATION, TIME_METHOD and TIME_INTERPOLATE_ONLY by name; NETWORK_CV_CAP is
-# the cv_cap=1.5 literal of its NetworkImputer call.
-CASCADE_MAX_ITER      = 10
-TIME_WINDOW           = 3
-TIME_MIN_OBS          = 2
-TIME_GAP_INFLATION    = 1.05
-TIME_METHOD           = "linear"
-TIME_INTERPOLATE_ONLY = True
-NETWORK_CV_CAP        = 1.5
-SIGMA_A_CV_MIN    = 0.001
-SIGMA_A_ABS_FLOOR = 1.0e-6
-SIGMA_C_CV_MIN    = 0.01
-SIGMA_C_ABS_FLOOR = 1.0e-3
-NODATA_ANCHOR_CV  = 0.05
-# Copper spares its extraction chain from the no-data anchor where a grade row sets its
-# magnitude (ADR 0013 am. 3). The toy's only no-data edges are Portua's mine-less chain
-# and the concentrate legs no feed reports, none of which a relation sets: none is spared.
-NODATA_ANCHOR_EXCLUDE = ()
-SUM_SIGMA_FRACTION    = 0.05
-# Ratio rows' flow-space scale floor. Copper's 100 kt would swamp the toy, whose content
-# edges are 0.1–10 kt Content; the builder's default 1 kt is used.
-RATIO_SIGMA_REL_FLOOR = 0.02
-RATIO_SCALE_ABS_FLOOR = 1.0
+@dataclass(frozen=True)
+class ToyImp(ImpSection):
+    """The toy's Stage 2 section: copper's knob names at the toy's values."""
+
+    P_PROP:          float = 1.3       # Lp exponent, every stage
+    Q_REG:           float = 3.0       # Network/ParametricImputer backward-branch knee
+    ALPHA_MIN_REG:   float = 0.05      # inverse-multiplier sensitivity floor
+    FLAT_SIGMA_HIGH: float = 1.0e6     # noisy-zero flat prior σ; the waste-rock fill's σ
+                                       # (ADR 0038)
+    # Copper's cascade order without its eff ParametricImputer, which writes no edge
+    # after the network (see the module docstring).
+    CASCADE_ORDER:   tuple = ("trade", "network", "conc")
+    CASCADE_MAX_ITER:      int   = 10
+    TIME_WINDOW:           int   = 3
+    TIME_MIN_OBS:          int   = 2
+    TIME_GAP_INFLATION:    float = 1.05
+    TIME_METHOD:           str   = "linear"
+    TIME_INTERPOLATE_ONLY: bool  = True
+    NETWORK_CV_CAP:        float = 1.5     # the cv_cap=1.5 literal of copper's call
+    stock_sectors:         tuple = ("Stock",)   # never written by the network (ADR 0040)
+
+
+@dataclass(frozen=True)
+class ToyConst(ConstSection):
+    """The toy's Stage 3 section: copper's knob names at the toy's values."""
+
+    P_PROP:            float = 1.3
+    SIGMA_A_CV_MIN:    float = 0.001
+    SIGMA_A_ABS_FLOOR: float = 1.0e-6
+    SIGMA_C_CV_MIN:    float = 0.01
+    SIGMA_C_ABS_FLOOR: float = 1.0e-3
+    PRIOR_BOX_K:       Optional[float] = None
+    NODATA_ANCHOR_CV:  float = 0.05
+    # Copper spares its extraction chain from the no-data anchor where a grade row sets
+    # its magnitude (ADR 0013 am. 3). The toy's only no-data edges are Portua's mine-less
+    # chain and the concentrate legs no feed reports, none of which a relation sets: none
+    # is spared.
+    NODATA_ANCHOR_EXCLUDE: tuple = ()
+    PIN_FLAT_PRIOR_ZEROS:  bool  = False
+    DIAG_PLOT:             bool  = False
+    SUM_SIGMA_FRACTION:    float = 0.05
+    # Ratio rows' flow-space scale floor. Copper's 100 kt would swamp the toy, whose
+    # content edges are 0.1–10 kt Content; the builder's default 1 kt is used.
+    RATIO_SIGMA_REL_FLOOR: float = 0.02
+    RATIO_SCALE_ABS_FLOOR: float = 1.0
+
+
 # Solver: the ADR 0039 tolerances of scripts/run_solver.py, the cold prior.
 TOL_FEAS, TOL_GAP_REL, TOL_GAP_ABS = 1e-8, 1e-8, 1e-8
 REDUCED_TOL_FEAS, REDUCED_TOL_GAP_REL, REDUCED_TOL_GAP_ABS = 1e-6, 1e-4, 10.0
@@ -711,18 +729,118 @@ MAX_ITER     = 2000
 # gap tolerance #33 tuned never binds. Solving for the defects subtracts G·a_prior from
 # c first, and with one prior of ≈ 2·10⁴ kt among values of 1–10³ kt that costs digits:
 # on the seed-59 chain the largest hard-row residual is 9.1e-11 kt under "defects" and
-# 4.5e-13 kt under "flows", for the same a*.
+# 4.5e-13 kt under "flows", for the same a*. ``CASE.driver_knobs`` hands it to
+# ``scripts/run_solver.py --case toy``.
 QP_VARIABLES = "flows"
 ALPHA        = 0.05         # Stage 5: (1 − α) intervals
 BIND_TOL     = 1e-6
 RANK_TOL     = 1e-10
 LABEL        = "toy"        # every run's registry label; _latest selects by it
 
-_TREE = ("acc", "params", "feed", "imp", "const", "opt", "uncprop", "psut")
+
+def _params_csv(ctx, param_id: str) -> str:
+    """The path of the registered ``param_id`` CSV; the run records the entry."""
+    ctx.param_refs.append(ctx.inputs.params.entry(param_id))
+    return str(ctx.inputs.params.resolve(param_id) / "params.csv")
+
+
+def imputers(ctx) -> list:
+    """The toy's imputer cascade: the fixpoint :class:`Cascade` (``CASCADE_ORDER`` of
+    trade, network, conc), then the terminal ``TimeImputer`` and ``FlatPriorImputer``."""
+    spec, acc = ctx.case.imp, ctx.acc
+    conc  = _params_csv(ctx, "conc")
+    eff   = _params_csv(ctx, "eff")
+    strip = _params_csv(ctx, "stripping_ratio")
+    cascade = {
+        "trade":   TradeImputer(conc_csv=conc, p=spec.P_PROP, id="trade"),
+        "network": NetworkImputer(eff_csv=eff, conc_csv=conc, stripping_ratio_csv=strip,
+                                  stripping_sigma=spec.FLAT_SIGMA_HIGH, p=spec.P_PROP,
+                                  q=spec.Q_REG, alpha_min=spec.ALPHA_MIN_REG,
+                                  cv_cap=spec.NETWORK_CV_CAP, id="network",
+                                  stock_sectors=spec.stock_sectors),
+        "conc":    ParametricImputer.from_csv(conc, acc, p=spec.P_PROP, q=spec.Q_REG,
+                                              alpha_min=spec.ALPHA_MIN_REG, id="conc"),
+    }
+    return [
+        Cascade([cascade[k] for k in spec.CASCADE_ORDER], max_iter=spec.CASCADE_MAX_ITER),
+        TimeImputer(window=spec.TIME_WINDOW, method=spec.TIME_METHOD,
+                    min_obs=spec.TIME_MIN_OBS, gap_inflation=spec.TIME_GAP_INFLATION,
+                    interpolate_only=spec.TIME_INTERPOLATE_ONLY, p=spec.P_PROP,
+                    id="time_interp"),
+        FlatPriorImputer(acc_struct=acc, mode="noisy_zero", sigma_high=spec.FLAT_SIGMA_HIGH,
+                         p=spec.P_PROP, id="flat_prior"),
+    ]
+
+
+def imp_stage_config(ctx) -> dict:
+    """The toy knob values the imp sidecar records beside the generic keys."""
+    spec = ctx.case.imp
+    return {"q": spec.Q_REG, "alpha_min": spec.ALPHA_MIN_REG,
+            "cascade_order": list(spec.CASCADE_ORDER),
+            "cascade_max_iter": spec.CASCADE_MAX_ITER,
+            "network_cv_cap": spec.NETWORK_CV_CAP,
+            "flat_sigma_high": spec.FLAT_SIGMA_HIGH,
+            "stock_sectors": list(spec.stock_sectors),
+            "time": {"window": spec.TIME_WINDOW, "min_obs": spec.TIME_MIN_OBS,
+                     "gap_inflation": spec.TIME_GAP_INFLATION,
+                     "method": spec.TIME_METHOD,
+                     "interpolate_only": spec.TIME_INTERPOLATE_ONLY}}
+
+
+def builders(ctx) -> list:
+    """The toy's constraint builders: hard mass balances (``massbal_scope``), the
+    ``from_acc_struct`` soft sum rows, soft ``conc`` and ``eff`` ratio rows and the hard
+    stripping ratio; no ``RatioBoundBuilder``, no ``FlowBoundsBuilder`` (#27)."""
+    spec, acc = ctx.case.const, ctx.acc
+    # #59's soft sum rows: from_acc_struct writes one per Flow node, Σ supply − Σ use = 0
+    # at 5 % of the supply, which the hard balance already holds. Copper's self-anchored
+    # scale totals (from_mask_anchor at 1 %, ADR 0006) were tried on the seed-59 chain:
+    # they restate every prior at 1 %, an erroneous one too, so a Concentrate usetotout
+    # row became the top soft residual (z −58.6) and coverage fell 0.936 → 0.674.
+    out = [MassBalanceBuilder(mask="massbal_scope"),
+           SumConstraintBuilder.from_acc_struct(acc, sigma_fraction=spec.SUM_SIGMA_FRACTION)]
+    for pid, hard in (("conc", False), ("eff", False), ("stripping_ratio", True)):
+        out.append(RatioConstraintBuilder.from_csv(
+            _params_csv(ctx, pid), acc_struct=acc,
+            sigma_rel_floor=spec.RATIO_SIGMA_REL_FLOOR,
+            scale_abs_floor=spec.RATIO_SCALE_ABS_FLOOR, hard=hard))
+    return out
+
+
+def const_stage_config(ctx) -> dict:
+    """The toy knob values the const sidecar records beside the generic keys."""
+    spec = ctx.case.const
+    return {"sigma_a_cv_min": spec.SIGMA_A_CV_MIN,
+            "sigma_a_abs_floor": spec.SIGMA_A_ABS_FLOOR,
+            "sigma_c_cv_min": spec.SIGMA_C_CV_MIN,
+            "sigma_c_abs_floor": spec.SIGMA_C_ABS_FLOOR,
+            "nodata_anchor_cv": spec.NODATA_ANCHOR_CV,
+            "nodata_anchor_exclude": list(spec.NODATA_ANCHOR_EXCLUDE),
+            "sum_sigma_fraction": spec.SUM_SIGMA_FRACTION,
+            "ratio_sigma_rel_floor": spec.RATIO_SIGMA_REL_FLOOR,
+            "ratio_scale_abs_floor": spec.RATIO_SCALE_ABS_FLOOR,
+            "massbal_mask": "massbal_scope", "stripping_ratio_hard": True,
+            "hard_bands": False}
+
+
+CASE = CaseSpec(
+    id     = "toy",
+    acc_id = ACC_ID,
+    imp    = ToyImp(imputers=imputers, stage_config=imp_stage_config),
+    const  = ToyConst(builders=builders, stage_config=const_stage_config),
+    driver_knobs = {"opt": {"QP_VARIABLES": QP_VARIABLES}},
+)
+
+# The run tree is a data dir (``proc/`` and ``input/``): the stage drivers run on it with
+# ``--case toy --data-dir <run_root>``.
+_PROC = ("acc", "imp", "const", "opt", "uncprop", "psut")
 
 
 def _tree(run_root: PathLike) -> "dict[str, Path]":
-    tree = {k: Path(run_root) / k for k in _TREE}
+    root = Path(run_root)
+    tree = {k: root / "proc" / k for k in _PROC}
+    tree["feed"]  = root / "proc" / "feed" / "registry"
+    tree["input"] = root / "input"
     for path in tree.values():
         path.mkdir(parents=True, exist_ok=True)
     return tree
@@ -749,6 +867,18 @@ def _upstream(sidecar: dict, key: str) -> str:
     return value
 
 
+def write_inputs(run_root: PathLike) -> InputRegistries:
+    """Lay the toy's inputs out as a data dir's input registries under
+    ``run_root/input``: the acc spec as ``acc/toy/current/acc.json`` (ADR 0046) and the
+    :func:`write_params` CSVs. Returns the registries, scanned (v1 on a fresh tree)."""
+    input_root = _tree(run_root)["input"]
+    acc_dir = input_root / "acc" / ACC_ID / "current"
+    acc_dir.mkdir(parents=True, exist_ok=True)
+    (acc_dir / "acc.json").write_text(json.dumps(ACC_SPEC, indent=2), encoding="utf-8")
+    write_params(input_root / "params")
+    return InputRegistries.initialize(root=str(input_root))
+
+
 def _feed_steps(feed: SyntheticFeed, acc: AccountingStructure) -> tuple:
     """Stage 1's steps B–D for one synthetic feed: concordance, weight matrix, the
     source vector and the propagated root values. Returns ``(ct, wm, F_src, result,
@@ -765,34 +895,35 @@ def _feed_steps(feed: SyntheticFeed, acc: AccountingStructure) -> tuple:
     wm    = step_C_build_weight_matrix(ct)
     F_src = build_F_src(feed.raw, ct, label=feed.feed_id)
     result, row_summary = propagate_with_row_penalty(wm, F_src, feed.metadata, acc,
-                                                     p=P_PROP)
+                                                     p=CASE.imp.P_PROP)
     return ct, wm, F_src, result, row_summary
 
 
 def run_stage1(run_root: PathLike, seed: int = SEED) -> "dict[str, str]":
-    """Stage 1: build the accounting structure, then register the three synthetic feeds,
-    each run's sidecar recording ``seed``.
+    """Stage 1: lay out the inputs (:func:`write_inputs`), build the accounting
+    structure from the registered acc, then register the three synthetic feeds, each
+    run's sidecar recording ``seed``.
 
     Returns
     -------
     dict
         ``{feed_id: feed_run_id}`` for ``survey``, ``bureau`` and ``customs``.
     """
-    tree     = _tree(run_root)
-    acc      = build_acc(tree["acc"])
-    registry = DataFeedRegistry(odir=str(tree["feed"]))
+    tree      = _tree(run_root)
+    acc_entry = write_inputs(run_root).acc.entry(ACC_ID)
+    acc       = build_acc(tree["acc"], acc_entry)
+    registry  = DataFeedRegistry(odir=str(tree["feed"]))
     registry.load_index()
     run_ids  = {}
     for feed_id, feed in make_feeds(truth(seed), seed).items():
         _, wm, F_src, result, row_summary = _feed_steps(feed, acc)
-        wm.odir = str(tree["feed"])         # WeightMatrix.save creates its odir
         entry = register_feed(
             wm, feed.metadata, result, registry,
-            parents       = {"inputs":   {"acc": dict(ACC_REF), "feed": {"id": feed_id}},
+            parents       = {"inputs":   {"acc": dict(acc_entry), "feed": {"id": feed_id}},
                              "upstream": {}},
             F_src         = F_src,
             label         = feed_id,
-            stage_config  = {"p": P_PROP, "seed": seed},
+            stage_config  = {"p": CASE.imp.P_PROP, "seed": seed},
             stage_summary = row_summary,
         )
         run_ids[feed_id] = entry.run_id
@@ -802,125 +933,23 @@ def run_stage1(run_root: PathLike, seed: int = SEED) -> "dict[str, str]":
 
 
 def run_stage2(run_root: PathLike, feed_run_ids: Optional[dict] = None) -> str:
-    """Stage 2: collect and aggregate the feeds, then impute every edge.
+    """Stage 2: collect and aggregate the feeds, then impute every edge —
+    :func:`pysuto.stages.run_imp` over ``CASE``.
 
     Cascade (to a fixpoint) ``trade → network → conc``, then the terminal
-    ``TimeImputer`` and ``FlatPriorImputer``; see ``CASCADE``. ``feed_run_ids`` pins the
-    feed runs (default: the latest run of each feed). Returns the imp run id.
+    ``TimeImputer`` and ``FlatPriorImputer``; see ``ToyImp.CASCADE_ORDER``.
+    ``feed_run_ids`` pins the feed runs (default: the latest run of each feed). Returns
+    the imp run id.
     """
-    tree     = _tree(run_root)
-    acc      = _load_acc(tree)
-    params   = write_params(tree["params"])
-    registry = DataFeedRegistry(odir=str(tree["feed"]))
-    registry.load_index()
-    keys      = list(feed_run_ids.values()) if feed_run_ids else list(FEED_IDS)
-    collector = FeedCollector(registry=registry, acc_struct=acc)
-    agg       = collector.select(keys).aggregate(p=P_PROP)
-
-    conc, eff = str(params["conc"]), str(params["eff"])
-    cascade = {
-        "trade":   TradeImputer(conc_csv=conc, p=P_PROP, id="trade"),
-        "network": NetworkImputer(eff_csv=eff, conc_csv=conc,
-                                  stripping_ratio_csv=str(params["stripping_ratio"]),
-                                  stripping_sigma=FLAT_SIGMA_HIGH, p=P_PROP, q=Q_REG,
-                                  alpha_min=ALPHA_MIN_REG, cv_cap=NETWORK_CV_CAP,
-                                  id="network", stock_sectors=STOCK_SECTORS),
-        "conc":    ParametricImputer.from_csv(conc, acc, p=P_PROP, q=Q_REG,
-                                              alpha_min=ALPHA_MIN_REG, id="conc"),
-    }
-    engine = ImputationEngine(acc_struct=acc)
-    engine.register_cascade([cascade[k] for k in CASCADE], max_iter=CASCADE_MAX_ITER)
-    engine.register(TimeImputer(window=TIME_WINDOW, method=TIME_METHOD,
-                                min_obs=TIME_MIN_OBS, gap_inflation=TIME_GAP_INFLATION,
-                                interpolate_only=TIME_INTERPOLATE_ONLY, p=P_PROP,
-                                id="time_interp"))
-    engine.register(FlatPriorImputer(acc_struct=acc, mode="noisy_zero",
-                                     sigma_high=FLAT_SIGMA_HIGH, p=P_PROP,
-                                     id="flat_prior"))
-    agg = engine.run(agg)
-
-    run_id = ImputationRunRegistry(storage_dir=str(tree["imp"])).register(
-        agg,
-        label    = LABEL,
-        parents  = {"inputs":   {"acc": dict(ACC_REF),
-                                 "params": [{"id": k, "path": str(p)}
-                                            for k, p in params.items()]},
-                    "upstream": {"feed_run_ids": [s["feed_run_id"]
-                                                  for s in collector.selected]}},
-        imputers = engine.imputers,
-        stage_config = {"p": P_PROP, "q": Q_REG, "alpha_min": ALPHA_MIN_REG,
-                        "cascade_order": list(CASCADE),
-                        "cascade_max_iter": CASCADE_MAX_ITER,
-                        "network_cv_cap": NETWORK_CV_CAP,
-                        "flat_sigma_high": FLAT_SIGMA_HIGH,
-                        "stock_sectors": list(STOCK_SECTORS),
-                        "time": {"window": TIME_WINDOW, "min_obs": TIME_MIN_OBS,
-                                 "gap_inflation": TIME_GAP_INFLATION,
-                                 "method": TIME_METHOD,
-                                 "interpolate_only": TIME_INTERPOLATE_ONLY}},
-    )
-    _log.info("stage 2: %s (%d edges covered by a feed, %d imputation log entries)",
-              run_id, agg.n_covered, len(agg.imputation_log))
-    return run_id
+    keys = list(feed_run_ids.values()) if feed_run_ids else list(FEED_IDS)
+    return run_imp(CASE, keys, LABEL, data_dir=str(run_root), logger=_log)
 
 
 def run_stage3(run_root: PathLike, imp_run_id: Optional[str] = None) -> str:
-    """Stage 3: hard mass balances (``massbal_scope``), the ``from_acc_struct`` soft sum
-    rows, soft ``conc`` and ``eff`` ratio rows and the hard stripping ratio; no
-    ``RatioBoundBuilder``, no ``FlowBoundsBuilder`` (#27). Returns the const run id."""
-    tree       = _tree(run_root)
-    acc        = _load_acc(tree)
-    imp_reg    = ImputationRunRegistry(storage_dir=str(tree["imp"]))
-    imp_run_id = imp_run_id or _latest(imp_reg)
-    agg        = imp_reg.load(imp_run_id)
-    params     = write_params(tree["params"])
-
-    engine = ConstraintEngine(
-        acc_struct        = acc,
-        storage_dir       = str(tree["const"]),
-        p                 = P_PROP,
-        sigma_a_cv_min    = SIGMA_A_CV_MIN,
-        sigma_a_abs_floor = SIGMA_A_ABS_FLOOR,
-        sigma_c_cv_min    = SIGMA_C_CV_MIN,
-        sigma_c_abs_floor = SIGMA_C_ABS_FLOOR,
-        nodata_anchor_cv  = NODATA_ANCHOR_CV,
-        nodata_anchor_exclude_sectors = NODATA_ANCHOR_EXCLUDE,
-    )
-    engine.register(MassBalanceBuilder(mask="massbal_scope"))
-    # #59's soft sum rows: from_acc_struct writes one per Flow node, Σ supply − Σ use = 0
-    # at 5 % of the supply, which the hard balance already holds. Copper's self-anchored
-    # scale totals (from_mask_anchor at 1 %, ADR 0006) were tried on the seed-59 chain:
-    # they restate every prior at 1 %, an erroneous one too, so a Concentrate usetotout
-    # row became the top soft residual (z −58.6) and coverage fell 0.936 → 0.674.
-    engine.register(SumConstraintBuilder.from_acc_struct(
-        acc, sigma_fraction=SUM_SIGMA_FRACTION))
-    for pid, hard in (("conc", False), ("eff", False), ("stripping_ratio", True)):
-        engine.register(RatioConstraintBuilder.from_csv(
-            str(params[pid]), acc_struct=acc, sigma_rel_floor=RATIO_SIGMA_REL_FLOOR,
-            scale_abs_floor=RATIO_SCALE_ABS_FLOOR, hard=hard))
-    run = engine.run(
-        agg_result = agg,
-        timesteps  = list(YEARS),
-        label      = LABEL,
-        persist    = True,
-        parents    = {"inputs":   {"acc": dict(ACC_REF),
-                                   "params": [{"id": k, "path": str(p)}
-                                              for k, p in params.items()]},
-                      "upstream": {"imp_run_id": imp_run_id}},
-        stage_config = {"sigma_a_cv_min": SIGMA_A_CV_MIN,
-                        "sigma_a_abs_floor": SIGMA_A_ABS_FLOOR,
-                        "sigma_c_cv_min": SIGMA_C_CV_MIN,
-                        "sigma_c_abs_floor": SIGMA_C_ABS_FLOOR,
-                        "nodata_anchor_cv": NODATA_ANCHOR_CV,
-                        "nodata_anchor_exclude": list(NODATA_ANCHOR_EXCLUDE),
-                        "sum_sigma_fraction": SUM_SIGMA_FRACTION,
-                        "ratio_sigma_rel_floor": RATIO_SIGMA_REL_FLOOR,
-                        "ratio_scale_abs_floor": RATIO_SCALE_ABS_FLOOR,
-                        "massbal_mask": "massbal_scope", "stripping_ratio_hard": True,
-                        "hard_bands": False},
-    )
-    _log.info("stage 3: %s (G %d × %d)", run.run_id, *run.G.shape)
-    return run.run_id
+    """Stage 3: the toy's builders (:func:`builders`) over ``CASE`` —
+    :func:`pysuto.stages.run_const`. Returns the const run id."""
+    imp_run_id = imp_run_id or _latest(ImputationRunRegistry(str(_tree(run_root)["imp"])))
+    return run_const(CASE, imp_run_id, LABEL, data_dir=str(run_root), logger=_log)
 
 
 def run_stage4(run_root: PathLike, const_run_id: Optional[str] = None) -> str:
@@ -951,7 +980,7 @@ def run_stage4(run_root: PathLike, const_run_id: Optional[str] = None) -> str:
                       "reduced_tol_feas": REDUCED_TOL_FEAS,
                       "reduced_tol_gap_rel": REDUCED_TOL_GAP_REL,
                       "reduced_tol_gap_abs": REDUCED_TOL_GAP_ABS,
-                      "feasibility_check": "first"})
+                      "feasibility_check": "first", "case": CASE.ref()})
     _log.info("stage 4: %s (%s)", run_id,
               ", ".join(f"{t} {r.solver_status}" for t, r in results.items()))
     return run_id
@@ -966,7 +995,7 @@ def run_stage5(run_root: PathLike, opt_run_id: Optional[str] = None) -> str:
                          uncprop_dir=str(tree["uncprop"]), bind_tol=BIND_TOL,
                          rank_tol=RANK_TOL)
     result = prop.compute(opt_run_id, alpha=ALPHA)
-    run_id = prop.persist(result, opt_run_id, label=LABEL)
+    run_id = prop.persist(result, opt_run_id, label=LABEL, case=CASE.ref())
     _log.info("stage 5: %s", run_id)
     return run_id
 
@@ -986,6 +1015,7 @@ def run_stage6(run_root: PathLike, opt_run_id: Optional[str] = None,
         parents = {"inputs":   {"acc": psut.acc_ref},
                    "upstream": {"opt_run_id": opt_run_id,
                                 "const_run_id": psut.const_run_id}},
+        stage_config = {"primary": psut.primary, "case": CASE.ref()},
         label   = LABEL,
     )
     period = psut.latest()
@@ -1141,8 +1171,8 @@ def _close(given, expected, what: str, rtol: float = 1e-6, atol: float = 1e-9) -
 
 def _ref_1_1(run_root, region="Portua", year="2003") -> float:
     """CV of the Bureau's refined-output edge, by hand: two series pooled on one edge."""
-    acc   = AccountingStructure.load(ACC_ID, storage_dir=str(Path(run_root) / "acc"))
-    feeds = DataFeedRegistry(odir=str(Path(run_root) / "feed"))
+    acc   = AccountingStructure.load(ACC_ID, storage_dir=str(_tree(run_root)["acc"]))
+    feeds = DataFeedRegistry(odir=str(_tree(run_root)["feed"]))
     feeds.load_index()
     W     = feeds.load_feed("bureau", WeightMatrix, acc).weight_matrix
     F_src = np.load(Path(feeds.resolve("bureau").run_dir) / "F_src.npy")
@@ -1157,7 +1187,7 @@ def check_1_1(run_root: PathLike, cv: float, region: str = "Portua",
               year: str = "2003") -> str:
     """Exercise 1.1: the CV of the refined-output edge of ``region`` in ``year``."""
     acc   = _load_acc(_tree(run_root))
-    feeds = DataFeedRegistry(odir=str(Path(run_root) / "feed"))
+    feeds = DataFeedRegistry(odir=str(_tree(run_root)["feed"]))
     feeds.load_index()
     edge     = _edge_id(acc, "Smelting", region, "Metal", region, year, CONTENT)
     expected = float(feeds.load_result("bureau")["cv_root"][edge])
@@ -1167,8 +1197,8 @@ def check_1_1(run_root: PathLike, cv: float, region: str = "Portua",
 
 def _ref_2_1(run_root) -> set:
     """The region-years the time imputer filled, read off the imputation log."""
-    acc = AccountingStructure.load(ACC_ID, storage_dir=str(Path(run_root) / "acc"))
-    imp = ImputationRunRegistry(storage_dir=str(Path(run_root) / "imp"))
+    acc = AccountingStructure.load(ACC_ID, storage_dir=str(_tree(run_root)["acc"]))
+    imp = ImputationRunRegistry(storage_dir=str(_tree(run_root)["imp"]))
     log = imp.load(_latest(imp)).imputation_log.as_dataframe()
     filled = log.loc[log["imputer_id"] == "time_interp", "edge_id"].astype(int)
     em = acc.edge_meta.set_index("edge_id").loc[filled]
@@ -1187,7 +1217,7 @@ def check_2_1(run_root: PathLike, region_years) -> str:
 
 def _ref_3_1(run_root, year="2003") -> tuple:
     """Hard and soft rows of one year, counted from row_meta."""
-    const = ConstraintRunRegistry(str(Path(run_root) / "const"))
+    const = ConstraintRunRegistry(str(_tree(run_root)["const"]))
     rm    = const.load(_latest(const)).row_meta
     hard  = rm.loc[rm["time"].astype(str) == year, "is_hard"].astype(bool)
     return int(hard.sum()), int((~hard).sum())
@@ -1204,8 +1234,8 @@ def check_3_1(run_root: PathLike, n_hard: int, n_soft: int, year: str = "2003") 
 
 def _ref_4_1(run_root, constraint_id) -> float:
     """One soft row's z, recomputed: (G·a* − c) / σ_c in its own year."""
-    const_reg = ConstraintRunRegistry(str(Path(run_root) / "const"))
-    opt_reg   = OptimRunRegistry(str(Path(run_root) / "opt"))
+    const_reg = ConstraintRunRegistry(str(_tree(run_root)["const"]))
+    opt_reg   = OptimRunRegistry(str(_tree(run_root)["opt"]))
     const  = const_reg.load(_latest(const_reg))
     ids    = const.row_meta["constraint_id"].to_numpy()
     row    = int(np.flatnonzero(ids == constraint_id)[0])
@@ -1230,8 +1260,8 @@ def check_4_1(run_root: PathLike, constraint_id: str, z: float) -> str:
 
 def _ref_5_1(run_root) -> float:
     """The largest posterior-over-prior σ ratio of any edge (it never exceeds 1)."""
-    const = ConstraintRunRegistry(str(Path(run_root) / "const"))
-    post  = UncPropRunRegistry(str(Path(run_root) / "uncprop"))
+    const = ConstraintRunRegistry(str(_tree(run_root)["const"]))
+    post  = UncPropRunRegistry(str(_tree(run_root)["uncprop"]))
     run   = const.load(_latest(const))
     _, sigma_a = condition_prior(run.a_prior_global, run.sigma_a)
     ratios = [ts.sigma_a_star / sigma_a[ts.cols_t]
@@ -1251,7 +1281,7 @@ def check_5_1(run_root: PathLike, max_ratio: float) -> str:
 def _ref_6_1(run_root, region="Portua", sector="Metal", year="2005",
              valuation=CONTENT) -> tuple:
     """Σ supply into and Σ use out of one commodity node, from the PSUT table."""
-    reg   = PsutRunRegistry(str(Path(run_root) / "psut"))
+    reg   = PsutRunRegistry(str(_tree(run_root)["psut"]))
     table = reg.load(_latest(reg)).table
     rows  = table[(table["period"] == year) & (table["valuation"] == valuation)]
     into  = (rows["to_region"] == region) & (rows["to_sector"] == sector)

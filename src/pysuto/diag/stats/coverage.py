@@ -57,15 +57,16 @@ class CoverageDiagnostic:
         ``AccountingStructure`` — supplies ``edge_meta`` (edge↔node join with
         ``from_*`` / ``to_*`` attributes) and ``boundary_roles``.
     year : str
-        The single year both tables are restricted to (default ``"1995"``).
+        The single year both tables are restricted to (default: the first year of
+        ``acc_struct.time_range``).
     """
 
     _NO_VAL_METHODS = {"flat_prior", "flat_prior_noisy_zero"}
 
-    def __init__(self, agg_result, acc_struct, year: str = "1995") -> None:
+    def __init__(self, agg_result, acc_struct, year: str | None = None) -> None:
         self.agg_result = agg_result
         self.acc        = acc_struct
-        self.year       = str(year)
+        self.year       = str(acc_struct.time_range[0] if year is None else year)
         self._edges     = self._build_edge_frame()
 
     # ------------------------------------------------------------------

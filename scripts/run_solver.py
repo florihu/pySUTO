@@ -117,20 +117,29 @@ KNOBS = (
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from pysuto.acc     import EDGE_UNIVERSE_ROLE_KEYS, AccountingStructure, check_built_acc
+from pysuto.case    import CaseSpec
+from pysuto.cases   import load_case
+from pysuto.cases.copper import CASE
 from pysuto.input_registry import InputRegistry
 from pysuto.solver  import ClarabelSolver
 from pysuto.diag    import SolverDiag
 from pysuto.logging import get_logger, add_run_handler
-from pysuto.knobs   import add_knob_args, overrides_from_cli, write_run_id
+from pysuto.knobs   import (add_knob_args, apply_overrides, overrides_from_cli,
+                            write_run_id)
 from pysuto.registry import ConstraintRunRegistry, stage_lock
+from pysuto.stages  import check_case
 
 _log = get_logger("init_run_solver")
 
 
 def main(const_run_id: str, label: str = "", prior_mode: str = "warm",
          overrides: dict | None = None, *, data_dir: str = "data",
-         const_dir: str | None = None) -> str:
+         const_dir: str | None = None, case: CaseSpec = CASE) -> str:
     """Solve constraint run ``const_run_id``; return the opt run id.
+
+    ``case`` is recorded in the sidecar and must be the case that made the constraint
+    run; the knobs are this module's constants (the command line applies the case's
+    ``driver_knobs["opt"]`` to them before ``--set``).
 
     ``data_dir`` holds ``proc/``; the constraint run is read from ``const_dir``
     (default ``<data_dir>/proc/const``), the run written to ``<data_dir>/proc/opt``
@@ -151,7 +160,9 @@ def main(const_run_id: str, label: str = "", prior_mode: str = "warm",
     _log.info("=== init_run_solver START ===")
     # The diagnostics below load the built acc: check its build record against the
     # const run's acc ref before the solve, so a refused run persists nothing (#53).
-    const_parents = ConstraintRunRegistry(const_dir).load_sidecar(const_run_id)["parents"]
+    const_sidecar = ConstraintRunRegistry(const_dir).load_sidecar(const_run_id)
+    check_case(const_sidecar, case)
+    const_parents = const_sidecar["parents"]
     check_built_acc(acc_dir, const_parents["inputs"].get("acc", {}),
                     InputRegistry("acc", root=input_dir), EDGE_UNIVERSE_ROLE_KEYS)
     _log.info("Loading ClarabelSolver (const_dir=%s)", const_dir)
@@ -193,6 +204,7 @@ def main(const_run_id: str, label: str = "", prior_mode: str = "warm",
             "reduced_tol_gap_abs":          REDUCED_TOL_GAP_ABS,
             "feasibility_check":            FEASIBILITY_CHECK,
             "overrides":                    dict(overrides or {}),
+            "case":                         case.ref(),
         },
     )
 
@@ -238,6 +250,8 @@ if __name__ == "__main__":
         choices=["warm", "cold"],
         help="ClarabelSolver prior mode: 'cold' (default) or 'warm'."
     )
+    parser.add_argument("--case", default="copper",
+                        help="Case id: the module pysuto.cases.<id> (default copper).")
     parser.add_argument("--data-dir", default="data",
                         help="Data root holding proc/ (default 'data').")
     parser.add_argument("--const-dir", default=None,
@@ -246,9 +260,14 @@ if __name__ == "__main__":
 
     add_knob_args(parser)
     args = parser.parse_args()
+    try:
+        case = load_case(args.case)
+    except ValueError as exc:
+        parser.error(str(exc))
+    apply_overrides(globals(), case.driver_knobs.get("opt", {}))   # the case's values
     overrides = overrides_from_cli(parser, args, KNOBS, globals())
     # registries have no locking (#101)
     with stage_lock("run_solver", root=os.path.join(args.data_dir, "proc")):
         write_run_id(args.run_id_file,
                      main(args.const_run_id, args.label, args.prior_mode, overrides,
-                          data_dir=args.data_dir, const_dir=args.const_dir))
+                          data_dir=args.data_dir, const_dir=args.const_dir, case=case))

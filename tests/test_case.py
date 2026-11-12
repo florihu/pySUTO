@@ -88,7 +88,8 @@ class TestSection:
         desc = _toy().describe("imp")
         assert desc == {"id": "toy", "acc_id": "toy", "imp": {
             "imputers": f"{__name__}._toy_imputers", "pre_impute": None,
-            "post_impute": None, "P_PROP": 1.3, "TIME_WINDOW": 3, "AREF": None,
+            "post_impute": None, "stage_config": None, "diag_year": None,
+            "P_PROP": 1.3, "TIME_WINDOW": 3, "AREF": None,
             "stock_sectors": ("Stock",)}}
         assert set(_toy().describe("const")) == {"id", "acc_id", "const"}
 

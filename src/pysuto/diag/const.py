@@ -63,10 +63,11 @@ class ConstDiagnostic:
         "ratio":   _C["purple"],
     }
 
-    def __init__(self, constraint_run, label: str = "", year: str = "1995") -> None:
+    def __init__(self, constraint_run, label: str = "", year: Optional[str] = None) -> None:
         self.cr    = constraint_run
         self.label = label
-        self.year  = str(year)
+        # default: the run's first timestep
+        self.year  = str(next(iter(constraint_run.timestep_data)) if year is None else year)
         # The run's own diag/ — set by from_saved; None for a run built in memory.
         self._default_odir: Optional[str] = None
 
@@ -76,7 +77,7 @@ class ConstDiagnostic:
 
     @classmethod
     def from_saved(cls, run_dir: str, label: str = "",
-                   year: str = "1995") -> "ConstDiagnostic":
+                   year: Optional[str] = None) -> "ConstDiagnostic":
         """
         Reconstruct a ConstDiagnostic by loading a persisted ConstraintRun
         directly from its directory (no registry required).

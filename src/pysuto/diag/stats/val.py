@@ -49,12 +49,13 @@ class StatsDiagnostic:
     acc_struct :
         ``AccountingStructure`` — supplies ``edge_meta``.
     year : str
-        The single year both tables are restricted to (default ``"1995"``).
+        The single year both tables are restricted to (default: the first year of
+        ``acc_struct.time_range``).
     """
 
-    def __init__(self, agg_result, acc_struct, year: str = "1995") -> None:
+    def __init__(self, agg_result, acc_struct, year: str | None = None) -> None:
         self._cov = CoverageDiagnostic(agg_result, acc_struct, year=year)
-        self.year = str(year)
+        self.year = self._cov.year
 
     # ------------------------------------------------------------------
     # Tables

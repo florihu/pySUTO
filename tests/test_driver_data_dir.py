@@ -378,7 +378,7 @@ def _register_imp_run(case) -> str:
 
 
 class _NoDiag:
-    """Stands in for the Stage 2 diagnostics, which draw the copper case's 1995."""
+    """Stands in for the Stage 2 diagnostics, which draw figures this test does not read."""
 
     def __init__(self, *args, **kwargs):
         pass
@@ -405,9 +405,10 @@ def test_stage_2_builds_from_the_case_and_records_it(case, driver, monkeypatch):
     InputRegistry("params", root=case["data"] / "input").initialize()
     feed = _register_feed_run(case)
     mod = driver("collect_aggregate_impute.py")
+    from pysuto import stages
     for name in ("AggDiagnostic", "ImpDiagnostic", "CoverageDiagnostic",
                  "StatsDiagnostic"):
-        monkeypatch.setattr(mod, name, _NoDiag)
+        monkeypatch.setattr(stages, name, _NoDiag)
     toy = _toy_case().with_knobs("imp", {"TIME_WINDOW": 5})
     _HOOK_CALLS.clear()
 

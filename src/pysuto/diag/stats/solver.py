@@ -112,11 +112,14 @@ class SolverStatsDiagnostic:
         constraint tables still work, :meth:`edge_frame` returns ``None`` and
         :meth:`edge_table` raises.
     years : sequence of str | "all"
-        The years :meth:`write` emits both deliverables for (default ``("1995",)``).
+        The years :meth:`write` emits both deliverables for (default: the first
+        result year).
         The frames always cover every result year.
     """
 
-    def __init__(self, results, constraint_run, acc_struct=None, years=("1995",)) -> None:
+    def __init__(self, results, constraint_run, acc_struct=None, years=None) -> None:
+        if years is None:
+            years = (next(iter(results)),)
         self._res = results
         self._cr = constraint_run
         self._acc = acc_struct

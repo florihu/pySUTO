@@ -72,11 +72,17 @@ class ImpSection(Section):
     included: a :class:`Cascade` for the fixpoint group, then each terminal imputer.
     ``pre_impute(ctx)`` runs after aggregation and before the cascade is built,
     ``post_impute(ctx)`` after the imputation; each may change ``ctx.agg_result`` in
-    place. ``None`` is no hook.
+    place. ``None`` is no hook. ``stage_config(ctx)`` returns the dict of the case's
+    knob values that the imp sidecar records beside the generic keys. ``diag_year`` is
+    the year the Stage 2 diagnostics focus on (``None``: the first year of the acc's
+    time range). The knob ``P_PROP`` (the Lp exponent of the aggregation) is read by
+    the stage body, so every case's section declares it.
     """
-    imputers:    Callable
-    pre_impute:  Optional[Callable] = None
-    post_impute: Optional[Callable] = None
+    imputers:     Callable
+    pre_impute:   Optional[Callable] = None
+    post_impute:  Optional[Callable] = None
+    stage_config: Optional[Callable] = None
+    diag_year:    Optional[str] = None
 
 
 @dataclass(frozen=True)
@@ -87,24 +93,44 @@ class ConstSection(Section):
     ``nodata_anchor_exempt(ctx)`` returns ``(mask, n)``: the per-edge exemption
     from the no-data σ anchor that ``ConstraintEngine`` takes (``None`` keeps its
     sector rule) and the number of region-years it spares, recorded in the
-    sidecar; ``None`` is ``(None, 0)``.
+    sidecar; ``None`` is ``(None, 0)``. ``stage_config(ctx)`` returns the dict of the
+    case's knob values that the const sidecar records beside the generic keys
+    (``ctx.n_anchor_exempt`` is that count). ``diag_year`` is the year of the Stage 3
+    diagnostics (``None``: the first timestep). The knobs the stage body hands to
+    ``ConstraintEngine`` are ``P_PROP``, ``SIGMA_A_CV_MIN``, ``SIGMA_A_ABS_FLOOR``,
+    ``SIGMA_C_CV_MIN``, ``SIGMA_C_ABS_FLOOR``, ``PRIOR_BOX_K``, ``NODATA_ANCHOR_CV``,
+    ``NODATA_ANCHOR_EXCLUDE``, ``PIN_FLAT_PRIOR_ZEROS`` and ``DIAG_PLOT``; every case's
+    section declares them.
     """
     builders:             Callable
     nodata_anchor_exempt: Optional[Callable] = None
+    stage_config:         Optional[Callable] = None
+    diag_year:            Optional[str] = None
 
 
 @dataclass(frozen=True)
 class CaseSpec:
     """One case: its id, the accounting structure it is built on (an acc registry
-    id) and its Stage 2 and Stage 3 sections."""
-    id:     str
-    acc_id: str
-    imp:    ImpSection
-    const:  ConstSection
+    id) and its Stage 2 and Stage 3 sections.
+
+    ``driver_knobs`` is ``{stage: {KNOB: value}}`` for the drivers of Stages 4–6 (stage
+    ``"opt"`` or ``"psut"``): the case's values of the driver constants that differ
+    from the driver's own, which the driver applies before ``--set``. Those drivers
+    hold no case policy; an empty mapping leaves them as they are.
+    """
+    id:           str
+    acc_id:       str
+    imp:          ImpSection
+    const:        ConstSection
+    driver_knobs: Mapping[str, Mapping[str, object]] = field(default_factory=dict)
 
     def with_knobs(self, stage: str, overrides: Mapping[str, object]) -> "CaseSpec":
         """This case with ``overrides`` replacing knob fields of section ``stage``."""
         return replace(self, **{stage: getattr(self, stage).with_knobs(overrides)})
+
+    def ref(self) -> dict:
+        """The case as a Stage 4–6 run records it (``stage_config["case"]``)."""
+        return {"id": self.id, "acc_id": self.acc_id}
 
     def describe(self, stage: str) -> dict:
         """The case as a ``stage`` run records it (``stage_config["case"]``): the case
@@ -135,6 +161,7 @@ class CaseContext:
     logger : the driver's logger.
     param_refs : the params entries the run records in ``parents.inputs.params``;
         builders append what they read.
+    n_anchor_exempt : Stage 3: the region-years ``nodata_anchor_exempt`` spares.
     reports : name to DataFrame; the case's screens put their reports here and the
         Stage 2 driver writes each to ``<run>/diag/<name>.csv``.
     """
@@ -146,3 +173,4 @@ class CaseContext:
     logger:     logging.Logger
     param_refs: list = field(default_factory=list)
     reports:    dict = field(default_factory=dict)
+    n_anchor_exempt: int = 0
