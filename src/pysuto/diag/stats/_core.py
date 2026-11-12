@@ -115,7 +115,7 @@ def constraint_table(
     ----------
     row_meta : pd.DataFrame
         One row per constraint (``constraint_id``, ``type``, ``time``, optionally
-        ``variant`` / ``cone_type`` / ``valuation``). Positionally aligned with
+        ``variant`` / ``sense`` / ``is_hard`` / ``valuation``). Positionally aligned with
         ``c`` / ``sigma_c`` / ``lhs_prior`` / ``lhs_post``.
     c, sigma_c, lhs_prior : array-like (M,)
         Target RHS, per-row tolerance, prior LHS ``G·a0`` — full row length.
@@ -134,7 +134,7 @@ def constraint_table(
     Returns
     -------
     pd.DataFrame
-        Columns ``[constraint_id, type, variant, cone_type, valuation, c,
+        Columns ``[constraint_id, type, variant, sense, is_hard, valuation, c,
         lhs_prior, (lhs_post,) residual, residual_abs, sigma_c, z, z_abs,
         *extra_cols]``.
     """
@@ -164,7 +164,8 @@ def constraint_table(
         "constraint_id": rm["constraint_id"].to_numpy()[idx],
         "type":          rm["type"].to_numpy()[idx],
         "variant":       _col("variant"),
-        "cone_type":     _col("cone_type"),
+        "sense":         _col("sense"),
+        "is_hard":       _col("is_hard"),
         "valuation":     _col("valuation"),
         "c":             c,
         "lhs_prior":     lhs_prior,

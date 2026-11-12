@@ -26,7 +26,7 @@ class ConstraintRun:
                      cross-time coupling exists in any builder, so G is exactly
                      block-diagonal by t and the partition is lossless.
     edge_cols_by_t : dict t → np.ndarray of global edge_id columns belonging to t
-    row_meta       : DataFrame — one row per G row (constraint_id, type, is_hard, cone_type, time)
+    row_meta       : DataFrame — one row per G row (constraint_id, type, is_hard, sense, time)
     a0             : (E,) — Stage-2 f_agg (time-replicated global vector). Legacy
                      global cold prior; the optimiser prior now lives per-period
                      as ``timestep_data[t]["a_prior"]`` (see ``a_prior_global``).

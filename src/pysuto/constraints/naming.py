@@ -33,6 +33,14 @@ TYPE_SUM     = "sum"
 TYPE_RATIO   = "ratio"
 TYPE_BOUND   = "bound"
 
+# ``row_meta["sense"]`` is the row's mathematical sense, solver-neutral. ``G`` is
+# pre-flipped so every inequality reads ``G·a ≤ c`` (``bound_dir`` keeps the
+# original direction for audit); hardness is the separate ``is_hard`` column.
+SENSE_EQ = "eq"
+SENSE_LE = "le"
+# Const runs persisted before #11 carry Clarabel's cone name as ``cone_type``.
+_LEGACY_CONE_TYPE_TO_SENSE = {"zero": SENSE_EQ, "free": SENSE_EQ, "nonneg": SENSE_LE}
+
 
 class ConstraintIdError(ValueError):
     """Raised when a constraint-id slot/value token would break the grammar."""
@@ -85,7 +93,7 @@ def render_edge(sector_from, region_from, sector_to, region_to) -> str:
 # engine's concat produces one consistent schema (no silently-introduced NaN
 # columns). Fields that do not apply to a row are written as None.
 ROW_META_COLS = [
-    "constraint_id", "type", "variant", "is_hard", "cone_type",
+    "constraint_id", "type", "variant", "is_hard", "sense",
     "time", "valuation", "sector", "region", "entity", "entity_sub",
     "ratio_kind", "bound_dir",
     "num_sector_from", "num_region_from", "num_sector_to", "num_region_to", "num_valuation",
@@ -100,3 +108,33 @@ def empty_row_meta_dict() -> dict:
     a uniform column set across blocks.
     """
     return {col: None for col in ROW_META_COLS}
+
+
+def soft_row_mask(row_meta) -> np.ndarray:
+    """Soft equality rows: ``sense == "eq"`` and not ``is_hard`` (the rows that
+    carry a σ_c and a residual ε)."""
+    return (
+        (row_meta["sense"].to_numpy() == SENSE_EQ)
+        & ~row_meta["is_hard"].to_numpy().astype(bool)
+    )
+
+
+def upgrade_legacy_row_meta(row_meta):
+    """Return ``row_meta`` in the ``sense`` schema.
+
+    A frame that already has ``sense`` is returned unchanged. A pre-#11 frame
+    (``cone_type`` ∈ {zero, free, nonneg}, no ``sense``) gets ``sense`` in the
+    old column's place — ``zero`` / ``free`` → ``eq``, ``nonneg`` → ``le`` —
+    and loses ``cone_type``; ``is_hard`` was already persisted. Any other
+    ``cone_type`` value raises ``ValueError``.
+    """
+    if "sense" in row_meta.columns or "cone_type" not in row_meta.columns:
+        return row_meta
+    legacy = row_meta["cone_type"]
+    unknown = sorted(set(legacy.dropna().astype(str)) - set(_LEGACY_CONE_TYPE_TO_SENSE))
+    if unknown or legacy.isna().any():
+        raise ValueError(f"unknown legacy cone_type value(s) {unknown} in row_meta")
+    out = row_meta.copy()
+    out.insert(out.columns.get_loc("cone_type"), "sense",
+               legacy.astype(str).map(_LEGACY_CONE_TYPE_TO_SENSE))
+    return out.drop(columns="cone_type")

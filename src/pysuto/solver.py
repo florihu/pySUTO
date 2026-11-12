@@ -11,18 +11,22 @@ mechanism for this problem since only ``c`` varies across time). Under
 ``prior_mode='cold'`` with ``n_workers > 1`` the timesteps are instead solved
 concurrently (**parallel solve**, #70), each on its own Clarabel instance.
 
-Cone layout (correcting README §665-667):
+Row layout (solver-neutral, :func:`row_layout`) and its Clarabel cones
+(:func:`clarabel_cones`; correcting README §665-667). ``row_meta`` carries only
+``sense`` and ``is_hard``; the cone vocabulary exists in this module alone:
 
-* ``ZeroConeT(n_free)`` — soft equality residuals ``Gx - ε = c`` (slack
+* ``ZeroConeT(n_slack)`` — soft equality residuals ``Gx - ε = c`` (slack
   ε is a free decision variable inside ``x``; the residual itself is
   exact equality).
-* ``ZeroConeT(n_zero)`` — hard mass-balance equalities.
-* ``NonnegativeConeT(n_nonneg)`` — hard ratio bounds and flow lower bounds
+* ``ZeroConeT(n_eq)`` — hard equalities (mass balance).
+* ``NonnegativeConeT(n_le)`` — hard ratio bounds and flow lower bounds
   (ADR 0039; upper bounds and the zero pin reach only the feasibility pre-check).
 
 Public API
 ----------
 - :class:`OptimResult` — per-timestep solution + diagnostics
+- :func:`row_layout`, :func:`clarabel_cones` — ``(sense, is_hard)`` → row
+  permutation / slack count / cone list
 - :class:`ClarabelSolver` — load, feasibility-check, solve_all, persist
 """
 from __future__ import annotations
@@ -42,6 +46,7 @@ import clarabel
 from ._conditioning import condition_prior, condition_sigma_c
 from .acc import EDGE_UNIVERSE_ROLE_KEYS, AccountingStructure, check_built_acc
 from .constraints import ConstraintRun
+from .constraints.naming import SENSE_EQ, SENSE_LE
 from .input_registry import InputRegistry
 from .registry import ConstraintRunRegistry, OptimRunRegistry
 from .logging import get_logger
@@ -52,6 +57,82 @@ logger = get_logger("pysuto.solver")
 # =============================================================================
 # OptimResult
 # =============================================================================
+
+# ============================================================================
+# Row realisation: (sense, is_hard) → how the QP carries the row
+# ============================================================================
+# Solver-neutral half: which of the three row groups a row belongs to. Groups
+# are laid out in this order in the standard-form ``A``; a soft equality
+# carries one slack column (``Gx - ε = c``).
+GROUP_SOFT_EQ = 0
+GROUP_HARD_EQ = 1
+GROUP_LE      = 2
+_N_GROUPS     = 3
+
+# Total over {sense} × {is_hard}. ``None`` is a named gap, not a default.
+_ROW_GROUP = {
+    (SENSE_EQ, False): GROUP_SOFT_EQ,
+    (SENSE_EQ, True):  GROUP_HARD_EQ,
+    (SENSE_LE, True):  GROUP_LE,
+    (SENSE_LE, False): None,
+}
+
+
+@dataclass(frozen=True)
+class RowLayout:
+    """Solver-neutral layout of one set of rows: ``perm`` maps the standard-form
+    row order ``[soft eq; hard eq; le]`` to original row positions; ``n_slack``
+    (= soft equalities), ``n_eq`` (hard equalities) and ``n_le`` (``≤`` rows)
+    are the group sizes."""
+    perm:    np.ndarray
+    n_slack: int
+    n_eq:    int
+    n_le:    int
+
+
+def row_layout(sense, is_hard) -> RowLayout:
+    """Realise per-row ``sense`` / ``is_hard`` arrays as a :class:`RowLayout`.
+
+    Raises ``NotImplementedError`` on a soft ``le`` row (no builder emits one),
+    ``ValueError`` on an unknown ``sense``.
+    """
+    sense   = np.asarray(sense)
+    is_hard = np.asarray(is_hard).astype(bool)
+    group   = np.full(sense.size, -1, dtype=np.int64)
+    for (s, hard), g in _ROW_GROUP.items():
+        mask = (sense == s) & (is_hard == hard)
+        if not mask.any():
+            continue
+        if g is None:
+            raise NotImplementedError(
+                f"{int(mask.sum())} row(s) with sense={s!r}, is_hard={hard}: a soft "
+                f"inequality has no realisation in the QP (no builder emits one)"
+            )
+        group[mask] = g
+    if (group < 0).any():
+        raise ValueError(
+            f"unknown row sense(s) {sorted(set(sense[group < 0].astype(str)))}; "
+            f"expected {SENSE_EQ!r} or {SENSE_LE!r}"
+        )
+    idx = [np.flatnonzero(group == g) for g in range(_N_GROUPS)]
+    return RowLayout(
+        perm    = np.concatenate(idx),
+        n_slack = idx[GROUP_SOFT_EQ].size,
+        n_eq    = idx[GROUP_HARD_EQ].size,
+        n_le    = idx[GROUP_LE].size,
+    )
+
+
+def clarabel_cones(layout: RowLayout) -> list:
+    """The Clarabel cone list for ``layout`` — the only place the cone
+    vocabulary is bound: equalities (soft rows after slack insertion, hard
+    rows) → ``ZeroConeT``, ``≤`` rows → ``NonnegativeConeT``."""
+    cones: list = []
+    if layout.n_slack > 0: cones.append(clarabel.ZeroConeT(layout.n_slack))
+    if layout.n_eq    > 0: cones.append(clarabel.ZeroConeT(layout.n_eq))
+    if layout.n_le    > 0: cones.append(clarabel.NonnegativeConeT(layout.n_le))
+    return cones
+
 
 # Structured dtype for per-iteration convergence trace.
 # Columns mirror Clarabel's verbose console output.
@@ -73,7 +154,7 @@ class OptimResult:
     """One timestep's solver output."""
     timestep:      str
     F_opt:         np.ndarray      # (E,)
-    eps_opt:       np.ndarray      # (n_free,) — slack on soft rows in original row order
+    eps_opt:       np.ndarray      # (n_slack,) — slack on soft rows in original row order
     c_star:        np.ndarray      # (M,) — c + ε (ε=0 for hard rows). Diagnostic.
     residuals:     np.ndarray      # (M,) — G @ F_opt - c (original row order)
     objective:     float           # J − Σ(a_prior/σ_a)², the flows form's cost, under
@@ -139,7 +220,7 @@ class ClarabelSolver:
       ``solver.update(q=..., b=...)`` to retain the KKT factorisation — a
       *numerical* warm-start, distinct from the *prior* warm-start above.
       ``P`` and ``A`` are time-invariant.
-    - Hard rows (zero and nonneg cones) are enforced exactly. The
+    - Hard rows (equalities and ``≤`` rows) are enforced exactly. The
       feasibility pre-check rules out impossible problems before the
       main solve and halts on any infeasibility.
 
@@ -319,31 +400,27 @@ class ClarabelSolver:
     def _problem_skeleton(self, run: ConstraintRun) -> dict:
         """
         Build the time-invariant pieces: P, q, A, cones, and the row
-        permutation that maps original row order → [free; zero; nonneg].
+        permutation that maps original row order → [soft eq; hard eq; le].
         Computed once per ConstraintRun.
         """
         G        = run.G
         row_meta = run.row_meta
         a_0, sigma_a = self._condition_prior(run.a_prior_global, run.sigma_a)
 
-        # Permute rows by cone_type → [free; zero; nonneg]
-        ct = row_meta["cone_type"].to_numpy()
-        idx_free   = np.where(ct == "free")[0]
-        idx_zero   = np.where(ct == "zero")[0]
-        idx_nonneg = np.where(ct == "nonneg")[0]
-        perm = np.concatenate([idx_free, idx_zero, idx_nonneg])
-
-        n_free, n_zero, n_nonneg = idx_free.size, idx_zero.size, idx_nonneg.size
+        # Permute rows → [soft eq; hard eq; le]
+        layout = row_layout(row_meta["sense"].to_numpy(), row_meta["is_hard"].to_numpy())
+        perm   = layout.perm
+        n_slack, n_eq, n_le = layout.n_slack, layout.n_eq, layout.n_le
         n_a = G.shape[1]
         M   = G.shape[0]
 
         # Permuted G (CSR for hstack)
         G_p = G.tocsr()[perm]
 
-        # Slack column block: S = [-I_{n_free}; 0]
-        S_top = -sp.eye(n_free, format="csr")
-        S_bot = sp.csr_matrix((n_zero + n_nonneg, n_free))
-        S     = sp.vstack([S_top, S_bot], format="csr") if n_free else \
+        # Slack column block: S = [-I_{n_slack}; 0]
+        S_top = -sp.eye(n_slack, format="csr")
+        S_bot = sp.csr_matrix((n_eq + n_le, n_slack))
+        S     = sp.vstack([S_top, S_bot], format="csr") if n_slack else \
                 sp.csr_matrix((M, 0))
 
         # A = [G_p | S]  in CSC for Clarabel
@@ -360,31 +437,26 @@ class ClarabelSolver:
         # update(P=…). The initial P uses t_first's σ_c so the solver can
         # be instantiated once.
         first_td = next(iter(run.timestep_data.values()), None)
-        if first_td is not None and n_free:
+        if first_td is not None and n_slack:
             sc_first = np.array(first_td["sigma_c"], dtype=float, copy=True)
             sc_first = np.where(np.isnan(sc_first), self.sigma_c_floor, sc_first)
             sc_first = np.maximum(sc_first, self.sigma_c_floor)
-            sc_free_init = sc_first[perm[:n_free]]
+            sc_free_init = sc_first[perm[:n_slack]]
         else:
-            sc_free_init = np.zeros(n_free)
+            sc_free_init = np.zeros(n_slack)
 
-        inv_scf_init = 1.0 / (sc_free_init ** 2) if n_free else np.zeros(0)
+        inv_scf_init = 1.0 / (sc_free_init ** 2) if n_slack else np.zeros(0)
         P_diag = 2.0 * np.concatenate([inv_sa, inv_scf_init])
         P = sp.diags(P_diag, format="csc")
-
-        cones: list = []
-        if n_free   > 0: cones.append(clarabel.ZeroConeT(n_free))
-        if n_zero   > 0: cones.append(clarabel.ZeroConeT(n_zero))
-        if n_nonneg > 0: cones.append(clarabel.NonnegativeConeT(n_nonneg))
 
         return {
             "P":          P,
             "A":          A,
-            "cones":      cones,
+            "cones":      clarabel_cones(layout),
             "perm":       perm,
-            "n_free":     n_free,
-            "n_zero":     n_zero,
-            "n_nonneg":   n_nonneg,
+            "n_slack":    n_slack,
+            "n_eq":       n_eq,
+            "n_le":       n_le,
             "n_a":        n_a,
             "M":          M,
             "sigma_a":    sigma_a,
@@ -393,7 +465,7 @@ class ClarabelSolver:
         }
 
     def _build_P_diag(self, inv_sa: np.ndarray, run: ConstraintRun,
-                      t_label: str, perm: np.ndarray, n_free: int) -> np.ndarray:
+                      t_label: str, perm: np.ndarray, n_slack: int) -> np.ndarray:
         """
         Per-timestep Hessian diagonal: ``2 · [Σ_a^{-1}; Σ_c(t)^{-1}_free]``.
 
@@ -401,19 +473,19 @@ class ClarabelSolver:
         ``Σ_c(t)^{-1}_free`` is recomputed from ``timestep_data[t]["sigma_c"]``
         with NaN → floor; same conditioning used in ``_problem_skeleton``.
         """
-        if n_free:
+        if n_slack:
             sc_t = np.array(run.timestep_data[t_label]["sigma_c"],
                             dtype=float, copy=True)
             sc_t = np.where(np.isnan(sc_t), self.sigma_c_floor, sc_t)
             sc_t = np.maximum(sc_t, self.sigma_c_floor)
-            inv_scf = 1.0 / (sc_t[perm[:n_free]] ** 2)
+            inv_scf = 1.0 / (sc_t[perm[:n_slack]] ** 2)
         else:
             inv_scf = np.zeros(0)
         return 2.0 * np.concatenate([inv_sa, inv_scf])
 
-    def _build_q(self, inv_sa: np.ndarray, a_0: np.ndarray, n_free: int) -> np.ndarray:
+    def _build_q(self, inv_sa: np.ndarray, a_0: np.ndarray, n_slack: int) -> np.ndarray:
         """q = [-2 Σ_a^{-1} a_0(t); 0]. Recomputed per timestep when warm-starting."""
-        return np.concatenate([-2.0 * inv_sa * a_0, np.zeros(n_free)])
+        return np.concatenate([-2.0 * inv_sa * a_0, np.zeros(n_slack)])
 
     def _build_b(self, run: ConstraintRun, t_label: str, perm: np.ndarray) -> np.ndarray:
         c_t = run.timestep_data[t_label]["c"]
@@ -450,7 +522,7 @@ class ClarabelSolver:
 
     def feasibility_check(self, run: ConstraintRun, t_label: str) -> None:
         """
-        Halt if the hard rows alone (zero + nonneg cones) plus flow bounds
+        Halt if the hard rows alone (equalities + ``≤`` rows) plus flow bounds
         are infeasible at this timestep. Solves a feasibility-only QP
         ``min ½ ‖a‖²`` (P=εI, q=0) on the hard subsystem.
 
@@ -462,16 +534,15 @@ class ClarabelSolver:
         u, l     = run.u, run.l
         c_t      = np.asarray(run.timestep_data[t_label]["c"], dtype=float)
 
-        ct = row_meta["cone_type"].to_numpy()
-        idx_zero   = np.where(ct == "zero")[0]
-        idx_nonneg = np.where(ct == "nonneg")[0]
+        layout = row_layout(row_meta["sense"].to_numpy(), row_meta["is_hard"].to_numpy())
+        n_eq, n_le = layout.n_eq, layout.n_le
+        idx_zero   = layout.perm[layout.n_slack:layout.n_slack + n_eq]
+        idx_nonneg = layout.perm[layout.n_slack + n_eq:]
         n_a = G.shape[1]
 
-        n_zero, n_nonneg = idx_zero.size, idx_nonneg.size
-
         # Hard rows from G
-        G_zero   = G.tocsr()[idx_zero]   if n_zero   else sp.csr_matrix((0, n_a))
-        G_nonneg = G.tocsr()[idx_nonneg] if n_nonneg else sp.csr_matrix((0, n_a))
+        G_zero   = G.tocsr()[idx_zero]   if n_eq else sp.csr_matrix((0, n_a))
+        G_nonneg = G.tocsr()[idx_nonneg] if n_le else sp.csr_matrix((0, n_a))
 
         # Add flow bounds as inequalities  a ≤ u  and  -a ≤ -l
         #   Only edges with non-default bounds (finite, distinct from sentinel)
@@ -488,7 +559,7 @@ class ClarabelSolver:
         b = np.concatenate([c_t[idx_zero], bub])
 
         cones_fc: list = []
-        if n_zero            > 0: cones_fc.append(clarabel.ZeroConeT(n_zero))
+        if n_eq              > 0: cones_fc.append(clarabel.ZeroConeT(n_eq))
         if Aub.shape[0]      > 0: cones_fc.append(clarabel.NonnegativeConeT(Aub.shape[0]))
 
         # Tiny PSD P + zero q for a pure feasibility solve
@@ -631,7 +702,7 @@ class ClarabelSolver:
         cones   = skel["cones"]
         P, A    = skel["P"], skel["A"]
         perm    = skel["perm"]
-        n_free  = skel["n_free"]
+        n_slack  = skel["n_slack"]
         n_a     = skel["n_a"]
         M       = skel["M"]
         inv_sa  = skel["inv_sa"]
@@ -647,13 +718,13 @@ class ClarabelSolver:
 
         for k, t in enumerate(ts_labels):
             b = self._build_b(run, t, perm)
-            q = self._build_q(inv_sa, a_0_t, n_free)
+            q = self._build_q(inv_sa, a_0_t, n_slack)
             # P now varies per timestep because σ_c on free rows can vary
             # (e.g. SumConstraintBuilder deactivates non-t-year rows with
             # σ_c = SIGMA_C_INACTIVE). The diagonal is rebuilt each iter;
-            # cone structure, n_free, n_a are time-invariant so reusing
+            # cone structure, n_slack, n_a are time-invariant so reusing
             # the Clarabel instance is fine.
-            P_diag = self._build_P_diag(inv_sa, run, t, perm, n_free)
+            P_diag = self._build_P_diag(inv_sa, run, t, perm, n_slack)
             P_t    = sp.diags(P_diag, format="csc")
 
             t0 = time.perf_counter()
@@ -698,12 +769,12 @@ class ClarabelSolver:
 
             x       = np.asarray(sol.x)
             F_opt   = x[:n_a]
-            eps_opt = x[n_a:] if n_free else np.zeros(0)
+            eps_opt = x[n_a:] if n_slack else np.zeros(0)
 
             # Map ε back into M-length vector at original row positions
             eps_full = np.zeros(M)
-            if n_free:
-                eps_full[perm[:n_free]] = eps_opt
+            if n_slack:
+                eps_full[perm[:n_slack]] = eps_opt
 
             c_full        = np.asarray(run.timestep_data[t]["c"])
             c_star        = c_full + eps_full
@@ -741,7 +812,7 @@ class ClarabelSolver:
         """True when A_t = [G_t | S_t] is identical across every t in ``ts_labels``.
 
         Requires: same G_blocks (shape, indptr, indices, data) AND same
-        cone_type ordering within each per-t row block (so the column-permuted
+        sense / is_hard ordering within each per-t row block (so the column-permuted
         slack block S_t and cones list match too). Holds in the typical case
         where all builders are time-invariant (e.g. ratios with a_time="*");
         breaks when a builder emits year-specific coefficients (e.g. ore_grade
@@ -753,7 +824,7 @@ class ClarabelSolver:
         first_G  = run.G_blocks[first_t].tocsr()
         first_ct = run.row_meta.iloc[
             np.where(row_time == first_t)[0]
-        ]["cone_type"].to_numpy()
+        ][["sense", "is_hard"]].to_numpy()
         for t in ts_labels[1:]:
             G_t = run.G_blocks[t].tocsr()
             if G_t.shape != first_G.shape or G_t.nnz != first_G.nnz:
@@ -763,7 +834,7 @@ class ClarabelSolver:
             if not np.array_equal(G_t.data,    first_G.data):    return False
             ct_t = run.row_meta.iloc[
                 np.where(row_time == t)[0]
-            ]["cone_type"].to_numpy()
+            ][["sense", "is_hard"]].to_numpy()
             if not np.array_equal(ct_t, first_ct):
                 return False
         return True
@@ -927,28 +998,24 @@ class ClarabelSolver:
         c_t          = c_t_full[rows_t]
         sc_t         = sc_t_full[rows_t]
 
-        ct       = rm_t["cone_type"].to_numpy()
-        idx_free   = np.where(ct == "free")[0]
-        idx_zero   = np.where(ct == "zero")[0]
-        idx_nonneg = np.where(ct == "nonneg")[0]
-        perm_t   = np.concatenate([idx_free, idx_zero, idx_nonneg])
-        n_free_t = idx_free.size
-        n_zero_t, n_nonneg_t = idx_zero.size, idx_nonneg.size
+        layout_t = row_layout(rm_t["sense"].to_numpy(), rm_t["is_hard"].to_numpy())
+        perm_t   = layout_t.perm
+        n_slack_t, n_eq_t, n_le_t = layout_t.n_slack, layout_t.n_eq, layout_t.n_le
         n_a_t    = G_t.shape[1]
         m_t      = G_t.shape[0]
 
         G_p_t = G_t.tocsr()[perm_t]
-        S_top = -sp.eye(n_free_t, format="csr") if n_free_t else sp.csr_matrix((0, 0))
-        S_bot = sp.csr_matrix((n_zero_t + n_nonneg_t, n_free_t))
-        S_t   = sp.vstack([S_top, S_bot], format="csr") if n_free_t else \
+        S_top = -sp.eye(n_slack_t, format="csr") if n_slack_t else sp.csr_matrix((0, 0))
+        S_bot = sp.csr_matrix((n_eq_t + n_le_t, n_slack_t))
+        S_t   = sp.vstack([S_top, S_bot], format="csr") if n_slack_t else \
                 sp.csr_matrix((m_t, 0))
         A_t   = sp.hstack([G_p_t, S_t], format="csc")
         b_t   = c_t[perm_t]
 
-        if n_free_t:
+        if n_slack_t:
             sc_arr   = np.where(np.isnan(sc_t), self.sigma_c_floor, sc_t)
             sc_arr   = np.maximum(sc_arr, self.sigma_c_floor)
-            inv_scf  = 1.0 / (sc_arr[perm_t[:n_free_t]] ** 2)
+            inv_scf  = 1.0 / (sc_arr[perm_t[:n_slack_t]] ** 2)
         else:
             inv_scf = np.zeros(0)
         P_diag_t = 2.0 * np.concatenate([inv_sa_t, inv_scf])
@@ -960,14 +1027,11 @@ class ClarabelSolver:
         # to the flows convention.
         a_shift  = a_prior_t if self.qp_variables == "defects" else np.zeros(n_a_t)
         q_t      = np.concatenate([-2.0 * inv_sa_t * (a_prior_t - a_shift),
-                                   np.zeros(n_free_t)])
+                                   np.zeros(n_slack_t)])
         b_t      = b_t - G_p_t @ a_shift
         const_t  = float(inv_sa_t @ (a_shift * (2.0 * a_prior_t - a_shift)))
 
-        cones_t: list = []
-        if n_free_t   > 0: cones_t.append(clarabel.ZeroConeT(n_free_t))
-        if n_zero_t   > 0: cones_t.append(clarabel.ZeroConeT(n_zero_t))
-        if n_nonneg_t > 0: cones_t.append(clarabel.NonnegativeConeT(n_nonneg_t))
+        cones_t = clarabel_cones(layout_t)
 
         t0 = time.perf_counter()
         reused = solver_t is not None
@@ -1034,12 +1098,12 @@ class ClarabelSolver:
 
         x         = np.asarray(sol.x)
         F_opt_t   = a_shift + x[:n_a_t]
-        eps_opt_t = x[n_a_t:] if n_free_t else np.zeros(0)
+        eps_opt_t = x[n_a_t:] if n_slack_t else np.zeros(0)
 
         # ε back into row-order on the per-t row block
         eps_full_t = np.zeros(m_t)
-        if n_free_t:
-            eps_full_t[perm_t[:n_free_t]] = eps_opt_t
+        if n_slack_t:
+            eps_full_t[perm_t[:n_slack_t]] = eps_opt_t
 
         # Year-local persistence (REP §8.2): store only this period's
         # solved values. F_opt over cols_t, residuals/c_star over rows_t —
@@ -1094,7 +1158,7 @@ class ClarabelSolver:
         sweep score each point's answer under the base chain's σ (#102).
 
         ``max_hard_violation`` (kt) is the largest breach of the period's hard rows by
-        ``F`` — ``|G·F − c|`` on zero rows, ``max(0, G·F − c)`` on nonneg rows. A
+        ``F`` — ``|G·F − c|`` on hard equality rows, ``max(0, G·F − c)`` on ``le`` rows. A
         posterior from a QP with other hard rows can break these; ``J`` is then not
         a comparison at a feasible point.
         """
@@ -1108,16 +1172,17 @@ class ClarabelSolver:
 
         rows_t = np.where(run.row_meta["time"].astype(str).to_numpy() == t)[0]
         rm_t   = run.row_meta.iloc[rows_t]
-        free   = rm_t["cone_type"].to_numpy() == "free"
+        sense  = rm_t["sense"].to_numpy()
+        hard   = rm_t["is_hard"].to_numpy().astype(bool)
+        free   = (sense == SENSE_EQ) & ~hard
         typ    = rm_t["type"].astype(str).to_numpy()
         c_t    = np.asarray(run.timestep_data[t]["c"], dtype=float)[rows_t]
         sc_t   = condition_sigma_c(np.asarray(run.timestep_data[t]["sigma_c"])[rows_t],
                                    floor=self.sigma_c_floor)
-        cone   = rm_t["cone_type"].to_numpy()
         resid  = run.G_blocks[t] @ F - c_t
         zsq    = np.where(free, (resid / sc_t) ** 2, 0.0)
-        breach = np.concatenate([np.abs(resid[cone == "zero"]),
-                                 np.maximum(resid[cone == "nonneg"], 0.0), [0.0]])
+        breach = np.concatenate([np.abs(resid[hard & (sense == SENSE_EQ)]),
+                                 np.maximum(resid[hard & (sense == SENSE_LE)], 0.0), [0.0]])
         out = {
             "edges":       edges,
             "sum_rows":    float(zsq[free & (typ == "sum")].sum()),

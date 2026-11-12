@@ -3,7 +3,7 @@ flow_node_balance.py
 ====================
 Prior-consistency check at Flow nodes, shared by Stage 2 and Stage 3.
 
-A Flow node carries a **hard** mass balance (``cone_type = "zero"``): its
+A Flow node carries a **hard** mass balance (``sense = "eq"``, ``is_hard``): its
 inflow (``Process→Flow``) must equal its outflow (``Flow→Process`` +
 ``Flow→SB``). Two *scale totals* (ADR 0006) sit on either side of that
 balance — ``supplytotout`` on the inflow, ``usetotout`` on the outflow —

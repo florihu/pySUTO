@@ -59,7 +59,7 @@ class FlowBoundsBuilder(BaseConstraintBuilder):
         row_meta["type"]      = TYPE_BOUND
         row_meta["variant"]   = "lower"
         row_meta["is_hard"]   = True
-        row_meta["cone_type"] = "nonneg"
+        row_meta["sense"]     = "le"
         row_meta["time"]      = tim
         row_meta["valuation"] = val
         row_meta["bound_dir"] = "lower"

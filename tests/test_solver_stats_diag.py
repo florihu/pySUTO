@@ -52,10 +52,10 @@ class CRStub:
         [0, 0, 0, 0, 0, 0, 0, 1, 0],
     ], dtype=float)
     row_meta = pd.DataFrame([
-        {"constraint_id": "sumA",   "type": "sum",     "variant": "anchor",  "cone_type": "free", "time": "1995", "valuation": "Mass"},
-        {"constraint_id": "ratioA", "type": "ratio",   "variant": "ratioeq", "cone_type": "free", "time": "1995"},                       # no valuation
-        {"constraint_id": "mbA",    "type": "massbal", "variant": "massbal", "cone_type": "zero", "time": "1995", "valuation": "Mass"},   # hard → z NaN
-        {"constraint_id": "sumB",   "type": "sum",     "variant": "anchor",  "cone_type": "free", "time": "1996", "valuation": "Mass"},   # other year
+        {"constraint_id": "sumA",   "type": "sum",     "variant": "anchor",  "sense": "eq", "is_hard": False, "time": "1995", "valuation": "Mass"},
+        {"constraint_id": "ratioA", "type": "ratio",   "variant": "ratioeq", "sense": "eq", "is_hard": False, "time": "1995"},                       # no valuation
+        {"constraint_id": "mbA",    "type": "massbal", "variant": "massbal", "sense": "eq", "is_hard": True, "time": "1995", "valuation": "Mass"},   # hard → z NaN
+        {"constraint_id": "sumB",   "type": "sum",     "variant": "anchor",  "sense": "eq", "is_hard": False, "time": "1996", "valuation": "Mass"},   # other year
     ])
     timestep_data = {
         "1995": {"c": np.array([100, 0, 0, 50], dtype=float),
@@ -86,7 +86,7 @@ def diag():
 _EDGE_COLS = ["edge_id", "from_sector", "from_region", "to_sector", "to_region",
               "valuation", "a_prior", "a_post", "sigma_a", "defect", "defect_abs", "z"]
 
-_CONST_COLS = ["constraint_id", "type", "variant", "cone_type", "valuation",
+_CONST_COLS = ["constraint_id", "type", "variant", "sense", "is_hard", "valuation",
                "c", "lhs_prior", "lhs_post", "residual", "residual_abs",
                "sigma_c", "z", "z_abs"]
 
@@ -172,13 +172,13 @@ def test_constraint_table_prior_post_residual_z(diag):
     assert s["sigma_c"] == 10.0
     assert s["z"] == pytest.approx(0.4)
     assert s["z_abs"] == pytest.approx(0.4)
-    assert s["type"] == "sum" and s["cone_type"] == "free" and s["valuation"] == "Mass"
+    assert s["type"] == "sum" and s["sense"] == "eq" and not s["is_hard"] and s["valuation"] == "Mass"
 
 
 def test_constraint_table_hard_row_z_nan(diag):
     t = diag.constraint_table("1995").set_index("constraint_id")
     mb = t.loc["mbA"]
-    assert mb["cone_type"] == "zero"
+    assert mb["sense"] == "eq" and mb["is_hard"]
     assert mb["lhs_prior"] == pytest.approx(-4.0)
     assert mb["residual"] == pytest.approx(0.0)      # c_star = c = 0 on the hard row
     assert pd.isna(mb["z"]) and pd.isna(mb["z_abs"]) # σ_c = 0
@@ -280,10 +280,10 @@ def test_constraint_frame_lhs_prior_t_warm_differs():
 def test_constraint_frame_unidentified_rows_get_minus_one():
     class CRDup(CRStub):
         row_meta = pd.DataFrame([
-            {"constraint_id": "sumA",  "type": "sum",   "variant": "anchor", "cone_type": "free", "time": "1995", "valuation": "Mass"},
-            {"constraint_id": "effA",  "type": "ratio", "variant": "effx",   "cone_type": "free", "time": "1995", "valuation": "CC"},
-            {"constraint_id": "mbA",   "type": "massbal", "variant": "massbal", "cone_type": "zero", "time": "1995", "valuation": "Mass"},
-            {"constraint_id": "effB",  "type": "ratio", "variant": "effx",   "cone_type": "free", "time": "1995", "valuation": "CC"},
+            {"constraint_id": "sumA",  "type": "sum",   "variant": "anchor", "sense": "eq", "is_hard": False, "time": "1995", "valuation": "Mass"},
+            {"constraint_id": "effA",  "type": "ratio", "variant": "effx",   "sense": "eq", "is_hard": False, "time": "1995", "valuation": "CC"},
+            {"constraint_id": "mbA",   "type": "massbal", "variant": "massbal", "sense": "eq", "is_hard": True, "time": "1995", "valuation": "Mass"},
+            {"constraint_id": "effB",  "type": "ratio", "variant": "effx",   "sense": "eq", "is_hard": False, "time": "1995", "valuation": "CC"},
         ])
     d = SolverStatsDiagnostic({"1995": ResWithResid()}, CRDup(), AccStub(), years="all")
     cf = d.constraint_frame().set_index("constraint_id")

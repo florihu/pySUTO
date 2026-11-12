@@ -55,7 +55,7 @@ def _block_run(tmp_path, monkeypatch, agg_id=""):
                            shape=(len(soft), cr.G.shape[1]))
     soft_rm = pd.DataFrame([{**{c: None for c in rm.columns},
                              "constraint_id": f"soft_mining_b_{y}", "type": "sum",
-                             "variant": "anchor", "is_hard": False, "cone_type": "free",
+                             "variant": "anchor", "is_hard": False, "sense": "eq",
                              "time": y, "valuation": "Mass"} for y in years])
     G  = sp.vstack([cr.G.tocsr(), soft_G]).tocsr()
     rm = pd.concat([rm, soft_rm], ignore_index=True)

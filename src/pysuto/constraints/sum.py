@@ -580,7 +580,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                 "type":          TYPE_SUM,
                 "variant":       spec.get("variant"),
                 "is_hard":       False,
-                "cone_type":     "free",
+                "sense":         "eq",
                 "time":          spec.get("time"),
                 "valuation":     spec.get("valuation"),
                 "sector":        spec.get("sector"),

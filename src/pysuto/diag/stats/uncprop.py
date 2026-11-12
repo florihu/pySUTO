@@ -50,6 +50,7 @@ import pandas as pd
 from scipy.stats import norm
 
 from pysuto._conditioning import condition_sigma_c
+from pysuto.constraints.naming import soft_row_mask
 from pysuto.uncprop import DEFAULT_BIND_TOL, KalmanUncProp
 
 # Quadrant cuts (GLOSSARY.md "Prior-carried / confirmed / overruled / unexplained move").
@@ -335,8 +336,8 @@ class UncPropStatsDiagnostic:
 
         ``zsq_edges`` sums ``z²`` over the year's edges (conditioned σ_a, the
         per-period prior the QP used); ``zsq_soft_rows`` sums the squared
-        standardised residual ``(G·a* − c)/σ_c`` over its soft rows (``cone_type ==
-        "free"``, the QP's slack rows; σ_c conditioned as the QP did). Their sum
+        standardised residual ``(G·a* − c)/σ_c`` over its soft rows (``sense == "eq"``
+        and not ``is_hard``, the QP's slack rows; σ_c conditioned as the QP did). Their sum
         ``zsq_total`` is the QP objective at ``a*``.
 
         ``dof = n_rows_kept + n_scale_totals_left_out + n_bound_active −
@@ -359,7 +360,7 @@ class UncPropStatsDiagnostic:
                         & (np.abs(f["a_prior"].to_numpy() - lb) <= bind_tol))
         g = f.assign(zsq=f["z"].to_numpy() ** 2, at_prior=at_prior).groupby("year")
         zsq_e, n_e, n_at = g["zsq"].sum(), g.size(), g["at_prior"].sum()
-        cone   = self._cr.row_meta["cone_type"].to_numpy()
+        soft_r = soft_row_mask(self._cr.row_meta)
         tdata  = {str(k): v for k, v in self._cr.timestep_data.items()}
         per_ts = {str(k): v for k, v in self._unc.per_timestep.items()}
         floor  = self._cond.get("sigma_c_floor")
@@ -372,7 +373,7 @@ class UncPropStatsDiagnostic:
             n_soft, zsq_r = np.nan, np.nan
             if rows_t is not None:
                 rows_t = np.asarray(rows_t, dtype=np.int64)
-                soft   = cone[rows_t] == "free"
+                soft   = soft_r[rows_t]
                 sc     = condition_sigma_c(
                     np.asarray(tdata[y]["sigma_c"], dtype=float)[rows_t], **kw)
                 r      = np.asarray(res.residuals, dtype=float)[soft] / sc[soft]

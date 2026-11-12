@@ -27,7 +27,7 @@ from pysuto.logging import get_logger
 from pysuto.registry import ConstraintRunRegistry, make_run_id
 
 from .base import BaseConstraintBuilder, ConstraintBlock, _empty_block
-from .naming import TYPE_MASSBAL, TYPE_RATIO
+from .naming import SENSE_LE, TYPE_MASSBAL, TYPE_RATIO, soft_row_mask
 from .run  import ConstraintRun
 
 _log = get_logger(__name__)
@@ -189,7 +189,7 @@ def _validate_ratio_bounds(G: sp.spmatrix, row_meta: pd.DataFrame) -> None:
         return
     mask = (
         (row_meta["type"].to_numpy() == "ratio")
-        & (row_meta["cone_type"].to_numpy() == "nonneg")
+        & (row_meta["sense"].to_numpy() == SENSE_LE)
         & row_meta["is_hard"].to_numpy()
     )
     rows = np.where(mask)[0]
@@ -502,13 +502,15 @@ class ConstraintEngine:
         # non-uniform breakdown means some year is missing rows (often: source
         # feed has no coverage that year), which is the same class of bug that
         # motivates per-t deactivation. Both collapse to type=="ratio"; the
-        # cone separates eq (free) from bound (nonneg).
+        # sense (with is_hard) separates eq (soft) from bound (le).
         n_years_expected = len(list(acc.time_range))
-        for type_name, cone in (("ratio_eq", "free"), ("ratio_bound", "nonneg")):
-            type_mask = (
-                (rm["type"].to_numpy() == TYPE_RATIO) & (rm["cone_type"].to_numpy() == cone)
-                if len(rm) else np.array([], dtype=bool)
-            )
+        for type_name, kind in (("ratio_eq", "soft_eq"), ("ratio_bound", "le")):
+            if len(rm):
+                kind_mask = soft_row_mask(rm) if kind == "soft_eq" \
+                    else rm["sense"].to_numpy() == SENSE_LE
+                type_mask = (rm["type"].to_numpy() == TYPE_RATIO) & kind_mask
+            else:
+                type_mask = np.array([], dtype=bool)
             n_type = int(type_mask.sum())
             if n_type == 0 or n_years_expected == 0:
                 continue
@@ -725,11 +727,11 @@ class ConstraintEngine:
 
             timestep_data[t_label] = {"c": c_t, "sigma_c": sigma_c_t}
 
-        # ── 2b. σ_c prior Lp regularization (free-cone rows only) ─────
+        # ── 2b. σ_c prior Lp regularization (soft rows only) ───────────
         # Lifts unphysically tight σ on soft constraint rows via the same
-        # Lp recipe used for σ_a. Hard rows (zero, nonneg) keep σ_c = 0 —
-        # the downstream Clarabel transform never reads them.
-        free_mask = (row_meta["cone_type"].to_numpy() == "free")
+        # Lp recipe used for σ_a. Hard rows keep σ_c = 0 — the solver
+        # never reads them.
+        free_mask = soft_row_mask(row_meta)
         if free_mask.any() and (
             self._sigma_c_cv_min > 0 or self._sigma_c_abs_floor > 0
         ):

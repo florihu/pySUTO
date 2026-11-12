@@ -68,7 +68,7 @@ def _gaussian_chain(rng, n_years, n_nodes, understate=1.0):
         "type":      np.tile([r[1] for r in _NODE_ROWS], n_nodes * n_years),
         "variant":   np.tile([r[2] for r in _NODE_ROWS], n_nodes * n_years),
         "is_hard":   hard,
-        "cone_type": np.tile([r[4] for r in _NODE_ROWS], n_nodes * n_years),
+        "sense":     np.where(np.tile([r[4] for r in _NODE_ROWS], n_nodes * n_years) == "nonneg", "le", "eq"),
         "time":      np.repeat(years, n_r),
     })
     opt, cols_by_t = {}, {}
@@ -179,7 +179,8 @@ def _birge_stub(diagnostics):
         G=sp.csr_matrix(np.eye(4, 3)),
         row_meta=pd.DataFrame({"type": ["massbal", "sum", "ratio", "ratio"],
                                "variant": ["massbal", "supplytotout", "conc", "band"],
-                               "cone_type": ["zero", "free", "free", "nonneg"],
+                               "is_hard": [True, False, False, True],
+                               "sense": ["eq", "eq", "eq", "le"],
                                "time": "2020"}),
         a0=np.array([10.0, 5.0, 2.0]), sigma_a=np.array([2.0, 1.0, 4.0]),
         l=np.zeros(3), u=np.full(3, 100.0),
@@ -277,7 +278,7 @@ def _pin_stats(a_prior, tmp_path, monkeypatch):
     rm = pd.DataFrame({
         "constraint_id": [f"r{i}" for i in range(len(_PIN_ROWS))],
         "type": [r[1] for r in _PIN_ROWS], "variant": [r[2] for r in _PIN_ROWS],
-        "is_hard": [r[3] for r in _PIN_ROWS], "cone_type": [r[4] for r in _PIN_ROWS],
+        "is_hard": [r[3] for r in _PIN_ROWS], "sense": ["le" if r[4] == "nonneg" else "eq" for r in _PIN_ROWS],
         "time": "2020",
     })
     cr = ConstraintRun(
@@ -329,7 +330,7 @@ def _interval_stub(conditioning=None):
     cr = SimpleNamespace(
         G=G, G_blocks={"2020": G},
         row_meta=pd.DataFrame({"type": ["bound", "bound"], "variant": ["lower", "lower"],
-                               "cone_type": ["nonneg", "nonneg"], "time": "2020"}),
+                               "sense": ["le", "le"], "time": "2020"}),
         a0=a.copy(), sigma_a=np.full(3, 2.0), l=np.zeros(3), u=np.full(3, 100.0),
         timestep_data={"2020": {"c": np.array([-2.0, 0.0]), "sigma_c": np.zeros(2)}},
     )
@@ -399,7 +400,7 @@ def _ablation_run():
     rm = pd.DataFrame({
         "constraint_id": [f"r{i}" for i in range(len(_ABL_ROWS))],
         "type": [r[1] for r in _ABL_ROWS], "variant": [r[2] for r in _ABL_ROWS],
-        "is_hard": [r[3] for r in _ABL_ROWS], "cone_type": [r[4] for r in _ABL_ROWS],
+        "is_hard": [r[3] for r in _ABL_ROWS], "sense": ["le" if r[4] == "nonneg" else "eq" for r in _ABL_ROWS],
         "time": "2020",
     })
     cr = ConstraintRun(

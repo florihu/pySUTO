@@ -134,13 +134,15 @@ class ConstraintRunRegistry(BaseOutputRegistry):
 
     def load(self, run_id: str) -> "ConstraintRun":
         from pysuto.constraints import ConstraintRun   # lazy: break cycle
+        from pysuto.constraints.naming import upgrade_legacy_row_meta   # lazy: same cycle
         if run_id not in self._index:
             raise KeyError(f"Run '{run_id}' not in registry")
         run_dir = os.path.join(self.storage_dir, run_id)
         ts_dir  = os.path.join(run_dir, "timesteps")
 
         G        = sp.load_npz(os.path.join(run_dir, "G.npz"))
-        row_meta = pd.read_parquet(os.path.join(run_dir, "row_meta.parquet"))
+        row_meta = upgrade_legacy_row_meta(      # pre-#11 runs persist cone_type
+            pd.read_parquet(os.path.join(run_dir, "row_meta.parquet")))
         a0       = np.load(os.path.join(run_dir, "a0.npy"))
         sigma_a  = np.load(os.path.join(run_dir, "sigma_a.npy"))
         u        = np.load(os.path.join(run_dir, "u.npy"))

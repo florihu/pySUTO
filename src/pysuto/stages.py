@@ -301,6 +301,6 @@ def run_const(case: CaseSpec, imp_run_id: str, label: str,
     _log.info("G shape: %s  (rows × edges)", constraint_run.G.shape)
     _log.info("Constraint type breakdown:\n%s",
               constraint_run.row_meta["type"].value_counts().to_string())
-    _log.info("Cone type breakdown:\n%s",
-              constraint_run.row_meta["cone_type"].value_counts().to_string())
+    _log.info("Sense breakdown:\n%s",
+              constraint_run.row_meta["sense"].value_counts().to_string())
     return constraint_run.run_id

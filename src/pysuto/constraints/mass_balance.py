@@ -112,7 +112,7 @@ class MassBalanceBuilder(BaseConstraintBuilder):
                         "type":          TYPE_MASSBAL,
                         "variant":       "massbal",
                         "is_hard":       True,
-                        "cone_type":     "zero",
+                        "sense":         "eq",
                         "time":          str(time),
                         "valuation":     valuation,
                         "sector":        sector,

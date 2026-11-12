@@ -26,10 +26,10 @@ class CRStub:
         [0, 0, 1, 0],   # sumB   (1996)
     ], dtype=float))
     row_meta = pd.DataFrame([
-        {"constraint_id": "sumA",   "type": "sum",     "variant": "anchor",   "cone_type": "free",   "time": "1995", "valuation": "Mass"},
-        {"constraint_id": "ratioA", "type": "ratio",   "variant": "ratioeq",  "cone_type": "free",   "time": "1995"},                       # no valuation
-        {"constraint_id": "mbA",    "type": "massbal", "variant": "massbal",  "cone_type": "zero",   "time": "1995", "valuation": "Mass"},   # hard
-        {"constraint_id": "sumB",   "type": "sum",     "variant": "anchor",   "cone_type": "free",   "time": "1996", "valuation": "Mass"},   # year
+        {"constraint_id": "sumA",   "type": "sum",     "variant": "anchor",   "sense": "eq", "is_hard": False,   "time": "1995", "valuation": "Mass"},
+        {"constraint_id": "ratioA", "type": "ratio",   "variant": "ratioeq",  "sense": "eq", "is_hard": False,   "time": "1995"},                       # no valuation
+        {"constraint_id": "mbA",    "type": "massbal", "variant": "massbal",  "sense": "eq", "is_hard": True,   "time": "1995", "valuation": "Mass"},   # hard
+        {"constraint_id": "sumB",   "type": "sum",     "variant": "anchor",   "sense": "eq", "is_hard": False,   "time": "1996", "valuation": "Mass"},   # year
     ])
     timestep_data = {
         "1995": {"c": np.array([12, 0, 10, 99], dtype=float),
@@ -44,7 +44,7 @@ def diag():
     return ConstStatsDiagnostic(CRStub(), years=("1995",))
 
 
-_COLS = ["constraint_id", "type", "variant", "cone_type", "valuation",
+_COLS = ["constraint_id", "type", "variant", "sense", "is_hard", "valuation",
          "c", "lhs_prior", "residual", "residual_abs", "sigma_c", "z", "z_abs"]
 
 
@@ -64,7 +64,7 @@ def test_prior_residual_is_g_a0_minus_c(diag):
     assert s["residual"] == pytest.approx(3.0)    # 15 - 12
     assert s["residual_abs"] == pytest.approx(3.0)
     assert s["z"] == pytest.approx(0.5)           # 3 / 6
-    assert s["valuation"] == "Mass" and s["cone_type"] == "free"
+    assert s["valuation"] == "Mass" and s["sense"] == "eq" and not s["is_hard"]
 
 
 def test_hard_row_z_nan(diag):

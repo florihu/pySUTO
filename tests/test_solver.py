@@ -47,7 +47,7 @@ def _make_toy_run(run_id: str = "toy_run"):
     row_meta = pd.DataFrame({
         "constraint_id": ["balance", "obs_a0", "ratio_bound"],
         "is_hard":       [True, False, True],
-        "cone_type":     ["zero", "free", "nonneg"],
+        "sense":     ["eq", "eq", "le"],
     })
     return ConstraintRun(
         G              = G,
@@ -77,7 +77,7 @@ def _make_infeasible_run(run_id: str = "bad_run"):
     row_meta = pd.DataFrame({
         "constraint_id": ["bad_bound"],
         "is_hard":       [True],
-        "cone_type":     ["nonneg"],
+        "sense":     ["le"],
     })
     return ConstraintRun(
         G             = G,
@@ -147,11 +147,12 @@ class TestSolveAll:
             assert (r.F_opt <= toy_run.u + 1e-6).all()
 
     def test_hard_residuals_satisfied(self, toy_solver, toy_run):
-        """Zero-cone rows: residual ~= 0; nonneg-cone rows: residual <= 0."""
+        """Hard equality rows: residual ~= 0; ``le`` rows: residual <= 0."""
         results = toy_solver.solve_all("toy_run")
-        ct = toy_run.row_meta["cone_type"].to_numpy()
-        zero_idx   = np.where(ct == "zero")[0]
-        nonneg_idx = np.where(ct == "nonneg")[0]
+        sense = toy_run.row_meta["sense"].to_numpy()
+        hard  = toy_run.row_meta["is_hard"].to_numpy().astype(bool)
+        zero_idx   = np.where(hard & (sense == "eq"))[0]
+        nonneg_idx = np.where(hard & (sense == "le"))[0]
         for t, r in results.items():
             assert np.allclose(r.residuals[zero_idx], 0.0, atol=1e-6), \
                 (t, r.residuals[zero_idx])
@@ -410,7 +411,7 @@ class TestLowerBoundsEnforced:
         assert F[0] == pytest.approx(F[1], rel=1e-6)         # a = b once w is 0
         bound = (cr.row_meta["type"] == "bound").to_numpy()
         assert bound.sum() == 3
-        assert (cr.row_meta.loc[bound, "cone_type"] == "nonneg").all()
+        assert (cr.row_meta.loc[bound, "sense"] == "le").all()
 
 
 class TestEngineToSolverIntegration:
@@ -921,22 +922,23 @@ class TestParallelSolve:
 # QP variables (#33): the flows or their defects
 # ---------------------------------------------------------------------------
 
-def _block_run(G_t, cone_type, period_data, run_id="qp_toy"):
-    """A block-path ConstraintRun whose periods share the block ``G_t`` (row cones
-    ``cone_type``). ``period_data`` maps each period to its ``(c, sigma_c, a_prior,
+def _block_run(G_t, kinds, period_data, run_id="qp_toy"):
+    """A block-path ConstraintRun whose periods share the block ``G_t``. ``kinds``
+    gives each row's kind: "free" (soft eq), "zero" (hard eq) or "nonneg" (hard le).
+    ``period_data`` maps each period to its ``(c, sigma_c, a_prior,
     sigma_a)`` over the block's rows and edges. Single-entry ``−1`` rows are typed
-    ``bound``, the other nonneg rows ``ratio``, the free rows ``sum``."""
+    ``bound``, the other ``le`` rows ``ratio``, the soft rows ``sum``."""
     from pysuto.constraints import ConstraintRun
     m, n = G_t.shape
     periods = list(period_data)
-    cone_type = np.asarray(cone_type)
+    kinds = np.asarray(kinds)
     is_bound = (G_t.getnnz(axis=1) == 1) & (np.asarray(G_t.sum(axis=1)).ravel() == -1.0)
-    row_type = np.where(cone_type == "free", "sum", np.where(is_bound, "bound", "ratio"))
+    row_type = np.where(kinds == "free", "sum", np.where(is_bound, "bound", "ratio"))
     row_meta = pd.concat([pd.DataFrame({
         "constraint_id": [f"r{i}_{t}" for i in range(m)],
         "type":          row_type,
-        "is_hard":       cone_type != "free",
-        "cone_type":     cone_type,
+        "is_hard":       kinds != "free",
+        "sense":         np.where(kinds == "nonneg", "le", "eq"),
         "time":          t,
     }) for t in periods], ignore_index=True)
     timestep_data = {}
@@ -984,7 +986,7 @@ def _make_wide_sigma_run(periods=("2020",), seed=33):
         [-0.55,  0.0,  1.0,  0.0,  0.0],
         -np.eye(5),
     ]))
-    cone_type = ["zero", "free", "free", "nonneg"] + ["nonneg"] * 5
+    kinds = ["zero", "free", "free", "nonneg"] + ["nonneg"] * 5
     c         = np.array([0.0, 110.0, 105.0, 0.0] + [0.0] * 5)
     sigma_c   = np.array([0.0, 5.0, 3.0, 0.0] + [0.0] * 5)
     a_prior   = np.array([100.0, 40.0, 80.0, -20.0, 0.002])
@@ -995,7 +997,7 @@ def _make_wide_sigma_run(periods=("2020",), seed=33):
         scale_c[1:3] = rng.uniform(0.9, 1.1, 2) if k else 1.0
         scale_a = rng.uniform(0.9, 1.1, 5) if k else np.ones(5)
         period_data[t] = (c * scale_c, sigma_c, a_prior * scale_a, sigma_a)
-    return _block_run(G_t, cone_type, period_data)
+    return _block_run(G_t, kinds, period_data)
 
 
 class TestQpVariables:
@@ -1018,7 +1020,7 @@ class TestQpVariables:
         rows = np.where(run.row_meta["time"].to_numpy() == t)[0]
         cols = run.edge_cols_by_t[t]
         r    = run.G_blocks[t] @ F - run.timestep_data[t]["c"][rows]
-        free = run.row_meta["cone_type"].to_numpy()[rows] == "free"
+        free = ~run.row_meta["is_hard"].to_numpy().astype(bool)[rows]
         sc   = run.timestep_data[t]["sigma_c"][rows]
         return (float((((F - run.a0[cols]) / run.sigma_a[cols]) ** 2).sum())
                 + float(((r[free] / sc[free]) ** 2).sum()))
@@ -1188,7 +1190,7 @@ class TestPreFixBlockRunGuard:
         G = sp.csr_matrix(np.eye(2))
         rm = pd.DataFrame({
             "constraint_id": ["a", "b"], "is_hard": [True, True],
-            "cone_type": ["zero", "zero"], "time": ["2020", "2021"],
+            "sense": ["eq", "eq"], "time": ["2020", "2021"],
         })
         return ConstraintRun(
             G=G, row_meta=rm, a0=np.zeros(2), sigma_a=np.ones(2),
@@ -1322,3 +1324,53 @@ class TestFeasibilityCheck:
             "toy_run", feasibility_check_first_only=False,
         )
         assert set(results.keys()) == {"2020", "2021"}
+
+
+# ---------------------------------------------------------------------------
+# Row realisation (#11): (sense, is_hard) → layout → Clarabel cones
+# ---------------------------------------------------------------------------
+
+class TestRowLayout:
+    """One test per cell of the {sense} × {is_hard} table, plus the cone binding."""
+
+    def test_soft_eq_is_a_slack_row_first(self):
+        from pysuto.solver import row_layout
+        lay = row_layout(["eq"], [False])
+        assert (lay.n_slack, lay.n_eq, lay.n_le) == (1, 0, 0)
+
+    def test_hard_eq_is_an_equality_row(self):
+        from pysuto.solver import row_layout
+        lay = row_layout(["eq"], [True])
+        assert (lay.n_slack, lay.n_eq, lay.n_le) == (0, 1, 0)
+
+    def test_hard_le_is_an_inequality_row(self):
+        from pysuto.solver import row_layout
+        lay = row_layout(["le"], [True])
+        assert (lay.n_slack, lay.n_eq, lay.n_le) == (0, 0, 1)
+
+    def test_soft_le_is_not_implemented(self):
+        from pysuto.solver import row_layout
+        with pytest.raises(NotImplementedError, match="soft inequality"):
+            row_layout(["eq", "le"], [True, False])
+
+    def test_unknown_sense_raises(self):
+        from pysuto.solver import row_layout
+        with pytest.raises(ValueError, match="unknown row sense"):
+            row_layout(["eq", "ge"], [True, True])
+
+    def test_perm_orders_soft_then_hard_eq_then_le_keeping_original_order(self):
+        from pysuto.solver import row_layout
+        sense   = ["le", "eq", "eq", "le", "eq", "eq"]
+        is_hard = [True, True, False, True, False, True]
+        lay = row_layout(sense, is_hard)
+        np.testing.assert_array_equal(lay.perm, [2, 4, 1, 5, 0, 3])
+        assert (lay.n_slack, lay.n_eq, lay.n_le) == (2, 2, 2)
+
+    def test_cones_are_zero_zero_nonneg_and_empty_groups_are_skipped(self):
+        import clarabel
+        from pysuto.solver import clarabel_cones, row_layout
+        cones = clarabel_cones(row_layout(["eq", "eq", "le"], [False, True, True]))
+        assert [type(c) for c in cones] == [clarabel.ZeroConeT, clarabel.ZeroConeT,
+                                            clarabel.NonnegativeConeT]
+        only_le = clarabel_cones(row_layout(["le", "le"], [True, True]))
+        assert [type(c) for c in only_le] == [clarabel.NonnegativeConeT]

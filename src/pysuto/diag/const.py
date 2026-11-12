@@ -15,6 +15,7 @@ from typing import Any, Optional
 import numpy as np
 import pandas as pd
 
+from ..constraints.naming import soft_row_mask, upgrade_legacy_row_meta
 from ._plot import _C, _grouped_box_grid, _savefig
 
 
@@ -35,9 +36,9 @@ class ConstDiagnostic:
                                (soft constraints only)
         [0,1]  σ_c by year   — overlapping log₁₀ histograms, light→dark per timestep
                                (soft constraints only)
-        [1,0]  |ε₀| by cone  — log₁₀ histogram of |c − G·a₀|, coloured by cone_type
+        [1,0]  |ε₀| by row kind — log₁₀ histogram of |c − G·a₀|, coloured by row kind
                                (reference: first timestep)
-        [1,1]  |ε₀| vs |c|   — log-log scatter, coloured by cone_type
+        [1,1]  |ε₀| vs |c|   — log-log scatter, coloured by row kind
                                (reference: first timestep)
 
     Parameters
@@ -49,11 +50,11 @@ class ConstDiagnostic:
         Optional label for figure titles and summary output.
     """
 
-    # cone_type → display colour
-    _CONE_COLORS = {
-        "zero":   _C["navy"],
-        "nonneg": _C["orange"],
-        "free":   _C["green"],
+    # row kind (hard eq / hard le / soft eq) → display colour
+    _KIND_COLORS = {
+        "hard eq": _C["navy"],
+        "hard le": _C["orange"],
+        "soft eq": _C["green"],
     }
 
     # constraint family (type) → bar colour
@@ -89,7 +90,8 @@ class ConstDiagnostic:
         run_dir = run_dir.rstrip("/\\")
 
         G        = _sp.load_npz(os.path.join(run_dir, "G.npz"))
-        row_meta = pd.read_parquet(os.path.join(run_dir, "row_meta.parquet"))
+        row_meta = upgrade_legacy_row_meta(      # pre-#11 runs persist cone_type
+            pd.read_parquet(os.path.join(run_dir, "row_meta.parquet")))
         a0       = np.load(os.path.join(run_dir, "a0.npy"))
         sigma_a  = np.load(os.path.join(run_dir, "sigma_a.npy"))
 
@@ -180,7 +182,7 @@ class ConstDiagnostic:
             abs_e = np.abs(eps0)
             finite_e = abs_e[np.isfinite(abs_e)]
             if len(finite_e):
-                soft_mask = rm["cone_type"].values == "free" if len(rm) else np.array([], bool)
+                soft_mask = soft_row_mask(rm) if len(rm) else np.array([], bool)
                 soft_e    = np.abs(eps0[soft_mask]) if soft_mask.any() else np.array([])
                 soft_mean = soft_e[np.isfinite(soft_e)].mean() if len(soft_e) else float("nan")
                 lines += [
@@ -372,7 +374,7 @@ class ConstDiagnostic:
     # ------------------------------------------------------------------
 
     def _soft_mask(self) -> np.ndarray:
-        return self.cr.row_meta["cone_type"].values == "free"
+        return soft_row_mask(self.cr.row_meta)
 
     def _year_row_mask(self) -> np.ndarray:
         """Boolean row mask for constraints whose time matches the focus year."""
@@ -521,12 +523,18 @@ class ConstDiagnostic:
         if eps0 is None:
             ax.text(0.5, 0.5, "No timestep data", ha="center", va="center",
                     transform=ax.transAxes)
-            ax.set_title("|ε₀| by cone type", fontweight="bold")
+            ax.set_title("|ε₀| by row kind", fontweight="bold")
             return
 
         rm = self.cr.row_meta
-        for cone_type, color in self._CONE_COLORS.items():
-            mask = rm["cone_type"].values == cone_type
+        hard = rm["is_hard"].to_numpy().astype(bool)
+        kind_masks = {
+            "hard eq": (rm["sense"].to_numpy() == "eq") & hard,
+            "hard le": (rm["sense"].to_numpy() == "le") & hard,
+            "soft eq": soft_row_mask(rm),
+        }
+        for kind, color in self._KIND_COLORS.items():
+            mask = kind_masks[kind]
             if not mask.any():
                 continue
             vals = np.abs(eps0[mask])
@@ -535,9 +543,9 @@ class ConstDiagnostic:
                 continue
             ax.hist(np.log10(vals), bins=40, alpha=0.6, color=color,
                     histtype="stepfilled", edgecolor="none",
-                    label=cone_type, density=True)
+                    label=kind, density=True)
 
-        ax.set_title(f"|ε₀| = |c − G·a₀| by cone type  (t={t0})", fontweight="bold")
+        ax.set_title(f"|ε₀| = |c − G·a₀| by row kind  (t={t0})", fontweight="bold")
         ax.set_xlabel("log₁₀(|ε₀|)")
         ax.set_ylabel("density")
         handles, _labels = ax.get_legend_handles_labels()

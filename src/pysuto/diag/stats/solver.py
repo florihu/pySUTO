@@ -61,11 +61,11 @@ _ROW_EXTRA_COLS = ("is_hard", "sector", "region", "entity", "entity_sub",
                    "denom_region_to", "denom_valuation")
 # A row's cross-year identity is the tuple of EVERY row_meta column except the
 # display key and the year (read from columns, never parsed from constraint_id
-# — GLOSSARY.md §"Constraint identity vocabulary"). cone_type / bound_dir are
+# — GLOSSARY.md §"Constraint identity vocabulary"). sense / bound_dir are
 # part of it: a pair's soft row and its two hard band rows are three identities.
 _ROW_NON_IDENTITY_COLS = ("constraint_id", "time")
-_ROW_CATEGORY_COLS = ("type", "variant", "cone_type", "valuation") + _ROW_EXTRA_COLS
-_CONST_CSV_COLS = ["constraint_id", "type", "variant", "cone_type", "valuation",
+_ROW_CATEGORY_COLS = ("type", "variant", "sense", "valuation") + _ROW_EXTRA_COLS
+_CONST_CSV_COLS = ["constraint_id", "type", "variant", "sense", "is_hard", "valuation",
                    "c", "lhs_prior", "lhs_post", "residual", "residual_abs",
                    "sigma_c", "z", "z_abs"]
 
@@ -370,7 +370,7 @@ class SolverStatsDiagnostic:
                                     self._lhs_prior_full(), year, lhs_post=res.c_star)
         mask = (cf["year"] == str(year)).to_numpy()
         out = cf.loc[mask, _CONST_CSV_COLS].reset_index(drop=True)
-        for col in ("type", "variant", "cone_type", "valuation"):
+        for col in ("type", "variant", "sense", "valuation"):
             if str(out[col].dtype) == "category":
                 out[col] = out[col].astype(object).where(out[col].notna(), np.nan)
         return out
