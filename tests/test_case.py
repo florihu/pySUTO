@@ -151,8 +151,8 @@ class TestCopperCase:
         assert sorted(CASE.imp.CASCADE_ORDER) == sorted(CASE.imp.cascade_ids)
 
     def test_a_cascade_records_its_order_and_pass_cap(self):
-        c = Cascade(imputers={"a": 1}, order=("a",), max_iter=10)
-        assert (c.order, c.max_iter) == (("a",), 10)
+        c = Cascade(imputers=[1, 2], max_iter=10)
+        assert (c.imputers, c.max_iter) == ([1, 2], 10)
 
 
 def test_the_library_never_imports_the_cases():

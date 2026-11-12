@@ -116,10 +116,8 @@ class CaseSpec:
 @dataclass(frozen=True)
 class Cascade:
     """The fixpoint group of a Stage 2 cascade (``ImputationEngine.register_cascade``):
-    its imputers by id, the order they run in — a permutation of the ids (#104) —
-    and the cap on its passes."""
-    imputers: Mapping[str, object]
-    order:    tuple
+    its imputers in the order they run and the cap on its passes."""
+    imputers: list
     max_iter: int
 
 
@@ -137,10 +135,8 @@ class CaseContext:
     logger : the driver's logger.
     param_refs : the params entries the run records in ``parents.inputs.params``;
         builders append what they read.
-    time_scope : Stage 2: the time interpolator's edge scope, computed by the driver
-        until #121 moves its selector into the case.
-    scale_total_resolver : Stage 3: the scale totals' σ resolver, built by the driver
-        until #121 moves it into the case.
+    reports : name to DataFrame; the case's screens put their reports here and the
+        Stage 2 driver writes each to ``<run>/diag/<name>.csv``.
     """
     case:       CaseSpec
     acc:        AccountingStructure
@@ -149,5 +145,4 @@ class CaseContext:
     agg_result: AggregationResult
     logger:     logging.Logger
     param_refs: list = field(default_factory=list)
-    time_scope: Optional[object] = None
-    scale_total_resolver: Optional[Callable] = None
+    reports:    dict = field(default_factory=dict)

@@ -1,9 +1,9 @@
 """test_driver_knobs.py — each Stage 2–4 driver's knob surface (#100).
 
-The drivers are imported by path under a private module name (import-safe: their
-``main()`` runs only under ``__main__``) and run as subprocesses for the CLI checks.
-The Stage 2 and 3 knobs are fields of the copper case's sections (#120); Stage 4's are
-its driver's module globals.
+The Stage 2 and 3 knobs are fields of the copper case's sections (#120), read from
+``pysuto.cases.copper``; Stage 4's are its driver's module globals, so that driver is
+imported by path under a private module name (import-safe: its ``main()`` runs only
+under ``__main__``). All three drivers run as subprocesses for the CLI checks.
 """
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from pysuto.cases.copper import CASE, cascade_in_order
 from pysuto.knobs import parse_overrides
 
 REPO    = Path(__file__).resolve().parents[1]
@@ -28,6 +29,7 @@ CASE_STAGES = ("imp", "const")
 
 
 def _load(stage):
+    """Stage 4's driver as a module."""
     script = REPO / "scripts" / DRIVERS[stage][0]
     spec = importlib.util.spec_from_file_location(f"_knobs_driver_{stage}", script)
     mod = importlib.util.module_from_spec(spec)
@@ -36,12 +38,14 @@ def _load(stage):
     return mod
 
 
-def _defaults(stage, mod) -> dict:
-    """Every knob of the stage at its default: the copper case section's fields for
-    Stages 2 and 3, the driver's module globals for Stage 4."""
+def _surface(stage):
+    """``(KNOBS, defaults)`` of the stage: the copper case section's UPPER_CASE fields
+    for Stages 2 and 3, the driver's ``KNOBS`` and module globals for Stage 4."""
     if stage in CASE_STAGES:
-        return getattr(mod.CASE, stage).knobs()
-    return {k: getattr(mod, k) for k in mod.KNOBS}
+        defaults = getattr(CASE, stage).knobs()
+        return tuple(defaults), defaults
+    mod = _load(stage)
+    return tuple(mod.KNOBS), {k: getattr(mod, k) for k in mod.KNOBS}
 
 
 def _run(stage, *extra):
@@ -55,37 +59,36 @@ def _run(stage, *extra):
 class TestDriverKnobs:
 
     def test_every_knob_is_an_upper_case_name_with_a_default(self, stage):
-        mod = _load(stage)
-        defaults = _defaults(stage, mod)
-        assert len(set(mod.KNOBS)) == len(mod.KNOBS)
-        assert set(mod.KNOBS) == set(defaults)
-        for name in mod.KNOBS:
+        knobs, defaults = _surface(stage)
+        assert len(set(knobs)) == len(knobs)
+        assert set(knobs) == set(defaults)
+        for name in knobs:
             assert name.isupper(), name
 
     def test_paths_and_the_acc_id_are_not_knobs(self, stage):
-        mod = _load(stage)
-        assert not [k for k in mod.KNOBS if k.endswith("_DIR") or k == "ACC_ID"]
+        knobs, _ = _surface(stage)
+        assert not [k for k in knobs if k.endswith("_DIR") or k == "ACC_ID"]
 
     def test_every_default_round_trips_through_its_repr(self, stage):
-        mod = _load(stage)
-        ns = _defaults(stage, mod)
-        pairs = [f"{k}={ns[k]!r}" for k in mod.KNOBS]
-        assert parse_overrides(pairs, mod.KNOBS, ns) == {k: ns[k] for k in mod.KNOBS}
+        knobs, ns = _surface(stage)
+        pairs = [f"{k}={ns[k]!r}" for k in knobs]
+        assert parse_overrides(pairs, knobs, ns) == {k: ns[k] for k in knobs}
 
     def test_every_knob_value_can_be_recorded_in_the_sidecar(self, stage):
         """stage_config["overrides"] goes through the registries' JSON encoder."""
         import json
         from pysuto.registry import _NpEncoder
-        mod = _load(stage)
-        ns = _defaults(stage, mod)
-        back = json.loads(json.dumps({k: ns[k] for k in mod.KNOBS}, cls=_NpEncoder))
-        assert set(back) == set(mod.KNOBS)
+        knobs, ns = _surface(stage)
+        back = json.loads(json.dumps({k: ns[k] for k in knobs}, cls=_NpEncoder))
+        assert set(back) == set(knobs)
 
     def test_an_unknown_knob_fails_before_anything_is_loaded(self, stage):
         r = _run(stage, "--set", "NOT_A_KNOB=1")
         assert r.returncode != 0
         assert "NOT_A_KNOB" in r.stderr and "is not a knob" in r.stderr
         assert "Traceback" not in r.stderr
+        knobs, _ = _surface(stage)
+        assert ", ".join(knobs) in r.stderr     # the driver's KNOBS are the section's
 
 
 @pytest.mark.parametrize("stage, flags", [("imp", ["--imp-dir"]),
@@ -112,36 +115,20 @@ def test_a_knob_of_the_wrong_type_fails_before_anything_is_loaded(stage, pair, k
     assert "Traceback" not in r.stderr
 
 
-@pytest.mark.parametrize("stage", CASE_STAGES)
-class TestCaseSpecKnobs:
-    """#120: the Stage 2 and 3 knobs are the copper case section's UPPER_CASE fields;
-    the drivers keep none of them."""
-
-    def test_the_driver_keeps_no_knob_value(self, stage):
-        mod = _load(stage)
-        assert [k for k in mod.KNOBS if hasattr(mod, k)] == []
-
-    def test_the_drivers_knobs_are_the_case_sections(self, stage):
-        mod = _load(stage)
-        assert mod.KNOBS == tuple(getattr(mod.CASE, stage).knobs())
-
-
 class TestCascadeOrder:
     """#104: the Stage 2 cascade order is a knob; it must stay a permutation of the
     five cascade imputers, and the terminal pass (time, share, flat) stays fixed."""
 
     def test_the_default_order_is_todays_cascade(self):
-        mod = _load("imp")
-        assert mod.CASE.imp.CASCADE_ORDER == ("trade", "network", "conc", "ore_grade",
-                                              "eff")
-        assert mod.CASE.imp.cascade_ids == mod.CASE.imp.CASCADE_ORDER
-        assert "CASCADE_ORDER" in mod.KNOBS and "cascade_ids" not in mod.KNOBS
+        assert CASE.imp.CASCADE_ORDER == ("trade", "network", "conc", "ore_grade", "eff")
+        assert CASE.imp.cascade_ids == CASE.imp.CASCADE_ORDER
+        knobs, _ = _surface("imp")
+        assert "CASCADE_ORDER" in knobs and "cascade_ids" not in knobs
 
     def test_the_cascade_is_built_in_the_given_order(self):
-        mod = _load("imp")
-        by_id = {k: object() for k in mod.CASE.imp.CASCADE_ORDER}
+        by_id = {k: object() for k in CASE.imp.CASCADE_ORDER}
         order = ("network", "trade", "eff", "conc", "ore_grade")
-        assert mod.cascade_in_order(by_id, order) == [by_id[k] for k in order]
+        assert cascade_in_order(by_id, order) == [by_id[k] for k in order]
 
     @pytest.mark.parametrize("order", [
         ("trade", "network", "conc", "ore_grade", "time"),        # unknown
@@ -149,9 +136,8 @@ class TestCascadeOrder:
         ("trade", "network", "conc", "ore_grade"),                # missing
     ])
     def test_an_order_that_is_not_a_permutation_is_refused(self, order):
-        mod = _load("imp")
         with pytest.raises(ValueError, match="permutation"):
-            mod.cascade_in_order({k: object() for k in mod.CASE.imp.CASCADE_ORDER}, order)
+            cascade_in_order({k: object() for k in CASE.imp.CASCADE_ORDER}, order)
 
     def test_a_bad_order_fails_on_the_command_line_before_anything_is_loaded(self):
         r = _run("imp", "--set", 'CASCADE_ORDER=("trade","trade","conc","ore_grade","eff")')
@@ -162,9 +148,8 @@ class TestCascadeOrder:
 def test_the_constraint_diagnostics_are_a_knob_on_by_default():
     """#108: a sweep deletes its const runs from the scratch store, so drawing their
     figures is time it switches off."""
-    mod = _load("const")
-    assert mod.CASE.const.DIAG_PLOT is True
-    assert "DIAG_PLOT" in mod.KNOBS
+    assert CASE.const.DIAG_PLOT is True
+    assert "DIAG_PLOT" in _surface("const")[0]
 
 
 def test_the_feasibility_check_knob_replaces_the_bool():

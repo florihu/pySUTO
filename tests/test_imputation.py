@@ -1762,18 +1762,9 @@ class TestFlatPriorImputer:
 
 
 def _load_driver():
-    """The Stage-2 driver script as a module (skip if it cannot import)."""
-    import importlib.util, pathlib
-    repo = pathlib.Path(__file__).resolve().parents[1]
-    mod_path = repo / "scripts" / "collect_aggregate_impute.py"
-    try:
-        spec = importlib.util.spec_from_file_location(
-            "collect_aggregate_impute", mod_path)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-    except ImportError as e:
-        pytest.skip(f"collect_aggregate_impute not importable: {e}")
-    return mod
+    """The copper case module, which holds the Stage-2 model (#121)."""
+    import pysuto.cases.copper as copper
+    return copper
 
 
 class TestCathodeFdSplitRetired:
@@ -1784,13 +1775,17 @@ class TestCathodeFdSplitRetired:
     The driver carries no domestic-use formula, so none can write a stock leg."""
 
     def test_driver_carries_no_domestic_use_formula(self):
-        """Neither the driver nor the copper case, whose cascade it builds (#120)."""
-        import pysuto.cases.copper as copper
-        for mod in (_load_driver(), copper):
-            for name in ("cathode_fu_domestic", "cathode_usc_domestic",
-                         "cathode_mesc_domestic", "CONC_FORMULA_RELATIONS",
-                         "FormulaImputer", "FormulaRelation"):
-                assert not hasattr(mod, name), f"{name} is retired"
+        """Neither the copper case, whose cascade the driver builds, nor the driver."""
+        import pathlib
+        script = (pathlib.Path(__file__).resolve().parents[1] / "scripts"
+                  / "collect_aggregate_impute.py")
+        text = script.read_text(encoding="utf-8")
+        mod = _load_driver()
+        for name in ("cathode_fu_domestic", "cathode_usc_domestic",
+                     "cathode_mesc_domestic", "CONC_FORMULA_RELATIONS",
+                     "FormulaImputer", "FormulaRelation"):
+            assert not hasattr(mod, name), f"{name} is retired"
+            assert name not in text, f"{name} is retired"
 
 
 if __name__ == "__main__":
@@ -1859,17 +1854,17 @@ class TestTimeInterpScopeExcludesStockLegs:
     def test_same_region_scope_drops_stock_legs(self):
         import logging
         mod = _load_driver()
-        scope = mod._time_interp_scope(self._ei(), True, ("MESC", "USC"),
+        scope = mod.time_interp_scope(self._ei(), True, ("MESC", "USC"),
                                        logging.getLogger("test"))
         np.testing.assert_array_equal(scope, [True, False, False, False])
 
     def test_unscoped_time_imputer_still_drops_stock_legs(self):
         import logging
         mod = _load_driver()
-        scope = mod._time_interp_scope(self._ei(), False, ("MESC", "USC"),
+        scope = mod.time_interp_scope(self._ei(), False, ("MESC", "USC"),
                                        logging.getLogger("test"))
         np.testing.assert_array_equal(scope, [True, True, False, False])
-        assert mod._time_interp_scope(self._ei(), False, (),
+        assert mod.time_interp_scope(self._ei(), False, (),
                                       logging.getLogger("test")) is None
 
     def test_stock_leg_is_neither_filled_nor_a_source(self):
@@ -1885,7 +1880,7 @@ class TestTimeInterpScopeExcludesStockLegs:
         )
         from pysuto.param_relation import expand_edge_index
         ei = expand_edge_index(acc.edge_index, acc.node_index)
-        scope = _load_driver()._time_interp_scope(ei, True, ("MESC", "USC"),
+        scope = _load_driver().time_interp_scope(ei, True, ("MESC", "USC"),
                                                   logging.getLogger("test"))
         f     = np.full(6, np.nan)
         sigma = np.full(6, np.nan)

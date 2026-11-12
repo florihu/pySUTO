@@ -21,8 +21,6 @@ import argparse
 import os
 import sys
 
-import numpy as np
-
 # ---------------------------------------------------------------------------
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
@@ -45,34 +43,9 @@ from pysuto.cases.copper import CASE
 from pysuto.config import load_config
 from pysuto.registry import ImputationRunRegistry, stage_lock
 from pysuto.input_registry import InputRegistries
-from pysuto.flow_node_balance import contradicted_flow_nodes
 from pysuto.constraints import ConstraintEngine
 from pysuto.logging import get_logger, add_run_handler
 from pysuto.knobs import add_knob_args, overrides_from_cli, write_run_id
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-def scale_total_cv(feed_share: float, c_abs: float, *, anchor_cv: float,
-                   fabricated_cv: float, feed_share_observed: float,
-                   abs_floor: float) -> float | None:
-    """cv for one scale-total group (ADR 0016 classification, ADR 0025 floor).
-
-    Fabricated groups (feed share below the threshold) keep ``fabricated_cv``.
-    Feed-backed groups get the cv that makes ``cv·|c|`` equal the feeds'
-    reporting-resolution floor on small totals, ``max(anchor_cv, floor/|c|)``,
-    so σ_c = max(anchor_cv·|c|, floor). ``None`` means "use the builder's
-    default cv" (a feed-backed group with |c| = 0 cannot be floored via cv).
-    The four knobs are the case's ANCHOR_CV, FABRICATED_ANCHOR_CV,
-    FEED_SHARE_OBSERVED and SCALE_TOTAL_ABS_FLOOR.
-    """
-    if feed_share < feed_share_observed:
-        return fabricated_cv
-    if c_abs <= 0.0:
-        return None
-    return max(anchor_cv, abs_floor / c_abs)
-
 
 # The knobs a pipeline step may override with --set (#100, pysuto.knobs): the UPPER_CASE
 # fields of the case's Stage 3 section. Paths and the acc id are not knobs.
@@ -157,43 +130,6 @@ def main(imp_run_id: str, label: str, overrides: dict | None = None, *,
         pin_flat_prior_zeros = spec.PIN_FLAT_PRIOR_ZEROS,
     )
 
-    # The scale totals' σ resolver (ADR 0016, 0019, 0025), read by the case's builders.
-    # Provenance-aware σ_c: loosen scale totals whose prior group-sum is
-    # fabricated (feed-backed share of Σ|f_agg| < FEED_SHARE_OBSERVED). Uses
-    # agg_result.coverage — the pre-imputation "did any feed observe this
-    # edge?" flag (GLOSSARY.md §Coverage), so imputations never count.
-    f_agg = agg_result.f_agg
-    _cov  = np.asarray(agg_result.coverage, dtype=bool)
-    _f_agg_signed = np.nan_to_num(np.asarray(f_agg, dtype=float))
-    _absf = np.abs(_f_agg_signed)
-
-    # ADR 0019: the same detection Stage 2 used to σ-inflate the edges.
-    _unclosed, _unclosed_rep = contradicted_flow_nodes(
-        acc, agg_result, sectors=spec.UNCLOSED_SECTORS)
-    _log.info("ADR 0019: %d contradicted %s node-year(s) — anchor action: %s",
-              len(_unclosed), "/".join(spec.UNCLOSED_SECTORS),
-              f"usetotout cv={spec.UNCLOSED_ANCHOR_CV}"
-              if spec.UNCLOSED_ANCHOR_CV is not None else "none (detector only)")
-
-    def _scale_total_cv(key_map, edge_ids):
-        # Contradicted node: the outflow anchor loses authority so the hard
-        # balance can settle at the reliable inflow prior (ADR 0019).
-        if (spec.UNCLOSED_ANCHOR_CV is not None
-                and (key_map.get("sector_from"), key_map.get("region_from"),
-                     key_map.get("time")) in _unclosed):
-            return spec.UNCLOSED_ANCHOR_CV
-        ids = np.asarray(edge_ids, dtype=int)
-        tot = _absf[ids].sum()
-        if tot <= 0.0:
-            return spec.FABRICATED_ANCHOR_CV
-        feed_share = _absf[ids[_cov[ids]]].sum() / tot
-        return scale_total_cv(feed_share, abs(float(_f_agg_signed[ids].sum())),
-                              anchor_cv=spec.ANCHOR_CV,
-                              fabricated_cv=spec.FABRICATED_ANCHOR_CV,
-                              feed_share_observed=spec.FEED_SHARE_OBSERVED,
-                              abs_floor=spec.SCALE_TOTAL_ABS_FLOOR)
-
-    ctx.scale_total_resolver = _scale_total_cv
     for builder in spec.builders(ctx):
         engine.register(builder)
 
