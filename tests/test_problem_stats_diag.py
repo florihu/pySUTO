@@ -141,7 +141,8 @@ def _row_meta():
            ("sum", "supplytotout", False, "free", None),
            ("ratio", "scrapshare_upper", True, "nonneg", "scrap_share"),
            ("massbal", "massbal", True, "zero", None)]          # row 12: 2021
-    rm = pd.DataFrame(fam, columns=["type", "variant", "is_hard", "cone_type", "ratio_kind"])
+    rm = pd.DataFrame(fam, columns=["type", "variant", "is_hard", "kind", "ratio_kind"])
+    rm["sense"] = np.where(rm.pop("kind") == "nonneg", "le", "eq")
     rm["time"] = ["2020"] * 12 + ["2021"]
     return rm
 

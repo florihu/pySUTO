@@ -33,7 +33,7 @@ is mathematically consistent with the ``a*`` the solver returned.
 floor only.
 
 On the block path the posterior is the QP's linearisation at its active set
-(#27): a hard inequality row (``nonneg`` cone) enters ``S(t)`` only where it
+(#27): a hard inequality row (``sense == "le"``) enters ``S(t)`` only where it
 binds at ``a*`` (``G·a* − c ≥ −bind_tol``); a binding ADR 0039 lower bound
 pins its edge (``σ_a² → 0``, ``σ_a* = 0``) instead of adding a row; a binding
 band is an equality; slack rows drop out. Rows left without a live edge and
@@ -85,6 +85,7 @@ from scipy.linalg.lapack import dpstrf
 from scipy.stats import norm
 
 from ._conditioning import condition_prior, condition_sigma_c
+from .constraints.naming import SENSE_EQ, SENSE_LE
 from .logging import get_logger
 from .registry import ConstraintRunRegistry, OptimRunRegistry, UncPropRunRegistry
 from .registry.optim import warn_if_prefix_block_run
@@ -357,18 +358,17 @@ class KalmanUncProp(BaseUncProp):
 
         G = const_run.G.tocsc()
         hard_mask = const_run.row_meta["is_hard"].to_numpy().astype(bool)
-        if (hard_mask & (const_run.row_meta["cone_type"].to_numpy() == "nonneg")).any():
+        if (hard_mask & (const_run.row_meta["sense"].to_numpy() == SENSE_LE)).any():
             logger.warning(
                 "uncprop: the full-G path treats hard inequality rows as binding "
                 "equalities (no active set, #27) — rebuild the ConstraintRun with a "
                 "per-period partition to get the active-set posterior."
             )
         # ``equality_mask`` is the subset of hard rows that are exact
-        # equalities (zero cone). Nonneg-cone hard rows are inequalities
-        # and a non-binding nonneg row has a negative — *feasible* —
-        # ``G·a − c``; only zero-cone rows are valid for an exact-residual
-        # diagnostic.
-        equality_mask = (const_run.row_meta["cone_type"].to_numpy() == "zero")
+        # equalities. Hard ``le`` rows are inequalities and a non-binding
+        # one has a negative — *feasible* — ``G·a − c``; only hard ``eq``
+        # rows are valid for an exact-residual diagnostic.
+        equality_mask = hard_mask & (const_run.row_meta["sense"].to_numpy() == SENSE_EQ)
 
         # 3) Cholesky backend handle. Symbolic factor is analyzed from
         #    S at t₀; per-t refreshes reuse the pattern (CHOLMOD path).
@@ -463,8 +463,8 @@ class KalmanUncProp(BaseUncProp):
 
         rm            = const_run.row_meta
         hard_mask     = rm["is_hard"].to_numpy().astype(bool)
-        cone          = rm["cone_type"].to_numpy()
-        equality_mask = cone == "zero"
+        sense         = rm["sense"].to_numpy()
+        equality_mask = hard_mask & (sense == SENSE_EQ)
         lower_bound   = self._lower_bound_mask(rm)
         left_out      = (self._scale_total_mask(rm) if self.exclude_scale_totals
                          else np.zeros(len(rm), dtype=bool))
@@ -501,7 +501,7 @@ class KalmanUncProp(BaseUncProp):
             )
 
             red = self._reduce_at_active_set(
-                G_t, c_t, sigma_a2_t, hm_t, cone[rows_t], lower_bound[rows_t],
+                G_t, c_t, sigma_a2_t, hm_t, sense[rows_t], lower_bound[rows_t],
                 np.asarray(opt_t.residuals, dtype=float), left_out=left_out[rows_t],
                 force_pinned=None if force_pinned is None else force_pinned[cols_t],
                 force_free=None if force_free is None else force_free[cols_t],
@@ -674,7 +674,7 @@ class KalmanUncProp(BaseUncProp):
         c_t:         np.ndarray,
         sigma_a2_t:  np.ndarray,
         hard:        np.ndarray,
-        cone:        np.ndarray,
+        sense:       np.ndarray,
         lower_bound: np.ndarray,
         resid:       np.ndarray,
         left_out:    np.ndarray,
@@ -693,7 +693,7 @@ class KalmanUncProp(BaseUncProp):
         ``n_forced_free`` count the edges they move.
         """
         G_t     = G_t.tocsr()
-        nonneg  = hard & (cone == "nonneg")
+        nonneg  = hard & (sense == SENSE_LE)
         binding = nonneg & (resid >= -self.bind_tol)
 
         lower = self._lower_bound_values(G_t, c_t, lower_bound)
@@ -708,7 +708,7 @@ class KalmanUncProp(BaseUncProp):
             bound_active &= ~force_free
         live = ~bound_active & (sigma_a2_t > 0.0)
 
-        keep = (hard & (cone == "zero")) | ~hard | (binding & ~lower_bound)
+        keep = (hard & (sense == SENSE_EQ)) | ~hard | (binding & ~lower_bound)
         keep &= np.asarray(abs(G_t) @ live.astype(float)).ravel() > 0.0
         n_left_out = int((keep & left_out).sum())
         keep &= ~left_out

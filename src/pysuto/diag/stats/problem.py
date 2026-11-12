@@ -329,7 +329,10 @@ class ProblemStatsDiagnostic:
         resid   = np.asarray(self._opt.residuals, dtype=float)
         F       = np.asarray(self._opt.F_opt, dtype=float)
 
-        cone = rm["cone_type"].astype(str).to_numpy()
+        # This diagnostic describes the standard-form block, so it labels rows by
+        # the Clarabel cone the solver realises them in (``row_layout`` groups).
+        sense, hard = rm["sense"].astype(str).to_numpy(), rm["is_hard"].to_numpy(dtype=bool)
+        cone = np.where(sense == "le", "nonneg", np.where(hard, "zero", "free"))
         zero, nonneg = cone == "zero", cone == "nonneg"
         flowing = (np.abs(F) > BIND_TOL_KT).astype(np.int64)
         on_flow = (self._pattern() @ flowing) > 0

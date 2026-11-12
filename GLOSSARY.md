@@ -185,9 +185,17 @@ origin of every feed's σ.
 **Hard** ⇔ `σ_c = 0` — exact, lands in the zero or nonneg cone, no slack. **Soft** ⇔
 `σ_c > 0` — carries a slack `ε` in the free cone, penalised by `1/σ_c²` in the objective.
 
+**Sense** (`eq` / `le`):
+The mathematical sense of a `G` row, a `row_meta` column: `eq` (`G·a = c`) or `le` (`G·a ≤ c`;
+`G` pre-flips `ge` bounds, `bound_dir` keeps the original direction). Solver-neutral and
+orthogonal to `is_hard`; the (`le`, soft) cell is unrealised (`NotImplementedError`). _Avoid_:
+"relation" (a different term, below), "cone type".
+
 **Cone** (`zero` / `nonneg` / `free`):
-The Clarabel cone a constraint row lands in — `zero` (hard equality), `nonneg` (hard
-inequality / bound), `free` (soft equality with slack `ε`).
+The Clarabel cone a constraint row lands in, derived inside `pysuto.solver` from (`sense`,
+`is_hard`) and not stored in `row_meta` — `zero` (hard `eq`), `nonneg` (hard `le`), `free` (soft
+`eq`, with slack `ε`). Const runs persisted before #11 stored it as `cone_type`; the loader maps
+it to `sense`.
 
 **Warm start**:
 Seeding the prior `a₀(t)` for a timestep with the previous year's optimum `a*(t−1)`.
@@ -600,7 +608,7 @@ prior-level intake, and a region that substitutes scrap or imported anode escape
 formula cannot see.
 
 **Constraint table (prior/post)** — the harmonised **row-level, all-rows** per-`constraint_id`
-table pair (hard + soft rows; `type` / `cone_type` columns carry the family for filtering):
+table pair (hard + soft rows; `type` / `sense` columns carry the family for filtering):
 `constraints_prior_<year>.csv` at the constraint stage (`ConstStatsDiagnostic`) and
 `constraints_<year>.csv` at the solver stage (`SolverStatsDiagnostic`). **`lhs_prior` = G·a0**
 means the same thing in *both* files; **`lhs_post` = c_star = G·a*** exists only post-solve.
@@ -633,7 +641,7 @@ sidecar as this quantity — it is `½xᵀPx + qᵀx` without the constant term 
 years. For an edge: the **edge template** `(from_id, to_id, valuation)`. For a row: the tuple of
 its `row_meta` columns other than `constraint_id` and `time` — `(variant, sector, region,
 valuation, …)` node-scoped, the `num_*`/`denom_*` endpoints pair-scoped, `(variant, region,
-valuation)` set-scoped, with `cone_type`/`bound_dir` telling a pair's soft row from its two band
+valuation)` set-scoped, with `sense`/`bound_dir` telling a pair's soft row from its two band
 rows. Always read from columns; a row whose columns do not single it out within its year has no
 identity (it still counts in every total). _Avoid_: stripping the year off a `constraint_id` (see
 `constraint_id`: a key for reading, never parsing).

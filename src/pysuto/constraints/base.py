@@ -34,7 +34,7 @@ class ConstraintBlock:
     sigma_c   : (M_k,) per-row uncertainty (0 for hard constraints)
     row_meta  : DataFrame with one row per G row; columns are the canonical
                 :data:`pysuto.constraints.naming.ROW_META_COLS` (constraint_id,
-                type, name, is_hard, cone_type, time, valuation, sector/region,
+                type, name, is_hard, sense, time, valuation, sector/region,
                 and the ratio num_*/denom_* fields), uniform across builders.
     """
     G_rows:   sp.csr_matrix

@@ -108,9 +108,9 @@ def dependent_rows_by_type(diag, sidecar) -> pd.DataFrame:
     cr, f = diag.constraint_run, diag.stats.edge_frame()
     rm = cr.row_meta
     hard = rm["is_hard"].to_numpy().astype(bool)
-    cone = rm["cone_type"].to_numpy()
+    cone = rm["sense"].to_numpy()
     lb = KalmanUncProp._lower_bound_mask(rm)
-    kind = (rm["type"].astype(str) + "/" + rm["cone_type"].astype(str)).to_numpy()
+    kind = (rm["type"].astype(str) + "/" + rm["sense"].astype(str)).to_numpy()
     row_time = rm["time"].astype(str).to_numpy()
     out = []
     for t, res in diag.opt_results.items():
@@ -143,7 +143,7 @@ def lu_vs_qr(diag, sidecar, years=LU_YEARS, block: int = 2000) -> pd.DataFrame:
                             ceiling_factor=cfg["sigma_a_ceiling_factor"])
     rm = cr.row_meta
     hard = rm["is_hard"].to_numpy().astype(bool)
-    cone = rm["cone_type"].to_numpy()
+    cone = rm["sense"].to_numpy()
     lb = KalmanUncProp._lower_bound_mask(rm)
     row_time = rm["time"].astype(str).to_numpy()
     out = []

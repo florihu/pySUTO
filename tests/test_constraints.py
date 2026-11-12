@@ -178,11 +178,11 @@ class TestMassBalanceBuilder:
         assert not any("node4" in str(cid) for cid in row_meta["constraint_id"]), \
             "SB node 4 should not appear in any mass balance row"
 
-    def test_mass_balance_cone_type(self, toy_acc):
-        """All mass balance rows have cone_type='zero' and is_hard=True."""
+    def test_mass_balance_sense(self, toy_acc):
+        """All mass balance rows have sense='eq' and is_hard=True."""
         from pysuto.constraints import MassBalanceBuilder
         block = MassBalanceBuilder().build_static(toy_acc)
-        assert (block.row_meta["cone_type"] == "zero").all()
+        assert (block.row_meta["sense"] == "eq").all()
         assert block.row_meta["is_hard"].all()
 
     def test_mass_balance_mask_excludes_edges(self, toy_acc):
@@ -273,7 +273,7 @@ class TestSumConstraintBuilder:
         assert block.G_rows.shape[0] == 3
         assert (rm["type"] == "sum").all()
         assert (rm["variant"] == "anchor").all()
-        assert (rm["cone_type"] == "free").all()
+        assert (rm["sense"] == "eq").all()
         assert (~rm["is_hard"].astype(bool)).all()
 
         # Each row sums exactly its one masked edge (+1); c and σ match anchor.
@@ -441,13 +441,13 @@ class TestSumConstraintBuilder:
         G = block.G_rows.toarray()
         assert block.sigma_c[0] == pytest.approx(5.0)
 
-    def test_sum_cone_type(self, toy_acc):
-        """All sum constraint rows have cone_type='free' and is_hard=False."""
+    def test_sum_sense(self, toy_acc):
+        """All sum constraint rows have sense='eq' and is_hard=False."""
         from pysuto.constraints import SumConstraintBuilder
         builder = SumConstraintBuilder.from_acc_struct(toy_acc)
         block   = builder.build_static(toy_acc)
         if block.G_rows.shape[0] > 0:
-            assert (block.row_meta["cone_type"] == "free").all()
+            assert (block.row_meta["sense"] == "eq").all()
             assert (~block.row_meta["is_hard"]).all()
 
 
@@ -644,7 +644,7 @@ class TestUnitMixingCheck:
                 "constraint_id": "fake_mixed",
                 "type":          "sum_eq",
                 "is_hard":       False,
-                "cone_type":     "free",
+                "sense":     "eq",
                 "time":          "2020",
                 "valuation":     None,
             }]),
@@ -691,7 +691,7 @@ class TestUnitMixingCheck:
                 "constraint_id": "fakeratio",
                 "type":          "ratio",
                 "is_hard":       False,
-                "cone_type":     "free",
+                "sense":     "eq",
                 "time":          "2020",
                 "valuation":     None,
             }]),
@@ -813,14 +813,14 @@ class TestRatioConstraintBuilder:
         expected = (1.2 - 0.8) / 4.0
         assert block.sigma_c[0] == pytest.approx(expected)
 
-    def test_ratio_cone_type(self, toy_acc, tmp_path):
-        """Ratio constraint rows have cone_type='free' and is_hard=False."""
+    def test_ratio_sense(self, toy_acc, tmp_path):
+        """Ratio constraint rows have sense='eq' and is_hard=False."""
         from pysuto.constraints import RatioConstraintBuilder
         path    = self._write_params_csv(tmp_path)
         builder = RatioConstraintBuilder.from_csv(path, toy_acc)
         block   = builder.build_static(toy_acc)
         if block.G_rows.shape[0] > 0:
-            assert (block.row_meta["cone_type"] == "free").all()
+            assert (block.row_meta["sense"] == "eq").all()
             assert (~block.row_meta["is_hard"]).all()
 
     def _write_agg_csv(self, tmp_path):
@@ -868,7 +868,7 @@ class TestRatioConstraintBuilder:
         # set-scoped row is variant + region + valuation, read from columns)
         assert rm["region"].notna().all()
         assert set(rm["region"]) == {"A", "B"}
-        assert (rm["cone_type"] == "free").all() and (~rm["is_hard"]).all()
+        assert (rm["sense"] == "eq").all() and (~rm["is_hard"]).all()
         assert np.allclose(block.sigma_c, 0.05 / 0.8, rtol=1e-12)   # relative σ_r (#29)
         assert np.all(block.c == 0.0)
         # each row: +1 on the product edge, −0.8 on the pooled input edge
@@ -924,7 +924,7 @@ class TestRatioConstraintBuilder:
             path, toy_acc, sigma_rel_floor=0.02, scale_abs_floor=100.0)
         static = builder.build_static(toy_acc)
         assert static.G_rows.shape[0] == 2                     # region A × 2 years
-        assert (static.row_meta["cone_type"] == "free").all()  # soft, not nonneg
+        assert (static.row_meta["sense"] == "eq").all()  # soft equality, not a bound
 
         tput = 10_000.0
         f = np.zeros(toy_acc.n_edges)
@@ -1061,7 +1061,7 @@ class TestRatioConstraintBuilder:
                 "2.0", "sd", "0.5"])))
         builder = RatioConstraintBuilder.from_csv(path, toy_acc, hard=True)
         static  = builder.build_static(toy_acc)
-        assert (static.row_meta["cone_type"] == "zero").all()
+        assert (static.row_meta["sense"] == "eq").all() and static.row_meta["is_hard"].all()
         assert static.row_meta["is_hard"].all()
         np.testing.assert_array_equal(static.sigma_c, 0.0)
         dyn = builder.build_dynamic(toy_acc, np.ones(toy_acc.n_edges), None, "2020")
@@ -1272,13 +1272,13 @@ class TestRatioBoundBuilder:
             f"Lower row should be -1 on num (col {num_col}), +bl on denom " \
             f"(col {denom_col}); got {lower_row[lower_row != 0]}"
 
-    def test_ratio_bound_cone_type(self, toy_acc, tmp_path):
-        """All ratio bound rows have cone_type='nonneg' and is_hard=True."""
+    def test_ratio_bound_sense(self, toy_acc, tmp_path):
+        """All ratio bound rows have sense='le' and is_hard=True."""
         from pysuto.constraints import RatioBoundBuilder
         path    = self._write_bound_csv(tmp_path)
         builder = RatioBoundBuilder.from_csv(path, toy_acc)
         block   = builder.build_static(toy_acc)
-        assert (block.row_meta["cone_type"] == "nonneg").all()
+        assert (block.row_meta["sense"] == "le").all()
         assert block.row_meta["is_hard"].all()
 
     def test_ratio_bound_sigma_zero(self, toy_acc, tmp_path):
@@ -1510,7 +1510,7 @@ class TestRatioBoundBuilder:
         block = RatioBoundBuilder.from_csv(str(path), toy_acc, kind="scrap_share") \
                                  .build_static(toy_acc)
         assert block.G_rows.shape[0] == 2, "one bucket × (upper, lower)"
-        assert block.row_meta["is_hard"].all() and (block.row_meta["cone_type"] == "nonneg").all()
+        assert block.row_meta["is_hard"].all() and (block.row_meta["sense"] == "le").all()
         G = block.G_rows.toarray()
         num_col, other_cols = 4, [0, 2]
         upper, lower = G[0], G[1]
@@ -1597,7 +1597,7 @@ class TestFlowBoundsBuilder:
         assert not G[:, 4].any()
         np.testing.assert_array_equal(np.delete(G.sum(axis=0), 4), -1.0)
         rm = block.row_meta
-        assert (rm["type"] == "bound").all() and (rm["cone_type"] == "nonneg").all()
+        assert (rm["type"] == "bound").all() and (rm["sense"] == "le").all()
         assert rm["is_hard"].all() and rm["constraint_id"].is_unique
         np.testing.assert_array_equal(block.c, 0.0)
         np.testing.assert_array_equal(block.sigma_c, 0.0)
@@ -1666,7 +1666,7 @@ class TestConstraintEngine:
         engine.register(MassBalanceBuilder())
         run = engine.run(toy_agg_result, timesteps=["2020"], persist=False)
 
-        required = {"constraint_id", "type", "is_hard", "cone_type"}
+        required = {"constraint_id", "type", "is_hard", "sense"}
         assert required.issubset(run.row_meta.columns)
         assert len(run.row_meta) == run.G.shape[0]
 
@@ -1720,7 +1720,7 @@ class TestConstraintEngine:
         assert "ratio"   in run.row_meta["type"].values
         # param_id "mb" becomes the variant; the bound rows are the nonneg cone.
         assert "mb"     in run.row_meta["variant"].values
-        assert "nonneg" in run.row_meta["cone_type"].values
+        assert "le" in run.row_meta["sense"].values
 
 
 # ---------------------------------------------------------------------------
@@ -2006,7 +2006,7 @@ class TestEnginePerTPartition:
         self, toy_acc, toy_agg_result, tmp_path,
     ):
         """Partition stays lossless with a mixed builder set (mass_balance +
-        ratio_eq + ratio_bound). Exercises rows of every cone_type."""
+        ratio_eq + ratio_bound). Exercises rows of every sense."""
         from pysuto.constraints import (
             ConstraintEngine, MassBalanceBuilder,
             RatioConstraintBuilder, RatioBoundBuilder,
@@ -2032,17 +2032,17 @@ class TestEnginePerTPartition:
             assert np.allclose(block_action, legacy_action), \
                 f"Mismatch at t={t} (mixed builders)"
 
-        # Rows of every family/cone survive the partition: massbal (zero),
-        # ratio_eq (free) and ratio_bound (nonneg). The shared param_id is the
-        # variant, so eq vs bound is told apart by cone_type, not variant.
+        # Rows of every family/kind survive the partition: massbal (hard eq),
+        # ratio_eq (soft eq) and ratio_bound (hard le). The shared param_id is the
+        # variant, so eq vs bound is told apart by sense, not variant.
         types_seen = set()
         cones_seen = set()
         for t in cr.G_blocks:
             t_rm = cr.row_meta.loc[times == t]
             types_seen |= set(t_rm["type"].unique())
-            cones_seen |= set(t_rm["cone_type"].unique())
+            cones_seen |= set(zip(t_rm["sense"], t_rm["is_hard"]))
         assert {"massbal", "ratio"} <= types_seen
-        assert {"zero", "free", "nonneg"} <= cones_seen
+        assert {("eq", True), ("eq", False), ("le", True)} <= cones_seen
 
     def test_wildcard_time_csv_sum_is_rejected(self, toy_acc, toy_agg_result, tmp_path):
         """A CSV sum whose time is a wildcard gets time=None and sums edges
@@ -2268,7 +2268,7 @@ class TestSupplyUseScaleTotal:
         assert block.G_rows.shape[0] == 4
         assert (rm["type"] == "sum").all()
         assert (rm["variant"] == "supplytotout").all()
-        assert (rm["cone_type"] == "free").all()
+        assert (rm["sense"] == "eq").all()
         assert (~rm["is_hard"].astype(bool)).all()
         # node identity populated (re-grill: sector filled, symmetric with region)
         assert (rm["sector"] == "Mining").all()
@@ -2483,7 +2483,7 @@ class TestScrapLevelAnchor:
         assert block.G_rows.shape[0] == 4
         assert (rm["type"] == "sum").all()
         assert (rm["variant"] == "smelterscrap").all()
-        assert (rm["cone_type"] == "free").all()
+        assert (rm["sense"] == "eq").all()
         assert (~rm["is_hard"].astype(bool)).all()
         assert (rm["sector"] == "Smelting").all()
         assert set(rm["region"]) == {"A", "B"}

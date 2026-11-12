@@ -751,7 +751,7 @@ def _toy_constraint_run(run_id: str = "const_20260519_000000_aaaa1111"):
         "constraint_id": ["c0", "c1"],
         "type":          ["mass_balance", "ratio"],
         "is_hard":       [True, False],
-        "cone_type":     ["zero", "free"],
+        "sense":         ["eq", "eq"],
     })
     return ConstraintRun(
         G             = G,
@@ -933,3 +933,41 @@ class TestRowPenalizedRoundTrip:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+class TestLegacyConeTypeSchema:
+    """Const runs persisted before #11 carry ``cone_type`` instead of ``sense``."""
+
+    def test_a_run_written_with_cone_type_loads_with_sense(self, tmp_path):
+        import scipy.sparse as sp
+        reg = ConstraintRunRegistry(storage_dir=str(tmp_path / "const"))
+        run = _toy_constraint_run()
+        run.G = sp.csr_matrix(np.array([[1.0, -1.0], [0.0, 1.0], [1.0, 0.0]]))
+        run.row_meta = pd.DataFrame({
+            "constraint_id": ["c0", "c1", "c2"],
+            "type":          ["massbal", "ratio", "ratio"],
+            "is_hard":       [True, False, True],
+            "sense":         ["eq", "eq", "le"],
+        })
+        run.timestep_data = {"2020": {"c": np.zeros(3), "sigma_c": np.ones(3)}}
+        reg.register(run)
+        p = Path(reg.storage_dir) / run.run_id / "row_meta.parquet"
+        old = pd.read_parquet(p)
+        old.insert(old.columns.get_loc("sense"), "cone_type", ["zero", "free", "nonneg"])
+        old.drop(columns="sense").to_parquet(p, index=False)       # the old schema
+        loaded = ConstraintRunRegistry(storage_dir=reg.storage_dir).load(run.run_id)
+        rm = loaded.row_meta
+        assert "cone_type" not in rm.columns
+        assert rm["sense"].tolist() == ["eq", "eq", "le"]
+        assert rm["is_hard"].tolist() == [True, False, True]
+        assert list(rm.columns) == ["constraint_id", "type", "is_hard", "sense"]
+
+    def test_an_unknown_legacy_value_raises(self):
+        from pysuto.constraints.naming import upgrade_legacy_row_meta
+        with pytest.raises(ValueError, match="cone_type"):
+            upgrade_legacy_row_meta(pd.DataFrame({"cone_type": ["zero", "soc"]}))
+
+    def test_a_frame_with_sense_is_returned_unchanged(self):
+        from pysuto.constraints.naming import upgrade_legacy_row_meta
+        rm = pd.DataFrame({"sense": ["eq"], "is_hard": [True]})
+        assert upgrade_legacy_row_meta(rm) is rm

@@ -37,7 +37,7 @@ def _make_toy_2x2(run_id: str = "toy_2x2"):
     row_meta = pd.DataFrame({
         "constraint_id": ["balance"],
         "is_hard":       [True],
-        "cone_type":     ["zero"],
+        "sense":     ["eq"],
     })
     return ConstraintRun(
         G              = G,
@@ -71,7 +71,7 @@ def _make_toy_3edge_2t(run_id: str = "toy_3e"):
     row_meta = pd.DataFrame({
         "constraint_id": ["balance", "obs_a0", "ratio_bound"],
         "is_hard":       [True, False, True],
-        "cone_type":     ["zero", "free", "nonneg"],
+        "sense":     ["eq", "eq", "le"],
     })
     return ConstraintRun(
         G              = G,
@@ -105,7 +105,7 @@ def _compute_block_toy(tmp_path, monkeypatch, **compute_kw):
     row_meta = pd.DataFrame({
         "constraint_id": ["mb_2020", "mb_2021"],
         "is_hard":       [True, True],
-        "cone_type":     ["zero", "zero"],
+        "sense":     ["eq", "eq"],
         "time":          ["2020", "2021"],
     })
     cr = ConstraintRun(
@@ -229,11 +229,11 @@ class TestPsdAndMonotone:
         # Half hard, half soft
         is_hard = np.zeros(m, dtype=bool)
         is_hard[: m // 2] = True
-        cone_type = np.where(is_hard, "zero", "free")
+        sense = np.full(m, "eq")
         row_meta = pd.DataFrame({
             "constraint_id": [f"r{i}" for i in range(m)],
             "is_hard":       is_hard,
-            "cone_type":     cone_type,
+            "sense":         sense,
         })
 
         run = ConstraintRun(
@@ -441,7 +441,7 @@ class TestCIClipping:
         # ≈ σ_a). a* lives mid-range; the CI overshoots both bounds.
         G = sp.csr_matrix(np.array([[1.0]]))
         row_meta = pd.DataFrame({
-            "constraint_id": ["obs"], "is_hard": [False], "cone_type": ["free"],
+            "constraint_id": ["obs"], "is_hard": [False], "sense": ["eq"],
         })
         run = ConstraintRun(
             G=G, row_meta=row_meta,
@@ -546,7 +546,7 @@ class TestLoadFromOptRunId:
         row_meta = pd.DataFrame({
             "constraint_id": ["mb_2020", "ratio_2020", "mb_2021", "ratio_2021"],
             "is_hard":       [True, False, True, False],
-            "cone_type":     ["zero", "free", "zero", "free"],
+            "sense":     ["eq", "eq", "eq", "eq"],
             "time":          ["2020", "2020", "2021", "2021"],
         })
         # Legacy timestep_data: σ_c full-length, non-t rows deactivated.
@@ -765,7 +765,7 @@ def _one_year_result(rows, sigma_a2, a_star, monkeypatch, tmp_path, **compute_kw
     row_meta = pd.DataFrame({
         "constraint_id": [f"r{i}" for i in range(len(rows))],
         "type":      [r[1] for r in rows], "variant": [r[2] for r in rows],
-        "is_hard":   [r[3] for r in rows], "cone_type": [r[4] for r in rows],
+        "is_hard":   [r[3] for r in rows], "sense": ["le" if r[4] == "nonneg" else "eq" for r in rows],
         "time":      "2020",
     })
     a_star = np.asarray(a_star, dtype=float)

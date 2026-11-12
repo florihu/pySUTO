@@ -76,8 +76,9 @@ def family_frame(edge_frame, constraint_frame, family: str, regions=None):
         if family == "sum_rows":
             src = constraint_frame[typ == "sum"]
         else:
-            cone = _s(constraint_frame["cone_type"])
-            src = constraint_frame[(typ == "ratio") & (cone == "free")]
+            sense = _s(constraint_frame["sense"])
+            hard  = constraint_frame["is_hard"].astype(bool).to_numpy()
+            src = constraint_frame[(typ == "ratio") & (sense == "eq") & ~hard]
         src = filter_regions(src, REGION_COLS[family], regions)
         variant = _s(src["variant"]) if "variant" in src.columns else np.full(len(src), "", dtype=str)
         if family == "sum_rows":

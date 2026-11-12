@@ -30,7 +30,7 @@ Groups, after the 2026-10-19 inventories of method/results and SI:
   2  accounting structure: nodes, sectors, pairs, edge counts
   3  Stage 2: feed coverage (``agg_result.npz``) and fills (imputation log)
   4  Stage 3: row families from ``row_meta`` (``type``, ``is_hard``,
-     ``cone_type``, ``variant`` mapped to its parameter table — never a parsed
+     ``sense``, ``variant`` mapped to its parameter table — never a parsed
      ``constraint_id``), zero pins from ``l``/``u``
   5  Stage 4: the all-years edge frame and the soft-row residuals (in memory,
      no per-year CSVs): waste rock, smallest bounded flow, prior constant,
@@ -74,6 +74,7 @@ from scipy.stats import norm
 sys.path.insert(0, "src")
 
 from pysuto.acc import AccountingStructure              # noqa: E402
+from pysuto.constraints.naming import upgrade_legacy_row_meta  # noqa: E402
 from pysuto.diag.stats.sweep import influential, rank_statistic, top_axis  # noqa: E402
 from pysuto.diag.uncprop import UncPropDiag             # noqa: E402
 from pysuto.param_relation import expand_edge_index     # noqa: E402
@@ -476,12 +477,12 @@ def _params(inp: Path, pid: str, version: int) -> pd.DataFrame:
 
 def row_numbers(N: Numbers, rm: pd.DataFrame, P: dict, l: np.ndarray, u: np.ndarray,
                 edges_per_year: int) -> None:
-    """Group 4: row families by type, cone and parameter table."""
+    """Group 4: row families by type, sense and parameter table."""
     table_of = {pid: t for t, p in P.items() for pid in p.param_id}
     var = rm.variant.astype(str)
     typ = rm.type.astype(str)
     hard = rm.is_hard.to_numpy(dtype=bool)
-    cone = rm.cone_type.astype(str)
+    sense = rm.sense.astype(str)
     ratio = (typ == "ratio").to_numpy()
     tab = var.map(table_of)
     unmapped = sorted(set(var[ratio & tab.isna().to_numpy()]))
@@ -507,7 +508,7 @@ def row_numbers(N: Numbers, rm: pd.DataFrame, P: dict, l: np.ndarray, u: np.ndar
           int((typ == "massbal").sum()))
     strip = ratio & (tab == "stripping_ratio").to_numpy()
     N.add("method:L133.n_stripping", "stripping relations (also Table S4)", int(strip.sum()))
-    bands = ratio & hard & (cone == "nonneg").to_numpy()
+    bands = ratio & hard & (sense == "le").to_numpy()
     N.add("method:L133.n_bands", "hard one-sided ratio bands (also L170)", int(bands.sum()))
     N.add("method:L133.n_bounds", "non-negativity rows (also Table S4)",
           int((typ == "bound").sum()))
@@ -1510,9 +1511,10 @@ def main(opt: str, out_json, data_dir: str, base: str, retol: str, numbers: str)
     coverage_numbers(N, proc, ch, ei)
 
     cdir = proc / "const" / ch.const
-    rm = pd.read_parquet(cdir / "row_meta.parquet",
-                         columns=["constraint_id", "type", "variant", "is_hard", "cone_type",
-                                  "time", "sector", "region", "valuation"])
+    # a const run persisted before #11 stores cone_type; the loader maps it to sense
+    rm = upgrade_legacy_row_meta(pd.read_parquet(cdir / "row_meta.parquet"))[
+        ["constraint_id", "type", "variant", "is_hard", "sense",
+         "time", "sector", "region", "valuation"]]
     l, u = np.load(cdir / "l.npy"), np.load(cdir / "u.npy")
     edges_per_year = int(ei.groupby("time").size().max())
     row_numbers(N, rm, P, l, u, edges_per_year)

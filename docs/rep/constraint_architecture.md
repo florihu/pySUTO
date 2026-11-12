@@ -6,7 +6,7 @@ pySUTO needs a constraint engine that produces the inputs for the linear optimis
 - **G** (M × E, time-invariant sparse matrix)
 - **c(t)**, **σ_c(t)** per timestep
 - **u**, **l** bounds vectors
-- **row_meta** audit log (constraint type, hard/soft, cone type per G row)
+- **row_meta** audit log (constraint type, hard/soft, sense `eq`/`le` per G row)
 
 Two architectures were designed and compared. **Architecture A was selected.**
 
@@ -120,7 +120,7 @@ data/proc/const/{run_id}/
 ├── registry.json        ← acc_id, agg_id, params_hash, timestamp
 ├── G.npz                ← sparse (M × E), time-invariant
 ├── row_meta.parquet     ← uniform schema (naming.ROW_META_COLS): constraint_id,
-│                          type ∈ {massbal,sum,ratio}, variant, is_hard, cone_type,
+│                          type ∈ {massbal,sum,ratio}, variant, is_hard, sense,
 │                          time, valuation, sector/region/entity, ratio num_*/denom_*
 ├── a0.npy               ← f_agg at t=0
 ├── sigma_a.npy          ← sigma_agg

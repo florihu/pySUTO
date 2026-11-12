@@ -346,16 +346,19 @@ class SolverDiag:
         Pre-compute masks over row_meta for quick filtering.
 
         Returns dict with int-array indices keyed by the display buckets
-        'mass_balance', 'sum_eq', 'ratio_eq', 'ratio_bound', 'zero', 'free',
-        'nonneg' and a string array 'type_of_row' parallel to row_meta.
+        'mass_balance', 'sum_eq', 'ratio_eq', 'ratio_bound' and a string array
+        'type_of_row' parallel to row_meta.
 
         These buckets are derived from the canonical row_meta family column
-        ``type`` ∈ {massbal, sum, ratio} plus ``cone_type`` (which splits ratio
-        into eq=free vs bound=nonneg). They are *display labels*, not the
-        ``type`` column values.
+        ``type`` ∈ {massbal, sum, ratio} plus ``sense`` / ``is_hard`` (which
+        split ratio into soft eq vs ``le`` bound). They are *display labels*,
+        not the ``type`` column values.
         """
         rm = const_run.row_meta
-        ct = rm["cone_type"].to_numpy() if "cone_type" in rm.columns else np.array([], dtype=str)
+        sense   = rm["sense"].to_numpy() if "sense" in rm.columns else np.array([], dtype=str)
+        is_hard = (rm["is_hard"].to_numpy().astype(bool) if "is_hard" in rm.columns
+                   else np.zeros(len(rm), dtype=bool))
+        soft_eq = (sense == "eq") & ~is_hard
 
         if "type" in rm.columns:
             fam = rm["type"].astype(str).to_numpy()
@@ -363,28 +366,23 @@ class SolverDiag:
             tp[fam == "massbal"] = "mass_balance"
             tp[fam == "sum"]     = "sum_eq"
             ratio_mask = (fam == "ratio")
-            tp[ratio_mask & (ct == "free")]   = "ratio_eq"
-            tp[ratio_mask & (ct == "nonneg")] = "ratio_bound"
+            tp[ratio_mask & soft_eq]        = "ratio_eq"
+            tp[ratio_mask & (sense == "le")] = "ratio_bound"
             tp = tp.astype(str)
         else:
-            # Toy fixtures: synthesise type from (cone_type, is_hard)
-            is_hard = rm["is_hard"].to_numpy() if "is_hard" in rm.columns else np.zeros(len(rm), dtype=bool)
+            # Toy fixtures: synthesise type from (sense, is_hard)
             tp = np.full(len(rm), "unknown", dtype=object)
-            tp[(ct == "zero")   & is_hard] = "mass_balance"
-            tp[(ct == "free")  & ~is_hard] = "sum_eq"
-            tp[(ct == "nonneg") & is_hard] = "ratio_bound"
+            tp[(sense == "eq") & is_hard] = "mass_balance"
+            tp[soft_eq]                   = "sum_eq"
+            tp[(sense == "le") & is_hard] = "ratio_bound"
             tp = tp.astype(str)
 
         return {
             "type_of_row": tp,
-            "cone_of_row": ct,
             "mass_balance": np.where(tp == "mass_balance")[0],
             "sum_eq":       np.where(tp == "sum_eq")[0],
             "ratio_eq":     np.where(tp == "ratio_eq")[0],
             "ratio_bound":  np.where(tp == "ratio_bound")[0],
-            "zero":         np.where(ct == "zero")[0],
-            "free":         np.where(ct == "free")[0],
-            "nonneg":       np.where(ct == "nonneg")[0],
         }
 
     # ------------------------------------------------------------------
