@@ -14,6 +14,12 @@ steps run one after another in one checkout, which the stage lock enforces (#101
     chain = Pipeline(steps=("imp", "const", "opt"), base=base).run(
         {"imp.P_PROP": 1.5, "const.P_PROP": 1.5}, label="p = 1.5")
 
+A chain can also start at Stage 1 and end at Stage 6 (#125): the steps are
+:data:`ALL_STEPS`, ``python -m pysuto run --case <id> --from <stage> --to <stage>`` runs
+them (:mod:`pysuto.__main__`), and a step past ``feed`` reads its upstream from the base
+chain. The ``feed`` step is the case's Stage 1 hook (``CaseSpec.stage1``), run in this
+process; ``uncprop`` and ``psut`` take no knobs.
+
 Override keys are ``<stage>.<KNOB>``, after scikit-learn's ``step__param``. Knobs that
 must share one value across stages are listed in :data:`TIED`.
 
@@ -50,14 +56,16 @@ import scipy
 from scipy.stats import loguniform, qmc, uniform
 
 from pysuto.logging import get_logger
-from pysuto.registry import SweepRunRegistry
+from pysuto.registry import SweepRunRegistry, stage_lock
 
 _log = get_logger("pysuto.pipeline")
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
-# The stages a pipeline can run, in order. A feed step is #109.
-STEPS = ("imp", "const", "opt")
+# The stages a pipeline sweeps by default, in order (a sweep varies imp, const and opt
+# knobs only), and every step a pipeline can run (#125); a copper feed step is #109.
+STEPS     = ("imp", "const", "opt")
+ALL_STEPS = ("feed", "imp", "const", "opt", "uncprop", "psut")
 
 # Knobs that must share one value whenever both stages run (the cross-stage Lp
 # exponent: "P_PROP must match", the copper case's Stage 2 and Stage 3 sections).
@@ -67,11 +75,14 @@ _SCRIPTS = {
     "imp":   "collect_aggregate_impute.py",
     "const": "constraints.py",
     "opt":   "run_solver.py",
+    "uncprop": "uncertainty_propagation.py",
+    "psut":    "psut.py",
 }
 _TAIL_LINES = 40
 # The stage whose run each step reads; a step's driver takes ``--<stage>-dir`` for the
 # directories it reads and writes outside ``data/proc`` (opt runs always land there).
-_UPSTREAM  = {"imp": None, "const": "imp", "opt": "const"}
+_UPSTREAM  = {"imp": None, "const": "imp", "opt": "const", "uncprop": "opt",
+              "psut": "opt"}
 _DIR_STEPS = ("imp", "const")
 
 
@@ -82,6 +93,8 @@ class Chain:
     imp:          Optional[str] = None
     const:        Optional[str] = None
     opt:          Optional[str] = None
+    uncprop:      Optional[str] = None
+    psut:         Optional[str] = None
 
     @classmethod
     def from_opt_run(cls, opt_run_id: str,
@@ -117,15 +130,25 @@ def split_key(key: str) -> tuple[str, str]:
 
 
 class Pipeline:
-    """Run a contiguous slice of :data:`STEPS` as one chain.
+    """Run a contiguous slice of :data:`ALL_STEPS` as one chain.
 
     Parameters
     ----------
-    steps : the stages to run, a contiguous slice of :data:`STEPS`.
+    steps : the stages to run, a contiguous slice of :data:`ALL_STEPS` (default
+        :data:`STEPS`).
     base : the chain the first step's upstream comes from; stages outside ``steps``
-        keep the base chain's runs in the result.
+        keep the base chain's runs in the result. A chain whose first step is ``feed``
+        needs none.
     cwd : the checkout the drivers run in (they resolve ``data/`` and ``logs/``
         relative to it); default the repository holding this module.
+    case : the case id passed to every driver as ``--case``; ``None`` (default) passes
+        none, so the drivers run their own default, copper.
+    data_dir : the data root passed to every driver as ``--data-dir``; ``None`` passes
+        none (the drivers' own ``data``).
+    config : the config passed as ``--config`` to the imp and const steps, the only
+        drivers that read one (the Stage 4-6 drivers take no such flag).
+    stage1 : the case's Stage 1 hook, ``stage1(data_dir) -> {feed_id: feed_run_id}``,
+        which the ``feed`` step calls in this process under the stage lock.
     scripts_dir : where the drivers live; default ``<cwd>/scripts``.
     log_dir : where each step's combined stdout/stderr is written; default
         ``<cwd>/logs/pipeline``.
@@ -137,14 +160,27 @@ class Pipeline:
     def __init__(self, steps: tuple = STEPS, base: Optional[Chain] = None,
                  cwd: Optional[str] = None, scripts_dir: Optional[str] = None,
                  log_dir: Optional[str] = None,
-                 run_dirs: Optional[Mapping[str, str]] = None) -> None:
+                 run_dirs: Optional[Mapping[str, str]] = None,
+                 case: Optional[str] = None, data_dir: Optional[str] = None,
+                 config: Optional[str] = None, stage1=None) -> None:
         steps = tuple(steps)
         if not _is_contiguous_slice(steps):
-            raise ValueError(f"steps {steps} must be a contiguous slice of {STEPS}")
+            raise ValueError(f"steps {steps} must be a contiguous slice of {ALL_STEPS}")
+        if base is None and steps[0] == "feed":
+            base = Chain(feed_run_ids=())
         if base is None:
             raise ValueError("a pipeline needs a base chain for its first step's upstream")
+        if "feed" in steps and stage1 is None:
+            raise ValueError(f"the feed step is the case's Stage 1 hook, and case "
+                             f"{case or 'copper'!r} declares none yet (#109)")
+        if "feed" in steps and data_dir is None:
+            raise ValueError("the feed step writes into a data dir; pass data_dir")
         self.steps       = steps
         self.base        = base
+        self.case        = case
+        self.data_dir    = None if data_dir is None else str(data_dir)
+        self.config      = None if config is None else str(config)
+        self.stage1      = stage1
         self.cwd         = str(cwd or REPO_ROOT)
         self.scripts_dir = str(scripts_dir or os.path.join(self.cwd, "scripts"))
         self.log_dir     = str(log_dir or os.path.join(self.cwd, "logs", "pipeline"))
@@ -163,6 +199,8 @@ class Pipeline:
             if stage not in by_stage:
                 raise KeyError(f"override {key!r}: stage {stage!r} is not among the "
                                f"pipeline's steps {self.steps}")
+            if stage not in STEPS:
+                raise KeyError(f"override {key!r}: the {stage} step takes no knobs")
             by_stage[stage][knob] = value
         for tie in TIED:
             live = [k for k in tie if split_key(k)[0] in self.steps]
@@ -182,9 +220,22 @@ class Pipeline:
         by_stage = self.check_overrides(overrides)
         chain = replace(self.base, **{s: None for s in _after(self.steps)})
         for step in self.steps:
+            if step == "feed":
+                chain = replace(chain, feed_run_ids=self._run_feed())
+                continue
             rid = self.run_step(step, chain, by_stage[step], label)
             chain = replace(chain, **{step: rid})
         return chain
+
+    def _run_feed(self) -> tuple:
+        """The case's Stage 1 hook, in this process under the stage lock (the feed
+        registry has none of its own); returns the feed run ids it registered."""
+        data_dir = os.path.abspath(os.path.join(self.cwd, self.data_dir))
+        os.makedirs(os.path.join(data_dir, "proc"), exist_ok=True)
+        with stage_lock("pipeline_feed", root=os.path.join(data_dir, "proc")):
+            run_ids = self.stage1(data_dir)
+        _log.info("step feed: %s", ", ".join(run_ids.values()))
+        return tuple(run_ids.values())
 
     def run_step(self, step: str, upstream: Chain, knobs: Mapping[str, object],
                  label: str) -> str:
@@ -208,7 +259,9 @@ class Pipeline:
 
     def _command(self, step, upstream, knobs, label, rid_file) -> list:
         cmd = [sys.executable, os.path.join(self.scripts_dir, _SCRIPTS[step])]
-        if step == "imp":
+        if step in ("uncprop", "psut"):
+            cmd += [upstream.opt, "--label", label]
+        elif step == "imp":
             for feed in upstream.feed_run_ids:
                 cmd += ["--feed-id", feed]
             cmd += ["--label", label]
@@ -219,21 +272,27 @@ class Pipeline:
         for stage in (_UPSTREAM[step], step):
             if stage in self.run_dirs:
                 cmd += [f"--{stage}-dir", self.run_dirs[stage]]
+        if self.case is not None:
+            cmd += ["--case", self.case]
+        if self.data_dir is not None:
+            cmd += ["--data-dir", self.data_dir]
+        if self.config is not None and step in _DIR_STEPS:
+            cmd += ["--config", self.config]
         for knob, value in knobs.items():
             cmd += ["--set", f"{knob}={value!r}"]
         return cmd + ["--run-id-file", rid_file]
 
 
 def _after(steps: tuple) -> tuple:
-    """The stages after a contiguous slice of :data:`STEPS`."""
-    return STEPS[STEPS.index(steps[-1]) + 1:]
+    """The stages after a contiguous slice of :data:`ALL_STEPS`."""
+    return ALL_STEPS[ALL_STEPS.index(steps[-1]) + 1:]
 
 
 def _is_contiguous_slice(steps: tuple) -> bool:
-    if not steps or steps[0] not in STEPS:
+    if not steps or steps[0] not in ALL_STEPS:
         return False
-    i = STEPS.index(steps[0])
-    return steps == STEPS[i:i + len(steps)]
+    i = ALL_STEPS.index(steps[0])
+    return steps == ALL_STEPS[i:i + len(steps)]
 
 
 def _tail(path: str, n: int = _TAIL_LINES) -> str:

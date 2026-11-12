@@ -202,6 +202,8 @@ cross-cutting (import nothing from the data layer):
 | 5 — Posterior uncertainty | `uncprop.py` | `OptimRun` + upstream `ConstraintRun` | `UncPropResult`: `σ_a*(t)`, `lower(t)`, `upper(t)` |
 | 6 — PSUT/PIOT builder | `psut.py`, `piot.py`, `diag/psut.py` | `OptimRun` (+ `ConstraintRun` → `acc` through provenance) | `PsutRun`: tidy PSUT, one parquet per period; `PIOT` views and Sankeys derived on demand, never persisted |
 
+**One command runs the chain (#125).** `python -m pysuto run --case <id> [--from <stage>] [--to <stage>] [--data-dir D] [--base <opt_run_id>] [--label L] [--config C]` runs the stage drivers one after another, `--from`/`--to` any of `feed, imp, const, opt, uncprop, psut` (default the whole chain), passing `--case` and `--data-dir` to every step and `--config` to Stages 2–3 only (the only drivers that read one). `--from feed` is the case's Stage 1 hook (`CaseSpec.stage1`): the toy writes its synthetic feeds; copper has none yet, so the command refuses with a pointer to #109. Any later `--from` takes its upstream from `--base <opt_run_id>`, the base chain's parents as `Chain.from_opt_run` resolves them. Run it from the repository root; the toy's six stages take about 25 s under their own labels (`python -m pysuto run --case toy --data-dir /tmp/toy`).
+
 ---
 
 ### Stage 1 — Datafeed
@@ -929,7 +931,7 @@ world.to_piot().sankey("2020").write_html("copper_process_network_2020.html")
 | [case.py](src/pysuto/case.py) | `CaseSpec`, `Section`, `ImpSection`, `ConstSection`, `Cascade`, `CaseContext` | A case as a typed declaration (#120): its acc id, one frozen section per stage and the `driver_knobs` it sets on the Stage 4–6 drivers (#124), whose UPPER_CASE fields are the stage's knobs and whose functions (`imputers`, `builders`, selectors) build over a `CaseContext`; `with_knobs` applies `--set`, `describe` serialises a section into a run's `stage_config["case"]`. |
 | [cases/](src/pysuto/cases/) | `copper.CASE`, `CopperImp`, `CopperConst`, `imputers`, `builders`, `pre_impute`, `post_impute`, `damp_leg_sigma`, `screen_outlier_trade_legs`, `screen_contradicted_nodes`, `time_interp_scope`, `cascade_in_order`, `scale_total_cv`, `scale_total_resolver` | Case instances, at the top of the import direction. `copper.py` holds the copper Stage 2 and 3 model: every knob at its shipped value, the imputer cascade, the constraint builders and the σ algorithms (#121); the Stage 2–6 drivers take `--case <id>` (default `copper`; `pysuto.cases.load_case` finds `pysuto.cases.<id>.CASE`) and parse arguments, take the stage lock and run the stage. |
 | [stages.py](src/pysuto/stages.py) | `run_imp`, `run_const` | The bodies of the Stage 2 and 3 drivers as library functions over a `CaseSpec`, a data dir and the upstream run id (#124); the toy's `run_stage2` / `run_stage3` call them. `pysuto.case.check_case` refuses a run made by another case. |
-| [pipeline.py](src/pysuto/pipeline.py) | `Pipeline`, `Chain`, `StepFailed`, `Axis`, `Sweep`, `STEPS`, `TIED`, `STEP_GB`, `split_key` | Stage drivers composed as subprocess steps; one chain per `run(overrides, label)` with `<stage>.<KNOB>` overrides (#103); random (Latin hypercube) or grid sweeps of chains, resumable, recorded via `SweepRunRegistry` (#105); a sweep may keep only its last step's runs, the others passing through a scratch store (#108). |
+| [pipeline.py](src/pysuto/pipeline.py), [\_\_main\_\_.py](src/pysuto/__main__.py) | `Pipeline`, `Chain`, `StepFailed`, `Axis`, `Sweep`, `STEPS`, `ALL_STEPS`, `TIED`, `STEP_GB`, `split_key` | Stage drivers composed as subprocess steps, Stage 1 (a case's hook) to Stage 6 (`python -m pysuto run`, #125); one chain per `run(overrides, label)` with `<stage>.<KNOB>` overrides (#103); random (Latin hypercube) or grid sweeps of chains, resumable, recorded via `SweepRunRegistry` (#105); a sweep may keep only its last step's runs, the others passing through a scratch store (#108). |
 | [utils.py](src/pysuto/utils.py) | `_NpEncoder`, io helpers | JSON serialisation, numpy-safe dump/load. |
 | [logging.py](src/pysuto/logging.py) | `get_logger`, `add_run_handler` | Structured run logging; one file per run. |
 | [config.py](src/pysuto/config.py) | `load_config`, `Config`, `PipelineConfig` | Typed loader for `config/config.yaml` (`pipeline.acc_id` only). |
@@ -1253,7 +1255,7 @@ chain = Pipeline(steps=("imp", "const", "opt"), base=base).run(
     {"imp.P_PROP": 1.5, "const.P_PROP": 1.5}, label="p = 1.5")  # <stage>.<KNOB> keys
 ```
 
-`steps` is any contiguous slice of `("imp", "const", "opt")`; the first step reads its
+`steps` is any contiguous slice of `ALL_STEPS` (`feed, imp, const, opt, uncprop, psut`; a sweep varies the knobs of `STEPS`, `imp, const, opt`); the first step reads its
 upstream from `base`. Knobs listed in `pipeline.TIED` (the cross-stage `P_PROP`) must be
 set together and to one value. A driver exiting non-zero raises `StepFailed` with the tail
 of its output (`logs/pipeline/<label>_<step>.log`). Every registry-writing driver takes

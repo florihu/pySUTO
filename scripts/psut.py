@@ -24,6 +24,7 @@ Usage::
     python scripts/psut.py <opt_run_id> [--label LABEL] [--primary CC]
                            [--timesteps 2020 2021 ...] [--data-dir data]
                            [--sankey [2020 2024 ...]] [--figs-dir figs/psut] [--no-png]
+                           [--run-id-file PATH]
 """
 
 from __future__ import annotations
@@ -50,6 +51,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from pysuto.case import CaseSpec, check_case
 from pysuto.cases import add_case_arg, case_from_args
 from pysuto.cases.copper import CASE
+from pysuto.knobs import write_run_id
 from pysuto.psut import PSUT
 from pysuto.registry import OptimRunRegistry, PsutRunRegistry, stage_lock
 from pysuto.logging import get_logger, add_run_handler
@@ -150,6 +152,8 @@ if __name__ == "__main__":
                         help=f"Directory for the Sankey HTML/PNG files (default {FIGS_DIR!r}).")
     parser.add_argument("--no-png", action="store_true",
                         help="Skip the static PNG copies (needs kaleido and a browser).")
+    parser.add_argument("--run-id-file", default=None, metavar="PATH",
+                        help="Write the persisted run id to PATH (pysuto.pipeline).")
     args = parser.parse_args()
     case = case_from_args(parser, args)
     try:
@@ -157,5 +161,6 @@ if __name__ == "__main__":
     except (KeyError, TypeError) as exc:
         parser.error(exc.args[0] if exc.args else str(exc))
     with stage_lock("psut", root=os.path.join(args.data_dir, "proc")):   # #101
-        main(args.opt_run_id, args.label, args.primary, args.timesteps, args.data_dir,
-             args.sankey, args.figs_dir, not args.no_png, case)
+        write_run_id(args.run_id_file,
+                     main(args.opt_run_id, args.label, args.primary, args.timesteps,
+                          args.data_dir, args.sankey, args.figs_dir, not args.no_png, case))

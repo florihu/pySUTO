@@ -120,12 +120,17 @@ class CaseSpec:
     ``"opt"`` or ``"psut"``): the case's values of the driver constants that differ
     from the driver's own, which the driver applies before ``--set``. Those drivers
     hold no case policy; an empty mapping leaves them as they are.
+
+    ``stage1`` is the case's Stage 1 hook, ``stage1(data_dir) -> {feed_id: feed_run_id}``,
+    which writes the case's feeds into the feed registry of ``data_dir`` (the ``feed``
+    step of ``python -m pysuto run``); ``None`` is a case with no hook yet (copper, #109).
     """
     id:           str
     acc_id:       str
     imp:          ImpSection
     const:        ConstSection
     driver_knobs: Mapping[str, Mapping[str, object]] = field(default_factory=dict)
+    stage1:       Optional[Callable] = None
 
     def with_knobs(self, stage: str, overrides: Mapping[str, object]) -> "CaseSpec":
         """This case with ``overrides`` replacing knob fields of section ``stage``."""
