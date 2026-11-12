@@ -130,7 +130,7 @@ HS_OF = {"Concentrate": 260300, "Matte": 740110, "Anode": 740200, "Cathode": 740
 # An aggregate region has no warehouse — see the module docstring.
 HUB_EXCLUDE = {"ROW"}
 
-# Mirrors `collect_aggregate_impute.OUTLIER_LEG_K` (reference = production +
+# Mirrors the copper case's Stage 2 `OUTLIER_LEG_K` (reference = production +
 # imports). Kept as its own constant: this is a Stage-1 restatement, and the
 # two are free to diverge if the Stage-2 screen is retuned.
 OUTLIER_K = 3.0

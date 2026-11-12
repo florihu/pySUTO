@@ -220,8 +220,9 @@ chain** is the feed, imp, const and opt runs the manuscript cites.
 _Avoid_: "chaining" (that is plugin order inside an engine); "the run" for a whole lineage.
 
 **Knob**:
-A tuning constant of a stage driver (`P_PROP`, `ANCHOR_CV`, `TOL_GAP_REL`, the cascade order);
-its value is recorded in the run's sidecar. Changing a knob is a measured change.
+A tuning constant of a stage driver (`P_PROP`, `ANCHOR_CV`, `TOL_GAP_REL`, the cascade order):
+an UPPER_CASE field of the case's section for Stages 2 and 3 (#120), a driver constant for
+Stage 4; its value is recorded in the run's sidecar. Changing a knob is a measured change.
 _Avoid_: "hyperparameter"; "parameter" / "param" (those are the `params` input tables);
 "setting", "config".
 
@@ -1282,7 +1283,8 @@ imputers never respected.
 
 **Case** — one metal's complete declaration: an accounting structure (referenced by registry id),
 its feeds, param families, relation sources and cascade, anchor families and σ policies, run by the
-generic stage drivers. The copper case is the first. _Avoid_: "model" (the QP, the PIOT),
+generic stage drivers. Declared as a `CaseSpec` named `CASE` in `pysuto.cases.<id>` (#120); the
+copper case is the first. _Avoid_: "model" (the QP, the PIOT),
 "study" (a REP analysis), "scenario".
 
 **Acc spec** — the declaration of one accounting structure: its sectors (each with an entity),

@@ -74,7 +74,10 @@ def driver_defaults() -> dict:
                                                       os.path.join("scripts", script))
         mod = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(mod)
-        out.update({f"{stage}.{k}": getattr(mod, k) for k in mod.KNOBS})
+        # Stages 2 and 3 read their knobs from the case spec (#120)
+        ns = (getattr(mod.CASE, stage).knobs() if stage in ("imp", "const")
+              else {k: getattr(mod, k) for k in mod.KNOBS})
+        out.update({f"{stage}.{k}": ns[k] for k in mod.KNOBS})
     return out
 
 

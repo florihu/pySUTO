@@ -4,17 +4,21 @@ knobs.py
 The knob surface of a stage driver (#100): the command-line protocol through which a
 pipeline step overrides a driver's tuning constants without importing the driver.
 
-A **knob** is an UPPER_CASE constant of a driver's ``# USER CONFIGURATION`` block that
-the driver lists in its ``KNOBS`` tuple (GLOSSARY.md "Knob"). A driver adds two flags::
+A **knob** is an UPPER_CASE constant that a driver lists in its ``KNOBS`` tuple
+(GLOSSARY.md "Knob"): a constant of the driver's ``# USER CONFIGURATION`` block, or,
+for Stages 2 and 3, an UPPER_CASE field of the case's section (:mod:`pysuto.case`,
+#120). A driver adds two flags::
 
     --set KNOB=VALUE      (repeatable) VALUE is a Python literal, e.g. 1.5, "flows",
                           ("trade", "network"), None
     --run-id-file PATH    the driver writes the run id it persisted to PATH
 
-and, before ``main()`` runs, parses the pairs against its ``KNOBS`` and its module
-globals and applies them. Values are checked, never coerced: the type must be the
-current constant's, with three allowances — an ``int`` for a ``float`` knob, ``None``
-for any knob (the drivers' "off"), and any value for a knob whose default is ``None``.
+and, before ``main()`` runs, parses the pairs against its ``KNOBS`` and their current
+values — its module globals, or its case section's fields, which it then replaces
+(:meth:`pysuto.case.CaseSpec.with_knobs`). Values are checked, never coerced: the type
+must be the current constant's, with three allowances — an ``int`` for a ``float``
+knob, ``None`` for any knob (the drivers' "off"), and any value for a knob whose
+default is ``None``.
 """
 
 from __future__ import annotations
@@ -32,7 +36,8 @@ def parse_overrides(pairs: Iterable[str], knobs: Iterable[str],
     ----------
     pairs : the ``--set`` arguments, in command-line order (a later pair wins).
     knobs : the driver's ``KNOBS`` — the only names that may be overridden.
-    namespace : the driver's module globals, read for each knob's current value.
+    namespace : each knob's current value — the driver's module globals, or its case
+        section's ``knobs()``.
 
     Raises
     ------
