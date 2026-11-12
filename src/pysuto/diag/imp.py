@@ -83,9 +83,6 @@ class ImpDiagnostic:
 
     _TIME_METHODS = {"time_linear", "time_mean"}
 
-    # Valuation panels for the sector/region |f| boxplots (one column each).
-    _BOX_VALUATIONS = ("Mass", "CC")
-
     # method label → palette key used by both boxplots and step coloring.
     _METHOD_COLORS = {
         "covered":                "grey",
@@ -278,8 +275,8 @@ class ImpDiagnostic:
         ei["covered"] = cov.reindex(ei["edge_id"]).to_numpy()
         ei["f"] = np.asarray(agg.f_agg)[ei["edge_id"].to_numpy()]
         ei["sigma"] = np.asarray(agg.sigma_agg)[ei["edge_id"].to_numpy()]
-        mass = ei[ei["valuation"] == "Mass"]
-        cc = ei[ei["valuation"] == "CC"]
+        mass = ei[ei["valuation"] == self.acc_struct.valuation_roles.gross]
+        cc = ei[ei["valuation"] == self.acc_struct.valuation_roles.content]
         pair = mass.merge(cc, on=["from_id", "to_id", "time"],
                           suffixes=("_mass", "_cc"))
         both = pair[pair["covered_mass"] & pair["covered_cc"]]
@@ -758,9 +755,10 @@ class ImpDiagnostic:
                     stack_valuations_as_rows: bool = False):
         """Valuation-panelled boxplot of log₁₀|f_agg| grouped by an edge-meta
         column (e.g. ``from_sector``), restricted to the focus year. The
-        valuations in :pyattr:`_BOX_VALUATIONS` are laid out as columns by
+        valuation panels are laid out as columns by
         default, or stacked as rows when ``stack_valuations_as_rows`` is set
         (used for region plots, whose long labels need the full figure width).
+        The panels are the gross and the content valuation, in that order.
         Categories share a global median-sorted x-order. Returns ``None`` when
         edge metadata or year data is unavailable.
         """
@@ -772,6 +770,7 @@ class ImpDiagnostic:
             return None
         if group_col not in em.columns:
             return None
+        box_vals = (self.acc_struct.valuation_roles.gross, self.acc_struct.valuation_roles.content)
 
         eid = em["edge_id"].to_numpy()
         f   = np.abs(np.asarray(self.agg_result.f_agg, dtype=float))[eid]
@@ -784,7 +783,7 @@ class ImpDiagnostic:
         cells: dict = {}
         has_data = False
         yr_key = str(self.year)
-        for V in self._BOX_VALUATIONS:
+        for V in box_vals:
             m = yr & (val == V) & np.isfinite(f) & (f > 0)
             with np.errstate(divide="ignore", invalid="ignore"):
                 logf = np.log10(f[m])
@@ -796,9 +795,9 @@ class ImpDiagnostic:
             return None
 
         if stack_valuations_as_rows:
-            row_keys, col_keys = list(self._BOX_VALUATIONS), [yr_key]
+            row_keys, col_keys = list(box_vals), [yr_key]
         else:
-            row_keys, col_keys = [yr_key], list(self._BOX_VALUATIONS)
+            row_keys, col_keys = [yr_key], list(box_vals)
 
         label_suffix = f" · {self.label}" if self.label else ""
         return _grouped_box_grid(
@@ -808,7 +807,7 @@ class ImpDiagnostic:
             group_label=title_suffix,
             y_label="log₁₀ |f|",
             suptitle=f"|f| by {title_suffix} — {self.year}{label_suffix}",
-            cell_title=lambda a, b: f"{self.year} · {a if a in self._BOX_VALUATIONS else b}",
+            cell_title=lambda a, b: f"{self.year} · {a if a in box_vals else b}",
         )
 
     def _fig_box_from_sector(self):

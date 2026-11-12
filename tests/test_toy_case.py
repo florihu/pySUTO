@@ -19,7 +19,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pysuto.acc import AccountingStructure, check_built_acc
+from pysuto.acc import ALL_SPEC_KEYS, AccountingStructure, check_built_acc
 from pysuto.cases import toy
 from pysuto.diag import FeedDiagnostics, SankeySpec, TruthDiag, sankey_tables
 from pysuto.registry import (ConstraintRunRegistry, DataFeedRegistry,
@@ -75,7 +75,8 @@ def test_the_acc_spec_builds_through_from_spec_and_survives_a_reload(tmp_path):
     assert int((~acc.masks["massbal_scope"]).sum()) == 3 * 5 * 2   # Mining → WasteRock
     stock = acc.edge_meta["to_sector"].eq("Stock").to_numpy()
     assert np.all(acc.bounds.l[stock] < 0.0) and np.all(acc.bounds.l[~stock] == 0.0)
-    check_built_acc(str(tmp_path), toy.ACC_REF, require_record=True)      # #53's record
+    # #53's record; the same version needs no registry to be compared
+    check_built_acc(str(tmp_path), toy.ACC_REF, None, ALL_SPEC_KEYS, require_record=True)
     loaded = AccountingStructure.load(toy.ACC_ID, storage_dir=str(tmp_path))
     pd.testing.assert_frame_equal(loaded.edge_index, acc.edge_index)
     np.testing.assert_array_equal(loaded.masks["massbal_scope"],

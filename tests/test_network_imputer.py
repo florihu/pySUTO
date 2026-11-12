@@ -33,6 +33,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from pysuto.acc import ValuationRoles
 from pysuto.agg import AggregationResult
 from pysuto.impute import NetworkImputer, derive_process_recipes
 
@@ -103,6 +104,15 @@ class _Bounds:
         self.u = np.full(n, 1e9, dtype=float)
 
 
+# The copper case's binding of its boundary labels (entity_sub) to roles (#119).
+_ROLE_OF_SUB = {"Nature": "nature", "SEM": "secondary", "FD": "final_demand"}
+
+
+def _roles(nodes) -> dict:
+    """``{SB sector: role}`` of a node table whose rows end in ``entity, entity_sub``."""
+    return {row[0]: _ROLE_OF_SUB[row[-1]] for row in nodes if row[1] == "SB"}
+
+
 class MockAcc:
     """Minimal AccountingStructure stand-in for the synthetic chain."""
 
@@ -127,6 +137,8 @@ class MockAcc:
         )
         self.n_edges = len(rows)
         self.bounds = _Bounds(self.n_edges)
+        self.valuation_roles = ValuationRoles(content="CC", gross="Mass")
+        self.boundary_roles = _roles(NODES)
 
         ent = self.node_index["entity"]
         fe = self.edge_index["from_id"].map(ent).to_numpy()
@@ -718,6 +730,9 @@ class _BiAcc:
         )
         self.n_edges = len(rows)
         self.bounds = _Bounds(self.n_edges)
+        self.valuation_roles = ValuationRoles(content="CC", gross="Mass")
+        self.boundary_roles = {s: _ROLE_OF_SUB[sub]
+                               for s, e, _r, sub in _BI_NODES if e == "SB"}
         ent = self.node_index["entity"]
         fe = self.edge_index["from_id"].map(ent).to_numpy()
         te = self.edge_index["to_id"].map(ent).to_numpy()

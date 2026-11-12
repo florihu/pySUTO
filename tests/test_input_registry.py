@@ -452,42 +452,8 @@ def test_current_gets_private_inode_so_in_place_writes_cannot_rewrite_snapshots(
 
 
 # =============================================================================
-# Lineage checks (#53): which files two versions differ in; pins from a sidecar
+# Lineage checks (#53): pins from a sidecar
 # =============================================================================
-
-
-def _acc_versions(root: Path) -> None:
-    """acc ``copper`` v1 → v2 adds a masks.csv, v2 → v3 edits rules.ods."""
-    _acc_id(root, "copper", {"root.ods": b"r", "bounds.ods": b"b", "rules.ods": b"u"})
-    InputRegistry("acc", root=root).initialize()
-    _write(root / "acc" / "copper" / "current" / "masks.csv", "mask_name,logic\n")
-    InputRegistry("acc", root=root).initialize()
-    (root / "acc" / "copper" / "current" / "rules.ods").write_bytes(b"u2")
-    InputRegistry("acc", root=root).initialize()
-
-
-def test_changed_files_names_the_load_bearing_files_two_versions_differ_in(tmp_path: Path) -> None:
-    _acc_versions(tmp_path)
-    reg = InputRegistry("acc", root=tmp_path)
-    assert reg.changed_files("copper", 1, 1) == []
-    assert reg.changed_files("copper", 1, 2) == ["masks.csv"]
-    assert reg.changed_files("copper", 3, 1) == ["masks.csv", "rules.ods"]
-
-
-def test_a_file_one_version_does_not_record_hashes_as_absent(tmp_path: Path) -> None:
-    """copper v1 predates masks.csv in the load-bearing set: its record has no key,
-    which is the empty hash an absent file gets, not a difference."""
-    _acc_versions(tmp_path)
-    reg = InputRegistry("acc", root=tmp_path)
-    del reg._index["copper"]["versions"][0]["hashes"]["masks.csv"]
-    reg._index["copper"]["versions"][1]["hashes"]["masks.csv"] = ""
-    assert reg.changed_files("copper", 1, 2) == []
-
-
-def test_changed_files_of_an_unregistered_version_raises(tmp_path: Path) -> None:
-    _acc_versions(tmp_path)
-    with pytest.raises(KeyError, match="version 9"):
-        InputRegistry("acc", root=tmp_path).changed_files("copper", 1, 9)
 
 
 def test_pins_from_inputs_pins_every_version_a_sidecar_records() -> None:

@@ -213,15 +213,6 @@ class InputRegistry:
     def latest_version(self, id: str) -> int:
         return self._require_entry(id)["versions"][-1]["version"]
 
-    def changed_files(self, id: str, version_a: int, version_b: int) -> list[str]:
-        """The load-bearing files whose recorded hashes differ between two versions
-        of ``id``, sorted. A file a version's record lacks hashes as absent (``""``),
-        as :meth:`initialize` hashes a missing optional file."""
-        self._require_entry(id)
-        a = self._require_version(id, version_a)["hashes"]
-        b = self._require_version(id, version_b)["hashes"]
-        return sorted(f for f in set(a) | set(b) if a.get(f, "") != b.get(f, ""))
-
     def pending(self) -> dict[str, int | None]:
         """Ids whose ``current/`` differs from their latest snapshot, mapped to that
         snapshot's version (``None`` if never registered). Read-only: nothing is
@@ -445,51 +436,6 @@ def input_pins(imp_sidecar: dict, acc_id: str) -> dict[str, dict[str, int]]:
         raise ValueError(f"--pin-inputs-from {run_id}: {run_id} was built on acc "
                          f"{sorted(pins.get('acc', {}))}, this run on {acc_id!r}")
     return pins
-
-
-def check_feed_accs(feed_sidecars: dict, acc_registry: InputRegistry,
-                    acc_entry: dict) -> None:
-    """Check that every feed run was built on Stage 2's acc input entry (#53).
-
-    Parameters
-    ----------
-    feed_sidecars : ``{feed_run_id: sidecar}`` of the selected feed runs.
-    acc_registry : the acc registry, whose per-file hashes tell two versions apart.
-    acc_entry : Stage 2's own acc input entry ``{id, version, ...}``.
-
-    A feed built on another version that differs only in :data:`ACC_MASKS` is
-    logged as a warning; identical versions pass silently.
-
-    Raises
-    ------
-    KeyError
-        A feed sidecar records no ``parents.inputs.acc``.
-    ValueError
-        A feed was built on another acc id, or on a version differing in a file other
-        than :data:`ACC_MASKS`; the message names the feed run, both versions and the
-        files.
-    """
-    own = (acc_entry["id"], acc_entry["version"])
-    for run_id, sidecar in feed_sidecars.items():
-        ref = sidecar.get("parents", {}).get("inputs", {}).get("acc")
-        if not ref:
-            raise KeyError(f"feed run {run_id} records no parents.inputs.acc, so its acc "
-                           f"cannot be checked against {own[0]} v{own[1]}")
-        theirs = (ref["id"], ref["version"])
-        if theirs == own:
-            continue
-        if theirs[0] != own[0]:
-            raise ValueError(f"feed run {run_id} was built on acc {theirs[0]} "
-                             f"v{theirs[1]}, this run uses acc {own[0]} v{own[1]}")
-        changed = acc_registry.changed_files(own[0], theirs[1], own[1])
-        structural = [f for f in changed if f != ACC_MASKS]
-        if structural:
-            raise ValueError(f"feed run {run_id} was built on acc {own[0]} v{theirs[1]}, "
-                             f"this run uses v{own[1]}; they differ in "
-                             f"{', '.join(structural)}: rebuild the feed")
-        _log.warning("feed run %s was built on acc %s v%d, this run uses v%d; they "
-                     "differ only in %s", run_id, own[0], theirs[1], own[1],
-                     ", ".join(changed))
 
 
 # ──────────────────────────────────────────────────────────────────────

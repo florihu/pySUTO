@@ -23,6 +23,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from pysuto.acc import ValuationRoles
+
 # Reuse the MockAcc + helper from test_imputation.py
 from test_imputation import MockAcc, _agg_result  # type: ignore
 
@@ -363,6 +365,7 @@ class _MetaAcc:
         })
         self.n_edges = 6
         self.time_range = ["1995", "1996"]
+        self.valuation_roles = ValuationRoles(content="CC", gross="Mass")
 
     def decode_node(self, nid):
         return ("Mining", "Process", "A")

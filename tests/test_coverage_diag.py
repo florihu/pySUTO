@@ -14,6 +14,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from pysuto.acc import BoundaryRole
 from pysuto.agg import AggregationResult
 from pysuto.diag import CoverageDiagnostic
 from pysuto.impute import ImputationLog
@@ -54,6 +55,8 @@ class CovAcc:
             },
             index=[0, 1, 2, 3, 4, 5, 6],
         )
+        self.boundary_roles = {"FU": BoundaryRole.FINAL_DEMAND, "CO": BoundaryRole.NATURE,
+                      "Scrap": BoundaryRole.SECONDARY, "Slag": BoundaryRole.SECONDARY}
         self.edge_index = pd.DataFrame(
             {
                 "edge_id":   [0, 1, 2, 3, 4, 5, 6, 7, 8],
@@ -162,29 +165,29 @@ def test_file1_no_sb_only_edges(diag):
 # File 2 — system boundary
 # ---------------------------------------------------------------------------
 
-def test_file2_columns_are_nature_sem_only(diag):
+def test_file2_columns_are_nature_secondary_only(diag):
     t = diag.system_boundary_table()
-    assert set(t.columns) == {"Nature", "SEM"}
-    assert "FD" not in t.columns
+    assert set(t.columns) == {"nature", "secondary"}
+    assert "final_demand" not in t.columns
 
 
 def test_file2_input_output_counts(diag):
     t = diag.system_boundary_table()
     # input Nature: e3 parametric → val
-    assert t.loc[("A", "Mass", "input"), "Nature"] == 1
+    assert t.loc[("A", "Mass", "input"), "nature"] == 1
     # input SEM: e4 observed Scrap→Process → val
-    assert t.loc[("A", "Mass", "input"), "SEM"] == 1
+    assert t.loc[("A", "Mass", "input"), "secondary"] == 1
     # output SEM: e5 flat_prior → no val → empty bucket renders as 0
-    assert t.loc[("A", "Mass", "output"), "SEM"] == 0
+    assert t.loc[("A", "Mass", "output"), "secondary"] == 0
 
 
 def test_file2_excludes_final_demand(diag):
     """The Flow→FD edge (e2) is absent from File 2 (it lives in File 1)."""
     t = diag.system_boundary_table()
-    assert "FD" not in t.columns
-    # FD edges would have direction 'output'; only SEM output exists here.
+    assert "final_demand" not in t.columns
+    # FD edges would have direction 'output'; only secondary output exists here.
     outputs = t.xs("output", level="direction").columns.tolist()
-    assert "FD" not in outputs
+    assert "final_demand" not in outputs
 
 
 def test_file2_empty_buckets_are_zero_int(diag):

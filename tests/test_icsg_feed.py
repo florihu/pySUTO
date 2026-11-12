@@ -27,6 +27,10 @@ from pysuto.unc import PropagationResult                          # noqa: E402
 from test_collector import _MockAccStruct, _MockRegistry          # noqa: E402
 from test_conc import maps, mock_acc_struct, raw_use_only         # noqa: E402,F401
 
+# The Supply_Use vocabulary of the raw rows: each value mapped to the endpoint it
+# classifies (the case declares it, #119).
+AUX_SIDES = {"Supply": "from", "Use": "to"}
+
 DOMESTIC, IMPORT = 6, 7          # Concentrate(A) → Refining(A), Concentrate(B) → Refining(A)
 
 
@@ -83,6 +87,7 @@ def _collected(raw_use_only, mock_acc_struct, maps, usage, w_domestic, w_import,
         for r, w in (("A", w_domestic), ("B", w_import))])
     ct = ConcordanceTable.from_raw(raw_df=raw_use_only, acc_struct=mock_acc_struct,
                                    aux_col="Supply_Use", id="t", user_weights_df=uw,
+                                   aux_sides=AUX_SIDES,
                                    drop_unweighted_fans=True, **maps)
     F_src = np.full(ct.n_src_edges, usage)
     F_root = WeightMatrix(ct).apply(F_src)
@@ -122,6 +127,7 @@ def test_a_fan_with_no_positive_weight_stays_undistributed(raw_use_only, mock_ac
         for r in ("A", "B")])
     ct = ConcordanceTable.from_raw(raw_df=raw_use_only, acc_struct=mock_acc_struct,
                                    aux_col="Supply_Use", id="t", user_weights_df=uw,
+                                   aux_sides=AUX_SIDES,
                                    drop_unweighted_fans=True, **maps)
     zeros = np.zeros(ct.n_root_edges)
     result = PropagationResult(F_root=zeros, sigma_root=zeros.copy(), cv_root=zeros, cv_src=0.05)

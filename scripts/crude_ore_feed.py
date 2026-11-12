@@ -59,6 +59,8 @@ import pandas as pd
 # ---------------------------------------------------------------------------
 
 FEED_ID = "crude_ore"
+# The copper case's rest-of-world region, for the ROW pedigree penalty (#119).
+ROW_REGION = "ROW"
 # ACC_ID is loaded from config/config.yaml → pipeline.acc_id below, after
 # the pysuto package is added to sys.path.
 
@@ -242,7 +244,7 @@ def build_F_src(raw_df: pd.DataFrame, ct: ConcordanceTable) -> np.ndarray:
 def propagate(wm: WeightMatrix, F_src: np.ndarray, meta: DataFeedMetadata, acc):
     logger.info("=" * 60)
     logger.info("D  Propagating uncertainty")
-    return propagate_with_row_penalty(wm, F_src, meta, acc)
+    return propagate_with_row_penalty(wm, F_src, meta, acc, row_region=ROW_REGION)
 
 
 # ===========================================================================

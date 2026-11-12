@@ -18,7 +18,9 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(__file__))
 from test_psut import (  # noqa: E402
-    CC_TOTALS_2020, PERIODS, PROCS, VALUATIONS, _full_vector, _legacy_results, _make_toy_acc,
+    CC_TOTALS_2020, PERIODS, PROCS, ROLE_OF_SUB, VALUATIONS, _full_vector,
+    _legacy_results,
+    _make_toy_acc,
 )
 
 
@@ -41,6 +43,7 @@ def _hand_psut(rows, nodes):
                                         "from_region", "from_sector", "from_entity",
                                         "to_region", "to_sector", "to_entity", "val"])
     nodes = pd.DataFrame(nodes, columns=["sector", "entity", "region", "entity_sub"])
+    nodes["role"] = nodes["entity_sub"].map(ROLE_OF_SUB)
     return PSUT(table, nodes, valuations=["CC"], primary="CC", acc_id="hand")
 
 

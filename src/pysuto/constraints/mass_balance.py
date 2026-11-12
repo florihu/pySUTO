@@ -11,6 +11,7 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
+from pysuto.acc import BALANCE_ENTITIES
 from pysuto.logging import get_logger
 
 from .base import BaseConstraintBuilder, ConstraintBlock, _empty_block
@@ -28,8 +29,6 @@ class MassBalanceBuilder(BaseConstraintBuilder):
     SB nodes are open-boundary endpoints and are excluded.
     G is time-invariant: one row per (balanced_node, time) pair.
     """
-
-    _BALANCE_ENTITIES = {"Flow", "Process"}
 
     def __init__(self, mask: str | None = None):
         """
@@ -83,7 +82,7 @@ class MassBalanceBuilder(BaseConstraintBuilder):
 
                 for nid in sorted(balanced):
                     entity = str(node_idx.loc[nid, "entity"])
-                    if entity not in self._BALANCE_ENTITIES:
+                    if entity not in BALANCE_ENTITIES:
                         continue
 
                     inc_mask = t_mask & (ei["to_id"].values == nid)
