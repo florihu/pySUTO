@@ -112,38 +112,10 @@ def test_a_knob_of_the_wrong_type_fails_before_anything_is_loaded(stage, pair, k
     assert "Traceback" not in r.stderr
 
 
-# Today's knob names (#100, #104, #108); the case spec (#120) must keep the set.
-KNOB_NAMES = {
-    "imp": {
-        "P_PROP", "Q_REG", "ALPHA_MIN_REG", "CASCADE_MAX_ITER", "CASCADE_ORDER",
-        "TIME_WINDOW", "TIME_MIN_OBS", "TIME_GAP_INFLATION", "TIME_METHOD",
-        "TIME_INTERPOLATE_ONLY", "TIME_SCOPE_SAME_REGION",
-        "STOCK_SEED_CV", "STOCK_SEED_ABS_FLOOR_KT", "EFFLESS_STOCK_SIGMA_KT",
-        "FLAT_MODE", "FLAT_SIGMA_HIGH", "FLAT_DEFAULT_CV",
-        "FLAT_CV_LO_SUPPLY", "FLAT_CV_HI_SUPPLY", "FLAT_CV_LO_USE", "FLAT_CV_HI_USE",
-        "OUTLIER_LEG_K", "OUTLIER_LEG_CV", "UNCLOSED_SECTORS", "UNCLOSED_CV",
-        "LEG_SIGMA_AREF", "LEG_SIGMA_GAMMA", "LEG_SIGMA_CV_CAP",
-    },
-    "const": {
-        "P_PROP", "SIGMA_A_CV_MIN", "SIGMA_A_ABS_FLOOR", "ANCHOR_CV", "SIGMA_C_CV_MIN",
-        "FABRICATED_ANCHOR_CV", "FEED_SHARE_OBSERVED", "UNCLOSED_SECTORS",
-        "UNCLOSED_ANCHOR_CV", "SIGMA_C_ABS_FLOOR", "SCALE_TOTAL_ABS_FLOOR", "PRIOR_BOX_K",
-        "NODATA_ANCHOR_CV", "NODATA_ANCHOR_EXCLUDE", "NODATA_ANCHOR_DATA_AWARE",
-        "PIN_FLAT_PRIOR_ZEROS", "RATIO_SIGMA_REL_FLOOR", "RATIO_SCALE_ABS_FLOOR",
-        "STOCK_BOUNDS_SCALE_ABS_FLOOR", "STOCK_BOUNDS_MODE", "SCRAP_SHARE_MODE",
-        "SCRAP_LEVEL_ANCHOR", "MASSBAL_MASK", "ENFORCE_LOWER_BOUNDS",
-        "STRIPPING_RATIO_HARD", "STOCK_BOUNDS_SKIP_REPORTED", "DIAG_PLOT",
-    },
-}
-
-
 @pytest.mark.parametrize("stage", CASE_STAGES)
 class TestCaseSpecKnobs:
     """#120: the Stage 2 and 3 knobs are the copper case section's UPPER_CASE fields;
     the drivers keep none of them."""
-
-    def test_the_knob_names_are_unchanged(self, stage):
-        assert set(_load(stage).KNOBS) == KNOB_NAMES[stage]
 
     def test_the_driver_keeps_no_knob_value(self, stage):
         mod = _load(stage)

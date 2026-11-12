@@ -16,7 +16,8 @@ C  Run the case's imputation cascade (pysuto.cases.copper.imputers, #120):
 D  Save AggregationResult to OUTPUT_DIR
 
 ═══════════════════════════════════════════════════════════
-USER CONFIGURATION  ←  only section you ever edit
+CONFIGURATION  ←  every knob is a field of the case spec,
+                  src/pysuto/cases/copper.py (edit it there)
 ═══════════════════════════════════════════════════════════
 """
 

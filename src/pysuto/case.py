@@ -20,8 +20,16 @@ import direction, beside the drivers.
 
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field, fields, replace
-from typing import Callable, Mapping, Optional
+from typing import TYPE_CHECKING, Callable, Mapping, Optional
+
+from pysuto.knobs import check_type
+
+if TYPE_CHECKING:
+    from pysuto.acc import AccountingStructure
+    from pysuto.agg import AggregationResult
+    from pysuto.input_registry import InputRegistries
 
 
 @dataclass(frozen=True)
@@ -33,14 +41,16 @@ class Section:
         return {f.name: getattr(self, f.name) for f in fields(self) if f.name.isupper()}
 
     def with_knobs(self, overrides: Mapping[str, object]) -> "Section":
-        """This section with ``overrides`` replacing its knob fields; a name that is
-        not a knob raises ``KeyError``. Values are not checked here: the command line
-        checks them through :func:`pysuto.knobs.parse_overrides`."""
+        """This section with ``overrides`` replacing its knob fields. A name that is
+        not a knob raises ``KeyError``; a value is checked, never coerced, by the
+        rules of ``--set`` (:func:`pysuto.knobs.check_type`), else ``TypeError``."""
         knobs = self.knobs()
         bad = [k for k in overrides if k not in knobs]
         if bad:
             raise KeyError(f"{bad} are not knobs of {type(self).__name__}; its knobs are "
                            f"{', '.join(knobs)}")
+        for name, value in overrides.items():
+            check_type(name, value, knobs[name])
         return replace(self, **overrides)
 
     def describe(self) -> dict:
@@ -133,11 +143,11 @@ class CaseContext:
         until #121 moves it into the case.
     """
     case:       CaseSpec
-    acc:        object
-    inputs:     object
+    acc:        AccountingStructure
+    inputs:     InputRegistries
     data_dir:   str
-    agg_result: object
-    logger:     object
+    agg_result: AggregationResult
+    logger:     logging.Logger
     param_refs: list = field(default_factory=list)
     time_scope: Optional[object] = None
     scale_total_resolver: Optional[Callable] = None

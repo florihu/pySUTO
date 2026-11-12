@@ -68,6 +68,17 @@ class TestSection:
         with pytest.raises(dataclasses.FrozenInstanceError):
             _toy().const.ANCHOR_CV = 0.02
 
+    @pytest.mark.parametrize("name, value", [("P_PROP", "x"), ("TIME_WINDOW", 1.5),
+                                             ("TIME_WINDOW", True)])
+    def test_with_knobs_refuses_a_wrongly_typed_value(self, name, value):
+        """The library cannot bypass the protocol's checks (pysuto.knobs)."""
+        with pytest.raises(TypeError, match="expected"):
+            _toy().with_knobs("imp", {name: value})
+
+    def test_with_knobs_keeps_the_three_allowances(self):
+        got = _toy().with_knobs("imp", {"P_PROP": 2, "TIME_WINDOW": None, "AREF": {"a": 1}})
+        assert (got.imp.P_PROP, got.imp.TIME_WINDOW, got.imp.AREF) == (2, None, {"a": 1})
+
     @pytest.mark.parametrize("name", ["imputers", "stock_sectors", "NOT_A_KNOB"])
     def test_with_knobs_refuses_a_name_that_is_not_a_knob(self, name):
         with pytest.raises(KeyError, match="not knobs"):

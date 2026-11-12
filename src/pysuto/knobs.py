@@ -67,12 +67,15 @@ def parse_overrides(pairs: Iterable[str], knobs: Iterable[str],
                 raise ValueError(f"--set {name}: {text!r} is not a Python "
                                  f"literal") from None
             value = text.strip()
-        _check_type(name, value, default)
+        check_type(name, value, default)
         out[name] = value
     return out
 
 
-def _check_type(name: str, value: object, default: object) -> None:
+def check_type(name: str, value: object, default: object) -> None:
+    """Raise ``TypeError`` unless ``value`` may replace the knob's current value
+    ``default`` (the rules in the module docstring); shared by ``--set`` and
+    :meth:`pysuto.case.Section.with_knobs`."""
     if value is None or default is None:
         return
     if isinstance(default, bool) or isinstance(value, bool):

@@ -120,7 +120,8 @@ class CopperImp(ImpSection):
     # a stock leg stays at its prior with small wiggle room. The former band
     # (p95/1.645 × max(FU, 100 kt)) gave the exchange-location legs σ ≈ 553 kt.
     STOCK_SEED_CV:           float = 0.01
-    STOCK_SEED_ABS_FLOOR_KT: float = 0.3   # icsg_feed's OBSERVED_ZERO_* mirror these (#76)
+    # icsg_feed's OBSERVED_ZERO_* mirror this floor (#76)
+    STOCK_SEED_ABS_FLOOR_KT: float = 0.3
     # CP has no `eff` row, so the NetworkImputer's recipe writes CC PSC = (1 − 1.0)·Σin
     # = 0 at σ 0 wherever ICSG does not report it and CP has an input (854 region-years
     # on imp_20261021_100015_ea05007a, 857 with three time-interpolated copies), and
@@ -129,15 +130,16 @@ class CopperImp(ImpSection):
     # rejected 1 % of CP→Cathode (#36, ADR 0041 am.). 0.0 restores the pin.
     # Rejected on measurement (2026-10-21, opt_20261021_115215_653c8677 vs
     # opt_20261021_111957_5c6d13bc): at 0.3 kt the freed legs become a sink again — the
-    # near-pin PSC rows' Σz² 0.04 → 1,437 (Slovakia 2016 z +37.8), 18 stock legs newly above
-    # |z| 5 — so the pin stays.
+    # near-pin PSC rows' Σz² 0.04 → 1,437 (Slovakia 2016 z +37.8), 18 stock legs newly
+    # above |z| 5 — so the pin stays.
     EFFLESS_STOCK_SIGMA_KT:  float = 0.0
 
     # FlatPriorImputer mode
     #   "magnitude_aware" (legacy) — σ = CV(j) · scale(j) via cv_by_mask + 3-level cascade
     #   "noisy_zero" (test)        — f=0, σ=FLAT_SIGMA_HIGH; effectively no prior weight
     FLAT_MODE:       str   = "noisy_zero"
-    FLAT_SIGMA_HIGH: float = 1.0e6      # noisy_zero fallback σ; also the WR stripping fill's σ (ADR 0038)
+    # noisy_zero fallback σ; also the WR stripping fill's σ (ADR 0038)
+    FLAT_SIGMA_HIGH: float = 1.0e6
 
     # FlatPriorImputer — CVs per mask (ROW edges get the geographic pedigree penalty
     # CV_GEO4) used only when FLAT_MODE == "magnitude_aware"
@@ -291,7 +293,8 @@ def imputers(ctx) -> list:
         eff_csv       = str(inputs.params.resolve("eff")       / "params.csv"),
         conc_csv      = str(inputs.params.resolve("conc")      / "params.csv"),
         ore_grade_csv = str(inputs.params.resolve("ore_grade") / "params.csv"),
-        stripping_ratio_csv = str(inputs.params.resolve("stripping_ratio") / "params.csv"),
+        stripping_ratio_csv = str(inputs.params.resolve("stripping_ratio")
+                                  / "params.csv"),
         stripping_sigma     = spec.FLAT_SIGMA_HIGH,
         p=spec.P_PROP, q=spec.Q_REG, alpha_min=spec.ALPHA_MIN_REG, cv_cap=1.5,
         id="network",
@@ -492,7 +495,8 @@ class CopperConst(ConstSection):
     # is aligned with the pin's (extraction chain + all four SEM residual outputs);
     # see NODATA_ANCHOR_EXCLUDE and ADR 0013.
     NODATA_ANCHOR_CV:      float = 0.05
-    NODATA_ANCHOR_EXCLUDE: tuple = ("CO", "Mining", "Ore", "WR", "Tailings", "Slag", "PSC")
+    NODATA_ANCHOR_EXCLUDE: tuple = ("CO", "Mining", "Ore", "WR", "Tailings", "Slag",
+                                    "PSC")
     # Data-aware exemption (ADR 0013 amendment 3, Round W.3). The extraction chain is
     # spared by the anchor only where a relation sets its magnitude: region-years with
     # an ore-grade row (ADR 0015). In countries that mine nothing its noisy zeros get
@@ -511,8 +515,8 @@ class CopperConst(ConstSection):
     PIN_FLAT_PRIOR_ZEROS: bool = True
     # Soft-ratio σ_c scaling (REP analysis_opt_20260611_075036 §8.2): the CSV σ (ratio
     # units) is made relative, σ_r = σ/|r| (#29), and rescaled to flow space per row,
-    # σ_c = max(σ_r, REL_FLOOR) · max(Σ|a₀,num|, |r|·Σ|a₀,denom|, ABS_FLOOR). REL_FLOOR caps |z| at 1/floor on
-    # a 100 % ratio violation; ABS_FLOOR (in kt — the flow unit) keeps both-zero-prior
+    # σ_c = max(σ_r, REL_FLOOR) · max(Σ|a₀,num|, |r|·Σ|a₀,denom|, ABS_FLOOR).
+    # REL_FLOOR caps |z| at 1/floor on a 100 % ratio violation; ABS_FLOOR (in kt — the flow unit) keeps both-zero-prior
     # rows finite AND soft: ~77 % of soft ratio rows are zero-prior parametric ties,
     # and at ABS_FLOOR=1 their σ_c=0.02 kt made the Hessian so stiff Clarabel stalled
     # (InsufficientProgress @2005). 100 kt → σ_c=2 kt on those rows (z=50 per 100 kt).
@@ -856,7 +860,8 @@ def builders(ctx) -> list:
                           scale_abs_floor=spec.RATIO_SCALE_ABS_FLOOR)
 
     # 8. Hard lower bounds from acc_struct (ADR 0039)
-    _log.info("Registering FlowBoundsBuilder (enforce_lower=%s)", spec.ENFORCE_LOWER_BOUNDS)
+    _log.info("Registering FlowBoundsBuilder (enforce_lower=%s)",
+              spec.ENFORCE_LOWER_BOUNDS)
     out.append(FlowBoundsBuilder(enforce_lower=spec.ENFORCE_LOWER_BOUNDS))
     return out
 

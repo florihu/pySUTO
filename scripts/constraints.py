@@ -10,7 +10,8 @@ CSV-fed soft ratios and hard ratio bounds, the net-stock and scrap-share bands, 
 the hard lower bounds.
 
 ═══════════════════════════════════════════════════════════
-USER CONFIGURATION  ←  only section you ever edit
+CONFIGURATION  ←  every knob is a field of the case spec,
+                  src/pysuto/cases/copper.py (edit it there)
 ═══════════════════════════════════════════════════════════
 """
 
