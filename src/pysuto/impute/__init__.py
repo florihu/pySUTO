@@ -29,7 +29,8 @@ from .parametric import ParametricImputer, ParametricRelation, _reg_sensitivity
 from .formula    import FormulaImputer, FormulaRelation, ParamRef, SourceTerm
 from .network    import NetworkImputer, ProcessRecipe, derive_process_recipes
 from .trade      import TradeImputer
-from .time       import TimeImputer
+from .time       import TimeImputer, time_interp_scope
+from .screens    import damp_leg_sigma, screen_contradicted_nodes, screen_outlier_trade_legs
 from .share      import ShareImputer
 from .flat_prior import FlatPriorImputer
 
@@ -51,5 +52,9 @@ __all__ = [
     "TimeImputer",
     "ShareImputer",
     "FlatPriorImputer",
+    "time_interp_scope",
+    "damp_leg_sigma",
+    "screen_outlier_trade_legs",
+    "screen_contradicted_nodes",
     "_reg_sensitivity",
 ]
