@@ -1787,11 +1787,13 @@ class TestCathodeFdSplitRetired:
     The driver carries no domestic-use formula, so none can write a stock leg."""
 
     def test_driver_carries_no_domestic_use_formula(self):
-        mod = _load_driver()
-        for name in ("cathode_fu_domestic", "cathode_usc_domestic",
-                     "cathode_mesc_domestic", "CONC_FORMULA_RELATIONS",
-                     "FormulaImputer", "FormulaRelation"):
-            assert not hasattr(mod, name), f"{name} is retired"
+        """Neither the driver nor the copper case, whose cascade it builds (#120)."""
+        import pysuto.cases.copper as copper
+        for mod in (_load_driver(), copper):
+            for name in ("cathode_fu_domestic", "cathode_usc_domestic",
+                         "cathode_mesc_domestic", "CONC_FORMULA_RELATIONS",
+                         "FormulaImputer", "FormulaRelation"):
+                assert not hasattr(mod, name), f"{name} is retired"
 
 
 if __name__ == "__main__":

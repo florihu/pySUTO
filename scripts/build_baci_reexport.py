@@ -132,7 +132,7 @@ HUB_EXCLUDE = {"ROW"}
 # The copper acc's gross-mass valuation: the conc rows' a_valuation (#119)
 GROSS_VALUATION = "Mass"
 
-# Mirrors `collect_aggregate_impute.OUTLIER_LEG_K` (reference = production +
+# Mirrors the copper case's Stage 2 `OUTLIER_LEG_K` (reference = production +
 # imports). Kept as its own constant: this is a Stage-1 restatement, and the
 # two are free to diverge if the Stage-2 screen is retuned.
 OUTLIER_K = 3.0

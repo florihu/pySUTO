@@ -60,7 +60,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 STEPS = ("imp", "const", "opt")
 
 # Knobs that must share one value whenever both stages run (the cross-stage Lp
-# exponent: "P_PROP must match", collect_aggregate_impute.py and constraints.py).
+# exponent: "P_PROP must match", the copper case's Stage 2 and Stage 3 sections).
 TIED = (("imp.P_PROP", "const.P_PROP"),)
 
 _SCRIPTS = {

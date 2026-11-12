@@ -263,6 +263,206 @@ def test_a_pinned_stage_2_refuses_a_structure_without_a_build_record(case, drive
 
 
 # ---------------------------------------------------------------------------
+# Stages 2 and 3 build from the case spec and record it in the sidecar (#120)
+# ---------------------------------------------------------------------------
+
+# Every stage_config key the Stage 2 and 3 sidecars recorded before #120 (Stage 3's
+# registry adds "p"); the serialised case spec is recorded beside them under "case".
+IMP_KEYS = {
+    "p", "q", "alpha_min", "cascade_max_iter", "cascade_order", "flat_mode",
+    "outlier_leg_k", "outlier_leg_cv", "outlier_ref", "unclosed_sectors", "unclosed_cv",
+    "unclosed_k", "leg_sigma_a_ref", "leg_sigma_gamma", "leg_sigma_cv_cap",
+    "flat_sigma_high", "flat_default_cv", "time", "stock_sectors", "stock_seed_cv",
+    "stock_seed_abs_floor", "effless_stock_sigma", "input_pins", "overrides",
+}
+CONST_KEYS = {
+    "p", "sigma_a_cv_min", "sigma_a_abs_floor", "sigma_c_cv_min", "sigma_c_abs_floor",
+    "prior_box_k", "nodata_anchor_cv", "nodata_anchor_exclude",
+    "nodata_anchor_data_aware", "nodata_anchor_grade_region_years",
+    "pin_flat_prior_zeros", "ratio_sigma_rel_floor", "ratio_scale_abs_floor",
+    "stock_bounds_scale_abs_floor", "ore_grade_basis", "fabricated_anchor_cv",
+    "feed_share_observed", "stock_bounds_mode", "stock_bounds_skip_reported",
+    "scrap_share_mode", "scrap_level_anchor", "massbal_mask", "enforce_lower_bounds",
+    "stripping_ratio_hard", "overrides",
+}
+
+
+def _toy_imputers(ctx):
+    from pysuto.impute import FlatPriorImputer
+    spec = ctx.case.imp
+    return [FlatPriorImputer(acc_struct=ctx.acc, mode="noisy_zero",
+                             sigma_high=spec.FLAT_SIGMA_HIGH, p=spec.P_PROP,
+                             id="flat_prior")]
+
+
+def _toy_builders(ctx):
+    from pysuto.constraints import MassBalanceBuilder
+    return [MassBalanceBuilder()]
+
+
+_HOOK_CALLS: list = []
+
+
+def _toy_pre_impute(ctx):
+    _HOOK_CALLS.append(("pre", ctx.agg_result.imputation_log is None))
+
+
+def _toy_post_impute(ctx):
+    _HOOK_CALLS.append(("post", ctx.agg_result.imputation_log is not None))
+
+
+def _toy_case():
+    """The copper case's knobs with the toy's cascade, hooks, builders and acc."""
+    from dataclasses import replace
+    from pysuto.cases.copper import CASE
+    return replace(CASE, id="toy", acc_id="toy",
+                   imp=replace(CASE.imp, imputers=_toy_imputers,
+                               pre_impute=_toy_pre_impute, post_impute=_toy_post_impute),
+                   const=replace(CASE.const, builders=_toy_builders,
+                                 nodata_anchor_exempt=None))
+
+
+def _qualname(fn) -> str:
+    return f"{fn.__module__}.{fn.__qualname__}"
+
+
+def _as_json(obj):
+    import json
+    from pysuto.registry import _NpEncoder
+    return json.loads(json.dumps(obj, cls=_NpEncoder))
+
+
+def _register_feed_run(case) -> str:
+    """A feed run of the case built on toy v2, covering its first two edges."""
+    from pysuto.acc import AccountingStructure
+    from pysuto.registry import DataFeedRegistry
+    from pysuto.registry._sidecar import build_sidecar
+    n = AccountingStructure.load("toy", storage_dir=case["acc_dir"]).n_edges
+    f, sigma = np.zeros(n), np.zeros(n)
+    f[:2], sigma[:2] = (5.0, 3.0), (0.5, 0.3)
+    reg = DataFeedRegistry(odir=str(case["data"] / "proc" / "feed" / "registry"))
+    run_dir = reg._make_run_dir("feed_toy_ref")
+    np.savez(os.path.join(run_dir, "result.npz"), F_root=f, sigma_root=sigma)
+    reg._write_sidecar(run_dir, build_sidecar(
+        run_id="feed_toy_ref", stage="feed", label="", created_at="2026-11-11T00:00:00Z",
+        parents={"inputs": {"acc": case["entry"], "feed": {"id": "toy", "version": 1}},
+                 "upstream": {}}))
+    reg._add_entry(run_id="feed_toy_ref", label="", created_at="2026-11-11T00:00:00Z")
+    reg.save()
+    return "feed_toy_ref"
+
+
+def _register_imp_run(case) -> str:
+    """An imp run of the case built on toy v2: every edge observed by one feed."""
+    from pysuto.acc import AccountingStructure
+    from pysuto.agg import AggregationResult
+    from pysuto.impute import ImputationLog
+    from pysuto.registry import ImputationRunRegistry
+    n = AccountingStructure.load("toy", storage_dir=case["acc_dir"]).n_edges
+    f = np.arange(1.0, n + 1)
+    agg = AggregationResult(f_agg=f, sigma_agg=0.1 * f, Omega=np.ones((1, n)),
+                            F=f[None, :], Sigma=0.1 * f[None, :], feed_ids=["toy"],
+                            coverage=np.ones(n, dtype=bool))
+    agg.imputation_log = ImputationLog()
+    return ImputationRunRegistry(storage_dir=str(case["data"] / "proc" / "imp")).register(
+        agg, label="case", parents={"inputs": {"acc": case["entry"], "params": []},
+                                    "upstream": {"feed_run_ids": []}})
+
+
+class _NoDiag:
+    """Stands in for the Stage 2 diagnostics, which draw the copper case's 1995."""
+
+    def __init__(self, *args, **kwargs):
+        pass
+
+    def summary(self):
+        pass
+
+    def plot(self, *args, **kwargs):
+        return []
+
+    def write(self, *args, **kwargs):
+        return []
+
+
+def _bind_copper_valuation_roles(monkeypatch):
+    """The toy structure is built procedurally, which binds no roles; the screens and
+    the scale-total resolver read ``acc.valuation_roles`` (#119), so the loaded
+    structure gets copper's."""
+    from pysuto.acc import AccountingStructure, ValuationRoles
+    orig = AccountingStructure.load.__func__
+
+    def load(cls, *args, **kwargs):
+        acc = orig(cls, *args, **kwargs)
+        acc.valuation_roles = ValuationRoles(content="CC", gross="Mass")
+        return acc
+
+    monkeypatch.setattr(AccountingStructure, "load", classmethod(load))
+
+
+def test_stage_2_builds_from_the_case_and_records_it(case, driver, monkeypatch):
+    """The toy case's cascade is what runs; the sidecar carries the serialised Stage 2
+    section beside every key it recorded before, and the override lands on both."""
+    from pysuto.input_registry import InputRegistry
+    from pysuto.registry import ImputationRunRegistry
+    conc = case["data"] / "input" / "params" / "conc" / "current"
+    conc.mkdir(parents=True)
+    (conc / "params.csv").write_text("param_id,param_type,a_sector_from,a_valuation,"
+                                     "value_nominal\nconcore,concentration,Ore,Mass,0.01\n")
+    InputRegistry("params", root=case["data"] / "input").initialize()
+    feed = _register_feed_run(case)
+    _bind_copper_valuation_roles(monkeypatch)
+    mod = driver("collect_aggregate_impute.py")
+    for name in ("AggDiagnostic", "ImpDiagnostic", "CoverageDiagnostic",
+                 "StatsDiagnostic"):
+        monkeypatch.setattr(mod, name, _NoDiag)
+    toy = _toy_case().with_knobs("imp", {"TIME_WINDOW": 5})
+    _HOOK_CALLS.clear()
+
+    imp_id = mod.main([feed], "case", {"TIME_WINDOW": 5}, case=toy,
+                      data_dir=str(case["data"]), config=case["config"])
+
+    assert _HOOK_CALLS == [("pre", True), ("post", True)]    # before and after imputing
+
+    sidecar = (ImputationRunRegistry(str(case["data"] / "proc" / "imp"))
+               .load_sidecar(imp_id))
+    cfg = sidecar["stage_config"]
+    assert set(cfg) == IMP_KEYS | {"case"}
+    assert cfg["case"] == _as_json(toy.describe("imp"))
+    assert cfg["case"]["id"] == "toy"
+    assert cfg["case"]["imp"]["imputers"] == _qualname(_toy_imputers)
+    assert cfg["case"]["imp"]["pre_impute"] == _qualname(_toy_pre_impute)
+    assert cfg["case"]["imp"]["TIME_WINDOW"] == cfg["time"]["window"] == 5
+    assert cfg["overrides"] == {"TIME_WINDOW": 5}
+    assert {s["imputer_id"] for s in sidecar["imputers"]} == {"flat_prior"}
+
+
+def test_stage_3_builds_from_the_case_and_records_it(case, driver, monkeypatch):
+    """The toy case's builders are what run; the sidecar carries the serialised Stage 3
+    section beside every key it recorded before, and the override lands on both."""
+    from pysuto.registry import ConstraintRunRegistry
+    imp_id = _register_imp_run(case)
+    _bind_copper_valuation_roles(monkeypatch)
+    knobs = {"ANCHOR_CV": 0.02, "DIAG_PLOT": False}
+    toy = _toy_case().with_knobs("const", knobs)
+
+    const_id = driver("constraints.py").main(imp_id, "case", knobs, case=toy,
+                                             data_dir=str(case["data"]),
+                                             config=case["config"])
+
+    reg = ConstraintRunRegistry(str(case["data"] / "proc" / "const"))
+    cfg = reg.load_sidecar(const_id)["stage_config"]
+    assert set(cfg) == CONST_KEYS | {"case"}
+    assert cfg["case"] == _as_json(toy.describe("const"))
+    assert cfg["case"]["const"]["builders"] == _qualname(_toy_builders)
+    assert cfg["case"]["const"]["nodata_anchor_exempt"] is None
+    assert cfg["case"]["const"]["ANCHOR_CV"] == 0.02
+    assert cfg["overrides"] == knobs
+    assert cfg["nodata_anchor_grade_region_years"] == 0
+    assert set(reg.load(const_id).row_meta["type"]) == {"massbal"}
+
+
+# ---------------------------------------------------------------------------
 # ConstDiagnostic's default figure directory is the run's own (#58)
 # ---------------------------------------------------------------------------
 

@@ -926,6 +926,8 @@ world.to_piot().sankey("2020").write_html("copper_process_network_2020.html")
 | [registry/](src/pysuto/registry/) | `BaseOutputRegistry`, `DataFeedRegistry`, `ImputationRunRegistry`, `ConstraintRunRegistry`, `OptimRunRegistry`, `UncPropRunRegistry`, `PsutRunRegistry`, `SweepRunRegistry`, `_RegistryEntry`, `make_run_id`, `build_sidecar`, `stage_lock`, `LockHeld` | Harmonized output registries (Stages 1–6); shared run-id pattern + sidecar schema; the advisory stage lock on `data/proc` (#101). **Subpackage layout:** `base.py`, `feed.py`, `imputation.py`, `constraint.py`, `optim.py`, `uncprop.py`, `psut.py`, `sweep.py`, `lock.py`, `_sidecar.py`. |
 | [input_registry.py](src/pysuto/input_registry.py) | `InputRegistry`, `InputRegistries`, `pins_from_inputs`, `input_pins` | Per-kind versioned snapshot store for `feed`, `acc`, `params`, `mask` inputs; hardlink dedup; auto-bump on content-hash change; pins that replay a sidecar's input versions (#53). Imports nothing from `acc`; the spec-comparing checks of acc versions live in `acc.py` (#119). |
 | [knobs.py](src/pysuto/knobs.py) | `parse_overrides`, `apply_overrides`, `add_knob_args`, `overrides_from_cli`, `write_run_id` | The driver knob protocol: `--set KNOB=VALUE` against a driver's `KNOBS`, and `--run-id-file` (#100). |
+| [case.py](src/pysuto/case.py) | `CaseSpec`, `Section`, `ImpSection`, `ConstSection`, `Cascade`, `CaseContext` | A case as a typed declaration (#120): its acc id and one frozen section per stage, whose UPPER_CASE fields are the stage's knobs and whose functions (`imputers`, `builders`, selectors) build over a `CaseContext`; `with_knobs` applies `--set`, `describe` serialises a section into a run's `stage_config["case"]`. |
+| [cases/](src/pysuto/cases/) | `copper.CASE`, `CopperImp`, `CopperConst`, `imputers`, `builders`, `nodata_anchor_exempt` | Case instances, at the top of the import direction. `copper.py` holds the copper Stage 2 and 3 model: every knob at its shipped value, the imputer cascade and the constraint builders; the Stage 2 and 3 drivers build from it. |
 | [pipeline.py](src/pysuto/pipeline.py) | `Pipeline`, `Chain`, `StepFailed`, `Axis`, `Sweep`, `STEPS`, `TIED`, `STEP_GB`, `split_key` | Stage drivers composed as subprocess steps; one chain per `run(overrides, label)` with `<stage>.<KNOB>` overrides (#103); random (Latin hypercube) or grid sweeps of chains, resumable, recorded via `SweepRunRegistry` (#105); a sweep may keep only its last step's runs, the others passing through a scratch store (#108). |
 | [utils.py](src/pysuto/utils.py) | `_NpEncoder`, io helpers | JSON serialisation, numpy-safe dump/load. |
 | [logging.py](src/pysuto/logging.py) | `get_logger`, `add_run_handler` | Structured run logging; one file per run. |
@@ -950,7 +952,7 @@ world.to_piot().sankey("2020").write_html("copper_process_network_2020.html")
 
 ## Workflow
 
-> **Tuning knobs are UPPER_CASE constants in each driver's `# USER CONFIGURATION` block** (`P_PROP`, `Q_REG`, `ALPHA_MIN_REG`, `FLAT_DEFAULT_CV`, time-imputer settings, Stage 3 σ floors, solver tolerances). [`config/config.yaml`](config/config.yaml) holds only `pipeline.acc_id`; `load_config()` parses nothing else. Modules keep their existing kwarg signatures, so library use (tests, REPL) still works with module defaults.
+> **Tuning knobs are UPPER_CASE names**: the Stage 2 and 3 knobs (`P_PROP`, `Q_REG`, `ALPHA_MIN_REG`, `FLAT_DEFAULT_CV`, time-imputer settings, Stage 3 σ floors) are fields of the copper case spec ([cases/copper.py](src/pysuto/cases/copper.py), #120), the others constants in each driver's `# USER CONFIGURATION` block (solver tolerances). [`config/config.yaml`](config/config.yaml) holds only `pipeline.acc_id`; `load_config()` parses nothing else. Modules keep their existing kwarg signatures, so library use (tests, REPL) still works with module defaults.
 
 ```python
 from pysuto.acc import AccountingStructure
@@ -1225,8 +1227,10 @@ input-bytes that produced it.
 
 ### Pipeline and knobs
 
-A **knob** is an UPPER_CASE constant of a driver's `# USER CONFIGURATION` block that the
-driver lists in its `KNOBS` tuple. Every Stage 2–4 driver takes `--set KNOB=VALUE`
+A **knob** is an UPPER_CASE name that a driver lists in its `KNOBS` tuple: for Stages 2
+and 3 a field of the case spec's section, which `--set` replaces
+([case.py](src/pysuto/case.py), #120), for Stage 4 a constant of the driver's
+`# USER CONFIGURATION` block. Every Stage 2–4 driver takes `--set KNOB=VALUE`
 (repeatable; VALUE a Python literal, type-checked against the constant before `main()`
 loads anything) and `--run-id-file PATH`; the applied pairs land in the sidecar's
 `stage_config["overrides"]` beside the effective values, which the existing keys keep
@@ -1441,6 +1445,8 @@ meta  →  registry
 collector  →  agg  →  impute  →  constraints  →  solver  →  uncprop
 _conditioning  ←  solver, uncprop          (shared σ-conditioning helper)
 knobs          ←  the stage drivers        (the --set / --run-id-file protocol)
+case           ←  cases, the stage drivers (CaseSpec; imports nothing from pysuto)
+cases          ──── top, beside the drivers: case instances; never imported by the library
 pipeline       ←  registry, logging        (runs the drivers as subprocesses; never imports scripts/)
 psut           ←  acc, registry            (Stage 6 — reads a persisted opt run)
 piot           ←  psut                     (Stage 6 — a derived view of a PSUT)
@@ -1462,6 +1468,7 @@ Each layer has a dedicated test file in `tests/`. There is no `conftest.py`: fix
 |---|---|
 | [test_accounting_structure.py](tests/test_accounting_structure.py) | `AccountingStructure` index, masks, bounds |
 | [test_acc_spec.py](tests/test_acc_spec.py) | The acc spec: dict, `acc.json` and ODS routes build one structure; reader, `RuleSet.from_tables` and validation seams; `scripts/acc.py` reader choice |
+| [test_case.py](tests/test_case.py) | The `CaseSpec`: a section's knobs are its UPPER_CASE fields, `--set` replaces them through `pysuto.knobs`' checks, a section serialises with functions by qualified name; the library never imports `pysuto.cases` (#120) |
 | [test_acc_roles.py](tests/test_acc_roles.py) | Roles, not labels (#119): own-label save/load round-trip, role validation on build and load, the label-literal grep gate, acc compatibility by spec comparison, the copper `root.ods` role column |
 | [test_conc.py](tests/test_conc.py) | Concordance and `WeightMatrix` construction / sparse round-trip |
 | [test_unc.py](tests/test_unc.py) | Pedigree → CV formulas; CV-invariant Lp propagation invariants |

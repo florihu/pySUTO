@@ -2583,7 +2583,10 @@ class TestScrapLevelAnchor:
         import os
         import sys
         sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
-        from constraints import scale_total_cv, SCALE_TOTAL_ABS_FLOOR
+        from constraints import scale_total_cv
+        from pysuto.cases.copper import CASE
+        spec = CASE.const
+        SCALE_TOTAL_ABS_FLOOR = spec.SCALE_TOTAL_ABS_FLOOR
         acc = _make_scrap_acc()
         f, cov = _scrap_f_and_cov(acc)
         absf = np.abs(f)
@@ -2594,7 +2597,11 @@ class TestScrapLevelAnchor:
             tot = absf[ids].sum()
             feed_share = absf[ids[cov[ids]]].sum() / tot
             seen.append(feed_share)
-            return scale_total_cv(feed_share, abs(float(f[ids].sum())))
+            return scale_total_cv(feed_share, abs(float(f[ids].sum())),
+                                  anchor_cv=spec.ANCHOR_CV,
+                                  fabricated_cv=spec.FABRICATED_ANCHOR_CV,
+                                  feed_share_observed=spec.FEED_SHARE_OBSERVED,
+                                  abs_floor=SCALE_TOTAL_ABS_FLOOR)
 
         smelt, cfr = self._masks(acc, cov)
         for mask, prefix in ((smelt, "smelterscrap"), (cfr, "directrefscrap")):

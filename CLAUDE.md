@@ -103,7 +103,7 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 - Lp exponent `p = 1.3` everywhere; `src/` uses no RNG (run ids are uuid4) except the seeded Latin hypercube of a random sweep (`pysuto.pipeline.Sweep`, #105), Stage 5's posterior draws, which take the caller's generator (#81), and the toy case's ground truth and synthetic feeds (`pysuto.cases.toy`, one fixed seed, #59); tests seed `np.random.default_rng`.
 - Persistence is `np.savez` (uncompressed) and `sp.save_npz` for `G`; no chunking.
 - Build-time validation raises (`ValueError`, `KeyError`, `ConstraintIdError`, `ConstraintUnitMixingError`); it never clips, coerces or fills.
-- Solver tolerances and every other knob are UPPER_CASE constants in the driver's `# USER CONFIGURATION` block (`config/config.yaml` holds only `pipeline.acc_id`). Changing a knob is a measured change (REP + run id), not a fix.
+- Stage 2–3 knobs are UPPER_CASE fields of the case's sections (`pysuto.cases.copper`); solver tolerances and every other Stage 4–5 knob are UPPER_CASE constants in the driver's `# USER CONFIGURATION` block (`config/config.yaml` holds only `pipeline.acc_id`). Changing a knob is a measured change (REP + run id), not a fix.
 
 ## Code conventions
 

@@ -9,9 +9,19 @@ from pysuto.acc import ValuationRoles
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
 from collect_aggregate_impute import (  # noqa: E402
-    OUTLIER_LEG_CV,
-    _screen_outlier_trade_legs,
+    _screen_outlier_trade_legs as _screen,
 )
+
+from pysuto.cases.copper import CASE  # noqa: E402
+
+# The copper case's screen knobs (#120: the driver reads them from the case spec).
+OUTLIER_LEG_K  = CASE.imp.OUTLIER_LEG_K
+OUTLIER_LEG_CV = CASE.imp.OUTLIER_LEG_CV
+
+
+def _screen_outlier_trade_legs(acc, agg, conc_csv, logger, grade_csv=None):
+    return _screen(acc, agg, conc_csv, logger, grade_csv, k=OUTLIER_LEG_K,
+                   cv=OUTLIER_LEG_CV)
 
 # nodes: (sector, entity, region)
 _NODES = [
