@@ -193,8 +193,8 @@ inequality / bound), `free` (soft equality with slack `ε`).
 Seeding the prior `a₀(t)` for a timestep with the previous year's optimum `a*(t−1)`.
 
 **Run** / **run-id**:
-One persisted execution of a stage, keyed `{stage}_{YYYYMMDD_HHMMSS}_{uuid}`
-(`stage ∈ {feed, imp, const, opt, uncprop, psut, sweep}`).
+One persisted execution of a stage or a sweep, keyed `{kind}_{YYYYMMDD_HHMMSS}_{uuid}`
+(`kind ∈ {feed, imp, const, opt, uncprop, psut, sweep}`; a sweep is no stage).
 
 **Registry**:
 A per-stage store of runs. The **input registry** versions the input *bytes*

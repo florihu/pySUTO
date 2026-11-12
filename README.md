@@ -27,6 +27,7 @@ A modular Python framework for constructing, reconciling, and propagating uncert
    - [Stage 6 — PSUT/PIOT builder](#stage-6--psutpiot-builder)
 3. [Module reference](#module-reference)
 4. [Workflow](#workflow)
+   - [Pipeline and knobs](#pipeline-and-knobs)
 5. [File structure](#file-structure)
 6. [Testing](#testing)
 7. [Installation](#installation)
@@ -43,13 +44,13 @@ Supply–use tables and material flow accounts are assembled from multiple data 
 - **Multi-source uncertainty** — each data source carries a pedigree quality score (Laner et al. 2016) that translates into a coefficient of variation. Uncertainty is propagated through every transformation step using Lp / power-mean error propagation.
 - **Physical consistency** — supply must equal use for every node and every material-parameter efficiency must be respected. A linear-equality / inequality QP enforces these constraints while staying as close as possible to the aggregated data, with full uncertainty quantification on the optimised values.
 
-The package is organised into **six sequential stages**: datafeed assembly (per source), aggregation + imputation (across sources), constraint building, constrained optimisation, posterior uncertainty propagation, and PSUT/PIOT construction. Each stage has a clear input, a clear output, and its own persistence layer.
+The package is organised into **six sequential stages**: datafeed assembly (per source), aggregation + imputation (across sources), constraint building, constrained optimisation, posterior uncertainty propagation, and PSUT/PIOT construction. Each stage has a clear input, a clear output, and its own persistence layer. A **sweep** re-runs Stages 2–4 once per knob point and records the points as one run (see [Pipeline and knobs](#pipeline-and-knobs)).
 
 ---
 
 ## Architecture
 
-**Workflow** — horizontal data flow through the six stages:
+**Workflow** — data flow through the six stages, with the sweep beside the Stages 2–4 it re-runs:
 
 ```
 ┌────────────────────────────────────────────────────────────────────────┐
@@ -65,35 +66,35 @@ The package is organised into **six sequential stages**: datafeed assembly (per 
 │  in  : raw flows + pedigree + concordance                              │
 │  out : W · F_root · σ_root   →   DataFeedRegistry                      │
 └──────┬─────────────────────────────────────────────────────────────────┘
-       │  feed_ids
-       ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│  STAGE 2 — Aggregation & Imputation   ·   collect_aggregate_impute.py  │
-│  FeedCollector → AggregationMath → ImputationEngine                    │
-│  cascade→fixpoint : Trade → Network → Parametric(conc,ore_grade,eff)   │
-│  then terminal    : Time → Share (net stock) → FlatPrior               │
-│  in  : feed_ids                                                        │
-│  out : AggregationResult (f_agg · σ_agg · Ω · coverage · imp_log)      │
-└──────┬─────────────────────────────────────────────────────────────────┘
-       │  agg_result
-       ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│  STAGE 3 — Constraint building   ·   scripts/constraints.py            │
-│  ConstraintEngine.register(builders).run()                             │
-│  builders : MassBalance(hard) · ScaleTotal(soft)                       │
-│           · Ratio conc,eff (soft ratioeq)                              │
-│           · RatioBound conc,eff,stock (hard) · FlowBounds(hard)        │
-│  in  : AggregationResult                                               │
-│  out : ConstraintRun (G · row_meta · a0 · σ_a · l,u · c(t),σ_c(t))     │
-└──────┬─────────────────────────────────────────────────────────────────┘
-       │  const_run_id
-       ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│  STAGE 4 — Solver   ·   scripts/run_solver.py                          │
-│  ClarabelSolver.solve_all()  (one QP per timestep; warm or cold prior) │
-│  in  : ConstraintRun                                                   │
-│  out : OptimResult per t (F_opt · ε · residuals · telemetry)           │
-└──────┬─────────────────────────────────────────────────────────────────┘
+       │  feed_ids                                                          ┌────────────┐
+       ▼                                                                    │ SWEEP      │
+┌────────────────────────────────────────────────────────────────────────┐  │ scripts/   │
+│  STAGE 2 — Aggregation & Imputation   ·   collect_aggregate_impute.py  │◄─┤  sweep.py  │
+│  FeedCollector → AggregationMath → ImputationEngine                    │  │ Pipeline · │
+│  cascade→fixpoint : Trade → Network → Parametric(conc,ore_grade,eff)   │  │  Sweep     │
+│  then terminal    : Time → Share (net stock) → FlatPrior               │  │            │
+│  in  : feed_ids                                                        │  │ in : base  │
+│  out : AggregationResult (f_agg · σ_agg · Ω · coverage · imp_log)      │  │  chain (its│
+└──────┬─────────────────────────────────────────────────────────────────┘  │  feed runs │
+       │  agg_result                                                        │  pinned) · │
+       ▼                                                                    │  axes      │
+┌────────────────────────────────────────────────────────────────────────┐  │            │
+│  STAGE 3 — Constraint building   ·   scripts/constraints.py            │◄─┤ per point: │
+│  ConstraintEngine.register(builders).run()                             │  │  chain 2–4 │
+│  builders : MassBalance(hard) · ScaleTotal(soft)                       │  │  with knob │
+│           · Ratio conc,eff (soft ratioeq)                              │  │  overrides;│
+│           · RatioBound conc,eff,stock (hard) · FlowBounds(hard)        │  │  reuses the│
+│  in  : AggregationResult                                               │  │  runs it   │
+│  out : ConstraintRun (G · row_meta · a0 · σ_a · l,u · c(t),σ_c(t))     │  │  shares    │
+└──────┬─────────────────────────────────────────────────────────────────┘  │            │
+       │  const_run_id                                                      │ out: sweep │
+       ▼                                                                    │  run ·     │
+┌────────────────────────────────────────────────────────────────────────┐  │  manifest  │
+│  STAGE 4 — Solver   ·   scripts/run_solver.py                          │◄─┤ → sweep_   │
+│  ClarabelSolver.solve_all()  (one QP per timestep; warm or cold prior) │  │   diag.py  │
+│  in  : ConstraintRun                                                   │  │            │
+│  out : OptimResult per t (F_opt · ε · residuals · telemetry)           │  │            │
+└──────┬─────────────────────────────────────────────────────────────────┘  └────────────┘
        │  opt_run_id   (Stages 5 and 6 each read it, never each other)
        ├──────────────────────────────────────┐
        ▼                                      ▼
@@ -109,7 +110,7 @@ The package is organised into **six sequential stages**: datafeed assembly (per 
 └──────────────────────────────────┘  └──────────────────────────────────┘
 ```
 
-Stage 6 branches off Stage 4 beside Stage 5 rather than after it: v1 materialises the point estimate `a*` and does not read the posterior σ ([ADR 0007](docs/adr/0007-downstream-psut-piot-follows-piolab-suh-no-external-io-lib.md)).
+Stage 6 branches off Stage 4 beside Stage 5 rather than after it: v1 materialises the point estimate `a*` and does not read the posterior σ ([ADR 0007](docs/adr/0007-downstream-psut-piot-follows-piolab-suh-no-external-io-lib.md)). The sweep is no stage: it re-runs a slice of Stages 2–4 once per knob point, takes its feed runs from the base chain, and is scored from the points' opt runs ([Pipeline and knobs](#pipeline-and-knobs)).
 
 **Orthogonal architecture** — cross-cutting concerns (top) crossing every stage, over the layered one-way import stack (bottom):
 
@@ -151,6 +152,7 @@ inputs       │ InputRegistries.initialize()   │ come with the upstream run i
   does not count. A structure without the record warns (raises under --pin-inputs-from).
 
 modules:  Registry=registry/ (BaseOutputRegistry · _sidecar · make_run_id)
+          a sweep, no stage, keeps its runs in its own sweep registry
           Logging=logging.py   Config=config.py + input_registry.py
 
 LAYERED MODULE STACK   (imports flow downward only — never upward)
@@ -159,6 +161,9 @@ LAYERED MODULE STACK   (imports flow downward only — never upward)
 │  cases (top, beside the stage drivers)  ·  cases/toy — a case  │
 │  declared in code: acc spec, synthetic feeds, params, the six  │
 │  stages wired into a run tree; imported by nothing in pysuto   │
+│  pipeline.py  ·  Pipeline · Sweep — runs the Stage 2–4 drivers │
+│  as subprocesses, never importing them; imports only logging   │
+│  and registry                                                  │
 └──────┬─────────────────────────────────────────────────────────┘
        │
        ▼  imports
@@ -201,6 +206,7 @@ cross-cutting (import nothing from the data layer):
 | 4 — Solver | `solver.py` | `ConstraintRun` | `OptimResult` per timestep |
 | 5 — Posterior uncertainty | `uncprop.py` | `OptimRun` + upstream `ConstraintRun` | `UncPropResult`: `σ_a*(t)`, `lower(t)`, `upper(t)` |
 | 6 — PSUT/PIOT builder | `psut.py`, `piot.py`, `diag/psut.py` | `OptimRun` (+ `ConstraintRun` → `acc` through provenance) | `PsutRun`: tidy PSUT, one parquet per period; `PIOT` views and Sankeys derived on demand, never persisted |
+| Sweep (no stage) | `pipeline.py`, `diag/sweep.py` | base chain + axes | `sweep` run: per point its overrides, status and run ids; scored by `scripts/sweep_diag.py` |
 
 **One command runs the chain (#125).** `python -m pysuto run --case <id> [--from <stage>] [--to <stage>] [--data-dir D] [--base <opt_run_id>] [--label L] [--config C]` runs the stage drivers one after another, `--from`/`--to` any of `feed, imp, const, opt, uncprop, psut` (default the whole chain), passing `--case` and `--data-dir` to every step and `--config` to Stages 2–3 only (the only drivers that read one). `--from feed` is the case's Stage 1 hook (`CaseSpec.stage1`): the toy writes its synthetic feeds; copper has none yet, so the command refuses with a pointer to #109. Any later `--from` takes its upstream from `--base <opt_run_id>`, the base chain's parents as `Chain.from_opt_run` resolves them. Run it from the repository root; the toy's six stages take about 25 s under their own labels (`python -m pysuto run --case toy --data-dir /tmp/toy`).
 
