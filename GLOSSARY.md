@@ -274,6 +274,13 @@ _Avoid_: "threshold", "test", "stop rule" (the Round-E rule that judges a σ or 
 ⚠ Round-E (c), an item of that stop rule, is also declared as a sweep criterion: there it is
 judged at every point against the base chain, not once for a proposed change.
 
+**Expected answer**:
+A row of the manuscript's ledger (A1–B3, Table 3): the answer to one sub-question of the research
+questions RQ1–RQ3, with its metric and threshold written before the reference run was read; its
+outcome is **met** or **not met**. A question without one is *exploratory*.
+_Avoid_: "hypothesis" (the rows answer questions; they were called hypotheses until 2026-11-12),
+"pass" / "fail" (a not-met answer is a finding, not a failure of the reconciliation).
+
 **Year profile**:
 An outcome evaluated once per year of its window instead of pooled, so that the axes can be
 ranked year by year.

@@ -40,7 +40,14 @@ numbers refreshed by hand against numbers.json.
 Word budget: <= 1,300 words of prose (headings, captions and Table 3 excluded; raised
 from 1,000 on 2026-11-10 for Section 4.2's display item).
 
-Literature comparisons belong in the Discussion, one per insight; targets to
+Research questions (2026-11-12): the section answers RQ1–RQ3 of the Introduction
+(introduction.md), one subsection each. The pre-registered items A1–B3 are the expected
+answers to its sub-questions; their metrics, thresholds and values are unchanged, and
+their outcomes read "met" / "not met" (formerly "pass" / "fail"; results_figs.py still
+writes PASS/FAIL into table3_ledger.csv). Stage 5's contraction and calibration, and the
+contraction–sweep link, are exploratory: no answer was fixed for them in advance.
+
+Literature comparisons are in the Discussion (discussion.md §5.3), one per insight; targets to
 set each against (all "verify:" — none is in refs.bib yet):
   Insight 1 (secondary share): ICSG yearbook secondary-refined share (in
     refs.bib: icsg2023yearbook / icsg2025yearbook); verify: Gloeser, Soulier &
@@ -51,7 +58,7 @@ set each against (all "verify:" — none is in refs.bib yet):
     concentration measures (e.g. Dong et al. 2020).
   Insight 3 (embodied vs direct trade): wieland2022piolab (PIOLab embodied
     flows); verify: a copper footprint / RMC study for China.
-Interpretations moved out of the Results on 2026-11-12, for the Discussion:
+Interpretations moved out of the Results on 2026-11-12, now used in discussion.md §5.2–5.3:
   A2: the scale-total share beyond 3 sigma says the sources disagree on reported
     totals (ICSG, BACI and the ore allocation cannot all hold), while single flows
     mostly stay within their wider stated sigma.
@@ -66,9 +73,10 @@ Interpretations moved out of the Results on 2026-11-12, for the Discussion:
 
 ## 4 Results
 
-- Section [4.1](#sec-results-reconciliation) tests consistency and the compatibility, location and size of the adjustment (Figures [3](#fig-problem)–[4](#fig-reconciliation); Table [3](#tab-ledger), rows A1–A4).
-- Section [4.2](#sec-results-uncertainty) reports the posterior uncertainty and the sensitivity of retention to termination and to the judgement values (Figure [5](#fig-uncertainty); rows A5–A6).
-- Section [4.3](#sec-results-system) reports what the reconciled account shows beyond the separate sources (Figure [6](#fig-copper-system); rows B1–B3).
+- Section [4.1](#sec-results-reconciliation) answers RQ1: how consistent the reconciled account is, and how compatible, where and how large its adjustment is (Figures [3](#fig-problem)–[4](#fig-reconciliation); Table [3](#tab-ledger), rows A1–A4).
+- Section [4.2](#sec-results-uncertainty) answers RQ2: how certain the reconciled flows are, and how far retention depends on the solver's termination and on the judgement values (Figure [5](#fig-uncertainty); rows A5–A6).
+- Section [4.3](#sec-results-system) answers RQ3: what the reconciled account shows beyond the separate sources (Figure [6](#fig-copper-system); rows B1–B3).
+- Each row of Table [3](#tab-ledger) pairs a sub-question with the answer expected before the numbers were read; the outcome states whether the answer met it.
 
 <a id="sec-results-reconciliation"></a>
 
@@ -76,29 +84,29 @@ Interpretations moved out of the Results on 2026-11-12, for the Discussion:
 
 <!-- Numbers: numbers.json top level and ["problem"] (Figure 3); the |z| > 3 means and the A2 years from manuscript_numbers.json group 9 (results:L60.*); the 0.864 -> 0.998 pair from the #33 REP (analysis_opt_20261020_112726_2f451f31_20261020_issue33-defects.md). -->
 
-**Problem and consistency (Figure 3; A1).**
+**How large is the problem, and does the account close every identity? (Figure 3; A1)**
 
 - The reference run reconciles 28,482 edges per year against 1,687,230 constraint rows over 1995–2024; all 30 yearly QPs return *Solved*.
-- A1 fails at the numerical floor: the largest hard mass-balance residual is $1.1 \times 10^{-6}$ kt (threshold $10^{-6}$ kt). Only the three signed stock-change edges take negative values.
+- Every hard identity closes to the numerical floor: the largest hard mass-balance residual is $1.1 \times 10^{-6}$ kt, so A1's expected $10^{-6}$ kt is narrowly not met. Only edges of the three signed stock-change pairs take negative values.
 - In 2020, 998 of the 14,241 contained-copper edges carry a feed prior (88,278 kt CC summed) and 900 a network-imputer prior (219,247 kt CC); 12,102 carry none of their own (Figure 3a). Feed priors sit on the commodity edges, imputed priors on the process recipes between them (Figure 3b).
 - The 2020 prior breaches 411 of the 1,316 hard mass balances. At $a^*$, 13,703 of the 19,314 concentration bands bind, 4,395 of them on rows with flow, and all 9,314 binding lower bounds hold an edge at zero (Figure 3d).
 
-**Compatibility with the stated uncertainty (Figure 4a; A2).**
+**How compatible is the adjustment with the stated uncertainty? (Figure 4a; A2)**
 
 - Over 1995–2024 the objective splits into 70% edge defects, 29% scale-total residuals and 0.2% soft-ratio residuals.
 - The share of rows with $\lvert z\rvert > 3$ is 0.004–0.012 for edges and 0.121–0.226 for scale totals in any year.
-- A2 fails on its scale-total clause in 21 years, all before 2019 (0.121–0.197); the edge clause holds in all 30.
+- Single flows are compatible with their stated $\sigma$ in all 30 years, as expected; scale totals are incompatible, but less often than expected: A2's scale-total clause is not met in 21 years, all before 2019 (0.121–0.197).
 
-**Localisation of the adjustment (Figure 4b, d; A3).**
+**Where does the adjustment fall? (Figure 4b, d; A3)**
 
 - Cathode→FU (56%) and Anode→ER (34%) carry 90% of the edge objective, and cross-region legs 95%.
-- A3 passes: 79% lies on legs into the 13 non-processing regions, which report no smelter, refinery or SX-EW production to ICSG (SI S15.1), a set of trading economies, fabricators and three mine-only exporters.
+- On transit trade, as expected (A3 met): 79% lies on legs into the 13 non-processing regions, which report no smelter, refinery or SX-EW production to ICSG (SI S15.1), a set of trading economies, fabricators and three mine-only exporters.
 - Among scale totals, cathode (27%) and concentrate (17%) nodes carry the largest shares (SI S16).
 
-**Magnitude of the adjustment (Figure 4c; A4).**
+**How large is the adjustment along the chain? (Figure 4c; A4)**
 
 - Pooled retention over 1995–2024 lies between 0.963 (Concentrate→Smelting CC) and 1.026 (Scrap→CFR CC) for all nine stages of Table S19; refined output retains 0.998, mine output 1.010 and crude-ore mass 0.999. Chile's concentrate exports retain 1.025 over 2010–2019.
-- A4 fails in every year: with all three stages within 0.04 of 1 in each year, the concentrate–ore step reaches the 0.02 gradient in 10 years and the cathode–concentrate step in 1.
+- The adjustment does not grow upstream, against the expectation (A4 not met in any year): with all three stages within 0.04 of 1 in each year, the concentrate–ore step reaches the 0.02 gradient in 10 years and the cathode–concentrate step in 1.
 - The upstream deletion A4 anticipated, a crude-ore mass retention of 0.864 on the previous reference chain (`opt_20261019_171746_3272682b`), was a termination artefact: solved for the defects at a relative gap of $10^{-8}$, the same QPs retain 0.998 (`opt_20261020_112726_2f451f31`, issue #33).
 
 <a id="fig-problem"></a>
@@ -119,42 +127,42 @@ Interpretations moved out of the Results on 2026-11-12, for the Discussion:
 
 <!-- Numbers: numbers.json["stage5"] (a–c), ["tolerance_pair_retention"] and ["sweep"] (d–e), ["link"] (the ρ bullet and the stages' κ); the breach range of the no-data anchor cv, the slag-leg ranges and the Round-E (c) counts from manuscript_numbers.json group 12 (results:L73.*, si:S15.4.*). -->
 
-**Posterior contraction and calibration (Figure 5a–c).**
+**How certain are the reconciled flows? (Figure 5a–c; exploratory)**
 
 - Mass-weighted posterior contraction is 0.96–0.995 from ore to cathode, 0.93–0.95 on the scrap legs and Cathode→FU, 0.80 on Concentrate→Smelting, 0.53–0.69 on the tailings and 0.28–0.50 on the slag legs (Figure 5a).
 - At trade-fed nodes the median over unpinned edge-years is lower, 0.41 for Concentrate→Smelting CC (64% of its edge-years pinned at a bound) and 0.51 for Anode→ER CC: the balances constrain a node's total more than its split over partners.
 - The standardised shifts $z/\sqrt{\kappa}$ of the contained-copper edges have a narrower core and a heavier tail than $N(0,1)$ (Figure 5b): median 0.46 (feed-observed) and 0.16 (imputed) against 0.67, and 13.1% and 7.5% beyond 3 against 0.27%.
-- The Birge ratio $R = \sum z^2/\mathrm{dof}$ is 5.18 over the run and 1.83 (2000) to 11.94 (2017) by year (Figure 5c). Intervals are therefore Birge-scaled, $a^* \pm 1.96\sqrt{R}\,\sigma_{a^*}$, and remain lower bounds in the tail: 4.1% of the feed-observed contained-copper edges lie beyond 3 scaled units, the source contradictions of Section 3.2.8.
+- The Birge ratio $R = \sum z^2/\mathrm{dof}$ is 5.18 over the run and 1.83 (2000) to 11.94 (2017) by year (Figure 5c). Intervals are therefore Birge-scaled, $a^* \pm 1.96\sqrt{R}\,\sigma_{a^*}$, and remain lower bounds in the tail: 4.1% of the feed-observed contained-copper edges lie beyond 3 scaled units (interpreted in Section [5.2](#sec-disc-why)).
 
-**Termination and judgement values (Figure 5d–e; A5, A6).**
+**How far does the answer depend on termination and on the judgement values? (Figure 5d–e; A5, A6)**
 
-- A5 fails: re-solving the base constraint run of 2026-09-16, not the reference chain, at the tightened tolerance changes five of the nine stages by more than 0.02, Scrap→Smelting CC by 0.223 (Figure 5d).
-- A6 fails: across the 64 points of the knob sweep no stage changes by more than 0.005 except Scrap→CFR CC, by up to 0.030 and by more than 0.02 at five points; A6 holds at 59 of 64 points- Two $\sigma$ knobs rank first on nine of the twelve outcomes (Figure 5e): the scale totals' coefficient of variation on smelting, refining, final use and the three exporters ($\lvert\mathrm{SRRC}\rvert$ 0.83–0.95), and the no-data anchor's on both scrap legs (+0.75, +0.84); ten of the 15 knobs are influential on none.
-, and its five breaches occur at a no-data anchor coefficient of variation of 0.080–0.093, 1.6–1.9 times the shipped value.
-- Indonesia's concentrate export retention (2010–2019) spans ±0.033, with the sign opposite to Chile's on the scale totals' coefficient of variation (SRRC +0.86 against −0.95); the Round-E (c) item of the stop rule holds at 18 of 64 points. The slag legs change most of any contained-copper category (CFR→Slag CC −0.052 to +0.039).
-- Over the 23 contained-copper categories with a retention, the sweep's largest $\lvert\Delta\rvert$ and the mass-weighted $1-\kappa$ are rank-correlated (Spearman $\rho = 0.49$, $p = 0.02$; gross mass 0.20, $p = 0.35$): the slag legs lead both rankings, Scrap→CFR CC ($\kappa$ 0.93) is the exception. The sweep is local, around one chain (SI S15.4).
+- Strongly on termination, against the expectation (A5 not met): re-solving the base constraint run of 2026-09-16, not the reference chain, at the tightened tolerance changes five of the nine stages by more than 0.02, Scrap→Smelting CC by 0.223 (Figure 5d).
+- Weakly on the judgement values, but not within the expected 0.02 everywhere (A6 not met; it holds at 59 of 64 points): across the 64 points of the knob sweep no stage changes by more than 0.005 except Scrap→CFR CC, by up to 0.030 and by more than 0.02 at five points, all five at a no-data anchor coefficient of variation of 0.080–0.093, 1.6–1.9 times the shipped value.
+- Two $\sigma$ knobs rank first on nine of the twelve outcomes (Figure 5e): the scale totals' coefficient of variation on smelting, refining, final use and the three exporters ($\lvert\mathrm{SRRC}\rvert$ 0.83–0.95), and the no-data anchor's on both scrap legs (+0.75, +0.84); ten of the 15 knobs are influential on none.
+- Indonesia's concentrate export retention (2010–2019) spans ±0.033, with the sign opposite to Chile's on the scale totals' coefficient of variation (SRRC +0.86 against −0.95); item (c) of the stop rule (export retention within 0.01) holds for Indonesia at 18 of 64 points. The slag legs change most of any contained-copper category (CFR→Slag CC −0.052 to +0.039).
+- Over the 23 contained-copper categories with a retention, the sweep's largest $\lvert\Delta\rvert$ and the mass-weighted $1-\kappa$ are rank-correlated (exploratory; Spearman $\rho = 0.49$, $p = 0.02$; gross mass 0.20, $p = 0.35$): the slag legs lead both rankings, Scrap→CFR CC ($\kappa$ 0.93) is the exception. The sweep is local, around one chain (SI S15.4).
 
 <a id="fig-uncertainty"></a>
 
 ![Figure 5](figs/fig5_uncertainty.png)
 
-**Figure 5.** Posterior uncertainty of the edges and sensitivity of retention to the termination rule and to the knobs, reference run. (a) Posterior contraction $\kappa = 1 - \sigma_{a^*}^2/\sigma_a^2$ per contained-copper category (sector pair) over 1995–2024, for the 23 categories with a retention in the knob sweep, sorted by the mass-weighted mean (filled marker; weight $\max(\lvert a_{\mathrm{prior}}\rvert, \lvert a^*\rvert)$). Open marker: the median over the edge-years not pinned at a bound, a pinned edge-year's $\kappa$ being 1 by construction; margin: the pinned share; bold labels: the eight Table S19 stages in contained copper (the ninth, the ore stage, is in gross mass). The contraction per prior class and valuation is in SI S6.2 and Figure S2. (b) QQ plot of the standardised shift $z/\sqrt{\kappa}$ of the contained-copper edges that are not pinned at a bound, not flat and have $\kappa \ge 0.01$, by prior class, against $N(0,1)$ (dashed) and $N(0,R)$ at the run's Birge ratio (orange); symlog axes with both tails drawn in full; the legend gives each class's share beyond 3 (0.27% expected under $N(0,1)$). (c) Birge ratio per year, stacked by the shares of $\sum z^2$ on edge defects and on soft rows; dashed, $R = 1$; dotted, the run's $R$. (d) Change in pooled retention over 1995–2024 per stage: the 64 points of the knob sweep against the reference run (box: interquartile range; whiskers: minimum–maximum) and the termination pair (diamond: the base constraint run of 2026-09-16, an earlier chain whose retention differs from the reference run's, solved at relative gaps of $10^{-3}$ and $10^{-6}$; SI S15.3); the axis is linear within the ±0.02 limit of A5 and A6 and logarithmic beyond it. (e) Standardised rank regression coefficient (SRRC, colour) and swing (text, in thousandths of retention) of the five knobs influential on at least one criterion outcome, over the nine stages of A6 (left of the line) and the three exporters of Round-E (c); boxed cells are influential ($\lvert\mathrm{SRRC}\rvert \ge 0.2$ with $R^2 \ge 0.5$). Stage 5 and the design of the sweep are described in SI S6 and S15.4.
+**Figure 5.** Posterior uncertainty of the edges and sensitivity of retention to the termination rule and to the knobs, reference run. (a) Posterior contraction $\kappa = 1 - \sigma_{a^*}^2/\sigma_a^2$ per contained-copper category (sector pair) over 1995–2024, for the 23 categories with a retention in the knob sweep, sorted by the mass-weighted mean (filled marker; weight $\max(\lvert a_{\mathrm{prior}}\rvert, \lvert a^*\rvert)$). Open marker: the median over the edge-years not pinned at a bound, a pinned edge-year's $\kappa$ being 1 by construction; margin: the pinned share; bold labels: the eight Table S19 stages in contained copper (the ninth, the ore stage, is in gross mass). The contraction per prior class and valuation is in SI S6.2 and Figure S2. (b) QQ plot of the standardised shift $z/\sqrt{\kappa}$ of the contained-copper edges that are not pinned at a bound, not flat and have $\kappa \ge 0.01$, by prior class, against $N(0,1)$ (dashed) and $N(0,R)$ at the run's Birge ratio (orange); symlog axes with both tails drawn in full; the legend gives each class's share beyond 3 (0.27% expected under $N(0,1)$). (c) Birge ratio per year, stacked by the shares of $\sum z^2$ on edge defects and on soft rows; dashed, $R = 1$; dotted, the run's $R$. (d) Change in pooled retention over 1995–2024 per stage: the 64 points of the knob sweep against the reference run (box: interquartile range; whiskers: minimum–maximum) and the termination pair (diamond: the base constraint run of 2026-09-16, an earlier chain whose retention differs from the reference run's, solved at relative gaps of $10^{-3}$ and $10^{-6}$; SI S15.3); the axis is linear within the ±0.02 limit of A5 and A6 and logarithmic beyond it. (e) Standardised rank regression coefficient (SRRC, colour) and swing (text, in thousandths of retention) of the five knobs influential on at least one criterion outcome, over the nine stages of A6 (left of the line) and the three exporters of stop-rule item (c); boxed cells are influential ($\lvert\mathrm{SRRC}\rvert \ge 0.2$ with $R^2 \ge 0.5$). Stage 5 and the design of the sweep are described in SI S6 and S15.4.
 
 <a id="tab-ledger"></a>
 
-| id | expectation | metric and threshold (SI S15) | outcome |
-| --- | --- | --- | --- |
-| A1 | every hard identity closes | max $\lvert G a^* - c\rvert$ over hard mass balances $< 10^{-6}$ kt, all years | $1.1 \times 10^{-6}$ kt — fail |
-| A2 | compatibility is family-specific | share of rows with $\lvert z\rvert > 3$: edges $< 0.05$ and scale totals $> 0.20$, every year | edges 0.004–0.012 (30/30); scale totals 0.121–0.226 (9/30) — fail |
-| A3 | the adjustment localises on transit trade | share of edge $\sum z^2$ on cross-region legs into the 13 non-processing regions $\ge 0.50$ | 0.787 (all cross-region legs 0.947) — pass |
-| A4 | the adjustment grows upstream | retention cathode CC $>$ concentrate CC $>$ ore Mass by $\ge 0.02$ per step in $\ge 25$ of 30 years | 0/30, also at the upper ends of the intervals (cathode–concentrate 1, concentrate–ore 10) — fail |
-| A5 | termination accuracy does not move the answer | $\lvert\Delta\,\mathrm{retention}\rvert < 0.02$ per stage, base run at gap 1e-3 vs 1e-6 | 4/9 stages within; max 0.223 (scrap into smelters) — fail |
-| A6 | judgement values do not move the answer | $\lvert\Delta\,\mathrm{retention}\rvert < 0.02$ per stage at every point of a 64-point sweep over 15 knobs | 59/64 points; max 0.030 (scrap into refineries), other stages $\le 0.005$ — fail |
-| B1 | secondary share: fidelity and regional order | pooled 2020–24: $\lvert$world posterior $-$ ICSG-implied$\rvert < 0.02$; EU-14 $>$ China $>$ US; EU-14 $\ge 2\times$ world | 0.007 [0.005, 0.010]; 0.370 [0.367, 0.374] $>$ 0.240 [0.234, 0.245] $>$ 0.045 [0.044, 0.047]; 2.16$\times$ [2.12, 2.20] — pass |
-| B2 | concentration rises downstream and is reconciliation-invariant | HHI 2024: refining, use $>$ mining and $> 0.25$; mining $< 0.15$; $\lvert\mathrm{HHI}_{\mathrm{post}} - \mathrm{HHI}_{\mathrm{prior}}\rvert < 0.01$ | mining 0.111 [0.108, 0.114], smelting 0.281 [0.275, 0.287], refining 0.230 [0.226, 0.234], use 0.352 [0.344, 0.361]; max $\lvert\Delta\rvert$ 0.003 (use; $\Delta$ [−0.012, 0.006]) — fail |
-| B3 | embodied exceeds direct; Chile's exports turned to China | China's embodied mined Cu from Chile+Peru $\ge 1.10\times$ its direct concentrate imports from them (2024); Chile's export share to China $< 0.10$ (1995), $> 0.50$ (2024) | 6,335 / 4,254 kt CC $= 1.49$ [1.42, 1.55]; 0.034 [0.029, 0.040] $\to$ 0.548 [0.523, 0.572] — pass |
+| id | question | expected answer | metric and threshold (SI S15) | outcome |
+| --- | --- | --- | --- | --- |
+| A1 | RQ1: does the account close every hard identity? | every hard identity closes | max $\lvert G a^* - c\rvert$ over hard mass balances $< 10^{-6}$ kt, all years | $1.1 \times 10^{-6}$ kt — not met |
+| A2 | RQ1: how compatible is the adjustment with the stated $\sigma$? | compatibility is family-specific | share of rows with $\lvert z\rvert > 3$: edges $< 0.05$ and scale totals $> 0.20$, every year | edges 0.004–0.012 (30/30); scale totals 0.121–0.226 (9/30) — not met |
+| A3 | RQ1: where does the adjustment fall? | on transit trade | share of edge $\sum z^2$ on cross-region legs into the 13 non-processing regions $\ge 0.50$ | 0.787 (all cross-region legs 0.947) — met |
+| A4 | RQ1: how large is the adjustment along the chain? | it grows upstream | retention cathode CC $>$ concentrate CC $>$ ore Mass by $\ge 0.02$ per step in $\ge 25$ of 30 years | 0/30 years with both steps, also at the upper ends of the intervals; per step, cathode–concentrate 1 and concentrate–ore 10 years (3 and 24 at the upper ends) — not met |
+| A5 | RQ2: how far does termination move the answer? | not beyond 0.02 of retention | $\lvert\Delta\,\mathrm{retention}\rvert < 0.02$ per stage, base run at gap 1e-3 vs 1e-6 | 4/9 stages within; max 0.223 (scrap into smelters) — not met |
+| A6 | RQ2: how far do the judgement values move the answer? | not beyond 0.02 of retention | $\lvert\Delta\,\mathrm{retention}\rvert < 0.02$ per stage at every point of a 64-point sweep over 15 knobs | 59/64 points; max 0.030 (scrap into refineries), other stages $\le 0.005$ — not met |
+| B1 | RQ3: how does the secondary share differ between regions? | ICSG's world share kept; EU-14 above China above US | pooled 2020–24: $\lvert$world posterior $-$ ICSG-implied$\rvert < 0.02$; EU-14 $>$ China $>$ US; EU-14 $\ge 2\times$ world | 0.007 [0.005, 0.010]; 0.370 [0.367, 0.374] $>$ 0.240 [0.234, 0.245] $>$ 0.045 [0.044, 0.047]; 2.16$\times$ [2.12, 2.20] — met |
+| B2 | RQ3: how does concentration change along the chain? | it rises downstream; the reconciliation leaves it unchanged | HHI 2024: refining, use $>$ mining and $> 0.25$; mining $< 0.15$; $\lvert\mathrm{HHI}_{\mathrm{post}} - \mathrm{HHI}_{\mathrm{prior}}\rvert < 0.01$ | mining 0.111 [0.108, 0.114], smelting 0.281 [0.275, 0.287], refining 0.230 [0.226, 0.234], use 0.352 [0.344, 0.361]; max $\lvert\Delta\rvert$ 0.003 (use; $\Delta$ [−0.012, 0.006]) — not met |
+| B3 | RQ3: how do embodied and direct trade differ? | embodied exceeds direct; Chile's exports turned to China | China's embodied mined Cu from Chile+Peru $\ge 1.10\times$ its direct concentrate imports from them (2024); Chile's export share to China $< 0.10$ (1995), $> 0.50$ (2024) | 6,335 / 4,254 kt CC $= 1.49$ [1.42, 1.55]; 0.034 [0.029, 0.040] $\to$ 0.548 [0.523, 0.572] — met |
 
-**Table 3.** The pre-registered expectations of Section 4 and their outcomes on the reference run. Thresholds were fixed before the numbers were read; definitions, the reason each benchmark is or is not independent of the inputs, and the per-row numbers are in SI S15; A6 is judged on a knob sweep around the reference run (SI S15.4). Brackets give Birge-scaled 95% posterior intervals ($\sqrt{R} = 2.28$), computed from the covariance the constraints induce between the flows of each total, by the delta method for ratios and indices and from 200 posterior draws for the embodied ratio (Section 3.1.7, issue #81); pinning or freeing the bounds the active set leaves ambiguous moves none of them by more than 0.002 (issue #99).
+**Table 3.** The sub-questions of RQ1–RQ3 (Section [1](#sec-intro)), the answers expected before the numbers were read, and the outcomes on the reference run: *met* where the answer meets the expectation's threshold. Thresholds were fixed before the numbers were read; definitions, the reason each benchmark is or is not independent of the inputs, and the per-row numbers are in SI S15; A6 is judged on a knob sweep around the reference run (SI S15.4). Brackets give Birge-scaled 95% posterior intervals ($\sqrt{R} = 2.28$), computed from the covariance the constraints induce between the flows of each total, by the delta method for ratios and indices and from 200 posterior draws for the embodied ratio (Section [3.1.7](#sec-stage5), issue #81); pinning or freeing the bounds the active set leaves ambiguous moves none of them by more than 0.002 (issue #99).
 
 <a id="sec-results-system"></a>
 
@@ -162,25 +170,25 @@ Interpretations moved out of the Results on 2026-11-12, for the Discussion:
 
 <!-- Numbers: numbers.json Part B keys; the ratios (EU-14 / world, the largest lift, ΔHHI, China's footprint share, B3's comparator over all four traded goods) from manuscript_numbers.json group 9 (results:L95.*, results:L97.*, results:L99.*). -->
 
-- All quantities below come from one reconciled account that satisfies every hard balance of Figure 2 and gives each a prior counterpart.
+- All quantities below come from one reconciled account that satisfies every hard balance of Figure 2; each is also computed on the prior, so the reconciliation's effect on it can be read off.
 
-**Secondary copper (Figure 6a; B1).**
+**How does the secondary share differ between regions? (Figure 6a; B1)**
 
-- The world posterior secondary share on the input side of refining (scrap over scrap, concentrate intake and SX-EW cathode, contained copper) is 0.172 pooled over 2020–2024, 0.007 [0.005, 0.010] above the 0.164 implied by the ICSG feed. B1's fidelity clause passes; the benchmark is an input, so this tests fidelity, not validation.
+- The world posterior secondary share on the input side of refining (scrap over scrap, concentrate intake and SX-EW cathode, contained copper) is 0.172 pooled over 2020–2024, 0.007 [0.005, 0.010] above the 0.164 implied by the ICSG feed. The reconciliation keeps ICSG's world share, as expected; the benchmark is an input, so this tests fidelity, not validation.
 - Regional shares over 2020–2024 range from 0 to 0.370: EU-14 0.370 (2.16 times the world share), Japan, Korea and Taiwan 0.249, China 0.240, the United States 0.045, India 0.005, Chile and Peru 0. The low United States share reflects the boundary: scrap enters the account only into smelters and fire refineries (Figure 2), not as direct melt.
 - The reconciliation keeps the regional order and moves no group's share by more than 0.014 (Japan, Korea and Taiwan). The world share is thus a mass-weighted mean over groups that differ by up to 0.370, not a common rate.
 
-**Concentration along the chain (Figure 6b; B2).**
+**How does concentration change along the chain? (Figure 6b; B2)**
 
 - The Herfindahl–Hirschman index (HHI) of producer regions per step (contained copper) moves by at most 0.004 with the treatment of the rest-of-world aggregate. In 1995 all four steps lay at 0.08–0.12, below the 0.15 threshold for moderate concentration ([U.S. DOJ and FTC, 2010](#ref-dojftc2010hmg)).
 - In 2024 the HHI is 0.111 in mining (Chile 0.24 of world output) and 0.281 in smelting, 0.230 in refining and 0.352 in final use (China 0.52, 0.45 and 0.58).
-- B2 fails on the refining clause: every downstream step exceeds mining, but only smelting and final use exceed the 0.25 threshold for high concentration, and refining's interval [0.226, 0.234] lies wholly below it. The invariance clause holds at the point estimates (largest $\lvert\Delta\rvert$ 0.003, final use), but the final-use interval [−0.012, 0.006] extends beyond −0.01.
+- Concentration rises downstream, but B2 is not met on its refining clause: every downstream step exceeds mining, but only smelting and final use exceed the 0.25 threshold for high concentration, and refining's interval [0.226, 0.234] lies wholly below it. The invariance clause holds at the point estimates (largest $\lvert\Delta\rvert$ 0.003, final use), but the final-use interval [−0.012, 0.006] extends beyond −0.01.
 
-**Trade relations (Figure 6c–d; B3).**
+**How do embodied and direct trade relations differ? (Figure 6c–d; B3)**
 
 - Chile's exports of concentrate, matte, anode and cathode rose from 2,228 kt CC in 1995 to 5,507 kt CC in 2024, and China's share of them from 0.034 to 0.548. Peru's rose from 396 to 2,787 kt CC (0.710 to China in 2024), China's imports from 385 to 11,885 kt CC (Figure 6c).
 - In the market-share PIOT of 2024, China's final use embodies 16,727 kt CC of extracted copper, 56% of world extraction (29,620 kt CC), 3,886 kt CC of it mined in Chile (Figure 6d).
-- B3 passes: China's final use embodies 6,335 kt CC mined in Chile and Peru, 1.49 [1.42, 1.55] times its direct concentrate imports from them (4,254 kt CC). Against its direct imports of all four goods (4,996 kt CC) the ratio is 1.27, and 1,339 kt CC is matched by no direct import from the two countries.
+- Embodied exceeds direct, as expected (B3 met): China's final use embodies 6,335 kt CC mined in Chile and Peru, 1.49 [1.42, 1.55] times its direct concentrate imports from them (4,254 kt CC). Against its direct imports of all four goods (4,996 kt CC) the ratio is 1.27, and 1,339 kt CC is matched by no direct import from the two countries.
 - Only an account linking extraction to final use through every process and region attributes these 1,339 kt CC to China.
 
 <a id="fig-copper-system"></a>

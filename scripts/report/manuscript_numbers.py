@@ -46,7 +46,7 @@ Groups, after the 2026-10-19 inventories of method/results and SI:
  10  Stage 5: the default posterior built from the opt run (the #87 scale-total
      ablation beside it): active set per year, Birge ratio, calibration of the
      shifts, contraction by prior class with and without the scale totals
- 11  limitations (method.md §3.2.8): the mine chains kept where ICSG reports no
+ 11  limitations (discussion.md §5.5.2, method.md §3.2.8 until 2026-11-12): the mine chains kept where ICSG reports no
      mine output, stock legs beyond |z| 5, the world producer stock change
      against ICSG, the regions that carry the scale-total objective
  12  knob study (#108): A6 and Round-E (c) on the latest sweep whose base is the opt
@@ -88,9 +88,9 @@ BASE_RUN       = "opt_20260916_124721_c4d1d944"
 BASE_RETOL_RUN = "opt_20260930_093914_523d57d7"
 NUMBERS_JSON   = "docs/manuscript/figs/numbers.json"
 NUMBERS_OUT    = "docs/manuscript/figs/manuscript_numbers.json"   # committed: the refresh's diff base
-Z_BIG          = 5.0                         # a stock leg beyond |z| 5 is a limitation (§3.2.8)
+Z_BIG          = 5.0                         # a stock leg beyond |z| 5 is a limitation (Discussion §5.5.2)
 PSC_FIRST_YEAR = 1996                        # ICSG reports no producer stock change for 1995
-EXCESS_MIN_KT  = 5.0                         # BACI exports above ICSG production (§3.2.8, #111)
+EXCESS_MIN_KT  = 5.0                         # BACI exports above ICSG production (Discussion §5.5.2, #111)
 FRINGE_KT      = 1e-4                        # #99's fringe: a* this close to its bound is ambiguous
 INTERVALS_CSV  = "docs/manuscript/figs/table3_intervals.csv"   # scripts/report/table3_intervals.py
 PARAM_TABLES   = ["conc", "eff", "stripping_ratio", "ore_grade", "stock_bounds",
@@ -1269,7 +1269,7 @@ def interval_shift(t: pd.DataFrame, z: float) -> dict:
 
 def limitation_numbers(N: Numbers, inp: Path, ch: Chain, e: pd.DataFrame, s: pd.DataFrame,
                        sigma_a: np.ndarray) -> None:
-    """Group 11: the numbers of method.md §3.2.8."""
+    """Group 11: the numbers of discussion.md §5.5.2 (method.md §3.2.8 until 2026-11-12)."""
     ic = _icsg(inp, ch.versions["icsg"])
     p = phantom_mine_chain(e, mine_region_years(ic))
     N.add("method:L352.phantom_mf_conc_kt", "MF→Concentrate CC posterior where ICSG reports no "
