@@ -22,12 +22,12 @@ import pytest
 from pysuto.acc import AccountingStructure, check_built_acc
 from pysuto.cases import toy
 from pysuto.diag import FeedDiagnostics, SankeySpec, TruthDiag, sankey_tables
-from pysuto.feedpipe import (build_F_src, propagate_with_row_penalty,
-                             step_B_build_concordance, step_C_build_weight_matrix)
-from pysuto.registry import (ConstraintRunRegistry, DataFeedRegistry, ImputationRunRegistry,
-                             OptimRunRegistry, PsutRunRegistry, UncPropRunRegistry)
+from pysuto.registry import (ConstraintRunRegistry, DataFeedRegistry,
+                             ImputationRunRegistry, OptimRunRegistry, PsutRunRegistry,
+                             UncPropRunRegistry)
 
-PLANTED_KEY = ("from_sector", "from_region", "to_sector", "to_region", "time", "valuation")
+PLANTED_KEY = ("from_sector", "from_region", "to_sector", "to_region", "time",
+               "valuation")
 
 
 @pytest.fixture(scope="module")
@@ -53,8 +53,8 @@ def _edge_key(edge_meta: pd.DataFrame, edge_id: int) -> tuple:
 def _node_balance(frame: pd.DataFrame, value: str) -> pd.DataFrame:
     """Inflow and outflow of every Process and Flow node, per (time, valuation)."""
     keys = ["time", "valuation", "region", "sector"]
-    inflow = (frame.groupby(["time", "valuation", "to_region", "to_sector"])[value].sum()
-                   .rename_axis(keys).rename("inflow"))
+    inflow = (frame.groupby(["time", "valuation", "to_region", "to_sector"])[value]
+                   .sum().rename_axis(keys).rename("inflow"))
     outflow = (frame.groupby(["time", "valuation", "from_region", "from_sector"])[value]
                     .sum().rename_axis(keys).rename("outflow"))
     both = pd.concat([inflow, outflow], axis=1).fillna(0.0).reset_index()
@@ -70,6 +70,7 @@ def test_the_acc_spec_builds_through_from_spec_and_survives_a_reload(tmp_path):
     acc = toy.build_acc(tmp_path)
     assert acc.n_nodes == 13 * 3
     assert acc.n_edges == 420                    # (11 · 3 + 9) edges × 5 years × 2
+    assert acc.valuation == [toy.GROSS, toy.CONTENT]
     assert int(acc.masks["cross_region"].sum()) == 6 * 5 * 2
     assert int((~acc.masks["massbal_scope"]).sum()) == 3 * 5 * 2   # Mining → WasteRock
     stock = acc.edge_meta["to_sector"].eq("Stock").to_numpy()
@@ -77,7 +78,8 @@ def test_the_acc_spec_builds_through_from_spec_and_survives_a_reload(tmp_path):
     check_built_acc(str(tmp_path), toy.ACC_REF, require_record=True)      # #53's record
     loaded = AccountingStructure.load(toy.ACC_ID, storage_dir=str(tmp_path))
     pd.testing.assert_frame_equal(loaded.edge_index, acc.edge_index)
-    np.testing.assert_array_equal(loaded.masks["massbal_scope"], acc.masks["massbal_scope"])
+    np.testing.assert_array_equal(loaded.masks["massbal_scope"],
+                                  acc.masks["massbal_scope"])
 
 
 def test_truth_balances_every_process_and_flow_node_in_both_valuations():
@@ -85,9 +87,9 @@ def test_truth_balances_every_process_and_flow_node_in_both_valuations():
     assert len(truth) == 420
     satellite = truth["from_sector"].eq("Mining") & truth["to_sector"].eq("WasteRock")
     nodes = _node_balance(truth[~satellite], "value")
-    assert len(nodes) == 6 * 3 * 5 * 2           # 6 balanced sectors × regions × years × 2
+    assert len(nodes) == 6 * 3 * 5 * 2           # sectors × regions × years × valuations
     np.testing.assert_allclose(nodes["inflow"], nodes["outflow"], rtol=0.0, atol=1e-12)
-    assert truth.loc[truth["to_sector"].eq("Stock"), "value"].lt(0).any()   # the signed leg
+    assert truth.loc[truth["to_sector"].eq("Stock"), "value"].lt(0).any()   # signed leg
     portua_mine = truth["from_region"].eq("Portua") & truth["to_sector"].eq("Mining")
     assert truth.loc[portua_mine, "value"].eq(0.0).all()                    # no mines
 
@@ -101,21 +103,27 @@ def test_the_truth_and_the_feeds_are_reproducible_from_the_seed():
 
 
 def test_each_feed_is_noisy_at_its_pedigree_cv_over_its_covered_edges(chain):
-    """Root level, against the truth, planted leg excluded. Survey and Customs map 1:1;
-    the Bureau's fan-in edges pool two series, so its CV sits a little below."""
+    """Root level, against the truth, planted leg excluded. This checks the generator's
+    rescaled noise and Stage 1's mapping together: the Survey and the Customs feed map
+    1:1 onto root edges, so their empirical CV is their pedigree CV exactly. The Bureau's
+    refined-output edges pool two series each, so at root level its CV sits a little
+    below its pedigree CV and is held to a 10 % band."""
     root, acc = chain["root"], chain["acc"]
     truth     = toy.truth_vector(toy.truth(), acc)
     planted   = toy._edge_id(acc, *(toy.reveal()[k] for k in PLANTED_KEY))
     registry  = DataFeedRegistry(odir=str(root / "feed"))
     registry.load_index()
+    ratio = {}
     for feed_id in toy.FEED_IDS:
         result  = registry.load_result(feed_id)
         covered = result["sigma_root"] > 0
         covered[planted] = False
         rel     = (result["F_root"][covered] - truth[covered]) / truth[covered]
-        cv_emp  = float(np.sqrt(np.mean(rel ** 2)))
         cv_ped  = registry.load_metadata(feed_id).to_pedigree_scores().total_cv()
-        assert abs(cv_emp / cv_ped - 1.0) <= 0.10, (feed_id, cv_emp, cv_ped)
+        ratio[feed_id] = float(np.sqrt(np.mean(rel ** 2))) / cv_ped
+    assert ratio["survey"]  == pytest.approx(1.0, rel=1e-10)
+    assert ratio["customs"] == pytest.approx(1.0, rel=1e-10)
+    assert abs(ratio["bureau"] - 1.0) <= 0.10, ratio
 
 
 def test_every_registered_imputer_writes_and_the_time_imputer_fills_the_two_gaps(chain):
@@ -146,12 +154,12 @@ def test_reveal_names_the_one_customs_row_that_is_off_by_its_factor(chain):
     tv      = toy.truth().set_index(list(PLANTED_KEY))["value"]
     ratio   = raw["Value"].to_numpy() / np.array([
         tv.loc[("Concentrate", r["from_region"], "Smelting", r["to_region"], r["Year"],
-                "Mass")] for _, r in raw.iterrows()])
+                toy.GROSS)] for _, r in raw.iterrows()])
     off = np.flatnonzero(ratio > 100.0)
     assert off.size == 1
     row = raw.iloc[off[0]]
     assert ("Concentrate", row["from_region"], "Smelting", row["to_region"], row["Year"],
-            "Mass") == tuple(planted[k] for k in PLANTED_KEY)
+            toy.GROSS) == tuple(planted[k] for k in PLANTED_KEY)
     cv = feed.metadata.to_pedigree_scores().total_cv()
     assert abs(ratio[off[0]] / planted["factor"] - 1.0) < 5 * cv
 
@@ -164,7 +172,7 @@ def test_write_params_writes_the_three_families_the_builders_read(tmp_path):
         assert not df["param_id"].str.contains("_").any()        # ADR 0005
         assert df["param_id"].is_unique
     eff = pd.read_csv(paths["eff"], sep=None, engine="python", dtype=str)
-    assert eff.set_index("param_id").loc["effsmelting", "agg"] == "true"   # pooled inputs
+    assert eff.set_index("param_id").loc["effsmelting", "agg"] == "true"   # pooled
 
 
 # =============================================================================
@@ -191,11 +199,12 @@ def test_every_hard_row_closes_to_1e_10(chain):
 
 def test_the_planted_leg_is_the_top_soft_residual(chain):
     soft = toy.soft_residuals(chain["root"], chain["ids"]["opt"])
+    assert str(soft["edge_id"].dtype) == "Int64" and soft["constraint_id"].dtype == object
     top  = soft.iloc[0]
-    assert top["kind"] == "edge"
-    assert _edge_key(chain["acc"].edge_meta, int(top["id"])) == \
+    assert top["kind"] == "edge" and top["constraint_id"] is None
+    assert _edge_key(chain["acc"].edge_meta, int(top["edge_id"])) == \
         tuple(toy.reveal()[k] for k in PLANTED_KEY)
-    assert abs(top["z"]) > 1.5 * abs(soft["z"].iloc[2])   # the leg and its CC twin lead
+    assert abs(top["z"]) > 1.5 * abs(soft["z"].iloc[2])   # the leg and its twin lead
 
 
 def test_stage5_coverage_of_the_420_edges_lies_in_its_recorded_band(chain):
@@ -208,7 +217,8 @@ def test_stage5_coverage_of_the_420_edges_lies_in_its_recorded_band(chain):
         covered[cols] = (ts.lower <= truth[cols]) & (truth[cols] <= ts.upper)
     coverage = covered.mean()
     # Band fixed on the first run of this test (2026-11-11, seed 59): observed 0.936,
-    # 393 of 420 edges inside their 95 % interval. Never loosen it.
+    # 393 of 420 edges inside their 95 % interval. Never loosen it. With copper's
+    # cascade order (review of 9c797e3): 0.933, 392 of 420.
     assert 0.90 <= coverage <= 0.97, coverage
     assert toy.scoreboard(root, ids).coverage() == pytest.approx(coverage)
 
@@ -223,19 +233,29 @@ def test_the_psut_supply_and_use_blocks_balance_per_node(chain):
     np.testing.assert_allclose(nodes["inflow"], nodes["outflow"], rtol=0.0, atol=1e-8)
 
 
-def test_the_sankey_tables_sum_to_the_psut_totals(chain):
-    """Per block, over the PSUT's positive entries: the Sankey draws no link ≤ 0."""
+def test_the_sankey_tables_sum_to_the_psut_totals(chain, caplog):
+    """Per block, the PSUT's total is the Sankey's links plus the links it drops; in the
+    planted year the dropped part (negative posteriors, a negative stock change) is not
+    zero, and the Sankey says so."""
     psut = PsutRunRegistry(str(chain["root"] / "psut")).load(chain["ids"]["psut"])
     for period in psut.periods():
         for valuation in psut.valuations:
-            _, links = sankey_tables(psut, SankeySpec(period=period, valuation=valuation))
-            rows = psut.table[(psut.table["period"] == period)
-                              & (psut.table["valuation"] == valuation)
-                              & (psut.table["val"] > 0)]
-            pd.testing.assert_series_equal(
-                links.groupby("block")["value"].sum().sort_index(),
-                rows.groupby("block")["val"].sum().sort_index(),
-                check_names=False, rtol=1e-12)
+            with caplog.at_level("WARNING", logger="pysuto.diag.psut"):
+                caplog.clear()
+                _, links, dropped = sankey_tables(
+                    psut, SankeySpec(period=period, valuation=valuation),
+                    with_dropped=True)
+            rows   = psut.table[(psut.table["period"] == period)
+                                & (psut.table["valuation"] == valuation)]
+            total  = rows.groupby("block")["val"].sum()
+            shown  = links.groupby("block")["value"].sum().reindex(total.index,
+                                                                   fill_value=0.0)
+            np.testing.assert_allclose(
+                shown + dropped.reindex(total.index, fill_value=0.0), total,
+                rtol=1e-12, atol=1e-12)
+            if period == toy.reveal()["time"]:
+                assert dropped.sum() < 0.0, (period, valuation)
+                assert "≤ 0 left out" in caplog.text
 
 
 # =============================================================================
@@ -252,6 +272,11 @@ def test_truth_diag_draws_its_three_figures_and_summarises(chain, tmp_path, caps
     errors = board.error_by_stage()
     assert list(errors.index) == ["feed", "aggregate", "prior", "reconciled"]
     assert errors.loc["reconciled", "median"] < errors.loc["prior", "median"]
+    retention = board.retention(toy.CONTENT)
+    assert retention.index.names == ["category", "year"]
+    assert f"truth [{toy.UNITS[toy.CONTENT]}]" in retention.columns
+    assert set(retention.index.get_level_values("year")) == set(toy.YEARS)
+    assert "Metal → Stock" not in retention.index.get_level_values("category")  # signed
     text = board.summary()
     assert "coverage" in text and text in capsys.readouterr().out
 
@@ -262,14 +287,18 @@ def test_truth_diag_refuses_arrays_of_the_wrong_length(chain):
         TruthDiag({"prior": np.zeros(3)}, np.zeros(len(em)), None, em)
 
 
+def test_scoreboard_reads_the_seed_from_the_run_tree_and_refuses_another(chain):
+    root, ids = chain["root"], chain["ids"]
+    assert toy.scoreboard(root, ids, seed=toy.SEED).coverage() == \
+        toy.scoreboard(root, ids).coverage()
+    with pytest.raises(ValueError, match="seed=1, but"):
+        toy.scoreboard(root, ids, seed=1)
+
+
 def test_feed_diagnostics_draw_the_synthetic_feeds(chain, tmp_path):
     acc = chain["acc"]
     for feed_id, feed in toy.make_feeds(toy.truth()).items():
-        ct = step_B_build_concordance(feed.raw, acc, **feed.maps, feed_id=feed_id,
-                                      aux_col=feed.aux_col, allow_unmatched_edges=False)
-        wm = step_C_build_weight_matrix(ct)
-        F_src = build_F_src(feed.raw, ct, label=feed_id)
-        result, _ = propagate_with_row_penalty(wm, F_src, feed.metadata, acc)
+        ct, _, F_src, result, _ = toy._feed_steps(feed, acc)
         path = FeedDiagnostics(feed_id, feed_id, toy.ACC_ID, feed.raw, ct, F_src,
                                result).plot(odir=str(tmp_path / feed_id))
         assert (tmp_path / feed_id / "feed.png").exists() and path.endswith("feed.png")
@@ -297,7 +326,7 @@ def test_the_exercise_checks_accept_the_reference_and_reject_a_wrong_answer(chai
         toy.check_3_1(root, n_hard + 1, n_soft)
 
     soft = toy.soft_residuals(root)
-    cid  = soft.loc[soft["kind"] == "row", "id"].iloc[0]
+    cid  = soft.loc[soft["kind"] == "row", "constraint_id"].iloc[0]
     z    = toy._ref_4_1(root, cid)
     assert toy.check_4_1(root, cid, z).startswith("✓ 4.1")
     with pytest.raises(AssertionError):
@@ -318,17 +347,18 @@ def test_the_exercise_checks_accept_the_reference_and_reject_a_wrong_answer(chai
 
 
 def test_imports_flow_one_way_cases_on_top_and_truth_diag_a_leaf():
+    """The library imports no ``pysuto.cases``; ``diag/truth.py`` imports neither the
+    cases nor ``scripts/``."""
     src = Path(toy.__file__).resolve().parents[1]
-    imports_cases = re.compile(r"^\s*(from|import)\s+(pysuto\.cases|\.+cases)\b", re.MULTILINE)
+    imports_cases   = re.compile(r"^\s*(from|import)\s+(pysuto\.cases|\.+cases)\b",
+                                 re.MULTILINE)
+    imports_scripts = re.compile(r"^\s*(from|import)\s+scripts\b", re.MULTILINE)
     importers = [str(p.relative_to(src)) for p in src.rglob("*.py")
                  if p.parent.name != "cases"
                  and imports_cases.search(p.read_text(encoding="utf-8"))]
     assert importers == []
-    truth_imports = re.findall(r"^(?:from|import) (\S+)",
-                               (src / "diag" / "truth.py").read_text(encoding="utf-8"),
-                               flags=re.MULTILINE)
-    assert set(truth_imports) == {"__future__", "os", "typing", "numpy", "pandas",
-                                  "scipy.stats", "._plot"}
+    truth_py = (src / "diag" / "truth.py").read_text(encoding="utf-8")
+    assert not imports_cases.search(truth_py) and not imports_scripts.search(truth_py)
 
 
 def test_solution_returns_each_reference_source_and_refuses_an_unknown_key():

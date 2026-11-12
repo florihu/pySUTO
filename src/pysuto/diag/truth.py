@@ -11,8 +11,8 @@ all. Three figures, each a question the truth answers:
    → reconciled) sits from the truth, as a relative error per edge.
 2. **Calibration** — whether the posterior σ is honest: ``z = (a* − truth) / σ_a*``
    against N(0, 1), and the share of edges whose ``(1 − α)`` interval holds the truth.
-3. **Residual rank** — the solver's prior residuals ``(a* − a_prior) / σ_a``, largest
-   first, with the planted edges marked.
+3. **Residual rank** — the solver's prior residuals (:func:`prior_z`), largest first,
+   with the planted edges marked.
 
 Data contract: every array is indexed by edge id (length ``n``, ``edge_meta`` row ``i``
 is edge ``i``); NaN in an estimate means the stage did not estimate that edge.
@@ -31,6 +31,14 @@ from scipy.stats import norm
 from ._plot import _C, _savefig
 
 
+def prior_z(a_star, a_prior, sigma_a) -> np.ndarray:
+    """An edge's prior residual as the solver weighs it, ``z = (a* − a_prior) / σ_a``,
+    with ``a_prior`` and ``σ_a`` conditioned as the QP conditions them
+    (``pysuto._conditioning.condition_prior``)."""
+    return ((np.asarray(a_star, dtype=float) - np.asarray(a_prior, dtype=float))
+            / np.asarray(sigma_a, dtype=float))
+
+
 class TruthDiag:
     """Score stage estimates against a ground truth (see the module docstring).
 
@@ -39,7 +47,8 @@ class TruthDiag:
     estimates : dict[str, np.ndarray]
         Stage name → per-edge estimate (NaN = not estimated), in stage order, e.g.
         ``feed``, ``aggregate``, ``prior``, ``reconciled``. ``reconciled`` (``a*``) is
-        required for the calibration; ``prior`` and ``reconciled`` for the residual rank.
+        required for the calibration; ``prior`` and ``reconciled`` for the residual
+        rank.
     truth : np.ndarray
         The ground truth per edge.
     sigma_post : np.ndarray or None
@@ -53,14 +62,18 @@ class TruthDiag:
         Edge ids of planted defects, marked in the figures and the summary.
     alpha : float
         The interval level, ``(1 − α)``.
+    units : dict, optional
+        Valuation → unit label (``{"Mass": "kt", "CC": "kt CC"}``); default
+        ``"kt <valuation>"`` for every valuation.
     label : str
         Figure title prefix.
     """
 
     def __init__(self, estimates: dict, truth: np.ndarray,
                  sigma_post: Optional[np.ndarray], edge_meta: pd.DataFrame, *,
-                 sigma_prior: Optional[np.ndarray] = None, planted: Sequence[int] = (),
-                 alpha: float = 0.05, label: str = "") -> None:
+                 sigma_prior: Optional[np.ndarray] = None,
+                 planted: Sequence[int] = (), alpha: float = 0.05,
+                 units: Optional[dict] = None, label: str = "") -> None:
         self.truth = np.asarray(truth, dtype=float)
         n = self.truth.shape[0]
         if self.truth.ndim != 1:
@@ -85,7 +98,16 @@ class TruthDiag:
         if not 0.0 < alpha < 1.0:
             raise ValueError(f"alpha must be in (0, 1), got {alpha}")
         self.alpha = float(alpha)
+        valuations = list(dict.fromkeys(self.edge_meta["valuation"]))
+        self.units = {v: f"kt {v}" for v in valuations}
+        self.units.update(units or {})
         self.label = label
+
+    @property
+    def _ranked(self) -> bool:
+        """Whether the residual rank can be drawn: a prior, an ``a*`` and the prior σ."""
+        return (self.sigma_prior is not None
+                and {"prior", "reconciled"} <= set(self.estimates))
 
     @staticmethod
     def _vector(values, name: str, n: int) -> Optional[np.ndarray]:
@@ -143,7 +165,7 @@ class TruthDiag:
     def covered(self) -> np.ndarray:
         """Whether each edge's ``(1 − α)`` interval ``a* ± z·σ_a*`` holds the truth; an
         edge with ``σ_a* = 0`` counts as covered only where ``a*`` equals the truth to
-        1e-9 kt."""
+        1e-9 (in its valuation's unit)."""
         a_star = self._require_posterior()
         half   = norm.ppf(1.0 - self.alpha / 2.0) * self.sigma_post
         diff   = np.abs(a_star - self.truth)
@@ -154,40 +176,48 @@ class TruthDiag:
         return float(self.covered().mean())
 
     def residual_rank(self) -> pd.DataFrame:
-        """Every edge's prior residual ``z = (a* − a_prior) / σ_a``, largest ``|z|``
-        first, with the planted edges flagged."""
+        """Every edge's prior residual (:func:`prior_z`), largest ``|z|`` first, with the
+        planted edges flagged."""
         if self.sigma_prior is None or not {"prior", "reconciled"} <= set(self.estimates):
-            raise ValueError("the residual rank needs 'prior', 'reconciled' and sigma_prior")
-        z     = (self.estimates["reconciled"] - self.estimates["prior"]) / self.sigma_prior
+            raise ValueError("the residual rank needs 'prior', 'reconciled' and "
+                             "sigma_prior")
+        z     = prior_z(self.estimates["reconciled"], self.estimates["prior"],
+                        self.sigma_prior)
         order = np.argsort(-np.abs(z), kind="stable")
         return pd.DataFrame({"edge_id": order, "edge": self.edge_labels(order),
                              "z": z[order], "planted": np.isin(order, self.planted)})
 
-    def retention(self) -> pd.DataFrame:
-        """By category (``from_sector → to_sector``, valuation), all years pooled: the
-        prior and ``a*`` against the truth (``Σ/Σtruth``) and the retention
-        ``Σa*/Σa_prior``. Categories with a negative truth (a signed leg) are left out
-        (GLOSSARY.md "Retention")."""
-        em = self.edge_meta
+    def retention(self, valuation: str) -> pd.DataFrame:
+        """By category (``from_sector → to_sector``) and year, in one valuation: the
+        truth, prior and ``a*`` sums in the valuation's unit, the prior and ``a*``
+        against the truth, and the retention ``Σa*/Σa_prior`` (GLOSSARY.md
+        "Retention"). Categories with a negative truth in any year (a signed leg) are
+        left out; a ratio over a zero sum is NaN."""
+        em    = self.edge_meta
+        unit  = self.units[valuation]
+        nan   = np.full(self.truth.size, np.nan)
         frame = pd.DataFrame({
-            "category":  em["from_sector"] + " → " + em["to_sector"],
-            "valuation": em["valuation"],
-            "truth":     self.truth,
-            "prior":     self.estimates.get("prior", np.full(self.truth.size, np.nan)),
-            "a_star":    self.estimates.get("reconciled",
-                                            np.full(self.truth.size, np.nan)),
-        })
-        signed = frame.groupby(["category", "valuation"])["truth"].transform("min") < 0
-        sums   = frame[~signed].groupby(["category", "valuation"])[
+            "category": em["from_sector"] + " → " + em["to_sector"],
+            "year":     em["time"].astype(str),
+            "truth":    self.truth,
+            "prior":    self.estimates.get("prior", nan),
+            "a_star":   self.estimates.get("reconciled", nan),
+        })[(em["valuation"] == valuation).to_numpy()]
+        signed = frame.groupby("category")["truth"].transform("min") < 0
+        sums   = frame[~signed].groupby(["category", "year"])[
             ["truth", "prior", "a_star"]].sum()
-        with np.errstate(divide="ignore", invalid="ignore"):
-            out = pd.DataFrame({
-                "truth_kt":        sums["truth"],
-                "prior/truth":     sums["prior"]  / sums["truth"].where(sums["truth"] != 0),
-                "a_star/truth":    sums["a_star"] / sums["truth"].where(sums["truth"] != 0),
-                "retention":       sums["a_star"] / sums["prior"].where(sums["prior"] != 0),
-            })
-        return out
+
+        def over(num, den):
+            return sums[num] / sums[den].where(sums[den] != 0)
+
+        return pd.DataFrame({
+            f"truth [{unit}]": sums["truth"],
+            f"prior [{unit}]": sums["prior"],
+            f"a* [{unit}]":    sums["a_star"],
+            "prior/truth":     over("prior", "truth"),
+            "a*/truth":        over("a_star", "truth"),
+            "retention":       over("a_star", "prior"),
+        })
 
     # ------------------------------------------------------------------
     # Figures
@@ -201,7 +231,7 @@ class TruthDiag:
         paths = [self._plot_error_by_stage(odir, plt)]
         if self.sigma_post is not None and "reconciled" in self.estimates:
             paths.append(self._plot_calibration(odir, plt))
-        if self.sigma_prior is not None and {"prior", "reconciled"} <= set(self.estimates):
+        if self._ranked:
             paths.append(self._plot_residual_rank(odir, plt))
         if show:
             plt.show()
@@ -275,7 +305,8 @@ class TruthDiag:
     # ------------------------------------------------------------------
 
     def summary(self) -> str:
-        """Print and return the same as the figures, plus retention by category."""
+        """Print and return the same as the figures, plus retention by category and
+        year in each valuation."""
         bar   = "─" * 72
         lines = [bar, f"  TRUTH DIAGNOSTICS — {self.label or 'ground truth'}", bar,
                  "  Relative error against the truth by stage (edges with truth ≠ 0):",
@@ -283,16 +314,20 @@ class TruthDiag:
         if self.sigma_post is not None and "reconciled" in self.estimates:
             z = self.z_post()
             z = z[np.isfinite(z)]
-            lines += [f"\n  Calibration: {100 * (1 - self.alpha):.0f} % interval coverage "
-                      f"{100 * self.coverage():.1f} % of {self.truth.size} edges; "
+            lines += [f"\n  Calibration: {100 * (1 - self.alpha):.0f} % interval "
+                      f"coverage {100 * self.coverage():.1f} % of {self.truth.size} edges; "
                       f"z mean {np.mean(z):+.3f}, sd {np.std(z):.3f} (n = {z.size})"]
-        if self.sigma_prior is not None and {"prior", "reconciled"} <= set(self.estimates):
+        if self._ranked:
             rank = self.residual_rank().head(10)
             lines.append("\n  Largest prior residuals |z| (planted marked *):")
             lines += [f"    {'*' if p else ' '} {z:+9.3f}  {edge}"
                       for z, edge, p in zip(rank["z"], rank["edge"], rank["planted"])]
-        lines += ["\n  Retention by category, all years (signed categories left out):",
-                  self.retention().to_string(float_format=lambda x: f"{x:.4g}"), bar]
+        for valuation in self.units:
+            lines += [f"\n  Retention by category and year, {valuation} (signed "
+                      f"categories left out):",
+                      self.retention(valuation).to_string(
+                          float_format=lambda x: f"{x:.4g}")]
+        lines.append(bar)
         text = "\n".join(lines)
         print(text)
         return text

@@ -7,8 +7,8 @@ feeds**, and run through all six stages into a run tree the caller chooses.
 
 The world
 ---------
-Three regions over the years ``"2001"``–``"2005"``, valuations ``Mass`` (gross) and ``CC``
-(orium content), and no ``ROW``: the world is closed.
+Three regions over the years ``"2001"``–``"2005"``, a gross-mass and an orium-content
+valuation, and no ``ROW``: the world is closed.
 
 * **Montara** mines about 1,000 kt of ore a year at about 1 % grade, mills it and exports
   most of the concentrate; its smelter is small.
@@ -18,41 +18,52 @@ Three regions over the years ``"2001"``–``"2005"``, valuations ``Mass`` (gross
 
 Thirteen sectors (``ACC_SPEC``): ``Deposit → Mining → Ore → Milling → Concentrate →
 Smelting → Metal → {Use, Stock}``, with ``WasteRock`` (a satellite of Mining, outside its
-mass balance), ``Tailings``, ``Slag`` and ``Scrap`` as system-boundary nodes. Concentrate is
-the one tradable product and ``Metal → Stock`` the one signed leg: 42 edges per year and
-valuation, 420 in all.
+mass balance), ``Tailings``, ``Slag`` and ``Scrap`` as system-boundary nodes.
+Concentrate is the one tradable product and ``Metal → Stock`` the one signed leg: 42
+edges per year and valuation, 420 in all.
 
 The sources
 -----------
 Three synthetic feeds report on the truth, each in its own vocabulary and each noisy at
 exactly the coefficient of variation its pedigree implies (Laner et al. 2016, as Stage 1
-computes it). The **Survey** reports ore extraction in ``Mass``, one row per mining
-region-year. The **Bureau** reports the chain in ``CC`` (mine, concentrate and refined
-output, scrap feed, consumption and the signed stock change), with primary and secondary
-refined output as two series that one root edge pools, and two region-years it did not
-publish. The **Customs** feed reports the bilateral concentrate legs in ``Mass``, under
-partner codes rather than region names. One of the three carries one deliberate error;
-:func:`reveal` names it.
+computes it). The **Survey** reports ore extraction in gross mass, one row per mining
+region-year. The **Bureau** reports the chain in orium content (mine, concentrate and
+refined output, scrap feed, consumption and the signed stock change), with primary and
+secondary refined output as two series that one root edge pools, and two region-years it
+did not publish. The **Customs** feed reports the bilateral concentrate legs in gross
+mass, under partner codes rather than region names. One of the three carries one
+deliberate error; :func:`reveal` names it.
+
+Stage 2 runs copper's cascade order, ``trade → network → conc``. The per-pair Milling
+recovery relation is closed by the network (``network_backward``, from the Bureau's
+concentrate output), so copper's ``eff`` ParametricImputer, which runs after the network,
+would write no edge here, as it writes none in copper: it is not registered (a note for
+#124's ``CaseSpec``).
 
 Limitations, stated once
 ------------------------
 * **Reserved labels** (ADR 0034). The library compares the copper case's labels as
-  literals, so the toy uses them: entities ``Process``/``Flow``/``SB``, boundary subs
-  ``Nature``/``SEM``/``FD`` and valuations ``Mass``/``CC``. When #26 §1 lands, the change
-  to ``ACC_SPEC`` is a ``role`` on each ``SB`` sector and on each valuation.
+  literals, so the toy uses them; they are defined once, as ``GROSS``, ``CONTENT``,
+  ``RAW``, ``SEC`` and ``DEMAND`` beside ``ACC_SPEC``, which #123 relabels in one place.
+  When #26 §1 lands, the change to ``ACC_SPEC`` is a ``role`` on each ``SB`` sector and on
+  each valuation.
 * **No hard bands** (#27). No ``RatioBoundBuilder`` and no ``FlowBoundsBuilder`` are
   registered: every hard row is an equality, so Stage 5's posterior has no active set to
   choose and its intervals can be scored against the truth. The price is the band group
-  the manuscript describes for copper (Method §3.1, ADR 0039): it carries the
-  non-negativity of every flow, and without it a posterior flow may go below zero.
+  the manuscript describes for copper (Method §3.1, ADR 0039), which carries the
+  non-negativity of every flow: without it a posterior flow may go below zero. On the
+  seed-59 chain Portua, which mines nothing, books a negative ore extraction in 2003
+  (``Deposit → Mining`` −2.4 kt, the free slack of its mine-less chain).
 * **A closed world.** No ``ROW`` region, so the ROW pedigree penalty never fires.
 * **One fixed seed.** This module is ``src/``'s exception to "no RNG" (CLAUDE.md): the
   truth's year-to-year wiggle and the feeds' noise come from ``np.random.default_rng``.
+  Stage 1 records the seed in every feed run's sidecar; :func:`scoreboard` reads it back.
 
 Public API
 ----------
 ``ACC_SPEC``, ``ACC_REF``, :func:`build_acc` — the accounting structure (the #57 acc
-spec) and the acc version every run names.
+spec) and the acc version every run names; ``GROSS``, ``CONTENT``, ``RAW``, ``SEC``,
+``DEMAND``, ``UNITS`` — its labels.
 :func:`truth` — the ground truth; :func:`make_feeds` — the three synthetic feeds;
 :func:`write_params` — the ``conc``, ``eff`` and ``stripping_ratio`` CSVs.
 :func:`run_stage1` … :func:`run_stage6` — the six stages into ``run_root/{acc, params,
@@ -85,7 +96,7 @@ from pysuto.constraints import (
     RatioConstraintBuilder,
     SumConstraintBuilder,
 )
-from pysuto.diag.truth import TruthDiag
+from pysuto.diag.truth import TruthDiag, prior_z
 from pysuto.feedpipe import (
     build_F_src,
     propagate_with_row_penalty,
@@ -129,24 +140,33 @@ ACC_ID  = "toy"
 REGIONS = ("Montara", "Portua", "Isla")
 YEARS   = ("2001", "2002", "2003", "2004", "2005")
 
+# The labels the library reads as copper's literals (ADR 0034), defined once: #123 gives
+# the toy its own by changing these five lines.
+GROSS   = "Mass"      # the gross-mass valuation
+CONTENT = "CC"        # the orium-content valuation
+RAW     = "Nature"    # boundary sub of extraction (Deposit)
+SEC     = "SEM"       # boundary sub of secondary inputs and residual outputs
+DEMAND  = "FD"        # boundary sub of final demand
+UNITS   = {GROSS: "kt", CONTENT: f"kt {CONTENT}"}    # "kt" vs "kt CC" in every report
+
 ACC_SPEC: dict = {
     "sectors": [
-        {"name": "Deposit",     "entity": "SB",      "sub": "Nature"},
+        {"name": "Deposit",     "entity": "SB",      "sub": RAW},
         {"name": "Mining",      "entity": "Process"},
         {"name": "Ore",         "entity": "Flow"},
-        {"name": "WasteRock",   "entity": "SB",      "sub": "SEM"},
+        {"name": "WasteRock",   "entity": "SB",      "sub": SEC},
         {"name": "Milling",     "entity": "Process"},
         {"name": "Concentrate", "entity": "Flow"},
-        {"name": "Tailings",    "entity": "SB",      "sub": "SEM"},
+        {"name": "Tailings",    "entity": "SB",      "sub": SEC},
         {"name": "Smelting",    "entity": "Process"},
-        {"name": "Scrap",       "entity": "SB",      "sub": "SEM"},
+        {"name": "Scrap",       "entity": "SB",      "sub": SEC},
         {"name": "Metal",       "entity": "Flow"},
-        {"name": "Slag",        "entity": "SB",      "sub": "SEM"},
-        {"name": "Use",         "entity": "SB",      "sub": "FD"},
-        {"name": "Stock",       "entity": "SB",      "sub": "FD"},
+        {"name": "Slag",        "entity": "SB",      "sub": SEC},
+        {"name": "Use",         "entity": "SB",      "sub": DEMAND},
+        {"name": "Stock",       "entity": "SB",      "sub": DEMAND},
     ],
     "regions":    list(REGIONS),
-    "valuations": ["Mass", "CC"],
+    "valuations": [GROSS, CONTENT],
     "times":      list(YEARS),
     "supply":     {"Mining":   ["Ore", "WasteRock"],
                    "Milling":  ["Concentrate", "Tailings"],
@@ -166,8 +186,9 @@ ACC_SPEC: dict = {
     ],
     # the signed stock leg; every other edge keeps the default [0, 1e9]
     "bounds": [
-        {"Sector_from": "Metal", "Region_from": "*", "Sector_to": "Stock", "Region_to": "*",
-         "Time": "*", "Valuation": "*", "Lower": "-1000000", "Upper": "1000000"},
+        {"Sector_from": "Metal", "Region_from": "*", "Sector_to": "Stock",
+         "Region_to": "*", "Time": "*", "Valuation": "*",
+         "Lower": "-1000000", "Upper": "1000000"},
     ],
     # waste rock is a satellite mass flow outside the Mining balance (ADR 0038)
     "masks": [
@@ -177,7 +198,6 @@ ACC_SPEC: dict = {
          "sector_from": "Mining", "sector_to": "WasteRock"},
     ],
 }
-
 
 # The toy's acc has no input-registry entry; this ref stands in for one, so every run's
 # sidecar names an acc version and the built structure's build record (#53) is checked
@@ -201,21 +221,21 @@ def build_acc(storage_dir: PathLike) -> AccountingStructure:
 # The ground truth (numbers are the spec author's call, #59)
 # =============================================================================
 
-_ORE_KT    = {"Montara": (1000.0, 25.0), "Isla": (400.0, 10.0)}   # kt ore in 2003, kt/yr
-_GRADE     = {"Montara": 0.010, "Isla": 0.008}                     # ore grade, kt CC / kt
-_EFF_MILL  = 0.90                                                  # milling recovery (CC)
-_EFF_SMELT = 0.97                                                  # smelting recovery (CC)
-_C_CONC    = 0.28                                                  # concentrate grade
-_C_METAL   = 0.99                                                  # metal grade
-_C_SCRAP   = 0.70                                                  # scrap grade
-_K_STRIP   = 2.0                                                   # waste rock per ore, Mass
+_ORE_KT    = {"Montara": (1000.0, 25.0), "Isla": (400.0, 10.0)}  # kt ore in 2003, kt/yr
+_GRADE     = {"Montara": 0.010, "Isla": 0.008}                  # ore grade, kt CC per kt
+_EFF_MILL  = 0.90                                               # milling recovery
+_EFF_SMELT = 0.97                                               # smelting recovery
+_C_CONC    = 0.28                                               # concentrate grade
+_C_METAL   = 0.99                                               # metal grade
+_C_SCRAP   = 0.70                                               # scrap grade
+_K_STRIP   = 2.0                                                # waste rock per ore
 # where each region's concentrate goes (shares of its output; Portua mills nothing)
 _SHARES    = {"Montara": {"Montara": 0.20, "Portua": 0.70, "Isla": 0.10},
               "Isla":    {"Isla": 0.85, "Portua": 0.15}}
-_SCRAP_KT  = {"Montara": (0.5, 0.02), "Portua": (3.0, 0.10), "Isla": (0.8, 0.03)}  # kt CC
+_SCRAP_KT  = {"Montara": (0.5, 0.02), "Portua": (3.0, 0.10), "Isla": (0.8, 0.03)}
 # the signed leg: linear in time, crossing zero in every region (kt CC)
 _STOCK_KT  = {"Montara": (0.05, -0.15), "Portua": (0.10, -0.40), "Isla": (-0.05, 0.10)}
-_WIGGLE    = 0.01      # relative year-to-year noise on ore and scrap (the truth's only draw)
+_WIGGLE    = 0.01      # relative year-to-year noise on ore and scrap (the truth's draw)
 
 _TRUTH_COLUMNS = ["time", "valuation", "from_region", "from_sector", "from_entity",
                   "to_region", "to_sector", "to_entity", "value"]
@@ -236,13 +256,13 @@ def truth(seed: int = SEED) -> pd.DataFrame:
     -------
     DataFrame
         420 rows, columns ``time, valuation, from_region, from_sector, from_entity,
-        to_region, to_sector, to_entity, value`` (kt for ``Mass``, kt CC for ``CC``).
+        to_region, to_sector, to_entity, value`` (in ``UNITS`` of the valuation).
     """
     rng  = np.random.default_rng([seed, 0])
     rows = []
 
     def edge(t, fs, fr, ts, tr, mass, cc):
-        for valuation, value in (("Mass", mass), ("CC", cc)):
+        for valuation, value in ((GROSS, mass), (CONTENT, cc)):
             rows.append((t, valuation, fr, fs, _ENTITY[fs], tr, ts, _ENTITY[ts],
                          float(value)))
 
@@ -298,14 +318,14 @@ def truth_vector(frame: pd.DataFrame, acc: AccountingStructure) -> np.ndarray:
     ``frame`` has the edge-key columns of :func:`truth`; every edge of ``acc`` must
     appear exactly once, else ``ValueError``.
     """
-    merged = acc.edge_meta[["edge_id"] + _EDGE_KEY].merge(frame[_EDGE_KEY + ["value"]],
-                                                          on=_EDGE_KEY, how="left")
+    merged = acc.edge_meta[["edge_id"] + _EDGE_KEY].merge(
+        frame[_EDGE_KEY + ["value"]], on=_EDGE_KEY, how="left")
     if len(merged) != acc.n_edges or merged["value"].isna().any():
         raise ValueError(
             f"truth_vector: {int(merged['value'].isna().sum())} of {acc.n_edges} edges "
             f"have no value, or an edge appears twice ({len(merged)} rows)")
     out = np.empty(acc.n_edges, dtype=float)
-    out[merged["edge_id"].to_numpy(dtype=np.int64)] = merged["value"].to_numpy(dtype=float)
+    out[merged["edge_id"].to_numpy(dtype=np.int64)] = merged["value"].to_numpy(float)
     return out
 
 
@@ -321,7 +341,29 @@ _PEDIGREE = {"survey":  (2, 3, 2, 2, 2),
              "customs": (3, 2, 1, 1, 2)}
 _MINING_REGIONS = ("Montara", "Isla")
 _BUREAU_GAPS    = (("Isla", "2003"), ("Montara", "2004"))   # region-years not published
+_BUREAU_UNIT    = "kt orium"                                # the Bureau's content unit
 _CUSTOMS_CODE   = {"Montara": "101", "Portua": "202", "Isla": "303"}
+
+# ── Private: the planted defect (Q27 b: named only by reveal()) ───────────────
+_PLANTED = {
+    "feed":        "customs",
+    "from_sector": "Concentrate",
+    "from_region": "Montara",
+    "to_sector":   "Smelting",
+    "to_region":   "Portua",
+    "time":        "2003",
+    "valuation":   GROSS,
+    "factor":      1000.0,
+    "story":       "a gross mass booked in kg where the feed reports t, read as kt: "
+                   "the leg arrives ×1000 (the PNG case of ADR 0033)",
+}
+_PLANTED_EDGE = ("from_sector", "from_region", "to_sector", "to_region", "time",
+                 "valuation")
+
+
+def reveal() -> dict:
+    """The planted defect: which feed, which edge, by what factor, and the story."""
+    return dict(_PLANTED)
 
 
 @dataclass
@@ -386,8 +428,8 @@ def _maps(sectors: dict, regions: dict, units: dict, variables: list,
 def _noisy(values: np.ndarray, cv: float, rng: np.random.Generator,
            keep: np.ndarray) -> np.ndarray:
     """``values · (1 + cv·ε)`` with ε drawn N(0, 1) and rescaled so that its RMS over the
-    ``keep`` rows is exactly 1: the feed's empirical CV against the truth is its pedigree
-    CV, not a draw near it."""
+    ``keep`` rows is exactly 1: the feed's empirical CV against the truth is its
+    pedigree CV, not a draw near it."""
     eps = rng.standard_normal(values.size)
     eps = eps / np.sqrt(np.mean(eps[keep] ** 2))
     return values * (1.0 + cv * eps)
@@ -396,8 +438,7 @@ def _noisy(values: np.ndarray, cv: float, rng: np.random.Generator,
 def _finish(feed_id: str, frame: pd.DataFrame, rng: np.random.Generator,
             planted: Optional[np.ndarray] = None) -> pd.DataFrame:
     """Replace the ``_truth`` column by the noisy ``Value``; multiply planted rows."""
-    meta    = _metadata(feed_id)
-    cv      = meta.to_pedigree_scores().total_cv()
+    cv      = _metadata(feed_id).to_pedigree_scores().total_cv()
     planted = np.zeros(len(frame), dtype=bool) if planted is None else planted
     value   = _noisy(frame["_truth"].to_numpy(dtype=float), cv, rng, ~planted)
     value[planted] *= _PLANTED["factor"]
@@ -405,10 +446,11 @@ def _finish(feed_id: str, frame: pd.DataFrame, rng: np.random.Generator,
                  .reset_index(drop=True))
 
 
-def make_feeds(truth: pd.DataFrame, seed: int = SEED) -> "dict[str, SyntheticFeed]":
-    """Derive the three synthetic feeds from ``truth``: reclassified into each feed's
-    vocabulary, noisy at exactly the pedigree CV, with the Bureau's two unpublished
-    region-years left out and one deliberate error planted.
+def make_feeds(ground_truth: pd.DataFrame,
+               seed: int = SEED) -> "dict[str, SyntheticFeed]":
+    """Derive the three synthetic feeds from ``ground_truth`` (:func:`truth`):
+    reclassified into each feed's vocabulary, noisy at exactly the pedigree CV, with the
+    Bureau's two unpublished region-years left out and one deliberate error planted.
 
     Returns
     -------
@@ -416,20 +458,22 @@ def make_feeds(truth: pd.DataFrame, seed: int = SEED) -> "dict[str, SyntheticFee
         ``{"survey": SyntheticFeed, "bureau": ..., "customs": ...}``.
     """
     rng = np.random.default_rng([seed, 1])
-    tv  = truth.set_index(_EDGE_KEY)["value"]
+    tv  = ground_truth.set_index(_EDGE_KEY)["value"]
 
     def val(t, v, fs, fr, ts, tr) -> float:
         return float(tv.loc[(t, v, fs, fr, ts, tr)])
 
-    # ── Survey: ore extraction (Deposit → Mining), Mass, 1:1 ─────────────
+    # ── Survey: ore extraction (Deposit → Mining), gross mass, 1:1 ───────
     survey = pd.DataFrame(
-        [(t, r, "extraction", "crude ore", "kt", val(t, "Mass", "Deposit", r, "Mining", r))
+        [(t, r, "extraction", "crude ore", "kt",
+          val(t, GROSS, "Deposit", r, "Mining", r))
          for t in YEARS for r in _MINING_REGIONS],
         columns=["Year", "Region", "Process", "Material", "Unit", "_truth"])
     feeds = {"survey": SyntheticFeed(
         feed_id  = "survey",
         raw      = _finish("survey", survey, rng),
-        maps     = _maps({"crude ore": "Deposit"}, {r: r for r in REGIONS}, {"kt": "Mass"},
+        maps     = _maps({"crude ore": "Deposit"}, {r: r for r in REGIONS},
+                         {"kt": GROSS},
                          [("Year",     "src_time"),
                           ("Material", "src_sector_from"),
                           ("Region",   "src_region_from"),
@@ -438,7 +482,7 @@ def make_feeds(truth: pd.DataFrame, seed: int = SEED) -> "dict[str, SyntheticFee
         metadata = _metadata("survey"),
     )}
 
-    # ── Bureau: the chain in CC, two refined series, two unpublished region-years ─
+    # ── Bureau: the chain in content, two refined series, two gaps ───────
     rows = []
     for t in YEARS:
         for r in REGIONS:
@@ -446,31 +490,34 @@ def make_feeds(truth: pd.DataFrame, seed: int = SEED) -> "dict[str, SyntheticFee
                 continue
             if r in _MINING_REGIONS:
                 rows.append((t, r, "Supply", "mine", "ore",
-                             val(t, "CC", "Mining", r, "Ore", r)))
+                             val(t, CONTENT, "Mining", r, "Ore", r)))
                 rows.append((t, r, "Supply", "concentrator", "concentrate",
-                             val(t, "CC", "Milling", r, "Concentrate", r)))
-            metal   = val(t, "CC", "Smelting", r, "Metal", r)
-            scrap   = val(t, "CC", "Scrap",    r, "Smelting", r)
-            ore_in  = sum(val(t, "CC", "Concentrate", q, "Smelting", r) for q in REGIONS)
+                             val(t, CONTENT, "Milling", r, "Concentrate", r)))
+            metal   = val(t, CONTENT, "Smelting", r, "Metal", r)
+            scrap   = val(t, CONTENT, "Scrap",    r, "Smelting", r)
+            ore_in  = sum(val(t, CONTENT, "Concentrate", q, "Smelting", r)
+                          for q in REGIONS)
             primary = metal * ore_in / (ore_in + scrap)
             rows.append((t, r, "Supply", "primary refinery",   "refined", primary))
-            rows.append((t, r, "Supply", "secondary refinery", "refined", metal - primary))
+            rows.append((t, r, "Supply", "secondary refinery", "refined",
+                         metal - primary))
             rows.append((t, r, "Use",    "secondary refinery", "scrap",   scrap))
             rows.append((t, r, "Use",    "fabrication",        "refined",
-                         val(t, "CC", "Metal", r, "Use", r)))
+                         val(t, CONTENT, "Metal", r, "Use", r)))
             rows.append((t, r, "Use",    "stocks",             "refined",
-                         val(t, "CC", "Metal", r, "Stock", r)))
-    bureau = pd.DataFrame(rows, columns=["Year", "Region", "Supply_Use", "Process", "Item",
-                                         "_truth"]).assign(Unit="kt Cu")
+                         val(t, CONTENT, "Metal", r, "Stock", r)))
+    bureau = pd.DataFrame(rows, columns=["Year", "Region", "Supply_Use", "Process",
+                                         "Item", "_truth"]).assign(Unit=_BUREAU_UNIT)
     feeds["bureau"] = SyntheticFeed(
         feed_id  = "bureau",
         raw      = _finish("bureau", bureau, rng),
         maps     = _maps({"mine": "Mining", "concentrator": "Milling",
-                          "primary refinery": "Smelting", "secondary refinery": "Smelting",
+                          "primary refinery": "Smelting",
+                          "secondary refinery": "Smelting",
                           "fabrication": "Use", "stocks": "Stock",
-                          "ore": "Ore", "concentrate": "Concentrate", "refined": "Metal",
-                          "scrap": "Scrap"},
-                         {r: r for r in REGIONS}, {"kt Cu": "CC"},
+                          "ore": "Ore", "concentrate": "Concentrate",
+                          "refined": "Metal", "scrap": "Scrap"},
+                         {r: r for r in REGIONS}, {_BUREAU_UNIT: CONTENT},
                          [("Year",    "src_time",        None),
                           ("Unit",    "src_valuation",   None),
                           ("Region",  "src_region_from", None),
@@ -484,24 +531,26 @@ def make_feeds(truth: pd.DataFrame, seed: int = SEED) -> "dict[str, SyntheticFee
         aux_col  = "Supply_Use",
     )
 
-    # ── Customs: bilateral concentrate legs, Mass, partner codes ─────────
+    # ── Customs: bilateral concentrate legs, gross mass, partner codes ───
     rows = []
     for t in YEARS:
         for r in REGIONS:
             for s in REGIONS:
-                leg = val(t, "Mass", "Concentrate", r, "Smelting", s)
+                leg = val(t, GROSS, "Concentrate", r, "Smelting", s)
                 if r != s and leg > 0.0:
                     rows.append((t, "261790", _CUSTOMS_CODE[r], _CUSTOMS_CODE[s], leg))
-    customs = pd.DataFrame(rows, columns=["Year", "Process", "Region", "Partner", "_truth"]
-                           ).assign(Unit="kt")
+    customs = pd.DataFrame(rows, columns=["Year", "Process", "Region", "Partner",
+                                          "_truth"]).assign(Unit="kt")
     planted = ((customs["Year"] == _PLANTED["time"])
                & (customs["Region"] == _CUSTOMS_CODE[_PLANTED["from_region"]])
-               & (customs["Partner"] == _CUSTOMS_CODE[_PLANTED["to_region"]])).to_numpy()
+               & (customs["Partner"] == _CUSTOMS_CODE[_PLANTED["to_region"]])
+               ).to_numpy()
     feeds["customs"] = SyntheticFeed(
         feed_id  = "customs",
         raw      = _finish("customs", customs, rng, planted),
         maps     = _maps({"261790": "Concentrate"},
-                         {code: r for r, code in _CUSTOMS_CODE.items()}, {"kt": "Mass"},
+                         {code: r for r, code in _CUSTOMS_CODE.items()},
+                         {"kt": GROSS},
                          [("Year",    "src_time"),
                           ("Process", "src_sector_from"),
                           ("Region",  "src_region_from"),
@@ -529,25 +578,26 @@ _PARAM_COLUMNS = [
 ]
 _SOURCE = "pysuto.cases.toy: a synthetic case; its ground truth uses this nominal value"
 
-# A concentration row ties an edge's CC to its Mass: "into" rows cover the edges into the
-# sector, "out" rows the edges out of it (the template's use and supply directions).
+# A concentration row ties an edge's content to its gross mass: "into" rows cover the
+# edges into the sector, "out" rows the edges out of it (the template's use and supply).
 #    (param_id,                edges,  sector,        region,    value,             sd)
 _CONC_ROWS = (
-    ("concoreusemontara",     "into", "Ore",         "Montara", _GRADE["Montara"], 0.001),
-    ("concoresupplymontara",  "out",  "Ore",         "Montara", _GRADE["Montara"], 0.001),
-    ("concoreuseisla",        "into", "Ore",         "Isla",    _GRADE["Isla"],    0.0008),
-    ("concoresupplyisla",     "out",  "Ore",         "Isla",    _GRADE["Isla"],    0.0008),
+    ("concoreusemontara",     "into", "Ore",         "Montara", _GRADE["Montara"], 1e-3),
+    ("concoresupplymontara",  "out",  "Ore",         "Montara", _GRADE["Montara"], 1e-3),
+    ("concoreuseisla",        "into", "Ore",         "Isla",    _GRADE["Isla"],    8e-4),
+    ("concoresupplyisla",     "out",  "Ore",         "Isla",    _GRADE["Isla"],    8e-4),
     ("concconcentrateuse",    "into", "Concentrate", "*",       _C_CONC,           0.02),
     ("concconcentratesupply", "out",  "Concentrate", "*",       _C_CONC,           0.02),
-    ("concmetaluse",          "into", "Metal",       "*",       _C_METAL,          0.005),
-    ("concmetalsupply",       "out",  "Metal",       "*",       _C_METAL,          0.005),
+    ("concmetaluse",          "into", "Metal",       "*",       _C_METAL,          5e-3),
+    ("concmetalsupply",       "out",  "Metal",       "*",       _C_METAL,          5e-3),
     ("concscrapsupply",       "out",  "Scrap",       "*",       _C_SCRAP,          0.05),
-    ("concslaguse",           "into", "Slag",        "*",       0.015,             0.003),
-    ("conctailingsuse",       "into", "Tailings",    "*",       0.001,             0.0002),
+    ("concslaguse",           "into", "Slag",        "*",       0.015,             3e-3),
+    ("conctailingsuse",       "into", "Tailings",    "*",       0.001,             2e-4),
     ("concwasterockuse",      "into", "WasteRock",   "*",       0.0,               0.0),
 )
 
-# An efficiency row ties a process's CC product to its input; agg=true pools every input.
+# An efficiency row ties a process's content product to its input; agg=true pools every
+# input.
 #    (param_id,      agg,    input, process,    product,       value,      min,  max)
 _EFF_ROWS = (
     ("effmilling",  "",     "Ore", "Milling",  "Concentrate", _EFF_MILL,  0.85, 0.95),
@@ -566,23 +616,23 @@ def _a_b(a: tuple, b: tuple) -> dict:
     return dict(zip(keys, a + b))
 
 
-def write_params(dir: PathLike) -> "dict[str, Path]":
+def write_params(params_dir: PathLike) -> "dict[str, Path]":
     """Write the toy's ``conc``, ``eff`` and ``stripping_ratio`` CSVs as
-    ``dir/<param_id>/params.csv`` in the project's params schema
+    ``params_dir/<param_id>/params.csv`` in the project's params schema
     (``data/input/params/params_template.csv``). Returns ``{param_id: path}``."""
-    same_cc = ("same",) * 7 + ("CC",)
+    same_content = ("same",) * 7 + (CONTENT,)
     conc = []
     for pid, edges, sector, region, value, sd in _CONC_ROWS:
         entity = _ENTITY[sector]
-        a = (("*", "*", "*", sector, entity, region, "*", "Mass") if edges == "into"
-             else (sector, entity, region, "*", "*", "*", "*", "Mass"))
+        a = (("*", "*", "*", sector, entity, region, "*", GROSS) if edges == "into"
+             else (sector, entity, region, "*", "*", "*", "*", GROSS))
         conc.append(_param_row(
             param_id=pid, param_type="concentration",
             description=f"orium content of {sector} ({entity}) on the edges "
                         f"{'into' if edges == 'into' else 'out of'} it, "
                         f"{'every region' if region == '*' else region}",
-            value_nominal=value, unc_type="sd", value_sd=sd, bound_lower=0, bound_upper=1,
-            **_a_b(a, same_cc)))
+            value_nominal=value, unc_type="sd", value_sd=sd, bound_lower=0,
+            bound_upper=1, **_a_b(a, same_content)))
     eff = []
     for pid, agg, inp, process, product, value, lo, hi in _EFF_ROWS:
         entity = "*" if inp == "*" else _ENTITY[inp]
@@ -592,19 +642,21 @@ def write_params(dir: PathLike) -> "dict[str, Path]":
                         + (" (pooled inputs, scrap included)" if agg else ""),
             value_nominal=value, unc_type="min_max", value_min=lo, value_max=hi,
             bound_lower=0, bound_upper=1,
-            **_a_b((inp, entity, "*", process, "Process", "same", "*", "CC"),
-                   (process, "Process", "same", product, "Flow", "same", "same", "same"))))
+            **_a_b((inp, entity, "*", process, "Process", "same", "*", CONTENT),
+                   (process, "Process", "same", product, "Flow", "same", "same",
+                    "same"))))
     strip = [_param_row(
         param_id="strippingratio", param_type="stripping_ratio",
         description="waste rock per ore mass at Mining, a satellite outside the Mining "
                     "balance (ADR 0038)",
         value_nominal=_K_STRIP, unc_type="min_max", value_min=1.5, value_max=2.5,
-        **_a_b(("Mining", "Process", "*", "Ore", "Flow", "same", "*", "Mass"),
-               ("Mining", "Process", "same", "WasteRock", "SB", "same", "same", "same")))]
+        **_a_b(("Mining", "Process", "*", "Ore", "Flow", "same", "*", GROSS),
+               ("Mining", "Process", "same", "WasteRock", "SB", "same", "same",
+                "same")))]
 
     out = {}
     for pid, rows in (("conc", conc), ("eff", eff), ("stripping_ratio", strip)):
-        path = Path(dir) / pid / "params.csv"
+        path = Path(params_dir) / pid / "params.csv"
         path.parent.mkdir(parents=True, exist_ok=True)
         pd.DataFrame(rows, columns=_PARAM_COLUMNS).to_csv(path, index=False)
         out[pid] = path
@@ -615,20 +667,26 @@ def write_params(dir: PathLike) -> "dict[str, Path]":
 # The six stages
 # =============================================================================
 # Knobs mirror the copper drivers' USER CONFIGURATION blocks unless a comment says why
-# the toy departs from them.
+# the toy departs from them (#124 turns them into CaseSpec fields).
 
 P_PROP          = 1.3       # Lp exponent, every stage
-Q_REG           = 3.0       # ParametricImputer / NetworkImputer backward-branch knee
+Q_REG           = 3.0       # NetworkImputer / ParametricImputer backward-branch knee
 ALPHA_MIN_REG   = 0.05      # inverse-multiplier sensitivity floor
 FLAT_SIGMA_HIGH = 1.0e6     # noisy-zero flat prior σ; the waste-rock fill's σ (ADR 0038)
-# Cascade order. Imputers are write-once, so the earlier of two writers wins an edge. In
-# the copper order (trade, network, conc, eff) the network closes every per-pair eff
-# relation before the eff imputer runs: copper's eff imputer writes no edge
-# (imp_20261102_095209_86454f46), and in the toy it would write none either. Here eff
-# runs before the network, so the Milling relation writes Ore → Milling from the
-# Bureau's concentrate output; the network's backward branch would write the same value.
-CASCADE         = ("trade", "eff", "network", "conc")
+# Copper's cascade order without its eff ParametricImputer, which writes no edge after
+# the network (see the module docstring).
+CASCADE         = ("trade", "network", "conc")
 STOCK_SECTORS   = ("Stock",)    # never written by the network's balance (ADR 0040)
+# scripts/collect_aggregate_impute.py: CASCADE_MAX_ITER, TIME_WINDOW, TIME_MIN_OBS,
+# TIME_GAP_INFLATION, TIME_METHOD and TIME_INTERPOLATE_ONLY by name; NETWORK_CV_CAP is
+# the cv_cap=1.5 literal of its NetworkImputer call.
+CASCADE_MAX_ITER      = 10
+TIME_WINDOW           = 3
+TIME_MIN_OBS          = 2
+TIME_GAP_INFLATION    = 1.05
+TIME_METHOD           = "linear"
+TIME_INTERPOLATE_ONLY = True
+NETWORK_CV_CAP        = 1.5
 SIGMA_A_CV_MIN    = 0.001
 SIGMA_A_ABS_FLOOR = 1.0e-6
 SIGMA_C_CV_MIN    = 0.01
@@ -639,7 +697,7 @@ NODATA_ANCHOR_CV  = 0.05
 # and the concentrate legs no feed reports, none of which a relation sets: none is spared.
 NODATA_ANCHOR_EXCLUDE = ()
 SUM_SIGMA_FRACTION    = 0.05
-# Ratio rows' flow-space scale floor. Copper's 100 kt would swamp the toy, whose CC
+# Ratio rows' flow-space scale floor. Copper's 100 kt would swamp the toy, whose content
 # edges are 0.1–10 kt CC; the builder's default 1 kt is used.
 RATIO_SIGMA_REL_FLOOR = 0.02
 RATIO_SCALE_ABS_FLOOR = 1.0
@@ -649,15 +707,15 @@ REDUCED_TOL_FEAS, REDUCED_TOL_GAP_REL, REDUCED_TOL_GAP_ABS = 1e-6, 1e-4, 10.0
 MAX_ITER     = 2000
 # The solver's own default, not the copper driver's "defects" (#33): the toy's QP has no
 # inequality cone, so Clarabel solves its KKT system directly (0 iterations) and the
-# gap tolerance #33 tuned never binds. Solving for the defects subtracts G·a_prior from c
-# first, and with one prior of ≈ 2·10⁴ kt among values of 1–10³ kt that costs digits: on
-# the seed-59 chain the largest hard-row residual is 9.1e-11 kt under "defects" and
+# gap tolerance #33 tuned never binds. Solving for the defects subtracts G·a_prior from
+# c first, and with one prior of ≈ 2·10⁴ kt among values of 1–10³ kt that costs digits:
+# on the seed-59 chain the largest hard-row residual is 9.1e-11 kt under "defects" and
 # 4.5e-13 kt under "flows", for the same a*.
 QP_VARIABLES = "flows"
 ALPHA        = 0.05         # Stage 5: (1 − α) intervals
 BIND_TOL     = 1e-6
 RANK_TOL     = 1e-10
-LABEL        = "toy"
+LABEL        = "toy"        # every run's registry label; _latest selects by it
 
 _TREE = ("acc", "params", "feed", "imp", "const", "opt", "uncprop", "psut")
 
@@ -670,10 +728,13 @@ def _tree(run_root: PathLike) -> "dict[str, Path]":
 
 
 def _latest(registry) -> str:
-    """The most recently registered run of ``registry``."""
-    if not len(registry):
-        raise KeyError(f"no run registered in {registry.storage_dir}; run the stage first")
-    return max(registry, key=lambda rid: (registry[rid].created_at, rid))
+    """The latest run of ``registry`` labelled ``LABEL``: the module's one rule for
+    "the latest run", read off the registry's own ``latest_by_label``."""
+    try:
+        return registry.latest_by_label(LABEL).run_id
+    except KeyError:
+        raise KeyError(f"no {LABEL!r} run registered in {registry.storage_dir}; "
+                       f"run the stage first") from None
 
 
 def _load_acc(tree: dict) -> AccountingStructure:
@@ -687,8 +748,29 @@ def _upstream(sidecar: dict, key: str) -> str:
     return value
 
 
+def _feed_steps(feed: SyntheticFeed, acc: AccountingStructure) -> tuple:
+    """Stage 1's steps B–D for one synthetic feed: concordance, weight matrix, the
+    source vector and the propagated root values. Returns ``(ct, wm, F_src, result,
+    row_summary)``.
+
+    ``feedpipe.run_feed_pipeline`` does not fit: it reads the pedigree from an Excel
+    sidecar (step A) and takes ``F_src`` as an argument although ``F_src`` is aligned to
+    the concordance it builds itself. The toy's feeds carry their metadata in memory, so
+    the steps run as ``scripts/crude_ore_feed.py`` runs them.
+    """
+    ct = step_B_build_concordance(
+        feed.raw, acc, **feed.maps, feed_id=feed.feed_id, aux_col=feed.aux_col,
+        allow_unmatched_edges=False)
+    wm    = step_C_build_weight_matrix(ct)
+    F_src = build_F_src(feed.raw, ct, label=feed.feed_id)
+    result, row_summary = propagate_with_row_penalty(wm, F_src, feed.metadata, acc,
+                                                     p=P_PROP)
+    return ct, wm, F_src, result, row_summary
+
+
 def run_stage1(run_root: PathLike, seed: int = SEED) -> "dict[str, str]":
-    """Stage 1: build the accounting structure, then register the three synthetic feeds.
+    """Stage 1: build the accounting structure, then register the three synthetic feeds,
+    each run's sidecar recording ``seed``.
 
     Returns
     -------
@@ -701,17 +783,11 @@ def run_stage1(run_root: PathLike, seed: int = SEED) -> "dict[str, str]":
     registry.load_index()
     run_ids  = {}
     for feed_id, feed in make_feeds(truth(seed), seed).items():
-        ct = step_B_build_concordance(
-            feed.raw, acc, **feed.maps, feed_id=feed_id, aux_col=feed.aux_col,
-            allow_unmatched_edges=False)
-        wm      = step_C_build_weight_matrix(ct)
+        _, wm, F_src, result, row_summary = _feed_steps(feed, acc)
         wm.odir = str(tree["feed"])         # WeightMatrix.save creates its odir
-        F_src   = build_F_src(feed.raw, ct, label=feed_id)
-        result, row_summary = propagate_with_row_penalty(wm, F_src, feed.metadata, acc,
-                                                         p=P_PROP)
         entry = register_feed(
             wm, feed.metadata, result, registry,
-            parents       = {"inputs": {"acc": dict(ACC_REF), "feed": {"id": feed_id}},
+            parents       = {"inputs":   {"acc": dict(ACC_REF), "feed": {"id": feed_id}},
                              "upstream": {}},
             F_src         = F_src,
             label         = feed_id,
@@ -727,7 +803,7 @@ def run_stage1(run_root: PathLike, seed: int = SEED) -> "dict[str, str]":
 def run_stage2(run_root: PathLike, feed_run_ids: Optional[dict] = None) -> str:
     """Stage 2: collect and aggregate the feeds, then impute every edge.
 
-    Cascade (to a fixpoint) ``trade → eff → network → conc``, then the terminal
+    Cascade (to a fixpoint) ``trade → network → conc``, then the terminal
     ``TimeImputer`` and ``FlatPriorImputer``; see ``CASCADE``. ``feed_run_ids`` pins the
     feed runs (default: the latest run of each feed). Returns the imp run id.
     """
@@ -743,22 +819,23 @@ def run_stage2(run_root: PathLike, feed_run_ids: Optional[dict] = None) -> str:
     conc, eff = str(params["conc"]), str(params["eff"])
     cascade = {
         "trade":   TradeImputer(conc_csv=conc, p=P_PROP, id="trade"),
-        "eff":     ParametricImputer.from_csv(eff, acc, p=P_PROP, q=Q_REG,
-                                              alpha_min=ALPHA_MIN_REG, id="eff"),
         "network": NetworkImputer(eff_csv=eff, conc_csv=conc,
                                   stripping_ratio_csv=str(params["stripping_ratio"]),
                                   stripping_sigma=FLAT_SIGMA_HIGH, p=P_PROP, q=Q_REG,
-                                  alpha_min=ALPHA_MIN_REG, cv_cap=1.5, id="network",
-                                  stock_sectors=STOCK_SECTORS),
+                                  alpha_min=ALPHA_MIN_REG, cv_cap=NETWORK_CV_CAP,
+                                  id="network", stock_sectors=STOCK_SECTORS),
         "conc":    ParametricImputer.from_csv(conc, acc, p=P_PROP, q=Q_REG,
                                               alpha_min=ALPHA_MIN_REG, id="conc"),
     }
     engine = ImputationEngine(acc_struct=acc)
-    engine.register_cascade([cascade[k] for k in CASCADE], max_iter=10)
-    engine.register(TimeImputer(window=3, method="linear", min_obs=2, gap_inflation=1.05,
-                                interpolate_only=True, p=P_PROP, id="time_interp"))
+    engine.register_cascade([cascade[k] for k in CASCADE], max_iter=CASCADE_MAX_ITER)
+    engine.register(TimeImputer(window=TIME_WINDOW, method=TIME_METHOD,
+                                min_obs=TIME_MIN_OBS, gap_inflation=TIME_GAP_INFLATION,
+                                interpolate_only=TIME_INTERPOLATE_ONLY, p=P_PROP,
+                                id="time_interp"))
     engine.register(FlatPriorImputer(acc_struct=acc, mode="noisy_zero",
-                                     sigma_high=FLAT_SIGMA_HIGH, p=P_PROP, id="flat_prior"))
+                                     sigma_high=FLAT_SIGMA_HIGH, p=P_PROP,
+                                     id="flat_prior"))
     agg = engine.run(agg)
 
     run_id = ImputationRunRegistry(storage_dir=str(tree["imp"])).register(
@@ -771,8 +848,15 @@ def run_stage2(run_root: PathLike, feed_run_ids: Optional[dict] = None) -> str:
                                                   for s in collector.selected]}},
         imputers = engine.imputers,
         stage_config = {"p": P_PROP, "q": Q_REG, "alpha_min": ALPHA_MIN_REG,
-                        "cascade_order": list(CASCADE), "flat_sigma_high": FLAT_SIGMA_HIGH,
-                        "stock_sectors": list(STOCK_SECTORS)},
+                        "cascade_order": list(CASCADE),
+                        "cascade_max_iter": CASCADE_MAX_ITER,
+                        "network_cv_cap": NETWORK_CV_CAP,
+                        "flat_sigma_high": FLAT_SIGMA_HIGH,
+                        "stock_sectors": list(STOCK_SECTORS),
+                        "time": {"window": TIME_WINDOW, "min_obs": TIME_MIN_OBS,
+                                 "gap_inflation": TIME_GAP_INFLATION,
+                                 "method": TIME_METHOD,
+                                 "interpolate_only": TIME_INTERPOLATE_ONLY}},
     )
     _log.info("stage 2: %s (%d edges covered by a feed, %d imputation log entries)",
               run_id, agg.n_covered, len(agg.imputation_log))
@@ -807,8 +891,8 @@ def run_stage3(run_root: PathLike, imp_run_id: Optional[str] = None) -> str:
     # scale totals (from_mask_anchor at 1 %, ADR 0006) were tried on the seed-59 chain:
     # they restate every prior at 1 %, an erroneous one too, so a Concentrate usetotout
     # row became the top soft residual (z −58.6) and coverage fell 0.936 → 0.674.
-    engine.register(SumConstraintBuilder.from_acc_struct(acc,
-                                                         sigma_fraction=SUM_SIGMA_FRACTION))
+    engine.register(SumConstraintBuilder.from_acc_struct(
+        acc, sigma_fraction=SUM_SIGMA_FRACTION))
     for pid, hard in (("conc", False), ("eff", False), ("stripping_ratio", True)):
         engine.register(RatioConstraintBuilder.from_csv(
             str(params[pid]), acc_struct=acc, sigma_rel_floor=RATIO_SIGMA_REL_FLOOR,
@@ -842,8 +926,7 @@ def run_stage4(run_root: PathLike, const_run_id: Optional[str] = None) -> str:
     """Stage 4: one Clarabel QP per year from the cold prior, at the ADR 0039
     tolerances. Returns the opt run id."""
     tree = _tree(run_root)
-    if const_run_id is None:
-        const_run_id = _latest(ConstraintRunRegistry(str(tree["const"])))
+    const_run_id = const_run_id or _latest(ConstraintRunRegistry(str(tree["const"])))
     solver = ClarabelSolver(
         const_dir           = str(tree["const"]),
         opt_dir             = str(tree["opt"]),
@@ -890,12 +973,12 @@ def run_stage5(run_root: PathLike, opt_run_id: Optional[str] = None) -> str:
 def run_stage6(run_root: PathLike, opt_run_id: Optional[str] = None,
                png: bool = True) -> str:
     """Stage 6: the tidy PSUT of the opt run, persisted; its market-share PIOT up to
-    ``L`` (derived, never persisted); and the supply-use Sankey of the latest year in CC,
-    written as ``sankey_supply_use_<year>_CC.png`` beside the PSUT run (Plotly,
-    kaleido). Returns the psut run id."""
+    ``L`` (derived, never persisted); and the supply-use Sankey of the latest year in the
+    content valuation, written as ``sankey_supply_use_<year>_<CONTENT>.png`` beside the
+    PSUT run (Plotly, kaleido). Returns the psut run id."""
     tree = _tree(run_root)
     opt_run_id = opt_run_id or _latest(OptimRunRegistry(str(tree["opt"])))
-    psut = PSUT.from_opt_run(opt_run_id, primary="CC", opt_dir=str(tree["opt"]),
+    psut = PSUT.from_opt_run(opt_run_id, primary=CONTENT, opt_dir=str(tree["opt"]),
                              const_dir=str(tree["const"]), acc_dir=str(tree["acc"]))
     run_id = PsutRunRegistry(str(tree["psut"])).register(
         psut,
@@ -909,9 +992,10 @@ def run_stage6(run_root: PathLike, opt_run_id: Optional[str] = None,
     _log.info("stage 6: %s; PIOT %s — Z %s, A %s, L %s", run_id, period,
               piot.Z(period).shape, piot.A(period).shape, piot.L(period).shape)
     if png:
-        path = tree["psut"] / run_id / f"sankey_supply_use_{period}_CC.png"
+        path = tree["psut"] / run_id / f"sankey_supply_use_{period}_{CONTENT}.png"
         try:
-            psut.sankey(period).write_image(str(path), width=1400, height=800, scale=1.5)
+            psut.sankey(period).write_image(str(path), width=1400, height=800,
+                                            scale=1.5)
             _log.info("stage 6: Sankey → %s", path)
         except Exception as exc:        # kaleido missing or no browser: the PSUT stands
             _log.warning("stage 6: PNG skipped (%s: %s)", type(exc).__name__,
@@ -934,14 +1018,15 @@ def _global(per_t: dict, attr: str, n_edges: int) -> np.ndarray:
 def soft_residuals(run_root: PathLike, opt_run_id: Optional[str] = None) -> pd.DataFrame:
     """Every soft term of the solved QP as a z-score, largest ``|z|`` first.
 
-    An edge's prior term is ``z = (a* − a_prior) / σ_a`` (σ_a conditioned as the solver
-    conditions it); a soft row's is ``z = (G·a* − c) / σ_c``.
+    An edge's prior term is :func:`pysuto.diag.truth.prior_z`, ``(a* − a_prior) / σ_a``
+    with σ_a conditioned as the solver conditions it; a soft row's (``~is_hard``) is
+    ``(G·a* − c) / σ_c``.
 
     Returns
     -------
     DataFrame
-        Columns ``kind`` (``"edge"`` / ``"row"``), ``id`` (edge id or constraint id),
-        ``time``, ``z``.
+        Columns ``kind`` (``"edge"`` / ``"row"``), ``edge_id`` (nullable ``Int64``, an
+        edge's), ``constraint_id`` (``str``, a row's), ``time``, ``z``.
     """
     tree   = _tree(run_root)
     opt    = OptimRunRegistry(str(tree["opt"]))
@@ -949,17 +1034,21 @@ def soft_residuals(run_root: PathLike, opt_run_id: Optional[str] = None) -> pd.D
     const  = ConstraintRunRegistry(str(tree["const"])).load(
         _upstream(opt.load_sidecar(opt_run_id), "const_run_id"))
     _, sigma_a = condition_prior(const.a_prior_global, const.sigma_a)
+    soft   = ~const.row_meta["is_hard"].to_numpy().astype(bool)
+    cids   = const.row_meta["constraint_id"].to_numpy()
     frames = []
     for t, res in opt.load(opt_run_id).items():
         cols, rows = np.asarray(res.cols_t), np.asarray(res.rows_t)
         frames.append(pd.DataFrame({
-            "kind": "edge", "id": cols.astype(str), "time": t,
-            "z": (res.F_opt - res.a_prior) / sigma_a[cols]}))
-        free = const.row_meta["cone_type"].to_numpy()[rows] == "free"
-        sc   = condition_sigma_c(np.asarray(const.timestep_data[t]["sigma_c"])[rows])
+            "kind": "edge", "edge_id": pd.array(cols, dtype="Int64"),
+            "constraint_id": None, "time": t,
+            "z": prior_z(res.F_opt, res.a_prior, sigma_a[cols])}))
+        sc = condition_sigma_c(np.asarray(const.timestep_data[t]["sigma_c"])[rows])
+        keep = soft[rows]
         frames.append(pd.DataFrame({
-            "kind": "row", "id": const.row_meta["constraint_id"].to_numpy()[rows][free],
-            "time": t, "z": (res.residuals / sc)[free]}))
+            "kind": "row", "edge_id": pd.array([pd.NA] * int(keep.sum()), dtype="Int64"),
+            "constraint_id": cids[rows][keep], "time": t,
+            "z": (res.residuals / sc)[keep]}))
     out = pd.concat(frames, ignore_index=True)
     return out.iloc[np.argsort(-np.abs(out["z"].to_numpy()), kind="stable")
                     ].reset_index(drop=True)
@@ -977,22 +1066,41 @@ def _edge_id(acc: AccountingStructure, from_sector: str, from_region: str,
     return int(hit["edge_id"].iloc[0])
 
 
-def scoreboard(run_root: PathLike, run_ids: dict, seed: int = SEED) -> TruthDiag:
+def _recorded_seed(tree: dict, imp_run_id: str) -> int:
+    """The one seed the feed runs upstream of ``imp_run_id`` were drawn with."""
+    feeds = DataFeedRegistry(odir=str(tree["feed"]))
+    feeds.load_index()
+    upstream = ImputationRunRegistry(str(tree["imp"])).load_sidecar(imp_run_id)
+    seeds = {feeds.load_sidecar(rid).get("stage_config", {}).get("seed")
+             for rid in _upstream(upstream, "feed_run_ids")}
+    if len(seeds) != 1 or None in seeds:
+        raise ValueError(f"the feed runs upstream of {imp_run_id} record seeds {seeds}, "
+                         f"not one seed")
+    return int(seeds.pop())
+
+
+def scoreboard(run_root: PathLike, run_ids: dict, seed: Optional[int] = None
+               ) -> TruthDiag:
     """Every stage's estimate of the edges scored against the ground truth.
 
-    ``run_ids`` names the ``imp``, ``opt`` and ``uncprop`` runs. The estimates are
-    ``feed`` (the feeds' root values), ``aggregate`` (the aggregation, before
-    imputation), ``prior`` (after imputation) and ``reconciled`` (``a*``); the
+    ``run_ids`` names the ``imp``, ``opt`` and ``uncprop`` runs. The truth is drawn with
+    the seed the feed runs recorded; an explicit ``seed`` that differs raises. The
+    estimates are ``feed`` (the feeds' root values), ``aggregate`` (the aggregation,
+    before imputation), ``prior`` (after imputation) and ``reconciled`` (``a*``); the
     posterior σ comes from the uncprop run and the prior σ is the one the QP used.
     """
-    tree  = _tree(run_root)
+    tree     = _tree(run_root)
+    recorded = _recorded_seed(tree, run_ids["imp"])
+    if seed is not None and seed != recorded:
+        raise ValueError(f"scoreboard: seed={seed}, but the run tree's feeds were drawn "
+                         f"with seed {recorded}")
     acc   = _load_acc(tree)
     agg   = ImputationRunRegistry(str(tree["imp"])).load(run_ids["imp"])
     opt   = OptimRunRegistry(str(tree["opt"]))
     const = ConstraintRunRegistry(str(tree["const"])).load(
         _upstream(opt.load_sidecar(run_ids["opt"]), "const_run_id"))
     post  = UncPropRunRegistry(str(tree["uncprop"])).load(run_ids["uncprop"])
-    _, sigma_prior = condition_prior(const.a_prior_global, const.sigma_a)
+    a_prior, sigma_prior = condition_prior(const.a_prior_global, const.sigma_a)
 
     observed = np.isfinite(agg.F)
     feed     = np.where(observed.any(axis=0),
@@ -1001,17 +1109,18 @@ def scoreboard(run_root: PathLike, run_ids: dict, seed: int = SEED) -> TruthDiag
     estimates = {
         "feed":       feed,
         "aggregate":  np.where(agg.coverage, agg.f_agg, np.nan),
-        "prior":      np.asarray(agg.f_agg, dtype=float),
+        "prior":      a_prior,
         "reconciled": _global(opt.load(run_ids["opt"]), "F_opt", acc.n_edges),
     }
     return TruthDiag(
         estimates,
-        truth_vector(truth(seed), acc),
+        truth_vector(truth(recorded), acc),
         _global(post.per_timestep, "sigma_a_star", acc.n_edges),
         acc.edge_meta,
         sigma_prior = sigma_prior,
         planted     = [_edge_id(acc, *(_PLANTED[k] for k in _PLANTED_EDGE))],
         alpha       = ALPHA,
+        units       = UNITS,
         label       = LABEL,
     )
 
@@ -1031,16 +1140,16 @@ def _close(given, expected, what: str, rtol: float = 1e-6, atol: float = 1e-9) -
 
 def _ref_1_1(run_root, region="Portua", year="2003") -> float:
     """CV of the Bureau's refined-output edge, by hand: two series pooled on one edge."""
-    acc   = AccountingStructure.load("toy", storage_dir=str(Path(run_root) / "acc"))
+    acc   = AccountingStructure.load(ACC_ID, storage_dir=str(Path(run_root) / "acc"))
     feeds = DataFeedRegistry(odir=str(Path(run_root) / "feed"))
     feeds.load_index()
     W     = feeds.load_feed("bureau", WeightMatrix, acc).weight_matrix
     F_src = np.load(Path(feeds.resolve("bureau").run_dir) / "F_src.npy")
     cv    = feeds.load_metadata("bureau").to_pedigree_scores().total_cv()
-    edge  = _edge_id(acc, "Smelting", region, "Metal", region, year, "CC")
-    part  = np.abs(W[:, edge].toarray().ravel() * F_src)      # each series' contribution
-    omega = part[part > 0] / part.sum()                       # its value share
-    return float(cv * (omega ** 1.3).sum() ** (1 / 1.3))     # Eq. (1), p = 1.3
+    edge  = _edge_id(acc, "Smelting", region, "Metal", region, year, CONTENT)
+    part  = np.abs(W[:, edge].toarray().ravel() * F_src)    # each series' contribution
+    omega = part[part > 0] / part.sum()                     # its value share
+    return float(cv * (omega ** 1.3).sum() ** (1 / 1.3))   # Eq. (1), p = 1.3
 
 
 def check_1_1(run_root: PathLike, cv: float, region: str = "Portua",
@@ -1049,7 +1158,7 @@ def check_1_1(run_root: PathLike, cv: float, region: str = "Portua",
     acc   = _load_acc(_tree(run_root))
     feeds = DataFeedRegistry(odir=str(Path(run_root) / "feed"))
     feeds.load_index()
-    edge     = _edge_id(acc, "Smelting", region, "Metal", region, year, "CC")
+    edge     = _edge_id(acc, "Smelting", region, "Metal", region, year, CONTENT)
     expected = float(feeds.load_result("bureau")["cv_root"][edge])
     _close(cv, expected, f"CV of Smelting → Metal, {region} {year}")
     return f"✓ 1.1  the fan-in CV is {expected:.4f}, below the Bureau's own CV"
@@ -1057,9 +1166,9 @@ def check_1_1(run_root: PathLike, cv: float, region: str = "Portua",
 
 def _ref_2_1(run_root) -> set:
     """The region-years the time imputer filled, read off the imputation log."""
-    acc = AccountingStructure.load("toy", storage_dir=str(Path(run_root) / "acc"))
+    acc = AccountingStructure.load(ACC_ID, storage_dir=str(Path(run_root) / "acc"))
     imp = ImputationRunRegistry(storage_dir=str(Path(run_root) / "imp"))
-    log = imp.load(max(imp.run_ids())).imputation_log.as_dataframe()
+    log = imp.load(_latest(imp)).imputation_log.as_dataframe()
     filled = log.loc[log["imputer_id"] == "time_interp", "edge_id"].astype(int)
     em = acc.edge_meta.set_index("edge_id").loc[filled]
     return set(zip(em["from_region"], em["time"]))
@@ -1078,7 +1187,7 @@ def check_2_1(run_root: PathLike, region_years) -> str:
 def _ref_3_1(run_root, year="2003") -> tuple:
     """Hard and soft rows of one year, counted from row_meta."""
     const = ConstraintRunRegistry(str(Path(run_root) / "const"))
-    rm    = const.load(max(const.run_ids())).row_meta
+    rm    = const.load(_latest(const)).row_meta
     hard  = rm.loc[rm["time"].astype(str) == year, "is_hard"].astype(bool)
     return int(hard.sum()), int((~hard).sum())
 
@@ -1096,11 +1205,11 @@ def _ref_4_1(run_root, constraint_id) -> float:
     """One soft row's z, recomputed: (G·a* − c) / σ_c in its own year."""
     const_reg = ConstraintRunRegistry(str(Path(run_root) / "const"))
     opt_reg   = OptimRunRegistry(str(Path(run_root) / "opt"))
-    const = const_reg.load(max(const_reg.run_ids()))
-    ids   = const.row_meta["constraint_id"].to_numpy()
-    row   = int(np.flatnonzero(ids == constraint_id)[0])
-    year  = str(const.row_meta["time"].iloc[row])
-    res   = opt_reg.load(max(opt_reg.run_ids()))[year]
+    const  = const_reg.load(_latest(const_reg))
+    ids    = const.row_meta["constraint_id"].to_numpy()
+    row    = int(np.flatnonzero(ids == constraint_id)[0])
+    year   = str(const.row_meta["time"].iloc[row])
+    res    = opt_reg.load(_latest(opt_reg))[year]
     a_star = np.zeros(const.G.shape[1])
     a_star[res.cols_t] = res.F_opt
     c, sigma_c = (const.timestep_data[year][k][row] for k in ("c", "sigma_c"))
@@ -1110,7 +1219,7 @@ def _ref_4_1(run_root, constraint_id) -> float:
 def check_4_1(run_root: PathLike, constraint_id: str, z: float) -> str:
     """Exercise 4.1: the z-score of the soft row ``constraint_id``."""
     rows = soft_residuals(run_root)
-    hit  = rows[(rows["kind"] == "row") & (rows["id"] == constraint_id)]
+    hit  = rows[rows["constraint_id"] == constraint_id]
     if len(hit) != 1:
         raise AssertionError(f"{constraint_id!r} is not one soft row of the opt run")
     expected = float(hit["z"].iloc[0])
@@ -1122,10 +1231,10 @@ def _ref_5_1(run_root) -> float:
     """The largest posterior-over-prior σ ratio of any edge (it never exceeds 1)."""
     const = ConstraintRunRegistry(str(Path(run_root) / "const"))
     post  = UncPropRunRegistry(str(Path(run_root) / "uncprop"))
-    run   = const.load(max(const.run_ids()))
+    run   = const.load(_latest(const))
     _, sigma_a = condition_prior(run.a_prior_global, run.sigma_a)
     ratios = [ts.sigma_a_star / sigma_a[ts.cols_t]
-              for ts in post.load(max(post.run_ids())).per_timestep.values()]
+              for ts in post.load(_latest(post)).per_timestep.values()]
     return float(np.max(np.concatenate(ratios)))
 
 
@@ -1139,19 +1248,19 @@ def check_5_1(run_root: PathLike, max_ratio: float) -> str:
 
 
 def _ref_6_1(run_root, region="Portua", sector="Metal", year="2005",
-             valuation="CC") -> tuple:
+             valuation=CONTENT) -> tuple:
     """Σ supply into and Σ use out of one commodity node, from the PSUT table."""
     reg   = PsutRunRegistry(str(Path(run_root) / "psut"))
-    table = reg.load(max(reg.run_ids())).table
+    table = reg.load(_latest(reg)).table
     rows  = table[(table["period"] == year) & (table["valuation"] == valuation)]
-    supply = rows.loc[(rows["to_region"] == region) & (rows["to_sector"] == sector), "val"]
-    use    = rows.loc[(rows["from_region"] == region) & (rows["from_sector"] == sector),
-                      "val"]
-    return float(supply.sum()), float(use.sum())
+    into  = (rows["to_region"] == region) & (rows["to_sector"] == sector)
+    outof = (rows["from_region"] == region) & (rows["from_sector"] == sector)
+    return float(rows.loc[into, "val"].sum()), float(rows.loc[outof, "val"].sum())
 
 
 def check_6_1(run_root: PathLike, supply: float, use: float, region: str = "Portua",
-              sector: str = "Metal", year: str = "2005", valuation: str = "CC") -> str:
+              sector: str = "Metal", year: str = "2005",
+              valuation: str = CONTENT) -> str:
     """Exercise 6.1: Σ supply into and Σ use out of a commodity (``Flow``) node."""
     if _ENTITY.get(sector) != "Flow":
         raise ValueError(f"{sector!r} is not a commodity (Flow) sector of the toy")
@@ -1159,7 +1268,7 @@ def check_6_1(run_root: PathLike, supply: float, use: float, region: str = "Port
     _close((supply, use), expected, f"(supply, use) of {sector}[{region}] {year}")
     _close(expected[0], expected[1], "supply and use of one node", rtol=0.0, atol=1e-8)
     return (f"✓ 6.1  {sector}[{region}] {year}: supply {expected[0]:.4f} = use "
-            f"{expected[1]:.4f} kt {'CC' if valuation == 'CC' else ''}".rstrip())
+            f"{expected[1]:.4f} {UNITS[valuation]}")
 
 
 _REFERENCES = {"1.1": _ref_1_1, "2.1": _ref_2_1, "3.1": _ref_3_1,
@@ -1172,28 +1281,3 @@ def solution(key: str) -> str:
     if key not in _REFERENCES:
         raise KeyError(f"no exercise {key!r}; known: {sorted(_REFERENCES)}")
     return inspect.getsource(_REFERENCES[key])
-
-
-# =============================================================================
-# Private: the planted defect (Q27 b: named only by reveal())
-# =============================================================================
-
-_PLANTED = {
-    "feed":        "customs",
-    "from_sector": "Concentrate",
-    "from_region": "Montara",
-    "to_sector":   "Smelting",
-    "to_region":   "Portua",
-    "time":        "2003",
-    "valuation":   "Mass",
-    "factor":      1000.0,
-    "story":       "a gross mass booked in kg where the feed reports t, read as kt: "
-                   "the leg arrives ×1000 (the PNG case of ADR 0033)",
-}
-_PLANTED_EDGE = ("from_sector", "from_region", "to_sector", "to_region", "time",
-                 "valuation")
-
-
-def reveal() -> dict:
-    """The planted defect: which feed, which edge, by what factor, and the story."""
-    return dict(_PLANTED)
