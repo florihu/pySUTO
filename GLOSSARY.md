@@ -1294,7 +1294,8 @@ imputers never respected.
 **Case** — one metal's complete declaration: an accounting structure (referenced by registry id),
 its feeds, param families, relation sources and cascade, anchor families and σ policies, run by the
 generic stage drivers. Declared as a `CaseSpec` named `CASE` in `pysuto.cases.<id>` (#120); the
-copper case is the first. _Avoid_: "model" (the QP, the PIOT),
+copper case is the first. A case also sets the Stage 4 and 6 driver constants it departs
+from (`driver_knobs`), and the Stage 2–6 drivers select it with `--case <id>` (#124). _Avoid_: "model" (the QP, the PIOT),
 "study" (a REP analysis), "scenario".
 
 **Acc spec** — the declaration of one accounting structure: its sectors (each with an entity, and

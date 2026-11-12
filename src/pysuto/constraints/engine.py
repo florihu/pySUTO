@@ -287,7 +287,7 @@ class ConstraintEngine:
         p: float = 1.3,
         prior_box_k: Optional[float] = None,
         nodata_anchor_cv: float = 0.3,
-        nodata_anchor_exclude_sectors: tuple = ("CO", "Mining", "Ore", "WR", "Tailings"),
+        nodata_anchor_exclude_sectors: tuple = (),
         nodata_anchor_flat_threshold: float = 1e5,
         nodata_anchor_exempt_mask: Optional[np.ndarray] = None,
         pin_flat_prior_zeros: bool = False,
@@ -605,6 +605,7 @@ class ConstraintEngine:
         diag_plot:    bool = False,
         parents:      Optional[dict] = None,
         stage_config: Optional[dict] = None,
+        diag_year:    Optional[str] = None,
     ) -> ConstraintRun:
         """
         Build G once, then assemble c(t) / sigma_c(t) for each timestep.
@@ -621,6 +622,7 @@ class ConstraintEngine:
         persist     : if True, save to registry
         diag_plot   : if True, generate and save ConstDiagnostic figures to
                       {storage_dir}/{run_id}/diag/ after the run
+        diag_year   : the year ``diag_plot`` focuses on (default ``timesteps[0]``)
         """
         if not agg_id:
             agg_id = getattr(agg_result, "_imp_run_id", None) or ""
@@ -821,7 +823,8 @@ class ConstraintEngine:
         if diag_plot:
             from ..diag import ConstDiagnostic, ConstStatsDiagnostic
             odir = os.path.join(self._registry.storage_dir, cr.run_id, "diag")
-            ConstDiagnostic(cr, label=cr.run_id).plot(odir=odir)
-            ConstStatsDiagnostic(cr, years=("1995",)).write(odir)
+            year = str(diag_year if diag_year is not None else timesteps[0])
+            ConstDiagnostic(cr, label=cr.run_id, year=year).plot(odir=odir)
+            ConstStatsDiagnostic(cr, years=(year,)).write(odir)
 
         return cr

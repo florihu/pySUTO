@@ -2684,7 +2684,8 @@ class TestNodataSigmaAnchor:
         extraction edge are left untouched."""
         from pysuto.constraints import ConstraintEngine
         acc = _make_anchor_acc()
-        eng = ConstraintEngine(acc_struct=acc)            # cv default 0.3
+        eng = ConstraintEngine(acc_struct=acc,            # cv default 0.3
+                               nodata_anchor_exclude_sectors=("Mining",))
         a0      = np.array([100.0, 0.0,  0.0])
         sigma_a = np.array([  5.0, 1e6,  1e6])
         out = eng._anchor_nodata_sigma(a0, sigma_a, acc)

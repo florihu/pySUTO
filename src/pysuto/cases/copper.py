@@ -452,6 +452,12 @@ def cascade_in_order(by_id: dict, order) -> list:
     return [by_id[k] for k in order]
 
 
+def validate_imp(spec) -> None:
+    """Raise ``ValueError`` unless ``spec.CASCADE_ORDER`` is a permutation of
+    ``spec.cascade_ids``."""
+    cascade_in_order(dict.fromkeys(spec.cascade_ids), spec.CASCADE_ORDER)
+
+
 def pre_impute(ctx) -> None:
     """After aggregation, before imputation: size-damped leg σ (ADR 0017), then the
     plausibility screen — the screen's cv-5 inflation overrides damping on flagged
@@ -474,6 +480,44 @@ def post_impute(ctx) -> None:
     ctx.reports["contradicted_node_screen"] = screen_contradicted_nodes(
         ctx.acc, ctx.agg_result, ctx.logger, sectors=spec.UNCLOSED_SECTORS,
         cv=spec.UNCLOSED_CV)
+
+
+def imp_stage_config(ctx) -> dict:
+    """The copper knob values the imp sidecar records (``stage_config``), beside the
+    generic keys the stage adds."""
+    spec = ctx.case.imp
+    return {
+        "q":               spec.Q_REG,
+        "alpha_min":       spec.ALPHA_MIN_REG,
+        "cascade_max_iter": spec.CASCADE_MAX_ITER,
+        "cascade_order":   list(spec.CASCADE_ORDER),
+        "flat_mode":       spec.FLAT_MODE,
+        "outlier_leg_k":   spec.OUTLIER_LEG_K,
+        "outlier_leg_cv":  spec.OUTLIER_LEG_CV,
+        "outlier_ref":     "production+imports",
+        "unclosed_sectors": list(spec.UNCLOSED_SECTORS),
+        "unclosed_cv":     spec.UNCLOSED_CV,
+        "unclosed_k":      UNCLOSED_K,
+        "leg_sigma_a_ref":  spec.LEG_SIGMA_AREF,
+        "leg_sigma_gamma":  spec.LEG_SIGMA_GAMMA,
+        "leg_sigma_cv_cap": spec.LEG_SIGMA_CV_CAP,
+        "flat_sigma_high": (spec.FLAT_SIGMA_HIGH if spec.FLAT_MODE == "noisy_zero"
+                            else None),
+        "flat_default_cv": (spec.FLAT_DEFAULT_CV if spec.FLAT_MODE == "magnitude_aware"
+                            else None),
+        "time": {
+            "window":           spec.TIME_WINDOW,
+            "min_obs":          spec.TIME_MIN_OBS,
+            "gap_inflation":    spec.TIME_GAP_INFLATION,
+            "method":           spec.TIME_METHOD,
+            "interpolate_only": spec.TIME_INTERPOLATE_ONLY,
+            "scope_same_region": spec.TIME_SCOPE_SAME_REGION,
+        },
+        "stock_sectors":      list(spec.stock_sectors),
+        "stock_seed_cv":      spec.STOCK_SEED_CV,
+        "stock_seed_abs_floor": spec.STOCK_SEED_ABS_FLOOR_KT,
+        "effless_stock_sigma": spec.EFFLESS_STOCK_SIGMA_KT,
+    }
 
 
 def imputers(ctx) -> list:
@@ -908,6 +952,37 @@ def nodata_anchor_exempt(ctx) -> tuple:
     return anchor_exempt, n_grade_ry
 
 
+def const_stage_config(ctx) -> dict:
+    """The copper knob values the const sidecar records (``stage_config``), beside the
+    generic keys the stage adds."""
+    spec = ctx.case.const
+    return {
+        "sigma_a_cv_min":    spec.SIGMA_A_CV_MIN,
+        "sigma_a_abs_floor": spec.SIGMA_A_ABS_FLOOR,
+        "sigma_c_cv_min":    spec.SIGMA_C_CV_MIN,
+        "sigma_c_abs_floor": spec.SIGMA_C_ABS_FLOOR,
+        "prior_box_k":       spec.PRIOR_BOX_K,
+        "nodata_anchor_cv":  spec.NODATA_ANCHOR_CV,
+        "nodata_anchor_exclude": list(spec.NODATA_ANCHOR_EXCLUDE),
+        "nodata_anchor_data_aware": list(spec.NODATA_ANCHOR_DATA_AWARE),
+        "nodata_anchor_grade_region_years": ctx.n_anchor_exempt,
+        "pin_flat_prior_zeros": spec.PIN_FLAT_PRIOR_ZEROS,
+        "ratio_sigma_rel_floor": spec.RATIO_SIGMA_REL_FLOOR,
+        "ratio_scale_abs_floor": spec.RATIO_SCALE_ABS_FLOOR,
+        "stock_bounds_scale_abs_floor": spec.STOCK_BOUNDS_SCALE_ABS_FLOOR,
+        "ore_grade_basis": "in-situ (ADR 0015)",
+        "fabricated_anchor_cv": spec.FABRICATED_ANCHOR_CV,
+        "feed_share_observed":  spec.FEED_SHARE_OBSERVED,
+        "stock_bounds_mode": spec.STOCK_BOUNDS_MODE,
+        "stock_bounds_skip_reported": spec.STOCK_BOUNDS_SKIP_REPORTED,
+        "scrap_share_mode":  spec.SCRAP_SHARE_MODE,
+        "scrap_level_anchor": spec.SCRAP_LEVEL_ANCHOR,
+        "massbal_mask":      spec.MASSBAL_MASK,
+        "enforce_lower_bounds": spec.ENFORCE_LOWER_BOUNDS,
+        "stripping_ratio_hard": spec.STRIPPING_RATIO_HARD,
+    }
+
+
 def builders(ctx) -> list:
     """The copper constraint builders, in registration order. Appends the params
     entries it reads to ``ctx.param_refs``; the scale totals' σ resolver is
@@ -1173,6 +1248,11 @@ CASE = CaseSpec(
     id     = "copper",
     acc_id = "copper",
     imp    = CopperImp(imputers=imputers, pre_impute=pre_impute,
-                       post_impute=post_impute),
-    const  = CopperConst(builders=builders, nodata_anchor_exempt=nodata_anchor_exempt),
+                       post_impute=post_impute, stage_config=imp_stage_config,
+                       diag_year="1995", validate=validate_imp),
+    const  = CopperConst(builders=builders, nodata_anchor_exempt=nodata_anchor_exempt,
+                         stage_config=const_stage_config, diag_year="1995"),
+    # Stage 6's primary valuation is the acc's content valuation unless named; copper's
+    # is contained copper.
+    driver_knobs = {"psut": {"PRIMARY": "CC"}},
 )

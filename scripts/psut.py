@@ -37,7 +37,9 @@ from datetime import datetime
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
 DATA_DIR  = "data"          # holds proc/opt, proc/const, proc/acc; output → proc/psut
-PRIMARY   = "CC"          # valuation the PSUT views default to; every valuation is loaded
+PRIMARY   = None          # valuation the PSUT views default to (None: the acc's content
+                          # valuation; copper's case names CC); every valuation is loaded
+KNOBS     = ("PRIMARY",)  # the constants a case may set (CaseSpec.driver_knobs["psut"])
 FIGS_DIR  = os.path.join("figs", "psut")   # where --sankey writes its figures
 # ---------------------------------------------------------------------------
 # END USER CONFIGURATION
@@ -45,8 +47,11 @@ FIGS_DIR  = os.path.join("figs", "psut")   # where --sankey writes its figures
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+from pysuto.case import CaseSpec, check_case
+from pysuto.cases import add_case_arg, case_from_args
+from pysuto.cases.copper import CASE
 from pysuto.psut import PSUT
-from pysuto.registry import PsutRunRegistry, stage_lock
+from pysuto.registry import OptimRunRegistry, PsutRunRegistry, stage_lock
 from pysuto.logging import get_logger, add_run_handler
 
 _log = get_logger("init_psut")
@@ -55,12 +60,13 @@ _log = get_logger("init_psut")
 def main(
     opt_run_id: str,
     label:      str = "",
-    primary:    str = PRIMARY,
+    primary:    str | None = None,       # None: the case's PRIMARY, else the content valuation
     timesteps:  list | None = None,
     data_dir:   str = DATA_DIR,
     sankey:     list | None = None,      # periods to draw; [] → the latest
     figs_dir:   str = FIGS_DIR,
     png:        bool = True,             # also a static PNG per figure, when kaleido can render
+    case:       CaseSpec = CASE,         # recorded in the sidecar; must have made the opt run
 ) -> str:
     os.makedirs("logs", exist_ok=True)
     add_run_handler(f"logs/init_psut_{datetime.now():%Y%m%d_%H%M%S}.log")
@@ -69,7 +75,11 @@ def main(
     _log.info("opt_run_id=%s  primary=%s  timesteps=%s  data_dir=%s",
               opt_run_id, primary, timesteps or "all", data_dir)
 
+    case_knobs = case.driver_knobs_for("psut", KNOBS, globals())
+    if primary is None:
+        primary = case_knobs.get("PRIMARY", PRIMARY)
     proc = os.path.join(data_dir, "proc")
+    check_case(OptimRunRegistry(os.path.join(proc, "opt")).load_sidecar(opt_run_id), case)
     psut = PSUT.from_opt_run(
         opt_run_id,
         timesteps = timesteps,
@@ -87,6 +97,8 @@ def main(
             "inputs":   {"acc": psut.acc_ref},
             "upstream": {"opt_run_id": opt_run_id, "const_run_id": psut.const_run_id},
         },
+        stage_config = {"primary": psut.primary, "case_knobs": case_knobs,
+                         "case": case.ref()},
         label = label,
     )
 
@@ -99,7 +111,7 @@ def main(
         for period in (sankey or [world.latest()]):
             for name, view in (("supply_use", world), ("process_network", piot)):
                 fig  = view.sankey(period)
-                stem = os.path.join(figs_dir, f"sankey_{name}_World_{period}_{primary}")
+                stem = os.path.join(figs_dir, f"sankey_{name}_World_{period}_{psut.primary}")
                 fig.write_html(stem + ".html", include_plotlyjs="cdn")
                 _log.info("Sankey → %s.html", stem)
                 if png:
@@ -123,10 +135,12 @@ if __name__ == "__main__":
     )
     parser.add_argument("opt_run_id", help="OptimRun ID from data/proc/opt/.")
     parser.add_argument("--label", default="", help="Optional label for the psut run sidecar.")
-    parser.add_argument("--primary", default=PRIMARY,
-                        help=f"Valuation the views default to; every valuation is loaded (default {PRIMARY}).")
+    parser.add_argument("--primary", default=None,
+                        help="Valuation the views default to; every valuation is loaded "
+                             "(default: the case's, else the acc's content valuation).")
     parser.add_argument("--timesteps", nargs="+", default=None,
                         help="Subset of timestep labels (default: every timestep of the run).")
+    add_case_arg(parser)
     parser.add_argument("--data-dir", default=DATA_DIR,
                         help=f"Data root holding proc/opt, proc/const, proc/acc (default {DATA_DIR!r}).")
     parser.add_argument("--sankey", nargs="*", default=None, metavar="PERIOD",
@@ -137,6 +151,11 @@ if __name__ == "__main__":
     parser.add_argument("--no-png", action="store_true",
                         help="Skip the static PNG copies (needs kaleido and a browser).")
     args = parser.parse_args()
+    case = case_from_args(parser, args)
+    try:
+        case.driver_knobs_for("psut", KNOBS, globals())     # a bad case value is a usage error
+    except (KeyError, TypeError) as exc:
+        parser.error(exc.args[0] if exc.args else str(exc))
     with stage_lock("psut", root=os.path.join(args.data_dir, "proc")):   # #101
         main(args.opt_run_id, args.label, args.primary, args.timesteps, args.data_dir,
-             args.sankey, args.figs_dir, not args.no_png)
+             args.sankey, args.figs_dir, not args.no_png, case)

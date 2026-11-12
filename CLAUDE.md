@@ -112,7 +112,7 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 - Records are `@dataclass`; no pydantic. Asserts are rare — validate explicitly and raise.
 - Params CSVs mix `,` and `;`: read with `sep=None, engine="python", dtype=str`; wildcards are `*` and `same`.
 - Logging: `get_logger(name)` per module; `print` only inside diag `.summary()`.
-- Diagnostics contract: construct with data → `.plot(odir, show=False)` returns paths → `.summary()`. `diag/` is a leaf: the data layer never imports it at module level.
+- Diagnostics contract: construct with data → `.plot(odir, show=False)` returns paths → `.summary()`. `diag/` is a leaf: the data layer never imports it at module level (driver-level code — the scripts, `pysuto.stages` — may).
 - Module-level imports flow one way (README §5 "Import direction is strictly one-way"); `utils`/`logging` import nothing from `pysuto`. A function-local import is allowed only to break a cycle and carries a comment saying so.
 
 ## Testing

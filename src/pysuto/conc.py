@@ -649,8 +649,8 @@ class ConcordanceTable(DataFeed):
     # ------------------------------------------------------------------ #
 
     def save(self, **kwargs):
-        os.makedirs(self.odir, exist_ok=True)
         path = kwargs.get('path', os.path.join(self.odir, f"{self.id}.pkl"))
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)   # not odir: a path wins
         with open(path, "wb") as f:
             pickle.dump({
                 "id":         self.id,
@@ -781,8 +781,8 @@ class WeightMatrix(DataFeed):
     # ------------------------------------------------------------------ #
 
     def save(self, **kwargs):
-        os.makedirs(self.odir, exist_ok=True)
         path = kwargs.get('path', os.path.join(self.odir, f"{self.id}.pkl"))
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)   # not odir: a path wins
         with open(path, "wb") as f:
             pickle.dump({
                 "id":            self.id,

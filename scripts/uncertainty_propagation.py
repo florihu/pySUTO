@@ -47,17 +47,22 @@ EXCLUDE_SCALE_TOTALS = False   # True leaves the scale totals out of S(t) — ab
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
+from pysuto.case    import CaseSpec, check_case
+from pysuto.cases   import add_case_arg, case_from_args
+from pysuto.cases.copper import CASE
 from pysuto.diag    import UncPropDiag
 from pysuto.uncprop import KalmanUncProp
 from pysuto.logging import get_logger, add_run_handler
-from pysuto.registry import stage_lock
+from pysuto.registry import OptimRunRegistry, stage_lock
 
 _log = get_logger("init_uncertainty_propagation")
 
 
-def main(opt_run_id: str, label: str = "", *, data_dir: str = "data") -> None:
+def main(opt_run_id: str, label: str = "", *, data_dir: str = "data",
+         case: CaseSpec = CASE) -> None:
     """Propagate opt run ``opt_run_id`` of ``<data_dir>/proc/opt``; the run is
-    written to ``<data_dir>/proc/uncprop``."""
+    written to ``<data_dir>/proc/uncprop``. ``case`` is recorded in the sidecar and
+    must be the case that made the opt run."""
     os.makedirs("logs", exist_ok=True)
     add_run_handler(
         f"logs/init_uncertainty_propagation_{datetime.now():%Y%m%d_%H%M%S}.log"
@@ -71,6 +76,7 @@ def main(opt_run_id: str, label: str = "", *, data_dir: str = "data") -> None:
     _log.info("opt_run_id=%s  alpha=%.3f  exclude_scale_totals=%s",
               opt_run_id, ALPHA, EXCLUDE_SCALE_TOTALS)
 
+    check_case(OptimRunRegistry(opt_dir).load_sidecar(opt_run_id), case)
     prop = KalmanUncProp(
         opt_dir              = opt_dir,
         const_dir            = const_dir,
@@ -81,7 +87,7 @@ def main(opt_run_id: str, label: str = "", *, data_dir: str = "data") -> None:
     )
 
     result = prop.compute(opt_run_id, alpha=ALPHA)
-    uncprop_run_id = prop.persist(result, opt_run_id, label=label)
+    uncprop_run_id = prop.persist(result, opt_run_id, label=label, case=case.ref())
 
     contractions = [
         1.0 - ts.diagnostics["trace_post"] / ts.diagnostics["trace_prior"]
@@ -124,9 +130,11 @@ if __name__ == "__main__":
         "--label", default="",
         help="Optional label for the uncprop run sidecar.",
     )
+    add_case_arg(parser)
     parser.add_argument("--data-dir", default="data",
                         help="Data root holding proc/ (default 'data').")
     args = parser.parse_args()
+    case = case_from_args(parser, args)
     # registries have no locking (#101)
     with stage_lock("uncertainty_propagation", root=os.path.join(args.data_dir, "proc")):
-        main(args.opt_run_id, args.label, data_dir=args.data_dir)
+        main(args.opt_run_id, args.label, data_dir=args.data_dir, case=case)

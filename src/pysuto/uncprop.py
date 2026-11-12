@@ -810,8 +810,11 @@ class KalmanUncProp(BaseUncProp):
         result:     UncPropResult,
         opt_run_id: str,
         label:      str = "",
+        case:       Optional[dict] = None,
     ) -> str:
         """Persist *result* via :class:`UncPropRunRegistry`.
+
+        ``case`` (``CaseSpec.ref()``) is recorded in the sidecar's ``stage_config``.
 
         Both ``opt_run_id`` and the (re-discovered) ``const_run_id`` are
         stamped into ``parents.upstream`` so downstream readers don't
@@ -840,6 +843,8 @@ class KalmanUncProp(BaseUncProp):
             "rank_tol":               self.rank_tol,
             "exclude_scale_totals":   self.exclude_scale_totals,
         }
+        if case is not None:
+            stage_config["case"] = dict(case)
         run_id = self._uncprop_registry.register(
             result,
             parents      = parents,

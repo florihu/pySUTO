@@ -1299,7 +1299,6 @@ class AccountingStructure:
         ]
         report = "\n".join(lines)
         self.logger.info(report)
-        print(report)   # also print to stdout for immediate visibility
 
     # ------------------------------------------------------------------
     # Bounds  (records with the bounds file's column names)
