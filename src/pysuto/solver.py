@@ -54,10 +54,6 @@ from .logging import get_logger
 logger = get_logger("pysuto.solver")
 
 
-# =============================================================================
-# OptimResult
-# =============================================================================
-
 # ============================================================================
 # Row realisation: (sense, is_hard) → how the QP carries the row
 # ============================================================================
@@ -133,6 +129,10 @@ def clarabel_cones(layout: RowLayout) -> list:
     if layout.n_le    > 0: cones.append(clarabel.NonnegativeConeT(layout.n_le))
     return cones
 
+
+# =============================================================================
+# OptimResult
+# =============================================================================
 
 # Structured dtype for per-iteration convergence trace.
 # Columns mirror Clarabel's verbose console output.
@@ -702,7 +702,7 @@ class ClarabelSolver:
         cones   = skel["cones"]
         P, A    = skel["P"], skel["A"]
         perm    = skel["perm"]
-        n_slack  = skel["n_slack"]
+        n_slack = skel["n_slack"]
         n_a     = skel["n_a"]
         M       = skel["M"]
         inv_sa  = skel["inv_sa"]
