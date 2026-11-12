@@ -18,7 +18,8 @@ import numpy as np
 import pandas as pd
 
 from pysuto.flow_node_balance import K_CLOSE as UNCLOSED_K, contradicted_flow_nodes
-from pysuto.param_relation import conc_for, conc_nominal_lookup, conc_sectors, expand_edge_index
+from pysuto.param_relation import (conc_for, conc_nominal_lookup, conc_sectors,
+                                   expand_edge_index)
 
 
 def damp_leg_sigma(acc, agg_result, gamma, cv_cap, logger, a_ref_override=None):
