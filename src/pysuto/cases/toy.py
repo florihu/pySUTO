@@ -42,11 +42,10 @@ would write no edge here, as it writes none in copper: it is not registered (a n
 
 Limitations, stated once
 ------------------------
-* **Reserved labels** (ADR 0034). The library compares the copper case's labels as
-  literals, so the toy uses them; they are defined once, as ``GROSS``, ``CONTENT``,
-  ``RAW``, ``SEC`` and ``DEMAND`` beside ``ACC_SPEC``, which #123 relabels in one place.
-  When #26 §1 lands, the change to ``ACC_SPEC`` is a ``role`` on each ``SB`` sector and on
-  each valuation.
+* **Copper's labels** (ADR 0034). The toy binds its labels to the framework's roles in
+  ``ACC_SPEC`` (a ``role`` on each ``SB`` sector and each valuation) and still uses
+  copper's labels; they are defined once, as ``GROSS``, ``CONTENT``, ``RAW``, ``SEC`` and
+  ``DEMAND`` beside ``ACC_SPEC``, which #123 relabels in one place.
 * **No hard bands** (#27). No ``RatioBoundBuilder`` and no ``FlowBoundsBuilder`` are
   registered: every hard row is an equality, so Stage 5's posterior has no active set to
   choose and its intervals can be scored against the truth. The price is the band group
@@ -140,33 +139,36 @@ ACC_ID  = "toy"
 REGIONS = ("Montara", "Portua", "Isla")
 YEARS   = ("2001", "2002", "2003", "2004", "2005")
 
-# The labels the library reads as copper's literals (ADR 0034), defined once: #123 gives
-# the toy its own by changing these five lines.
+# The toy's labels, defined once; the roles they are bound to are in ACC_SPEC (ADR 0034).
+# #123 gives the toy its own labels by changing these five lines.
 GROSS   = "Mass"      # the gross-mass valuation
 CONTENT = "CC"        # the orium-content valuation
 RAW     = "Nature"    # boundary sub of extraction (Deposit)
 SEC     = "SEM"       # boundary sub of secondary inputs and residual outputs
 DEMAND  = "FD"        # boundary sub of final demand
+# The bureau feed Supply_Use column: each value mapped to the endpoint its rows classify.
+AUX_SIDES = {"Supply": "from", "Use": "to"}
 UNITS   = {GROSS: "kt", CONTENT: f"kt {CONTENT}"}    # "kt" vs "kt CC" in every report
 
 ACC_SPEC: dict = {
     "sectors": [
-        {"name": "Deposit",     "entity": "SB",      "sub": RAW},
+        {"name": "Deposit",     "entity": "SB",      "sub": RAW, "role": "nature"},
         {"name": "Mining",      "entity": "Process"},
         {"name": "Ore",         "entity": "Flow"},
-        {"name": "WasteRock",   "entity": "SB",      "sub": SEC},
+        {"name": "WasteRock",   "entity": "SB",      "sub": SEC, "role": "secondary"},
         {"name": "Milling",     "entity": "Process"},
         {"name": "Concentrate", "entity": "Flow"},
-        {"name": "Tailings",    "entity": "SB",      "sub": SEC},
+        {"name": "Tailings",    "entity": "SB",      "sub": SEC, "role": "secondary"},
         {"name": "Smelting",    "entity": "Process"},
-        {"name": "Scrap",       "entity": "SB",      "sub": SEC},
+        {"name": "Scrap",       "entity": "SB",      "sub": SEC, "role": "secondary"},
         {"name": "Metal",       "entity": "Flow"},
-        {"name": "Slag",        "entity": "SB",      "sub": SEC},
-        {"name": "Use",         "entity": "SB",      "sub": DEMAND},
-        {"name": "Stock",       "entity": "SB",      "sub": DEMAND},
+        {"name": "Slag",        "entity": "SB",      "sub": SEC, "role": "secondary"},
+        {"name": "Use",         "entity": "SB",      "sub": DEMAND, "role": "final_demand"},
+        {"name": "Stock",       "entity": "SB",      "sub": DEMAND, "role": "final_demand"},
     ],
     "regions":    list(REGIONS),
-    "valuations": [GROSS, CONTENT],
+    "valuations": [{"name": GROSS,   "role": "gross"},
+                   {"name": CONTENT, "role": "content"}],
     "times":      list(YEARS),
     "supply":     {"Mining":   ["Ore", "WasteRock"],
                    "Milling":  ["Concentrate", "Tailings"],
@@ -760,7 +762,7 @@ def _feed_steps(feed: SyntheticFeed, acc: AccountingStructure) -> tuple:
     """
     ct = step_B_build_concordance(
         feed.raw, acc, **feed.maps, feed_id=feed.feed_id, aux_col=feed.aux_col,
-        allow_unmatched_edges=False)
+        aux_sides=AUX_SIDES if feed.aux_col else None, allow_unmatched_edges=False)
     wm    = step_C_build_weight_matrix(ct)
     F_src = build_F_src(feed.raw, ct, label=feed.feed_id)
     result, row_summary = propagate_with_row_penalty(wm, F_src, feed.metadata, acc,
