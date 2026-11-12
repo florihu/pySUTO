@@ -1775,20 +1775,23 @@ class TestCathodeFdSplitRetired:
     Round X (ADR 0040: a stock change is never a balance residual), FU after it
     (the Flow-node balance closes the domestic Cathode→FU leg first; see
     test_network_imputer.test_flow_balance_counts_a_missing_stock_leg_as_zero).
-    The driver carries no domestic-use formula, so none can write a stock leg."""
+    The copper case carries no domestic-use formula, so none can write a stock leg."""
 
     def test_driver_carries_no_domestic_use_formula(self):
-        """Neither the copper case, whose cascade the driver builds, nor the driver."""
-        import pathlib
-        script = (pathlib.Path(__file__).resolve().parents[1] / "scripts"
-                  / "collect_aggregate_impute.py")
-        text = script.read_text(encoding="utf-8")
+        """The copper case builds the cascade; it holds none of the retired relations."""
+        import ast
+        import inspect
         mod = _load_driver()
+        # code names only: the comments there say why the relations are retired
+        used = {n.id for n in ast.walk(ast.parse(inspect.getsource(mod)))
+                if isinstance(n, ast.Name)}
+        used |= {a.name for n in ast.walk(ast.parse(inspect.getsource(mod)))
+                 if isinstance(n, (ast.Import, ast.ImportFrom)) for a in n.names}
         for name in ("cathode_fu_domestic", "cathode_usc_domestic",
                      "cathode_mesc_domestic", "CONC_FORMULA_RELATIONS",
                      "FormulaImputer", "FormulaRelation"):
             assert not hasattr(mod, name), f"{name} is retired"
-            assert name not in text, f"{name} is retired"
+            assert name not in used, f"{name} is retired"
 
 
 if __name__ == "__main__":

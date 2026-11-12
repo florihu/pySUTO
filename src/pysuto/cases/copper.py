@@ -321,8 +321,8 @@ def damp_leg_sigma(acc, agg_result, gamma, cv_cap, logger, a_ref_override=None):
 
 def screen_outlier_trade_legs(acc, agg_result, conc_csv: str, logger,
                                grade_csv: str | None = None, *, k: float, cv: float):
-    """σ-inflate implausible bilateral Mass legs (see the case's OUTLIER_LEG_K,
-    passed as ``k``, and OUTLIER_LEG_CV, passed as ``cv``).
+    """σ-inflate implausible bilateral Mass legs (``k`` and ``cv`` are
+    ``CopperImp.OUTLIER_LEG_K`` and ``CopperImp.OUTLIER_LEG_CV``).
 
     Per (flow sector, exporter region, year): implied CC exports =
     Σ covered bilateral Flow→* Mass legs · conc_nominal(sector); reference =
@@ -330,7 +330,7 @@ def screen_outlier_trade_legs(acc, agg_result, conc_csv: str, logger,
     production) + implied CC imports (Σ covered bilateral Mass legs into the
     region · conc_nominal), so re-exporters are judged against what they
     actually receive. Groups without covered production stay unjudged (the
-    transit-hub population; see the case's OUTLIER_LEG_K note).
+    transit-hub population; see the note on ``CopperImp.OUTLIER_LEG_K``).
     Ratio > k ⇒ every covered bilateral Mass leg
     of that group gets sigma_agg = cv·|f_agg|. Returns the report
     DataFrame (flagged groups only; empty frame if none).
@@ -847,43 +847,43 @@ def scale_total_resolver(ctx):
     """The scale totals' σ resolver (ADR 0016, 0019, 0025): ``(key_map, edge_ids) ->
     cv`` for ``SumConstraintBuilder.from_mask_anchor``, built over ``ctx.agg_result``
     with the case's Stage 3 knobs."""
-    spec, acc, agg_result, _log = ctx.case.const, ctx.acc, ctx.agg_result, ctx.logger
-    # The scale totals' σ resolver (ADR 0016, 0019, 0025), read by the case's builders.
+    spec, acc, agg_result, logger = (ctx.case.const, ctx.acc, ctx.agg_result,
+                                     ctx.logger)
     # Provenance-aware σ_c: loosen scale totals whose prior group-sum is
     # fabricated (feed-backed share of Σ|f_agg| < FEED_SHARE_OBSERVED). Uses
     # agg_result.coverage — the pre-imputation "did any feed observe this
     # edge?" flag (GLOSSARY.md §Coverage), so imputations never count.
     f_agg = agg_result.f_agg
-    _cov  = np.asarray(agg_result.coverage, dtype=bool)
-    _f_agg_signed = np.nan_to_num(np.asarray(f_agg, dtype=float))
-    _absf = np.abs(_f_agg_signed)
+    cov   = np.asarray(agg_result.coverage, dtype=bool)
+    f_agg_signed = np.nan_to_num(np.asarray(f_agg, dtype=float))
+    absf = np.abs(f_agg_signed)
 
     # ADR 0019: the same detection Stage 2 used to σ-inflate the edges.
-    _unclosed, _unclosed_rep = contradicted_flow_nodes(
+    unclosed, unclosed_rep = contradicted_flow_nodes(
         acc, agg_result, sectors=spec.UNCLOSED_SECTORS)
-    _log.info("ADR 0019: %d contradicted %s node-year(s) — anchor action: %s",
-              len(_unclosed), "/".join(spec.UNCLOSED_SECTORS),
-              f"usetotout cv={spec.UNCLOSED_ANCHOR_CV}"
-              if spec.UNCLOSED_ANCHOR_CV is not None else "none (detector only)")
+    logger.info("ADR 0019: %d contradicted %s node-year(s) — anchor action: %s",
+                len(unclosed), "/".join(spec.UNCLOSED_SECTORS),
+                f"usetotout cv={spec.UNCLOSED_ANCHOR_CV}"
+                if spec.UNCLOSED_ANCHOR_CV is not None else "none (detector only)")
 
-    def _scale_total_cv(key_map, edge_ids):
+    def resolve(key_map, edge_ids):
         # Contradicted node: the outflow anchor loses authority so the hard
         # balance can settle at the reliable inflow prior (ADR 0019).
         if (spec.UNCLOSED_ANCHOR_CV is not None
                 and (key_map.get("sector_from"), key_map.get("region_from"),
-                     key_map.get("time")) in _unclosed):
+                     key_map.get("time")) in unclosed):
             return spec.UNCLOSED_ANCHOR_CV
         ids = np.asarray(edge_ids, dtype=int)
-        tot = _absf[ids].sum()
+        tot = absf[ids].sum()
         if tot <= 0.0:
             return spec.FABRICATED_ANCHOR_CV
-        feed_share = _absf[ids[_cov[ids]]].sum() / tot
-        return scale_total_cv(feed_share, abs(float(_f_agg_signed[ids].sum())),
+        feed_share = absf[ids[cov[ids]]].sum() / tot
+        return scale_total_cv(feed_share, abs(float(f_agg_signed[ids].sum())),
                               anchor_cv=spec.ANCHOR_CV,
                               fabricated_cv=spec.FABRICATED_ANCHOR_CV,
                               feed_share_observed=spec.FEED_SHARE_OBSERVED,
                               abs_floor=spec.SCALE_TOTAL_ABS_FLOOR)
-    return _scale_total_cv
+    return resolve
 
 
 def nodata_anchor_exempt(ctx) -> tuple:
