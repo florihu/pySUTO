@@ -313,3 +313,24 @@ class TimeImputer(BaseImputer):
 # FlatPriorImputer
 # ---------------------------------------------------------------------------
 
+# -----------------------------------------------------------------------------
+# Edge scope of a TimeImputer
+# -----------------------------------------------------------------------------
+
+def time_interp_scope(ei, same_region: bool, stock_sectors, logger):
+    """TimeImputer edge scope: same-region edges only (ADR 0026) when
+    ``same_region``, never a leg into one of ``stock_sectors`` (the case's stock-change
+    sector labels, ADR 0040). ``ei`` is the expanded edge index. None = unscoped."""
+    scope = None
+    if same_region:
+        scope = (ei["region_from"].to_numpy() == ei["region_to"].to_numpy())
+        logger.info("   time_interp scope: same-region edges only "
+                    "(%d of %d; %d cross-region edges excluded, ADR 0026)",
+                    int(scope.sum()), scope.size, int((~scope).sum()))
+    if stock_sectors:
+        # stock-change legs are never interpolated (ADR 0040)
+        stock = ei["sector_to"].isin(stock_sectors).to_numpy()
+        scope = (~stock) if scope is None else (scope & ~stock)
+        logger.info("   time_interp scope: %d stock-change legs (%s) excluded "
+                    "(ADR 0040)", int(stock.sum()), "/".join(stock_sectors))
+    return scope

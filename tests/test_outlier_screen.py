@@ -1,12 +1,12 @@
-"""Copper-case tests of the Stage 2 σ screens in ``pysuto.cases.copper`` (#121): the
+"""Copper-labelled tests of the Stage 2 σ screens in ``pysuto.impute.screens`` (#121): the
 bilateral-leg plausibility screen, size-damped leg σ and the contradicted-node screen.
-The toy accounting structures use copper's sector labels, which the functions hold."""
+The toy accounting structures use copper's labels; tests/test_case_screens.py uses none."""
 import numpy as np
 import pandas as pd
 
 from pysuto.acc import ValuationRoles
-from pysuto.cases.copper import (
-    CASE,
+from pysuto.cases.copper import CASE
+from pysuto.impute import (
     damp_leg_sigma as _damp_leg_sigma,
     screen_contradicted_nodes,
     screen_outlier_trade_legs as _screen,
