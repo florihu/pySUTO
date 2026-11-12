@@ -1,6 +1,6 @@
 # Roles are the framework's, labels are the case's
 
-**Status:** proposed (2026-09-22; accepted when [issue #26](https://github.com/florihu/pySUTO/issues/26) §1 lands)
+**Status:** accepted (2026-11-12, #119 + #122). Copper's labels bound to roles at acc v5 rebuild the structure byte-identically, and the chain `opt_20261112_092114_c8cb8b74` rerun from the final chain's feed runs reproduces `opt_20261022_112855_928da10c` bit for bit in imp, const and opt (REP `analysis_opt_20261112_092114_c8cb8b74_20261112_issue122-roles-casespec-measure.md`).
 
 pySUTO is meant to run any metal's supply-use table, yet nine library modules compare the copper
 case's *labels* — `Process`/`Flow`/`SB`, `Nature`/`SEM`/`FD`, `CC`/`Mass` — as string literals
