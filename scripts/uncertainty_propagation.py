@@ -22,7 +22,7 @@ Pipeline
 Usage::
 
     python scripts/uncertainty_propagation.py <opt_run_id> [--label LABEL]
-                                              [--data-dir data]
+                                              [--data-dir data] [--run-id-file PATH]
 """
 
 from __future__ import annotations
@@ -51,6 +51,7 @@ from pysuto.case    import CaseSpec, check_case
 from pysuto.cases   import add_case_arg, case_from_args
 from pysuto.cases.copper import CASE
 from pysuto.diag    import UncPropDiag
+from pysuto.knobs   import write_run_id
 from pysuto.uncprop import KalmanUncProp
 from pysuto.logging import get_logger, add_run_handler
 from pysuto.registry import OptimRunRegistry, stage_lock
@@ -59,7 +60,7 @@ _log = get_logger("init_uncertainty_propagation")
 
 
 def main(opt_run_id: str, label: str = "", *, data_dir: str = "data",
-         case: CaseSpec = CASE) -> None:
+         case: CaseSpec = CASE) -> str:
     """Propagate opt run ``opt_run_id`` of ``<data_dir>/proc/opt``; the run is
     written to ``<data_dir>/proc/uncprop``. ``case`` is recorded in the sidecar and
     must be the case that made the opt run."""
@@ -119,6 +120,7 @@ def main(opt_run_id: str, label: str = "", *, data_dir: str = "data",
     _log.info("Wrote %d diag files to %s", len(paths),
               os.path.join(uncprop_dir, uncprop_run_id, "diag"))
     _log.info("=== init_uncertainty_propagation DONE ===")
+    return uncprop_run_id
 
 
 if __name__ == "__main__":
@@ -133,8 +135,11 @@ if __name__ == "__main__":
     add_case_arg(parser)
     parser.add_argument("--data-dir", default="data",
                         help="Data root holding proc/ (default 'data').")
+    parser.add_argument("--run-id-file", default=None, metavar="PATH",
+                        help="Write the persisted run id to PATH (pysuto.pipeline).")
     args = parser.parse_args()
     case = case_from_args(parser, args)
     # registries have no locking (#101)
     with stage_lock("uncertainty_propagation", root=os.path.join(args.data_dir, "proc")):
-        main(args.opt_run_id, args.label, data_dir=args.data_dir, case=case)
+        write_run_id(args.run_id_file,
+                     main(args.opt_run_id, args.label, data_dir=args.data_dir, case=case))

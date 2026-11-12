@@ -829,6 +829,7 @@ CASE = CaseSpec(
     imp    = ToyImp(imputers=imputers, stage_config=imp_stage_config),
     const  = ToyConst(builders=builders, stage_config=const_stage_config),
     driver_knobs = {"opt": {"QP_VARIABLES": QP_VARIABLES}},
+    stage1 = lambda data_dir: run_stage1(data_dir),     # defined below
 )
 
 # The run tree is a data dir (``proc/`` and ``input/``): the stage drivers run on it with
