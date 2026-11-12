@@ -1,20 +1,18 @@
-"""Unit tests for the bilateral-leg plausibility screen (Stage 2, σ inflation)."""
-import os
-import sys
-
+"""Copper-case tests of the Stage 2 σ screens in ``pysuto.cases.copper`` (#121): the
+bilateral-leg plausibility screen, size-damped leg σ and the contradicted-node screen.
+The toy accounting structures use copper's sector labels, which the functions hold."""
 import numpy as np
 import pandas as pd
 
 from pysuto.acc import ValuationRoles
-
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
-from collect_aggregate_impute import (  # noqa: E402
-    _screen_outlier_trade_legs as _screen,
+from pysuto.cases.copper import (
+    CASE,
+    damp_leg_sigma as _damp_leg_sigma,
+    screen_contradicted_nodes,
+    screen_outlier_trade_legs as _screen,
 )
 
-from pysuto.cases.copper import CASE  # noqa: E402
-
-# The copper case's screen knobs (#120: the driver reads them from the case spec).
+# The copper case's screen knobs (the Stage 2 driver passes them from the case spec).
 OUTLIER_LEG_K  = CASE.imp.OUTLIER_LEG_K
 OUTLIER_LEG_CV = CASE.imp.OUTLIER_LEG_CV
 
@@ -183,8 +181,6 @@ def test_screen_reference_includes_covered_imports(tmp_path):
 # Size-damped leg σ (ADR 0017)
 # ---------------------------------------------------------------------------
 
-from collect_aggregate_impute import _damp_leg_sigma  # noqa: E402
-
 
 class _DampAcc:
     """Two sectors, three bilateral legs each (small/median/big) + extras."""
@@ -311,3 +307,105 @@ def test_screen_uses_each_exporters_own_grade(tmp_path):
     assert list(report["region_from"]) == ["PNG"]
     assert np.isclose(agg.sigma_agg[png], OUTLIER_LEG_CV * 1000.0)
     assert agg.sigma_agg[chl] == 1.0
+
+
+# ---------------------------------------------------------------------------
+# Contradicted-node screen (ADR 0019)
+# ---------------------------------------------------------------------------
+
+class _MatteAcc:
+    """Smelting(Process) → Matte(Flow) → CFR(Process) in one region, CC, 2020.
+
+    Edges: 0 Smelting→Matte (inflow), 1 Matte→CFR (outflow)."""
+
+    def __init__(self):
+        self.valuation_roles = ValuationRoles(content="CC", gross="Mass")
+        self.node_index = pd.DataFrame(
+            {"sector": ["Smelting", "Matte", "CFR"],
+             "entity": ["Process", "Flow", "Process"],
+             "region": ["A", "A", "A"]}, index=[0, 1, 2])
+        self.edge_index = pd.DataFrame(
+            {"edge_id": [0, 1], "from_id": [0, 1], "to_id": [1, 2],
+             "time": ["2020", "2020"], "valuation": ["CC", "CC"]})
+        self.n_edges = 2
+
+
+def _matte_agg(outflow):
+    agg = _Agg(2)
+    agg.f_agg[:] = [100.0, outflow]
+    agg.coverage[:] = True
+    return agg
+
+
+def test_contradicted_node_screen_inflates_the_outflow_when_asked():
+    """Outflow prior 20 < 0.5 × inflow prior 100: the node is reported and, with a cv,
+    its outflow edge's σ becomes cv·|f| (the inflow edge keeps its σ)."""
+    agg = _matte_agg(20.0)
+    report = screen_contradicted_nodes(_MatteAcc(), agg, _Log(), sectors=("Matte",),
+                                       cv=1.0)
+    assert list(report["sector"]) == ["Matte"]
+    assert np.isclose(report["ratio"].iloc[0], 0.2)
+    assert np.isclose(agg.sigma_agg[1], 20.0) and agg.sigma_agg[0] == 1.0
+
+
+def test_contradicted_node_screen_without_a_cv_only_detects():
+    agg = _matte_agg(20.0)
+    report = screen_contradicted_nodes(_MatteAcc(), agg, _Log(), sectors=("Matte",),
+                                       cv=None)
+    assert len(report) == 1
+    assert (agg.sigma_agg == 1.0).all()
+
+
+def test_contradicted_node_screen_leaves_a_consistent_node_alone():
+    agg = _matte_agg(80.0)
+    report = screen_contradicted_nodes(_MatteAcc(), agg, _Log(), sectors=("Matte",),
+                                       cv=1.0)
+    assert len(report) == 0 and (agg.sigma_agg == 1.0).all()
+
+
+def test_contradicted_node_screen_judges_only_the_given_sectors():
+    agg = _matte_agg(20.0)
+    report = screen_contradicted_nodes(_MatteAcc(), agg, _Log(), sectors=("Anode",),
+                                       cv=1.0)
+    assert len(report) == 0 and (agg.sigma_agg == 1.0).all()
+
+
+# ---------------------------------------------------------------------------
+# The case's hooks wire the screens (#121)
+# ---------------------------------------------------------------------------
+
+def _ctx(tmp_path, acc, agg):
+    from pathlib import Path
+    from types import SimpleNamespace
+    _conc_csv(tmp_path)                                  # tmp_path/params.csv
+    inputs = SimpleNamespace(params=SimpleNamespace(resolve=lambda _id: Path(tmp_path)))
+    return SimpleNamespace(case=CASE, acc=acc, agg_result=agg, inputs=inputs,
+                           logger=_Log(), reports={})
+
+
+def test_pre_impute_damps_then_screens_and_files_the_report(tmp_path):
+    from pysuto.cases.copper import pre_impute
+    acc, agg = _Acc(), _Agg(10)
+    m = acc.edge_index
+    for i, val, fv in ((0, "CC", 100.0), (2, "Mass", 2000.0)):
+        eid = int(m[(m.index // 2 == i) & (m["valuation"] == val)]["edge_id"].iloc[0])
+        agg.f_agg[eid], agg.coverage[eid], agg.sigma_agg[eid] = fv, True, 0.21 * fv
+    png = int(m[(m.index // 2 == 2) & (m["valuation"] == "Mass")]["edge_id"].iloc[0])
+    ctx = _ctx(tmp_path, acc, agg)
+
+    pre_impute(ctx)
+
+    assert list(ctx.reports) == ["outlier_leg_screen"]
+    assert list(ctx.reports["outlier_leg_screen"]["region_from"]) == ["PNG"]
+    assert np.isclose(agg.sigma_agg[png], OUTLIER_LEG_CV * 2000.0)   # screen wins
+
+
+def test_post_impute_files_the_contradicted_node_report(tmp_path):
+    from pysuto.cases.copper import post_impute
+    ctx = _ctx(tmp_path, _MatteAcc(), _matte_agg(20.0))
+
+    post_impute(ctx)
+
+    assert list(ctx.reports) == ["contradicted_node_screen"]
+    assert len(ctx.reports["contradicted_node_screen"]) == 1
+    assert (ctx.agg_result.sigma_agg == 1.0).all()       # copper: detector only

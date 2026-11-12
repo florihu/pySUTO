@@ -70,13 +70,21 @@ def _make_case(root: Path) -> dict:
     entry = _edit_acc_input(case, ["A", "B"])
 
     acc_dir = str(data / "proc" / "acc")
-    nodes = pd.DataFrame({"sector": ["Mining", "Ore", "Smelting"],
-                          "entity": ["Process", "Flow", "Process"],
-                          "region": ["A", "A", "A"]})
-    acc = AccountingStructure(
-        id="toy", storage_dir=acc_dir,
-        root={"nodes": nodes, "time_range": ["2020", "2021"], "valuation": ["Mass"]},
-        rules=[lambda ni, nj: (ni["entity"] == "Process") != (nj["entity"] == "Process")])
+    spec = {
+        "sectors":    [{"name": "Mining",   "entity": "Process"},
+                       {"name": "Ore",      "entity": "Flow"},
+                       {"name": "Smelting", "entity": "Process"}],
+        "regions":    ["A"],
+        "valuations": [{"name": "Mass", "role": "gross"},
+                       {"name": "CC",   "role": "content"}],
+        "times":      ["2020", "2021"],
+        "supply":     {"Mining": ["Ore"]},
+        "use":        {"Ore": ["Smelting"]},
+        "tradable":   [],
+        "accounting": [{"from": "Process", "to": "Flow",    "same_region": True},
+                       {"from": "Flow",    "to": "Process", "same_region": True}],
+    }
+    acc = AccountingStructure.from_spec(spec, "toy", storage_dir=acc_dir)
     acc.save()
     write_build_record(acc_dir, entry)
 
@@ -385,21 +393,6 @@ class _NoDiag:
         return []
 
 
-def _bind_copper_valuation_roles(monkeypatch):
-    """The toy structure is built procedurally, which binds no roles; the screens and
-    the scale-total resolver read ``acc.valuation_roles`` (#119), so the loaded
-    structure gets copper's."""
-    from pysuto.acc import AccountingStructure, ValuationRoles
-    orig = AccountingStructure.load.__func__
-
-    def load(cls, *args, **kwargs):
-        acc = orig(cls, *args, **kwargs)
-        acc.valuation_roles = ValuationRoles(content="CC", gross="Mass")
-        return acc
-
-    monkeypatch.setattr(AccountingStructure, "load", classmethod(load))
-
-
 def test_stage_2_builds_from_the_case_and_records_it(case, driver, monkeypatch):
     """The toy case's cascade is what runs; the sidecar carries the serialised Stage 2
     section beside every key it recorded before, and the override lands on both."""
@@ -411,7 +404,6 @@ def test_stage_2_builds_from_the_case_and_records_it(case, driver, monkeypatch):
                                      "value_nominal\nconcore,concentration,Ore,Mass,0.01\n")
     InputRegistry("params", root=case["data"] / "input").initialize()
     feed = _register_feed_run(case)
-    _bind_copper_valuation_roles(monkeypatch)
     mod = driver("collect_aggregate_impute.py")
     for name in ("AggDiagnostic", "ImpDiagnostic", "CoverageDiagnostic",
                  "StatsDiagnostic"):
@@ -437,12 +429,11 @@ def test_stage_2_builds_from_the_case_and_records_it(case, driver, monkeypatch):
     assert {s["imputer_id"] for s in sidecar["imputers"]} == {"flat_prior"}
 
 
-def test_stage_3_builds_from_the_case_and_records_it(case, driver, monkeypatch):
+def test_stage_3_builds_from_the_case_and_records_it(case, driver):
     """The toy case's builders are what run; the sidecar carries the serialised Stage 3
     section beside every key it recorded before, and the override lands on both."""
     from pysuto.registry import ConstraintRunRegistry
     imp_id = _register_imp_run(case)
-    _bind_copper_valuation_roles(monkeypatch)
     knobs = {"ANCHOR_CV": 0.02, "DIAG_PLOT": False}
     toy = _toy_case().with_knobs("const", knobs)
 
