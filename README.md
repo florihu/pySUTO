@@ -156,6 +156,13 @@ modules:  Registry=registry/ (BaseOutputRegistry · _sidecar · make_run_id)
 LAYERED MODULE STACK   (imports flow downward only — never upward)
 
 ┌────────────────────────────────────────────────────────────────┐
+│  cases (top, beside the stage drivers)  ·  cases/toy — a case  │
+│  declared in code: acc spec, synthetic feeds, params, the six  │
+│  stages wired into a run tree; imported by nothing in pysuto   │
+└──────┬─────────────────────────────────────────────────────────┘
+       │
+       ▼  imports
+┌────────────────────────────────────────────────────────────────┐
 │  domain  ·  acc → conc → unc (mixin) · masks · param_relation  │
 │          ·  flow_node_balance (St2–St3 prior check)            │
 └──────┬─────────────────────────────────────────────────────────┘
@@ -172,7 +179,8 @@ LAYERED MODULE STACK   (imports flow downward only — never upward)
        ▼  consumed by (never imports back up)
 ┌────────────────────────────────────────────────────────────────┐
 │  diagnostics (leaf)  ·  diag/  — emits PNGs and the Plotly     │
-│  Sankeys; never imported into the data layer                   │
+│  Sankeys; never imported into the data layer · diag/truth.py   │
+│  scores a synthetic case's estimates against its ground truth  │
 └────────────────────────────────────────────────────────────────┘
 
 cross-cutting (import nothing from the data layer):
@@ -935,7 +943,8 @@ world.to_piot().sankey("2020").write_html("copper_process_network_2020.html")
 | [psut.py](src/pysuto/psut.py) | `PSUT`, `OptimResultsLike`, `classify_blocks`, `BLOCKS` | Stage-6 tidy-canonical PSUT: `from_opt_run` / `from_results`, block views `S`/`U`/`Y`/`E`/`O`/`P`/`W`, `realized_conc`, `aggregate` (region/sector pushforward with `region_crossed`), `sankey` (thin delegate to `diag.psut`), `to_piot`, period selection (`periods`, `latest`, `at`); every valuation in one table with a `primary`; persists to `data/proc/psut/` via `PsutRunRegistry`. |
 | [piot.py](src/pysuto/piot.py) | `PIOT`, `market_share_network`, `market_shares`, `CONSTRUCTS`, `LEVELS` | Stage-6 PIOT as a construct family: the market-share process network (`Z()`, `D()`, process-network `sankey()`), levels `A`/`L` (`x`, `y`, `A`, `L`), `intensity`, `footprint`, `embodied_trade`, `ew_mfa`, `multipliers`, `sda`; `suh_product` is a stub until #20. A derived view of a PSUT, never persisted. |
 | [_conditioning.py](src/pysuto/_conditioning.py) | `condition_prior`, `condition_sigma_c` | Shared σ_a / σ_c conditioning rules — guarantees uncprop sees the same effective prior the solver did. |
-| [diag/](src/pysuto/diag/) | `FeedDiagnostics`, `AggDiagnostic`, `ImpDiagnostic`, `ConstDiagnostic`, `SolverDiag`, `UncPropDiag`, `SweepDiag`, `sankey_figure`, `sankey_tables`, `SankeySpec`; `stats/`: `CoverageDiagnostic`, `StatsDiagnostic`, `ConstStatsDiagnostic`, `SolverStatsDiagnostic`, `UncPropStatsDiagnostic`, `SweepStatsDiagnostic` | Cross-stage diagnostic plot suites (figures), row-level stats tables (CSVs) and the Stage-6 supply-use Sankey (Plotly, lazy). **Subpackage layout:** `feed.py`, `agg.py`, `imp.py`, `const.py`, `solver.py`, `uncprop.py`, `sweep.py`, `psut.py`, `_plot.py`, `stats/{_core,coverage,val,const,solver,objective,uncprop,sweep}.py`. |
+| [diag/](src/pysuto/diag/) | `FeedDiagnostics`, `AggDiagnostic`, `ImpDiagnostic`, `ConstDiagnostic`, `SolverDiag`, `UncPropDiag`, `SweepDiag`, `sankey_figure`, `sankey_tables`, `SankeySpec`, `TruthDiag`; `stats/`: `CoverageDiagnostic`, `StatsDiagnostic`, `ConstStatsDiagnostic`, `SolverStatsDiagnostic`, `UncPropStatsDiagnostic`, `SweepStatsDiagnostic` | Cross-stage diagnostic plot suites (figures), row-level stats tables (CSVs), the Stage-6 supply-use Sankey (Plotly, lazy) and, for a synthetic case, every stage's estimate scored against its ground truth (`truth.py`: error by stage, calibration and coverage, residual rank). **Subpackage layout:** `feed.py`, `agg.py`, `imp.py`, `const.py`, `solver.py`, `uncprop.py`, `sweep.py`, `psut.py`, `truth.py`, `_plot.py`, `stats/{_core,coverage,val,const,solver,objective,uncprop,sweep}.py`. |
+| [cases/](src/pysuto/cases/) | `toy`: `ACC_SPEC`, `ACC_REF`, `build_acc`, `truth`, `make_feeds`, `SyntheticFeed`, `write_params`, `run_stage1` … `run_stage6`, `soft_residuals`, `scoreboard`, `reveal`, `check_<chapter>_<n>`, `solution` | Cases declared in code, at the top of the import stack beside the stage drivers. `toy.py` is the **toy case** (#59): a three-region orium case generated from a planted ground truth, its three synthetic feeds, its params CSVs, and the six stages wired into a caller-chosen run tree; the tutorial's exercise hooks (#60). It keeps copper's reserved labels (ADR 0034) and registers no hard bands (#27). |
 
 ---
 
@@ -1398,6 +1407,10 @@ pysuto/
 │                          tidy table · block views · realized_conc · aggregate     │
 ├── piot.py                PIOT · market_share_network · market_shares       │
 │                                                                            │
+├── cases/                 cases declared in code (top layer, like drivers)  │
+│   └── toy.py              the toy case: ACC_SPEC · truth · make_feeds ·    │
+│                           write_params · run_stage1..6 · scoreboard        │
+│                                                                            │
 └── diag/                  FeedDiagnostics · AggDiagnostic · ImpDiagnostic  ─┐
     ├── feed.py             ConstDiagnostic · SolverDiag                      │
     ├── agg.py                                                                │
@@ -1406,6 +1419,7 @@ pysuto/
     ├── solver.py                                                             │
     ├── uncprop.py          UncPropDiag (Stage 5)                             │
     ├── psut.py                                                               │
+    ├── truth.py            TruthDiag (a synthetic case against its truth)    │
     ├── _plot.py                                                              │
     └── stats/             CoverageDiagnostic · StatsDiagnostic               │
         ├── _core.py        ConstStatsDiagnostic · SolverStatsDiagnostic      │
@@ -1431,6 +1445,8 @@ pipeline       ←  registry, logging        (runs the drivers as subprocesses; 
 psut           ←  acc, registry            (Stage 6 — reads a persisted opt run)
 piot           ←  psut                     (Stage 6 — a derived view of a PSUT)
 diag           ──── consumer; never imported into the data layer
+cases          ──── top: imports the library (diag included) like a stage driver;
+                    nothing in pysuto imports it
 utils / logging  ←  imported by any layer, import nothing from pysuto
 ```
 
@@ -1464,6 +1480,7 @@ Each layer has a dedicated test file in `tests/`. There is no `conftest.py`: fix
 | [test_uncprop.py](tests/test_uncprop.py) | `KalmanUncProp` closed-form 2×2, PSD/monotonicity, Byron limit, CHOLMOD symbolic-factor reuse, registry round-trip, CI clipping, end-to-end `compute(opt_run_id)`, year-local trace contraction, the active set (#27) and an exact contraction where `S` is singular to working precision |
 | [test_uncprop_stats_diag.py](tests/test_uncprop_stats_diag.py) | `UncPropStatsDiagnostic` edge frame: κ, z, weight, κ–z quadrants, bound-active flag, prior classes, σ_a conditioning, legacy full-length arrays, trace contraction, contraction summary |
 | [test_uncprop_diag.py](tests/test_uncprop_diag.py) | `UncPropDiag` portfolio on a solved, propagated toy chain: live render, `from_uncprop_id` round trip, registry, `plot_ids`, `regions=` suffix, `timesteps=` validation, `summary()` |
+| [test_toy_case.py](tests/test_toy_case.py) | The toy case (#59), the first six-stage end-to-end test: all six stages into a temporary run tree in seconds, hard rows closed to 1e-10, the planted leg the top soft residual, Stage 5's 95 % coverage in a band fixed on the first run, PSUT node balances and Sankey totals; the truth balances, each synthetic feed is noisy at its pedigree CV, every registered imputer writes, the time imputer fills the Bureau's two gaps; `TruthDiag`; the tutorial's `check_*` hooks and `solution` |
 | [test_psut.py](tests/test_psut.py) | Stage 6 Slices 1–4: six-block decomposition (an unclassifiable edge raises), node-universe labels with role-named levels, per-node balance from the table alone, every valuation with a primary, `realized_conc`, year-local `cols_t` mapping, period selection, `PsutRunRegistry` round-trip incl. Slice-1 sidecars, `from_opt_run` provenance chain, CLI; region/sector aggregation (conservation, symmetry, idempotence, commutation, `region_crossed` at root resolution, entity-kind clash); supply-use Sankey tables reconcile with the table, headless Plotly figure, multi-region labels, `min_val`, CLI `--sankey` ([ADR 0037](docs/adr/0037-psut-piot-two-classes-piot-is-a-construct-family.md)) |
 | [test_piot.py](tests/test_piot.py) | Stage 6 Slices 5–6: identity edges for single producers, the market-share split between two producers, conservation of every producer's supply and of every block total, the traded split carried onto the network, level gating, the process-network Sankey agreeing with the supply-use one; Leontief identities `L·y = x` and `(I−A)·L = I`, footprints summing to total extraction, embodied trade with extraction rows and RMC columns, ew-MFA identities incl. the closed-world check, multipliers, a two-factor SDA |
 
