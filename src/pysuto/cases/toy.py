@@ -42,10 +42,10 @@ would write no edge here, as it writes none in copper: it is not registered (a n
 
 Limitations, stated once
 ------------------------
-* **Copper's labels** (ADR 0034). The toy binds its labels to the framework's roles in
-  ``ACC_SPEC`` (a ``role`` on each ``SB`` sector and each valuation) and still uses
-  copper's labels; they are defined once, as ``GROSS``, ``CONTENT``, ``RAW``, ``SEC`` and
-  ``DEMAND`` beside ``ACC_SPEC``, which #123 relabels in one place.
+* **Its own labels** (ADR 0034, #123). The toy declares ``Gross`` and ``Content`` as its
+  valuations and ``Raw``, ``Sec`` and ``Demand`` as its boundary subs, bound to the
+  framework's roles in ``ACC_SPEC`` (a ``role`` on each ``SB`` sector and each valuation);
+  they are defined once, beside ``ACC_SPEC``, and none of copper's labels appears here.
 * **No hard bands** (#27). No ``RatioBoundBuilder`` and no ``FlowBoundsBuilder`` are
   registered: every hard row is an equality, so Stage 5's posterior has no active set to
   choose and its intervals can be scored against the truth. The price is the band group
@@ -139,16 +139,15 @@ ACC_ID  = "toy"
 REGIONS = ("Montara", "Portua", "Isla")
 YEARS   = ("2001", "2002", "2003", "2004", "2005")
 
-# The toy's labels, defined once; the roles they are bound to are in ACC_SPEC (ADR 0034).
-# #123 gives the toy its own labels by changing these five lines.
-GROSS   = "Mass"      # the gross-mass valuation
-CONTENT = "CC"        # the orium-content valuation
-RAW     = "Nature"    # boundary sub of extraction (Deposit)
-SEC     = "SEM"       # boundary sub of secondary inputs and residual outputs
-DEMAND  = "FD"        # boundary sub of final demand
+# The toy's own labels, defined once; the roles they are bound to are in ACC_SPEC (ADR 0034).
+GROSS   = "Gross"     # the gross-mass valuation
+CONTENT = "Content"   # the orium-content valuation
+RAW     = "Raw"       # boundary sub of extraction (Deposit)
+SEC     = "Sec"       # boundary sub of secondary inputs and residual outputs
+DEMAND  = "Demand"    # boundary sub of final demand
 # The bureau feed Supply_Use column: each value mapped to the endpoint its rows classify.
 AUX_SIDES = {"Supply": "from", "Use": "to"}
-UNITS   = {GROSS: "kt", CONTENT: f"kt {CONTENT}"}    # "kt" vs "kt CC" in every report
+UNITS   = {GROSS: "kt", CONTENT: f"kt {CONTENT}"}    # "kt" vs "kt Content" in every report
 
 ACC_SPEC: dict = {
     "sectors": [
@@ -224,7 +223,7 @@ def build_acc(storage_dir: PathLike) -> AccountingStructure:
 # =============================================================================
 
 _ORE_KT    = {"Montara": (1000.0, 25.0), "Isla": (400.0, 10.0)}  # kt ore in 2003, kt/yr
-_GRADE     = {"Montara": 0.010, "Isla": 0.008}                  # ore grade, kt CC per kt
+_GRADE     = {"Montara": 0.010, "Isla": 0.008}                  # ore grade, kt Content per kt
 _EFF_MILL  = 0.90                                               # milling recovery
 _EFF_SMELT = 0.97                                               # smelting recovery
 _C_CONC    = 0.28                                               # concentrate grade
@@ -235,7 +234,7 @@ _K_STRIP   = 2.0                                                # waste rock per
 _SHARES    = {"Montara": {"Montara": 0.20, "Portua": 0.70, "Isla": 0.10},
               "Isla":    {"Isla": 0.85, "Portua": 0.15}}
 _SCRAP_KT  = {"Montara": (0.5, 0.02), "Portua": (3.0, 0.10), "Isla": (0.8, 0.03)}
-# the signed leg: linear in time, crossing zero in every region (kt CC)
+# the signed leg: linear in time, crossing zero in every region (kt Content)
 _STOCK_KT  = {"Montara": (0.05, -0.15), "Portua": (0.10, -0.40), "Isla": (-0.05, 0.10)}
 _WIGGLE    = 0.01      # relative year-to-year noise on ore and scrap (the truth's draw)
 
@@ -700,7 +699,7 @@ NODATA_ANCHOR_CV  = 0.05
 NODATA_ANCHOR_EXCLUDE = ()
 SUM_SIGMA_FRACTION    = 0.05
 # Ratio rows' flow-space scale floor. Copper's 100 kt would swamp the toy, whose content
-# edges are 0.1–10 kt CC; the builder's default 1 kt is used.
+# edges are 0.1–10 kt Content; the builder's default 1 kt is used.
 RATIO_SIGMA_REL_FLOOR = 0.02
 RATIO_SCALE_ABS_FLOOR = 1.0
 # Solver: the ADR 0039 tolerances of scripts/run_solver.py, the cold prior.

@@ -63,7 +63,7 @@ class TruthDiag:
     alpha : float
         The interval level, ``(1 − α)``.
     units : dict, optional
-        Valuation → unit label (``{"Mass": "kt", "CC": "kt CC"}``); default
+        Valuation → unit label (``{"Gross": "kt", "Content": "kt Content"}``); default
         ``"kt <valuation>"`` for every valuation.
     label : str
         Figure title prefix.

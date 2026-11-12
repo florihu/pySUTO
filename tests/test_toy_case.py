@@ -11,6 +11,7 @@ toy world is declared here.
 
 from __future__ import annotations
 
+import ast
 import re
 import time
 from pathlib import Path
@@ -367,3 +368,12 @@ def test_solution_returns_each_reference_source_and_refuses_an_unknown_key():
         assert toy.solution(key).startswith(f"def _ref_{key.replace('.', '_')}(")
     with pytest.raises(KeyError, match="'9.9'"):
         toy.solution("9.9")
+
+
+def test_the_toy_module_carries_none_of_copper_s_labels():
+    """The toy declares its own labels (#123): no copper label is a string literal."""
+    tree     = ast.parse(Path(toy.__file__).read_text(encoding="utf-8"))
+    literals = {n.value for n in ast.walk(tree)
+                if isinstance(n, ast.Constant) and isinstance(n.value, str)}
+    assert literals.isdisjoint({"CC", "Mass", "SEM", "FD", "Nature"})
+    assert (toy.GROSS, toy.CONTENT) == ("Gross", "Content")
