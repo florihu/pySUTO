@@ -512,6 +512,13 @@ year. Never ROW (a sum of members), a region ICSG never lists (Luxembourg) or a 
 reports inside one of its own aggregates: their zero is a gap, not a report. _Avoid_: "non-miner"
 for a region that only lacks SX-EW; "unreported region".
 
+**Non-processing region** — a model region with no ICSG smelter, refinery or SX-EW production
+row in any year: the set on which ledger row A3 scores the edge objective of cross-region legs.
+It is read from the ICSG feed, not from the posterior, which books some processing output
+everywhere. It mixes trading economies (Switzerland, Singapore), fabricators (France, Portugal)
+and mine-only exporters (Papua New Guinea, Panama). _Avoid_: "merchant hub" or "hub" for this
+set (a hub is a region whose trade the re-export netting re-attributes); "transit region".
+
 ## Defect, residual & violation vocabulary
 
 **a_prior (warm-start prior)** — the per-**period** prior mean the optimiser uses for year `t`.

@@ -387,6 +387,8 @@ pySUTO is developed at <https://github.com/florihu/pySUTO> and will be archived 
 
 <a id="ref-davenport2002extractive"></a>William G. Davenport, Matthew King, Mark Schlesinger, and A. K. Biswas. *Extractive Metallurgy of Copper*. Pergamon, Oxford, 4th edition, 2002. verify: author list/publisher.
 
+<a id="ref-dojftc2010hmg"></a>U.S. Department of Justice and Federal Trade Commission. *Horizontal Merger Guidelines*. Washington, DC, 19 August 2010. <https://www.justice.gov/atr/horizontal-merger-guidelines-08192010>. verify: section 5.3 and its thresholds against the PDF.
+
 <a id="ref-gaulier2010baci"></a>Guillaume Gaulier and Soledad Zignago. BACI: International trade database at the product-level. The 1994–2007 version. Working Paper 2010-23, CEPII, Paris, 2010. verify: all fields (from the BACI Readme).
 
 <a id="ref-goulart2024clarabel"></a>Paul J. Goulart and Yuwen Chen. Clarabel: An interior-point solver for conic programs with quadratic objectives. [arXiv:2405.12762](https://arxiv.org/abs/2405.12762), 2024.

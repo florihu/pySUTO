@@ -363,7 +363,7 @@
     {
       "id": "A3",
       "expectation": "the adjustment localises on transit trade",
-      "metric": "share of edge \u03a3z\u00b2 on cross-region legs into merchant hubs (no ICSG processing)",
+      "metric": "share of edge \u03a3z\u00b2 on cross-region legs into non-processing regions (no ICSG processing row)",
       "threshold": "\u2265 0.50",
       "value": "0.787 (all cross-region legs 0.947)",
       "outcome": "PASS"

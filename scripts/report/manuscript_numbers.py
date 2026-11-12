@@ -1068,6 +1068,18 @@ def results_numbers(N: Numbers, e: pd.DataFrame, s: pd.DataFrame, numbers_path: 
           max(abs(v) for k, v in d.items() if k != "use"))
     N.add("results:L99.china_footprint_share", "China's footprint ÷ world extraction",
           nj["china_footprint_kt"] / nj["world_extraction_kt"])
+    tt, pa = nj["trade_totals_kt"], nj["partners_2024"]   # B3's comparator over all four
+    direct = sum(pa[f"{c}_export"]["China"] * tt[f"{c}_export"]["2024"]        # traded goods
+                 for c in ("Chile", "Peru"))
+    N.add("results:L99.direct_all_china_from_chile_peru_kt", "China's 2024 imports from "
+          "Chile and Peru in concentrate, matte, anode and cathode", direct, "kt CC")
+    N.add("results:L99.direct_nonconc_china_from_chile_peru_kt", "the part of it in matte, "
+          "anode and cathode", direct - nj["direct_conc_china_from_chile_peru_kt"], "kt CC")
+    N.add("results:L99.embodied_over_direct_all", "China's embodied mined Cu from Chile and "
+          "Peru ÷ its imports from them in all four traded goods, 2024",
+          nj["embodied_china_from_chile_peru_kt"] / direct)
+    N.add("results:L99.embodied_minus_direct_all_kt", "embodied minus those imports",
+          nj["embodied_china_from_chile_peru_kt"] - direct, "kt CC")
     ret = nj["retention_30y"]
     N.add("results:L64.copper_stages_within_001", "|1 − retention| < 0.01 for CP→Cathode and "
           "MF→Concentrate (also S15.1)",

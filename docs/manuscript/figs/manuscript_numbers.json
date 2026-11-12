@@ -1,6 +1,6 @@
 {
  "opt_run_id": "opt_20261022_112855_928da10c",
- "generated": "2026-11-05",
+ "generated": "2026-11-12",
  "chain": {
   "const": "const_20261022_111531_df61bf5c",
   "imp": "imp_20261022_111102_1b49a2b3",
@@ -2444,6 +2444,26 @@
    "label": "China's footprint ÷ world extraction",
    "value": 0.5647087299930698,
    "unit": ""
+  },
+  "results:L99.direct_all_china_from_chile_peru_kt": {
+   "label": "China's 2024 imports from Chile and Peru in concentrate, matte, anode and cathode",
+   "value": 4996.391386945907,
+   "unit": "kt CC"
+  },
+  "results:L99.direct_nonconc_china_from_chile_peru_kt": {
+   "label": "the part of it in matte, anode and cathode",
+   "value": 742.7856863116485,
+   "unit": "kt CC"
+  },
+  "results:L99.embodied_over_direct_all": {
+   "label": "China's embodied mined Cu from Chile and Peru ÷ its imports from them in all four traded goods, 2024",
+   "value": 1.2679177736293745,
+   "unit": ""
+  },
+  "results:L99.embodied_minus_direct_all_kt": {
+   "label": "embodied minus those imports",
+   "value": 1338.6220565715303,
+   "unit": "kt CC"
   },
   "results:L64.copper_stages_within_001": {
    "label": "|1 − retention| < 0.01 for CP→Cathode and MF→Concentrate (also S15.1)",
