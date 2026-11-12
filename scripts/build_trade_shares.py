@@ -316,7 +316,7 @@ def check_parents(version_dir: os.PathLike, inputs: InputRegistries) -> None:
 
 def _conc_lookup(gross: str) -> dict:
     """``(traded sector, exporter region) -> conc nominal``; ``"*"`` is the fallback.
-    ``gross`` is the acc's gross-mass valuation label (``acc.valuations.gross``).
+    ``gross`` is the acc's gross-mass valuation label (``acc.valuation_roles.gross``).
 
     Keyed by region rather than by sector alone so that a region-resolved family
     cannot be silently collapsed to one arbitrary row by the caller. Every row
@@ -567,7 +567,7 @@ def main() -> None:
 
     acc_id = load_config().pipeline.acc_id
     acc = AccountingStructure.load(id=acc_id, storage_dir=ACC_DIR)
-    conc_lookup = _conc_lookup(acc.valuations.gross)
+    conc_lookup = _conc_lookup(acc.valuation_roles.gross)
     _wild = {s_: v for (s_, r_), v in conc_lookup.items() if r_ == "*"}
     _reg = len(conc_lookup) - len(_wild)
     print(f"   conc: {_wild}" + (f"  (+{_reg} region-resolved rows)" if _reg else ""))

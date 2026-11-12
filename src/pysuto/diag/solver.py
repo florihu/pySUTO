@@ -977,7 +977,7 @@ class SolverDiag:
                 continue
             # a toy run's acc cannot be loaded (acc is None): no role tie-break then
             sb = sub["sb_sector"].drop_duplicates().astype(str).to_numpy()
-            roles = self.acc.roles if self.acc is not None else {}
+            roles = self.acc.boundary_roles if self.acc is not None else {}
             hint = {s: _BOUNDARY_ROLE_ORDER.get(r, 99)
                     for s, r in zip(sb, boundary_role_values(roles, sb))}
             vals_d = self._valuations(sub)

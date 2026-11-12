@@ -92,14 +92,15 @@ def _scale(t: str, val: str) -> float:
 
 def _make_toy_acc():
     """Minimal AccountingStructure for the PSUT — no file I/O, no rules."""
-    from pysuto.acc import AccountingStructure, BoundaryRole, Valuations
+    from pysuto.acc import AccountingStructure, BoundaryRole, ValuationRoles
 
     acc = AccountingStructure.__new__(AccountingStructure)
     acc.logger     = logging.getLogger("test_psut_acc")
     acc.id         = "toy"
     acc.node_index = pd.DataFrame(NODES, columns=["sector", "entity", "region", "entity_sub"])
-    acc.roles      = {s: BoundaryRole(ROLE_OF_SUB[sub]) for s, e, _r, sub in NODES if e == "SB"}
-    acc.valuations = Valuations(content="CC", gross="Mass")
+    acc.boundary_roles = {s: BoundaryRole(ROLE_OF_SUB[sub])
+                          for s, e, _r, sub in NODES if e == "SB"}
+    acc.valuation_roles = ValuationRoles(content="CC", gross="Mass")
     acc.n_nodes    = len(NODES)
     acc.time_range = list(PERIODS)
     acc.valuation  = list(VALUATIONS)
@@ -209,7 +210,8 @@ def test_edge_outside_the_taxonomy_raises(toy_acc):
     toy_acc.n_edges += 1
     F = np.append(_full_vector(toy_acc)[:-1], 1.0)
     with pytest.raises(ValueError,
-                       match=r"outside the PSUT block taxonomy.*'Flow'.*'SB', 'secondary'"):
+                       match=r"outside the PSUT block taxonomy.*'Flow'.*'SB', "
+                             r"'secondary'"):
         PSUT.from_results(_legacy_results(toy_acc, F), toy_acc)
 
 
@@ -427,14 +429,16 @@ def _register_without_roles(tmp_path, psut, nodes=None) -> tuple:
     """A PSUT run as Stage 6 persisted it before #119: nodes.parquet has no role."""
     from pysuto.registry import PsutRunRegistry
     reg = PsutRunRegistry(str(tmp_path / "psut"))
-    run_id = reg.register(psut, parents={"inputs": {"acc": {"id": "toy"}}, "upstream": {}})
+    run_id = reg.register(psut, parents={"inputs": {"acc": {"id": "toy"}},
+                                         "upstream": {}})
     path = tmp_path / "psut" / run_id / "nodes.parquet"
-    (psut.nodes if nodes is None else nodes).drop(columns="role").to_parquet(path, index=False)
+    nodes = psut.nodes if nodes is None else nodes
+    nodes.drop(columns="role").to_parquet(path, index=False)
     return reg, run_id
 
 
 def test_a_run_persisted_before_roles_binds_copper_labels_on_load(tmp_path, psut, caplog):
-    """The runs cited by the REPs keep loading: Nature/SEM/FD bound as copper binds them."""
+    """The runs the REPs cite keep loading: Nature/SEM/FD bound as copper binds them."""
     reg, run_id = _register_without_roles(tmp_path, psut)
     with caplog.at_level(logging.WARNING):
         loaded = reg.load(run_id)

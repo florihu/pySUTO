@@ -141,7 +141,7 @@ def conc_nominal_lookup(*paths, gross: str) -> dict:
 
     Reads the **supply** rows — those pinning a concrete ``a_sector_from`` on the
     gross-mass side (``a_valuation == gross``, the label the acc binds to the
-    ``gross`` role: ``acc.valuations.gross``) — and keys each by its
+    ``gross`` role: ``acc.valuation_roles.gross``) — and keys each by its
     ``a_region_from``, or ``"*"`` for a region-wildcarded row, which then serves as
     that sector's fallback.
 

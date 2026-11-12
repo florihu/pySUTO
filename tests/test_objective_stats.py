@@ -262,17 +262,13 @@ def test_sector_totals_retention(edges):
     assert np.isnan(t[(t.group == "Mining") & (t.valuation == "CC")]["sum_post"]).all()   # grid completed
 
 
-def test_boundary_edges_directions_and_entity_sub(edges):
+def test_boundary_edges_directions_and_sectors(edges):
     b = boundary_edges(edges)
     assert set(b["identity"]) == {3, 4}
     assert (b.loc[b.identity == 3, "direction"] == "sb_input").all()
     assert (b.loc[b.identity == 3, "sb_sector"] == "CO").all()
-    assert (b.loc[b.identity == 3, "sb_entity_sub"] == "Nature").all()
     assert (b.loc[b.identity == 4, "direction"] == "sb_output").all()
     assert (b.loc[b.identity == 4, "sb_sector"] == "Tailings").all()
-    assert (b.loc[b.identity == 4, "sb_entity_sub"] == "SEM").all()
-    no_sub = boundary_edges(edges.drop(columns=["from_entity_sub", "to_entity_sub"]))
-    assert (no_sub["sb_entity_sub"] == "").all()
 
 
 def test_filter_regions_or_semantics(edges):

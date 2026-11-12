@@ -7,7 +7,7 @@ Where the other imputers fill one *edge* at a time, :class:`NetworkImputer`
 reasons about *nodes*: it pushes the content valuation (copper: ``CC``) through a
 supply-use network until nothing more is determinable, then derives gross-mass
 twins (copper: ``Mass``) via the concentration coefficient. The valuations and the
-boundary roles are read through ``acc.valuations`` and ``acc.roles`` (ADR 0034).
+boundary roles are read through ``acc.valuation_roles`` and ``acc.boundary_roles`` (ADR 0034).
 Two node kinds carry conservation in content:
 
 * **Process node** — a mass-closing *recipe*: ``product_CC = eff·Σ(inputs_CC)``
@@ -87,7 +87,7 @@ def derive_process_recipes(acc) -> list[ProcessRecipe]:
     em = acc.edge_meta
     supply = np.asarray(acc.masks["supply"], dtype=bool)
     use = np.asarray(acc.masks["use"], dtype=bool)
-    is_cc = (em["valuation"].to_numpy() == acc.valuations.content)
+    is_cc = (em["valuation"].to_numpy() == acc.valuation_roles.content)
 
     sup = em[supply & is_cc & (em["from_entity"].to_numpy() == "Process")]
     use_e = em[use & is_cc & (em["to_entity"].to_numpy() == "Process")]
@@ -100,7 +100,7 @@ def derive_process_recipes(acc) -> list[ProcessRecipe]:
         product = int(flow_out["edge_id"].iloc[0]) if len(flow_out) else None
         waste_rows = g[
             (g["to_entity"].to_numpy() == "SB")
-            & (boundary_role_values(acc.roles, g["to_sector"]) == _SECONDARY)
+            & (boundary_role_values(acc.boundary_roles, g["to_sector"]) == _SECONDARY)
         ]
         wastes = tuple(int(e) for e in waste_rows["edge_id"])
 
@@ -252,7 +252,7 @@ class NetworkImputer(BaseImputer):
 
         # input edge -> from-node boundary role (classifies primary vs secondary input)
         role_from = dict(zip(em["edge_id"].to_numpy(),
-                             boundary_role_values(acc.roles, em["from_sector"])))
+                             boundary_role_values(acc.boundary_roles, em["from_sector"])))
         # input edge -> from/to region (classifies same-region vs cross-region import)
         reg_from = dict(zip(em["edge_id"].to_numpy(), em["from_region"].to_numpy()))
         reg_to   = dict(zip(em["edge_id"].to_numpy(), em["to_region"].to_numpy()))
@@ -338,7 +338,7 @@ class NetworkImputer(BaseImputer):
         determinacy guard in :meth:`_do_flow_balance` could never fire.
         """
         em = acc.edge_meta
-        cc = em[em["valuation"].to_numpy() == acc.valuations.content]
+        cc = em[em["valuation"].to_numpy() == acc.valuation_roles.content]
         flow_ids = set(acc.node_index.index[acc.node_index["entity"].to_numpy() == "Flow"])
         by_to = {k: g["edge_id"].to_numpy() for k, g in cc.groupby(["to_id", "time"])}
         by_from = {k: g["edge_id"].to_numpy() for k, g in cc.groupby(["from_id", "time"])}

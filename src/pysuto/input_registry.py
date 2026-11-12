@@ -438,54 +438,6 @@ def input_pins(imp_sidecar: dict, acc_id: str) -> dict[str, dict[str, int]]:
     return pins
 
 
-def check_feed_accs(feed_sidecars: dict, acc_registry: InputRegistry,
-                    acc_entry: dict) -> None:
-    """Check that every feed run was built on an acc compatible with Stage 2's acc
-    input entry (#53, #119).
-
-    Parameters
-    ----------
-    feed_sidecars : ``{feed_run_id: sidecar}`` of the selected feed runs.
-    acc_registry : the acc registry, whose ``vN/`` snapshots hold the specs compared.
-    acc_entry : Stage 2's own acc input entry ``{id, version, ...}``.
-
-    A feed built on another version of the acc passes when the two versions' specs
-    agree on the keys that define the edge universe (``pysuto.acc.EDGE_UNIVERSE_KEYS``:
-    sectors, regions, valuations, times, supply, use, tradable, accounting); a
-    difference in the other keys (bounds, masks) is logged as a warning, a role-only
-    difference is not one, and the format of a version (ODS files or acc.json) does not
-    count. Identical versions pass silently.
-
-    Raises
-    ------
-    KeyError
-        A feed sidecar records no ``parents.inputs.acc``.
-    ValueError
-        A feed was built on another acc id, or on a version whose spec differs in an
-        edge-universe key; the message names the feed run, both versions and the keys.
-    """
-    # function-local: pysuto.acc imports this module (ACC_SPEC, ACC_ODS_FILES)
-    from pysuto.acc import EDGE_UNIVERSE_KEYS, require_compatible_acc
-
-    own = (acc_entry["id"], acc_entry["version"])
-    for run_id, sidecar in feed_sidecars.items():
-        ref = sidecar.get("parents", {}).get("inputs", {}).get("acc")
-        if not ref:
-            raise KeyError(f"feed run {run_id} records no parents.inputs.acc, so its acc "
-                           f"cannot be checked against {own[0]} v{own[1]}")
-        theirs = (ref["id"], ref["version"])
-        if theirs == own:
-            continue
-        if theirs[0] != own[0]:
-            raise ValueError(f"feed run {run_id} was built on acc {theirs[0]} "
-                             f"v{theirs[1]}, this run uses acc {own[0]} v{own[1]}")
-        require_compatible_acc(
-            acc_registry, own[0], theirs[1], own[1], EDGE_UNIVERSE_KEYS,
-            context=(f"feed run {run_id} was built on acc {own[0]} v{theirs[1]}, "
-                     f"this run uses v{own[1]}"),
-            remedy="rebuild the feed")
-
-
 # ──────────────────────────────────────────────────────────────────────
 # Convenience wrapper across the three kinds
 # ──────────────────────────────────────────────────────────────────────

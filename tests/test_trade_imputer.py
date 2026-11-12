@@ -22,7 +22,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pysuto.acc import Valuations
+from pysuto.acc import ValuationRoles
 from pysuto.impute import NetworkImputer, TradeImputer, derive_process_recipes
 from pysuto.lp import lp_combine
 
@@ -81,8 +81,8 @@ class _ChainAcc:
         )
         self.n_edges = len(rows)
         self.bounds = _Bounds(self.n_edges)
-        self.valuations = Valuations(content="CC", gross="Mass")
-        self.roles = {}                          # the chain has no SB node
+        self.valuation_roles = ValuationRoles(content="CC", gross="Mass")
+        self.boundary_roles = {}                          # the chain has no SB node
         ent = self.node_index["entity"]
         fe = self.edge_index["from_id"].map(ent).to_numpy()
         te = self.edge_index["to_id"].map(ent).to_numpy()

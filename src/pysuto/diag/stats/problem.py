@@ -147,8 +147,8 @@ class ProblemStatsDiagnostic:
         self._imp = imp_result
         self._em  = acc_struct.edge_meta.reset_index(drop=True)
         # the region slice orders gross before content; the totals default to content
-        self._valuation_order = [acc_struct.valuations.gross, acc_struct.valuations.content]
-        self._content         = acc_struct.valuations.content
+        self._valuation_order = [acc_struct.valuation_roles.gross, acc_struct.valuation_roles.content]
+        self._content         = acc_struct.valuation_roles.content
         self._prov_cache  = None
         self._edge_cache  = None
         self._row_cache   = None

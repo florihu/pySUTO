@@ -20,7 +20,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pysuto.acc import Valuations
+from pysuto.acc import ValuationRoles
 from pysuto.agg import AggregationResult, AggregationMath
 from pysuto.impute import (
     ImputationLog,
@@ -153,8 +153,8 @@ class MockAcc:
         )
         self.bounds = MockAcc._Bounds(10)
         self.n_edges = 10
-        self.valuations = Valuations(content="CC", gross="Mass")
-        self.roles = {}                          # no SB node
+        self.valuation_roles = ValuationRoles(content="CC", gross="Mass")
+        self.boundary_roles = {}                          # no SB node
         # Edges 0..3, 6..9: Process→Flow → supply
         # Edges 4,5: Flow→Process → use
         self.masks = {

@@ -18,7 +18,8 @@ import pytest
 
 sys.path.insert(0, os.path.dirname(__file__))
 from test_psut import (  # noqa: E402
-    CC_TOTALS_2020, PERIODS, PROCS, ROLE_OF_SUB, VALUATIONS, _full_vector, _legacy_results,
+    CC_TOTALS_2020, PERIODS, PROCS, ROLE_OF_SUB, VALUATIONS, _full_vector,
+    _legacy_results,
     _make_toy_acc,
 )
 

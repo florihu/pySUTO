@@ -142,10 +142,13 @@ inputs       │ InputRegistries.initialize()   │ come with the upstream run i
   it built from) beside the built acc. The drivers of Stages 2, 3, 4 and 6 check it
   against their acc ref before they load the acc (#53), and Stage 2 checks each feed
   run's acc ref against its own. Two versions are compared by their specs, read from
-  the registry's vN/ (#119): Stages 2, 4 and 6 on the edge-universe keys (sectors,
-  regions, valuations, times, supply, use, tradable, accounting), Stage 3 on every key;
-  a difference in another key warns, a role never counts, the ODS-or-JSON format does
-  not count. A structure without the record warns (raises under --pin-inputs-from).
+  the registry's vN/ (#119), on the keys the consumer reads: a feed run on the
+  edge-universe keys (sectors, regions, valuations, times, supply, use, tradable,
+  accounting); Stages 4 (warm) and 6 against the built acc on those plus the roles;
+  Stages 2 and 3 against the built acc on every key (bounds, masks, roles). A version
+  that declares no roles (acc/copper v4 and older) is compared through the copper
+  binding; any other differing key is logged at info level, and the ODS-or-JSON format
+  does not count. A structure without the record warns (raises under --pin-inputs-from).
 
 modules:  Registry=registry/ (BaseOutputRegistry · _sidecar · make_run_id)
           Logging=logging.py   Config=config.py + input_registry.py
@@ -319,7 +322,7 @@ When a feed sets `Row_penalty: TRUE` in its metadata sidecar, every **ROW-touchi
 
 #### Classes
 
-- **`AccountingStructure`** ([acc.py](src/pysuto/acc.py)) — root node/edge index, supply–use topology, per-edge bounds, structural edge masks (`supply_edge_mask`, `use_edge_mask`, `sb_edge_mask`, `tradable_edge_mask`) consumed by `MassBalanceBuilder` / `FlatPriorImputer`. It binds the case's labels to the framework's **roles** ([ADR 0034](docs/adr/0034-roles-are-the-frameworks-labels-are-the-cases.md)): every `SB` sector to a boundary role (`nature` / `secondary` / `final_demand`) and the two valuations to `content` / `gross`, declared by a `role` key in the acc spec (a `role` column on `root.ods`'s Sector_Entity and Valuation sheets). The library reads `acc.roles` and `acc.valuations.content` / `.gross`, never a label; `save`/`load` keep the roles and the rule tables, so a loaded structure carries the masks `__init__` built, `tradable` included.
+- **`AccountingStructure`** ([acc.py](src/pysuto/acc.py)) — root node/edge index, supply–use topology, per-edge bounds, structural edge masks (`supply_edge_mask`, `use_edge_mask`, `sb_edge_mask`, `tradable_edge_mask`) consumed by `MassBalanceBuilder` / `FlatPriorImputer`. It binds the case's labels to the framework's **roles** ([ADR 0034](docs/adr/0034-roles-are-the-frameworks-labels-are-the-cases.md)): every `SB` sector to a boundary role (`nature` / `secondary` / `final_demand`) and the two valuations to `content` / `gross`, declared by a `role` key in the acc spec (a `role` column on `root.ods`'s Sector_Entity and Valuation sheets). The library reads `acc.boundary_roles` (SB sector → `BoundaryRole`) and `acc.valuation_roles` (`.content` / `.gross`, the bound labels), never a label; `save`/`load` keep the roles and the rule tables, so a loaded structure carries the masks `__init__` built, `tradable` included.
 - **`ConcordanceTable` / `WeightMatrix`** ([conc.py](src/pysuto/conc.py)) — src→root edge mapping and the sparse CSR weight matrix.
 - **`DataFeed`** ([feed.py](src/pysuto/feed.py)) — ABC owning a `weight_matrix`, pedigree scores, `F_src`, and persistence hooks.
 - **`PedigreeScores` / `UncertaintyMixin` / `PropagationResult`** ([unc.py](src/pysuto/unc.py)) — pedigree→CV computation and Lp / power-mean error propagation through `W`.
@@ -906,14 +909,14 @@ world.to_piot().sankey("2020").write_html("copper_process_network_2020.html")
 
 | File | Public API | Responsibility |
 |---|---|---|
-| [acc.py](src/pysuto/acc.py) | `AccountingStructure`, `RuleSet`, `BoundaryRole`, `ValuationRole`, `read_acc_spec_ods`, `read_acc_spec_json`, `read_acc_spec_dir`, `require_compatible_acc`, `write_build_record`, `check_built_acc` | Built from an acc spec (`AccountingStructure.from_spec`); the ODS/CSV files and `acc.json` are its two formats, read by `read_acc_spec_ods` / `read_acc_spec_json` (`read_acc_spec_dir` picks one). The roles a case binds its labels to (`acc.roles`, `acc.valuations`, ADR 0034). Root node/edge index, supply–use topology, structural edge masks (`supply_edge_mask`, `use_edge_mask`, `sb_edge_mask`, `tradable_edge_mask`), per-edge bounds. The build record beside a built structure names the acc input version it came from; `check_built_acc` checks it against a run's acc ref, and `require_compatible_acc` compares two acc versions' specs on the keys a consumer depends on (#53, #119). |
+| [acc.py](src/pysuto/acc.py) | `AccountingStructure`, `RuleSet`, `BoundaryRole`, `ValuationRole`, `read_acc_spec_ods`, `read_acc_spec_json`, `read_acc_spec_dir`, `require_compatible_acc`, `check_feed_accs`, `write_build_record`, `check_built_acc` | Built from an acc spec (`AccountingStructure.from_spec`); the ODS/CSV files and `acc.json` are its two formats, read by `read_acc_spec_ods` / `read_acc_spec_json` (`read_acc_spec_dir` picks one). The roles a case binds its labels to: `acc.boundary_roles` (SB sector → `BoundaryRole`) and `acc.valuation_roles` (`.content`, `.gross`, the bound labels), which the library reads in place of labels (ADR 0034). Root node/edge index, supply–use topology, structural edge masks (`supply_edge_mask`, `use_edge_mask`, `sb_edge_mask`, `tradable_edge_mask`), per-edge bounds. The build record beside a built structure names the acc input version it came from; `check_built_acc` checks it against a run's acc ref, and `require_compatible_acc` compares two acc versions' specs on the keys a consumer depends on (#53, #119). |
 | [conc.py](src/pysuto/conc.py) | `ConcordanceTable`, `WeightMatrix` | src→root edge mapping; sparse CSR `W`. |
 | [feed.py](src/pysuto/feed.py) | `DataFeed` (ABC) | Owns `weight_matrix`, pedigree, `F_src`, persistence. |
 | [feedpipe.py](src/pysuto/feedpipe.py) | `run_feed_pipeline`, `step_A_read_metadata`/`_B_build_concordance`/`_C_build_weight_matrix`/`_D_apply_and_propagate`, `register_feed` | Stage 1 orchestration. |
 | [unc.py](src/pysuto/unc.py) | `PedigreeScores`, `UncertaintyMixin`, `PropagationResult` | Pedigree→CV (Laner et al.); Lp / power-mean propagation through `W`. |
 | [meta.py](src/pysuto/meta.py) | `DataFeedMetadata` | Parses the Excel sidecar. |
 | [registry/](src/pysuto/registry/) | `BaseOutputRegistry`, `DataFeedRegistry`, `ImputationRunRegistry`, `ConstraintRunRegistry`, `OptimRunRegistry`, `UncPropRunRegistry`, `PsutRunRegistry`, `SweepRunRegistry`, `_RegistryEntry`, `make_run_id`, `build_sidecar`, `stage_lock`, `LockHeld` | Harmonized output registries (Stages 1–6); shared run-id pattern + sidecar schema; the advisory stage lock on `data/proc` (#101). **Subpackage layout:** `base.py`, `feed.py`, `imputation.py`, `constraint.py`, `optim.py`, `uncprop.py`, `psut.py`, `sweep.py`, `lock.py`, `_sidecar.py`. |
-| [input_registry.py](src/pysuto/input_registry.py) | `InputRegistry`, `InputRegistries`, `pins_from_inputs`, `input_pins`, `check_feed_accs` | Per-kind versioned snapshot store for `feed`, `acc`, `params`, `mask` inputs; hardlink dedup; auto-bump on content-hash change; pins that replay a sidecar's input versions and Stage 2's check of its feeds' acc versions, by spec comparison (#53, #119). |
+| [input_registry.py](src/pysuto/input_registry.py) | `InputRegistry`, `InputRegistries`, `pins_from_inputs`, `input_pins` | Per-kind versioned snapshot store for `feed`, `acc`, `params`, `mask` inputs; hardlink dedup; auto-bump on content-hash change; pins that replay a sidecar's input versions (#53). Imports nothing from `acc`; the spec-comparing checks of acc versions live in `acc.py` (#119). |
 | [knobs.py](src/pysuto/knobs.py) | `parse_overrides`, `apply_overrides`, `add_knob_args`, `overrides_from_cli`, `write_run_id` | The driver knob protocol: `--set KNOB=VALUE` against a driver's `KNOBS`, and `--run-id-file` (#100). |
 | [pipeline.py](src/pysuto/pipeline.py) | `Pipeline`, `Chain`, `StepFailed`, `Axis`, `Sweep`, `STEPS`, `TIED`, `STEP_GB`, `split_key` | Stage drivers composed as subprocess steps; one chain per `run(overrides, label)` with `<stage>.<KNOB>` overrides (#103); random (Latin hypercube) or grid sweeps of chains, resumable, recorded via `SweepRunRegistry` (#105); a sweep may keep only its last step's runs, the others passing through a scratch store (#108). |
 | [utils.py](src/pysuto/utils.py) | `_NpEncoder`, io helpers | JSON serialisation, numpy-safe dump/load. |
@@ -1418,6 +1421,7 @@ pysuto/
 
 ```
 acc  →  conc  →  feed  →  feedpipe
+input_registry ←  acc, solver, psut        (imports nothing from acc; acc.py holds the version checks)
 unc  ───────────────────────────────  (mixin, no upward imports)
 meta  →  registry
 collector  →  agg  →  impute  →  constraints  →  solver  →  uncprop

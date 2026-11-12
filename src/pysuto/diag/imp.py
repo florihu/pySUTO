@@ -275,8 +275,8 @@ class ImpDiagnostic:
         ei["covered"] = cov.reindex(ei["edge_id"]).to_numpy()
         ei["f"] = np.asarray(agg.f_agg)[ei["edge_id"].to_numpy()]
         ei["sigma"] = np.asarray(agg.sigma_agg)[ei["edge_id"].to_numpy()]
-        mass = ei[ei["valuation"] == self.acc_struct.valuations.gross]
-        cc = ei[ei["valuation"] == self.acc_struct.valuations.content]
+        mass = ei[ei["valuation"] == self.acc_struct.valuation_roles.gross]
+        cc = ei[ei["valuation"] == self.acc_struct.valuation_roles.content]
         pair = mass.merge(cc, on=["from_id", "to_id", "time"],
                           suffixes=("_mass", "_cc"))
         both = pair[pair["covered_mass"] & pair["covered_cc"]]
@@ -770,7 +770,7 @@ class ImpDiagnostic:
             return None
         if group_col not in em.columns:
             return None
-        box_vals = (self.acc_struct.valuations.gross, self.acc_struct.valuations.content)
+        box_vals = (self.acc_struct.valuation_roles.gross, self.acc_struct.valuation_roles.content)
 
         eid = em["edge_id"].to_numpy()
         f   = np.abs(np.asarray(self.agg_result.f_agg, dtype=float))[eid]

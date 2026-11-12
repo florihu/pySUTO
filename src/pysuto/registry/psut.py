@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Optional
 
 import pandas as pd
 
-from pysuto.acc import legacy_boundary_role_values
 from pysuto.logging import get_logger
 
 from ._sidecar import _now_iso, build_sidecar
@@ -22,6 +21,31 @@ if TYPE_CHECKING:                                  # break Stage-6 import cycle
     from pysuto.psut import PSUT
 
 _log = get_logger("pysuto.registry.psut")
+
+# The copper case's boundary labels, bound here for the one artefact that needs them: a
+# run persisted before roles (#119) has no role column in its nodes.parquet.
+_LEGACY_BOUNDARY_ROLES = {"Nature": "nature", "SEM": "secondary", "FD": "final_demand"}
+
+
+def _legacy_roles(nodes: pd.DataFrame) -> list:
+    """The boundary-role value of each node of a pre-roles run, ``None`` on a Process or
+    Flow node.
+
+    Raises
+    ------
+    ValueError
+        An SB node whose ``entity_sub`` is not one of the copper case's three: a role is
+        never guessed.
+    """
+    sb = nodes["entity"] == "SB"
+    unknown = sorted(set(nodes.loc[sb, "entity_sub"].astype(str))
+                     - set(_LEGACY_BOUNDARY_ROLES))
+    if unknown:
+        raise ValueError(f"nodes persisted before roles (#119) carry SB label(s) "
+                         f"{unknown} outside the copper case's "
+                         f"{sorted(_LEGACY_BOUNDARY_ROLES)}: no role can be bound")
+    return [_LEGACY_BOUNDARY_ROLES[s] if is_sb else None
+            for s, is_sb in zip(nodes["entity_sub"], sb)]
 
 
 class PsutRunRegistry(BaseOutputRegistry):
@@ -137,8 +161,7 @@ class PsutRunRegistry(BaseOutputRegistry):
         nodes  = pd.read_parquet(os.path.join(run_dir, "nodes.parquet"))
         if "role" not in nodes.columns:
             # Persisted before roles (#119): bind the copper case's boundary labels.
-            nodes["role"] = legacy_boundary_role_values(nodes["entity"],
-                                                        nodes["entity_sub"])
+            nodes["role"] = _legacy_roles(nodes)
             _log.warning("PSUT run %s predates roles (#119): bound its SB nodes' roles "
                          "from the copper case's entity_sub labels", run_id)
 

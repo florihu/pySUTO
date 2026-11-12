@@ -116,7 +116,7 @@ KNOBS = (
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from pysuto.acc     import EDGE_UNIVERSE_KEYS, AccountingStructure, check_built_acc
+from pysuto.acc     import EDGE_UNIVERSE_ROLE_KEYS, AccountingStructure, check_built_acc
 from pysuto.input_registry import InputRegistry
 from pysuto.solver  import ClarabelSolver
 from pysuto.diag    import SolverDiag
@@ -153,7 +153,7 @@ def main(const_run_id: str, label: str = "", prior_mode: str = "warm",
     # const run's acc ref before the solve, so a refused run persists nothing (#53).
     const_parents = ConstraintRunRegistry(const_dir).load_sidecar(const_run_id)["parents"]
     check_built_acc(acc_dir, const_parents["inputs"].get("acc", {}),
-                    InputRegistry("acc", root=input_dir), EDGE_UNIVERSE_KEYS)
+                    InputRegistry("acc", root=input_dir), EDGE_UNIVERSE_ROLE_KEYS)
     _log.info("Loading ClarabelSolver (const_dir=%s)", const_dir)
     # Termination tolerances: see the USER CONFIGURATION block (Round W.1).
     solver = ClarabelSolver(const_dir=const_dir, opt_dir=opt_dir, acc_dir=acc_dir,

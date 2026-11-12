@@ -11,7 +11,7 @@ pivot *views* of that table, reindexed onto the node universe so their labels
 are identical across periods (issues #18/#19, ADR 0037).
 
 Blocks (PIOLab / ADR 0007), read off the endpoint entity kinds and, for the
-boundary blocks, the ``SB`` node's boundary role (``acc.roles``, ADR 0034)::
+boundary blocks, the ``SB`` node's boundary role (``acc.boundary_roles``, ADR 0034)::
 
     S  Process         → Flow                 supply (useful output)
     U  Flow            → Process              use
@@ -57,7 +57,7 @@ from typing import Mapping, Optional, Protocol, Sequence
 import numpy as np
 import pandas as pd
 
-from .acc import (EDGE_UNIVERSE_KEYS, AccountingStructure, BoundaryRole,
+from .acc import (EDGE_UNIVERSE_ROLE_KEYS, AccountingStructure, BoundaryRole,
                   boundary_role_values, check_built_acc)
 from .input_registry import InputRegistry
 from .logging import get_logger
@@ -136,7 +136,7 @@ def boundary_labels(nodes: pd.DataFrame, block: str) -> pd.MultiIndex:
 
 def classify_blocks(edge_meta: pd.DataFrame, roles: dict) -> pd.Series:
     """Block label per row of ``edge_meta``; ``None`` for an edge no rule matches.
-    ``roles`` maps an SB sector label to its boundary role (``acc.roles``)."""
+    ``roles`` maps an SB sector label to its boundary role (``acc.boundary_roles``)."""
     fe = edge_meta["from_entity"].to_numpy()
     te = edge_meta["to_entity"].to_numpy()
     fr = boundary_role_values(roles, edge_meta["from_sector"])
@@ -299,10 +299,10 @@ class PSUT(_TidyView):
         ``cols_t`` on the block path, positionally on the legacy path — and
         every edge of that timestep, in every valuation, becomes one row
         carrying its block. An edge no block rule matches raises.
-        ``primary=None`` means the content valuation (``acc.valuations.content``).
+        ``primary=None`` means the content valuation (``acc.valuation_roles.content``).
         """
         if primary is None:
-            primary = acc.valuations.content
+            primary = acc.valuation_roles.content
         if primary not in acc.valuation:
             raise ValueError(
                 f"primary {primary!r} is not one of {acc.valuation} "
@@ -312,11 +312,11 @@ class PSUT(_TidyView):
             raise ValueError("results is empty — nothing to materialise")
 
         meta  = acc.edge_meta
-        block = classify_blocks(meta, acc.roles)
+        block = classify_blocks(meta, acc.boundary_roles)
         if block.isna().any():
             raise ValueError(
                 "edges outside the PSUT block taxonomy — (from_entity, from_role, "
-                f"to_entity, to_role): {_unclassified_report(meta, block, acc.roles)}"
+                f"to_entity, to_role): {_unclassified_report(meta, block, acc.boundary_roles)}"
             )
         time = meta["time"].to_numpy()
         keep = ["edge_id", "valuation",
@@ -343,8 +343,7 @@ class PSUT(_TidyView):
         nodes = acc.node_index.copy()
         if "entity_sub" not in nodes.columns:
             nodes["entity_sub"] = None
-        role  = boundary_role_values(acc.roles, nodes["sector"])
-        nodes["role"] = np.where(role == "", None, role)
+        nodes["role"] = boundary_role_values(acc.boundary_roles, nodes["sector"])
         nodes = nodes[_NODE_COLUMNS]
 
         counts = (table[table["valuation"] == primary]["block"]
@@ -399,7 +398,7 @@ class PSUT(_TidyView):
         logger.info("Loading OptimRun %r → ConstraintRun %r → acc %r",
                     opt_run_id, const_run_id, acc_id)
         check_built_acc(acc_dir, acc_ref, InputRegistry("acc", root=input_dir),
-                        EDGE_UNIVERSE_KEYS)
+                        EDGE_UNIVERSE_ROLE_KEYS)
         acc     = AccountingStructure.load(acc_id, storage_dir=acc_dir)
         results = opt_reg.load(opt_run_id)
         if timesteps is not None:

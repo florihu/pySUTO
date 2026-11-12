@@ -43,10 +43,10 @@ def flow_node_balance(acc, agg_result, valuation: str | None = None) -> pd.DataF
     Returns a frame with columns ``sector, region, time, inflow, outflow,
     ratio`` (``ratio = outflow/inflow``), one row per node with inflow > 0.
     Uses ``f_agg`` — the Stage-2 prior — not the posterior. ``valuation=None``
-    means the content valuation (``acc.valuations.content``).
+    means the content valuation (``acc.valuation_roles.content``).
     """
     if valuation is None:
-        valuation = acc.valuations.content
+        valuation = acc.valuation_roles.content
     ei = expand_edge_index(acc.edge_index, acc.node_index)
     f = np.nan_to_num(np.asarray(agg_result.f_agg, dtype=float))
     ei = ei[ei["valuation"].eq(valuation)].copy()

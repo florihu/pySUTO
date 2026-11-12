@@ -40,7 +40,7 @@ import scipy.sparse as sp
 import clarabel
 
 from ._conditioning import condition_prior, condition_sigma_c
-from .acc import EDGE_UNIVERSE_KEYS, AccountingStructure, check_built_acc
+from .acc import EDGE_UNIVERSE_ROLE_KEYS, AccountingStructure, check_built_acc
 from .constraints import ConstraintRun
 from .input_registry import InputRegistry
 from .registry import ConstraintRunRegistry, OptimRunRegistry
@@ -850,7 +850,8 @@ class ClarabelSolver:
             The structure cannot be loaded from ``acc_dir``.
         """
         check_built_acc(self.acc_dir, run.acc_ref,
-                        InputRegistry("acc", root=self.input_dir), EDGE_UNIVERSE_KEYS)
+                        InputRegistry("acc", root=self.input_dir),
+                        EDGE_UNIVERSE_ROLE_KEYS)
         try:
             return AccountingStructure.load(run.acc_id, storage_dir=self.acc_dir)
         except (AssertionError, OSError) as exc:

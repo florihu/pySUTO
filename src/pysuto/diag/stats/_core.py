@@ -239,9 +239,8 @@ def boundary_edges(edges) -> pd.DataFrame:
     """The system-boundary subset of an edge frame: exactly one ``SB`` endpoint.
 
     Adds ``direction`` (``sb_input`` = ``from_entity == "SB"``, ``sb_output`` =
-    ``to_entity == "SB"``), ``sb_sector`` (the SB node's sector) and
-    ``sb_entity_sub`` (its boundary category, ``""`` when the frame carries no
-    ``*_entity_sub`` columns). Requires ``from_entity`` / ``to_entity``.
+    ``to_entity == "SB"``) and ``sb_sector`` (the SB node's sector). Requires
+    ``from_entity`` / ``to_entity``.
     """
     fe = edges["from_entity"].astype(str).to_numpy()
     te = edges["to_entity"].astype(str).to_numpy()
@@ -253,11 +252,4 @@ def boundary_edges(edges) -> pd.DataFrame:
     out["direction"] = np.where(inn, "sb_input", "sb_output")
     out["sb_sector"] = np.where(inn, out["from_sector"].astype(str).to_numpy(),
                                      out["to_sector"].astype(str).to_numpy())
-    if {"from_entity_sub", "to_entity_sub"} <= set(out.columns):
-        sub = np.where(inn, out["from_entity_sub"].astype(object).to_numpy(),
-                            out["to_entity_sub"].astype(object).to_numpy())
-        out["sb_entity_sub"] = pd.Series(sub, index=out.index).fillna("").astype(str) \
-                                 .replace({"nan": "", "None": ""}).to_numpy()
-    else:
-        out["sb_entity_sub"] = ""
     return out

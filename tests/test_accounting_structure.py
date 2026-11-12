@@ -1534,23 +1534,27 @@ class TestBuildRecord:
 
     def test_another_version_with_the_same_edge_universe_passes(self, root_simple,
                                                                 tmp_path, caplog):
-        """#119: the final chain's const run (acc v4) stays valid against a structure
-        rebuilt from v5, which adds only the role column; a bounds or masks change passes
-        Stages 2, 4 and 6 with a warning, and Stage 3, whose G holds them, refuses it."""
+        """#119: bounds and masks changes pass Stages 4 and 6 (info only), a role change
+        raises there, and Stages 2 and 3, whose G and recipes hold all of them, refuse
+        each."""
         import logging
-        from pysuto.acc import ALL_SPEC_KEYS, check_built_acc, write_build_record
+        from pysuto.acc import (ALL_SPEC_KEYS, EDGE_UNIVERSE_ROLE_KEYS, check_built_acc,
+                                write_build_record)
         from test_acc_roles import BOUNDS_ONLY, COPPER_LABELS, MASKS_ONLY, ROLE_ONLY
         store = self._built(root_simple, tmp_path)
         write_build_record(store, self.ENTRY)
         reg = self._inputs(tmp_path, [MASKS_ONLY, BOUNDS_ONLY, ROLE_ONLY, COPPER_LABELS])
-        with caplog.at_level(logging.WARNING):
-            check_built_acc(store, {"id": "t", "version": 3}, reg, ALL_SPEC_KEYS)
-        assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
-        for v in (1, 2):
-            check_built_acc(store, {"id": "t", "version": v}, reg, EDGE_UNIVERSE_KEYS)
-        assert "only in ['masks']" in caplog.text and "only in ['bounds']" in caplog.text
-        with pytest.raises(ValueError, match=r"they differ in \['bounds'\]"):
-            check_built_acc(store, {"id": "t", "version": 2}, reg, ALL_SPEC_KEYS)
+        keys = EDGE_UNIVERSE_ROLE_KEYS
+        with caplog.at_level(logging.INFO):
+            for v in (1, 2):
+                check_built_acc(store, {"id": "t", "version": v}, reg, keys)
+        assert "differ in ['masks']" in caplog.text
+        assert "differ in ['bounds']" in caplog.text
+        for v, key in ((1, "masks"), (2, "bounds"), (3, "role")):
+            with pytest.raises(ValueError, match=rf"they differ in \['{key}'\]"):
+                check_built_acc(store, {"id": "t", "version": v}, reg, ALL_SPEC_KEYS)
+        with pytest.raises(ValueError, match=r"they differ in \['role'\]"):
+            check_built_acc(store, {"id": "t", "version": 3}, reg, keys)
 
     def test_a_structure_without_the_record_warns_and_continues(self, root_simple,
                                                                 tmp_path, caplog):

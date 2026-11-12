@@ -723,7 +723,8 @@ class TestWarmPriorAcc:
         os.makedirs(os.path.join(acc_dir, "toy"))
         with open(os.path.join(acc_dir, "toy", "build_record.json"), "w") as f:
             json.dump({"id": "toy", "version": 1, "code": "0ld0ld00"}, f)
-        with pytest.raises(ValueError, match=r"toy v1.*toy v2; they differ in \['regions'\]"):
+        with pytest.raises(ValueError,
+                           match=r"toy v1.*toy v2; they differ in \['regions'\]"):
             s.solve_all(cr.run_id)
 
     def test_a_const_run_without_an_acc_ref_raises_and_records_nothing(self, tmp_path,

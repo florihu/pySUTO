@@ -13,8 +13,8 @@ from pathlib import Path
 
 import pytest
 
-from pysuto.acc import read_acc_spec_dir
-from pysuto.input_registry import InputRegistries, InputRegistry, check_feed_accs, input_pins
+from pysuto.acc import check_feed_accs, read_acc_spec_dir
+from pysuto.input_registry import InputRegistries, InputRegistry, input_pins
 
 from test_acc_roles import (BOUNDS_ONLY, COPPER_LABELS, MASKS_ONLY, ROLE_ONLY, SECTORS,
                             acc_input_versions)
@@ -43,14 +43,14 @@ class TestFeedAccCheck:
                             reg.entry("copper", 2))
         assert not [r for r in caplog.records if r.levelno >= logging.WARNING]
 
-    def test_a_feed_whose_acc_differs_only_in_masks_is_warned_about(self, tmp_path,
+    def test_a_feed_whose_acc_differs_only_in_masks_is_logged(self, tmp_path,
                                                                     caplog):
         """The final copper chain: imp_20261022_111102_1b49a2b3 (acc v4) aggregates
         feed_crude_ore_20260603_095651_558f7369 (acc v3); v3 → v4 is masks.csv only."""
         reg = _acc_registry(tmp_path / "input")
-        with caplog.at_level(logging.WARNING):
+        with caplog.at_level(logging.INFO):
             check_feed_accs({"feed_crude_ore_x": _feed(1)}, reg, reg.entry("copper", 2))
-        assert "feed_crude_ore_x" in caplog.text and "only in ['masks']" in caplog.text
+        assert "feed_crude_ore_x" in caplog.text and "differ in ['masks']" in caplog.text
 
     def test_a_feed_whose_acc_differs_in_an_edge_universe_key_raises(self, tmp_path):
         reg = _acc_registry(tmp_path / "input")
@@ -64,10 +64,10 @@ class TestFeedAccCheck:
 
     def test_role_masks_and_bounds_differences_pass_and_a_sector_difference_raises(
             self, tmp_path):
-        """#119: acc v5 adds only the role column, so the final chain's feed runs (acc
-        v3/v4) stay valid; a role binds labels and changes no edge, mask or bound."""
-        reg = acc_input_versions(tmp_path / "input", "copper",
-                                 [COPPER_LABELS, ROLE_ONLY, MASKS_ONLY, BOUNDS_ONLY, SECTORS])
+        """#119: a feed reads no role, bound or mask, so the final chain's feed runs
+        (acc v3/v4) stay valid against v5; a sector difference still raises."""
+        specs = [COPPER_LABELS, ROLE_ONLY, MASKS_ONLY, BOUNDS_ONLY, SECTORS]
+        reg = acc_input_versions(tmp_path / "input", "copper", specs)
         for v in (2, 3, 4):
             check_feed_accs({"feed_x": _feed(1)}, reg, reg.entry("copper", v))
         with pytest.raises(ValueError, match=r"\['sectors'\]: rebuild the feed"):

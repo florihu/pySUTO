@@ -102,7 +102,7 @@ def _make_toy_acc(with_bounds: bool = True):
     # RuleSet placeholder (not needed for mask computation above)
     acc.ruleset = None
     # the SB node's boundary role (a residual output, like copper's slag)
-    acc.roles = {"Waste": BoundaryRole.SECONDARY}
+    acc.boundary_roles = {"Waste": BoundaryRole.SECONDARY}
 
     # Bounds: all default except edge_id=0 has upper=100
     bounds          = EdgeBounds.__new__(EdgeBounds)
