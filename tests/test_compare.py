@@ -1,8 +1,8 @@
 """
 test_compare.py
 ===============
-``python -m pysuto compare`` (#157) on the toy case: a chain compared with itself, and with
-a second chain of the same unchanged inputs, is identical; one perturbed array is named
+``python -m pysuto compare`` (#157) on the toy case: a chain compared with itself, and
+with a second chain of the same inputs, is identical; one perturbed array is named
 with its stage, file, key and first index; a stage only one chain has is skipped; a leaf
 with two children needs both leaves; the command writes nothing under the data directory.
 """
@@ -97,6 +97,8 @@ def test_a_dtype_a_shape_and_a_nan_position_are_each_a_difference():
     assert "index (1,)" in first_difference(a, np.array([1.0, 2.0, 3.0]))
     assert "index (0, 1)" in first_difference(np.zeros((2, 2)),
                                               np.array([[0, 1.], [0, 0]]))
+    nat = np.array(["2020-01-01", "NaT"], dtype="datetime64[ns]")
+    assert first_difference(nat, nat.copy()) is None
     obj = np.array(["x", None, "z"], dtype=object)
     assert first_difference(obj, obj.copy()) is None
     assert "index (2,)" in first_difference(obj, np.array(["x", None, "y"], dtype=object))

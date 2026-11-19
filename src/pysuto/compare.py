@@ -55,10 +55,10 @@ class CompareError(ValueError):
 class RunDiff:
     """The comparison of one paired run."""
 
-    stage:   str
-    base:    str
-    new:     str
-    n_arrays: int = 0
+    stage:       str
+    base:        str
+    new:         str
+    n_arrays:    int  = 0
     differences: list = field(default_factory=list)   # one line each
 
 
@@ -183,6 +183,9 @@ def _mismatch(a: np.ndarray, b: np.ndarray) -> np.ndarray:
         for i in np.flatnonzero((~na & ~nb).ravel()):
             mask[i] = not np.array_equal(fa[i], fb[i])
         return mask.reshape(a.shape)
+    if a.dtype.kind in "mM":
+        na, nb = np.isnat(a), np.isnat(b)
+        return (na != nb) | (~na & ~nb & (a != b))
     if a.dtype.kind in "fc":
         na, nb = np.isnan(a), np.isnan(b)
         return (na != nb) | (~na & ~nb & (a != b))
@@ -202,8 +205,12 @@ def first_difference(a: np.ndarray, b: np.ndarray):
         return None
     flat = int(np.argmax(mask.ravel()))
     idx  = tuple(int(i) for i in np.unravel_index(flat, a.shape))
-    return (f"first at index {idx}: {_short(a.ravel()[flat])} vs {_short(b.ravel()[flat])}"
-            f" ({int(mask.sum())} of {a.size} differ)")
+    return (f"first at index {idx}: {_short(a.ravel()[flat])} vs "
+            f"{_short(b.ravel()[flat])} ({int(mask.sum())} of {a.size} differ)")
+
+
+def _label(rel: str, name: str) -> str:
+    return f"{rel}::{name}" if name else rel
 
 
 def _short(x) -> str:
@@ -235,24 +242,34 @@ def compare_runs(stage: str, base_dir: str, new_dir: str, base_id: str,
         for name, arr in new_it:
             seen_new.add(name)
             if name not in seen_base:
-                out.differences.append(f"{rel}{name and '::'}{name}: only in new")
+                out.differences.append(f"{_label(rel, name)}: only in new")
                 continue
             out.n_arrays += 1
             why = first_difference(seen_base.pop(name), arr)
             if why:
-                out.differences.append(f"{rel}{'::' if name else ''}{name}: {why}")
+                out.differences.append(f"{_label(rel, name)}: {why}")
         for name in seen_base:
-            out.differences.append(f"{rel}{'::' if name else ''}{name}: only in base")
+            out.differences.append(f"{_label(rel, name)}: only in base")
     in_base = _inputs(base_dir)
     in_new  = _inputs(new_dir)
     if in_base != in_new:
-        out.differences.append(f"parents.inputs: {_short(in_base)} vs {_short(in_new)}")
+        out.differences.append(f"parents.inputs: base {in_base} vs new {in_new}")
     return out
 
 
 def _inputs(path: str):
     with open(os.path.join(path, "metadata.json"), encoding="utf-8") as f:
         return json.load(f).get("parents", {}).get("inputs", {})
+
+
+def _by_feed_name(run_ids) -> dict:
+    named = {}
+    for run_id in run_ids:
+        if feed_name(run_id) in named:
+            raise CompareError(f"two feed runs named {feed_name(run_id)!r} in one chain: "
+                               f"{named[feed_name(run_id)]} and {run_id}")
+        named[feed_name(run_id)] = run_id
+    return named
 
 
 def compare_chains(data_dir: str, base, new) -> Report:
@@ -262,8 +279,7 @@ def compare_chains(data_dir: str, base, new) -> Report:
     for stage in STAGES:
         runs_b, runs_n = chain_b.get(stage, []), chain_n.get(stage, [])
         if stage == "feed":
-            by_b = {feed_name(r): r for r in runs_b}
-            by_n = {feed_name(r): r for r in runs_n}
+            by_b, by_n = _by_feed_name(runs_b), _by_feed_name(runs_n)
             pairs = [(by_b[k], by_n[k]) for k in by_b if k in by_n]
             for k in by_b:
                 if k not in by_n:
