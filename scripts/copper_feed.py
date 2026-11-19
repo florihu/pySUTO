@@ -396,8 +396,8 @@ OBSERVED_ZERO_SECTORS  = ("Concentrate",)
 # edges this feed books ICSG's Mining/Concentrate and SXEW/Cathode supply rows on. Where
 # the region makes none of the product, the edge is an observed zero (#97, #31). The mine
 # output zero, rejected on measurement in 2026-10, is the maintainer's decision since
-# #200: a region-year ICSG covers and lists no mine for mines nothing (to be measured,
-# #201).
+# #200: a region-year ICSG covers and lists no mine for mines nothing (measured by #201,
+# opt_20261119_130302_b20f0dba; ADR 0024 am.).
 PRODUCTION_EDGES       = (("MF", "Concentrate"), ("SXEW", "CSXEW"))
 # Regions whose zero is never a report: ROW is the sum of the members ICSG lists, with its
 # "Others" rows among them.
