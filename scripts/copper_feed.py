@@ -388,14 +388,17 @@ STOCK_SECTORS_TO       = ("MESC", "USC")
 # The products whose zero-weight domestic leg is an observed zero in a region that makes
 # none of them, by its raw ICSG production (ADR 0024's bound): concentrate (#78) and
 # cathode (#96). Anode is not stamped.
-# #96's Cathode legs and the MF→Concentrate output zeros were measured and rejected
-# (z² +37.8 %, opt_20261021_105350_b1fea245; ADR 0024 am.): they expose ICSG-usage gaps a
-# zero cannot close.
+# #96's Cathode legs were measured and rejected (z² +37.8 % with the mine-output zeros,
+# opt_20261021_105350_b1fea245; ADR 0024 am.): they expose ICSG-usage gaps a zero cannot
+# close.
 OBSERVED_ZERO_SECTORS  = ("Concentrate",)
 # The edges a region's own mine and SX-EW output leave on, as (process, product): the
 # edges this feed books ICSG's Mining/Concentrate and SXEW/Cathode supply rows on. Where
-# the region makes none of the product, the edge is an observed zero (#97, #31).
-PRODUCTION_EDGES       = (("SXEW", "CSXEW"),)
+# the region makes none of the product, the edge is an observed zero (#97, #31). The mine
+# output zero, rejected on measurement in 2026-10, is the maintainer's decision since
+# #200: a region-year ICSG covers and lists no mine for mines nothing (to be measured,
+# #201).
+PRODUCTION_EDGES       = (("MF", "Concentrate"), ("SXEW", "CSXEW"))
 # Regions whose zero is never a report: ROW is the sum of the members ICSG lists, with its
 # "Others" rows among them.
 AGGREGATE_REGIONS      = ("ROW",)

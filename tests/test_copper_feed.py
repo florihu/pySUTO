@@ -220,8 +220,9 @@ def _production(*rows):
 
 
 def _full_scope(monkeypatch):
-    """The mechanism with every product it supports: the shipped knobs keep only the
-    SX-EW output zeros and #78's concentrate legs (ADR 0024 am., measured 2026-10-21)."""
+    """The mechanism with every product it supports: the shipped knobs keep the mine and
+    SX-EW output zeros (#200) and #78's concentrate legs, not #96's cathode legs (ADR 0024
+    am., measured 2026-10-21)."""
     monkeypatch.setattr(copper_feed, "OBSERVED_ZERO_SECTORS", ("Concentrate", "Cathode"))
     monkeypatch.setattr(copper_feed, "PRODUCTION_EDGES",
                         (("MF", "Concentrate"), ("SXEW", "CSXEW")))
@@ -311,6 +312,20 @@ def test_a_covered_non_miner_says_zero_on_its_mine_and_sxew_output_only(monkeypa
     mask = production_zero_mask(edges, prod, _cov("Germany"), len(edges), set())
     assert _stamped(edges, mask) == [("Germany", "MF", "Concentrate", "CC"),
                                      ("Germany", "SXEW", "CSXEW", "CC")]
+
+
+def test_the_shipped_knobs_stamp_a_covered_non_miners_mine_output():
+    """#200: a region-year ICSG covers and lists no mine for mines nothing (maintainer's
+    decision 2026-11-19, #183 §1). The UAE mines nothing and runs no SX-EW plant, so the
+    shipped knobs, unpatched, stamp both output edges; #96's cathode legs stay open."""
+    edges = _chain("United Arab Emirates")
+    prod = _production(("Concentrate", "United Arab Emirates", "2018", 0.0),
+                       ("CSXEW", "United Arab Emirates", "2018", 0.0))
+    mask = production_zero_mask(edges, prod, _cov("United Arab Emirates"), len(edges),
+                                set())
+    assert _stamped(edges, mask) == [("United Arab Emirates", "MF", "Concentrate", "CC"),
+                                     ("United Arab Emirates", "SXEW", "CSXEW", "CC")]
+    assert copper_feed.OBSERVED_ZERO_SECTORS == ("Concentrate",)
 
 
 def test_a_miner_and_row_say_no_output_zero():
