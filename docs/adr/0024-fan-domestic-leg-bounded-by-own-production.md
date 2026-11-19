@@ -12,8 +12,8 @@ below); measured by #78 and shipped (`opt_20261019_152525_6ca5c00a`: Germany's m
 scale-total z² 101,078 → 0, common-set z² −7.0 %). **Amended 2026-10-21 (#96, #97, #31)**: a region-year with no ICSG
 SX-EW output says zero on its own SX-EW output; the mine-output and cathode-leg zeros were measured
 and rejected (see *Amendment (#96, #97, #31)* below). **Amended 2026-11-19 (#200)**: the mine-output
-zero is re-enabled by the maintainer's decision, to be measured (#201) (see *Amendment (#200)*
-below).
+zero ships by the maintainer's decision, measured by #201 (`opt_20261119_130302_b20f0dba`: phantom
+CO→Mining 1,324 → 244 kt CC, common-set sum-row Σz² +23.3 %; see *Amendment (#200)* below).
 
 ## Context
 
@@ -288,5 +288,21 @@ edge is stamped. #96's cathode legs stay unstamped. Since #153 the prior on thes
 yet `opt_20261116_134050_b54f65dc` still opens mine output in hubs ICSG lists no mine for, Σ
 1995–2024: the UAE 158, Switzerland 78, Singapore 61, Taiwan 53, the Netherlands 43 and France
 31 kt CC (#183). The +37.8 % above was measured before #153 removed the phantom chains from the
-prior, so it does not carry over. To be measured (#201): required are every year Solved and no
-stamped producer; Round-E and Σz² are reported, not gating.
+prior, so it does not carry over. Required for shipping: every year Solved and no stamped producer.
+Round-E and Σz² are reported, not gating.
+
+**Measured 2026-11-19 (#201): ships.** REP
+[`…issue201-mine-zeros`](../rep/analysis_opt_20261119_130302_b20f0dba_20261119_issue201-mine-zeros.md).
+On `opt_20261119_130302_b20f0dba`, against `opt_20261116_134050_b54f65dc`:
+- **Stamp:** 456 MF→Concentrate region-years in 20 regions are stamped. No producer is stamped, and the new ICSG
+  feed differs from the base only there. 30/30 years solved.
+- **Mine output** there falls 1,323.9 → 243.5 kt CC. Belgium falls 434.6 → 8.6 and Italy 222.3 → 14.6.
+- **The hubs** keep 30–56 % of theirs (the UAE 48.0, Switzerland 23.5 kt CC): their Concentrate and Matte use
+  totals are export legs only, and they outweigh a zero at σ 0.3 kt.
+- **Round-E holds:** world Concentrate CC retention is 1.011 → 1.021, Cathode CC 0.997 → 0.994, and the
+  small-node median stays 1.000.
+- **The cost:** common-set sum-row Σz² rises **+23.3 %**, 774,318 → 954,993. Italy's Matte use totals carry
+  +108,563 of it; Italy's smelter had run on its own imputed mine. The hubs' Concentrate and Matte use totals carry
+  most of the rest.
+- **What remains:** the contradiction is now in the open. Closing it is #183 §3, a netting question (ADR 0026,
+  0027), not a σ one.

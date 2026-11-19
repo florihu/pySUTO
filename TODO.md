@@ -71,12 +71,29 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
 Branch `diag/qp-backend-measure`, REP `docs/rep/analysis_opt_20261112_144603_1256b16b_20261112_issue56-qp-backend-measure.md`.
 - **Run:** `opt_20261112_144603_1256b16b` on `const_20261022_111531_df61bf5c`: 240/240 arrays bit-identical to
   `opt_20261022_112855_928da10c`, 30/30 solved; per-period probe of all 30 years 14.8 s; Stage 4 3 min 9 s (was ≈ 12 min).
+## #201 MEASURED 2026-11-19 — a covered region-year with no ICSG mine says zero on its mine output (#200) and ships; reference chain opt_20261119_130302_b20f0dba
+
+Branch `diag/mine-zeros-measure`, REP
+`docs/rep/analysis_opt_20261119_130302_b20f0dba_20261119_issue201-mine-zeros.md`.
+- **Runs:** `feed_icsg_20261119_125015_e2e9520e` → `imp_20261119_125259_f2b11cd5` → `const_20261119_125651_ff7bfc9c` →
+  `opt_20261119_130302_b20f0dba` → `uncprop_20261119_133344_08dfa15b`, `psut_20261119_133504_4c783a88`. **Reference chain.**
+- **Result:**
+  - By the maintainer's decision (#183 §1), MF→Concentrate joins `PRODUCTION_EDGES`: 456 region-years in 20 regions.
+  - CO→Mining posterior there falls 1,323.9 → 243.5 kt CC, with Belgium and Italy nearly gone. The hubs keep 30–56 %
+    against their export-leg use totals.
+  - Common-set sum-row Σz² is +23.3 % vs `opt_20261116_134050_b54f65dc`, Italy's Matte use totals +108,563 of it.
+  - Round-E holds, and 30/30 years solved.
+- **Next:** #184 re-points the manuscript; #156 pins this chain for the final review; #183 §3 (the hubs' use totals,
+  Italy's matte) after v0.1.0.
+- **Stray run:** `feed_icsg_20261119_124749_eac0fb56` was built by accident (`icsg_feed.py --help` ran the driver).
+  It is unused; pruning it is the maintainer's call.
+
 ## #154 MEASURED 2026-11-16 — ADR 0010's guard holds across cascade passes (#153) and ships; reference chain opt_20261116_134050_b54f65dc
 
 Branch `diag/balance-guard-measure`, REP
 `docs/rep/analysis_opt_20261116_134050_b54f65dc_20261116_issue154-balance-guard.md`.
 - **Runs:** `imp_20261116_133053_ad1191d2` → `const_20261116_133444_28ef32f2` → `opt_20261116_134050_b54f65dc` →
-  `uncprop_20261116_141543_6be9fa25`, `psut_20261116_141702_37174685`. **Reference chain.**
+  `uncprop_20261116_141543_6be9fa25`, `psut_20261116_141702_37174685`. Reference chain until #201.
 - **Result:**
   - The guard had held for one cascade pass only. Pass 2 re-derived 336 assumed-absent primaries as zeros, and from
     them built phantom mine chains: 1,093 kt CC of CO→Mining in 13 regions, seven of which mine nothing.
