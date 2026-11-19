@@ -30,6 +30,10 @@ command's result, not a log. The log lines of the pipeline go to the logging han
 README and the params template out of the installed package into a writable folder
 (default ``./pysuto-tutorial``, which must not exist or be empty); open
 ``00_world.ipynb`` there with the ``python3`` kernel (``pip install "pysuto[tutorial]"``).
+
+``python -m pysuto compare --data-dir D --base <leaf> [<leaf>] --new <leaf> [<leaf>]``
+(#157) compares two chains array by array through their leaf run ids and exits 1 on any
+difference; it writes nothing (:mod:`pysuto.compare`).
 """
 
 from __future__ import annotations
@@ -39,6 +43,7 @@ import os
 import sys
 
 from pysuto.case import add_case_arg, case_from_args
+from pysuto.compare import CompareError, compare_chains, format_report
 from pysuto.logging import configure_file_logs
 from pysuto.pipeline import ALL_STEPS, Chain, Pipeline
 from pysuto.tutorial import copy_tutorial
@@ -66,6 +71,15 @@ def _parser() -> argparse.ArgumentParser:
     tut.add_argument("dest", nargs="?", default="pysuto-tutorial",
                      help="Folder to write; must not exist or be empty "
                           "(default ./pysuto-tutorial).")
+    cmp = sub.add_parser("compare", help="Compare two chains array by array; exit 1 on "
+                                         "any difference; writes nothing.")
+    cmp.add_argument("--base", nargs="+", required=True, metavar="LEAF",
+                     help="Leaf run id(s) of the reference chain; name both psut and "
+                          "uncprop to cover a chain whose opt has two children.")
+    cmp.add_argument("--new", nargs="+", required=True, metavar="LEAF",
+                     help="Leaf run id(s) of the chain to check.")
+    cmp.add_argument("--data-dir", required=True,
+                     help="Data root whose proc/ holds both chains (read only).")
     return parser
 
 
@@ -79,6 +93,14 @@ def main(argv=None) -> int:
             parser.error(str(exc))
         print(f"{len(written)} files written to {args.dest}; open 00_world.ipynb")
         return 0
+    if args.command == "compare":
+        try:
+            report = compare_chains(args.data_dir, args.base, args.new)
+        except CompareError as exc:
+            print(f"error: {exc}", file=sys.stderr)
+            return 2
+        print(format_report(report))
+        return 0 if report.identical else 1
     case = case_from_args(parser, args)
     first, last = ALL_STEPS.index(args.first), ALL_STEPS.index(args.last)
     if first > last:
