@@ -11,7 +11,9 @@ sets to 0, in a region that mines no concentrate, is an *observed zero* (see *Am
 below); measured by #78 and shipped (`opt_20261019_152525_6ca5c00a`: Germany's mine-chain
 scale-total z² 101,078 → 0, common-set z² −7.0 %). **Amended 2026-10-21 (#96, #97, #31)**: a region-year with no ICSG
 SX-EW output says zero on its own SX-EW output; the mine-output and cathode-leg zeros were measured
-and rejected (see *Amendment (#96, #97, #31)* below).
+and rejected (see *Amendment (#96, #97, #31)* below). **Amended 2026-11-19 (#200)**: the mine-output
+zero is re-enabled by the maintainer's decision, to be measured (#201) (see *Amendment (#200)*
+below).
 
 ## Context
 
@@ -275,3 +277,16 @@ Russia's lost phantom SX-EW now draws on stocks. The phantom mine chains of non-
 remain (CO→Mining 2,028 kt CC posterior over 1995–2024, part re-routed through concentrate) and so
 do #96's cathode legs: closing them is a data question (ICSG usage above BACI imports plus ICSG
 production in hubs), stated as a limitation with the +37.8 % above as its measured cost.
+
+## Amendment (#200, 2026-11-19): a covered region-year with no ICSG mine mines nothing
+
+**The mine-output zero ships by the maintainer's decision, not by the stop rule.** A region-year
+ICSG covers and lists no mine production for mines nothing, so `MF→Concentrate` in CC joins
+`SXEW→CSXEW` in `PRODUCTION_EDGES`. Every other part of the rule above is unchanged: σ = 0.3 kt CC
+(ADR 0025), the coverage set, the crude-ore and ore-grade guard (ADR 0019), and only the output
+edge is stamped. #96's cathode legs stay unstamped. Since #153 the prior on these edges is flat,
+yet `opt_20261116_134050_b54f65dc` still opens mine output in hubs ICSG lists no mine for, Σ
+1995–2024: the UAE 158, Switzerland 78, Singapore 61, Taiwan 53, the Netherlands 43 and France
+31 kt CC (#183). The +37.8 % above was measured before #153 removed the phantom chains from the
+prior, so it does not carry over. To be measured (#201): required are every year Solved and no
+stamped producer; Round-E and Σz² are reported, not gating.
