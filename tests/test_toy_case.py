@@ -529,3 +529,12 @@ def test_a_const_run_on_an_imp_run_without_flag_or_log_raises_naming_it(chain):
     os.remove(root / "proc" / "imp" / old / "imputation_log.parquet")
     with pytest.raises(ValueError, match=old):
         toy.run_stage3(root, old)
+
+
+def test_stage_5_conditions_the_same_prior_vector_as_stage_4(chain):
+    """Stage 5 conditions ``const.a0``, Stage 4 ``const.a_prior_global``: on the block
+    path the two are one vector (the sigma floor is relative to |a0|), #285."""
+    root, ids = chain["root"], chain["ids"]
+    const = ConstraintRunRegistry(str(root / "proc" / "const")).load(ids["const"])
+    assert const.G_blocks
+    np.testing.assert_array_equal(const.a_prior_global, np.asarray(const.a0, dtype=float))

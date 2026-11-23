@@ -326,3 +326,51 @@ def test_contraction_by_category_separates_valuations_and_leaves_out_nonfinite_k
     assert mass["kappa_median"] == pytest.approx(0.5)
     with pytest.raises(KeyError, match="from_sector"):
         UncPropStatsDiagnostic.contraction_by_category(f.drop(columns="from_sector"))
+
+
+# ---------------------------------------------------------------------------
+# The review's U5 findings (#285): guards on the Birge ratio and the prior
+# ---------------------------------------------------------------------------
+
+def _with_counts(n_rows_kept):
+    """``_unc()`` with Stage 5's active-set counts and a ConstraintRun that has no
+    soft rows to read, so ``birge()`` runs on the stubs."""
+    unc = _unc()
+    for ts in unc.per_timestep.values():
+        ts.diagnostics = {"n_rows_kept": n_rows_kept, "n_bound_active": 0}
+    cr = _cr()
+    cr.timestep_data = {}
+    cr.row_meta = cr.row_meta.assign(sense=["le", "le", "eq"], is_hard=True)
+    return unc, cr
+
+
+def test_classify_priors_raises_on_an_edge_id_outside_the_edge_range():
+    log = pd.DataFrame({"edge_id": [9], "imputer_id": ["network"], "method": ["x"]})
+    with pytest.raises(ValueError, match="outside"):
+        classify_priors(np.ones(3, dtype=bool), log, np.zeros(3), np.ones(3))
+
+
+def test_a_warm_run_without_its_a_prior_cannot_take_a0_for_the_prior():
+    opt = _opt()
+    del opt["1995"].a_prior
+    with pytest.raises(ValueError, match="prior_mode='warm'"):
+        UncPropStatsDiagnostic(_unc(), opt, _cr(), conditioning={"prior_mode": "warm"}) \
+            .edge_frame()
+    cold = UncPropStatsDiagnostic(_unc(), opt, _cr(), conditioning={"prior_mode": "cold"})
+    np.testing.assert_array_equal(cold.edge_frame().query("year == '1995'")["a_prior"],
+                                  [10.0, 4.0, 0.0])
+
+
+def test_the_birge_ratio_is_undefined_without_degrees_of_freedom():
+    unc, cr = _with_counts(0)
+    with pytest.raises(ValueError, match="degrees of freedom"):
+        UncPropStatsDiagnostic(unc, _opt(), cr).birge()
+
+
+def test_a_stage_config_without_bind_tol_or_sigma_c_floor_is_logged(caplog):
+    unc, cr = _with_counts(3)
+    with caplog.at_level("WARNING"):
+        b = UncPropStatsDiagnostic(unc, _opt(), cr,
+                                   conditioning={"sigma_a_floor_abs": 1e-8}).birge()
+    assert "bind_tol, sigma_c_floor" in caplog.text
+    assert b.loc[b["year"] == "all", "dof"].iloc[0] == 6

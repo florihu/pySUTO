@@ -684,7 +684,8 @@ the yearly ratios); a pooled retention on a signed category.
 
 **Posterior contraction (`κ`)** — the share of an edge's prior variance the constraints remove in
 one year, `κ = 1 − σ_a*² / σ_a²`: `0` leaves the prior uncertainty untouched, `1` pins the edge. It
-depends on `G`, `σ_a` and `σ_c` only, never on `c` or `a*`, so it measures how informative the
+depends on `G`, `σ_a` and `σ_c` and, through the QP's active set at `a*` (which rows bind, which
+lower bounds pin their edge), on `a*`; given that active set it does not depend on `c`, so it measures how informative the
 constraints are, not whether they agree with the prior — that is the **defect**'s `z`.
 _Avoid_: "shrinkage" (in statistics, the pull of an estimate toward the prior mean — our defect),
 "variance reduction", "information gain".
