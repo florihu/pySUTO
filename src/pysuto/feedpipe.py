@@ -166,9 +166,10 @@ def step_D_apply_and_propagate(
     2.  Store F_src on the weight matrix.
     3.  Run the combined apply + Lp uncertainty propagation (scipy.sparse).
 
-    Propagation formula (power-mean / Lp norm):
+    Propagation formula (CV-invariant power-mean, ``UncertaintyMixin.apply_with_uncertainty``):
         F_root      = W.T @ F_src
-        σ_root[j]   = CV · ( Σ_i (|W_ij| · |f_i|)^p )^(1/p)
+        ω_ij        = |W_ij · f_i| / Σ_k |W_kj · f_k|
+        σ_root[j]   = CV · |F_root[j]| · ( Σ_i ω_ij^p )^(1/p)
         cv_root     = σ_root / |F_root|
 
     ``unit`` names the feed's valuation in the log (``ConcordanceTable.unit``).

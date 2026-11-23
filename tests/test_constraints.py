@@ -1645,6 +1645,25 @@ class TestConstraintEngine:
         assert run.u.shape == (toy_acc.n_edges,)
         assert run.l.shape == (toy_acc.n_edges,)
 
+    def test_sigma_a_is_lp_combined_with_its_cv_and_absolute_floors(self, toy_acc,
+                                                                    toy_agg_result):
+        """Eq. S7 (SI S4.2): σ_a' = L_p(σ_a, CV_min·|a₀|, floor) with CV_min > 0,
+        against the scalar ``lp_combine`` edge by edge (every other engine test here
+        sets the CV floor to 0 or only checks shapes)."""
+        from pysuto.constraints import ConstraintEngine, MassBalanceBuilder
+        from pysuto.lp import lp_combine
+
+        cv_min, floor, p = 0.05, 1e-6, 1.3
+        engine = ConstraintEngine(toy_acc, storage_dir="/tmp/test_const_eq_s7", sigma_a_cv_min=cv_min, sigma_a_abs_floor=floor, sigma_c_cv_min=0.0, sigma_c_abs_floor=0.0, nodata_anchor_cv=0.0, p=p)
+        engine.register(MassBalanceBuilder())
+        run = engine.run(toy_agg_result, timesteps=["2020"], persist=False)
+
+        f, s = toy_agg_result.f_agg, toy_agg_result.sigma_agg
+        expected = np.array([lp_combine([s[i], cv_min * abs(f[i]), floor], p)
+                             for i in range(len(f))])
+        np.testing.assert_allclose(run.sigma_a, expected, rtol=1e-12)
+        assert (run.sigma_a > s).any()      # the CV term lifts the tight edges
+
     def test_g_is_time_invariant(self, toy_acc, toy_agg_result):
         """G matrix is identical for two different timesteps."""
         from pysuto.constraints import ConstraintEngine, MassBalanceBuilder
