@@ -1,14 +1,23 @@
-
+"""icsg_clean.py
+=============
+ICSG flows -> the input each series consumed, for the icsg feed (ADR 0021, 0030, 0032).
+"""
 import argparse
 import json
 import os
+import sys
 import shutil
 
 import numpy as np
 import pandas as pd
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))   # scripts/
+from copper_feed import AGGREGATES_ID, BACI_ID, GROSS_VALUATION, ROW_REGION
 from pysuto.input_registry import InputRegistries
+from pysuto.registry import stage_lock
 from pysuto.relation.param_relation import conc_for, conc_nominal_lookup
+from pysuto.relation.params import read_params
 
 CLEAN_DIR = 'data/proc/feedprep/icsg_clean'
 FEED_VALUES = 'data/input/feed/icsg/current/values.csv'
@@ -20,13 +29,15 @@ FEED_CONC = 'data/input/feed/icsg/current/conc.xlsx'
 CLEAN_PARENTS = os.path.join(CLEAN_DIR, 'icsg_flows_clean_parents.json')
 FEED_PARENTS = 'data/input/feed/icsg/current/parents.json'
 INPUT_ROOT = 'data/input'
-BACI_ID = 'baci'
 # build_baci_reexport writes this beside every version it nets (ADR 0027)
 NETTING_LEDGER = 'reexport_ledger.csv'
 ANODE = 'Anode'
-ROW_BUCKET = 'ROW'
-# The copper acc's gross-mass valuation: the conc rows' a_valuation (#119)
-GROSS_VALUATION = 'Mass'
+# One ICSG flow cell: no two rows may share it once the vintages are folded
+FLOW_KEY = ['Region', 'Type', 'Process', 'Supply_Use', 'Year']
+# The registered eff params the divisors read, by the process each one divides (ADR 0021)
+EFF_ID = 'eff'
+EFF_PROCESS_OF = {'effsmelting': 'Smelting', 'effcfr': 'CFR', 'effer': 'ER'}
+ROW_BUCKET = ROW_REGION
 # Hand-authored: which root region an ICSG aggregate row contains, and in which
 # years; the year after is the handover year that publishes both (#67, #73, #74).
 AGGREGATES_CSV = 'data/input/params/icsg_aggregates/current/params.csv'
@@ -78,7 +89,7 @@ def refining_anode_rows(df):
 
 
 def _eff_of(eff, process):
-    return eff.loc[eff['Process'] == process, 'Value_median'].values[0]
+    return eff.loc[eff['Process'] == process, 'Value_nominal'].values[0]
 
 
 def territory_aliases(conc_path=FEED_CONC):
@@ -98,9 +109,10 @@ def territory_aliases(conc_path=FEED_CONC):
             [['src_region', 'root_region']].drop_duplicates())
     rm = rm[rm['root_region'] != ROW_BUCKET]
     rm = rm[rm.groupby('root_region')['src_region'].transform('size') > 1]
-    assert rm['root_region'].isin(rm['src_region']).all(), (
-        "a territory's canonical label is not itself a source label: "
-        f"{sorted(set(rm['root_region']) - set(rm['src_region']))}")
+    if not rm['root_region'].isin(rm['src_region']).all():
+        raise ValueError(
+            "a territory's canonical label is not itself a source label: "
+            f"{sorted(set(rm['root_region']) - set(rm['src_region']))}")
     return {s: r for s, r in zip(rm['src_region'], rm['root_region']) if s != r}
 
 
@@ -122,15 +134,15 @@ def merge_territories(df, aliases):
         return df
     df = df.copy()
     df['Region'] = df['Region'].replace(aliases)
-    key = ['Region', 'Type', 'Process', 'Supply_Use', 'Year']
+    key = FLOW_KEY
     dup = df[df.duplicated(subset=key, keep=False)]
     if len(dup):
         spread = dup.groupby(key)['Value'].agg(lambda s: s.max() - s.min())
         print(f"one territory, two labels: {len(spread)} cells published under "
               f"both, max spread {spread.max():.3f} kt")
-        assert spread.max() <= 0.5, (
-            "the same cell carries different values under two labels:\n"
-            f"{spread[spread > 0.5]}")
+        if spread.max() > 0.5:
+            raise ValueError("the same cell carries different values under two labels:\n"
+                             f"{spread[spread > 0.5]}")
     return (df.sort_values('Year_loaded_from_file')
               .drop_duplicates(subset=key, keep='last')
               .reset_index(drop=True))
@@ -471,16 +483,19 @@ def apply_input_divisors(df, eff, anode_imports=None):
     return df
 
 
-def read_eff(path ='data/input/params/eff/current/copper_efficiency.csv'):
+def read_eff(root=INPUT_ROOT):
+    """The registered ``eff`` params' nominals as a ``Process`` / ``Value_nominal`` frame.
 
-    df = pd.read_csv(path)
-
-    # filter refining and smelting calcualted median Value_min_tCu_per_tCu	Value_max_tCu_per_tCu
-
-    df['Value_median']= df[['Value_min_tCu_per_tCu', 'Value_max_tCu_per_tCu']].median(axis=1)
-
-    return df
-
+    The one source the model's own efficiencies come from (``params.csv`` of the version
+    in force), not the hand-kept ``copper_efficiency.csv`` beside it.  Read-only (#93).
+    """
+    csv = InputRegistries.load(root=root).params.resolve(EFF_ID) / 'params.csv'
+    nominal = {r.param_id: r.value_nominal for r in read_params(csv, ('efficiency',))}
+    missing = sorted(set(EFF_PROCESS_OF) - set(nominal))
+    if missing:
+        raise ValueError(f"the {EFF_ID} params carry no row for {missing}")
+    return pd.DataFrame({'Process': list(EFF_PROCESS_OF.values()),
+                         'Value_nominal': [nominal[k] for k in EFF_PROCESS_OF]})
 
 
 def stats(df):
@@ -488,7 +503,7 @@ def stats(df):
 
     # Print unique regions
     print("Unique regions:")
-    print(df['Region'].unique().sort())
+    print(np.sort(df['Region'].unique()))
 
     # Print unique Region Type  Proces Supply_Use instances
     print("\nUnique Region Type  Proces Supply_Use instances:")
@@ -500,11 +515,18 @@ def stats(df):
 
 
 
-    pass
+def clean_icsg_flows(raw, baci_version, root=INPUT_ROOT, clean_dir=CLEAN_DIR):
+    """The combined ICSG flows -> ``icsg_flows_clean.csv`` and its side files in ``clean_dir``.
 
-
-
-def cl(raw, baci_version):
+    The step order is load-bearing (ADR 0032, #73, #74, #85): relabel a vintage's
+    mislabelled territory, merge one territory's labels, split the aggregates, and only
+    then the input divisors and the nesting, which key on ``Region``.  The registered
+    inputs read from ``root`` are recorded in ``icsg_flows_clean_parents.json`` (#63):
+    the BACI version the anode trade is netted against, and the conc, eff and
+    ``icsg_aggregates`` versions in force.  Returns the clean file's path.
+    """
+    conc_path = os.path.join(root, 'feed', 'icsg', 'current', 'conc.xlsx')
+    aggregates_path = os.path.join(root, 'params', AGGREGATES_ID, 'current', 'params.csv')
     m = (raw['Supply_Use'] == 'Supply') & (raw['Process'] == 'Semi')
 
     #1 filter remove semi supply
@@ -519,16 +541,19 @@ def cl(raw, baci_version):
     df = relabel_by_vintage(df, VINTAGE_LABELS)
     #2b one territory, one label — must precede every step that keys on
     #   Region: the ADR 0030 nesting subtraction and the feed's own summation
-    df = merge_territories(df, territory_aliases())
+    df = merge_territories(df, territory_aliases(conc_path))
     #2c an aggregate row is split to its declared member, and its handover-year
     #   duplicate is not summed with the members (#73, #74)
-    df = split_aggregates(df, aggregate_declaration())
+    df = split_aggregates(df, aggregate_declaration(aggregates_path))
 
     #3 production → the input it consumed, marked as a Use row; the direct
     #   route nets off imported anode refined beyond primary output (#63)
-    eff = read_eff()
+    eff = read_eff(root)
     excess = secondary_excess(df, eff)
-    imports, parents = read_net_anode_imports(baci_version, icsg_root_of())
+    imports, parents = read_net_anode_imports(baci_version, icsg_root_of(conc_path), root)
+    params = InputRegistries.load(root=root).params
+    for pid in (EFF_ID, AGGREGATES_ID):
+        parents['inputs']['params'][pid] = params.entry(pid)['version']
     routes = secondary_routes(df, eff, imports)
     df = apply_input_divisors(df, eff, imports)
 
@@ -542,13 +567,15 @@ def cl(raw, baci_version):
 
     # print duplicated pairs
     print("Duplicated Region Type  Process Supply_Use combinations:")
-    print(df[df.duplicated(subset=['Region', 'Type', 'Process', 'Supply_Use', 'Year'], keep=False)][['Region', 'Type', 'Process', 'Supply_Use', 'Year']])
-    
+    print(df[df.duplicated(subset=FLOW_KEY, keep=False)][FLOW_KEY])
+
     #1 no dup in Regoin Type  Process Supply_Use
-    assert df[['Region', 'Type', 'Process', 'Supply_Use', 'Year']].drop_duplicates().shape[0] == df.shape[0], "Duplicate Region Type  Process Supply_Use combinations found"
+    if df[FLOW_KEY].drop_duplicates().shape[0] != df.shape[0]:
+        raise ValueError("Duplicate Region Type  Process Supply_Use combinations found")
 
     #2 all unit are kt
-    assert (df['Unit'] == 'kt').all(), "Not all units are kt"
+    if not (df['Unit'] == 'kt').all():
+        raise ValueError("Not all units are kt")
 
     # value to float
     df['Value'] = df['Value'].astype(float, errors='raise')
@@ -561,7 +588,7 @@ def cl(raw, baci_version):
 
      # print a sample of vals
     print("\nSample of values:")
-    print(df['Value'].sample(10))
+    print(df['Value'].sample(min(10, len(df))))
 
     stats(df)
 
@@ -570,11 +597,11 @@ def cl(raw, baci_version):
 
 
     # store
-    os.makedirs(CLEAN_DIR, exist_ok=True)
-    out = os.path.join(CLEAN_DIR, 'icsg_flows_clean.csv')
+    os.makedirs(clean_dir, exist_ok=True)
+    out = os.path.join(clean_dir, 'icsg_flows_clean.csv')
     df.to_csv(out, index=False)
     print(f"Cleaned data saved to {out}")
-    ex_path = os.path.join(CLEAN_DIR, 'icsg_secondary_excess.csv')
+    ex_path = os.path.join(clean_dir, 'icsg_secondary_excess.csv')
     excess.to_csv(ex_path, index=False)
     print(f"Smelter route > secondary refined (direct route clipped to 0): "
           f"{len(excess)} region-years, {excess['excess_kt'].sum():,.0f} kt Cu → {ex_path}")
@@ -582,16 +609,17 @@ def cl(raw, baci_version):
         print(excess.groupby('Region')['excess_kt'].agg(['size', 'sum']).round(0)
               .sort_values('sum', ascending=False).head(8).to_string())
     imp = routes[routes['imported_anode_kt'] > 0.0]
-    imp_path = os.path.join(CLEAN_DIR, 'icsg_imported_anode.csv')
+    imp_path = os.path.join(clean_dir, 'icsg_imported_anode.csv')
     imp.to_csv(imp_path, index=False)
     print(f"Imported anode refined beyond primary output (off the direct route): "
           f"{len(imp)} region-years, {imp['imported_anode_kt'].sum():,.0f} kt Cu → {imp_path}")
     if len(imp):
         print(imp.groupby('Region')['imported_anode_kt'].agg(['size', 'sum']).round(0)
               .sort_values('sum', ascending=False).head(8).to_string())
-    with open(CLEAN_PARENTS, 'w', encoding='utf-8') as f:
+    parents_path = os.path.join(clean_dir, os.path.basename(CLEAN_PARENTS))
+    with open(parents_path, 'w', encoding='utf-8') as f:
         json.dump(parents, f, indent=2, sort_keys=True)
-    print(f"Read {parents['inputs']} → {CLEAN_PARENTS}")
+    print(f"Read {parents['inputs']} → {parents_path}")
     return out
 
 
@@ -608,8 +636,9 @@ if __name__ == "__main__":
     args = ap.parse_args()
 
     path = os.path.join(CLEAN_DIR, 'icsg_flows_comb.csv')
-    clean = cl(pd.read_csv(path), args.baci_version)
-    if args.to_feed:
-        shutil.copyfile(clean, FEED_VALUES)
-        shutil.copyfile(CLEAN_PARENTS, FEED_PARENTS)
-        print(f"Copied to {FEED_VALUES} and {FEED_PARENTS}")
+    with stage_lock("icsg_clean"):   # --to-feed registers inputs; registries have no locking
+        clean = clean_icsg_flows(pd.read_csv(path), args.baci_version)
+        if args.to_feed:
+            shutil.copyfile(clean, FEED_VALUES)
+            shutil.copyfile(CLEAN_PARENTS, FEED_PARENTS)
+            print(f"Copied to {FEED_VALUES} and {FEED_PARENTS}")

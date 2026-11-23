@@ -410,7 +410,8 @@ OPT_KNOBS = (
     "N_WORKERS", "DIRECT_SOLVE_METHOD", "QP_VARIABLES",
 )
 
-# Stage 5 (no knobs: the uncprop step takes none).
+# Stage 5 (no sweep or case knobs: the step takes no `--set`; the constants below are
+# recorded in the sidecar).
 ALPHA                = 0.05
 BIND_TOL             = 1e-6    # kt — a hard inequality row binds when G·a* − c ≥ −BIND_TOL
                                # (#27)

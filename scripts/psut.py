@@ -10,7 +10,7 @@ Pipeline
 1  PSUT.from_opt_run(opt_run_id, ...) — resolves the AccountingStructure via
    provenance (opt sidecar → const sidecar → acc id), maps year-local F_opt to
    global edge ids through cols_t and classifies every edge into its block
-   (S, U, Y, E, O, P; every valuation, ``primary`` = the default for views)
+   (S, U, Y, E, O, P, W; every valuation, ``primary`` = the default for views)
 2  PsutRunRegistry.register(psut, parents=..., label=...) — writes
    timesteps/t_<period>.parquet + nodes.parquet + the harmonized sidecar with
    parents.upstream.opt_run_id
@@ -86,12 +86,14 @@ if __name__ == "__main__":
                         help="Subset of timestep labels (default: every timestep of the run).")
     add_case_arg(parser, default=DEFAULT_CASE)
     parser.add_argument("--data-dir", default=DATA_DIR,
-                        help=f"Data root holding proc/opt, proc/const, proc/acc (default {DATA_DIR!r}).")
+                        help="Data root holding proc/opt, proc/const, proc/acc "
+                             f"(default {DATA_DIR!r}).")
     parser.add_argument("--sankey", nargs="*", default=None, metavar="PERIOD",
                         help="Write the World supply-use and process-network Sankeys for these "
                              "periods (flag without values: the latest period).")
     parser.add_argument("--figs-dir", default=FIGS_DIR,
-                        help=f"Directory for the Sankey HTML/PNG files (default {FIGS_DIR!r}).")
+                        help="Directory for the Sankey HTML/PNG files "
+                             f"(default {FIGS_DIR!r}).")
     parser.add_argument("--no-png", action="store_true",
                         help="Skip the static PNG copies (needs kaleido and a browser).")
     parser.add_argument("--run-id-file", default=None, metavar="PATH",

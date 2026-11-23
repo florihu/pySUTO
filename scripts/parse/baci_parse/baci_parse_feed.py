@@ -78,7 +78,8 @@ import sys
 import numpy as np
 import pandas as pd
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "src"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
+from pysuto.feedprep.reexport import MAX_CV_SCALE
 from pysuto.logging import get_logger
 
 logger = get_logger(__name__)
@@ -107,8 +108,6 @@ LO_YEAR_GATE     = BAND_LO          # ...in an exporter-year itself below the co
 G_NOM            = 0.275            # the conc row's nominal
 CV_GRADE_DECL    = 0.0375 / 0.275   # ...and its declared σ, as a cv: 0.1364
 CV_PED           = 0.209            # BACI Mass pedigree cv (ADR 0017)
-MAX_CV_SCALE     = 5.0              # ADR 0027's cap; past ~4.8 ADR 0017's
-                                    # damping ceiling makes it inert anyway
 MIN_LEG_T        = 1_000.0          # tonnes. Below this a leg's unit value is
                                     # rounding dust (Chile 2021 carries partners
                                     # at an implied fraction of 8.6).
@@ -330,7 +329,8 @@ def _write_sidecars(rec, refs) -> None:
 
     ``quantity_cv_scale.csv`` must match ``reexport_cv_scale.csv``'s schema —
     root sector and region *names*, not BACI codes — because both are read
-    through the same ``cv_root_scale`` seam in ``baci_feed.py``.
+    through the same ``cv_root_scale`` seam (``CV_SCALE_FILES`` of
+    ``scripts/copper_feed.py``, wired into ``BACI_FEED``).
     """
     conc_path = os.path.join(_INPUT_ROOT, "feed", "baci", "current", "conc.xlsx")
     smap = pd.read_excel(conc_path, sheet_name="sector_map")

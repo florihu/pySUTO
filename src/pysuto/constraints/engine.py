@@ -23,6 +23,7 @@ import pandas as pd
 import scipy.sparse as sp
 
 from pysuto.logging import get_logger
+from pysuto.lp import P_DEFAULT, lp_combine_axis
 from pysuto.registry import ConstraintRunRegistry, make_run_id
 from pysuto.relation.structure import node_balances
 
@@ -63,11 +64,8 @@ def _lp_regularize(
     cv_term  = cv_min * np.abs(centre)
     abs_term = abs_floor
 
-    sigma_new = (
-        np.abs(sigma)    ** p
-        + np.abs(cv_term)  ** p
-        + np.abs(abs_term) ** p
-    ) ** (1.0 / p)
+    sigma_new = lp_combine_axis(
+        np.stack(np.broadcast_arrays(sigma, cv_term, abs_term)), p, axis=0)
 
     # "lifted ≥10%" — floor term is at least 10% the size of the
     # original σ (for σ=0, any positive floor counts).
@@ -262,10 +260,13 @@ class ConstraintEngine:
 
     Usage::
 
-        engine = ConstraintEngine(acc_struct)
+        engine = ConstraintEngine(acc_struct, sigma_a_cv_min=..., sigma_a_abs_floor=...,
+                                  sigma_c_cv_min=..., sigma_c_abs_floor=...,
+                                  nodata_anchor_cv=...)   # the case's σ knobs
         engine.register(MassBalanceBuilder())
-        engine.register(SumConstraintBuilder.from_acc_struct(acc_struct))
-        engine.register(RatioConstraintBuilder.from_csv("params.csv", acc_struct))
+        engine.register(SumConstraintBuilder.from_acc_struct(acc_struct, sigma_fraction=...))
+        engine.register(RatioConstraintBuilder.from_csv("params.csv", acc_struct,
+                        sigma_rel_floor=..., scale_abs_floor=...))
         engine.register(RatioBoundBuilder.from_csv("params.csv", acc_struct))
         engine.register(FlowBoundsBuilder())
 
@@ -280,13 +281,14 @@ class ConstraintEngine:
         self,
         acc_struct,
         storage_dir: str = "data/proc/const",
-        sigma_a_cv_min:    float = 0.05,
-        sigma_a_abs_floor: float = 1e-6,
-        sigma_c_cv_min:    float = 0.05,
-        sigma_c_abs_floor: float = 1e-3,
-        p: float = 1.3,
+        *,
+        sigma_a_cv_min:    float,
+        sigma_a_abs_floor: float,
+        sigma_c_cv_min:    float,
+        sigma_c_abs_floor: float,
+        p: float = P_DEFAULT,
         prior_box_k: Optional[float] = None,
-        nodata_anchor_cv: float = 0.3,
+        nodata_anchor_cv: float,
         nodata_anchor_exclude_sectors: tuple = (),
         nodata_anchor_exempt_mask: Optional[np.ndarray] = None,
         pin_flat_prior_zeros: bool = False,

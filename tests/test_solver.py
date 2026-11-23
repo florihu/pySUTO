@@ -286,7 +286,7 @@ class TestPersist:
 
         acc = _make_toy_acc()
         agg = _make_toy_agg_result(acc)
-        engine = ConstraintEngine(acc, storage_dir=str(tmp_path / "const"))
+        engine = ConstraintEngine(acc, storage_dir=str(tmp_path / "const"), sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
         engine.register(MassBalanceBuilder())
         cr = engine.run(agg, timesteps=["2020", "2021"], persist=False)
 
@@ -382,7 +382,7 @@ class TestLowerBoundsEnforced:
             flat_prior = np.zeros(3, dtype=bool)
 
         storage_dir = str(tmp_path / "const")
-        engine = ConstraintEngine(acc, storage_dir=storage_dir)
+        engine = ConstraintEngine(acc, storage_dir=storage_dir, sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
         engine.register(MassBalanceBuilder())
         engine.register(FlowBoundsBuilder(enforce_lower=enforce))
         cr = engine.run(_Agg(), timesteps=["2020"], persist=False)
@@ -422,7 +422,7 @@ class TestEngineToSolverIntegration:
         acc = _make_toy_acc()
         agg = _make_toy_agg_result(acc)
         storage_dir = str(tmp_path / "const")
-        engine = ConstraintEngine(acc, storage_dir=storage_dir)
+        engine = ConstraintEngine(acc, storage_dir=storage_dir, sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
         engine.register(MassBalanceBuilder())
         cr = engine.run(agg, timesteps=["2020", "2021"], persist=False)
         return acc, cr, storage_dir
@@ -556,9 +556,9 @@ class TestEngineToSolverIntegration:
         acc = _make_toy_acc()
         agg = _make_toy_agg_result(acc)
         storage_dir = str(tmp_path / "const")
-        engine = ConstraintEngine(acc, storage_dir=storage_dir)
+        engine = ConstraintEngine(acc, storage_dir=storage_dir, sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
         engine.register(MassBalanceBuilder())
-        engine.register(RatioConstraintBuilder.from_csv(csv_path, acc))
+        engine.register(RatioConstraintBuilder.from_csv(csv_path, acc, sigma_rel_floor=0.02, scale_abs_floor=1.0))
         cr = engine.run(agg, timesteps=["2020", "2021"], persist=False)
 
         # Sanity: blocks really do differ (different r values).

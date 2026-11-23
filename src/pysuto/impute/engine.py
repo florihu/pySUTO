@@ -184,6 +184,10 @@ class ImputationEngine:
             if int(np.isnan(f).sum()) == missing_before_pass:
                 # Dead pass: a full sweep filled nothing new → fixpoint reached.
                 # Discard its (all zero-fill) records so provenance stays clean.
+                logger.info(
+                    "pass %d filled nothing: its steps %d-%d are discarded, the "
+                    "committed steps end at %d",
+                    pass_no, step_before, self._step - 1, step_before - 1)
                 del log._entries[log_len:]
                 del meta._records[meta_len:]
                 self._step = step_before

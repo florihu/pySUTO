@@ -423,3 +423,15 @@ def test_the_copper_root_ods_binds_its_labels_to_the_glossarys_roles():
     val = _read_ods(_COPPER_ROOT, "Valuation")
     assert dict(zip(val["Valuation_name"], val["role"])) == {"Mass": "gross",
                                                              "CC": "content"}
+
+
+def test_edge_labels_name_every_edge_by_nodes_and_valuation():
+    """``edge_labels`` is the one readable name of an edge, indexed by edge id (#203)."""
+    own = AccountingStructure.from_spec(OWN_LABELS, "own")
+    labels, em = own.edge_labels(), own.edge_meta
+    assert labels.index.name == "edge_id" and len(labels) == len(em)
+    assert list(labels.index) == list(em["edge_id"])
+    row = em.iloc[len(em) // 2]
+    assert labels[row["edge_id"]] == (f"{row['from_sector']}|{row['from_region']} → "
+                                      f"{row['to_sector']}|{row['to_region']} "
+                                      f"({row['valuation']})")

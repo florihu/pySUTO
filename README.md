@@ -277,8 +277,30 @@ cross-cutting (import nothing from the data layer):
 > that record names another version or none, so a BACI parse change re-runs the ICSG parse before
 > the netting.
 >
-> Check which weights a run used: `data/proc/feed/registry/<feed_id>/metadata.json` →
-> `trade_shares.version`.
+> Check which weights a run used: `data/proc/feed/registry/<run_id>/metadata.json` →
+> `parents.inputs.trade_shares.version`. `build_trade_shares.py` also refuses to build when the
+> newest BACI feed run was built from an older `baci` input than the one in force (rerun
+> `baci_feed.py` first).
+>
+> **One edge of the order is a loop, and the hook does not run it.** `build_ore_grade.py` reads the
+> newest ICSG and crude-ore feed runs' `F_root` (ore mass, mine output) and the ICSG feed reads its
+> `ore_grade` params for the observed zeros, so the grades are built from the *previous* ICSG run.
+> The builder records those runs and the `eff` / `conc` versions in `parents.json` beside
+> `params.csv` (the form of the trade-share record), which makes a stale grade readable in the sidecar; no
+> guard refuses it, because after any hook run the newest ICSG run is by construction newer than the
+> grades. Rebuild it by hand (`python scripts/build_ore_grade.py`) after the feeds when the ICSG or
+> crude-ore feed changed, then rerun `icsg_feed.py`.
+>
+> **Registering the gross BACI version** (the step between the parse and `icsg_clean.py`) is by
+> hand: `baci_parse_feed.py` writes `data/input/feed/baci/v0/`; set aside any
+> `current/reexport_*.csv` (a leftover `reexport_ledger.csv` makes a gross version look netted, and
+> `icsg_clean.py` refuses it), copy `v0/{values,quantity_recon,quantity_cv_scale}.csv` into
+> `current/`, and register (`InputRegistries.initialize`; every build script does it on start).
+>
+> **Hand runs take the stage lock.** `build_baci_reexport.py`, `build_trade_shares.py`,
+> `build_ore_grade.py` and `icsg_clean.py` write registries, which have no locking of their own,
+> so each takes `<data-dir>/proc/.stage.lock` like a stage driver; under the Stage 1 hook, whose
+> caller holds it, the two it runs skip it (`PYSUTO_STAGE_LOCK_HELD`).
 
 #### The parse layer (`scripts/parse/`)
 
@@ -289,8 +311,13 @@ four correctness rounds were defects here rather than in the model.
 
 | | chain | writes |
 |---|---|---|
-| **ICSG** | `icsg_{2005,2014,2023f}.py` (one per yearbook vintage) → `icsg_comb.py` (combine vintages) → `process_icsg.py` (stock levels → NAS per vintage + merge) → `icsg_clean.py --baci-version N --to-feed` (reads the registered gross BACI parse vN for imported anode, #63) | `data/input/feed/icsg/current/values.csv` + `parents.json` |
+| **ICSG** | `icsg_{2005,2014,2023f}.py` (one per yearbook layout; `2023f` loads the 2023 and 2025 yearbooks, so four vintages are combined) → `icsg_comb.py` (combine vintages) → `process_icsg.py` (stock levels → NAS per vintage + merge) → `icsg_clean.py --baci-version N --to-feed` (reads the registered gross BACI parse vN for imported anode, #63) | `data/input/feed/icsg/current/values.csv` + `parents.json` |
 | **BACI** | `baci_parse/baci_parse_feed.py` | `data/input/feed/baci/v0/values.csv` + `quantity_recon.csv`, `quantity_cv_scale.csv` |
+| **Crude ore** | `crude_ore_parse_feed.py` (the Kroiss workbook; the only source of the crude-ore feed) | `data/input/feed/crude_ore/v0/values.csv` |
+| **Ore grade** | `build_ore_grade.py` (not a parse: it reads the finished ICSG and crude-ore feed runs; see the loop above) | `data/input/params/ore_grade/current/params.csv` + `parents.json` |
+
+ICSG values are kt Cu: the parse stamps `Unit = 'kt'` and the ICSG feed's `valuation_map` reads it as
+contained copper (CC), while BACI's and crude ore's `'kt'` is gross mass.
 
 Three behaviours a reader should not have to discover from the code:
 
@@ -569,7 +596,7 @@ $$\sigma_a'[i] = \left( |\sigma_a[i]|^p + |\mathrm{CV}_a^\mathrm{min} \cdot a_0[
 
 $$\sigma_c'[k] = \left( |\sigma_c[k]|^p + |\mathrm{CV}_c^\mathrm{min} \cdot c[k]|^p + |\sigma_c^\mathrm{floor}|^p \right)^{1/p} \quad (\text{free rows only})$$
 
-Defaults: $\mathrm{CV}_a^\mathrm{min} = \mathrm{CV}_c^\mathrm{min} = 0.05$, $\sigma_a^\mathrm{floor} = 10^{-6}$, $\sigma_c^\mathrm{floor} = 10^{-3}$, $p = 1.3$. Hard rows keep σ_c = 0 unchanged. The $\mathrm{CV}^\mathrm{min}$ term *is* the relative floor (a misreading of an earlier REP claimed it was missing); the absolute floor is the numerical safety net.
+The four σ arguments (`sigma_a_cv_min`, `sigma_a_abs_floor`, `sigma_c_cv_min`, `sigma_c_abs_floor`) and `nodata_anchor_cv` are required of `ConstraintEngine`: the case owns them (copper's `SIGMA_*` and `NODATA_ANCHOR_CV` in `scripts/copper.py`); only $p$ has a library default, `pysuto.lp.P_DEFAULT`. Hard rows keep σ_c = 0 unchanged. The $\mathrm{CV}^\mathrm{min}$ term *is* the relative floor (a misreading of an earlier REP claimed it was missing); the absolute floor is the numerical safety net.
 
 **Ordering.** σ_a regularisation runs *before* `build_dynamic` propagates σ_a → σ_c via the Lp combine over `_rhs_ids`, so the regularised σ_a flows into σ_c. This is deliberate: the relative term $\mathrm{CV}_a^\mathrm{min} \cdot |a_0|$ is a modelling claim about how tightly we believe σ_a, not a numerical guard, so it *should* propagate to σ_c. The absolute floor $\sigma_a^\mathrm{floor}$ is the actual safety net — once the FlatPriorImputer's 3-level scale cascade is in place (see Stage 2) it should essentially never fire on imputer-filled edges, so its presence does not distort downstream uncertainty propagation.
 
@@ -701,10 +728,12 @@ Run Stage 4 on the toy case in [tutorial/04_solver.ipynb](src/pysuto/tutorial/04
 
 ### Stage 5 — Posterior uncertainty propagation
 
-**What this stage does.** Loads a persisted Stage-4 `OptimRun` plus its upstream `ConstraintRun`, then computes the marginal posterior standard deviation `σ_a*(t)` and a Gaussian `(1-α)` confidence interval per edge × timestep. When the `ConstraintRun` carries a per-period partition (`G_blocks`, every current run), each year is reduced to the QP's active set and the contraction is read off a QR of that year's whitened system (`_compute_via_blocks`, `_leverage`; [Marginal diagonal](#marginal-diagonal)). Only the full-G path, taken when `G_blocks` is empty, factors `S = G·diag(σ²_a)·Gᵀ + diag(σ²_c(t))`: it analyses the Cholesky pattern once and refreshes the numeric factor per timestep.
+**What this stage does.** Loads a persisted Stage-4 `OptimRun` plus its upstream `ConstraintRun`, then computes the marginal posterior standard deviation `σ_a*(t)` and a Gaussian `(1-α)` confidence interval per edge × timestep. Each year of the `ConstraintRun`'s per-period partition (`G_blocks`; a run without it raises) is reduced to the QP's active set at `a*` and the contraction is read off a QR of that year's whitened system (`_compute_via_blocks`, `_leverage`; [Marginal diagonal](#marginal-diagonal)); `S = G·diag(σ²_a)·Gᵀ + diag(σ²_c(t))` is never formed.
+
+**Cold opt runs only.** The years are separate QPs and their posteriors add without covarying. An opt run solved with `prior_mode = warm` chains them (`a_prior(t) = a*(t−1)`), which Stage 5 does not model: it linearises each year with the prior fixed. It logs a warning on such a run and records `prior_mode` in the sidecar's `stage_config`; the reference chain is cold.
 
 **Inputs:** `opt_run_id` (Stage 4 output; the upstream `const_run_id` is discovered from its sidecar).
-**Outputs:** `UncPropResult` with `per_timestep[t] = {sigma_a_star, lower, upper, diagnostics}`. On the block path these arrays are **year-local** (over `cols_t`, matching the Stage-4 `OptimResult`) and carry `cols_t`; the legacy path keeps full-length `[E]` arrays with `cols_t = None`.
+**Outputs:** `UncPropResult` with `per_timestep[t] = {sigma_a_star, lower, upper, diagnostics}`. These arrays are **year-local** (over `cols_t`, matching the Stage-4 `OptimResult`) and carry `cols_t`.
 
 > Uses the same σ-conditioning rules the solver applied (see [`_conditioning.py`](src/pysuto/_conditioning.py)) so that the posterior is mathematically consistent with the `a*` returned by Stage 4.
 
@@ -726,7 +755,7 @@ For diagonal $\Sigma_a = \mathrm{diag}(\sigma^2_a)$, the per-edge variance reduc
 
 $$\boxed{\;\sigma^2_{a^*,i}(t) = \sigma^2_{a,i}\,\big(1 - \sigma^2_{a,i}\,\|L(t)^{-1} g_i\|_2^2\big), \quad S(t) = L(t)L(t)^\top, \quad g_i = \text{col}_i(G).\;}$$
 
-On the block path (every current run) $S(t)$ is never formed. With $M = [\,G_t\,\mathrm{diag}(\sigma_a),\ \mathrm{diag}(\sigma_c)\,]$, $S = MM^\top$, and the contraction $\kappa_i = \sigma^2_{a,i}\, g_i^\top S^{-1} g_i$ is the leverage of edge $i$: the squared norm of row $i$ of $Q$ in $M^\top = QR$ (dense Householder QR, rows sorted by norm). So $\sigma^2_{a^*,i} = \sigma^2_{a,i}(1 - \kappa_i)$ with $\kappa_i \in [0, 1]$ to rounding. Forming $S$ squares $M$'s condition number: with σ_a spanning 1e-8 … 1e6 kt, two independent hard rows that differ only on low-σ edges are parallel in $S$ to working precision, and an LU of $S$ put κ outside [0, 1] on 331 edges of 1995 and 368 of 2016 in `uncprop_20261014_140949_fcf53674` (#27). The QR is dense, (live edges + soft rows) × kept rows per year: on copper 2007, the largest year (21,131 live edges, 18,480 rows), it takes ≈ 2 min on 8 cores and ≈ 7 GB on top of the loaded runs (`const_20261013_114216_1ad3239e`). $\sigma^2_{a^*} = \sigma^2_a(1-\kappa)$ resolves a posterior variance only down to ≈ $\sigma^2_a\,\varepsilon$, so a nearly determined edge reads $\sigma_{a^*} \approx 0$ to within ≈ $10^{-8}\,\sigma_a$. The full-G (legacy) path still factors $S$: the CHOLMOD backend computes $\|L^{-1} g_i\|^2$ column-block at a time; the scipy fallback computes the equivalent quadratic form $g_i^\top S^{-1} g_i$ via `splu` (≈ 2× the work, no symbolic-pattern reuse).
+$S(t)$ is never formed. With $M = [\,G_t\,\mathrm{diag}(\sigma_a),\ \mathrm{diag}(\sigma_c)\,]$, $S = MM^\top$, and the contraction $\kappa_i = \sigma^2_{a,i}\, g_i^\top S^{-1} g_i$ is the leverage of edge $i$: the squared norm of row $i$ of $Q$ in $M^\top = QR$ (dense Householder QR, rows sorted by norm). So $\sigma^2_{a^*,i} = \sigma^2_{a,i}(1 - \kappa_i)$ with $\kappa_i \in [0, 1]$ to rounding. Forming $S$ squares $M$'s condition number: with σ_a spanning 1e-8 … 1e6 kt, two independent hard rows that differ only on low-σ edges are parallel in $S$ to working precision, and an LU of $S$ put κ outside [0, 1] on 331 edges of 1995 and 368 of 2016 in `uncprop_20261014_140949_fcf53674` (#27). The QR is dense, (live edges + soft rows) × kept rows per year: on copper 2007, the largest year (21,131 live edges, 18,480 rows), it takes ≈ 2 min on 8 cores and ≈ 7 GB on top of the loaded runs (`const_20261013_114216_1ad3239e`). $\sigma^2_{a^*} = \sigma^2_a(1-\kappa)$ resolves a posterior variance only down to ≈ $\sigma^2_a\,\varepsilon$, so a nearly determined edge reads $\sigma_{a^*} \approx 0$ to within ≈ $10^{-8}\,\sigma_a$.
 
 Posterior std and confidence interval:
 
@@ -747,7 +776,7 @@ The formula holds for equality constraints; the QP also has hard **inequalities*
 - a binding band enters as a hard equality; slack bounds and bands drop out;
 - rows left without a live (unpinned) edge are dropped, and hard rows linearly dependent on the others over the live edges (closed balance loops, a band's two rows at `0 = 0`) are dropped after a pivoted Cholesky of the unit-diagonal Gram `G_h·G_hᵀ` (`rank_tol`; unweighted, since a σ²-weighted Gram makes rows that differ only on low-σ edges look parallel), so `S(t)` stays non-singular with every kept hard row at exactly zero σ_c.
 
-Per year the sidecar records `n_bound_active`, `n_bands_binding`, `n_hard_dependent` and `n_rows_kept`. The full-G (legacy) path has no active set and warns when hard inequality rows are present.
+Per year the sidecar records `n_bound_active`, `n_bands_binding`, `n_hard_dependent` and `n_rows_kept`.
 
 ##### Totals and ratios (#81)
 
@@ -755,7 +784,7 @@ The marginals do not give the σ of a total: the constraints correlate the edges
 
 $$\mathrm{var}(w^\top a^*) = w^\top\Sigma_a w - (G\Sigma_a w)^\top S^{-1} (G\Sigma_a w) = \lVert u\rVert^2 - \lVert Q^\top v\rVert^2 .$$
 
-`compute(..., aggregates=AggregateSpec(names, W))` returns the K×K prior and posterior covariance of K totals, their value at `a*` and the quadrature σ, in memory. The years are separate QPs, so a total over several years sums the years' contributions, and totals of different years never covary. A ratio or index of totals gets its σ by the delta method on that covariance. `draws={year: k}` returns posterior deviations $\mathrm{diag}(\sigma_a)\,(I - QQ^\top)\,\xi$ from the caller's generator. They satisfy every kept hard row and pin exactly, so a function through the Leontief inverse gets its delta-method σ by finite differences along them. `force_pinned` / `force_free` override the slack rule edge by edge, for the degenerate bounds #99 found at `bind_tol`. [`scripts/report/table3_intervals.py`](scripts/report/table3_intervals.py) puts Birge-scaled intervals beside Table 3 and SI S18b.
+`compute(..., aggregates=AggregateSpec(names, W))` returns the K×K prior and posterior covariance of K totals, their value at `a*` and the quadrature σ, in memory. `W` carries no valuation: each column keeps to one valuation, and its value and σ are in that valuation's unit (kt CC for `CC`); a column that mixes Mass and CC edges returns a σ in no unit, and nothing checks it. The years are separate QPs, so a total over several years sums the years' contributions, and totals of different years never covary. A ratio or index of totals gets its σ by the delta method on that covariance. `draws={year: k}` returns posterior deviations $\mathrm{diag}(\sigma_a)\,(I - QQ^\top)\,\xi$ from the caller's generator. They satisfy every kept hard row and pin exactly, so a function through the Leontief inverse gets its delta-method σ by finite differences along them. `force_pinned` / `force_free` override the slack rule edge by edge, for the degenerate bounds #99 found at `bind_tol`. [`scripts/report/table3_intervals.py`](scripts/report/table3_intervals.py) puts Birge-scaled intervals beside Table 3 and SI S18b.
 
 ##### Sanity invariants (checked in tests)
 
@@ -767,8 +796,8 @@ $$\mathrm{var}(w^\top a^*) = w^\top\Sigma_a w - (G\Sigma_a w)^\top S^{-1} (G\Sig
 #### Classes
 
 - **`BaseUncProp`** ([uncprop.py](src/pysuto/uncprop.py)) — ABC with a single abstract method `compute(opt_run_id, alpha) → UncPropResult`. Future concretes (`MCUncProp`, `BoundedKalmanUncProp`, `KKTSensitivityUncProp`) slot in as siblings.
-- **`KalmanUncProp`** ([uncprop.py](src/pysuto/uncprop.py)) — closed-form GLS concrete: a QR of the whitened system per year on the block path, sparse Cholesky on the full-G (legacy) path. Cross-stage discovery (`opt_run_id` → `const_run_id` via the opt sidecar) happens inside `.compute()`; persistence via `.persist(result, opt_run_id, label)`.
-- **`UncPropResult` / `UncPropTimestep`** ([uncprop.py](src/pysuto/uncprop.py)) — return dataclasses. `UncPropTimestep` holds `(sigma_a_star, lower, upper, diagnostics, cols_t)` per t (block path year-local over `cols_t`; legacy full-length with `cols_t = None`); `a*` is **not** stored — readers join on the upstream `opt_run_id`.
+- **`KalmanUncProp`** ([uncprop.py](src/pysuto/uncprop.py)) — closed-form GLS concrete: a QR of the whitened system per year on the block path. Cross-stage discovery (`opt_run_id` → `const_run_id` via the opt sidecar) happens inside `.compute()`; persistence via `.persist(result, opt_run_id, label)`.
+- **`UncPropResult` / `UncPropTimestep`** ([uncprop.py](src/pysuto/uncprop.py)) — return dataclasses. `UncPropTimestep` holds `(sigma_a_star, lower, upper, diagnostics, cols_t)` per t (year-local over `cols_t`); `a*` is **not** stored — readers join on the upstream `opt_run_id`.
 - **`UncPropRunRegistry`** ([registry/uncprop.py](src/pysuto/registry/uncprop.py)) — Stage-5 output registry; harmonized run-id (`uncprop_<ts>_<code>`), per-t `.npz`, diagnostics in sidecar.
 - **`condition_prior` / `condition_sigma_c`** ([_conditioning.py](src/pysuto/_conditioning.py)) — shared helpers also used by `Solver`, guaranteeing that uncprop applies the same σ_a floor / ceiling rules the solver applied. Their default values live there only: Stage 4 records the floors it used in the opt sidecar's `stage_config`, Stage 5 applies the recorded ones (an older run falls back to the defaults with a logged warning).
 
@@ -777,12 +806,11 @@ $$\mathrm{var}(w^\top a^*) = w^\top\Sigma_a w - (G\Sigma_a w)^\top S^{-1} (G\Sig
 | Parameter | Default | Effect |
 |---|---|---|
 | `alpha` (passed to `.compute()`) | `0.05` | CI level — Gaussian quantile $z = \Phi^{-1}(1-\alpha/2)$ |
-| `block_size` | `1024` | Column-block size for the triangular solve of the full-G (legacy) path; trades memory ↔ Python-loop overhead |
 | `sigma_a_floor_abs` | `1e-8` | Same as `Solver` (matched for prior consistency) |
 | `sigma_a_floor_rel` | `1e-5` | Same as `Solver` |
 | `sigma_a_ceiling_factor` | `1e5` | Same as `Solver` |
 | `sigma_c_floor` | `1e-9` | Floor on soft-row σ_c; hard rows are forced to exact zero regardless |
-| `bind_tol` | `1e-6` | kt — a hard inequality row binds at `a*` when `G·a* − c ≥ −bind_tol` (driver knob `BIND_TOL`) |
+| `bind_tol` | `1e-6` | kt — a hard inequality row binds at `a*` when `G·a* − c ≥ −bind_tol` (`stages.BIND_TOL`; Stage 5 has no `--set` or case knobs) |
 | `rank_tol` | `1e-10` | Pivot tolerance of the scaled hard-block pivoted Cholesky that drops dependent hard rows (driver knob `RANK_TOL`) |
 | `exclude_scale_totals` | `False` | Ablation (#87): leaves the scale totals and scrap level anchors (`row_meta.type == "sum"`, `variant` in `SCALE_TOTAL_VARIANTS`) out of `S(t)`; `a*` is untouched and the count lands in `n_scale_totals_left_out` (driver knob `EXCLUDE_SCALE_TOTALS`, recorded in `stage_config`) |
 
@@ -792,7 +820,7 @@ Run Stage 5 on the toy case in [tutorial/05_posterior.ipynb](src/pysuto/tutorial
 
 #### Diagnostics
 
-`UncPropDiag` ([diag/uncprop.py](src/pysuto/diag/uncprop.py)) renders the Stage-5 portfolio from the all-years edge frame of `UncPropStatsDiagnostic`. It is built live (`UncPropDiag(result, opt_results, const_run, acc=…, imp_result=…)`) or from disk (`UncPropDiag.from_uncprop_id(uncprop_run_id)`, which follows the sidecar to the opt, const and imputation runs). The driver renders it after `persist()`; `scripts/uncprop_diag.py <uncprop_run_id> [--regions …]` re-renders a persisted run into `data/proc/uncprop/<id>/diag/`. Vocabulary is GLOSSARY.md's: **posterior contraction** `κ`, **prior class**, and the κ–z quadrants.
+`UncPropDiag` ([diag/uncprop.py](src/pysuto/diag/uncprop.py)) renders the Stage-5 portfolio from the all-years edge frame of `UncPropStatsDiagnostic`. It is built live (`UncPropDiag(result, opt_results, const_run, acc=…, imp_result=…)`) or from disk (`UncPropDiag.from_uncprop_id(uncprop_run_id)`, which follows the sidecar to the opt, const and imputation runs). The driver renders it after `persist()`; `scripts/uncprop_diag.py <uncprop_run_id> [--regions …]` re-renders a persisted run (`--data-dir`, default `data`) into `<data-dir>/proc/uncprop/<id>/diag/`. Vocabulary is GLOSSARY.md's: **posterior contraction** `κ`, **prior class**, and the κ–z quadrants.
 
 - **UD-R-01** — κ against the signed defect `z`, hexbin weighted by `max(|a_prior|, |a*|)` (kt), one panel per prior class × valuation, bound-active edges circled.
 - **UD-R-02** — prior `a_prior ± z_α·σ_a` against the posterior `[lower, upper]` over the years, for the top-12 identities per valuation.
@@ -804,23 +832,13 @@ Run Stage 5 on the toy case in [tutorial/05_posterior.ipynb](src/pysuto/tutorial
 
 Before the active set (#27) no copper chain could run Stage 5: every hard inequality row entered `S_t` as an equality and made it singular.
 
-#### Optional dependency
-
-The block path (every current run) needs no optional dependency. Only the full-G (legacy) path leans on sparse Cholesky with symbolic-pattern reuse across timesteps; install `scikit-sparse` (CHOLMOD wrapper) for its fast path:
-
-```bash
-pip install -e ".[uncprop]"      # adds scikit-sparse
-```
-
-Without it, the full-G path falls back to `scipy.sparse.linalg.splu` — same answers, ~2× the per-timestep cost, no symbolic-pattern caching.
-
 #### Caveats
 
-The full-G (legacy) path is **bound-blind**: it has no active set, so every hard inequality row enters as an equality (the block path linearises at the active set, #27). The closed form is also the **Laplace approximation** of the true posterior — acceptable for tightly-distributed flows but increasingly approximate for wide log-normal pedigree tails.
+The closed form is the **Laplace approximation** of the true posterior — acceptable for tightly-distributed flows but increasingly approximate for wide log-normal pedigree tails.
 
 ### Stage 6 — PSUT/PIOT builder
 
-Downstream of the solver: **materialise** the solved edge vector `a*` (`OptimResult.F_opt`) as numeric **physical supply-use tables (PSUT)** — supply `S`, use `U`, final use `Y`, plus boundary blocks `E`/`O`/`P` — per period and per valuation (`CC`, `Mass`), reusing the existing supply/use masks and the SB nodes' boundary roles. From each PSUT it builds the symmetric **physical input-output table (PIOT)** following PIOLab (Wieland et al. 2022) and Suh (2004) — by-products endogenised as negative inputs, then `A`, `Z`, `L = (I−A)⁻¹` over a full **MRIO** (region × flow) — and ships the classical analytics: footprints / embodied flows, embodied bilateral trade, ew-MFA headline indicators, and multipliers / SDA. v1 is point-estimate only (Stage-5 σ propagation deferred). Rationale and the deliberate *no pySUT / pymrio dependency* are recorded in [ADR 0007](docs/adr/0007-downstream-psut-piot-follows-piolab-suh-no-external-io-lib.md).
+Downstream of the solver: **materialise** the solved edge vector `a*` (`OptimResult.F_opt`) as numeric **physical supply-use tables (PSUT)** — supply `S`, use `U`, final use `Y`, plus boundary blocks `E`/`O`/`P` — per period and per valuation (`CC`, `Mass`), reusing the existing supply/use masks and the SB nodes' boundary roles. From each PSUT it builds the symmetric **physical input-output table (PIOT)**: the market-share (industry-by-industry) construct, with `Z`, `A = Z·x̂⁻¹` and `L = (I−A)⁻¹` over the region × process network (with one producer per commodity, as in copper, it coincides with the product-by-product one); the PIOLab / Suh (2004) product-by-product construct, by-products endogenised as negative inputs with `A = B·D`, is #20. It ships the classical analytics: footprints / embodied flows, embodied bilateral trade, ew-MFA headline indicators, and multipliers / SDA. v1 is point-estimate only (Stage-5 σ propagation deferred). Rationale and the deliberate *no pySUT / pymrio dependency* are recorded in [ADR 0007](docs/adr/0007-downstream-psut-piot-follows-piolab-suh-no-external-io-lib.md).
 
 **What exists — Slices 1–6 ([#18](https://github.com/florihu/pySUTO/issues/18), [#19](https://github.com/florihu/pySUTO/issues/19), [#24](https://github.com/florihu/pySUTO/issues/24), the supply-use Sankey of [ADR 0037 §1](docs/adr/0037-psut-piot-two-classes-piot-is-a-construct-family.md), [#25](https://github.com/florihu/pySUTO/issues/25), [#21](https://github.com/florihu/pySUTO/issues/21) and [#22](https://github.com/florihu/pySUTO/issues/22)).** [psut.py](src/pysuto/psut.py) ships the **tidy-canonical `PSUT`** ([ADR 0037](docs/adr/0037-psut-piot-two-classes-piot-is-a-construct-family.md)): one row per directed edge per (period, valuation), every row classified into its **block** by the SB node's boundary role — `S` Process→Flow, `U` Flow→Process, `Y` Flow→SB·final_demand, `E` SB·nature→Process, `O` SB·secondary→Process, `P` Process→SB·secondary, and `W` Process→SB·nature (empty in copper); an edge outside that taxonomy raises — with the block matrices as pivot *views* labelled from the accounting structure's node index (which carries each SB node's `role`), identical in every period. The table carries **every** valuation; `primary` (default the content valuation, copper `CC`) is the one the views default to. The product-by-product construct (#20) is the one open member of the family; the decisions behind the order are in ADR 0037.
 
@@ -830,7 +848,7 @@ Downstream of the solver: **materialise** the solved edge vector `a*` (`OptimRes
 - **Aggregation** — `aggregate(region=<map|'World'>, sector=<map>, keep_crossings=False)` is a pushforward on the table: the maps apply to both facets, rows are summed over every key column (`period`, `valuation`, `block` and the entity kinds never merge; a sector map may only merge one entity kind), and `keep_crossings=True` stamps `region_crossed` before the relabel so the realized traded share survives a World collapse. Chainable; the steps are recorded in the sidecar.
 - **Supply-use Sankey** — `psut.sankey(period=None, valuation=None, **spec)` returns a Plotly figure: processes and commodities as nodes, the S/U rows as links, boundary blocks as their own nodes, border-crossing use / final-use flows as separate traded links; `min_val`, `split_traded`, `title`, `unit`, `layout` fill a `SankeySpec`; nodes are placed by longest-path depth so residual and input nodes sit beside their process. The plotting code lives in [diag/psut.py](src/pysuto/diag/psut.py) (`sankey_tables` is the pure-pandas half), imported lazily — the data class never imports Plotly at module level.
 - **PIOT** — `psut.to_piot('market_share', level='Z')` returns a [`PIOT`](src/pysuto/piot.py), a derived view that is never persisted: the **process network** under the market-share construct (`D = S·q̂⁻¹`; every use row `f → q` becomes edges `p → q` carrying `f` at `D[p,f]·U[f,q]`, every final-use row `p → d` likewise, boundary rows carried as they are, `region_crossed` travelling along), with `Z()` (process × process), `D()` (the shares) and the process-network `sankey()` through the same renderer. `suh_product` raises `NotImplementedError` until #20.
-- **Levels `A` and `L`, footprints, ew-MFA** — `to_piot(level='L')` unlocks the industry-by-industry calculus on that network: `x()` (`Z·1 + y`), `y()`, `A()` (`Z·x̂⁻¹`), `L()` (`(I−A)⁻¹`, so `L·y = x` exactly), `intensity(extension)` for the `E` (extraction) or `O` (secondary) inflow per unit of output, `footprint(extension, by='fd'|'region'|None)` (`e·L·ŷ`, summing to the extension's total), `embodied_trade(extension)` (extraction region × consuming region), `ew_mfa()` per region (`DE`, `imports`, `exports`, `PTB`, `DMI`, `DMC`, `RMC`), `multipliers()` (column sums of `L`) and `sda(period_a, period_b)` (two-factor polar decomposition of `Δx`). With one producer per commodity, as in copper, these equal what the Suh construct would give.
+- **Levels `A` and `L`, footprints, ew-MFA** — `to_piot(level='L')` unlocks the industry-by-industry calculus on that network: `x()` (`Z·1 + y`), `y()`, `A()` (`Z·x̂⁻¹`), `L()` (`(I−A)⁻¹`, so `L·y = x`, except for output delivered to a process with no useful output), `intensity(extension)` for the `E` (extraction) or `O` (secondary) inflow per unit of output, `footprint(extension, by='fd'|'region'|None)` (`e·L·ŷ`, summing to the extension's total), `embodied_trade(extension)` (extraction region × consuming region), `ew_mfa()` per region (`DE`, `imports`, `exports`, `PTB`, `DMI`, `DMC`, `RMC`), `multipliers()` (column sums of `L`) and `sda(period_a, period_b)` (two-factor polar decomposition of `Δ(L·y)`, which is `Δx` where `L·y = x`). With one producer per commodity, as in copper, these equal what the Suh construct would give.
 - **Persistence** — `PsutRunRegistry` writes `data/proc/psut/<psut_run_id>/timesteps/t_<period>.parquet` + `nodes.parquet` with `parents.upstream.opt_run_id`, and records `valuations`, `primary` and the blocks in the sidecar; `scripts/psut.py <opt_run_id> [--primary CC] [--sankey 2020 2024] [--figs-dir figs/psut] [--no-png]` is the one-command CLI, the flag writing both Sankeys per period — `sankey_supply_use_World_<period>_<valuation>.html` and `sankey_process_network_…` — plus a PNG when kaleido can render, under `figs/psut/`.
 
 Run Stage 6 on the toy case in [tutorial/06_psut_piot.ipynb](src/pysuto/tutorial/06_psut_piot.ipynb); [tutorial/07_scoreboard.ipynb](src/pysuto/tutorial/07_scoreboard.ipynb) scores the whole chain.
@@ -874,7 +892,7 @@ Run Stage 6 on the toy case in [tutorial/06_psut_piot.ipynb](src/pysuto/tutorial
 | [solver.py](src/pysuto/solver.py) | `Solver`, `OptimResult` | Stage-4 orchestrator: builds the σ-weighted period QP (warm or cold prior) and hands it to an injected QP backend; imports no numerical solver. `Solver.objective_at` scores any year-local posterior under a const run's QP, split by family (#102). |
 | [qp.py](src/pysuto/qp.py) | `QPProblem`, `QPResult`, `QPBackend` | The neutral standard-form period QP and the backend protocol (ADR 0042). |
 | [clarabel_backend.py](src/pysuto/clarabel_backend.py) | `ClarabelBackend`, `ITER_DTYPE` | The production QP backend; the only module that imports `clarabel`. |
-| [uncprop.py](src/pysuto/uncprop.py) | `BaseUncProp`, `KalmanUncProp`, `UncPropResult`, `UncPropTimestep` | Stage-5 posterior uncertainty: active set and a QR of the whitened system per year (block path), sparse Cholesky (full-G path); persists to `data/proc/uncprop/` via `UncPropRunRegistry`. |
+| [uncprop.py](src/pysuto/uncprop.py) | `BaseUncProp`, `KalmanUncProp`, `UncPropResult`, `UncPropTimestep` | Stage-5 posterior uncertainty: active set and a QR of the whitened system per year; persists to `data/proc/uncprop/` via `UncPropRunRegistry`. |
 | [psut.py](src/pysuto/psut.py) | `PSUT`, `OptimResultsLike`, `classify_blocks`, `BLOCKS` | Stage-6 tidy-canonical PSUT: `from_opt_run` / `from_results`, block views `S`/`U`/`Y`/`E`/`O`/`P`/`W`, `realized_conc`, `aggregate` (region/sector pushforward with `region_crossed`), `sankey` (thin delegate to `diag.psut`), `to_piot`, period selection (`periods`, `latest`, `at`); every valuation in one table with a `primary`; persists to `data/proc/psut/` via `PsutRunRegistry`. |
 | [piot.py](src/pysuto/piot.py) | `PIOT`, `market_share_network`, `market_shares`, `CONSTRUCTS`, `LEVELS` | Stage-6 PIOT as a construct family: the market-share process network (`Z()`, `D()`, process-network `sankey()`), levels `A`/`L` (`x`, `y`, `A`, `L`), `intensity`, `footprint`, `embodied_trade`, `ew_mfa`, `multipliers`, `sda`; `suh_product` is a stub until #20. A derived view of a PSUT, never persisted. |
 | [_conditioning.py](src/pysuto/_conditioning.py) | `condition_prior`, `condition_sigma_c` | Shared σ_a / σ_c conditioning rules — guarantees uncprop sees the same effective prior the solver did. |
@@ -970,6 +988,7 @@ engine.register_cascade(
                        ore_grade_csv=csv("ore_grade"),
                        stripping_ratio_csv=csv("stripping_ratio"),
                        p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG,
+                       cv_cap=NETWORK_CV_CAP,
                        stock_sectors=("MESC", "USC"), id="network"),
         *[FillImputer(Fill(ParamSource.from_params(csv(pid), acc), "both", id=pid),
                       "parametric", p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG)
@@ -980,7 +999,9 @@ engine.register_cascade(
 # Terminal imputers, in order.
 engine.register(TimeImputer(window=3, method="linear", min_obs=2, gap_inflation=1.05,
                             interpolate_only=True, p=P_PROP))
-engine.register(ShareImputer.from_stock_bounds_csv(csv("stock_bounds"), p=P_PROP))
+engine.register(ShareImputer.from_stock_bounds_csv(
+    csv("stock_bounds"), p=P_PROP, scale_abs_floor=100.0,
+    seed_cv=STOCK_SEED_CV, seed_abs_floor=STOCK_SEED_ABS_FLOOR_KT))
 engine.register(FlatPriorImputer(acc_struct=acc, mode="noisy_zero", sigma_high=1.0e6,
                                  p=P_PROP))
 param_refs = [inputs.params.entry(pid) for pid in
@@ -1003,14 +1024,19 @@ imp_run_id = imp_registry.register(
 )
 
 # ── Stage 3: build the constraint system ──────────────────────────────────
-const_engine = ConstraintEngine(acc_struct=acc, p=P_PROP)
+const_engine = ConstraintEngine(
+    acc_struct=acc, p=P_PROP,
+    sigma_a_cv_min=SIGMA_A_CV_MIN, sigma_a_abs_floor=SIGMA_A_ABS_FLOOR,
+    sigma_c_cv_min=SIGMA_C_CV_MIN, sigma_c_abs_floor=SIGMA_C_ABS_FLOOR,
+    nodata_anchor_cv=NODATA_ANCHOR_CV)
 const_engine.register(MassBalanceBuilder())
 const_engine.register(SumConstraintBuilder.from_acc_struct(acc, sigma_fraction=0.05))
 
 # Two builders consume the same param_id ("conc", "eff").
+RATIO = dict(sigma_rel_floor=RATIO_SIGMA_REL_FLOOR, scale_abs_floor=RATIO_SCALE_ABS_FLOOR)
 CONST_BINDINGS = [
-    ("conc",         RatioConstraintBuilder, {}),
-    ("eff",          RatioConstraintBuilder, {}),
+    ("conc",         RatioConstraintBuilder, RATIO),
+    ("eff",          RatioConstraintBuilder, RATIO),
     ("conc",         RatioBoundBuilder,      {}),
     ("eff",          RatioBoundBuilder,      {}),
     ("stock_bounds", RatioBoundBuilder,      {}),   # agg=true rows; |Σ b| ≤ k·Σ a  (b=stock numerator, a=Cathode denom; PSC only since ADR 0040; the Σb−r·Σa form, see GLOSSARY.md §"Node-scoped vs set-scoped")
@@ -1452,7 +1478,7 @@ Each layer has a dedicated test file in `tests/`. There is no `conftest.py`: fix
 | [test_solver_diag.py](tests/test_solver_diag.py) | `SolverDiag` 12-figure portfolio smoke test (toy placeholders + block run with real edges), `regions=` filter, `compare()`, worst-Σz² year |
 | [test_solver_stats_diag.py](tests/test_solver_stats_diag.py) | `SolverStatsDiagnostic` per-year CSV schemas, all-years frames (identity, `lhs_prior_t`, `resid_solver`, warm prior), ranking CSVs |
 | [test_objective_stats.py](tests/test_objective_stats.py) | objective-share builders (family frames, Σz² by key, identity ranking, z profiles, objective decomposition), sector totals / retention, boundary edges |
-| [test_uncprop.py](tests/test_uncprop.py) | `KalmanUncProp` closed-form 2×2, PSD/monotonicity, Byron limit, CHOLMOD symbolic-factor reuse, registry round-trip, CI clipping, end-to-end `compute(opt_run_id)`, year-local trace contraction, the active set (#27) and an exact contraction where `S` is singular to working precision |
+| [test_uncprop.py](tests/test_uncprop.py) | `KalmanUncProp` registry round-trip, the refusal of a run without `G_blocks`, end-to-end `compute(opt_run_id)`, year-local trace contraction, the active set (#27) and an exact contraction where `S` is singular to working precision |
 | [test_uncprop_stats_diag.py](tests/test_uncprop_stats_diag.py) | `UncPropStatsDiagnostic` edge frame: κ, z, weight, κ–z quadrants, bound-active flag, prior classes, σ_a conditioning, legacy full-length arrays, trace contraction, contraction summary |
 | [test_uncprop_diag.py](tests/test_uncprop_diag.py) | `UncPropDiag` portfolio on a solved, propagated toy chain: live render, `from_uncprop_id` round trip, registry, `plot_ids`, `regions=` suffix, `timesteps=` validation, `summary()` |
 | [test_toy_case.py](tests/test_toy_case.py) | The toy case (#59), the first six-stage end-to-end test: all six stages into a temporary run tree in seconds, hard rows closed to 1e-10, the planted leg the top soft residual, Stage 5's 95 % coverage in a band fixed on the first run, PSUT node balances and Sankey totals; the truth balances, each synthetic feed is noisy at its pedigree CV, every registered imputer writes, the time imputer fills the Bureau's two gaps, the one edge two feeds meet on is pooled by precision, no scale totals are registered; `world_totals`; `TruthDiag`; the tutorial's `check_*` hooks and `solution` |

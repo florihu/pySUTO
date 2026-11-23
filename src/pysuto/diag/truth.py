@@ -123,7 +123,9 @@ class TruthDiag:
     # ------------------------------------------------------------------
 
     def edge_labels(self, ids) -> list:
-        """``Sector[Region] → Sector[Region] year valuation`` for each edge id."""
+        """``Sector[Region] → Sector[Region] year valuation`` for each edge id. Unlike
+        ``AccountingStructure.edge_labels`` it names the year, because the board ranks
+        edge-years across the whole horizon, where the chapters fix a year first."""
         em = self.edge_meta.loc[list(ids)]
         return [f"{fs}[{fr}] → {ts}[{tr}] {t} {v}" for fs, fr, ts, tr, t, v in zip(
             em["from_sector"], em["from_region"], em["to_sector"], em["to_region"],

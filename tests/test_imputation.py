@@ -352,6 +352,19 @@ class TestImputationCascade:
         assert (md["pass"] == 3).sum() == 0
         assert len(md) == 4
 
+    def test_dead_pass_is_logged_as_discarded(self, acc, caplog):
+        """The engine says which steps the dead pass would have had and where the
+        committed steps end (#203); the records themselves are untouched."""
+        ar, imp_A, imp_B = self._two_hop()
+        engine = ImputationEngine(acc_struct=acc)
+        engine.register_cascade([imp_B, imp_A], max_iter=10)
+        with caplog.at_level("INFO", logger="pysuto.impute.engine"):
+            result = engine.run(ar)
+        msgs = [r.getMessage() for r in caplog.records if "discarded" in r.getMessage()]
+        assert msgs == ["pass 3 filled nothing: its steps 4-5 are discarded, the "
+                        "committed steps end at 3"]
+        assert list(result.imputation_metadata.as_dataframe()["step"]) == [0, 1, 2, 3]
+
     def test_provenance_in_log_and_meta(self, acc):
         ar, imp_A, imp_B = self._two_hop()
         engine = ImputationEngine(acc_struct=acc)

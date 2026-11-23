@@ -14,7 +14,7 @@ from typing import Literal, Optional
 import numpy as np
 
 from pysuto.logging import get_logger
-from pysuto.lp import lp_combine
+from pysuto.lp import P_DEFAULT, lp_combine
 
 from .base import BaseImputer
 
@@ -68,7 +68,7 @@ class TimeImputer(BaseImputer):
         window_before: Optional[int] = None,
         window_after:  Optional[int] = None,
         interpolate_only: bool = False,
-        p: float = 1.3,
+        p: float = P_DEFAULT,
         scope_edges:      Optional[np.ndarray] = None,
         scope_feed_id:    Optional[str]        = None,
         scope_times:      Optional[list]       = None,

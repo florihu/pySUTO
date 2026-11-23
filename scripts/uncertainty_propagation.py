@@ -1,17 +1,17 @@
 """
-init_uncertainty_propagation.py
-===============================
+uncertainty_propagation.py
+==========================
 Stage 5 driver: compute posterior σ_a*(t) and (1−α) confidence bounds for
 every edge × timestep of a persisted OptimRun, using the closed-form GLS
-expression in :class:`pysuto.uncprop.KalmanUncProp`.
+expression in :class:`pysuto.uncprop.KalmanUncProp` (ADR 0044).
 
 Pipeline
 --------
 1  Instantiate KalmanUncProp (σ conditioning floors come from the opt sidecar)
 2  compute(opt_run_id, alpha=0.05) — cross-discovers const_run_id via the
-   opt sidecar, reduces each period at the QP's active set at a* (#27),
-   builds S(t) = G·diag(σ²_a)·Gᵀ + diag(σ²_c(t)) on it, and solves for the
-   marginal diagonal of the posterior covariance
+   opt sidecar, reduces each period at the QP's active set at a* (#27), and
+   reads the posterior contraction κ off a QR of the whitened system
+   M = [G·diag(σ_a), diag(σ_c)] (S = M·Mᵀ is never formed)
 3  persist(result, opt_run_id, label) — writes per-t .npz arrays and a
    harmonized sidecar under <data-dir>/proc/uncprop/<uncprop_run_id>/
 4  Render the UncPropDiag portfolio (UD-R-01/02/03 + contraction_summary.csv,
@@ -21,7 +21,7 @@ Pipeline
 
 Usage::
 
-    python scripts/uncertainty_propagation.py <opt_run_id> [--label LABEL]
+    python scripts/uncertainty_propagation.py <opt_run_id> [--label LABEL] [--case CASE]
                                               [--data-dir data] [--run-id-file PATH]
 """
 
@@ -51,7 +51,7 @@ from pysuto.stages  import run_uncprop
 DEFAULT_CASE = str(Path(__file__).resolve().with_name("copper.py"))
 CASE = resolve_case(DEFAULT_CASE)
 
-_log = get_logger("init_uncertainty_propagation")
+_log = get_logger("uncertainty_propagation")
 
 
 def main(opt_run_id: str, label: str = "", *, data_dir: str = "data",
@@ -59,7 +59,7 @@ def main(opt_run_id: str, label: str = "", *, data_dir: str = "data",
     """Propagate opt run ``opt_run_id`` of ``<data_dir>/proc/opt``; the run is
     written to ``<data_dir>/proc/uncprop``. ``case`` is recorded in the sidecar and
     must be the case that made the opt run."""
-    start_run_log(data_dir, "init_uncertainty_propagation")
+    start_run_log(data_dir, "uncertainty_propagation")
     return run_uncprop(case, opt_run_id, label, data_dir=data_dir, logger=_log)
 
 

@@ -26,7 +26,7 @@ _COLS = ["Region", "Type", "Year", "Value", "Process", "Supply_Use", "Unit",
          "Year_loaded_from_file"]
 # eff_ER 0.997, eff_CFR 0.9875, eff_Smelting 0.965 — the live nominals
 _EFF = pd.DataFrame({"Process": ["Smelting", "CFR", "ER"],
-                     "Value_median": [0.965, 0.9875, 0.997]})
+                     "Value_nominal": [0.965, 0.9875, 0.997]})
 
 
 def _row(region, proc, typ, value, year=2020, su="Supply"):
@@ -370,7 +370,7 @@ def test_handover_year_published_under_both_labels_is_not_summed():
 def test_a_genuine_conflict_between_the_two_labels_is_not_silently_dropped():
     df = _frame([_row("Belgium",            "Refining", "Primary", 9.9,   year=2013),
                  _row("Belgium-Luxembourg", "Refining", "Primary", 160.5, year=2013)])
-    with pytest.raises(AssertionError, match="two labels"):
+    with pytest.raises(ValueError, match="two labels"):
         merge_territories(df, _aliases())
 
 

@@ -84,6 +84,7 @@ class CopperImp(ImpSection):
     P_PROP:        float = 1.3      # Lp/power-mean exponent
     Q_REG:         float = 3.0      # parametric fill's backward-branch knee sharpness
     ALPHA_MIN_REG: float = 0.05     # inverse-multiplier effective-sensitivity floor
+    NETWORK_CV_CAP: float = 1.5     # NetworkImputer's cap on a derived edge's CV
 
     # Imputation cascade — trade/network/conc/ore_grade iterate to a fixpoint (re-run until a
     # full sweep fills no new edges). Safety cap on passes (chain depth ≈ 8).
@@ -337,7 +338,8 @@ def build_network(ctx) -> NetworkImputer:
         ore_grade_csv = ctx.use_params("ore_grade"),
         stripping_ratio_csv = ctx.use_params("stripping_ratio"),
         stripping_sigma     = spec.FLAT_SIGMA_HIGH,
-        p=spec.P_PROP, q=spec.Q_REG, alpha_min=spec.ALPHA_MIN_REG, cv_cap=1.5,
+        p=spec.P_PROP, q=spec.Q_REG, alpha_min=spec.ALPHA_MIN_REG,
+        cv_cap=spec.NETWORK_CV_CAP,
         id="network",
         stock_sectors=spec.stock_sectors,
         effless_stock_sigma=spec.EFFLESS_STOCK_SIGMA_KT,

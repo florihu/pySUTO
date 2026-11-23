@@ -46,7 +46,7 @@ import numpy as np
 
 from pysuto.acc import BoundaryRole, boundary_role_values
 from pysuto.logging import get_logger
-from pysuto.lp import lp_combine
+from pysuto.lp import P_DEFAULT, lp_combine
 from pysuto.relation.balance import node_balance_relations
 from pysuto.relation.param_relation import (
     ParamRelationResolver,
@@ -123,10 +123,11 @@ class NetworkImputer(BaseImputer):
         eff_csv: str,
         conc_csv: str,
         ore_grade_csv: str | None = None,
-        p: float = 1.3,
-        q: float = 3.0,
-        alpha_min: float = 0.05,
-        cv_cap: float = 1.5,
+        p: float = P_DEFAULT,
+        *,
+        q: float,
+        alpha_min: float,
+        cv_cap: float,
         id: str | None = None,
         stock_sectors: tuple = (),
         stripping_ratio_csv: str | None = None,

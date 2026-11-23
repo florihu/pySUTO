@@ -75,7 +75,7 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 - Six stages, one driver each: `scripts/*_feed.py` (1) → `collect_aggregate_impute.py` (2) → `constraints.py` (3) → `run_solver.py` (4) → `uncertainty_propagation.py` (5) → `psut.py` (6).
 - Run ids are `{feed|imp|const|opt|uncprop|psut|sweep}_{YYYYMMDD_HHMMSS}_{8hex}`; feed runs embed the feed name (`feed_<feed_id>_…`).
 - Per-stage `registry.json` is a trimmed index. Lineage lives in each run's `metadata.json` (`parents.inputs` = input versions, `parents.upstream` = parent run ids) — read the sidecar for provenance.
-- Feed build order is load-bearing (ADR 0024, 0027, 0030 am.): BACI parse → register gross baci vN → `icsg_clean.py --baci-version N --to-feed` → `build_baci_reexport.py --source-version N` → `baci_feed.py` → `build_trade_shares.py` → `icsg_feed.py`. The netting refuses an ICSG input parsed against another N (#63); `icsg_feed.py` refuses trade-share weights whose `parents.json` names another BACI feed run or input version (#53; stale ones once cost 6.2 pp of z²).
+- Feed build order is load-bearing (ADR 0024, 0027, 0030 am.): BACI parse → register gross baci vN → `icsg_clean.py --baci-version N --to-feed` → `build_baci_reexport.py --source-version N` → `baci_feed.py` → `build_trade_shares.py` → `icsg_feed.py`; `build_ore_grade.py` (hand, after the feeds) feeds back into `icsg_feed.py`'s observed zeros and records its parents (README Stage 1). Hand runs of the builders and `icsg_clean.py` take the stage lock. The netting refuses an ICSG input parsed against another N (#63); `icsg_feed.py` refuses trade-share weights whose `parents.json` names another BACI feed run or input version (#53; stale ones once cost 6.2 pp of z²).
 - `run_solver.py --prior-mode` and `stages.run_opt` default to `cold`; `run_solver.main(prior_mode=)` and the `Solver` class default to `warm`. Trust the sidecar's `prior_mode`.
 
 ## Environment & commands
@@ -113,7 +113,7 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 - Formatting is hand-aligned (`=` and kwargs in columns, `# ====` banners): never run black or ruff-format.
 - Records are `@dataclass`; no pydantic. Asserts are rare — validate explicitly and raise.
 - Params CSVs mix `,` and `;`: read with `sep=None, engine="python", dtype=str`; wildcards are `*` and `same`.
-- Logging: `get_logger(name)` per module; `print` only inside diag `.summary()`.
+- Logging: `get_logger(name)` per module; `print` only inside diag `.summary()`, and in the Stage 1 builders and `icsg_clean.py`, whose stdout the hook captures as their log (`copper_feed._run_script`).
 - Diagnostics contract: construct with data → `.plot(odir, show=False)` returns paths → `.summary()`. `diag/` is a leaf: the data layer never imports it at module level (driver-level code — the scripts, `pysuto.stages` — may).
 - Module-level imports flow one way (README §5 "Import direction is strictly one-way"); `utils`/`logging` import nothing from `pysuto`. A function-local import is allowed only to break a cycle and carries a comment saying so.
 
@@ -121,7 +121,6 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 
 - Flat `tests/`, no `conftest.py`, no markers, no golden files. Fixtures are toy objects built in the test module; use `tmp_path` and `monkeypatch`, never `mocker`.
 - Tolerances: `np.allclose` with `rtol=1e-12`/`1e-10` for exact algebraic identities, `1e-6`/`1e-7` for solver outputs; `pytest.approx` (default or `rel=1e-6`) for scalars; `assert_array_equal` for indices and masks. Never loosen a tolerance to make a test pass.
-- One test is skipped because scikit-sparse is absent (`uncprop`'s full-G legacy path uses the `splu` fallback; the block path needs neither) — not a defect.
 - A suite run writes no `logs/` (#190): `get_logger` has no file handler and `run_feed` attaches its root DEBUG handler only when given `run_log`. `tests/test_import_no_writes.py` imports every module from an empty directory.
 - A bug fix ships with the test that reproduces it; a change to a σ rule, builder, imputer or feed ships with a REP measuring it.
 

@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import numpy as np
 
-from pysuto.lp import lp_combine
+from pysuto.lp import P_DEFAULT, lp_combine
 from pysuto.relation.sources import Fill
 
 from .base import BaseImputer, _apply_cv_cap, _reg_sensitivity
@@ -34,7 +34,7 @@ SIGMA_RULES = ("parametric", "trade")
 class FillImputer(BaseImputer):
     """Run one :class:`~pysuto.relation.sources.Fill` with a σ rule (module docstring)."""
 
-    def __init__(self, fill: Fill, sigma_rule: str = "parametric", p: float = 1.3,
+    def __init__(self, fill: Fill, sigma_rule: str = "parametric", p: float = P_DEFAULT,
                  q: float = 3.0, alpha_min: float = 0.05,
                  cv_cap: float = float("inf")) -> None:
         if sigma_rule not in SIGMA_RULES:

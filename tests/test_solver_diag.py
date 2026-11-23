@@ -169,6 +169,59 @@ class TestFromOptId:
         expected = str(opt_dir / opt_run_id / "diag")
         assert all(p.startswith(expected) for p in paths)
 
+    def test_provenance_names_registered_and_unregistered_feed_runs(
+            self, toy_results, tmp_path, monkeypatch, capsys):
+        """The tree and provenance.md print every feed run id; an unregistered one is
+        marked, never '?' (#203)."""
+        import pysuto.registry as reg
+        from pysuto.registry import ConstraintRunRegistry
+        from pysuto.diag import SolverDiag
+
+        results, run = toy_results
+        run.agg_id = "imp_stub"
+        const_dir = tmp_path / "const"
+        const_dir.mkdir()
+        ConstraintRunRegistry(str(const_dir)).register(run)
+        s = make_solver(const_dir="unused", verbose_first_solve=False, prior_mode="cold")
+        opt_run_id = s.persist(run_id=run.run_id, results=results,
+                               output_dir=str(tmp_path / "opt"), const_run_id=run.run_id)
+
+        class _Entry:
+            def to_index_dict(self):    # the real registry's index fields
+                return {"run_id": "feed_known_20260101_000000_aaaaaaaa", "stage": "feed",
+                        "label": "known", "created_at": "2026-01-01T00:00:00"}
+
+        class _FeedReg:
+            def __init__(self, odir): pass
+            def load_index(self): pass
+            def resolve(self, fid):
+                if fid.startswith("feed_known"):
+                    return _Entry()
+                raise KeyError(fid)
+
+        class _ImpReg:
+            def __init__(self, odir): self._index = {"imp_stub": object()}
+            def load_sidecar(self, rid):
+                return {"parents": {"upstream": {"feed_run_ids": [
+                    "feed_known_20260101_000000_aaaaaaaa",
+                    "feed_gone_20260102_000000_bbbbbbbb"]}}}
+
+        monkeypatch.setattr(reg, "DataFeedRegistry", _FeedReg)
+        monkeypatch.setattr(reg, "ImputationRunRegistry", _ImpReg)
+
+        diag = SolverDiag.from_opt_id(opt_run_id, output_dir=str(tmp_path / "opt"),
+                                      const_dir=str(const_dir))
+        out = tmp_path / "figs"
+        diag.plot(odir=str(out), plot_ids=["SD-R-11"])
+        tree = capsys.readouterr().out.split("provenance", 1)[-1]
+        md = (out / "provenance.md").read_text(encoding="utf-8")
+        for text in (tree, md):
+            assert "?" not in text
+            assert "feed_known_20260101_000000_aaaaaaaa" in text
+            assert "feed_gone_20260102_000000_bbbbbbbb" in text
+        assert "feed_gone_20260102_000000_bbbbbbbb  (not registered)" in tree
+        assert "| `feed_gone_20260102_000000_bbbbbbbb` | (not registered) |" in md
+
 
 # ---------------------------------------------------------------------------
 # 3b. Year-local (block-path) results — the only fixture with real edge labels
@@ -182,7 +235,7 @@ def _solve_block_run(tmp_path, monkeypatch):
 
     acc = _make_toy_acc()
     agg = _make_toy_agg_result(acc)
-    engine = ConstraintEngine(acc, storage_dir=str(tmp_path / "const"))
+    engine = ConstraintEngine(acc, storage_dir=str(tmp_path / "const"), sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
     engine.register(MassBalanceBuilder())
     cr = engine.run(agg, timesteps=["2020", "2021"], persist=False)
 

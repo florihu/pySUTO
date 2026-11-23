@@ -108,6 +108,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from copper_feed import (
     AGGREGATES_ID, BACI_ID, GROSS_VALUATION, HS_OF, HUB_EXCLUDE, ICSG_ID, NETTED_SECTORS,
     TRADED_SECTORS, icsg_intake_production)
+from pysuto.feedprep.builder_lock import builder_lock
 from pysuto.feedprep.reexport import (
     MAX_CV_SCALE, OUTLIER_K, check_icsg_baci_version, check_region_map, cv_scale,
     icsg_aggregate_members, label_row, load_root_trade, net_reexports, rebuild_values,
@@ -119,10 +120,10 @@ from pysuto.input_registry import InputRegistries
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
 
-# The registered BACI input version the netting reads. Never the live
-# `current/` copy: netting a netted file would be a no-op (the rule is
-# idempotent) but would hide which matrix a run was built from.
-SOURCE_VERSION = 5
+# The registered BACI input version the netting reads is ``--source-version``, required:
+# the gross version the ICSG input was parsed against. Never the live `current/` copy:
+# netting a netted file would be a no-op (the rule is idempotent) but would hide which
+# matrix a run was built from.
 
 # The sectors, the HS codes of a new row, the hub exclusion and the knobs of the netting
 # are the copper case's (``copper_feed``) and the library's
@@ -166,13 +167,14 @@ def _sha256(path: str) -> str:
 def _source_dir(version: int) -> str:
     """The immutable snapshot the netting reads, hash-checked against the registry."""
     src = os.path.join(_INPUT_ROOT, "feed", FEED_ID, f"v{version}")
-    reg = json.load(open(os.path.join(_INPUT_ROOT, "feed", "registry.json")))
+    with open(os.path.join(_INPUT_ROOT, "feed", "registry.json"), encoding="utf-8") as f:
+        reg = json.load(f)
     entry = next((v for v in reg[FEED_ID]["versions"] if v["version"] == version), None)
     if entry is None:
-        raise SystemExit(f"baci v{version} is not in the input registry")
+        raise ValueError(f"baci v{version} is not in the input registry")
     got = _sha256(os.path.join(src, "values.csv"))
     if got != entry["hashes"]["values.csv"]:
-        raise SystemExit(
+        raise ValueError(
             f"baci v{version}/values.csv sha256 {got[:16]} != registered "
             f"{entry['hashes']['values.csv'][:16]} — the snapshot was modified")
     print(f"   source     : {src}  (v{version}, code={entry['code']}, "
@@ -182,11 +184,29 @@ def _source_dir(version: int) -> str:
 
 
 
+def carry_quantity_sidecars(src_dir: str, out_dir: str) -> None:
+    """Carry the parse's quantity sidecars from the source version to the netted output.
+
+    ``quantity_cv_scale.csv`` (ADR 0033's σ multiplier, read through the ``cv_root_scale``
+    seam) and ``quantity_recon.csv`` (the audit trail) travel with the netted feed. A source
+    without one removes the output's copy, so an older one never keeps scaling σ (#281).
+    """
+    for name in ("quantity_cv_scale.csv", "quantity_recon.csv"):
+        qsrc, qdst = os.path.join(src_dir, name), os.path.join(out_dir, name)
+        if os.path.isfile(qsrc):
+            if os.path.abspath(qsrc) != os.path.abspath(qdst):
+                shutil.copyfile(qsrc, qdst)
+                print(f"   carried forward {name} from {src_dir}")
+        elif os.path.isfile(qdst):
+            os.remove(qdst)
+            print(f"   removed {name} from {out_dir}: {src_dir} has none")
+
+
 # ---------------------------------------------------------------------------
 # MAIN
 # ---------------------------------------------------------------------------
 
-def main(source_version: int = SOURCE_VERSION) -> None:
+def main(source_version: int) -> None:
     print("=" * 70)
     print("Re-attributing re-exported trade at feed time (ADR 0027)")
     print(f"   sectors    : {SECTORS}")
@@ -223,9 +243,9 @@ def main(source_version: int = SOURCE_VERSION) -> None:
     legs_new, events = net_reexports(legs_old, volumes, screened)
 
     # ── report ───────────────────────────────────────────────────────────────
-    ap = events["T_applied"].sum() if len(events) else 0.0
-    print(f"\n   T applied  : {ap:,.0f} kt CC "
-          f"({ap / legs_old['cc'].sum() * 100:.2f} % of gross trade) in "
+    t_applied = events["T_applied"].sum() if len(events) else 0.0
+    print(f"\n   T applied  : {t_applied:,.0f} kt CC "
+          f"({t_applied / legs_old['cc'].sum() * 100:.2f} % of gross trade) in "
           f"{len(events):,} hub-years, {events['pass_no'].max() + 1 if len(events) else 0} passes")
     print(f"   re-imports and folded self-pairs dropped: "
           f"{events['self_dropped'].sum() if len(events) else 0:,.0f} kt CC")
@@ -279,11 +299,7 @@ def main(source_version: int = SOURCE_VERSION) -> None:
     # ADR 0033's σ multiplier is produced by the parse, one stage further up,
     # and rides the same cv_root_scale seam — so it has to travel with the
     # netted feed rather than being left behind in the source version.
-    qsrc = os.path.join(src_dir, "quantity_cv_scale.csv")
-    if os.path.isfile(qsrc) and os.path.abspath(qsrc) != os.path.abspath(
-            os.path.join(OUT_DIR, "quantity_cv_scale.csv")):
-        shutil.copyfile(qsrc, os.path.join(OUT_DIR, "quantity_cv_scale.csv"))
-        print(f"   carried forward quantity_cv_scale.csv from {src_dir}")
+    carry_quantity_sidecars(src_dir, OUT_DIR)
     print(f"\n   wrote values.csv + 3 ledgers → {OUT_DIR}")
 
     entry = _register_inputs().feed.entry(FEED_ID)
@@ -292,10 +308,12 @@ def main(source_version: int = SOURCE_VERSION) -> None:
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
-    ap.add_argument("--source-version", type=int, default=SOURCE_VERSION,
-                    help="registered baci input version to net (default: %(default)s)")
+    ap.add_argument("--source-version", type=int, required=True,
+                    help="registered gross baci input version to net — the one the ICSG "
+                         "input was parsed against")
     ap.add_argument("--data-dir", default="data",
                     help="data root holding input/ (default: %(default)s)")
     args = ap.parse_args()
     set_data_dir(args.data_dir)
-    main(args.source_version)
+    with builder_lock("build_baci_reexport", args.data_dir):
+        main(args.source_version)

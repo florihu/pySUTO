@@ -55,7 +55,8 @@ def _share(base, net):
     f[5:] = base
     for i, v in net.items():
         f[i] = v
-    imp = ShareImputer(p95={("PSC", "A"): 0.05}, legs=[_PSC], scale_abs_floor=1.0)
+    imp = ShareImputer(p95={("PSC", "A"): 0.05}, legs=[_PSC], scale_abs_floor=1.0,
+                       seed_cv=0.01, seed_abs_floor=0.3)
     run_imputer(imp, f, sigma, 0, acc)
     return f
 

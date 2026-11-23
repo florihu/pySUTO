@@ -13,8 +13,9 @@ only ``uncprop_run_id`` is required.
 Usage::
 
     python scripts/uncprop_diag.py <uncprop_run_id> [--label LABEL] [--regions Chile Zambia]
+                                   [--data-dir data]
 
-Figures land in ``data/proc/uncprop/<uncprop_run_id>/diag/`` (``--regions`` adds a
+Figures land in ``<data-dir>/proc/uncprop/<uncprop_run_id>/diag/`` (``--regions`` adds a
 ``__<region>`` suffix and restricts the figures and the per-edge CSVs; ``birge.csv``
 is run-level and never filtered).
 """
@@ -29,10 +30,6 @@ import sys
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
 
-UNCPROP_DIR = os.path.join("data", "proc", "uncprop")
-OPT_DIR     = os.path.join("data", "proc", "opt")
-CONST_DIR   = os.path.join("data", "proc", "const")
-IMP_DIR     = os.path.join("data", "proc", "imp")
 TIMESTEPS   = None              # None → all years pooled in UD-R-01; or e.g. ("2020",)
 
 # ---------------------------------------------------------------------------
@@ -44,30 +41,36 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from pysuto.diag    import UncPropDiag
 from pysuto.logging import get_logger, start_run_log
 
-_log = get_logger("init_uncprop_diag")
+_log = get_logger("uncprop_diag")
 
 
-def main(uncprop_run_id: str, label: str = "", regions=None) -> None:
-    start_run_log("data", "init_uncprop_diag")
+def main(uncprop_run_id: str, label: str = "", regions=None, *,
+         data_dir: str = "data") -> None:
+    """Render the diag of ``<data_dir>/proc/uncprop/<uncprop_run_id>``; its opt,
+    const, imp and acc runs are read from ``<data_dir>/proc``."""
+    proc = os.path.join(data_dir, "proc")
+    uncprop_dir = os.path.join(proc, "uncprop")
+    start_run_log(data_dir, "uncprop_diag")
 
-    _log.info("=== init_uncprop_diag START ===")
+    _log.info("=== uncprop_diag START ===")
     _log.info("Loading UncPropDiag from uncprop_run_id='%s'", uncprop_run_id)
 
     diag = UncPropDiag.from_uncprop_id(
         uncprop_run_id,
-        uncprop_dir = UNCPROP_DIR,
-        opt_dir     = OPT_DIR,
-        const_dir   = CONST_DIR,
-        imp_dir     = IMP_DIR,
+        uncprop_dir = uncprop_dir,
+        opt_dir     = os.path.join(proc, "opt"),
+        const_dir   = os.path.join(proc, "const"),
+        imp_dir     = os.path.join(proc, "imp"),
+        acc_dir     = os.path.join(proc, "acc"),
         label       = label,
     )
 
     diag.summary()
     paths = diag.plot(regions=regions, timesteps=TIMESTEPS)
-    diag_dir = os.path.join(UNCPROP_DIR, uncprop_run_id, "diag")
+    diag_dir = os.path.join(uncprop_dir, uncprop_run_id, "diag")
     _log.info("Wrote %d files to %s", len(paths), diag_dir)
 
-    _log.info("=== init_uncprop_diag DONE ===")
+    _log.info("=== uncprop_diag DONE ===")
 
 
 if __name__ == "__main__":
@@ -76,7 +79,7 @@ if __name__ == "__main__":
     )
     parser.add_argument(
         "uncprop_run_id",
-        help="Uncprop run ID under data/proc/uncprop/. The opt and const runs are "
+        help="Uncprop run ID under <data-dir>/proc/uncprop/. The opt and const runs are "
              "resolved from this run's sidecar.",
     )
     parser.add_argument(
@@ -88,5 +91,7 @@ if __name__ == "__main__":
         help="Restrict both figures and the CSV to edges touching these regions "
              "(filenames get a __<region> suffix).",
     )
+    parser.add_argument("--data-dir", default="data",
+                        help="Data root holding proc/ (default 'data').")
     args = parser.parse_args()
-    main(args.uncprop_run_id, args.label, args.regions or None)
+    main(args.uncprop_run_id, args.label, args.regions or None, data_dir=args.data_dir)
