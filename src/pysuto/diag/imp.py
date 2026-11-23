@@ -272,8 +272,10 @@ class ImpDiagnostic:
             _log.info(f"Cross-valuation check      → {p}  "
                   f"({'CLEAN' if out.empty else f'{len(out)} VIOLATIONS'})")
         if not out.empty:
-            _log.warning(f"cross-valuation check: {len(out)} covered CC/Mass "
-                  f"pair(s) with CC > Mass (physically impossible) — worst "
+            vr = self.acc_struct.valuation_roles
+            _log.warning(f"cross-valuation check: {len(out)} covered "
+                  f"{vr.content}/{vr.gross} "
+                  f"pair(s) with {vr.content} > {vr.gross} (physically impossible) — worst "
                   f"implied conc {out['implied_conc'].max():.1f}×")
         return out
 

@@ -78,7 +78,7 @@ def flow_node_balance(acc, agg_result, valuation: str | None = None) -> pd.DataF
 def contradicted_flow_nodes(
     acc,
     agg_result,
-    sectors: tuple[str, ...] = ("Matte",),
+    sectors: tuple[str, ...],
     k: float = K_CLOSE,
     min_inflow: float = MIN_INFLOW_KT,
     valuation: str | None = None,
