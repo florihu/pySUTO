@@ -121,7 +121,6 @@ boolean masks of shape ``(n_edges,)``. Built-in entries: ``supply``, ``use``,
 
 from __future__ import annotations
 
-import inspect
 import json
 import os
 import pickle
@@ -965,9 +964,6 @@ class EdgeBounds:
             )
         return report
 
-    def as_dict(self) -> dict:
-        return {"l": self.l, "u": self.u}
-
     def summary(self) -> str:
         neg_lower    = (self.l < 0).sum()
         finite_upper = np.isfinite(self.u).sum()
@@ -995,11 +991,6 @@ class _SparseCOO4D:
     @property
     def nnz(self) -> int:
         return len(self.data)
-
-    def todense(self) -> np.ndarray:
-        arr = np.zeros(self.shape, dtype=self.data.dtype)
-        arr[tuple(self.coords)] = self.data
-        return arr
 
     def save_npz(self, path: str) -> None:
         np.savez(path, data=self.data, coords=self.coords,
@@ -1034,27 +1025,16 @@ class AccountingStructure:
             storage_dir    = "data/proc/acc",      # optional
         )
 
-    B) From Python objects (original API, kept for the index-machinery tests)::
-
-        acc = AccountingStructure(
-            id    = "copper",
-            root  = {"nodes": <DataFrame>, "time_range": [...], "valuation": [...]},
-            rules = [<callable>, ...],
-        )
-
-       It takes no acc spec, so it binds **no roles**: :attr:`roles` and
-       :attr:`valuations` are ``None``, and a root with an ``SB`` node raises.
-
-    C) From a previously saved directory::
+    B) From a previously saved directory::
 
         acc = AccountingStructure.load("copper", storage_dir="data/proc/acc")
 
     Attributes
     ----------
-    roles : dict or None
-        ``{SB sector label: BoundaryRole}``; ``None`` on mode B.
-    valuations : ValuationRoles or None
-        The labels bound to the ``content`` and ``gross`` roles; ``None`` on mode B.
+    boundary_roles : dict
+        ``{SB sector label: BoundaryRole}``.
+    valuation_roles : ValuationRoles
+        The labels bound to the ``content`` and ``gross`` roles.
     valuation : list of str
         The valuation axis, in edge order.
 
@@ -1062,26 +1042,28 @@ class AccountingStructure:
     ----------
     id                : str
         Unique identifier for this structure.
-    root_file_path    : str, optional
+    root_file_path    : str
         Path to the root ODS file (sheets: Sector_Entity, Region, Valuation, Time).
-    rules_file_path   : str, optional
+    rules_file_path   : str
         Path to the rules ODS file (sheets: Supply, Use, Trade, Accounting).
     bounds_file_path  : str, optional
         Path to the bounds ODS file.
-    root              : dict, optional
-        Python dict with keys "nodes" (DataFrame), "time_range", "valuation".
-        Used only when root_file_path is not provided.
-    rules             : list of callable, optional
-        Legacy callable rules.  Used only when rules_file_path is not provided.
+    masks_file_path   : str, optional
+        Path to the masks CSV (default: ``masks.csv`` next to the root file).
     storage_dir       : str
         Directory for saving/loading the structure (default: "data/proc/acc").
     """
 
-    def __init__(self, id, root=None, rules=None, **kwargs):
+    def __init__(self, id, **kwargs):
         self._set_identity(id, kwargs.get("storage_dir", DEFAULT_STORAGE_DIR))
 
         root_file   = kwargs.get("root_file_path",   None)
         rules_file  = kwargs.get("rules_file_path",  None)
+        if root_file is None or rules_file is None:
+            raise ValueError(
+                "AccountingStructure(...) reads ODS files: give root_file_path= and "
+                "rules_file_path=, or build from a spec with AccountingStructure.from_spec"
+            )
         bounds_path = kwargs.get("bounds_file_path", None)
         if bounds_path is not None and not os.path.exists(bounds_path):
             self.logger.warning(
@@ -1091,45 +1073,14 @@ class AccountingStructure:
             bounds_path = None
         # Optional acc-local user masks (data/input/acc/<id>/current/masks.csv)
         masks_path = kwargs.get("masks_file_path", None)
-        if masks_path is None and root_file is not None:
+        if masks_path is None:
             masks_path = os.path.join(os.path.dirname(root_file), "masks.csv")
-        if masks_path is not None and not os.path.exists(masks_path):
+        if not os.path.exists(masks_path):
             masks_path = None
 
-        # ── A'. ODS files → acc spec → the from_spec build ────────────
-        if root_file is not None and rules_file is not None:
-            self.logger.info(f"Reading acc spec from: {root_file}, {rules_file}")
-            self._init_from_spec(
-                read_acc_spec_ods(root_file, rules_file, bounds_path, masks_path))
-            return
-
-        # ── 1. Root (node universe, time, valuation) ─────────────────
-        if root_file is not None:
-            self._load_root_from_file(root_file)
-        else:
-            if kwargs.get("init_from_file", False):
-                assert "root_file_path" in kwargs
-                self.syst_desc_from_file(kwargs["root_file_path"])
-            else:
-                assert root is not None, \
-                    "Provide root_file_path= OR root= dict."
-                self.root_nodes = root["nodes"].copy()
-                self.time_range = list(dict.fromkeys(root["time_range"]))
-                self.valuation  = list(dict.fromkeys(root["valuation"]))
-            self._set_no_roles()
-
-        # ── 2. Rules ──────────────────────────────────────────────────
-        if rules_file is not None:
-            self._set_ruleset(RuleSet(rules_file))
-        else:
-            self.ruleset = None
-            self.rules   = rules or []
-            self._classify_rules()
-
-        self._build(
-            bounds = None if bounds_path is None else _read_bounds_file(bounds_path),
-            masks  = None if masks_path  is None else read_masks_csv(masks_path),
-        )
+        self.logger.info(f"Reading acc spec from: {root_file}, {rules_file}")
+        self._init_from_spec(
+            read_acc_spec_ods(root_file, rules_file, bounds_path, masks_path))
 
     # ------------------------------------------------------------------
     # Acc spec  (ADR 0046)
@@ -1184,12 +1135,9 @@ class AccountingStructure:
     def _set_ruleset(self, ruleset: "RuleSet") -> None:
         self.ruleset = ruleset
         self.logger.info(self.ruleset.summary())
-        self.rules       = []          # legacy list stays empty
-        self._node_rules = []
-        self._edge_rules = []
 
     def _build(self, bounds: Optional[list], masks: Optional[list]) -> None:
-        """Steps 3–6, shared by every initialisation mode: indices and tensors, the
+        """Steps 3–6 of the build: indices and tensors, the
         bounds and user-mask records of the spec (``None`` = none declared), the masks."""
         # ── 3. Build indices and tensors ──────────────────────────────
         self._build_node_index()
@@ -1227,15 +1175,6 @@ class AccountingStructure:
             f"A shape={self.A.shape}, nnz={len(self.A.data)}"
         )
 
-    # ------------------------------------------------------------------
-    # Root from ODS  (NEW)
-    # ------------------------------------------------------------------
-
-    def _load_root_from_file(self, path: str) -> None:
-        """Read the root from the four-sheet ODS file (see :func:`read_acc_spec_ods`)."""
-        self.logger.info(f"Loading root from: {path}")
-        self._set_root(_read_root_ods(path))
-
     def _set_root(self, spec: dict) -> None:
         """Node universe = the spec's ``sectors`` × ``regions``; time and valuation axes;
         the role bindings (validated, see :func:`_bind_roles`)."""
@@ -1255,19 +1194,6 @@ class AccountingStructure:
             f"{len(self.time_range)} time points | "
             f"{len(self.valuation)} valuations"
         )
-
-    def _set_no_roles(self) -> None:
-        """Mode B binds no roles, so it cannot declare an ``SB`` node (every SB sector
-        carries a boundary role, ADR 0034)."""
-        sb = sorted(set(self.root_nodes.loc[self.root_nodes["entity"] == "SB", "sector"]))
-        if sb:
-            raise ValueError(
-                f"AccountingStructure {self.id!r}: the procedural constructor binds no "
-                f"roles, and SB sector(s) {sb} need a boundary role — declare the "
-                f"structure as an acc spec (AccountingStructure.from_spec)"
-            )
-        self.boundary_roles      = None
-        self.valuation_roles = None
 
     # ------------------------------------------------------------------
     # Edge-reduction report  (NEW)
@@ -1314,11 +1240,6 @@ class AccountingStructure:
         )
         self.logger.info(self.bounds.summary())
 
-    def reload_bounds(self, path: str) -> None:
-        """Hot-reload bounds from a new file without rebuilding the structure."""
-        self.logger.info(f"Reloading edge bounds from: {path}")
-        self._set_bounds(_read_bounds_file(path))
-
     # ------------------------------------------------------------------
     # Structural edge masks  (used by ConstraintEngine)
     # ------------------------------------------------------------------
@@ -1338,11 +1259,6 @@ class AccountingStructure:
                          for bilateral feeds, which must never inform domestic
                          edges — mapped self-trade exclusion, ADR 0014)
 
-        When ruleset is None (legacy callable-rules mode), supply/use/tradable
-        masks fall back to checking entity_from/entity_to directly:
-          supply: entity_from in {Process} → entity_to in {Flow, SB}
-          use:    entity_from in {Flow, SB} → entity_to in {Process}
-
         User-defined masks are layered on top by ``_set_user_masks`` (acc-local)
         and ``apply_mask_overlay`` (separate mask input kind).
         """
@@ -1354,17 +1270,12 @@ class AccountingStructure:
         st = nj["sector"].values
         et = nj["entity"].values
 
-        if self.ruleset is not None:
-            sp_set  = self.ruleset.supply_pairs
-            up_set  = self.ruleset.use_pairs
-            tr_set  = self.ruleset.tradable_flows
-            supply   = np.array([(s, d) in sp_set for s, d in zip(sf, st)], dtype=bool)
-            use      = np.array([(s, d) in up_set for s, d in zip(sf, st)], dtype=bool)
-            tradable = np.array([s in tr_set for s in sf], dtype=bool)
-        else:
-            supply   = np.isin(ef, ["Process"]) & np.isin(et, ["Flow", "SB"])
-            use      = np.isin(ef, ["Flow", "SB"]) & np.isin(et, ["Process"])
-            tradable = np.zeros(len(ei), dtype=bool)
+        sp_set  = self.ruleset.supply_pairs
+        up_set  = self.ruleset.use_pairs
+        tr_set  = self.ruleset.tradable_flows
+        supply   = np.array([(s, d) in sp_set for s, d in zip(sf, st)], dtype=bool)
+        use      = np.array([(s, d) in up_set for s, d in zip(sf, st)], dtype=bool)
+        tradable = np.array([s in tr_set for s in sf], dtype=bool)
 
         sb = (et == "SB")
         cross_region = (ni["region"].values != nj["region"].values)
@@ -1382,7 +1293,7 @@ class AccountingStructure:
     # ------------------------------------------------------------------
 
     def register_mask(self, name: str, mask) -> None:
-        """Add or overwrite a named mask.
+        """Add or overwrite a named mask. Public API: the way to add a mask in code.
 
         ``mask`` may be a boolean ``np.ndarray`` of shape ``(n_edges,)`` or a
         callable receiving the expanded edge index (with ``sector_from``,
@@ -1398,7 +1309,8 @@ class AccountingStructure:
                          name, int(arr.sum()), self.n_edges)
 
     def apply_mask_overlay(self, csv_path: str) -> None:
-        """Load a masks CSV and merge it into ``self.masks``.
+        """Load a masks CSV and merge it into ``self.masks``. Public API: the way to
+        apply a mask of the separate ``mask`` input kind to a built structure.
 
         Existing entries with the same name are overwritten (separate-kind
         overlay beats acc-local definitions). Used to apply a mask from the
@@ -1453,11 +1365,11 @@ class AccountingStructure:
         return self.bounds.u
 
     # ------------------------------------------------------------------
-    # Admissibility  —  RuleSet path
+    # Admissibility  —  the RuleSet
     # ------------------------------------------------------------------
 
-    def _node_pair_admissible_ruleset(self, ni_dict: dict, nj_dict: dict) -> bool:
-        """Check admissibility using the parsed RuleSet (ODS rules)."""
+    def _node_pair_admissible(self, ni_dict: dict, nj_dict: dict) -> bool:
+        """Whether the sector pair and the entity pair are in the rule tables."""
         sf = ni_dict["sector"]
         st = nj_dict["sector"]
 
@@ -1473,7 +1385,7 @@ class AccountingStructure:
 
         return True
 
-    def _edge_admissible_ruleset(
+    def _edge_admissible(
         self,
         ni_dict: dict,
         nj_dict: dict,
@@ -1481,7 +1393,7 @@ class AccountingStructure:
         valuation,
     ) -> bool:
         """Full edge admissibility using RuleSet (includes region logic)."""
-        if not self._node_pair_admissible_ruleset(ni_dict, nj_dict):
+        if not self._node_pair_admissible(ni_dict, nj_dict):
             return False
 
         sf = ni_dict["sector"]
@@ -1496,66 +1408,6 @@ class AccountingStructure:
             return False
 
         return True
-
-    # ------------------------------------------------------------------
-    # Admissibility  —  legacy callable path  (unchanged)
-    # ------------------------------------------------------------------
-
-    def _classify_rules(self):
-        self._node_rules = []
-        self._edge_rules = []
-        for rule in self.rules:
-            sig    = inspect.signature(rule)
-            n_args = sum(
-                1 for p in sig.parameters.values()
-                if p.default is inspect.Parameter.empty
-                and p.kind in (
-                    inspect.Parameter.POSITIONAL_ONLY,
-                    inspect.Parameter.POSITIONAL_OR_KEYWORD,
-                )
-            )
-            (self._edge_rules if n_args > 2 else self._node_rules).append(rule)
-
-    def _node_pair_admissible(self, ni_dict: dict, nj_dict: dict) -> bool:
-        if self.ruleset is not None:
-            return self._node_pair_admissible_ruleset(ni_dict, nj_dict)
-        for rule in self._node_rules:
-            if not rule(ni_dict, nj_dict):
-                return False
-        return True
-
-    def _edge_admissible(self, ni_dict, nj_dict, time, valuation) -> bool:
-        if self.ruleset is not None:
-            return self._edge_admissible_ruleset(ni_dict, nj_dict, time, valuation)
-        if not self._node_pair_admissible(ni_dict, nj_dict):
-            return False
-        for rule in self._edge_rules:
-            if not rule(ni_dict, nj_dict, time, valuation):
-                return False
-        return True
-
-    # ------------------------------------------------------------------
-    # Legacy Excel initialisation  (unchanged)
-    # ------------------------------------------------------------------
-
-    def syst_desc_from_file(self, path):
-        self.logger.info(f"Initialising structure from file: {path}")
-        file = pd.read_excel(path)
-        assert {"sector_entity", "region", "time_range", "valuation"}.issubset(
-            file.columns
-        ), "Excel file must contain: sector_entity, region, time_range, valuation"
-
-        sector_entity = file["sector_entity"].str.split("_", expand=True)
-        sector_entity.columns = ["sector", "entity"]
-        region = file["region"].unique()
-        self.root_nodes = pd.DataFrame(
-            [(s, e, r)
-             for s, e in zip(sector_entity["sector"], sector_entity["entity"])
-             for r in region],
-            columns=["sector", "entity", "region"],
-        )
-        self.time_range = list(dict.fromkeys(file["time_range"].tolist()))
-        self.valuation  = list(dict.fromkeys(file["valuation"].tolist()))
 
     # ------------------------------------------------------------------
     # Node index  (unchanged)
@@ -1681,40 +1533,11 @@ class AccountingStructure:
         })
 
     # ------------------------------------------------------------------
-    # compress  (unchanged)
-    # ------------------------------------------------------------------
-
-    def compress(self, F) -> np.ndarray:
-        if sp.issparse(F):
-            F = F.toarray()
-        ei     = self.edge_index
-        t_idxs = ei["time"].map(self.time_to_idx).values.astype(int)
-        v_idxs = ei["valuation"].map(self.val_to_idx).values.astype(int)
-        return F[
-            ei["from_id"].values.astype(int),
-            ei["to_id"].values.astype(int),
-            t_idxs,
-            v_idxs,
-        ]
-
-    # ------------------------------------------------------------------
     # Lookup helpers  (unchanged)
     # ------------------------------------------------------------------
 
     def decode_node(self, node_id: int):
         return self.id_to_node[node_id]
-
-    def encode_node(self, sector, entity, region) -> int:
-        return self.node_to_id[(sector, entity, region)]
-
-    def decode_edge(self, edge_id: int):
-        row = self.edge_index.iloc[edge_id]
-        return (
-            self.decode_node(int(row["from_id"])),
-            self.decode_node(int(row["to_id"])),
-            row["time"],
-            row["valuation"],
-        )
 
     @cached_property
     def edge_meta(self) -> pd.DataFrame:
@@ -1809,22 +1632,18 @@ class AccountingStructure:
             os.remove(masks_path)  # a stale file would resurrect removed masks
 
         # Roles and rule tables, so load() returns what __init__ built: the rule-derived
-        # masks (supply, use, tradable) are rebuilt from the same tables (#119). Mode B
-        # records None for each (no roles; callable rules are not persistable).
+        # masks (supply, use, tradable) are rebuilt from the same tables (#119).
         rs   = self.ruleset
         meta = {
             "time_range": self.time_range,
             "valuation":  self.valuation,
             "node_to_id": self.node_to_id,
             "id_to_node": self.id_to_node,
-            "boundary_roles": (None if self.boundary_roles is None
-                           else {s: r.value for s, r in self.boundary_roles.items()}),
-            "valuation_roles": (None if self.valuation_roles is None else
-                                {self.valuation_roles.content: ValuationRole.CONTENT.value,
-                                 self.valuation_roles.gross:   ValuationRole.GROSS.value}),
-            "rule_tables": (None if rs is None else
-                            {"supply_pairs": rs.supply_pairs, "use_pairs": rs.use_pairs,
-                             "tradable": rs.tradable_flows, "accounting": rs.accounting}),
+            "boundary_roles": {s: r.value for s, r in self.boundary_roles.items()},
+            "valuation_roles": {self.valuation_roles.content: ValuationRole.CONTENT.value,
+                                self.valuation_roles.gross:   ValuationRole.GROSS.value},
+            "rule_tables": {"supply_pairs": rs.supply_pairs, "use_pairs": rs.use_pairs,
+                            "tradable": rs.tradable_flows, "accounting": rs.accounting},
         }
         with open(os.path.join(path, "metadata.pkl"), "wb") as f:
             pickle.dump(meta, f)
@@ -1854,7 +1673,7 @@ class AccountingStructure:
 
         with open(os.path.join(path, "metadata.pkl"), "rb") as f:
             meta = pickle.load(f)
-        missing = [k for k in ("boundary_roles", "valuation_roles", "rule_tables") if k not in meta]
+        missing = [k for k in ("boundary_roles", "valuation_roles", "rule_tables") if meta.get(k) is None]
         if missing:
             raise ValueError(
                 f"acc {id!r} at {path} records no {missing}: it was saved before roles "
@@ -1873,26 +1692,20 @@ class AccountingStructure:
         obj.n_edges_all = len(obj.edge_index_all)
         obj.time_to_idx = {t: i for i, t in enumerate(obj.time_range)}
         obj.val_to_idx  = {v: i for i, v in enumerate(obj.valuation)}
-        obj.rules       = []
-        obj._node_rules = []
-        obj._edge_rules = []
         rt = meta["rule_tables"]
-        obj.ruleset     = (None if rt is None else RuleSet.from_tables(
-            rt["supply_pairs"], rt["use_pairs"], rt["tradable"], rt["accounting"]))
+        obj.ruleset     = RuleSet.from_tables(
+            rt["supply_pairs"], rt["use_pairs"], rt["tradable"], rt["accounting"])
         obj.logger      = get_logger(cls.__name__)
         obj.logger.info("Loading AccountingStructure '%s' from %s", id, path)
 
         # The same validation as the build: the persisted roles bound to the nodes.
-        if meta["boundary_roles"] is None:
-            obj._set_no_roles()
-        else:
-            sectors = obj.node_index.drop_duplicates(["sector", "entity"])
-            obj.boundary_roles, obj.valuation_roles = _bind_roles(
-                [{"name": s, "entity": e, "role": meta["boundary_roles"].get(s)}
-                 for s, e in zip(sectors["sector"], sectors["entity"])],
-                [{"name": v, "role": (meta["valuation_roles"] or {}).get(v)}
-                 for v in obj.valuation],
-            )
+        sectors = obj.node_index.drop_duplicates(["sector", "entity"])
+        obj.boundary_roles, obj.valuation_roles = _bind_roles(
+            [{"name": s, "entity": e, "role": meta["boundary_roles"].get(s)}
+             for s, e in zip(sectors["sector"], sectors["entity"])],
+            [{"name": v, "role": meta["valuation_roles"].get(v)}
+             for v in obj.valuation],
+        )
 
         l_path = os.path.join(path, "bounds_l.npy")
         u_path = os.path.join(path, "bounds_u.npy")

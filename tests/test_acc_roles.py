@@ -261,19 +261,6 @@ def test_load_refuses_a_structure_saved_before_roles(tmp_path):
         AccountingStructure.load("cu", storage_dir=str(tmp_path))
 
 
-def test_the_procedural_constructor_binds_no_roles_and_refuses_an_sb_node():
-    nodes = pd.DataFrame({"sector": ["Mining", "Ore"], "entity": ["P", "F"],
-                          "region": ["A", "A"]})
-    acc = AccountingStructure(id="t", root={"nodes": nodes, "time_range": [0],
-                                            "valuation": ["mass"]})
-    assert acc.boundary_roles is None and acc.valuation_roles is None
-    sb = pd.DataFrame({"sector": ["Mining", "Waste"], "entity": ["Process", "SB"],
-                       "region": ["A", "A"]})
-    with pytest.raises(ValueError, match=r"binds no roles.*\['Waste'\]"):
-        AccountingStructure(id="t", root={"nodes": sb, "time_range": [0],
-                                          "valuation": ["mass"]})
-
-
 # =============================================================================
 # 4. Grep gate: the library compares no case label
 # =============================================================================
