@@ -171,14 +171,13 @@ def _environment() -> dict:
     process (one pair of git calls); a copy is returned."""
     global _environment_cache
     if _environment_cache is None:
-        import pysuto
         commit = _git("rev-parse", "HEAD")
         dirty  = None
         if commit is not None:
             status = _git("status", "--porcelain", "--untracked-files=no")
             dirty  = None if status is None else bool(status)
         _environment_cache = {
-            "pysuto_version": pysuto.__version__,
+            "pysuto_version": _package_version("pysuto"),
             "git_commit":     commit,
             "git_dirty":      dirty,
             "python":         platform.python_version(),

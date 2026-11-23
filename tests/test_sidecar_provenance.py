@@ -15,6 +15,7 @@ from pathlib import Path
 import pandas as pd
 import pytest
 
+import pysuto.registry._sidecar as sidecar_module
 from pysuto.feedpipe import FeedSpec, run_feed
 from pysuto.registry import build_sidecar, stage_timer
 from pysuto.tutorial import toy
@@ -110,9 +111,9 @@ def test_a_sidecar_built_outside_a_stage_timer_has_no_wall_time():
 
 
 def test_the_environment_is_computed_once_per_process(monkeypatch):
-    import pysuto.registry._sidecar as sidecar
     parents = {"inputs": {}, "upstream": {}}
     kw = dict(run_id="x", stage="imp", label="", created_at="", parents=parents)
     build_sidecar(**kw)
-    monkeypatch.setattr(sidecar, "_git", lambda *a: pytest.fail("repeated subprocess"))
+    monkeypatch.setattr(sidecar_module, "_git",
+                        lambda *a: pytest.fail("repeated subprocess"))
     build_sidecar(**kw)
