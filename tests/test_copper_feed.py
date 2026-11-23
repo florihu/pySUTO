@@ -587,10 +587,12 @@ def test_icsg_intake_and_production_follow_the_recipes_on_a_ten_row_fixture(
     assert production == pytest.approx({("Concentrate", "Chile", "2018"): 100.0,
                                         ("Matte", "Chile", "2018"): 50.0,
                                         ("Anode", "Chile", "2018"): 48.0,
-                                        ("Cathode", "Chile", "2018"): 75.0})
+                                        ("Cathode", "Chile", "2018"): 75.0},
+                                       rel=1e-12)
     # matte U = max(P_matte, anode use / eff_CFR - scrap into CFR) = max(50, 102.5)
     assert intake == pytest.approx({("Concentrate", "Chile", "2018"): 80.0,
                                     ("Matte", "Chile", "2018"): 102.5,
                                     ("Anode", "Chile", "2018"): 90.0,
-                                    ("Cathode", "Chile", "2018"): 70.0})
+                                    ("Cathode", "Chile", "2018"): 70.0},
+                                   rel=1e-12)
     assert reported == {(s, "Chile") for s in copper_feed.NETTED_SECTORS}

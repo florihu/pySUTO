@@ -514,7 +514,8 @@ class FeedSpec:
     allow_unmatched_edges, drop_unweighted_fans :
         Passed to :func:`step_B_build_concordance`.
     edge_scope : bool
-        Apply the metadata sidecar's ``Edge_scope_mask`` to the concordance (ADR 0014).
+        Apply the metadata sidecar's ``Edge_scope_mask`` to the concordance (ADR 0014);
+        the build raises when the sidecar names no mask or the structure lacks it.
     leg_filter : callable or None
         ``leg_filter(tables) -> dict``: the fan policy (ADR 0008).
     user_weights : callable or None
