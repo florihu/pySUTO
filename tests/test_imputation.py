@@ -1623,7 +1623,7 @@ class TestPriorLedger:
     def test_out_of_scope_write_is_dropped_and_counted_otherwise(self):
         ledger = self._ledger(strict=False)
         assert not ledger.write(5, 4.0, 0.4, 0, "m", [], [])
-        assert np.isnan(ledger.f[5]) and ledger.n_dropped == 1
+        assert np.isnan(ledger.f[5])
         assert ledger.close() == []
 
     def test_an_edge_that_holds_a_value_is_never_overwritten(self):
@@ -1636,7 +1636,7 @@ class TestPriorLedger:
         ledger = self._ledger(strict=False)
         ledger.f[0] = 1.0
         n = ledger.write_many(np.array([0, 1, 2, 6]), np.zeros(4), np.ones(4), 0, "m")
-        assert n == 2 and ledger.n_dropped == 1
+        assert n == 2
         assert [e["edge_id"] for e in ledger.close()] == [1, 2]
         with pytest.raises(ScopeError):
             self._ledger(strict=True).write_many(np.array([6]), np.zeros(1), np.ones(1), 0, "m")

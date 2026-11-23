@@ -62,7 +62,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
     An unknown mode, or ``"p_mean"`` on a spec without ``_rhs_ids``, raises.
     """
 
-    def __init__(self, specs: list[dict], sigma_fraction: float = 0.0, p: float = P_DEFAULT):
+    def __init__(self, specs: list[dict], p: float = P_DEFAULT):
         """
         specs : list of dicts, each with keys:
             constraint_id, description,
@@ -82,7 +82,6 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                     f"sigma_ck_mode='p_mean' but no right-hand-side edges (_rhs_ids) "
                     f"to propagate σ over; its σ_c would stay 0.")
         self._specs = specs
-        self._sigma_fraction = sigma_fraction  # fallback
         self._p = p
         self._cached_static: ConstraintBlock | None = None
 
@@ -190,7 +189,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                         "entity_sub":      str(n_row.get("entity_sub", "")) if "entity_sub" in ni.columns else None,
                     })
 
-        return cls(specs, sigma_fraction=sigma_fraction)
+        return cls(specs)
 
     # ------------------------------------------------------------------
     # Factory: entity/entity_sub-routed sum constraints
@@ -318,7 +317,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
             "SumConstraintBuilder.from_acc_struct_subentity: %d specs (entity_filter=%s)",
             len(specs), sorted(entity_filter),
         )
-        return cls(specs, sigma_fraction=sigma_fraction, p=p)
+        return cls(specs, p=p)
 
     # ------------------------------------------------------------------
     # Factory: load from CSV

@@ -82,7 +82,6 @@ class DataFeedMetadata:
         cls,
         path: str,
         sheet_name: str = 0,
-        grouping_col:  str = "Grouping",
         name_col:      str = "Meta_name",
         value_col:     str = "Value",
     ) -> "DataFeedMetadata":

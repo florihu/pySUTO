@@ -550,9 +550,3 @@ class RatioBoundBuilder(BaseConstraintBuilder):
             sigma_c  = static.sigma_c,
             row_meta = static.row_meta,
         )
-
-
-# =============================================================================
-# FlowBoundsBuilder
-# =============================================================================
-

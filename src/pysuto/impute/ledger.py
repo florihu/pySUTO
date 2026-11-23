@@ -70,7 +70,6 @@ class PriorLedger:
         self.f = f
         self.sigma = sigma
         self.strict_scope = bool(strict_scope)
-        self.n_dropped = 0                       # out-of-scope writes dropped so far
         self._scope: np.ndarray | None = None
         self._imputer_id = ""
         self._pass: int | None = None
@@ -178,7 +177,6 @@ class PriorLedger:
                f"scope (first: edge {first_edge})")
         if self.strict_scope:
             raise ScopeError(msg)
-        self.n_dropped += n
         logger.warning("%s; dropped", msg)
 
 

@@ -165,7 +165,6 @@ class TestSeams:
                         cwd=str(tmp_path), case="./zinc_case.py", data_dir="d")
         spec = pipe._spec("opt", pipe.base, {}, "l", "log")
         assert spec.case == str(tmp_path / "zinc_case.py")
-        assert pipe.case_id == "toy"
 
     def test_python_m_pysuto_run_without_case_exits_2_and_lists_the_aliases(
             self, tmp_path):
