@@ -1,13 +1,13 @@
 """
-init_run_solver.py
-==================
+run_solver.py
+=============
 Stage 4 driver: solve the σ-weighted QP using Clarabel, starting from a
 persisted ConstraintRun.
 
 Pipeline
 --------
 1  Load Solver (ClarabelBackend) + ConstraintRun
-2  Feasibility pre-check (defaults to first timestep only)
+2  Feasibility pre-check of every timestep (FEASIBILITY_CHECK = "all"; "none" skips it)
 3  Solve every timestep from the cold prior  a_prior(t) = conditioned f_agg(t)
    (--prior-mode cold, this driver's default; 'warm' carries a_post(t-1)),
    N_WORKERS timesteps at a time (parallel solve; warm needs N_WORKERS = 1)
@@ -19,7 +19,8 @@ Pipeline
 Usage::
 
     python scripts/run_solver.py --const-run-id CONST_RUN_ID [--label LABEL]
-                                 [--data-dir data]
+                                 [--prior-mode cold|warm] [--case CASE]
+                                 [--data-dir data] [--set KNOB=VALUE ...]
 """
 
 from __future__ import annotations
@@ -49,7 +50,7 @@ from pysuto.stages  import OPT_KNOBS as KNOBS, opt_defaults, run_opt
 DEFAULT_CASE = str(Path(__file__).resolve().with_name("copper.py"))
 CASE = resolve_case(DEFAULT_CASE)
 
-_log = get_logger("init_run_solver")
+_log = get_logger("run_solver")
 
 
 def main(const_run_id: str, label: str = "", prior_mode: str = "warm",
@@ -62,7 +63,7 @@ def main(const_run_id: str, label: str = "", prior_mode: str = "warm",
     ``driver_knobs["opt"]`` (a ``--set`` of the same knob wins); see
     :func:`pysuto.stages.run_opt`, which this calls.
     """
-    start_run_log(data_dir, "init_run_solver")
+    start_run_log(data_dir, "run_solver")
     return run_opt(case, const_run_id, label, overrides, prior_mode=prior_mode,
                    data_dir=data_dir, const_dir=const_dir, logger=_log)
 

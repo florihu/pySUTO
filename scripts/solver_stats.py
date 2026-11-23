@@ -56,7 +56,8 @@ def main(opt_run_id: str, years) -> None:
     acc = diag.acc   # loaded once, lazily, from the const run's acc_id
 
     diag_dir = os.path.join(OUTPUT_DIR, opt_run_id, "diag")
-    stats = SolverStatsDiagnostic(diag.results, diag.constraint_run, acc, years=years)
+    stats = SolverStatsDiagnostic(diag.results, diag.constraint_run, acc, years=years,
+                                  conditioning=diag.conditioning)
     paths = stats.write(diag_dir)
 
     _log.info("Wrote %d CSVs to %s", len(paths), diag_dir)

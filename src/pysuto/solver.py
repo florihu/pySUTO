@@ -48,13 +48,16 @@ from ._conditioning import (
 )
 from .acc import EDGE_UNIVERSE_ROLE_KEYS, AccountingStructure, check_built_acc
 from .constraints import ConstraintRun
-from .constraints.naming import SENSE_EQ, SENSE_LE
+from .constraints.naming import SENSE_EQ, SENSE_LE, TYPE_RATIO, TYPE_SUM
 from .input_registry import InputRegistry
-from .qp import FAILED, QPBackend, QPProblem
+from .qp import SOLVED, SOLVED_INACCURATE, QPBackend, QPProblem
 from .registry import ConstraintRunRegistry, OptimRunRegistry
 from .logging import get_logger
 
 logger = get_logger("pysuto.solver")
+
+# Diagonal of the feasibility probe's P (not the slack ε of the QP).
+_PROBE_DIAG = 1e-10
 
 
 # ============================================================================
@@ -188,6 +191,11 @@ class Solver:
       prior): the prior mean drifts forward but the prior precision does not.
       Consequence: each warm year's optimum depends on every prior year
       through the chained prior.
+      The chain runs in the order of the requested ``timesteps`` (the run's own
+      order when ``None``): the first requested period takes the cold seed and each
+      next one the posterior of the one before it in the list, so a subset or a
+      non-chronological list chains whatever it is given and the sidecar still says
+      ``prior_mode: warm``. The reference copper chain is cold.
       *Historical note:* the block path previously wrote ``a_0[cols_t]=F_opt_t``
       into the same (disjoint) year-t columns it had just read, so the
       carry-forward was a silent no-op and every year fell back to the
@@ -210,6 +218,8 @@ class Solver:
         ceiling = σ_a_ceiling_factor · max(finite σ_a)
 
     Defaults give ~12 orders of magnitude condition number.
+    A NaN in ``a_0`` or ``sigma_a`` raises ``ValueError`` (NaN is "not covered", never
+    filled), as does a soft row whose ``sigma_c`` is NaN or at or below the floor.
 
     QP variables (#33)
     ------------------
@@ -278,6 +288,17 @@ class Solver:
         self._const_registry = ConstraintRunRegistry(const_dir)
         self._opt_registry   = OptimRunRegistry(opt_dir)
 
+    @property
+    def conditioning(self) -> dict:
+        """The four σ floors / ceiling this solver applies, under the keys the opt
+        sidecar's ``stage_config`` records them."""
+        return {
+            "sigma_a_floor_abs":      self.sigma_a_floor_abs,
+            "sigma_a_floor_rel":      self.sigma_a_floor_rel,
+            "sigma_a_ceiling_factor": self.sigma_a_ceiling_factor,
+            "sigma_c_floor":          self.sigma_c_floor,
+        }
+
     # ------------------------------------------------------------------
     # Loading
     # ------------------------------------------------------------------
@@ -296,11 +317,11 @@ class Solver:
         a_0:     np.ndarray,
         sigma_a: np.ndarray,
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Thin wrapper over :func:`pysuto._conditioning.condition_prior`.
+        """:func:`pysuto._conditioning.condition_prior` with this solver's floors.
 
-        Kept as a method so existing tests / call sites continue to work;
-        the actual rules live in the shared helper so uncprop sees the
-        same conditioned prior the QP did.
+        A method so the call sites need not repeat the three floor arguments; the
+        rules live in the shared helper so uncprop sees the same conditioned prior
+        the QP did.
         """
         return condition_prior(
             a_0, sigma_a,
@@ -308,6 +329,25 @@ class Solver:
             floor_rel      = self.sigma_a_floor_rel,
             ceiling_factor = self.sigma_a_ceiling_factor,
         )
+
+    def _soft_sigma_c(self, sigma_c: np.ndarray, soft: np.ndarray, t: str) -> np.ndarray:
+        """σ_c of period ``t``'s rows, conditioned on the ``soft`` rows (a hard row has
+        no σ_c in the QP; it gets 1.0, unused).
+
+        Hard ⇔ σ_c = 0, so a soft row whose σ_c is NaN or at or below the floor breaks
+        the spec and raises ``ValueError`` — the floor never turns it into a near-hard
+        row (ADR 0019, 0035: fix the input)."""
+        out = np.ones(sigma_c.size)
+        out[soft] = condition_sigma_c(sigma_c[soft], floor=self.sigma_c_floor)
+        bad = np.flatnonzero(soft & (out <= self.sigma_c_floor))
+        if bad.size:
+            raise ValueError(
+                f"period {t!r}: {bad.size} soft row(s) have sigma_c <= the floor "
+                f"{self.sigma_c_floor:g} (first positions in the period's rows "
+                f"{bad[:5].tolist()}); a soft row has sigma_c > 0 — fix the input and "
+                f"rebuild the constraint run"
+            )
+        return out
 
     # ------------------------------------------------------------------
     # Per-period parallel map
@@ -350,10 +390,11 @@ class Solver:
         """
         Halt if the hard rows of period ``t_label`` (equalities + ``≤`` rows) plus its
         edges' flow bounds are infeasible. Solves a feasibility-only QP
-        ``min ½ ‖a‖²`` (P=εI, q=0) on the period's hard subsystem through the backend.
+        ``min ½ ‖a‖²`` (``P = _PROBE_DIAG·I``, ``q = 0``) on the period's hard subsystem
+        through the backend.
 
-        ``ε`` (a tiny diagonal) keeps the backend happy with a strictly PSD P;
-        the choice does not affect feasibility detection. Flow bounds enter as
+        The tiny diagonal ``_PROBE_DIAG`` keeps the backend happy with a strictly PSD
+        P; the choice does not affect feasibility detection. Flow bounds enter as
         ``a ≤ u`` and ``−a ≤ −l`` on every edge of the period; the probe-only bounds
         (the zero pin, the prior box) are part of ``u`` and ``l``.
         """
@@ -367,20 +408,20 @@ class Solver:
         idx_eq  = layout.perm[layout.n_slack:layout.n_slack + layout.n_eq]
         idx_le  = layout.perm[layout.n_slack + layout.n_eq:]
 
-        I = sp.eye(n_a, format="csr")
+        identity = sp.eye(n_a, format="csr")
         problem = QPProblem(
-            P     = sp.diags(np.full(n_a, 1e-10), format="csc"),
+            P     = sp.diags(np.full(n_a, _PROBE_DIAG), format="csc"),
             q     = np.zeros(n_a),
             A_eq  = G_t[idx_eq],
             b_eq  = c_t[idx_eq],
-            A_le  = sp.vstack([G_t[idx_le], I, -I], format="csr"),
+            A_le  = sp.vstack([G_t[idx_le], identity, -identity], format="csr"),
             b_le  = np.concatenate([c_t[idx_le], run.u[cols_t], -run.l[cols_t]]),
             n_a   = n_a,
             n_eps = 0,
             feasibility_only = True,
         )
         res = self.backend.solve(problem)
-        if res.status == FAILED:
+        if res.status not in (SOLVED, SOLVED_INACCURATE):
             self._raise_infeasible(t_label, rm_t, G_t, c_t, res)
 
     def _raise_infeasible(self, t_label, rm_t, G_t, c_t, res):
@@ -470,10 +511,7 @@ class Solver:
             "qp_variables":     self.qp_variables,
             "backend":          self.backend.name,
             "backend_settings": settings,
-            "sigma_a_floor_abs":      self.sigma_a_floor_abs,
-            "sigma_a_floor_rel":      self.sigma_a_floor_rel,
-            "sigma_a_ceiling_factor": self.sigma_a_ceiling_factor,
-            "sigma_c_floor":          self.sigma_c_floor,
+            **self.conditioning,
         }
         # Persisted before the backend split under these names (#70); kept.
         for k in ("max_threads", "direct_solve_method"):
@@ -588,14 +626,14 @@ class Solver:
         inv_sa_t:  np.ndarray,
     ):
         """Period ``t``'s neutral QP and what is needed to read its answer back:
-        ``(problem, perm, a_shift, const)``. ``perm`` orders the period's rows as the QP
-        does (soft, hard equalities, ``≤``); ``a_shift`` is what the backend's variables
-        are measured from; ``const`` moves the backend's cost back to the flows
-        convention."""
+        ``(problem, perm, a_shift, objective_offset)``. ``perm`` orders the period's
+        rows as the QP does (soft, hard equalities, ``≤``); ``a_shift`` is what the
+        backend's variables are measured from; ``objective_offset`` moves the backend's
+        cost back to the flows convention."""
         G_t     = run.G_blocks[t]
         rm_t    = run.row_meta.iloc[rows_t]
-        c_t     = np.asarray(run.timestep_data[t]["c"])[rows_t]
-        sc_t    = np.asarray(run.timestep_data[t]["sigma_c"])[rows_t]
+        c_t     = np.asarray(run.timestep_data[t]["c"], dtype=float)[rows_t]
+        sc_t    = np.asarray(run.timestep_data[t]["sigma_c"], dtype=float)[rows_t]
 
         layout   = row_layout(rm_t["sense"].to_numpy(), rm_t["is_hard"].to_numpy())
         perm     = layout.perm
@@ -612,21 +650,25 @@ class Solver:
         b     = c_t[perm]
 
         if n_slack:
-            sc_arr   = condition_sigma_c(sc_t, floor=self.sigma_c_floor)
+            soft     = np.zeros(sc_t.size, dtype=bool)
+            soft[perm[:n_slack]] = True
+            sc_arr   = self._soft_sigma_c(sc_t, soft, t)
             inv_scf  = 1.0 / (sc_arr[perm[:n_slack]] ** 2)
         else:
             inv_scf = np.zeros(0)
+        # P is built CSC here, where the diagonal is assembled; the backend converts it
+        # to the triangle its solver wants.
         P = sp.diags(2.0 * np.concatenate([inv_sa_t, inv_scf]), format="csc")
         # Prior offset (#33): the backend solves for x = a − a_shift. "flows": a_shift = 0;
         # "defects": a_shift = a_prior, so q = 0 and the backend's cost is J itself rather
         # than J − Σ(a_prior/σ_a)² (2015 of const_20261019_170151_13460e94: 1,288,065
-        # against an optimal J of 117,282). const moves the reported objective back
+        # against an optimal J of 117,282). objective_offset moves the reported objective back
         # to the flows convention.
         a_shift = a_prior_t if self.qp_variables == "defects" else np.zeros(n_a)
         q       = np.concatenate([-2.0 * inv_sa_t * (a_prior_t - a_shift),
                                   np.zeros(n_slack)])
         b       = b - G_p @ a_shift
-        const   = float(inv_sa_t @ (a_shift * (2.0 * a_prior_t - a_shift)))
+        objective_offset = float(inv_sa_t @ (a_shift * (2.0 * a_prior_t - a_shift)))
 
         n_top = n_slack + n_eq
         problem = QPProblem(
@@ -635,7 +677,7 @@ class Solver:
             A_le = A[n_top:], b_le = b[n_top:],
             n_a = n_a, n_eps = n_slack,
         )
-        return problem, perm, a_shift, const
+        return problem, perm, a_shift, objective_offset
 
     def _solve_period(
         self,
@@ -653,13 +695,13 @@ class Solver:
         cols_t  = run.edge_cols_by_t[t]
         rows_t  = np.where(row_time == t)[0]
         G_t     = run.G_blocks[t]
-        c_t     = np.asarray(run.timestep_data[t]["c"])[rows_t]
-        problem, perm, a_shift, const = self._period_problem(
+        c_t     = np.asarray(run.timestep_data[t]["c"], dtype=float)[rows_t]
+        problem, perm, a_shift, objective_offset = self._period_problem(
             run, t, rows_t, a_prior_t, inv_sa_t)
         n_a, n_slack, m_t = problem.n_a, problem.n_eps, G_t.shape[0]
 
         res = self.backend.solve(problem, reuse=reuse, verbose=verbose)
-        if res.status == FAILED:
+        if res.status not in (SOLVED, SOLVED_INACCURATE):
             raise RuntimeError(
                 f"Timestep {t!r}: {self.backend.name} status={res.raw_status}; halting "
                 f"(no fallback). iterations={res.iterations}"
@@ -687,7 +729,7 @@ class Solver:
             eps_opt        = eps_opt_t,
             c_star         = c_star_t,
             residuals      = residuals_t,
-            objective      = float(res.objective) - const,
+            objective      = float(res.objective) - objective_offset,
             iterations     = int(res.iterations),
             solve_time_s   = res.solve_time_s,
             solver_status  = res.status,
@@ -746,17 +788,17 @@ class Solver:
         free   = (sense == SENSE_EQ) & ~hard
         typ    = rm_t["type"].astype(str).to_numpy()
         c_t    = np.asarray(run.timestep_data[t]["c"], dtype=float)[rows_t]
-        sc_t   = condition_sigma_c(np.asarray(run.timestep_data[t]["sigma_c"])[rows_t],
-                                   floor=self.sigma_c_floor)
+        sc_t   = self._soft_sigma_c(
+            np.asarray(run.timestep_data[t]["sigma_c"], dtype=float)[rows_t], free, t)
         resid  = run.G_blocks[t] @ F - c_t
         zsq    = np.where(free, (resid / sc_t) ** 2, 0.0)
         breach = np.concatenate([np.abs(resid[hard & (sense == SENSE_EQ)]),
                                  np.maximum(resid[hard & (sense == SENSE_LE)], 0.0), [0.0]])
         out = {
             "edges":       edges,
-            "sum_rows":    float(zsq[free & (typ == "sum")].sum()),
-            "soft_ratios": float(zsq[free & (typ == "ratio")].sum()),
-            "other_soft":  float(zsq[free & (typ != "sum") & (typ != "ratio")].sum()),
+            "sum_rows":    float(zsq[free & (typ == TYPE_SUM)].sum()),
+            "soft_ratios": float(zsq[free & (typ == TYPE_RATIO)].sum()),
+            "other_soft":  float(zsq[free & (typ != TYPE_SUM) & (typ != TYPE_RATIO)].sum()),
         }
         out["total"] = edges + out["sum_rows"] + out["soft_ratios"] + out["other_soft"]
         out["max_hard_violation"] = float(breach.max())

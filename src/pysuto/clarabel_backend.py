@@ -106,7 +106,20 @@ class ClarabelBackend:
     sparsity of ``P`` are identical to that call's; ``update()`` does not re-equilibrate,
     so a stalled solve on a reused instance is retried on a fresh one. A ``reuse=False``
     call builds a fresh instance, so such calls may run on several threads at once;
-    ``reuse=True`` is for one caller at a time.
+    ``reuse=True`` is for one caller at a time. Every call still copies ``A`` into the
+    structure key and stores its instance as the latest one, also a ``reuse=False`` call
+    on one of several threads: the later ``reuse=True`` call of a serial run must find
+    the first period's instance, and a call cannot know whether one follows. The stores
+    of concurrent calls are single reference assignments, so the race is benign (a
+    parallel run never passes ``reuse=True``).
+
+    ``settings`` records the constructor's values: a ``reduced_tol_*`` left ``None``
+    is recorded as ``None`` and runs on Clarabel's own default, and the probe's
+    tolerance (``_PROBE_TOL``, for ``feasibility_only`` problems) is not recorded. The
+    Stage-4 driver passes every tolerance, so a sidecar from it holds the values used.
+    Each result's ``info`` carries ``reused`` (this solve continued the kept
+    factorisation) and ``cold_restart`` (a reused instance stalled and the solve was
+    redone on a fresh one; ``reused`` is then false).
     """
 
     name = "clarabel"
@@ -218,6 +231,7 @@ class ClarabelBackend:
         kept = self._kept[1] if (reuse and self._kept is not None
                                  and self._same(self._kept[0], key)) else None
         reused = kept is not None
+        cold_restart = False
         if reused:
             inst = kept
             inst.update(P=P, q=problem.q, b=b)
@@ -231,6 +245,7 @@ class ClarabelBackend:
             # update() keeps the equilibration computed for the first problem; a later
             # period with other σ_c can stall on stale scaling. Cold restart.
             logger.warning("status=%s on a reused instance — cold-restart retry", status)
+            reused, cold_restart = False, True
             inst = clarabel.DefaultSolver(P, problem.q, A, b,
                                           cones, self._clarabel_settings(False, probe))
             sol, hist = self._run(inst, self.capture_iter_history)
@@ -244,6 +259,7 @@ class ClarabelBackend:
             iterations   = int(sol.iterations),
             solve_time_s = time.perf_counter() - t0,
             objective    = float(sol.obj_val),
-            info         = _info_to_dict(inst.get_info()),
+            info         = {**_info_to_dict(inst.get_info()),
+                            "reused": reused, "cold_restart": cold_restart},
             iter_history = np.array(hist, dtype=ITER_DTYPE) if hist else None,
         )
