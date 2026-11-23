@@ -14,7 +14,7 @@
 **Against:** the reference chain pinned for the final review (#155, amendment 4): `feed_icsg_20261119_125015_e2e9520e`, `feed_baci_20261022_110715_fdf3b4ac`, `feed_crude_ore_20260603_095651_558f7369` → `imp_20261119_125259_f2b11cd5` → `const_20261119_125651_ff7bfc9c` → `opt_20261119_130302_b20f0dba` → `uncprop_20261119_133344_08dfa15b`, `psut_20261119_133504_4c783a88`.
 
 **Chain:**
-- **Code:** `b08d860` is `v0.1.0rc1` (84572e4) plus the 25 fix tickets of milestone `final review`, merged through `review/integration`: #203, #210–#225, #243 and #278–#286. Its full suite passed (2,404 tests).
+- **Code:** `b08d860` is `v0.1.0rc1` (84572e4) plus the fix tickets of milestone `final review`: #210–#212, merged into main earlier, and the 24 of the fix phase, #203, #213–#225, #243 and #278–#286, merged through `review/integration`. Its full suite passed (2,404 tests).
 - **Data:** the main checkout's `data/`, with no other driver running. 25 GB free before the chain, 24 GB after.
 
 **Feeds/params:**
