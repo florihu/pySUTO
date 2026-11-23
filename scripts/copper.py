@@ -59,6 +59,11 @@ from pysuto.logging import get_logger
 
 _log = get_logger(__name__)
 
+# Supply-chain order of the sectors for the problem panel (``ProblemStatsDiagnostic``);
+# sinks (FU, Tailings, Slag, WR, stock legs) sort after every chain sector.
+CHAIN_ORDER = ["CO", "Mining", "Ore", "MF", "SXEW", "Concentrate", "Smelting",
+               "Matte", "CFR", "Anode", "ER", "CER", "CSXEW", "CP", "Cathode", "Scrap"]
+
 
 # =============================================================================
 # Stage 2 — collect, aggregate, impute
@@ -415,7 +420,7 @@ def terminal(ctx) -> list:
             StockLeg("seed", ("Cathode", "Flow", "USC", "SB"),
                      (("Cathode", "Flow", "FU", "SB"),)),
         ],
-        scale_abs_floor = 100.0,
+        scale_abs_floor = spec.STOCK_SHARE_SCALE_ABS_FLOOR,
         p               = spec.P_PROP,
         id              = "net_stock_share",
         seed_cv         = spec.STOCK_SEED_CV,

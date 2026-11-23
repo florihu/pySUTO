@@ -188,7 +188,6 @@ class Pipeline:
         self.steps       = steps
         self.base        = base
         self.case        = case
-        self.case_id     = spec.id
         self.data_dir    = None if data_dir is None else str(data_dir)
         self.cwd         = str(cwd or os.getcwd())
         self.config      = None if config is None else self._under_cwd(config)

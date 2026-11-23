@@ -348,16 +348,14 @@ FEASIBILITY_CHECK = "all"
 # MaxIterations reported as infeasible). max_iter is a CAP, so easy runs still stop
 # early; raising it only helps the hard pinned scan. 2000 solves 1995 feasibility.
 MAX_ITER = 2000
-# Clarabel termination tolerances (measured in Round W.1, ADR 0039). The former
-# production setting (gap_rel 1e-3 / feas 1e-7, reduced 1e-2 / 1e-5) stopped every
-# run while the cost was still falling by thousands per iteration: re-solving 2015
-# of const_20260929_120611_6ef43f64 at gap_rel 1e-8 lowered the objective by 9,052
-# (8 % of that year's misfit) and lifted Chile's concentrate-export retention from
-# 0.66 to 0.97. The reported gap (~800) bounds nothing: |objective| is dominated by
-# the constant Σ(a0/σ)² (1.17e6 vs a misfit of 1.13e5 in 2015), and the dual cost
-# at the stop sits above the true optimum. With the lower-bound rows the same stop
-# left W.1 48,800 short of its optimum. These tolerances run each year to its
-# numerical floor (InsufficientProgress after ~150–250 iterations, ≈ 30–60 s/year)
+# Clarabel termination tolerances (measured in Round W.1, ADR 0039; the measurement is
+# in the REP roundW1-lower-bounds, "Solver-tolerance re-solve"). The former production
+# setting (gap_rel 1e-3 / feas 1e-7, reduced 1e-2 / 1e-5) stopped every run while the
+# cost was still falling by thousands per iteration (const_20260929_120611_6ef43f64,
+# year 2015), and the reported gap bounds nothing: |objective| is dominated by the
+# constant Σ(a0/σ)², and the dual cost at the stop sits above the true optimum. With
+# the lower-bound rows the same stop left W.1 far short of its optimum. These
+# tolerances run each year to its numerical floor (InsufficientProgress after ~150–250 iterations, ≈ 30–60 s/year)
 # and accept that floor as AlmostSolved through the reduced tolerances (gap_rel
 # 1e-5 is not reached there, 1e-4 is).
 # #33 (ADR 0039 am. 2026-10-21): solved for the defects, every year of the final chain

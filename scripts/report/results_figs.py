@@ -60,6 +60,7 @@ sys.path.insert(0, "scripts")
 sys.path.insert(0, "scripts/explo")
 sys.path.insert(0, "scripts/report")
 
+from copper import CHAIN_ORDER                                     # noqa: E402
 import copper_metabolism_insights as CMI                              # noqa: E402
 from pysuto.diag.stats import ProblemStatsDiagnostic                 # noqa: E402
 from pysuto.diag.stats.objective import (family_frame, objective_decomposition,  # noqa: E402
@@ -1255,7 +1256,7 @@ def main(opt: str, psut_id: str, tol_pair=None, uncprop_id=None, sweep_id=None,
           f"uncprop {uncprop_id} · sweep {sweep_id}")
 
     # ---- Fig. 3: the problem ------------------------------------------------------------
-    P = ProblemStatsDiagnostic.from_opt_id(opt, PROBLEM_YEAR)
+    P = ProblemStatsDiagnostic.from_opt_id(opt, PROBLEM_YEAR, CHAIN_ORDER)
 
     # ---- Part A -------------------------------------------------------------------
     ef, cf = load_frames(opt)

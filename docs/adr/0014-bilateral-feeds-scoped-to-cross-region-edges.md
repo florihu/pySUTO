@@ -88,11 +88,10 @@ no new seam:
   express a cross-column comparison);
 - BACI's `meta.xlsx` declares `Edge_scope_mask = cross_region` (⚠ `data/` is gitignored — on a
   fresh checkout re-add the row `Scope | Edge_scope_mask | cross_region` to
-  `data/input/feed/baci/current/meta.xlsx`, else the scope silently does not apply; the baci_feed
-  log's "edge_scope_mask … dropped" line is the check), and
+  `data/input/feed/baci/current/meta.xlsx`; without it the feed build raises, #280), and
   `_apply_edge_scope_mask` (feedpipe) drops concordance rows resolving outside the mask —
-  `scripts/baci_feed.py` now applies it explicitly since it builds its ct without
-  `run_feed_pipeline`.
+  `run_feed` applies it for a spec with `edge_scope=True` and raises when the sidecar names no
+  mask or the structure lacks it.
 
 The dropped rows are real trade, but at this aggregation level they are neither a boundary flow
 nor the domestic transfer — there is no valuation in which "0.021 kt crossed the HK border" is a

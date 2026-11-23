@@ -7,6 +7,7 @@ no root logging handler when imported.
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 import logging
 import os
@@ -116,3 +117,57 @@ def test_icsg_sector_key_disambiguates_use_rows_only():
     assert icsg_sector_key("Refining", "Scrap", "Use") == "Refining_Scrap"
     assert icsg_sector_key("Refining", "Anode", "Use") == "Refining_Anode"
     assert icsg_sector_key("Mining", "Ore", "Use") == "Mining"
+
+
+# ---------------------------------------------------------------------------
+# Edge scope (ADR 0014): a scoped feed never builds unscoped (#280, U1a-G4-4)
+# ---------------------------------------------------------------------------
+
+def _write_sidecar(data_dir, feed, mask=None):
+    """Register a ``meta.xlsx`` for the toy survey feed; ``mask`` is its Edge_scope_mask."""
+    rows = [("Feed_name", feed.feed_id), ("Reliability", 2), ("Completeness", 1),
+            ("Temporal_correlation", 1), ("Geographical_correlation", 1),
+            ("Other_correlation", 1)]
+    if mask is not None:
+        rows.append(("Edge_scope_mask", mask))
+    path = data_dir / "input" / "feed" / feed.feed_id / "current" / "meta.xlsx"
+    pd.DataFrame(rows, columns=["Meta_name", "Value"]).to_excel(path, index=False)
+
+
+def _scoped(spec):
+    return dataclasses.replace(spec, edge_scope=True)
+
+
+def test_a_scoped_feed_without_a_sidecar_raises(toy_data_dir):
+    data_dir, _, feed = toy_data_dir
+    with pytest.raises(ValueError, match="names no Edge_scope_mask"):
+        run_feed(_scoped(_survey_spec(feed)), acc_id=toy.ACC_ID, data_dir=str(data_dir),
+                 diag=False)
+
+
+def test_a_scoped_feed_whose_sidecar_names_no_mask_raises(toy_data_dir):
+    data_dir, _, feed = toy_data_dir
+    _write_sidecar(data_dir, feed)
+    with pytest.raises(ValueError, match="names no Edge_scope_mask"):
+        run_feed(_scoped(_survey_spec(feed)), acc_id=toy.ACC_ID, data_dir=str(data_dir),
+                 diag=False)
+
+
+def test_a_scoped_feed_whose_mask_the_structure_lacks_raises(toy_data_dir):
+    data_dir, _, feed = toy_data_dir
+    _write_sidecar(data_dir, feed, mask="no_such_mask")
+    with pytest.raises(ValueError, match="not present in acc_struct.masks"):
+        run_feed(_scoped(_survey_spec(feed)), acc_id=toy.ACC_ID, data_dir=str(data_dir),
+                 diag=False)
+
+
+def test_a_scope_that_keeps_every_row_leaves_the_feed_unchanged(toy_data_dir):
+    data_dir, _, feed = toy_data_dir
+    unscoped = run_feed(_survey_spec(feed), acc_id=toy.ACC_ID, data_dir=str(data_dir),
+                        diag=False)
+    _write_sidecar(data_dir, feed, mask="massbal_scope")
+    scoped = run_feed(_scoped(_survey_spec(feed)), acc_id=toy.ACC_ID,
+                      data_dir=str(data_dir), diag=False)
+    got = np.load(os.path.join(scoped.run_dir, "result.npz"))["F_root"]
+    want = np.load(os.path.join(unscoped.run_dir, "result.npz"))["F_root"]
+    np.testing.assert_array_equal(got, want)

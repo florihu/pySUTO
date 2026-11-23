@@ -266,20 +266,38 @@ def test_load_refuses_a_structure_saved_before_roles(tmp_path):
 # =============================================================================
 
 # A string literal whose whole value is one of these labels (any quote or prefix); a
-# docstring or comment that mentions one is not a literal of it.
+# docstring or comment that mentions one is not a literal of it. The first six are the
+# valuation and boundary labels (roles); the rest are copper's sector and region names
+# (#220): the library compares no case's sector or region either.
 _LABELS  = ("CC", "Mass", "SEM", "FD", "Nature", "ROW")
-_LITERAL = re.compile(r"""^[rRuUfFbB]{0,2}(['"])(%s)\1$""" % "|".join(_LABELS))
-# The one file besides acc.py and cases/ that names copper labels: it binds the roles of a
-# PSUT run persisted before roles existed, and cannot import acc (README §5).
-_LEGACY_BINDING = "registry/psut.py"
+_SECTORS = ("CO", "Mining", "WR", "Ore", "MF", "Concentrate", "Smelting", "Matte",
+            "Scrap", "Tailings", "Slag", "CFR", "SXEW", "Anode", "ER", "CER", "CSXEW",
+            "CP", "Cathode", "FU", "USC", "PSC", "MESC")
+_REGIONS = ("Chile", "China", "Zambia", "Peru", "India", "Australia", "Germany", "Japan",
+            "Russia", "Congo")
+_LITERAL = re.compile(r"""^[rRuUfFbB]{0,2}(['"])(%s)\1$"""
+                      % "|".join(_LABELS + _SECTORS + _REGIONS))
+# The files and directories that may name case labels, each for a reason:
+# acc.py and registry/psut.py bind the roles of a structure or a PSUT run persisted
+# before roles existed (the latter cannot import acc, README §5); feedprep/ holds the
+# copper feed builders' vocabulary (triaged in #229); tutorial/ is the bundled toy case,
+# a case module that ships inside the package (``pysuto.case`` resolves it by alias).
+_ALLOWED_FILES = ("acc.py", "registry/psut.py")
+_ALLOWED_DIRS  = ("feedprep/", "tutorial/")
 
 
-def test_no_role_or_valuation_label_literal_in_the_library():
+def test_the_gate_allow_list_names_what_exists():
+    root = REPO / "src" / "pysuto"
+    assert all((root / f).is_file() for f in _ALLOWED_FILES)
+    assert all((root / d).is_dir() for d in _ALLOWED_DIRS)
+
+
+def test_no_case_label_literal_in_the_library():
     root = REPO / "src" / "pysuto"
     hits = []
     for path in sorted(root.rglob("*.py")):
         rel = path.relative_to(root).as_posix()
-        if rel in ("acc.py", _LEGACY_BINDING) or rel.startswith("cases/"):
+        if rel in _ALLOWED_FILES or rel.startswith(_ALLOWED_DIRS):
             continue
         source = path.read_text(encoding="utf-8")
         for tok in tokenize.generate_tokens(io.StringIO(source).readline):
@@ -291,6 +309,8 @@ def test_no_role_or_valuation_label_literal_in_the_library():
 def test_the_gate_matches_a_label_literal_and_not_prose():
     assert _LITERAL.match('"CC"') and _LITERAL.match("'ROW'") and _LITERAL.match('f"SEM"')
     assert not _LITERAL.match('"kt CC"') and not _LITERAL.match('"""ROW region."""')
+    assert _LITERAL.match('"Matte"') and _LITERAL.match("'Chile'")
+    assert not _LITERAL.match('"Matte flows"') and not _LITERAL.match('"World"')
 
 
 # =============================================================================

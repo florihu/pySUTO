@@ -12,6 +12,7 @@ import dataclasses
 import numpy as np
 import pandas as pd
 import pytest
+import scipy.sparse as sp
 
 from pysuto.meta import DataFeedMetadata
 from pysuto.unc import UncertaintyMixin
@@ -19,10 +20,10 @@ from pysuto.feedpipe import _build_row_penalty_scale, propagate_with_row_penalty
 
 
 class _MixinWM(UncertaintyMixin):
-    """Dense-W weight-matrix stand-in driven by the real UncertaintyMixin."""
+    """CSR weight-matrix stand-in driven by the real UncertaintyMixin."""
 
     def __init__(self, W):
-        self.weight_matrix = np.asarray(W, dtype=float)
+        self.weight_matrix = sp.csr_matrix(np.asarray(W, dtype=float))
 
 
 def _acc():
@@ -128,3 +129,42 @@ def test_propagate_off_leaves_result_unpenalised():
                                                  meta, acc)
     assert summary is None
     assert result.row_penalized is None
+
+
+# ---------------------------------------------------------------------------
+# cv_root_scale_extra: ADR 0027's second per-edge multiplier (#280, U1a-G6-2)
+# ---------------------------------------------------------------------------
+
+def test_the_extra_scale_alone_multiplies_sigma_per_edge():
+    acc = _acc()
+    meta = DataFeedMetadata(feed_name="x", row_penalty=False)
+    F_src = np.array([10.0, 20.0, 30.0])
+    base, _ = propagate_with_row_penalty(_MixinWM(np.eye(3)), F_src, meta, acc)
+    extra = np.array([1.0, 2.5, 4.0])
+
+    scaled, summary = propagate_with_row_penalty(_MixinWM(np.eye(3)), F_src, meta, acc,
+                                                 cv_root_scale_extra=extra)
+
+    assert summary is None and scaled.row_penalized is None
+    np.testing.assert_allclose(scaled.sigma_root, base.sigma_root * extra,
+                               rtol=1e-12, atol=0)
+    np.testing.assert_array_equal(scaled.F_root, base.F_root)
+
+
+def test_the_extra_scale_multiplies_the_row_ratio():
+    acc = _acc()                                   # edges: 0 domestic, 1 ->ROW, 2 ROW->
+    meta = DataFeedMetadata(feed_name="x", geographical_correlation=1, row_penalty=True)
+    F_src = np.array([10.0, 20.0, 30.0])
+    penalised, summary = propagate_with_row_penalty(_MixinWM(np.eye(3)), F_src, meta,
+                                                    acc, row_region="ROW")
+    ratio = summary["row_penalty"]["ratio"]
+    extra = np.array([2.0, 1.0, 3.0])
+
+    both, _ = propagate_with_row_penalty(_MixinWM(np.eye(3)), F_src, meta, acc,
+                                         row_region="ROW", cv_root_scale_extra=extra)
+
+    np.testing.assert_allclose(both.sigma_root, penalised.sigma_root * extra,
+                               rtol=1e-12, atol=0)
+    # edge 2 carries both: ratio (ROW) and 3 (extra) on the unpenalised cv of edge 0
+    assert both.cv_root[2] / both.cv_root[0] == pytest.approx(ratio * 3.0 / 2.0,
+                                                              rel=1e-12)

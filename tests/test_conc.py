@@ -3,7 +3,7 @@ import pandas as pd
 import numpy as np
 from types import SimpleNamespace
 
-from pysuto.conc import ConcordanceTable, WeightMatrix
+from pysuto.conc import ConcordanceTable, WeightMatrix, node_ids
 from pysuto.feedpipe import build_F_src, matched_raw_total
 
 # The Supply_Use vocabulary of the raw rows: each value mapped to the endpoint it
@@ -369,7 +369,7 @@ class TestManyToOneFanIn:
         wm     = WeightMatrix(concordance=ct, id="test_fanin_wm")
 
         F_src  = np.ones(ct.n_src_edges)
-        F_root = wm.apply(F_src)
+        F_root = (wm.weight_matrix.T @ F_src)
 
         # Conc1 contributes 1.0 and Conc2 contributes 1.0 to root edge 6
         assert np.isclose(F_root[6], 2.0), (
@@ -408,7 +408,7 @@ class TestManyToOneFanIn:
         wm = WeightMatrix(concordance=ct, id="test_wm")
 
         F_src = np.ones(ct.n_src_edges)
-        F_root = wm.apply(F_src)
+        F_root = (wm.weight_matrix.T @ F_src)
 
         assert F_root.shape == (ct.n_root_edges,)
 
@@ -556,7 +556,7 @@ class TestSingleEndpointUseFanOut:
     def test_mass_preserved_through_W(self, raw_use_only, mock_acc_struct, maps):
         ct = self._ct(raw_use_only, mock_acc_struct, maps)
         wm = WeightMatrix(ct)
-        F_root = wm.apply(np.full(ct.n_src_edges, 100.0))
+        F_root = wm.weight_matrix.T @ np.full(ct.n_src_edges, 100.0)
         # split, not replicated: 50 + 50 = 100 (the raw value), NOT 200
         assert F_root.sum() == pytest.approx(100.0)
         assert F_root[6] == pytest.approx(50.0)
@@ -600,7 +600,7 @@ class TestSingleEndpointUseFanOut:
         assert ct.n_src_edges == 1, "open-sector fan across entities must be ONE src edge"
         assert set(ct.tab["src_entity_from"]) == {"<any>"}
         # fans to both producers, mass preserved (50 / 50, not 100 / 100)
-        F_root = WeightMatrix(ct).apply(np.full(ct.n_src_edges, 100.0))
+        F_root = WeightMatrix(ct).weight_matrix.T @ np.full(ct.n_src_edges, 100.0)
         assert F_root.sum() == pytest.approx(100.0)
         assert F_root[0] == pytest.approx(50.0)
         assert F_root[1] == pytest.approx(50.0)
@@ -887,3 +887,101 @@ class TestFanPolicy:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+# =============================================================================
+# from_raw's refusals (#280, U1a-G6-1) and the vectorised node lookup
+# =============================================================================
+
+class TestFromRawRefuses:
+    """Every ``ValueError`` of ``ConcordanceTable.from_raw`` is exercised through the
+    interface, each with the input that reaches it."""
+
+    def test_aux_col_without_aux_sides_raises(self, raw_use_only, mock_acc_struct, maps):
+        with pytest.raises(ValueError, match="needs aux_sides"):
+            ConcordanceTable.from_raw(raw_df=raw_use_only, acc_struct=mock_acc_struct,
+                                      aux_col="Supply_Use", id="t", **maps)
+
+    def test_a_side_other_than_from_or_to_raises(self, raw_use_only, mock_acc_struct, maps):
+        with pytest.raises(ValueError, match="a side is 'from' or 'to'"):
+            ConcordanceTable.from_raw(raw_df=raw_use_only, acc_struct=mock_acc_struct,
+                                      aux_col="Supply_Use",
+                                      aux_sides={"Supply": "from", "Use": "left"},
+                                      id="t", **maps)
+
+    def test_an_aux_value_the_case_does_not_declare_raises(self, raw_use_only,
+                                                           mock_acc_struct, maps):
+        with pytest.raises(ValueError, match="Unknown Supply_Use: Use"):
+            ConcordanceTable.from_raw(raw_df=raw_use_only, acc_struct=mock_acc_struct,
+                                      aux_col="Supply_Use", aux_sides={"Supply": "from"},
+                                      id="t", **maps)
+
+    def test_an_unmapped_primary_side_raises(self, raw_use_only, mock_acc_struct, maps):
+        raw = raw_use_only.assign(Region="Z")          # region Z is in no region_map row
+        with pytest.raises(ValueError, match="Missing src→root mapping"):
+            build_ct(raw, mock_acc_struct, maps)
+
+    def test_unmatched_rows_raise_unless_allowed(self, raw_use_only, mock_acc_struct, maps):
+        # a Use row of Ore(B): the relation Mining -> Ore exists, but no edge enters Ore(B)
+        raw = pd.concat([raw_use_only,
+                         raw_use_only.assign(Process="Ore", Type="Mining", Region="B")],
+                        ignore_index=True)
+        with pytest.warns(UserWarning, match="not associated with any edge"):
+            ct = build_ct(raw, mock_acc_struct, maps, allow_unmatched=True)
+        assert ct.unmatched_raw_rows == [1]
+        with pytest.raises(ValueError, match="not associated with any edge"):
+            build_ct(raw, mock_acc_struct, maps, allow_unmatched=False)
+
+    def test_a_fan_whose_user_weights_sum_to_zero_cannot_be_normalised(
+            self, raw_use_only, mock_acc_struct, maps):
+        uw = pd.DataFrame([
+            {"root_sector_from": "Concentrate", "root_sector_to": "Refining",
+             "root_region_from": r, "root_region_to": "A", "root_time": 0, "weight": 0.0}
+            for r in ("A", "B")])
+        with pytest.raises(ValueError, match="Weights do not sum to 1"):
+            ConcordanceTable.from_raw(raw_df=raw_use_only, acc_struct=mock_acc_struct,
+                                      aux_col="Supply_Use", aux_sides=AUX_SIDES, id="t",
+                                      user_weights_df=uw, **maps)
+
+    def test_a_user_row_without_a_weight_raises(self, raw_use_only, mock_acc_struct, maps):
+        ct = build_ct(raw_use_only, mock_acc_struct, maps)
+        tab = ct.tab.assign(weight_mode="user", weight_value=np.nan)
+        with pytest.raises(ValueError, match="must have weight_value set"):
+            ConcordanceTable(tab=tab, acc_struct=mock_acc_struct)
+
+    def test_a_duplicated_user_weight_key_raises_instead_of_doubling_the_leg(
+            self, raw_use_only, mock_acc_struct, maps):
+        """Regression (#280, U1a-G4-8): a duplicate in ``user_weights_df`` used to
+        duplicate the concordance row and so double that leg's weight."""
+        uw = pd.DataFrame([
+            {"root_sector_from": "Concentrate", "root_sector_to": "Refining",
+             "root_region_from": "A", "root_region_to": "A", "root_time": 0, "weight": w}
+            for w in (1.0, 3.0)])
+        with pytest.raises(ValueError, match="(?i)not a many-to-one"):
+            ConcordanceTable.from_raw(raw_df=raw_use_only, acc_struct=mock_acc_struct,
+                                      aux_col="Supply_Use", aux_sides=AUX_SIDES, id="t",
+                                      user_weights_df=uw, **maps)
+
+
+class TestNodeIds:
+    def test_resolves_tuples_in_row_order(self, mock_acc_struct):
+        ids = node_ids(mock_acc_struct.node_to_id,
+                       ["Refining", "Mining", "Ore"], ["P", "P", "F"], ["B", "A", "B"])
+        np.testing.assert_array_equal(ids, [8, 0, 2])
+        assert ids.dtype == np.int64
+
+    def test_an_unknown_node_raises_naming_it(self, mock_acc_struct):
+        with pytest.raises(KeyError, match="Smelting"):
+            node_ids(mock_acc_struct.node_to_id,
+                     ["Ore", "Smelting"], ["F", "F"], ["A", "A"])
+
+
+class TestConcordanceUnit:
+    def test_unit_is_kt_without_valuation_roles(self, raw_use_only, mock_acc_struct, maps):
+        assert build_ct(raw_use_only, mock_acc_struct, maps).unit == "kt"
+
+    def test_unit_names_the_content_valuation_when_every_edge_sits_on_it(
+            self, raw_use_only, mock_acc_struct, maps):
+        mock_acc_struct.valuation_roles = SimpleNamespace(content="mass", gross="gross")
+        assert build_ct(raw_use_only, mock_acc_struct, maps).unit == "kt mass"
+        mock_acc_struct.valuation_roles = SimpleNamespace(content="CC", gross="mass")
+        assert build_ct(raw_use_only, mock_acc_struct, maps).unit == "kt"

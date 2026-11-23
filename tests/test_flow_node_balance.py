@@ -52,7 +52,7 @@ _REAL = {"Russia": (545.0, 50.8), "Iran": (116.0, 3.76), "Bulgaria": (103.2, 20.
 
 def test_flags_contradicted_nodes_and_spares_closing_ones():
     acc, agg = _build(_REAL)
-    keys, rep = contradicted_flow_nodes(acc, agg)
+    keys, rep = contradicted_flow_nodes(acc, agg, sectors=("Matte",))
     assert ("Matte", "Russia", "1995") in keys
     assert ("Matte", "Iran", "1995") in keys
     assert ("Matte", "Bulgaria", "1995") in keys
@@ -68,13 +68,13 @@ def test_anode_exports_do_not_rescue_the_matte_node():
     # by CFR — so anode exports raise the matte requirement, they are not an
     # outlet for matte. The node must still be flagged.
     acc, agg = _build({**_REAL, "Bulgaria": (103.2, 20.3)})
-    keys, _ = contradicted_flow_nodes(acc, agg)
+    keys, _ = contradicted_flow_nodes(acc, agg, sectors=("Matte",))
     assert ("Matte", "Bulgaria", "1995") in keys
 
 
 def test_tiny_nodes_are_not_flagged():
     acc, agg = _build({**_REAL, "Chile": (0.4, 0.0)})   # below MIN_INFLOW_KT
-    keys, _ = contradicted_flow_nodes(acc, agg)
+    keys, _ = contradicted_flow_nodes(acc, agg, sectors=("Matte",))
     assert ("Matte", "Chile", "1995") not in keys
 
 

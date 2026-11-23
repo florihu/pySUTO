@@ -45,7 +45,7 @@ class FlatPriorImputer(BaseImputer):
     """
     Final-fallback imputer with two modes:
 
-    ``mode='magnitude_aware'`` (default, legacy behaviour)
+    ``mode='magnitude_aware'`` (default)
         Fills any residual-NaN edges with a flat prior sized by an
         accounting-mask CV × group scale (two refinements introduced
         after `REP/analysis_optim_const_copper_…_20260513_112419.md`)::
@@ -109,7 +109,7 @@ class FlatPriorImputer(BaseImputer):
             (e.g. row-specific sub-masks computed in the init script).
             Ignored in ``noisy_zero`` mode.
         mode : str
-            ``"magnitude_aware"`` (default) — legacy behaviour:
+            ``"magnitude_aware"`` (default):
             ``σ = CV(j) · scale(j)``.
             ``"noisy_zero"`` — test mode: ``σ = sigma_high`` constant.
         sigma_high : float | None

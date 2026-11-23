@@ -68,8 +68,6 @@ class Relation:
         (``sigma_param / |r|``); a fill reads ``meta["sigma_param"]``, Stage 3 ``sigma``.
     agg : bool
         The relation pools several edges per side (``agg=true`` params row).
-    emit_only : bool
-        Never solved for a prior (scale totals, hard bounds).
     source : str
         What the relation was built from (params id, ``"massbal"``).
     """
@@ -89,5 +87,4 @@ class Relation:
     n_num:        Optional[int] = None
     meta:         dict = field(default_factory=dict)
     agg:          bool = False
-    emit_only:    bool = False
     source:       str = ""
