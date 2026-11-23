@@ -9,7 +9,7 @@ Break it
 --------
 Each ``break_*`` takes the run tree ``run_root`` of a finished toy chain plus its knobs
 as arguments, runs the stages it must into the same tree under a **registry label other
-than** ``"toy"`` (``toy._latest`` selects by label, so an experiment never becomes "the
+than** ``"toy"`` (``toy.latest_run_id`` selects by label, so an experiment never becomes "the
 latest run" of the core chapters), and returns what it ran: the run ids, and a small
 frame the notebook displays. The base chain's runs are reused wherever nothing changed.
 
@@ -54,7 +54,9 @@ import pandas as pd
 import scipy.sparse as sp
 
 from pysuto._conditioning import condition_prior
-from pysuto.acc import AccountingStructure, read_acc_spec_dir, write_build_record
+from pysuto import acc_store
+from pysuto.acc import AccountingStructure, read_acc_spec_dir
+from pysuto.acc_store import write_build_record
 from pysuto.tutorial import toy
 from pysuto.clarabel_backend import ClarabelBackend
 from pysuto.constraints import (BaseConstraintBuilder, ConstraintBlock, FlowBoundsBuilder,
@@ -102,20 +104,20 @@ def _with_builders(builders: Callable):
 def base_ids(run_root) -> dict:
     """The latest ``"toy"``-labelled ``imp``, ``const``, ``opt`` and ``uncprop`` runs of
     the tree: the core chain the experiments start from."""
-    tree = toy._tree(run_root)
-    return {"imp":     toy._latest(ImputationRunRegistry(str(tree["imp"]))),
-            "const":   toy._latest(ConstraintRunRegistry(str(tree["const"]))),
-            "opt":     toy._latest(OptimRunRegistry(str(tree["opt"]))),
-            "uncprop": toy._latest(UncPropRunRegistry(str(tree["uncprop"])))}
+    tree = toy.run_tree(run_root)
+    return {"imp":     toy.latest_run_id(ImputationRunRegistry(str(tree["imp"]))),
+            "const":   toy.latest_run_id(ConstraintRunRegistry(str(tree["const"]))),
+            "opt":     toy.latest_run_id(OptimRunRegistry(str(tree["opt"]))),
+            "uncprop": toy.latest_run_id(UncPropRunRegistry(str(tree["uncprop"])))}
 
 
 def _feed_run_ids(run_root, imp_run_id: str) -> "dict[str, str]":
     """The feed runs an imp run aggregated, by feed id (the label they were registered
     under)."""
-    tree = toy._tree(run_root)
+    tree = toy.run_tree(run_root)
     feeds = DataFeedRegistry(odir=str(tree["feed"]))
     feeds.load_index()
-    ids = toy._upstream(ImputationRunRegistry(str(tree["imp"])).load_sidecar(imp_run_id),
+    ids = toy.upstream_run_id(ImputationRunRegistry(str(tree["imp"])).load_sidecar(imp_run_id),
                         "feed_run_ids")
     return {feeds.load_sidecar(r)["label"]: r for r in ids}
 
@@ -124,20 +126,20 @@ def _register_feed(run_root, feed: toy.SyntheticFeed, label: str,
                    seed: int = toy.SEED) -> str:
     """Stage 1 for one synthetic feed, under ``label`` (a feed registered as
     ``"customs"`` would become the latest Customs feed of the core chapters)."""
-    tree      = toy._tree(run_root)
+    tree      = toy.run_tree(run_root)
     acc_entry = InputRegistries.initialize(root=str(tree["input"])).acc.entry(toy.ACC_ID)
     registry  = DataFeedRegistry(odir=str(tree["feed"]))
     registry.load_index()
-    entry, _ = toy._register_synthetic_feed(feed, toy._load_acc(tree), acc_entry,
+    entry, _ = toy._register_synthetic_feed(feed, toy.load_acc(tree), acc_entry,
                                             registry, label, seed)
     return entry.run_id
 
 
 def _const_of(run_root, opt_run_id: str):
     """The loaded const run an opt run solved (the opt sidecar's ``const_run_id``)."""
-    tree = toy._tree(run_root)
+    tree = toy.run_tree(run_root)
     return ConstraintRunRegistry(str(tree["const"])).load(
-        toy._upstream(OptimRunRegistry(str(tree["opt"])).load_sidecar(opt_run_id),
+        toy.upstream_run_id(OptimRunRegistry(str(tree["opt"])).load_sidecar(opt_run_id),
                       "const_run_id"))
 
 
@@ -166,9 +168,9 @@ def _row_z(run_root, opt_run_id: str, soft: pd.DataFrame, **match) -> float:
 def _score(run_root, ids: dict, seed: int = toy.SEED) -> dict:
     """What the experiments tabulate about one chain: the reconciled estimate against
     the truth (:func:`toy.scoreboard`) and the largest soft residual."""
-    tree = toy._tree(run_root)
+    tree = toy.run_tree(run_root)
     diag = toy.scoreboard(run_root, ids, seed)
-    acc  = toy._load_acc(tree)
+    acc  = toy.load_acc(tree)
     planted = toy.reveal()
     edge = toy._edge_id(acc, *(planted[k] for k in toy._PLANTED_EDGE))
     rel  = diag.error_by_stage().loc["reconciled"]
@@ -293,7 +295,7 @@ def _edge_values(run_root, opt_run_id: str, edge_id: int
     solution and the conditioned prior σ the solver used."""
     const = _const_of(run_root, opt_run_id)
     a_prior, sigma = condition_prior(const.a_prior_global, const.sigma_a)
-    opt = OptimRunRegistry(str(toy._tree(run_root)["opt"]))
+    opt = OptimRunRegistry(str(toy.run_tree(run_root)["opt"]))
     a_star = toy._global(opt.load(opt_run_id), "F_opt", a_prior.size)
     return float(a_prior[edge_id]), float(a_star[edge_id]), float(sigma[edge_id])
 
@@ -316,8 +318,8 @@ def break_phantom(run_root, year: str = "2003", factor: float = 3.0,
         edge-term z ``(a* − prior) / σ_prior`` (the conditioned prior σ the solver used).
     """
     base = base or base_ids(run_root)
-    tree = toy._tree(run_root)
-    acc  = toy._load_acc(tree)
+    tree = toy.run_tree(run_root)
+    acc  = toy.load_acc(tree)
     exporter, importer = _PHANTOM_CODE
     truth = toy.truth(toy.SEED)
     output = float(truth[(truth["time"] == year) & (truth["valuation"] == toy.GROSS)
@@ -354,7 +356,7 @@ def break_phantom(run_root, year: str = "2003", factor: float = 3.0,
 def _solve_year(run_root, const_run_id: str, year: str, gap_rel: float):
     """One year of ``const_run_id`` solved at relative gap ``gap_rel``, the other
     tolerances those of :func:`toy.run_stage4`; nothing is persisted."""
-    tree = toy._tree(run_root)
+    tree = toy.run_tree(run_root)
     backend = ClarabelBackend(
         tol_feas            = toy.TOL_FEAS,
         tol_gap_rel         = gap_rel,
@@ -392,7 +394,7 @@ def break_tolerance(run_root, year: str = "2003", gap_rel: float = 1e-3,
         differing by more than their σ); ``runs`` the const run solved.
     """
     base = base or base_ids(run_root)
-    tree = toy._tree(run_root)
+    tree = toy.run_tree(run_root)
     const_id = base["const"]
     if bands:
         def builders(ctx) -> list:
@@ -408,7 +410,7 @@ def break_tolerance(run_root, year: str = "2003", gap_rel: float = 1e-3,
     ratio = diff / sigma[cols]
     order = np.argsort(-ratio, kind="stable")[:top]
     table = pd.DataFrame({
-        "edge":            toy._load_acc(tree).edge_meta.loc[cols[order]].apply(
+        "edge":            toy.load_acc(tree).edge_meta.loc[cols[order]].apply(
             lambda r: f"{r.from_sector}[{r.from_region}] → {r.to_sector}[{r.to_region}]"
                       f" {r.valuation}", axis=1).to_numpy(),
         "a_loose":         loose.F_opt[order],
@@ -521,7 +523,7 @@ def run_seams(run_root, base: Optional[dict] = None, label: str = "toy_seams") -
             toy.CASE.const, builders=lambda ctx: toy.builders(ctx) + [NetStockRow()]))
     with _variant(label, case):
         runs = _run_stages(run_root, toy.run_stage2(run_root, feeds))
-    tree = toy._tree(run_root)
+    tree = toy.run_tree(run_root)
     log  = ImputationRunRegistry(str(tree["imp"])).load(
         runs["imp"]).imputation_log.as_dataframe()
     return {"runs": {"feed": feeds, **runs},
@@ -576,7 +578,7 @@ def register_feeds(data_dir, acc_id: str, specs: "list[FeedSpec]") -> "dict[str,
     inputs    = InputRegistries.initialize(root=str(data_dir / "input"))
     acc_dir   = data_dir / "proc" / "acc"
     spec      = read_acc_spec_dir(inputs.acc.resolve(acc_id))
-    AccountingStructure.from_spec(spec, acc_id, storage_dir=str(acc_dir)).save()
+    acc_store.save(AccountingStructure.from_spec(spec, acc_id, storage_dir=str(acc_dir)))
     write_build_record(str(acc_dir), inputs.acc.entry(acc_id))
     return {s.feed_id: run_feed(s, acc_id=acc_id, data_dir=str(data_dir),
                                 diag=False).run_id for s in specs}

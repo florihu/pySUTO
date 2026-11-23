@@ -21,7 +21,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pysuto.acc import ALL_SPEC_KEYS, AccountingStructure, check_built_acc
+from pysuto import acc_store
+from pysuto.acc import ALL_SPEC_KEYS
+from pysuto.acc_store import check_built_acc
 from pysuto.tutorial import toy
 from pysuto.diag import FeedDiagnostics, SankeySpec, TruthDiag, sankey_tables
 from pysuto.registry import (ConstraintRunRegistry, DataFeedRegistry,
@@ -46,7 +48,7 @@ def chain(tmp_path_factory):
     # fake the figure; the tutorial job draws the real one)
     ids["psut"]    = toy.run_stage6(root, ids["opt"], png=False)
     return {"root": root, "ids": ids, "seconds": time.perf_counter() - t0,
-            "acc": AccountingStructure.load(toy.ACC_ID,
+            "acc": acc_store.load(toy.ACC_ID,
                                             storage_dir=str(root / "proc" / "acc"))}
 
 
@@ -82,7 +84,7 @@ def test_the_acc_spec_builds_through_from_spec_and_survives_a_reload(tmp_path):
     assert np.all(acc.bounds.l[stock] < 0.0) and np.all(acc.bounds.l[~stock] == 0.0)
     # #53's record; the same version needs no registry to be compared
     check_built_acc(str(tmp_path), toy.ACC_REF, None, ALL_SPEC_KEYS, require_record=True)
-    loaded = AccountingStructure.load(toy.ACC_ID, storage_dir=str(tmp_path))
+    loaded = acc_store.load(toy.ACC_ID, storage_dir=str(tmp_path))
     pd.testing.assert_frame_equal(loaded.edge_index, acc.edge_index)
     np.testing.assert_array_equal(loaded.masks["massbal_scope"],
                                   acc.masks["massbal_scope"])
@@ -287,6 +289,21 @@ def test_the_planted_leg_is_the_top_soft_residual(chain):
     assert abs(top["z"]) > 1.5 * abs(soft["z"].iloc[2])   # the leg and its twin lead
 
 
+def test_the_planted_leg_is_recovered_inside_its_interval(chain):
+    """The x1000 leg's posterior mean lands near its truth (seed 59, a* 23.63 kt vs truth
+    22.73 kt on ``opt_20261123_134417_2ad7561c``), inside its (1 − alpha) interval."""
+    root, ids, acc = chain["root"], chain["ids"], chain["acc"]
+    leg   = toy._edge_id(acc, *(toy.reveal()[k] for k in PLANTED_KEY))
+    truth = toy.truth_vector(toy.truth(), acc)[leg]
+    a_star = toy._global(OptimRunRegistry(str(root / "proc" / "opt")).load(ids["opt"]),
+                         "F_opt", acc.n_edges)[leg]
+    post   = UncPropRunRegistry(str(root / "proc" / "uncprop")).load(ids["uncprop"])
+    (ts,)  = [t for t in post.per_timestep.values() if leg in set(np.asarray(t.cols_t))]
+    k      = int(np.flatnonzero(np.asarray(ts.cols_t) == leg)[0])
+    assert ts.lower[k] <= truth <= ts.upper[k]
+    assert abs(a_star - truth) < 0.10 * truth
+
+
 def test_stage5_coverage_of_the_420_edges_lies_in_its_recorded_band(chain):
     root, ids, acc = chain["root"], chain["ids"], chain["acc"]
     truth   = toy.truth_vector(toy.truth(), acc)
@@ -300,7 +317,7 @@ def test_stage5_coverage_of_the_420_edges_lies_in_its_recorded_band(chain):
     # 393 of 420 edges inside their 95 % interval. Never loosen it. With copper's
     # cascade order (review of 9c797e3): 0.933, 392 of 420. After #60's hooks (the
     # inert sum rows removed, one edge observed by two feeds): 0.943, 396 of 420.
-    assert 0.90 <= coverage <= 0.97, coverage
+    assert coverage == pytest.approx(0.943, abs=0.003), coverage   # 396 of 420, ±1 edge
     assert toy.scoreboard(root, ids).coverage() == pytest.approx(coverage)
 
 

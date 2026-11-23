@@ -23,8 +23,8 @@ def lp_combine(values, p: float) -> float:
 
     With p=2 this matches Gaussian quadrature. With p<2 large terms are
     weighted relatively less, suppressing σ inflation when source σ values
-    have correlated structure. The pySUTO range is p ∈ [1.1, 1.5];
-    default p = ``P_DEFAULT``.
+    have correlated structure. The pySUTO range is p ∈ [1.1, 1.5]; the shipped
+    value is ``P_DEFAULT`` (every caller passes ``p``).
     """
     arr = np.asarray(values, dtype=float)
     if arr.size == 0:

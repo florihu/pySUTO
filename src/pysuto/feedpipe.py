@@ -25,6 +25,7 @@ from typing import Callable, Optional
 import numpy as np
 import pandas as pd
 
+from pysuto import acc_store
 from pysuto.acc import AccountingStructure
 from pysuto.input_registry import InputRegistries
 from pysuto.meta import DataFeedMetadata
@@ -579,7 +580,7 @@ def load_acc_structure(acc_id: str, acc_dir: str) -> AccountingStructure:
             f"Available structures:\n{available}"
         )
 
-    acc = AccountingStructure.load(id=acc_id, storage_dir=acc_dir)
+    acc = acc_store.load(id=acc_id, storage_dir=acc_dir)
     _log.info("   nodes           : %d", acc.n_nodes)
     _log.info("   admissible edges: %d", len(acc.edge_index))
     _log.info("   time range      : %s – %s", acc.time_range[0], acc.time_range[-1])

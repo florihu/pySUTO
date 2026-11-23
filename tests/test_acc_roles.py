@@ -13,7 +13,6 @@ import copy
 import io
 import json
 import logging
-import pickle
 import re
 import tokenize
 from pathlib import Path
@@ -22,6 +21,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from pysuto import acc_store
 from pysuto.acc import (
     ALL_SPEC_KEYS, EDGE_UNIVERSE_KEYS, EDGE_UNIVERSE_ROLE_KEYS, AccountingStructure,
     BoundaryRole, ValuationRole, ValuationRoles, _read_ods, acc_spec_differences,
@@ -124,8 +124,8 @@ def test_a_spec_binds_its_labels_to_roles():
 
 def test_own_labels_round_trip_through_save_and_load(tmp_path):
     acc = AccountingStructure.from_spec(OWN_LABELS, "own", storage_dir=str(tmp_path))
-    acc.save()
-    loaded = AccountingStructure.load("own", storage_dir=str(tmp_path))
+    acc_store.save(acc)
+    loaded = acc_store.load("own", storage_dir=str(tmp_path))
     _assert_same(loaded, acc)
     # tradable was all-false after load() until the rule tables were persisted (#119)
     assert int(loaded.masks["tradable"].sum()) == int(acc.masks["tradable"].sum()) > 0
@@ -231,23 +231,22 @@ def test_a_valuation_given_as_a_bare_label_raises():
 
 
 def _saved(tmp_path) -> Path:
-    AccountingStructure.from_spec(COPPER_LABELS, "cu", storage_dir=str(tmp_path)).save()
-    return tmp_path / "cu" / "metadata.pkl"
+    acc_store.save(AccountingStructure.from_spec(COPPER_LABELS, "cu",
+                                                 storage_dir=str(tmp_path)))
+    return tmp_path / "cu" / "metadata.json"
 
 
 def _rewrite(path: Path, edit) -> None:
-    with open(path, "rb") as f:
-        meta = pickle.load(f)
+    meta = json.loads(path.read_text(encoding="utf-8"))
     edit(meta)
-    with open(path, "wb") as f:
-        pickle.dump(meta, f)
+    path.write_text(json.dumps(meta), encoding="utf-8")
 
 
 def test_load_validates_the_persisted_roles(tmp_path):
     path = _saved(tmp_path)
     _rewrite(path, lambda meta: meta["boundary_roles"].pop("Slag"))
     with pytest.raises(ValueError, match="SB sector 'Slag' has no boundary role"):
-        AccountingStructure.load("cu", storage_dir=str(tmp_path))
+        acc_store.load("cu", storage_dir=str(tmp_path))
 
 
 def test_load_refuses_a_structure_saved_before_roles(tmp_path):
@@ -258,7 +257,7 @@ def test_load_refuses_a_structure_saved_before_roles(tmp_path):
 
     _rewrite(_saved(tmp_path), drop_the_119_keys)
     with pytest.raises(ValueError, match="saved before roles.*scripts/acc.py --id cu"):
-        AccountingStructure.load("cu", storage_dir=str(tmp_path))
+        acc_store.load("cu", storage_dir=str(tmp_path))
 
 
 # =============================================================================

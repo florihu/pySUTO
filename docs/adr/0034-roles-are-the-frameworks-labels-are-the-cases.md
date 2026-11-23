@@ -29,3 +29,7 @@ metal case nothing. Validation runs on build **and** on load (sector→entity 1:
 - **Splitting `secondary` into `secondary_input` / `residual_output`.** Contradicts the single
   `SEM` category the glossary defines (which also carries `PSC`) and forces every case to assign a
   fourth role that edge direction already determines.
+
+## Scope of the gate
+
+The grep gate (`tests/test_acc_roles.py`) covers the role and valuation labels only. Copper *sector* labels that remain in library code are defaults and orderings, not role lookups: `contradicted_flow_nodes(sectors=("Matte",))` in `flow_node_balance.py` and `CHAIN_ORDER` in `diag/stats/problem.py`. They are out of this ADR's scope (U7-G4-8, #278).

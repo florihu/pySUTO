@@ -36,7 +36,9 @@ _REPO_ROOT  = os.path.dirname(_SCRIPT_DIR)
 
 sys.path.insert(0, os.path.join(_REPO_ROOT, "src"))
 
-from pysuto.acc import AccountingStructure, read_acc_spec_dir, write_build_record
+from pysuto import acc_store
+from pysuto.acc import AccountingStructure, read_acc_spec_dir
+from pysuto.acc_store import write_build_record
 from pysuto.input_registry import InputRegistries
 from pysuto.registry import stage_lock
 
@@ -159,9 +161,6 @@ def main() -> AccountingStructure:
     print(f"  Time points        : {acc.n_timeps:>10,d}")
     print(f"  Valuations         : {acc.n_valtns:>10,d}")
     print(f"  Admissible edges   : {acc.n_edges:>10,d}")
-    print(f"  All edges (no rule): {acc.n_edges_all:>10,d}")
-    print(f"  Tensor shape       :  {acc.A.shape}")
-    print(f"  Tensor nnz         : {acc.A.nnz:>10,d}")
     print()
     print(f"  Bounds summary     :  {acc.bounds.summary()}")
 
@@ -203,7 +202,7 @@ def main() -> AccountingStructure:
 
     print()
     logger.info("Saving structure …")
-    acc.save()
+    acc_store.save(acc)
     write_build_record(args.out, acc_entry)     # the input entry it was built from (#53)
     out_dir = os.path.join(args.out, args.id)
     edge_summary.to_csv(os.path.join(out_dir, "edge_summary.csv"), index=False)

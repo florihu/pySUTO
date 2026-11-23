@@ -53,8 +53,13 @@ Limitations, stated once
   choose and its intervals can be scored against the truth. The price is the band group
   the manuscript describes for copper (Method §3.1, ADR 0039), which carries the
   non-negativity of every flow: without it a posterior flow may go below zero. On the
-  seed-59 chain Portua, which mines nothing, books a small negative ore extraction in
-  2003 (``Deposit → Mining`` below 1 kt, the free slack of its mine-less chain).
+  seed-59 chain (``opt_20261123_134417_2ad7561c``) 55 edge-values fall below zero
+  (a* < -1e-9), 41 of them outside the signed stock-change leg: Concentrate → Smelting
+  (19, down to -2.58 kt), Milling → Concentrate (4, down to -2.50 kt), Deposit →
+  Mining, Mining → Ore and Ore → Milling (4 each, down to -0.77 kt), Mining →
+  WasteRock (2) and Milling → Tailings (4), all on edges whose truth is zero. The
+  acc's default ``l = 0`` is never enforced here (no ``FlowBoundsBuilder``), so its
+  bound vector is inert for the toy.
 * **A closed world.** No ``ROW`` region, so the ROW pedigree penalty never fires.
 * **One fixed seed.** This module is ``src/``'s exception to "no RNG" (CLAUDE.md): the
   truth's year-to-year wiggle and the feeds' noise come from ``np.random.default_rng``.
@@ -94,7 +99,9 @@ import numpy as np
 import pandas as pd
 
 from pysuto._conditioning import condition_prior, condition_sigma_c
-from pysuto.acc import AccountingStructure, write_build_record
+from pysuto import acc_store
+from pysuto.acc import AccountingStructure
+from pysuto.acc_store import write_build_record
 from pysuto.case import CascadeStep, CaseSpec, ConstSection, FillEntry, ImpSection
 from pysuto.conc import WeightMatrix
 from pysuto.constraints import (
@@ -194,7 +201,7 @@ ACC_SPEC: dict = {
         {"from": "Flow",    "to": "SB",      "same_region": False},
         {"from": "SB",      "to": "Process", "same_region": True},
     ],
-    # the signed stock leg; every other edge keeps the default [0, 1e9]
+    # the signed stock-change leg; every other edge keeps the default [0, 1e9]
     "bounds": [
         {"Sector_from": "Metal", "Region_from": "*", "Sector_to": "Stock",
          "Region_to": "*", "Time": "*", "Valuation": "*",
@@ -238,7 +245,7 @@ def build_acc(storage_dir: PathLike, ref: Optional[dict] = None,
     acc = AccountingStructure.from_spec(acc_spec(coproduct),
                                         ACC_ID_COPRODUCT if coproduct else ACC_ID,
                                         storage_dir=str(storage_dir))
-    acc.save()
+    acc_store.save(acc)
     write_build_record(str(storage_dir), ref or ACC_REF)
     return acc
 
@@ -432,8 +439,9 @@ _PLANTED = {
     "time":        "2003",
     "valuation":   GROSS,
     "factor":      1000.0,
-    "story":       "a gross mass booked in kg where the feed reports t, read as kt: "
-                   "the leg arrives ×1000 (the PNG case of ADR 0033)",
+    "story":       "a gross mass booked in t where the feed reports kt: "
+                   "the leg arrives ×1000 (the PNG case of ADR 0033 is kg read as t, "
+                   "the same factor)",
 }
 _PLANTED_EDGE = ("from_sector", "from_region", "to_sector", "to_region", "time",
                  "valuation")
@@ -837,7 +845,7 @@ QP_VARIABLES = "flows"
 ALPHA        = 0.05         # Stage 5: (1 − α) intervals
 BIND_TOL     = 1e-6
 RANK_TOL     = 1e-10
-LABEL        = "toy"        # every run's registry label; _latest selects by it
+LABEL        = "toy"        # every run's registry label; latest_run_id selects by it
 
 
 def _params_csv(ctx, param_id: str) -> str:
@@ -943,7 +951,7 @@ CASE = CaseSpec(
 _PROC = ("acc", "imp", "const", "opt", "uncprop", "psut")
 
 
-def _tree(run_root: PathLike) -> "dict[str, Path]":
+def run_tree(run_root: PathLike) -> "dict[str, Path]":
     root = Path(run_root)
     tree = {k: root / "proc" / k for k in _PROC}
     tree["feed"]  = root / "proc" / "feed" / "registry"
@@ -953,7 +961,7 @@ def _tree(run_root: PathLike) -> "dict[str, Path]":
     return tree
 
 
-def _latest(registry) -> str:
+def latest_run_id(registry) -> str:
     """The latest run of ``registry`` labelled ``LABEL``: the module's one rule for
     "the latest run", read off the registry's own ``latest_by_label``."""
     try:
@@ -968,12 +976,12 @@ def _coproduct(tree: dict) -> bool:
     return (tree["acc"] / ACC_ID_COPRODUCT).is_dir()
 
 
-def _load_acc(tree: dict) -> AccountingStructure:
-    return AccountingStructure.load(ACC_ID_COPRODUCT if _coproduct(tree) else ACC_ID,
+def load_acc(tree: dict) -> AccountingStructure:
+    return acc_store.load(ACC_ID_COPRODUCT if _coproduct(tree) else ACC_ID,
                                     storage_dir=str(tree["acc"]))
 
 
-def _upstream(sidecar: dict, key: str) -> str:
+def upstream_run_id(sidecar: dict, key: str) -> str:
     value = sidecar.get("parents", {}).get("upstream", {}).get(key)
     if not value:
         raise KeyError(f"sidecar of {sidecar.get('run_id')!r} names no upstream {key!r}")
@@ -985,7 +993,7 @@ def write_inputs(run_root: PathLike, coproduct: bool = False) -> InputRegistries
     ``run_root/input``: the acc spec as ``acc/toy/current/acc.json`` (ADR 0046;
     ``acc/toy_coproduct`` with ``coproduct``) and the :func:`write_params` CSVs. Returns
     the registries, scanned (v1 on a fresh tree)."""
-    input_root = _tree(run_root)["input"]
+    input_root = run_tree(run_root)["input"]
     acc_dir = input_root / "acc" / (ACC_ID_COPRODUCT if coproduct else ACC_ID) / "current"
     acc_dir.mkdir(parents=True, exist_ok=True)
     (acc_dir / "acc.json").write_text(json.dumps(acc_spec(coproduct), indent=2),
@@ -1016,7 +1024,7 @@ def _feed_steps(feed: SyntheticFeed, acc: AccountingStructure) -> tuple:
 def _register_synthetic_feed(feed: SyntheticFeed, acc: AccountingStructure, acc_entry,
                              registry: DataFeedRegistry, label: str, seed: int) -> tuple:
     """Stage 1 for one synthetic feed: :func:`_feed_steps`, then register the run under
-    ``label`` (the registry label :func:`_latest` selects by) with ``seed`` in its
+    ``label`` (the registry label :func:`latest_run_id` selects by) with ``seed`` in its
     sidecar. Returns ``(registry entry, cv_src)``."""
     _, wm, F_src, result, row_summary = _feed_steps(feed, acc)
     entry = register_feed(
@@ -1045,7 +1053,7 @@ def run_stage1(run_root: PathLike, seed: int = SEED,
     dict
         ``{feed_id: feed_run_id}`` for ``survey``, ``bureau`` and ``customs``.
     """
-    tree      = _tree(run_root)
+    tree      = run_tree(run_root)
     acc_id    = ACC_ID_COPRODUCT if coproduct else ACC_ID
     acc_entry = write_inputs(run_root, coproduct).acc.entry(acc_id)
     acc       = build_acc(tree["acc"], acc_entry, coproduct)
@@ -1078,7 +1086,7 @@ def run_stage2(run_root: PathLike, feed_run_ids: Optional[dict] = None) -> str:
 def run_stage3(run_root: PathLike, imp_run_id: Optional[str] = None) -> str:
     """Stage 3: the toy's builders (:func:`builders`) over ``CASE`` —
     :func:`pysuto.stages.run_const`. Returns the const run id."""
-    imp_run_id = imp_run_id or _latest(ImputationRunRegistry(str(_tree(run_root)["imp"])))
+    imp_run_id = imp_run_id or latest_run_id(ImputationRunRegistry(str(run_tree(run_root)["imp"])))
     return run_const(CASE, imp_run_id, LABEL, data_dir=str(run_root), logger=_log)
 
 
@@ -1086,8 +1094,8 @@ def run_stage3(run_root: PathLike, imp_run_id: Optional[str] = None) -> str:
 def run_stage4(run_root: PathLike, const_run_id: Optional[str] = None) -> str:
     """Stage 4: one QP per year from the cold prior, solved by Clarabel at the ADR 0039
     tolerances. Returns the opt run id."""
-    tree = _tree(run_root)
-    const_run_id = const_run_id or _latest(ConstraintRunRegistry(str(tree["const"])))
+    tree = run_tree(run_root)
+    const_run_id = const_run_id or latest_run_id(ConstraintRunRegistry(str(tree["const"])))
     backend = ClarabelBackend(
         tol_feas            = TOL_FEAS,
         tol_gap_rel         = TOL_GAP_REL,
@@ -1124,8 +1132,8 @@ def run_stage4(run_root: PathLike, const_run_id: Optional[str] = None) -> str:
 def run_stage5(run_root: PathLike, opt_run_id: Optional[str] = None) -> str:
     """Stage 5: the posterior σ and the (1 − α) interval of every edge at the QP's
     active set (``KalmanUncProp``, α = 0.05). Returns the uncprop run id."""
-    tree = _tree(run_root)
-    opt_run_id = opt_run_id or _latest(OptimRunRegistry(str(tree["opt"])))
+    tree = run_tree(run_root)
+    opt_run_id = opt_run_id or latest_run_id(OptimRunRegistry(str(tree["opt"])))
     prop = KalmanUncProp(opt_dir=str(tree["opt"]), const_dir=str(tree["const"]),
                          uncprop_dir=str(tree["uncprop"]), bind_tol=BIND_TOL,
                          rank_tol=RANK_TOL)
@@ -1142,8 +1150,8 @@ def run_stage6(run_root: PathLike, opt_run_id: Optional[str] = None,
     ``L`` (derived, never persisted); and the supply-use Sankey of the latest year in the
     content valuation, written as ``sankey_supply_use_<year>_<CONTENT>.png`` beside the
     PSUT run (Plotly, kaleido). Returns the psut run id."""
-    tree = _tree(run_root)
-    opt_run_id = opt_run_id or _latest(OptimRunRegistry(str(tree["opt"])))
+    tree = run_tree(run_root)
+    opt_run_id = opt_run_id or latest_run_id(OptimRunRegistry(str(tree["opt"])))
     psut = PSUT.from_opt_run(opt_run_id, primary=CONTENT, opt_dir=str(tree["opt"]),
                              const_dir=str(tree["const"]), acc_dir=str(tree["acc"]))
     run_id = PsutRunRegistry(str(tree["psut"])).register(
@@ -1197,11 +1205,11 @@ def soft_residuals(run_root: PathLike, opt_run_id: Optional[str] = None) -> pd.D
         Columns ``kind`` (``"edge"`` / ``"row"``), ``edge_id`` (nullable ``Int64``, an
         edge's), ``constraint_id`` (``str``, a row's), ``time``, ``z``.
     """
-    tree   = _tree(run_root)
+    tree   = run_tree(run_root)
     opt    = OptimRunRegistry(str(tree["opt"]))
-    opt_run_id = opt_run_id or _latest(opt)
+    opt_run_id = opt_run_id or latest_run_id(opt)
     const  = ConstraintRunRegistry(str(tree["const"])).load(
-        _upstream(opt.load_sidecar(opt_run_id), "const_run_id"))
+        upstream_run_id(opt.load_sidecar(opt_run_id), "const_run_id"))
     _, sigma_a = condition_prior(const.a_prior_global, const.sigma_a)
     soft   = ~const.row_meta["is_hard"].to_numpy().astype(bool)
     cids   = const.row_meta["constraint_id"].to_numpy()
@@ -1241,7 +1249,7 @@ def _recorded_seed(tree: dict, imp_run_id: str) -> int:
     feeds.load_index()
     upstream = ImputationRunRegistry(str(tree["imp"])).load_sidecar(imp_run_id)
     seeds = {feeds.load_sidecar(rid).get("stage_config", {}).get("seed")
-             for rid in _upstream(upstream, "feed_run_ids")}
+             for rid in upstream_run_id(upstream, "feed_run_ids")}
     if len(seeds) != 1 or None in seeds:
         raise ValueError(f"the feed runs upstream of {imp_run_id} record seeds {seeds}, "
                          f"not one seed")
@@ -1258,16 +1266,16 @@ def scoreboard(run_root: PathLike, run_ids: dict, seed: Optional[int] = None
     before imputation), ``prior`` (after imputation) and ``reconciled`` (``a*``); the
     posterior σ comes from the uncprop run and the prior σ is the one the QP used.
     """
-    tree     = _tree(run_root)
+    tree     = run_tree(run_root)
     recorded = _recorded_seed(tree, run_ids["imp"])
     if seed is not None and seed != recorded:
         raise ValueError(f"scoreboard: seed={seed}, but the run tree's feeds were drawn "
                          f"with seed {recorded}")
-    acc   = _load_acc(tree)
+    acc   = load_acc(tree)
     agg   = ImputationRunRegistry(str(tree["imp"])).load(run_ids["imp"])
     opt   = OptimRunRegistry(str(tree["opt"]))
     const = ConstraintRunRegistry(str(tree["const"])).load(
-        _upstream(opt.load_sidecar(run_ids["opt"]), "const_run_id"))
+        upstream_run_id(opt.load_sidecar(run_ids["opt"]), "const_run_id"))
     post  = UncPropRunRegistry(str(tree["uncprop"])).load(run_ids["uncprop"])
     a_prior, sigma_prior = condition_prior(const.a_prior_global, const.sigma_a)
 
@@ -1337,8 +1345,8 @@ def check_0_1(inflow: float, outflow: float, sector: str = "Smelting",
 
 def _ref_1_1(run_root, region="Portua", year="2003") -> float:
     """CV of the Bureau's refined-output edge, by hand: two series pooled on one edge."""
-    acc   = AccountingStructure.load(ACC_ID, storage_dir=str(_tree(run_root)["acc"]))
-    feeds = DataFeedRegistry(odir=str(_tree(run_root)["feed"]))
+    acc   = acc_store.load(ACC_ID, storage_dir=str(run_tree(run_root)["acc"]))
+    feeds = DataFeedRegistry(odir=str(run_tree(run_root)["feed"]))
     feeds.load_index()
     W     = feeds.load_feed("bureau", WeightMatrix, acc).weight_matrix
     F_src = np.load(Path(feeds.resolve("bureau").run_dir) / "F_src.npy")
@@ -1352,8 +1360,8 @@ def _ref_1_1(run_root, region="Portua", year="2003") -> float:
 def check_1_1(run_root: PathLike, cv: float, region: str = "Portua",
               year: str = "2003") -> str:
     """Exercise 1.1: the CV of the refined-output edge of ``region`` in ``year``."""
-    acc   = _load_acc(_tree(run_root))
-    feeds = DataFeedRegistry(odir=str(_tree(run_root)["feed"]))
+    acc   = load_acc(run_tree(run_root))
+    feeds = DataFeedRegistry(odir=str(run_tree(run_root)["feed"]))
     feeds.load_index()
     edge     = _edge_id(acc, "Smelting", region, "Metal", region, year, CONTENT)
     expected = float(feeds.load_result("bureau")["cv_root"][edge])
@@ -1363,9 +1371,9 @@ def check_1_1(run_root: PathLike, cv: float, region: str = "Portua",
 
 def _ref_2_1(run_root) -> set:
     """The region-years the time imputer filled, read off the imputation log."""
-    acc = AccountingStructure.load(ACC_ID, storage_dir=str(_tree(run_root)["acc"]))
-    imp = ImputationRunRegistry(storage_dir=str(_tree(run_root)["imp"]))
-    log = imp.load(_latest(imp)).imputation_log.as_dataframe()
+    acc = acc_store.load(ACC_ID, storage_dir=str(run_tree(run_root)["acc"]))
+    imp = ImputationRunRegistry(storage_dir=str(run_tree(run_root)["imp"]))
+    log = imp.load(latest_run_id(imp)).imputation_log.as_dataframe()
     filled = log.loc[log["imputer_id"] == "time_interp", "edge_id"].astype(int)
     em = acc.edge_meta.set_index("edge_id").loc[filled]
     return set(zip(em["from_region"], em["time"]))
@@ -1383,8 +1391,8 @@ def check_2_1(run_root: PathLike, region_years) -> str:
 
 def _ref_3_1(run_root, year="2003") -> tuple:
     """Hard and soft rows of one year, counted from row_meta."""
-    const = ConstraintRunRegistry(str(_tree(run_root)["const"]))
-    rm    = const.load(_latest(const)).row_meta
+    const = ConstraintRunRegistry(str(run_tree(run_root)["const"]))
+    rm    = const.load(latest_run_id(const)).row_meta
     hard  = rm.loc[rm["time"].astype(str) == year, "is_hard"].astype(bool)
     return int(hard.sum()), int((~hard).sum())
 
@@ -1400,13 +1408,13 @@ def check_3_1(run_root: PathLike, n_hard: int, n_soft: int, year: str = "2003") 
 
 def _ref_4_1(run_root, constraint_id) -> float:
     """One soft row's z, recomputed: (G·a* − c) / σ_c in its own year."""
-    const_reg = ConstraintRunRegistry(str(_tree(run_root)["const"]))
-    opt_reg   = OptimRunRegistry(str(_tree(run_root)["opt"]))
-    const  = const_reg.load(_latest(const_reg))
+    const_reg = ConstraintRunRegistry(str(run_tree(run_root)["const"]))
+    opt_reg   = OptimRunRegistry(str(run_tree(run_root)["opt"]))
+    const  = const_reg.load(latest_run_id(const_reg))
     ids    = const.row_meta["constraint_id"].to_numpy()
     row    = int(np.flatnonzero(ids == constraint_id)[0])
     year   = str(const.row_meta["time"].iloc[row])
-    res    = opt_reg.load(_latest(opt_reg))[year]
+    res    = opt_reg.load(latest_run_id(opt_reg))[year]
     a_star = np.zeros(const.G.shape[1])
     a_star[res.cols_t] = res.F_opt
     c, sigma_c = (const.timestep_data[year][k][row] for k in ("c", "sigma_c"))
@@ -1426,12 +1434,12 @@ def check_4_1(run_root: PathLike, constraint_id: str, z: float) -> str:
 
 def _ref_5_1(run_root) -> float:
     """The largest posterior-over-prior σ ratio of any edge (it never exceeds 1)."""
-    const = ConstraintRunRegistry(str(_tree(run_root)["const"]))
-    post  = UncPropRunRegistry(str(_tree(run_root)["uncprop"]))
-    run   = const.load(_latest(const))
+    const = ConstraintRunRegistry(str(run_tree(run_root)["const"]))
+    post  = UncPropRunRegistry(str(run_tree(run_root)["uncprop"]))
+    run   = const.load(latest_run_id(const))
     _, sigma_a = condition_prior(run.a_prior_global, run.sigma_a)
     ratios = [ts.sigma_a_star / sigma_a[ts.cols_t]
-              for ts in post.load(_latest(post)).per_timestep.values()]
+              for ts in post.load(latest_run_id(post)).per_timestep.values()]
     return float(np.max(np.concatenate(ratios)))
 
 
@@ -1447,8 +1455,8 @@ def check_5_1(run_root: PathLike, max_ratio: float) -> str:
 def _ref_6_1(run_root, region="Portua", sector="Metal", year="2005",
              valuation=CONTENT) -> tuple:
     """Σ supply into and Σ use out of one commodity node, from the PSUT table."""
-    reg   = PsutRunRegistry(str(_tree(run_root)["psut"]))
-    table = reg.load(_latest(reg)).table
+    reg   = PsutRunRegistry(str(run_tree(run_root)["psut"]))
+    table = reg.load(latest_run_id(reg)).table
     rows  = table[(table["period"] == year) & (table["valuation"] == valuation)]
     into  = (rows["to_region"] == region) & (rows["to_sector"] == sector)
     outof = (rows["from_region"] == region) & (rows["from_sector"] == sector)

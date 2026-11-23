@@ -43,7 +43,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import rankdata, spearmanr
 
-from pysuto.acc import AccountingStructure
+from pysuto import acc_store
 from pysuto.relation.param_relation import expand_edge_index
 from pysuto.registry import OptimRunRegistry, SweepRunRegistry
 from pysuto.clarabel_backend import ClarabelBackend
@@ -449,7 +449,7 @@ class SweepStatsDiagnostic:
 
     def _edge_table(self, const_run) -> pd.DataFrame:
         if self._edges is None:
-            acc = AccountingStructure.load(const_run.acc_id,
+            acc = acc_store.load(const_run.acc_id,
                                            storage_dir=os.path.join(self.root, "acc"))
             ei = expand_edge_index(acc.edge_index, acc.node_index).sort_values("edge_id")
             cols = ["sector_from", "sector_to", "region_from", "region_to", "valuation",

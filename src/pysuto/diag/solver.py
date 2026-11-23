@@ -61,6 +61,7 @@ import pandas as pd
 from pysuto._conditioning import (
     DEFAULT_CONDITIONING, condition_sigma_c, recorded_conditioning,
 )
+from pysuto import acc_store
 from pysuto.acc import AccountingStructure, BoundaryRole, boundary_role_values
 from pysuto.constraints.naming import (
     SENSE_EQ, SENSE_LE, TYPE_MASSBAL, TYPE_RATIO, TYPE_SUM,
@@ -251,7 +252,7 @@ class SolverDiag:
         if not self._acc_resolved:
             self._acc_resolved = True
             try:
-                self._acc = AccountingStructure.load(self._const_run.acc_id)
+                self._acc = acc_store.load(self._const_run.acc_id)
             except (AssertionError, KeyError, OSError) as exc:
                 # a diag built from toy objects has no acc on disk: no sector labels
                 _log.warning("acc %r could not be loaded (%s: %s); the figures go "

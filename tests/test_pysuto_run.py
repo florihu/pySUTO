@@ -23,7 +23,7 @@ import pandas as pd
 import pytest
 
 import test_toy_case as toy_checks
-from pysuto.acc import AccountingStructure
+from pysuto import acc_store
 from pysuto.tutorial import toy
 from pysuto.pipeline import ALL_STEPS, Chain, Pipeline
 from pysuto.registry import (ConstraintRunRegistry, ImputationRunRegistry,
@@ -48,7 +48,7 @@ def chain(tmp_path_factory):
     ids = {"feed": dict(zip(toy.FEED_IDS, printed["feed"]))}
     ids.update({s: printed[s][0] for s in ("imp", "const", "opt", "uncprop", "psut")})
     return {"root": root, "cwd": cwd, "ids": ids, "stdout": proc.stdout,
-            "acc": AccountingStructure.load(toy.ACC_ID,
+            "acc": acc_store.load(toy.ACC_ID,
                                             storage_dir=str(root / "proc" / "acc"))}
 
 

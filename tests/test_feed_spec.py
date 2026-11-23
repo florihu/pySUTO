@@ -41,7 +41,7 @@ def _survey_spec(feed):
 @pytest.fixture
 def toy_data_dir(tmp_path):
     """A data dir holding the toy's accounting structure and its survey feed's values."""
-    tree = toy._tree(tmp_path)
+    tree = toy.run_tree(tmp_path)
     entry = toy.write_inputs(tmp_path).acc.entry(toy.ACC_ID)
     acc = toy.build_acc(tree["acc"], entry)
     feed = toy.make_feeds(toy.truth(), toy.SEED)["survey"]

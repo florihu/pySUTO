@@ -74,7 +74,7 @@ from scipy.stats import norm
 
 sys.path.insert(0, "src")
 
-from pysuto.acc import AccountingStructure              # noqa: E402
+from pysuto import acc_store              # noqa: E402
 from pysuto.constraints.naming import upgrade_legacy_row_meta  # noqa: E402
 from pysuto.diag.stats.sweep import influential, rank_statistic, top_axis  # noqa: E402
 from pysuto.diag.uncprop import UncPropDiag             # noqa: E402
@@ -1535,7 +1535,7 @@ def main(opt: str, out_json, data_dir: str, base: str, retol: str, numbers: str,
     proc, inp = Path(data_dir) / "proc", Path(data_dir) / "input"
     ch = walk_chain(proc, opt, sweep_base)
     acc_id = ch.meta["const"]["parents"]["inputs"]["acc"]["id"]
-    acc = AccountingStructure.load(id=acc_id, storage_dir=str(proc / "acc"))
+    acc = acc_store.load(id=acc_id, storage_dir=str(proc / "acc"))
     ei = expand_edge_index(acc.edge_index, acc.node_index)
     ei["time"] = ei.time.astype(str)
     P = {pid: _params(inp, pid, ch.versions[pid]) for pid in PARAM_TABLES}

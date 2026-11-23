@@ -57,8 +57,10 @@ from typing import Mapping, Optional, Protocol, Sequence
 import numpy as np
 import pandas as pd
 
+from . import acc_store
 from .acc import (EDGE_UNIVERSE_ROLE_KEYS, AccountingStructure, BoundaryRole,
-                  boundary_role_values, check_built_acc)
+                  boundary_role_values)
+from .acc_store import check_built_acc
 from .input_registry import InputRegistry
 from .logging import get_logger
 from .registry import ConstraintRunRegistry, OptimRunRegistry
@@ -440,7 +442,7 @@ class PSUT(_TidyView):
                     opt_run_id, const_run_id, acc_id)
         check_built_acc(acc_dir, acc_ref, InputRegistry("acc", root=input_dir),
                         EDGE_UNIVERSE_ROLE_KEYS)
-        acc     = AccountingStructure.load(acc_id, storage_dir=acc_dir)
+        acc     = acc_store.load(acc_id, storage_dir=acc_dir)
         results = opt_reg.load(opt_run_id)
         if timesteps is not None:
             wanted  = [str(t) for t in timesteps]

@@ -21,7 +21,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pysuto.acc import AccountingStructure
+from pysuto import acc_store
 from pysuto.case import resolve_case
 from pysuto.tutorial import toy, toy_coproduct
 from pysuto.registry import ConstraintRunRegistry, OptimRunRegistry
@@ -40,7 +40,7 @@ def chain(tmp_path_factory):
     assert proc.returncode == 0, f"{proc.stdout[-1500:]}\n{proc.stderr[-3000:]}"
     printed = {line.split()[0]: line.split()[1:] for line in proc.stdout.splitlines()}
     ids = {s: printed[s][0] for s in ("imp", "const", "opt", "uncprop", "psut")}
-    acc = AccountingStructure.load(toy.ACC_ID_COPRODUCT,
+    acc = acc_store.load(toy.ACC_ID_COPRODUCT,
                                    storage_dir=str(root / "proc" / "acc"))
     return {"root": root, "ids": ids, "acc": acc}
 

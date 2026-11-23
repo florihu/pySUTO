@@ -50,7 +50,7 @@ sys.path.insert(0, "scripts/report")
 
 import copper_metabolism_insights as CMI                         # noqa: E402
 import results_figs as RF                                        # noqa: E402
-from pysuto.acc import AccountingStructure                       # noqa: E402
+from pysuto import acc_store                       # noqa: E402
 from pysuto.config import load_config                            # noqa: E402
 from pysuto.diag import UncPropDiag                              # noqa: E402
 from pysuto.psut import PSUT                                     # noqa: E402
@@ -373,7 +373,7 @@ def main(opt: str, uncprop_id: str, out: Path = OUT_CSV,
         raise ValueError(f"{uncprop_id} is a scale-total ablation: its σ_a* is not the fit's")
     R = UncPropDiag.from_uncprop_id(uncprop_id).stats.birge_ratio()
 
-    acc   = AccountingStructure.load(id=load_config().pipeline.acc_id,
+    acc   = acc_store.load(id=load_config().pipeline.acc_id,
                                      storage_dir="data/proc/acc")
     edges = CMI.load_run(opt)
     cols  = aggregate_columns(edges)

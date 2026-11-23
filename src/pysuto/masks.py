@@ -24,7 +24,9 @@ User entry points
        domestic  | exclude | *           | *         | *           | ROW       | *         | *    | *           | *
 
    - ``mask_name`` and ``logic`` are required. Every selector column is optional;
-     missing or wildcard (``*``, empty, ``nan``) cells match everything.
+     missing or wildcard (``*``, empty, ``nan``, case-folded) cells match everything.
+     The same wildcard set serves the bounds rules of an acc spec
+     (:func:`match_selector`).
    - For a given ``mask_name``, ``include`` rows are OR-unioned, then
      ``exclude`` rows are AND-NOT'd. Row order within the file is preserved.
    - The same rows as records (one dict per row) are the ``masks`` entry of an
@@ -45,6 +47,7 @@ import numpy as np
 import pandas as pd
 
 from pysuto.logging import get_logger
+from pysuto.relation.param_relation import expand_edge_index
 
 _log = get_logger(__name__)
 
@@ -63,7 +66,7 @@ _SELECTOR_COLS: tuple[str, ...] = (
 )
 
 # Cell values that mean "match anything" for a selector.
-_WILDCARD_VALUES: frozenset[str] = frozenset({"*", "", "nan", "none", "any"})
+_WILDCARD_VALUES: frozenset[str] = frozenset({"*", "", "nan"})
 
 MaskPredicate = Callable[[pd.DataFrame], np.ndarray]
 MaskInput = Union[np.ndarray, MaskPredicate]
@@ -79,10 +82,12 @@ def _check_columns(columns, source: str) -> None:
         )
 
 
-def _match(arr: np.ndarray, val: object) -> np.ndarray:
-    """Wildcard-aware equality. Mirrors EdgeBounds._match in acc.py."""
+def match_selector(arr: np.ndarray, val: object) -> np.ndarray:
+    """Wildcard-aware equality of a label array with one selector cell: ``*``, empty and
+    ``nan`` (case-folded) match everything. Shared by the mask rules and the bounds
+    rules of an acc spec."""
     s = str(val).strip().lower()
-    if s in _WILDCARD_VALUES:
+    if val is None or s in _WILDCARD_VALUES:
         return np.ones(len(arr), dtype=bool)
     return arr == str(val).strip()
 
@@ -168,7 +173,10 @@ class MaskRuleSet:
         for rule in self._rules:
             row_mask = np.ones(n_edges, dtype=bool)
             for col, val in rule.selectors.items():
-                row_mask &= _match(col_arrays[col], val)
+                row_mask &= match_selector(col_arrays[col], val)
+            if not row_mask.any():
+                _log.warning("MaskRuleSet.resolve: %r %s rule %r selects no edge "
+                             "(a misspelt label?)", rule.name, rule.logic, rule.selectors)
             if rule.logic == "include":
                 masks[rule.name] |= row_mask
             else:  # exclude
@@ -194,8 +202,6 @@ def coerce_mask(
     Used by :meth:`AccountingStructure.register_mask`.
     """
     if callable(mask):
-        from pysuto.relation.param_relation import expand_edge_index
-
         ei_exp = expand_edge_index(edge_index, node_index)
         out = np.asarray(mask(ei_exp), dtype=bool)
     else:
@@ -213,7 +219,8 @@ def read_masks_csv(path: Union[str, Path]) -> list[dict]:
 
     The required columns are checked on the header, so a file without rows is checked
     too."""
-    df = pd.read_csv(path, dtype=str, comment="#").fillna("*")
+    df = pd.read_csv(path, dtype=str, comment="#", keep_default_na=False,
+                     na_values=[""]).fillna("*")
     _check_columns(df.columns, str(path))
     return df.to_dict("records")
 

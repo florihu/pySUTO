@@ -77,7 +77,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from pysuto.acc import AccountingStructure
+from pysuto import acc_store
 from copper_feed import (
     BACI_ID, BOUND_DOMESTIC_SECTORS, CATHODE_CARRIER_SECTOR_TO, SIGNED_SECTORS_TO,
     TRADED_SECTORS,
@@ -167,7 +167,7 @@ def main() -> None:
     check_baci_feed_current(inputs, FEED_REG)
 
     acc_id = load_config().pipeline.acc_id
-    acc = AccountingStructure.load(id=acc_id, storage_dir=ACC_DIR)
+    acc = acc_store.load(id=acc_id, storage_dir=ACC_DIR)
     conc_lookup = traded_conc_lookup(inputs.params.resolve("conc") / "params.csv",
                                      acc.valuation_roles.gross, TRADED_SECTORS)
     _wild = {s_: v for (s_, r_), v in conc_lookup.items() if r_ == "*"}
