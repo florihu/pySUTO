@@ -1,5 +1,7 @@
 # Process-recipe traversal imputer for the production chain
 
+**Status:** accepted — *proposed by the #223 review, the maintainer confirms.* Amended 2026-10-14 (#76) and 2026-11-12 (#131, #136) below, and extended by [ADR 0010](0010-trade-first-seeding-of-bilateral-flow-process-inputs.md). Evidence: `NetworkImputer` ships (`impute/network.py`) and `imp_20261112_133434_22fc54b3` (the 2026-11-12 amendment) was built with it; the 80.3 % flat-prior baseline was measured on `imp_20260608_080016_0563ae84` (absent from `data/proc` on 2026-11-23; no pruning date recorded).
+
 Stage-2 imputation is a cascade of **per-edge** fillers (`ParametricImputer`,
 `FormulaImputer`, `TimeImputer`, `FlatPriorImputer`); the unit of reasoning is an *edge*, not
 a *node*. In the reference run [`imp_20260608_080016_0563ae84`](../../data/proc/imp/) **80.3 %

@@ -9,7 +9,7 @@ Covers:
     - PropagationResult fields and numerical correctness
     - DataFeedRegistry  register / save / reload round-trip
     - Mass-conservation guard and edge-scope mask
-      (run_feed_pipeline itself — steps A–D + register — has no test here)
+      (run_feed, the driver of a feed build, is covered by test_feed_spec.py)
     - Edge cases: zero flows, single-edge identity matrix, perfect-quality scores
 
 Run with:
@@ -76,7 +76,8 @@ class _MockWeightMatrix(UncertaintyMixin):
         with open(path, "wb") as fh:
             pickle.dump({"id": self.id, "W": self.weight_matrix}, fh)
 
-    def apply_with_uncertainty(self, F_src=None, pedigree=None, p: float = 1.3):
+    def apply_with_uncertainty(self, F_src=None, pedigree=None, p: float = 1.3,
+                               cv_root_scale=None):
         F_src = np.asarray(F_src if F_src is not None else self.F_src, dtype=float)
         pg    = pedigree or self.pedigree
         cv    = pg.total_cv()
@@ -86,6 +87,8 @@ class _MockWeightMatrix(UncertaintyMixin):
         Wp      = np.abs(W) ** p
         sum_p   = Wp.T @ (np.abs(F_src) ** p)
         sigma   = cv * np.power(np.maximum(sum_p, 0.0), 1.0 / p)
+        if cv_root_scale is not None:
+            sigma = sigma * np.asarray(cv_root_scale, dtype=float)
         with np.errstate(invalid="ignore", divide="ignore"):
             cv_root = np.where(F_root != 0.0, sigma / np.abs(F_root), np.nan)
         return PropagationResult(
@@ -460,7 +463,7 @@ class TestStepD:
         # sigma_root is proportional to cv_src; so ratio should be cv_high/cv_low
         ratio_sigma = r_high.sigma_root / r_low.sigma_root
         ratio_cv    = r_high.cv_src     / r_low.cv_src
-        np.testing.assert_allclose(ratio_sigma, ratio_cv, rtol=1e-6)
+        np.testing.assert_allclose(ratio_sigma, ratio_cv, rtol=1e-10)
 
 
 class TestMassConservationGuard:
@@ -542,6 +545,35 @@ class TestEdgeScopeMask:
         assert len(ct.tab) == 1
         kept = ct.tab.iloc[0]
         assert kept["root_region_from"] != kept["root_region_to"]
+
+    def test_a_row_naming_no_root_edge_raises(self):
+        """Regression (#280, U1a-G3-6): an unresolved row used to be dropped silently."""
+        import pandas as pd
+        from types import SimpleNamespace
+        from pysuto.acc import AccountingStructure
+        from pysuto.feedpipe import _apply_edge_scope_mask
+
+        spec = {
+            "sectors":    [{"name": "Mining", "entity": "P"},
+                           {"name": "Ore",    "entity": "F"}],
+            "regions":    ["A", "B"],
+            "valuations": [{"name": "mass",     "role": "gross"},
+                           {"name": "copper_c", "role": "content"}],
+            "times":      ["0"],
+            "supply":     {},
+            "use":        {"Mining": ["Mining", "Ore"], "Ore": ["Mining", "Ore"]},
+            "tradable":   ["Mining", "Ore"],
+            "accounting": [{"from": a, "to": b, "same_region": False}
+                           for a in ("P", "F") for b in ("P", "F")],
+        }
+        acc = AccountingStructure.from_spec(spec, "t")
+        row = {"root_sector_from": "Ore", "root_entity_from": "F",
+               "root_region_from": "A", "root_sector_to": "Mining",
+               "root_entity_to": "P", "root_region_to": "A",
+               "root_time": "7", "root_valuation": "mass"}    # the acc has no year 7
+        ct = SimpleNamespace(tab=pd.DataFrame([row]))
+        with pytest.raises(ValueError, match="name no root edge"):
+            _apply_edge_scope_mask(ct, acc, "cross_region")
 
     def test_empty_mask_name_is_noop(self):
         import pandas as pd

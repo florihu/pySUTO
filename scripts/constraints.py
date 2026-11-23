@@ -1,6 +1,6 @@
 """
-init_copper_constraints.py
-==========================
+constraints.py
+==============
 Stage 3a driver: build and persist the constraint matrix for the copper model.
 
 The constraint builders and their registration order are the case's
@@ -55,7 +55,7 @@ CASE = resolve_case(DEFAULT_CASE)
 # fields of the case's Stage 3 section. Paths and the acc id are not knobs.
 KNOBS = tuple(CASE.const.knobs())
 
-_log = get_logger("init_copper_constraints")
+_log = get_logger("constraints")
 
 
 def main(imp_run_id: str, label: str, overrides: dict | None = None, *,
@@ -71,7 +71,7 @@ def main(imp_run_id: str, label: str, overrides: dict | None = None, *,
     ``input/``; the imp run is read from ``imp_dir`` (default ``<data_dir>/proc/imp``)
     and the run written to ``const_dir`` (default ``<data_dir>/proc/const``).
     """
-    start_run_log(data_dir, "init_copper_constraints")
+    start_run_log(data_dir, "constraints")
     if config is not None:
         case = replace(case, acc_id=load_config(config).pipeline.acc_id)
     return run_const(case, imp_run_id, label, overrides, data_dir=data_dir,

@@ -605,7 +605,8 @@ def run_case(case: str, data_dir, *args: str) -> "dict[str, str]":
         raise RuntimeError(f"`python -m pysuto run --case {case}` exited "
                            f"{done.returncode}:\n{tail}")
     lines = [ln.split(None, 1) + [""] for ln in done.stdout.splitlines() if ln.strip()]
-    return {ln[0]: ln[1].strip() for ln in lines if ln[0] in ALL_STEPS}
+    printed = {ln[0]: ln[1].strip() for ln in lines if ln[0] in ALL_STEPS}
+    return {step: printed.get(step, "") for step in ALL_STEPS}
 
 
 def check_10_1(table: pd.DataFrame, tailings: float, year: str = "2002") -> str:

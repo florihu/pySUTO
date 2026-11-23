@@ -17,7 +17,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from pysuto.flow_node_balance import K_CLOSE as UNCLOSED_K, contradicted_flow_nodes
+from pysuto.flow_node_balance import K_CLOSE, contradicted_flow_nodes
 from pysuto.relation.param_relation import (conc_for, conc_nominal_lookup, conc_sectors,
                                             expand_edge_index)
 
@@ -83,7 +83,7 @@ def screen_outlier_trade_legs(acc, agg_result, conc_csv: str, logger,
     production) + implied CC imports (Σ covered bilateral Mass legs into the
     region · conc_nominal), so re-exporters are judged against what they
     actually receive. Groups without covered production stay unjudged (the
-    transit-hub population; the case chooses ``k`` with that in mind).
+    transit-region population; the case chooses ``k`` with that in mind).
     Ratio > k ⇒ every covered bilateral Mass leg
     of that group gets sigma_agg = cv·|f_agg|. Returns the report
     DataFrame (flagged groups only; empty frame if none).
@@ -188,7 +188,7 @@ def screen_contradicted_nodes(acc, agg_result, logger, *, sectors: tuple, cv):
     logger.warning(
         "B  contradicted-node screen: %d %s node-years whose outflow prior is "
         "< %.2f× their inflow prior (%d outflow edges) — σ action: %s\n%s",
-        len(keys), "/".join(sectors), UNCLOSED_K, len(ids),
+        len(keys), "/".join(sectors), K_CLOSE, len(ids),
         f"cv={cv}" if cv is not None
         else "none (ADR 0019 — detector only)",
         report.head(10).to_string(index=False))

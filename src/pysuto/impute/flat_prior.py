@@ -45,7 +45,7 @@ class FlatPriorImputer(BaseImputer):
     """
     Final-fallback imputer with two modes:
 
-    ``mode='magnitude_aware'`` (default, legacy behaviour)
+    ``mode='magnitude_aware'`` (default)
         Fills any residual-NaN edges with a flat prior sized by an
         accounting-mask CV × group scale (two refinements introduced
         after `REP/analysis_optim_const_copper_…_20260513_112419.md`)::
@@ -64,7 +64,7 @@ class FlatPriorImputer(BaseImputer):
         optimizer then determines them from constraints alone. Bypasses
         all cv_by_mask / cascade machinery.
 
-    Register LAST in the pipeline; ``ConstraintEngine.run()`` will refuse a
+    Register LAST in the cascade; ``ConstraintEngine.run()`` will refuse a
     NaN-bearing agg_result without it.
     """
 
@@ -109,7 +109,7 @@ class FlatPriorImputer(BaseImputer):
             (e.g. row-specific sub-masks computed in the init script).
             Ignored in ``noisy_zero`` mode.
         mode : str
-            ``"magnitude_aware"`` (default) — legacy behaviour:
+            ``"magnitude_aware"`` (default):
             ``σ = CV(j) · scale(j)``.
             ``"noisy_zero"`` — test mode: ``σ = sigma_high`` constant.
         sigma_high : float | None
@@ -222,8 +222,7 @@ class FlatPriorImputer(BaseImputer):
         """
         cov = getattr(agg_result, "coverage", None)
         if cov is None:
-            self._coverage = None
-            return
+            raise ValueError("FlatPriorImputer.attach: agg_result carries no coverage")
         cov = np.asarray(cov, dtype=bool)
         if cov.shape != (self._n_edges,):
             raise ValueError(
@@ -256,17 +255,16 @@ class FlatPriorImputer(BaseImputer):
         Per-edge fraction of `coverage == True` over the edge's
         (sector_from, region_from) neighbourhood.
 
-        Returns an all-ones array (and logs a warning) when no coverage
-        has been attached, so downstream code degrades gracefully to the
-        tight `cv_lo` end of the range.
+        Raises
+        ------
+        RuntimeError  if no coverage has been attached (``ImputationEngine`` calls
+                      ``attach()`` before ``impute()``)
         """
         if self._coverage is None:
-            logger.warning(
+            raise RuntimeError(
                 "FlatPriorImputer: no coverage attached; "
-                "treating every edge as fully covered (ρ=1, CV=cv_lo). "
-                "ImputationEngine should call attach() before impute()."
+                "ImputationEngine must call attach() before impute()."
             )
-            return np.ones(self._n_edges, dtype=float)
 
         cov = self._coverage.astype(float)
         sums   = np.bincount(self._density_group_id, weights=cov,
@@ -365,8 +363,4 @@ class FlatPriorImputer(BaseImputer):
         ledger.write_many(idx, np.zeros(idx.size), sigma_target[idx], step,
                           "flat_prior", desc)
 
-
-# ---------------------------------------------------------------------------
-# Shared log-entry constructor
-# ---------------------------------------------------------------------------
 

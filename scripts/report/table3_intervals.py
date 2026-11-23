@@ -27,11 +27,14 @@ where a total-based value differs from results_figs.py's (``check_definitions``)
     python scripts/report/table3_intervals.py <opt_run_id> <uncprop_run_id> \\
         [--out CSV] [--no-sensitivity]
 
-Runs Stage 5 once (≈ 25 min on copper), three times with SENSITIVITY.
+Runs Stage 5 once (≈ 25 min on copper), three times with SENSITIVITY. The CSV's opt and
+uncprop run ids are written beside it (``table3_intervals.run.json``): manuscript_numbers.py
+refuses a CSV computed for another opt run.
 """
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -58,6 +61,7 @@ from pysuto.uncprop import AggregateSpec, KalmanUncProp          # noqa: E402
 # USER CONFIGURATION
 # =============================================================================
 OUT_CSV      = Path("docs/manuscript/figs/table3_intervals.csv")
+RUN_SUFFIX   = ".run.json"   # beside the CSV; manuscript_numbers.py refuses a CSV of other runs
 ALPHA        = 0.05          # two-sided interval level
 LEVEL_YEAR   = 2024          # B2's HHI and B3's embodied and direct imports
 CHILE_YEARS  = (1995, 2024)  # B3's export share to China
@@ -349,6 +353,14 @@ def degenerate_family(edges: pd.DataFrame, const_run, n_edges: int) -> np.ndarra
 # Main
 # =============================================================================
 
+def write_run_record(out: Path, opt: str, uncprop_id: str) -> Path:
+    """Name the runs ``out`` was computed for, beside it (#221)."""
+    rec = out.with_name(out.stem + RUN_SUFFIX)
+    rec.write_text(json.dumps({"opt_run_id": opt, "uncprop_run_id": uncprop_id}, indent=1)
+                   + "\n", encoding="utf-8")
+    return rec
+
+
 def main(opt: str, uncprop_id: str, out: Path = OUT_CSV,
          sensitivity: bool = SENSITIVITY) -> None:
     reg     = UncPropRunRegistry("data/proc/uncprop")
@@ -406,6 +418,7 @@ def main(opt: str, uncprop_id: str, out: Path = OUT_CSV,
 
     out.parent.mkdir(parents=True, exist_ok=True)
     table.to_csv(out, index=False)
+    write_run_record(out, opt, uncprop_id)
     with pd.option_context("display.width", 220, "display.max_colwidth", 60):
         print(table[~table.row.str.endswith(PER_YEAR)].round(4).to_string(index=False))
     print(f"wrote {out}")

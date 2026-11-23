@@ -51,13 +51,18 @@ from pysuto.impute import (
     screen_outlier_trade_legs,
     time_interp_scope,
 )
-from pysuto.flow_node_balance import K_CLOSE as UNCLOSED_K
+from pysuto.flow_node_balance import K_CLOSE
 from pysuto.relation.param_relation import expand_edge_index
 from pysuto.relation.sources import trade_scope
 from pysuto.unc import PedigreeScores
 from pysuto.logging import get_logger
 
 _log = get_logger(__name__)
+
+# Supply-chain order of the sectors for the problem panel (``ProblemStatsDiagnostic``);
+# sinks (FU, Tailings, Slag, WR, stock legs) sort after every chain sector.
+CHAIN_ORDER = ["CO", "Mining", "Ore", "MF", "SXEW", "Concentrate", "Smelting",
+               "Matte", "CFR", "Anode", "ER", "CER", "CSXEW", "CP", "Cathode", "Scrap"]
 
 
 # =============================================================================
@@ -194,7 +199,7 @@ class CopperImp(ImpSection):
     # less trustworthy one (Russia Matte 1995: inflow 545 kt CC from ICSG
     # concentrate use vs outflow 50.8 from an under-reported ICSG refining series
     # → the smelting chain collapsed). Where the outflow prior falls below
-    # UNCLOSED_K × the inflow prior, its covered edges get σ = UNCLOSED_CV·|f| —
+    # K_CLOSE × the inflow prior, its covered edges get σ = UNCLOSED_CV·|f| —
     # data kept, false authority removed, mirroring the outlier screen — and
     # Stage 3 (CopperConst.UNCLOSED_ANCHOR_CV) loosens the matching usetotout anchor
     # to match.
@@ -304,7 +309,7 @@ def imp_stage_config(ctx) -> dict:
         "outlier_ref":     "production+imports",   # a label, not read back
         "unclosed_sectors": list(spec.UNCLOSED_SECTORS),
         "unclosed_cv":     spec.UNCLOSED_CV,
-        "unclosed_k":      UNCLOSED_K,
+        "unclosed_k":      K_CLOSE,
         "leg_sigma_a_ref":  spec.LEG_SIGMA_AREF,
         "leg_sigma_gamma":  spec.LEG_SIGMA_GAMMA,
         "leg_sigma_cv_cap": spec.LEG_SIGMA_CV_CAP,

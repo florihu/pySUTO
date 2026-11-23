@@ -13,8 +13,8 @@ Builders (registered in :class:`ConstraintEngine` in any order):
 * :class:`MassBalanceBuilder`     — Type 1: hard mass-balance equalities
 * :class:`SumConstraintBuilder`   — Type 2: soft sum equalities
 * :class:`RatioConstraintBuilder` — Type 3: soft ratio equalities
-* :class:`RatioBoundBuilder`      — Type 4: ratio-bound cones
-* :class:`FlowBoundsBuilder`      — Type 5: flow-bound cones
+* :class:`RatioBoundBuilder`      — Type 4: hard ratio bounds (le)
+* :class:`FlowBoundsBuilder`      — Type 5: hard flow lower bounds (le)
 """
 
 from .base         import BaseConstraintBuilder, ConstraintBlock

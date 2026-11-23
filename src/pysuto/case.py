@@ -35,6 +35,7 @@ import sys
 from dataclasses import dataclass, field, fields, replace
 from typing import TYPE_CHECKING, Callable, Iterable, Mapping, Optional
 
+from pysuto._provenance import sha256_file
 from pysuto.impute import FillImputer
 from pysuto.knobs import check_type
 from pysuto.relation.sources import PAIR_ACCEPTS, TWIN_ACCEPTS, Fill, ParamSource
@@ -149,7 +150,10 @@ class ImpSection(Section):
     ``diag_year`` is the year the Stage 2 diagnostics focus on (``None``: the first year
     of the acc's time range). The knob ``P_PROP`` (the Lp exponent of the aggregation) is
     read by the stage body, and ``Q_REG`` and ``ALPHA_MIN_REG`` by a parametric fill, so
-    every case's section declares them.
+    every case's section declares them. ``MIN_FLOW_KT`` is the coverage threshold of the
+    feed collector (kt): a feed leg below it is not aggregated (``feedprep/reexport.py``
+    documents its coupling to the feed weights); the imp sidecar records it with the
+    case's other knobs (#279).
     """
     cascade:      tuple
     terminal:     Callable
@@ -159,6 +163,7 @@ class ImpSection(Section):
     diag_year:    Optional[str] = None
     CASCADE_ORDER:    tuple = ()
     CASCADE_MAX_ITER: int   = 10
+    MIN_FLOW_KT:      float = 0.01
 
     def ordered(self) -> list:
         """The cascade entries in ``CASCADE_ORDER``, which must be a permutation of
@@ -293,8 +298,8 @@ def check_case(sidecar: dict, case: CaseSpec) -> None:
 # ======================================================================================
 # Resolving a ``--case`` reference (#187)
 # ======================================================================================
-# The bundled cases, name to module; the modules are imported at call time only. A study
-# case is not bundled: it is a file or a module the caller names (ADR 0047).
+# The bundled cases, name to module; the modules are imported at call time only. A case of
+# your own is not bundled: it is a file or a module the caller names (ADR 0047).
 ALIASES = {"toy":           "pysuto.tutorial.toy",
            "toy_coproduct": "pysuto.tutorial.toy_coproduct"}
 
@@ -309,11 +314,6 @@ def case_reference(reference: str, cwd: Optional[str] = None) -> str:
     if _is_path(reference):
         return os.path.abspath(os.path.join(cwd or os.getcwd(), reference))
     return reference
-
-
-def _sha256(path: str) -> str:
-    with open(path, "rb") as f:
-        return hashlib.sha256(f.read()).hexdigest()
 
 
 def _load_file(path: str):
@@ -378,7 +378,7 @@ def resolve_case(reference: str) -> CaseSpec:
     if not getattr(module, "__file__", None):
         raise ValueError(f"case {reference!r}: module {module.__name__} has no "
                          f"source file")
-    return replace(case, case_source=source, case_sha256=_sha256(module.__file__))
+    return replace(case, case_source=source, case_sha256=sha256_file(module.__file__))
 
 
 def add_case_arg(parser, default: Optional[str] = None) -> None:

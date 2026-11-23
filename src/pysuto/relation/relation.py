@@ -63,10 +63,11 @@ class Relation:
         denominator, whose coefficients are ``−r``.
     meta : dict
         The ``row_meta`` columns beyond type/variant/sense/time/valuation/is_hard.
+        A params-built ratio relation also carries ``sigma_param`` here: the params row's
+        σ in *absolute ratio units*, whereas ``sigma`` is the relative σ_r
+        (``sigma_param / |r|``); a fill reads ``meta["sigma_param"]``, Stage 3 ``sigma``.
     agg : bool
         The relation pools several edges per side (``agg=true`` params row).
-    emit_only : bool
-        Never solved for a prior (scale totals, hard bounds).
     source : str
         What the relation was built from (params id, ``"massbal"``).
     """
@@ -86,5 +87,4 @@ class Relation:
     n_num:        Optional[int] = None
     meta:         dict = field(default_factory=dict)
     agg:          bool = False
-    emit_only:    bool = False
     source:       str = ""

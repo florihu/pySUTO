@@ -22,7 +22,7 @@ _log = get_logger(__name__)
 
 class MassBalanceBuilder(BaseConstraintBuilder):
     """
-    Hard zero-cone constraint: Σ supply_edges − Σ use_edges = 0
+    Hard equality constraint: Σ supply_edges − Σ use_edges = 0
     for every (Flow | Process) node that has ≥1 supply edge AND ≥1 use edge,
     per timestep.
 
@@ -75,8 +75,3 @@ class MassBalanceBuilder(BaseConstraintBuilder):
 
         _log.info("MassBalanceBuilder.build_static: %d rows", len(relations))
         return emit(relations, n_edges)
-
-
-# =============================================================================
-# SumConstraintBuilder
-# =============================================================================

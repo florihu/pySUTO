@@ -1007,10 +1007,9 @@ def _feed_steps(feed: SyntheticFeed, acc: AccountingStructure) -> tuple:
     source vector and the propagated root values. Returns ``(ct, wm, F_src, result,
     row_summary)``.
 
-    ``feedpipe.run_feed_pipeline`` does not fit: it reads the pedigree from an Excel
-    sidecar (step A) and takes ``F_src`` as an argument although ``F_src`` is aligned to
-    the concordance it builds itself. The toy's feeds carry their metadata in memory, so
-    the steps run as ``scripts/crude_ore_feed.py`` runs them.
+    ``feedpipe.run_feed`` does not fit: it reads a registered feed's ``values.csv``,
+    ``conc.xlsx`` and Excel metadata sidecar from a data dir. The toy's feeds carry their
+    raw rows, maps and metadata in memory, so the steps run here directly.
     """
     ct = step_B_build_concordance(
         feed.raw, acc, **feed.maps, feed_id=feed.feed_id, aux_col=feed.aux_col,

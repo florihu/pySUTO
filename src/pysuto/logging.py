@@ -1,4 +1,13 @@
-# src/pysuto/logging.py
+"""
+logging.py
+==========
+Named loggers with a console handler, and the per-module and per-run log files a driver
+turns on (:func:`configure_file_logs`, :func:`start_run_log`, :func:`add_run_handler`).
+Importing this module writes nothing (#190). Imports nothing from pysuto.
+"""
+
+from __future__ import annotations
+
 import logging
 import sys
 import os

@@ -165,7 +165,6 @@ class TestSeams:
                         cwd=str(tmp_path), case="./zinc_case.py", data_dir="d")
         spec = pipe._spec("opt", pipe.base, {}, "l", "log")
         assert spec.case == str(tmp_path / "zinc_case.py")
-        assert pipe.case_id == "toy"
 
     def test_python_m_pysuto_run_without_case_exits_2_and_lists_the_aliases(
             self, tmp_path):
@@ -199,3 +198,25 @@ def test_the_resolver_and_the_pipeline_load_no_case_module_until_an_alias_is_res
     proc = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True,
                           env={**os.environ, "PYTHONPATH": src})
     assert proc.returncode == 0, proc.stderr
+
+
+class TestResolveFailures:
+    """U8-G6-5 (#279): the two branches the docstring promises."""
+
+    def test_an_import_error_inside_the_case_module_propagates(self, tmp_path, monkeypatch):
+        (tmp_path / "needs_missing_case.py").write_text(
+            "import a_dependency_that_is_not_installed\n")
+        monkeypatch.syspath_prepend(str(tmp_path))
+        try:
+            with pytest.raises(ModuleNotFoundError, match="a_dependency_that_is_not"):
+                resolve_case("needs_missing_case")
+        finally:
+            sys.modules.pop("needs_missing_case", None)
+
+    def test_a_module_with_no_source_file_is_refused(self, monkeypatch):
+        import types
+        module = types.ModuleType("sourceless_case_mod")
+        module.CASE = toy.CASE
+        monkeypatch.setitem(sys.modules, "sourceless_case_mod", module)
+        with pytest.raises(ValueError, match="no source file"):
+            resolve_case("sourceless_case_mod")

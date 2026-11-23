@@ -89,7 +89,7 @@ def _collected(raw_use_only, mock_acc_struct, maps, usage, w_domestic, w_import,
                                    aux_sides=AUX_SIDES,
                                    drop_unweighted_fans=True, **maps)
     F_src = np.full(ct.n_src_edges, usage)
-    F_root = WeightMatrix(ct).apply(F_src)
+    F_root = WeightMatrix(ct).weight_matrix.T @ F_src
     result = PropagationResult(F_root=F_root, sigma_root=0.05 * np.abs(F_root),
                                cv_root=np.full_like(F_root, 0.05), cv_src=0.05)
     production_zero = np.zeros(len(F_root), dtype=bool)
@@ -428,3 +428,171 @@ def test_the_complete_icsg_spec_carries_the_trade_share_and_observed_zero_hooks(
     assert ICSG_SPEC.user_weights is not None and ICSG_SPEC.post_propagate is not None
     assert ICSG_SPEC.load_raw is ICSG_FEED.load_raw
     assert ICSG_SPEC.drop_unweighted_fans and ICSG_SPEC.feed_id == "icsg"
+
+
+# ---------------------------------------------------------------------------
+# #280: the price the README promises, the readers and loaders (U1a-S1-2, U1a-G6-3)
+# ---------------------------------------------------------------------------
+
+def test_the_observed_zero_is_priced_like_the_net_stock_seed():
+    """README: the zero is "priced like the net-stock seed". The two constants are
+    hand-synchronised ("change both or neither"); for the reference case they agree.
+    A sweep moves the seed's CV only (#237 decides whether the feed follows)."""
+    from copper_case import copper
+    assert copper_feed.OBSERVED_ZERO_CV == copper.CASE.imp.STOCK_SEED_CV
+    assert copper_feed.OBSERVED_ZERO_FLOOR_KT == copper.CASE.imp.STOCK_SEED_ABS_FLOOR_KT
+
+
+def test_the_aggregate_and_hub_labels_follow_the_row_region():
+    assert copper_feed.HUB_EXCLUDE == {copper_feed.ROW_REGION}
+    assert copper_feed.AGGREGATE_REGIONS == (copper_feed.ROW_REGION,)
+    assert copper_feed.STOCK_SECTORS_TO is copper_feed.SIGNED_SECTORS_TO
+
+
+def test_the_cv_scale_cap_is_the_re_export_netting_s():
+    from pysuto.feedprep import reexport
+    assert copper_feed.MAX_CV_SCALE is reexport.MAX_CV_SCALE
+
+
+def _build(feed_dir, regions=("A", "B"), times=(2018, 2019)):
+    from types import SimpleNamespace
+    acc = SimpleNamespace(node_index=pd.DataFrame({"region": list(regions) + ["A"]}),
+                          time_range=list(times))
+    return SimpleNamespace(feed_dir=str(feed_dir), acc=acc)
+
+
+def test_baci_user_weights_is_absent_without_a_weights_file(tmp_path):
+    assert copper_feed.baci_user_weights(_build(tmp_path)) == (None, {})
+
+
+def test_a_legacy_sector_pair_weight_expands_over_every_route_and_year(tmp_path):
+    """The committed baci weights.csv holds sector pairs; ``from_raw`` needs the full
+    (sectors, regions, time) key, so each pair applies to every route and year."""
+    pd.DataFrame({"root_sector_from": ["Cathode", "Cathode"],
+                  "root_sector_to": ["FU", "USC"],
+                  "weight": [100.0, 0.0]}).to_csv(tmp_path / "weights.csv", index=False)
+
+    wdf, inputs = copper_feed.baci_user_weights(_build(tmp_path))
+
+    assert inputs == {}
+    assert len(wdf) == 2 * 2 * 2 * 2           # pairs x from-regions x to-regions x years
+    assert set(wdf["root_time"]) == {"2018", "2019"}
+    assert set(wdf["root_region_from"]) == set(wdf["root_region_to"]) == {"A", "B"}
+    assert not wdf.duplicated(["root_sector_from", "root_sector_to", "root_region_from",
+                               "root_region_to", "root_time"]).any()
+    assert wdf.groupby("root_sector_to")["weight"].unique().map(list).to_dict() == {
+        "FU": [100.0], "USC": [0.0]}
+
+
+def test_a_full_key_weights_file_is_passed_through_unexpanded(tmp_path):
+    full = pd.DataFrame({"root_sector_from": ["Cathode"], "root_sector_to": ["FU"],
+                         "root_region_from": ["A"], "root_region_to": ["B"],
+                         "root_time": ["2018"], "weight": [1.0]})
+    full.to_csv(tmp_path / "weights.csv", index=False)
+    wdf, _ = copper_feed.baci_user_weights(_build(tmp_path))
+    pd.testing.assert_frame_equal(wdf, pd.read_csv(tmp_path / "weights.csv"))
+
+
+def test_the_raw_loaders_read_the_year_as_text_and_refuse_a_missing_file(tmp_path):
+    path = tmp_path / "values.csv"
+    pd.DataFrame({"Year": [2018], "Process": ["Smelting"], "Type": ["Srap"],
+                  "Supply_Use": ["Use"], "Value": [1.0]}).to_csv(path, index=False)
+
+    icsg = copper_feed.load_icsg_raw(str(path))
+    assert icsg["Year"].tolist() == ["2018"]
+    assert icsg["_sector_key"].tolist() == ["Smelting_Scrap"]
+    assert copper_feed.load_baci_raw(str(path))["Year"].tolist() == ["2018"]
+    assert copper_feed.load_crude_ore_raw(str(path))["Year"].tolist() == ["2018"]
+    for load in (copper_feed.load_icsg_raw, copper_feed.load_baci_raw,
+                 copper_feed.load_crude_ore_raw, copper_feed.load_plain_tables,
+                 copper_feed.load_icsg_tables):
+        with pytest.raises(FileNotFoundError, match="Missing"):
+            load(str(tmp_path / "absent.csv"))
+
+
+def _workbook(path, sector_map):
+    with pd.ExcelWriter(path) as xl:
+        sector_map.to_excel(xl, sheet_name="sector_map", index=False)
+        pd.DataFrame({"src_region": ["Chile"], "root_region": ["Chile"]}).to_excel(
+            xl, sheet_name="region_map", index=False)
+        pd.DataFrame({"src_time": [2018], "root_time": [2018]}).to_excel(
+            xl, sheet_name="time_map", index=False)
+        pd.DataFrame({"src_valuation": ["kt"], "root_valuation": ["CC"]}).to_excel(
+            xl, sheet_name="valuation_map", index=False)
+        pd.DataFrame({"raw_var": ["Value"], "src_var": ["src_x"],
+                      "Supply_Use": [""]}).to_excel(xl, sheet_name="variable_map",
+                                                    index=False)
+
+
+def test_the_concordance_loaders_read_the_five_maps_with_times_as_text(tmp_path):
+    path = str(tmp_path / "conc.xlsx")
+    _workbook(path, pd.DataFrame({"src_sector": ["Mining"], "root_sector": ["Mining"],
+                                  "icsg_type": ["Concentrate"], "supply_use": ["Supply"]}))
+    tables = copper_feed.load_icsg_tables(path)
+    assert set(tables) == {"sector_map", "region_map", "time_map", "valuation_map",
+                           "var_map"}
+    assert tables["time_map"]["src_time"].tolist() == ["2018"]
+    assert tables["time_map"]["root_time"].tolist() == ["2018"]
+    assert tables["var_map"]["Supply_Use"].isna().all()    # "" -> NA (an aux-free row)
+    assert list(tables["sector_map"].columns) == ["src_sector", "root_sector",
+                                                  "icsg_type", "supply_use"]
+    plain = copper_feed.load_plain_tables(path)
+    assert list(plain["sector_map"].columns) == ["src_sector", "root_sector"]
+
+
+def test_the_icsg_leg_filter_maps_each_use_variable_to_its_input_product():
+    sm = pd.DataFrame({"src_sector": ["Smelting_Scrap", "Mining", "Smelting_Concentrate"],
+                       "icsg_type": ["Scrap", "Concentrate", "Concentrate"],
+                       "supply_use": ["Use", "Supply", "USE"]})
+    assert copper_feed.icsg_leg_filter({"sector_map": sm}) == {
+        "Smelting_Scrap": "Scrap", "Smelting_Concentrate": "Concentrate"}
+
+
+class _Inputs:
+    """The slice of ``InputRegistries`` the raw-ICSG readers use: the ICSG feed's
+    directory (values and region map)."""
+
+    def __init__(self, feed_dir):
+        self.feed = self
+        self._dir = feed_dir
+
+    def resolve(self, _id):
+        return self._dir
+
+
+def test_icsg_intake_and_production_follow_the_recipes_on_a_ten_row_fixture(
+        tmp_path, monkeypatch):
+    """ICSG intake U and production P per netted sector, from the raw rows alone, by
+    ``production_recipes`` (ADR 0021, 0027): a region the region map lacks is dropped."""
+    rows = [("Mining", "Concentrate", "Supply", "Chile", 100.0),
+            ("Smelting", "Concentrate", "Use", "Chile", 80.0),
+            ("Smelting", "Scrap", "Use", "Chile", 20.0),
+            ("Refining", "Anode", "Use", "Chile", 90.0),
+            ("Refining", "Scrap", "Use", "Chile", 10.0),
+            ("SXEW", "Cathode", "Supply", "Chile", 30.0),
+            ("Semi", "Cathode", "Use", "Chile", 60.0),
+            ("USC", "Cathode", "Use", "Chile", 5.0),
+            ("MESC", "Cathode", "Use", "Chile", 5.0),
+            ("Mining", "Concentrate", "Supply", "Atlantis", 999.0)]
+    pd.DataFrame(rows, columns=["Process", "Type", "Supply_Use", "Region", "Value"]
+                 ).assign(Year=2018).to_csv(tmp_path / "values.csv", index=False)
+    pd.DataFrame({"src_region": ["Chile"], "root_region": ["Chile"]}).to_excel(
+        tmp_path / "conc.xlsx", sheet_name="region_map", index=False)
+    monkeypatch.setattr(copper_feed, "eff_nominals",
+                        lambda inputs: {"Smelting": 0.5, "CFR": 0.8, "ER": 0.5})
+
+    intake, production, reported = copper_feed.icsg_intake_production(_Inputs(tmp_path))
+
+    # matte P = (80 + 20) * 0.5; anode P = (matte P + 10) * 0.8; cathode P = 90 * 0.5 + 30
+    assert production == pytest.approx({("Concentrate", "Chile", "2018"): 100.0,
+                                        ("Matte", "Chile", "2018"): 50.0,
+                                        ("Anode", "Chile", "2018"): 48.0,
+                                        ("Cathode", "Chile", "2018"): 75.0},
+                                       rel=1e-12)
+    # matte U = max(P_matte, anode use / eff_CFR - scrap into CFR) = max(50, 102.5)
+    assert intake == pytest.approx({("Concentrate", "Chile", "2018"): 80.0,
+                                    ("Matte", "Chile", "2018"): 102.5,
+                                    ("Anode", "Chile", "2018"): 90.0,
+                                    ("Cathode", "Chile", "2018"): 70.0},
+                                   rel=1e-12)
+    assert reported == {(s, "Chile") for s in copper_feed.NETTED_SECTORS}

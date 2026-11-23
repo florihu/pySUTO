@@ -292,7 +292,9 @@ class TestNetReexports:
         new = new[new.cc > 1e-9].reset_index(drop=True)
         again, ev2 = net_reexports(new, _vol(new, reported=set()), set())
         again = again[again.cc > 1e-9].reset_index(drop=True)
-        assert ev2["T_applied"].sum() if len(ev2) else 0.0 == pytest.approx(0.0, abs=0.01)
+        # a second pass finds nothing to net: no event, or events that move no mass
+        applied = float(ev2["T_applied"].sum()) if len(ev2) else 0.0
+        assert applied == pytest.approx(0.0, abs=0.01)
         key = ["sector", "region_from", "region_to", "time"]
         pd.testing.assert_frame_equal(
             new.sort_values(key).reset_index(drop=True),

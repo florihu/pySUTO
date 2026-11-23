@@ -166,7 +166,7 @@ def _build_edge_lookup(ei_exp: pd.DataFrame) -> dict:
     cols = ["sector_from", "entity_from", "region_from",
             "sector_to",   "entity_to",   "region_to", "time", "valuation"]
     arr  = ei_exp[cols].to_numpy(dtype=str)
-    eids = ei_exp["edge_id"].to_numpy(dtype=int)
+    eids = ei_exp["edge_id"].to_numpy(dtype=np.int64)
     return {tuple(arr[i]): int(eids[i]) for i in range(len(arr))}
 
 
@@ -215,7 +215,7 @@ def get_edge_cache(acc_struct) -> tuple:
         id_to_tuple  = {eid: tup for tup, eid in edge_lookup.items()}
         field_vals   = {col: sorted(str(v) for v in ei_exp[col].unique()) for col in _MASK_COLS}
         mask_cache   = _build_mask_cache(ei_exp)
-        edge_ids_arr = ei_exp["edge_id"].to_numpy(dtype=int)
+        edge_ids_arr = ei_exp["edge_id"].to_numpy(dtype=np.int64)
         cached = (acc_struct,
                   (ei_exp, edge_lookup, id_to_tuple, field_vals, mask_cache, edge_ids_arr))
         _ec_cache[key] = cached

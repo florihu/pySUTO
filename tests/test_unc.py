@@ -4,7 +4,7 @@ test_unc.py
 Unit tests for pysuto.unc:
   - PedigreeScores  (construction, validation, individual CVs, total CV)
   - PropagationResult  (dataclass contract)d
-  - UncertaintyMixin  (apply_with_uncertainty, set_pedigree*, set_F_src)
+  - UncertaintyMixin  (apply_with_uncertainty, set_pedigree, set_F_src)
 
 All numerical assertions use independently computed ground-truth values
 derived directly from Laner et al. (2016) Equations 1–3 and Gaussian
@@ -31,6 +31,7 @@ from __future__ import annotations
 
 import numpy as np
 import pytest
+import scipy.sparse as sp
 
 from pysuto.unc import (
     PedigreeScores,
@@ -42,7 +43,7 @@ from pysuto.unc import (
 )
 
 # ── tolerance for floating-point assertions ──────────────────────────────────
-RTOL = 1e-8
+RTOL = 1e-12
 ATOL = 1e-12
 
 
@@ -69,14 +70,24 @@ def _total_cv(r, comp, temp, geo, oth,
     ))
 
 
-# ── Minimal UncertaintyMixin carrier (dense numpy W, no sparse dep) ──────────
+def _pedigree_cv_rel(score: int) -> float:
+    """CV of a reliability score, read through the public ``summary()``."""
+    return PedigreeScores(reliability=score).summary()["cv_reliability"]
+
+
+def _pedigree_cv_other(score: int, sens: str) -> float:
+    """CV of a non-reliability score at a sensitivity, read through ``summary()``."""
+    return PedigreeScores(completeness=score,
+                          completeness_sensitivity=sens).summary()["cv_completeness"]
+
+
+# ── Minimal UncertaintyMixin carrier (a CSR weight matrix, as WeightMatrix owns) ──
 
 class _MockFeed(UncertaintyMixin):
-    """Stand-in for WeightMatrix: owns a dense weight matrix."""
+    """Stand-in for WeightMatrix: owns a CSR weight matrix."""
 
     def __init__(self, W: np.ndarray):
-        # Store as numpy; apply_with_uncertainty accepts anything with .T @ vec
-        self.weight_matrix = W
+        self.weight_matrix = sp.csr_matrix(W)
 
 
 def _expected_sigma_root_lp(W: np.ndarray, F: np.ndarray, cv: float, p: float) -> np.ndarray:
@@ -272,114 +283,110 @@ class TestCvReliability:
 
     def test_score_1_matches_formula(self):
         pg = PedigreeScores(reliability=1)
-        assert pg._cv_reliability(1) == pytest.approx(_cv_rel(1), rel=RTOL)
+        assert _pedigree_cv_rel(1) == pytest.approx(_cv_rel(1), rel=RTOL)
 
     def test_score_2_matches_formula(self):
-        assert PedigreeScores._cv_reliability(2) == pytest.approx(_cv_rel(2), rel=RTOL)
+        assert _pedigree_cv_rel(2) == pytest.approx(_cv_rel(2), rel=RTOL)
 
     def test_score_3_matches_formula(self):
-        assert PedigreeScores._cv_reliability(3) == pytest.approx(_cv_rel(3), rel=RTOL)
+        assert _pedigree_cv_rel(3) == pytest.approx(_cv_rel(3), rel=RTOL)
 
     def test_score_4_matches_formula(self):
-        assert PedigreeScores._cv_reliability(4) == pytest.approx(_cv_rel(4), rel=RTOL)
+        assert _pedigree_cv_rel(4) == pytest.approx(_cv_rel(4), rel=RTOL)
 
     def test_score_1_exact_value(self):
         expected = 0.75 * np.exp(1.105) / 100.0
-        assert PedigreeScores._cv_reliability(1) == pytest.approx(expected, rel=RTOL)
+        assert _pedigree_cv_rel(1) == pytest.approx(expected, rel=RTOL)
 
     def test_score_1_is_nonzero(self):
         """Reliability always contributes uncertainty even at best score."""
-        assert PedigreeScores._cv_reliability(1) > 0.0
+        assert _pedigree_cv_rel(1) > 0.0
 
     def test_strictly_increasing(self):
-        cvs = [PedigreeScores._cv_reliability(s) for s in [1, 2, 3, 4]]
+        cvs = [_pedigree_cv_rel(s) for s in [1, 2, 3, 4]]
         assert all(cvs[i] < cvs[i + 1] for i in range(3))
 
     def test_returns_fraction_not_percent(self):
         """CV at score=1 must be ~2.26%, i.e. 0.0226 as a fraction."""
-        cv = PedigreeScores._cv_reliability(1)
+        cv = _pedigree_cv_rel(1)
         assert 0.01 < cv < 0.10
-
-    def test_static_method_callable_without_instance(self):
-        result = PedigreeScores._cv_reliability(2)
-        assert isinstance(result, float)
 
 
 class TestCvOther:
 
     def test_score_1_is_zero_for_all_sensitivities(self):
         for sens in SENSITIVITY_PARAMS:
-            assert PedigreeScores._cv_other(1, sens) == 0.0
+            assert _pedigree_cv_other(1, sens) == 0.0
 
     def test_score_2_medium_matches_formula(self):
         expected = _cv_other(2, "medium_sensitive")
-        assert PedigreeScores._cv_other(2, "medium_sensitive") == pytest.approx(
+        assert _pedigree_cv_other(2, "medium_sensitive") == pytest.approx(
             expected, rel=RTOL
         )
 
     def test_score_3_medium_matches_formula(self):
-        assert PedigreeScores._cv_other(3, "medium_sensitive") == pytest.approx(
+        assert _pedigree_cv_other(3, "medium_sensitive") == pytest.approx(
             _cv_other(3, "medium_sensitive"), rel=RTOL
         )
 
     def test_score_4_medium_matches_formula(self):
-        assert PedigreeScores._cv_other(4, "medium_sensitive") == pytest.approx(
+        assert _pedigree_cv_other(4, "medium_sensitive") == pytest.approx(
             _cv_other(4, "medium_sensitive"), rel=RTOL
         )
 
     def test_score_2_not_sensitive_exact(self):
         expected = 0.375 * np.exp(1.105) / 100.0
-        assert PedigreeScores._cv_other(2, "not_sensitive") == pytest.approx(
+        assert _pedigree_cv_other(2, "not_sensitive") == pytest.approx(
             expected, rel=RTOL
         )
 
     def test_score_2_highly_sensitive_exact(self):
         expected = 1.500 * np.exp(1.105) / 100.0
-        assert PedigreeScores._cv_other(2, "highly_sensitive") == pytest.approx(
+        assert _pedigree_cv_other(2, "highly_sensitive") == pytest.approx(
             expected, rel=RTOL
         )
 
     def test_sensitivity_ordering_at_score_2(self):
-        ns = PedigreeScores._cv_other(2, "not_sensitive")
-        ms = PedigreeScores._cv_other(2, "medium_sensitive")
-        hs = PedigreeScores._cv_other(2, "highly_sensitive")
+        ns = _pedigree_cv_other(2, "not_sensitive")
+        ms = _pedigree_cv_other(2, "medium_sensitive")
+        hs = _pedigree_cv_other(2, "highly_sensitive")
         assert ns < ms < hs
 
     def test_sensitivity_ordering_at_score_3(self):
-        ns = PedigreeScores._cv_other(3, "not_sensitive")
-        ms = PedigreeScores._cv_other(3, "medium_sensitive")
-        hs = PedigreeScores._cv_other(3, "highly_sensitive")
+        ns = _pedigree_cv_other(3, "not_sensitive")
+        ms = _pedigree_cv_other(3, "medium_sensitive")
+        hs = _pedigree_cv_other(3, "highly_sensitive")
         assert ns < ms < hs
 
     def test_sensitivity_ordering_at_score_4(self):
-        ns = PedigreeScores._cv_other(4, "not_sensitive")
-        ms = PedigreeScores._cv_other(4, "medium_sensitive")
-        hs = PedigreeScores._cv_other(4, "highly_sensitive")
+        ns = _pedigree_cv_other(4, "not_sensitive")
+        ms = _pedigree_cv_other(4, "medium_sensitive")
+        hs = _pedigree_cv_other(4, "highly_sensitive")
         assert ns < ms < hs
 
     def test_non_decreasing_with_score_medium(self):
-        cvs = [PedigreeScores._cv_other(s, "medium_sensitive") for s in [1, 2, 3, 4]]
+        cvs = [_pedigree_cv_other(s, "medium_sensitive") for s in [1, 2, 3, 4]]
         assert all(cvs[i] <= cvs[i + 1] for i in range(3))
 
     def test_non_decreasing_with_score_not_sensitive(self):
-        cvs = [PedigreeScores._cv_other(s, "not_sensitive") for s in [1, 2, 3, 4]]
+        cvs = [_pedigree_cv_other(s, "not_sensitive") for s in [1, 2, 3, 4]]
         assert all(cvs[i] <= cvs[i + 1] for i in range(3))
 
     def test_ratio_medium_to_not_sensitive_is_2(self):
         """medium_sensitive 'a' is exactly 2× not_sensitive 'a'."""
         for s in [2, 3, 4]:
-            ns = PedigreeScores._cv_other(s, "not_sensitive")
-            ms = PedigreeScores._cv_other(s, "medium_sensitive")
+            ns = _pedigree_cv_other(s, "not_sensitive")
+            ms = _pedigree_cv_other(s, "medium_sensitive")
             assert ms == pytest.approx(2 * ns, rel=RTOL)
 
     def test_ratio_highly_to_medium_is_2(self):
         for s in [2, 3, 4]:
-            ms = PedigreeScores._cv_other(s, "medium_sensitive")
-            hs = PedigreeScores._cv_other(s, "highly_sensitive")
+            ms = _pedigree_cv_other(s, "medium_sensitive")
+            hs = _pedigree_cv_other(s, "highly_sensitive")
             assert hs == pytest.approx(2 * ms, rel=RTOL)
 
     def test_returns_fraction_not_percent(self):
-        cv = PedigreeScores._cv_other(4, "highly_sensitive")
+        cv = _pedigree_cv_other(4, "highly_sensitive")
         assert 0.0 < cv < 1.0
 
 
@@ -477,12 +484,12 @@ class TestSummaryDict:
 
     def test_summary_reliability_matches_static_method(self, all_twos_pedigree):
         assert all_twos_pedigree.summary()["cv_reliability"] == pytest.approx(
-            PedigreeScores._cv_reliability(2), rel=RTOL
+            _pedigree_cv_rel(2), rel=RTOL
         )
 
     def test_summary_completeness_matches_static_method(self, all_twos_pedigree):
         assert all_twos_pedigree.summary()["cv_completeness"] == pytest.approx(
-            PedigreeScores._cv_other(2, "medium_sensitive"), rel=RTOL
+            _pedigree_cv_other(2, "medium_sensitive"), rel=RTOL
         )
 
     def test_summary_all_values_non_negative(self, all_fours_pedigree):
@@ -578,24 +585,11 @@ class TestUncertaintyMixinSetup:
         feed_4x3.set_pedigree(all_ones_pedigree)
         assert feed_4x3.pedigree is all_ones_pedigree
 
-    def test_set_pedigree_from_dict_creates_pedigree_scores(self, feed_4x3):
-        feed_4x3.set_pedigree_from_dict({
-            "reliability": 2,
-            "completeness": 3,
-        })
-        assert isinstance(feed_4x3.pedigree, PedigreeScores)
+    def test_set_pedigree_stores_a_pedigree_built_from_scores(self, feed_4x3):
+        feed_4x3.set_pedigree(PedigreeScores(reliability=2, completeness=3))
         assert feed_4x3.pedigree.reliability == 2
         assert feed_4x3.pedigree.completeness == 3
-
-    def test_set_pedigree_from_dict_ignores_unknown_keys(self, feed_4x3):
-        """Extra keys not in PedigreeScores.__dataclass_fields__ must be ignored."""
-        feed_4x3.set_pedigree_from_dict({"reliability": 1, "unknown_key": 99})
-        assert feed_4x3.pedigree.reliability == 1
-
-    def test_set_pedigree_from_dict_uses_defaults_for_missing_keys(self, feed_4x3):
-        feed_4x3.set_pedigree_from_dict({})
-        assert feed_4x3.pedigree.reliability == 1
-        assert feed_4x3.pedigree.completeness == 1
+        assert feed_4x3.pedigree.temporal_correlation == 1   # default score
 
     def test_set_F_src_stores_array(self, feed_4x3):
         feed_4x3.set_F_src(np.array([1.0, 2.0, 3.0, 4.0]))
@@ -689,7 +683,7 @@ class TestApplySigma:
         feed_4x3.set_pedigree(all_ones_pedigree)
         result = feed_4x3.apply_with_uncertainty(F_src_4)
         expected = _expected_sigma_root_lp(W_4x3, F_src_4, all_ones_pedigree.total_cv(), p=1.3)
-        np.testing.assert_allclose(result.sigma_root, expected, rtol=1e-8)
+        np.testing.assert_allclose(result.sigma_root, expected, rtol=RTOL)
 
     def test_sigma_root_p2_recovers_quadrature(
         self, feed_4x3, all_ones_pedigree, F_src_4, W_4x3
@@ -700,9 +694,6 @@ class TestApplySigma:
         expected_l2 = np.sqrt(all_ones_pedigree.total_cv()**2
                               * ((W_4x3**2).T @ F_src_4**2))
         np.testing.assert_allclose(result.sigma_root, expected_l2, rtol=RTOL)
-        # And matches the legacy hardcoded values
-        legacy = np.array([3.20237114, 4.11825427, 1.26807428])
-        np.testing.assert_allclose(result.sigma_root, legacy, rtol=1e-6)
 
     @pytest.mark.parametrize("p", [1.1, 1.3, 1.5, 2.0])
     def test_sigma_root_formula_param_p(
@@ -712,19 +703,33 @@ class TestApplySigma:
         feed_4x3.set_pedigree(all_ones_pedigree)
         result = feed_4x3.apply_with_uncertainty(F_src_4, p=p)
         expected = _expected_sigma_root_lp(W_4x3, F_src_4, all_ones_pedigree.total_cv(), p=p)
-        np.testing.assert_allclose(result.sigma_root, expected, rtol=1e-8)
+        np.testing.assert_allclose(result.sigma_root, expected, rtol=RTOL)
+
+    @pytest.mark.parametrize("p", [0.99, 0.5, 0.0, -1.0, float("nan")])
+    def test_p_below_one_raises(self, feed_4x3, all_ones_pedigree, F_src_4, p):
+        """The diversification invariant needs p >= 1: a smaller p is refused."""
+        feed_4x3.set_pedigree(all_ones_pedigree)
+        with pytest.raises(ValueError, match="Lp exponent"):
+            feed_4x3.apply_with_uncertainty(F_src_4, p=p)
+
+    def test_p_of_one_is_accepted(self, feed_4x3, all_ones_pedigree, F_src_4):
+        feed_4x3.set_pedigree(all_ones_pedigree)
+        result = feed_4x3.apply_with_uncertainty(F_src_4, p=1.0)
+        assert np.all(np.isfinite(result.sigma_root))
 
     def test_cv_root_shape(self, feed_4x3, all_ones_pedigree, F_src_4):
         feed_4x3.set_pedigree(all_ones_pedigree)
         result = feed_4x3.apply_with_uncertainty(F_src_4)
         assert result.cv_root.shape == (3,)
 
-    def test_cv_root_p2_legacy_values(self, feed_4x3, all_ones_pedigree, F_src_4):
-        """p=2 round-trip: legacy L2 cv_root values."""
+    def test_cv_root_p2_legacy_values(self, feed_4x3, all_ones_pedigree, F_src_4, W_4x3):
+        """p=2 round-trip: the L2 quadrature cv_root."""
         feed_4x3.set_pedigree(all_ones_pedigree)
         result = feed_4x3.apply_with_uncertainty(F_src_4, p=2.0)
-        expected = np.array([0.01601186, 0.01503013, 0.02264418])
-        np.testing.assert_allclose(result.cv_root, expected, rtol=1e-5)
+        sigma_l2 = np.sqrt(all_ones_pedigree.total_cv()**2
+                           * ((W_4x3**2).T @ F_src_4**2))
+        np.testing.assert_allclose(result.cv_root, sigma_l2 / np.abs(W_4x3.T @ F_src_4),
+                                   rtol=RTOL)
 
     def test_cv_root_equals_sigma_over_F_root(self, feed_4x3, all_ones_pedigree, F_src_4):
         feed_4x3.set_pedigree(all_ones_pedigree)
@@ -969,7 +974,7 @@ class TestCvInvariantPropagation:
         expected = _expected_sigma_root_lp(
             W_4x3, F_src_4, all_ones_pedigree.total_cv(), p=1.3,
         )
-        np.testing.assert_allclose(result.sigma_root, expected, rtol=1e-8)
+        np.testing.assert_allclose(result.sigma_root, expected, rtol=RTOL)
 
 
 # =============================================================================

@@ -20,6 +20,12 @@ collapse, z² +44.5 %). With the termination tightened the same constraint run g
 0.621 to 0.979. Most of that gain is the solver's, not the rows'; the base re-solved at the same
 tolerance (`base_retol`, see §5) separates the two.**
 
+Solver-tolerance re-solve (moved from the `stages.py` knob comment, #220): re-solving 2015 of
+`const_20260929_120611_6ef43f64` at gap_rel 1e-8 lowered the objective by 9,052 (8 % of that
+year's misfit; the stopped objective's magnitude is 1.17e6 against a misfit of 1.13e5) and lifted
+Chile's concentrate-export retention from 0.66 to 0.97; with the lower-bound rows the old stop
+left W.1 48,800 short of its optimum.
+
 ---
 
 ## 1. Mechanism being removed

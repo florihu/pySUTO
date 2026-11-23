@@ -22,7 +22,7 @@ Cathode and Anode). Requires
 [ADR 0026](0026-bilateral-trade-legs-are-not-time-interpolated.md). Baseline
 `opt_20260914_090327_c21a5c48`; L.0 predecessor `opt_20260915_103911_38b3fffc`.
 **Amended 2026-10-13 (#67):** a region-year whose flows ICSG reports inside an aggregate row is a
-gap whatever stock rows it carries; see the gap exclusion below. Measured by #69.
+gap whatever stock rows it carries; see the gap exclusion below. Measured by #69. *(Pruned: `opt_20260915_103911_38b3fffc`, `opt_20260915_111233_def72bc3` are absent from `data/proc` on 2026-11-23; no per-run pruning date is recorded.)*
 
 ## Context
 
@@ -293,5 +293,5 @@ South Africa's 2017–2018 smelter intake against BACI concentrate exports equal
 withholds is ICSG usage that recorded production and imports cannot supply, and it is stated as a
 limitation.
 
-**Status:** rejected on measurement — `opt_20261022_105118_b7a659a8`, REP
+**Amendment status:** rejected on measurement — `opt_20261022_105118_b7a659a8`, REP
 [`…issue111-four-region-diagnosis`](../rep/analysis_opt_20261021_131744_58504ad3_20261022_issue111-four-region-diagnosis.md).

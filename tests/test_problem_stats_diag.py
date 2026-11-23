@@ -56,6 +56,8 @@ from pysuto.acc import ValuationRoles
 from pysuto.diag.stats import ProblemStatsDiagnostic
 from pysuto.diag.stats.problem import row_family
 
+CHAIN_ORDER = ["Mining", "Ore", "Concentrate", "Smelting", "Cathode"]
+
 
 # ---------------------------------------------------------------------------
 # Stubs
@@ -171,7 +173,7 @@ def _opt(cols=COLS_2020):
 
 def _diag(year="2020", **kw):
     return ProblemStatsDiagnostic(kw.get("opt", _opt()), kw.get("cr", _cr()),
-                                  kw.get("imp", _imp()), _acc(), year)
+                                  kw.get("imp", _imp()), _acc(), year, CHAIN_ORDER)
 
 
 def test_year_is_a_time_label():

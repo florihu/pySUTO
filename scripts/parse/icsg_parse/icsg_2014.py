@@ -65,7 +65,7 @@ def clean_flows(df_init, sheet, process, flow_type, rename_dict):
     #     (blank)     Total          854.1
     # so bfill reaches the right label from the Concentrates row but carries the
     # Total row onto the NEXT country.  A Total row closes its own block, so it
-    # takes the label at or above it instead.
+    # takes the label at or above it instead (ADR 0035).
     #
     # This must run BEFORE the aggregate rows are dropped: the sheet's own
     # WORLD / TOTALS block is shaped the same way, and with its labels already
@@ -299,25 +299,6 @@ def main(id=2014):
 
     pass
 
-
-def check_flows(df):
-
-    # per Region, Type Year Process is only one value
-    duplicates = df[df.duplicated(subset=['Region', 'Type', 'Year', 'Process'], keep=False)]
-    if not duplicates.empty:
-        logger.warning(f"Duplicate entries found for the same Region, Type, Year, Process combination:\n{duplicates}")
-    # there are NaN anywhere
-    if df.isnull().any().any():
-        logger.warning("NaN values found in the DataFrame")
-
-    # Year col is int and there are no negative values in Value column
-    if not pd.api.types.is_integer_dtype(df['Year']):
-        logger.warning("Year column is not of integer type")
-    if (df['Value'] < 0).any():
-        logger.warning("Negative values found in Value column")
-
-
-    pass
 
 def checks_stocks(df):
     #1 there is per Type Region Stock_type Year a unique value

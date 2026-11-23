@@ -15,7 +15,7 @@ Includes the two engine-local helpers:
 from __future__ import annotations
 
 import os
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 import numpy as np
@@ -72,20 +72,6 @@ def _lp_regularize(
     n_cv  = int((10.0 * cv_term  >= np.abs(sigma)).sum() if cv_min    > 0 else 0)
     n_abs = int((10.0 * abs_term >= np.abs(sigma)).sum() if abs_floor > 0 else 0)
     return sigma_new, n_cv, n_abs
-
-try:
-    from ..logging import get_logger
-except ImportError:
-    import logging
-    def get_logger(name):
-        return logging.getLogger(name)
-
-_log = get_logger(__name__)
-
-
-# =============================================================================
-# ConstraintBlock  — output of a single builder for one phase (static/dynamic)
-# =============================================================================
 
 
 def _partition_G_by_time(
@@ -231,29 +217,6 @@ def _validate_ratio_bounds(G: sp.spmatrix, row_meta: pd.DataFrame) -> None:
         )
 
 
-# =============================================================================
-# BaseConstraintBuilder
-# =============================================================================
-
-
-def nodata_exempt_mask(acc, exclude_sectors, data_aware_sectors, region_years) -> np.ndarray:
-    """Per-edge exemption from the no-data σ anchor (ADR 0013 amendment 3).
-
-    An edge touching ``exclude_sectors`` (either endpoint) is spared, except that
-    one touching ``data_aware_sectors`` is spared only where its
-    ``(from_region, time)`` is in ``region_years`` — the region-years in which a
-    relation actually sets its magnitude. Elsewhere a zero prior means "no flow",
-    and the anchor applies. ``region_years`` holds ``(region, time)`` string pairs.
-    """
-    em = acc.edge_meta
-    fs, ts = em["from_sector"].to_numpy(), em["to_sector"].to_numpy()
-    spared = np.isin(fs, list(exclude_sectors)) | np.isin(ts, list(exclude_sectors))
-    aware = np.isin(fs, list(data_aware_sectors)) | np.isin(ts, list(data_aware_sectors))
-    keys = zip(em["from_region"].astype(str), em["time"].astype(str))
-    listed = np.fromiter((k in region_years for k in keys), dtype=bool, count=len(em))
-    return spared & (~aware | listed)
-
-
 class ConstraintEngine:
     """
     Orchestrates an ordered list of BaseConstraintBuilder instances.
@@ -264,7 +227,8 @@ class ConstraintEngine:
                                   sigma_c_cv_min=..., sigma_c_abs_floor=...,
                                   nodata_anchor_cv=...)   # the case's σ knobs
         engine.register(MassBalanceBuilder())
-        engine.register(SumConstraintBuilder.from_acc_struct(acc_struct, sigma_fraction=...))
+        engine.register(SumConstraintBuilder.from_mask_anchor(acc_struct, mask, f_agg,
+                        sigma_cv=..., p=...))
         engine.register(RatioConstraintBuilder.from_csv("params.csv", acc_struct,
                         sigma_rel_floor=..., scale_abs_floor=...))
         engine.register(RatioBoundBuilder.from_csv("params.csv", acc_struct))
@@ -326,7 +290,8 @@ class ConstraintEngine:
         a prior that already violates its own sign bound) that edge reverts to
         its original ``[l, u]`` so only the meaningful *cross-constraint*
         infeasibility (e.g. an incoherent ratio pair) surfaces, not spurious
-        single-edge empties. Returns new ``(l, u)``.
+        single-edge empties. That revert is a deliberate coercion, counted in the log; the
+        knob is off in copper (``PRIOR_BOX_K = None``). Returns new ``(l, u)``.
         """
         k = self._prior_box_k
         if not k or k <= 0:
@@ -463,27 +428,37 @@ class ConstraintEngine:
         self._builders.append(builder)
 
     def _check(self, cr: ConstraintRun) -> None:
-        """Consistency checks on a completed ConstraintRun. Called automatically in run()."""
+        """Validate a completed ConstraintRun. Called automatically in run().
+
+        Raises ``ValueError`` on an impossible state (a G whose width is not the
+        edge count or that references a column outside it; a hard row with σ_c ≠ 0 or a
+        soft row with σ_c ≤ 0 or non-finite in any year, which the solver would read as
+        hard or break on; a flow with ``u < l``) and
+        :class:`ConstraintUnitMixingError` on a mixed-valuation row. The mass-balance
+        row count and the per-year uniformity of the ratio rows only log: a ratio
+        template legitimately expands to a different row count in a year whose feed
+        covers fewer edges.
+        """
         acc = self.acc_struct
         rm  = cr.row_meta
-        ok  = True
+        n_warn = 0
 
         # 1. G column count matches n_edges
         if cr.G.shape[1] != acc.n_edges:
-            _log.error("CHECK FAIL: G.shape[1]=%d != n_edges=%d", cr.G.shape[1], acc.n_edges)
-            ok = False
-        else:
-            _log.info("CHECK OK: G.shape = (%d rows, %d edges)", cr.G.shape[0], cr.G.shape[1])
+            raise ValueError(
+                f"constraint check: G.shape[1]={cr.G.shape[1]} != n_edges={acc.n_edges}")
+        _log.info("CHECK OK: G.shape = (%d rows, %d edges)", cr.G.shape[0], cr.G.shape[1])
 
         # 2. G column references all in bounds
         if cr.G.nnz > 0:
             max_col = int(cr.G.indices.max())
             if max_col >= acc.n_edges:
-                _log.error("CHECK FAIL: G references edge %d >= n_edges %d", max_col, acc.n_edges)
-                ok = False
+                raise ValueError(
+                    f"constraint check: G references edge {max_col} >= n_edges "
+                    f"{acc.n_edges}")
 
         # 3. Constraint type breakdown
-        type_counts = rm["type"].value_counts() if len(rm) > 0 else pd.Series(dtype=int)
+        type_counts = rm["type"].value_counts() if len(rm) > 0 else pd.Series(dtype=np.int64)
         _log.info("Constraint type breakdown:\n%s",
                   type_counts.to_string() if len(type_counts) else "  (empty)")
 
@@ -497,10 +472,10 @@ class ConstraintEngine:
                 "CHECK WARN: mass_balance rows = %d, expected %d from topology",
                 actual_mb, expected_mb,
             )
-            ok = False
+            n_warn += 1
 
         # 4b. Ratio rows expected uniform across years. Each ratio template
-        # (soft ratio_eq → free cone, hard ratio_bound → nonneg cone) in the
+        # (soft ratio_eq → soft eq, hard ratio_bound → hard le) in the
         # params CSV expands to one row per matching (time, valuation), so
         # totals should split evenly across the timesteps in scope. A
         # non-uniform breakdown means some year is missing rows (often: source
@@ -532,7 +507,7 @@ class ConstraintEngine:
                     type_name, n_type, n_years_expected,
                     {t: per_year[t] for t in sorted(per_year)},
                 )
-                ok = False
+                n_warn += 1
                 continue
 
             expected_per_year = n_type // n_years_expected
@@ -553,25 +528,33 @@ class ConstraintEngine:
                     extra_years or "none",
                     {t: c for t, c in sorted(bad_years.items())} or "none",
                 )
-                ok = False
+                n_warn += 1
 
-        # 5. Hard constraints must have sigma_c == 0 (check first timestep)
-        hard_mask = rm["is_hard"].values if len(rm) > 0 else np.array([], dtype=bool)
-        if np.any(hard_mask) and cr.timestep_data:
-            first_t = next(iter(cr.timestep_data))
-            if np.any(cr.timestep_data[first_t]["sigma_c"][hard_mask] != 0.0):
-                _log.warning("CHECK WARN: hard constraint rows have non-zero sigma_c at t=%s", first_t)
-                ok = False
-            else:
-                _log.info("CHECK OK: hard constraint sigma_c = 0 (t=%s)", first_t)
+        # 5. σ_c in every year: a hard row carries 0 (the solver never reads it), a soft
+        # row a finite positive σ_c — a soft σ_c = 0 would be a hard row in the solver.
+        if len(rm) and cr.timestep_data:
+            hard_mask = rm["is_hard"].to_numpy().astype(bool)
+            for t_label, td in cr.timestep_data.items():
+                sc = td["sigma_c"]
+                if np.any(sc[hard_mask] != 0.0):
+                    raise ValueError(
+                        f"constraint check: {int((sc[hard_mask] != 0.0).sum())} hard "
+                        f"row(s) have σ_c != 0 at t={t_label}")
+                bad_soft = ~(np.isfinite(sc[~hard_mask]) & (sc[~hard_mask] > 0.0))
+                if bad_soft.any():
+                    ids = rm["constraint_id"].to_numpy()[~hard_mask][bad_soft]
+                    raise ValueError(
+                        f"constraint check: {int(bad_soft.sum())} soft row(s) have "
+                        f"σ_c <= 0 or non-finite at t={t_label} (the solver would "
+                        f"treat them as hard); first constraint_ids: {ids[:5].tolist()}")
+            _log.info("CHECK OK: hard σ_c = 0, soft σ_c > 0 in all %d years",
+                      len(cr.timestep_data))
 
         # 6. u >= l for all edges
         bad_bounds = int(np.sum(cr.u < cr.l))
         if bad_bounds:
-            _log.warning("CHECK WARN: %d edges have u < l", bad_bounds)
-            ok = False
-        else:
-            _log.info("CHECK OK: u >= l for all %d edges", acc.n_edges)
+            raise ValueError(f"constraint check: {bad_bounds} edges have u < l")
+        _log.info("CHECK OK: u >= l for all %d edges", acc.n_edges)
 
         # 7. Unit coherence: no G row outside the whitelist may mix valuations.
         if cr.G.nnz > 0 and "type" in rm.columns:
@@ -598,7 +581,8 @@ class ConstraintEngine:
             _log.info("CHECK OK: unit-coherence verified on %d rows "
                       "(whitelist: %s)", checked, sorted(MIXED_VALUATION_OK))
 
-        _log.info("Constraint check %s", "PASSED" if ok else "FAILED (see warnings above)")
+        _log.info("Constraint check passed (%d advisory warning%s)", n_warn,
+                  "" if n_warn == 1 else "s")
 
     def run(
         self,
@@ -725,6 +709,13 @@ class ConstraintEngine:
             for b, sb in zip(self._builders, static_blocks):
                 dyn = b.build_dynamic(acc, f_agg, sigma_agg, t_label)
                 bM  = sb.G_rows.shape[0]
+                # an empty dynamic block means "nothing varies": the static c / σ_c stay
+                if dyn.G_rows.shape[0] > 0 and dyn.G_rows.shape[0] != bM:
+                    raise ValueError(
+                        f"{type(b).__name__}.build_dynamic returned "
+                        f"{dyn.G_rows.shape[0]} rows at t={t_label}, its static block "
+                        f"has {bM}: the dynamic overlay is matched to the static rows "
+                        f"by position")
                 if dyn.G_rows.shape[0] == bM and bM > 0:
                     c_t[row_offset: row_offset + bM]       = dyn.c
                     sigma_c_t[row_offset: row_offset + bM] = dyn.sigma_c
@@ -815,7 +806,7 @@ class ConstraintEngine:
             run_id         = run_id,
             acc_id         = acc.id,
             agg_id         = agg_id,
-            created_at     = datetime.utcnow().isoformat(timespec="seconds") + "Z",
+            created_at     = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             label          = label,
             _p             = self._p,
             G_blocks       = G_blocks,
@@ -828,6 +819,8 @@ class ConstraintEngine:
             self._registry.register(cr, parents=parents, stage_config=stage_config)
 
         if diag_plot:
+            # function-local: diag.const imports constraints.naming, so a module-level
+            # import here would close a cycle (diag is a leaf, README §5)
             from ..diag import ConstDiagnostic, ConstStatsDiagnostic
             odir = os.path.join(self._registry.storage_dir, cr.run_id, "diag")
             year = str(diag_year if diag_year is not None else timesteps[0])

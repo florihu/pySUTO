@@ -1,27 +1,27 @@
 """
 feed.py
 =======
-DataFeed  –  abstract base class for all concordance / weight objects.
-UncertaintyMixin  –  Gaussian error propagation using scipy.sparse CSR.
+DataFeed  –  base class of the concordance / weight objects.
+UncertaintyMixin  –  pedigree-based error propagation using scipy.sparse CSR.
 
 Matrix convention
 -----------------
 weight_matrix : scipy.sparse.csr_matrix, shape (n_src, n_root)
     W[i, j]  is the weight that source edge i contributes to root edge j.
 
-Propagation (first-order Gaussian):
-    F_root   = W.T  @  F_src                         dense (n_root,)
-    var_root = cv²  *  (W ⊙ W).T  @  F_src²          element-wise square
-    σ_root   = sqrt(var_root)
-    cv_root  = σ_root / |F_root|
+Propagation (CV-invariant power-mean, ``UncertaintyMixin.apply_with_uncertainty``):
+    F_root     = W.T  @  F_src                       dense (n_root,)
+    ω_ij       = |W_ij · f_i| / Σ_k |W_kj · f_k|     fan-in shares, Σ_i ω_ij = 1
+    cv_root[j] = cv · (Σ_i ω_ij^p)^(1/p)
+    σ_root[j]  = cv_root[j] · |F_root[j]|
 
 where cv = PedigreeScores.total_cv() is the dataset-level coefficient of
-variation derived from the pedigree matrix (Laner et al. 2016).
+variation derived from the pedigree matrix (Laner et al. 2016) and p the Lp
+exponent (README "Uncertainty propagation").
 """
 
 from __future__ import annotations
 
-from abc import ABC, abstractmethod
 from typing import Optional
 
 import numpy as np
@@ -34,13 +34,13 @@ from pysuto.unc import UncertaintyMixin, PedigreeScores
 # BASE CLASS
 # =============================================================================
 
-class DataFeed(UncertaintyMixin, ABC):
+class DataFeed(UncertaintyMixin):
     """
-    Abstract base for all concordance/weight objects.
+    Base of the concordance/weight objects; ``WeightMatrix`` is the persisted one
+    and defines ``save`` / ``load``.
 
     Inherits UncertaintyMixin, which adds:
         set_pedigree(pedigree)
-        set_pedigree_from_dict(d)
         set_F_src(F_src)
         apply_with_uncertainty(F_src, pedigree) → PropagationResult
 
@@ -58,10 +58,3 @@ class DataFeed(UncertaintyMixin, ABC):
         self.pedigree:       Optional[PedigreeScores] = None
         self.F_src:          Optional[np.ndarray]     = None
         self.weight_matrix:  Optional[sp.csr_matrix]  = None
-
-    @abstractmethod
-    def save(self, **kwargs): ...
-
-    @classmethod
-    @abstractmethod
-    def load(cls, id: str, acc_struct, **kwargs): ...

@@ -163,7 +163,7 @@ class OptimRunRegistry(BaseOutputRegistry):
         results: Dict[str, "OptimResult"] = {}
         for t in summary.get("timesteps", []):
             npz = np.load(os.path.join(ts_dir, f"t_{t}.npz"))
-            per = per_ts.get(t, {})
+            per = per_ts[t]          # a KeyError names a sidecar without its solve record
             status = str(per.get("solver_status", ""))
             if "backend" in per:
                 backend, backend_status = str(per["backend"]), str(per.get("backend_status", ""))
@@ -176,11 +176,11 @@ class OptimRunRegistry(BaseOutputRegistry):
                 eps_opt       = npz["eps_opt"],
                 c_star        = npz["c_star"],
                 residuals     = npz["residuals"],
-                objective     = float(per.get("objective", 0.0)),
-                iterations    = int(per.get("iterations", 0)),
-                solve_time_s  = float(per.get("solve_time_s", 0.0)),
+                objective     = float(per["objective"]),
+                iterations    = int(per["iterations"]),
+                solve_time_s  = float(per["solve_time_s"]),
                 solver_status = status,
-                convergence   = dict(per.get("convergence", {})),
+                convergence   = dict(per["convergence"]),
                 iter_history  = npz["iter_history"] if "iter_history" in npz.files else None,
                 cols_t        = npz["cols_t"] if "cols_t" in npz.files else None,
                 rows_t        = npz["rows_t"] if "rows_t" in npz.files else None,
@@ -190,7 +190,3 @@ class OptimRunRegistry(BaseOutputRegistry):
             )
         return results
 
-    def load_sidecar(self, run_id: str) -> dict:
-        if run_id not in self._index:
-            raise KeyError(f"Optim run '{run_id}' not in registry")
-        return self._read_sidecar(run_id)

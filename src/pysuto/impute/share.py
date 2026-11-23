@@ -7,7 +7,7 @@ instead of ``noisy_zero`` flat priors. The flat prior (f=0, σ=1e6) leaves the
 Part-A soft-bound σ_c under-scaled (its den_scale reads the *prior* throughput)
 and jags the cold time series; a throughput-scaled prior fixes both.
 
-Each stock leg is declared as a ``StockLeg`` (its stock sector, its mode, the net
+Each stock-change leg is declared as a ``StockLeg`` (its stock sector, its mode, the net
 edge's selector and its base selectors), so the sector labels are the caller's;
 the toy's instances are in ``pysuto.tutorial.toy``, the copper ones in
 ``scripts/copper.py``. Two per-leg modes:
@@ -28,7 +28,7 @@ the toy's instances are in ``pysuto.tutorial.toy``, the copper ones in
   every contradiction of the cathode balance (Round X; ADR 0040). The seed is
   therefore priced like a feed-backed level (ADR 0025's scale-total rule, 1 % of
   the co-located Cathode(i)→FU(j) flow, floored at the feeds' 0.3 kt resolution),
-  not by the empirical p95 band — the band (p95 × a 100 kt floor) gave the hub
+  not by the empirical p95 band — the band (p95 × a 100 kt floor) gave the transit-region
   legs σ ≈ 553 kt and the solver +9.7 Mt of phantom exchange stock over 30 years.
   base = the co-located Cathode(i)→FU(j) consumption edge; a no-trade pair is
   pinned at the floor.
@@ -38,6 +38,9 @@ Part-A soft bound); ``p95`` (value_max) is read per (stock sector, region) from 
 stock_bounds params CSV, the stock sector being the row's ``b_sector_to`` selector —
 declared in the row, not parsed from its ``param_id``. Seed legs read no p95 since
 Round X.
+
+The seed floor ``seed_abs_floor`` (kt) is applied in each leg's own valuation unit, kt for
+Mass and kt CC for content, to Mass and content net-stock legs alike.
 """
 
 from __future__ import annotations
@@ -165,7 +168,7 @@ class ShareImputer(BaseImputer):
 
     # ------------------------------------------------------------------
     def writer_scope(self, acc) -> np.ndarray:
-        """The stock legs: every declared net-change edge."""
+        """The stock-change legs: every declared net-change edge."""
         ei = expand_edge_index(acc.edge_index, acc.node_index)
         scope = np.zeros(acc.n_edges, dtype=bool)
         for leg in self.legs:
@@ -265,8 +268,8 @@ class ShareImputer(BaseImputer):
         if m.empty:
             return
 
-        net_ids  = m["edge_id"].to_numpy(dtype=int)
-        base_ids = m["base_id"].to_numpy(dtype=int)
+        net_ids  = m["edge_id"].to_numpy(dtype=np.int64)
+        base_ids = m["base_id"].to_numpy(dtype=np.int64)
 
         fill = (np.isnan(f[net_ids]) & ~np.isnan(f[base_ids]))
         e_fill, b_fill = net_ids[fill], base_ids[fill]

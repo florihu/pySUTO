@@ -54,7 +54,7 @@ reconstruction, so its copper price (the pooled HS 740311 unit value) moves −0
 (2019 +0.21, 2021 +0.22, 2023 −0.15): the winning declaration's HS split feeds the 740311 pool (UAE 2015: 80 kt
 of 740311 instead of 8 kt of 740311 and 52 kt of 740319). DR Congo's concentrate into the two ports was not
 analysed. Measured 2026-10-21: ships (#95's REP, `opt_20261021_094942_d1ac7a81`: the UAE's cathode-use rows close,
-common-set sum-row z² −5.28 % vs `opt_20261020_112726_2f451f31`).
+common-set sum-row z² −5.28 % vs `opt_20261020_112726_2f451f31`). *(Pruned: `opt_20260901_101148_39fbd1bc` is absent from `data/proc` on 2026-11-23; no per-run pruning date is recorded.)*
 
 ## Context
 
@@ -88,11 +88,10 @@ no new seam:
   express a cross-column comparison);
 - BACI's `meta.xlsx` declares `Edge_scope_mask = cross_region` (⚠ `data/` is gitignored — on a
   fresh checkout re-add the row `Scope | Edge_scope_mask | cross_region` to
-  `data/input/feed/baci/current/meta.xlsx`, else the scope silently does not apply; the baci_feed
-  log's "edge_scope_mask … dropped" line is the check), and
+  `data/input/feed/baci/current/meta.xlsx`; without it the feed build raises, #280), and
   `_apply_edge_scope_mask` (feedpipe) drops concordance rows resolving outside the mask —
-  `scripts/baci_feed.py` now applies it explicitly since it builds its ct without
-  `run_feed_pipeline`.
+  `run_feed` applies it for a spec with `edge_scope=True` and raises when the sidecar names no
+  mask or the structure lacks it.
 
 The dropped rows are real trade, but at this aggregation level they are neither a boundary flow
 nor the domestic transfer — there is no valuation in which "0.021 kt crossed the HK border" is a

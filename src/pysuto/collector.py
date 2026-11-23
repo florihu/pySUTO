@@ -26,6 +26,13 @@ sigma_root = 0 in a result.npz means no source edge contributed to that
 root edge.  The collector converts sigma_root = 0 to NaN so that
 AggregationMath treats the entry as missing.  The corresponding F_root
 entry is also set to NaN regardless of its stored value.
+
+Near-zero suppression
+---------------------
+With ``min_flow_kt > 0`` an edge with 0 < |F_root| < ``min_flow_kt`` is treated as
+not covered, except an observed zero (``observed_zero`` in the feed's result, #76),
+which is a report of 0 and stays covered.  One threshold serves both valuations:
+it is read in the edge's own unit (kt for Mass, kt CC for Cu content).
 """
 
 from __future__ import annotations
@@ -70,6 +77,11 @@ class FeedCollector:
         # Read by ImputationRunRegistry.register() to snapshot feed provenance.
         self.selected: List[dict] = []
 
+    @property
+    def feed_ids(self) -> List[str]:
+        """The selected feeds' labels, in selection order (empty before ``select``)."""
+        return list(self._feed_ids)
+
     # ------------------------------------------------------------------
     # Selection
     # ------------------------------------------------------------------
@@ -105,15 +117,9 @@ class FeedCollector:
                 pinned = None
                 key    = item
             if key not in self._registry:
-                if hasattr(self._registry, "input_feed_ids"):
-                    known = self._registry.input_feed_ids()
-                elif hasattr(self._registry, "run_ids"):
-                    known = self._registry.run_ids()
-                else:
-                    known = self._registry.ids()
                 raise KeyError(
                     f"Feed key '{key}' not found in registry. "
-                    f"Known input feed_ids: {known}"
+                    f"Known input feed_ids: {self._registry.input_feed_ids()}"
                 )
             entry         = self._registry.resolve(key)
             registry_path = entry.run_dir
@@ -127,6 +133,8 @@ class FeedCollector:
                                       .get("feed", {})
                                       .get("id")) or fid
             except (FileNotFoundError, KeyError):
+                logger.warning("feed '%s': no readable sidecar; labelled with the "
+                               "requested key '%s'", key, fid)
                 feed_id_lab = fid
             lookup_keys.append(key)
             feed_ids_resolved.append(feed_id_lab)

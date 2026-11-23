@@ -11,6 +11,7 @@ to figs/report/:
 Run:  python scripts/report/supervisor_figs_20260907.py
 """
 
+import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -19,7 +20,8 @@ import pandas as pd
 import plotly.graph_objects as go
 from matplotlib.colors import LinearSegmentedColormap
 
-from pysuto.diag.stats.problem import CHAIN_ORDER
+sys.path.insert(0, "scripts")
+from copper import CHAIN_ORDER             # noqa: E402
 
 RUN_DIR = Path("data/proc/opt/opt_20260903_124655_4b23df2f/diag")
 OUT_DIR = Path("figs/report")

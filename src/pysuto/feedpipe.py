@@ -9,10 +9,8 @@ Canonical four-step DataFeed lifecycle:
     D  Apply + propagate uncertainty  →  PropagationResult
        Register + persist everything  →  DataFeedRegistry
 
-All matrix operations use scipy.sparse (CSR format).
-
-Run this file directly for a self-contained smoke test (no real
-AccountingStructure or Excel file required).
+All matrix operations use scipy.sparse (CSR format). The driver of a feed build is
+:func:`run_feed` over a :class:`FeedSpec`; the ``step_*`` functions are its pieces.
 """
 
 from __future__ import annotations
@@ -20,21 +18,19 @@ from __future__ import annotations
 import dataclasses
 import logging
 import os
-import tempfile
 import warnings
 from dataclasses import dataclass
 from typing import Callable, Optional
 
 import numpy as np
 import pandas as pd
-import scipy.sparse as sp
 
 from pysuto import acc_store
 from pysuto.acc import AccountingStructure
 from pysuto.input_registry import InputRegistries
 from pysuto.meta import DataFeedMetadata
-from pysuto.conc import ConcordanceTable, WeightMatrix
-from pysuto.unc import UncertaintyMixin, PropagationResult
+from pysuto.conc import ConcordanceTable, WeightMatrix, node_ids
+from pysuto.unc import PropagationResult
 from pysuto.registry import DataFeedRegistry, stage_timer
 from pysuto.logging import add_run_handler, get_logger
 from pysuto.lp import P_DEFAULT
@@ -146,8 +142,7 @@ def step_C_build_weight_matrix(ct: ConcordanceTable) -> WeightMatrix:
     Assemble the sparse W[src_edge, root_edge] matrix from the concordance.
 
     The weight matrix is stored internally as a scipy.sparse.csr_matrix.
-    Returns a WeightMatrix whose .apply() and .apply_with_uncertainty()
-    methods are ready.
+    Returns a WeightMatrix whose .apply_with_uncertainty() method is ready.
     """
     _log.info("C  building weight matrix")
     wm = WeightMatrix(concordance=ct, id=ct.id)
@@ -165,6 +160,7 @@ def step_D_apply_and_propagate(
     metadata: DataFeedMetadata,
     p:        float = P_DEFAULT,
     cv_root_scale: Optional[np.ndarray] = None,
+    unit:     str = "kt",
 ) -> PropagationResult:
     """
     1.  Derive PedigreeScores from metadata and attach to the weight matrix.
@@ -176,24 +172,21 @@ def step_D_apply_and_propagate(
         σ_root[j]   = CV · ( Σ_i (|W_ij| · |f_i|)^p )^(1/p)
         cv_root     = σ_root / |F_root|
 
+    ``unit`` names the feed's valuation in the log (``ConcordanceTable.unit``).
+
     Returns
     -------
     PropagationResult with F_root, sigma_root, cv_root, cv_src.
     """
-    _log.info("D  propagating uncertainty  F_src_nnz=%d  F_src_sum=%.1f kt",
-              int(np.count_nonzero(F_src)), float(F_src.sum()))
+    _log.info("D  propagating uncertainty  F_src_nnz=%d  F_src_sum=%.1f %s",
+              int(np.count_nonzero(F_src)), float(F_src.sum()), unit)
     pg = metadata.to_pedigree_scores()
     wm.set_pedigree(pg)
     wm.set_F_src(F_src)
-    # Only forward the per-edge scale when a penalty is active, so callers whose
-    # apply_with_uncertainty predates this kwarg keep working in the common case.
-    if cv_root_scale is None:
-        result = wm.apply_with_uncertainty(p=p)
-    else:
-        result = wm.apply_with_uncertainty(p=p, cv_root_scale=cv_root_scale)
-    _log.info("   cv_src=%.2f%%  F_root_sum=%.1f kt  mean_cv_root=%.2f%%",
+    result = wm.apply_with_uncertainty(p=p, cv_root_scale=cv_root_scale)
+    _log.info("   cv_src=%.2f%%  F_root_sum=%.1f %s  mean_cv_root=%.2f%%",
               result.cv_src * 100,
-              float(result.F_root.sum()),
+              float(result.F_root.sum()), unit,
               float(np.nanmean(result.cv_root)) * 100)
     return result
 
@@ -254,13 +247,15 @@ def build_F_src(raw_df: pd.DataFrame, ct: ConcordanceTable, *,
         raw_df.reset_index().rename(columns={"index": "_raw_idx"}),
         left_on="raw_id", right_on="_raw_idx", how="left",
     )
-    agg = merged.groupby(list(ConcordanceTable.SRC_COLS))[value_col].sum().reset_index()
+    src_cols = list(ConcordanceTable.SRC_COLS)
+    agg = merged.groupby(src_cols)[value_col].sum().reset_index()
 
     F_src = np.zeros(ct.n_src_edges)
-    for _, row in agg.iterrows():
-        key = tuple(row[c] for c in ConcordanceTable.SRC_COLS)
-        if key in ct.src_edge_to_id:
-            F_src[ct.src_edge_to_id[key]] = row[value_col]
+    if len(agg):
+        pos = pd.MultiIndex.from_frame(ct.src_edges[src_cols]).get_indexer(
+            pd.MultiIndex.from_frame(agg[src_cols]))
+        known = pos >= 0
+        F_src[pos[known]] = agg[value_col].to_numpy()[known]
 
     assert_mass_conserved(float(F_src.sum()),
                           matched_raw_total(raw_df, ct, value_col),
@@ -312,42 +307,41 @@ def register_feed(
 
 
 # ===========================================================================
-# FULL PIPELINE (convenience wrapper)
+# EDGE SCOPE AND ROW PENALTY
 # ===========================================================================
 
 def _apply_edge_scope_mask(ct, acc_struct, mask_name: str) -> None:
     """Filter ``ct.tab`` in-place to drop rows whose resolved root edge is not
-    in ``acc_struct.masks[mask_name]``. Missing mask is a logged warning.
+    in ``acc_struct.masks[mask_name]``.
+
+    Raises
+    ------
+    ValueError
+        If ``mask_name`` is not in ``acc_struct.masks`` or a concordance row names no
+        root edge: an unscoped feed would carry what the scope exists to exclude
+        (ADR 0014).
     """
     if not mask_name:
         return
     masks = getattr(acc_struct, "masks", None) or {}
     if mask_name not in masks:
-        _log.warning(
-            "edge_scope_mask=%r is not present in acc_struct.masks "
-            "(available: %s); skipping scope filter.",
-            mask_name, sorted(masks),
+        raise ValueError(
+            f"edge_scope_mask={mask_name!r} is not present in acc_struct.masks "
+            f"(available: {sorted(masks)})"
         )
-        return
 
     scope = masks[mask_name]
     n_before = len(ct.tab)
 
     # Resolve each tab row to its edge_id via (from_id, to_id, time, valuation).
     tab = ct.tab
-    from_id = tab.apply(
-        lambda r: acc_struct.node_to_id[
-            (r["root_sector_from"], r["root_entity_from"], r["root_region_from"])
-        ], axis=1,
-    )
-    to_id = tab.apply(
-        lambda r: acc_struct.node_to_id[
-            (r["root_sector_to"], r["root_entity_to"], r["root_region_to"])
-        ], axis=1,
-    )
+    from_id = node_ids(acc_struct.node_to_id, tab["root_sector_from"],
+                       tab["root_entity_from"], tab["root_region_from"])
+    to_id   = node_ids(acc_struct.node_to_id, tab["root_sector_to"],
+                       tab["root_entity_to"], tab["root_region_to"])
     keys = pd.DataFrame({
-        "from_id":   from_id.values,
-        "to_id":     to_id.values,
+        "from_id":   from_id,
+        "to_id":     to_id,
         "time":      tab["root_time"].astype(str).values,
         "valuation": tab["root_valuation"].astype(str).values,
     })
@@ -358,9 +352,13 @@ def _apply_edge_scope_mask(ct, acc_struct, mask_name: str) -> None:
     joined = keys.merge(ei, on=["from_id", "to_id", "time", "valuation"], how="left")
     edge_ids = joined["edge_id"].to_numpy()
 
-    in_scope = np.zeros(n_before, dtype=bool)
-    valid = ~pd.isna(edge_ids)
-    in_scope[valid] = scope[edge_ids[valid].astype(int)]
+    unresolved = pd.isna(edge_ids)
+    if unresolved.any():
+        raise ValueError(
+            f"edge_scope_mask={mask_name!r}: {int(unresolved.sum())} concordance rows "
+            f"name no root edge of the accounting structure"
+        )
+    in_scope = np.asarray(scope)[edge_ids.astype(int)].astype(bool)
 
     ct.tab = ct.tab.loc[in_scope].reset_index(drop=True)
     n_after = len(ct.tab)
@@ -376,7 +374,7 @@ def _build_row_penalty_scale(acc_struct, metadata, row_region=None):
     worst geographical pedigree score (``geographical_correlation = 4``).
 
     A root edge is ROW-touching iff its from- or to-node region is ``row_region``,
-    the case's label for its rest-of-world region (copper: ``ROW``; #119). It must
+    the case's label for its ROW region (copper: ``ROW``; #119). It must
     be one of the structure's regions when the feed opts into the penalty.
     The region is decoded inline from ``acc_struct`` (a downward dependency) —
     the same node-index join used in ``acc.py`` / ``masks.py`` — so feedpipe
@@ -394,8 +392,6 @@ def _build_row_penalty_scale(acc_struct, metadata, row_region=None):
     if row_region not in regions:
         raise ValueError(f"the feed opts into the ROW penalty, so row_region must be "
                          f"one of the structure's regions; got {row_region!r}")
-
-    import dataclasses
 
     pg_norm = metadata.to_pedigree_scores()
     pg_pen  = dataclasses.replace(pg_norm, geographical_correlation=4)
@@ -422,11 +418,12 @@ def _build_row_penalty_scale(acc_struct, metadata, row_region=None):
 
 def propagate_with_row_penalty(wm, F_src, metadata, acc_struct,
                                p: float = FEED_P,
-                               cv_root_scale_extra=None, row_region=None):
+                               cv_root_scale_extra=None, row_region=None,
+                               unit: str = "kt"):
     """Run step-D propagation and apply the optional ROW pedigree penalty.
 
     Wraps :func:`step_D_apply_and_propagate` so the penalty is wired identically
-    in :func:`run_feed_pipeline` and the per-feed open-coded scripts. When the
+    in every :func:`run_feed` build and the per-feed open-coded scripts. When the
     feed opts into ``row_penalty``, ROW-touching edges are propagated with a
     geo->4 cv multiplier, the result is stamped with a ``row_penalized``
     provenance mask (only edges this feed actually carries), and an INFO line is
@@ -438,8 +435,9 @@ def propagate_with_row_penalty(wm, F_src, metadata, acc_struct,
     re-export re-attribution prices the inferred component through it. ``None``
     (the default) leaves every caller's behaviour bit-identical.
 
-    ``row_region`` is the case's rest-of-world region label, required when the feed
-    opts into the penalty (see :func:`_build_row_penalty_scale`).
+    ``row_region`` is the case's ROW region label, required when the feed
+    opts into the penalty (see :func:`_build_row_penalty_scale`). ``unit`` is the
+    feed's valuation label for the log (``ConcordanceTable.unit``).
 
     Returns ``(result, stage_summary)`` where ``stage_summary`` is the
     row_penalty summary dict (or ``None`` when the penalty is off).
@@ -450,7 +448,7 @@ def propagate_with_row_penalty(wm, F_src, metadata, acc_struct,
         extra = np.asarray(cv_root_scale_extra, dtype=float)
         cv_root_scale = extra if cv_root_scale is None else cv_root_scale * extra
     result = step_D_apply_and_propagate(wm, F_src, metadata, p=p,
-                                        cv_root_scale=cv_root_scale)
+                                        cv_root_scale=cv_root_scale, unit=unit)
     if row_mask is not None:
         result.row_penalized = row_mask & (result.F_root != 0)
         denom = float(np.nansum(np.abs(result.F_root)))
@@ -467,80 +465,8 @@ def propagate_with_row_penalty(wm, F_src, metadata, acc_struct,
     return result, row_summary
 
 
-def run_feed_pipeline(
-    excel_path:       str,
-    raw_df:           pd.DataFrame,
-    acc_struct,
-    sector_map_df:    pd.DataFrame,
-    region_map_df:    pd.DataFrame,
-    time_map_df:      pd.DataFrame,
-    valuation_map_df: pd.DataFrame,
-    var_map_df:       pd.DataFrame,
-    F_src:            np.ndarray,
-    registry:         DataFeedRegistry,
-    *,
-    parents:          dict,
-    feed_id:          Optional[str] = None,
-    aux_col:          Optional[str] = None,
-    aux_sides:        Optional[dict] = None,
-    row_region:       Optional[str] = None,
-    allow_unmatched_edges: bool = True,
-    diag_plot:        bool = True,
-    conc_file:        Optional[str] = None,
-    p:                float = FEED_P,
-    label:            Optional[str] = None,
-) -> tuple[WeightMatrix, DataFeedMetadata, PropagationResult, "object"]:
-    """
-    Execute steps A → D, register the run and (optionally) render the
-    feed diagnostic figure into the per-run ``diag/`` directory.
-
-    ``parents`` carries the harmonized parent block referencing the
-    ``acc`` + ``feed`` entries from the input registries.
-
-    Returns ``(wm, metadata, result, entry)`` where ``entry.run_id``
-    and ``entry.run_dir`` identify the freshly registered run.
-    """
-    meta   = step_A_read_metadata(excel_path)
-    fid    = feed_id or meta.feed_name or "unnamed_feed"
-    ct     = step_B_build_concordance(
-                 raw_df, acc_struct,
-                 sector_map_df, region_map_df,
-                 time_map_df, valuation_map_df, var_map_df,
-                 feed_id=fid, aux_col=aux_col, aux_sides=aux_sides,
-                 allow_unmatched_edges=allow_unmatched_edges)
-    _apply_edge_scope_mask(ct, acc_struct, meta.edge_scope_mask)
-    wm     = step_C_build_weight_matrix(ct)
-    result, row_summary = propagate_with_row_penalty(wm, F_src, meta, acc_struct, p=p,
-                                                     row_region=row_region)
-    entry  = register_feed(
-        wm, meta, result, registry,
-        parents = parents,
-        F_src   = F_src,
-        label   = label,
-        stage_config = {"p": p, "allow_unmatched_edges": allow_unmatched_edges},
-        stage_summary = row_summary,
-    )
-
-    if diag_plot:
-        from pysuto.diag import FeedDiagnostics
-        acc_id_lab = (parents.get("inputs", {}).get("acc", {}).get("id") or "")
-        diag = FeedDiagnostics(
-            feed_run_id = entry.run_id,
-            feed_id     = fid,
-            acc_id      = acc_id_lab,
-            raw_df      = raw_df,
-            ct          = ct,
-            F_src       = F_src,
-            result      = result,
-            conc_file   = conc_file,
-        )
-        diag.plot(odir=os.path.join(entry.run_dir, "diag"))
-
-    return wm, meta, result, entry
-
-
 # ===========================================================================
-# ONE FEED PIPELINE — FeedSpec + run_feed (#143)
+# ONE FEED BUILD — FeedSpec + run_feed (#143)
 # ===========================================================================
 
 @dataclass
@@ -583,13 +509,14 @@ class FeedSpec:
         ``load_tables(conc_xlsx_path) -> dict`` with ``sector_map``, ``region_map``,
         ``time_map``, ``valuation_map`` and ``var_map``.
     row_region : str or None
-        The case's rest-of-world region, for the ROW pedigree penalty (#119).
+        The case's ROW region, for the ROW pedigree penalty (#119).
     aux_col, aux_sides :
         The raw column that tells supply rows from use rows and its vocabulary.
     allow_unmatched_edges, drop_unweighted_fans :
         Passed to :func:`step_B_build_concordance`.
     edge_scope : bool
-        Apply the metadata sidecar's ``Edge_scope_mask`` to the concordance (ADR 0014).
+        Apply the metadata sidecar's ``Edge_scope_mask`` to the concordance (ADR 0014);
+        the build raises when the sidecar names no mask or the structure lacks it.
     leg_filter : callable or None
         ``leg_filter(tables) -> dict``: the fan policy (ADR 0008).
     user_weights : callable or None
@@ -795,6 +722,8 @@ def _run_feed(spec, acc_id, data_dir, run_log, diag):
     if os.path.isfile(meta_file):
         b.meta = step_A_read_metadata(meta_file)
     else:
+        # default pedigree scores and no Edge_scope_mask: a scoped feed then raises
+        # below, since it would build unscoped (ADR 0014)
         _log.warning("   meta sidecar not found — using default pedigree scores")
         b.meta = DataFeedMetadata(feed_name=spec.feed_id)
     user_weights_df = None
@@ -811,6 +740,9 @@ def _run_feed(spec, acc_id, data_dir, run_log, diag):
     if spec.edge_scope:
         # Edge scope (meta.xlsx Edge_scope_mask), e.g. BACI's cross_region (ADR 0014):
         # this driver builds the ct directly, so it applies the scope itself.
+        if not b.meta.edge_scope_mask:
+            raise ValueError(f"feed {spec.feed_id!r} is scoped (edge_scope) but its "
+                             f"meta sidecar names no Edge_scope_mask (ADR 0014)")
         _apply_edge_scope_mask(b.ct, acc, b.meta.edge_scope_mask)
     _log.info("=" * 60)
     _log.info("C  Building WeightMatrix")
@@ -822,13 +754,13 @@ def _run_feed(spec, acc_id, data_dir, run_log, diag):
     _log.info("D  F_src vector")
     _log.info("   length    : %d", len(b.F_src))
     _log.info("   non-zero  : %d", int(np.count_nonzero(b.F_src)))
-    _log.info("   total kt  : %.1f", float(b.F_src.sum()))
+    _log.info("   total %s  : %.1f", b.ct.unit, float(b.F_src.sum()))
     _log.info("=" * 60)
     _log.info("D  Propagating uncertainty")
     cv_extra = spec.cv_scale(acc, str(feed_dir)) if spec.cv_scale is not None else None
     b.result, row_summary = propagate_with_row_penalty(
         b.wm, b.F_src, b.meta, acc, p=FEED_P, cv_root_scale_extra=cv_extra,
-        row_region=spec.row_region)
+        row_region=spec.row_region, unit=b.ct.unit)
     if spec.post_propagate is not None:
         spec.post_propagate(b)
 
@@ -869,145 +801,3 @@ def _run_feed(spec, acc_id, data_dir, run_log, diag):
     _log.info("=" * 60)
     _log.info("Done.")
     return entry
-
-
-# ===========================================================================
-# SMOKE TEST (no real project dependencies)
-# ===========================================================================
-
-if __name__ == "__main__":
-    import sys
-    import json
-
-    sys.path.insert(0, os.path.dirname(__file__))
-
-    # ------------------------------------------------------------------ #
-    # Minimal stand-in for WeightMatrix using scipy.sparse throughout     #
-    # ------------------------------------------------------------------ #
-    class _MockWeightMatrix(UncertaintyMixin):
-        """Stand-in for WeightMatrix; uses scipy.sparse CSR for all ops."""
-
-        def __init__(self, W_dense: np.ndarray, feed_id: str, acc_id: str):
-            self.id           = feed_id
-            self.acc_used     = acc_id
-            self.odir         = ""
-            # Store as CSR — the same format WeightMatrix uses in production
-            self.weight_matrix = sp.csr_matrix(W_dense)
-
-        def save(self, **kwargs):
-            import pickle
-            path = kwargs.get("path", f"{self.id}.pkl")
-            os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
-            with open(path, "wb") as fh:
-                pickle.dump({"id": self.id, "W": self.weight_matrix}, fh)
-
-        def apply_with_uncertainty(
-            self,
-            F_src: Optional[np.ndarray] = None,
-            pedigree=None,
-            p: float = P_DEFAULT,
-        ) -> PropagationResult:
-            """Lp uncertainty propagation with scipy.sparse."""
-            F   = np.asarray(
-                F_src if F_src is not None else self.F_src,
-                dtype=float,
-            )
-            pg  = pedigree or self.pedigree
-            cv  = pg.total_cv()
-
-            W: sp.csr_matrix = self.weight_matrix          # (n_src, n_root)
-
-            # F_root = W.T @ F_src  →  dense (n_root,)
-            F_root: np.ndarray = np.asarray(W.T @ F).ravel()
-
-            Wp = W.copy()
-            Wp.data = np.abs(Wp.data) ** p
-            sum_p: np.ndarray = np.asarray(Wp.T @ (np.abs(F) ** p)).ravel()
-            sigma: np.ndarray = cv * np.power(np.maximum(sum_p, 0.0), 1.0 / p)
-
-            with np.errstate(invalid="ignore", divide="ignore"):
-                cv_root = np.where(
-                    F_root != 0.0,
-                    sigma / np.abs(F_root),
-                    np.nan,
-                )
-
-            return PropagationResult(
-                F_root=F_root,
-                sigma_root=sigma,
-                cv_root=cv_root,
-                cv_src=float(cv),
-            )
-
-    # ------------------------------------------------------------------ #
-    # A  Metadata (constructed directly, simulating an Excel read)        #
-    # ------------------------------------------------------------------ #
-    meta = DataFeedMetadata(
-        feed_name                = "icsg",
-        iedc_type                = "1_F_",
-        reliability              = 1,
-        completeness             = 1,
-        temporal_correlation     = 1,
-        geographical_correlation = 1,
-        other_correlation        = 1,
-        version                  = 0,
-        date_of_assessment       = "2025-06-11",
-        person                   = "Florian_Huber",
-        dataset_link             = "https://www.icsg.org",
-    )
-    print("A  metadata loaded:", meta.feed_name, meta.iedc_type)
-
-    # ------------------------------------------------------------------ #
-    # B  (skipped — ConcordanceTable needs a real AccountingStructure)    #
-    # ------------------------------------------------------------------ #
-    print("B  [skipped in smoke test — ConcordanceTable needs AccountingStructure]")
-
-    # ------------------------------------------------------------------ #
-    # C  Synthetic scipy.sparse weight matrix                             #
-    # ------------------------------------------------------------------ #
-    W_dense = np.array([
-        [1.0, 0.0, 0.0],
-        [0.5, 0.5, 0.0],
-        [0.0, 1.0, 0.0],
-        [0.0, 0.3, 0.7],
-    ])  # 4 src edges → 3 root edges
-    wm = _MockWeightMatrix(W_dense, feed_id="icsg", acc_id="acc_test")
-    print("C  weight matrix shape:", wm.weight_matrix.shape,
-          "  nnz:", wm.weight_matrix.nnz,
-          "  type:", type(wm.weight_matrix).__name__)
-
-    # ------------------------------------------------------------------ #
-    # D  Apply + propagate                                                #
-    # ------------------------------------------------------------------ #
-    F_src  = np.array([100.0, 200.0, 150.0, 80.0])
-    result = step_D_apply_and_propagate(wm, F_src, meta)
-
-    print("\nD  Propagation result")
-    print(f"   CV_src       : {result.cv_src * 100:.4f} %")
-    print(f"   F_root       : {result.F_root}")
-    print(f"   sigma_root   : {result.sigma_root}")
-    print(f"   CV_root (%)  : {result.cv_root * 100}")
-
-    # ------------------------------------------------------------------ #
-    # Register                                                            #
-    # ------------------------------------------------------------------ #
-    with tempfile.TemporaryDirectory() as tmpdir:
-        registry = DataFeedRegistry(odir=tmpdir)
-        entry    = registry.register(wm, meta, result=result)
-        registry.save()
-
-        print("\nRegistry entry:")
-        print(json.dumps(entry.to_dict(), indent=2))
-
-        # Round-trip: reload and verify
-        registry2 = DataFeedRegistry(odir=tmpdir)
-        registry2.load_index()
-        print("\nRegistry summary:\n", registry2.summary_df().T.to_string())
-
-        reloaded_meta   = registry2.load_metadata("icsg")
-        reloaded_result = registry2.load_result("icsg")
-        print(f"\nReloaded cv_total   : {reloaded_meta.cv_total * 100:.4f} %")
-        print(f"Reloaded F_root     : {reloaded_result['F_root']}")
-        print(f"Reloaded sigma_root : {reloaded_result['sigma_root']}")
-
-    print("\n✓ Smoke test passed.")

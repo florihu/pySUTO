@@ -20,11 +20,12 @@ stage functions are :mod:`pysuto.stages`, called by the private child entry poin
 directory. ``--data-dir`` is required, and a relative one is relative to the working
 directory.
 
-Output: the command prints one line per stage to stdout, the stage name and the run
-id(s) it produced (``feed`` lists its three feed runs), and nothing else; that is the
+Output: the command prints one line per stage it ran (``--from`` to ``--to``) to stdout,
+the stage name and the run id(s) it produced (``feed`` lists its three feed runs), and
+nothing else; the base chain's earlier runs are not listed; that is the
 command's result, not a log. The log lines of the pipeline go to the logging handlers and
 ``<data-dir>/logs/``; each step's stdout and stderr are captured in
-``<data-dir>/logs/pipeline/<label>_<step>.log``.
+``<data-dir>/logs/pipeline/<slug>_<step>.log`` (the label, slugified).
 
 ``python -m pysuto tutorial [DEST]`` (#188) copies the eleven tutorial notebooks, their
 README and the params template out of the installed package into a writable folder
@@ -66,7 +67,8 @@ def _parser() -> argparse.ArgumentParser:
     run.add_argument("--config", default=None,
                      help="Config passed to the imp and const steps only.")
     run.add_argument("--label", default=None,
-                     help="Label of every run in the chain (default: the case id).")
+                     help="Label of every run past feed (default: the case id); the "
+                          "feed step takes none.")
     tut = sub.add_parser("tutorial", help="Copy the tutorial notebooks into a folder.")
     tut.add_argument("dest", nargs="?", default="pysuto-tutorial",
                      help="Folder to write; must not exist or be empty "
@@ -121,10 +123,9 @@ def main(argv=None) -> int:
     except ValueError as exc:                   # e.g. a case without a Stage 1 hook
         parser.error(str(exc))
     chain = pipeline.run({}, label=args.label or case.id)
-    if chain.feed_run_ids:
-        print(f"{'feed':8s}{' '.join(chain.feed_run_ids)}")
-    for step in ("imp", "const", "opt", "uncprop", "psut"):
-        print(f"{step:8s}{getattr(chain, step) or ''}")
+    for step in ALL_STEPS[first:last + 1]:     # the steps this command ran, no others
+        ids = chain.feed_run_ids if step == "feed" else (getattr(chain, step),)
+        print(f"{step:8s}{' '.join(ids)}")
     return 0
 
 
