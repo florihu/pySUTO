@@ -26,8 +26,11 @@ import os
 import numpy as np
 import pandas as pd
 
+from pysuto.logging import get_logger
 from ._core import constraint_table
 from .solver import resolve_years
+
+_log = get_logger(__name__)
 
 
 class ConstStatsDiagnostic:
@@ -76,6 +79,6 @@ class ConstStatsDiagnostic:
         for year in self.years:
             p = os.path.join(odir, f"constraints_prior_{year}.csv")
             self.constraint_table(year).to_csv(p, index=False)
-            print(f"   Constraints (prior, {year}) → {p}  ✓")
+            _log.info("Constraints (prior, %s) → %s", year, p)
             paths.append(p)
         return paths

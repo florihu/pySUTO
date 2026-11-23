@@ -492,7 +492,7 @@ class NetworkImputer(BaseImputer):
             f_w = total - float(sum(f[x] for x in W if x != w and not np.isnan(f[x])))
             method = "network_forward" if S_src == "inputs" else "network_backward"
             s_w = lp_combine([(1.0 - eff) * sig_S, eff_term, eps * abs(f_w)], p)
-            if rec.eff_param_id is None and self._lower[w] < 0.0:   # eff-less stock leg
+            if rec.eff_param_id is None and self._lower[w] < 0.0:   # eff-less stock-change leg
                 s_w = max(s_w, self.effless_stock_sigma)
             self._w(w, f_w, s_w, ledger, step, method,
                     known_PR if S_src == "inputs" else src_P, [1.0 - eff],
@@ -544,14 +544,14 @@ class NetworkImputer(BaseImputer):
         # that route / no stock change) — symmetric with the recipe's
         # bilateral_import tier (ADR 0010). They are counted as 0, never written,
         # so the uncovered edge stays an honest gap (flat prior, or the zero-mean
-        # net-stock seed for a stock leg — ADR 0040).
+        # net-stock seed for a stock-change leg — ADR 0040).
         # A node whose uses include a MISSING stock-change leg has no observed use
         # total (the seed's 0 is an expectation, not a report), so its SUPPLY cannot
         # be derived from its uses: that would pin production to trade and send the
         # cathode contradiction into the prior's production edge instead of into a
         # stock (Round X: 836 CP→Cathode fills, a fabricated German mine chain).
         # Production stays the recipe's; only a lone missing USE may be closed here.
-        # Once every stock leg among the uses is reported, the use total is observed
+        # Once every stock-change leg among the uses is reported, the use total is observed
         # and the supply closes from it as for any node (#38).
         if fill.edge_coefficient > 0 and (
                 self._stock_target[out] & np.isnan(f[out])).any():

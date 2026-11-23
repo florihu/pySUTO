@@ -31,25 +31,35 @@ _log = get_logger(__name__)
 # so the row's slack ε is essentially unpenalised → constraint inactive.
 SIGMA_C_INACTIVE: float = 1e10
 
-# RHS sentinel used to deactivate a hard nonneg-cone ratio_bound row in
+# RHS sentinel used to deactivate a hard le ratio_bound row in
 # timesteps where it should not apply. Setting c = BOUND_C_INACTIVE turns
 # the row "A x ≤ c" into a no-op: with u_max = 1e9 and typical ratios
 # |r| ≤ 4000, worst-case |A x| ≤ 4e12 ≪ 1e15, so the inequality holds for
 # any feasible x. Used by RatioBoundBuilder.build_dynamic.
 BOUND_C_INACTIVE: float = 1e15
 
+# The σ_c rules of a sum spec (SumConstraintBuilder docstring).
+SIGMA_CK_MODES = ("sd", "pedigree", "fraction_of_flow", "p_mean")
+
 
 class SumConstraintBuilder(BaseConstraintBuilder):
     """
-    Soft free-cone sum constraint: Σ coeff_i · a_i = c_k + ε_k
+    Soft equality sum constraint: Σ coeff_i · a_i = c_k + ε_k
 
-    Two construction modes:
-      from_acc_struct() — auto-derives "useful supply" balance from acc_struct topology
-      from_csv()        — loads user-defined sum constraints from a CSV file
+    Four construction modes. :meth:`from_mask_anchor` is the one a case builds with
+    (every scale total and level anchor, mode ``"sd"``); the other three are
+    tests-only API, no case registers them:
+      from_mask_anchor()          — anchors the group-sum of a masked edge family
+      from_acc_struct()           — auto-derives "useful supply" balance from topology
+      from_acc_struct_subentity() — entity/entity_sub-routed sums
+      from_csv()                  — loads user-defined sum constraints from a CSV file
 
     G rows are static (built once).  c and sigma_c are dynamic when
-    sigma_ck_mode == "fraction_of_flow" (depends on f_agg per timestep).
-    For modes "sd" and "pedigree" the sigma_c is static too.
+    sigma_ck_mode is ``"fraction_of_flow"`` (σ_c = fraction · Σ|f_agg| of the supply
+    edges) or ``"p_mean"`` (c = Σ f_agg and σ_c the Lp combination of σ_agg over
+    ``_rhs_ids``, both per timestep). For modes ``"sd"`` and ``"pedigree"`` σ_c is the
+    spec's ``sigma_ck_value``, static (pedigree: pre-computed by the caller).
+    An unknown mode, or ``"p_mean"`` on a spec without ``_rhs_ids``, raises.
     """
 
     def __init__(self, specs: list[dict], sigma_fraction: float = 0.0, p: float = P_DEFAULT):
@@ -60,9 +70,21 @@ class SumConstraintBuilder(BaseConstraintBuilder):
             c_k: float, sigma_ck_mode: str,
             sigma_ck_value: float, sigma_ck_fraction: float
         """
+        for spec in specs:
+            mode = spec["sigma_ck_mode"]
+            if mode not in SIGMA_CK_MODES:
+                raise ValueError(
+                    f"SumConstraintBuilder: constraint {spec['constraint_id']!r} has "
+                    f"sigma_ck_mode={mode!r}; expected one of {list(SIGMA_CK_MODES)}.")
+            if mode == "p_mean" and not spec.get("_rhs_ids"):
+                raise ValueError(
+                    f"SumConstraintBuilder: constraint {spec['constraint_id']!r} has "
+                    f"sigma_ck_mode='p_mean' but no right-hand-side edges (_rhs_ids) "
+                    f"to propagate σ over; its σ_c would stay 0.")
         self._specs = specs
         self._sigma_fraction = sigma_fraction  # fallback
         self._p = p
+        self._cached_static: ConstraintBlock | None = None
 
     @staticmethod
     def _resolve_scope_mask(acc_struct, mask_name: Optional[str]) -> np.ndarray:
@@ -217,7 +239,6 @@ class SumConstraintBuilder(BaseConstraintBuilder):
 
         # Pre-build lookup arrays for the other-node's entity and entity_sub
         from_entity     = ni.loc[ei["from_id"].values, "entity"].values
-        from_entity_sub = ni.loc[ei["from_id"].values, "entity_sub"].values
         to_entity       = ni.loc[ei["to_id"].values,   "entity"].values
         to_entity_sub   = ni.loc[ei["to_id"].values,   "entity_sub"].values
         eids            = ei["edge_id"].values
@@ -241,9 +262,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                     lhs_pos, lhs_neg, rhs_ids = [], [], []
 
                     in_mask = t_mask & (to_ids == nid)
-                    for eid, other_entity, other_sub in zip(
-                        eids[in_mask], from_entity[in_mask], from_entity_sub[in_mask]
-                    ):
+                    for eid, other_entity in zip(eids[in_mask], from_entity[in_mask]):
                         if other_entity in rhs_in_entity:
                             rhs_ids.append(eid)
                         else:
@@ -324,9 +343,11 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         containing ``_`` raises :class:`ConstraintIdError`.
 
         Required columns:
-            constraint_id, coefficient, c_k, sigma_ck_mode
+            constraint_id, coefficient, c_k (a blank ``c_k`` raises)
         Optional:
-            description, sigma_ck_value, sigma_ck_fraction
+            description, sigma_ck_mode (default ``"sd"``; ``"sd"``, ``"pedigree"`` and
+            ``"fraction_of_flow"`` are priced here, an unknown mode or ``"p_mean"``
+            raises), sigma_ck_value, sigma_ck_fraction
         Edge selector columns (all support * wildcard):
             sector_from, entity_from, region_from,
             sector_to,   entity_to,   region_to,
@@ -358,7 +379,10 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         for cid, grp in grouped:
             all_ids, all_coeff = [], []
             desc = str(grp["description"].iloc[0]) if "description" in grp.columns else str(cid)
-            c_k  = _read_cell(grp["c_k"].iloc[0], 0.0)
+            c_k  = _read_cell(grp["c_k"].iloc[0], None)
+            if c_k is None:
+                raise ValueError(
+                    f"SumConstraintBuilder.from_csv: constraint {cid!r} has a blank c_k.")
             mode = str(grp.get("sigma_ck_mode", pd.Series(["sd"])).iloc[0]).strip()
             sv   = _read_cell(grp.get("sigma_ck_value",    pd.Series(["0"])).iloc[0], 0.0)
             sf   = _read_cell(grp.get("sigma_ck_fraction", pd.Series(["0"])).iloc[0], 0.0)
@@ -399,7 +423,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
             # Per-valuation split: if a CSV constraint resolves to edges
             # spanning multiple valuations, emit one sub-spec per valuation.
             # Keeps every row in G unit-coherent (hard rule: no Mass+CC mixing).
-            ids_arr   = np.asarray(all_ids, dtype=int)
+            ids_arr   = np.asarray(all_ids, dtype=np.int64)
             coeff_arr = np.asarray(all_coeff, dtype=float)
             row_vals  = edge_val[ids_arr]
             unique_vals = sorted(set(row_vals.tolist()))
@@ -481,7 +505,9 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         mask          : name of a mask in ``acc_struct.masks`` or a bool
                         ndarray of shape ``(n_edges,)``.
         anchor_values : ``(n_edges,)`` reference values; the per-group target
-                        is their nan-safe sum over the group's masked edges.
+                        is their nan-safe sum over the group's masked edges (a NaN
+                        entry reads as 0; the engine rejects a NaN ``f_agg`` only
+                        after the builders exist).
         group_keys    : columns of the expanded edge index to group by. Keep
                         ``time`` and ``valuation`` in here to leave rows
                         year-locked (per-year deactivation) and unit-coherent.
@@ -566,10 +592,6 @@ class SumConstraintBuilder(BaseConstraintBuilder):
 
     # ------------------------------------------------------------------
 
-    @property
-    def source_paths(self) -> list[str]:
-        return []
-
     def build_static(self, acc_struct) -> ConstraintBlock:
         n_edges = acc_struct.n_edges
         if not self._specs:
@@ -643,7 +665,9 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         if not (has_fraction or has_p_mean or any_per_year):
             return _empty_block(acc_struct.n_edges)
 
-        static  = getattr(self, "_cached_static", None) or self.build_static(acc_struct)
+        static  = self._cached_static
+        if static is None:
+            static = self.build_static(acc_struct)
         c_out   = static.c.copy()
         sigma_c = static.sigma_c.copy()
         t_str   = str(t)
@@ -675,9 +699,3 @@ class SumConstraintBuilder(BaseConstraintBuilder):
             sigma_c  = sigma_c,
             row_meta = static.row_meta,
         )
-
-
-# =============================================================================
-# RatioConstraintBuilder
-# =============================================================================
-

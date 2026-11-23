@@ -13,6 +13,9 @@ import os
 import numpy as np
 
 from ._plot import _C, _hist_bins, _savefig
+from pysuto.logging import get_logger
+
+_log = get_logger("pysuto.diag.agg")
 
 
 class AggDiagnostic:
@@ -94,7 +97,7 @@ class AggDiagnostic:
         if odir is not None:
             p = _savefig(fig, os.path.join(odir, "agg_distributions.png"), dpi=dpi)
             paths.append(p)
-            print(f"   Aggregation distributions   → {p}  ✓")
+            _log.info(f"Aggregation distributions   → {p}")
         if show:
             plt.show()
         plt.close(fig)
@@ -107,7 +110,7 @@ class AggDiagnostic:
                 if odir is not None:
                     p = _savefig(fig_root, os.path.join(odir, "agg_root_by_year.png"), dpi=dpi)
                     paths.append(p)
-                    print(f"   Aggregation root-by-year    → {p}  ✓")
+                    _log.info(f"Aggregation root-by-year    → {p}")
                 if show:
                     plt.show()
                 plt.close(fig_root)
@@ -203,7 +206,7 @@ class AggDiagnostic:
             logs = np.log10(f_pos)
             ax.hist(logs, bins=_hist_bins(logs, 60), color=_C["blue"], alpha=0.8)
         ax.set_title("|f_agg|  (log10)", fontweight="bold")
-        ax.set_xlabel("log10 |f_agg|")
+        ax.set_xlabel("log10 |f_agg|  [kt Mass, kt CC pooled]")
         ax.set_ylabel("count")
         ax.grid(alpha=0.3)
 
@@ -215,7 +218,7 @@ class AggDiagnostic:
             logs = np.log10(s_pos)
             ax.hist(logs, bins=_hist_bins(logs, 60), color=_C["orange"], alpha=0.8)
         ax.set_title("σ_agg  (log10)", fontweight="bold")
-        ax.set_xlabel("log10 σ_agg")
+        ax.set_xlabel("log10 σ_agg  [kt Mass, kt CC pooled]")
         ax.set_ylabel("count")
         ax.grid(alpha=0.3)
 
@@ -260,8 +263,8 @@ class AggDiagnostic:
         ax.set_xscale("log")
         ax.set_yscale("log")
         ax.set_title("per-feed |f_root| vs σ_root", fontweight="bold")
-        ax.set_xlabel("|f_root|")
-        ax.set_ylabel("σ_root")
+        ax.set_xlabel("|f_root|  [kt Mass, kt CC pooled]")
+        ax.set_ylabel("σ_root  [kt Mass, kt CC pooled]")
         if len(feed_ids) <= 12:
             ax.legend(fontsize=7, framealpha=0.6, loc="lower right")
         ax.grid(alpha=0.3, which="both")
@@ -339,12 +342,12 @@ class AggDiagnostic:
                              color=color, linewidth=1.0, alpha=0.85)
 
         axes[0].set_title("|f_root| per year", fontweight="bold")
-        axes[0].set_xlabel("log10 |f_root|")
+        axes[0].set_xlabel("log10 |f_root|  [kt Mass, kt CC pooled]")
         axes[0].set_ylabel("count")
         axes[0].grid(alpha=0.3)
 
         axes[1].set_title("σ_root per year", fontweight="bold")
-        axes[1].set_xlabel("log10 σ_root")
+        axes[1].set_xlabel("log10 σ_root  [kt Mass, kt CC pooled]")
         axes[1].set_ylabel("count")
         axes[1].grid(alpha=0.3)
 

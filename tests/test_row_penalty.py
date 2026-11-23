@@ -53,7 +53,7 @@ def test_marks_row_edges_and_scales_by_ratio():
     pg_norm = meta.to_pedigree_scores()
     ratio = (dataclasses.replace(pg_norm, geographical_correlation=4).total_cv()
              / pg_norm.total_cv())
-    np.testing.assert_allclose(cv_scale, [1.0, ratio, ratio])
+    np.testing.assert_allclose(cv_scale, [1.0, ratio, ratio], rtol=1e-12)
 
     # the helper knows only the structural count of ROW-touching acc edges
     assert summary["row_penalty"]["n_row_edges"] == 2

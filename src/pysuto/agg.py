@@ -17,8 +17,9 @@ Mathematical summary (see README § Stage 2a)
 Invariants
 ----------
   • Every covered column of Omega sums to 1.
-  • For p ∈ (1, 2]: sigma_agg[j] ≤ min_k sigma[k, j] (single-cover passthrough);
-    when feeds overlap, σ_agg ≤ Lp({Ω·σ}) ≤ max_k σ_k.
+  • sigma_agg[j] ≤ max_k sigma[k, j] for every p ∈ (1, 2]; a single covering feed
+    passes through unchanged.  sigma_agg[j] ≤ min_k sigma[k, j] holds exactly at
+    p = 2 only: at p = 1.3, σ = (1, 100) gives σ_agg = 1.0018 > min σ.
   • Uncovered edges (no feed contributes): f_agg = NaN, sigma_agg = NaN.
 """
 
@@ -73,20 +74,12 @@ class AggregationResult:
     _imp_run_id:         Optional[str]    = field(default=None)
 
     @property
-    def n_feeds(self) -> int:
-        return len(self.feed_ids)
-
-    @property
     def n_edges(self) -> int:
         return self.f_agg.shape[0]
 
     @property
     def n_covered(self) -> int:
         return int(self.coverage.sum())
-
-    @property
-    def n_missing(self) -> int:
-        return self.n_edges - self.n_covered
 
 
 # =============================================================================
@@ -120,8 +113,21 @@ class AggregationMath:
         Returns
         -------
         AggregationResult
+
+        Raises
+        ------
+        ValueError  if a feed has a finite sigma > 0 where F is NaN (the cell
+                    would enter the mean as 0), or a negative sigma
         """
         N_f, N_r = F.shape
+        with np.errstate(invalid="ignore"):
+            nan_obs = np.isnan(F) & np.isfinite(Sigma) & (Sigma > 0)
+            neg_sig = Sigma < 0
+        if nan_obs.any() or neg_sig.any():
+            raise ValueError(
+                f"inconsistent feed cells: {int(nan_obs.sum())} with a NaN observation "
+                f"under a finite sigma > 0, {int(neg_sig.sum())} with a negative sigma"
+            )
         logger.info("aggregating %d feed(s) over %d root edges (p=%.2f)", N_f, N_r, p)
         for k, fid in enumerate(feed_ids):
             n_cov = int(np.isfinite(Sigma[k]).sum())
@@ -139,7 +145,7 @@ class AggregationMath:
             Omega = np.where(coverage, P / P_sum[np.newaxis, :], 0.0)
 
         # f_agg = 1ᵀ(Omega ⊙ F):  replace NaN in F with 0 before dot product
-        # Safe because Omega[k,j]=0 everywhere F[k,j]=NaN.
+        # Safe because Omega[k,j]=0 everywhere F[k,j]=NaN (enforced above).
         F_filled = np.where(np.isnan(F), 0.0, F)
         f_agg    = np.sum(Omega * F_filled, axis=0)
         f_agg    = np.where(coverage, f_agg, np.nan)
