@@ -26,7 +26,10 @@ Make the warm-start real and per-period, and store it explicitly:
 - The per-period cold seed is stored on `ConstraintRun.timestep_data[t]["a_prior"]`;
   the *actually-used* `a_prior(t)` is stored on `OptimResult.a_prior`. Diagnostics read
   the prior directly instead of reconstructing it.
-- `ClarabelSolver(prior_mode='warm'|'cold')` chooses the regime at init; default `warm`.
+- `Solver(prior_mode='warm'|'cold')` (named `ClarabelSolver` when this was written) chooses the regime
+  at init; the class default is `warm`. Every driver defaults to `cold` — `run_solver.py
+  --prior-mode` and `stages.run_opt` — since cold years are independent QPs solved concurrently
+  (#70); the sidecar's `prior_mode` records what a run used (corrected by #223).
   σ_a is still conditioned once from the cold prior — the mean drifts, the precision
   does not.
 - The legacy KKT-factorisation-reuse local `warm_start` is renamed `reuse_factorization`

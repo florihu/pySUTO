@@ -1,5 +1,7 @@
 # Scrap is one mixed-grade commodity — a single conc band, no grade classes
 
+**Status:** accepted — *proposed by the #223 review, the maintainer confirms.* Re-affirmed 2026-09-16 by [ADR 0028](0028-grade-sigma-is-stated-not-derived-from-the-band.md). Evidence: `_validate_ratio_bounds` ships in `constraints/engine.py` and `params/conc` carries the single `concscrapsupply` row; the collapse (5,640 scrap edges at ~0) was measured on `opt_20260624_083508_a6fdcc8c` (absent from `data/proc` on 2026-11-23; no pruning date recorded; REP linked above).
+
 *Its invariant — **each commodity carries exactly one hard grade band** — was re-affirmed
 2026-09-16 by [ADR 0028](0028-grade-sigma-is-stated-not-derived-from-the-band.md) as the reason
 region-specific `conc` rows are not added: neither constraint builder dedups by specificity, so a

@@ -12,7 +12,7 @@ the grade rows' σ is now **stated** (`unc_type="sd"`) rather than derived from 
 band's two jobs can move independently. The band values below are unchanged — a **year-local**
 band was built and measured in Round M and rejected: it removed Chile's impossible 1.662 %
 posterior ore grade but relocated the deletion (US ore 0.990 → 1.356) rather than reducing it. Evidence run: `opt_20260902_092933_02064ce2` (post mapped-self-trade); REP
-of the grade-basis fix run under `docs/rep/`.
+of the grade-basis fix run under `docs/rep/`. *(Pruned: `opt_20260902_092933_02064ce2` is absent from `data/proc` on 2026-11-23; no per-run pruning date is recorded.)*
 
 ## Context
 
