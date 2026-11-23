@@ -89,7 +89,7 @@ A Type-2 **soft-sum** constraint (`Σ aᵢ = c + ε`, free cone) whose RHS `c(t)
 published total — here ICSG production + usage, per year — that a defined edge-set must sum to.
 **ROW (Rest-Of-World) totals are not imposed** (ROW-excluded). Internal edge consistency is
 *not* a control total — that is the job of hard mass balance.
-_Avoid_: "anchor", "coherence soft-sum" (both removed mechanisms).
+_Avoid_: "anchor" for an external total (the live term **Anchor** below is the model's own prior), "coherence soft-sum" (removed mechanism).
 
 **Data-category typology** (Pauliuk et al. 2019):
 The four parameter kinds, split **extensive** vs **intensive**. *Extensive* (kt magnitudes):
@@ -1146,6 +1146,13 @@ remedy is data-side.
 _Avoid_: reading a downstream export as an outlet for the node — anode exports are produced *by*
 CFR *from* matte, so they raise the matte requirement rather than relieving it. See
 [ADR 0019](docs/adr/0019-contradicted-flow-nodes-lose-anchor-authority.md).
+
+**Anchor** — a Type-2 **soft-sum** row built by `SumConstraintBuilder.from_mask_anchor` that pins the group-sum
+of a masked edge family to the model's **own** Stage-2 prior: the supply / use **scale totals** and the
+**scrap level anchors**. Also the **no-data σ anchor** (ADR 0013), a σ rule on flat-prior edges. Neither
+imports an external total, so neither is a **Control total** (removed): the word "anchor" is live in both
+uses and the *Avoid* on **Control total** concerns only the external-total reading.
+_Avoid_: "control total", "coherence soft-sum" for either.
 
 **Anchor placement** — *which edge* a source series is attached to, as distinct from its value.
 A production series measures throughput at one point of the chain; converting it into an edge

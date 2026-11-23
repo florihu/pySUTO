@@ -96,7 +96,7 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 ## Numerical & performance conventions
 
 - Stack: numpy + scipy.sparse + clarabel + pandas/pyarrow. No numba, cython, cvxpy or networkx in `src/`; matplotlib only under `diag/`; Plotly is imported inside functions, never at module level.
-- dtypes: values `float64`, indices `int64`, masks `bool`, no `float32`. Time labels are strings, never ints.
+- dtypes: values `float64`, indices `int64` (scipy's CSR index arrays, `G`'s among them, are `int32`), masks `bool`, no `float32`. Time labels are strings, never ints.
 - Stage 2 arrays are dense `float64` of shape `N_f × N_r` (≈ 850k edges); NaN means "not covered", never 0. Vectorise — no Python loops over edges.
 - Sparse: assemble COO triplets → `csr_matrix((v, (r, c)))`; keep `G` CSR; convert to CSC only at the Clarabel boundary. `_partition_G_by_time` raises on any cross-year nonzero — keep it strict.
 - Solver: one Clarabel QP per year (block path), ≈ 37–63 s each at the ADR 0039 tolerances; cold years are solved concurrently on `N_WORKERS = os.cpu_count()` threads (#70), so Stage 4 takes ≈ 3 min on copper with 8 cores (#56, `opt_20261112_144603_1256b16b`; per-year times and `solve_wall_s` are in the run sidecar) — run it in the background. `Solver` builds a neutral QP per year and the injected `ClarabelBackend` solves it (ADR 0042); any status outside `{solved, solved_inaccurate}` raises `RuntimeError` — never add a silent fallback. The feasibility pre-check probes every year in parallel (`FEASIBILITY_CHECK = "all"`, ≈ 15 s); `"none"` skips it (sweep points, #104).
