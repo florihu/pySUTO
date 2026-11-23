@@ -54,7 +54,7 @@ reconstruction, so its copper price (the pooled HS 740311 unit value) moves −0
 (2019 +0.21, 2021 +0.22, 2023 −0.15): the winning declaration's HS split feeds the 740311 pool (UAE 2015: 80 kt
 of 740311 instead of 8 kt of 740311 and 52 kt of 740319). DR Congo's concentrate into the two ports was not
 analysed. Measured 2026-10-21: ships (#95's REP, `opt_20261021_094942_d1ac7a81`: the UAE's cathode-use rows close,
-common-set sum-row z² −5.28 % vs `opt_20261020_112726_2f451f31`).
+common-set sum-row z² −5.28 % vs `opt_20261020_112726_2f451f31`). *(Pruned: `opt_20260901_101148_39fbd1bc` is absent from `data/proc` on 2026-11-23; no per-run pruning date is recorded.)*
 
 ## Context
 

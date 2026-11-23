@@ -239,6 +239,6 @@ output is 88–102 % of its primary refined output, while it imports 0.36–0.76
 year. That rule would move China by −4,723, Germany by −284 and Korea by −234 kt CC over 30 years,
 on statistical gaps.
 
-**Status:** measured 2026-10-21 and shipped (#63's REP, `opt_20261021_101810_d34c6527` vs
+**Amendment status:** measured 2026-10-21 and shipped (#63's REP, `opt_20261021_101810_d34c6527` vs
 `opt_20261021_094942_d1ac7a81`): all five items hold; Austria's common-set sum-row z² 68,232 → 6,196 (−90.9 %),
 common-set sum-row z² 1,018,103 → 949,738 (−6.72 %), Round-E holding.

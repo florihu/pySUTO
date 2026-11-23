@@ -72,6 +72,8 @@ Commitments of pySUTO that a second case cannot change through data or parameter
 
 Copper's modelling choices, each measured against a rejected alternative, are in Table 2 of the manuscript ([docs/manuscript/method.md](docs/manuscript/method.md) §3.2.7), not here.
 
+The SI ([docs/manuscript/si.md](docs/manuscript/si.md)) states the equations of the pipeline's structure and σ propagation, S1–S8; it is not a complete list of the code's σ rules. The parametric-fill, recipe, time-interpolation, flat-prior, ratio, scale-total and net-stock-seed σ rules, `_reg_sensitivity` and `Solver.objective_at` carry their equations in this README and the ADRs only.
+
 ---
 
 ## Architecture

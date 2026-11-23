@@ -6,7 +6,7 @@ unchanged in value; re-basing it on the carried year's own grade was measured an
 [`…roundI-ore-grade-carry`](../rep/analysis_opt_20260910_114200_7f4040d9_20260910_roundI-ore-grade-carry.md)).
 Extends
 [ADR 0015](0015-in-situ-ore-grades-on-allocated-ore-basis.md); retires the Stage 2
-`time_crude` extrapolator.
+`time_crude` extrapolator. *(Pruned: `opt_20260910_114200_7f4040d9` is absent from `data/proc` on 2026-11-23; no per-run pruning date is recorded.)*
 
 ## Context
 
@@ -138,3 +138,15 @@ one with a snapshot again. Regression test added. `ore_grade` v2 and v3 are exac
 registry); `scripts/explo/restore_ore_grade_versions.py` writes them into `v2/`/`v3/` only when
 the regenerated sha256 equals the registry record — run by the owner, since it is a write into
 history. v1 and the feed/acc mismatches are not reproducible from the repo.
+
+**Still unverifiable after the repair (#162's snapshot check at `v0.1.0rc1`, 2026-11-23).** Of the
+411 recorded file hashes in the 139 registered versions of `acc`, `params`, `feed` and `mask`,
+385 match; 26 do not, in 16 versions, all created 2026-05-19 to 2026-06-10, i.e. before the
+2026-09-10 repair: `acc/copper` v1–2 (`rules.ods`), `params/conc` v1–2, `params/ore_grade` v1,
+`feed/baci` v1–4, `feed/crude_ore` v1–2 and `feed/icsg` v1–5. The recorded hashes remain the truth
+of what a run consumed; the retained files are not (not reproducible from the repo). No run
+sidecar cites any of the 16, and every version the reference chain cites verifies (the earlier
+count of 28 of 93 included `ore_grade` v2–v3, since regenerated). Two registry orphans: `params/trade_shares`
+registers v1 with an empty hash and no `v1/` directory, and `feed/baci/v0/` (3 files, 2026-09-22)
+exists without a registry entry. Nothing in the repo hashes `vN/` snapshots today; an
+`input_status.py --verify` is proposed as a needs-triage ticket (#231).

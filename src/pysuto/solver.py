@@ -172,7 +172,7 @@ class Solver:
 
     Modelling decisions (locked in design grilling):
 
-    - **Warm-start prior across time** (``prior_mode='warm'``, the default).
+    - **Warm-start prior across time** (``prior_mode='warm'``, the default; ADR 0009).
       The per-period prior mean ``a_prior(t)`` in the objective is the
       previous timestep's optimum, aligned by **edge template**
       ``(from_id, to_id, valuation)`` since each year occupies disjoint
