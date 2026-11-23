@@ -122,6 +122,48 @@ def test_a_perturbed_parquet_column_and_a_changed_input_version_are_named(
     assert "const   DIFFERENT" in out.out and "parents.inputs" in out.out
 
 
+def _reverse_feed_rows(path) -> list:
+    """Reverse the feed order of a stored imp's per-feed rows, consistently (#211)."""
+    with np.load(path, allow_pickle=True) as z:
+        arrays = {k: z[k] for k in z.files}
+    for key in ("F", "Sigma", "Omega", "feed_ids"):
+        arrays[key] = arrays[key][::-1].copy()
+    np.savez(path, **arrays)
+    return list(arrays["feed_ids"])
+
+
+def test_a_reordered_feed_order_of_the_imp_is_identical_and_named(twin, tmp_path, capsys):
+    root = tmp_path / "copy"
+    shutil.copytree(twin["root"], root)
+    a, b = twin["a"], twin["b"]
+    order = _reverse_feed_rows(root / "proc" / "imp" / b["imp"] / "agg_result.npz")
+    code, out = _run(root, [a["psut"], a["uncprop"]], [b["psut"], b["uncprop"]], capsys)
+    assert code == 0, out.out
+    assert "imp     identical" in out.out
+    assert "feed order differs" in out.out and str(order) in out.out
+    assert out.out.rstrip().endswith("chains identical")
+
+
+def test_a_changed_value_in_one_feeds_row_still_differs_after_the_alignment(
+        twin, tmp_path, capsys):
+    root = tmp_path / "copy"
+    shutil.copytree(twin["root"], root)
+    a, b = twin["a"], twin["b"]
+    path = root / "proc" / "imp" / b["imp"] / "agg_result.npz"
+    _reverse_feed_rows(path)
+    with np.load(path, allow_pickle=True) as z:
+        arrays = {k: z[k] for k in z.files}
+    j = int(np.flatnonzero(np.isfinite(arrays["F"][0]))[0])
+    arrays["F"][0, j] += 1.0
+    np.savez(path, **arrays)
+    code, out = _run(root, [a["psut"]], [b["psut"]], capsys)
+    assert code == 1
+    assert "imp     DIFFERENT" in out.out
+    assert "agg_result.npz::F: first at index" in out.out
+    assert "(1 of" in out.out
+    assert "agg_result.npz::Sigma" not in out.out   # aligned rows agree
+
+
 def test_a_stage_only_one_chain_has_is_skipped_and_is_no_difference(twin, capsys):
     a, b = twin["a"], twin["b"]
     code, out = _run(twin["root"], [a["psut"]], [b["psut"], b["uncprop"]], capsys)
