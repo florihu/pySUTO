@@ -224,14 +224,18 @@ def _feed_ids(path: str):
     if not path.lower().endswith(".npz"):
         return None
     with np.load(path, allow_pickle=True) as z:
-        return list(z[_FEED_IDS]) if _FEED_IDS in z.files else None
+        return [str(f) for f in z[_FEED_IDS]] if _FEED_IDS in z.files else None
 
 
 def feed_permutation(base_ids, new_ids):
-    """Row indices that put the new file's per-feed rows in the base's feed order, or
-    ``None`` when the orders agree or the two files do not hold the same distinct feeds."""
-    if (base_ids is None or new_ids is None or base_ids == new_ids
-            or sorted(base_ids) != sorted(new_ids) or len(set(base_ids)) != len(base_ids)):
+    """Row indices that put the new file's per-feed rows in the base's feed order.
+
+    ``None`` when the orders agree, or when the two files do not hold the same distinct
+    feeds (their ``feed_ids`` then differ as an array).
+    """
+    if base_ids is None or new_ids is None or base_ids == new_ids:
+        return None
+    if sorted(base_ids) != sorted(new_ids) or len(set(base_ids)) != len(base_ids):
         return None
     return np.array([new_ids.index(f) for f in base_ids], dtype=np.int64)
 
@@ -264,8 +268,8 @@ def compare_runs(stage: str, base_dir: str, new_dir: str, base_id: str,
         base_ids, new_ids = _feed_ids(base_path), _feed_ids(new_path)
         perm = feed_permutation(base_ids, new_ids)
         if perm is not None:
-            out.notes.append(f"{rel}: feed order differs: base {base_ids} vs new {new_ids}; "
-                             f"per-feed rows aligned by {_FEED_IDS}")
+            out.notes.append(f"{rel}: feed order differs: base {base_ids} vs new "
+                             f"{new_ids}; per-feed rows aligned by {_FEED_IDS}")
         base_it, new_it = _arrays(base_path), _arrays(new_path)
         seen_base = {}
         for name, arr in base_it:
@@ -276,7 +280,8 @@ def compare_runs(stage: str, base_dir: str, new_dir: str, base_id: str,
             if name not in seen_base:
                 out.differences.append(f"{_label(rel, name)}: only in new")
                 continue
-            if perm is not None and name in _PER_FEED:
+            if (perm is not None and name in _PER_FEED and arr.ndim
+                    and len(arr) == len(perm)):
                 arr = arr[perm]
             out.n_arrays += 1
             why = first_difference(seen_base.pop(name), arr)

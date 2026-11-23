@@ -17,7 +17,7 @@ import pandas as pd
 import pytest
 
 from pysuto.__main__ import main
-from pysuto.compare import CompareError, first_difference, lineage
+from pysuto.compare import CompareError, feed_permutation, first_difference, lineage
 from pysuto.tutorial import toy
 
 
@@ -162,6 +162,15 @@ def test_a_changed_value_in_one_feeds_row_still_differs_after_the_alignment(
     assert "agg_result.npz::F: first at index" in out.out
     assert "(1 of" in out.out
     assert "agg_result.npz::Sigma" not in out.out   # aligned rows agree
+
+
+def test_only_a_reordering_of_the_same_distinct_feeds_is_aligned():
+    np.testing.assert_array_equal(feed_permutation(["a", "b", "c"], ["c", "a", "b"]),
+                                  [1, 2, 0])
+    assert feed_permutation(["a", "b"], ["a", "b"]) is None          # same order
+    assert feed_permutation(["a", "b"], ["a", "c"]) is None          # other feeds
+    assert feed_permutation(["a", "a", "b"], ["a", "b", "a"]) is None  # duplicates
+    assert feed_permutation(None, ["a"]) is None                     # no feed_ids
 
 
 def test_a_stage_only_one_chain_has_is_skipped_and_is_no_difference(twin, capsys):
