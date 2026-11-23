@@ -1,5 +1,7 @@
 # Single-endpoint raw rows fan out, they do not replicate
 
+**Status:** accepted — *proposed by the #223 review, the maintainer confirms.* Amended by [ADR 0008](0008-unweighted-fans-are-not-distributed.md) (option A's uniform fallback); option D is the BACI-trade-share weighting of `scripts/build_trade_shares.py`. Evidence: the 36× ICSG inflation was measured on `opt_20260602_133908_46bc514e` (REP linked above; the run is absent from `data/proc` on 2026-11-23, no pruning date recorded) and the symmetric `"<any>"` fallback is in `conc.py`, under the reference chain `opt_20261119_130302_b20f0dba`.
+
 A raw feed row that classifies only **one** endpoint (e.g. ICSG `Use` rows: consumer known,
 producer unknown) must resolve to **one** source edge whose unclassified endpoint is left open
 (`"<any>"`) and distributed across the matching root edges by normalised weights — the

@@ -1,6 +1,8 @@
 # PSUT (supply-use) and PIOT (input-output) are two classes; PIOT is a construct family built as a transform
 
-**Status:** proposed — refines [ADR 0007](0007-downstream-psut-piot-follows-piolab-suh-no-external-io-lib.md).
+**Status:** accepted — `PSUT` and `PIOT` ship as two classes (`psut.py`, `piot.py`; Stage 6 Slices 1–6
+merged 2026-09-24, `da80fae`; `psut_20261119_133504_4c783a88` on the reference chain
+`opt_20261119_130302_b20f0dba`). Refines [ADR 0007](0007-downstream-psut-piot-follows-piolab-suh-no-external-io-lib.md).
 
 Stage 6 splits along the glossary's SUT/PIOT line. **`PSUT`** owns the supply-use world: materialise `a*` into a
 tidy edge table (one period, one valuation), expose the `S/U/Y/E/O/P` block views, and aggregate along

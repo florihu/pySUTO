@@ -13,7 +13,7 @@ localises where a source's own series contradict each other. Amends [ADR 0016](0
 and [ADR 0018](0018-import-free-fans-distribute-domestically.md) (scopes the authority of what
 it restores). Evidence: REP
 [`…roundE-contradicted-nodes`](../rep/analysis_opt_20260908_101628_420a30dc_20260908_roundE-contradicted-nodes.md);
-prior state in [`…roundD-fan-recovery`](../rep/analysis_opt_20260908_084500_724780b3_20260908_roundD-fan-recovery.md).
+prior state in [`…roundD-fan-recovery`](../rep/analysis_opt_20260908_084500_724780b3_20260908_roundD-fan-recovery.md). *(Pruned: `opt_20260908_084500_724780b3`, `opt_20260908_101628_420a30dc` are absent from `data/proc` on 2026-11-23; no per-run pruning date is recorded.)*
 
 ## Context
 

@@ -3,7 +3,7 @@
 **Status:** accepted — amends [ADR 0004](0004-process-recipe-traversal-imputer.md) (adds a third
 `bilateral_import` recipe tier and the symmetric flow-balance relaxation; closes its rejected
 option-C "a single upstream gap blocks everything below" case). Verified in
-[analysis_imp_…trade-seed-er-cer-revival.md](../rep/analysis_imp_20260616_074410_9b387727_trade-seed-er-cer-revival.md).
+[analysis_imp_…trade-seed-er-cer-revival.md](../rep/analysis_imp_20260616_074410_9b387727_trade-seed-er-cer-revival.md). *(Pruned: `imp_20260616_074410_9b387727` is absent from `data/proc` on 2026-11-23; no per-run pruning date is recorded.)*
 
 **Amended 2026-11-16 (#153) — the guard covers balances and every cascade pass.** A primary a
 relaxed close counted as 0 is never filled by a Flow balance either, and both guard sets now live

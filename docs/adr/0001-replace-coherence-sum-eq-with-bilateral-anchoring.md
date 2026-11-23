@@ -1,5 +1,7 @@
 # Replace coherence sum_eq with bilateral cathode anchoring
 
+**Status:** accepted — *proposed by the #223 review, the maintainer confirms.* Amended by [ADR 0006](0006-scale-total-supersedes-external-control-total.md) (the scale totals are soft). Evidence: `scripts/` registers no `from_acc_struct_subentity` row; the bilateral anchoring ships; the reference chain `opt_20261119_130302_b20f0dba` solves 30 of 30 years. The collapse it targeted was measured on `opt_20260527_095157_40846da4` (absent from `data/proc` on 2026-11-23; no pruning date is recorded).
+
 The `sub_entity_*` rows produced by `SumConstraintBuilder.from_acc_struct_subentity` are **coherence constraints** (c derived from `a₀` at solve-time, see [`GLOSSARY.md`](../../GLOSSARY.md)); they add no information beyond the prior and carry a magnitude-blind collapse-deterrent ~`(1/CV(σ_c))² ≈ 60`. We are removing both registrations and adding a new **anchoring** sum_eq layer using genuine published per-`(from_region, to_region, FD-subtype, year, valuation)` cathode totals as `c`, with tight soft σ_c (CV ≈ 1–3%), and updating Stage 2 to seed `a₀` from the same bilateral data instead of the equal-weight split. The new family's per-row collapse-deterrent (`(1/0.02)² ≈ 2500`) exceeds σ_a's `~400` ceiling, and `mass_balance` then propagates the pinned demand-side scale upstream through Cathode → Refining → Smelting → Mining — the chain where the [`reference run`](../../data/proc/opt/opt_20260527_095157_40846da4/) currently collapses.
 
 ## Considered options

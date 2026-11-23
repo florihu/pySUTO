@@ -65,7 +65,7 @@ def clean_flows(df_init, sheet, process, flow_type, rename_dict):
     #     (blank)     Total          854.1
     # so bfill reaches the right label from the Concentrates row but carries the
     # Total row onto the NEXT country.  A Total row closes its own block, so it
-    # takes the label at or above it instead.
+    # takes the label at or above it instead (ADR 0035).
     #
     # This must run BEFORE the aggregate rows are dropped: the sheet's own
     # WORLD / TOTALS block is shaped the same way, and with its labels already

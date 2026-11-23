@@ -7,7 +7,7 @@ posterior mass moved). Baseline `opt_20260914_090327_c21a5c48` (ADR 0025, K.1). 
 [ADR 0010](0010-trade-first-seeding-of-bilateral-flow-process-inputs.md) and answers the
 follow-up [ADR 0024](0024-fan-domestic-leg-bounded-by-own-production.md) left open
 ("whether bilateral legs should be temporally interpolated at all"). Prerequisite for
-[ADR 0027](0027-re-exports-are-re-attributed-at-feed-time.md).
+[ADR 0027](0027-re-exports-are-re-attributed-at-feed-time.md). *(Pruned: `opt_20260915_103911_38b3fffc` is absent from `data/proc` on 2026-11-23; no per-run pruning date is recorded.)*
 
 ## Context
 

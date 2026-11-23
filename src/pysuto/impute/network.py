@@ -116,7 +116,7 @@ class _Stripping:
 # ---------------------------------------------------------------------------
 
 class NetworkImputer(BaseImputer):
-    """Process-recipe traversal imputer (see module docstring)."""
+    """Process-recipe traversal imputer (ADR 0004; see module docstring)."""
 
     def __init__(
         self,

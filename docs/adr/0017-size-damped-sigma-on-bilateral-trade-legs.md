@@ -15,7 +15,7 @@ Round M (2026-09-16,
 [ADR 0028](0028-grade-sigma-is-stated-not-derived-from-the-band.md)) sharpened why this matters:
 leg cv ≈ 0.069 after damping against scale-total anchor cv 0.017 is what decides that a
 disagreement between two ICSG figures is paid for by deleting the trade between them. The
-discharge path, not any band, is the next target.
+discharge path, not any band, is the next target. *(Pruned: `opt_20260903_084528_45fdd041`, `opt_20260903_105145_fa7049e3` are absent from `data/proc` on 2026-11-23; no per-run pruning date is recorded.)*
 
 ## Context
 

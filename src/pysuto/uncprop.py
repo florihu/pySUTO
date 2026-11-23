@@ -634,7 +634,7 @@ class KalmanUncProp(BaseUncProp):
         force_pinned: Optional[np.ndarray] = None,
         force_free:   Optional[np.ndarray] = None,
     ) -> _PeriodReduction:
-        """Reduce one period at the QP's active set at ``a*``.
+        """Reduce one period at the QP's active set at ``a*`` (ADR 0044).
 
         Kept rows: hard equalities, soft rows and binding bands, minus rows left
         without a live edge and hard rows linearly dependent on the others. A

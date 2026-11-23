@@ -1,6 +1,8 @@
 # Downstream PSUT/PIOT construction follows PIOLab + Suh, with no external IO-library dependency
 
-**Status:** proposed — introduces **Stage 6** (materialise `a*` → PSUT → PIOT + IO analytics).
+**Status:** accepted — introduces **Stage 6** (materialise `a*` → PSUT → PIOT + IO analytics). Shipped
+as Slices 1–6, merged 2026-09-24 (`da80fae`); the reference chain's `psut_20261119_133504_4c783a88`
+(on `opt_20261119_130302_b20f0dba`) is its latest run. The Suh squaring `A = B·D` stays #20.
 
 After the Stage-4 solve, pySUTO holds the solved edge vector `a*` (`OptimResult.F_opt`). To answer
 *downstream-dependency* questions we add **Stage 6**: per period and per **valuation** (`CC`, `Mass`),
