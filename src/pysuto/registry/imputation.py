@@ -14,9 +14,6 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
-from pysuto.agg import AggregationResult
-from pysuto.impute import ImputationLog
-
 from ._sidecar import _now_iso, build_sidecar
 from .base import BaseOutputRegistry
 
@@ -155,6 +152,10 @@ class ImputationRunRegistry(BaseOutputRegistry):
 
     def load(self, run_id: str):
         """Reconstruct an ``AggregationResult`` with attached log."""
+        # lazy: the result classes sit above the registry (README §5, back-edge family)
+        from pysuto.agg import AggregationResult
+        from pysuto.impute import ImputationLog
+
         if run_id not in self._index:
             raise KeyError(f"Imputation run '{run_id}' not in registry")
 

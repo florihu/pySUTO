@@ -47,6 +47,7 @@ from pysuto._conditioning import DEFAULT_CONDITIONING, condition_prior, conditio
 from pysuto.logging import get_logger
 
 from ._core import constraint_table
+from .objective import FAMILIES, family_frame, rank_identities, share_by_region
 
 _log = get_logger("pysuto.diag.stats.solver")
 
@@ -418,7 +419,6 @@ class SolverStatsDiagnostic:
     def region_shares(self) -> pd.DataFrame:
         """:func:`~.objective.share_by_region` of every family whose frame exists,
         stacked (columns ``family, region, year, zsq, share, n_rows``)."""
-        from .objective import FAMILIES, family_frame, share_by_region
 
         ef, cf = self.edge_frame(), self.constraint_frame()
         parts = [share_by_region(family_frame(ef, cf, fam))
@@ -442,7 +442,6 @@ class SolverStatsDiagnostic:
     def write_rankings(self, odir: str, regions=None, suffix: str = "") -> list[str]:
         """Write ``ranking_<family>{suffix}.csv`` — the full identity ranking by
         objective share — for every family whose frame exists."""
-        from .objective import FAMILIES, family_frame, rank_identities
 
         os.makedirs(odir, exist_ok=True)
         paths: list[str] = []
