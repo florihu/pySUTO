@@ -523,9 +523,9 @@ def _check_keys(entry, keys: tuple, optional: tuple, where: str) -> None:
 
 def _validate_spec(spec: dict) -> None:
     """Raise on a missing or unknown key, a value of the wrong type, an empty sector,
-    region, valuation or time axis, a duplicated region, valuation or time, or a rule naming a sector or entity the spec does not
-    declare. Nothing is coerced; the roles are validated when the root is set
-    (:func:`_bind_roles`)."""
+    region, valuation or time axis, a duplicated region, valuation or time, or a rule
+    naming a sector or entity the spec does not declare. Nothing is coerced; the roles
+    are validated when the root is set (:func:`_bind_roles`)."""
     _check_keys(spec, _SPEC_REQUIRED + _SPEC_OPTIONAL, _SPEC_OPTIONAL, "the top level")
     for i, sector in enumerate(spec["sectors"]):
         _check_keys(sector, _SECTOR_KEYS, _SECTOR_OPTIONAL, f"sectors[{i}]")
@@ -1116,8 +1116,8 @@ class AccountingStructure:
             names it).
         ValueError
             An unknown key, a rule naming a sector or entity no sector entry declares,
-            an empty axis, a duplicated region, valuation or time, or a role binding that breaks
-            ADR 0034 (see :func:`_bind_roles`).
+            an empty axis, a duplicated region, valuation or time, or a role binding
+            that breaks ADR 0034 (see :func:`_bind_roles`).
         TypeError
             A label that is not a string, an entry that is not a dict, or a
             ``same_region`` that is not a bool.
