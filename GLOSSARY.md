@@ -49,11 +49,13 @@ per node by hard mass balance.
 
 **Supply edge**:
 A `(sector_from, sector_to)` pair in `supply_pairs`; structurally **Process → Flow** (a
-process produces a commodity).
+process produces a commodity) or **Process → SB** (a process books a residual on a
+satellite, e.g. Mining → WR).
 
 **Use edge**:
-A pair in `use_pairs`; structurally **Flow → Process**, and **Flow → final-demand category**.
-Only `Flow` origins can be "used"; the `tradable` mask is what permits a use edge to cross
+A pair in `use_pairs`; structurally **Flow → Process**, **Flow → final-demand category**,
+and **SB → Process** (a satellite stock or scrap input, e.g. Deposit → Mining, Scrap →
+Smelting). The `tradable` mask is what permits a use edge to cross
 regions.
 
 **SB (system boundary)**:

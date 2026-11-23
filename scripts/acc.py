@@ -1,6 +1,6 @@
 """
-init_acc.py
-===========
+acc.py
+======
 Initialise, report, and save the accounting structure.
 
 Reads the acc spec from the **input registry** (``data/input/acc/<id>/current/``):
@@ -11,19 +11,19 @@ since the last registered version, a new ``vN/`` snapshot is materialised
 under ``data/input/acc/<id>/`` and the version is recorded in
 ``data/input/acc/registry.json``.
 
-Outputs to ``data/proc/acc/<id>/`` (unchanged — acc is auxiliary to the
-4-stage pipeline so its output side does not use the harmonized
-``{stage}_{ts}_{code}`` run-id pattern).
+Outputs to ``data/proc/acc/<id>/`` (acc is auxiliary to the six-stage pipeline, so
+its output side does not use the harmonized ``{stage}_{ts}_{code}`` run-id pattern).
+The statistics go to the log, ``<data dir>/logs/acc_<timestamp>.log`` (the data dir is
+the parent of ``--input-root``).
 
 Usage::
 
-    python scripts/init_acc.py --id copper
+    python scripts/acc.py --id copper
 """
 
 from __future__ import annotations
 
 import argparse
-import logging
 import os
 import sys
 import time
@@ -38,18 +38,10 @@ sys.path.insert(0, os.path.join(_REPO_ROOT, "src"))
 
 from pysuto.acc import AccountingStructure, read_acc_spec_dir, write_build_record
 from pysuto.input_registry import InputRegistries
+from pysuto.logging import get_logger, start_run_log
 
 
-# =============================================================================
-# Logging
-# =============================================================================
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
-    datefmt="%H:%M:%S",
-)
-logger = logging.getLogger("init_acc")
+logger = get_logger("acc")
 
 
 # =============================================================================
@@ -124,6 +116,7 @@ def build_edge_summary(acc: AccountingStructure) -> pd.DataFrame:
 
 def main() -> AccountingStructure:
     args = parse_args()
+    start_run_log(os.path.dirname(os.path.abspath(args.input_root)), "acc")
 
     # ── Initialise input registry (scan-and-bump every kind) ──────────────
     label_overrides = {"acc": {args.id: args.label}} if args.label else None
@@ -149,19 +142,15 @@ def main() -> AccountingStructure:
     acc = build_acc(acc_path, args.id, args.out)
     logger.info("Structure built in %.1fs", time.perf_counter() - t0)
 
-    print()
-    print("=" * 60)
-    print("  STRUCTURE STATISTICS")
-    print("=" * 60)
-    print(f"  Nodes              : {acc.n_nodes:>10,d}")
-    print(f"  Time points        : {acc.n_timeps:>10,d}")
-    print(f"  Valuations         : {acc.n_valtns:>10,d}")
-    print(f"  Admissible edges   : {acc.n_edges:>10,d}")
-    print(f"  All edges (no rule): {acc.n_edges_all:>10,d}")
-    print(f"  Tensor shape       :  {acc.A.shape}")
-    print(f"  Tensor nnz         : {acc.A.nnz:>10,d}")
-    print()
-    print(f"  Bounds summary     :  {acc.bounds.summary()}")
+    logger.info("STRUCTURE STATISTICS")
+    logger.info("  Nodes              : %10d", acc.n_nodes)
+    logger.info("  Time points        : %10d", acc.n_timeps)
+    logger.info("  Valuations         : %10d", acc.n_valtns)
+    logger.info("  Admissible edges   : %10d", acc.n_edges)
+    logger.info("  All edges (no rule): %10d", acc.n_edges_all)
+    logger.info("  Tensor shape       : %s", acc.A.shape)
+    logger.info("  Tensor nnz         : %10d", acc.A.nnz)
+    logger.info("  Bounds summary     : %s", acc.bounds.summary())
 
     edge_summary = build_edge_summary(acc)
     pair_counts  = (
@@ -177,29 +166,21 @@ def main() -> AccountingStructure:
         .reset_index()
         .sort_values("n_edges", ascending=False)
     )
-    print()
-    print("=" * 60)
-    print("  ADMISSIBLE EDGES BY SECTOR PAIR")
-    print("=" * 60)
-    print(pair_counts.to_string(index=False))
+    logger.info("ADMISSIBLE EDGES BY SECTOR PAIR\n%s", pair_counts.to_string(index=False))
 
     cross = edge_summary[edge_summary["from_region"] != edge_summary["to_region"]]
     if len(cross) > 0:
-        print()
-        print("=" * 60)
-        print("  CROSS-REGION EDGES (tradable flows only)")
-        print("=" * 60)
         cr_counts = (
             cross.groupby(["from_sector", "to_sector"])["edge_id"]
                  .count().reset_index()
                  .rename(columns={"edge_id": "n_cross_region_edges"})
                  .sort_values("n_cross_region_edges", ascending=False)
         )
-        print(cr_counts.to_string(index=False))
+        logger.info("CROSS-REGION EDGES (tradable flows only)\n%s",
+                    cr_counts.to_string(index=False))
     else:
-        print("\n  (no cross-region edges in admissible set)")
+        logger.info("(no cross-region edges in admissible set)")
 
-    print()
     logger.info("Saving structure …")
     acc.save()
     write_build_record(args.out, acc_entry)     # the input entry it was built from (#53)

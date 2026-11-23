@@ -283,7 +283,8 @@ IMP_KEYS = {
     "outlier_leg_k", "outlier_leg_cv", "outlier_ref", "unclosed_sectors", "unclosed_cv",
     "unclosed_k", "leg_sigma_a_ref", "leg_sigma_gamma", "leg_sigma_cv_cap",
     "flat_sigma_high", "flat_default_cv", "time", "stock_sectors", "stock_seed_cv",
-    "stock_seed_abs_floor", "effless_stock_sigma", "input_pins", "overrides",
+    "stock_seed_abs_floor", "effless_stock_sigma", "stock_share_scale_abs_floor",
+    "input_pins", "overrides",
 }
 CONST_KEYS = {
     "p", "sigma_a_cv_min", "sigma_a_abs_floor", "sigma_c_cv_min", "sigma_c_abs_floor",

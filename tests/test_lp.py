@@ -23,6 +23,10 @@ class TestLpCombine:
         x = np.ones(10)
         assert lp_combine(x, p=1.3) > lp_combine(x, p=2.0)
 
+    def test_value_at_the_shipped_exponent(self):
+        # ||(1, 1)||_p = 2^(1/p); the shipped p is 1.3
+        assert lp_combine([1.0, 1.0], p=1.3) == pytest.approx(2 ** (1 / 1.3), rel=1e-12)
+
     def test_empty_returns_zero(self):
         assert lp_combine([], p=1.3) == 0.0
 

@@ -287,6 +287,21 @@ def test_the_planted_leg_is_the_top_soft_residual(chain):
     assert abs(top["z"]) > 1.5 * abs(soft["z"].iloc[2])   # the leg and its twin lead
 
 
+def test_the_planted_leg_is_recovered_inside_its_interval(chain):
+    """The x1000 leg's posterior mean lands near its truth (seed 59, a* 23.63 kt vs truth
+    22.73 kt on ``opt_20261123_134417_2ad7561c``), inside its (1 − alpha) interval."""
+    root, ids, acc = chain["root"], chain["ids"], chain["acc"]
+    leg   = toy._edge_id(acc, *(toy.reveal()[k] for k in PLANTED_KEY))
+    truth = toy.truth_vector(toy.truth(), acc)[leg]
+    a_star = toy._global(OptimRunRegistry(str(root / "proc" / "opt")).load(ids["opt"]),
+                         "F_opt", acc.n_edges)[leg]
+    post   = UncPropRunRegistry(str(root / "proc" / "uncprop")).load(ids["uncprop"])
+    (ts,)  = [t for t in post.per_timestep.values() if leg in set(np.asarray(t.cols_t))]
+    k      = int(np.flatnonzero(np.asarray(ts.cols_t) == leg)[0])
+    assert ts.lower[k] <= truth <= ts.upper[k]
+    assert abs(a_star - truth) < 0.10 * truth
+
+
 def test_stage5_coverage_of_the_420_edges_lies_in_its_recorded_band(chain):
     root, ids, acc = chain["root"], chain["ids"], chain["acc"]
     truth   = toy.truth_vector(toy.truth(), acc)
@@ -300,7 +315,7 @@ def test_stage5_coverage_of_the_420_edges_lies_in_its_recorded_band(chain):
     # 393 of 420 edges inside their 95 % interval. Never loosen it. With copper's
     # cascade order (review of 9c797e3): 0.933, 392 of 420. After #60's hooks (the
     # inert sum rows removed, one edge observed by two feeds): 0.943, 396 of 420.
-    assert 0.90 <= coverage <= 0.97, coverage
+    assert coverage == pytest.approx(0.943, abs=0.003), coverage   # 396 of 420, ±1 edge
     assert toy.scoreboard(root, ids).coverage() == pytest.approx(coverage)
 
 

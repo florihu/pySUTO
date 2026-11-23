@@ -476,7 +476,7 @@ class TestSaveLoad:
         )
 
     def test_load_missing_raises(self, tmp_path):
-        with pytest.raises(AssertionError):
+        with pytest.raises(FileNotFoundError, match="scripts/acc.py --id nonexistent_id"):
             AccountingStructure.load("nonexistent_id", storage_dir=str(tmp_path))
 
 
@@ -506,10 +506,10 @@ class TestEdgeBoundsDefaults:
     def test_default_lower_is_zero(self, acc_no_bounds):
         assert np.all(acc_no_bounds.bounds.l == 0.0)
  
-    def test_default_upper_is_inf(self, acc_no_bounds):
+    def test_default_upper_is_the_practical_large_value(self, acc_no_bounds):
         assert np.all(acc_no_bounds.bounds.u == 1e9)
  
-    def test_default_upper_is_positive_inf(self, acc_no_bounds):
+    def test_default_upper_is_positive(self, acc_no_bounds):
         assert np.all(acc_no_bounds.bounds.u > 0)
  
     def test_n_exceptions_is_zero_for_defaults(self, acc_no_bounds):
@@ -651,8 +651,8 @@ class TestEdgeBoundsRuleMatching:
         expected = acc.edge_index["from_id"].isin(psc_ids).sum()
         assert eb.n_exceptions == expected
  
-    def test_no_match_rule_leaves_defaults_unchanged(self, root_bounds):
-        """A rule that matches no edges must not alter any bound."""
+    def test_a_rule_matching_no_edge_raises_naming_it(self, root_bounds):
+        """A misspelt selector must not drop its bound silently."""
         bounds_df = pd.DataFrame({
             "sector_from": ["NONEXISTENT"],
             "sector_to":   ["*"],
@@ -661,15 +661,37 @@ class TestEdgeBoundsRuleMatching:
             "upper":       [999.0],
         })
         acc = _acc(root=root_bounds)
-        eb = EdgeBounds(
-            edge_index=acc.edge_index,
-            node_index=acc.node_index,
-            bounds_df=bounds_df,
-        )
-        assert np.all(eb.l == 0.0)
-        assert np.all(eb.u == 1e9)
-        assert eb.n_exceptions == 0
- 
+        with pytest.raises(ValueError, match="NONEXISTENT.*matches no edge"):
+            EdgeBounds(edge_index=acc.edge_index, node_index=acc.node_index,
+                       bounds_df=bounds_df)
+
+    def test_lower_above_upper_raises(self, root_bounds):
+        bounds_df = pd.DataFrame({
+            "sector_from": ["PSC"], "sector_to": ["*"], "valuation": ["*"],
+            "lower":       [5.0],   "upper":     [1.0],
+        })
+        acc = _acc(root=root_bounds)
+        with pytest.raises(ValueError, match="lower bound above their upper bound"):
+            EdgeBounds(edge_index=acc.edge_index, node_index=acc.node_index,
+                       bounds_df=bounds_df)
+
+    def test_a_none_cell_is_a_wildcard(self, root_bounds):
+        """A blank ODS cell reaches the rule as None: it selects everything."""
+        bounds_df = pd.DataFrame({
+            "sector_from": ["PSC"], "sector_to": [None], "valuation": [None],
+            "lower":       [-1.0],  "upper":     [9.0],
+        })
+        acc = _acc(root=root_bounds)
+        eb = EdgeBounds(edge_index=acc.edge_index, node_index=acc.node_index,
+                        bounds_df=bounds_df)
+        assert eb.n_exceptions > 0
+
+    def test_a_missing_bounds_file_raises(self, tmp_path):
+        with pytest.raises(FileNotFoundError, match="Bounds file not found"):
+            AccountingStructure(id="t", root_file_path="root.ods",
+                                rules_file_path="rules.ods",
+                                bounds_file_path=str(tmp_path / "nope.ods"))
+
     def test_blank_lower_leaves_existing_lower_unchanged(self, root_bounds):
         """A rule with lower=NaN must not override the lower bound."""
         bounds_df = pd.DataFrame({

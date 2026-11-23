@@ -78,7 +78,7 @@ def test_loosening_the_row_leaves_the_solution_where_it_was(contradiction):
     # of its truth: the hard balance, not the anchor's σ, decides where the mass goes
     assert abs(tight["planted_a_star"] - loose["planted_a_star"]) \
         < 0.01 * tight["planted_truth"]
-    assert loose["coverage"] == pytest.approx(tight["coverage"], abs=0.01)
+    assert loose["coverage"] == pytest.approx(tight["coverage"], abs=0.003)
 
 
 def test_the_anchors_cost_coverage_at_every_row_cv(contradiction):
@@ -104,7 +104,7 @@ def test_check_8_1_accepts_the_table_s_z_ratio_and_rejects_another(contradiction
 
 def test_an_experiment_never_becomes_the_latest_core_run(tree, contradiction):
     assert _core_latest(tree["root"]) == tree["base"]
-    feeds = DataFeedRegistry(odir=str(toy._tree(tree["root"])["feed"]))
+    feeds = DataFeedRegistry(odir=str(toy.run_tree(tree["root"])["feed"]))
     feeds.load_index()
     assert feeds.latest_by_label("customs").run_id \
         == toy_ext._feed_run_ids(tree["root"], tree["base"]["imp"])["customs"]
@@ -153,7 +153,7 @@ def test_with_the_non_negativity_cone_the_gap_decides_where_the_solver_stops(tre
 # =============================================================================
 
 def test_scrap_share_seed_writes_only_unset_scrap_legs_at_a_share_of_the_input(tree):
-    acc = toy._load_acc(toy._tree(tree["root"]))
+    acc = toy.load_acc(toy.run_tree(tree["root"]))
     em, content = acc.edge_meta, acc.valuation_roles.content
     f, sigma = np.full(acc.n_edges, np.nan), np.full(acc.n_edges, np.nan)
     conc = em[(em["from_sector"] == "Concentrate") & (em["to_sector"] == "Smelting")
@@ -177,7 +177,7 @@ def test_scrap_share_seed_writes_only_unset_scrap_legs_at_a_share_of_the_input(t
 
 
 def test_net_stock_row_is_one_soft_row_per_region_and_year(tree):
-    acc = toy._load_acc(toy._tree(tree["root"]))
+    acc = toy.load_acc(toy.run_tree(tree["root"]))
     block = toy_ext.NetStockRow(sigma=0.1).build_static(acc)
     assert block.G_rows.shape == (len(toy.REGIONS) * len(toy.YEARS), acc.n_edges)
     assert (block.G_rows.sum(axis=1) == 1).all() and not block.row_meta["is_hard"].any()
@@ -190,19 +190,19 @@ def test_net_stock_row_is_one_soft_row_per_region_and_year(tree):
 def test_the_three_seams_run_through_stages_2_to_4(tree):
     out = toy_ext.run_seams(tree["root"])
     runs, root = out["runs"], tree["root"]
-    tree_ = toy._tree(root)
+    tree_ = toy.run_tree(root)
     assert out["n_seeded"] == len(toy._BUREAU_GAPS)    # the scrap legs the Bureau skipped
     feeds = DataFeedRegistry(odir=str(tree_["feed"]))
     feeds.load_index()
     hit = np.flatnonzero(feeds.load_result(runs["feed"]["ministry"])["F_root"])
-    em = toy._load_acc(tree_).edge_meta.loc[hit]
+    em = toy.load_acc(tree_).edge_meta.loc[hit]
     # the Ministry covers exactly the two region-years the Bureau did not publish
     assert set(zip(em["from_region"], em["time"])) == set(toy._BUREAU_GAPS)
     assert len(hit) == len(toy._BUREAU_GAPS)
     meta = ConstraintRunRegistry(str(tree_["const"])).load(runs["const"]).row_meta
     assert int((meta["variant"] == "netstock").sum()) \
         == len(toy.REGIONS) * len(toy.YEARS)
-    sidecar = OptimRunRegistry(str(toy._tree(root)["opt"])).load_sidecar(runs["opt"])
+    sidecar = OptimRunRegistry(str(toy.run_tree(root)["opt"])).load_sidecar(runs["opt"])
     assert sidecar["label"] == "toy_seams"
     assert _core_latest(root) == tree["base"]
 

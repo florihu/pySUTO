@@ -269,7 +269,7 @@ def test_load_refuses_a_structure_saved_before_roles(tmp_path):
 # docstring or comment that mentions one is not a literal of it.
 _LABELS  = ("CC", "Mass", "SEM", "FD", "Nature", "ROW")
 _LITERAL = re.compile(r"""^[rRuUfFbB]{0,2}(['"])(%s)\1$""" % "|".join(_LABELS))
-# The one file besides acc.py and cases/ that names copper labels: it binds the roles of a
+# The one file besides acc.py that names copper labels: it binds the roles of a
 # PSUT run persisted before roles existed, and cannot import acc (README §5).
 _LEGACY_BINDING = "registry/psut.py"
 
@@ -279,7 +279,7 @@ def test_no_role_or_valuation_label_literal_in_the_library():
     hits = []
     for path in sorted(root.rglob("*.py")):
         rel = path.relative_to(root).as_posix()
-        if rel in ("acc.py", _LEGACY_BINDING) or rel.startswith("cases/"):
+        if rel in ("acc.py", _LEGACY_BINDING):
             continue
         source = path.read_text(encoding="utf-8")
         for tok in tokenize.generate_tokens(io.StringIO(source).readline):

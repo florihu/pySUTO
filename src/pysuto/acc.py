@@ -113,7 +113,8 @@ Named masks
 -----------
 After ``__init__`` returns, ``self.masks`` is a ``dict[str, np.ndarray]`` of
 boolean masks of shape ``(n_edges,)``. Built-in entries: ``supply``, ``use``,
-``tradable``, ``sb``. User-defined masks can be added via an optional
+``tradable``, ``sb``, ``cross_region`` (region_from != region_to; the edge scope of
+bilateral feeds, ADR 0014). User-defined masks can be added via an optional
 ``masks.csv`` co-located with ``root.ods`` (see :mod:`pysuto.masks`), via
 ``apply_mask_overlay(path)``, or programmatically via
 ``register_mask(name, array_or_callable)``.
@@ -124,6 +125,8 @@ from __future__ import annotations
 import json
 import os
 import pickle
+import xml.etree.ElementTree as ET
+import zipfile
 from dataclasses import dataclass
 from enum import Enum
 from functools import cached_property
@@ -136,14 +139,8 @@ import scipy.sparse as sp
 
 from .input_registry import ACC_ODS_FILES, ACC_SPEC, InputRegistry
 
-try:
-    from .logging import get_logger
-except ImportError:
-    import logging
-    def get_logger(name):
-        return logging.getLogger(name)
-
-from pysuto.masks import read_masks_csv
+from .logging import get_logger
+from .masks import MaskRuleSet, coerce_mask, match_selector, read_masks_csv
 
 
 # =============================================================================
@@ -271,9 +268,6 @@ def _read_ods(path: str, sheet_name=None) -> pd.DataFrame:
     pd.DataFrame with string/None values (header row becomes column names).
     Numeric strings are left as str; callers cast with pd.to_numeric where needed.
     """
-    import zipfile
-    import xml.etree.ElementTree as ET
-
     _NS = {
         'table' : 'urn:oasis:names:tc:opendocument:xmlns:table:1.0',
         'text'  : 'urn:oasis:names:tc:opendocument:xmlns:text:1.0',
@@ -323,8 +317,6 @@ def _read_ods(path: str, sheet_name=None) -> pd.DataFrame:
 
 def _ods_sheet_names(path: str) -> list:
     """Return the list of sheet names in an ODS file (stdlib only)."""
-    import zipfile
-    import xml.etree.ElementTree as ET
     _T = 'urn:oasis:names:tc:opendocument:xmlns:table:1.0'
     with zipfile.ZipFile(path) as zf:
         root = ET.fromstring(zf.read('content.xml'))
@@ -350,7 +342,6 @@ def _read_bounds_file(path: str) -> list:
     return df.to_dict("records")
 
 
-_INF = np.inf
 DEFAULT_UPPER_BOUND: float = 1e9   # practical large value (not +inf) as default upper
 DEFAULT_STORAGE_DIR: str   = r"data/proc/acc"
 
@@ -531,9 +522,10 @@ def _check_keys(entry, keys: tuple, optional: tuple, where: str) -> None:
 
 
 def _validate_spec(spec: dict) -> None:
-    """Raise on a missing or unknown key, a value of the wrong type, or a rule naming a
-    sector or entity the spec does not declare. Nothing is coerced; the roles are
-    validated when the root is set (:func:`_bind_roles`)."""
+    """Raise on a missing or unknown key, a value of the wrong type, an empty sector,
+    region, valuation or time axis, a duplicated region, valuation or time, or a rule naming a sector or entity the spec does not
+    declare. Nothing is coerced; the roles are validated when the root is set
+    (:func:`_bind_roles`)."""
     _check_keys(spec, _SPEC_REQUIRED + _SPEC_OPTIONAL, _SPEC_OPTIONAL, "the top level")
     for i, sector in enumerate(spec["sectors"]):
         _check_keys(sector, _SECTOR_KEYS, _SECTOR_OPTIONAL, f"sectors[{i}]")
@@ -551,6 +543,17 @@ def _validate_spec(spec: dict) -> None:
     not_str = [x for x in labels if not isinstance(x, str)]
     if not_str:
         raise TypeError(f"acc spec labels must be strings; got {not_str[:5]!r}")
+
+    for key, names in (("sectors", [s["name"] for s in spec["sectors"]]),
+                       ("regions", spec["regions"]),
+                       ("valuations", [v["name"] for v in spec["valuations"]]),
+                       ("times", spec["times"])):
+        if not names:
+            raise ValueError(f"acc spec: {key} is empty")
+        # a sector declared twice is _bind_roles's 1:1 check
+        duplicated = sorted({n for n in names if names.count(n) > 1})
+        if duplicated and key != "sectors":
+            raise ValueError(f"acc spec: {key} declares {duplicated} more than once")
 
     sectors = {s["name"] for s in spec["sectors"]}
     named = {key: set(spec[key]) | {t for tos in spec[key].values() for t in tos}
@@ -800,6 +803,7 @@ class RuleSet:
     # ------------------------------------------------------------------
 
     def is_sector_pair_admissible(self, sector_from: str, sector_to: str) -> bool:
+        """Whether the sector pair is in the supply or the use table."""
         return (sector_from, sector_to) in self.all_pairs
 
     def requires_same_region(
@@ -909,29 +913,32 @@ class EdgeBounds:
         for _, rule in bounds_df.iterrows():
             mask = np.ones(self.n_edges, dtype=bool)
 
-            def _match(arr, val):
-                v = str(val).strip()
-                return (np.ones(self.n_edges, dtype=bool)
-                        if v in ("*", "", "nan") else arr == v)
-
-            mask &= _match(sf, rule["sector_from"])
-            mask &= _match(st, rule["sector_to"])
-            mask &= _match(vl, rule["valuation"])
+            mask &= match_selector(sf, rule["sector_from"])
+            mask &= match_selector(st, rule["sector_to"])
+            mask &= match_selector(vl, rule["valuation"])
 
             if "region_from" in bounds_df.columns:
-                mask &= _match(rf, rule["region_from"])
+                mask &= match_selector(rf, rule["region_from"])
             if "region_to" in bounds_df.columns:
-                mask &= _match(rt, rule["region_to"])
+                mask &= match_selector(rt, rule["region_to"])
             if "time" in bounds_df.columns:
-                mask &= _match(tm, rule["time"])
+                mask &= match_selector(tm, rule["time"])
 
-            if mask.sum() == 0:
-                continue
+            if not mask.any():
+                raise ValueError(
+                    f"Bounds rule {rule.to_dict()} matches no edge of the structure "
+                    f"(a misspelt sector, region, time or valuation?)"
+                )
 
             if pd.notna(rule["lower"]) and str(rule["lower"]).strip() not in ("", "nan"):
                 self.l[mask] = float(rule["lower"])
             if pd.notna(rule["upper"]) and str(rule["upper"]).strip() not in ("", "nan"):
                 self.u[mask] = float(rule["upper"])
+
+        crossed = int((self.l > self.u).sum())
+        if crossed:
+            raise ValueError(f"Bounds: {crossed} edge(s) have a lower bound above "
+                             f"their upper bound")
 
     # ------------------------------------------------------------------
 
@@ -940,6 +947,8 @@ class EdgeBounds:
                  edge_index: pd.DataFrame,
                  raise_on_violation: bool = True,
                  ) -> pd.DataFrame:
+        """Edges of *F* outside ``[l, u]`` as a report table (empty when none); raises
+        ``ValueError`` listing them when *raise_on_violation*."""
         lo_viol  = F < self.l
         hi_viol  = F > self.u
         any_viol = lo_viol | hi_viol
@@ -1066,11 +1075,7 @@ class AccountingStructure:
             )
         bounds_path = kwargs.get("bounds_file_path", None)
         if bounds_path is not None and not os.path.exists(bounds_path):
-            self.logger.warning(
-                f"Bounds file not found: '{bounds_path}'. "
-                f"Using default bounds (l=0, u={DEFAULT_UPPER_BOUND:.0e})."
-            )
-            bounds_path = None
+            raise FileNotFoundError(f"Bounds file not found: '{bounds_path}'")
         # Optional acc-local user masks (data/input/acc/<id>/current/masks.csv)
         masks_path = kwargs.get("masks_file_path", None)
         if masks_path is None:
@@ -1111,7 +1116,8 @@ class AccountingStructure:
             names it).
         ValueError
             An unknown key, a rule naming a sector or entity no sector entry declares,
-            or a role binding that breaks ADR 0034 (see :func:`_bind_roles`).
+            an empty axis, a duplicated region, valuation or time, or a role binding that breaks
+            ADR 0034 (see :func:`_bind_roles`).
         TypeError
             A label that is not a string, an entry that is not a dict, or a
             ``same_region`` that is not a bool.
@@ -1129,12 +1135,9 @@ class AccountingStructure:
     def _init_from_spec(self, spec: dict) -> None:
         _validate_spec(spec)
         self._set_root(spec)
-        self._set_ruleset(RuleSet.from_tables(*_rule_tables(spec)))
-        self._build(bounds=spec.get("bounds"), masks=spec.get("masks"))
-
-    def _set_ruleset(self, ruleset: "RuleSet") -> None:
-        self.ruleset = ruleset
+        self.ruleset = RuleSet.from_tables(*_rule_tables(spec))
         self.logger.info(self.ruleset.summary())
+        self._build(bounds=spec.get("bounds"), masks=spec.get("masks"))
 
     def _build(self, bounds: Optional[list], masks: Optional[list]) -> None:
         """Steps 3–6 of the build: indices and tensors, the
@@ -1196,7 +1199,7 @@ class AccountingStructure:
         )
 
     # ------------------------------------------------------------------
-    # Edge-reduction report  (NEW)
+    # Edge-reduction report
     # ------------------------------------------------------------------
 
     def _report_reduction(
@@ -1299,8 +1302,6 @@ class AccountingStructure:
         callable receiving the expanded edge index (with ``sector_from``,
         ``region_from``, etc. columns) and returning a boolean array.
         """
-        from pysuto.masks import coerce_mask
-
         arr = coerce_mask(name, mask, self.edge_index, self.node_index, self.n_edges)
         if name in self.masks:
             self.logger.warning("register_mask: overwriting existing mask %r", name)
@@ -1316,8 +1317,6 @@ class AccountingStructure:
         overlay beats acc-local definitions). Used to apply a mask from the
         separate ``mask`` input kind on top of acc-local masks.
         """
-        from pysuto.masks import MaskRuleSet
-
         if not os.path.exists(csv_path):
             raise FileNotFoundError(f"Mask overlay file not found: {csv_path!r}")
         resolved = MaskRuleSet.from_csv(csv_path).resolve(
@@ -1340,7 +1339,6 @@ class AccountingStructure:
         self.user_mask_names: list[str] = []
         if not records:
             return
-        from pysuto.masks import MaskRuleSet
 
         self.logger.info("Loading %d user-mask rule(s)", len(records))
         resolved = MaskRuleSet.from_records(records).resolve(
@@ -1410,7 +1408,7 @@ class AccountingStructure:
         return True
 
     # ------------------------------------------------------------------
-    # Node index  (unchanged)
+    # Node index
     # ------------------------------------------------------------------
 
     def _build_node_index(self):
@@ -1445,7 +1443,7 @@ class AccountingStructure:
         self.val_to_idx  = {v: i for i, v in enumerate(self.valuation)}
 
     # ------------------------------------------------------------------
-    # Node-only admissibility mask  (unchanged)
+    # Node-only admissibility mask
     # ------------------------------------------------------------------
 
     def _build_node_mask(self) -> sp.csr_matrix:
@@ -1467,7 +1465,7 @@ class AccountingStructure:
         )
 
     # ------------------------------------------------------------------
-    # Full 4-D admissibility tensor  (unchanged)
+    # Full 4-D admissibility tensor
     # ------------------------------------------------------------------
 
     def _build_tensor(self) -> "_SparseCOO4D":
@@ -1495,7 +1493,7 @@ class AccountingStructure:
         return _SparseCOO4D(data, np.array([c0, c1, c2, c3], dtype=np.int64), shape)
 
     # ------------------------------------------------------------------
-    # Edge index DataFrame  (unchanged)
+    # Edge index DataFrame
     # ------------------------------------------------------------------
 
     def _build_edge_index(self, admissible_only=True) -> pd.DataFrame:
@@ -1533,7 +1531,7 @@ class AccountingStructure:
         })
 
     # ------------------------------------------------------------------
-    # Lookup helpers  (unchanged)
+    # Lookup helpers
     # ------------------------------------------------------------------
 
     def decode_node(self, node_id: int):
@@ -1605,7 +1603,7 @@ class AccountingStructure:
         )
 
     # ------------------------------------------------------------------
-    # Save / Load  (extended to persist bounds)
+    # Save / Load
     # ------------------------------------------------------------------
 
     def save(self, **kwargs):
@@ -1655,8 +1653,11 @@ class AccountingStructure:
         obj.id          = id
         obj.storage_dir = kwargs.get("storage_dir", DEFAULT_STORAGE_DIR)
         path            = os.path.join(obj.storage_dir, id)
-        assert os.path.isdir(path), \
-            f"Directory '{id}' not found in {obj.storage_dir}"
+        if not os.path.isdir(path):
+            raise FileNotFoundError(
+                f"Directory '{id}' not found in {obj.storage_dir}: build it with "
+                f"scripts/acc.py --id {id}"
+            )
 
         obj.A        = _SparseCOO4D.load_npz(os.path.join(path, "A.npz"))
         obj.A_nodes  = sp.load_npz(os.path.join(path, "A_nodes.npz"))

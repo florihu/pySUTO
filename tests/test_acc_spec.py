@@ -410,3 +410,74 @@ def test_acc_script_refuses_a_current_dir_holding_acc_json_and_an_ods_file(tmp_p
     with pytest.raises(ValueError, match=f"acc.json and \\['{ods_file}'\\]"):
         _run_acc_script(monkeypatch, tmp_path, tmp_path / "input", tmp_path / "out")
     assert not (tmp_path / "out" / "toy").exists()
+
+
+# =============================================================================
+# 6. Validation holes and raise branches the audit found (#278)
+# =============================================================================
+
+@pytest.mark.parametrize("key, value, match", [
+    ("regions",    ["Montara", "Portua", "Montara"], r"regions declares \['Montara'\]"),
+    ("times",      ["2001", "2001"],                 r"times declares \['2001'\]"),
+    ("valuations", [{"name": "Mass", "role": "gross"}, {"name": "Mass", "role": "content"}],
+                   r"valuations declares \['Mass'\]"),
+    ("regions",    [],                               "regions is empty"),
+    ("times",      [],                               "times is empty"),
+])
+def test_a_spec_axis_that_is_empty_or_repeats_a_label_raises(key, value, match):
+    """A duplicate region would build fewer nodes, a duplicate time duplicate edges, one
+    label for both valuation roles a structure whose roles coincide."""
+    with pytest.raises(ValueError, match=match):
+        AccountingStructure.from_spec(dict(SPEC, **{key: value}), "toy")
+
+
+def test_an_ods_file_without_a_sheet_the_reader_needs_raises_naming_the_sheet(tmp_path):
+    p = _write_ods_case(tmp_path)
+    _write_ods(tmp_path / "root.ods",
+               {k: v for k, v in ROOT_SHEETS.items() if k != "Time"})
+    with pytest.raises(KeyError, match="Sheet 'Time' not found"):
+        read_acc_spec_ods(p["root"], p["rules"])
+
+
+@pytest.mark.parametrize("missing", ["root", "rules"])
+def test_a_missing_root_or_rules_file_raises(tmp_path, missing):
+    p = _write_ods_case(tmp_path)
+    p[missing] = str(tmp_path / "nope.ods")
+    with pytest.raises(FileNotFoundError, match="not found"):
+        read_acc_spec_ods(p["root"], p["rules"])
+
+
+def test_a_valuation_without_a_role_that_is_not_copper_s_raises():
+    from pysuto.acc import acc_spec_differences
+    spec = dict(SPEC, valuations=[{"name": "Gross"}, {"name": "Cont", "role": "content"}])
+    with pytest.raises(ValueError, match="valuation 'Gross' declares no role"):
+        acc_spec_differences(spec, SPEC, ("role",))
+
+
+def test_a_missing_mask_overlay_file_raises(tmp_path):
+    acc = AccountingStructure.from_spec(SPEC, "toy")
+    with pytest.raises(FileNotFoundError, match="Mask overlay file not found"):
+        acc.apply_mask_overlay(str(tmp_path / "nope.csv"))
+
+
+def test_load_refuses_a_user_mask_of_another_length(tmp_path):
+    acc = AccountingStructure.from_spec(SPEC, "toy", storage_dir=str(tmp_path))
+    acc.save()
+    np.savez(tmp_path / "toy" / "masks_user.npz", massbal_scope=np.ones(3, dtype=bool))
+    with pytest.raises(ValueError, match="masks_user.npz: mask 'massbal_scope' has shape"):
+        AccountingStructure.load("toy", storage_dir=str(tmp_path))
+
+
+def test_load_of_a_directory_that_is_not_there_raises(tmp_path):
+    with pytest.raises(FileNotFoundError, match="scripts/acc.py --id toy"):
+        AccountingStructure.load("toy", storage_dir=str(tmp_path))
+
+
+def test_a_build_record_naming_another_acc_id_raises(tmp_path):
+    from pysuto.acc import ALL_SPEC_KEYS, check_built_acc
+    (tmp_path / "other").mkdir()
+    (tmp_path / "other" / "build_record.json").write_text(
+        json.dumps({"id": "toy", "version": 1, "code": "ab12cd34"}))
+    with pytest.raises(ValueError, match="was built from acc toy v1, but the run names "
+                                         "acc other v1"):
+        check_built_acc(str(tmp_path), {"id": "other", "version": 1}, None, ALL_SPEC_KEYS)
