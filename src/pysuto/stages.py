@@ -49,11 +49,13 @@ from pysuto.knobs import check_type
 from pysuto.logging import get_logger
 from pysuto.psut import PSUT
 from pysuto.registry import (ConstraintRunRegistry, DataFeedRegistry,
-                             ImputationRunRegistry, OptimRunRegistry, PsutRunRegistry)
+                             ImputationRunRegistry, OptimRunRegistry, PsutRunRegistry,
+                             stage_timer)
 from pysuto.solver import Solver
 from pysuto.uncprop import KalmanUncProp
 
 
+@stage_timer()
 def run_imp(case: CaseSpec, feed_ids: list, label: str,
             overrides: Optional[dict] = None, *, data_dir: str = "data",
             imp_dir: Optional[str] = None, pin_inputs_from: Optional[str] = None,
@@ -198,6 +200,7 @@ def run_imp(case: CaseSpec, feed_ids: list, label: str,
     return run_id
 
 
+@stage_timer()
 def run_const(case: CaseSpec, imp_run_id: str, label: str,
               overrides: Optional[dict] = None, *, data_dir: str = "data",
               imp_dir: Optional[str] = None, const_dir: Optional[str] = None,
@@ -428,6 +431,7 @@ def opt_defaults() -> dict:
     return {k: globals()[k] for k in OPT_KNOBS}
 
 
+@stage_timer()
 def run_opt(case: CaseSpec, const_run_id: str, label: str = "",
             overrides: Optional[dict] = None, *, prior_mode: str = "cold",
             data_dir: str = "data", const_dir: Optional[str] = None,
@@ -543,6 +547,7 @@ def run_opt(case: CaseSpec, const_run_id: str, label: str = "",
     return optim_run_id
 
 
+@stage_timer()
 def run_uncprop(case: CaseSpec, opt_run_id: str, label: str = "", *,
                 data_dir: str = "data",
                 logger: Optional[logging.Logger] = None) -> str:
@@ -606,6 +611,7 @@ def run_uncprop(case: CaseSpec, opt_run_id: str, label: str = "", *,
     return uncprop_run_id
 
 
+@stage_timer()
 def run_psut(case: CaseSpec, opt_run_id: str, label: str = "",
              primary: Optional[str] = None, timesteps: Optional[list] = None, *,
              data_dir: str = "data", sankey: Optional[list] = None,

@@ -17,6 +17,7 @@ AccountingStructure or Excel file required).
 
 from __future__ import annotations
 
+import dataclasses
 import logging
 import os
 import tempfile
@@ -33,8 +34,11 @@ from pysuto.input_registry import InputRegistries
 from pysuto.meta import DataFeedMetadata
 from pysuto.conc import ConcordanceTable, WeightMatrix
 from pysuto.unc import UncertaintyMixin, PropagationResult
-from pysuto.registry import DataFeedRegistry
+from pysuto.registry import DataFeedRegistry, stage_timer
 from pysuto.logging import add_run_handler, get_logger
+
+# The Lp exponent a feed's pedigree is propagated with (recorded in the feed sidecar).
+FEED_P = 1.3
 
 _log = get_logger("pysuto.feedpipe")
 
@@ -414,7 +418,8 @@ def _build_row_penalty_scale(acc_struct, metadata, row_region=None):
     return cv_root_scale, summary, row_mask
 
 
-def propagate_with_row_penalty(wm, F_src, metadata, acc_struct, p: float = 1.3,
+def propagate_with_row_penalty(wm, F_src, metadata, acc_struct,
+                               p: float = FEED_P,
                                cv_root_scale_extra=None, row_region=None):
     """Run step-D propagation and apply the optional ROW pedigree penalty.
 
@@ -480,7 +485,7 @@ def run_feed_pipeline(
     allow_unmatched_edges: bool = True,
     diag_plot:        bool = True,
     conc_file:        Optional[str] = None,
-    p:                float = 1.3,
+    p:                float = FEED_P,
     label:            Optional[str] = None,
 ) -> tuple[WeightMatrix, DataFeedMetadata, PropagationResult, "object"]:
     """
@@ -593,6 +598,9 @@ class FeedSpec:
     post_propagate : callable or None
         ``post_propagate(build)``: edits ``build.result`` after propagation (σ hooks such
         as ICSG's observed zeros) and may add entries to ``build.input_ref``.
+    knobs : dict or None
+        The module constants the hooks read, ``{name: value}`` (JSON-serialisable): the
+        feed run's sidecar records them in ``stage_config["knobs"]`` (#210).
     """
     feed_id:               str
     load_raw:              Callable
@@ -607,6 +615,7 @@ class FeedSpec:
     user_weights:          Optional[Callable] = None
     cv_scale:              Optional[Callable] = None
     post_propagate:        Optional[Callable] = None
+    knobs:                 Optional[dict] = None
 
 
 def check_file(path: str, label: str) -> None:
@@ -681,6 +690,7 @@ def build_feed_concordance(spec: FeedSpec, raw_df: pd.DataFrame, tables: dict, a
     return ct
 
 
+@stage_timer()
 def run_feed(spec: FeedSpec, *, acc_id: str, data_dir: str = "data",
              run_log: Optional[str] = None, diag: bool = True):
     """Build, propagate and register one feed run (Stage 1) from ``spec``.
@@ -721,6 +731,24 @@ def run_feed(spec: FeedSpec, *, acc_id: str, data_dir: str = "data",
             root.removeHandler(handler)
             handler.close()
             root.setLevel(root_level)
+
+
+def _feed_stage_config(spec: FeedSpec) -> dict:
+    """What the feed run's sidecar records of its configuration (#210): the Lp exponent
+    ``p`` it propagated with, the spec's policy fields, each hook's qualified name and
+    the spec's ``knobs``."""
+    hooks = {f.name: f"{getattr(spec, f.name).__module__}."
+                     f"{getattr(spec, f.name).__qualname__}"
+             for f in dataclasses.fields(spec) if callable(getattr(spec, f.name))}
+    return {"p":                     FEED_P,
+            "row_region":            spec.row_region,
+            "aux_col":               spec.aux_col,
+            "aux_sides":             spec.aux_sides,
+            "allow_unmatched_edges": spec.allow_unmatched_edges,
+            "drop_unweighted_fans":  spec.drop_unweighted_fans,
+            "edge_scope":            spec.edge_scope,
+            "hooks":                 hooks,
+            "knobs":                 spec.knobs or {}}
 
 
 def _run_feed(spec, acc_id, data_dir, run_log, diag):
@@ -797,7 +825,7 @@ def _run_feed(spec, acc_id, data_dir, run_log, diag):
     _log.info("D  Propagating uncertainty")
     cv_extra = spec.cv_scale(acc, str(feed_dir)) if spec.cv_scale is not None else None
     b.result, row_summary = propagate_with_row_penalty(
-        b.wm, b.F_src, b.meta, acc, cv_root_scale_extra=cv_extra,
+        b.wm, b.F_src, b.meta, acc, p=FEED_P, cv_root_scale_extra=cv_extra,
         row_region=spec.row_region)
     if spec.post_propagate is not None:
         spec.post_propagate(b)
@@ -812,6 +840,7 @@ def _run_feed(spec, acc_id, data_dir, run_log, diag):
         b.wm, b.meta, b.result, registry,
         parents       = {"inputs": input_ref, "upstream": {}},
         F_src         = b.F_src,
+        stage_config  = _feed_stage_config(spec),
         stage_summary = row_summary,
     )
     _log.info("   run_id           %s", entry.run_id)

@@ -289,6 +289,7 @@ BACI_FEED = FeedSpec(
     edge_scope   = True,
     user_weights = baci_user_weights,
     cv_scale     = load_cv_scales,
+    knobs        = {"MAX_CV_SCALE": MAX_CV_SCALE, "CV_SCALE_FILES": CV_SCALE_FILES},
 )
 
 # A single-region domestic feed: no aux discriminator.
@@ -890,9 +891,18 @@ def _stamp_feed_observed_zeros(build) -> None:
 
 
 # The complete copper ICSG feed: ICSG_FEED with the BACI-trade-share weights
-# (user_weights) and the observed-zero stamping (post_propagate).
-ICSG_SPEC = dataclasses.replace(ICSG_FEED, user_weights=_trade_share_weights,
-                                post_propagate=_stamp_feed_observed_zeros)
+# (user_weights) and the observed-zero stamping (post_propagate), whose module constants
+# it records as its knobs (#210); they are defined below ICSG_FEED, so they are set here.
+ICSG_SPEC = dataclasses.replace(
+    ICSG_FEED, user_weights=_trade_share_weights,
+    post_propagate=_stamp_feed_observed_zeros,
+    knobs={"OBSERVED_ZERO_CV":       OBSERVED_ZERO_CV,
+           "OBSERVED_ZERO_FLOOR_KT": OBSERVED_ZERO_FLOOR_KT,
+           "STOCK_SECTORS_TO":       STOCK_SECTORS_TO,
+           "OBSERVED_ZERO_SECTORS":  OBSERVED_ZERO_SECTORS,
+           "PRODUCTION_EDGES":       PRODUCTION_EDGES,
+           "AGGREGATE_REGIONS":      AGGREGATE_REGIONS,
+           "ORE_GRADE_ACTIVITY":     ORE_GRADE_ACTIVITY})
 
 
 # =============================================================================
