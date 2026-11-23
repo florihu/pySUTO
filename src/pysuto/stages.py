@@ -35,8 +35,9 @@ import logging
 import os
 from typing import Optional
 
-from pysuto.acc import (ALL_SPEC_KEYS, EDGE_UNIVERSE_ROLE_KEYS, AccountingStructure,
-                        check_built_acc, check_feed_accs)
+from pysuto import acc_store
+from pysuto.acc import ALL_SPEC_KEYS, EDGE_UNIVERSE_ROLE_KEYS, check_feed_accs
+from pysuto.acc_store import check_built_acc
 from pysuto.case import Cascade, CaseContext, CaseSpec, check_case
 from pysuto.clarabel_backend import ClarabelBackend
 from pysuto.collector import FeedCollector
@@ -99,7 +100,7 @@ def run_imp(case: CaseSpec, feed_ids: list, label: str,
     check_built_acc(acc_dir, acc_entry, inputs.acc, ALL_SPEC_KEYS,
                     require_record=pins is not None)
     logger.info("A  Loading AccountingStructure '%s' from %s", acc_id, acc_dir)
-    acc = AccountingStructure.load(id=acc_id, storage_dir=acc_dir)
+    acc = acc_store.load(id=acc_id, storage_dir=acc_dir)
 
     logger.info("A  Loading DataFeedRegistry from %s", registry_dir)
     registry = DataFeedRegistry(odir=registry_dir)
@@ -232,7 +233,7 @@ def run_const(case: CaseSpec, imp_run_id: str, label: str,
     # Stage 3 reads the built acc's bounds and masks too: every spec key but role.
     check_built_acc(acc_dir, acc_entry, inputs.acc, ALL_SPEC_KEYS)
     _log.info("Loading AccountingStructure '%s' from %s", acc_id, acc_dir)
-    acc = AccountingStructure.load(acc_id, storage_dir=acc_dir)
+    acc = acc_store.load(acc_id, storage_dir=acc_dir)
     _log.info("  nodes=%d  edges=%d  time=%s–%s",
               acc.n_nodes, acc.n_edges, acc.time_range[0], acc.time_range[-1])
 
@@ -539,7 +540,7 @@ def run_opt(case: CaseSpec, const_run_id: str, label: str = "",
 
     # One AccountingStructure for figures and ranking CSVs (loading it is the
     # expensive step); the diag's stats object owns the all-years frames both read from.
-    acc  = AccountingStructure.load(const_run.acc_id, storage_dir=acc_dir)
+    acc  = acc_store.load(const_run.acc_id, storage_dir=acc_dir)
     diag = SolverDiag(results, const_run, label=label or optim_run_id, acc=acc)
     diag.summary()
     diag.plot(odir=diag_dir)

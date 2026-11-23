@@ -46,7 +46,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-from pysuto.acc import AccountingStructure
+from pysuto import acc_store
 from pysuto.logging import get_logger
 from pysuto.registry import (
     ConstraintRunRegistry, ImputationRunRegistry, OptimRunRegistry, UncPropRunRegistry,
@@ -177,7 +177,7 @@ class UncPropDiag:
         if not self._acc_resolved:
             self._acc_resolved = True
             if os.path.isdir(os.path.join(self._acc_dir, self._cr.acc_id)):
-                self._acc = AccountingStructure.load(self._cr.acc_id,
+                self._acc = acc_store.load(self._cr.acc_id,
                                                      storage_dir=self._acc_dir)
             else:
                 logger.warning("acc '%s' not found under %s: every edge is valuation "

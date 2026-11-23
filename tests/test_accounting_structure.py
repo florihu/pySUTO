@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import os
 
+from pysuto import acc_store
 from pysuto.acc import (
     EDGE_UNIVERSE_KEYS, AccountingStructure, EdgeBounds, _read_bounds_file,
 )
@@ -252,11 +253,6 @@ class TestEdgeIndexNoRules:
         # 3 nodes → 9 pairs
         assert len(pairs) == 9
 
-    def test_edge_index_all_geq_edge_index(self, root_simple):
-        """edge_index_all must have at least as many rows as edge_index."""
-        acc = _acc(root=root_simple, forbid=[("P", "P")])
-        assert len(acc.edge_index_all) >= len(acc.edge_index)
-
     def test_n_edges_attribute_matches(self, root_simple):
         acc = _acc(root=root_simple)
         assert acc.n_edges == len(acc.edge_index)
@@ -309,44 +305,6 @@ class TestAdmissibilityRules:
         expected = 3 * 3 * 1 * 2
         assert len(acc.edge_index) == expected
 
-    def test_A_nodes_shape(self, root_simple):
-        acc = _acc(root=root_simple, forbid=[("P", "P")])
-        assert acc.A_nodes.shape == (3, 3)
-
-    def test_A_tensor_shape(self, root_simple):
-        """Full tensor must be 4-D: (n_nodes, n_nodes, n_timeps, n_valtns)."""
-        acc = _acc(root=root_simple, forbid=[("P", "P")])
-        assert acc.A.shape == (3, 3, 1, 2)
-
-    def test_A_tensor_shape_multi(self, root_multi_time):
-        acc = _acc(root=root_multi_time)
-        assert acc.A.shape == (2, 2, 2, 2)
-
-    def test_A_nodes_consistent_with_edge_index(self, root_simple):
-        """Every (from_id, to_id) in edge_index must be 1 in A_nodes."""
-        acc     = _acc(root=root_simple, forbid=[("P", "P")])
-        A_dense = acc.A_nodes.todense()
-        for _, row in acc.edge_index.iterrows():
-            assert A_dense[int(row["from_id"]), int(row["to_id"])] == 1
-
-    def test_A_tensor_consistent_with_edge_index(self, root_multi_time):
-        """Every edge in edge_index must be 1 in the full tensor."""
-        acc     = _acc(root=root_multi_time)
-        in_A = set(zip(*acc.A.coords.tolist()))
-        for _, row in acc.edge_index.iterrows():
-            t_idx = acc.time_to_idx[row["time"]]
-            v_idx = acc.val_to_idx[row["valuation"]]
-            assert (int(row["from_id"]), int(row["to_id"]), t_idx, v_idx) in in_A
-
-    def test_A_tensor_nnz_equals_n_edges(self, root_simple):
-        """Number of nonzeros in A must equal number of admissible edges.
-        root_simple has Mining(P), Ore(F), Smelting(P) — forbidding P→P blocks
-        Mining→Smelting and Smelting→Mining, leaving 7 of 9 node pairs × 1 time
-        × 2 valuations = 14 admissible edges, matching A.nnz exactly.
-        """
-        acc = _acc(root=root_simple, forbid=[("P", "P")])
-        assert acc.A.nnz == acc.n_edges
-
 # =============================================================================
 # 4. TIME AND VALUATION DIMENSIONS
 # =============================================================================
@@ -396,26 +354,26 @@ class TestSaveLoad:
 
     def test_save_load_node_to_id(self, tmp_path):
         acc = self._build(str(tmp_path))
-        acc.save()
-        loaded = AccountingStructure.load("save_test", storage_dir=str(tmp_path))
+        acc_store.save(acc)
+        loaded = acc_store.load("save_test", storage_dir=str(tmp_path))
         assert loaded.node_to_id == acc.node_to_id
 
     def test_save_load_id_to_node(self, tmp_path):
         acc = self._build(str(tmp_path))
-        acc.save()
-        loaded = AccountingStructure.load("save_test", storage_dir=str(tmp_path))
+        acc_store.save(acc)
+        loaded = acc_store.load("save_test", storage_dir=str(tmp_path))
         assert loaded.id_to_node == acc.id_to_node
 
     def test_save_load_edge_index_shape(self, tmp_path):
         acc = self._build(str(tmp_path))
-        acc.save()
-        loaded = AccountingStructure.load("save_test", storage_dir=str(tmp_path))
+        acc_store.save(acc)
+        loaded = acc_store.load("save_test", storage_dir=str(tmp_path))
         assert loaded.edge_index.shape == acc.edge_index.shape
 
     def test_save_load_edge_index_values(self, tmp_path):
         acc = self._build(str(tmp_path))
-        acc.save()
-        loaded = AccountingStructure.load("save_test", storage_dir=str(tmp_path))
+        acc_store.save(acc)
+        loaded = acc_store.load("save_test", storage_dir=str(tmp_path))
         expected = acc.edge_index.reset_index(drop=True).copy()
         expected["time"] = expected["time"].astype(str)
         pd.testing.assert_frame_equal(
@@ -424,60 +382,91 @@ class TestSaveLoad:
             check_dtype=False,
         )
 
-    def test_save_load_A_tensor_shape(self, tmp_path):
-        """4-D tensor shape must survive round-trip."""
-        acc = self._build(str(tmp_path))
-        acc.save()
-        loaded = AccountingStructure.load("save_test", storage_dir=str(tmp_path))
-        assert loaded.A.shape == acc.A.shape
-
-    def test_save_load_A_tensor_nnz(self, tmp_path):
-        """Non-zero count of 4-D tensor must survive round-trip."""
-        acc = self._build(str(tmp_path))
-        acc.save()
-        loaded = AccountingStructure.load("save_test", storage_dir=str(tmp_path))
-        assert loaded.A.nnz == acc.A.nnz
-
-    def test_save_load_A_nodes_shape(self, tmp_path):
-        acc = self._build(str(tmp_path))
-        acc.save()
-        loaded = AccountingStructure.load("save_test", storage_dir=str(tmp_path))
-        assert loaded.A_nodes.shape == acc.A_nodes.shape
-
     def test_save_load_time_valuation(self, tmp_path):
         acc = self._build(str(tmp_path))
-        acc.save()
-        loaded = AccountingStructure.load("save_test", storage_dir=str(tmp_path))
+        acc_store.save(acc)
+        loaded = acc_store.load("save_test", storage_dir=str(tmp_path))
         assert loaded.time_range == acc.time_range
         assert loaded.valuation  == acc.valuation
 
     def test_save_load_dim_index_maps(self, tmp_path):
         """time_to_idx and val_to_idx must be reconstructed correctly on load."""
         acc = self._build(str(tmp_path))
-        acc.save()
-        loaded = AccountingStructure.load("save_test", storage_dir=str(tmp_path))
+        acc_store.save(acc)
+        loaded = acc_store.load("save_test", storage_dir=str(tmp_path))
         assert loaded.time_to_idx == acc.time_to_idx
         assert loaded.val_to_idx  == acc.val_to_idx
 
-    def test_save_load_n_edges_all_attribute(self, tmp_path):
-        acc = self._build(str(tmp_path))
-        acc.save()
-        loaded = AccountingStructure.load("save_test", storage_dir=str(tmp_path))
-        assert loaded.n_edges_all == acc.n_edges_all
-
     def test_save_load_node_index(self, tmp_path):
         acc = self._build(str(tmp_path))
-        acc.save()
-        loaded = AccountingStructure.load("save_test", storage_dir=str(tmp_path))
+        acc_store.save(acc)
+        loaded = acc_store.load("save_test", storage_dir=str(tmp_path))
         pd.testing.assert_frame_equal(
             loaded.node_index.reset_index(drop=True),
             acc.node_index.reset_index(drop=True),
             check_dtype=False,
         )
 
+    def test_save_writes_a_json_header_and_no_table_nobody_reads(self, tmp_path):
+        acc_store.save(self._build(str(tmp_path)))
+        names = set(os.listdir(tmp_path / "save_test"))
+        assert "metadata.json" in names
+        assert names.isdisjoint({"metadata.pkl", "edge_index_all.csv", "A.npz", "A_nodes.npz"})
+
+    def test_save_load_round_trips_roles_and_rule_tables(self, tmp_path):
+        acc = self._build(str(tmp_path))
+        acc_store.save(acc)
+        loaded = acc_store.load("save_test", storage_dir=str(tmp_path))
+        assert loaded.boundary_roles == acc.boundary_roles
+        assert loaded.valuation_roles == acc.valuation_roles
+        for table in ("supply_pairs", "use_pairs", "tradable_flows", "accounting"):
+            assert getattr(loaded.ruleset, table) == getattr(acc.ruleset, table), table
+        assert loaded.n_nodes == acc.n_nodes and loaded.n_edges == acc.n_edges
+        for name, mask in acc.masks.items():
+            np.testing.assert_array_equal(loaded.masks[name], mask)
+
+    def test_load_reads_a_directory_saved_before_243(self, tmp_path):
+        """The pickled header and the three files nothing reads: loaded, the three
+        never opened (one is garbage here)."""
+        import pickle
+        acc = self._build(str(tmp_path))
+        acc_store.save(acc)
+        d = tmp_path / "save_test"
+        os.remove(d / "metadata.json")
+        rs = acc.ruleset
+        with open(d / "metadata.pkl", "wb") as fh:
+            pickle.dump({
+                "time_range": acc.time_range, "valuation": acc.valuation,
+                "node_to_id": acc.node_to_id, "id_to_node": acc.id_to_node,
+                "boundary_roles": {s: r.value for s, r in acc.boundary_roles.items()},
+                "valuation_roles": {acc.valuation_roles.content: "content",
+                                    acc.valuation_roles.gross: "gross"},
+                "rule_tables": {"supply_pairs": rs.supply_pairs, "use_pairs": rs.use_pairs,
+                                "tradable": rs.tradable_flows,
+                                "accounting": rs.accounting}}, fh)
+        for junk in ("edge_index_all.csv", "A.npz", "A_nodes.npz"):
+            (d / junk).write_bytes(b"not read")
+        loaded = acc_store.load("save_test", storage_dir=str(tmp_path))
+        assert loaded.node_to_id == acc.node_to_id
+        assert loaded.id_to_node == acc.id_to_node
+        assert loaded.boundary_roles == acc.boundary_roles
+        for table in ("supply_pairs", "use_pairs", "tradable_flows", "accounting"):
+            assert getattr(loaded.ruleset, table) == getattr(rs, table), table
+        pd.testing.assert_frame_equal(loaded.edge_index, acc.edge_index, check_dtype=False)
+
+    def test_save_removes_the_files_of_the_old_layout(self, tmp_path):
+        acc = self._build(str(tmp_path))
+        acc_store.save(acc)
+        d = tmp_path / "save_test"
+        for stale in ("metadata.pkl", "edge_index_all.csv", "A.npz", "A_nodes.npz"):
+            (d / stale).write_bytes(b"stale")
+        acc_store.save(acc)
+        assert not any((d / n).exists() for n in
+                       ("metadata.pkl", "edge_index_all.csv", "A.npz", "A_nodes.npz"))
+
     def test_load_missing_raises(self, tmp_path):
         with pytest.raises(FileNotFoundError, match="scripts/acc.py --id nonexistent_id"):
-            AccountingStructure.load("nonexistent_id", storage_dir=str(tmp_path))
+            acc_store.load("nonexistent_id", storage_dir=str(tmp_path))
 
 
 # =============================================================================
@@ -942,36 +931,36 @@ class TestEdgeBoundsPersistence:
  
     def test_l_survives_round_trip(self, tmp_path, root_bounds, bounds_df_psc):
         acc = self._build_with_bounds(str(tmp_path), root_bounds, bounds_df_psc, tmp_path)
-        acc.save()
-        loaded = AccountingStructure.load("bounds_save_test", storage_dir=str(tmp_path))
+        acc_store.save(acc)
+        loaded = acc_store.load("bounds_save_test", storage_dir=str(tmp_path))
         np.testing.assert_array_equal(loaded.l, acc.l)
  
     def test_u_survives_round_trip(self, tmp_path, root_bounds, bounds_df_psc):
         acc = self._build_with_bounds(str(tmp_path), root_bounds, bounds_df_psc, tmp_path)
-        acc.save()
-        loaded = AccountingStructure.load("bounds_save_test", storage_dir=str(tmp_path))
+        acc_store.save(acc)
+        loaded = acc_store.load("bounds_save_test", storage_dir=str(tmp_path))
         np.testing.assert_array_equal(loaded.u, acc.u)
  
     def test_n_exceptions_survives_round_trip(self, tmp_path, root_bounds, bounds_df_psc):
         acc = self._build_with_bounds(str(tmp_path), root_bounds, bounds_df_psc, tmp_path)
-        acc.save()
-        loaded = AccountingStructure.load("bounds_save_test", storage_dir=str(tmp_path))
+        acc_store.save(acc)
+        loaded = acc_store.load("bounds_save_test", storage_dir=str(tmp_path))
         assert loaded.bounds.n_exceptions == acc.bounds.n_exceptions
  
     def test_load_without_npy_files_gives_defaults(self, tmp_path, root_bounds):
         """If .npy files are absent (legacy save), load falls back to defaults."""
         acc = _acc(root_bounds, id="legacy_test", storage_dir=str(tmp_path))
-        acc.save()
+        acc_store.save(acc)
         # Remove the bounds .npy files to simulate a legacy save
         os.remove(tmp_path / "legacy_test" / "bounds_l.npy")
         os.remove(tmp_path / "legacy_test" / "bounds_u.npy")
-        loaded = AccountingStructure.load("legacy_test", storage_dir=str(tmp_path))
+        loaded = acc_store.load("legacy_test", storage_dir=str(tmp_path))
         assert np.all(loaded.l == 0.0)
         assert np.all(loaded.u == 1e9)
  
     def test_npy_files_exist_after_save(self, tmp_path, root_bounds):
         acc = _acc(root_bounds, id="npy_test", storage_dir=str(tmp_path))
-        acc.save()
+        acc_store.save(acc)
         assert (tmp_path / "npy_test" / "bounds_l.npy").exists()
         assert (tmp_path / "npy_test" / "bounds_u.npy").exists()
  
@@ -980,8 +969,8 @@ class TestEdgeBoundsPersistence:
     ):
         """validate() on a loaded structure must behave identically to the original."""
         acc = self._build_with_bounds(str(tmp_path), root_bounds, bounds_df_psc, tmp_path)
-        acc.save()
-        loaded = AccountingStructure.load("bounds_save_test", storage_dir=str(tmp_path))
+        acc_store.save(acc)
+        loaded = acc_store.load("bounds_save_test", storage_dir=str(tmp_path))
         F = np.zeros(loaded.n_edges)
         result = loaded.bounds.validate(F, loaded.edge_index, raise_on_violation=False)
         assert result.empty
@@ -1104,8 +1093,8 @@ def test_user_masks_survive_save_and_load(root_simple, tmp_path):
                               storage_dir=store)
     assert acc.user_mask_names == ["scope"]
     assert (~acc.masks["scope"]).any()
-    acc.save()
-    loaded = AccountingStructure.load("t", storage_dir=store)
+    acc_store.save(acc)
+    loaded = acc_store.load("t", storage_dir=store)
     assert loaded.user_mask_names == ["scope"]
     np.testing.assert_array_equal(loaded.masks["scope"], acc.masks["scope"])
 
@@ -1114,10 +1103,10 @@ def test_save_without_user_masks_drops_the_stale_file(root_simple, tmp_path):
     csv = tmp_path / "masks.csv"
     _write_masks(csv)
     store = str(tmp_path / "proc")
-    _acc(root=root_simple, masks_file_path=str(csv),
-                        storage_dir=store).save()
-    _acc(root=root_simple, storage_dir=store).save()
-    loaded = AccountingStructure.load("t", storage_dir=store)
+    acc_store.save(_acc(root=root_simple, masks_file_path=str(csv),
+                        storage_dir=store))
+    acc_store.save(_acc(root=root_simple, storage_dir=store))
+    loaded = acc_store.load("t", storage_dir=store)
     assert "scope" not in loaded.masks
     assert loaded.user_mask_names == []
 
@@ -1135,7 +1124,7 @@ class TestBuildRecord:
 
     def _built(self, root_simple, tmp_path):
         store = str(tmp_path / "proc" / "acc")
-        _acc(root=root_simple, storage_dir=store).save()
+        acc_store.save(_acc(root=root_simple, storage_dir=store))
         return store
 
     @staticmethod
@@ -1150,7 +1139,7 @@ class TestBuildRecord:
 
     def test_the_record_holds_the_entrys_id_version_and_code(self, root_simple, tmp_path):
         import json
-        from pysuto.acc import BUILD_RECORD, write_build_record
+        from pysuto.acc_store import BUILD_RECORD, write_build_record
         store = self._built(root_simple, tmp_path)
         path = write_build_record(store, self.ENTRY)
         assert path == os.path.join(store, "t", BUILD_RECORD)
@@ -1160,7 +1149,7 @@ class TestBuildRecord:
 
     def test_a_matching_ref_passes_silently(self, root_simple, tmp_path, caplog):
         import logging
-        from pysuto.acc import check_built_acc, write_build_record
+        from pysuto.acc_store import check_built_acc, write_build_record
         store = self._built(root_simple, tmp_path)
         write_build_record(store, self.ENTRY)
         reg = self._inputs(tmp_path)
@@ -1172,7 +1161,7 @@ class TestBuildRecord:
 
     def test_another_edge_universe_raises_naming_both_versions_and_the_key(
             self, root_simple, tmp_path):
-        from pysuto.acc import check_built_acc, write_build_record
+        from pysuto.acc_store import check_built_acc, write_build_record
         store = self._built(root_simple, tmp_path)
         write_build_record(store, self.ENTRY)
         with pytest.raises(ValueError, match=r"t v4.*t v3; they differ in \['regions'\]"):
@@ -1185,8 +1174,8 @@ class TestBuildRecord:
         raises there, and Stages 2 and 3, whose G and recipes hold all of them, refuse
         each."""
         import logging
-        from pysuto.acc import (ALL_SPEC_KEYS, EDGE_UNIVERSE_ROLE_KEYS, check_built_acc,
-                                write_build_record)
+        from pysuto.acc import ALL_SPEC_KEYS, EDGE_UNIVERSE_ROLE_KEYS
+        from pysuto.acc_store import check_built_acc, write_build_record
         from test_acc_roles import BOUNDS_ONLY, COPPER_LABELS, MASKS_ONLY, ROLE_ONLY
         store = self._built(root_simple, tmp_path)
         write_build_record(store, self.ENTRY)
@@ -1208,7 +1197,7 @@ class TestBuildRecord:
         """The copper structure was built before the record existed; the final chain
         must still render."""
         import logging
-        from pysuto.acc import check_built_acc
+        from pysuto.acc_store import check_built_acc
         store = self._built(root_simple, tmp_path)
         with caplog.at_level(logging.WARNING):
             check_built_acc(store, {"id": "t", "version": 4}, self._inputs(tmp_path),
@@ -1218,7 +1207,7 @@ class TestBuildRecord:
     def test_a_structure_without_the_record_raises_when_one_is_required(self, root_simple,
                                                                         tmp_path):
         """A pinned run cannot verify its acc version against an unrecorded build."""
-        from pysuto.acc import check_built_acc
+        from pysuto.acc_store import check_built_acc
         store = self._built(root_simple, tmp_path)
         with pytest.raises(ValueError, match="no build record"):
             check_built_acc(store, {"id": "t", "version": 4}, self._inputs(tmp_path),
@@ -1228,7 +1217,7 @@ class TestBuildRecord:
                                      {"id": "", "version": 4}, {"id": "t", "version": None}])
     def test_an_empty_or_partial_acc_ref_raises(self, root_simple, tmp_path, ref):
         """Nothing to check against is a defect of the caller's sidecar, never a pass."""
-        from pysuto.acc import check_built_acc, write_build_record
+        from pysuto.acc_store import check_built_acc, write_build_record
         store = self._built(root_simple, tmp_path)
         write_build_record(store, self.ENTRY)
         with pytest.raises(ValueError, match="acc ref"):

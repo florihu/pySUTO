@@ -21,7 +21,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pysuto.acc import ALL_SPEC_KEYS, AccountingStructure, check_built_acc
+from pysuto import acc_store
+from pysuto.acc import ALL_SPEC_KEYS
+from pysuto.acc_store import check_built_acc
 from pysuto.tutorial import toy
 from pysuto.diag import FeedDiagnostics, SankeySpec, TruthDiag, sankey_tables
 from pysuto.registry import (ConstraintRunRegistry, DataFeedRegistry,
@@ -46,7 +48,7 @@ def chain(tmp_path_factory):
     # fake the figure; the tutorial job draws the real one)
     ids["psut"]    = toy.run_stage6(root, ids["opt"], png=False)
     return {"root": root, "ids": ids, "seconds": time.perf_counter() - t0,
-            "acc": AccountingStructure.load(toy.ACC_ID,
+            "acc": acc_store.load(toy.ACC_ID,
                                             storage_dir=str(root / "proc" / "acc"))}
 
 
@@ -82,7 +84,7 @@ def test_the_acc_spec_builds_through_from_spec_and_survives_a_reload(tmp_path):
     assert np.all(acc.bounds.l[stock] < 0.0) and np.all(acc.bounds.l[~stock] == 0.0)
     # #53's record; the same version needs no registry to be compared
     check_built_acc(str(tmp_path), toy.ACC_REF, None, ALL_SPEC_KEYS, require_record=True)
-    loaded = AccountingStructure.load(toy.ACC_ID, storage_dir=str(tmp_path))
+    loaded = acc_store.load(toy.ACC_ID, storage_dir=str(tmp_path))
     pd.testing.assert_frame_equal(loaded.edge_index, acc.edge_index)
     np.testing.assert_array_equal(loaded.masks["massbal_scope"],
                                   acc.masks["massbal_scope"])

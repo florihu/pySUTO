@@ -21,6 +21,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from pysuto import acc_store
 from pysuto.acc import AccountingStructure, RuleSet, read_acc_spec_json, read_acc_spec_ods
 
 REPO = Path(__file__).resolve().parents[1]
@@ -392,7 +393,7 @@ def test_acc_script_builds_from_acc_json_what_it_builds_from_the_ods_files(tmp_p
     _write_json_case(tmp_path / "json" / "acc" / "toy" / "current")
     _run_acc_script(monkeypatch, tmp_path, tmp_path / "ods",  tmp_path / "out_ods")
     _run_acc_script(monkeypatch, tmp_path, tmp_path / "json", tmp_path / "out_json")
-    for name in ("edge_index.csv", "edge_index_all.csv", "node_index.csv",
+    for name in ("edge_index.csv", "metadata.json", "node_index.csv",
                  "root_nodes.csv", "bounds_l.npy", "bounds_u.npy", "masks_user.npz"):
         assert ((tmp_path / "out_json" / "toy" / name).read_bytes()
                 == (tmp_path / "out_ods" / "toy" / name).read_bytes()), name
@@ -462,19 +463,20 @@ def test_a_missing_mask_overlay_file_raises(tmp_path):
 
 def test_load_refuses_a_user_mask_of_another_length(tmp_path):
     acc = AccountingStructure.from_spec(SPEC, "toy", storage_dir=str(tmp_path))
-    acc.save()
+    acc_store.save(acc)
     np.savez(tmp_path / "toy" / "masks_user.npz", massbal_scope=np.ones(3, dtype=bool))
     with pytest.raises(ValueError, match="masks_user.npz: mask 'massbal_scope' has shape"):
-        AccountingStructure.load("toy", storage_dir=str(tmp_path))
+        acc_store.load("toy", storage_dir=str(tmp_path))
 
 
 def test_load_of_a_directory_that_is_not_there_raises(tmp_path):
     with pytest.raises(FileNotFoundError, match="scripts/acc.py --id toy"):
-        AccountingStructure.load("toy", storage_dir=str(tmp_path))
+        acc_store.load("toy", storage_dir=str(tmp_path))
 
 
 def test_a_build_record_naming_another_acc_id_raises(tmp_path):
-    from pysuto.acc import ALL_SPEC_KEYS, check_built_acc
+    from pysuto.acc import ALL_SPEC_KEYS
+    from pysuto.acc_store import check_built_acc
     (tmp_path / "other").mkdir()
     (tmp_path / "other" / "build_record.json").write_text(
         json.dumps({"id": "toy", "version": 1, "code": "ab12cd34"}))

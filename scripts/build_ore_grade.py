@@ -80,7 +80,7 @@ import pandas as pd
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from pysuto.acc import AccountingStructure
+from pysuto import acc_store
 from copper_feed import ORE_GRADE_LABELS, latest_feed_run
 from pysuto.config import load_config
 from pysuto.feedprep.builder_lock import builder_lock
@@ -172,7 +172,7 @@ def main() -> None:
     InputRegistries.initialize(root=_INPUT_ROOT)   # the step registers; lookups read (#93)
 
     acc_id = load_config().pipeline.acc_id
-    acc = AccountingStructure.load(id=acc_id, storage_dir=ACC_DIR)
+    acc = acc_store.load(id=acc_id, storage_dir=ACC_DIR)
     eff_mf, eff_sxew = _eff_nominals()
     print(f"   eff_MF={eff_mf}  eff_SXEW={eff_sxew}  (from eff params)")
     icsg_run,  icsg  = _latest_feed_froot("icsg")

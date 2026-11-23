@@ -638,14 +638,14 @@ class TestWarmPriorAcc:
 
     @staticmethod
     def _patch_acc_load(monkeypatch, acc):
-        from pysuto.acc import AccountingStructure
+        from pysuto import acc_store
         calls = []
 
-        def fake_load(cls, id, **kwargs):
+        def fake_load(id, **kwargs):
             calls.append((id, kwargs.get("storage_dir")))
             return acc
 
-        monkeypatch.setattr(AccountingStructure, "load", classmethod(fake_load))
+        monkeypatch.setattr(acc_store, "load", fake_load)
         return calls
 
     def test_an_acc_that_cannot_be_loaded_raises_naming_the_acc_dir(self, tmp_path,

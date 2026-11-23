@@ -36,7 +36,7 @@ sys.path.insert(0, "scripts")
 sys.path.insert(0, "scripts/explo")
 sys.path.insert(0, "scripts/report")
 
-from pysuto.acc import AccountingStructure                      # noqa: E402
+from pysuto import acc_store                      # noqa: E402
 from pysuto.config import load_config                           # noqa: E402
 from pysuto.input_registry import InputRegistries               # noqa: E402
 from pysuto.relation.param_relation import expand_edge_index             # noqa: E402
@@ -106,7 +106,7 @@ def load_eff() -> dict:
 
 def load_run(opt: str) -> pd.DataFrame:
     """Every edge of every year: prior, posterior, decoded address."""
-    acc = AccountingStructure.load(id=load_config().pipeline.acc_id, storage_dir=ROOT / "acc")
+    acc = acc_store.load(id=load_config().pipeline.acc_id, storage_dir=ROOT / "acc")
     ei = expand_edge_index(acc.edge_index, acc.node_index)
     rows = []
     for y in YEARS:

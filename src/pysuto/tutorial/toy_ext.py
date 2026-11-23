@@ -54,7 +54,9 @@ import pandas as pd
 import scipy.sparse as sp
 
 from pysuto._conditioning import condition_prior
-from pysuto.acc import AccountingStructure, read_acc_spec_dir, write_build_record
+from pysuto import acc_store
+from pysuto.acc import AccountingStructure, read_acc_spec_dir
+from pysuto.acc_store import write_build_record
 from pysuto.tutorial import toy
 from pysuto.clarabel_backend import ClarabelBackend
 from pysuto.constraints import (BaseConstraintBuilder, ConstraintBlock, FlowBoundsBuilder,
@@ -576,7 +578,7 @@ def register_feeds(data_dir, acc_id: str, specs: "list[FeedSpec]") -> "dict[str,
     inputs    = InputRegistries.initialize(root=str(data_dir / "input"))
     acc_dir   = data_dir / "proc" / "acc"
     spec      = read_acc_spec_dir(inputs.acc.resolve(acc_id))
-    AccountingStructure.from_spec(spec, acc_id, storage_dir=str(acc_dir)).save()
+    acc_store.save(AccountingStructure.from_spec(spec, acc_id, storage_dir=str(acc_dir)))
     write_build_record(str(acc_dir), inputs.acc.entry(acc_id))
     return {s.feed_id: run_feed(s, acc_id=acc_id, data_dir=str(data_dir),
                                 diag=False).run_id for s in specs}

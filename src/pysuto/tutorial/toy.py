@@ -99,7 +99,9 @@ import numpy as np
 import pandas as pd
 
 from pysuto._conditioning import condition_prior, condition_sigma_c
-from pysuto.acc import AccountingStructure, write_build_record
+from pysuto import acc_store
+from pysuto.acc import AccountingStructure
+from pysuto.acc_store import write_build_record
 from pysuto.case import CascadeStep, CaseSpec, ConstSection, FillEntry, ImpSection
 from pysuto.conc import WeightMatrix
 from pysuto.constraints import (
@@ -243,7 +245,7 @@ def build_acc(storage_dir: PathLike, ref: Optional[dict] = None,
     acc = AccountingStructure.from_spec(acc_spec(coproduct),
                                         ACC_ID_COPRODUCT if coproduct else ACC_ID,
                                         storage_dir=str(storage_dir))
-    acc.save()
+    acc_store.save(acc)
     write_build_record(str(storage_dir), ref or ACC_REF)
     return acc
 
@@ -975,7 +977,7 @@ def _coproduct(tree: dict) -> bool:
 
 
 def load_acc(tree: dict) -> AccountingStructure:
-    return AccountingStructure.load(ACC_ID_COPRODUCT if _coproduct(tree) else ACC_ID,
+    return acc_store.load(ACC_ID_COPRODUCT if _coproduct(tree) else ACC_ID,
                                     storage_dir=str(tree["acc"]))
 
 
@@ -1344,7 +1346,7 @@ def check_0_1(inflow: float, outflow: float, sector: str = "Smelting",
 
 def _ref_1_1(run_root, region="Portua", year="2003") -> float:
     """CV of the Bureau's refined-output edge, by hand: two series pooled on one edge."""
-    acc   = AccountingStructure.load(ACC_ID, storage_dir=str(run_tree(run_root)["acc"]))
+    acc   = acc_store.load(ACC_ID, storage_dir=str(run_tree(run_root)["acc"]))
     feeds = DataFeedRegistry(odir=str(run_tree(run_root)["feed"]))
     feeds.load_index()
     W     = feeds.load_feed("bureau", WeightMatrix, acc).weight_matrix
@@ -1370,7 +1372,7 @@ def check_1_1(run_root: PathLike, cv: float, region: str = "Portua",
 
 def _ref_2_1(run_root) -> set:
     """The region-years the time imputer filled, read off the imputation log."""
-    acc = AccountingStructure.load(ACC_ID, storage_dir=str(run_tree(run_root)["acc"]))
+    acc = acc_store.load(ACC_ID, storage_dir=str(run_tree(run_root)["acc"]))
     imp = ImputationRunRegistry(storage_dir=str(run_tree(run_root)["imp"]))
     log = imp.load(latest_run_id(imp)).imputation_log.as_dataframe()
     filled = log.loc[log["imputer_id"] == "time_interp", "edge_id"].astype(int)

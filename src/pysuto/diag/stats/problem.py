@@ -166,7 +166,7 @@ class ProblemStatsDiagnostic:
         """Follow the opt run's ``parents.upstream`` to its const and imp runs
         and load the year from disk."""
         # Local import to keep diag at the leaf of the import graph (as SolverDiag).
-        from pysuto.acc import AccountingStructure
+        from pysuto import acc_store
         from pysuto.registry import (
             ConstraintRunRegistry, ImputationRunRegistry, OptimRunRegistry,
         )
@@ -182,7 +182,7 @@ class ProblemStatsDiagnostic:
             raise KeyError(f"const run '{const_run_id}' records no imp run "
                            "(parents.upstream)")
         imp_result = ImputationRunRegistry(imp_dir).load(const_run.agg_id)
-        acc = AccountingStructure.load(id=const_run.acc_id, storage_dir=acc_dir)
+        acc = acc_store.load(id=const_run.acc_id, storage_dir=acc_dir)
         results = opt_reg.load(opt_run_id)
         if year not in results:
             raise KeyError(f"opt run '{opt_run_id}' has no period {year!r}")

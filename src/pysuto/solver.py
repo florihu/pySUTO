@@ -46,7 +46,9 @@ from ._conditioning import (
     SIGMA_A_CEILING_FACTOR, SIGMA_A_FLOOR_ABS, SIGMA_A_FLOOR_REL, SIGMA_C_FLOOR,
     condition_prior, condition_sigma_c,
 )
-from .acc import EDGE_UNIVERSE_ROLE_KEYS, AccountingStructure, check_built_acc
+from . import acc_store
+from .acc import EDGE_UNIVERSE_ROLE_KEYS
+from .acc_store import check_built_acc
 from .constraints import ConstraintRun
 from .constraints.naming import SENSE_EQ, SENSE_LE
 from .input_registry import InputRegistry
@@ -571,7 +573,7 @@ class Solver:
                         InputRegistry("acc", root=self.input_dir),
                         EDGE_UNIVERSE_ROLE_KEYS)
         try:
-            return AccountingStructure.load(run.acc_id, storage_dir=self.acc_dir)
+            return acc_store.load(run.acc_id, storage_dir=self.acc_dir)
         except (AssertionError, OSError) as exc:
             raise RuntimeError(
                 f"warm prior: AccountingStructure {run.acc_id!r} cannot be loaded from "

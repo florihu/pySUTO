@@ -214,8 +214,8 @@ class SolverDiag:
         if not self._acc_resolved:
             self._acc_resolved = True
             try:
-                from pysuto.acc import AccountingStructure
-                self._acc = AccountingStructure.load(self._const_run.acc_id)
+                from pysuto import acc_store
+                self._acc = acc_store.load(self._const_run.acc_id)
             except Exception:
                 self._acc = None
         return self._acc

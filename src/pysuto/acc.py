@@ -124,7 +124,6 @@ from __future__ import annotations
 
 import json
 import os
-import pickle
 import xml.etree.ElementTree as ET
 import zipfile
 from dataclasses import dataclass
@@ -135,7 +134,6 @@ from typing import Optional
 
 import numpy as np
 import pandas as pd
-import scipy.sparse as sp
 
 from .input_registry import ACC_ODS_FILES, ACC_SPEC, InputRegistry
 
@@ -989,28 +987,6 @@ class EdgeBounds:
 # =============================================================================
 
 
-class _SparseCOO4D:
-    """Minimal 4-D sparse COO tensor (scipy.sparse is 2-D only)."""
-
-    def __init__(self, data: np.ndarray, coords: np.ndarray, shape: tuple):
-        self.data   = data
-        self.coords = coords  # shape (4, nnz)
-        self.shape  = shape
-
-    @property
-    def nnz(self) -> int:
-        return len(self.data)
-
-    def save_npz(self, path: str) -> None:
-        np.savez(path, data=self.data, coords=self.coords,
-                 shape=np.array(self.shape, dtype=np.int64))
-
-    @classmethod
-    def load_npz(cls, path: str) -> "_SparseCOO4D":
-        npz = np.load(path)
-        return cls(npz["data"], npz["coords"], tuple(npz["shape"].tolist()))
-
-
 # =============================================================================
 
 class AccountingStructure:
@@ -1034,9 +1010,9 @@ class AccountingStructure:
             storage_dir    = "data/proc/acc",      # optional
         )
 
-    B) From a previously saved directory::
+    B) From a previously saved directory (:mod:`pysuto.acc_store`)::
 
-        acc = AccountingStructure.load("copper", storage_dir="data/proc/acc")
+        acc = acc_store.load("copper", storage_dir="data/proc/acc")
 
     Attributes
     ----------
@@ -1153,14 +1129,11 @@ class AccountingStructure:
             * len(self.valuation)
         )
 
-        self.A_nodes        = self._build_node_mask()
-        self.A              = self._build_tensor()
-        self.edge_index     = self._build_edge_index()
-        self.edge_index_all = self._build_edge_index(admissible_only=False)
-        self.n_edges_all    = len(self.edge_index_all)
+        n_node_pairs    = self._count_admissible_node_pairs()
+        self.edge_index = self._build_edge_index()
 
         # Report edge reduction
-        n_after_node_rules = int(self.A_nodes.nnz) * len(self.time_range) * len(self.valuation)
+        n_after_node_rules = n_node_pairs * len(self.time_range) * len(self.valuation)
         self._report_reduction(n_theoretical, n_after_node_rules, self.n_edges)
 
         # ── 4. Bounds ─────────────────────────────────────────────────
@@ -1174,8 +1147,7 @@ class AccountingStructure:
 
         self.logger.info(
             f"AccountingStructure '{self.id}' initialised: "
-            f"{self.n_nodes} nodes, {self.n_edges} admissible edges, "
-            f"A shape={self.A.shape}, nnz={len(self.A.data)}"
+            f"{self.n_nodes} nodes, {self.n_edges} admissible edges"
         )
 
     def _set_root(self, spec: dict) -> None:
@@ -1443,60 +1415,22 @@ class AccountingStructure:
         self.val_to_idx  = {v: i for i, v in enumerate(self.valuation)}
 
     # ------------------------------------------------------------------
-    # Node-only admissibility mask
+    # Node-pair admissibility count
     # ------------------------------------------------------------------
 
-    def _build_node_mask(self) -> sp.csr_matrix:
-        self.logger.info("Building 2-D node admissibility mask...")
-        c0, c1 = [], []
-        keys = list(self.id_to_node.values())
-
-        for i, ni in enumerate(keys):
-            ni_dict = dict(zip(["sector", "entity", "region"], ni))
-            for j, nj in enumerate(keys):
-                nj_dict = dict(zip(["sector", "entity", "region"], nj))
-                if self._node_pair_admissible(ni_dict, nj_dict):
-                    c0.append(i); c1.append(j)
-
-        data = np.ones(len(c0), dtype=np.int8)
-        return sp.csr_matrix(
-            (data, (np.array(c0, dtype=np.int64), np.array(c1, dtype=np.int64))),
-            shape=(self.n_nodes, self.n_nodes),
-        )
-
-    # ------------------------------------------------------------------
-    # Full 4-D admissibility tensor
-    # ------------------------------------------------------------------
-
-    def _build_tensor(self) -> "_SparseCOO4D":
-        self.logger.info("Building 4-D admissibility tensor...")
-        c0, c1, c2, c3 = [], [], [], []
-        keys = list(self.id_to_node.values())
-
-        for i, ni in enumerate(keys):
-            ni_dict = dict(zip(["sector", "entity", "region"], ni))
-            for j, nj in enumerate(keys):
-                nj_dict = dict(zip(["sector", "entity", "region"], nj))
-
-                if not self._node_pair_admissible(ni_dict, nj_dict):
-                    continue
-
-                for t_idx, t in enumerate(self.time_range):
-                    for v_idx, v in enumerate(self.valuation):
-                        if not self._edge_admissible(ni_dict, nj_dict, t, v):
-                            continue
-                        c0.append(i);     c1.append(j)
-                        c2.append(t_idx); c3.append(v_idx)
-
-        data = np.ones(len(c0), dtype=np.int8)
-        shape = (self.n_nodes, self.n_nodes, self.n_timeps, self.n_valtns)
-        return _SparseCOO4D(data, np.array([c0, c1, c2, c3], dtype=np.int64), shape)
+    def _count_admissible_node_pairs(self) -> int:
+        """Number of ordered node pairs the node-pair rules admit (the middle line of
+        the edge-reduction report)."""
+        dicts = [dict(zip(["sector", "entity", "region"], k))
+                 for k in self.id_to_node.values()]
+        return sum(1 for ni in dicts for nj in dicts
+                   if self._node_pair_admissible(ni, nj))
 
     # ------------------------------------------------------------------
     # Edge index DataFrame
     # ------------------------------------------------------------------
 
-    def _build_edge_index(self, admissible_only=True) -> pd.DataFrame:
+    def _build_edge_index(self) -> pd.DataFrame:
         rows, cols, times, vals, edge_ids = [], [], [], [], []
         edge_id = 0
         keys    = list(self.id_to_node.values())
@@ -1506,22 +1440,19 @@ class AccountingStructure:
             for j, nj in enumerate(keys):
                 nj_dict = dict(zip(["sector", "entity", "region"], nj))
 
-                if admissible_only and not self._node_pair_admissible(ni_dict, nj_dict):
+                if not self._node_pair_admissible(ni_dict, nj_dict):
                     continue
 
                 for t in self.time_range:
                     for v in self.valuation:
-                        if admissible_only and not self._edge_admissible(
-                            ni_dict, nj_dict, t, v
-                        ):
+                        if not self._edge_admissible(ni_dict, nj_dict, t, v):
                             continue
                         rows.append(i);     cols.append(j)
                         times.append(t);    vals.append(v)
                         edge_ids.append(edge_id)
                         edge_id += 1
 
-        if admissible_only:
-            self.n_edges = len(edge_ids)
+        self.n_edges = len(edge_ids)
         return pd.DataFrame({
             "edge_id":   edge_ids,
             "from_id":   rows,
@@ -1602,212 +1533,4 @@ class AccountingStructure:
             dtype=np.int64, count=len(cols_cur),
         )
 
-    # ------------------------------------------------------------------
-    # Save / Load
-    # ------------------------------------------------------------------
 
-    def save(self, **kwargs):
-        path = os.path.join(self.storage_dir, self.id)
-        os.makedirs(path, exist_ok=True)
-
-        self.A.save_npz(os.path.join(path, "A.npz"))
-        sp.save_npz(os.path.join(path, "A_nodes.npz"), self.A_nodes)
-
-        self.edge_index.to_csv(    os.path.join(path, "edge_index.csv"),     index=False)
-        self.edge_index_all.to_csv(os.path.join(path, "edge_index_all.csv"), index=False)
-        self.node_index.to_csv(    os.path.join(path, "node_index.csv"),     index=False)
-        self.root_nodes.to_csv(    os.path.join(path, "root_nodes.csv"),     index=False)
-
-        np.save(os.path.join(path, "bounds_l.npy"), self.bounds.l)
-        np.save(os.path.join(path, "bounds_u.npy"), self.bounds.u)
-
-        # acc-local user masks (masks.csv) — load() rebuilds only the structural
-        # masks, so without this file a user mask silently vanishes after load.
-        masks_path = os.path.join(path, "masks_user.npz")
-        if self.user_mask_names:
-            np.savez(masks_path, **{n: self.masks[n] for n in self.user_mask_names})
-        elif os.path.exists(masks_path):
-            os.remove(masks_path)  # a stale file would resurrect removed masks
-
-        # Roles and rule tables, so load() returns what __init__ built: the rule-derived
-        # masks (supply, use, tradable) are rebuilt from the same tables (#119).
-        rs   = self.ruleset
-        meta = {
-            "time_range": self.time_range,
-            "valuation":  self.valuation,
-            "node_to_id": self.node_to_id,
-            "id_to_node": self.id_to_node,
-            "boundary_roles": {s: r.value for s, r in self.boundary_roles.items()},
-            "valuation_roles": {self.valuation_roles.content: ValuationRole.CONTENT.value,
-                                self.valuation_roles.gross:   ValuationRole.GROSS.value},
-            "rule_tables": {"supply_pairs": rs.supply_pairs, "use_pairs": rs.use_pairs,
-                            "tradable": rs.tradable_flows, "accounting": rs.accounting},
-        }
-        with open(os.path.join(path, "metadata.pkl"), "wb") as f:
-            pickle.dump(meta, f)
-        self.logger.info(f"Structure saved to {path}")
-
-    @classmethod
-    def load(cls, id, **kwargs):
-        obj             = cls.__new__(cls)
-        obj.id          = id
-        obj.storage_dir = kwargs.get("storage_dir", DEFAULT_STORAGE_DIR)
-        path            = os.path.join(obj.storage_dir, id)
-        if not os.path.isdir(path):
-            raise FileNotFoundError(
-                f"Directory '{id}' not found in {obj.storage_dir}: build it with "
-                f"scripts/acc.py --id {id}"
-            )
-
-        obj.A        = _SparseCOO4D.load_npz(os.path.join(path, "A.npz"))
-        obj.A_nodes  = sp.load_npz(os.path.join(path, "A_nodes.npz"))
-
-        obj.edge_index     = pd.read_csv(os.path.join(path, "edge_index.csv"))
-        obj.edge_index_all = pd.read_csv(os.path.join(path, "edge_index_all.csv"))
-        # Ensure time column is string — pandas infers year integers from CSV
-        obj.edge_index["time"]     = obj.edge_index["time"].astype(str)
-        obj.edge_index_all["time"] = obj.edge_index_all["time"].astype(str)
-        obj.root_nodes     = pd.read_csv(os.path.join(path, "root_nodes.csv"))
-        obj.node_index     = pd.read_csv(os.path.join(path, "node_index.csv"))
-        if "entity_sub" not in obj.node_index.columns:
-            obj.node_index["entity_sub"] = None
-
-        with open(os.path.join(path, "metadata.pkl"), "rb") as f:
-            meta = pickle.load(f)
-        missing = [k for k in ("boundary_roles", "valuation_roles", "rule_tables") if meta.get(k) is None]
-        if missing:
-            raise ValueError(
-                f"acc {id!r} at {path} records no {missing}: it was saved before roles "
-                f"and rule tables were persisted (#119) — rebuild it with "
-                f"scripts/acc.py --id {id}"
-            )
-
-        obj.time_range  = meta["time_range"]
-        obj.valuation   = meta["valuation"]
-        obj.node_to_id  = meta["node_to_id"]
-        obj.id_to_node  = meta["id_to_node"]
-        obj.n_nodes     = len(obj.id_to_node)
-        obj.n_timeps    = len(obj.time_range)
-        obj.n_valtns    = len(obj.valuation)
-        obj.n_edges     = len(obj.edge_index)
-        obj.n_edges_all = len(obj.edge_index_all)
-        obj.time_to_idx = {t: i for i, t in enumerate(obj.time_range)}
-        obj.val_to_idx  = {v: i for i, v in enumerate(obj.valuation)}
-        rt = meta["rule_tables"]
-        obj.ruleset     = RuleSet.from_tables(
-            rt["supply_pairs"], rt["use_pairs"], rt["tradable"], rt["accounting"])
-        obj.logger      = get_logger(cls.__name__)
-        obj.logger.info("Loading AccountingStructure '%s' from %s", id, path)
-
-        # The same validation as the build: the persisted roles bound to the nodes.
-        sectors = obj.node_index.drop_duplicates(["sector", "entity"])
-        obj.boundary_roles, obj.valuation_roles = _bind_roles(
-            [{"name": s, "entity": e, "role": meta["boundary_roles"].get(s)}
-             for s, e in zip(sectors["sector"], sectors["entity"])],
-            [{"name": v, "role": meta["valuation_roles"].get(v)}
-             for v in obj.valuation],
-        )
-
-        l_path = os.path.join(path, "bounds_l.npy")
-        u_path = os.path.join(path, "bounds_u.npy")
-        bounds = EdgeBounds.__new__(EdgeBounds)
-        bounds.n_edges = obj.n_edges
-        if os.path.exists(l_path) and os.path.exists(u_path):
-            bounds.l = np.load(l_path)
-            bounds.u = np.load(u_path)
-        else:
-            bounds.l = np.zeros(obj.n_edges,  dtype=float)
-            bounds.u = np.full(obj.n_edges, DEFAULT_UPPER_BOUND, dtype=float)
-        non_default = (
-            (bounds.l != EdgeBounds.DEFAULT_LOWER) |
-            (bounds.u != EdgeBounds.DEFAULT_UPPER)
-        )
-        bounds.n_exceptions = int(non_default.sum())
-        obj.bounds = bounds
-
-        obj.logger.info(
-            "   nodes=%d  edges=%d  time=%s–%s  valuations=%s  bound_exceptions=%d",
-            obj.n_nodes, obj.n_edges,
-            obj.time_range[0], obj.time_range[-1],
-            obj.valuation, bounds.n_exceptions,
-        )
-        obj._build_edge_masks()
-
-        obj.user_mask_names = []
-        masks_path = os.path.join(path, "masks_user.npz")
-        if os.path.exists(masks_path):
-            with np.load(masks_path) as z:
-                for name in z.files:
-                    arr = z[name]
-                    if arr.shape != (obj.n_edges,):
-                        raise ValueError(
-                            f"masks_user.npz: mask {name!r} has shape {arr.shape}, "
-                            f"expected ({obj.n_edges},) — rebuild the structure "
-                            f"with scripts/acc.py"
-                        )
-                    obj.masks[name] = arr.astype(bool)
-                    obj.user_mask_names.append(name)
-            obj.logger.info("   user masks restored: %s", ", ".join(obj.user_mask_names))
-        return obj
-
-
-# =============================================================================
-# Build record — which acc input version a built structure was made from (#53)
-# =============================================================================
-
-# Written by scripts/acc.py beside the saved structure, in <storage_dir>/<id>/.
-BUILD_RECORD = "build_record.json"
-
-
-def write_build_record(storage_dir: str, entry: dict) -> str:
-    """Record ``{id, version, code}`` of the acc input entry the structure saved
-    under ``<storage_dir>/<id>/`` was built from; return the record's path."""
-    path = os.path.join(storage_dir, entry["id"], BUILD_RECORD)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump({k: entry[k] for k in ("id", "version", "code")}, f, indent=2)
-    return path
-
-
-def check_built_acc(storage_dir: str, acc_ref: dict, acc_registry, keys,
-                    require_record: bool = False) -> None:
-    """Check the build record of the structure under ``<storage_dir>/<id>/`` against
-    ``acc_ref``, the acc input version (``{id, version, ...}``) a run's sidecar names.
-
-    A record naming another version of the same acc passes when the two versions' specs
-    agree on ``keys`` (:func:`require_compatible_acc`, read from ``acc_registry``):
-    :data:`ALL_SPEC_KEYS` for Stages 2 and 3, :data:`EDGE_UNIVERSE_ROLE_KEYS` for
-    Stages 4 (warm) and 6 (#119). A structure built before
-    the record existed has none: unless ``require_record``, that is logged as a warning
-    and the caller goes on, so the runs made from it still load. Reads the record and
-    the two specs only, so a caller checks before the (multi-GB) load.
-
-    Raises
-    ------
-    ValueError
-        ``acc_ref`` lacks its id or version; the record names another acc id, or a
-        version whose spec differs in a key of ``keys``; or ``require_record`` and the
-        structure has no record.
-    """
-    ref = (acc_ref.get("id"), acc_ref.get("version"))
-    if not ref[0] or ref[1] is None:
-        raise ValueError(f"the acc ref {acc_ref!r} names no acc id and version, so the "
-                         f"structure in {storage_dir} cannot be checked against it")
-    path = os.path.join(storage_dir, ref[0], BUILD_RECORD)
-    if not os.path.isfile(path):
-        msg = (f"{os.path.dirname(path)}: the built structure has no build record "
-               f"(built before #53), so it cannot be checked against acc "
-               f"{ref[0]} v{ref[1]}")
-        if require_record:
-            raise ValueError(f"{msg}: rebuild it with scripts/acc.py")
-        get_logger("AccountingStructure").warning(msg)
-        return
-    with open(path, encoding="utf-8") as f:
-        rec = json.load(f)
-    context = (f"{os.path.dirname(path)} was built from acc {rec['id']} "
-               f"v{rec['version']}, but the run names acc {ref[0]} v{ref[1]}")
-    remedy  = ("rebuild the structure with scripts/acc.py, or run against the acc it "
-               "was built from")
-    if rec["id"] != ref[0]:
-        raise ValueError(f"{context}: {remedy}")
-    require_compatible_acc(acc_registry, ref[0], rec["version"], ref[1], keys,
-                           context=context, remedy=remedy)

@@ -510,16 +510,16 @@ def _persist_opt_chain(tmp_path, toy_acc, F, acc_ref=None):
 
 @pytest.fixture
 def patched_acc_load(monkeypatch, toy_acc):
-    """`AccountingStructure.load` answers 'toy' with the in-memory toy structure."""
-    from pysuto.acc import AccountingStructure
+    """`acc_store.load` answers 'toy' with the in-memory toy structure."""
+    from pysuto import acc_store
     calls = []
 
-    def fake_load(cls, id, **kwargs):
+    def fake_load(id, **kwargs):
         calls.append((id, kwargs))
         assert id == "toy"
         return toy_acc
 
-    monkeypatch.setattr(AccountingStructure, "load", classmethod(fake_load))
+    monkeypatch.setattr(acc_store, "load", fake_load)
     return calls
 
 
