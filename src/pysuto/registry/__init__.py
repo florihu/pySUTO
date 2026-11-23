@@ -15,6 +15,7 @@ Public surface (re-exported here so call sites can keep using
 * :class:`_RegistryEntry`         — trimmed index row
 * :func:`make_run_id`             — ``{stage}_{ts}_{code}`` minter
 * :func:`build_sidecar`           — per-run ``metadata.json`` payload builder
+* :func:`stage_timer`             — marks a stage's start for the sidecar's wall time
 * :func:`stage_lock` / :class:`LockHeld` — the advisory lock a stage driver takes
 
 All six output registries share one run-id pattern and one sidecar schema,
@@ -34,6 +35,7 @@ from ._sidecar     import (
     _json_load,
     build_sidecar,
     make_run_id,
+    stage_timer,
 )
 from .base         import BaseOutputRegistry
 from .feed         import DataFeedRegistry
@@ -61,6 +63,7 @@ __all__ = [
     "_json_load",
     "make_run_id",
     "build_sidecar",
+    "stage_timer",
     "LockHeld",
     "stage_lock",
 ]

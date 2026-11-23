@@ -1108,9 +1108,28 @@ Every run writes a self-contained sidecar at `<run_dir>/metadata.json`:
     }
   },
   "stage_config":  { ... },
-  "stage_summary": { ... }
+  "stage_summary": { ... },
+  "environment": {                                  // what produced the run (#210)
+    "pysuto_version": "0.1.0rc1", "git_commit": "84572e4...", "git_dirty": false,
+    "python": "3.9.19", "numpy": "...", "scipy": "...", "pandas": "...",
+    "pyarrow": "...", "clarabel": "..."
+  },
+  "footprint": {"wall_s": 41.7, "peak_rss_mb": 912.4}
 }
 ```
+
+`environment` and `footprint` are written by `build_sidecar` for every stage and sit
+outside `parents`, so `python -m pysuto compare` (which reads only `parents.inputs` of a
+sidecar) is blind to them. `git_commit` and `git_dirty` (tracked files only) come from
+the repository of the package directory and are `null` without git metadata; a package
+that is not installed is `null`. `wall_s` is the stage body's wall time
+(`registry.stage_timer`, set around `run_feed` and `stages.run_imp` ... `run_psut`;
+`null` outside a timer). `peak_rss_mb` is the *process* peak resident memory so far
+(`getrusage`; `null` on Windows), so a driver that runs several stages in one process
+reports the maximum of them all; `python -m pysuto run` starts a fresh child per step.
+A feed run's `stage_config` records the Lp exponent `p` it propagated with, the spec's
+policy fields, the qualified name of each hook and `knobs` (the module constants the
+hooks read).
 
 The top-level `registry.json` per stage is a trimmed index:
 `{run_id, stage, label, created_at}` per entry.  Everything richer is in

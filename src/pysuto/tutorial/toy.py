@@ -126,6 +126,7 @@ from pysuto.registry import (
     OptimRunRegistry,
     PsutRunRegistry,
     UncPropRunRegistry,
+    stage_timer,
 )
 from pysuto.clarabel_backend import ClarabelBackend
 from pysuto.solver import Solver
@@ -1032,6 +1033,7 @@ def _register_synthetic_feed(feed: SyntheticFeed, acc: AccountingStructure, acc_
     return entry, result.cv_src
 
 
+@stage_timer()
 def run_stage1(run_root: PathLike, seed: int = SEED,
                coproduct: bool = False) -> "dict[str, str]":
     """Stage 1: lay out the inputs (:func:`write_inputs`), build the accounting
@@ -1081,6 +1083,7 @@ def run_stage3(run_root: PathLike, imp_run_id: Optional[str] = None) -> str:
     return run_const(CASE, imp_run_id, LABEL, data_dir=str(run_root), logger=_log)
 
 
+@stage_timer()
 def run_stage4(run_root: PathLike, const_run_id: Optional[str] = None) -> str:
     """Stage 4: one QP per year from the cold prior, solved by Clarabel at the ADR 0039
     tolerances. Returns the opt run id."""
@@ -1118,6 +1121,7 @@ def run_stage4(run_root: PathLike, const_run_id: Optional[str] = None) -> str:
     return run_id
 
 
+@stage_timer()
 def run_stage5(run_root: PathLike, opt_run_id: Optional[str] = None) -> str:
     """Stage 5: the posterior σ and the (1 − α) interval of every edge at the QP's
     active set (``KalmanUncProp``, α = 0.05). Returns the uncprop run id."""
@@ -1132,6 +1136,7 @@ def run_stage5(run_root: PathLike, opt_run_id: Optional[str] = None) -> str:
     return run_id
 
 
+@stage_timer()
 def run_stage6(run_root: PathLike, opt_run_id: Optional[str] = None,
                png: bool = True) -> str:
     """Stage 6: the tidy PSUT of the opt run, persisted; its market-share PIOT up to

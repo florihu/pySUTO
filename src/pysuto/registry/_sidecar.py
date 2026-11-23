@@ -7,7 +7,9 @@ Shared private helpers behind the four output registries:
 * Wall-clock helpers (UTC ISO timestamp, compact stamp, short code).
 * Run-id minting (``make_run_id``).
 * The trimmed top-level index row (:class:`_RegistryEntry`).
-* The per-run sidecar payload builder (:func:`build_sidecar`).
+* The per-run sidecar payload builder (:func:`build_sidecar`), with the
+  ``environment`` and ``footprint`` blocks every sidecar carries (#210) and the
+  :func:`stage_timer` that measures a stage's wall time.
 
 Anything in here is reachable from ``pysuto.registry`` via the package
 ``__init__.py`` re-exports — call sites should keep using the flat path.
@@ -15,15 +17,27 @@ Anything in here is reachable from ``pysuto.registry`` via the package
 
 from __future__ import annotations
 
+import contextvars
 import json
 import os
+import platform
+import subprocess
+import sys
+import time
 import uuid
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
 from pathlib import Path
-from typing import Any, Optional
+from importlib import metadata as importlib_metadata
+from typing import Any, Iterator, Optional
 
 import numpy as np
+
+try:
+    import resource
+except ImportError:                      # Windows
+    resource = None
 
 
 # =============================================================================
@@ -109,6 +123,82 @@ class _RegistryEntry:
 
 
 # =============================================================================
+# Provenance blocks (#210)
+# =============================================================================
+
+ENVIRONMENT_PACKAGES = ("numpy", "scipy", "pandas", "pyarrow", "clarabel")
+_GIT_TIMEOUT_S       = 10.0
+
+_stage_start: contextvars.ContextVar = contextvars.ContextVar(
+    "pysuto_stage_start", default=None)
+_environment_cache: Optional[dict] = None
+
+
+@contextmanager
+def stage_timer() -> Iterator[None]:
+    """Mark the start of a stage: a sidecar built inside reads its wall time.
+
+    Usable as a context manager or, with the call parentheses, as a decorator
+    (``@stage_timer()``). Nested timers restore the outer start on exit."""
+    token = _stage_start.set(time.monotonic())
+    try:
+        yield
+    finally:
+        _stage_start.reset(token)
+
+
+def _git(*args: str) -> Optional[str]:
+    """Stdout of ``git <args>`` run in the pysuto package directory; ``None`` when git is
+    absent, times out or fails (no git metadata)."""
+    try:
+        out = subprocess.run(
+            ["git", *args], cwd=str(Path(__file__).resolve().parent.parent),
+            capture_output=True, text=True, timeout=_GIT_TIMEOUT_S, check=True)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.stdout.strip()
+
+
+def _package_version(name: str) -> Optional[str]:
+    try:
+        return importlib_metadata.version(name)
+    except importlib_metadata.PackageNotFoundError:
+        return None
+
+
+def _environment() -> dict:
+    """What produced a run: the code, Python and the numerical stack. Computed once per
+    process (one pair of git calls); a copy is returned."""
+    global _environment_cache
+    if _environment_cache is None:
+        commit = _git("rev-parse", "HEAD")
+        dirty  = None
+        if commit is not None:
+            status = _git("status", "--porcelain", "--untracked-files=no")
+            dirty  = None if status is None else bool(status)
+        _environment_cache = {
+            "pysuto_version": _package_version("pysuto"),
+            "git_commit":     commit,
+            "git_dirty":      dirty,
+            "python":         platform.python_version(),
+            **{name: _package_version(name) for name in ENVIRONMENT_PACKAGES},
+        }
+    return dict(_environment_cache)
+
+
+def _footprint() -> dict:
+    """The stage's wall time (``None`` outside a :func:`stage_timer`) and the process's
+    peak resident memory so far, MB (``None`` where ``resource`` is unavailable)."""
+    start = _stage_start.get()
+    peak  = None
+    if resource is not None:
+        rss  = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
+        peak = rss / 2**20 if sys.platform == "darwin" else rss / 2**10   # bytes / KB
+    return {"wall_s":      None if start is None else time.monotonic() - start,
+            "peak_rss_mb": peak}
+
+
+# =============================================================================
 # Sidecar schema helper
 # =============================================================================
 
@@ -128,7 +218,11 @@ def build_sidecar(
     ``parents`` must follow the schema
     ``{"inputs": {...}, "upstream": {...}}``; both sub-dicts may be empty.
     ``extra`` lets stage-specific code stash additional fields (e.g.
-    ``feed_metadata`` for Stage 1, ``feeds`` array for Stage 2)."""
+    ``feed_metadata`` for Stage 1, ``feeds`` array for Stage 2).
+
+    Every sidecar also carries an ``environment`` block (code version and commit,
+    Python, the numerical stack) and a ``footprint`` block (the stage's wall time and
+    the process's peak resident memory, #210). Both live outside ``parents``."""
     payload = {
         "run_id":        run_id,
         "stage":         stage,
@@ -140,6 +234,8 @@ def build_sidecar(
         },
         "stage_config":  stage_config  or {},
         "stage_summary": stage_summary or {},
+        "environment":   _environment(),
+        "footprint":     _footprint(),
     }
     if extra:
         payload.update(extra)
