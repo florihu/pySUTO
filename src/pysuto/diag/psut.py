@@ -49,7 +49,8 @@ if TYPE_CHECKING:                                  # no data-layer import at run
 
 @dataclass(frozen=True)
 class SankeySpec:
-    """What one supply-use Sankey shows.
+    """What one Sankey shows — the supply-use Sankey of a PSUT or the
+    process-network Sankey of a PIOT.
 
     period, valuation
         ``None`` means the PSUT's latest period / primary valuation.
@@ -62,7 +63,8 @@ class SankeySpec:
     split_traded
         Draw a border-crossing use / final-use flow as its own link.
     unit
-        Label for the values in the hover text.
+        Label for the values in the hover text; ``None`` takes the view's
+        ``unit_of(valuation)`` (``kt`` for gross, ``kt <label>`` for content).
     layout
         ``"depth"`` places nodes by longest-path depth (residual and input
         nodes beside their process); ``"auto"`` leaves the layout to Plotly.
@@ -72,14 +74,21 @@ class SankeySpec:
     title:        Optional[str] = None
     min_val:      float = 0.0
     split_traded: bool = True
-    unit:         str = "kt"
+    unit:         Optional[str] = None
     layout:       str = "depth"
 
 
-def _rgba(hex_color: str, alpha: float) -> str:
+def _rgb(hex_color: str) -> tuple:
     h = hex_color.lstrip("#")
-    r, g, b = (int(h[i:i + 2], 16) for i in (0, 2, 4))
-    return f"rgba({r},{g},{b},{alpha})"
+    return tuple(int(h[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _rgba(hex_color: str, alpha: float) -> str:
+    return "rgba({},{},{},{})".format(*_rgb(hex_color), alpha)
+
+
+def _unit(view: "_TidyView", spec: SankeySpec, valuation: str) -> str:
+    return spec.unit if spec.unit is not None else view.unit_of(valuation)
 
 
 # One fixed colour per node kind and per link class (never cycled).
@@ -101,6 +110,9 @@ LINK_COLOR = {
     "final use":   _rgba(_C["purple"], 0.40),
     "residual":    _rgba(_C["grey"],   0.45),
 }
+# The opaque colour of each link class, for the title's colour key.
+_LINK_RGB = {"supply": _C["blue"], "use": _C["blue"], "traded": _C["red"],
+             "boundary in": _C["green"], "final use": _C["purple"], "residual": _C["grey"]}
 _LINK_CLASS = {"S": "supply", "U": "use", "Z": "use", "E": "boundary in", "O": "boundary in",
                "Y": "final use", "P": "residual", "W": "residual"}
 _SB_KIND    = {"E": "input", "O": "input", "Y": "final_demand", "P": "residual", "W": "residual"}
@@ -153,7 +165,7 @@ def sankey_tables(view: "_TidyView", spec: Optional[SankeySpec] = None, *,
     if signed.any():
         _log.warning("sankey_tables %s %s: %d link(s) ≤ 0 left out, %.6g %s in all",
                      period, valuation, int(signed.sum()),
-                     float(links.loc[signed, "value"].sum()), spec.unit)
+                     float(links.loc[signed, "value"].sum()), _unit(view, spec, valuation))
     links = links[keep].reset_index(drop=True)
 
     ends = pd.concat([
@@ -249,8 +261,9 @@ def _default_title(view: "_TidyView", period: str, valuation: str, unit: str,
     head = " · ".join(x for x in (getattr(view, "acc_id", "") or type(view).__name__,
                                   where, period, f"{valuation} [{unit}]") if x)
     run  = getattr(view, "opt_run_id", None) or "in-memory"
-    key  = " · ".join(f'<span style="color:{LINK_COLOR[c].replace("rgba", "rgb").rsplit(",", 1)[0]})">{c}</span>'
-                      for c in LINK_COLOR if classes is None or c in classes)
+    key  = " · ".join(
+        '<span style="color:rgb({},{},{})">{}</span>'.format(*_rgb(_LINK_RGB[c]), c)
+        for c in LINK_COLOR if classes is None or c in classes)
     return f"{head} — {getattr(view, '_figure_name', 'Sankey')}<br><sup>{run} · links: {key}</sup>"
 
 
@@ -269,14 +282,15 @@ def sankey_figure(view: "_TidyView", spec: Optional[SankeySpec] = None):
         raise ValueError(f"layout must be 'depth' or 'auto', got {spec.layout!r}")
     nodes, links = sankey_tables(view, spec)
     period, valuation = view.resolve(spec.period, spec.valuation)
-    title = spec.title or _default_title(view, period, valuation, spec.unit,
+    unit  = _unit(view, spec, valuation)
+    title = spec.title or _default_title(view, period, valuation, unit,
                                          classes=set(links["cls"]))
 
     node = dict(
         label=nodes["label"].tolist(),
         color=nodes["color"].tolist(),
         pad=12, thickness=14, line=dict(width=0),
-        hovertemplate="%{label}<br>%{value:,.1f} " + spec.unit + "<extra></extra>",
+        hovertemplate="%{label}<br>%{value:,.1f} " + unit + "<extra></extra>",
     )
     pos = _positions(nodes, links) if spec.layout == "depth" else None
     if pos is not None:
@@ -292,7 +306,7 @@ def sankey_figure(view: "_TidyView", spec: Optional[SankeySpec] = None):
             color=links["color"].tolist(),
             customdata=links["hover"].tolist(),
             hovertemplate=("%{source.label} → %{target.label}<br>%{value:,.1f} "
-                           + spec.unit + " · %{customdata}<extra></extra>"),
+                           + unit + " · %{customdata}<extra></extra>"),
         ),
     ))
     fig.update_layout(title=dict(text=title), font=dict(size=11),

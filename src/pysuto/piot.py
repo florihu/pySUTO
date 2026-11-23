@@ -47,7 +47,7 @@ from .psut import PSUT, _TidyView, boundary_labels
 CONSTRUCTS = ("market_share", "suh_product")
 LEVELS     = ("Z", "A", "L")
 
-_TABLE_COLUMNS = [
+_PIOT_TABLE_COLUMNS = [
     "period", "valuation", "block", "commodity_region", "commodity",
     "from_region", "from_sector", "from_entity",
     "to_region", "to_sector", "to_entity",
@@ -60,8 +60,9 @@ _COMMODITY_KEY = ["period", "valuation", "commodity_region", "commodity"]
 
 def market_shares(psut: PSUT) -> pd.DataFrame:
     """``D`` in tidy form: each producer's share of every commodity it
-    supplies, per (period, valuation) — ``S[p,f] / Σ_p S[p,f]``. Commodities
-    nobody supplies in a period have no row."""
+    supplies, per (period, valuation) — ``S[p,f] / Σ_p S[p,f]``. A commodity
+    whose supply total is not positive (nobody supplies it, or the solved
+    supplies sum to ≤ 0) has no row."""
     S = psut.table[psut.table["block"] == "S"]
     q = S.groupby(["period", "valuation", "to_region", "to_sector"])["val"].transform("sum")
     share = np.where(q > 0, S["val"].to_numpy() / np.where(q > 0, q, 1.0), np.nan)
@@ -75,7 +76,9 @@ def market_shares(psut: PSUT) -> pd.DataFrame:
 def _allocate(rows: pd.DataFrame, shares: pd.DataFrame, block: str,
               crossed: bool) -> pd.DataFrame:
     """Re-attribute PSUT rows leaving a Flow node ``f`` to the producers of
-    ``f``: one edge per producer, ``val · share``."""
+    ``f``: one edge per producer, ``val · share``. Rows of a commodity nobody
+    supplies are dropped silently when they sum to at most ``1e-9`` of the block's
+    total (solver dust) and raise above that."""
     rows = rows.rename(columns={"from_region": "commodity_region", "from_sector": "commodity"})
     m = rows.merge(shares, on=_COMMODITY_KEY, how="left")
     unsupplied = m["share"].isna()
@@ -110,7 +113,7 @@ def _carry(rows: pd.DataFrame, commodity_side: str, crossed: bool) -> pd.DataFra
     out = rows.copy()
     out["commodity_region"] = out[f"{commodity_side}_region"].to_numpy()
     out["commodity"]        = out[f"{commodity_side}_sector"].to_numpy()
-    cols = _TABLE_COLUMNS + (["region_crossed"] if crossed else [])
+    cols = _PIOT_TABLE_COLUMNS + (["region_crossed"] if crossed else [])
     return out[cols]
 
 
@@ -120,16 +123,16 @@ def market_share_network(psut: PSUT) -> tuple[pd.DataFrame, pd.DataFrame]:
     shares  = market_shares(psut)
     tbl     = psut.table
     crossed = "region_crossed" in tbl.columns
-    by      = lambda b: tbl[tbl["block"] == b]
+    rows_of_block = lambda b: tbl[tbl["block"] == b]
     parts = [
-        _allocate(by("U"), shares, "Z", crossed),
-        _allocate(by("Y"), shares, "Y", crossed),
-        _carry(by("E"), "from", crossed),
-        _carry(by("O"), "from", crossed),
-        _carry(by("P"), "to", crossed),
-        _carry(by("W"), "to", crossed),
+        _allocate(rows_of_block("U"), shares, "Z", crossed),
+        _allocate(rows_of_block("Y"), shares, "Y", crossed),
+        _carry(rows_of_block("E"), "from", crossed),
+        _carry(rows_of_block("O"), "from", crossed),
+        _carry(rows_of_block("P"), "to", crossed),
+        _carry(rows_of_block("W"), "to", crossed),
     ]
-    cols  = _TABLE_COLUMNS + (["region_crossed"] if crossed else [])
+    cols  = _PIOT_TABLE_COLUMNS + (["region_crossed"] if crossed else [])
     order = [c for c in cols if c != "val"]
     table = (pd.concat([p[cols] for p in parts], ignore_index=True)
                .sort_values(order, ignore_index=True))
@@ -150,8 +153,11 @@ class PIOT(_TidyView):
         Process rows, ``D`` from its Process and Flow rows.
     construct, level
         How the table was built and how far (``'Z'``, ``'A'`` or ``'L'``).
-    valuations, primary, acc_id, opt_run_id, const_run_id, aggregation
-        Carried over from the PSUT.
+    valuations, primary, acc_id, opt_run_id, const_run_id, aggregation,
+    valuation_units
+        Carried over from the PSUT; the PIOT does not carry ``acc_ref``. Every
+        value is in the unit of its valuation (:meth:`unit_of`), ``kt`` or
+        ``kt <content label>``.
     """
 
     _figure_name = "process-network Sankey"
@@ -170,6 +176,7 @@ class PIOT(_TidyView):
         opt_run_id:   Optional[str] = None,
         const_run_id: Optional[str] = None,
         aggregation:  Optional[list] = None,
+        valuation_units: Optional[dict] = None,
     ) -> None:
         self.table        = table.reset_index(drop=True)
         self.nodes        = nodes.reset_index(drop=True)
@@ -182,6 +189,7 @@ class PIOT(_TidyView):
         self.opt_run_id   = opt_run_id
         self.const_run_id = const_run_id
         self.aggregation  = list(aggregation or [])
+        self.valuation_units = dict(valuation_units or {})
         self._cache: dict = {}
 
     def _require(self, level: str, what: str) -> None:
@@ -217,6 +225,7 @@ class PIOT(_TidyView):
             opt_run_id   = psut.opt_run_id,
             const_run_id = psut.const_run_id,
             aggregation  = psut.aggregation,
+            valuation_units = psut.valuation_units,
         )
 
     # ------------------------------------------------------------------
@@ -273,7 +282,7 @@ class PIOT(_TidyView):
     def x(self, period=None, valuation=None) -> pd.Series:
         """Total output per process: ``x = Z·1 + y`` — what leaves each process
         into a use or a final use. Equals the PSUT's ``S`` row sum when the
-        PSUT is flow-balanced."""
+        PSUT is flow-balanced. In the unit of ``valuation`` (:meth:`unit_of`)."""
         period, valuation = self.resolve(period, valuation)
         procs = self._labels("Process", "process")
         t = self._slice(period, valuation)
@@ -308,8 +317,8 @@ class PIOT(_TidyView):
 
     def A(self, period=None, valuation=None) -> pd.DataFrame:
         """Technical coefficients ``A = Z·x̂⁻¹``: input from process ``p`` per
-        unit of process ``q``'s output (a process with no output has a zero
-        column)."""
+        unit of process ``q``'s output (a process with zero or negative output
+        has a zero column)."""
         self._require("A", "A()")
         period, valuation = self.resolve(period, valuation)
         key = ("A", period, valuation)
@@ -324,7 +333,7 @@ class PIOT(_TidyView):
     def L(self, period=None, valuation=None) -> pd.DataFrame:
         """Total requirements ``L = (I − A)⁻¹``: output of ``p`` required,
         directly and indirectly, per unit of final demand for ``q``'s output.
-        ``L·y = x`` exactly, except for output delivered to a process with no
+        ``L·y = x`` except for output delivered to a process with no
         useful output of its own (its ``A`` column is zero — everything it
         takes in leaves as residual), which no final demand embodies."""
         self._require("L", "L()")
@@ -365,8 +374,9 @@ class PIOT(_TidyView):
         return pd.Series(e, index=x.index, name=f"intensity_{extension}")
 
     def footprint(self, extension: str = "E", period=None, valuation=None,
-                  by: str = "fd"):
-        """Consumption-based footprint ``e·L·ŷ``: the ``extension`` embodied
+                  by: Optional[str] = "fd"):
+        """Consumption-based footprint ``e·L·ŷ`` (in the unit of ``valuation``,
+        :meth:`unit_of`): the ``extension`` embodied
         in what each final-demand node takes (``by='fd'``), summed per
         consuming region (``by='region'``) or in total (``by=None``). Sums to
         the extension's total inflow, because ``L·y = x`` — less whatever was
@@ -390,8 +400,10 @@ class PIOT(_TidyView):
                        ) -> pd.DataFrame:
         """Embodied bilateral trade: rows the region where the ``extension``
         enters the system, columns the region whose final demand embodies it
-        — ``Σ_{p∈r} e_p L[p,q] Y[q, d∈s]``. Row sums are each region's
-        extraction, column sums its RMC."""
+        — ``Σ_{p∈r} e_p L[p,q] Y[q, d∈s]``, in the unit of ``valuation``
+        (:meth:`unit_of`). Row sums are each region's extraction, column sums
+        its RMC. The manuscript's embodied-extraction figure
+        (``scripts/report/results_figs.py``) calls this and :meth:`footprint`."""
         self._require("L", "embodied_trade()")
         period, valuation = self.resolve(period, valuation)
         e = self.intensity(extension, period, valuation)
@@ -406,7 +418,8 @@ class PIOT(_TidyView):
     # ------------------------------------------------------------------
 
     def ew_mfa(self, period=None, valuation=None, extension: str = "E") -> pd.DataFrame:
-        """Headline indicators per region, in the table's unit: ``DE`` (the
+        """Headline indicators per region, in the unit of ``valuation``
+        (:meth:`unit_of`): ``DE`` (the
         ``extension`` entering the region's processes), ``imports`` and
         ``exports`` (network edges crossing into / out of the region —
         ``region_crossed`` rows of a collapsed table count as both), ``PTB =
@@ -441,9 +454,11 @@ class PIOT(_TidyView):
         return self.L(period, valuation).sum(axis=0).rename("output_multiplier")
 
     def sda(self, period_a, period_b, valuation=None) -> pd.DataFrame:
-        """Two-factor structural decomposition of ``Δx = x_b − x_a`` into a
-        technology term (``ΔL·y``) and a final-demand term (``L·Δy``), polar
-        average of the two orderings so the terms sum to ``Δx`` exactly."""
+        """Two-factor structural decomposition of ``Δ(L·y) = L_b y_b − L_a y_a``
+        into a technology term (``ΔL·y``) and a final-demand term (``L·Δy``),
+        polar average of the two orderings so the terms sum to ``dx`` exactly.
+        ``x_a``, ``x_b`` and ``dx`` are ``L·y``, which equals the output ``x``
+        only where ``L·y = x`` (see :meth:`L`)."""
         self._require("L", "sda()")
         period_a, valuation = self.resolve(period_a, valuation)
         period_b, _         = self.resolve(period_b, valuation)

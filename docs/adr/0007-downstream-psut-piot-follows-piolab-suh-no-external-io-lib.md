@@ -34,7 +34,7 @@ linear-algebra lines, so we implement it directly (`piot.py`) rather than take o
 
 ## Consequences
 
-- **New modules** `src/pysuto/psut.py`, `piot.py`, `psut_indicators.py`, `registry/psut.py`, `scripts/psut.py`;
+- **New modules** `src/pysuto/psut.py`, `piot.py`, `registry/psut.py`, `scripts/psut.py` (the indicators live in `piot.py`; no `psut_indicators.py` was created). The market-share industry-by-industry construct ships; the Suh squaring `B = U·x̂_new⁻¹`, `D = S·q̂⁻¹`, `A = B·D` is #20;
   artifacts under `data/proc/psut/<run_id>/` with `parents.upstream = opt_run_id`.
 - **Point estimate first (the deliberate no-).** v1 builds from `a*` only; Stage-5 posterior σ is **not**
   propagated yet — the API is shaped so a later Monte-Carlo layer (sample edges → rebuild `L` per draw) can add it.
