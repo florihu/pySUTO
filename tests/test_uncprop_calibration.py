@@ -24,6 +24,7 @@ import pandas as pd
 import pytest
 import scipy.sparse as sp
 from scipy.stats import norm
+from test_uncprop import _stub_runs  # type: ignore
 
 SCALE_TOTALS = ("supplytotout", "usetotout", "smelterscrap", "directrefscrap")
 
@@ -101,10 +102,7 @@ def _prop(cr, opt, tmp_path, monkeypatch, **kw):
     from pysuto.uncprop import KalmanUncProp
     prop = KalmanUncProp(opt_dir=str(tmp_path / "opt"), const_dir=str(tmp_path / "const"),
                          uncprop_dir=str(tmp_path / "uncprop"), **kw)
-    monkeypatch.setattr(prop._opt_registry, "load_sidecar",
-                        lambda _rid: {"parents": {"upstream": {"const_run_id": cr.run_id}}})
-    monkeypatch.setattr(prop._opt_registry, "load", lambda _rid: opt)
-    monkeypatch.setattr(prop._const_registry, "load", lambda _rid: cr)
+    _stub_runs(prop, cr, opt)
     return prop
 
 
