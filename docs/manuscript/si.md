@@ -584,7 +584,7 @@ Every modelling decision is an architecture decision record in the repository (`
 | 0041 | A signed edge carries no one-signed hard ratio band; the producer stock change gets a concentration row | split: band rule and row accepted, the producer stock-change seed rejected on measurement; the 0.3 kt floor on the eff-less producer stock change rejected on measurement (#36) | F | one-signed bands on signed edges; a 1% seed on the producer stock change |
 | 0042 | Stage 4 owns the model; a QP backend solves a standard-form QP | proposed | F | a backend handed the semantic problem; Clarabel's conic form as the contract |
 | 0043 | A stock change is drawn from its region's cathode supply; BACI's cathode trade carries no stock prior | accepted, over a failed pre-registered item | C | imports first with an unconditional production bound; keeping the 98/1/1 BACI fan |
-| 0044 | The posterior is the QP's linearisation at its active set: a binding lower bound pins its edge, dependent hard rows are dropped | accepted; calibrated against the model's residuals (#87): Birge ratio 5.21 on `opt_20261021_131744_58504ad3` (5.18 on the reference chain), intervals quoted Birge-scaled | F | dropping the bounds altogether; a relative $\sigma_c$ on hard rows |
+| 0044 | The posterior is the QP's linearisation at its active set: a binding lower bound pins its edge, dependent hard rows are dropped | accepted; calibrated against the model's residuals (#87): Birge ratio 5.21 on `opt_20261021_131744_58504ad3` (4.83 on the reference chain), intervals quoted Birge-scaled | F | dropping the bounds altogether; a relative $\sigma_c$ on hard rows |
 
 <a id="si-coverage"></a>
 

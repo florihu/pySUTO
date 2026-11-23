@@ -3028,7 +3028,7 @@
   "method:L353.degenerate_interval_shift": {
    "label": "largest interval-bound move with the family pinned or freed, Birge-scaled (#81, docs/manuscript/figs/table3_intervals.csv)",
    "value": {
-    "max": 0.0037413062086127753,
+    "max": 0.0010084493450257586,
     "quantity": "embodied / direct, China ← Chile+Peru 2024"
    },
    "unit": ""

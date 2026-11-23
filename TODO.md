@@ -91,10 +91,11 @@ Branch `diag/mine-zeros-measure`, REP
   - **Stage-5 ablation:** `uncprop_20261123_113044_de642960`.
   - **Knob sweep:** `sweep_20261102_145601_8413cace` stays on `opt_20261022_112855_928da10c` (`--sweep-base`). The chain no
     longer equals it at solver noise (#154, #201), which the Results and SI S15.4 now say.
-  - **Numbers:** 213 of 583 keyed numbers move, 84 of them Table S6's solve statistics; 388 of 724 `numbers.json` keys.
-    In the prose: objective split 70/29 → 58/41 (edges/scale totals); mine deletion 8,068 → 6,543 kt CC gross, 40.5 →
-    35.1 % forced, net gain 4,040 → 8,331 kt CC; common-set Σz² 700,073 → 905,191; Birge R 5.18 → 4.83; the
-    Discussion's phantom concentrate 1,600 → 335 kt CC; Italy (16.2 %) now leads the scale-total objective.
+  - **Numbers:** 213 of 583 keyed numbers move, 84 of them Table S6's solve statistics; 388 of 724 `numbers.json`
+    keys. In the prose, `opt_20261112_135523_88fa69f3` → this chain: objective split 70/29 → 58/41 % (edges/scale
+    totals); mine deletion 8,068 → 6,543 kt CC gross, 40.5 → 35.1 % of it forced, net gain 4,040 → 8,331 kt CC;
+    common-set Σz² 700,073 → 905,191; Birge R 5.18 → 4.83; the Discussion's phantom concentrate 1,600 → 335 kt CC;
+    Italy (16.2 % of the scale-total Σz²) now leads it.
   - **Table 3:** verdicts unchanged: A1, A2, A4, A5, A6, B2 not met; A3, B1, B3 met.
     Intervals rerun (`table3_intervals.py`, R 4.826, √R 2.20): every bracket moves with its point. A4's upper ends now
     pass 2 (cathode–concentrate) and 25 (concentrate–ore) years, both steps still 0/30; B2's invariance clause still
