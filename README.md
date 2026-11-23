@@ -88,7 +88,7 @@ Copper's modelling choices, each measured against a rejected alternative, are in
        ▼
 ┌────────────────────────────────────────────────────────────────────────┐
 │  STAGE 1 — Datafeed   ·   scripts/*_feed.py                            │
-│  run_feed_pipeline  (step_A → B → C → D)                               │
+│  run_feed(FeedSpec)  (step_A → B → C → D → register)                   │
 │  in  : raw flows + pedigree + concordance                              │
 │  out : W · F_root · σ_root   →   DataFeedRegistry                      │
 └──────┬─────────────────────────────────────────────────────────────────┘
@@ -324,13 +324,13 @@ Following Laner et al. (2016). Each data source carries five quality indicator s
 
 **Reliability** (non-zero even at the best score):
 
-$$\mathrm{CV}_\mathrm{rel} = a \cdot e^{\,b\, s_\mathrm{rel}}, \qquad a = 0.75,\quad b = 1.105$$
+$$\mathrm{CV}_\mathrm{rel} = \frac{a \cdot e^{\,b\, s_\mathrm{rel}}}{100}, \qquad a = 0.75,\quad b = 1.105$$
 
 **All other indicators** (zero at score 1):
 
-$$\mathrm{CV}_i = a_i \cdot e^{\,b\,(s_i - 1)}, \qquad b = 1.105$$
+$$\mathrm{CV}_i = \frac{a_i \cdot e^{\,b\,(s_i - 1)}}{100}, \qquad b = 1.105$$
 
-Sensitivity parameter $a_i$: not sensitive $= 0.375$, medium sensitive $= 0.75$, highly sensitive $= 1.5$.
+The coefficients $a$ and $a_i$ are in percent (Laner et al.); every CV in the code and the sidecars is a fraction, hence the division by 100. Sensitivity parameter $a_i$: not sensitive $= 0.375$, medium sensitive $= 0.75$, highly sensitive $= 1.5$; a `<Indicator>_sensitivity` row of the metadata sidecar sets it per indicator, and a feed without one is medium sensitive.
 
 **Total CV** (quadrature sum — assumes independence across indicators):
 
@@ -338,7 +338,7 @@ $$\mathrm{CV}_\mathrm{tot} = \sqrt{\mathrm{CV}_\mathrm{rel}^2 + \mathrm{CV}_\mat
 
 ##### Power-mean (Lp) uncertainty propagation
 
-All Stage 1 / Stage 2 σ propagation steps share a single global power-mean (Lp) combiner with exponent $p \in [1.1, 1.5]$, default $p = 1.3$. For a list of contributions $\{x_i\}$:
+All Stage 1 / Stage 2 σ propagation steps share a single global power-mean (Lp) combiner with exponent $p \in [1.1, 1.5]$, default $p = 1.3$ (a Stage 1 propagation with $p < 1$ raises). For a list of contributions $\{x_i\}$:
 
 $$\mathrm{Lp}(\{x_i\};\, p) \;=\; \left(\sum_i |x_i|^p\right)^{1/p}.$$
 
@@ -368,11 +368,11 @@ When a feed sets `Row_penalty: TRUE` in its metadata sidecar, every **ROW-touchi
 
 - **`AccountingStructure`** ([acc.py](src/pysuto/acc.py)) — root node/edge index, supply–use topology, per-edge bounds, structural edge masks (`supply_edge_mask`, `use_edge_mask`, `sb_edge_mask`, `tradable_edge_mask`) consumed by `MassBalanceBuilder` / `FlatPriorImputer`. It binds the case's labels to the framework's **roles** ([ADR 0034](docs/adr/0034-roles-are-the-frameworks-labels-are-the-cases.md)): every `SB` sector to a boundary role (`nature` / `secondary` / `final_demand`) and the two valuations to `content` / `gross`, declared by a `role` key in the acc spec (a `role` column on `root.ods`'s Sector_Entity and Valuation sheets). The library reads `acc.boundary_roles` (SB sector → `BoundaryRole`) and `acc.valuation_roles` (`.content` / `.gross`, the bound labels), never a label; `save`/`load` keep the roles and the rule tables, so a loaded structure carries the masks `__init__` built, `tradable` included.
 - **`ConcordanceTable` / `WeightMatrix`** ([conc.py](src/pysuto/conc.py)) — src→root edge mapping and the sparse CSR weight matrix.
-- **`DataFeed`** ([feed.py](src/pysuto/feed.py)) — ABC owning a `weight_matrix`, pedigree scores, `F_src`, and persistence hooks.
+- **`DataFeed`** ([feed.py](src/pysuto/feed.py)) — base class owning a `weight_matrix`, pedigree scores and `F_src`; `WeightMatrix` is the persisted subclass (`save` / `load`).
 - **`PedigreeScores` / `UncertaintyMixin` / `PropagationResult`** ([unc.py](src/pysuto/unc.py)) — pedigree→CV computation and Lp / power-mean error propagation through `W`.
 - **`DataFeedMetadata`** ([meta.py](src/pysuto/meta.py)) — parses the Excel sidecar.
 - **`DataFeedRegistry`** ([registry/feed.py](src/pysuto/registry/feed.py)) — JSON index + per-feed metadata, pickle, and result.npz on disk.
-- **`run_feed_pipeline` / `step_A..D`** ([feedpipe.py](src/pysuto/feedpipe.py)) — orchestrates the four-step pipeline (read metadata → build concordance → assemble W → apply + propagate).
+- **`FeedSpec` / `run_feed` / `step_A..D`** ([feedpipe.py](src/pysuto/feedpipe.py)) — `run_feed(spec, acc_id=…, data_dir=…)` builds one feed run from a `FeedSpec` (loaders, concordance policy, hooks; copper's three are in [copper_feed.py](scripts/copper_feed.py)): read the registered inputs and the metadata sidecar → build concordance → assemble W → build `F_src` → apply + propagate → register + diagnostics. The `step_A..D` functions are its pieces; `FeedBuild` is what a spec's hooks see.
 
 #### Key parameters
 
@@ -825,8 +825,8 @@ Run Stage 6 on the toy case in [tutorial/06_psut_piot.ipynb](src/pysuto/tutorial
 |---|---|---|
 | [acc.py](src/pysuto/acc.py) | `AccountingStructure`, `RuleSet`, `BoundaryRole`, `ValuationRole`, `read_acc_spec_ods`, `read_acc_spec_json`, `read_acc_spec_dir`, `require_compatible_acc`, `check_feed_accs`, `write_build_record`, `check_built_acc` | Built from an acc spec (`AccountingStructure.from_spec`); the ODS/CSV files and `acc.json` are its two formats, read by `read_acc_spec_ods` / `read_acc_spec_json` (`read_acc_spec_dir` picks one). The roles a case binds its labels to: `acc.boundary_roles` (SB sector → `BoundaryRole`) and `acc.valuation_roles` (`.content`, `.gross`, the bound labels), which the library reads in place of labels (ADR 0034). Root node/edge index, supply–use topology, structural edge masks (`supply_edge_mask`, `use_edge_mask`, `sb_edge_mask`, `tradable_edge_mask`), per-edge bounds. The build record beside a built structure names the acc input version it came from; `check_built_acc` checks it against a run's acc ref, and `require_compatible_acc` compares two acc versions' specs on the keys a consumer depends on (#53, #119). |
 | [conc.py](src/pysuto/conc.py) | `ConcordanceTable`, `WeightMatrix` | src→root edge mapping; sparse CSR `W`. |
-| [feed.py](src/pysuto/feed.py) | `DataFeed` (ABC) | Owns `weight_matrix`, pedigree, `F_src`, persistence. |
-| [feedpipe.py](src/pysuto/feedpipe.py) | `run_feed_pipeline`, `step_A_read_metadata`/`_B_build_concordance`/`_C_build_weight_matrix`/`_D_apply_and_propagate`, `register_feed` | Stage 1 orchestration. |
+| [feed.py](src/pysuto/feed.py) | `DataFeed` | Owns `weight_matrix`, pedigree, `F_src`. |
+| [feedpipe.py](src/pysuto/feedpipe.py) | `FeedSpec`, `FeedBuild`, `run_feed`, `step_A_read_metadata`/`_B_build_concordance`/`_C_build_weight_matrix`/`_D_apply_and_propagate`, `register_feed` | Stage 1 orchestration. |
 | [unc.py](src/pysuto/unc.py) | `PedigreeScores`, `UncertaintyMixin`, `PropagationResult` | Pedigree→CV (Laner et al.); Lp / power-mean propagation through `W`. |
 | [meta.py](src/pysuto/meta.py) | `DataFeedMetadata` | Parses the Excel sidecar. |
 | [registry/](src/pysuto/registry/) | `BaseOutputRegistry`, `DataFeedRegistry`, `ImputationRunRegistry`, `ConstraintRunRegistry`, `OptimRunRegistry`, `UncPropRunRegistry`, `PsutRunRegistry`, `SweepRunRegistry`, `_RegistryEntry`, `make_run_id`, `build_sidecar`, `stage_lock`, `LockHeld` | Harmonized output registries (Stages 1–6); shared run-id pattern + sidecar schema; the advisory stage lock on `data/proc` (#101). **Subpackage layout:** `base.py`, `feed.py`, `imputation.py`, `constraint.py`, `optim.py`, `uncprop.py`, `psut.py`, `sweep.py`, `lock.py`, `_sidecar.py`. |
@@ -871,7 +871,7 @@ Run Stage 6 on the toy case in [tutorial/06_psut_piot.ipynb](src/pysuto/tutorial
 from pysuto.acc import AccountingStructure
 from pysuto.collector import FeedCollector
 from pysuto.config import load_config
-from pysuto.feedpipe import run_feed_pipeline
+from pysuto.feedpipe import run_feed
 from pysuto.registry import DataFeedRegistry
 from pysuto.input_registry import InputRegistries
 from pysuto.impute import (
@@ -899,32 +899,16 @@ ALPHA_MIN_REG = 0.05                    # parametric fill's inverse-multiplier f
 # load-bearing files have changed since the last registered version.
 inputs = InputRegistries.initialize(root="data/input")
 
-# ── Stage 1: one feed pipeline run per data source ────────────────────────
+# ── Stage 1: one feed build per data source ───────────────────────────────
+# A FeedSpec names a feed's loaders, concordance policy and hooks (copper's three
+# are ICSG_SPEC, BACI_FEED and CRUDE_ORE_FEED in scripts/copper_feed.py); run_feed
+# reads the registered inputs (values.csv, conc.xlsx, meta.xlsx) of data_dir,
+# builds, propagates and registers the feed run.
 registry = DataFeedRegistry(odir="data/proc/feed/registry")
 registry.load_index()
 
-for feed_id, raw_df, F_src in feed_configs:
-    feed_dir = inputs.feed.resolve(feed_id)        # path to <id>/v{latest}/
-    parents  = {
-        "inputs": {
-            "acc":  inputs.acc.entry(ACC_ID),      # {id, version, date, code, label}
-            "feed": inputs.feed.entry(feed_id),
-        },
-        "upstream": {},
-    }
-    wm, meta, result, entry = run_feed_pipeline(
-        excel_path     = str(feed_dir / "meta.xlsx"),
-        raw_df         = raw_df,
-        acc_struct     = acc,
-        sector_map_df  = ..., region_map_df = ...,
-        time_map_df    = ..., valuation_map_df = ..., var_map_df = ...,
-        F_src          = F_src,
-        registry       = registry,
-        feed_id        = feed_id,
-        aux_col        = "Supply_Use",
-        allow_unmatched_edges = True,
-        parents        = parents,
-    )
+for spec in feed_specs:
+    entry = run_feed(spec, acc_id=ACC_ID, data_dir="data")   # entry.run_id, .run_dir
 
 # ── Stage 2: aggregation + imputation ─────────────────────────────────────
 collector = FeedCollector(registry=registry, acc_struct=acc)
@@ -1303,8 +1287,8 @@ pysuto/
 │
 ├── acc.py                 AccountingStructure  (scipy.sparse COO/CSR)
 ├── conc.py                ConcordanceTable · WeightMatrix  (scipy.sparse CSR)
-├── feed.py                DataFeed (ABC)
-├── feedpipe.py            step_A/B/C/D · run_feed_pipeline                ─┐
+├── feed.py                DataFeed
+├── feedpipe.py            step_A/B/C/D · FeedSpec · run_feed              ─┐
 ├── unc.py                 PedigreeScores · UncertaintyMixin                │ Stage 1
 ├── meta.py                DataFeedMetadata                                  │
 ├── registry/              BaseOutputRegistry · DataFeedRegistry            │
@@ -1426,7 +1410,7 @@ Each layer has a dedicated test file in `tests/`. There is no `conftest.py`: fix
 | [test_acc_roles.py](tests/test_acc_roles.py) | Roles, not labels (#119): own-label save/load round-trip, role validation on build and load, the label-literal grep gate, acc compatibility by spec comparison, the copper `root.ods` role column |
 | [test_conc.py](tests/test_conc.py) | Concordance and `WeightMatrix` construction / sparse round-trip |
 | [test_unc.py](tests/test_unc.py) | Pedigree → CV formulas; CV-invariant Lp propagation invariants |
-| [test_feedpipe.py](tests/test_feedpipe.py) | Stage 1 pieces: step D propagation, `DataFeedMetadata` pedigree → CV, `DataFeedRegistry` round-trip, mass-conservation guard, edge-scope mask (`run_feed_pipeline` itself has no test) |
+| [test_feedpipe.py](tests/test_feedpipe.py) | Stage 1 pieces: step D propagation, `DataFeedMetadata` pedigree → CV, `DataFeedRegistry` round-trip, mass-conservation guard, edge-scope mask (`run_feed` is tested in [test_feed_spec.py](tests/test_feed_spec.py)) |
 | [test_registry.py](tests/test_registry.py) | `DataFeedRegistry` save/load/round-trip |
 | [test_collector.py](tests/test_collector.py) | Feed alignment, NaN coverage mask, `Ω` column sums |
 | [test_agg.py](tests/test_agg.py) | `Ω` construction, `f_agg = 1ᵀ(Ω⊙F)`, σ_agg invariants |

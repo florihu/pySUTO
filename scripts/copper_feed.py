@@ -44,7 +44,7 @@ from pysuto.feedpipe import FeedSpec, check_file, run_feed
 from pysuto.feedprep.ore_grade import OreGradeLabels
 from pysuto.feedprep.trade_shares import (check_parents_record, decoded_edges,
                                           trade_share_parents as _trade_share_parents)
-from pysuto.feedprep.reexport import icsg_aggregate_members
+from pysuto.feedprep.reexport import MAX_CV_SCALE, icsg_aggregate_members
 from pysuto.input_registry import InputRegistries
 from pysuto.logging import get_logger
 from pysuto.relation.param_relation import expand_edge_index
@@ -64,7 +64,7 @@ ACC_ID = "copper"
 # spec: ``ICSG_SPEC`` adds the trade-share weights and the
 # observed-zero stamping (#147).
 
-# The case's rest-of-world region, for the ROW pedigree penalty (#119), and the
+# The case's ROW region, for the ROW pedigree penalty (#119), and the
 # Supply_Use column's vocabulary: each value mapped to the endpoint its rows classify.
 ROW_REGION      = "ROW"
 ICSG_AUX_SIDES  = {"Supply": "from", "Use": "to"}
@@ -112,6 +112,8 @@ def _concordance_maps(sheets: dict, sector_cols: list, var_cols: list) -> dict:
 
 
 def load_icsg_raw(path: str) -> pd.DataFrame:
+    """The ICSG input's raw rows, ``Year`` as text and ``_sector_key`` (``icsg_sector_key``)
+    added: the key ``sector_map`` looks the rows up by."""
     check_file(path, "raw flow data")
     df = pd.read_csv(path)
     df["_sector_key"] = df.apply(
@@ -122,6 +124,8 @@ def load_icsg_raw(path: str) -> pd.DataFrame:
 
 
 def load_icsg_tables(path: str) -> dict:
+    """The five concordance maps of the ICSG workbook, its ``sector_map`` with the
+    ``icsg_type`` and ``supply_use`` columns the fan policy reads."""
     check_file(path, "concordance workbook")
     sheets = pd.read_excel(path, sheet_name=None)
     # icsg_type / supply_use feed the fan-policy leg filter (ADR 0008)
@@ -146,6 +150,7 @@ def icsg_leg_filter(tables: dict) -> dict:
 
 
 def load_baci_raw(path: str) -> pd.DataFrame:
+    """The BACI input's raw rows, ``Year`` as text."""
     check_file(path, "raw flow data")
     df = pd.read_csv(path)
     # Year must be str for time_map lookup; Sector stays int for sector_map lookup
@@ -154,6 +159,7 @@ def load_baci_raw(path: str) -> pd.DataFrame:
 
 
 def load_crude_ore_raw(path: str) -> pd.DataFrame:
+    """The crude-ore input's raw rows, ``Year`` as text."""
     check_file(path, "raw extraction data")
     df = pd.read_csv(path)
     # Year must be str for time_map lookup
@@ -202,8 +208,9 @@ def baci_user_weights(build):
     return wdf, {}
 
 
-MAX_CV_SCALE = 5.0   # ADR 0027's cap; past ~4.8 ADR 0017's damping ceiling
-                     # (cv 1.0 on a ~0.209 pedigree) makes further inflation inert
+# ``MAX_CV_SCALE`` (imported from ``feedprep.reexport``) is ADR 0027's cap on the σ
+# multiplier; past ~4.8 ADR 0017's damping ceiling (cv 1.0 on a ~0.209 pedigree) makes
+# further inflation inert.
 
 # Per-root-edge σ multipliers, applied through the one ``cv_root_scale`` seam
 # ADR 0003's ROW penalty already uses. Each file is one root leg per row
@@ -330,12 +337,13 @@ NETTED_SECTORS = ["Concentrate", "Matte", "Anode", "Cathode"]
 HS_OF          = {"Concentrate": 260300, "Matte": 740110, "Anode": 740200,
                   "Cathode": 740311}
 # An aggregate region has no warehouse.
-HUB_EXCLUDE = {"ROW"}
+HUB_EXCLUDE = {ROW_REGION}
 # The copper acc's gross-mass valuation: the conc rows' a_valuation (#119).
 GROSS_VALUATION = "Mass"
 
-assert "Scrap" not in TRADED_SECTORS and "Scrap" not in NETTED_SECTORS, \
-    "Scrap is not traded"
+if "Scrap" in TRADED_SECTORS or "Scrap" in NETTED_SECTORS:
+    raise ValueError("Scrap is not traded: it belongs in neither TRADED_SECTORS nor "
+                     "NETTED_SECTORS")
 
 # Registered inputs.
 BACI_ID           = "baci"
@@ -380,18 +388,18 @@ ORE_GRADE_LABELS = OreGradeLabels(
 # #76: a weighted fan's domestic leg at trade-share weight 0 is an observed zero, covered
 # at 0 with the net-stock seed's pricing (ADR 0040) on the usage U its fans distribute:
 # σ = max(OBSERVED_ZERO_CV·|U|, OBSERVED_ZERO_FLOOR_KT). Mirrors collect_aggregate_impute's
-# STOCK_SEED_CV / STOCK_SEED_ABS_FLOOR_KT: change both or neither.
+# STOCK_SEED_CV / STOCK_SEED_ABS_FLOOR_KT: change both or neither. The edges are on ICSG's
+# content valuation, so the floor is in kt CC.
 OBSERVED_ZERO_CV       = 0.01
 OBSERVED_ZERO_FLOOR_KT = 0.3
-# The signed stock legs: their zero-weight domestic leg is a supply-mix share (ADR 0043)
+# The stock-change legs: their zero-weight domestic leg is a supply-mix share (ADR 0043)
 # whose zero the net-stock seed prices (ADR 0040), not an observed zero.
-STOCK_SECTORS_TO       = ("MESC", "USC")
+STOCK_SECTORS_TO       = SIGNED_SECTORS_TO
 # The products whose zero-weight domestic leg is an observed zero in a region that makes
-# none of them, by its raw ICSG production (ADR 0024's bound): concentrate (#78) and
-# cathode (#96). Anode is not stamped.
-# #96's Cathode legs were measured and rejected (z² +37.8 % with the mine-output zeros,
-# opt_20261021_105350_b1fea245; ADR 0024 am.): they expose ICSG-usage gaps a zero cannot
-# close.
+# none of them, by its raw ICSG production (ADR 0024's bound): concentrate (#78) only.
+# Cathode (#96) and anode are not stamped: #96's Cathode legs were measured and rejected
+# (z² +37.8 % with the mine-output zeros, opt_20261021_105350_b1fea245; ADR 0024 am.),
+# since they expose ICSG-usage gaps a zero cannot close.
 OBSERVED_ZERO_SECTORS  = ("Concentrate",)
 # The edges a region's own mine and SX-EW output leave on, as (process, product): the
 # edges this feed books ICSG's Mining/Concentrate and SXEW/Cathode supply rows on. Where
@@ -402,7 +410,7 @@ OBSERVED_ZERO_SECTORS  = ("Concentrate",)
 PRODUCTION_EDGES       = (("MF", "Concentrate"), ("SXEW", "CSXEW"))
 # Regions whose zero is never a report: ROW is the sum of the members ICSG lists, with its
 # "Others" rows among them.
-AGGREGATE_REGIONS      = ("ROW",)
+AGGREGATE_REGIONS      = (ROW_REGION,)
 # Other registered inputs that report a mine or an SX-EW plant: where one does, ICSG's
 # missing row is missing data (a small producer under "Others"), and the output edge is
 # not stamped (ADR 0019). The crude-ore feed reports mining wherever its ore mass is > 0;

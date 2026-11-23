@@ -1,3 +1,10 @@
+"""conc.py
+=======
+``ConcordanceTable`` (the src -> root edge mapping, built by ``from_raw``) and
+``WeightMatrix`` (the sparse W[src_edge, root_edge] assembled from it); Stage 1's
+two persisted objects. ``node_ids`` is the one vectorised node-tuple -> node-id lookup.
+"""
+
 from __future__ import annotations
 
 import os
@@ -9,9 +16,28 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
-
-
 from pysuto.feed import DataFeed
+
+
+def node_ids(node_to_id: dict, sector, entity, region) -> np.ndarray:
+    """Node ids of the ``(sector, entity, region)`` tuples given as three columns.
+
+    Vectorised ``node_to_id[(sector, entity, region)]`` per row.
+
+    Raises
+    ------
+    KeyError
+        If a tuple is not a node of ``node_to_id`` (the first one is named).
+    """
+    nodes = pd.MultiIndex.from_tuples(list(node_to_id))
+    ids   = np.fromiter(node_to_id.values(), dtype=np.int64, count=len(node_to_id))
+    pos   = nodes.get_indexer(pd.MultiIndex.from_arrays([sector, entity, region]))
+    if (pos < 0).any():
+        bad = int(np.flatnonzero(pos < 0)[0])
+        raise KeyError((np.asarray(sector)[bad], np.asarray(entity)[bad],
+                        np.asarray(region)[bad]))
+    return ids[pos]
+
 
 # =============================================================================
 # CONCORDANCE TABLE
@@ -19,7 +45,7 @@ from pysuto.feed import DataFeed
 
 class ConcordanceTable(DataFeed):
     """
-    Stores and validates the raw src→root edge mapping table.
+    Holds the raw src→root edge mapping table that :meth:`from_raw` builds.
 
     Owns:
       - tab          : DataFrame with src_* / root_* / weight_value / weight_mode
@@ -28,101 +54,26 @@ class ConcordanceTable(DataFeed):
     """
 
     SRC_COLS = [
-        'src_sector_from', 'src_entity_from', 'src_region_from',
-        'src_sector_to',   'src_entity_to',   'src_region_to',
-        'src_time',        'src_valuation',
-    ]
-    ROOT_COLS = [
-        'root_sector_from', 'root_entity_from', 'root_region_from',
-        'root_sector_to',   'root_entity_to',   'root_region_to',
-        'root_time',        'root_valuation',
+        "src_sector_from", "src_entity_from", "src_region_from",
+        "src_sector_to",   "src_entity_to",   "src_region_to",
+        "src_time",        "src_valuation",
     ]
 
     def __init__(self,
                  tab: pd.DataFrame,
                  acc_struct,
                  id: str = "ct_test",
-                 odir: str = "data/proc/conc",
-                 _skip_validation: bool = False):
+                 odir: str = "data/proc/conc"):
 
         super().__init__(id=id, acc_struct=acc_struct, odir=odir)
 
         self.tab = tab.copy()
 
-        # Pipeline — validation can be skipped when from_raw already
-        # guarantees correctness via the edge-join construction.
-        if not _skip_validation:
-            self._validate_table()
+        # ``from_raw`` is the only constructor call: its edge join already guarantees
+        # that every row names a node and a root edge of ``acc_struct``.
         self._impute_weights()
         self._validate_weight_sums()
         self._build_src_index()
-
-    # ------------------------------------------------------------------ #
-    # Validation                                                           #
-    # ------------------------------------------------------------------ #
-
-    def _validate_table(self):
-        required = self.SRC_COLS + self.ROOT_COLS + ['weight_value', 'weight_mode']
-        missing = [c for c in required if c not in self.tab.columns]
-        if missing:
-            raise ValueError(f"Missing columns: {missing}")
-
-        valid_modes = {"user", "uniform", "manufacturing_shares"}
-        invalid = set(self.tab['weight_mode'].unique()) - valid_modes
-        if invalid:
-            raise ValueError(f"Invalid weight_mode(s): {invalid}")
-
-        # --- Node validation (vectorised set lookup) -------------------------
-        valid_nodes = set(self.acc_struct.node_to_id.keys())
-
-        bad_from = self.tab[
-            ~self.tab.apply(
-                lambda r: (r['root_sector_from'], r['root_entity_from'], r['root_region_from'])
-                          in valid_nodes, axis=1)
-        ]
-        if not bad_from.empty:
-            ex = tuple(bad_from.iloc[0][['root_sector_from','root_entity_from','root_region_from']])
-            raise ValueError(f"Invalid root node (from): {ex} — {len(bad_from)} bad rows")
-
-        bad_to = self.tab[
-            ~self.tab.apply(
-                lambda r: (r['root_sector_to'], r['root_entity_to'], r['root_region_to'])
-                          in valid_nodes, axis=1)
-        ]
-        if not bad_to.empty:
-            ex = tuple(bad_to.iloc[0][['root_sector_to','root_entity_to','root_region_to']])
-            raise ValueError(f"Invalid root node (to): {ex} — {len(bad_to)} bad rows")
-
-        # --- Edge validation (single vectorised merge) -----------------------
-        # Build from_id / to_id columns, deduplicate, then merge once against
-        # edge_index — replaces one full 854k-row scan per concordance row.
-        node_to_id = self.acc_struct.node_to_id
-        tab_check = self.tab[['root_sector_from','root_entity_from','root_region_from',
-                               'root_sector_to',  'root_entity_to',  'root_region_to',
-                               'root_time',        'root_valuation']].drop_duplicates().copy()
-
-        tab_check['from_id'] = tab_check.apply(
-            lambda r: node_to_id[(r['root_sector_from'], r['root_entity_from'], r['root_region_from'])],
-            axis=1)
-        tab_check['to_id'] = tab_check.apply(
-            lambda r: node_to_id[(r['root_sector_to'], r['root_entity_to'], r['root_region_to'])],
-            axis=1)
-
-        edge_keys = self.acc_struct.edge_index[['from_id','to_id','time','valuation']].copy()
-        edge_keys['time'] = edge_keys['time'].astype(str)
-        edge_keys = edge_keys.drop_duplicates()
-
-        tab_keys = (tab_check[['from_id','to_id','root_time','root_valuation']]
-                    .rename(columns={'root_time': 'time', 'root_valuation': 'valuation'}))
-
-        matched = tab_keys.merge(edge_keys, on=['from_id','to_id','time','valuation'],
-                                 how='left', indicator=True)
-        bad = matched[matched['_merge'] != 'both']
-        if not bad.empty:
-            ex = bad.iloc[0]
-            raise ValueError(
-                f"Invalid root edge: from_id={ex['from_id']} → to_id={ex['to_id']} "
-                f"time={ex['time']} val={ex['valuation']} — {len(bad)} bad combos")
 
     # ------------------------------------------------------------------ #
     # Weight imputation                                                    #
@@ -130,8 +81,8 @@ class ConcordanceTable(DataFeed):
 
     def _impute_weights(self):
         # Validate user weights are populated
-        mask_user = self.tab['weight_mode'] == 'user'
-        if mask_user.any() and self.tab.loc[mask_user, 'weight_value'].isnull().any():
+        mask_user = self.tab["weight_mode"] == "user"
+        if mask_user.any() and self.tab.loc[mask_user, "weight_value"].isnull().any():
             raise ValueError("weight_mode='user' rows must have weight_value set")
 
         # Uniform rows contribute equally (weight 1.0) before normalization.
@@ -139,12 +90,12 @@ class ConcordanceTable(DataFeed):
         #   B  all-uniform  : all get 1/N
         #   A  all-user     : user values divided by their total
         #   C  mixed        : user values + 1.0 per uniform row, then normalized
-        self.tab.loc[self.tab['weight_mode'] == 'uniform', 'weight_value'] = 1.0
-        grp_sum = self.tab.groupby(self.SRC_COLS)['weight_value'].transform('sum')
-        self.tab['weight_value'] = self.tab['weight_value'] / grp_sum
+        self.tab.loc[self.tab["weight_mode"] == "uniform", "weight_value"] = 1.0
+        grp_sum = self.tab.groupby(self.SRC_COLS)["weight_value"].transform("sum")
+        self.tab["weight_value"] = self.tab["weight_value"] / grp_sum
 
     def _validate_weight_sums(self):
-        sums = self.tab.groupby(self.SRC_COLS)['weight_value'].sum()
+        sums = self.tab.groupby(self.SRC_COLS)["weight_value"].sum()
         if not np.allclose(sums.values, 1.0):
             raise ValueError(f"Weights do not sum to 1:\n{sums}")
 
@@ -164,6 +115,17 @@ class ConcordanceTable(DataFeed):
         self.n_src_edges  = len(self.src_edges)
         self.n_root_edges = len(self.acc_struct.edge_index)
 
+    @property
+    def unit(self) -> str:
+        """The mass unit of the feed's values, for logs and axis labels: ``"kt"`` (gross
+        mass), or ``"kt <content>"`` (copper: ``"kt CC"``) when every root edge sits on
+        the accounting structure's content valuation."""
+        roles = getattr(self.acc_struct, "valuation_roles", None)
+        on = set(self.tab["root_valuation"].unique())
+        if roles is not None and on == {roles.content}:
+            return f"kt {roles.content}"
+        return "kt"
+
     def zero_weight_domestic_legs(self, exclude_sectors_to) -> pd.DataFrame:
         """Domestic legs a weighted fan gives exactly 0, with their src edge (#76).
 
@@ -177,14 +139,14 @@ class ConcordanceTable(DataFeed):
         ``edge_id`` (root edge), one row per such leg.
         """
         t = self.tab
-        is_zero_domestic = ((t['weight_mode'] == 'user') & (t['weight_value'] == 0.0)
-                            & (t['root_region_from'] == t['root_region_to'])
-                            & ~t['root_sector_to'].isin(list(exclude_sectors_to)))
+        is_zero_domestic = ((t["weight_mode"] == "user") & (t["weight_value"] == 0.0)
+                            & (t["root_region_from"] == t["root_region_to"])
+                            & ~t["root_sector_to"].isin(list(exclude_sectors_to)))
         rows = t.loc[is_zero_domestic]
         src = [self.src_edge_to_id[k]
                for k in rows[self.SRC_COLS].itertuples(index=False, name=None)]
-        return pd.DataFrame({'src_id':  np.asarray(src, dtype=np.int64),
-                             'edge_id': rows['edge_id'].to_numpy(dtype=np.int64)})
+        return pd.DataFrame({"src_id":  np.asarray(src, dtype=np.int64),
+                             "edge_id": rows["edge_id"].to_numpy(dtype=np.int64)})
 
     # ------------------------------------------------------------------ #
     # from_raw factory                                                     #
@@ -205,7 +167,48 @@ class ConcordanceTable(DataFeed):
                 user_weights_df: Optional[pd.DataFrame] = None,
                 leg_filter: Optional[dict] = None,
                 drop_unweighted_fans: bool = False):
+        """Build the concordance of ``raw_df`` onto the root edges of ``acc_struct``.
 
+        Parameters
+        ----------
+        raw_df : DataFrame
+            The feed's raw rows; its index is kept as ``raw_id`` in the table.
+        acc_struct : AccountingStructure
+            Supplies the root nodes and edges the rows are joined onto.
+        sector_map_df, region_map_df, time_map_df, valuation_map_df : DataFrame
+            The ``src_* -> root_*`` maps of the feed's concordance workbook.
+        var_map_df : DataFrame
+            ``raw_var -> src_var``: which raw column fills which src column, per
+            ``aux_col`` value where the map has that column.
+        aux_col, aux_sides : str, dict, optional
+            The raw column that tells supply rows from use rows and its vocabulary:
+            each value maps to ``"from"`` or ``"to"``, the endpoint its rows classify.
+        allow_unmatched_edges : bool
+            Collect raw rows that match no edge (with a warning) instead of raising.
+        id : str
+            The concordance's id.
+        user_weights_df : DataFrame, optional
+            Route-and-year weights for single-endpoint fans (ADR 0002 option D);
+            columns ``root_sector_from, root_sector_to, root_region_from,
+            root_region_to, root_time, weight``, unique per key.
+        leg_filter : dict, optional
+            ``{src_sector_to: required root_sector_from}``, the fan policy of ADR 0008.
+        drop_unweighted_fans : bool
+            Do not distribute fans that have no weights (ADR 0008).
+
+        Returns
+        -------
+        ConcordanceTable
+            With ``unmatched_raw_rows`` and ``undistributed_raw_rows`` attached.
+
+        Raises
+        ------
+        ValueError
+            On a structurally impossible relation, an unmapped primary side, an
+            unknown ``aux_col`` value, ``aux_col`` without ``aux_sides``, a fan left
+            without legs, unmatched rows when ``allow_unmatched_edges`` is False, or
+            user weights without a value.
+        """
 
         # --------------------------------------------------
         # 0) Copy raw data & preserve original index
@@ -228,7 +231,8 @@ class ConcordanceTable(DataFeed):
         # --------------------------------------------------
         # 2) RAW → SRC mapping (vectorized, aux-aware)
         # --------------------------------------------------
-        # Map each raw variable to the corresponding src column, conditional on auxiliary category
+        # Map each raw variable to the corresponding src column, conditional on the
+        # auxiliary category
         for _, r in var_map_df.iterrows():
             raw_var = r["raw_var"]
             src_var = r["src_var"]
@@ -244,7 +248,8 @@ class ConcordanceTable(DataFeed):
         # --------------------------------------------------
         # 3) Build expanded edge structure
         # --------------------------------------------------
-        # Each accounting node has sector/entity/region; edges are joined with node attributes
+        # Each accounting node has sector/entity/region; edges are joined with node
+        # attributes
         node_rows = [
             {"node_id": nid, "sector": t[0], "entity": t[1], "region": t[2]}
             for t, nid in acc_struct.node_to_id.items()
@@ -307,7 +312,7 @@ class ConcordanceTable(DataFeed):
                 on="src_region_from", how="left"
             )
 
-            # to-side (skip merge when column is entirely absent/NaN — dtype mismatch guard)
+            # to-side (skip merge when column is entirely absent/NaN — dtype guard)
             if df_work["src_sector_to"].notna().any():
                 df_work = df_work.merge(
                     sec_map.rename(columns={"src_sector": "src_sector_to",
@@ -335,14 +340,16 @@ class ConcordanceTable(DataFeed):
                 # Primary key: from-side (what was explicitly classified in raw data)
                 # Constraint:  to-side may be NA if not provided — skip if so
                 edge_keys = ["from_sector", "from_region", "time", "valuation"]
-                df_keys   = ["root_sector_from", "root_region_from", "root_time", "root_valuation"]
+                df_keys   = ["root_sector_from", "root_region_from",
+                             "root_time", "root_valuation"]
                 primary_root_cols   = ["root_sector_from", "root_region_from"]
                 primary_edge_cols   = ["from_sector",      "from_region"]
                 secondary_root_cols = ["root_sector_to",   "root_region_to"]
                 secondary_edge_cols = ["to_sector",        "to_region"]
             else:
                 edge_keys = ["to_sector", "to_region", "time", "valuation"]
-                df_keys   = ["root_sector_to", "root_region_to", "root_time", "root_valuation"]
+                df_keys   = ["root_sector_to", "root_region_to",
+                             "root_time", "root_valuation"]
                 primary_root_cols   = ["root_sector_to",   "root_region_to"]
                 primary_edge_cols   = ["to_sector",        "to_region"]
                 secondary_root_cols = ["root_sector_from", "root_region_from"]
@@ -350,7 +357,8 @@ class ConcordanceTable(DataFeed):
 
             # Fail fast if primary-side root mapping is missing
             if df_work[df_keys].isna().any().any():
-                raise ValueError(f"Missing src→root mapping on primary side ({side}) rows")
+                raise ValueError(
+                    f"Missing src→root mapping on primary side ({side}) rows")
 
             # --------------------------------------------------
             # 5b) PRE-FILTER on primary side (joint sector+region pair)
@@ -384,7 +392,8 @@ class ConcordanceTable(DataFeed):
             # --------------------------------------------------
             # 6b) Filter on secondary-side root classification
             # --------------------------------------------------
-            # The raw data may classify the opposite endpoint (e.g. Type=Ore in a Use row).
+            # The raw data may classify the opposite endpoint (e.g. Type=Ore in a Use
+            # row).
             # After the edge join we must drop any matched edge whose opposite-side
             # attributes don't agree with the root classification derived from that
             # raw column — otherwise edges are accepted purely because the primary
@@ -552,27 +561,27 @@ class ConcordanceTable(DataFeed):
         # a single-endpoint producer fan per bilateral route X→Y and per year —
         # e.g. BACI-trade-share weighting of the ICSG fan (ADR 0002 option D).
         # The key (sectors, regions, time) must be unique in user_weights_df so
-        # the left-merge preserves tab rows 1:1.
+        # the left-merge preserves tab rows 1:1 (``validate`` raises otherwise).
         if user_weights_df is not None and not user_weights_df.empty:
-            uw = (user_weights_df[['root_sector_from', 'root_sector_to',
-                                   'root_region_from', 'root_region_to',
-                                   'root_time', 'weight']]
-                  .rename(columns={'weight': '_uw'})
+            uw = (user_weights_df[["root_sector_from", "root_sector_to",
+                                   "root_region_from", "root_region_to",
+                                   "root_time", "weight"]]
+                  .rename(columns={"weight": "_uw"})
                   .copy())
             # root_time may be int on one side and str on the other; align on str.
-            uw['root_time'] = uw['root_time'].astype(str)
-            tab['_rt_str']  = tab['root_time'].astype(str)
-            uw = uw.rename(columns={'root_time': '_rt_str'})
+            uw["root_time"] = uw["root_time"].astype(str)
+            tab["_rt_str"]  = tab["root_time"].astype(str)
+            uw = uw.rename(columns={"root_time": "_rt_str"})
             tab = tab.merge(
                 uw,
-                on=['root_sector_from', 'root_sector_to',
-                    'root_region_from', 'root_region_to', '_rt_str'],
-                how='left',
+                on=["root_sector_from", "root_sector_to",
+                    "root_region_from", "root_region_to", "_rt_str"],
+                how="left", validate="many_to_one",
             )
-            mask = tab['_uw'].notna()
-            tab.loc[mask, 'weight_value'] = tab.loc[mask, '_uw']
-            tab.loc[mask, 'weight_mode']  = 'user'
-            tab.drop(columns=['_uw', '_rt_str'], inplace=True)
+            mask = tab["_uw"].notna()
+            tab.loc[mask, "weight_value"] = tab.loc[mask, "_uw"]
+            tab.loc[mask, "weight_mode"]  = "user"
+            tab.drop(columns=["_uw", "_rt_str"], inplace=True)
 
         # --------------------------------------------------
         # 9c) Fan policy (optional; ADR 0008)
@@ -585,13 +594,13 @@ class ConcordanceTable(DataFeed):
         # wrong legs. A fan left with zero legs means the mapping targets a
         # structurally nonexistent edge family → hard error.
         if leg_filter:
-            required = tab['src_sector_to'].map(leg_filter)
+            required = tab["src_sector_to"].map(leg_filter)
             is_q     = required.notna()
-            keep     = ~is_q | (tab['root_sector_from'] == required)
-            grp_keep = keep.groupby([tab[c] for c in cls.SRC_COLS]).transform('any')
+            keep     = ~is_q | (tab["root_sector_from"] == required)
+            grp_keep = keep.groupby([tab[c] for c in cls.SRC_COLS]).transform("any")
             dead     = is_q & ~grp_keep
             if dead.any():
-                ex = (tab.loc[dead, ['src_sector_to', 'src_region_to', 'src_time']]
+                ex = (tab.loc[dead, ["src_sector_to", "src_region_to", "src_time"]]
                       .drop_duplicates())
                 raise ValueError(
                     f"leg_filter: {len(ex)} fan(s) have no root leg with the "
@@ -615,19 +624,19 @@ class ConcordanceTable(DataFeed):
         # the single uniform leg.
         undistributed: list = []
         if drop_unweighted_fans:
-            grp      = tab.groupby(cls.SRC_COLS)['weight_mode']
-            has_wgt  = grp.transform(lambda s: s.ne('uniform').any())
-            n_legs   = grp.transform('size')
-            is_unif  = tab['weight_mode'] == 'uniform'
+            grp      = tab.groupby(cls.SRC_COLS)["weight_mode"]
+            has_wgt  = grp.transform(lambda s: s.ne("uniform").any())
+            n_legs   = grp.transform("size")
+            is_unif  = tab["weight_mode"] == "uniform"
             # a weighted fan whose weights sum to 0 cannot be distributed
             # either (normalization would yield NaN — previously the uniform
             # leg absorbed the whole value)
-            wsum     = (tab['weight_value'].where(~is_unif, 0.0)
-                        .groupby([tab[c] for c in cls.SRC_COLS]).transform('sum'))
+            wsum     = (tab["weight_value"].where(~is_unif, 0.0)
+                        .groupby([tab[c] for c in cls.SRC_COLS]).transform("sum"))
             drop_leg = is_unif & has_wgt & (n_legs > 1) & (wsum > 0)
             drop_fan = (n_legs > 1) & (~has_wgt | (wsum == 0))
             undistributed = sorted(
-                tab.loc[drop_fan, 'raw_id'].dropna().unique().tolist())
+                tab.loc[drop_fan, "raw_id"].dropna().unique().tolist())
             if drop_leg.any() or drop_fan.any():
                 n_fans = tab.loc[drop_fan, cls.SRC_COLS].drop_duplicates().shape[0]
                 warnings.warn(
@@ -638,46 +647,10 @@ class ConcordanceTable(DataFeed):
                 )
             tab = tab.loc[~(drop_leg | drop_fan)].reset_index(drop=True)
 
-        # tab was built from a correct edge-join — skip redundant re-validation
-        instance = cls(tab=tab, acc_struct=acc_struct, id=id, _skip_validation=True)
+        instance = cls(tab=tab, acc_struct=acc_struct, id=id)
         instance.unmatched_raw_rows = unmatched
         instance.undistributed_raw_rows = undistributed
         return instance
-
-    # ------------------------------------------------------------------ #
-    # Persistence                                                          #
-    # ------------------------------------------------------------------ #
-
-    def save(self, **kwargs):
-        path = kwargs.get('path', os.path.join(self.odir, f"{self.id}.pkl"))
-        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)   # not odir: a path wins
-        with open(path, "wb") as f:
-            pickle.dump({
-                "id":         self.id,
-                "acc_id":     self.acc_used,
-                "tab":        self.tab,
-                "src_edges":  self.src_edges,
-            }, f)
-
-    @classmethod
-    def load(cls, id: str, acc_struct, **kwargs) -> "ConcordanceTable":
-        odir = kwargs.get('odir', "data/proc/conc")
-        path = kwargs.get('path', os.path.join(odir, f"{id}.pkl"))
-        with open(path, "rb") as f:
-            data = pickle.load(f)
-
-        obj = cls.__new__(cls)
-        # Bypass __init__; restore state directly
-        obj.id          = data['id']
-        obj.odir        = odir
-        obj.acc_struct  = acc_struct
-        obj.acc_used    = data['acc_id']
-        obj.tab         = data['tab']
-        obj.src_edges   = data['src_edges']
-        obj.src_edge_to_id = {tuple(row): i for i, row in data['src_edges'].iterrows()}
-        obj.n_src_edges  = len(obj.src_edges)
-        obj.n_root_edges = len(acc_struct.edge_index)
-        return obj
 
 
 # =============================================================================
@@ -693,7 +666,6 @@ class WeightMatrix(DataFeed):
 
     def __init__(self,
                  concordance: ConcordanceTable,
-                 prop_shares: Optional[pd.DataFrame] = None,
                  id: Optional[str] = None,
                  odir: str = "data/proc/conc"):
 
@@ -705,7 +677,6 @@ class WeightMatrix(DataFeed):
         )
 
         self.concordance  = concordance
-        self.prop_shares  = prop_shares
 
         self._build_weight_matrix()
 
@@ -724,64 +695,56 @@ class WeightMatrix(DataFeed):
         node_to_id = self.acc_struct.node_to_id
 
         # ── Step 1: map each concordance row's root nodes → from_id / to_id ──
-        # Using a map Series is ~100× faster than iterrows for large tab.
         tab = ct.tab.copy()
-
-        # Build (sector, entity, region) tuple columns for from/to, then map to int id.
-        tab['_from_id'] = tab.apply(
-            lambda r: node_to_id[(r['root_sector_from'], r['root_entity_from'], r['root_region_from'])],
-            axis=1)
-        tab['_to_id'] = tab.apply(
-            lambda r: node_to_id[(r['root_sector_to'], r['root_entity_to'], r['root_region_to'])],
-            axis=1)
+        tab["_from_id"] = node_ids(node_to_id, tab["root_sector_from"],
+                                   tab["root_entity_from"], tab["root_region_from"])
+        tab["_to_id"]   = node_ids(node_to_id, tab["root_sector_to"],
+                                   tab["root_entity_to"], tab["root_region_to"])
 
         # ── Step 2: resolve root edge_id via a single vectorised merge ──────
         edge_lookup = self.acc_struct.edge_index[
-            ['from_id','to_id','time','valuation','edge_id']
+            ["from_id","to_id","time","valuation","edge_id"]
         ].copy()
-        edge_lookup['time'] = edge_lookup['time'].astype(str)
+        edge_lookup["time"] = edge_lookup["time"].astype(str)
 
         tab = tab.merge(
             edge_lookup.rename(columns={
-                'from_id': '_from_id', 'to_id': '_to_id',
-                'time': 'root_time', 'valuation': 'root_valuation',
-                'edge_id': '_root_edge_id',
+                "from_id": "_from_id", "to_id": "_to_id",
+                "time": "root_time", "valuation": "root_valuation",
+                "edge_id": "_root_edge_id",
             }),
-            on=['_from_id', '_to_id', 'root_time', 'root_valuation'],
-            how='left',
+            on=["_from_id", "_to_id", "root_time", "root_valuation"],
+            how="left",
         )
 
-        if tab['_root_edge_id'].isna().any():
-            n_bad = tab['_root_edge_id'].isna().sum()
-            raise ValueError(f"Could not resolve root edge_id for {n_bad} concordance rows")
+        if tab["_root_edge_id"].isna().any():
+            n_bad = tab["_root_edge_id"].isna().sum()
+            raise ValueError(
+                f"Could not resolve root edge_id for {n_bad} concordance rows")
 
-        # ── Step 3: resolve src_id via dict lookup (already O(1) per row) ──
-        tab['_src_id'] = tab.apply(
-            lambda r: ct.src_edge_to_id[tuple(r[c] for c in ct.SRC_COLS)], axis=1)
+        # ── Step 3: resolve src_id: the row of ``ct.src_edges`` holding its src key ──
+        src_pos = pd.MultiIndex.from_frame(ct.src_edges[ct.SRC_COLS]).get_indexer(
+            pd.MultiIndex.from_frame(tab[ct.SRC_COLS]))
+        if (src_pos < 0).any():
+            raise KeyError(tuple(tab.loc[src_pos < 0, ct.SRC_COLS].iloc[0]))
+        tab["_src_id"] = src_pos
 
         # ── Step 4: build COO sparse matrix ─────────────────────────────────
-        src_ids  = tab['_src_id'].to_numpy(dtype=np.int64)
-        root_ids = tab['_root_edge_id'].to_numpy(dtype=np.int64)
-        weights  = tab['weight_value'].to_numpy(dtype=float)
+        src_ids  = tab["_src_id"].to_numpy(dtype=np.int64)
+        root_ids = tab["_root_edge_id"].to_numpy(dtype=np.int64)
+        weights  = tab["weight_value"].to_numpy(dtype=float)
 
         self.weight_matrix = sp.coo_matrix(
             (weights, (src_ids, root_ids)),
             shape=(ct.n_src_edges, ct.n_root_edges),
         ).tocsr()
-            # ------------------------------------------------------------------ #
-    # Apply                                                                #
-    # ------------------------------------------------------------------ #
-
-    def apply(self, F_src: np.ndarray) -> np.ndarray:
-        """Map a vector over src_edges → root_edges via W.T @ F_src."""
-        return self.weight_matrix.T @ F_src
 
     # ------------------------------------------------------------------ #
     # Persistence                                                          #
     # ------------------------------------------------------------------ #
 
     def save(self, **kwargs):
-        path = kwargs.get('path', os.path.join(self.odir, f"{self.id}.pkl"))
+        path = kwargs.get("path", os.path.join(self.odir, f"{self.id}.pkl"))
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)   # not odir: a path wins
         with open(path, "wb") as f:
             pickle.dump({
@@ -796,31 +759,30 @@ class WeightMatrix(DataFeed):
 
     @classmethod
     def load(cls, id: str, acc_struct, **kwargs) -> "WeightMatrix":
-        odir = kwargs.get('odir', "data/proc/conc")
-        path = kwargs.get('path', os.path.join(odir, f"{id}.pkl"))
+        odir = kwargs.get("odir", "data/proc/conc")
+        path = kwargs.get("path", os.path.join(odir, f"{id}.pkl"))
         with open(path, "rb") as f:
             data = pickle.load(f)
 
         # Reconstruct concordance shell (no re-validation needed)
         ct = ConcordanceTable.__new__(ConcordanceTable)
-        ct.id            = data['concordance_id']
+        ct.id            = data["concordance_id"]
         ct.odir          = odir
         ct.acc_struct    = acc_struct
-        ct.acc_used      = data['acc_id']
-        ct.tab           = data['concordance_tab']
-        ct.src_edges     = data['concordance_src_edges']
+        ct.acc_used      = data["acc_id"]
+        ct.tab           = data["concordance_tab"]
+        ct.src_edges     = data["concordance_src_edges"]
         ct.src_edge_to_id = {
-            tuple(row): i for i, row in data['concordance_src_edges'].iterrows()
+            tuple(row): i for i, row in data["concordance_src_edges"].iterrows()
         }
         ct.n_src_edges  = len(ct.src_edges)
         ct.n_root_edges = len(acc_struct.edge_index)
 
         obj = cls.__new__(cls)
-        obj.id            = data['id']
+        obj.id            = data["id"]
         obj.odir          = odir
         obj.acc_struct    = acc_struct
-        obj.acc_used      = data['acc_id']
+        obj.acc_used      = data["acc_id"]
         obj.concordance   = ct
-        obj.prop_shares   = None
-        obj.weight_matrix = data['weight_matrix']
+        obj.weight_matrix = data["weight_matrix"]
         return obj
