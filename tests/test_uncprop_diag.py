@@ -43,7 +43,7 @@ def _block_run(tmp_path, monkeypatch, agg_id=""):
     from pysuto.constraints import ConstraintEngine, MassBalanceBuilder
 
     acc = _make_toy_acc()
-    engine = ConstraintEngine(acc, storage_dir=str(tmp_path / "const"))
+    engine = ConstraintEngine(acc, storage_dir=str(tmp_path / "const"), sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
     engine.register(MassBalanceBuilder())
     cr = engine.run(_make_toy_agg_result(acc), timesteps=["2020", "2021"], persist=False)
 

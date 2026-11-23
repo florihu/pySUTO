@@ -49,6 +49,7 @@ from typing import Optional, Sequence
 import numpy as np
 
 from pysuto.logging import get_logger
+from pysuto.lp import P_DEFAULT
 from pysuto.relation.param_relation import expand_edge_index
 from pysuto.relation.params import WILDCARD, read_params
 
@@ -114,11 +115,12 @@ class ShareImputer(BaseImputer):
         self,
         p95: dict,
         legs: Sequence[StockLeg],
-        scale_abs_floor: float = 100.0,
-        p: float = 1.3,
+        scale_abs_floor: float,
+        p: float = P_DEFAULT,
         id: Optional[str] = None,
-        seed_cv: float = 0.01,
-        seed_abs_floor: float = 0.3,
+        *,
+        seed_cv: float,
+        seed_abs_floor: float,
     ) -> None:
         self.id              = id or "share"
         self._p95            = p95           # (sector, region_to) -> p95, transfer legs
@@ -132,9 +134,9 @@ class ShareImputer(BaseImputer):
     # ------------------------------------------------------------------
     @classmethod
     def from_stock_bounds_csv(
-        cls, path: str, legs: Sequence[StockLeg], scale_abs_floor: float = 100.0,
-        p: float = 1.3, id: Optional[str] = None,
-        seed_cv: float = 0.01, seed_abs_floor: float = 0.3,
+        cls, path: str, legs: Sequence[StockLeg], scale_abs_floor: float,
+        p: float = P_DEFAULT, id: Optional[str] = None,
+        *, seed_cv: float, seed_abs_floor: float,
     ) -> "ShareImputer":
         """Read the per-(stock sector, region) p95 (value_max) from the stock_bounds
         params CSV — the same file that defines the Part-A soft bounds, so the

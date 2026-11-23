@@ -283,7 +283,7 @@ def imputer(tmp_path, acc):
     write_eff_csv(eff)
     write_conc_csv(conc)
     write_ore_grade_csv(og)
-    imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=float("inf"))
+    imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=float("inf"), q=3.0, alpha_min=0.05)
     imp.prepare(acc)
     return imp
 
@@ -408,7 +408,8 @@ def _stripping_imputer(tmp_path, acc, k_by_region):
     write_ore_grade_csv(og)
     write_stripping_csv(sr, k_by_region)
     imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=1.5,
-                         stripping_ratio_csv=str(sr), stripping_sigma=1.0e6)
+                         stripping_ratio_csv=str(sr), stripping_sigma=1.0e6,
+                         q=3.0, alpha_min=0.05)
     imp.prepare(acc)
     return imp
 
@@ -459,7 +460,7 @@ def test_effless_cp_psc_zero_carries_the_resolution_sigma(tmp_path, acc):
     _write(conc, rows + [_conc_pair("psc_use", "PSC", "SB", "use", 0.9975)])
 
     def run(**kw):
-        imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=float("inf"), **kw)
+        imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=float("inf"), **kw, q=3.0, alpha_min=0.05)
         imp.prepare(acc)
         return _run(imp, acc, {("CSXEW", "CP", "CC"): 30.0, ("CER", "CP", "CC"): 70.0,
                                ("CO", "Mining", "CC"): 100.0})
@@ -579,7 +580,7 @@ def imputer2(tmp_path, acc2):
     write_eff_csv(eff)
     write_conc_csv(conc)
     write_ore_grade_csv(og)
-    imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=float("inf"))
+    imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=float("inf"), q=3.0, alpha_min=0.05)
     imp.prepare(acc2)
     return imp
 
@@ -666,7 +667,7 @@ sys.path.insert(0, sys.argv[1])
 from test_network_imputer import MockAcc
 from pysuto.impute import NetworkImputer
 acc = MockAcc(times=("2020", "2021", "2022", "2023"))
-imp = NetworkImputer(*sys.argv[2:5], p=1.3, cv_cap=float("inf"))
+imp = NetworkImputer(*sys.argv[2:5], p=1.3, cv_cap=float("inf"), q=3.0, alpha_min=0.05)
 imp.prepare(acc)
 print([(r.edges.tolist(), r.coefficients.tolist()) for r, _ in imp._flow_nodes])
 """
@@ -804,7 +805,7 @@ def bi_imputer(tmp_path):
     conc = tmp_path / "bi_conc.csv"
     _write_bi_eff(eff)
     _write_bi_conc(conc)
-    imp = NetworkImputer(str(eff), str(conc), p=1.3, cv_cap=float("inf"))
+    imp = NetworkImputer(str(eff), str(conc), p=1.3, cv_cap=float("inf"), q=3.0, alpha_min=0.05)
     imp.prepare(acc)
     return imp, acc
 
@@ -934,7 +935,8 @@ def _stock_imputer(tmp_path, acc, stock_sectors):
     eff = tmp_path / "eff.csv"; conc = tmp_path / "conc.csv"; og = tmp_path / "ore_grade.csv"
     write_eff_csv(eff); write_conc_csv(conc); write_ore_grade_csv(og)
     imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=float("inf"),
-                         stock_sectors=stock_sectors)
+                         stock_sectors=stock_sectors,
+                         q=3.0, alpha_min=0.05)
     imp.prepare(acc)
     return imp
 
@@ -1067,7 +1069,7 @@ def _matte_to_cp_imputer(tmp_path):
     eff, conc = tmp_path / "eff.csv", tmp_path / "conc.csv"
     write_eff_csv(eff, stripping_ratio=None)
     write_conc_csv(conc)
-    imp = NetworkImputer(str(eff), str(conc), p=1.3, cv_cap=float("inf"))
+    imp = NetworkImputer(str(eff), str(conc), p=1.3, cv_cap=float("inf"), q=3.0, alpha_min=0.05)
     imp.prepare(acc)
     return imp, acc
 
@@ -1171,7 +1173,7 @@ def _coproduct_imputer(tmp_path):
                                         ).to_dict("records")
                  if r["param_id"] != "eff_smelting"] + rows)
     write_conc_csv(conc)
-    imp = NetworkImputer(str(eff), str(conc), p=1.3, cv_cap=float("inf"))
+    imp = NetworkImputer(str(eff), str(conc), p=1.3, cv_cap=float("inf"), q=3.0, alpha_min=0.05)
     imp.prepare(acc)
     return imp, acc
 

@@ -183,7 +183,7 @@ def test_a_run_of_another_case_is_refused():
 
 def test_the_constraint_engine_exempts_no_sector_from_the_anchor_by_default(tmp_path):
     from pysuto.constraints import ConstraintEngine
-    engine = ConstraintEngine(acc_struct=None, storage_dir=str(tmp_path / "const"))
+    engine = ConstraintEngine(acc_struct=None, storage_dir=str(tmp_path / "const"), sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
     assert engine._nodata_anchor_exclude == ()
 
 

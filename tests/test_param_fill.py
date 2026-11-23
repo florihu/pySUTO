@@ -194,7 +194,7 @@ def _build(tmp_path, with_anode_conc=True):
              trade_scope(acc), id="trade"),
         "trade", p=1.3,
     )
-    network = NetworkImputer(str(eff), str(conc), p=1.3, cv_cap=float("inf"))
+    network = NetworkImputer(str(eff), str(conc), p=1.3, cv_cap=float("inf"), q=3.0, alpha_min=0.05)
     network.prepare(acc)
     return acc, trade, network
 

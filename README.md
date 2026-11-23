@@ -560,7 +560,7 @@ $$\sigma_a'[i] = \left( |\sigma_a[i]|^p + |\mathrm{CV}_a^\mathrm{min} \cdot a_0[
 
 $$\sigma_c'[k] = \left( |\sigma_c[k]|^p + |\mathrm{CV}_c^\mathrm{min} \cdot c[k]|^p + |\sigma_c^\mathrm{floor}|^p \right)^{1/p} \quad (\text{free rows only})$$
 
-Defaults: $\mathrm{CV}_a^\mathrm{min} = \mathrm{CV}_c^\mathrm{min} = 0.05$, $\sigma_a^\mathrm{floor} = 10^{-6}$, $\sigma_c^\mathrm{floor} = 10^{-3}$, $p = 1.3$. Hard rows keep σ_c = 0 unchanged. The $\mathrm{CV}^\mathrm{min}$ term *is* the relative floor (a misreading of an earlier REP claimed it was missing); the absolute floor is the numerical safety net.
+The four σ arguments (`sigma_a_cv_min`, `sigma_a_abs_floor`, `sigma_c_cv_min`, `sigma_c_abs_floor`) and `nodata_anchor_cv` are required of `ConstraintEngine`: the case owns them (copper's `SIGMA_*` and `NODATA_ANCHOR_CV` in `scripts/copper.py`); only $p$ has a library default, `pysuto.lp.P_DEFAULT`. Hard rows keep σ_c = 0 unchanged. The $\mathrm{CV}^\mathrm{min}$ term *is* the relative floor (a misreading of an earlier REP claimed it was missing); the absolute floor is the numerical safety net.
 
 **Ordering.** σ_a regularisation runs *before* `build_dynamic` propagates σ_a → σ_c via the Lp combine over `_rhs_ids`, so the regularised σ_a flows into σ_c. This is deliberate: the relative term $\mathrm{CV}_a^\mathrm{min} \cdot |a_0|$ is a modelling claim about how tightly we believe σ_a, not a numerical guard, so it *should* propagate to σ_c. The absolute floor $\sigma_a^\mathrm{floor}$ is the actual safety net — once the FlatPriorImputer's 3-level scale cascade is in place (see Stage 2) it should essentially never fire on imputer-filled edges, so its presence does not distort downstream uncertainty propagation.
 
@@ -961,6 +961,7 @@ engine.register_cascade(
                        ore_grade_csv=csv("ore_grade"),
                        stripping_ratio_csv=csv("stripping_ratio"),
                        p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG,
+                       cv_cap=NETWORK_CV_CAP,
                        stock_sectors=("MESC", "USC"), id="network"),
         *[FillImputer(Fill(ParamSource.from_params(csv(pid), acc), "both", id=pid),
                       "parametric", p=P_PROP, q=Q_REG, alpha_min=ALPHA_MIN_REG)
@@ -971,7 +972,9 @@ engine.register_cascade(
 # Terminal imputers, in order.
 engine.register(TimeImputer(window=3, method="linear", min_obs=2, gap_inflation=1.05,
                             interpolate_only=True, p=P_PROP))
-engine.register(ShareImputer.from_stock_bounds_csv(csv("stock_bounds"), p=P_PROP))
+engine.register(ShareImputer.from_stock_bounds_csv(
+    csv("stock_bounds"), p=P_PROP, scale_abs_floor=100.0,
+    seed_cv=STOCK_SEED_CV, seed_abs_floor=STOCK_SEED_ABS_FLOOR_KT))
 engine.register(FlatPriorImputer(acc_struct=acc, mode="noisy_zero", sigma_high=1.0e6,
                                  p=P_PROP))
 param_refs = [inputs.params.entry(pid) for pid in
@@ -994,14 +997,19 @@ imp_run_id = imp_registry.register(
 )
 
 # ── Stage 3: build the constraint system ──────────────────────────────────
-const_engine = ConstraintEngine(acc_struct=acc, p=P_PROP)
+const_engine = ConstraintEngine(
+    acc_struct=acc, p=P_PROP,
+    sigma_a_cv_min=SIGMA_A_CV_MIN, sigma_a_abs_floor=SIGMA_A_ABS_FLOOR,
+    sigma_c_cv_min=SIGMA_C_CV_MIN, sigma_c_abs_floor=SIGMA_C_ABS_FLOOR,
+    nodata_anchor_cv=NODATA_ANCHOR_CV)
 const_engine.register(MassBalanceBuilder())
 const_engine.register(SumConstraintBuilder.from_acc_struct(acc, sigma_fraction=0.05))
 
 # Two builders consume the same param_id ("conc", "eff").
+RATIO = dict(sigma_rel_floor=RATIO_SIGMA_REL_FLOOR, scale_abs_floor=RATIO_SCALE_ABS_FLOOR)
 CONST_BINDINGS = [
-    ("conc",         RatioConstraintBuilder, {}),
-    ("eff",          RatioConstraintBuilder, {}),
+    ("conc",         RatioConstraintBuilder, RATIO),
+    ("eff",          RatioConstraintBuilder, RATIO),
     ("conc",         RatioBoundBuilder,      {}),
     ("eff",          RatioBoundBuilder,      {}),
     ("stock_bounds", RatioBoundBuilder,      {}),   # agg=true rows; |Σ b| ≤ k·Σ a  (b=stock numerator, a=Cathode denom; PSC only since ADR 0040; the Σb−r·Σa form, see GLOSSARY.md §"Node-scoped vs set-scoped")

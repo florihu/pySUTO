@@ -14,6 +14,7 @@ from typing import Optional
 import numpy as np
 
 from pysuto.logging import get_logger
+from pysuto.lp import P_DEFAULT
 from pysuto.relation.param_relation import expand_edge_index
 
 from .base import BaseImputer
@@ -72,7 +73,7 @@ class FlatPriorImputer(BaseImputer):
         acc_struct,
         cv_by_mask: Optional[dict[str, tuple[float, float]]] = None,
         default_cv: Optional[float] = None,
-        p: float = 1.3,
+        p: float = P_DEFAULT,
         masks: Optional[dict[str, np.ndarray]] = None,
         mode: str = "magnitude_aware",
         sigma_high: Optional[float] = None,

@@ -37,6 +37,7 @@ import numpy as np
 from pysuto.registry import DataFeedRegistry
 from pysuto.agg import AggregationMath, AggregationResult
 from pysuto.logging import get_logger
+from pysuto.lp import P_DEFAULT
 
 logger = get_logger("collector")
 
@@ -191,14 +192,14 @@ class FeedCollector:
     # Aggregation
     # ------------------------------------------------------------------
 
-    def aggregate(self, p: float = 1.3) -> AggregationResult:
+    def aggregate(self, p: float = P_DEFAULT) -> AggregationResult:
         """
         Align selected feeds and compute inverse-variance aggregation with
         Lp σ propagation.
 
         Parameters
         ----------
-        p : power-mean exponent for σ_agg (default 1.3).
+        p : power-mean exponent for σ_agg (default ``P_DEFAULT``).
 
         Returns
         -------

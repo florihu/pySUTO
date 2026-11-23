@@ -30,6 +30,7 @@ from typing import Optional, List
 import numpy as np
 
 from pysuto.logging import get_logger
+from pysuto.lp import P_DEFAULT, lp_combine_axis
 
 logger = get_logger("agg")
 
@@ -103,7 +104,7 @@ class AggregationMath:
         F:        np.ndarray,
         Sigma:    np.ndarray,
         feed_ids: List[str],
-        p:        float = 1.3,
+        p:        float = P_DEFAULT,
     ) -> AggregationResult:
         """
         Compute inverse-variance weighted aggregation with Lp σ propagation.
@@ -113,7 +114,7 @@ class AggregationMath:
         F        : [N_f × N_r]  observations; NaN where feed does not cover edge
         Sigma    : [N_f × N_r]  standard deviations; NaN where feed does not cover
         feed_ids : length-N_f list of feed ID strings
-        p        : power-mean exponent for σ_agg (default 1.3). p=2 recovers
+        p        : power-mean exponent for σ_agg (default ``P_DEFAULT``). p=2 recovers
                    Gaussian quadrature σ_agg = 1/sqrt(Σ 1/σ_k²).
 
         Returns
@@ -146,12 +147,10 @@ class AggregationMath:
         # σ_agg[j] = ( Σ_k |Ω_kj · σ_k[j]|^p )^(1/p); NaN where uncovered.
         # Mask out feed/edge pairs that are not covered (NaN σ → contribute 0).
         Sigma_safe = np.where(np.isfinite(Sigma), Sigma, 0.0)
-        terms = np.abs(Omega * Sigma_safe) ** p          # [N_f × N_r]
-        sum_p = terms.sum(axis=0)                         # [N_r]
         with np.errstate(divide="ignore", invalid="ignore"):
             sigma_agg = np.where(
                 coverage,
-                np.power(np.maximum(sum_p, 0.0), 1.0 / p),
+                lp_combine_axis(Omega * Sigma_safe, p, axis=0),   # [N_r]
                 np.nan,
             )
 

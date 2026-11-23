@@ -15,6 +15,7 @@ import scipy.sparse as sp
 
 from pysuto.acc import BALANCE_ENTITIES
 from pysuto.logging import get_logger
+from pysuto.lp import P_DEFAULT, lp_combine_axis
 from pysuto.relation.param_relation import ParamRelationResolver, expand_edge_index
 from pysuto.relation.params import SELECTOR_KEYS, WILDCARD, ParamRow
 
@@ -51,7 +52,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
     For modes "sd" and "pedigree" the sigma_c is static too.
     """
 
-    def __init__(self, specs: list[dict], sigma_fraction: float = 0.0, p: float = 1.3):
+    def __init__(self, specs: list[dict], sigma_fraction: float = 0.0, p: float = P_DEFAULT):
         """
         specs : list of dicts, each with keys:
             constraint_id, description,
@@ -82,7 +83,8 @@ class SumConstraintBuilder(BaseConstraintBuilder):
     def from_acc_struct(
         cls,
         acc_struct,
-        sigma_fraction: float = 0.05,
+        *,
+        sigma_fraction: float,
         entity_filter: Optional[set] = None,
         mask: Optional[str] = None,
     ) -> "SumConstraintBuilder":
@@ -183,8 +185,8 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         rhs_out_entity_sub: set = frozenset(),
         lhs_neg_out_entity_sub: set = frozenset(),
         sigma_mode: str = "p_mean",
-        sigma_fraction: float = 0.05,
-        p: float = 1.3,
+        sigma_fraction: float,
+        p: float = P_DEFAULT,
         mask: Optional[str] = None,
     ) -> "SumConstraintBuilder":
         """
@@ -451,12 +453,13 @@ class SumConstraintBuilder(BaseConstraintBuilder):
         mask,
         anchor_values: np.ndarray,
         group_keys: tuple = ("region_to", "time", "valuation"),
-        sigma_cv: float = 0.01,
+        *,
+        sigma_cv: float,
         coeff: float = 1.0,
         id_prefix: str = "anchor",
         min_abs_c: float = 1e-9,
         sigma_cv_resolver=None,
-        p: float = 1.3,
+        p: float = P_DEFAULT,
     ) -> "SumConstraintBuilder":
         """
         One soft-sum anchor row per group of masked edges.
@@ -663,7 +666,8 @@ class SumConstraintBuilder(BaseConstraintBuilder):
                 rhs = spec.get("_rhs_ids", [])
                 if rhs:
                     c_out[i]   = float(np.nansum(f_agg[rhs]))
-                    sigma_c[i] = float(np.nansum(sigma_agg[rhs] ** self._p) ** (1.0 / self._p))
+                    sigma_c[i] = float(lp_combine_axis(
+                        np.where(np.isnan(sigma_agg[rhs]), 0.0, sigma_agg[rhs]), self._p))
 
         return ConstraintBlock(
             G_rows   = static.G_rows,

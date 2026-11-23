@@ -14,6 +14,8 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
+from pysuto.lp import P_DEFAULT
+
 
 @dataclass
 class ConstraintRun:
@@ -56,7 +58,7 @@ class ConstraintRun:
     agg_id:         str
     created_at:     str
     label:          str = ""
-    _p:             float = 1.3
+    _p:             float = P_DEFAULT
     G_blocks:       dict = field(default_factory=dict)
     edge_cols_by_t: dict = field(default_factory=dict)
     acc_ref:        dict = field(default_factory=dict)
