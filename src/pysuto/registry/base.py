@@ -1,8 +1,7 @@
 """
 base.py
 =======
-``BaseOutputRegistry`` — shared scaffolding for the four output registries
-(Stages 1, 2, 3, 4).
+``BaseOutputRegistry`` — shared scaffolding for the output registries.
 """
 
 from __future__ import annotations
@@ -20,7 +19,7 @@ from ._sidecar import (
 
 
 class BaseOutputRegistry:
-    """Shared scaffolding for the four output registries.
+    """Shared scaffolding for the output registries.
 
     Owns:
       * the harmonized run-id format (``{stage}_{ts}_{code}``),
@@ -87,6 +86,12 @@ class BaseOutputRegistry:
         run_dir = os.path.join(self.storage_dir, run_id)
         return _json_load(os.path.join(run_dir, self.SIDECAR_FILENAME))
 
+    def load_sidecar(self, run_id: str) -> dict:
+        """The run's ``metadata.json``; ``KeyError`` for an id not in the index."""
+        if run_id not in self._index:
+            raise KeyError(f"{self.STAGE} run '{run_id}' not in registry")
+        return self._read_sidecar(run_id)
+
     def _add_entry(
         self,
         *,
@@ -120,9 +125,6 @@ class BaseOutputRegistry:
 
     def run_ids(self) -> List[str]:
         return list(self._index.keys())
-
-    def labels(self) -> List[str]:
-        return sorted({e.label for e in self._index.values() if e.label})
 
     def latest_by_label(self, label: str) -> _RegistryEntry:
         runs = [e for e in self._index.values() if e.label == label]

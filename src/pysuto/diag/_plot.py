@@ -77,9 +77,7 @@ def _grouped_box_grid(
     group_label: str,
     y_label: str,
     suptitle: str,
-    highlight: tuple = (),
     cell_title=lambda r, c: f"{r} · {c}",
-    cats_order=None,
 ):
     """Render a faceted grid of category boxplots.
 
@@ -88,10 +86,8 @@ def _grouped_box_grid(
     (already finite) numbers to box. Rows/cols share a single global category
     x-order; sharey is per column.
 
-    - ``cats_order`` None -> derived from the pooled median across all cells,
+    - the category order is derived from the pooled median across all cells,
       sorted descending.
-    - ``highlight`` non-empty -> those categories keep a distinct tab10 colour,
-      every other category renders grey at low alpha.
     - all cells empty -> a single-axes placeholder figure carrying ``suptitle``.
     """
     import matplotlib.pyplot as plt
@@ -113,35 +109,18 @@ def _grouped_box_grid(
         fig.suptitle(suptitle, fontsize=12)
         return fig
 
-    if cats_order is not None:
-        cats_sorted = np.asarray(cats_order)
-    else:
-        cats_pool, inv_pool = np.unique(pool_lbl, return_inverse=True)
-        medians_pool = np.array([
-            np.median(pool_val[inv_pool == i]) if np.any(inv_pool == i) else -np.inf
-            for i in range(len(cats_pool))
-        ])
-        cats_sorted = cats_pool[np.argsort(-medians_pool)]
+    cats_pool, inv_pool = np.unique(pool_lbl, return_inverse=True)
+    medians_pool = np.array([
+        np.median(pool_val[inv_pool == i]) if np.any(inv_pool == i) else -np.inf
+        for i in range(len(cats_pool))
+    ])
+    cats_sorted = cats_pool[np.argsort(-medians_pool)]
 
-    # Colour assignment per category (highlight or grey).
+    # Colour assignment per category.
     tab10 = plt.get_cmap("tab10").colors
-    if highlight:
-        highlight_set = set(highlight)
-        highlight_color = {h: tab10[k % 10] for k, h in enumerate(highlight)}
-        face_colors, edge_colors, alphas = [], [], []
-        for cat in cats_sorted:
-            if cat in highlight_set:
-                face_colors.append(highlight_color[cat])
-                edge_colors.append(highlight_color[cat])
-                alphas.append(0.7)
-            else:
-                face_colors.append(_C["grey"])
-                edge_colors.append(_C["grey"])
-                alphas.append(0.25)
-    else:
-        face_colors = [tab10[i % 10] for i in range(len(cats_sorted))]
-        edge_colors = face_colors
-        alphas = [0.7] * len(cats_sorted)
+    face_colors = [tab10[i % 10] for i in range(len(cats_sorted))]
+    edge_colors = face_colors
+    alphas = [0.7] * len(cats_sorted)
 
     # Figure layout — sharex (categorical) across all cells; sharey per column.
     n_rows = len(row_keys)

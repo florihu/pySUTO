@@ -301,7 +301,6 @@ class TestRegistryConstruction:
 
     def test_odir_stored(self, tmp_path):
         reg = DataFeedRegistry(odir=str(tmp_path))
-        assert reg.odir == str(tmp_path)
         assert reg.storage_dir == str(tmp_path)
 
     def test_empty_on_init(self, registry):
@@ -348,7 +347,7 @@ class TestRegistryRegister:
 
     def test_run_dir_is_under_storage(self, registry, feed, metadata, result, parents_feed):
         entry = registry.register(feed, metadata, parents=parents_feed, result=result)
-        assert entry.run_dir == os.path.join(registry.odir, entry.run_id)
+        assert entry.run_dir == os.path.join(registry.storage_dir, entry.run_id)
         assert os.path.isdir(entry.run_dir)
 
     def test_sidecar_written(self, registry, feed, metadata, result, parents_feed):
@@ -435,12 +434,12 @@ class TestRegistrySaveLoad:
 
     def test_save_creates_registry_json(self, populated_registry):
         populated_registry.save()
-        path = os.path.join(populated_registry.odir, "registry.json")
+        path = os.path.join(populated_registry.storage_dir, "registry.json")
         assert os.path.isfile(path)
 
     def test_registry_json_has_only_four_fields(self, populated_registry):
         populated_registry.save()
-        path = os.path.join(populated_registry.odir, "registry.json")
+        path = os.path.join(populated_registry.storage_dir, "registry.json")
         with open(path) as f:
             payload = json.load(f)
         for run_id, entry in payload.items():
@@ -972,3 +971,108 @@ class TestLegacyConeTypeSchema:
         from pysuto.constraints.naming import upgrade_legacy_row_meta
         rm = pd.DataFrame({"sense": ["eq"], "is_hard": [True]})
         assert upgrade_legacy_row_meta(rm) is rm
+
+
+# =============================================================================
+# Review fixes U8 (#279)
+# =============================================================================
+
+
+class TestRunIdFormatOfEveryStage:
+    """U8-S1-3: every registry mints ``{stage}_{YYYYMMDD_HHMMSS}_{8hex}``."""
+
+    _ALL = re.compile(r"^(feed|imp|const|opt|uncprop|psut|sweep)_\d{8}_\d{6}_[a-f0-9]{8}$")
+
+    @pytest.mark.parametrize("cls", ["DataFeedRegistry", "ImputationRunRegistry",
+                                     "ConstraintRunRegistry", "OptimRunRegistry",
+                                     "UncPropRunRegistry", "PsutRunRegistry",
+                                     "SweepRunRegistry"])
+    def test_a_registry_stage_names_its_run_ids(self, cls):
+        import pysuto.registry as R
+        stage = getattr(R, cls).STAGE
+        assert self._ALL.match(make_run_id(stage))
+        assert make_run_id(stage).startswith(f"{stage}_")
+
+    def test_a_registered_sweep_run_has_the_pattern(self, tmp_path):
+        from pysuto.registry import SweepRunRegistry
+        sid = SweepRunRegistry(str(tmp_path)).register(
+            label="s", parents={"inputs": {}, "upstream": {}}, stage_config={},
+            manifest={"points": []})
+        assert self._ALL.match(sid) and sid.startswith("sweep_")
+
+
+class TestAtomicIndexWrites:
+    """U8-G3-8 / S1-4b: a crash while writing leaves the previous file whole."""
+
+    def test_a_failed_dump_keeps_the_previous_file_and_leaves_no_temp(self, tmp_path):
+        path = str(tmp_path / "registry.json")
+        _json_dump({"a": 1}, path)
+        with pytest.raises(TypeError):
+            _json_dump({"a": object()}, path)                 # not serialisable
+        assert _json_load(path) == {"a": 1}
+        assert os.listdir(tmp_path) == ["registry.json"]
+
+
+class TestRegistryLookupFailures:
+    """U8-G6-9 with G3-5 / G3-6: one load_sidecar guard, one failure behaviour."""
+
+    @pytest.mark.parametrize("cls", ["ImputationRunRegistry", "ConstraintRunRegistry",
+                                     "OptimRunRegistry", "UncPropRunRegistry"])
+    def test_load_sidecar_of_an_unknown_run_raises_key_error(self, tmp_path, cls):
+        import pysuto.registry as R
+        reg = getattr(R, cls)(str(tmp_path))
+        with pytest.raises(KeyError, match="not in registry"):
+            reg.load_sidecar("nope_20260101_000000_deadbeef")
+
+    def test_latest_by_label_of_an_unknown_label_raises_key_error(self, tmp_path):
+        with pytest.raises(KeyError, match="label"):
+            ImputationRunRegistry(str(tmp_path)).latest_by_label("nothing")
+
+    def test_the_feed_index_warns_about_a_run_whose_sidecar_is_gone(
+            self, tmp_path, feed, metadata, parents_feed, result):
+        reg = DataFeedRegistry(odir=str(tmp_path))
+        entry = reg.register(feed, metadata, parents=parents_feed, result=result)
+        reg.save()
+        os.remove(os.path.join(entry.run_dir, "metadata.json"))
+        again = DataFeedRegistry(odir=str(tmp_path))
+        with pytest.warns(UserWarning, match="no readable sidecar"):
+            again.load_index()
+        with pytest.raises(KeyError):
+            again.latest_by_input_feed_id("icsg")
+
+    def test_the_feed_summary_warns_about_an_unreadable_sidecar(
+            self, tmp_path, feed, metadata, parents_feed, result):
+        reg = DataFeedRegistry(odir=str(tmp_path))
+        entry = reg.register(feed, metadata, parents=parents_feed, result=result)
+        with open(os.path.join(entry.run_dir, "metadata.json"), "w") as f:
+            f.write("{")
+        with pytest.warns(UserWarning, match="Could not load sidecar"):
+            assert len(reg.summary_df()) == 1
+
+    def test_the_constraint_and_imputation_summaries_warn_alike(self, tmp_path):
+        const = ConstraintRunRegistry(str(tmp_path / "const"))
+        run = _toy_constraint_run()
+        const.register(run)
+        with open(os.path.join(const.storage_dir, run.run_id, "metadata.json"), "w") as f:
+            f.write("{")
+        with pytest.warns(UserWarning, match="Could not load sidecar"):
+            assert len(const.summary_df()) == 1
+        imp = ImputationRunRegistry(str(tmp_path / "imp"))
+        rid = imp.register(_AggResult(), label="x",
+                           parents={"inputs": {}, "upstream": {}})
+        with open(os.path.join(imp.storage_dir, rid, "metadata.json"), "w") as f:
+            f.write("{")
+        with pytest.warns(UserWarning, match="Could not load sidecar"):
+            assert len(imp.summary_df()) == 1
+
+    def test_the_constraint_loader_requires_its_exponent(self, tmp_path):
+        """U8-G3-7: ``p`` is read, not defaulted to a second copy of 1.3."""
+        run = _toy_constraint_run()
+        reg = ConstraintRunRegistry(str(tmp_path))
+        reg.register(run)
+        path = os.path.join(str(tmp_path), run.run_id, "metadata.json")
+        sidecar = _json_load(path)
+        del sidecar["stage_config"]["p"]
+        _json_dump(sidecar, path)
+        with pytest.raises(KeyError, match="p"):
+            reg.load(run.run_id)

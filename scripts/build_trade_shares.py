@@ -88,6 +88,7 @@ from pysuto.feedprep.trade_shares import (
     baci_observed_regions, build_edges_frame, compute_trade_share_weights,
     imports_exhausted_groups, traded_conc_lookup)
 from pysuto.input_registry import PARAMS_PARENTS, InputRegistries
+from pysuto.registry import stage_lock
 
 # ---------------------------------------------------------------------------
 # USER CONFIGURATION
@@ -138,7 +139,8 @@ def _input_registries():
 
 def _register_inputs():
     """Version every edited ``current/`` — ``main``'s call, as a pipeline step's."""
-    return InputRegistries.initialize(root=_INPUT_ROOT)
+    with stage_lock("build_trade_shares", root=os.path.join(os.path.dirname(_INPUT_ROOT), "proc")):
+        return InputRegistries.initialize(root=_INPUT_ROOT)
 
 
 def main() -> None:

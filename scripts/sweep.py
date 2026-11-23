@@ -33,7 +33,8 @@ from pysuto.pipeline import RESERVE_GB, Axis, Chain, Pipeline, Sweep
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
 
-# The knob study of #108; its decisions are recorded on the issue (2026-10-22).
+# The knob sweep of #108; its decisions are recorded on the issue (2026-10-22). This block
+# is #108's frozen declaration: another sweep names its own --base chain here.
 # The chain every point starts from: its feed runs feed the imp step, and every point
 # is compared with it. The final reference chain (#111, 2026-10-22).
 BASE_OPT_RUN_ID = "opt_20261022_112855_928da10c"
@@ -41,7 +42,7 @@ STEPS           = ("imp", "const", "opt")
 MODE            = "random"          # "random" (seeded Latin hypercube) | "grid"
 N_POINTS        = 64                # random mode only: ≈ 4× the axes
 SEED            = 20261022          # random mode only
-LABEL           = "knob study (#108)"
+LABEL           = "knob sweep (#108)"
 
 # Keep only the opt runs: each point's imp and const runs (≈ 0.93 GB) go to a RAM-backed
 # scratch store and are deleted once no remaining point reuses them (#108).

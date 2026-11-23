@@ -114,6 +114,7 @@ from pysuto.feedprep.reexport import (
     reexport_volumes, screened_origins)
 from pysuto.feedprep.trade_shares import traded_conc_lookup
 from pysuto.input_registry import InputRegistries
+from pysuto.registry import stage_lock
 
 # ---------------------------------------------------------------------------
 # USER CONFIGURATION
@@ -152,7 +153,8 @@ def _input_registries():
 
 def _register_inputs():
     """Version every edited ``current/`` — ``main``'s call, as a pipeline step's."""
-    return InputRegistries.initialize(root=_INPUT_ROOT)
+    with stage_lock("build_baci_reexport", root=os.path.join(os.path.dirname(_INPUT_ROOT), "proc")):
+        return InputRegistries.initialize(root=_INPUT_ROOT)
 
 
 def _sha256(path: str) -> str:

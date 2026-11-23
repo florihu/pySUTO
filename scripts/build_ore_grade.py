@@ -83,6 +83,7 @@ from pysuto.feedprep.ore_grade import (
     carry_grades_forward, compute_insitu_grades, compute_tailings_grades, region_bands,
     tailings_bands)
 from pysuto.input_registry import InputRegistries
+from pysuto.registry import stage_lock
 from pysuto.relation.params import read_params
 
 # ---------------------------------------------------------------------------
@@ -140,10 +141,16 @@ def load_factor_fallback() -> pd.DataFrame:
     return out
 
 
+def _register_inputs():
+    """Version every edited ``current/``, under the stage lock (#279)."""
+    with stage_lock("build_ore_grade", root=os.path.join(os.path.dirname(_INPUT_ROOT), "proc")):
+        return InputRegistries.initialize(root=_INPUT_ROOT)
+
+
 def main() -> None:
     print("=" * 60)
     print("Building in-situ ore-grade params (ADR 0015)")
-    InputRegistries.initialize(root=_INPUT_ROOT)   # the step registers; lookups read (#93)
+    _register_inputs()                             # the step registers; lookups read (#93)
 
     acc_id = load_config().pipeline.acc_id
     acc = AccountingStructure.load(id=acc_id, storage_dir=ACC_DIR)
@@ -195,7 +202,7 @@ def main() -> None:
     params.to_csv(OUT_CSV, index=False)
     print(f"   wrote {len(params):,} param rows → {OUT_CSV}")
 
-    inputs = InputRegistries.initialize(root=_INPUT_ROOT)
+    inputs = _register_inputs()
     entry = inputs.params.entry("ore_grade")
     print(f"   registered ore_grade v{entry['version']} ({entry['code']})")
 

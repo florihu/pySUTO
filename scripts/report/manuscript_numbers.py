@@ -50,7 +50,7 @@ Groups, after the 2026-10-19 inventories of method/results and SI:
  11  limitations (discussion.md §5.5.2, method.md §3.2.8 until 2026-11-12): the mine chains kept where ICSG reports no
      mine output, stock legs beyond |z| 5, the world producer stock change
      against ICSG, the regions that carry the scale-total objective
- 12  knob study (#108): A6 and Round-E (c) on the latest sweep whose base is the opt
+ 12  knob sweep (#108): A6 and Round-E (c) on the latest sweep whose base is the opt
      run, read from the tables ``scripts/sweep_diag.py`` writes to its ``diag/``
 
 Historical measurements (REP/ADR figures) and the tables ``results_figs.py``
@@ -1339,7 +1339,7 @@ def limitation_numbers(N: Numbers, inp: Path, ch: Chain, e: pd.DataFrame, s: pd.
 
 
 # =============================================================================
-# 12  knob study (#108)
+# 12  knob sweep (#108)
 # =============================================================================
 
 def _criterion_row(sens: pd.DataFrame, pts: pd.DataFrame, out: str, limit: float) -> dict:
