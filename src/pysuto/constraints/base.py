@@ -79,13 +79,3 @@ class BaseConstraintBuilder(ABC):
         t:         str,
     ) -> ConstraintBlock:
         return _empty_block(acc_struct.n_edges)
-
-    @property
-    def source_paths(self) -> list[str]:
-        return []
-
-
-# =============================================================================
-# MassBalanceBuilder
-# =============================================================================
-

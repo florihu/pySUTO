@@ -9,25 +9,37 @@ G-matrix sparsity, prior distribution, constraint residuals
 
 from __future__ import annotations
 
+import glob
 import os
+import types
 from typing import Optional
 
 import numpy as np
 import pandas as pd
+import scipy.sparse as sp
+
+from pysuto.logging import get_logger
 
 from ..constraints.naming import soft_row_mask, upgrade_legacy_row_meta
+from ..constraints.sum import SIGMA_C_INACTIVE
 from ._plot import _C, _grouped_box_grid, _savefig
+
+_log = get_logger(__name__)
+
+# Axis unit of the panels that pool the valuations (gross mass and contained copper) in
+# one histogram or box: both are masses in kt.
+_KT_POOLED = "kt, valuations pooled"
 
 
 class ConstDiagnostic:
     """
-    Three-figure diagnostic for a ConstraintRun produced by ConstraintEngine.
+    Four-figure diagnostic for a ConstraintRun produced by ConstraintEngine.
 
     Figure 1 — G sparsity  (fig1_G_sparsity.png)
         Coarsened black/white grid showing where G has non-zero entries.
 
     Figure 2 — Prior overview  (fig2_prior_overview.png)
-        [0,0]  Constraint type breakdown — stacked bar (hard vs soft per type)
+        [0,0]  Constraint breakdown      — stacked bar (hard vs soft per variant)
         [0,1]  a₀ distribution           — log₁₀ histogram of prior flow values
         [0,2]  σ_a distribution          — log₁₀ histogram of prior uncertainties
 
@@ -36,10 +48,14 @@ class ConstDiagnostic:
                                (soft constraints only)
         [0,1]  σ_c by year   — overlapping log₁₀ histograms, light→dark per timestep
                                (soft constraints only)
-        [1,0]  |ε₀| by row kind — log₁₀ histogram of |c − G·a₀|, coloured by row kind
-                               (reference: first timestep)
-        [1,1]  |ε₀| vs |c|   — log-log scatter, coloured by row kind
-                               (reference: first timestep)
+        [1,0]  |ε₀| by row kind — log₁₀ histogram of |c − G·a₀| over the rows of the
+                               first timestep, coloured by row kind
+        [1,1]  |ε₀| vs |c|   — log-log scatter of the sum anchors active at the focus
+                               year, coloured by anchor family
+
+    Figure 4 — Sum-anchor residuals  (fig4_sum_residuals.png)
+        Boxplot of log₁₀|ε₀| per anchor family for the sum anchors active at the
+        focus year.
 
     Parameters
     ----------
@@ -83,13 +99,9 @@ class ConstDiagnostic:
         Reconstruct a ConstDiagnostic by loading a persisted ConstraintRun
         directly from its directory (no registry required).
         """
-        import glob
-        import types
-        import scipy.sparse as _sp
-
         run_dir = run_dir.rstrip("/\\")
 
-        G        = _sp.load_npz(os.path.join(run_dir, "G.npz"))
+        G        = sp.load_npz(os.path.join(run_dir, "G.npz"))
         row_meta = upgrade_legacy_row_meta(      # pre-#11 runs persist cone_type
             pd.read_parquet(os.path.join(run_dir, "row_meta.parquet")))
         a0       = np.load(os.path.join(run_dir, "a0.npy"))
@@ -124,7 +136,7 @@ class ConstDiagnostic:
         show: bool = False,
         dpi:  int  = 150,
     ) -> list[str]:
-        """Produce and save all three diagnostic figures into ``odir``, by default
+        """Produce and save the four diagnostic figures into ``odir``, by default
         the run's ``diag/`` when this instance came from :meth:`from_saved`."""
         import matplotlib.pyplot as plt
 
@@ -145,7 +157,7 @@ class ConstDiagnostic:
         ]:
             p = _savefig(fig, os.path.join(odir, fname), dpi=dpi)
             paths.append(p)
-            print(f"   ConstDiagnostic {desc} → {p}  ✓")
+            _log.info("ConstDiagnostic %s → %s", desc.strip(), p)
             if show:
                 plt.show()
             plt.close(fig)
@@ -179,10 +191,12 @@ class ConstDiagnostic:
             t0    = next(iter(cr.timestep_data))
             c_t0  = cr.timestep_data[t0]["c"]
             eps0  = c_t0 - cr.G.dot(cr.a0)
-            abs_e = np.abs(eps0)
+            # the rows of t0 only: other years' rows carry the c = 0 / 1e15 sentinels
+            t0_rows = self._time_row_mask(t0)
+            abs_e = np.abs(eps0[t0_rows])
             finite_e = abs_e[np.isfinite(abs_e)]
             if len(finite_e):
-                soft_mask = soft_row_mask(rm) if len(rm) else np.array([], bool)
+                soft_mask = (soft_row_mask(rm) & t0_rows) if len(rm) else np.array([], bool)
                 soft_e    = np.abs(eps0[soft_mask]) if soft_mask.any() else np.array([])
                 soft_mean = soft_e[np.isfinite(soft_e)].mean() if len(soft_e) else float("nan")
                 lines += [
@@ -292,7 +306,7 @@ class ConstDiagnostic:
             row_keys=[self.year],
             col_keys=[vlab],
             group_label="anchor family",
-            y_label="log₁₀|ε₀|",
+            y_label=f"log₁₀|ε₀| [{_KT_POOLED}]",
             suptitle=f"Sum-anchor prior residuals ({vlab}, {self.year}){suffix}",
             cell_title=lambda r, c: f"{c} · {r}",
         )
@@ -354,7 +368,7 @@ class ConstDiagnostic:
             ax.hist(np.log10(vals), bins=60, color=_C["blue"],
                     alpha=0.8, edgecolor="none", density=True)
         ax.set_title("Prior a₀ distribution", fontweight="bold")
-        ax.set_xlabel("log₁₀(a₀)")
+        ax.set_xlabel(f"log₁₀(a₀) [{_KT_POOLED}]")
         ax.set_ylabel("density")
         ax.grid(axis="y", alpha=0.3)
 
@@ -365,7 +379,7 @@ class ConstDiagnostic:
             ax.hist(np.log10(vals), bins=60, color=_C["purple"],
                     alpha=0.8, edgecolor="none", density=True)
         ax.set_title("Prior σ_a distribution", fontweight="bold")
-        ax.set_xlabel("log₁₀(σ_a)")
+        ax.set_xlabel(f"log₁₀(σ_a) [{_KT_POOLED}]")
         ax.set_ylabel("density")
         ax.grid(axis="y", alpha=0.3)
 
@@ -376,12 +390,16 @@ class ConstDiagnostic:
     def _soft_mask(self) -> np.ndarray:
         return soft_row_mask(self.cr.row_meta)
 
-    def _year_row_mask(self) -> np.ndarray:
-        """Boolean row mask for constraints whose time matches the focus year."""
+    def _time_row_mask(self, t: str) -> np.ndarray:
+        """Boolean row mask for constraints whose time is ``t``."""
         rm = self.cr.row_meta
         if "time" not in rm.columns or not len(rm):
             return np.zeros(len(rm), dtype=bool)
-        return rm["time"].astype(str).values == self.year
+        return rm["time"].astype(str).values == t
+
+    def _year_row_mask(self) -> np.ndarray:
+        """Boolean row mask for constraints whose time matches the focus year."""
+        return self._time_row_mask(self.year)
 
     def _eps0_at(self, year: str):
         """Return (eps0, c, t_label) for ``year`` (or the first timestep when
@@ -452,7 +470,7 @@ class ConstDiagnostic:
                     label=t_label, density=True)
 
         ax.set_title("|c| distribution (soft constraints)", fontweight="bold")
-        ax.set_xlabel("log₁₀(|c|)")
+        ax.set_xlabel(f"log₁₀(|c|) [{_KT_POOLED}]")
         ax.set_ylabel("density")
         if n <= 12:
             if ax.get_legend_handles_labels()[0]:     # no soft |c| > 0: nothing to label
@@ -483,8 +501,6 @@ class ConstDiagnostic:
         we exclude them so the histogram shows only this year's active
         rows.
         """
-        from ..constraints import SIGMA_C_INACTIVE
-
         cr        = self.cr
         soft_mask = self._soft_mask()
 
@@ -515,7 +531,7 @@ class ConstDiagnostic:
 
         ax.set_title(f"σ_c distribution (soft constraints)  (t={t0})",
                      fontweight="bold")
-        ax.set_xlabel("log₁₀(σ_c)")
+        ax.set_xlabel(f"log₁₀(σ_c) [{_KT_POOLED}]")
         ax.set_ylabel("density")
         ax.grid(axis="y", alpha=0.3)
 
@@ -529,10 +545,11 @@ class ConstDiagnostic:
 
         rm = self.cr.row_meta
         hard = rm["is_hard"].to_numpy().astype(bool)
+        t0_rows = self._time_row_mask(t0)       # other years' rows hold sentinels
         kind_masks = {
-            "hard eq": (rm["sense"].to_numpy() == "eq") & hard,
-            "hard le": (rm["sense"].to_numpy() == "le") & hard,
-            "soft eq": soft_row_mask(rm),
+            "hard eq": (rm["sense"].to_numpy() == "eq") & hard & t0_rows,
+            "hard le": (rm["sense"].to_numpy() == "le") & hard & t0_rows,
+            "soft eq": soft_row_mask(rm) & t0_rows,
         }
         for kind, color in self._KIND_COLORS.items():
             mask = kind_masks[kind]
@@ -547,7 +564,7 @@ class ConstDiagnostic:
                     label=kind, density=True)
 
         ax.set_title(f"|ε₀| = |c − G·a₀| by row kind  (t={t0})", fontweight="bold")
-        ax.set_xlabel("log₁₀(|ε₀|)")
+        ax.set_xlabel(f"log₁₀(|ε₀|) [{_KT_POOLED}]")
         ax.set_ylabel("density")
         handles, _labels = ax.get_legend_handles_labels()
         if handles:
@@ -598,15 +615,9 @@ class ConstDiagnostic:
         ax.set_xscale("log")
         ax.set_yscale("log")
         ax.set_title(f"|ε₀| vs |c| (sum anchors by family)  (t={t})", fontweight="bold")
-        ax.set_xlabel("|c|")
-        ax.set_ylabel("|ε₀|")
+        ax.set_xlabel(f"|c| [{_KT_POOLED}]")
+        ax.set_ylabel(f"|ε₀| [{_KT_POOLED}]")
         handles, _labels = ax.get_legend_handles_labels()
         if handles:
             ax.legend(fontsize=6, framealpha=0.6)
         ax.grid(alpha=0.3, which="both")
-
-
-# ===========================================================================
-# AggDiagnostic — post-aggregation distribution diagnostics (Stage 2a)
-# ===========================================================================
-

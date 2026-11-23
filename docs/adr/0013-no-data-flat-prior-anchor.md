@@ -33,7 +33,7 @@ feasibility-pre-check strictness (it is inert in the QP — see amendment 1 belo
    more edges); before, the free chain acted as signed slack (817 Mass edges > 1 kt
    below zero → 149). Slag and PSC keep the sector rule. Knob
    `NODATA_ANCHOR_DATA_AWARE` in `scripts/constraints.py`; mask from
-   `nodata_exempt_mask` in `src/pysuto/constraints/engine.py`. The anchor does not
+   `nodata_exempt_mask` in `src/pysuto/constraints/anchors.py`. The anchor does not
    stop phantom concentrate that smelter demand pulls (Japan, Korea) — that is a
    data contradiction, not free slack. Evidence: `opt_20260929_121937_e5f000b5`
    (REP [`…roundW3-anchor-mining-regions`](../rep/analysis_opt_20260929_121937_e5f000b5_20260929_roundW3-anchor-mining-regions.md)).

@@ -1,8 +1,8 @@
 """
 flow_bound.py
 =============
-``FlowBoundsBuilder`` — enforced lower bounds (ADR 0039): one non-negative-cone
-row ``−a_i ≤ −l_i`` per edge whose *structural* lower bound (the accounting
+``FlowBoundsBuilder`` — enforced lower bounds (ADR 0039): one hard
+``le`` row ``−a_i ≤ −l_i`` per edge whose *structural* lower bound (the accounting
 structure's ``bounds.l``) is 0. Upper bounds and the Stage-3 flat-prior zero pin
 are not rows; they stay on ``ConstraintRun.u / .l`` for the feasibility probe.
 """
@@ -25,9 +25,10 @@ class FlowBoundsBuilder(BaseConstraintBuilder):
     """
     Hard lower bounds from the accounting structure (ADR 0039).
 
-    Emits one non-negative-cone row ``−a_i ≤ −l_i`` for every edge whose
+    Emits one hard ``le`` row ``−a_i ≤ −l_i`` for every edge whose
     structural lower bound ``acc_struct.bounds.l`` is 0 — non-negativity of every
     flow except the signed stock edges, whose ``l`` is negative and needs no row.
+    A structural ``l > 0`` would get no row, so it raises.
     Rows are hard (``σ_c = 0``), year-local (the edge's own year) and always
     active. Reading the structural bounds, not the pinned ``ConstraintRun.l``,
     keeps the zero pin out of the QP and leaves no-data stock changes signed.
@@ -43,6 +44,11 @@ class FlowBoundsBuilder(BaseConstraintBuilder):
         if not self._enforce_lower:
             _log.info("FlowBoundsBuilder: lower bounds not enforced (stored in l/u only)")
             return _empty_block(n)
+        if (acc_struct.bounds.l > 0.0).any():
+            raise ValueError(
+                f"FlowBoundsBuilder: {int((acc_struct.bounds.l > 0.0).sum())} edge(s) "
+                f"carry a structural lower bound l > 0, which no row would enforce "
+                f"(rows exist for l = 0 only).")
         ids = np.flatnonzero(acc_struct.bounds.l == 0.0)
         if ids.size == 0:
             return _empty_block(n)
@@ -75,9 +81,3 @@ class FlowBoundsBuilder(BaseConstraintBuilder):
             sigma_c  = np.zeros(m),
             row_meta = row_meta,
         )
-
-
-# =============================================================================
-# ConstraintRun  — output of ConstraintEngine.run()
-# =============================================================================
-
