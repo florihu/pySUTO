@@ -32,29 +32,29 @@ size is re-counted on main 24a37e9 (80 modules, 29,700 lines, 1,798 collected te
 was 22,052 / 68 / 1,284); "no transformation may drop sigma" now excludes Stage 6,
 which carries point estimates.
 
-Every number is from the reference chain of the metal-agnostic 2 milestone (#148's
-parametric sigma-units fix; equal at solver noise to the manuscript-ready-3 chain
-opt_20261022_112855_928da10c, #149),
-  opt_20261112_135523_88fa69f3 <- const_20261112_134032_b6802ef3
-  <- imp_20261112_133434_22fc54b3
-  <- feed_icsg_20261022_110826_8a031806 (icsg v18, trade_shares v41),
+Every number is from the reference chain of the final review (#155 amendment 4): the
+metal-agnostic 2 chain with ADR 0010's guard held across cascade passes (#153/#154) and
+the observed zero on a covered non-miner's mine output (#200/#201),
+  opt_20261119_130302_b20f0dba <- const_20261119_125651_ff7bfc9c
+  <- imp_20261119_125259_f2b11cd5
+  <- feed_icsg_20261119_125015_e2e9520e (icsg v18, trade_shares v41),
      feed_baci_20261022_110715_fdf3b4ac (baci v33, netted from gross v28),
      feed_crude_ore_20260603_095651_558f7369 (crude_ore v3);
-  acc copper v5 (the feeds on v4, same edge index); params conc v10, eff v4, stripping_ratio v2, ore_grade v8,
-  stock_bounds v6, scrap_share v3; PSUT psut_20261112_144358_449d34b5,
-re-derived from the run sidecars and arrays on 2026-11-16 (#152) with scripts/report/manuscript_numbers.py; the limitation numbers
+  acc copper v5 (the BACI feed on v4, crude ore on v3, same edge index); params conc v10, eff v4, stripping_ratio v2, ore_grade v8,
+  stock_bounds v6, scrap_share v3; PSUT psut_20261119_133504_4c783a88,
+re-derived from the run sidecars and arrays on 2026-11-23 (#184) with scripts/report/manuscript_numbers.py; the limitation numbers
 (Section 3.2.8 until 2026-11-12, now Discussion 5.5 in discussion.md) from the same
 script on the same run, the cited REPs (#31/#96 via
 #97, #95, #98, #111) and #81's intervals (scripts/report/table3_intervals.py).
-Stage-4 iterations and times re-read from the opt sidecar on 2026-11-16
-(solve_wall_s 608.29). N7's reproduction is ADR 0034's measurement
+Stage-4 iterations and times re-read from the opt sidecar on 2026-11-23
+(solve_wall_s 94.87). N7's reproduction is ADR 0034's measurement
 (opt_20261112_092114_c8cb8b74 at acc copper v5, bit-identical in imp, const, opt).
 Common-set comparisons are against the base re-solved at the
 ADR 0039 tolerance (opt_20260930_093914_523d57d7) and the base as originally
 solved (opt_20260916_124721_c4d1d944). A number attributed to an ADR or a
 round is that record's own measurement. Stage-5 (posterior) numbers are from
-uncprop_20261112_144236_f79da518 on the same chain (issue #27, ADR 0044), the
-calibration and ablation (#87) from it and uncprop_20261116_100548_78dc5344.
+uncprop_20261119_133344_08dfa15b on the same chain (issue #27, ADR 0044), the
+calibration and ablation (#87) from it and uncprop_20261123_113044_de642960.
 "ADR nnnn" points to docs/adr/ in the repository and to SI Table S13.
 
 Positioning paragraph (state of the art) for the Introduction (moved out of
@@ -96,7 +96,7 @@ Method on 2026-09-24; the contribution block below is its Method-side counterpar
   - System-definition frameworks structure material-system data but do not reconcile it ([Pauliuk and Heeren, 2020](#ref-pauliuk2020odym)).
   - Large-scale matrix balancing weights the adjustment by source reliability at the balancing step ([Lenzen et al., 2009](#ref-lenzen2009matrix); [Wieland et al., 2022](#ref-wieland2022piolab)). <!-- verify: whether the PIOLab/AISHA carries per-source sigma through its concordances and reports a posterior sigma per flow; cite Geschke et al. 2011 (AISHA) once in refs.bib -->
 - **N2 Data reconciliation at the scale of a multi-regional account, with inequalities.** $\sigma$-weighted least-squares reconciliation with error propagation is established in material flow analysis ([Cencic and Rechberger, 2008](#ref-cencic2008stan)) <!-- verify: STAN's typical system size and whether it handles inequality constraints (bands, non-negativity) -->.
-  - pySUTO reconciles 854,460 edges against 1,687,230 constraint rows, 1,226,444 of them hard, among them one-sided ratio bands and one non-negativity row per edge that may not be negative (Section [3.1.5](#sec-stage3)).
+  - pySUTO reconciles 854,460 edges against 1,687,614 constraint rows, 1,226,444 of them hard, among them one-sided ratio bands and one non-negativity row per edge that may not be negative (Section [3.1.5](#sec-stage3)).
   - It extends the closed-form generalised-least-squares posterior of [Byron (1978)](#ref-byron1978), derived for equality constraints, to the inequality-constrained optimum by linearising the problem at its active set (ADR 0044; Section [3.1.7](#sec-stage5)).
 - **N3 Two valuations reconciled in one account.** Every edge exists in gross mass and in contained copper, linked per product by a concentration row, so trade statistics (gross mass) and industry statistics (copper content) constrain the same flows (Sections [3.1.5](#sec-stage3), [3.2.1](#sec-system)). <!-- verify: whether this is new against STAN's layers and the PIOLab; if not, present it as a design choice, not a contribution -->
 - **N4 The solver's termination is part of the estimate.** The stopping rule is reported and tested like a modelling choice.
@@ -237,7 +237,7 @@ $$
 
 **Copper: coverage.**
 
-- 61,218 edges (7.16% of 854,460) are feed-observed: 32,407 in copper content from ICSG, 27,946 in gross mass from BACI, 865 from the ore series.
+- 61,674 edges (7.22% of 854,460) are feed-observed: 32,863 in copper content from ICSG, 27,946 in gross mass from BACI, 865 from the ore series.
 
 **Rule: imputation.** Uncovered edges are filled by plugin imputers in two phases (rules in SI S3).
 
@@ -255,8 +255,8 @@ $$
 **Copper: imputation.**
 
 - The cascade converges in two passes.
-- Relational and temporal imputation extend informative priors to 112,276 edges (13.14%), mostly by recipe closure and stock-change seeds (SI S12).
-- 680,966 edges (79.7%) carry the flat prior.
+- Relational and temporal imputation extend informative priors to 111,556 edges (13.06%), mostly by recipe closure and stock-change seeds (SI S12).
+- 681,230 edges (79.7%) carry the flat prior.
 
 <a id="sec-stage3"></a>
 
@@ -289,9 +289,9 @@ $$
 
 **Copper: size.**
 
-- 1,687,230 rows, 56,151–56,296 per year.
+- 1,687,614 rows, 56,167–56,338 per year.
 - 1,226,444 hard: 39,480 mass balances, 1,410 stripping relations, 598,994 bands, 586,560 non-negativity rows.
-- 460,786 soft: 28,972 scale totals and scrap anchors, 431,814 ratio and net-stock rows (SI Table S4).
+- 461,170 soft: 29,356 scale totals and scrap anchors, 431,814 ratio and net-stock rows (SI Table S4).
 
 <a id="sec-stage4"></a>
 
@@ -335,7 +335,7 @@ $$
 
 **Copper.**
 
-- All 30 years return *Solved* in 60–74 iterations and 20–31 s each, 746 s of solve time in all. With the years solved concurrently on eight threads, Stage 4 takes 608 s of wall-clock time, about 7 min of it the first-year feasibility probe (SI Table S6).
+- All 30 years return *Solved* in 61–77 iterations and 18–22 s each, 591 s of solve time in all. With the years solved concurrently on eight threads, the solve takes 95 s of wall-clock time (SI Table S6).
 
 <a id="sec-stage5"></a>
 
@@ -372,14 +372,14 @@ $$
 **Copper.**
 
 - Every year completes.
-- Per year, 8,491–9,836 edges are pinned at a binding lower bound, 13,407–13,942 bands bind, and 60–107 dependent hard rows are dropped.
+- Per year, 8,774–10,565 edges are pinned at a binding lower bound, 13,713–14,398 bands bind, and 59–92 dependent hard rows are dropped.
 - $\sigma_{a^*} \le \sigma_a$ holds on every edge-year.
 
 **Interpretation and calibration** (issue #87).
 
 - The posterior is the estimator's sensitivity under the stated $\sigma$, not a calibrated interval.
-- Against the model's own residuals the stated $\sigma$ are too small by $\sqrt{R} \approx 2.3$ on average: Birge ratio $R = \sum z^2/\mathrm{dof} = 5.18$.
-- The standardised shifts are not a scaled normal: their core is narrower and their tail heavier than predicted, with 13.1% of the feed-observed contained-copper edges beyond 3 standardised units against 0.27% for $N(0,1)$.
+- Against the model's own residuals the stated $\sigma$ are too small by $\sqrt{R} \approx 2.2$ on average: Birge ratio $R = \sum z^2/\mathrm{dof} = 4.83$.
+- The standardised shifts are not a scaled normal: their core is narrower and their tail heavier than predicted, with 14.6% of the feed-observed contained-copper edges beyond 3 standardised units against 0.27% for $N(0,1)$.
 - Intervals in this paper are therefore Birge-scaled, $a^*_i \pm 1.96\sqrt{R}\,\sigma_{a^*\!,i}$, and remain lower bounds in the tail.
 - The scale totals, which reuse the prior, carry 0.10 of the 0.93 mass-weighted contraction of the feed-observed contained-copper edges (SI S6).
 
@@ -534,7 +534,7 @@ Three sources feed the account (Table [1](#tab-sources)); no further source ente
 
 | Feed (version) | Source and release | Quantity, valuation, edges | Years | Pedigree $(R,C,T,G,O)$ $\to$ CV | Pre-processing (ADR) |
 | --- | --- | --- | --- | --- | --- |
-| ICSG (v18) | Copper Bulletin Yearbooks 2005, 2014, 2023 and 2025; the newest edition wins where they overlap | mine, smelter and refinery production, refined usage, secondary feed, stock changes; kt Cu $\to$ CC; 32,407 edges | 1995–2024 | $(2,1,1,1,1) \to 0.068$; 0.217 on 5,155 ROW edges | row-label fix (0035), rename collisions summed (0036), one territory one label (0032), SX-EW counted once, production $\to$ consumed input (0021, 0030), usage fanned by trade shares (0002, 0024, 0018), unweighted fans undistributed (0008) |
+| ICSG (v18) | Copper Bulletin Yearbooks 2005, 2014, 2023 and 2025; the newest edition wins where they overlap | mine, smelter and refinery production, refined usage, secondary feed, stock changes; kt Cu $\to$ CC; 32,863 edges | 1995–2024 | $(2,1,1,1,1) \to 0.068$; 0.217 on 5,155 ROW edges | row-label fix (0035), rename collisions summed (0036), one territory one label (0032), SX-EW counted once, production $\to$ consumed input (0021, 0030), usage fanned by trade shares (0002, 0024, 0018), unweighted fans undistributed (0008) |
 | BACI (v33) | CEPII BACI HS92 V202601 (January 2026); HS6 260300, 740110, 740120, 740200, 740311, 740312, 740313, 740319 | bilateral trade in tonnes $\to$ kt gross mass; 27,946 edges | 1995–2024 | $(3,2,1,1,2) \to 0.209$; 0.294 on 6,088 ROW edges | zero-quantity rows dropped; quantity rebuilt from value on 874 legs above and 119 below the band (0033); re-exports netted (0027); cross-region edges only (0014) |
 | Crude ore (v3) | materialflows.net, global crude metal ore extraction 1970–2022, price-allocated | ore mass in tonnes $\to$ kt on CO→Mining; 865 edges | 1995–2022 | $(2,3,2,2,2) \to 0.104$; 0.230 on 28 ROW edges | allocated basis (0015); grade carried to 2023–24 (0023) |
 | *Derived tables (parameter registry)* |  |  |  |  |  |
@@ -726,9 +726,9 @@ Each run is judged with a fixed set of quantities (formulas in SI S13).
 
 **Reference-run values.**
 
-- Common-set objective 700,073: 52.7% below the base run re-solved at the ADR 0039 tolerance (58.0% below the base as originally solved, a figure that mixes the modelling rounds with the solver's termination).
-- 8,068 kt CC of mine output is deleted over 30 years in the region-years that lose output, 3,270 kt CC (40.5%) of it forced; gains elsewhere more than offset it, so mine output rises by 4,040 kt CC net.
-- World concentrate retention over 1995–2024 is 1.010; 254 region-years sit on the export-grade cap.
+- Common-set objective 905,191: 38.7% below the base run re-solved at the ADR 0039 tolerance (45.5% below the base as originally solved, a figure that mixes the modelling rounds with the solver's termination).
+- 6,543 kt CC of mine output is deleted over 30 years in the region-years that lose output, 2,297 kt CC (35.1%) of it forced; gains elsewhere more than offset it, so mine output rises by 8,331 kt CC net.
+- World concentrate retention over 1995–2024 is 1.021; 81 region-years sit on the export-grade cap.
 
 **Uncertainty and sensitivity protocol.** Three items answer RQ2: the posterior uncertainty, exploratory, and the termination pair and the knob sweep, against expected answers fixed before their numbers were read (SI S15):
 
