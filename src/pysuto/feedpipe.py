@@ -36,9 +36,10 @@ from pysuto.conc import ConcordanceTable, WeightMatrix
 from pysuto.unc import UncertaintyMixin, PropagationResult
 from pysuto.registry import DataFeedRegistry, stage_timer
 from pysuto.logging import add_run_handler, get_logger
+from pysuto.lp import P_DEFAULT
 
 # The Lp exponent a feed's pedigree is propagated with (recorded in the feed sidecar).
-FEED_P = 1.3
+FEED_P = P_DEFAULT
 
 _log = get_logger("pysuto.feedpipe")
 
@@ -161,7 +162,7 @@ def step_D_apply_and_propagate(
     wm:       WeightMatrix,
     F_src:    np.ndarray,
     metadata: DataFeedMetadata,
-    p:        float = 1.3,
+    p:        float = P_DEFAULT,
     cv_root_scale: Optional[np.ndarray] = None,
 ) -> PropagationResult:
     """
@@ -903,7 +904,7 @@ if __name__ == "__main__":
             self,
             F_src: Optional[np.ndarray] = None,
             pedigree=None,
-            p: float = 1.3,
+            p: float = P_DEFAULT,
         ) -> PropagationResult:
             """Lp uncertainty propagation with scipy.sparse."""
             F   = np.asarray(

@@ -94,7 +94,8 @@ def _make_case(root: Path) -> dict:
         flat_prior = np.zeros(acc.n_edges, dtype=bool)
 
     engine = ConstraintEngine(AccountingStructure.load("toy", storage_dir=acc_dir),
-                              storage_dir=str(data / "proc" / "const"))
+                              storage_dir=str(data / "proc" / "const"),
+                              sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
     engine.register(MassBalanceBuilder())
     cr = engine.run(_Agg(), timesteps=["2020", "2021"], persist=True, label="case",
                     parents={"inputs": {"acc": entry}, "upstream": {}})

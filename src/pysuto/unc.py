@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from typing import Optional, Dict
  
 import numpy as np
+
+from pysuto.lp import P_DEFAULT
  
  
 # =============================================================================
@@ -242,7 +244,7 @@ class UncertaintyMixin:
         self,
         F_src: Optional[np.ndarray] = None,
         pedigree: Optional[PedigreeScores] = None,
-        p: float = 1.3,
+        p: float = P_DEFAULT,
         cv_root_scale: Optional[np.ndarray] = None,
     ) -> PropagationResult:
         r"""
@@ -273,7 +275,7 @@ class UncertaintyMixin:
               previous Lp formula σ = CV · (Σ |W·f|^p)^(1/p) exactly.
 
         With p = 2 this is the inverse-variance / diversification form.
-        The pySUTO range is p ∈ [1.1, 1.5]; default p = 1.3.
+        The pySUTO range is p ∈ [1.1, 1.5]; default p = ``P_DEFAULT``.
 
         Parameters
         ----------
@@ -281,7 +283,7 @@ class UncertaintyMixin:
             Source flow vector. Falls back to self.F_src if not given.
         pedigree : PedigreeScores, optional
             Override the instance-level pedigree for this call.
-        p : float, default 1.3
+        p : float, default ``P_DEFAULT``
             Power-mean exponent. p ≥ 1 required for the diversification
             invariant to hold.
 

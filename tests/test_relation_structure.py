@@ -105,7 +105,7 @@ def test_the_network_imputer_accepts_a_co_product_recipe(two_product, tmp_path):
     conc = tmp_path / "conc.csv"
     for p in (eff, conc):
         p.write_text("param_id;param_type\n")
-    imputer = NetworkImputer(eff_csv=str(eff), conc_csv=str(conc))
+    imputer = NetworkImputer(eff_csv=str(eff), conc_csv=str(conc), q=3.0, alpha_min=0.05, cv_cap=1.5)
     imputer.prepare(two_product)
     mining = [r for r in imputer._recipes if len(r.products) == 2]
     assert mining and len(mining) == len([r for r in process_recipes(two_product)

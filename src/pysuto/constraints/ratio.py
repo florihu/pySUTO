@@ -112,8 +112,8 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
     """
 
     def __init__(self, pairs: list[Relation],
-                 sigma_rel_floor: float = 0.02,
-                 scale_abs_floor: float = 1.0,
+                 sigma_rel_floor: float,
+                 scale_abs_floor: float,
                  hard: bool = False):
         """
         pairs : list of ratio :class:`~pysuto.relation.relation.Relation` objects
@@ -139,8 +139,9 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
         path: str,
         acc_struct,
         mask: str | None = None,
-        sigma_rel_floor: float = 0.02,
-        scale_abs_floor: float = 1.0,
+        *,
+        sigma_rel_floor: float,
+        scale_abs_floor: float,
         hard: bool = False,
         covered: np.ndarray | None = None,
     ) -> "RatioConstraintBuilder":
