@@ -30,6 +30,8 @@ from pathlib import Path
 #: The notebooks, their README and the params template: package data beside this module.
 PACKAGE_DIR = Path(__file__).resolve().parent
 
+__all__ = ["PACKAGE_DIR", "copy_tutorial", "toy", "toy_coproduct", "toy_ext"]
+
 
 def copy_tutorial(dest) -> list:
     """Copy the eleven notebooks, ``README.md`` and ``params_template.csv`` into ``dest``,
