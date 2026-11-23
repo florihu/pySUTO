@@ -1,58 +1,58 @@
 {
-  "opt_run_id": "opt_20261112_135523_88fa69f3",
-  "psut_run_id": "psut_20261112_144358_449d34b5",
+  "opt_run_id": "opt_20261119_130302_b20f0dba",
+  "psut_run_id": "psut_20261119_133504_4c783a88",
   "tolerance_pair": [
     "opt_20260916_124721_c4d1d944",
     "opt_20260930_093914_523d57d7"
   ],
   "sweep_base_run_id": "opt_20261022_112855_928da10c",
-  "n_rows": 1687230,
+  "n_rows": 1687614,
   "n_edges": 28482,
-  "zsq_total_30y": 2557150.2766476655,
+  "zsq_total_30y": 2323015.1176486127,
   "zsq_by_family_30y": {
-    "edges": 1807538.4230474462,
-    "sum_rows": 744668.5982603792,
-    "soft_ratios": 4943.255339840921
+    "edges": 1358510.9850828175,
+    "sum_rows": 959574.7433276296,
+    "soft_ratios": 4929.389238165567
   },
-  "max_hard_residual_kt": 1.0890344502531336e-06,
+  "max_hard_residual_kt": 1.0907352270069122e-06,
   "share_gt3": {
     "edges": {
-      "min": 0.003756758654588863,
-      "max": 0.011937363949160874,
-      "mean": 0.0078025887695152485
+      "min": 0.003932308124429464,
+      "max": 0.014500386208833649,
+      "mean": 0.006791423823233387
     },
     "sum_rows": {
-      "min": 0.12086776859504132,
-      "max": 0.2259371833839919,
-      "mean": 0.18106174494810537
+      "min": 0.12874251497005987,
+      "max": 0.24372384937238495,
+      "mean": 0.1913582316996843
     },
     "soft_ratios": {
       "min": 0.0,
-      "max": 0.0003470294280955025,
-      "mean": 6.713591995019031e-05
+      "max": 0.000277623542476402,
+      "mean": 4.1674879544628984e-05
     }
   },
   "edge_share_top": {
-    "Cathode\u2192FU": 0.561854,
-    "Anode\u2192ER": 0.339368,
-    "Matte\u2192CFR": 0.028167,
-    "Concentrate\u2192Smelting": 0.023452,
-    "CP\u2192Cathode": 0.013766,
-    "Cathode\u2192USC": 0.006619,
-    "Cathode\u2192MESC": 0.004573,
-    "Scrap\u2192CFR": 0.003723,
-    "other": 0.018479
+    "Cathode\u2192FU": 0.746176,
+    "Anode\u2192ER": 0.125877,
+    "Matte\u2192CFR": 0.031024,
+    "Concentrate\u2192Smelting": 0.02491,
+    "MF\u2192Concentrate": 0.014378,
+    "CP\u2192Cathode": 0.009024,
+    "Cathode\u2192USC": 0.007889,
+    "Scrap\u2192CFR": 0.005732,
+    "other": 0.034989
   },
   "sum_share_top": {
-    "Cathode": 0.273537,
-    "Concentrate": 0.168836,
-    "Anode": 0.122522,
-    "MF": 0.097259,
-    "Matte": 0.080149,
-    "Smelting": 0.069308,
-    "CFR": 0.055485,
-    "ER": 0.034715,
-    "other": 0.09819
+    "Matte": 0.238439,
+    "Cathode": 0.210469,
+    "Concentrate": 0.175503,
+    "Anode": 0.106821,
+    "MF": 0.078353,
+    "Smelting": 0.056606,
+    "CFR": 0.033376,
+    "ER": 0.029734,
+    "other": 0.070698
   },
   "hub_regions": [
     "France",
@@ -70,24 +70,24 @@
     "United Arab Emirates"
   ],
   "hub_share": {
-    "cross_region": 0.947035988501219,
-    "hub": 0.7870445424272716
+    "cross_region": 0.9192893508698167,
+    "hub": 0.6958921631883384
   },
   "retention_30y": {
-    "CO\u2192Mining Mass": 0.999047,
-    "MF\u2192Concentrate CC": 1.009993,
-    "Concentrate\u2192Smelting CC": 0.963383,
-    "Anode\u2192ER CC": 0.987795,
-    "CP\u2192Cathode CC": 0.997564,
-    "Cathode\u2192FU CC": 0.988242,
-    "Scrap\u2192Smelting CC": 1.010632,
-    "Smelting\u2192Matte CC": 0.977938,
-    "Scrap\u2192CFR CC": 1.026324
+    "CO\u2192Mining Mass": 0.998738,
+    "MF\u2192Concentrate CC": 1.020685,
+    "Concentrate\u2192Smelting CC": 0.972363,
+    "Anode\u2192ER CC": 0.993787,
+    "CP\u2192Cathode CC": 0.994295,
+    "Cathode\u2192FU CC": 0.985615,
+    "Scrap\u2192Smelting CC": 1.016116,
+    "Smelting\u2192Matte CC": 0.98409,
+    "Scrap\u2192CFR CC": 1.036988
   },
-  "chile_export_retention_2010_19": 1.025128392825703,
+  "chile_export_retention_2010_19": 1.0359750486393327,
   "a4_years_both": 0,
-  "a4_years_cathode_concentrate": 1,
-  "a4_years_concentrate_ore": 10,
+  "a4_years_cathode_concentrate": 0,
+  "a4_years_concentrate_ore": 17,
   "tolerance_pair_retention": {
     "CO\u2192Mining Mass": {
       "old": 0.779262,
@@ -151,35 +151,35 @@
   "secondary_pooled_2020_24": {
     "Chile+Peru": {
       "prior": 0.0,
-      "post": 1.4e-05
+      "post": 2.3e-05
     },
     "China": {
       "prior": 0.226855,
-      "post": 0.239678
+      "post": 0.242715
     },
     "EU-14": {
-      "prior": 0.364592,
-      "post": 0.370499
+      "prior": 0.368859,
+      "post": 0.373652
     },
     "India": {
       "prior": 0.004548,
-      "post": 0.005324
+      "post": 0.005527
     },
     "JP/KR/TW": {
-      "prior": 0.235093,
-      "post": 0.249371
+      "prior": 0.235326,
+      "post": 0.248342
     },
     "Rest": {
-      "prior": 0.058203,
-      "post": 0.062208
+      "prior": 0.058246,
+      "post": 0.061318
     },
     "United States": {
       "prior": 0.04577,
-      "post": 0.045477
+      "post": 0.045517
     },
     "World": {
-      "prior": 0.162974,
-      "post": 0.17158
+      "prior": 0.163189,
+      "post": 0.171002
     }
   },
   "icsg_input_share_pooled": 0.1641058741577901,
@@ -190,159 +190,159 @@
     "2024": 0.17631
   },
   "world_secondary_2024": {
-    "prior": 0.1686274446274227,
-    "post": 0.17736564286173367
+    "prior": 0.1688025158711219,
+    "post": 0.17706159029202462
   },
   "hhi_2024": {
     "mining_prior": {
-      "upper": 0.111015,
-      "lower": 0.109378,
-      "row_share": 0.040459,
+      "upper": 0.111604,
+      "lower": 0.109958,
+      "row_share": 0.040567,
       "top": "Chile",
-      "top_share": 0.239298
+      "top_share": 0.239936
     },
     "mining_post": {
-      "upper": 0.110782,
-      "lower": 0.109041,
-      "row_share": 0.041727,
+      "upper": 0.110686,
+      "lower": 0.108951,
+      "row_share": 0.041658,
       "top": "Chile",
-      "top_share": 0.238828
+      "top_share": 0.238493
     },
     "smelting_prior": {
-      "upper": 0.278385,
-      "lower": 0.277955,
-      "row_share": 0.020725,
+      "upper": 0.277145,
+      "lower": 0.276718,
+      "row_share": 0.020678,
       "top": "China",
-      "top_share": 0.513753
+      "top_share": 0.512597
     },
     "smelting_post": {
-      "upper": 0.280711,
-      "lower": 0.280226,
-      "row_share": 0.022012,
+      "upper": 0.273345,
+      "lower": 0.272871,
+      "row_share": 0.021768,
       "top": "China",
-      "top_share": 0.515999
+      "top_share": 0.508506
     },
     "refining_prior": {
-      "upper": 0.228105,
-      "lower": 0.227751,
-      "row_share": 0.018805,
+      "upper": 0.221159,
+      "lower": 0.220817,
+      "row_share": 0.018509,
       "top": "China",
-      "top_share": 0.452604
+      "top_share": 0.445473
     },
     "refining_post": {
-      "upper": 0.229976,
-      "lower": 0.229583,
-      "row_share": 0.019827,
+      "upper": 0.222633,
+      "lower": 0.222251,
+      "row_share": 0.019544,
       "top": "China",
-      "top_share": 0.454732
+      "top_share": 0.447067
     },
     "use_prior": {
-      "upper": 0.355303,
-      "lower": 0.35113,
-      "row_share": 0.064598,
+      "upper": 0.344389,
+      "lower": 0.340348,
+      "row_share": 0.063576,
       "top": "China",
-      "top_share": 0.585304
+      "top_share": 0.576047
     },
     "use_post": {
-      "upper": 0.35238,
-      "lower": 0.350008,
-      "row_share": 0.048711,
+      "upper": 0.341472,
+      "lower": 0.339164,
+      "row_share": 0.048045,
       "top": "China",
-      "top_share": 0.583708
+      "top_share": 0.574379
     }
   },
   "hhi_1995_post": {
-    "mining": 0.116348,
-    "smelting": 0.076602,
-    "refining": 0.085942,
-    "use": 0.091698
+    "mining": 0.116954,
+    "smelting": 0.076198,
+    "refining": 0.085193,
+    "use": 0.090853
   },
   "partners_2024": {
     "Chile_export": {
-      "China": 0.54774,
-      "EU-14": 0.075157,
-      "India": 0.026251,
-      "JP/KR/TW": 0.162433,
-      "Rest": 0.074161,
-      "United States": 0.114258
+      "China": 0.544897,
+      "EU-14": 0.075042,
+      "India": 0.027795,
+      "JP/KR/TW": 0.164138,
+      "Rest": 0.074295,
+      "United States": 0.113832
     },
     "Peru_export": {
-      "China": 0.710305,
-      "EU-14": 0.085108,
-      "India": 0.013874,
-      "JP/KR/TW": 0.112881,
-      "Rest": 0.054992,
-      "United States": 0.02284
+      "China": 0.702917,
+      "EU-14": 0.085131,
+      "India": 0.014127,
+      "JP/KR/TW": 0.116653,
+      "Rest": 0.058396,
+      "United States": 0.022777
     },
     "China_import": {
-      "Chile": 0.253814,
-      "Congo, D.R.": 0.164254,
-      "Kazakhstan": 0.055794,
-      "Mexico": 0.036382,
-      "Peru": 0.166586,
-      "Rest": 0.323169
+      "Chile": 0.256438,
+      "Congo, D.R.": 0.16494,
+      "Kazakhstan": 0.05646,
+      "Mexico": 0.036657,
+      "Peru": 0.167298,
+      "Rest": 0.318207
     }
   },
   "partners_1995": {
     "Chile_export": {
-      "China": 0.034286,
-      "EU-14": 0.258821,
-      "India": 0.012825,
-      "JP/KR/TW": 0.364015,
-      "Rest": 0.240298,
-      "United States": 0.089755
+      "China": 0.033927,
+      "EU-14": 0.258136,
+      "India": 0.012708,
+      "JP/KR/TW": 0.362751,
+      "Rest": 0.243628,
+      "United States": 0.08885
     },
     "Peru_export": {
-      "China": 0.066194,
-      "EU-14": 0.194372,
-      "India": 1.9e-05,
-      "JP/KR/TW": 0.368099,
-      "Rest": 0.283457,
-      "United States": 0.087858
+      "China": 0.059379,
+      "EU-14": 0.272079,
+      "India": 6e-06,
+      "JP/KR/TW": 0.331782,
+      "Rest": 0.257145,
+      "United States": 0.079609
     },
     "China_import": {
-      "Chile": 0.198354,
+      "Chile": 0.199497,
       "Congo, D.R.": 4e-06,
-      "Kazakhstan": 0.005794,
+      "Kazakhstan": 0.005853,
       "Mexico": 7.9e-05,
-      "Peru": 0.068128,
-      "Rest": 0.727642
+      "Peru": 0.065683,
+      "Rest": 0.728884
     }
   },
   "trade_totals_kt": {
     "Chile_export": {
-      "1995": 2227.8961724984065,
-      "2024": 5507.231752972047
+      "1995": 2247.8018930767867,
+      "2024": 5526.653641811134
     },
     "Peru_export": {
-      "1995": 396.34044792596416,
-      "2024": 2787.312173934195
+      "1995": 422.8419099387223,
+      "2024": 2795.006287434597
     },
     "China_import": {
-      "1995": 385.0935067607474,
-      "2024": 11884.789590302029
+      "1995": 382.2627082787692,
+      "2024": 11743.41989596863
     }
   },
   "embodied_period": "2024",
-  "embodied_china_from_chile_peru_kt": 6334.9839346971785,
-  "direct_conc_china_from_chile_peru_kt": 4253.595621292468,
-  "embodied_ratio": 1.489324444238607,
-  "china_footprint_kt": 16726.90506537094,
-  "china_domestic_extraction_kt": 2308.7931939375912,
+  "embodied_china_from_chile_peru_kt": 6303.347758551543,
+  "direct_conc_china_from_chile_peru_kt": 4233.563447613044,
+  "embodied_ratio": 1.4888988523617093,
+  "china_footprint_kt": 16431.44485926397,
+  "china_domestic_extraction_kt": 2309.8498360145795,
   "china_footprint_origins": {
-    "Chile": 3885.7,
-    "Congo, D.R.": 2684.6,
-    "Peru": 2449.2,
-    "China": 2241.3,
-    "ROW": 799.1,
+    "Chile": 3874.6,
+    "Congo, D.R.": 2664.3,
+    "Peru": 2428.8,
+    "China": 2241.7,
+    "ROW": 777.9,
     "Kazakhstan": 774.2,
-    "Zambia": 531.9,
-    "Mexico": 516.8
+    "Mexico": 514.6,
+    "Russia": 510.9
   },
-  "world_extraction_kt": 29620.40858016895,
+  "world_extraction_kt": 29691.64339850893,
   "chile_share_to_china": {
-    "1995": 0.03428560005143316,
-    "2024": 0.5477397210059021
+    "1995": 0.03392651391630228,
+    "2024": 0.544897286761659
   },
   "ledger": [
     {
@@ -358,7 +358,7 @@
       "expectation": "compatibility is family-specific",
       "metric": "share of rows with |z| > 3 per year: edges below, scale totals above",
       "threshold": "edges < 0.05 and scale totals > 0.20, every year",
-      "value": "edges 0.004\u20130.012 (30/30 yr); scale totals 0.121\u20130.226 (9/30 yr)",
+      "value": "edges 0.004\u20130.015 (30/30 yr); scale totals 0.129\u20130.244 (14/30 yr)",
       "outcome": "FAIL"
     },
     {
@@ -366,7 +366,7 @@
       "expectation": "the adjustment localises on transit trade",
       "metric": "share of edge \u03a3z\u00b2 on cross-region legs into non-processing regions (no ICSG processing row)",
       "threshold": "\u2265 0.50",
-      "value": "0.787 (all cross-region legs 0.947)",
+      "value": "0.696 (all cross-region legs 0.919)",
       "outcome": "PASS"
     },
     {
@@ -374,7 +374,7 @@
       "expectation": "the adjustment grows upstream",
       "metric": "retention Cathode CC > Concentrate CC > Ore Mass, gap per step, years passing",
       "threshold": "\u2265 0.02 per step in \u2265 25 of 30 years",
-      "value": "0/30 years both steps (cathode\u2013concentrate 1, concentrate\u2013ore 10)",
+      "value": "0/30 years both steps (cathode\u2013concentrate 0, concentrate\u2013ore 17)",
       "outcome": "FAIL"
     },
     {
@@ -390,7 +390,7 @@
       "expectation": "secondary share: fidelity and regional order",
       "metric": "input-side share, pooled 2020\u201324: |world posterior \u2212 ICSG-implied|; EU-14 > China > US; EU-14 / world",
       "threshold": "< 0.02; order holds; \u2265 2\u00d7",
-      "value": "|0.172 \u2212 0.164| = 0.007; EU-14 0.370 > China 0.240 > US 0.045; 2.16\u00d7",
+      "value": "|0.171 \u2212 0.164| = 0.007; EU-14 0.374 > China 0.243 > US 0.046; 2.19\u00d7",
       "outcome": "PASS"
     },
     {
@@ -398,7 +398,7 @@
       "expectation": "concentration rises downstream and is reconciliation-invariant",
       "metric": "HHI (ROW as one region) 2024 posterior per step; |HHI_post \u2212 HHI_prior| per step",
       "threshold": "refining, use > mining and > 0.25; mining < 0.15; |\u0394| < 0.01",
-      "value": "HHI mining 0.111, smelting 0.281, refining 0.230, use 0.352; |\u0394| max 0.003 (use)",
+      "value": "HHI mining 0.111, smelting 0.273, refining 0.223, use 0.341; |\u0394| max 0.004 (smelting)",
       "outcome": "FAIL"
     },
     {
@@ -406,7 +406,7 @@
       "expectation": "embodied exceeds direct; Chile's exports turned to China",
       "metric": "China's embodied mined Cu from Chile+Peru / direct concentrate imports from them, 2024; Chile's export share to China 1995 and 2024",
       "threshold": "\u2265 1.10; < 0.10 \u2192 > 0.50",
-      "value": "6,335 / 4,254 kt CC = 1.49; 0.034 \u2192 0.548",
+      "value": "6,303 / 4,234 kt CC = 1.49; 0.034 \u2192 0.545",
       "outcome": "PASS"
     }
   ],
@@ -415,12 +415,12 @@
     "region": "China",
     "provenance_cc": {
       "feed": {
-        "n_edges": 998,
+        "n_edges": 1014,
         "kt": 88278.5
       },
       "network": {
-        "n_edges": 900,
-        "kt": 219247.0
+        "n_edges": 882,
+        "kt": 221226.4
       },
       "trade": {
         "n_edges": 202,
@@ -447,33 +447,32 @@
         "kt": 0.0
       },
       "flat_prior": {
-        "n_edges": 11380,
+        "n_edges": 11382,
         "kt": 0.0
       }
     },
     "feed_cc_edges_per_year": {
-      "min": 871,
-      "max": 1181
+      "min": 885,
+      "max": 1195
     },
     "chain_profile_cc_kt": {
       "CO\u2192Mining": {
-        "network": 26590.5
+        "network": 26463.0
       },
       "Mining\u2192Ore": {
-        "network": 26590.5
+        "network": 26463.0
       },
       "Ore\u2192MF": {
-        "network": 20853.0
+        "network": 20725.5
       },
       "Ore\u2192SXEW": {
         "network": 5737.5
       },
       "MF\u2192Concentrate": {
-        "feed": 16580.4,
-        "network": 102.0
+        "feed": 16580.4
       },
       "MF\u2192Tailings": {
-        "network": 4170.6
+        "network": 4145.1
       },
       "SXEW\u2192CSXEW": {
         "feed": 4159.7
@@ -483,45 +482,45 @@
       },
       "Concentrate\u2192Smelting": {
         "feed": 7731.8,
-        "network": 158.2
+        "network": 69.6
       },
       "Smelting\u2192Matte": {
-        "network": 20860.0
+        "network": 20862.7
       },
       "Smelting\u2192Slag": {
-        "network": 756.6
+        "network": 756.7
       },
       "Matte\u2192CFR": {
-        "network": 20658.5
+        "network": 20741.9
       },
       "CFR\u2192Anode": {
-        "network": 20876.3
+        "network": 20960.3
       },
       "CFR\u2192Slag": {
-        "network": 268.1
+        "network": 269.2
       },
       "Anode\u2192ER": {
         "feed": 19166.9,
-        "network": 8.4
+        "network": 97.2
       },
       "ER\u2192CER": {
-        "network": 20468.4
+        "network": 21047.5
       },
       "ER\u2192Slag": {
-        "network": 61.6
+        "network": 63.3
       },
       "CER\u2192CP": {
-        "network": 20468.4
+        "network": 21047.5
       },
       "CSXEW\u2192CP": {
         "network": 4159.7
       },
       "CP\u2192Cathode": {
-        "network": 24628.1
+        "network": 25207.2
       },
       "Cathode\u2192FU": {
         "feed": 15238.5,
-        "network": 253.0
+        "network": 831.8
       },
       "Scrap\u2192Smelting": {
         "feed": 3491.7
@@ -550,7 +549,7 @@
       "mass balance": {
         "group": "eq",
         "rows": 1316,
-        "prior_breach": 411,
+        "prior_breach": 414,
         "binding": null,
         "binding_on_flow": null,
         "binding_on_zero_flows": null
@@ -567,33 +566,33 @@
         "group": "le",
         "rows": 19314,
         "prior_breach": 151,
-        "binding": 13694,
-        "binding_on_flow": 4394,
-        "binding_on_zero_flows": 9300
+        "binding": 13854,
+        "binding_on_flow": 4426,
+        "binding_on_zero_flows": 9428
       },
       "eff band": {
         "group": "le",
         "rows": 470,
-        "prior_breach": 36,
-        "binding": 121,
-        "binding_on_flow": 75,
-        "binding_on_zero_flows": 46
+        "prior_breach": 22,
+        "binding": 128,
+        "binding_on_flow": 84,
+        "binding_on_zero_flows": 44
       },
       "scrap-share band": {
         "group": "le",
         "rows": 188,
-        "prior_breach": 4,
-        "binding": 45,
-        "binding_on_flow": 5,
-        "binding_on_zero_flows": 40
+        "prior_breach": 3,
+        "binding": 31,
+        "binding_on_flow": 13,
+        "binding_on_zero_flows": 18
       },
       "lower bound": {
         "group": "le",
         "rows": 19552,
         "prior_breach": 0,
-        "binding": 9307,
+        "binding": 9434,
         "binding_on_flow": 0,
-        "binding_on_zero_flows": 9307
+        "binding_on_zero_flows": 9434
       },
       "soft ratio": {
         "group": "soft",
@@ -605,7 +604,7 @@
       },
       "scale total & scrap anchor": {
         "group": "soft",
-        "rows": 971,
+        "rows": 969,
         "prior_breach": null,
         "binding": null,
         "binding_on_flow": null,
@@ -613,15 +612,15 @@
       }
     },
     "block": {
-      "rows": 56258,
+      "rows": 56256,
       "edges": 28482,
       "rows_by_group": {
-        "soft": 15371,
+        "soft": 15369,
         "eq": 1363,
         "le": 39524
       },
-      "nnz": 178415,
-      "nnz_stored": 182177
+      "nnz": 179704,
+      "nnz_stored": 183466
     },
     "region_slice": {
       "edges": 364,
@@ -632,104 +631,104 @@
       "partial": 523,
       "free_rows": 422,
       "nnz": 2545,
-      "binding_on_flow": 56
+      "binding_on_flow": 57
     }
   },
   "stage5": {
-    "uncprop_run_id": "uncprop_20261112_144236_f79da518",
-    "birge_ratio": 5.178241479229299,
-    "z_alpha_birge": 4.460045000453424,
+    "uncprop_run_id": "uncprop_20261119_133344_08dfa15b",
+    "birge_ratio": 4.825640577597394,
+    "z_alpha_birge": 4.305519662283637,
     "birge_by_year": {
-      "min": 1.830447770577143,
+      "min": 1.9619788036058938,
       "min_year": "2000",
-      "max": 11.830054913194331,
+      "max": 7.951418858208499,
       "max_year": "2017",
       "edge_share_of_zsq": {
-        "1995": 0.317332,
-        "1996": 0.492154,
-        "1997": 0.49842,
-        "1998": 0.53131,
-        "1999": 0.686748,
-        "2000": 0.683752,
-        "2001": 0.528527,
-        "2002": 0.355677,
-        "2003": 0.381278,
-        "2004": 0.628049,
-        "2005": 0.760013,
-        "2006": 0.737611,
-        "2007": 0.787272,
-        "2008": 0.622317,
-        "2009": 0.645783,
-        "2010": 0.824593,
-        "2011": 0.669032,
-        "2012": 0.704201,
-        "2013": 0.767888,
-        "2014": 0.808461,
-        "2015": 0.806755,
-        "2016": 0.749104,
-        "2017": 0.902657,
-        "2018": 0.849261,
-        "2019": 0.707913,
-        "2020": 0.757065,
-        "2021": 0.703137,
-        "2022": 0.730198,
-        "2023": 0.686577,
-        "2024": 0.616416
+        "1995": 0.243115,
+        "1996": 0.425008,
+        "1997": 0.425019,
+        "1998": 0.466438,
+        "1999": 0.649093,
+        "2000": 0.456064,
+        "2001": 0.447635,
+        "2002": 0.353639,
+        "2003": 0.322766,
+        "2004": 0.584721,
+        "2005": 0.708818,
+        "2006": 0.642415,
+        "2007": 0.699507,
+        "2008": 0.544226,
+        "2009": 0.633753,
+        "2010": 0.689762,
+        "2011": 0.618013,
+        "2012": 0.685256,
+        "2013": 0.668166,
+        "2014": 0.76506,
+        "2015": 0.745242,
+        "2016": 0.619689,
+        "2017": 0.725041,
+        "2018": 0.655722,
+        "2019": 0.515751,
+        "2020": 0.591982,
+        "2021": 0.513569,
+        "2022": 0.492218,
+        "2023": 0.433392,
+        "2024": 0.348294
       }
     },
     "contraction": {
       "CC from a feed": {
-        "edge_years": 32407,
-        "weight_kt": 2139691.359456699,
-        "kappa_weighted": 0.930966,
-        "kappa_median": 0.065304
+        "edge_years": 32863,
+        "weight_kt": 2143284.5579687385,
+        "kappa_weighted": 0.931775,
+        "kappa_median": 0.078185
       },
       "CC imputed": {
-        "edge_years": 56293,
-        "weight_kt": 5253172.548118704,
-        "kappa_weighted": 0.978263,
-        "kappa_median": 0.193707
+        "edge_years": 55670,
+        "weight_kt": 5284260.321553164,
+        "kappa_weighted": 0.978498,
+        "kappa_median": 0.14454
       },
       "Mass from a feed": {
         "edge_years": 28811,
-        "weight_kt": 57672739.277621545,
-        "kappa_weighted": 0.973173,
-        "kappa_median": 0.036886
+        "weight_kt": 57672054.82995861,
+        "kappa_weighted": 0.973107,
+        "kappa_median": 0.034529
       },
       "Mass imputed": {
-        "edge_years": 55096,
-        "weight_kt": 200605956.00252277,
-        "kappa_weighted": 0.967796,
-        "kappa_median": 0.212918
+        "edge_years": 54999,
+        "weight_kt": 200621207.8375014,
+        "kappa_weighted": 0.968221,
+        "kappa_median": 0.178937
       }
     },
     "calibration": {
       "CC from a feed": {
-        "n_calibrated": 18842,
-        "share_gt3": 0.130878,
-        "share_gt3_weighted": 0.052503,
-        "share_gt3_birge": 0.04145,
-        "median_abs_shift": 0.458734
+        "n_calibrated": 19363,
+        "share_gt3": 0.146207,
+        "share_gt3_weighted": 0.056476,
+        "share_gt3_birge": 0.05118,
+        "median_abs_shift": 0.485104
       },
       "CC imputed": {
-        "n_calibrated": 47176,
-        "share_gt3": 0.075144,
-        "share_gt3_weighted": 0.011558,
-        "share_gt3_birge": 0.024822,
-        "median_abs_shift": 0.161423
+        "n_calibrated": 46442,
+        "share_gt3": 0.070626,
+        "share_gt3_weighted": 0.012401,
+        "share_gt3_birge": 0.024181,
+        "median_abs_shift": 0.166956
       },
       "Mass from a feed": {
-        "n_calibrated": 17300,
-        "share_gt3": 0.182948,
-        "share_gt3_weighted": 0.004593,
-        "share_gt3_birge": 0.08763,
+        "n_calibrated": 17253,
+        "share_gt3": 0.181012,
+        "share_gt3_weighted": 0.004861,
+        "share_gt3_birge": 0.088912,
         "median_abs_shift": null
       },
       "Mass imputed": {
-        "n_calibrated": 47491,
-        "share_gt3": 0.056642,
-        "share_gt3_weighted": 0.000311,
-        "share_gt3_birge": 0.016593,
+        "n_calibrated": 47241,
+        "share_gt3": 0.051375,
+        "share_gt3_weighted": 0.000285,
+        "share_gt3_birge": 0.016321,
         "median_abs_shift": null
       }
     },
@@ -739,185 +738,185 @@
         "edge_years": 1410,
         "pinned": 0,
         "pinned_share": 0.0,
-        "weight_kt": 586043.1455376911,
-        "kappa_weighted": 0.995374,
-        "kappa_median": 0.994973
+        "weight_kt": 592090.5670415382,
+        "kappa_weighted": 0.995371,
+        "kappa_median": 0.995612
       },
       "CER\u2192CP CC": {
         "edge_years": 1410,
         "pinned": 0,
         "pinned_share": 0.0,
-        "weight_kt": 488589.1169840326,
-        "kappa_weighted": 0.99507,
-        "kappa_median": 0.994786
+        "weight_kt": 494582.48614596605,
+        "kappa_weighted": 0.995029,
+        "kappa_median": 0.99545
       },
       "ER\u2192CER CC": {
         "edge_years": 1410,
         "pinned": 0,
         "pinned_share": 0.0,
-        "weight_kt": 488589.1169840363,
-        "kappa_weighted": 0.995051,
-        "kappa_median": 0.994654
+        "weight_kt": 494609.79337566055,
+        "kappa_weighted": 0.995016,
+        "kappa_median": 0.995353
       },
       "CFR\u2192Anode CC": {
         "edge_years": 1410,
         "pinned": 0,
         "pinned_share": 0.0,
-        "weight_kt": 494249.14580356487,
-        "kappa_weighted": 0.994868,
-        "kappa_median": 0.994968
+        "weight_kt": 495879.71274677006,
+        "kappa_weighted": 0.994875,
+        "kappa_median": 0.995137
       },
       "Smelting\u2192Matte CC": {
         "edge_years": 1410,
         "pinned": 0,
         "pinned_share": 0.0,
-        "weight_kt": 485716.3839747068,
-        "kappa_weighted": 0.991095,
-        "kappa_median": 0.993344
+        "weight_kt": 489079.00253408967,
+        "kappa_weighted": 0.991212,
+        "kappa_median": 0.993434
       },
       "Mining\u2192Ore CC": {
         "edge_years": 1410,
-        "pinned": 4,
-        "pinned_share": 0.002837,
-        "weight_kt": 643873.1356419924,
-        "kappa_weighted": 0.99098,
-        "kappa_median": 0.991389
+        "pinned": 0,
+        "pinned_share": 0.0,
+        "weight_kt": 643984.0772023693,
+        "kappa_weighted": 0.99108,
+        "kappa_median": 0.989881
       },
       "CO\u2192Mining CC": {
         "edge_years": 1410,
-        "pinned": 4,
-        "pinned_share": 0.002837,
-        "weight_kt": 643873.1356419924,
-        "kappa_weighted": 0.990979,
-        "kappa_median": 0.991389
-      },
-      "CSXEW\u2192CP CC": {
-        "edge_years": 1410,
-        "pinned": 628,
-        "pinned_share": 0.44539,
-        "weight_kt": 97419.67403109105,
-        "kappa_weighted": 0.989105,
-        "kappa_median": 0.96687
+        "pinned": 0,
+        "pinned_share": 0.0,
+        "weight_kt": 643984.0772023693,
+        "kappa_weighted": 0.991079,
+        "kappa_median": 0.98988
       },
       "SXEW\u2192CSXEW CC": {
         "edge_years": 1410,
-        "pinned": 628,
-        "pinned_share": 0.44539,
-        "weight_kt": 97419.67403109989,
-        "kappa_weighted": 0.989103,
-        "kappa_median": 0.96687
+        "pinned": 591,
+        "pinned_share": 0.419149,
+        "weight_kt": 97440.14466262149,
+        "kappa_weighted": 0.989097,
+        "kappa_median": 0.960759
+      },
+      "CSXEW\u2192CP CC": {
+        "edge_years": 1410,
+        "pinned": 591,
+        "pinned_share": 0.419149,
+        "weight_kt": 97440.14466260117,
+        "kappa_weighted": 0.989093,
+        "kappa_median": 0.96028
       },
       "Matte\u2192CFR CC": {
         "edge_years": 66270,
-        "pinned": 32580,
-        "pinned_share": 0.491625,
-        "weight_kt": 486666.7364477895,
-        "kappa_weighted": 0.987687,
-        "kappa_median": 0.329585
+        "pinned": 31915,
+        "pinned_share": 0.48159,
+        "weight_kt": 489945.1623789606,
+        "kappa_weighted": 0.988097,
+        "kappa_median": 0.329329
       },
       "Ore\u2192MF CC": {
         "edge_years": 1410,
-        "pinned": 5,
-        "pinned_share": 0.003546,
-        "weight_kt": 511697.57801745564,
-        "kappa_weighted": 0.986947,
-        "kappa_median": 0.990395
+        "pinned": 2,
+        "pinned_share": 0.001418,
+        "weight_kt": 512045.31121522275,
+        "kappa_weighted": 0.98705,
+        "kappa_median": 0.989319
       },
       "Anode\u2192ER CC": {
         "edge_years": 66270,
-        "pinned": 35968,
-        "pinned_share": 0.542749,
-        "weight_kt": 496602.21084108006,
-        "kappa_weighted": 0.985649,
-        "kappa_median": 0.50627
+        "pinned": 35887,
+        "pinned_share": 0.541527,
+        "weight_kt": 497879.8389053734,
+        "kappa_weighted": 0.985193,
+        "kappa_median": 0.500942
       },
       "MF\u2192Concentrate CC": {
         "edge_years": 1410,
-        "pinned": 5,
-        "pinned_share": 0.003546,
-        "weight_kt": 416359.759974709,
-        "kappa_weighted": 0.983899,
-        "kappa_median": 0.982899
+        "pinned": 2,
+        "pinned_share": 0.001418,
+        "weight_kt": 417644.20238537283,
+        "kappa_weighted": 0.984072,
+        "kappa_median": 0.978911
       },
       "Ore\u2192SXEW CC": {
         "edge_years": 1410,
-        "pinned": 626,
-        "pinned_share": 0.443972,
-        "weight_kt": 134267.34227555018,
-        "kappa_weighted": 0.96302,
-        "kappa_median": 0.926047
+        "pinned": 590,
+        "pinned_share": 0.41844,
+        "weight_kt": 134072.79108684152,
+        "kappa_weighted": 0.963308,
+        "kappa_median": 0.924678
       },
       "Scrap\u2192Smelting CC": {
         "edge_years": 1410,
-        "pinned": 532,
-        "pinned_share": 0.377305,
-        "weight_kt": 78182.35636575961,
-        "kappa_weighted": 0.947286,
-        "kappa_median": 0.942079
+        "pinned": 327,
+        "pinned_share": 0.231915,
+        "weight_kt": 78518.38332356176,
+        "kappa_weighted": 0.946862,
+        "kappa_median": 0.942145
       },
       "Cathode\u2192FU CC": {
         "edge_years": 66270,
-        "pinned": 22209,
-        "pinned_share": 0.335129,
-        "weight_kt": 603359.406479969,
-        "kappa_weighted": 0.939183,
-        "kappa_median": 0.414768
+        "pinned": 28139,
+        "pinned_share": 0.424611,
+        "weight_kt": 609326.3603691302,
+        "kappa_weighted": 0.939066,
+        "kappa_median": 0.933704
       },
       "Scrap\u2192CFR CC": {
         "edge_years": 1410,
-        "pinned": 564,
-        "pinned_share": 0.4,
-        "weight_kt": 22566.707376023838,
-        "kappa_weighted": 0.926706,
-        "kappa_median": 0.763785
+        "pinned": 345,
+        "pinned_share": 0.244681,
+        "weight_kt": 22768.678106667307,
+        "kappa_weighted": 0.92388,
+        "kappa_median": 0.921908
       },
       "Concentrate\u2192Smelting CC": {
         "edge_years": 66270,
-        "pinned": 42665,
-        "pinned_share": 0.643806,
-        "weight_kt": 434106.20258133335,
-        "kappa_weighted": 0.804483,
-        "kappa_median": 0.414548
+        "pinned": 45475,
+        "pinned_share": 0.686208,
+        "weight_kt": 434900.67412248335,
+        "kappa_weighted": 0.806613,
+        "kappa_median": 0.413521
       },
       "MF\u2192Tailings CC": {
         "edge_years": 1410,
-        "pinned": 5,
-        "pinned_share": 0.003546,
-        "weight_kt": 104597.38495117721,
-        "kappa_weighted": 0.689518,
-        "kappa_median": 0.7816
-      },
-      "SXEW\u2192Tailings CC": {
-        "edge_years": 1410,
-        "pinned": 648,
-        "pinned_share": 0.459574,
-        "weight_kt": 37949.25476771413,
-        "kappa_weighted": 0.525251,
-        "kappa_median": 0.580523
+        "pinned": 2,
+        "pinned_share": 0.001418,
+        "weight_kt": 103656.57608199806,
+        "kappa_weighted": 0.693217,
+        "kappa_median": 0.940928
       },
       "Smelting\u2192Slag CC": {
         "edge_years": 1410,
         "pinned": 0,
         "pinned_share": 0.0,
-        "weight_kt": 18434.161964997584,
-        "kappa_weighted": 0.497982,
-        "kappa_median": 0.259933
+        "weight_kt": 18198.23150742947,
+        "kappa_weighted": 0.533699,
+        "kappa_median": 0.319402
+      },
+      "SXEW\u2192Tailings CC": {
+        "edge_years": 1410,
+        "pinned": 600,
+        "pinned_share": 0.425532,
+        "weight_kt": 37709.318283747176,
+        "kappa_weighted": 0.528898,
+        "kappa_median": 0.730665
       },
       "CFR\u2192Slag CC": {
         "edge_years": 1410,
         "pinned": 0,
         "pinned_share": 0.0,
-        "weight_kt": 7533.383664801154,
-        "kappa_weighted": 0.455358,
-        "kappa_median": 0.156502
+        "weight_kt": 7355.053455379304,
+        "kappa_weighted": 0.44658,
+        "kappa_median": 0.15199
       },
       "ER\u2192Slag CC": {
         "edge_years": 1410,
         "pinned": 0,
         "pinned_share": 0.0,
-        "weight_kt": 1520.509450188553,
-        "kappa_weighted": 0.283242,
-        "kappa_median": 0.793233
+        "weight_kt": 1531.9503007289825,
+        "kappa_weighted": 0.263881,
+        "kappa_median": 0.017449
       }
     }
   },
@@ -1106,50 +1105,50 @@
   "link": {
     "CC": {
       "n_categories": 23,
-      "spearman_rho": 0.48616600790513836,
-      "p_value": 0.018665349998827286,
+      "spearman_rho": 0.4822134387351779,
+      "p_value": 0.01979409248985916,
       "top_by_delta": {
         "CFR\u2192Slag CC": {
           "max_abs_delta": 0.052348,
-          "kappa_weighted": 0.455358
+          "kappa_weighted": 0.44658
         },
         "Smelting\u2192Slag CC": {
           "max_abs_delta": 0.045876,
-          "kappa_weighted": 0.497982
+          "kappa_weighted": 0.533699
         },
         "ER\u2192Slag CC": {
           "max_abs_delta": 0.045366,
-          "kappa_weighted": 0.283242
+          "kappa_weighted": 0.263881
         }
       },
       "least_contracted": {
-        "ER\u2192Slag CC": 0.283242,
-        "CFR\u2192Slag CC": 0.455358,
-        "Smelting\u2192Slag CC": 0.497982
+        "ER\u2192Slag CC": 0.263881,
+        "CFR\u2192Slag CC": 0.44658,
+        "SXEW\u2192Tailings CC": 0.528898
       }
     },
     "Mass": {
       "n_categories": 24,
-      "spearman_rho": 0.1991737381287295,
-      "p_value": 0.35079181188497033,
+      "spearman_rho": 0.19830398381375688,
+      "p_value": 0.3529426171818474,
       "top_by_delta": {
         "Scrap\u2192CFR Mass": {
           "max_abs_delta": 0.047586,
-          "kappa_weighted": 0.507464
+          "kappa_weighted": 0.509105
         },
         "Scrap\u2192Smelting Mass": {
           "max_abs_delta": 0.036883,
-          "kappa_weighted": 0.612352
+          "kappa_weighted": 0.608721
         },
         "CFR\u2192Slag Mass": {
           "max_abs_delta": 0.024586,
-          "kappa_weighted": 0.988294
+          "kappa_weighted": 0.988335
         }
       },
       "least_contracted": {
-        "Scrap\u2192CFR Mass": 0.507464,
-        "Concentrate\u2192Smelting Mass": 0.598971,
-        "Scrap\u2192Smelting Mass": 0.612352
+        "Scrap\u2192CFR Mass": 0.509105,
+        "Concentrate\u2192Smelting Mass": 0.598666,
+        "Scrap\u2192Smelting Mass": 0.608721
       }
     }
   }

@@ -1,20 +1,20 @@
 {
- "opt_run_id": "opt_20261112_135523_88fa69f3",
- "generated": "2026-11-16",
+ "opt_run_id": "opt_20261119_130302_b20f0dba",
+ "generated": "2026-11-23",
  "chain": {
-  "const": "const_20261112_134032_b6802ef3",
-  "imp": "imp_20261112_133434_22fc54b3",
+  "const": "const_20261119_125651_ff7bfc9c",
+  "imp": "imp_20261119_125259_f2b11cd5",
   "feeds": {
-   "icsg": "feed_icsg_20261022_110826_8a031806",
+   "icsg": "feed_icsg_20261119_125015_e2e9520e",
    "baci": "feed_baci_20261022_110715_fdf3b4ac",
    "crude_ore": "feed_crude_ore_20260603_095651_558f7369"
   },
   "psut": [
-   "psut_20261112_144358_449d34b5"
+   "psut_20261119_133504_4c783a88"
   ],
   "uncprop": [
-   "uncprop_20261112_144236_f79da518",
-   "uncprop_20261116_100548_78dc5344"
+   "uncprop_20261119_133344_08dfa15b",
+   "uncprop_20261123_113044_de642960"
   ],
   "sweep": [
    "sweep_20261102_145601_8413cace"
@@ -41,22 +41,22 @@
  "numbers": {
   "method:L10.opt_run_id": {
    "label": "reference opt run (also SI Table S17)",
-   "value": "opt_20261112_135523_88fa69f3",
+   "value": "opt_20261119_130302_b20f0dba",
    "unit": ""
   },
   "method:L10.const_run_id": {
    "label": "its constraint run (also results.md:12, S17)",
-   "value": "const_20261112_134032_b6802ef3",
+   "value": "const_20261119_125651_ff7bfc9c",
    "unit": ""
   },
   "method:L11.imp_run_id": {
    "label": "its imputation run (also results.md:13, S17)",
-   "value": "imp_20261112_133434_22fc54b3",
+   "value": "imp_20261119_125259_f2b11cd5",
    "unit": ""
   },
   "method:L12.feed_icsg_run_id": {
    "label": "icsg feed run (also S17)",
-   "value": "feed_icsg_20261022_110826_8a031806",
+   "value": "feed_icsg_20261119_125015_e2e9520e",
    "unit": ""
   },
   "method:L12.icsg_version": {
@@ -311,12 +311,12 @@
   },
   "si:S12.T_S15.n_imputed": {
    "label": "fills in the imputation log (caption)",
-   "value": 793242,
+   "value": 792786,
    "unit": ""
   },
   "si:S12.T_S15.n_steps": {
    "label": "imputer steps (caption)",
-   "value": 13,
+   "value": 11,
    "unit": ""
   },
   "method:L133.fabricated_anchor_cv": {
@@ -406,32 +406,32 @@
   },
   "method:L154.iterations_min": {
    "label": "fewest iterations of a year (also S5)",
-   "value": 60,
+   "value": 61,
    "unit": ""
   },
   "method:L154.iterations_max": {
    "label": "most iterations of a year (also S5 caption)",
-   "value": 74,
+   "value": 77,
    "unit": ""
   },
   "method:L154.solve_time_min_s": {
    "label": "fastest year",
-   "value": 19.696398939937353,
+   "value": 17.734737718477845,
    "unit": "s"
   },
   "method:L154.solve_time_max_s": {
    "label": "slowest year",
-   "value": 30.703916804865003,
+   "value": 22.368804033845663,
    "unit": "s"
   },
   "method:L154.solve_time_sum_s": {
    "label": "Σ per-year solve time (also S6)",
-   "value": 746.3717599529773,
+   "value": 590.9292178042233,
    "unit": "s"
   },
   "method:L154.solve_wall_s": {
    "label": "wall clock of the concurrent solve (#71; absent before it)",
-   "value": 608.2949682753533,
+   "value": 94.86592029593885,
    "unit": "s"
   },
   "si:S5.T_S5.tol_feas": {
@@ -461,32 +461,32 @@
   },
   "si:S5.T_S6.1995.iterations": {
    "label": "1995 Clarabel iterations",
-   "value": 63,
+   "value": 61,
    "unit": ""
   },
   "si:S5.T_S6.1995.solve_time_s": {
    "label": "1995 solve time",
-   "value": 25.065011573955417,
+   "value": 20.21468721702695,
    "unit": "s"
   },
   "si:S5.T_S6.1995.gap_rel_e6": {
    "label": "1995 relative duality gap × 1e6",
-   "value": 0.0046377715862614384,
+   "value": 0.00992218532013448,
    "unit": ""
   },
   "si:S5.T_S6.1996.iterations": {
    "label": "1996 Clarabel iterations",
-   "value": 64,
+   "value": 63,
    "unit": ""
   },
   "si:S5.T_S6.1996.solve_time_s": {
    "label": "1996 solve time",
-   "value": 22.65918618440628,
+   "value": 18.57166981138289,
    "unit": "s"
   },
   "si:S5.T_S6.1996.gap_rel_e6": {
    "label": "1996 relative duality gap × 1e6",
-   "value": 0.0025230403433656482,
+   "value": 0.0019760960122568202,
    "unit": ""
   },
   "si:S5.T_S6.1997.iterations": {
@@ -496,57 +496,57 @@
   },
   "si:S5.T_S6.1997.solve_time_s": {
    "label": "1997 solve time",
-   "value": 23.504297433421016,
+   "value": 18.779493987560272,
    "unit": "s"
   },
   "si:S5.T_S6.1997.gap_rel_e6": {
    "label": "1997 relative duality gap × 1e6",
-   "value": 0.00730693209927705,
+   "value": 0.0017381021774006537,
    "unit": ""
   },
   "si:S5.T_S6.1998.iterations": {
    "label": "1998 Clarabel iterations",
-   "value": 65,
+   "value": 68,
    "unit": ""
   },
   "si:S5.T_S6.1998.solve_time_s": {
    "label": "1998 solve time",
-   "value": 23.003836086019874,
+   "value": 19.643133528530598,
    "unit": "s"
   },
   "si:S5.T_S6.1998.gap_rel_e6": {
    "label": "1998 relative duality gap × 1e6",
-   "value": 0.0036754142268584622,
+   "value": 0.00764475458089284,
    "unit": ""
   },
   "si:S5.T_S6.1999.iterations": {
    "label": "1999 Clarabel iterations",
-   "value": 60,
+   "value": 62,
    "unit": ""
   },
   "si:S5.T_S6.1999.solve_time_s": {
    "label": "1999 solve time",
-   "value": 22.07106678560376,
+   "value": 18.576357193291187,
    "unit": "s"
   },
   "si:S5.T_S6.1999.gap_rel_e6": {
    "label": "1999 relative duality gap × 1e6",
-   "value": 0.005951656119786727,
+   "value": 0.003526250147439075,
    "unit": ""
   },
   "si:S5.T_S6.2000.iterations": {
    "label": "2000 Clarabel iterations",
-   "value": 65,
+   "value": 66,
    "unit": ""
   },
   "si:S5.T_S6.2000.solve_time_s": {
    "label": "2000 solve time",
-   "value": 24.183885730803013,
+   "value": 18.80291490443051,
    "unit": "s"
   },
   "si:S5.T_S6.2000.gap_rel_e6": {
    "label": "2000 relative duality gap × 1e6",
-   "value": 0.0036278451752879796,
+   "value": 0.005484790931014064,
    "unit": ""
   },
   "si:S5.T_S6.2001.iterations": {
@@ -556,27 +556,27 @@
   },
   "si:S5.T_S6.2001.solve_time_s": {
    "label": "2001 solve time",
-   "value": 23.40875281393528,
+   "value": 18.163892736658454,
    "unit": "s"
   },
   "si:S5.T_S6.2001.gap_rel_e6": {
    "label": "2001 relative duality gap × 1e6",
-   "value": 0.0082562481594166,
+   "value": 0.006816113827079507,
    "unit": ""
   },
   "si:S5.T_S6.2002.iterations": {
    "label": "2002 Clarabel iterations",
-   "value": 64,
+   "value": 67,
    "unit": ""
   },
   "si:S5.T_S6.2002.solve_time_s": {
    "label": "2002 solve time",
-   "value": 21.54014472477138,
+   "value": 19.183481071144342,
    "unit": "s"
   },
   "si:S5.T_S6.2002.gap_rel_e6": {
    "label": "2002 relative duality gap × 1e6",
-   "value": 0.0021750379917148633,
+   "value": 0.005460276787367455,
    "unit": ""
   },
   "si:S5.T_S6.2003.iterations": {
@@ -586,42 +586,42 @@
   },
   "si:S5.T_S6.2003.solve_time_s": {
    "label": "2003 solve time",
-   "value": 24.960152650251985,
+   "value": 18.954019706696272,
    "unit": "s"
   },
   "si:S5.T_S6.2003.gap_rel_e6": {
    "label": "2003 relative duality gap × 1e6",
-   "value": 0.009909941764921507,
+   "value": 0.008049770097086703,
    "unit": ""
   },
   "si:S5.T_S6.2004.iterations": {
    "label": "2004 Clarabel iterations",
-   "value": 66,
+   "value": 70,
    "unit": ""
   },
   "si:S5.T_S6.2004.solve_time_s": {
    "label": "2004 solve time",
-   "value": 23.976938946172595,
+   "value": 19.1299926918,
    "unit": "s"
   },
   "si:S5.T_S6.2004.gap_rel_e6": {
    "label": "2004 relative duality gap × 1e6",
-   "value": 0.006851852166416448,
+   "value": 0.004797727376325557,
    "unit": ""
   },
   "si:S5.T_S6.2005.iterations": {
    "label": "2005 Clarabel iterations",
-   "value": 67,
+   "value": 70,
    "unit": ""
   },
   "si:S5.T_S6.2005.solve_time_s": {
    "label": "2005 solve time",
-   "value": 26.564707608893514,
+   "value": 20.31684592179954,
    "unit": "s"
   },
   "si:S5.T_S6.2005.gap_rel_e6": {
    "label": "2005 relative duality gap × 1e6",
-   "value": 0.004347438494107534,
+   "value": 0.006386771752731024,
    "unit": ""
   },
   "si:S5.T_S6.2006.iterations": {
@@ -631,12 +631,12 @@
   },
   "si:S5.T_S6.2006.solve_time_s": {
    "label": "2006 solve time",
-   "value": 29.14977988600731,
+   "value": 20.403396010398865,
    "unit": "s"
   },
   "si:S5.T_S6.2006.gap_rel_e6": {
    "label": "2006 relative duality gap × 1e6",
-   "value": 0.0072819348524419585,
+   "value": 0.0058627878476849,
    "unit": ""
   },
   "si:S5.T_S6.2007.iterations": {
@@ -646,12 +646,12 @@
   },
   "si:S5.T_S6.2007.solve_time_s": {
    "label": "2007 solve time",
-   "value": 27.04415493272245,
+   "value": 17.734737718477845,
    "unit": "s"
   },
   "si:S5.T_S6.2007.gap_rel_e6": {
    "label": "2007 relative duality gap × 1e6",
-   "value": 0.009147972702203461,
+   "value": 0.008113653129215689,
    "unit": ""
   },
   "si:S5.T_S6.2008.iterations": {
@@ -661,273 +661,273 @@
   },
   "si:S5.T_S6.2008.solve_time_s": {
    "label": "2008 solve time",
-   "value": 29.76025152951479,
+   "value": 19.246955193579197,
    "unit": "s"
   },
   "si:S5.T_S6.2008.gap_rel_e6": {
    "label": "2008 relative duality gap × 1e6",
-   "value": 0.005147713173077115,
+   "value": 0.00523142839419841,
    "unit": ""
   },
   "si:S5.T_S6.2009.iterations": {
    "label": "2009 Clarabel iterations",
-   "value": 67,
+   "value": 69,
    "unit": ""
   },
   "si:S5.T_S6.2009.solve_time_s": {
    "label": "2009 solve time",
-   "value": 26.085599588230252,
+   "value": 18.72455433383584,
    "unit": "s"
   },
   "si:S5.T_S6.2009.gap_rel_e6": {
    "label": "2009 relative duality gap × 1e6",
-   "value": 0.005182345642995842,
+   "value": 0.003448946836460656,
    "unit": ""
   },
   "si:S5.T_S6.2010.iterations": {
    "label": "2010 Clarabel iterations",
-   "value": 67,
+   "value": 69,
    "unit": ""
   },
   "si:S5.T_S6.2010.solve_time_s": {
    "label": "2010 solve time",
-   "value": 27.512143064290285,
+   "value": 18.383717777207494,
    "unit": "s"
   },
   "si:S5.T_S6.2010.gap_rel_e6": {
    "label": "2010 relative duality gap × 1e6",
-   "value": 0.007796815992947377,
+   "value": 0.0057798690406267875,
    "unit": ""
   },
   "si:S5.T_S6.2011.iterations": {
    "label": "2011 Clarabel iterations",
-   "value": 67,
+   "value": 71,
    "unit": ""
   },
   "si:S5.T_S6.2011.solve_time_s": {
    "label": "2011 solve time",
-   "value": 29.42012209072709,
+   "value": 19.329379238188267,
    "unit": "s"
   },
   "si:S5.T_S6.2011.gap_rel_e6": {
    "label": "2011 relative duality gap × 1e6",
-   "value": 0.005728742061287216,
+   "value": 0.009175259748940161,
    "unit": ""
   },
   "si:S5.T_S6.2012.iterations": {
    "label": "2012 Clarabel iterations",
-   "value": 70,
+   "value": 68,
    "unit": ""
   },
   "si:S5.T_S6.2012.solve_time_s": {
    "label": "2012 solve time",
-   "value": 26.287687426432967,
+   "value": 18.727843414992094,
    "unit": "s"
   },
   "si:S5.T_S6.2012.gap_rel_e6": {
    "label": "2012 relative duality gap × 1e6",
-   "value": 0.008871807243709761,
+   "value": 0.007695902160959894,
    "unit": ""
   },
   "si:S5.T_S6.2013.iterations": {
    "label": "2013 Clarabel iterations",
-   "value": 68,
+   "value": 71,
    "unit": ""
   },
   "si:S5.T_S6.2013.solve_time_s": {
    "label": "2013 solve time",
-   "value": 26.896152071654797,
+   "value": 19.786411801353097,
    "unit": "s"
   },
   "si:S5.T_S6.2013.gap_rel_e6": {
    "label": "2013 relative duality gap × 1e6",
-   "value": 0.003365817295248992,
+   "value": 0.009767031470020575,
    "unit": ""
   },
   "si:S5.T_S6.2014.iterations": {
    "label": "2014 Clarabel iterations",
-   "value": 64,
+   "value": 67,
    "unit": ""
   },
   "si:S5.T_S6.2014.solve_time_s": {
    "label": "2014 solve time",
-   "value": 26.212196592241526,
+   "value": 19.024574561044574,
    "unit": "s"
   },
   "si:S5.T_S6.2014.gap_rel_e6": {
    "label": "2014 relative duality gap × 1e6",
-   "value": 0.00995578850708338,
+   "value": 0.009079513065326946,
    "unit": ""
   },
   "si:S5.T_S6.2015.iterations": {
    "label": "2015 Clarabel iterations",
-   "value": 69,
+   "value": 70,
    "unit": ""
   },
   "si:S5.T_S6.2015.solve_time_s": {
    "label": "2015 solve time",
-   "value": 23.925926042720675,
+   "value": 19.95499206893146,
    "unit": "s"
   },
   "si:S5.T_S6.2015.gap_rel_e6": {
    "label": "2015 relative duality gap × 1e6",
-   "value": 0.0050956085656164,
+   "value": 0.0031545461569215355,
    "unit": ""
   },
   "si:S5.T_S6.2016.iterations": {
    "label": "2016 Clarabel iterations",
-   "value": 69,
+   "value": 74,
    "unit": ""
   },
   "si:S5.T_S6.2016.solve_time_s": {
    "label": "2016 solve time",
-   "value": 26.195551382377744,
+   "value": 21.83526991121471,
    "unit": "s"
   },
   "si:S5.T_S6.2016.gap_rel_e6": {
    "label": "2016 relative duality gap × 1e6",
-   "value": 0.0079172853159148,
+   "value": 0.005426515702578846,
    "unit": ""
   },
   "si:S5.T_S6.2017.iterations": {
    "label": "2017 Clarabel iterations",
-   "value": 65,
+   "value": 68,
    "unit": ""
   },
   "si:S5.T_S6.2017.solve_time_s": {
    "label": "2017 solve time",
-   "value": 25.179465640336275,
+   "value": 20.723366525024176,
    "unit": "s"
   },
   "si:S5.T_S6.2017.gap_rel_e6": {
    "label": "2017 relative duality gap × 1e6",
-   "value": 0.005822822349946039,
+   "value": 0.005755053694349101,
    "unit": ""
   },
   "si:S5.T_S6.2018.iterations": {
    "label": "2018 Clarabel iterations",
-   "value": 69,
+   "value": 72,
    "unit": ""
   },
   "si:S5.T_S6.2018.solve_time_s": {
    "label": "2018 solve time",
-   "value": 30.703916804865003,
+   "value": 21.58940451964736,
    "unit": "s"
   },
   "si:S5.T_S6.2018.gap_rel_e6": {
    "label": "2018 relative duality gap × 1e6",
-   "value": 0.004163608983727635,
+   "value": 0.007656395060245363,
    "unit": ""
   },
   "si:S5.T_S6.2019.iterations": {
    "label": "2019 Clarabel iterations",
-   "value": 72,
+   "value": 70,
    "unit": ""
   },
   "si:S5.T_S6.2019.solve_time_s": {
    "label": "2019 solve time",
-   "value": 21.87327153235674,
+   "value": 21.350382858887315,
    "unit": "s"
   },
   "si:S5.T_S6.2019.gap_rel_e6": {
    "label": "2019 relative duality gap × 1e6",
-   "value": 0.007339249080734733,
+   "value": 0.00915245216436533,
    "unit": ""
   },
   "si:S5.T_S6.2020.iterations": {
    "label": "2020 Clarabel iterations",
-   "value": 70,
+   "value": 73,
    "unit": ""
   },
   "si:S5.T_S6.2020.solve_time_s": {
    "label": "2020 solve time",
-   "value": 21.497633136808872,
+   "value": 20.786534687504172,
    "unit": "s"
   },
   "si:S5.T_S6.2020.gap_rel_e6": {
    "label": "2020 relative duality gap × 1e6",
-   "value": 0.008661094499436526,
+   "value": 0.007053281963878214,
    "unit": ""
   },
   "si:S5.T_S6.2021.iterations": {
    "label": "2021 Clarabel iterations",
-   "value": 71,
+   "value": 73,
    "unit": ""
   },
   "si:S5.T_S6.2021.solve_time_s": {
    "label": "2021 solve time",
-   "value": 22.7144595682621,
+   "value": 22.368804033845663,
    "unit": "s"
   },
   "si:S5.T_S6.2021.gap_rel_e6": {
    "label": "2021 relative duality gap × 1e6",
-   "value": 0.008415574527515814,
+   "value": 0.005756145152266577,
    "unit": ""
   },
   "si:S5.T_S6.2022.iterations": {
    "label": "2022 Clarabel iterations",
-   "value": 74,
+   "value": 77,
    "unit": ""
   },
   "si:S5.T_S6.2022.solve_time_s": {
    "label": "2022 solve time",
-   "value": 23.824512109160423,
+   "value": 22.097090527415276,
    "unit": "s"
   },
   "si:S5.T_S6.2022.gap_rel_e6": {
    "label": "2022 relative duality gap × 1e6",
-   "value": 0.0064321404573441515,
+   "value": 0.007344759279016994,
    "unit": ""
   },
   "si:S5.T_S6.2023.iterations": {
    "label": "2023 Clarabel iterations",
-   "value": 71,
+   "value": 70,
    "unit": ""
   },
   "si:S5.T_S6.2023.solve_time_s": {
    "label": "2023 solve time",
-   "value": 21.454557076096535,
+   "value": 19.361713387072086,
    "unit": "s"
   },
   "si:S5.T_S6.2023.gap_rel_e6": {
    "label": "2023 relative duality gap × 1e6",
-   "value": 0.007540564188812496,
+   "value": 0.006721336561573296,
    "unit": ""
   },
   "si:S5.T_S6.2024.iterations": {
    "label": "2024 Clarabel iterations",
-   "value": 69,
+   "value": 70,
    "unit": ""
   },
   "si:S5.T_S6.2024.solve_time_s": {
    "label": "2024 solve time",
-   "value": 19.696398939937353,
+   "value": 19.163600465282798,
    "unit": "s"
   },
   "si:S5.T_S6.2024.gap_rel_e6": {
    "label": "2024 relative duality gap × 1e6",
-   "value": 0.005744056522552686,
+   "value": 0.006220842141687323,
    "unit": ""
   },
   "si:S6.uncprop_runs": {
    "label": "Stage-5 runs built from this opt run (also S17)",
    "value": [
-    "uncprop_20261112_144236_f79da518",
-    "uncprop_20261116_100548_78dc5344"
+    "uncprop_20261119_133344_08dfa15b",
+    "uncprop_20261123_113044_de642960"
    ],
    "unit": ""
   },
   "si:S14.T_S17.psut_run_id": {
    "label": "Stage-6 runs built from this opt run (also results.md:9)",
    "value": [
-    "psut_20261112_144358_449d34b5"
+    "psut_20261119_133504_4c783a88"
    ],
    "unit": ""
   },
   "si:S14.T_S17.feed_acc_versions": {
    "label": "acc version each feed run was built on",
    "value": {
-    "icsg": 4,
+    "icsg": 5,
     "baci": 4,
     "crude_ore": 3
    },
@@ -941,10 +941,10 @@
   "si:S14.T_S17.imp_params": {
    "label": "params the imputation run read",
    "value": {
-    "stripping_ratio": 2,
     "conc": 10,
-    "ore_grade": 8,
     "eff": 4,
+    "ore_grade": 8,
+    "stripping_ratio": 2,
     "stock_bounds": 6
    },
    "unit": ""
@@ -1072,17 +1072,17 @@
   },
   "method:L125.n_covered": {
    "label": "feed-observed edges (also S12 Table S14)",
-   "value": 61218,
+   "value": 61674,
    "unit": ""
   },
   "method:L125.covered_pct": {
    "label": "feed-observed share of all edges",
-   "value": 7.16452496313461,
+   "value": 7.217892001966154,
    "unit": "%"
   },
   "method:L125.icsg_edges": {
    "label": "edges icsg observes (also Table 1, S14)",
-   "value": 32407,
+   "value": 32863,
    "unit": ""
   },
   "method:L125.icsg_valuation": {
@@ -1138,7 +1138,7 @@
   },
   "si:S12.T_S14.covered_cc": {
    "label": "feed-observed CC edges",
-   "value": 32407,
+   "value": 32863,
    "unit": ""
   },
   "si:S12.T_S14.all_cc": {
@@ -1163,27 +1163,27 @@
   },
   "si:S12.T_S14.covered_within": {
    "label": "feed-observed within-region edges",
-   "value": 7100,
+   "value": 7556,
    "unit": ""
   },
   "method:L127.n_informative": {
    "label": "informatively imputed edges (also S14)",
-   "value": 112276,
+   "value": 111556,
    "unit": ""
   },
   "method:L127.informative_pct": {
    "label": "informative share of all edges",
-   "value": 13.139994850548884,
+   "value": 13.055731105025396,
    "unit": "%"
   },
   "method:L127.n_flat": {
    "label": "flat-prior edges (also S14, S15)",
-   "value": 680966,
+   "value": 681230,
    "unit": ""
   },
   "method:L127.flat_pct": {
    "label": "flat-prior share of all edges",
-   "value": 79.6954801863165,
+   "value": 79.72637689300845,
    "unit": "%"
   },
   "method:L127.top_informative_imputers": {
@@ -1196,22 +1196,22 @@
   },
   "si:S12.T_S14.informative_cc": {
    "label": "informative CC fills",
-   "value": 56293,
+   "value": 55670,
    "unit": ""
   },
   "si:S12.T_S14.flat_cc": {
    "label": "flat-prior CC edges",
-   "value": 338530,
+   "value": 338697,
    "unit": ""
   },
   "si:S12.T_S14.informative_mass": {
    "label": "informative Mass fills",
-   "value": 55983,
+   "value": 55886,
    "unit": ""
   },
   "si:S12.T_S14.flat_mass": {
    "label": "flat-prior Mass edges",
-   "value": 342436,
+   "value": 342533,
    "unit": ""
   },
   "si:S12.T_S15.trade": {
@@ -1228,11 +1228,11 @@
   "si:S12.T_S15.network": {
    "label": "fills of network by valuation and relation",
    "value": {
-    "CC": 26776,
-    "Mass": 27120,
+    "CC": 26137,
+    "Mass": 27012,
     "cross": 0,
-    "within": 53896,
-    "total": 53896
+    "within": 53149,
+    "total": 53149
    },
    "unit": ""
   },
@@ -1258,25 +1258,14 @@
    },
    "unit": ""
   },
-  "si:S12.T_S15.eff": {
-   "label": "fills of eff by valuation and relation",
-   "value": {
-    "CC": 0,
-    "Mass": 0,
-    "cross": 0,
-    "within": 0,
-    "total": 0
-   },
-   "unit": ""
-  },
   "si:S12.T_S15.time_interp": {
    "label": "fills of time_interp by valuation and relation",
    "value": {
-    "CC": 43,
-    "Mass": 68,
+    "CC": 59,
+    "Mass": 79,
     "cross": 0,
-    "within": 111,
-    "total": 111
+    "within": 138,
+    "total": 138
    },
    "unit": ""
   },
@@ -1294,22 +1283,22 @@
   "si:S12.T_S15.flat_prior": {
    "label": "fills of flat_prior by valuation and relation",
    "value": {
-    "CC": 338530,
-    "Mass": 342436,
+    "CC": 338697,
+    "Mass": 342533,
     "cross": 672062,
-    "within": 8904,
-    "total": 680966
+    "within": 9168,
+    "total": 681230
    },
    "unit": ""
   },
   "si:S12.T_S15.cascade_pass1": {
    "label": "cascade fills in pass 1",
-   "value": 57367,
+   "value": 64859,
    "unit": ""
   },
   "si:S12.T_S15.cascade_pass2": {
    "label": "cascade fills in pass 2",
-   "value": 8536,
+   "value": 297,
    "unit": ""
   },
   "si:S12.T_S15.wr_mass_edges_by_imputer": {
@@ -1323,17 +1312,17 @@
   },
   "method:L133.n_rows": {
    "label": "constraint rows (also SI Table S1 M, S4 caption)",
-   "value": 1687230,
+   "value": 1687614,
    "unit": ""
   },
   "method:L133.rows_per_year_min": {
    "label": "fewest rows of a year (also S4 caption, S4.2)",
-   "value": 56151,
+   "value": 56167,
    "unit": ""
   },
   "method:L133.rows_per_year_max": {
    "label": "most rows of a year (also S4 caption, S4.2)",
-   "value": 56296,
+   "value": 56338,
    "unit": ""
   },
   "method:L133.n_hard": {
@@ -1363,12 +1352,12 @@
   },
   "method:L133.n_soft": {
    "label": "soft rows (also S4 caption)",
-   "value": 460786,
+   "value": 461170,
    "unit": ""
   },
   "method:L133.n_sum": {
    "label": "scale totals and scrap anchors",
-   "value": 28972,
+   "value": 29356,
    "unit": ""
   },
   "method:L133.n_soft_ratio": {
@@ -1405,12 +1394,12 @@
   },
   "si:S12.soft_rows_per_year_min": {
    "label": "fewest soft rows of a year",
-   "value": 15284,
+   "value": 15300,
    "unit": ""
   },
   "si:S12.soft_rows_per_year_max": {
    "label": "most soft rows of a year",
-   "value": 15397,
+   "value": 15433,
    "unit": ""
   },
   "si:S4.n_blocks": {
@@ -1420,12 +1409,12 @@
   },
   "si:S4.T_S4.sum_supply": {
    "label": "sum rows of variant supplytotout",
-   "value": 13736,
+   "value": 13677,
    "unit": ""
   },
   "si:S4.T_S4.sum_use": {
    "label": "sum rows of variant usetotout",
-   "value": 14208,
+   "value": 14651,
    "unit": ""
   },
   "si:S4.T_S4.anchor_smelter": {
@@ -1487,17 +1476,17 @@
   },
   "si:S4.T_S4.zero_pinned_edges": {
    "label": "edges with the flat-prior pin l = u = 0",
-   "value": 676400,
+   "value": 676576,
    "unit": ""
   },
   "si:S4.T_S4.zero_pinned_pct": {
    "label": "pinned share of all edges",
-   "value": 79.16110760012171,
+   "value": 79.18170540458301,
    "unit": "%"
   },
   "method:L154.min_flow_bounded_kt": {
    "label": "smallest posterior on a non-negativity edge (also results.md:50, S13.2)",
-   "value": -3.2491564464230843e-08,
+   "value": -6.357883568643909e-09,
    "unit": "kt"
   },
   "method:L154.n_bounded_edges": {
@@ -1507,31 +1496,31 @@
   },
   "method:L154.prior_constant": {
    "label": "Σ (a0/σa)² over 30 years",
-   "value": 34927991.583463565,
+   "value": 35017065.54823908,
    "unit": ""
   },
   "method:L154.zsq_total": {
    "label": "misfit Σz² over 30 years (= numbers.json zsq_total_30y)",
-   "value": 2557150.276647666,
+   "value": 2323015.1176486122,
    "unit": ""
   },
   "method:L154.zsq_by_family": {
    "label": "Σz² by family (= numbers.json zsq_by_family_30y)",
    "value": {
-    "edges": 1807538.4230474462,
-    "sum_rows": 744668.5982603789,
-    "soft_ratios": 4943.25533984092
+    "edges": 1358510.9850828168,
+    "sum_rows": 959574.7433276296,
+    "soft_ratios": 4929.389238165567
    },
    "unit": ""
   },
   "method:L154.prior_over_misfit": {
    "label": "prior constant ÷ misfit",
-   "value": 13.658951490818495,
+   "value": 15.073972305304597,
    "unit": ""
   },
   "method:L331.wr_posterior_kt": {
    "label": "world waste rock posterior, 30 years (also Table 2, S12 caption, S13.2)",
-   "value": 124792431.88569967,
+   "value": 124753936.79483807,
    "unit": "kt"
   },
   "si:S10.T_S12.wr_over_ore": {
@@ -1542,29 +1531,29 @@
   "si:S10.T_S12.wr_band_kt": {
    "label": "world WR at the stripping range of the chain's version (k 1.5–2.5)",
    "value": [
-    93594323.91427475,
-    155990539.8571246
+    93565452.59612855,
+    155942420.9935476
    ],
    "unit": "kt"
   },
   "si:S13.world_mf_conc_prior_kt": {
    "label": "world MF→Concentrate CC prior, 30 years",
-   "value": 404252.6946187978,
+   "value": 402770.41350654775,
    "unit": "kt CC"
   },
   "si:S13.world_mf_conc_post_kt": {
    "label": "world MF→Concentrate CC posterior",
-   "value": 408292.21242377115,
+   "value": 411101.5590920608,
    "unit": "kt CC"
   },
   "method:L353.world_conc_retention": {
    "label": "world MF→Concentrate CC retention, 1995–2024 (also S13.2)",
-   "value": 1.0099925562865637,
+   "value": 1.0206846017138684,
    "unit": ""
   },
   "method:L353.mine_deleted_kt": {
    "label": "mine output deleted, prior − posterior (also S13.2)",
-   "value": -4039.5178049733513,
+   "value": -8331.145585513033,
    "unit": "kt CC"
   },
   "si:S13.chile_mf_conc_prior_kt": {
@@ -1574,27 +1563,27 @@
   },
   "si:S13.chile_mf_conc_post_kt": {
    "label": "Chile MF→Concentrate CC posterior",
-   "value": 104492.80624605223,
+   "value": 105173.24145148476,
    "unit": "kt CC"
   },
   "si:S13.chile_mf_conc_retention": {
    "label": "Chile MF→Concentrate CC retention, 1995–2024",
-   "value": 0.990403835498656,
+   "value": 0.9968531372398861,
    "unit": ""
   },
   "method:L347.mf_conc_outside_grade_kt": {
    "label": "MF→Concentrate CC posterior outside the ore-grade region-years, 30 years",
-   "value": 1503.072089365612,
+   "value": 237.7402720842319,
    "unit": "kt CC"
   },
   "method:L347.mf_conc_outside_grade_top": {
    "label": "its five largest regions",
    "value": {
-    "Belgium": 321.1,
-    "United Arab Emirates": 196.7,
-    "Italy": 167.1,
-    "Netherlands": 163.8,
-    "Taiwan": 155.7
+    "United Arab Emirates": 39.3,
+    "Switzerland": 21.1,
+    "Luxembourg": 20.0,
+    "Singapore": 19.6,
+    "Taiwan": 18.8
    },
    "unit": "kt CC"
   },
@@ -1605,7 +1594,7 @@
   },
   "method:L347.median_anchor_cv": {
    "label": "median σc/|c| of the scale-total rows",
-   "value": 0.017043887243763926,
+   "value": 0.017043891919228896,
    "unit": ""
   },
   "method:L347.sigma_a_range": {
@@ -1624,7 +1613,7 @@
   "method:L347.sigma_c_range": {
    "label": "smallest and largest soft-row σc",
    "value": [
-    0.0010117855402287806,
+    0.0010000094596735282,
     13342.262956614604
    ],
    "unit": ""
@@ -1636,57 +1625,57 @@
   },
   "method:L353.forced_kt": {
    "label": "forced deletion Σ max(0, P − c_hi·X − U) (also S13.2)",
-   "value": 3270.444771271561,
+   "value": 2296.910013439791,
    "unit": "kt CC"
   },
   "method:L353.forced_pct": {
    "label": "forced ÷ net mine deletion (the text's share; above 100 when gains elsewhere offset the deletion; also S13.2)",
-   "value": -80.96126639781296,
+   "value": -27.570158147684648,
    "unit": "%"
   },
   "method:L353.mine_deleted_gross_kt": {
    "label": "Σ max(0, prior − post) over mine region-years",
-   "value": 8067.54755093787,
+   "value": 6542.643293312063,
    "unit": "kt CC"
   },
   "method:L353.forced_pct_of_gross": {
    "label": "forced ÷ gross mine deletion",
-   "value": 40.53827697478355,
+   "value": 35.10675900347049,
    "unit": "%"
   },
   "method:L353.hard_capped_region_years": {
    "label": "region-years whose prior exceeds the cap (also S13.2)",
-   "value": 254,
+   "value": 81,
    "unit": ""
   },
   "method:L353.common_set_rows": {
    "label": "scale-total rows in the run and both base runs",
-   "value": 25356,
+   "value": 25030,
    "unit": ""
   },
   "method:L353.common_set_zsq": {
    "label": "common-set Σz² of this run (also S13.2)",
-   "value": 700073.1556923412,
+   "value": 905190.5560095768,
    "unit": ""
   },
   "si:S13.base_retol_common_set_zsq": {
    "label": "common-set Σz² of opt_20260930_093914_523d57d7",
-   "value": 1480692.4907349853,
+   "value": 1476944.6781031336,
    "unit": ""
   },
   "si:S13.base_common_set_zsq": {
    "label": "common-set Σz² of opt_20260916_124721_c4d1d944",
-   "value": 1665553.8670401475,
+   "value": 1661812.9848938386,
    "unit": ""
   },
   "method:L353.vs_base_retol_pct": {
    "label": "Σz² vs opt_20260930_093914_523d57d7 (also S13.2)",
-   "value": -52.71988207728133,
+   "value": -38.71195249018202,
    "unit": "%"
   },
   "method:L353.vs_base_pct": {
    "label": "Σz² vs opt_20260916_124721_c4d1d944 (also S13.2)",
-   "value": -57.9675464392851,
+   "value": -45.52993843242818,
    "unit": "%"
   },
   "method:L314.c_concentrate": {
@@ -2281,476 +2270,470 @@
   "results:L60.share_gt3_sum_rows": {
    "label": "share of scale totals with |z| > 3, by year (= si_s15_decomposition.csv)",
    "value": {
-    "1995": 0.1778,
-    "1996": 0.2144,
-    "1997": 0.188,
-    "1998": 0.1639,
-    "1999": 0.1902,
-    "2000": 0.1407,
-    "2001": 0.1523,
-    "2002": 0.1209,
-    "2003": 0.1228,
-    "2004": 0.1644,
-    "2005": 0.1644,
-    "2006": 0.1601,
-    "2007": 0.1557,
-    "2008": 0.2062,
-    "2009": 0.1799,
-    "2010": 0.1515,
-    "2011": 0.1944,
-    "2012": 0.1773,
-    "2013": 0.167,
-    "2014": 0.2115,
-    "2015": 0.1895,
-    "2016": 0.1713,
-    "2017": 0.1749,
-    "2018": 0.191,
-    "2019": 0.2106,
-    "2020": 0.2049,
-    "2021": 0.2241,
-    "2022": 0.2182,
-    "2023": 0.2259,
-    "2024": 0.2178
+    "1995": 0.175,
+    "1996": 0.2052,
+    "1997": 0.2002,
+    "1998": 0.162,
+    "1999": 0.1841,
+    "2000": 0.1452,
+    "2001": 0.1573,
+    "2002": 0.1287,
+    "2003": 0.1385,
+    "2004": 0.1793,
+    "2005": 0.1874,
+    "2006": 0.1869,
+    "2007": 0.1623,
+    "2008": 0.2285,
+    "2009": 0.1975,
+    "2010": 0.1694,
+    "2011": 0.2101,
+    "2012": 0.1832,
+    "2013": 0.168,
+    "2014": 0.2227,
+    "2015": 0.2022,
+    "2016": 0.1746,
+    "2017": 0.2039,
+    "2018": 0.2053,
+    "2019": 0.2397,
+    "2020": 0.2085,
+    "2021": 0.2095,
+    "2022": 0.2321,
+    "2023": 0.2297,
+    "2024": 0.2437
    },
    "unit": ""
   },
   "results:L60.share_gt3_mean_to_2016": {
    "label": "its mean over 1995–2016",
-   "value": 0.17110632594443556,
+   "value": 0.1803788825102821,
    "unit": ""
   },
   "results:L60.share_gt3_mean_from_2017": {
    "label": "its mean over 2017–2024",
-   "value": 0.20843914720819734,
+   "value": 0.22155144197054027,
    "unit": ""
   },
   "results:L60.a2_failing_years": {
    "label": "years at or below 0.2 (also SI Table S18b A2)",
    "value": {
-    "1995": 0.178,
-    "1997": 0.188,
-    "1998": 0.164,
-    "1999": 0.19,
-    "2000": 0.141,
-    "2001": 0.152,
-    "2002": 0.121,
-    "2003": 0.123,
-    "2004": 0.164,
-    "2005": 0.164,
-    "2006": 0.16,
-    "2007": 0.156,
-    "2009": 0.18,
-    "2010": 0.152,
-    "2011": 0.194,
-    "2012": 0.177,
-    "2013": 0.167,
-    "2015": 0.19,
-    "2016": 0.171,
-    "2017": 0.175,
-    "2018": 0.191
+    "1995": 0.175,
+    "1998": 0.162,
+    "1999": 0.184,
+    "2000": 0.145,
+    "2001": 0.157,
+    "2002": 0.129,
+    "2003": 0.139,
+    "2004": 0.179,
+    "2005": 0.187,
+    "2006": 0.187,
+    "2007": 0.162,
+    "2009": 0.198,
+    "2010": 0.169,
+    "2012": 0.183,
+    "2013": 0.168,
+    "2016": 0.175
    },
    "unit": ""
   },
   "results:L95.china_secondary_post": {
    "label": "China's input-side secondary share, posterior, by year",
    "value": {
-    "1995": 0.4567,
-    "1996": 0.4115,
-    "1997": 0.3313,
-    "1998": 0.2946,
-    "1999": 0.2867,
-    "2000": 0.2532,
-    "2001": 0.2143,
-    "2002": 0.2517,
-    "2003": 0.25,
-    "2004": 0.2695,
-    "2005": 0.2748,
-    "2006": 0.3482,
-    "2007": 0.3489,
-    "2008": 0.3436,
-    "2009": 0.3391,
-    "2010": 0.3793,
-    "2011": 0.3976,
-    "2012": 0.3686,
-    "2013": 0.3377,
-    "2014": 0.3266,
-    "2015": 0.3041,
-    "2016": 0.2647,
-    "2017": 0.2708,
-    "2018": 0.2528,
-    "2019": 0.2351,
-    "2020": 0.221,
-    "2021": 0.2353,
-    "2022": 0.2354,
-    "2023": 0.2479,
-    "2024": 0.2534
+    "1995": 0.4574,
+    "1996": 0.4137,
+    "1997": 0.3317,
+    "1998": 0.2951,
+    "1999": 0.2872,
+    "2000": 0.2545,
+    "2001": 0.2159,
+    "2002": 0.2524,
+    "2003": 0.2502,
+    "2004": 0.2708,
+    "2005": 0.2752,
+    "2006": 0.3487,
+    "2007": 0.3494,
+    "2008": 0.3447,
+    "2009": 0.3402,
+    "2010": 0.3806,
+    "2011": 0.3988,
+    "2012": 0.3704,
+    "2013": 0.3399,
+    "2014": 0.3298,
+    "2015": 0.3083,
+    "2016": 0.2694,
+    "2017": 0.2755,
+    "2018": 0.2556,
+    "2019": 0.2393,
+    "2020": 0.2233,
+    "2021": 0.2394,
+    "2022": 0.2393,
+    "2023": 0.2504,
+    "2024": 0.2559
    },
    "unit": ""
   },
   "results:L97.hhi_row_band_max": {
    "label": "largest ROW band in HHI (upper − lower = ROW share²), any step and year, posterior",
-   "value": 0.004869869034492608,
+   "value": 0.004712608669988442,
    "unit": ""
   },
   "results:L97.hhi_row_band_max_ends": {
    "label": "the same over the first and last year only (the years si_s15_hhi_1995_2024.csv holds)",
-   "value": 0.003035137586164113,
+   "value": 0.002995513405810921,
    "unit": ""
   },
   "si:S15.T_S18.row_share_range": {
    "label": "ROW's share across steps and years, posterior",
    "value": [
-    0.014388548053623287,
-    0.06978444693835875
+    0.014091005507443757,
+    0.06864844258967892
    ],
    "unit": ""
   },
   "si:S15.T_S18.row_share_range_ends": {
    "label": "the same over the first and last year only",
    "value": [
-    0.0198265758112388,
-    0.0550920827902169
+    0.01954358071579899,
+    0.05473128361194282
    ],
    "unit": ""
   },
   "results:L95.eu14_over_world": {
    "label": "EU-14 ÷ world secondary share, pooled 2020–24",
-   "value": 2.1593367525352605,
+   "value": 2.1850738587852776,
    "unit": ""
   },
   "results:L95.largest_lift": {
    "label": "group with the largest post − prior share; the lift",
    "value": [
-    "JP/KR/TW",
-    0.014278000000000013
+    "China",
+    0.015859999999999985
    ],
    "unit": ""
   },
   "results:L97.dhhi_2024": {
    "label": "HHI post − prior in 2024 by step (also SI S18b B2)",
    "value": {
-    "mining": -0.0002329999999999971,
-    "smelting": 0.0023259999999999947,
-    "refining": 0.0018710000000000115,
-    "use": -0.0029229999999999534
+    "mining": -0.0009179999999999883,
+    "smelting": -0.00379999999999997,
+    "refining": 0.001474000000000003,
+    "use": -0.002917000000000003
    },
    "unit": ""
   },
   "results:L97.dhhi_other_max": {
    "label": "largest |ΔHHI| of the steps other than use",
-   "value": 0.0023259999999999947,
+   "value": 0.00379999999999997,
    "unit": ""
   },
   "results:L99.china_footprint_share": {
    "label": "China's footprint ÷ world extraction",
-   "value": 0.5647087892153421,
+   "value": 0.5534030110333715,
    "unit": ""
   },
   "results:L99.direct_all_china_from_chile_peru_kt": {
    "label": "China's 2024 imports from Chile and Peru in concentrate, matte, anode and cathode",
-   "value": 4996.372894079237,
+   "value": 4976.114424006626,
    "unit": "kt CC"
   },
   "results:L99.direct_nonconc_china_from_chile_peru_kt": {
    "label": "the part of it in matte, anode and cathode",
-   "value": 742.7772727867687,
+   "value": 742.5509763935815,
    "unit": "kt CC"
   },
   "results:L99.embodied_over_direct_all": {
    "label": "China's embodied mined Cu from Chile and Peru ÷ its imports from them in all four traded goods, 2024",
-   "value": 1.26791656047214,
+   "value": 1.2667208230063702,
    "unit": ""
   },
   "results:L99.embodied_minus_direct_all_kt": {
    "label": "embodied minus those imports",
-   "value": 1338.6110406179414,
+   "value": 1327.233334544917,
    "unit": "kt CC"
   },
   "results:L64.copper_stages_within_001": {
    "label": "|1 − retention| < 0.01 for CP→Cathode and MF→Concentrate (also S15.1)",
-   "value": true,
+   "value": false,
    "unit": ""
   },
   "si:S16.soft_ratio_share_pct": {
    "label": "soft-ratio share of the objective (S26 caption)",
-   "value": 0.19331110044581953,
+   "value": 0.21219789749604218,
    "unit": "%"
   },
   "method:L175.uncprop_run_id": {
    "label": "the default Stage-5 run (also header, S6.2, S17)",
-   "value": "uncprop_20261112_144236_f79da518",
+   "value": "uncprop_20261119_133344_08dfa15b",
    "unit": ""
   },
   "method:L175.pinned_per_year": {
    "label": "edges pinned at a binding lower bound, per year (also S6.2)",
    "value": [
-    8491,
-    9836
+    8774,
+    10565
    ],
    "unit": ""
   },
   "method:L175.bands_binding_per_year": {
    "label": "bands binding, per year (also S6.2)",
    "value": [
-    13407,
-    13942
+    13713,
+    14398
    ],
    "unit": ""
   },
   "method:L175.dependent_hard_per_year": {
    "label": "dependent hard rows dropped, per year (also S6.2)",
    "value": [
-    60,
-    107
+    59,
+    92
    ],
    "unit": ""
   },
   "si:S6.2.rows_kept_per_year": {
    "label": "rows kept, per year",
    "value": [
-    15596,
-    17318
+    14765,
+    17180
    ],
    "unit": ""
   },
   "si:S6.2.pinned_edge_years": {
    "label": "edge-years pinned, all years",
-   "value": 274683,
+   "value": 289464,
    "unit": ""
   },
   "si:S6.2.max_resid_hard_kt": {
    "label": "largest hard residual at a*",
-   "value": 1.0890344502531336e-06,
+   "value": 1.0907352270069122e-06,
    "unit": "kt"
   },
   "si:S6.2.trace_contraction": {
    "label": "smallest and largest yearly trace contraction 1 − Σσ_a*²/Σσ_a²",
    "value": [
-    0.9998803227319848,
-    0.9999921797457909
+    0.9998807419152156,
+    0.9999928877764378
    ],
    "unit": ""
   },
   "method:L175.birge_ratio": {
    "label": "run Birge ratio Σz²/dof (#87; also results.md:68, S6.2)",
-   "value": 5.178241479229299,
+   "value": 4.825640577597394,
    "unit": ""
   },
   "si:S6.2.birge_zsq_dof": {
    "label": "the run's Σz² and dof",
    "value": [
-    2557150.276721888,
-    493826
+    2323015.117649609,
+    481390
    ],
    "unit": ""
   },
   "si:S6.2.birge_ratio_by_year": {
    "label": "smallest and largest yearly Birge ratio",
    "value": [
-    1.830447770577143,
-    11.830054913194331
+    1.9619788036058936,
+    7.951418858208499
    ],
    "unit": ""
   },
   "method:L175.calibration.CC.from a feed": {
    "label": "|z/√κ| > 3 share, the same Birge-scaled, median |z/√κ|: CC from a feed (#87; also results.md:68, S6.2)",
    "value": [
-    0.1308778261331069,
-    0.04144995223437,
-    0.4587342488539123
+    0.1462066828487321,
+    0.0511800857305169,
+    0.4851036511387043
    ],
    "unit": ""
   },
   "method:L175.calibration.CC.imputed": {
    "label": "|z/√κ| > 3 share, the same Birge-scaled, median |z/√κ|: CC imputed (#87; also results.md:68, S6.2)",
    "value": [
-    0.0751441410886891,
-    0.024821943361031,
-    0.1614232100063014
+    0.0706257267128891,
+    0.0241806985056629,
+    0.1669560319045042
    ],
    "unit": ""
   },
   "method:L175.calibration.Mass.from a feed": {
    "label": "|z/√κ| > 3 share, the same Birge-scaled, median |z/√κ|: Mass from a feed (#87; also results.md:68, S6.2)",
    "value": [
-    0.1829479768786127,
-    0.0876300578034682,
-    0.5233235871542401
+    0.1810119979134063,
+    0.0889120732626209,
+    0.4938868554594041
    ],
    "unit": ""
   },
   "method:L175.calibration.Mass.imputed": {
    "label": "|z/√κ| > 3 share, the same Birge-scaled, median |z/√κ|: Mass imputed (#87; also results.md:68, S6.2)",
    "value": [
-    0.0566423111747489,
-    0.0165926175485881,
-    0.1068573115427673
+    0.051374865053661,
+    0.0163205689972693,
+    0.0989650186566213
    ],
    "unit": ""
   },
   "si:S6.2.kappa.CC.from a feed": {
    "label": "median and mass-weighted contraction: CC from a feed (also results.md:68)",
    "value": [
-    0.0653041692234938,
-    0.9309655568137096
+    0.07818488823972225,
+    0.9317748970386622
    ],
    "unit": ""
   },
   "si:S6.2.kappa.CC.imputed": {
    "label": "median and mass-weighted contraction: CC imputed (also results.md:68)",
    "value": [
-    0.1937073702932537,
-    0.9782630254665093
+    0.14454002113014985,
+    0.9784981334440856
    ],
    "unit": ""
   },
   "si:S6.2.kappa.Mass.from a feed": {
    "label": "median and mass-weighted contraction: Mass from a feed (also results.md:68)",
    "value": [
-    0.03688635511808114,
-    0.9731729414881402
+    0.034529046268569785,
+    0.9731067701242805
    ],
    "unit": ""
   },
   "si:S6.2.kappa.Mass.imputed": {
    "label": "median and mass-weighted contraction: Mass imputed (also results.md:68)",
    "value": [
-    0.21291809087262542,
-    0.9677955114883268
+    0.17893749569421347,
+    0.9682208552785879
    ],
    "unit": ""
   },
   "method:L175.uncprop_ablation_run_id": {
    "label": "the #87 scale-total ablation (also S6.2)",
-   "value": "uncprop_20261116_100548_78dc5344",
+   "value": "uncprop_20261123_113044_de642960",
    "unit": ""
   },
   "method:L175.kappa_weighted_ablation.CC": {
    "label": "mass-weighted contraction of feed-observed CC edges, default → without scale totals (also S6.2)",
    "value": [
-    0.9309655568137096,
-    0.8302849903655407
+    0.9317748970386622,
+    0.8320655410253813
    ],
    "unit": ""
   },
   "method:L175.kappa_weighted_ablation.Mass": {
    "label": "mass-weighted contraction of feed-observed Mass edges, default → without scale totals (also S6.2)",
    "value": [
-    0.9731729414881402,
-    0.718486576193756
+    0.9731067701242805,
+    0.718865647986414
    ],
    "unit": ""
   },
   "method:L352.phantom_mf_conc_kt": {
    "label": "MF→Concentrate CC posterior where ICSG reports no mine output, 30 years (#31)",
-   "value": 1600.207411073131,
+   "value": 334.9709280772035,
    "unit": "kt CC"
   },
   "method:L352.phantom_regions": {
    "label": "its regions above 1 kt CC, largest first",
    "value": {
-    "Belgium": 321.06987114468257,
-    "United Arab Emirates": 196.71524785256065,
-    "Malaysia": 177.71549252973747,
-    "Italy": 165.13480583677278,
-    "Netherlands": 163.78338159988357,
-    "Taiwan": 155.69527028895098,
-    "United Kingdom": 84.28319183458518,
-    "Switzerland": 83.89260784379718,
-    "Singapore": 79.87443825961554,
-    "France": 53.12836222026512,
-    "Austria": 44.25915651088888,
-    "Japan": 14.678361323102514,
-    "Slovakia": 13.285455580093407,
-    "Panama": 11.13524640411146,
-    "Luxembourg": 10.251683196114659,
-    "Greece": 7.52497122492663,
-    "Korea, Rep.": 4.582508933006477,
-    "Botswana": 4.097109373275703,
-    "Argentina": 4.080927037177944,
-    "Germany": 3.7576255179028584,
-    "Mauritania": 1.0074093660803096
+    "Malaysia": 112.13068536993366,
+    "United Arab Emirates": 39.27996051002765,
+    "Switzerland": 21.053958776700135,
+    "Luxembourg": 20.01635025520944,
+    "Singapore": 19.57214737591308,
+    "Taiwan": 18.790716867747758,
+    "France": 16.4855903029896,
+    "United Kingdom": 16.148143418849624,
+    "Netherlands": 13.461129943675795,
+    "Austria": 12.854733124647169,
+    "Slovakia": 10.15919746834644,
+    "Belgium": 6.763499562764011,
+    "Panama": 6.649009549583963,
+    "Italy": 5.681713508551651,
+    "Greece": 3.941876174387193,
+    "Japan": 3.491410372111321,
+    "Botswana": 2.3090356897792517,
+    "Korea, Rep.": 1.9666595974461067,
+    "Argentina": 1.935889431339527,
+    "Germany": 1.3888269971598217
    },
    "unit": "kt CC"
   },
   "method:L352.phantom_export_share": {
    "label": "the share of that concentrate exported",
-   "value": 0.5985711253640708,
+   "value": 0.9951409499409931,
    "unit": ""
   },
   "method:L352.phantom_co_mining_kt": {
    "label": "CO→Mining CC posterior there",
-   "value": 2033.4824552196312,
+   "value": 413.32845389956236,
    "unit": "kt CC"
   },
   "method:L352.stock_legs_beyond_z5": {
    "label": "CC stock legs with |z| > 5: count and Σ posterior (#95)",
    "value": [
-    54,
-    -267.77787067989925
+    49,
+    -327.2705721326589
    ],
    "unit": "kt CC"
   },
   "method:L352.stock_legs_beyond_z5_by_region": {
    "label": "their Σ posterior by region (Kazakhstan: the text's figure)",
    "value": {
-    "Kazakhstan": -347.99792596939955,
-    "Congo, D.R.": -30.50967650062651,
-    "Indonesia": -14.478926771698092,
-    "Iran": -3.852726206745693,
-    "Slovakia": 8.867265742753492,
-    "Zambia": 120.1941190258171
+    "Kazakhstan": -348.29774269646833,
+    "Congo, D.R.": -46.51850804008599,
+    "Indonesia": -14.478496097367465,
+    "Iran": -3.9216281787832106,
+    "Slovakia": 3.2959852362834785,
+    "Zambia": 82.64981764376262
    },
    "unit": "kt CC"
   },
   "method:L352.world_psc_gap_kt": {
    "label": "Σ|world CP→PSC posterior − ICSG's reported PSC|, 1996–2024 (#98)",
-   "value": 101.70947204819268,
+   "value": 101.50884873739167,
    "unit": "kt CC"
   },
   "method:L352.sum_share_top_regions": {
    "label": "regions' shares of the scale-total Σz², largest six (#111)",
    "value": {
-    "South Africa": 0.09596606844188434,
-    "Congo, D.R.": 0.08806733916900143,
-    "Zambia": 0.07941127818909266,
-    "Uzbekistan": 0.07408459212518319,
-    "Italy": 0.06016261191796575,
-    "Philippines": 0.058500091085039875
+    "Italy": 0.16164033523604435,
+    "South Africa": 0.0746316211124239,
+    "Congo, D.R.": 0.06844395480073603,
+    "Uzbekistan": 0.05723779461711675,
+    "Zambia": 0.05170555431375726,
+    "Philippines": 0.04540363553124811
    },
    "unit": ""
   },
   "method:L352.sum_share_austria": {
    "label": "Austria's share (#63)",
-   "value": 0.008413376593122246,
+   "value": 0.010312081127359277,
    "unit": ""
   },
   "method:L352.sum_top_years": {
    "label": "each of the four largest regions' four years with the largest share of its scale-total Σz² (Uzbekistan: the text's 1995–1998)",
    "value": {
+    "Italy": {
+     "2020": 0.05537407695215699,
+     "2015": 0.05332267427542226,
+     "2019": 0.05250713621455894,
+     "2017": 0.05174397244712718
+    },
     "South Africa": {
-     "2021": 0.18595738008974666,
-     "2020": 0.13231659353879632,
-     "2023": 0.1269628907396127,
-     "2024": 0.12118441127376875
+     "2021": 0.18555845921546835,
+     "2020": 0.13212563203918154,
+     "2023": 0.12671067738927377,
+     "2024": 0.12086996504824012
     },
     "Congo, D.R.": {
-     "2008": 0.17974139867986447,
-     "2019": 0.14958360402323165,
-     "2012": 0.10077254897865977,
-     "2004": 0.09582846578591683
-    },
-    "Zambia": {
-     "2021": 0.1063950101337228,
-     "2017": 0.08965505948961865,
-     "2018": 0.07479323723126297,
-     "1995": 0.07464294617123578
+     "2008": 0.1796067494980434,
+     "2019": 0.13772655752306123,
+     "2012": 0.10062538402447933,
+     "2004": 0.09587436465321923
     },
     "Uzbekistan": {
-     "1995": 0.45210917017916286,
-     "1997": 0.17772757431192904,
-     "1998": 0.10937176010700335,
-     "1996": 0.06061834472834445
+     "1995": 0.4505505128708048,
+     "1997": 0.17801106878763207,
+     "1998": 0.10927772037996882,
+     "1996": 0.06077896908000983
     }
    },
    "unit": ""
@@ -2758,25 +2741,25 @@
   "method:L352.anode_use_total_worst": {
    "label": "largest-|z| CC anode use total of the four regions with the largest shares: year, c, c* (#111)",
    "value": {
+    "Italy": [
+     "2012",
+     8.715193443496904,
+     2.1205554028420304
+    ],
     "South Africa": [
      "2021",
      137.204403503826,
-     4.482648557113066
+     4.488802314046353
     ],
     "Congo, D.R.": [
      "2012",
      96.09209752695122,
-     2.0031680230587483
-    ],
-    "Zambia": [
-     "2017",
-     1752.4223682560578,
-     860.2904847225514
+     2.0027806731041693
     ],
     "Uzbekistan": [
      "1995",
      90.271,
-     34.02454537276041
+     34.35991646513984
     ]
    },
    "unit": "kt CC"
@@ -2858,6 +2841,12 @@
       157.0374294375
      ]
     },
+    "Italy": {
+     "2012": [
+      7.631845899999999,
+      2.0056125
+     ]
+    },
     "South Africa": {
      "2019": [
       56.93143652,
@@ -2882,32 +2871,6 @@
      "2024": [
       47.37664766,
       null
-     ]
-    },
-    "Zambia": {
-     "2016": [
-      922.96482086,
-      689.3340228750001
-     ],
-     "2017": [
-      1484.94073578,
-      778.0229630625
-     ],
-     "2018": [
-      1083.744659,
-      805.3351047499999
-     ],
-     "2019": [
-      691.28809968,
-      640.0109308125001
-     ],
-     "2023": [
-      757.18909892,
-      640.7446926875
-     ],
-     "2024": [
-      752.32817844,
-      675.3611003125001
      ]
     }
    },
@@ -2946,6 +2909,56 @@
       1774.0
      ]
     },
+    "Italy": {
+     "2009": [
+      34.6160420025,
+      6.500439999999999
+     ],
+     "2010": [
+      17.0649217725,
+      1.799585
+     ],
+     "2011": [
+      20.236452075,
+      1.799585
+     ],
+     "2012": [
+      21.65147166,
+      1.999982
+     ],
+     "2013": [
+      19.7018130225,
+      4.940135
+     ],
+     "2015": [
+      21.798700665,
+      7.317979999999999
+     ],
+     "2016": [
+      18.3320839275,
+      6.60014
+     ],
+     "2017": [
+      13.9693101975,
+      8.676891
+     ],
+     "2018": [
+      14.427969675,
+      7.200334000000001
+     ],
+     "2019": [
+      19.444879965,
+      9.799513
+     ],
+     "2020": [
+      29.680188562500003,
+      14.970952
+     ],
+     "2024": [
+      19.3459928025,
+      11.386737
+     ]
+    },
     "South Africa": {
      "2017": [
       76.8211128825,
@@ -2979,76 +2992,6 @@
       65.3580354,
       0.0
      ]
-    },
-    "Zambia": {
-     "2001": [
-      414.0302551875,
-      296.49961
-     ],
-     "2002": [
-      394.78236651,
-      336.80036199999995
-     ],
-     "2006": [
-      435.7331060775,
-      417.599834
-     ],
-     "2007": [
-      496.01282409,
-      431.099836
-     ],
-     "2010": [
-      772.2627114825001,
-      527.099864
-     ],
-     "2011": [
-      787.3470820425,
-      516.400464
-     ],
-     "2012": [
-      946.996437345,
-      530.199895
-     ],
-     "2013": [
-      1004.1103517025,
-      567.788481
-     ],
-     "2014": [
-      1362.6240910275,
-      499.390065
-     ],
-     "2015": [
-      1037.11266015,
-      495.599777
-     ],
-     "2016": [
-      825.1984753950001,
-      426.362115
-     ],
-     "2017": [
-      895.2877759875001,
-      466.160119
-     ],
-     "2018": [
-      473.98778169750005,
-      458.077726
-     ],
-     "2019": [
-      389.5346197575,
-      264.292511
-     ],
-     "2022": [
-      364.1148265125,
-      276.425488
-     ],
-     "2023": [
-      329.65035962250005,
-      221.50792
-     ],
-     "2024": [
-      276.776630235,
-      189.344999
-     ]
     }
    },
    "unit": "kt CC"
@@ -3074,10 +3017,10 @@
   "method:L353.degenerate_family": {
    "label": "#99's degenerate legs: edge-years and the per-year range (#81)",
    "value": {
-    "edge_years": 67210,
+    "edge_years": 85360,
     "per_year": [
-     1658,
-     2858
+     2168,
+     3186
     ]
    },
    "unit": ""
@@ -3085,7 +3028,7 @@
   "method:L353.degenerate_interval_shift": {
    "label": "largest interval-bound move with the family pinned or freed, Birge-scaled (#81, docs/manuscript/figs/table3_intervals.csv)",
    "value": {
-    "max": 0.0037413062086127753,
+    "max": 0.0010084493450257586,
     "quantity": "embodied / direct, China ← Chile+Peru 2024"
    },
    "unit": ""

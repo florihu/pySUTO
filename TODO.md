@@ -86,7 +86,22 @@ Branch `diag/mine-zeros-measure`, REP
 - **Next:** #184 re-points the manuscript; #156 pins this chain for the final review; #183 §3 (the hubs' use totals,
   Italy's matte) after v0.1.0.
 - **Stray run:** `feed_icsg_20261119_124749_eac0fb56` was built by accident (`icsg_feed.py --help` ran the driver).
-  It is unused; pruning it is the maintainer's call.
+  Pruned by the maintainer's decision on 2026-11-23, with five superseded const runs.
+- **#184 DONE 2026-11-23:** the manuscript, the SI and the insight artifact (v13) read this chain.
+  - **Stage-5 ablation:** `uncprop_20261123_113044_de642960`.
+  - **Knob sweep:** `sweep_20261102_145601_8413cace` stays on `opt_20261022_112855_928da10c` (`--sweep-base`). The chain no
+    longer equals it at solver noise (#154, #201), which the Results and SI S15.4 now say.
+  - **Numbers:** 213 of 583 keyed numbers move, 84 of them Table S6's solve statistics; 388 of 724 `numbers.json`
+    keys. In the prose, `opt_20261112_135523_88fa69f3` → this chain: objective split 70/29 → 58/41 % (edges/scale
+    totals); mine deletion 8,068 → 6,543 kt CC gross, 40.5 → 35.1 % of it forced, net gain 4,040 → 8,331 kt CC;
+    common-set Σz² 700,073 → 905,191; Birge R 5.18 → 4.83; the Discussion's phantom concentrate 1,600 → 335 kt CC;
+    Italy (16.2 % of the scale-total Σz²) now leads it.
+  - **Table 3:** verdicts unchanged: A1, A2, A4, A5, A6, B2 not met; A3, B1, B3 met.
+    Intervals rerun (`table3_intervals.py`, R 4.826, √R 2.20): every bracket moves with its point. A4's upper ends now
+    pass 2 (cathode–concentrate) and 25 (concentrate–ore) years, both steps still 0/30; B2's invariance clause still
+    fails on the final-use Δ interval [−0.011, 0.005]. #99's family (85,360 edge-years, 2,168–3,186 a year) moves no
+    bound by more than 0.001; the Table 3 caption said 0.002 and the SI and Discussion 0.004 for that bound, and all
+    three now quote the largest bound shift.
 
 ## #154 MEASURED 2026-11-16 — ADR 0010's guard holds across cascade passes (#153) and ships; reference chain opt_20261116_134050_b54f65dc
 

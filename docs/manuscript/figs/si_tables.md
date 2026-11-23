@@ -5,346 +5,346 @@
 | id | expectation | metric | threshold | value | outcome |
 | --- | --- | --- | --- | --- | --- |
 | A1 | every hard identity closes | max |G·a* − c| over hard mass balances, all years | < 1e-06 kt | 1.1e-06 kt | FAIL |
-| A2 | compatibility is family-specific | share of rows with |z| > 3 per year: edges below, scale totals above | edges < 0.05 and scale totals > 0.20, every year | edges 0.004–0.012 (30/30 yr); scale totals 0.121–0.226 (9/30 yr) | FAIL |
-| A3 | the adjustment localises on transit trade | share of edge Σz² on cross-region legs into non-processing regions (no ICSG processing row) | ≥ 0.50 | 0.787 (all cross-region legs 0.947) | PASS |
-| A4 | the adjustment grows upstream | retention Cathode CC > Concentrate CC > Ore Mass, gap per step, years passing | ≥ 0.02 per step in ≥ 25 of 30 years | 0/30 years both steps (cathode–concentrate 1, concentrate–ore 10) | FAIL |
+| A2 | compatibility is family-specific | share of rows with |z| > 3 per year: edges below, scale totals above | edges < 0.05 and scale totals > 0.20, every year | edges 0.004–0.015 (30/30 yr); scale totals 0.129–0.244 (14/30 yr) | FAIL |
+| A3 | the adjustment localises on transit trade | share of edge Σz² on cross-region legs into non-processing regions (no ICSG processing row) | ≥ 0.50 | 0.696 (all cross-region legs 0.919) | PASS |
+| A4 | the adjustment grows upstream | retention Cathode CC > Concentrate CC > Ore Mass, gap per step, years passing | ≥ 0.02 per step in ≥ 25 of 30 years | 0/30 years both steps (cathode–concentrate 0, concentrate–ore 17) | FAIL |
 | A5 | termination accuracy does not move the answer | |Δ retention| per stage, base run at gap_rel 1e-3 vs 1e-6, 30-year pool | < 0.02 every stage | 4/9 stages within; max 0.223 (Scrap→Smelting CC) | FAIL |
-| B1 | secondary share: fidelity and regional order | input-side share, pooled 2020–24: |world posterior − ICSG-implied|; EU-14 > China > US; EU-14 / world | < 0.02; order holds; ≥ 2× | |0.172 − 0.164| = 0.007; EU-14 0.370 > China 0.240 > US 0.045; 2.16× | PASS |
-| B2 | concentration rises downstream and is reconciliation-invariant | HHI (ROW as one region) 2024 posterior per step; |HHI_post − HHI_prior| per step | refining, use > mining and > 0.25; mining < 0.15; |Δ| < 0.01 | HHI mining 0.111, smelting 0.281, refining 0.230, use 0.352; |Δ| max 0.003 (use) | FAIL |
-| B3 | embodied exceeds direct; Chile's exports turned to China | China's embodied mined Cu from Chile+Peru / direct concentrate imports from them, 2024; Chile's export share to China 1995 and 2024 | ≥ 1.10; < 0.10 → > 0.50 | 6,335 / 4,254 kt CC = 1.49; 0.034 → 0.548 | PASS |
+| B1 | secondary share: fidelity and regional order | input-side share, pooled 2020–24: |world posterior − ICSG-implied|; EU-14 > China > US; EU-14 / world | < 0.02; order holds; ≥ 2× | |0.171 − 0.164| = 0.007; EU-14 0.374 > China 0.243 > US 0.046; 2.19× | PASS |
+| B2 | concentration rises downstream and is reconciliation-invariant | HHI (ROW as one region) 2024 posterior per step; |HHI_post − HHI_prior| per step | refining, use > mining and > 0.25; mining < 0.15; |Δ| < 0.01 | HHI mining 0.111, smelting 0.273, refining 0.223, use 0.341; |Δ| max 0.004 (smelting) | FAIL |
+| B3 | embodied exceeds direct; Chile's exports turned to China | China's embodied mined Cu from Chile+Peru / direct concentrate imports from them, 2024; Chile's export share to China 1995 and 2024 | ≥ 1.10; < 0.10 → > 0.50 | 6,303 / 4,234 kt CC = 1.49; 0.034 → 0.545 | PASS |
 
 ### si_s15_decomposition
 
 | year | zsq_edges | zsq_sum_rows | zsq_soft_ratios | zsq_total | max_abs_resid_massbal | share_gt3_edges | share_gt3_sum_rows | share_gt3_soft_ratios | n_edges | n_sum_rows | n_soft_ratios |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1995 | 20,870 | 44,743 | 154 | 65,766 | 0.0e+00 | 0.010 | 0.178 | 0.0e+00 | 28482 | 1001 | 14393 |
-| 1996 | 34,084 | 35,045 | 126 | 69,255 | 0.0e+00 | 0.011 | 0.214 | 0.0e+00 | 28482 | 905 | 14379 |
-| 1997 | 27,015 | 27,050 | 137 | 54,202 | 1.0e-06 | 0.007 | 0.188 | 0.0e+00 | 28482 | 952 | 14386 |
-| 1998 | 22,655 | 19,868 | 117 | 42,640 | 1.0e-06 | 0.005 | 0.164 | 0.0e+00 | 28482 | 964 | 14387 |
-| 1999 | 32,489 | 14,686 | 134 | 47,309 | 0.0e+00 | 0.006 | 0.190 | 0.0e+00 | 28482 | 957 | 14387 |
-| 2000 | 20,464 | 9,360 | 105 | 29,930 | 0.0e+00 | 0.007 | 0.141 | 0.0e+00 | 28482 | 931 | 14383 |
-| 2001 | 24,341 | 21,589 | 125 | 46,055 | 0.0e+00 | 0.008 | 0.152 | 7.0e-05 | 28482 | 965 | 14386 |
-| 2002 | 10,582 | 19,063 | 107 | 29,752 | 0.0e+00 | 0.004 | 0.121 | 0.0e+00 | 28482 | 968 | 14386 |
-| 2003 | 13,087 | 21,128 | 109 | 34,325 | 1.0e-06 | 0.005 | 0.123 | 7.0e-05 | 28482 | 945 | 14387 |
-| 2004 | 36,329 | 21,402 | 114 | 57,845 | 0.0e+00 | 0.012 | 0.164 | 0.0e+00 | 28482 | 967 | 14388 |
-| 2005 | 45,829 | 14,313 | 158 | 60,301 | 0.0e+00 | 0.004 | 0.164 | 1.4e-04 | 28482 | 961 | 14384 |
-| 2006 | 63,004 | 22,246 | 166 | 85,416 | 0.0e+00 | 0.009 | 0.160 | 2.1e-04 | 28482 | 968 | 14390 |
-| 2007 | 56,613 | 15,167 | 130 | 71,910 | 0.0e+00 | 0.005 | 0.156 | 0.0e+00 | 28482 | 970 | 14390 |
-| 2008 | 45,860 | 27,672 | 160 | 73,693 | 0.0e+00 | 0.006 | 0.206 | 0.0e+00 | 28482 | 965 | 14390 |
-| 2009 | 35,618 | 19,379 | 157 | 55,155 | 0.0e+00 | 0.005 | 0.180 | 0.0e+00 | 28482 | 984 | 14394 |
-| 2010 | 66,066 | 13,919 | 135 | 80,120 | 0.0e+00 | 0.008 | 0.152 | 1.4e-04 | 28482 | 970 | 14394 |
-| 2011 | 63,777 | 31,351 | 199 | 95,327 | 0.0e+00 | 0.010 | 0.194 | 1.4e-04 | 28482 | 972 | 14395 |
-| 2012 | 68,569 | 28,655 | 148 | 97,372 | 0.0e+00 | 0.004 | 0.177 | 0.0e+00 | 28482 | 953 | 14394 |
-| 2013 | 72,479 | 21,758 | 150 | 94,387 | 0.0e+00 | 0.010 | 0.167 | 6.9e-05 | 28482 | 970 | 14401 |
-| 2014 | 79,780 | 18,676 | 225 | 98,681 | 0.0e+00 | 0.005 | 0.211 | 2.1e-04 | 28482 | 974 | 14397 |
-| 2015 | 86,752 | 20,626 | 154 | 107,532 | 0.0e+00 | 0.009 | 0.190 | 6.9e-05 | 28482 | 992 | 14405 |
-| 2016 | 109,475 | 36,504 | 163 | 146,142 | 0.0e+00 | 0.009 | 0.171 | 6.9e-05 | 28482 | 969 | 14408 |
-| 2017 | 175,084 | 18,596 | 285 | 193,966 | 0.0e+00 | 0.011 | 0.175 | 3.5e-04 | 28482 | 972 | 14408 |
-| 2018 | 108,335 | 19,032 | 197 | 127,564 | 0.0e+00 | 0.008 | 0.191 | 2.1e-04 | 28482 | 979 | 14405 |
-| 2019 | 78,806 | 32,307 | 208 | 111,322 | 0.0e+00 | 0.010 | 0.211 | 6.9e-05 | 28482 | 983 | 14400 |
-| 2020 | 106,323 | 33,919 | 198 | 140,440 | 0.0e+00 | 0.012 | 0.205 | 6.9e-05 | 28482 | 971 | 14400 |
-| 2021 | 90,426 | 37,929 | 248 | 128,603 | 0.0e+00 | 0.011 | 0.224 | 1.4e-04 | 28482 | 946 | 14406 |
-| 2022 | 83,786 | 30,726 | 232 | 114,744 | 0.0e+00 | 0.009 | 0.218 | 0.0e+00 | 28482 | 967 | 14404 |
-| 2023 | 72,016 | 32,682 | 193 | 104,892 | 0.0e+00 | 0.010 | 0.226 | 0.0e+00 | 28482 | 987 | 14396 |
-| 2024 | 57,022 | 35,276 | 208 | 92,506 | 0.0e+00 | 0.006 | 0.218 | 0.0e+00 | 28482 | 964 | 14391 |
+| 1995 | 15,363 | 47,687 | 143 | 63,193 | 0.0e+00 | 0.010 | 0.175 | 0.0e+00 | 28482 | 983 | 14393 |
+| 1996 | 28,180 | 38,008 | 116 | 66,304 | 0.0e+00 | 0.010 | 0.205 | 0.0e+00 | 28482 | 921 | 14379 |
+| 1997 | 22,330 | 30,078 | 130 | 52,539 | 0.0e+00 | 0.007 | 0.200 | 0.0e+00 | 28482 | 954 | 14386 |
+| 1998 | 18,212 | 20,723 | 110 | 39,045 | 0.0e+00 | 0.004 | 0.162 | 0.0e+00 | 28482 | 994 | 14387 |
+| 1999 | 27,928 | 14,971 | 127 | 43,027 | 0.0e+00 | 0.005 | 0.184 | 0.0e+00 | 28482 | 1005 | 14387 |
+| 2000 | 15,241 | 18,079 | 98 | 33,418 | 0.0e+00 | 0.005 | 0.145 | 0.0e+00 | 28482 | 1019 | 14383 |
+| 2001 | 21,999 | 27,034 | 111 | 49,144 | 0.0e+00 | 0.005 | 0.157 | 0.0e+00 | 28482 | 1011 | 14386 |
+| 2002 | 13,196 | 24,009 | 109 | 37,314 | 0.0e+00 | 0.004 | 0.129 | 0.0e+00 | 28482 | 1002 | 14386 |
+| 2003 | 15,616 | 32,658 | 108 | 48,382 | 0.0e+00 | 0.006 | 0.139 | 0.0e+00 | 28482 | 953 | 14387 |
+| 2004 | 37,994 | 26,874 | 111 | 64,979 | 0.0e+00 | 0.009 | 0.179 | 0.0e+00 | 28482 | 965 | 14388 |
+| 2005 | 49,942 | 20,356 | 160 | 70,459 | 0.0e+00 | 0.006 | 0.187 | 1.4e-04 | 28482 | 939 | 14384 |
+| 2006 | 64,104 | 35,506 | 176 | 99,786 | 0.0e+00 | 0.008 | 0.187 | 1.4e-04 | 28482 | 974 | 14390 |
+| 2007 | 55,417 | 23,673 | 133 | 79,224 | 0.0e+00 | 0.004 | 0.162 | 0.0e+00 | 28482 | 986 | 14390 |
+| 2008 | 44,900 | 37,428 | 174 | 82,502 | 0.0e+00 | 0.006 | 0.228 | 6.9e-05 | 28482 | 963 | 14390 |
+| 2009 | 35,726 | 20,487 | 160 | 56,372 | 0.0e+00 | 0.005 | 0.198 | 0.0e+00 | 28482 | 972 | 14394 |
+| 2010 | 71,284 | 31,927 | 135 | 103,346 | 0.0e+00 | 0.008 | 0.169 | 6.9e-05 | 28482 | 962 | 14394 |
+| 2011 | 61,367 | 37,727 | 203 | 99,297 | 0.0e+00 | 0.006 | 0.210 | 2.1e-04 | 28482 | 966 | 14395 |
+| 2012 | 70,891 | 32,409 | 152 | 103,452 | 0.0e+00 | 0.005 | 0.183 | 6.9e-05 | 28482 | 977 | 14394 |
+| 2013 | 71,552 | 35,391 | 144 | 107,087 | 0.0e+00 | 0.007 | 0.168 | 0.0e+00 | 28482 | 1000 | 14401 |
+| 2014 | 80,659 | 24,543 | 226 | 105,428 | 0.0e+00 | 0.005 | 0.223 | 1.4e-04 | 28482 | 970 | 14397 |
+| 2015 | 86,512 | 29,415 | 158 | 116,086 | 0.0e+00 | 0.007 | 0.202 | 0.0e+00 | 28482 | 1004 | 14405 |
+| 2016 | 63,482 | 38,751 | 208 | 102,441 | 0.0e+00 | 0.006 | 0.175 | 0.0e+00 | 28482 | 1025 | 14408 |
+| 2017 | 94,438 | 35,520 | 294 | 130,252 | 0.0e+00 | 0.009 | 0.204 | 2.8e-04 | 28482 | 986 | 14408 |
+| 2018 | 51,646 | 26,902 | 215 | 78,763 | 1.0e-06 | 0.008 | 0.205 | 0.0e+00 | 28482 | 979 | 14405 |
+| 2019 | 50,827 | 47,519 | 203 | 98,550 | 0.0e+00 | 0.015 | 0.240 | 0.0e+00 | 28482 | 993 | 14400 |
+| 2020 | 53,741 | 36,840 | 201 | 90,782 | 0.0e+00 | 0.008 | 0.208 | 0.0e+00 | 28482 | 969 | 14400 |
+| 2021 | 40,951 | 38,585 | 202 | 79,739 | 0.0e+00 | 0.006 | 0.210 | 1.4e-04 | 28482 | 988 | 14406 |
+| 2022 | 39,831 | 40,877 | 213 | 80,921 | 0.0e+00 | 0.006 | 0.232 | 0.0e+00 | 28482 | 965 | 14404 |
+| 2023 | 30,594 | 39,792 | 206 | 70,591 | 0.0e+00 | 0.007 | 0.230 | 0.0e+00 | 28482 | 975 | 14396 |
+| 2024 | 24,587 | 45,806 | 200 | 70,594 | 0.0e+00 | 0.009 | 0.244 | 0.0e+00 | 28482 | 956 | 14391 |
 
 ### si_s15_retention_by_stage
 
 | stage | prior | post | retention |
 | --- | --- | --- | --- |
-| CO→Mining Mass | 62,455,760 | 62,396,216 | 0.999 |
-| MF→Concentrate CC | 404,253 | 408,292 | 1.010 |
-| Concentrate→Smelting CC | 423,811 | 408,292 | 0.963 |
-| Anode→ER CC | 491,549 | 485,550 | 0.988 |
-| CP→Cathode CC | 581,218 | 579,802 | 0.998 |
-| Cathode→FU CC | 586,936 | 580,035 | 0.988 |
-| Scrap→Smelting CC | 76,826 | 77,643 | 1.011 |
-| Smelting→Matte CC | 480,774 | 470,167 | 0.978 |
-| Scrap→CFR CC | 21,741 | 22,313 | 1.026 |
+| CO→Mining Mass | 62,455,760 | 62,376,968 | 0.999 |
+| MF→Concentrate CC | 402,770 | 411,102 | 1.021 |
+| Concentrate→Smelting CC | 422,786 | 411,102 | 0.972 |
+| Anode→ER CC | 493,375 | 490,310 | 0.994 |
+| CP→Cathode CC | 588,040 | 584,685 | 0.994 |
+| Cathode→FU CC | 593,738 | 585,197 | 0.986 |
+| Scrap→Smelting CC | 76,826 | 78,064 | 1.016 |
+| Smelting→Matte CC | 482,089 | 474,419 | 0.984 |
+| Scrap→CFR CC | 21,741 | 22,545 | 1.037 |
 
 ### si_s15_a4_gradient
 
 | year | cathode | concentrate | ore | cathode_minus_concentrate | concentrate_minus_ore | both |
 | --- | --- | --- | --- | --- | --- | --- |
-| 1995 | 0.990 | 1.001 | 1.000 | -0.011 | 0.001 | False |
-| 1996 | 0.985 | 0.984 | 1.000 | 0.002 | -0.017 | False |
-| 1997 | 0.987 | 1.019 | 1.000 | -0.032 | 0.019 | False |
-| 1998 | 0.991 | 1.012 | 1.000 | -0.021 | 0.012 | False |
-| 1999 | 0.983 | 0.998 | 1.000 | -0.015 | -0.002 | False |
-| 2000 | 0.990 | 0.985 | 1.000 | 0.004 | -0.015 | False |
-| 2001 | 0.993 | 1.018 | 1.000 | -0.025 | 0.018 | False |
-| 2002 | 1.005 | 1.024 | 1.000 | -0.020 | 0.025 | False |
-| 2003 | 0.981 | 1.021 | 1.000 | -0.040 | 0.021 | False |
-| 2004 | 1.006 | 0.980 | 1.000 | 0.026 | -0.020 | False |
-| 2005 | 0.993 | 0.989 | 1.000 | 0.005 | -0.012 | False |
-| 2006 | 0.983 | 1.007 | 1.000 | -0.024 | 0.007 | False |
-| 2007 | 0.998 | 1.003 | 1.000 | -0.005 | 0.003 | False |
-| 2008 | 0.993 | 1.015 | 1.000 | -0.022 | 0.015 | False |
-| 2009 | 1.001 | 1.005 | 1.000 | -0.004 | 0.006 | False |
-| 2010 | 1.000 | 1.021 | 1.000 | -0.020 | 0.021 | False |
-| 2011 | 0.995 | 1.023 | 0.997 | -0.028 | 0.026 | False |
-| 2012 | 0.993 | 1.017 | 0.995 | -0.024 | 0.022 | False |
-| 2013 | 1.000 | 0.986 | 1.000 | 0.014 | -0.014 | False |
-| 2014 | 0.993 | 1.034 | 0.999 | -0.042 | 0.035 | False |
-| 2015 | 1.005 | 1.023 | 1.000 | -0.018 | 0.023 | False |
-| 2016 | 1.012 | 1.006 | 0.995 | 0.005 | 0.011 | False |
-| 2017 | 1.011 | 1.015 | 0.999 | -0.004 | 0.016 | False |
-| 2018 | 1.005 | 1.011 | 0.999 | -0.005 | 0.011 | False |
-| 2019 | 1.003 | 1.004 | 0.999 | -0.001 | 0.004 | False |
-| 2020 | 1.001 | 1.026 | 0.999 | -0.025 | 0.027 | False |
-| 2021 | 0.994 | 1.006 | 0.997 | -0.012 | 0.009 | False |
-| 2022 | 1.001 | 0.993 | 0.999 | 0.008 | -0.006 | False |
-| 2023 | 1.002 | 1.026 | 0.999 | -0.024 | 0.026 | False |
-| 2024 | 0.999 | 1.026 | 0.999 | -0.027 | 0.027 | False |
+| 1995 | 0.988 | 1.006 | 1.000 | -0.017 | 0.006 | False |
+| 1996 | 0.983 | 0.990 | 1.000 | -0.006 | -0.011 | False |
+| 1997 | 0.986 | 1.022 | 1.000 | -0.036 | 0.022 | False |
+| 1998 | 0.990 | 1.015 | 1.000 | -0.025 | 0.015 | False |
+| 1999 | 0.981 | 1.002 | 1.000 | -0.020 | 0.002 | False |
+| 2000 | 0.988 | 0.991 | 1.000 | -0.003 | -0.009 | False |
+| 2001 | 0.989 | 1.032 | 0.999 | -0.042 | 0.032 | False |
+| 2002 | 1.004 | 1.028 | 0.999 | -0.024 | 0.028 | False |
+| 2003 | 0.981 | 1.023 | 1.000 | -0.042 | 0.023 | False |
+| 2004 | 1.005 | 0.986 | 1.000 | 0.020 | -0.014 | False |
+| 2005 | 0.992 | 0.992 | 1.000 | 0.000 | -0.008 | False |
+| 2006 | 0.981 | 1.009 | 1.000 | -0.028 | 0.009 | False |
+| 2007 | 0.997 | 1.004 | 1.000 | -0.007 | 0.005 | False |
+| 2008 | 0.991 | 1.017 | 1.000 | -0.026 | 0.017 | False |
+| 2009 | 1.001 | 1.008 | 1.000 | -0.007 | 0.008 | False |
+| 2010 | 0.998 | 1.023 | 1.000 | -0.025 | 0.023 | False |
+| 2011 | 0.994 | 1.025 | 0.997 | -0.030 | 0.028 | False |
+| 2012 | 0.993 | 1.020 | 0.995 | -0.027 | 0.025 | False |
+| 2013 | 0.998 | 0.988 | 1.000 | 0.010 | -0.012 | False |
+| 2014 | 0.991 | 1.039 | 0.999 | -0.048 | 0.040 | False |
+| 2015 | 1.003 | 1.028 | 0.999 | -0.025 | 0.029 | False |
+| 2016 | 1.004 | 1.027 | 0.994 | -0.023 | 0.033 | False |
+| 2017 | 0.997 | 1.050 | 0.998 | -0.053 | 0.053 | False |
+| 2018 | 0.998 | 1.036 | 0.999 | -0.038 | 0.038 | False |
+| 2019 | 0.997 | 1.022 | 0.999 | -0.024 | 0.023 | False |
+| 2020 | 0.994 | 1.050 | 0.997 | -0.056 | 0.053 | False |
+| 2021 | 0.989 | 1.030 | 0.999 | -0.040 | 0.031 | False |
+| 2022 | 0.996 | 1.012 | 0.998 | -0.016 | 0.014 | False |
+| 2023 | 0.997 | 1.042 | 0.998 | -0.044 | 0.043 | False |
+| 2024 | 0.996 | 1.041 | 0.999 | -0.046 | 0.043 | False |
 
 ### si_s15_secondary_pooled
 
 | group | prior | post |
 | --- | --- | --- |
 | Chile+Peru | 0.000 | 0.000 |
-| China | 0.227 | 0.240 |
-| EU-14 | 0.365 | 0.370 |
-| India | 0.005 | 0.005 |
-| JP/KR/TW | 0.235 | 0.249 |
-| Rest | 0.058 | 0.062 |
-| United States | 0.046 | 0.045 |
-| World | 0.163 | 0.172 |
+| China | 0.227 | 0.243 |
+| EU-14 | 0.369 | 0.374 |
+| India | 0.005 | 0.006 |
+| JP/KR/TW | 0.235 | 0.248 |
+| Rest | 0.058 | 0.061 |
+| United States | 0.046 | 0.046 |
+| World | 0.163 | 0.171 |
 
 ### si_s15_hhi_1995_2024
 
 | step | year | val | hhi_upper | hhi_lower | row_share | top_region | top_share |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| mining | 1995 | prior | 0.117 | 0.117 | 0.022 | Chile | 0.246 |
-| mining | 1995 | post | 0.116 | 0.116 | 0.022 | Chile | 0.243 |
-| mining | 2024 | prior | 0.111 | 0.109 | 0.040 | Chile | 0.239 |
-| mining | 2024 | post | 0.111 | 0.109 | 0.042 | Chile | 0.239 |
-| smelting | 1995 | prior | 0.074 | 0.074 | 0.030 | United States | 0.153 |
-| smelting | 1995 | post | 0.077 | 0.076 | 0.025 | United States | 0.156 |
-| smelting | 2024 | prior | 0.278 | 0.278 | 0.021 | China | 0.514 |
-| smelting | 2024 | post | 0.281 | 0.280 | 0.022 | China | 0.516 |
-| refining | 1995 | prior | 0.085 | 0.084 | 0.031 | United States | 0.192 |
-| refining | 1995 | post | 0.086 | 0.085 | 0.034 | United States | 0.193 |
-| refining | 2024 | prior | 0.228 | 0.228 | 0.019 | China | 0.453 |
-| refining | 2024 | post | 0.230 | 0.230 | 0.020 | China | 0.455 |
-| use | 1995 | prior | 0.086 | 0.083 | 0.055 | United States | 0.205 |
-| use | 1995 | post | 0.092 | 0.089 | 0.055 | United States | 0.216 |
-| use | 2024 | prior | 0.355 | 0.351 | 0.065 | China | 0.585 |
-| use | 2024 | post | 0.352 | 0.350 | 0.049 | China | 0.584 |
+| mining | 1995 | prior | 0.118 | 0.117 | 0.022 | Chile | 0.247 |
+| mining | 1995 | post | 0.117 | 0.116 | 0.022 | Chile | 0.244 |
+| mining | 2024 | prior | 0.112 | 0.110 | 0.041 | Chile | 0.240 |
+| mining | 2024 | post | 0.111 | 0.109 | 0.042 | Chile | 0.238 |
+| smelting | 1995 | prior | 0.075 | 0.074 | 0.030 | United States | 0.154 |
+| smelting | 1995 | post | 0.076 | 0.076 | 0.025 | United States | 0.156 |
+| smelting | 2024 | prior | 0.277 | 0.277 | 0.021 | China | 0.513 |
+| smelting | 2024 | post | 0.273 | 0.273 | 0.022 | China | 0.509 |
+| refining | 1995 | prior | 0.084 | 0.083 | 0.031 | United States | 0.191 |
+| refining | 1995 | post | 0.085 | 0.084 | 0.034 | United States | 0.192 |
+| refining | 2024 | prior | 0.221 | 0.221 | 0.019 | China | 0.445 |
+| refining | 2024 | post | 0.223 | 0.222 | 0.020 | China | 0.447 |
+| use | 1995 | prior | 0.085 | 0.082 | 0.055 | United States | 0.204 |
+| use | 1995 | post | 0.091 | 0.088 | 0.055 | United States | 0.215 |
+| use | 2024 | prior | 0.344 | 0.340 | 0.064 | China | 0.576 |
+| use | 2024 | post | 0.341 | 0.339 | 0.048 | China | 0.574 |
 
 ### si_s15_embodied_folded
 
 | mining region | China | United States | India | Korea, Rep. | Japan | Germany | Rest |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Chile | 3,886 | 851 | 247 | 317 | 328 | 146 | 1,299 |
-| Congo, D.R. | 2,685 | 46 | 115 | 156 | 3 | 67 | 1,163 |
-| Peru | 2,449 | 88 | 80 | 67 | 141 | 73 | 586 |
-| China | 2,241 | 1 | 0 | 1 | 0 | 1 | 64 |
-| United States | 110 | 917 | 13 | 4 | 40 | 4 | 353 |
-| Indonesia | 396 | 0 | 126 | 81 | 118 | 34 | 562 |
-| Rest | 4,959 | 133 | 406 | 194 | 151 | 420 | 3,495 |
+| Chile | 3,875 | 849 | 257 | 322 | 329 | 146 | 1,304 |
+| Congo, D.R. | 2,664 | 46 | 114 | 156 | 3 | 67 | 1,184 |
+| Peru | 2,429 | 87 | 81 | 68 | 141 | 73 | 608 |
+| China | 2,242 | 1 | 0 | 1 | 0 | 1 | 65 |
+| United States | 110 | 916 | 13 | 4 | 40 | 4 | 355 |
+| Indonesia | 392 | 0 | 129 | 83 | 116 | 34 | 564 |
+| Rest | 4,720 | 131 | 317 | 179 | 149 | 415 | 3,907 |
 
 ### si_s16_top_identities_edges
 
 | rank | identity | label | sector_key | zsq | share | sum_abs_delta | n_years | z_absmax | year_absmax | n_years_gt3 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 27428 | Cathode|Zambia→FU|Switzerland|Mass | Cathode→FU | 383,138 | 0.212 | 5,352 | 30 | 224 | 2014 | 24 |
-| 2 | 14362 | Anode|Zambia→ER|Switzerland|Mass | Anode→ER | 328,782 | 0.182 | 3,777 | 30 | 230 | 2017 | 10 |
-| 3 | 17532 | Cathode|Chile→FU|Netherlands|Mass | Cathode→FU | 121,537 | 0.067 | 2,015 | 30 | 133 | 2006 | 30 |
-| 4 | 23736 | Cathode|Russia→FU|Netherlands|Mass | Cathode→FU | 113,618 | 0.063 | 2,579 | 30 | 117 | 2015 | 30 |
-| 5 | 23762 | Cathode|Russia→FU|Switzerland|Mass | Cathode→FU | 78,171 | 0.043 | 1,057 | 30 | 115 | 2005 | 16 |
-| 6 | 14350 | Anode|Zambia→ER|Singapore|Mass | Anode→ER | 64,598 | 0.036 | 717 | 30 | 153 | 2017 | 9 |
-| 7 | 18122 | Cathode|Congo, D.R.→FU|Switzerland|Mass | Cathode→FU | 48,680 | 0.027 | 606 | 30 | 105 | 2020 | 12 |
-| 8 | 11204 | Anode|Congo, D.R.→ER|China|Mass | Anode→ER | 33,220 | 0.018 | 406 | 30 | 96 | 2012 | 13 |
-| 9 | 13366 | Anode|South Africa→ER|China|Mass | Anode→ER | 27,543 | 0.015 | 292 | 30 | 75 | 2022 | 8 |
-| 10 | 23737 | Cathode|Russia→FU|Netherlands|CC | Cathode→FU | 23,457 | 0.013 | 864 | 30 | 76 | 1999 | 24 |
-| 11 | 13376 | Anode|South Africa→ER|India|Mass | Anode→ER | 18,308 | 0.010 | 190 | 30 | 87 | 2021 | 4 |
-| 12 | 28274 | Cathode|ROW→FU|Switzerland|Mass | Cathode→FU | 17,344 | 0.010 | 450 | 30 | 98 | 2015 | 22 |
-| 13 | 12738 | Anode|Peru→ER|Netherlands|Mass | Anode→ER | 16,648 | 0.009 | 172 | 30 | 65 | 1995 | 7 |
-| 14 | 14363 | Anode|Zambia→ER|Switzerland|CC | Anode→ER | 15,636 | 0.009 | 3,551 | 30 | 43 | 2017 | 10 |
-| 15 | 20666 | Cathode|Kazakhstan→FU|United Kingdom|Mass | Cathode→FU | 14,675 | 0.008 | 375 | 30 | 52 | 2018 | 16 |
-| 16 | 14328 | Anode|Zambia→ER|Luxembourg|Mass | Anode→ER | 13,554 | 0.007 | 154 | 30 | 80 | 2017 | 4 |
-| 17 | 16122 | Cathode|Belgium→FU|Netherlands|Mass | Cathode→FU | 12,272 | 0.007 | 202 | 30 | 44 | 2006 | 26 |
-| 18 | 22608 | Cathode|Peru→FU|Netherlands|Mass | Cathode→FU | 10,618 | 0.006 | 178 | 30 | 53 | 2006 | 20 |
-| 19 | 17533 | Cathode|Chile→FU|Netherlands|CC | Cathode→FU | 8,967 | 0.005 | 279 | 30 | 41 | 2004 | 22 |
-| 20 | 14351 | Anode|Zambia→ER|Singapore|CC | Anode→ER | 8,541 | 0.005 | 675 | 30 | 40 | 2017 | 9 |
-| 21 | 28248 | Cathode|ROW→FU|Netherlands|Mass | Cathode→FU | 8,185 | 0.005 | 189 | 30 | 46 | 2013 | 27 |
-| 22 | 15169 | CP|Slovakia→Cathode|Slovakia|CC | CP→Cathode | 7,998 | 0.004 | 84 | 30 | 56 | 2009 | 14 |
-| 23 | 15168 | CP|Slovakia→Cathode|Slovakia|Mass | CP→Cathode | 7,975 | 0.004 | 84 | 30 | 55 | 2009 | 14 |
-| 24 | 25428 | Cathode|Sweden→FU|Netherlands|Mass | Cathode→FU | 7,851 | 0.004 | 137 | 30 | 41 | 2008 | 19 |
-| 25 | 14644 | Anode|ROW→ER|Switzerland|Mass | Anode→ER | 7,686 | 0.004 | 138 | 30 | 49 | 2016 | 8 |
+| 1 | 27428 | Cathode|Zambia→FU|Switzerland|Mass | Cathode→FU | 383,174 | 0.282 | 5,353 | 30 | 224 | 2014 | 24 |
+| 2 | 17532 | Cathode|Chile→FU|Netherlands|Mass | Cathode→FU | 121,539 | 0.089 | 2,015 | 30 | 133 | 2006 | 30 |
+| 3 | 23736 | Cathode|Russia→FU|Netherlands|Mass | Cathode→FU | 113,637 | 0.084 | 2,580 | 30 | 117 | 2015 | 30 |
+| 4 | 23762 | Cathode|Russia→FU|Switzerland|Mass | Cathode→FU | 78,171 | 0.058 | 1,057 | 30 | 115 | 2005 | 16 |
+| 5 | 18122 | Cathode|Congo, D.R.→FU|Switzerland|Mass | Cathode→FU | 48,680 | 0.036 | 606 | 30 | 105 | 2020 | 12 |
+| 6 | 11204 | Anode|Congo, D.R.→ER|China|Mass | Anode→ER | 34,441 | 0.025 | 421 | 30 | 96 | 2012 | 13 |
+| 7 | 13366 | Anode|South Africa→ER|China|Mass | Anode→ER | 27,853 | 0.021 | 296 | 30 | 75 | 2022 | 8 |
+| 8 | 23737 | Cathode|Russia→FU|Netherlands|CC | Cathode→FU | 23,439 | 0.017 | 864 | 30 | 76 | 1999 | 24 |
+| 9 | 13376 | Anode|South Africa→ER|India|Mass | Anode→ER | 18,291 | 0.013 | 190 | 30 | 87 | 2021 | 4 |
+| 10 | 28274 | Cathode|ROW→FU|Switzerland|Mass | Cathode→FU | 17,344 | 0.013 | 450 | 30 | 98 | 2015 | 22 |
+| 11 | 14328 | Anode|Zambia→ER|Luxembourg|Mass | Anode→ER | 15,474 | 0.011 | 166 | 30 | 84 | 2017 | 5 |
+| 12 | 20666 | Cathode|Kazakhstan→FU|United Kingdom|Mass | Cathode→FU | 14,676 | 0.011 | 375 | 30 | 52 | 2018 | 16 |
+| 13 | 16122 | Cathode|Belgium→FU|Netherlands|Mass | Cathode→FU | 12,273 | 0.009 | 202 | 30 | 44 | 2006 | 26 |
+| 14 | 22608 | Cathode|Peru→FU|Netherlands|Mass | Cathode→FU | 10,623 | 0.008 | 178 | 30 | 53 | 2006 | 20 |
+| 15 | 17533 | Cathode|Chile→FU|Netherlands|CC | Cathode→FU | 8,965 | 0.007 | 279 | 30 | 41 | 2004 | 22 |
+| 16 | 28248 | Cathode|ROW→FU|Netherlands|Mass | Cathode→FU | 8,185 | 0.006 | 189 | 30 | 46 | 2013 | 27 |
+| 17 | 25428 | Cathode|Sweden→FU|Netherlands|Mass | Cathode→FU | 7,851 | 0.006 | 137 | 30 | 41 | 2008 | 19 |
+| 18 | 16686 | Cathode|Brazil→FU|Netherlands|Mass | Cathode→FU | 7,369 | 0.005 | 121 | 30 | 49 | 2007 | 10 |
+| 19 | 18660 | Cathode|Germany→FU|Netherlands|Mass | Cathode→FU | 6,478 | 0.005 | 102 | 30 | 27 | 1996 | 27 |
+| 20 | 17558 | Cathode|Chile→FU|Switzerland|Mass | Cathode→FU | 6,116 | 0.005 | 128 | 30 | 45 | 2001 | 11 |
+| 21 | 16154 | Cathode|Belgium→FU|United Kingdom|Mass | Cathode→FU | 5,752 | 0.004 | 111 | 30 | 26 | 2015 | 23 |
+| 22 | 15169 | CP|Slovakia→Cathode|Slovakia|CC | CP→Cathode | 5,336 | 0.004 | 71 | 30 | 48 | 2009 | 14 |
+| 23 | 15168 | CP|Slovakia→Cathode|Slovakia|Mass | CP→Cathode | 5,329 | 0.004 | 71 | 30 | 48 | 2009 | 14 |
+| 24 | 18692 | Cathode|Germany→FU|United Kingdom|Mass | Cathode→FU | 4,538 | 0.003 | 72 | 30 | 33 | 2013 | 20 |
+| 25 | 12508 | Anode|Netherlands→ER|Belgium|Mass | Anode→ER | 4,397 | 0.003 | 101 | 30 | 58 | 2010 | 3 |
 
 ### si_s16_top_identities_sum_rows
 
 | rank | identity | label | sector_key | zsq | share | sum_abs_delta | n_years | z_absmax | year_absmax | n_years_gt3 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 1879 | usetotout Anode·Congo, D.R. CC | Anode | 17,475 | 0.023 | 523 | 30 | 57.447 | 2012 | 14 |
-| 2 | 2217 | usetotout Concentrate·Philippines CC | Concentrate | 16,931 | 0.023 | 1,243 | 30 | 40.348 | 2020 | 28 |
-| 3 | 1880 | usetotout Anode·Congo, D.R. Mass | Anode | 16,407 | 0.022 | 507 | 30 | 57.343 | 2012 | 14 |
-| 4 | 1933 | usetotout Anode·South Africa CC | Anode | 14,806 | 0.020 | 507 | 30 | 56.754 | 2021 | 7 |
-| 5 | 1934 | usetotout Anode·South Africa Mass | Anode | 14,622 | 0.020 | 516 | 30 | 56.662 | 2021 | 7 |
-| 6 | 2218 | usetotout Concentrate·Philippines Mass | Concentrate | 14,074 | 0.019 | 4,144 | 30 | 40.457 | 2020 | 28 |
-| 7 | 2147 | usetotout Cathode·United Arab Emirates CC | Cathode | 11,266 | 0.015 | 252 | 19 | 58.274 | 2011 | 7 |
-| 8 | 2148 | usetotout Cathode·United Arab Emirates Mass | Cathode | 11,262 | 0.015 | 252 | 19 | 58.273 | 2011 | 7 |
-| 9 | 2286 | usetotout Matte·Italy Mass | Matte | 10,457 | 0.014 | 127 | 29 | 58.588 | 2001 | 18 |
-| 10 | 2138 | usetotout Cathode·South Africa Mass | Cathode | 10,322 | 0.014 | 489 | 30 | 58.271 | 2021 | 24 |
-| 11 | 2285 | usetotout Matte·Italy CC | Matte | 10,316 | 0.014 | 65 | 29 | 58.577 | 2001 | 18 |
-| 12 | 2137 | usetotout Cathode·South Africa CC | Cathode | 10,075 | 0.014 | 458 | 30 | 58.271 | 2021 | 22 |
-| 13 | 2154 | usetotout Cathode·Uzbekistan Mass | Cathode | 10,057 | 0.014 | 403 | 30 | 61.353 | 1995 | 21 |
-| 14 | 2156 | usetotout Cathode·Zambia Mass | Cathode | 9,247 | 0.012 | 5,126 | 30 | 34.999 | 2014 | 27 |
-| 15 | 2153 | usetotout Cathode·Uzbekistan CC | Cathode | 8,239 | 0.011 | 426 | 30 | 46.801 | 1997 | 23 |
-| 16 | 2130 | usetotout Cathode·ROW Mass | Cathode | 7,531 | 0.010 | 4,998 | 30 | 28.714 | 2023 | 28 |
-| 17 | 2102 | usetotout Cathode·Kazakhstan Mass | Cathode | 7,094 | 0.010 | 2,831 | 30 | 35.844 | 1995 | 25 |
-| 18 | 1573 | supplytotout MF·Bulgaria Mass | MF | 7,007 | 0.009 | 1,640 | 30 | 47.380 | 2012 | 15 |
-| 19 | 2108 | usetotout Cathode·Malaysia Mass | Cathode | 6,748 | 0.009 | 224 | 13 | 58.092 | 2003 | 3 |
-| 20 | 2107 | usetotout Cathode·Malaysia CC | Cathode | 6,747 | 0.009 | 224 | 13 | 58.093 | 2003 | 3 |
-| 21 | 2129 | usetotout Cathode·ROW CC | Cathode | 6,594 | 0.009 | 4,455 | 30 | 28.692 | 2023 | 29 |
-| 22 | 1406 | supplytotout CFR·Zambia CC | CFR | 5,898 | 0.008 | 4,420 | 30 | 29.870 | 2017 | 20 |
-| 23 | 1951 | usetotout Anode·Zambia CC | Anode | 5,898 | 0.008 | 4,420 | 30 | 29.870 | 2017 | 20 |
-| 24 | 2101 | usetotout Cathode·Kazakhstan CC | Cathode | 5,844 | 0.008 | 2,368 | 30 | 33.371 | 1995 | 22 |
-| 25 | 1407 | supplytotout CFR·Zambia Mass | CFR | 5,760 | 0.008 | 4,589 | 30 | 30.255 | 2017 | 16 |
+| 1 | 2305 | usetotout Matte·Italy CC | Matte | 73,066 | 0.076 | 181 | 29 | 58.577 | 2001 | 29 |
+| 2 | 2306 | usetotout Matte·Italy Mass | Matte | 63,364 | 0.066 | 344 | 29 | 58.588 | 2001 | 26 |
+| 3 | 1883 | usetotout Anode·Congo, D.R. CC | Anode | 17,003 | 0.018 | 511 | 30 | 57.447 | 2012 | 14 |
+| 4 | 2237 | usetotout Concentrate·Philippines CC | Concentrate | 16,886 | 0.018 | 1,241 | 30 | 40.306 | 2020 | 28 |
+| 5 | 1884 | usetotout Anode·Congo, D.R. Mass | Anode | 15,927 | 0.017 | 488 | 30 | 57.343 | 2012 | 13 |
+| 6 | 1937 | usetotout Anode·South Africa CC | Anode | 14,783 | 0.015 | 507 | 30 | 56.752 | 2021 | 7 |
+| 7 | 1938 | usetotout Anode·South Africa Mass | Anode | 14,603 | 0.015 | 516 | 30 | 56.665 | 2021 | 7 |
+| 8 | 2238 | usetotout Concentrate·Philippines Mass | Concentrate | 14,066 | 0.015 | 4,142 | 30 | 40.457 | 2020 | 28 |
+| 9 | 2353 | usetotout Matte·Taiwan CC | Matte | 12,268 | 0.013 | 13 | 30 | 58.358 | 2000 | 9 |
+| 10 | 2167 | usetotout Cathode·United Arab Emirates CC | Cathode | 10,602 | 0.011 | 245 | 27 | 58.564 | 2011 | 5 |
+| 11 | 2168 | usetotout Cathode·United Arab Emirates Mass | Cathode | 10,592 | 0.011 | 246 | 27 | 58.564 | 2011 | 5 |
+| 12 | 2158 | usetotout Cathode·South Africa Mass | Cathode | 10,322 | 0.011 | 491 | 30 | 58.271 | 2021 | 24 |
+| 13 | 2157 | usetotout Cathode·South Africa CC | Cathode | 10,074 | 0.010 | 459 | 30 | 58.271 | 2021 | 22 |
+| 14 | 2176 | usetotout Cathode·Zambia Mass | Cathode | 10,018 | 0.010 | 5,321 | 30 | 35.008 | 2014 | 27 |
+| 15 | 2174 | usetotout Cathode·Uzbekistan Mass | Cathode | 9,944 | 0.010 | 402 | 30 | 60.753 | 1995 | 21 |
+| 16 | 2357 | usetotout Matte·United Kingdom CC | Matte | 9,374 | 0.010 | 31 | 30 | 54.830 | 2001 | 9 |
+| 17 | 2262 | usetotout Concentrate·United Arab Emirates Mass | Concentrate | 8,821 | 0.009 | 284 | 18 | 44.954 | 2024 | 11 |
+| 18 | 2323 | usetotout Matte·Netherlands CC | Matte | 8,741 | 0.009 | 8 | 30 | 54.374 | 2010 | 6 |
+| 19 | 2341 | usetotout Matte·Singapore CC | Matte | 8,530 | 0.009 | 11 | 30 | 55.333 | 1997 | 3 |
+| 20 | 2173 | usetotout Cathode·Uzbekistan CC | Cathode | 8,169 | 0.009 | 426 | 30 | 46.654 | 1997 | 23 |
+| 21 | 2150 | usetotout Cathode·ROW Mass | Cathode | 7,832 | 0.008 | 5,100 | 30 | 28.790 | 2023 | 28 |
+| 22 | 2261 | usetotout Concentrate·United Arab Emirates CC | Concentrate | 7,393 | 0.008 | 94 | 18 | 47.165 | 2024 | 11 |
+| 23 | 2122 | usetotout Cathode·Kazakhstan Mass | Cathode | 7,090 | 0.007 | 2,832 | 30 | 35.763 | 1995 | 25 |
+| 24 | 1601 | supplytotout MF·Bulgaria Mass | MF | 7,002 | 0.007 | 1,641 | 30 | 47.372 | 2012 | 15 |
+| 25 | 2149 | usetotout Cathode·ROW CC | Cathode | 6,856 | 0.007 | 4,543 | 30 | 28.768 | 2023 | 28 |
 
 ### si_s16_top_identities_soft_ratios
 
 | rank | identity | label | sector_key | zsq | share | sum_abs_delta | n_years | z_absmax | year_absmax | n_years_gt3 |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1 | 7176 | concscrapsupply Scrap.Belgium→Smelting.Belgium CC/Mass | Scrap→Smelting | 271 | 0.055 | 2,500 | 30 | 5.021 | 2001 | 12 |
-| 2 | 15949 | conccathodesupply Cathode.Zambia→MESC.Switzerland CC/Mass | Cathode→MESC | 160 | 0.032 | 89 | 30 | 5.858 | 2017 | 7 |
-| 3 | 15902 | conccathodesupply Cathode.Zambia→USC.Switzerland CC/Mass | Cathode→USC | 160 | 0.032 | 89 | 30 | 5.858 | 2017 | 7 |
-| 4 | 7174 | concscrapsupply Scrap.Austria→Smelting.Austria CC/Mass | Scrap→Smelting | 156 | 0.032 | 1,397 | 30 | 3.150 | 2010 | 1 |
-| 5 | 9375 | concanodesupply Anode.Zambia→ER.Zambia CC/Mass | Anode→ER | 93 | 0.019 | 255 | 30 | 2.403 | 2020 | 0 |
-| 6 | 4772 | concconcentratesupply Concentrate.ROW→Smelting.ROW CC/Mass | Concentrate→Smelting | 77 | 0.015 | 809 | 30 | 2.658 | 2022 | 0 |
-| 7 | 8223 | concanodesupply Anode.Kazakhstan→ER.Kazakhstan CC/Mass | Anode→ER | 71 | 0.014 | 286 | 30 | 1.936 | 2019 | 0 |
-| 8 | 7283 | concanodeuse CFR.Kazakhstan→Anode.Kazakhstan CC/Mass | CFR→Anode | 68 | 0.014 | 283 | 30 | 1.929 | 2015 | 0 |
-| 9 | 9341 | concanodesupply Anode.Zambia→ER.China CC/Mass | Anode→ER | 56 | 0.011 | 115 | 30 | 2.367 | 2021 | 0 |
-| 10 | 7455 | concanodesupply Anode.Belgium→ER.Belgium CC/Mass | Anode→ER | 54 | 0.011 | 126 | 30 | 1.953 | 2005 | 0 |
-| 11 | 9519 | concanodesupply Anode.ROW→ER.ROW CC/Mass | Anode→ER | 45 | 0.009 | 220 | 30 | 2.164 | 2016 | 0 |
-| 12 | 16522 | effmfflotation MF.Zambia→Concentrate.Zambia CC/CC | MF→Concentrate | 45 | 0.009 | 970 | 30 | 1.994 | 1995 | 0 |
-| 13 | 2954 | concconcentratesupply Concentrate.Chile→Smelting.India CC/Mass | Concentrate→Smelting | 45 | 0.009 | 739 | 30 | 1.799 | 2011 | 0 |
-| 14 | 7596 | concanodesupply Anode.Bulgaria→ER.Belgium CC/Mass | Anode→ER | 44 | 0.009 | 71 | 30 | 2.007 | 2008 | 0 |
-| 15 | 16509 | effmfflotation MF.ROW→Concentrate.ROW CC/CC | MF→Concentrate | 43 | 0.009 | 794 | 30 | 2.110 | 2002 | 0 |
-| 16 | 3287 | concconcentratesupply Concentrate.Indonesia→Smelting.Japan CC/Mass | Concentrate→Smelting | 41 | 0.008 | 816 | 30 | 1.918 | 2012 | 0 |
-| 17 | 16515 | effmfflotation MF.Sweden→Concentrate.Sweden CC/CC | MF→Concentrate | 40 | 0.008 | 200 | 30 | 1.793 | 2019 | 0 |
-| 18 | 7267 | concanodeuse CFR.Belgium→Anode.Belgium CC/Mass | CFR→Anode | 40 | 0.008 | 114 | 30 | 1.880 | 2001 | 0 |
-| 19 | 7307 | concanodeuse CFR.Zambia→Anode.Zambia CC/Mass | CFR→Anode | 38 | 0.008 | 208 | 30 | 1.861 | 1997 | 0 |
-| 20 | 16492 | effmfflotation MF.Iran→Concentrate.Iran CC/CC | MF→Concentrate | 38 | 0.008 | 407 | 30 | 1.908 | 2023 | 0 |
-| 21 | 2629 | concconcentratesupply Concentrate.Australia→Smelting.Japan CC/Mass | Concentrate→Smelting | 37 | 0.008 | 685 | 30 | 1.892 | 2015 | 0 |
-| 22 | 4735 | concconcentratesupply Concentrate.ROW→Smelting.China CC/Mass | Concentrate→Smelting | 37 | 0.007 | 1,193 | 30 | 1.799 | 2012 | 0 |
-| 23 | 7310 | concanodeuse CFR.ROW→Anode.ROW CC/Mass | CFR→Anode | 36 | 0.007 | 288 | 30 | 1.908 | 2020 | 0 |
-| 24 | 3284 | concconcentratesupply Concentrate.Indonesia→Smelting.Indonesia CC/Mass | Concentrate→Smelting | 36 | 0.007 | 984 | 30 | 1.569 | 2022 | 0 |
-| 25 | 7983 | concanodesupply Anode.India→ER.India CC/Mass | Anode→ER | 35 | 0.007 | 220 | 30 | 2.109 | 2021 | 0 |
+| 1 | 7186 | concscrapsupply Scrap.Belgium→Smelting.Belgium CC/Mass | Scrap→Smelting | 175 | 0.036 | 2,014 | 30 | 3.315 | 2008 | 1 |
+| 2 | 7184 | concscrapsupply Scrap.Austria→Smelting.Austria CC/Mass | Scrap→Smelting | 136 | 0.028 | 1,279 | 30 | 3.073 | 2010 | 3 |
+| 3 | 15959 | conccathodesupply Cathode.Zambia→MESC.Switzerland CC/Mass | Cathode→MESC | 120 | 0.024 | 79 | 30 | 4.174 | 2005 | 6 |
+| 4 | 15912 | conccathodesupply Cathode.Zambia→USC.Switzerland CC/Mass | Cathode→USC | 120 | 0.024 | 79 | 30 | 4.174 | 2005 | 6 |
+| 5 | 4782 | concconcentratesupply Concentrate.ROW→Smelting.ROW CC/Mass | Concentrate→Smelting | 81 | 0.016 | 837 | 30 | 2.691 | 2013 | 0 |
+| 6 | 8233 | concanodesupply Anode.Kazakhstan→ER.Kazakhstan CC/Mass | Anode→ER | 70 | 0.014 | 286 | 30 | 1.936 | 2019 | 0 |
+| 7 | 7293 | concanodeuse CFR.Kazakhstan→Anode.Kazakhstan CC/Mass | CFR→Anode | 67 | 0.014 | 283 | 30 | 1.929 | 2015 | 0 |
+| 8 | 9385 | concanodesupply Anode.Zambia→ER.Zambia CC/Mass | Anode→ER | 65 | 0.013 | 222 | 30 | 1.920 | 2007 | 0 |
+| 9 | 7317 | concanodeuse CFR.Zambia→Anode.Zambia CC/Mass | CFR→Anode | 58 | 0.012 | 451 | 30 | 1.862 | 1997 | 0 |
+| 10 | 7465 | concanodesupply Anode.Belgium→ER.Belgium CC/Mass | Anode→ER | 57 | 0.012 | 135 | 30 | 1.951 | 2005 | 0 |
+| 11 | 16532 | effmfflotation MF.Zambia→Concentrate.Zambia CC/CC | MF→Concentrate | 51 | 0.010 | 1,043 | 30 | 2.555 | 2017 | 0 |
+| 12 | 7606 | concanodesupply Anode.Bulgaria→ER.Belgium CC/Mass | Anode→ER | 50 | 0.010 | 77 | 30 | 1.994 | 2006 | 0 |
+| 13 | 16519 | effmfflotation MF.ROW→Concentrate.ROW CC/CC | MF→Concentrate | 47 | 0.010 | 849 | 30 | 2.117 | 2002 | 0 |
+| 14 | 7277 | concanodeuse CFR.Belgium→Anode.Belgium CC/Mass | CFR→Anode | 45 | 0.009 | 131 | 30 | 1.839 | 2002 | 0 |
+| 15 | 2964 | concconcentratesupply Concentrate.Chile→Smelting.India CC/Mass | Concentrate→Smelting | 45 | 0.009 | 751 | 30 | 1.804 | 2011 | 0 |
+| 16 | 9351 | concanodesupply Anode.Zambia→ER.China CC/Mass | Anode→ER | 44 | 0.009 | 105 | 30 | 2.031 | 2011 | 0 |
+| 17 | 4745 | concconcentratesupply Concentrate.ROW→Smelting.China CC/Mass | Concentrate→Smelting | 43 | 0.009 | 1,293 | 30 | 1.837 | 2016 | 0 |
+| 18 | 3297 | concconcentratesupply Concentrate.Indonesia→Smelting.Japan CC/Mass | Concentrate→Smelting | 42 | 0.009 | 819 | 30 | 1.917 | 2012 | 0 |
+| 19 | 16525 | effmfflotation MF.Sweden→Concentrate.Sweden CC/CC | MF→Concentrate | 39 | 0.008 | 199 | 30 | 1.795 | 2019 | 0 |
+| 20 | 2639 | concconcentratesupply Concentrate.Australia→Smelting.Japan CC/Mass | Concentrate→Smelting | 38 | 0.008 | 694 | 30 | 1.953 | 2016 | 0 |
+| 21 | 3294 | concconcentratesupply Concentrate.Indonesia→Smelting.Indonesia CC/Mass | Concentrate→Smelting | 38 | 0.008 | 1,011 | 30 | 1.586 | 2022 | 0 |
+| 22 | 16502 | effmfflotation MF.Iran→Concentrate.Iran CC/CC | MF→Concentrate | 38 | 0.008 | 406 | 30 | 1.914 | 2014 | 0 |
+| 23 | 7993 | concanodesupply Anode.India→ER.India CC/Mass | Anode→ER | 35 | 0.007 | 234 | 30 | 2.130 | 2020 | 0 |
+| 24 | 16523 | effmfflotation MF.South Africa→Concentrate.South Africa CC/CC | MF→Concentrate | 34 | 0.007 | 189 | 30 | 2.120 | 2009 | 0 |
+| 25 | 7095 | concslaguse CFR.China→Slag.China CC/Mass | CFR→Slag | 34 | 0.007 | 1,225 | 30 | 2.232 | 2020 | 0 |
 
 ### si_s16_share_soft_ratios
 
 | sector_key | zsq | share | n_rows | n_identities |
 | --- | --- | --- | --- | --- |
-| Concentrate→Smelting | 1,033 | 0.209 | 66270 | 2209 |
-| Anode→ER | 928 | 0.188 | 66270 | 2209 |
-| CFR→Anode | 515 | 0.104 | 1410 | 47 |
-| MF→Concentrate | 495 | 0.100 | 2820 | 94 |
-| Scrap→Smelting | 485 | 0.098 | 1410 | 47 |
-| MF→Tailings | 269 | 0.054 | 862 | 862 |
-| Cathode→USC | 214 | 0.043 | 66270 | 2209 |
-| Cathode→MESC | 198 | 0.040 | 66270 | 2209 |
-| other | 807 | 0.163 | 160232 | 9162 |
+| Concentrate→Smelting | 1,100 | 0.223 | 66270 | 2209 |
+| Anode→ER | 910 | 0.185 | 66270 | 2209 |
+| CFR→Anode | 537 | 0.109 | 1410 | 47 |
+| MF→Concentrate | 530 | 0.107 | 2820 | 94 |
+| Scrap→Smelting | 364 | 0.074 | 1410 | 47 |
+| MF→Tailings | 274 | 0.056 | 862 | 862 |
+| effsmelting | 208 | 0.042 | 1410 | 47 |
+| Cathode→USC | 168 | 0.034 | 66270 | 2209 |
+| other | 839 | 0.170 | 225092 | 11324 |
 
 ### si_s17_legs
 
 | country | year | sector_from | region_from | region_to | prior | post | retention |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Chile | 2000 | Anode | Chile | United States | 72 | 72 | 1.005 |
-| Chile | 2000 | Anode | Chile | Mexico | 50 | 50 | 1.005 |
-| Chile | 2000 | Anode | Chile | Belgium | 25 | 23 | 0.948 |
-| Chile | 2000 | Anode | Chile | China | 7 | 7 | 0.998 |
+| Chile | 2000 | Anode | Chile | United States | 72 | 72 | 1.004 |
+| Chile | 2000 | Anode | Chile | Mexico | 50 | 50 | 1.007 |
+| Chile | 2000 | Anode | Chile | Belgium | 25 | 24 | 0.950 |
+| Chile | 2000 | Anode | Chile | China | 7 | 7 | 0.999 |
 | Chile | 2000 | Anode | Chile | Canada | 4 | 4 | 1.004 |
-| Chile | 2000 | Cathode | Chile | Italy | 351 | 353 | 1.005 |
+| Chile | 2000 | Cathode | Chile | Italy | 351 | 353 | 1.004 |
 | Chile | 2000 | Cathode | Chile | France | 286 | 252 | 0.881 |
 | Chile | 2000 | Cathode | Chile | United States | 282 | 234 | 0.827 |
 | Chile | 2000 | Cathode | Chile | China | 250 | 251 | 1.006 |
-| Chile | 2000 | Cathode | Chile | Korea, Rep. | 235 | 237 | 1.007 |
-| Chile | 2000 | Concentrate | Chile | Japan | 578 | 606 | 1.048 |
-| Chile | 2000 | Concentrate | Chile | China | 149 | 142 | 0.947 |
-| Chile | 2000 | Concentrate | Chile | Korea, Rep. | 119 | 123 | 1.033 |
-| Chile | 2000 | Concentrate | Chile | Brazil | 108 | 108 | 1.001 |
-| Chile | 2000 | Concentrate | Chile | Germany | 84 | 83 | 0.989 |
-| Chile | 2000 | Matte | Chile | United Kingdom | 2 | 1 | 0.678 |
-| Chile | 2024 | Anode | Chile | China | 108 | 108 | 1.004 |
-| Chile | 2024 | Anode | Chile | India | 36 | 32 | 0.901 |
-| Chile | 2024 | Anode | Chile | ROW | 34 | 36 | 1.057 |
-| Chile | 2024 | Anode | Chile | Korea, Rep. | 32 | 31 | 0.952 |
+| Chile | 2000 | Cathode | Chile | Korea, Rep. | 235 | 237 | 1.006 |
+| Chile | 2000 | Concentrate | Chile | Japan | 578 | 616 | 1.066 |
+| Chile | 2000 | Concentrate | Chile | China | 149 | 143 | 0.959 |
+| Chile | 2000 | Concentrate | Chile | Korea, Rep. | 119 | 125 | 1.052 |
+| Chile | 2000 | Concentrate | Chile | Brazil | 108 | 108 | 1.005 |
+| Chile | 2000 | Concentrate | Chile | Germany | 84 | 86 | 1.025 |
+| Chile | 2000 | Matte | Chile | United Kingdom | 2 | 1 | 0.705 |
+| Chile | 2024 | Anode | Chile | China | 108 | 108 | 1.003 |
+| Chile | 2024 | Anode | Chile | India | 36 | 33 | 0.920 |
+| Chile | 2024 | Anode | Chile | ROW | 34 | 36 | 1.058 |
+| Chile | 2024 | Anode | Chile | Korea, Rep. | 32 | 31 | 0.953 |
 | Chile | 2024 | Anode | Chile | Canada | 26 | 25 | 0.946 |
 | Chile | 2024 | Cathode | Chile | United States | 631 | 629 | 0.997 |
-| Chile | 2024 | Cathode | Chile | China | 513 | 511 | 0.996 |
+| Chile | 2024 | Cathode | Chile | China | 513 | 510 | 0.996 |
 | Chile | 2024 | Cathode | Chile | Brazil | 189 | 228 | 1.208 |
 | Chile | 2024 | Cathode | Chile | Korea, Rep. | 131 | 131 | 0.999 |
 | Chile | 2024 | Cathode | Chile | France | 86 | 75 | 0.879 |
-| Chile | 2024 | Concentrate | Chile | China | 2,387 | 2,398 | 1.004 |
-| Chile | 2024 | Concentrate | Chile | Japan | 513 | 533 | 1.040 |
-| Chile | 2024 | Concentrate | Chile | Korea, Rep. | 148 | 125 | 0.843 |
-| Chile | 2024 | Concentrate | Chile | India | 147 | 112 | 0.763 |
-| Chile | 2024 | Concentrate | Chile | Germany | 77 | 73 | 0.946 |
-| Chile | 2024 | Matte | Chile | Korea, Rep. | 2 | 2 | 0.829 |
-| Chile | 2024 | Matte | Chile | ROW | 1 | 1 | 1.054 |
-| Peru | 2000 | Anode | Peru | Netherlands | 20 | 2 | 0.079 |
-| Peru | 2000 | Anode | Peru | United States | 5 | 6 | 1.047 |
-| Peru | 2000 | Anode | Peru | Mexico | 4 | 4 | 1.037 |
-| Peru | 2000 | Cathode | Peru | United States | 349 | 298 | 0.854 |
-| Peru | 2000 | Cathode | Peru | Italy | 30 | 31 | 1.022 |
-| Peru | 2000 | Cathode | Peru | Brazil | 14 | 15 | 1.031 |
-| Peru | 2000 | Cathode | Peru | United Kingdom | 12 | 19 | 1.642 |
-| Peru | 2000 | Cathode | Peru | Taiwan | 9 | 9 | 1.014 |
-| Peru | 2000 | Concentrate | Peru | Japan | 27 | 26 | 0.991 |
-| Peru | 2000 | Concentrate | Peru | China | 22 | 22 | 0.982 |
-| Peru | 2000 | Concentrate | Peru | India | 21 | 21 | 1.031 |
-| Peru | 2000 | Concentrate | Chile | Peru | 20 | 20 | 1.004 |
-| Peru | 2000 | Concentrate | Peru | ROW | 16 | 17 | 1.101 |
-| Peru | 2000 | Matte | Mexico | Peru | 1 | 1 | 0.911 |
-| Peru | 2024 | Anode | Peru | China | 14 | 14 | 1.068 |
+| Chile | 2024 | Concentrate | Chile | China | 2,387 | 2,393 | 1.002 |
+| Chile | 2024 | Concentrate | Chile | Japan | 513 | 536 | 1.045 |
+| Chile | 2024 | Concentrate | Chile | Korea, Rep. | 148 | 132 | 0.893 |
+| Chile | 2024 | Concentrate | Chile | India | 147 | 120 | 0.820 |
+| Chile | 2024 | Concentrate | Chile | Germany | 77 | 74 | 0.953 |
+| Chile | 2024 | Matte | Chile | Korea, Rep. | 2 | 2 | 0.839 |
+| Chile | 2024 | Matte | Chile | ROW | 1 | 1 | 1.061 |
+| Peru | 2000 | Anode | Peru | Netherlands | 20 | 20 | 1.001 |
+| Peru | 2000 | Anode | Peru | United States | 5 | 5 | 1.013 |
+| Peru | 2000 | Anode | Peru | Mexico | 4 | 4 | 1.010 |
+| Peru | 2000 | Cathode | Peru | United States | 349 | 295 | 0.847 |
+| Peru | 2000 | Cathode | Peru | Italy | 30 | 31 | 1.017 |
+| Peru | 2000 | Cathode | Peru | Brazil | 14 | 15 | 1.024 |
+| Peru | 2000 | Cathode | Peru | United Kingdom | 12 | 19 | 1.633 |
+| Peru | 2000 | Cathode | Peru | Taiwan | 9 | 9 | 1.006 |
+| Peru | 2000 | Concentrate | Peru | Japan | 27 | 25 | 0.957 |
+| Peru | 2000 | Concentrate | Peru | China | 22 | 21 | 0.954 |
+| Peru | 2000 | Concentrate | Peru | India | 21 | 21 | 1.016 |
+| Peru | 2000 | Concentrate | Chile | Peru | 20 | 21 | 1.032 |
+| Peru | 2000 | Concentrate | Peru | ROW | 16 | 17 | 1.082 |
+| Peru | 2000 | Matte | Mexico | Peru | 1 | 1 | 0.976 |
+| Peru | 2024 | Anode | Peru | China | 14 | 14 | 1.067 |
 | Peru | 2024 | Cathode | Peru | China | 103 | 109 | 1.056 |
 | Peru | 2024 | Cathode | Peru | United States | 61 | 64 | 1.039 |
 | Peru | 2024 | Cathode | Peru | Italy | 47 | 51 | 1.071 |
-| Peru | 2024 | Cathode | Peru | Brazil | 40 | 51 | 1.260 |
+| Peru | 2024 | Cathode | Peru | Brazil | 40 | 51 | 1.259 |
 | Peru | 2024 | Cathode | Peru | Mexico | 5 | 5 | 1.083 |
-| Peru | 2024 | Concentrate | Peru | China | 2,043 | 1,856 | 0.908 |
-| Peru | 2024 | Concentrate | Peru | Japan | 233 | 236 | 1.013 |
-| Peru | 2024 | Concentrate | Peru | Korea, Rep. | 74 | 67 | 0.909 |
-| Peru | 2024 | Concentrate | Peru | Spain | 69 | 83 | 1.211 |
-| Peru | 2024 | Concentrate | Peru | ROW | 49 | 63 | 1.285 |
-| Peru | 2024 | Matte | Peru | Korea, Rep. | 2 | 2 | 1.127 |
-| China | 2000 | Anode | Japan | China | 10 | 10 | 0.997 |
-| China | 2000 | Anode | United States | China | 7 | 7 | 0.995 |
-| China | 2000 | Anode | Chile | China | 7 | 7 | 0.998 |
+| Peru | 2024 | Concentrate | Peru | China | 2,043 | 1,841 | 0.901 |
+| Peru | 2024 | Concentrate | Peru | Japan | 233 | 236 | 1.014 |
+| Peru | 2024 | Concentrate | Peru | Korea, Rep. | 74 | 69 | 0.935 |
+| Peru | 2024 | Concentrate | Peru | Spain | 69 | 84 | 1.217 |
+| Peru | 2024 | Concentrate | Peru | ROW | 49 | 64 | 1.294 |
+| Peru | 2024 | Matte | Peru | Korea, Rep. | 2 | 2 | 1.137 |
+| China | 2000 | Anode | Japan | China | 10 | 10 | 0.998 |
+| China | 2000 | Anode | United States | China | 7 | 7 | 0.996 |
+| China | 2000 | Anode | Chile | China | 7 | 7 | 0.999 |
 | China | 2000 | Anode | Korea, Rep. | China | 7 | 7 | 0.985 |
-| China | 2000 | Anode | ROW | China | 7 | 6 | 0.930 |
+| China | 2000 | Anode | ROW | China | 7 | 6 | 0.910 |
 | China | 2000 | Cathode | Chile | China | 250 | 251 | 1.006 |
 | China | 2000 | Cathode | Japan | China | 72 | 72 | 1.000 |
 | China | 2000 | Cathode | United States | China | 62 | 62 | 1.000 |
 | China | 2000 | Cathode | Philippines | China | 52 | 50 | 0.968 |
 | China | 2000 | Cathode | China | Korea, Rep. | 42 | 42 | 1.000 |
-| China | 2000 | Concentrate | Chile | China | 149 | 142 | 0.947 |
+| China | 2000 | Concentrate | Chile | China | 149 | 143 | 0.959 |
 | China | 2000 | Concentrate | Mongolia | China | 127 | 119 | 0.933 |
-| China | 2000 | Concentrate | Australia | China | 74 | 74 | 1.008 |
-| China | 2000 | Concentrate | Canada | China | 39 | 38 | 0.971 |
-| China | 2000 | Concentrate | Peru | China | 22 | 22 | 0.982 |
-| China | 2024 | Anode | Zambia | China | 201 | 234 | 1.164 |
-| China | 2024 | Anode | Congo, D.R. | China | 116 | 116 | 1.001 |
-| China | 2024 | Anode | Chile | China | 108 | 108 | 1.004 |
-| China | 2024 | Anode | ROW | China | 66 | 62 | 0.950 |
+| China | 2000 | Concentrate | Australia | China | 74 | 74 | 1.004 |
+| China | 2000 | Concentrate | Canada | China | 39 | 38 | 0.974 |
+| China | 2000 | Concentrate | Peru | China | 22 | 21 | 0.954 |
+| China | 2024 | Anode | Zambia | China | 201 | 186 | 0.928 |
+| China | 2024 | Anode | Congo, D.R. | China | 116 | 116 | 0.999 |
+| China | 2024 | Anode | Chile | China | 108 | 108 | 1.003 |
+| China | 2024 | Anode | ROW | China | 66 | 62 | 0.949 |
 | China | 2024 | Anode | South Africa | China | 46 | 0 | 0.000 |
 | China | 2024 | Cathode | Congo, D.R. | China | 1,506 | 1,506 | 1.000 |
-| China | 2024 | Cathode | Chile | China | 513 | 511 | 0.996 |
+| China | 2024 | Cathode | Chile | China | 513 | 510 | 0.996 |
 | China | 2024 | Cathode | Kazakhstan | China | 308 | 249 | 0.808 |
 | China | 2024 | Cathode | Japan | China | 248 | 248 | 0.999 |
 | China | 2024 | Cathode | Russia | China | 245 | 251 | 1.022 |
-| China | 2024 | Concentrate | Chile | China | 2,387 | 2,398 | 1.004 |
-| China | 2024 | Concentrate | Peru | China | 2,043 | 1,856 | 0.908 |
-| China | 2024 | Concentrate | ROW | China | 774 | 551 | 0.711 |
-| China | 2024 | Concentrate | Mexico | China | 466 | 416 | 0.891 |
+| China | 2024 | Concentrate | Chile | China | 2,387 | 2,393 | 1.002 |
+| China | 2024 | Concentrate | Peru | China | 2,043 | 1,841 | 0.901 |
+| China | 2024 | Concentrate | ROW | China | 774 | 529 | 0.683 |
+| China | 2024 | Concentrate | Mexico | China | 466 | 414 | 0.887 |
 | China | 2024 | Concentrate | Kazakhstan | China | 462 | 414 | 0.895 |
-| China | 2024 | Matte | ROW | China | 15 | 9 | 0.604 |
-| China | 2024 | Matte | Indonesia | China | 8 | 6 | 0.711 |
-| China | 2024 | Matte | India | China | 4 | 6 | 1.450 |
-| China | 2024 | Matte | Korea, Rep. | China | 3 | 3 | 1.221 |
-| China | 2024 | Matte | China | Korea, Rep. | 2 | 1 | 0.830 |
+| China | 2024 | Matte | ROW | China | 15 | 9 | 0.571 |
+| China | 2024 | Matte | Indonesia | China | 8 | 6 | 0.702 |
+| China | 2024 | Matte | India | China | 4 | 5 | 1.442 |
+| China | 2024 | Matte | Korea, Rep. | China | 3 | 3 | 1.207 |
+| China | 2024 | Matte | China | Korea, Rep. | 2 | 1 | 0.841 |
 
 ### si_s15_tolerance_pair
 
@@ -364,115 +364,115 @@
 
 | valuation | prior_class | edge_years | weight_kt | kappa_weighted | kappa_median |
 | --- | --- | --- | --- | --- | --- |
-| CC | from a feed | 32407 | 2,139,691 | 0.931 | 0.065 |
-| CC | imputed | 56293 | 5,253,173 | 0.978 | 0.194 |
-| Mass | from a feed | 28811 | 57,672,739 | 0.973 | 0.037 |
-| Mass | imputed | 55096 | 200,605,956 | 0.968 | 0.213 |
+| CC | from a feed | 32863 | 2,143,285 | 0.932 | 0.078 |
+| CC | imputed | 55670 | 5,284,260 | 0.978 | 0.145 |
+| Mass | from a feed | 28811 | 57,672,055 | 0.973 | 0.035 |
+| Mass | imputed | 54999 | 200,621,208 | 0.968 | 0.179 |
 
 ### si_s6_contraction_by_category
 
 | valuation | category | n_edge_years | n_pinned | weight_kt | kappa_weighted | kappa_median | pinned_share | max_abs_delta | retention_base |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| CC | Anode→ER CC | 66270 | 35968 | 496,602 | 0.986 | 0.506 | 0.543 | 0.003 | 0.988 |
-| CC | CER→CP CC | 1410 | 0 | 488,589 | 0.995 | 0.995 | 0.000 | 0.003 | 0.998 |
-| CC | CFR→Anode CC | 1410 | 0 | 494,249 | 0.995 | 0.995 | 0.000 | 0.003 | 0.990 |
-| CC | CFR→Slag CC | 1410 | 0 | 7,533 | 0.455 | 0.157 | 0.000 | 0.052 | 1.104 |
-| CC | CO→Mining CC | 1410 | 4 | 643,873 | 0.991 | 0.991 | 0.003 | 0.001 | 1.003 |
-| CC | CP→Cathode CC | 1410 | 0 | 586,043 | 0.995 | 0.995 | 0.000 | 0.003 | 0.998 |
-| CC | CP→PSC CC | 1410 | 0 | 3,023 | 0.387 | 0.500 | 0.000 |  |  |
-| CC | CSXEW→CP CC | 1410 | 628 | 97,420 | 0.989 | 0.967 | 0.445 | 0.004 | 0.997 |
-| CC | Cathode→FU CC | 66270 | 22209 | 603,359 | 0.939 | 0.415 | 0.335 | 0.003 | 0.988 |
-| CC | Cathode→MESC CC | 66270 | 0 | 9,679 | 0.271 | 0.001 | 0.000 |  |  |
-| CC | Cathode→USC CC | 66270 | 0 | 3,036 | 0.231 | 0.001 | 0.000 |  |  |
-| CC | Concentrate→Smelting CC | 66270 | 42665 | 434,106 | 0.804 | 0.415 | 0.644 | 0.002 | 0.963 |
-| CC | ER→CER CC | 1410 | 0 | 488,589 | 0.995 | 0.995 | 0.000 | 0.003 | 0.998 |
-| CC | ER→Slag CC | 1410 | 0 | 1,521 | 0.283 | 0.793 | 0.000 | 0.045 | 0.962 |
-| CC | MF→Concentrate CC | 1410 | 5 | 416,360 | 0.984 | 0.983 | 0.004 | 0.003 | 1.010 |
-| CC | MF→Tailings CC | 1410 | 5 | 104,597 | 0.690 | 0.782 | 0.004 | 0.010 | 0.977 |
-| CC | Matte→CFR CC | 66270 | 32580 | 486,667 | 0.988 | 0.330 | 0.492 | 0.003 | 0.978 |
-| CC | Mining→Ore CC | 1410 | 4 | 643,873 | 0.991 | 0.991 | 0.003 | 0.001 | 1.003 |
+| CC | Anode→ER CC | 66270 | 35887 | 497,880 | 0.985 | 0.501 | 0.542 | 0.003 | 0.988 |
+| CC | CER→CP CC | 1410 | 0 | 494,582 | 0.995 | 0.995 | 0.000 | 0.003 | 0.998 |
+| CC | CFR→Anode CC | 1410 | 0 | 495,880 | 0.995 | 0.995 | 0.000 | 0.003 | 0.990 |
+| CC | CFR→Slag CC | 1410 | 0 | 7,355 | 0.447 | 0.152 | 0.000 | 0.052 | 1.104 |
+| CC | CO→Mining CC | 1410 | 0 | 643,984 | 0.991 | 0.990 | 0.000 | 0.001 | 1.003 |
+| CC | CP→Cathode CC | 1410 | 0 | 592,091 | 0.995 | 0.996 | 0.000 | 0.003 | 0.998 |
+| CC | CP→PSC CC | 1410 | 0 | 3,022 | 0.386 | 0.020 | 0.000 |  |  |
+| CC | CSXEW→CP CC | 1410 | 591 | 97,440 | 0.989 | 0.960 | 0.419 | 0.004 | 0.997 |
+| CC | Cathode→FU CC | 66270 | 28139 | 609,326 | 0.939 | 0.934 | 0.425 | 0.003 | 0.988 |
+| CC | Cathode→MESC CC | 66270 | 0 | 9,621 | 0.272 | 0.001 | 0.000 |  |  |
+| CC | Cathode→USC CC | 66270 | 0 | 2,964 | 0.236 | 0.001 | 0.000 |  |  |
+| CC | Concentrate→Smelting CC | 66270 | 45475 | 434,901 | 0.807 | 0.414 | 0.686 | 0.002 | 0.963 |
+| CC | ER→CER CC | 1410 | 0 | 494,610 | 0.995 | 0.995 | 0.000 | 0.003 | 0.998 |
+| CC | ER→Slag CC | 1410 | 0 | 1,532 | 0.264 | 0.017 | 0.000 | 0.045 | 0.962 |
+| CC | MF→Concentrate CC | 1410 | 2 | 417,644 | 0.984 | 0.979 | 0.001 | 0.003 | 1.010 |
+| CC | MF→Tailings CC | 1410 | 2 | 103,657 | 0.693 | 0.941 | 0.001 | 0.010 | 0.977 |
+| CC | Matte→CFR CC | 66270 | 31915 | 489,945 | 0.988 | 0.329 | 0.482 | 0.003 | 0.978 |
+| CC | Mining→Ore CC | 1410 | 0 | 643,984 | 0.991 | 0.990 | 0.000 | 0.001 | 1.003 |
 | CC | Mining→WR CC | 1410 | 1410 | 0 | 1.000 |  | 1.000 |  |  |
-| CC | Ore→MF CC | 1410 | 5 | 511,698 | 0.987 | 0.990 | 0.004 | 0.002 | 1.003 |
-| CC | Ore→SXEW CC | 1410 | 626 | 134,267 | 0.963 | 0.926 | 0.444 | 0.003 | 1.000 |
-| CC | SXEW→CSXEW CC | 1410 | 628 | 97,420 | 0.989 | 0.967 | 0.445 | 0.004 | 0.997 |
-| CC | SXEW→Tailings CC | 1410 | 648 | 37,949 | 0.525 | 0.581 | 0.460 | 0.004 | 1.007 |
-| CC | Scrap→CFR CC | 1410 | 564 | 22,567 | 0.927 | 0.764 | 0.400 | 0.030 | 1.026 |
-| CC | Scrap→Smelting CC | 1410 | 532 | 78,182 | 0.947 | 0.942 | 0.377 | 0.005 | 1.011 |
-| CC | Smelting→Matte CC | 1410 | 0 | 485,716 | 0.991 | 0.993 | 0.000 | 0.003 | 0.978 |
-| CC | Smelting→Slag CC | 1410 | 0 | 18,434 | 0.498 | 0.260 | 0.000 | 0.046 | 0.904 |
-| Mass | Anode→ER Mass | 66270 | 35966 | 524,961 | 0.934 | 0.496 | 0.543 | 0.002 | 0.992 |
-| Mass | CER→CP Mass | 1410 | 0 | 489,680 | 0.994 | 0.995 | 0.000 | 0.003 | 0.998 |
-| Mass | CFR→Anode Mass | 1410 | 0 | 524,100 | 0.987 | 0.987 | 0.000 | 0.002 | 0.991 |
-| Mass | CFR→Slag Mass | 1410 | 0 | 428,306 | 0.988 | 0.992 | 0.000 | 0.025 | 1.874 |
-| Mass | CO→Mining Mass | 1410 | 0 | 62,470,108 | 0.989 | 0.988 | 0.000 | 0.001 | 0.999 |
-| Mass | CP→Cathode Mass | 1410 | 0 | 587,432 | 0.994 | 0.995 | 0.000 | 0.003 | 0.997 |
-| Mass | CP→PSC Mass | 1410 | 0 | 3,029 | 0.390 | 0.497 | 0.000 |  |  |
-| Mass | CSXEW→CP Mass | 1410 | 628 | 97,693 | 0.990 | 0.974 | 0.445 | 0.005 | 0.997 |
-| Mass | Cathode→FU Mass | 66270 | 22163 | 613,810 | 0.621 | 0.589 | 0.334 | 0.003 | 0.965 |
-| Mass | Cathode→MESC Mass | 66270 | 0 | 9,729 | 0.276 | 0.002 | 0.000 |  |  |
-| Mass | Cathode→USC Mass | 66270 | 0 | 3,052 | 0.247 | 0.002 | 0.000 |  |  |
-| Mass | Concentrate→Smelting Mass | 66270 | 42561 | 1,543,283 | 0.599 | 0.589 | 0.642 | 0.005 | 0.976 |
-| Mass | ER→CER Mass | 1410 | 0 | 489,680 | 0.994 | 0.995 | 0.000 | 0.003 | 0.998 |
-| Mass | ER→Slag Mass | 1410 | 0 | 53,101 | 0.980 | 0.980 | 0.000 | 0.024 | 0.598 |
-| Mass | MF→Concentrate Mass | 1410 | 5 | 1,512,320 | 0.996 | 0.996 | 0.004 | 0.005 | 1.007 |
-| Mass | MF→Tailings Mass | 1410 | 83 | 47,997,346 | 0.975 | 0.993 | 0.059 | 0.002 | 0.998 |
-| Mass | Matte→CFR Mass | 66270 | 32537 | 917,058 | 0.990 | 0.671 | 0.491 | 0.007 | 0.998 |
-| Mass | Mining→Ore Mass | 1410 | 0 | 62,470,002 | 0.997 | 0.997 | 0.000 | 0.001 | 0.999 |
-| Mass | Mining→WR Mass | 1410 | 0 | 124,940,005 | 1.000 | 1.000 | 0.000 | 0.001 | 0.999 |
-| Mass | Ore→MF Mass | 1410 | 1 | 49,460,157 | 0.975 | 0.995 | 0.001 | 0.002 | 0.999 |
-| Mass | Ore→SXEW Mass | 1410 | 257 | 13,162,949 | 0.862 | 0.981 | 0.182 | 0.003 | 1.001 |
-| Mass | SXEW→CSXEW Mass | 1410 | 628 | 97,693 | 0.990 | 0.974 | 0.445 | 0.005 | 0.997 |
-| Mass | SXEW→Tailings Mass | 1410 | 281 | 13,069,173 | 0.860 | 0.519 | 0.199 | 0.003 | 1.001 |
-| Mass | Scrap→CFR Mass | 1410 | 562 | 31,806 | 0.507 | 0.572 | 0.399 | 0.048 | 0.992 |
-| Mass | Scrap→Smelting Mass | 1410 | 530 | 118,345 | 0.612 | 0.592 | 0.376 | 0.037 | 1.075 |
-| Mass | Smelting→Matte Mass | 1410 | 0 | 916,631 | 0.998 | 0.998 | 0.000 | 0.007 | 0.998 |
-| Mass | Smelting→Slag Mass | 1410 | 0 | 726,179 | 0.986 | 0.985 | 0.000 | 0.013 | 1.078 |
+| CC | Ore→MF CC | 1410 | 2 | 512,045 | 0.987 | 0.989 | 0.001 | 0.002 | 1.003 |
+| CC | Ore→SXEW CC | 1410 | 590 | 134,073 | 0.963 | 0.925 | 0.418 | 0.003 | 1.000 |
+| CC | SXEW→CSXEW CC | 1410 | 591 | 97,440 | 0.989 | 0.961 | 0.419 | 0.004 | 0.997 |
+| CC | SXEW→Tailings CC | 1410 | 600 | 37,709 | 0.529 | 0.731 | 0.426 | 0.004 | 1.007 |
+| CC | Scrap→CFR CC | 1410 | 345 | 22,769 | 0.924 | 0.922 | 0.245 | 0.030 | 1.026 |
+| CC | Scrap→Smelting CC | 1410 | 327 | 78,518 | 0.947 | 0.942 | 0.232 | 0.005 | 1.011 |
+| CC | Smelting→Matte CC | 1410 | 0 | 489,079 | 0.991 | 0.993 | 0.000 | 0.003 | 0.978 |
+| CC | Smelting→Slag CC | 1410 | 0 | 18,198 | 0.534 | 0.319 | 0.000 | 0.046 | 0.904 |
+| Mass | Anode→ER Mass | 66270 | 35886 | 526,124 | 0.928 | 0.500 | 0.542 | 0.002 | 0.992 |
+| Mass | CER→CP Mass | 1410 | 0 | 495,782 | 0.994 | 0.995 | 0.000 | 0.003 | 0.998 |
+| Mass | CFR→Anode Mass | 1410 | 0 | 525,768 | 0.987 | 0.988 | 0.000 | 0.002 | 0.991 |
+| Mass | CFR→Slag Mass | 1410 | 0 | 426,093 | 0.988 | 0.992 | 0.000 | 0.025 | 1.874 |
+| Mass | CO→Mining Mass | 1410 | 0 | 62,464,895 | 0.989 | 0.987 | 0.000 | 0.001 | 0.999 |
+| Mass | CP→Cathode Mass | 1410 | 0 | 593,587 | 0.994 | 0.996 | 0.000 | 0.003 | 0.997 |
+| Mass | CP→PSC Mass | 1410 | 0 | 3,029 | 0.389 | 0.020 | 0.000 |  |  |
+| Mass | CSXEW→CP Mass | 1410 | 591 | 97,719 | 0.990 | 0.972 | 0.419 | 0.005 | 0.997 |
+| Mass | Cathode→FU Mass | 66270 | 28139 | 619,963 | 0.624 | 0.951 | 0.425 | 0.003 | 0.965 |
+| Mass | Cathode→MESC Mass | 66270 | 0 | 9,670 | 0.277 | 0.001 | 0.000 |  |  |
+| Mass | Cathode→USC Mass | 66270 | 0 | 2,982 | 0.250 | 0.001 | 0.000 |  |  |
+| Mass | Concentrate→Smelting Mass | 66270 | 45399 | 1,539,268 | 0.599 | 0.590 | 0.685 | 0.005 | 0.976 |
+| Mass | ER→CER Mass | 1410 | 0 | 495,810 | 0.994 | 0.995 | 0.000 | 0.003 | 0.998 |
+| Mass | ER→Slag Mass | 1410 | 0 | 53,807 | 0.980 | 0.980 | 0.000 | 0.024 | 0.598 |
+| Mass | MF→Concentrate Mass | 1410 | 2 | 1,509,986 | 0.996 | 0.995 | 0.001 | 0.005 | 1.007 |
+| Mass | MF→Tailings Mass | 1410 | 40 | 48,002,105 | 0.975 | 0.991 | 0.028 | 0.002 | 0.998 |
+| Mass | Matte→CFR Mass | 66270 | 31835 | 920,307 | 0.990 | 0.671 | 0.480 | 0.007 | 0.998 |
+| Mass | Mining→Ore Mass | 1410 | 0 | 62,464,792 | 0.997 | 0.996 | 0.000 | 0.001 | 0.999 |
+| Mass | Mining→WR Mass | 1410 | 0 | 124,929,584 | 1.000 | 1.000 | 0.000 | 0.001 | 0.999 |
+| Mass | Ore→MF Mass | 1410 | 2 | 49,462,053 | 0.975 | 0.994 | 0.001 | 0.002 | 0.999 |
+| Mass | Ore→SXEW Mass | 1410 | 216 | 13,153,241 | 0.865 | 0.998 | 0.153 | 0.003 | 1.001 |
+| Mass | SXEW→CSXEW Mass | 1410 | 591 | 97,719 | 0.990 | 0.972 | 0.419 | 0.005 | 0.997 |
+| Mass | SXEW→Tailings Mass | 1410 | 226 | 13,059,420 | 0.862 | 0.508 | 0.160 | 0.003 | 1.001 |
+| Mass | Scrap→CFR Mass | 1410 | 341 | 32,023 | 0.509 | 0.686 | 0.242 | 0.048 | 0.992 |
+| Mass | Scrap→Smelting Mass | 1410 | 320 | 117,654 | 0.609 | 0.667 | 0.227 | 0.037 | 1.075 |
+| Mass | Smelting→Matte Mass | 1410 | 0 | 919,880 | 0.998 | 0.998 | 0.000 | 0.007 | 0.998 |
+| Mass | Smelting→Slag Mass | 1410 | 0 | 725,249 | 0.987 | 0.986 | 0.000 | 0.013 | 1.078 |
 
 ### si_s6_calibration
 
 | valuation | prior_class | n_edge_years | n_calibrated | weight_kt | share_gt3 | share_gt3_weighted | q50_abs | q90_abs | q99_abs | max_abs | share_gt3_birge | share_gt3_birge_weighted |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| CC | flat | 330 | 0 | 0 |  |  |  |  |  |  |  |  |
-| CC | from a feed | 32407 | 18842 | 2,130,899 | 0.131 | 0.053 | 0.459 | 3.679 | 15.142 | 134 | 0.041 | 0.010 |
-| CC | imputed | 56293 | 47176 | 5,250,724 | 0.075 | 0.012 | 0.161 | 2.316 | 10.434 | 62 | 0.025 | 0.003 |
-| CC | zero-pinned | 338200 | 100344 | 2,273 | 0.015 | 0.380 | 0.046 | 0.439 | 5.572 | 50 | 0.008 | 0.192 |
-| Mass | flat | 5123 | 0 | 0 |  |  |  |  |  |  |  |  |
-| Mass | from a feed | 28811 | 17300 | 57,634,178 | 0.183 | 0.005 | 0.523 | 5.883 | 37.794 | 230 | 0.088 | 0.002 |
-| Mass | imputed | 55096 | 47491 | 200,603,095 | 0.057 | 0.000 | 0.107 | 1.826 | 9.011 | 62 | 0.017 | 0.000 |
-| Mass | zero-pinned | 338200 | 100211 | 4,176 | 0.012 | 0.233 | 0.037 | 0.334 | 3.313 | 44 | 0.006 | 0.136 |
+| CC | flat | 409 | 0 | 0 |  |  |  |  |  |  |  |  |
+| CC | from a feed | 32863 | 19363 | 2,134,452 | 0.146 | 0.056 | 0.485 | 4.135 | 16.537 | 134 | 0.051 | 0.012 |
+| CC | imputed | 55670 | 46442 | 5,283,014 | 0.071 | 0.012 | 0.167 | 2.245 | 9.492 | 55 | 0.024 | 0.002 |
+| CC | zero-pinned | 338288 | 93340 | 2,472 | 0.013 | 0.397 | 0.040 | 0.438 | 3.746 | 37 | 0.002 | 0.189 |
+| Mass | flat | 5132 | 0 | 0 |  |  |  |  |  |  |  |  |
+| Mass | from a feed | 28811 | 17253 | 57,637,243 | 0.181 | 0.005 | 0.494 | 5.746 | 32.896 | 224 | 0.089 | 0.002 |
+| Mass | imputed | 54999 | 47241 | 200,618,210 | 0.051 | 0.000 | 0.099 | 1.670 | 8.812 | 55 | 0.016 | 0.000 |
+| Mass | zero-pinned | 338288 | 93283 | 3,991 | 0.007 | 0.191 | 0.029 | 0.329 | 2.532 | 21 | 0.000 | 0.069 |
 
 ### si_s6_birge_by_year
 
 | year | n_edges | zsq_edges | n_soft_rows | zsq_soft_rows | zsq_total | n_rows_kept | n_scale_totals_left_out | n_bound_active | n_bound_active_at_prior | dof | birge_ratio | z_alpha | z_alpha_birge |
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| 1995 | 28482 | 20,870 | 15394 | 44,897 | 65,766 | 16483 | 0 | 9184 | 9176 | 16491 | 3.988 | 1.960 | 3.914 |
-| 1996 | 28482 | 34,084 | 15284 | 35,171 | 69,255 | 17068 | 0 | 8593 | 8577 | 17084 | 4.054 | 1.960 | 3.946 |
-| 1997 | 28482 | 27,015 | 15338 | 27,187 | 54,202 | 17061 | 0 | 8705 | 8693 | 17073 | 3.175 | 1.960 | 3.492 |
-| 1998 | 28482 | 22,655 | 15351 | 19,985 | 42,640 | 16534 | 0 | 8958 | 8950 | 16542 | 2.578 | 1.960 | 3.147 |
-| 1999 | 28482 | 32,489 | 15344 | 14,820 | 47,309 | 16691 | 0 | 8971 | 8955 | 16707 | 2.832 | 1.960 | 3.298 |
-| 2000 | 28482 | 20,464 | 15314 | 9,465 | 29,930 | 16335 | 0 | 9072 | 9056 | 16351 | 1.830 | 1.960 | 2.652 |
-| 2001 | 28482 | 24,341 | 15351 | 21,714 | 46,055 | 15596 | 0 | 9748 | 9696 | 15648 | 2.943 | 1.960 | 3.362 |
-| 2002 | 28482 | 10,582 | 15354 | 19,170 | 29,752 | 15989 | 0 | 9544 | 9534 | 15999 | 1.860 | 1.960 | 2.673 |
-| 2003 | 28482 | 13,087 | 15332 | 21,238 | 34,325 | 16922 | 0 | 8941 | 8939 | 16924 | 2.028 | 1.960 | 2.791 |
-| 2004 | 28482 | 36,329 | 15355 | 21,515 | 57,845 | 16059 | 0 | 9412 | 9402 | 16069 | 3.600 | 1.960 | 3.719 |
-| 2005 | 28482 | 45,829 | 15345 | 14,471 | 60,301 | 16354 | 0 | 9191 | 9183 | 16362 | 3.685 | 1.960 | 3.763 |
-| 2006 | 28482 | 63,004 | 15358 | 22,412 | 85,416 | 16429 | 0 | 9215 | 9197 | 16447 | 5.193 | 1.960 | 4.467 |
-| 2007 | 28482 | 56,613 | 15360 | 15,297 | 71,910 | 16224 | 0 | 9257 | 9229 | 16252 | 4.425 | 1.960 | 4.123 |
-| 2008 | 28482 | 45,860 | 15355 | 27,832 | 73,693 | 16024 | 0 | 9587 | 9571 | 16040 | 4.594 | 1.960 | 4.201 |
-| 2009 | 28482 | 35,618 | 15378 | 19,537 | 55,155 | 15688 | 0 | 9836 | 9818 | 15706 | 3.512 | 1.960 | 3.673 |
-| 2010 | 28482 | 66,066 | 15364 | 14,054 | 80,120 | 16415 | 0 | 9059 | 9047 | 16427 | 4.877 | 1.960 | 4.329 |
-| 2011 | 28482 | 63,777 | 15367 | 31,550 | 95,327 | 16642 | 0 | 9028 | 9014 | 16656 | 5.723 | 1.960 | 4.689 |
-| 2012 | 28482 | 68,569 | 15347 | 28,802 | 97,372 | 16638 | 0 | 9088 | 9076 | 16650 | 5.848 | 1.960 | 4.740 |
-| 2013 | 28482 | 72,479 | 15371 | 21,908 | 94,387 | 16833 | 0 | 8943 | 8917 | 16859 | 5.599 | 1.960 | 4.638 |
-| 2014 | 28482 | 79,780 | 15371 | 18,901 | 98,681 | 16844 | 0 | 9007 | 8989 | 16862 | 5.852 | 1.960 | 4.741 |
-| 2015 | 28482 | 86,752 | 15397 | 20,780 | 107,532 | 16054 | 0 | 9495 | 9467 | 16082 | 6.686 | 1.960 | 5.068 |
-| 2016 | 28482 | 109,475 | 15377 | 36,666 | 146,142 | 17318 | 0 | 8491 | 8451 | 17358 | 8.419 | 1.960 | 5.687 |
-| 2017 | 28482 | 175,084 | 15380 | 18,881 | 193,966 | 16338 | 0 | 9100 | 9042 | 16396 | 11.830 | 1.960 | 6.741 |
-| 2018 | 28482 | 108,335 | 15384 | 19,229 | 127,564 | 16443 | 0 | 8972 | 8950 | 16465 | 7.748 | 1.960 | 5.455 |
-| 2019 | 28482 | 78,806 | 15383 | 32,516 | 111,322 | 16148 | 0 | 9210 | 9180 | 16178 | 6.881 | 1.960 | 5.141 |
-| 2020 | 28482 | 106,323 | 15371 | 34,118 | 140,440 | 16383 | 0 | 9307 | 9281 | 16409 | 8.559 | 1.960 | 5.734 |
-| 2021 | 28482 | 90,426 | 15352 | 38,177 | 128,603 | 16592 | 0 | 8941 | 8911 | 16622 | 7.737 | 1.960 | 5.452 |
-| 2022 | 28482 | 83,786 | 15371 | 30,958 | 114,744 | 16214 | 0 | 9257 | 9217 | 16254 | 7.059 | 1.960 | 5.208 |
-| 2023 | 28482 | 72,016 | 15383 | 32,876 | 104,892 | 16704 | 0 | 9158 | 9124 | 16738 | 6.267 | 1.960 | 4.906 |
-| 2024 | 28482 | 57,022 | 15355 | 35,484 | 92,506 | 16155 | 0 | 9413 | 9393 | 16175 | 5.719 | 1.960 | 4.687 |
-| all | 854460 | 1,807,538 | 460786 | 749,612 | 2,557,150 | 493178 | 0 | 274683 | 274035 | 493826 | 5.178 | 1.960 | 4.460 |
+| 1995 | 28482 | 15,363 | 15376 | 47,830 | 63,193 | 16997 | 0 | 8976 | 8968 | 17005 | 3.716 | 1.960 | 3.778 |
+| 1996 | 28482 | 28,180 | 15300 | 38,124 | 66,304 | 17157 | 0 | 8808 | 8792 | 17173 | 3.861 | 1.960 | 3.851 |
+| 1997 | 28482 | 22,330 | 15340 | 30,209 | 52,539 | 17002 | 0 | 9027 | 9019 | 17010 | 3.089 | 1.960 | 3.445 |
+| 1998 | 28482 | 18,212 | 15381 | 20,833 | 39,045 | 17128 | 0 | 8833 | 8829 | 17132 | 2.279 | 1.960 | 2.959 |
+| 1999 | 28482 | 27,928 | 15392 | 15,098 | 43,027 | 16844 | 0 | 9012 | 9008 | 16848 | 2.554 | 1.960 | 3.132 |
+| 2000 | 28482 | 15,241 | 15402 | 18,177 | 33,418 | 17019 | 0 | 8921 | 8907 | 17033 | 1.962 | 1.960 | 2.745 |
+| 2001 | 28482 | 21,999 | 15397 | 27,146 | 49,144 | 14997 | 0 | 10466 | 10446 | 15017 | 3.273 | 1.960 | 3.546 |
+| 2002 | 28482 | 13,196 | 15388 | 24,118 | 37,314 | 15496 | 0 | 10038 | 10026 | 15508 | 2.406 | 1.960 | 3.040 |
+| 2003 | 28482 | 15,616 | 15340 | 32,766 | 48,382 | 15857 | 0 | 9785 | 9777 | 15865 | 3.050 | 1.960 | 3.423 |
+| 2004 | 28482 | 37,994 | 15353 | 26,984 | 64,979 | 16023 | 0 | 9660 | 9636 | 16047 | 4.049 | 1.960 | 3.944 |
+| 2005 | 28482 | 49,942 | 15323 | 20,516 | 70,459 | 15054 | 0 | 10370 | 10366 | 15058 | 4.679 | 1.960 | 4.240 |
+| 2006 | 28482 | 64,104 | 15364 | 35,682 | 99,786 | 15778 | 0 | 9706 | 9696 | 15788 | 6.320 | 1.960 | 4.927 |
+| 2007 | 28482 | 55,417 | 15376 | 23,806 | 79,224 | 15674 | 0 | 9804 | 9796 | 15682 | 5.052 | 1.960 | 4.405 |
+| 2008 | 28482 | 44,900 | 15353 | 37,602 | 82,502 | 16051 | 0 | 9893 | 9877 | 16067 | 5.135 | 1.960 | 4.441 |
+| 2009 | 28482 | 35,726 | 15366 | 20,646 | 56,372 | 15154 | 0 | 10278 | 10274 | 15158 | 3.719 | 1.960 | 3.780 |
+| 2010 | 28482 | 71,284 | 15356 | 32,062 | 103,346 | 15643 | 0 | 9986 | 9968 | 15661 | 6.599 | 1.960 | 5.035 |
+| 2011 | 28482 | 61,367 | 15361 | 37,930 | 99,297 | 16865 | 0 | 9078 | 9072 | 16871 | 5.886 | 1.960 | 4.755 |
+| 2012 | 28482 | 70,891 | 15371 | 32,561 | 103,452 | 16457 | 0 | 9306 | 9296 | 16467 | 6.282 | 1.960 | 4.913 |
+| 2013 | 28482 | 71,552 | 15401 | 35,535 | 107,087 | 16490 | 0 | 9336 | 9326 | 16500 | 6.490 | 1.960 | 4.993 |
+| 2014 | 28482 | 80,659 | 15367 | 24,769 | 105,428 | 16496 | 0 | 9432 | 9430 | 16498 | 6.390 | 1.960 | 4.955 |
+| 2015 | 28482 | 86,512 | 15409 | 29,574 | 116,086 | 15129 | 0 | 10409 | 10389 | 15149 | 7.663 | 1.960 | 5.426 |
+| 2016 | 28482 | 63,482 | 15433 | 38,960 | 102,441 | 17180 | 0 | 8774 | 8756 | 17198 | 5.957 | 1.960 | 4.784 |
+| 2017 | 28482 | 94,438 | 15394 | 35,814 | 130,252 | 16359 | 0 | 9262 | 9240 | 16381 | 7.951 | 1.960 | 5.527 |
+| 2018 | 28482 | 51,646 | 15384 | 27,116 | 78,763 | 15504 | 0 | 9850 | 9832 | 15522 | 5.074 | 1.960 | 4.415 |
+| 2019 | 28482 | 50,827 | 15393 | 47,723 | 98,550 | 15312 | 0 | 10154 | 10110 | 15356 | 6.418 | 1.960 | 4.965 |
+| 2020 | 28482 | 53,741 | 15369 | 37,041 | 90,782 | 16374 | 0 | 9434 | 9426 | 16382 | 5.542 | 1.960 | 4.614 |
+| 2021 | 28482 | 40,951 | 15394 | 38,787 | 79,739 | 15469 | 0 | 9983 | 9965 | 15487 | 5.149 | 1.960 | 4.447 |
+| 2022 | 28482 | 39,831 | 15369 | 41,090 | 80,921 | 15347 | 0 | 10204 | 10186 | 15365 | 5.267 | 1.960 | 4.498 |
+| 2023 | 28482 | 30,594 | 15371 | 39,998 | 70,591 | 15347 | 0 | 10114 | 10092 | 15369 | 4.593 | 1.960 | 4.200 |
+| 2024 | 28482 | 24,587 | 15347 | 46,006 | 70,594 | 14765 | 0 | 10565 | 10537 | 14793 | 4.772 | 1.960 | 4.282 |
+| all | 854460 | 1,358,511 | 461170 | 964,504 | 2,323,015 | 480968 | 0 | 289464 | 289042 | 481390 | 4.826 | 1.960 | 4.306 |

@@ -53,20 +53,20 @@ used in 5.2 and 5.3.
 
 **RQ1: the account is consistent, and its adjustment is small and falls on trade.**
 
-- The reconciliation closes every hard balance to the solver's numerical floor ($1.1\times10^{-6}$ kt, narrowly above the expected $10^{-6}$ kt; A1) and moves the sources little: all nine stages retain 0.963–1.026 of their prior over 1995–2024, and the adjustment does not grow upstream, contrary to the expectation (A4 not met; §4.1).
+- The reconciliation closes every hard balance to the solver's numerical floor ($1.1\times10^{-6}$ kt, narrowly above the expected $10^{-6}$ kt; A1) and moves the sources little: all nine stages retain 0.972–1.037 of their prior over 1995–2024, and the adjustment does not grow upstream, contrary to the expectation (A4 not met; §4.1).
 - It adjusts the trade legs, not production: 95% of the edge objective lies on cross-region legs, 79% on legs into the 13 non-processing regions, as expected (A3).
 - Single flows are compatible with their stated $\sigma$; scale totals are not: between one in eight and one in four lie beyond $3\sigma$ in any year, but fewer than the expected one in five in the 21 years before 2019 (A2 not met).
 
 **RQ2: the account is certain where the sources agree, and depends on its termination far more than on its judgement values.**
 
-- The constraints contract the stated uncertainty most from ore to cathode and least on the slag legs; the stated $\sigma$ are too small on aggregate (Birge ratio 5.18) and the misfit is concentrated in a heavy tail (§4.2; exploratory).
+- The constraints contract the stated uncertainty most from ore to cathode and least on the slag legs; the stated $\sigma$ are too small on aggregate (Birge ratio 4.83) and the misfit is concentrated in a heavy tail (§4.2; exploratory).
 - The termination rule alone moves one stage by 0.223, the whole knob sweep moves one stage by at most 0.030; neither stays within the expected 0.02 (A5, A6). → N4
 
 **RQ3: the account shows heterogeneity and indirect trade that no single source shows.**
 
-- The world secondary share is a mean over regions that range from 0 to 0.370 (B1, met).
-- Concentration rises downstream, and the reconciliation leaves it unchanged within 0.003 at the point estimates (the final-use interval reaches −0.012); refining's 0.230 stays below the expected 0.25 (B2, not met).
-- China's final use embodies 1.49 times the Chilean and Peruvian copper it imports directly as concentrate; 1,339 kt CC of it reaches China by no direct import from the two countries (B3, met).
+- The world secondary share is a mean over regions that range from 0 to 0.374 (B1, met).
+- Concentration rises downstream, and the reconciliation leaves it unchanged within 0.004 at the point estimates (the final-use interval reaches −0.011); refining's 0.223 stays below the expected 0.25 (B2, not met).
+- China's final use embodies 1.49 times the Chilean and Peruvian copper it imports directly as concentrate; 1,327 kt CC of it reaches China by no direct import from the two countries (B3, met).
 
 **Across the ledger.** Three of the nine expected answers are met. The six that are not are answers as well: four of them say the account is closer to its sources (A2, A4) or less concentrated (B2) than expected, or misses its bound at the numerical floor (A1); two say the answer depends on termination and, at its margin, on a judgement value (A5, A6). Section [5.2](#sec-disc-why) explains each.
 
@@ -77,9 +77,9 @@ used in 5.2 and 5.3.
 **The sources disagree on totals, not on single flows** (A2).
 
 - An edge carries the wide $\sigma$ of a single observation, a scale total the narrow $\sigma$ of a yearbook figure; where ICSG, BACI and the ore allocation cannot all hold, the contradiction surfaces on the total that two of them share.
-- The four regions that carry a third of the scale-total objective (33.8%) are each a documented contradiction between ICSG and BACI (Section [5.5.2](#sec-disc-limits-copper)). The heavy tail of the standardised shifts points the same way: 4.1% of the feed-observed edges remain beyond three Birge-scaled units (§4.2). <!-- check: no number yet ties the 4.1% tail to the four #111 regions (committee Q3, 2026-11-10); the share of tail edges in those regions would -->
+- Five regions carry two fifths of the scale-total objective (41.4%): Italy's share is the cost of holding a mine ICSG does not report at zero (issue #201), and the other four are documented contradictions between ICSG and BACI (Section [5.5.2](#sec-disc-limits-copper)). The heavy tail of the standardised shifts points the same way: 5.1% of the feed-observed edges remain beyond three Birge-scaled units (§4.2). <!-- check: no number yet ties the 4.1% tail to the four #111 regions (committee Q3, 2026-11-10); the share of tail edges in those regions would -->
 
-- A2 is not met by its direction: fewer totals lie beyond $3\sigma$ than expected (0.121–0.197 in 21 years against $> 0.20$). <!-- check: whether the input corrections after the threshold was set (#65, #84/#85, #110, #111) lowered the pre-2019 share; needs the per-year A2 share of the chain the expectation was written on (opt_20260930_092111_e3e0677d) beside the reference run's — a measurement not yet in the paper -->
+- A2 is not met by its direction: fewer totals lie beyond $3\sigma$ than expected (0.129–0.198 in 16 years against $> 0.20$). <!-- check: whether the input corrections after the threshold was set (#65, #84/#85, #110, #111) lowered the pre-2019 share; needs the per-year A2 share of the chain the expectation was written on (opt_20260930_092111_e3e0677d) beside the reference run's — a measurement not yet in the paper -->
 
 **Trade pays for a disagreement, and it pays into regions that cannot place it** (A3).
 
@@ -90,7 +90,7 @@ used in 5.2 and 5.3.
 
 - A4 was written when crude-ore mass retained 0.864. That deletion was a termination artefact: solved for the defects at a gap of $10^{-8}$, the same QPs retain 0.998 (issue #33; §4.1).
 - The large mine-chain deletions of earlier chains traced to source defects that were fixed at the input — phantom mine output (11,558 kt CC), concentrate exports booked in kilograms as tonnes, and scrap counted twice (N5; §3.2.3–3.2.4). → N5
-- What remains is small and partly forced: 8,068 kt CC of mine output is deleted over 30 years, 40.5% of it by export mass that no grade can carry (§3.3).
+- What remains is small and partly forced: 6,543 kt CC of mine output is deleted over 30 years, 35.1% of it by export mass that no grade can carry (§3.3).
 
 **Termination moves the loosely weighted flows** (A5).
 
@@ -105,18 +105,18 @@ used in 5.2 and 5.3.
 
 **The stated $\sigma$ are too small on average and too wide at the core** (§4.2).
 
-- A Birge ratio of 5.18 says the residuals are $\sqrt{R} = 2.28$ times larger than the stated $\sigma$ predict.
+- A Birge ratio of 4.83 says the residuals are $\sqrt{R} = 2.20$ times larger than the stated $\sigma$ predict.
 - The narrower core (median 0.16 for imputed edges against 0.67 under $N(0,1)$) and the heavier tail say the misfit is not spread evenly: most edges are over-covered, a few contradictions carry the excess. A uniform Birge scale widens both. <!-- check: "over-covered" is an inference from the narrow core; it may also reflect pinned or flat edges excluded from the QQ only in part -->
 
 **What the reconciliation leaves alone** (B1, B2).
 
 - The world secondary share stays within 0.007 of the ICSG-implied value because ICSG is an input; B1 tests fidelity, not validation (§4.3).
-- Concentration indices move by at most 0.003 because the reconciliation adjusts trade legs and keeps each step's production at its prior scale (A3, A4); the producer shares that set the HHI are the yearbook's.
+- Concentration indices move by at most 0.004 because the reconciliation adjusts trade legs and keeps each step's production at its prior scale (A3, A4); the producer shares that set the HHI are the yearbook's.
 
 **Why embodied exceeds direct** (B3).
 
 - Chilean and Peruvian copper also reaches China as matte, anode and cathode and through processing in third countries; the Leontief inverse of the market-share PIOT follows it through every process and region, a bilateral trade table follows one border crossing.
-- The 1,339 kt CC that no direct import matches is the part the market-share construct allocates through third regions; it depends on that construct (Section [5.5](#sec-disc-limits)).
+- The 1,327 kt CC that no direct import matches is the part the market-share construct allocates through third regions; it depends on that construct (Section [5.5](#sec-disc-limits)).
 
 <a id="sec-disc-literature"></a>
 
@@ -126,23 +126,23 @@ used in 5.2 and 5.3.
 
 **Method.**
 
-- *Compare:* constrained balancing at the scale of a multi-regional account — what pySUTO adds and what it lacks against AISHA and the PIOLab (`geschke2011aisha`, `geschke2019parallel`, `lenzen2009matrix`, `wieland2022piolab`): per-source $\sigma$ carried from pedigree to posterior (N1), inequality bands in the reconciliation (N2), two valuations in one account (N3). Our numbers: 854,460 edges, 1,687,230 rows, 535 s wall-clock (§3.1.6).
-- *Compare:* data reconciliation with error propagation in MFA (`cencic2008stan`, `laner2016`): our posterior is the equality-constrained GLS posterior of `byron1978` / `vanderploeg1982` linearised at the active set (ADR 0044); our calibration result ($R = 5.18$, heavy tail) against what MFA studies report about stated versus realised uncertainty.
+- *Compare:* constrained balancing at the scale of a multi-regional account — what pySUTO adds and what it lacks against AISHA and the PIOLab (`geschke2011aisha`, `geschke2019parallel`, `lenzen2009matrix`, `wieland2022piolab`): per-source $\sigma$ carried from pedigree to posterior (N1), inequality bands in the reconciliation (N2), two valuations in one account (N3). Our numbers: 854,460 edges, 1,687,614 rows, 535 s wall-clock (§3.1.6).
+- *Compare:* data reconciliation with error propagation in MFA (`cencic2008stan`, `laner2016`): our posterior is the equality-constrained GLS posterior of `byron1978` / `vanderploeg1982` linearised at the active set (ADR 0044); our calibration result ($R = 4.83$, heavy tail) against what MFA studies report about stated versus realised uncertainty.
 - *Compare:* whether published balancing studies report their solver's termination criterion, and whether any tests it (A5: 0.223; N4). verify: candidate sources.
 
 **Insight 1: secondary share** (B1).
 
-- *Compare:* world 0.172 (input side, 2020–2024) and the regional range 0–0.370 against the ICSG secondary-refined share (`icsg2023yearbook`, `icsg2025yearbook`; 0.158–0.176 on the output basis, SI Table S18) and against dynamic copper-cycle estimates. verify: Glöser, Soulier and Espinoza 2013; Soulier et al. 2018 (China's copper cycle).
+- *Compare:* world 0.171 (input side, 2020–2024) and the regional range 0–0.374 against the ICSG secondary-refined share (`icsg2023yearbook`, `icsg2025yearbook`; 0.158–0.176 on the output basis, SI Table S18) and against dynamic copper-cycle estimates. verify: Glöser, Soulier and Espinoza 2013; Soulier et al. 2018 (China's copper cycle).
 - State the basis difference before the numbers: input-side share of refinery intake versus end-of-life recycling rate versus recycled-content share.
 
 **Insight 2: concentration** (B2).
 
-- *Compare:* mining 0.111 and refining 0.230 (2024) against producer shares in USGS Mineral Commodity Summaries and against concentration measures of copper trade-network studies. verify: USGS MCS; Dong et al. 2020.
-- *Compare:* refining's 0.230 against the 2023 U.S. Merger Guidelines' threshold of 0.18 for "highly concentrated" (`dojftc2023mg`; verify: the threshold), under which refining is highly concentrated; the pre-registered threshold stays 0.25.
+- *Compare:* mining 0.111 and refining 0.223 (2024) against producer shares in USGS Mineral Commodity Summaries and against concentration measures of copper trade-network studies. verify: USGS MCS; Dong et al. 2020.
+- *Compare:* refining's 0.223 against the 2023 U.S. Merger Guidelines' threshold of 0.18 for "highly concentrated" (`dojftc2023mg`; verify: the threshold), under which refining is highly concentrated; the pre-registered threshold stays 0.25.
 
 **Insight 3: embodied and direct trade** (B3).
 
-- *Compare:* China's footprint of 16,727 kt CC (56% of world extraction, 2024) and the ratio 1.49 against embodied-flow and footprint estimates for China. verify: `wieland2022piolab`; a copper RMC or footprint study for China.
+- *Compare:* China's footprint of 16,431 kt CC (55% of world extraction, 2024) and the ratio 1.49 against embodied-flow and footprint estimates for China. verify: `wieland2022piolab`; a copper RMC or footprint study for China.
 - State the construct difference before the numbers: market-share PIOT in physical units versus a monetary MRIO footprint.
 
 <a id="sec-disc-implications"></a>
@@ -153,12 +153,12 @@ used in 5.2 and 5.3.
 
 - **Report and test the termination.** An interior-point solve stopped at a gap of $10^{-3}$ read Chile's concentrate export retention as 0.66 instead of 0.97 (N4). Any reconciliation that reports a balanced table without its gap, and without a tighter re-solve, carries an error of unknown size in exactly the flows it weights least. → N4
 - **A residual is a finding about a source.** The defects found in copper were in the inputs, and the fix belongs there, not in a looser $\sigma$ (N5; Table 2). For the data providers this is a list of specific, located errors (§3.2.3–3.2.4; Section [5.5](#sec-disc-limits)). → N5
-- **The posterior $\sigma$ is a sensitivity, not an interval.** With $R = 5.18$, unscaled Stage-5 intervals would be too narrow by a factor of 2.28 on average; Birge-scaled ones still understate the tail where sources contradict (§3.1.7). Users of the account should read the intervals as lower bounds there.
+- **The posterior $\sigma$ is a sensitivity, not an interval.** With $R = 4.83$, unscaled Stage-5 intervals would be too narrow by a factor of 2.20 on average; Birge-scaled ones still understate the tail where sources contradict (§3.1.7). Users of the account should read the intervals as lower bounds there.
 - **Robustness to judgement values is cheap to show and should be shown.** A 64-point sweep over 15 knobs bounds the judgement's effect on the nine stages' retention at 0.030; single exporters and the slag legs move more (up to 0.033 and 0.052; §4.2). That bound is a stronger statement than one reference run. → N6
 
 **For copper.**
 
-- **A world secondary share hides the regions.** At 0.172 it averages EU-14 at 0.370 and the United States at 0.045, a value the missing direct melt partly explains (B1; §4.3, Section [5.5.1](#sec-disc-limits)); a recycling indicator for a region has to come from that region's account.
+- **A world secondary share hides the regions.** At 0.171 it averages EU-14 at 0.374 and the United States at 0.046, a value the missing direct melt partly explains (B1; §4.3, Section [5.5.1](#sec-disc-limits)); a recycling indicator for a region has to come from that region's account.
 - **The trade legs are the least certain part of the account.** They absorb the sources' disagreements (A3; Section [5.5](#sec-disc-limits)); bilateral flows from the account should be quoted with their intervals, production totals can be quoted near their yearbook values.
 - **Attribution through processing changes who consumes the mined copper.** Chile's and Peru's extraction attributed to China's final use exceeds China's direct concentrate imports from them by half (B3); consumption-based accounts of mine-site impacts depend on this step.
 
@@ -199,21 +199,24 @@ Section 5.5.1 bounds the method's conclusions; Section 5.5.2 lists the limitatio
 
 <!-- Moved from method.md §3.2.8 on 2026-11-12, unchanged except its last line ("Uncertainty scope. Stage 6 carries point estimates only."), which 5.5.1 now states. -->
 
-**Concentrate without reported mines** (issues #31, #96; ADR 0024).
+**Mine output where ICSG reports none** (issues #31, #183, #200, #201; ADR 0024).
 
-- Concentrate is produced in 21 regions where ICSG reports no mine output — led by Belgium, the United Arab Emirates, Malaysia, Italy, the Netherlands and Taiwan: 1,600 kt CC over the period, 60% of it exported.
-- These chains supply ICSG usage that recorded production and imports cannot meet; holding them at an observed zero raised the common-set scale-total objective by 37.8%, so the no-data anchor prices them instead.
+- A region-year that ICSG covers and lists no mine for is held at zero mine output, as an observed zero at ICSG's reporting resolution (456 region-years in 20 regions), except where the crude-ore series or an ore grade reports a mine.
+- 335 kt CC of concentrate is still produced over the period where ICSG reports no mine output, 99.5% of it exported: Malaysia's 112 kt CC, most of it in 1995–1999, when the crude-ore series reports its mine, then the United Arab Emirates, Switzerland, Luxembourg (which ICSG never lists), Singapore and Taiwan, each 19–39 kt CC.
+- The zero costs fit: it raised the common-set scale-total objective by 23.3% against the chain before it, three fifths of the rise in Italy, whose smelter and fire refinery the prior had fed from an imputed domestic mine; the rest lies on the hubs' concentrate and matte exports, which recorded production cannot supply.
 
 **Who pays for a disagreement.**
 
 - Where two ICSG anchors disagree, the solver pays with trade and ore, because a trade leg's CV (0.069 at the median leg) exceeds an anchor's (0.017).
 
-**Four source contradictions carry a third of the objective** (33.8% of the scale-total objective; issue #111).
+**Five regions carry two fifths of the objective** (41.4% of the scale-total objective; issues #111, #201).
 
-- South Africa (9.6%): ICSG reports no smelter or refinery output from 2020, while BACI books 47–135 kt CC a year of anode exports, which the solver deletes (2021: 137.2 kt CC of anode use placed at 4.5).
-- D.R. Congo (8.8%): BACI books 6–91 kt CC a year of anode and blister exports over 2005–2019, when ICSG reports at most 1.5 kt CC of smelter output (2012: 96.1 kt CC of anode use placed at 2.0).
-- Zambia (7.9%): BACI cathode exports, booked largely to Swiss trading destinations, exceed refined output by up to 863 kt CC (2014: 1,363 against 499 kt CC).
-- Uzbekistan (7.4%): BACI's mirror data miss most of its refinery output in 1995–1998, the years of 80% of its share.
+- Italy (16.2%): its matte and anode use totals lose the supply of the imputed mine that #201 holds at zero (2012: 8.7 kt CC of anode use placed at 2.1).
+
+- South Africa (7.5%): ICSG reports no smelter or refinery output from 2020, while BACI books 47–135 kt CC a year of anode exports, which the solver deletes (2021: 137.2 kt CC of anode use placed at 4.5).
+- D.R. Congo (6.8%): BACI books 6–91 kt CC a year of anode and blister exports over 2005–2019, when ICSG reports at most 1.5 kt CC of smelter output (2012: 96.1 kt CC of anode use placed at 2.0).
+- Zambia (5.2%): BACI cathode exports, booked largely to Swiss trading destinations, exceed refined output by up to 863 kt CC (2014: 1,363 against 499 kt CC).
+- Uzbekistan (5.7%): BACI's mirror data miss most of its refinery output in 1995–1998, the years of 80% of its share.
 
 **Usage the netting leaves undistributed** (ADR 0027).
 
@@ -222,8 +225,8 @@ Section 5.5.1 bounds the method's conclusions; Section 5.5.2 lists the limitatio
 
 **Stocks.**
 
-- Kazakhstan's refined exports exceed the refinery output of ICSG's 2025 yearbook and are booked as stock draws beyond $5\sigma$, $-348.2$ kt CC over 1995–2024 (issue #95).
-- Producer stock changes follow ICSG where it reports them; the world posterior departs from ICSG's by 101.7 kt CC summed over 1996–2024, in territories ICSG does not report (issue #98).
+- Kazakhstan's refined exports exceed the refinery output of ICSG's 2025 yearbook and are booked as stock draws beyond $5\sigma$, $-348.3$ kt CC over 1995–2024 (issue #95).
+- Producer stock changes follow ICSG where it reports them; the world posterior departs from ICSG's by 101.5 kt CC summed over 1996–2024, in territories ICSG does not report (issue #98).
 - A cathode pool without a recovery efficiency holds its producer stock change at zero (issue #36).
 
 **Input vintage.** Austria's 2006–2012 smelter values are a superseded yearbook vintage (issue #63).
@@ -231,7 +234,7 @@ Section 5.5.1 bounds the method's conclusions; Section 5.5.2 lists the limitatio
 **Numerical floor** (issues #99, #81).
 
 - At a gap of $10^{-8}$, hard rows still close only to $1.1\times10^{-6}$ kt.
-- 1,658–2,858 zero-prior cross-region cathode legs a year end within $10^{-4}$ kt of their lower bound, where Stage 5's slack threshold sorts them by rounding; pinning or freeing all of them moves no interval bound of Table 3 by more than 0.004.
+- 2,168–3,186 zero-prior cross-region cathode legs a year end within $10^{-4}$ kt of their lower bound, where Stage 5's slack threshold sorts them by rounding; pinning or freeing all of them moves no interval bound of Table 3 by more than 0.001.
 
 <a id="sec-disc-outlook"></a>
 
