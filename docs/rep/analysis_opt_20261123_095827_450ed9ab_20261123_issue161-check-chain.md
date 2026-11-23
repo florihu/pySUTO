@@ -6,6 +6,7 @@
   - Stage 2: `collect_aggregate_impute.py` on the three new feeds.
   - Stages 3–6: `constraints.py`, `run_solver.py`, `uncertainty_propagation.py`, `psut.py`.
   - Run ids: `feed_baci_20261123_094401_2962067d`, `feed_icsg_20261123_094513_e6f2b299`, `feed_crude_ore_20261123_094544_ab880f44` → `imp_20261123_094827_92b6d103` → `const_20261123_095218_fb9afcb8` → `opt_20261123_095827_450ed9ab` (30/30 solved, cold) → `uncprop_20261123_102533_7e0cc120`, `psut_20261123_102653_b4d5796d`.
+- **Why not one chained command:** #161 names `python -m pysuto run --case copper --from feed --to psut`. That chain runs every stage in one parent, so `/usr/bin/time -v` gives no per-stage wall time or peak memory. Each driver here calls the same stage body (`pysuto.stages.run_*`) as the chained command's step child. The reference's Stage 5–6 times in §3 come from that chained path (#201's `--from uncprop --to psut`).
 - **One Stage-4 worker:** `run_solver.py --const-run-id const_20261123_095218_fb9afcb8 --set N_WORKERS=1` → `opt_20261123_103738_8d684a55`.
 - **Toy:** `python -m pysuto run --case toy` twice into one scratch data directory. Leaves `psut_20261123_103948_ff30b681` + `uncprop_20261123_103943_7baaa18b` (a) and `psut_20261123_104011_e28990c6` + `uncprop_20261123_104006_7b36d7d8` (b).
 
@@ -45,7 +46,7 @@
   - **acc version:** the reference's BACI and crude-ore feeds were built in October and June on acc copper v4 and v3. The rebuild records v5, the version the reference imp already reads.
   - **`trade_shares`:** the reference's ICSG feed names v41, the rebuild v42. v42's `params.csv` is byte-identical to v41's; only its `parents.json` differs, because it names the new BACI feed run (finding S3-3).
 - **imp:** `agg_result.npz::F`, `Sigma`, `Omega` and `feed_ids` differ at 123,348 of 2,563,380 entries.
-  - The cause is order: the reference imp was built with `--feed-id icsg baci crude_ore`, the check chain with `baci crude_ore icsg`.
+  - The cause is order: the reference imp was built with `--feed-id icsg baci crude_ore`, the check chain with `baci crude_ore icsg`. The order is this run's choice, not a defect of the code; a rerun in the reference's order was not made, because the alignment check below shows the same thing.
   - Reordered by `feed_ids`, all four arrays are equal, and the other 20 imp arrays (`f_agg`, `sigma_agg`, the imputation log, …) are identical (finding S3-2).
   - Every downstream array is identical: Stage 2 is order-invariant in what it passes on.
 - **Workers:** `solve_wall_s` 94.0 s (8 threads) and 639.7 s (1 thread). Σ per-period solve times are 586.4 s and 574.2 s. The 1-thread run reruns the feasibility probe serially (63.7 s).
@@ -53,13 +54,15 @@
 ## 2. RNG and environment
 
 **RNG:**
-- Every random-number use in `src/` and the in-scope `scripts/` is one CLAUDE.md allows:
+- Scope: the library (`src/`) and the scripts #155's units hold. `scripts/report` and `scripts/explo` are outside it (#155, *Code in scope*).
+- Every random-number use in that scope is one CLAUDE.md allows:
   - the seeded scrambled Latin hypercube of a random sweep (`pipeline.Sweep`);
   - Stage 5's draws, which take the caller's `np.random.Generator` (`uncprop.py`, raising without one);
   - the toy's `default_rng([seed, k])` for the ground truth, the synthetic feeds and `toy_ext.fourth_feed`;
   - uuid4 run ids.
 - One more uuid4 use, not in CLAUDE.md's list: the 8-hex `code` of every input version (`input_registry.py:114`, `migrate_registries.py:82`). It is an identifier, not a number (finding S3-4).
 - Determinism across Python's hash seed is covered by the check chain: every stage ran in a fresh process.
+- **Outside the scope, and outside CLAUDE.md's `src/` rule:** two report scripts seed their own generators, `scripts/report/table3_intervals.py:379` (`default_rng(SEED)`, the B3 draws) and `scripts/report/make_logo.py`. Neither feeds a pipeline run. The tutorial notebooks call the toy's seeded functions.
 
 **Environment:**
 - A sidecar records the case (`case_source`, `case_sha256`), the input versions and the knobs.
@@ -71,7 +74,7 @@
 
 ## 3. Footprint per stage (G9)
 
-| Stage | Wall, check chain | Wall, reference | Peak RSS | CPU | Disk per run | Time in the sidecar | Top hotspots (from the run logs) |
+| Stage | Wall, check chain | Wall, reference | Peak RSS | CPU | Disk per run | Time in the sidecar (reference → check chain) | Top hotspots (share of the stage's wall, from the run logs) |
 |---|---|---|---|---|---|---|---|
 | 1 feeds | 2:45 | — | 16.8 GB | 99 % | 109 MB (BACI 46, ICSG 42, crude ore 21) | none | acc load 27 s × 3 (49 %); the two build scripts 32 s; BACI's user weights 16 s |
 | 2 imp | 3:02 | 3:01 | 12.1 GB | 99 % | 81 MB | none | engine construction after the last params read, 79 s (44 %); acc load 27 s |
@@ -80,7 +83,7 @@
 | 4 opt, 1 worker | 12:01 | — | 13.6 GB | 106 % | 74 MB | `solve_wall_s` 639.7 s | feasibility probe 64 s; 30 periods serial |
 | 5 uncprop | 26:36 | 27:12 | 14.7 GB | 728 % | 29 MB | none | the period loop: 30 periods of 45–60 s each, serial, each threaded (≈ 7 cores); run load 61 s |
 | 6 psut | 0:33 | 0:33 | 10.8 GB | 99 % | 11 MB | none | opt → const → acc load 27 s (83 %) |
-| Toy chain | 0:23 | — | 0.4 GB | — | — | — | — |
+| Toy chain | 0:23 | — | 0.4 GB | — | 4.7 MB | — | — |
 
 - **What "reference" means:** the reference walls are the same drivers' runs on 2026-11-19.
   - Stages 2–4 come from #201's measurement (driver logs).
@@ -90,6 +93,7 @@
   - **acc load:** `AccountingStructure.load` takes ≈ 27 s and runs eight times per chain, ≈ 3.6 min of 44.
   - **Stage 3's diagnostics** take nearly half of its wall time.
   - **Stage 5's period loop** holds 60 % of the chain.
+- **Peak RSS, disk and Stage 1 of the reference:** not measured; the reference runs were not made under `/usr/bin/time`.
 - **Disk:** a whole chain needs ≈ 1.16 GB, three quarters of it the const run. The `trade_shares` version Stage 1 registers costs almost nothing: v42's `params.csv` is a hardlink of v41's (one inode, two links).
 
 ## 4. What was not checked
@@ -103,8 +107,12 @@
 |---|---|---|---|---|---|
 | S3-1 | `src/pysuto/registry/_sidecar.py:115` (`build_sidecar`) | S3 | no sidecar records the code version, the Python version or the numerical stack's versions | record `pysuto.__version__` (hatch-vcs: tag, distance, sha), Python and numpy, scipy, pandas, pyarrow, clarabel in every sidecar | no |
 | G9-1 | `src/pysuto/registry/_sidecar.py:115` | G9 | only opt sidecars record a time (`solve_wall_s`); feed, imp, const, uncprop and psut record none, so a run's footprint is not traceable from its sidecar | record the stage's wall time (and peak RSS where cheap) in every sidecar | no |
-| S3-2 | `src/pysuto/collector.py:97` (`FeedCollector.collect`) | S3 | the stored per-feed arrays (`F`, `Sigma`, `Omega`, `feed_ids`) follow the `--feed-id` order, so the same feeds in another order persist a different imp; every downstream array is identical | `python -m pysuto compare` aligns `agg_result`'s per-feed arrays by `feed_ids` before comparing (a canonical order in Stage 2 would change the stored reference) | no |
-| S3-3 | `scripts/copper_feed.py:976` (`run_stage1` → `build_trade_shares.py`) | S3 | every Stage 1 registers a new `trade_shares` version, even with a byte-identical `params.csv`, because `parents.json` names the new BACI feed run (#53's guard checks by run id); a check chain from Stage 1 can never reproduce the reference's `parents.inputs`, and each one adds an input version | document it beside the comparison command (README *Workflow*, CLAUDE.md); a content-addressed guard is a candidate for the U1b architecture session (#175) | no |
+| S3-2 | `src/pysuto/collector.py:97` (`FeedCollector.select`) | S3 | the stored per-feed arrays (`F`, `Sigma`, `Omega`, `feed_ids`) follow the `--feed-id` order, so the same feeds in another order persist a different imp; every downstream array is identical | `python -m pysuto compare` aligns `agg_result`'s per-feed arrays by `feed_ids` before comparing (a canonical order in Stage 2 would change the stored reference) | no |
+| S3-3 | `scripts/copper_feed.py:976` (`run_stage1` → `build_trade_shares.py`) | S3 | every Stage 1 registers a new `trade_shares` version (by construction: `run_stage1`'s docstring, `copper_feed.py:951`; seen here as v41 → v42), even with a byte-identical `params.csv`, because `parents.json` names the new BACI feed run (#53's guard checks by run id); a check chain from Stage 1 can never reproduce the reference's `parents.inputs`, and each one adds an input version | document it beside the comparison command (README *Workflow*, CLAUDE.md); a content-addressed guard is a candidate for the U1b architecture session (#175) | no |
 | S3-4 | `CLAUDE.md:104` (RNG list), `src/pysuto/input_registry.py:114` | S3 | the list of allowed random uses omits the uuid4 code of every input version | add it to the list | no |
 
 No finding moves a number or questions a modelling choice recorded in an ADR.
+
+## 6. Runs for the maintainer to prune
+
+Deleting runs is the maintainer's call. The check chain's const run, **`const_20261123_095218_fb9afcb8`** (852 MB), is the one that matters. The rest of the check chain is 0.3 GB: `feed_baci_20261123_094401_2962067d`, `feed_icsg_20261123_094513_e6f2b299`, `feed_crude_ore_20261123_094544_ab880f44`, `imp_20261123_094827_92b6d103`, `opt_20261123_095827_450ed9ab`, `opt_20261123_103738_8d684a55` (one worker), `uncprop_20261123_102533_7e0cc120`, `psut_20261123_102653_b4d5796d`, and `trade_shares` v42. The toy runs lived in the scratchpad.
