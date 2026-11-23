@@ -38,6 +38,7 @@ sys.path.insert(0, os.path.join(_REPO_ROOT, "src"))
 
 from pysuto.acc import AccountingStructure, read_acc_spec_dir, write_build_record
 from pysuto.input_registry import InputRegistries
+from pysuto.registry import stage_lock
 
 
 # =============================================================================
@@ -127,10 +128,11 @@ def main() -> AccountingStructure:
 
     # ── Initialise input registry (scan-and-bump every kind) ──────────────
     label_overrides = {"acc": {args.id: args.label}} if args.label else None
-    inputs = InputRegistries.initialize(
-        root            = args.input_root,
-        label_overrides = label_overrides,
-    )
+    with stage_lock("acc", root=os.path.join(os.path.dirname(args.input_root), "proc")):
+        inputs = InputRegistries.initialize(
+            root            = args.input_root,
+            label_overrides = label_overrides,
+        )
     acc_entry = inputs.acc.entry(args.id)
     acc_path  = inputs.acc.resolve(args.id)
 

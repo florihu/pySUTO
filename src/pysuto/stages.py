@@ -107,7 +107,8 @@ def run_imp(case: CaseSpec, feed_ids: list, label: str,
 
     # ── B  Collect and aggregate ──────────────────────────────────────────────
     logger.info("B  Collecting feeds: %s (p=%.2f)", feed_keys, spec.P_PROP)
-    collector  = FeedCollector(registry=registry, acc_struct=acc, min_flow_kt=0.01)
+    collector  = FeedCollector(registry=registry, acc_struct=acc,
+                               min_flow_kt=spec.MIN_FLOW_KT)
     collector.select(feed_keys)
     feed_run_ids = [s["feed_run_id"] for s in collector.selected]
     logger.info("B  Resolved feed_run_ids: %s", feed_run_ids)
@@ -177,7 +178,6 @@ def run_imp(case: CaseSpec, feed_ids: list, label: str,
         agg_result,
         label         = label,
         parents       = parents,
-        imputers      = engine.imputers,
         stage_summary = {"cascade_passes_run": passes_run},
         stage_config  = stage_config,
     )
@@ -336,7 +336,7 @@ def run_const(case: CaseSpec, imp_run_id: str, label: str,
 # some through ``CaseSpec.driver_knobs``. Paths are not knobs: ``data_dir`` and its
 # ``proc/`` subdirectories are arguments.
 
-TIMESTEPS  = None #[1995]           # None → all timesteps in the run
+TIMESTEPS  = None                    # None → all timesteps in the run
 # Feasibility pre-check: which years the probe checks before any solve — "all" (a
 # zero-objective QP per year over its hard rows and bounds, on the same N_WORKERS
 # threads as the solves; ADR 0042 replaced the full-G first-year probe, ≈ 7 of Stage 4's

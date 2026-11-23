@@ -83,7 +83,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from pysuto.acc import AccountingStructure
 from copper_feed import ORE_GRADE_LABELS, latest_feed_run
 from pysuto.config import load_config
-from pysuto.feedprep.builder_lock import builder_lock
+from pysuto.registry import stage_lock
 from pysuto.feedprep.ore_grade import (
     MARGIN_REL_CARRY, build_param_rows, build_production_frame, build_tailings_rows,
     carry_grades_forward, compute_insitu_grades, compute_tailings_grades, region_bands,
@@ -234,5 +234,5 @@ if __name__ == "__main__":
                     help="data root holding input/ and proc/ (default: %(default)s)")
     args = ap.parse_args()
     set_data_dir(args.data_dir)
-    with builder_lock("build_ore_grade", args.data_dir):
+    with stage_lock("build_ore_grade", root=os.path.join(args.data_dir, "proc")):
         main()

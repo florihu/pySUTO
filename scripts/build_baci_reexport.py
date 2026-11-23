@@ -108,13 +108,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from copper_feed import (
     AGGREGATES_ID, BACI_ID, GROSS_VALUATION, HS_OF, HUB_EXCLUDE, ICSG_ID, NETTED_SECTORS,
     TRADED_SECTORS, icsg_intake_production)
-from pysuto.feedprep.builder_lock import builder_lock
 from pysuto.feedprep.reexport import (
     MAX_CV_SCALE, OUTLIER_K, check_icsg_baci_version, check_region_map, cv_scale,
     icsg_aggregate_members, label_row, load_root_trade, net_reexports, rebuild_values,
     reexport_volumes, screened_origins)
 from pysuto.feedprep.trade_shares import traded_conc_lookup
 from pysuto.input_registry import InputRegistries
+from pysuto.registry import stage_lock
 
 # ---------------------------------------------------------------------------
 # USER CONFIGURATION
@@ -315,5 +315,5 @@ if __name__ == "__main__":
                     help="data root holding input/ (default: %(default)s)")
     args = ap.parse_args()
     set_data_dir(args.data_dir)
-    with builder_lock("build_baci_reexport", args.data_dir):
+    with stage_lock("build_baci_reexport", root=os.path.join(args.data_dir, "proc")):
         main(args.source_version)

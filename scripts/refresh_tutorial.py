@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import importlib.util
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -91,7 +92,6 @@ def main(argv=None) -> int:
     print(f"eleven chapters in {time.time() - t0:.1f} s; no /home/, temp-dir or home path "
           f"in any of them; written to {PKG_DEST}")
     if not args.keep_tmp:
-        import shutil
         shutil.rmtree(tmp, ignore_errors=True)
     return 0
 

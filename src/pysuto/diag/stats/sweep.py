@@ -199,8 +199,7 @@ def _measure(o: Outcome, idx: np.ndarray, F_p, P_p, F_b, P_b) -> float:
     if o.measure == "retention":
         return float(_ratio(F_p[idx].sum(), P_p[idx].sum())
                      - _ratio(F_b[idx].sum(), P_b[idx].sum()))
-    with np.errstate(divide="ignore", invalid="ignore"):
-        return float(F_p[idx].sum() / F_b[idx].sum() - 1.0)
+    return float(_ratio(F_p[idx].sum(), F_b[idx].sum()) - 1.0)
 
 
 # =============================================================================
@@ -270,7 +269,7 @@ def sensitivity_table(frame: pd.DataFrame, axes: Sequence[dict],
     """
     rows = []
     for out in outcomes:
-        y_all = pd.to_numeric(frame[out], errors="coerce").to_numpy(dtype=float)
+        y_all = pd.to_numeric(frame[out])     # a non-numeric outcome raises.to_numpy(dtype=float)
         ok = np.isfinite(y_all)
         sub, y = frame[ok], y_all[ok]
         n = int(ok.sum())

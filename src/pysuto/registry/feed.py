@@ -42,15 +42,13 @@ class DataFeedRegistry(BaseOutputRegistry):
 
     The sidecar's ``parents.inputs.feed.id`` carries the upstream
     input-feed-id (e.g. ``"baci"``); :meth:`latest_by_input_feed_id`
-    follows that link to support feed-id lookups even though the
-    run-id no longer embeds the feed-id.
+    follows that link to look a run up by its input feed id.
     """
 
     STAGE = "feed"
 
     def __init__(self, odir: str = "data/proc/feed/registry") -> None:
         super().__init__(storage_dir=odir)
-        self.odir = odir          # alias — keeps backwards-compatible kwarg name
         self._input_feed_idx: dict[str, list[str]] = {}  # input_feed_id -> [run_ids]
 
     # ── overridden lifecycle: rebuild reverse index ───────────────────
@@ -64,7 +62,9 @@ class DataFeedRegistry(BaseOutputRegistry):
         for run_id, entry in self._index.items():
             try:
                 sidecar = self._read_sidecar(run_id)
-            except (FileNotFoundError, json.JSONDecodeError):
+            except (FileNotFoundError, json.JSONDecodeError) as exc:
+                warnings.warn(f"Feed run '{run_id}' has no readable sidecar and is left "
+                              f"out of the input-feed index: {exc}")
                 continue
             feed_ref = (sidecar.get("parents", {})
                               .get("inputs", {})
