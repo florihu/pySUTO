@@ -1204,7 +1204,8 @@ class TestFeasibilityCheckMode:
         with pytest.raises(RuntimeError) as exc:
             s.solve_all("half_bad", feasibility_check="all")
         msg = str(exc.value)
-        assert "Top hard-row offenders" in msg and "cid='r0_2021'" in msg
+        assert "Hard rows with the largest" in msg and "cid='r0_2021'" in msg
+        assert "ADR 0019" in msg and "remove" not in msg
         assert "r0_2020" not in msg                     # the feasible year is not blamed
 
     def test_the_probe_runs_through_the_period_pool(self, monkeypatch):
