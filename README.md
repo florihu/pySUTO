@@ -448,7 +448,7 @@ For each root edge $j$ this reduces to $f_\mathrm{agg}[j] = \sum_k \Omega_{kj} F
 
 $$\sigma_\mathrm{agg}[j] \;=\; \left( \sum_k |\Omega_{kj}\, \sigma_k[j]|^p \right)^{1/p}.$$
 
-At $p = 2$ this reduces to $1/\sqrt{\sum_k 1/\sigma_k^2[j]}$. For $p \in [1, 2]$, $\sigma_\mathrm{agg}[j] \leq \max_k \sigma_k[j]$ always holds; the $\sigma_\mathrm{agg} \leq \min_k \sigma_k$ invariant is exact at $p = 2$ and held tightly for $p \approx 1.3$ in practice. Edges covered by no feed remain NaN and are passed to the imputation step.
+At $p = 2$ this reduces to $1/\sqrt{\sum_k 1/\sigma_k^2[j]}$. For $p \in [1, 2]$, $\sigma_\mathrm{agg}[j] \leq \max_k \sigma_k[j]$ always holds; the $\sigma_\mathrm{agg} \leq \min_k \sigma_k$ bound is exact at $p = 2$ only; at $p = 1.3$ it can be exceeded slightly ($\sigma = 1, 100$ gives $\sigma_\mathrm{agg} = 1.0018$). Edges covered by no feed remain NaN and are passed to the imputation step.
 
 ##### Imputation — parametric
 
@@ -456,11 +456,13 @@ A parametric `Fill` fills target edge $j$ from a source relation (a pair `Relati
 
 $$f_j = \sum_{l=1}^{m} \alpha_l \cdot f_{i_l}$$
 
-$$\sigma_j \;=\; \left( \sum_{l=1}^{m} |\alpha_l \cdot \sigma_{i_l}|^p \;+\; |\sigma_\mathrm{param}|^p \;+\; |\varepsilon \cdot f_j|^p \right)^{1/p}$$
+The fill always uses bare $\alpha_l$ in the value. For a pair relation $b = r\,a$ (σ_param in ratio units, $\varepsilon$ the relative structural term), the σ of the filled edge is, since #148:
 
-The fill always uses bare $\alpha_l$. σ propagation uses bare $\alpha_l$ in the **forward branch (A→B)**. The **backward branch (B→A)** is the only place where $1/\alpha$ is replaced by the [regularized sensitivity](#regularized-sensitivity) below — this caps σ amplification when $1/\alpha \gg 1$ (the ore-grade-inverse case).
+- **forward** (A→B, $f_b = r f_a$): $\sigma_b = \bigl( |r\,\sigma_a|^p + |f_a\,\sigma_\mathrm{param}|^p + |\varepsilon f_b|^p \bigr)^{1/p}$;
+- **backward** (B→A, $f_a = f_b / r$): $\sigma_a = \bigl( |s(1/r)\,\sigma_b|^p + |f_a\,\sigma_\mathrm{param} / r|^p + |\varepsilon f_a|^p \bigr)^{1/p}$, with $s$ the [regularized sensitivity](#regularized-sensitivity) below, which caps σ amplification when $1/r \gg 1$ (the ore-grade-inverse case);
+- **trade** seed (conc forward, Mass→CC, $r$ = conc): $\sigma_b = \bigl( |r\,\sigma_a|^p + |f_b\,\sigma_\mathrm{param} / r|^p \bigr)^{1/p}$, with no $\varepsilon$ term.
 
-The $\varepsilon$ (`epsilon`) term encodes structural uncertainty in the relation itself. $\sigma_\mathrm{param}$ is the per-row σ from the CSV.
+The parameter term $|f\,\sigma_\mathrm{param}|$ is the first-order image of the ratio's σ in flow units (a ratio-unit σ added to flow-unit terms would be dimensionally wrong). $\sigma_\mathrm{param}$ is the per-row σ from the params file (`meta["sigma_param"]`; the relation's own `sigma` is the relative $\sigma_\mathrm{param}/|r|$ that Stage 3 uses); $\varepsilon$ encodes structural uncertainty in the relation itself.
 
 ##### Regularized sensitivity
 
@@ -472,13 +474,15 @@ Defaults: $q = 3$, $\alpha_{\min} = 0.05$. Behaviour:
 - $|\beta| \gg \alpha_{\min}$: $s(\beta) \to 1$, so $s(\beta)\cdot\sigma_b$ cannot grow beyond $\sigma_b$.
 - $|\beta| \ll \alpha_{\min}$: $s(\beta) \to |\beta|/\alpha_{\min}$ — a relative floor on the effective sensitivity.
 
-##### Imputation — formula
+##### Imputation — network recipe
 
-For a `FormulaRelation` with directed terms $(\alpha_i, f_i, \sigma_i)$:
+The `NetworkImputer` closes a Process node's content (CC) balance with efficiency $\eta$ (σ_η, relative structural term $\varepsilon$): products $= \eta\,S$, waste $= (1-\eta)\,S$, $S$ the total input. $S$ and $\sigma_S$ come from the first branch that applies:
 
-$$f_\mathrm{target} = \sum_i \alpha_i \cdot f_i, \qquad \sigma_\mathrm{target} = \left( \sum_i |\alpha_i \cdot \sigma_i|^p + |\varepsilon \cdot f_\mathrm{target}|^p \right)^{1/p}$$
+- **inputs** (every primary known, or the relaxed close of [ADR 0010](docs/adr/0010-trade-first-seeding-of-bilateral-flow-process-inputs.md)): $S = \sum$ known primary + secondary + import legs, $\sigma_S = \mathrm{Lp}(\sigma_i)$;
+- **product** (a product known): $S = f_P/\eta$, $\sigma_S = \bigl( |s(1/\eta)\,\sigma_P|^p + |S\,\sigma_\eta/\eta|^p \bigr)^{1/p}$;
+- **waste** (the lone waste leg known): $S = f_W/(1-\eta)$, $\sigma_S = \bigl( |s(\tfrac{1}{1-\eta})\,\sigma_W|^p + |S\,\sigma_\eta/(1-\eta)|^p \bigr)^{1/p}$.
 
-If a pre-clip value lies outside `[clip_lower, clip_upper]`, the fill is logged with `method="formula_clipped"` and `sigma_after` carries the pre-clip σ as a conservative estimate.
+A missing product is then $f_P = \eta S$ with $\sigma_P = \bigl( |\eta\,\sigma_S|^p + |\sigma_\eta S|^p + |\varepsilon f_P|^p \bigr)^{1/p}$ (the $\sigma_\eta$ term only on the inputs branch); the waste leg is the same with $1-\eta$; a lone missing primary is the remainder $f_i = S - \sum_{j \ne i} f_j$ with $\sigma_i = \mathrm{Lp}(\sigma_S, \sigma_j, \varepsilon f_i)$. An eff-less stock-change leg gets $\sigma \ge$ `effless_stock_sigma`. A fill outside the structural bounds is clipped, and the network widens σ to the clip gap; the engine's own post-step clip (every other imputer) writes the clipped value to the log row and array but leaves σ unchanged (the σ policy is open, #238).
 
 ##### Imputation — time
 
@@ -486,7 +490,7 @@ Linear interpolation between observations at $(t_a, f_a, \sigma_a)$ and $(t_b, f
 
 $$f_j = (1-\lambda)\,f_a + \lambda\,f_b, \qquad \sigma_j = \bigl( |(1-\lambda)\sigma_a|^p + |\lambda\sigma_b|^p \bigr)^{1/p} \cdot \gamma_0^{\,g}$$
 
-LOCF/NOCB at gap $g$: $f_j = f_a$, $\sigma_j = \sigma_a \cdot \gamma_0^{\,g}$. The multiplicative `gap_inflation` factor $\gamma_0$ grows σ with extrapolation distance.
+LOCF/NOCB at gap $g$: $f_j = f_a$, $\sigma_j = \sigma_a \cdot \gamma_0^{\,g}$. The multiplicative `gap_inflation` factor $\gamma_0$ grows σ with extrapolation distance. With an observation on one side only, `linear` carries the nearest one (logged as `time_linear`); `interpolate_only` forbids that carry. `method="mean"` is the unweighted mean of the window, $\sigma_j = \mathrm{Lp}(\sigma_i / n)$, with no `gap_inflation`; `min_obs` (the least observations the window must hold) is read by `mean` only.
 
 ##### Imputation — flat prior (final fallback)
 
@@ -506,9 +510,14 @@ Data-rich neighbourhoods (ρ ≈ 1) get the tight $\mathrm{cv}_\text{lo}$; data-
 
 Only finite, non-zero values count at every level, so upstream-imputed zeros never pull the scale to zero. The previous single-level rule collapsed σ to 0 on ~40 k copper edges, which then pinned them at $\sigma_a = 10^{-6}$ via the constraints-side floor (see [analysis_optim_const_copper_…_20260513_112419.md](docs/rep/analysis_optim_const_copper_20260513_091054_65b9133e_20260513_112419.md)).
 
+##### Stage 2 σ screens
+
+Three functions of [impute/screens.py](src/pysuto/impute/screens.py) run in the case's hooks around the cascade and mutate `sigma_agg` in place; the case supplies the sectors and thresholds. **Size damping** ([ADR 0017](docs/adr/0017-size-damped-sigma-on-bilateral-trade-legs.md)): on covered bilateral Flow-origin Mass legs, $\sigma_e = \mathrm{cv}_e\, a_\mathrm{ref}^{1-\gamma}\, a_e^{\gamma}$ with $a_\mathrm{ref}$ the sector's median leg $|f|$ and the resulting cv capped at `cv_cap`. **Outlier-leg screen**: per (flow sector, exporter region, year), implied CC exports over covered production plus implied imports; a ratio above $k$ sets $\sigma = \mathrm{cv}\,|f|$ on the group's bilateral legs. **Contradicted-node screen** ([ADR 0019](docs/adr/0019-contradicted-flow-nodes-lose-anchor-authority.md), after imputation): a Flow node whose outflow prior is below `K_CLOSE` $\times$ its inflow prior (`flow_node_balance.py`, shared with Stage 3's anchors) gets $\sigma = \mathrm{cv}\,|f|$ on its outflow edges.
+
 #### Classes
 
 - **`FeedCollector`** ([collector.py](src/pysuto/collector.py)) — `.select([feed_id, ...])`, `.aggregate(p=…)`; aligns each feed onto the common edge index and returns an `AggregationResult`.
+  The collector treats an edge with $0 < |F_\mathrm{root}| <$ `min_flow_kt` as not covered, except an observed zero (#76); the driver passes `min_flow_kt = 0.01` for both valuations, read in the edge's own unit (kt for Mass, kt CC for content).
 - **`AggregationMath`** ([agg.py](src/pysuto/agg.py)) — vectorised $\Omega$, `f_agg`, `σ_agg` over the full `[N_f × N_r]` matrices.
 - **`ImputationEngine`** ([impute/](src/pysuto/impute/)) — orders an `.register()`-list of imputers; each imputer's `.prepare(acc_struct)` is called at registration so shared lookup structures only build once.
 - **`BaseImputer`** ([impute/](src/pysuto/impute/)) — ABC; subclass and implement `.writer_scope(acc)` (the edges it may write) and `.impute(ledger, step, acc)` to add a new fill method; `.prepare(acc)` and `.attach(agg_result)` are optional hooks.
@@ -519,8 +528,8 @@ Only finite, non-zero values count at every level, so upstream-imputed zeros nev
 - **`TimeImputer`** — sliding-window temporal interpolation/extrapolation; `method ∈ {"linear","locf","nocb","mean"}`. Scoped to **same-region** edges in the copper driver: a bilateral trade leg absent in a year is a recorded zero, not a gap ([ADR 0026](docs/adr/0026-bilateral-trade-legs-are-not-time-interpolated.md)); never a stock-change leg.
 - **`ShareImputer`** ([impute/share.py](src/pysuto/impute/share.py)) — the net-stock seed: a `Cathode→MESC` / `Cathode→USC` leg no feed reports is held at 0 with `σ = max(0.01·|co-located Cathode→FU flow|, 0.3 kt)`; terminal, before the flat prior ([ADR 0040](docs/adr/0040-stock-change-legs-are-held-at-their-prior.md)). Its PSC share-transfer mode is pre-empted by the recipe and fires 0×; a PSC seed at 1 % of `CP→Cathode` was rejected on measurement ([ADR 0041](docs/adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md)).
 - **`FlatPriorImputer`** — final-fallback flat prior keyed by `AccountingStructure` edge masks; register **last**.
-- **`ImputationLog`** — per-edge provenance table: `edge_id`, `step`, `method`, `source_edges`, `coefficients`, `f_before/after`, `sigma_before/after`, `description`, `param_id`.
-- **`AggregationResult`** ([agg.py](src/pysuto/agg.py)) — dataclass holding `f_agg`, `sigma_agg`, `Omega`, `F`, `Sigma`, `feed_ids`, `coverage`, plus `imputation_log` and `imputation_metadata` once imputation has run.
+- **`ImputationLog`** — per-edge provenance table: `edge_id`, `step`, `imputer_id`, `pass`, `method`, `source_edges`, `coefficients`, `f_before/after`, `sigma_before/after`, `description`, `param_id`, `relaxed`, `assumed_absent` (`f_before` / `sigma_before` are always NaN: a write only fills a NaN cell).
+- **`AggregationResult`** ([agg.py](src/pysuto/agg.py)) — dataclass holding `f_agg`, `sigma_agg`, `Omega`, `F`, `Sigma`, `feed_ids`, `coverage`, plus `imputation_log`, `imputation_metadata` and `flat_prior` (the edges the last-resort imputer filled) once imputation has run.
 
 #### Key parameters
 
@@ -541,7 +550,7 @@ Run Stage 2 on the toy case in [tutorial/02_aggregate_impute.ipynb](src/pysuto/t
 
 #### Diagnostics
 
-`AggDiagnostic` (post-aggregation, pre-imputation) and `ImpDiagnostic` (post-imputation per-step trajectories) live in [diag/](src/pysuto/diag/). Both expose `.summary()` and `.plot(odir=...)`. `AggDiagnostic` must be constructed *before* `engine.run(...)` because imputation mutates `f_agg`/`sigma_agg` in place.
+`AggDiagnostic` (post-aggregation, pre-imputation) and `ImpDiagnostic` (post-imputation per-step trajectories) live in [diag/](src/pysuto/diag/). Both expose `.summary()` and `.plot(odir=...)`. `AggDiagnostic` snapshots copies of the aggregation at construction, so build it *before* `engine.run(...)` (imputation mutates `f_agg`/`sigma_agg` in place); one built afterwards would report the imputed arrays.
 
 Both accept an optional `acc_struct=` argument so that diag panels can stratify per-edge quantities by year:
 

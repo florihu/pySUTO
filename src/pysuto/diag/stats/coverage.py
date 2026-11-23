@@ -43,6 +43,9 @@ import numpy as np
 import pandas as pd
 
 from pysuto.acc import BoundaryRole, boundary_role_values
+from pysuto.logging import get_logger
+
+_log = get_logger("pysuto.diag.stats.coverage")
 
 
 class CoverageDiagnostic:
@@ -158,6 +161,6 @@ class CoverageDiagnostic:
         p2 = os.path.join(odir, f"coverage_system_boundary_{self.year}.csv")
         self.supply_use_table().to_csv(p1)
         self.system_boundary_table().to_csv(p2)
-        print(f"   Coverage supply/use        → {p1}  ✓")
-        print(f"   Coverage system-boundary   → {p2}  ✓")
+        _log.info(f"Coverage supply/use        → {p1}")
+        _log.info(f"Coverage system-boundary   → {p2}")
         return [p1, p2]

@@ -12,6 +12,7 @@ base.py
 
 from __future__ import annotations
 
+import json
 from abc import ABC, abstractmethod
 from typing import Optional
 
@@ -127,13 +128,12 @@ class BaseImputer(ABC):
         Default impl: every public attribute (no leading underscore) whose
         value is JSON-able. Subclasses can override for richer detail.
         """
-        import json as _json
         out: dict = {}
         for k, v in self.__dict__.items():
             if k.startswith("_"):
                 continue
             try:
-                _json.dumps(v)
+                json.dumps(v)
                 out[k] = v
             except (TypeError, ValueError):
                 out[k] = repr(v)
