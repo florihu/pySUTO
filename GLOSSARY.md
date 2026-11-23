@@ -1460,5 +1460,5 @@ _Avoid_: "axis" (the skill's own word, which collides with a sweep's **Axis**).
 
 **Check chain**:
 A chain rerun on unchanged inputs to show that a code change leaves every stored array identical
-to the reference chain's (`python -m pysuto compare`).
+to the reference chain's.
 _Avoid_: "regression run", "validation run".
