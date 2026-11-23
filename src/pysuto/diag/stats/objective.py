@@ -287,6 +287,12 @@ def objective_decomposition(edge_frame, constraint_frame, years=None, regions=No
     Columns: ``year, zsq_edges, zsq_sum_rows, zsq_soft_ratios, zsq_total,
     max_abs_resid_massbal, share_gt3_<family>…, n_<family>…``. A family whose
     frame is missing yields NaN columns rather than an error.
+
+    ``max_abs_resid_massbal`` is one maximum over the mass-balance rows of both
+    valuations, in kt on a gross row and kt CC on a content row: a hard row has no
+    σ_c to standardise it by, so the column stays unnormalised and is labelled so.
+    A soft equality row whose ``type`` is neither ``sum`` nor ``ratio`` raises
+    ``ValueError`` instead of dropping out of ``zsq_total``.
     """
     if constraint_frame is not None:
         soft = ((_s(constraint_frame["sense"]) == SENSE_EQ)
