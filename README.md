@@ -587,7 +587,7 @@ Five built-in constraint types populate rows of `G`:
 | 4 | Hard ratio bound | $a_i - r_u a_j \le 0$, $-a_i + r_l a_j \le 0$ | Non-neg | 0 |
 | 5 | Hard lower bound | $-a_i \le -l_i$ for every edge with structural $l_i = 0$ | Non-neg | 0 |
 
-**Type 1 (mass balance).** One row per balanced `(Flow|Process)` node × time pair, with `SB` (open-boundary) nodes excluded. Derived automatically from the four boolean edge masks on `AccountingStructure`.
+**Type 1 (mass balance).** One row per balanced `(Flow|Process)` node × time pair, with `SB` (open-boundary) nodes excluded. Derived automatically from the `AccountingStructure`'s edge index and roles, restricted to one scope mask when the case names it (`MassBalanceBuilder(mask=…)`; copper's `massbal_scope`).
 
 **Type 2 (soft sum).** σ_c modes: `sd` (absolute), `pedigree` (the caller's pre-computed value, static like `sd`), `fraction_of_flow` (fraction of node-flow magnitude from `f_agg`), `p_mean` (Lp combine over `_rhs_ids` σ_agg using the global Lp exponent). An unknown mode, or `p_mean` on a spec without `_rhs_ids`, raises. A case builds Type 2 through `SumConstraintBuilder.from_mask_anchor` only (mode `sd`; see below); `from_acc_struct`, `from_acc_struct_subentity` and `from_csv` are tests-only API, and `p_mean` / `fraction_of_flow` / `pedigree` are reachable only through them.
 
@@ -1359,6 +1359,7 @@ pysuto/
 ├── __init__.py            __version__ (from the installed distribution)
 │
 ├── acc.py                 AccountingStructure  (scipy.sparse COO/CSR)
+├── acc_store.py           save · load · write_build_record  (persistence, #243)
 ├── conc.py                ConcordanceTable · WeightMatrix  (scipy.sparse CSR)
 ├── feed.py                DataFeed
 ├── feedpipe.py            step_A/B/C/D · FeedSpec · run_feed              ─┐
@@ -1372,9 +1373,12 @@ pysuto/
 │   ├── optim.py                                                             │
 │   ├── uncprop.py                                                           │
 │   ├── psut.py                                                              │
+│   ├── sweep.py                                                                    │
+│   ├── lock.py             stage_lock · LockHeld (the advisory stage lock)         │
 │   └── _sidecar.py                                                          │
 ├── input_registry.py      InputRegistry · InputRegistries                  │  Stages 0–6
 ├── _conditioning.py       condition_prior · condition_sigma_c              │
+├── _provenance.py         now_iso · sha256_file  (timestamps and hashes, #279)     │
 ├── config.py              load_config  (config.yaml: pipeline.acc_id)      │
 ├── lp.py                  lp_combine  (Lp / power-mean σ combiner)         │
 ├── masks.py               MaskRuleSet · coerce_mask · load_masks_csv       │
@@ -1382,8 +1386,12 @@ pysuto/
 │                          param_relation.py (ParamRelationResolver)        │
 │                          structure.py (ProcessRecipe · node_balances)     │
 │                          sources.py (ParamSource · Fill)                  │
+│                          relation.py · ratio_relation.py (Relation, the ratio resolver)
+│                          balance.py · prior.py (node balances, the prior relation)
 ├── flow_node_balance.py   contradicted_flow_nodes  (St2–St3 check)         │
 ├── utils.py               get_path (ICSG parsers)                          │
+├── feedprep/              trade_shares.py · reexport.py · ore_grade.py             │
+│                          (the feed-side algorithms of a case, #147)               │
 ├── logging.py             structured run logging                          ─┘
 │
 ├── collector.py           FeedCollector                                   ─┐
@@ -1396,6 +1404,7 @@ pysuto/
 │   ├── fill.py             FillImputer (trade seed · conc · ore-grade fills) │
 │   ├── time.py                                                               │
 │   ├── share.py            ShareImputer (net-stock share + seed)             │
+│   ├── screens.py          the Stage-2 input screens                               │
 │   └── flat_prior.py                                                       ─┘
 │
 ├── constraints/           ConstraintEngine · BaseConstraintBuilder        ─┐ Stage 3
@@ -1405,6 +1414,9 @@ pysuto/
 │   ├── sum.py              ConstraintBlock · ConstraintRun                   │
 │   ├── ratio.py                                                              │
 │   ├── flow_bound.py                                                         │
+│   ├── anchors.py          scale totals and the no-data σ anchor                   │
+│   ├── emit.py             Relation → G rows                                       │
+│   ├── naming.py           constraint ids and row-meta names                       │
 │   └── run.py                                                              ─┘
 │
 ├── solver.py              Solver · OptimResult                            ─┐ Stage 4
@@ -1418,6 +1430,12 @@ pysuto/
 │                          tidy table · block views · realized_conc · aggregate     │
 ├── piot.py                PIOT · market_share_network · market_shares       │
 │                                                                            │
+├── case.py · knobs.py     CaseSpec and its sections · the --set protocol           │
+├── stages.py              the Stage 2–6 bodies (run_imp … run_psut)                │
+├── pipeline.py · _step.py python -m pysuto run: one child per step                 │
+├── compare.py             python -m pysuto compare: two chains array by array      │
+├── __main__.py            the pysuto command                                       │
+│                                                                            │
 ├── tutorial/              toy cases · notebooks (top layer)                 │
 │   └── toy.py              the toy case: ACC_SPEC · truth · make_feeds ·    │
 │                           write_params · run_stage1..6 · scoreboard        │
@@ -1426,11 +1444,13 @@ pysuto/
     ├── feed.py             ConstDiagnostic · SolverDiag                      │
     ├── agg.py                                                                │
     ├── imp.py                                                                │
+    ├── relaxed_close.py    the relaxed-close exposure (Stage 2)                    │
     ├── const.py                                                              │
     ├── solver.py                                                             │
     ├── uncprop.py          UncPropDiag (Stage 5)                             │
     ├── psut.py                                                               │
     ├── truth.py            TruthDiag (a synthetic case against its truth)    │
+    ├── sweep.py            SweepDiagnostic (a knob sweep)                          │
     ├── _plot.py                                                              │
     └── stats/             CoverageDiagnostic · StatsDiagnostic               │
         ├── _core.py        ConstStatsDiagnostic · SolverStatsDiagnostic      │
@@ -1439,6 +1459,8 @@ pysuto/
         ├── const.py                                                          │
         ├── solver.py                                                         │
         ├── objective.py                                                      │
+        ├── problem.py      ProblemStatsDiagnostic (the problem panel)              │
+        ├── sweep.py        SweepStatsDiagnostic                                    │
         └── uncprop.py      UncPropStatsDiagnostic (Stage 5)                ─┘
 ```
 

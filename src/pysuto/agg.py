@@ -7,7 +7,7 @@ AggregationResult  –  dataclass holding the output of Stage 2 collection
 AggregationMath    –  inverse-variance weighted aggregation of N_f feeds
                        onto the N_r root-edge axis.
 
-Mathematical summary (see README § Stage 2a)
+Mathematical summary (see README § Stage 2 — Aggregation & Imputation)
 --------------------------------------------
     P[k, j]     = 1 / sigma[k, j]²        (precision; 0 where not covered)
     Omega[k, j] = P[k, j] / sum_k P[k, j] (normalised weight; 0 where not covered)
