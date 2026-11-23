@@ -885,3 +885,62 @@ class TestGuardsAndDiagnostics:
         run_id = prop.persist(result, opt_run_id)
         sidecar = UncPropRunRegistry(dirs["uncprop"]).load_sidecar(run_id)
         assert sidecar["stage_config"]["prior_mode"] == mode
+
+
+# ---------------------------------------------------------------------------
+# 12) Math — the three invariants SI S6.2 names, on the block path: monotone
+#     shrinkage, a PSD update, and the Byron (1978) limit Σ_c → 0
+# ---------------------------------------------------------------------------
+
+def _random_rows(rng, n_edges, n_rows, hard):
+    """``n_rows`` random equality rows over ``n_edges`` edges as the row tuples of
+    ``_one_year_result``: hard balances (σ_c = 0) or soft observations (σ_c = 1e-6)."""
+    rows = []
+    for _ in range(n_rows):
+        coef = rng.normal(size=n_edges)
+        rows.append((list(coef),) + (("massbal", "massbal", True, "zero", 0.0, 0.0) if hard
+                                     else ("sum", "anchor", False, "free", 1.0, 1e-6)))
+    return rows
+
+
+class TestSIInvariants:
+
+    def test_shrinkage_is_monotone_on_every_edge(self, tmp_path, monkeypatch):
+        """σ*² ≤ σ_a² elementwise, with soft rows, hard rows and a binding bound."""
+        rng = np.random.default_rng(222)
+        sigma_a2 = rng.uniform(0.5, 5.0, size=6)
+        rows = (_random_rows(rng, 6, 2, hard=True) + [
+            (list(rng.normal(size=6)), "sum", "anchor", False, "free", 1.0, 0.7),
+            ([0, -1, 0, 0, 0, 0], "bound", "lower", True, "nonneg", 0.0, 0.0)])
+        for a_star in ([1.0, 2.0, 1.0, 1.0, 1.0, 1.0],     # the bound is slack
+                       [1.0, 0.0, 1.0, 1.0, 1.0, 1.0]):    # the bound binds: e1 pinned
+            ts = _one_year_posterior(rows, sigma_a2, a_star, monkeypatch, tmp_path)
+            assert (ts.sigma_a_star ** 2 <= sigma_a2 * (1.0 + 1e-12)).all()
+            assert (ts.sigma_a_star ** 2 < sigma_a2).any()
+        assert ts.bound_active[1] and ts.sigma_a_star[1] == 0.0
+
+    def test_the_update_is_positive_semidefinite(self, tmp_path, monkeypatch):
+        """Σ* and Σ − Σ* are PSD, on the full posterior covariance (identity aggregates)
+        of a singular system: a binding bound, a hard balance and a soft anchor."""
+        res = _one_year_result(_FOUR_EDGE_ROWS, _FOUR_EDGE_SIGMA_A2, [3, 3, 0, 4], monkeypatch,
+                               tmp_path, aggregates=_agg_spec(np.eye(4), list("abcd")))
+        post, prior = res.aggregates.cov_post, res.aggregates.cov_prior
+        np.testing.assert_allclose(post, post.T, atol=1e-12)
+        assert np.linalg.eigvalsh(post).min() >= -1e-10
+        assert np.linalg.eigvalsh(prior - post).min() >= -1e-10
+        assert np.linalg.eigvalsh(prior - post).max() > 0.1     # the update is not null
+
+    def test_soft_rows_tend_to_hard_rows_as_sigma_c_goes_to_zero(self, tmp_path, monkeypatch):
+        """Byron's hard-constraints-only reduction: the same rows as soft observations
+        with σ_c = 1e-6 give the hard-row posterior covariance, to O(σ_c²)."""
+        rng = np.random.default_rng(1978)
+        sigma_a2 = rng.uniform(0.5, 5.0, size=5)
+        hard = _random_rows(rng, 5, 2, hard=True)
+        soft = [(r[0],) + ("sum", "anchor", False, "free", 0.0, 1e-6) for r in hard]
+        cov = {}
+        for name, rows in (("hard", hard), ("soft", soft)):
+            res = _one_year_result(rows, sigma_a2, np.ones(5), monkeypatch, tmp_path,
+                                   aggregates=_agg_spec(np.eye(5), list("abcde")))
+            cov[name] = res.aggregates.cov_post
+        np.testing.assert_allclose(cov["soft"], cov["hard"], rtol=1e-6, atol=1e-8)
+        assert np.linalg.eigvalsh(np.diag(sigma_a2) - cov["hard"]).max() > 0.1
