@@ -1433,3 +1433,32 @@ throughput; a **route** is the ordered chain of links an edge takes. Routing is 
 the reconciled edges, like the PIOT on the PSUT (ADR 0037). _Avoid_: "transport infrastructure"
 for one link; "hub" (a region whose trade is re-exported — see re-export netting); "node" for a
 port (a port is not a node of the account).
+
+## Review vocabulary
+
+The final review of the codebase (#155): what one audit reads, what it checks and what it records.
+
+**Review dimension**:
+One quality aspect a code review checks, with its check and its pass rule: nine general (G1–G9)
+and eight specific to scientific software (S1–S8).
+_Avoid_: "axis" (a sweep's knob), "criterion" (a limit on a sweep's outcomes), "metric".
+
+**Review unit**:
+The code one audit reads at once: a pipeline stage with its driver, diagnostics and tests, or one
+shared layer (U1a–U8).
+_Avoid_: "step", "component", "module" (any piece of code with an interface).
+
+**Review finding**:
+One observation of a review: its location at the audited commit, its review dimension, the
+proposed action, and whether acting on it would move a number.
+_Avoid_: "issue" (a tracker ticket), "bug" (only a defect is one).
+
+**Standards review / Spec review**:
+The two halves of a `code-review` run, reported side by side and never merged: conformance to the
+repository's documented conventions, and conformance to the specification.
+_Avoid_: "axis" (the skill's own word, which collides with a sweep's **Axis**).
+
+**Check chain**:
+A chain rerun on unchanged inputs to show that a code change leaves every stored array identical
+to the reference chain's (`python -m pysuto compare`).
+_Avoid_: "regression run", "validation run".
