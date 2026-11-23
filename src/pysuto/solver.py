@@ -762,14 +762,6 @@ class Solver:
         out["max_hard_violation"] = float(breach.max())
         return out
 
-    def solve_timestep(
-        self,
-        run_id:  str,
-        t_label: str,
-    ) -> OptimResult:
-        """Convenience: solve a single timestep (no warm-start)."""
-        return self.solve_all(run_id, timesteps=[t_label])[t_label]
-
     # ------------------------------------------------------------------
     # Persistence
     # ------------------------------------------------------------------

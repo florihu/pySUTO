@@ -738,7 +738,7 @@ The formula holds for equality constraints; the QP also has hard **inequalities*
 - a binding band enters as a hard equality; slack bounds and bands drop out;
 - rows left without a live (unpinned) edge are dropped, and hard rows linearly dependent on the others over the live edges (closed balance loops, a band's two rows at `0 = 0`) are dropped after a pivoted Cholesky of the unit-diagonal Gram `G_h·G_hᵀ` (`rank_tol`; unweighted, since a σ²-weighted Gram makes rows that differ only on low-σ edges look parallel), so `S(t)` stays non-singular with every kept hard row at exactly zero σ_c.
 
-Per year the sidecar records `n_bound_active`, `n_bands_binding`, `n_hard_dependent` and `n_rows_kept`. The full-G (legacy) path has no active set and warns when hard inequality rows are present.
+Per year the sidecar records `n_bound_active`, `n_bands_binding`, `n_hard_dependent` and `n_rows_kept`.
 
 ##### Totals and ratios (#81)
 
@@ -758,8 +758,8 @@ $$\mathrm{var}(w^\top a^*) = w^\top\Sigma_a w - (G\Sigma_a w)^\top S^{-1} (G\Sig
 #### Classes
 
 - **`BaseUncProp`** ([uncprop.py](src/pysuto/uncprop.py)) — ABC with a single abstract method `compute(opt_run_id, alpha) → UncPropResult`. Future concretes (`MCUncProp`, `BoundedKalmanUncProp`, `KKTSensitivityUncProp`) slot in as siblings.
-- **`KalmanUncProp`** ([uncprop.py](src/pysuto/uncprop.py)) — closed-form GLS concrete: a QR of the whitened system per year on the block path, sparse Cholesky on the full-G (legacy) path. Cross-stage discovery (`opt_run_id` → `const_run_id` via the opt sidecar) happens inside `.compute()`; persistence via `.persist(result, opt_run_id, label)`.
-- **`UncPropResult` / `UncPropTimestep`** ([uncprop.py](src/pysuto/uncprop.py)) — return dataclasses. `UncPropTimestep` holds `(sigma_a_star, lower, upper, diagnostics, cols_t)` per t (block path year-local over `cols_t`; legacy full-length with `cols_t = None`); `a*` is **not** stored — readers join on the upstream `opt_run_id`.
+- **`KalmanUncProp`** ([uncprop.py](src/pysuto/uncprop.py)) — closed-form GLS concrete: a QR of the whitened system per year on the block path. Cross-stage discovery (`opt_run_id` → `const_run_id` via the opt sidecar) happens inside `.compute()`; persistence via `.persist(result, opt_run_id, label)`.
+- **`UncPropResult` / `UncPropTimestep`** ([uncprop.py](src/pysuto/uncprop.py)) — return dataclasses. `UncPropTimestep` holds `(sigma_a_star, lower, upper, diagnostics, cols_t)` per t (year-local over `cols_t`); `a*` is **not** stored — readers join on the upstream `opt_run_id`.
 - **`UncPropRunRegistry`** ([registry/uncprop.py](src/pysuto/registry/uncprop.py)) — Stage-5 output registry; harmonized run-id (`uncprop_<ts>_<code>`), per-t `.npz`, diagnostics in sidecar.
 - **`condition_prior` / `condition_sigma_c`** ([_conditioning.py](src/pysuto/_conditioning.py)) — shared helpers also used by `Solver`, guaranteeing that uncprop applies the same σ_a floor / ceiling rules the solver applied. Their default values live there only: Stage 4 records the floors it used in the opt sidecar's `stage_config`, Stage 5 applies the recorded ones (an older run falls back to the defaults with a logged warning).
 
@@ -768,7 +768,6 @@ $$\mathrm{var}(w^\top a^*) = w^\top\Sigma_a w - (G\Sigma_a w)^\top S^{-1} (G\Sig
 | Parameter | Default | Effect |
 |---|---|---|
 | `alpha` (passed to `.compute()`) | `0.05` | CI level — Gaussian quantile $z = \Phi^{-1}(1-\alpha/2)$ |
-| `block_size` | `1024` | Column-block size for the triangular solve of the full-G (legacy) path; trades memory ↔ Python-loop overhead |
 | `sigma_a_floor_abs` | `1e-8` | Same as `Solver` (matched for prior consistency) |
 | `sigma_a_floor_rel` | `1e-5` | Same as `Solver` |
 | `sigma_a_ceiling_factor` | `1e5` | Same as `Solver` |
@@ -795,19 +794,9 @@ Run Stage 5 on the toy case in [tutorial/05_posterior.ipynb](src/pysuto/tutorial
 
 Before the active set (#27) no copper chain could run Stage 5: every hard inequality row entered `S_t` as an equality and made it singular.
 
-#### Optional dependency
-
-The block path (every current run) needs no optional dependency. Only the full-G (legacy) path leans on sparse Cholesky with symbolic-pattern reuse across timesteps; install `scikit-sparse` (CHOLMOD wrapper) for its fast path:
-
-```bash
-pip install -e ".[uncprop]"      # adds scikit-sparse
-```
-
-Without it, the full-G path falls back to `scipy.sparse.linalg.splu` — same answers, ~2× the per-timestep cost, no symbolic-pattern caching.
-
 #### Caveats
 
-The full-G (legacy) path is **bound-blind**: it has no active set, so every hard inequality row enters as an equality (the block path linearises at the active set, #27). The closed form is also the **Laplace approximation** of the true posterior — acceptable for tightly-distributed flows but increasingly approximate for wide log-normal pedigree tails.
+The closed form is the **Laplace approximation** of the true posterior — acceptable for tightly-distributed flows but increasingly approximate for wide log-normal pedigree tails.
 
 ### Stage 6 — PSUT/PIOT builder
 
@@ -865,7 +854,7 @@ Run Stage 6 on the toy case in [tutorial/06_psut_piot.ipynb](src/pysuto/tutorial
 | [solver.py](src/pysuto/solver.py) | `Solver`, `OptimResult` | Stage-4 orchestrator: builds the σ-weighted period QP (warm or cold prior) and hands it to an injected QP backend; imports no numerical solver. `Solver.objective_at` scores any year-local posterior under a const run's QP, split by family (#102). |
 | [qp.py](src/pysuto/qp.py) | `QPProblem`, `QPResult`, `QPBackend` | The neutral standard-form period QP and the backend protocol (ADR 0042). |
 | [clarabel_backend.py](src/pysuto/clarabel_backend.py) | `ClarabelBackend`, `ITER_DTYPE` | The production QP backend; the only module that imports `clarabel`. |
-| [uncprop.py](src/pysuto/uncprop.py) | `BaseUncProp`, `KalmanUncProp`, `UncPropResult`, `UncPropTimestep` | Stage-5 posterior uncertainty: active set and a QR of the whitened system per year (block path), sparse Cholesky (full-G path); persists to `data/proc/uncprop/` via `UncPropRunRegistry`. |
+| [uncprop.py](src/pysuto/uncprop.py) | `BaseUncProp`, `KalmanUncProp`, `UncPropResult`, `UncPropTimestep` | Stage-5 posterior uncertainty: active set and a QR of the whitened system per year; persists to `data/proc/uncprop/` via `UncPropRunRegistry`. |
 | [psut.py](src/pysuto/psut.py) | `PSUT`, `OptimResultsLike`, `classify_blocks`, `BLOCKS` | Stage-6 tidy-canonical PSUT: `from_opt_run` / `from_results`, block views `S`/`U`/`Y`/`E`/`O`/`P`/`W`, `realized_conc`, `aggregate` (region/sector pushforward with `region_crossed`), `sankey` (thin delegate to `diag.psut`), `to_piot`, period selection (`periods`, `latest`, `at`); every valuation in one table with a `primary`; persists to `data/proc/psut/` via `PsutRunRegistry`. |
 | [piot.py](src/pysuto/piot.py) | `PIOT`, `market_share_network`, `market_shares`, `CONSTRUCTS`, `LEVELS` | Stage-6 PIOT as a construct family: the market-share process network (`Z()`, `D()`, process-network `sankey()`), levels `A`/`L` (`x`, `y`, `A`, `L`), `intensity`, `footprint`, `embodied_trade`, `ew_mfa`, `multipliers`, `sda`; `suh_product` is a stub until #20. A derived view of a PSUT, never persisted. |
 | [_conditioning.py](src/pysuto/_conditioning.py) | `condition_prior`, `condition_sigma_c` | Shared σ_a / σ_c conditioning rules — guarantees uncprop sees the same effective prior the solver did. |
@@ -1443,7 +1432,7 @@ Each layer has a dedicated test file in `tests/`. There is no `conftest.py`: fix
 | [test_solver_diag.py](tests/test_solver_diag.py) | `SolverDiag` 12-figure portfolio smoke test (toy placeholders + block run with real edges), `regions=` filter, `compare()`, worst-Σz² year |
 | [test_solver_stats_diag.py](tests/test_solver_stats_diag.py) | `SolverStatsDiagnostic` per-year CSV schemas, all-years frames (identity, `lhs_prior_t`, `resid_solver`, warm prior), ranking CSVs |
 | [test_objective_stats.py](tests/test_objective_stats.py) | objective-share builders (family frames, Σz² by key, identity ranking, z profiles, objective decomposition), sector totals / retention, boundary edges |
-| [test_uncprop.py](tests/test_uncprop.py) | `KalmanUncProp` closed-form 2×2, PSD/monotonicity, Byron limit, CHOLMOD symbolic-factor reuse, registry round-trip, CI clipping, end-to-end `compute(opt_run_id)`, year-local trace contraction, the active set (#27) and an exact contraction where `S` is singular to working precision |
+| [test_uncprop.py](tests/test_uncprop.py) | `KalmanUncProp` registry round-trip, the refusal of a run without `G_blocks`, end-to-end `compute(opt_run_id)`, year-local trace contraction, the active set (#27) and an exact contraction where `S` is singular to working precision |
 | [test_uncprop_stats_diag.py](tests/test_uncprop_stats_diag.py) | `UncPropStatsDiagnostic` edge frame: κ, z, weight, κ–z quadrants, bound-active flag, prior classes, σ_a conditioning, legacy full-length arrays, trace contraction, contraction summary |
 | [test_uncprop_diag.py](tests/test_uncprop_diag.py) | `UncPropDiag` portfolio on a solved, propagated toy chain: live render, `from_uncprop_id` round trip, registry, `plot_ids`, `regions=` suffix, `timesteps=` validation, `summary()` |
 | [test_toy_case.py](tests/test_toy_case.py) | The toy case (#59), the first six-stage end-to-end test: all six stages into a temporary run tree in seconds, hard rows closed to 1e-10, the planted leg the top soft residual, Stage 5's 95 % coverage in a band fixed on the first run, PSUT node balances and Sankey totals; the truth balances, each synthetic feed is noisy at its pedigree CV, every registered imputer writes, the time imputer fills the Bureau's two gaps, the one edge two feeds meet on is pooled by precision, no scale totals are registered; `world_totals`; `TruthDiag`; the tutorial's `check_*` hooks and `solution` |
