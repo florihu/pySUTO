@@ -162,6 +162,15 @@ class TestAggregationMath:
         np.testing.assert_array_equal(res.coverage, [True, True, True])
         assert res.feed_ids == ["a", "b"]
 
+    def test_sigma_agg_can_exceed_the_min_sigma_at_p_1_3(self):
+        """At p = 1.3 only the max bound holds: sigma = (1, 100) gives 1.0018 > 1 (U2-S1-1)."""
+        F     = np.array([[1.0], [2.0]])
+        Sigma = np.array([[1.0], [100.0]])
+        res   = _run(F, Sigma, p=1.3)
+        assert res.sigma_agg[0] > 1.0
+        assert res.sigma_agg[0] <= 100.0
+        assert res.sigma_agg[0] == pytest.approx(1.00183, abs=1e-5)
+
     @pytest.mark.parametrize("p", [1.1, 1.3, 1.5, 2.0])
     def test_sigma_agg_matches_lp_reference(self, p):
         """σ_agg matches the Lp reference formula across the supported p range."""
@@ -199,9 +208,6 @@ class TestAggregationResult:
                           [np.nan, 0.8, 1.2]])
         return _run(F, Sigma, ["x", "y"])
 
-    def test_n_feeds(self, result):
-        assert result.n_feeds == 2
-
     def test_n_edges(self, result):
         assert result.n_edges == 3
 
@@ -209,17 +215,11 @@ class TestAggregationResult:
         # edges 0, 1, 2 are all covered (each by at least one feed)
         assert result.n_covered == 3
 
-    def test_n_missing(self, result):
-        assert result.n_missing == 0
-
-    def test_n_covered_plus_missing_equals_n_edges(self, result):
-        assert result.n_covered + result.n_missing == result.n_edges
-
     def test_imputation_log_defaults_none(self, result):
         assert result.imputation_log is None
 
     def test_shapes_consistent(self, result):
-        N_f, N_r = result.n_feeds, result.n_edges
+        N_f, N_r = len(result.feed_ids), result.n_edges
         assert result.f_agg.shape     == (N_r,)
         assert result.sigma_agg.shape == (N_r,)
         assert result.coverage.shape  == (N_r,)
@@ -228,12 +228,32 @@ class TestAggregationResult:
         assert result.Sigma.shape     == (N_f, N_r)
 
     def test_partial_coverage(self):
-        """When one edge is completely uncovered, n_missing == 1."""
+        """When one edge is completely uncovered, n_covered counts only the other."""
         F     = np.array([[1.0, np.nan]])
         Sigma = np.array([[1.0, np.nan]])
         res   = _run(F, Sigma)
         assert res.n_covered == 1
-        assert res.n_missing == 1
+        assert res.n_edges - res.n_covered == 1
+
+
+class TestInconsistentCells:
+    """A cell the mean would read as 0 is refused at build time (U2-S2-1, U2-G4-9)."""
+
+    def test_a_nan_observation_under_a_finite_sigma_raises(self):
+        F     = np.array([[1.0], [np.nan]])
+        Sigma = np.array([[1.0], [1.0]])
+        with pytest.raises(ValueError, match="NaN observation"):
+            _run(F, Sigma)
+
+    def test_a_negative_sigma_raises(self):
+        F     = np.array([[1.0], [2.0]])
+        Sigma = np.array([[1.0], [-1.0]])
+        with pytest.raises(ValueError, match="negative sigma"):
+            _run(F, Sigma)
+
+    def test_a_zero_sigma_is_still_not_covered(self):
+        res = _run(np.array([[1.0], [2.0]]), np.array([[1.0], [0.0]]))
+        assert res.f_agg[0] == 1.0
 
 
 if __name__ == "__main__":

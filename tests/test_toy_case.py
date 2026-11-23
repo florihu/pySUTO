@@ -529,3 +529,18 @@ def test_a_const_run_on_an_imp_run_without_flag_or_log_raises_naming_it(chain):
     os.remove(root / "proc" / "imp" / old / "imputation_log.parquet")
     with pytest.raises(ValueError, match=old):
         toy.run_stage3(root, old)
+
+
+def test_the_imputed_prior_lies_within_three_sigma_of_the_truth_on_the_filled_edges(chain):
+    """U2-S1-3: Stage 2 against ``toy.truth()``. Measured on this chain, max |f − truth|/σ_agg
+    is 1.96 (conc), 1.68 (network) and 1.54 (time_interp); the trade seeds are left out, as
+    one of them is the planted ×1000 customs row."""
+    root, ids, acc = chain["root"], chain["ids"], chain["acc"]
+    res = ImputationRunRegistry(str(root / "proc" / "imp")).load(ids["imp"])
+    log = res.imputation_log.as_dataframe()
+    truth = toy.truth_vector(toy.truth(), acc)
+    for imputer_id in ("conc", "network", "time_interp"):
+        e = log.loc[log["imputer_id"] == imputer_id, "edge_id"].astype(int).to_numpy()
+        assert e.size > 0, imputer_id
+        miss = np.abs(res.f_agg[e] - truth[e])
+        assert np.all(miss <= 3.0 * res.sigma_agg[e]), (imputer_id, float(miss.max()))

@@ -85,3 +85,13 @@ def test_sector_scope_restricts_action_not_measurement():
     bal = flow_node_balance(acc, agg)                   # still measured
     assert set(bal["sector"]) == {"Matte"}
     assert len(bal) == len(_REGIONS)
+
+
+def test_a_nan_prior_on_a_content_edge_raises_instead_of_reading_as_zero():
+    """An uncovered edge would read as 0 and make its node look contradicted (U2-S2-2)."""
+    import pytest
+    acc, agg = _build(_REAL)
+    cc = acc.edge_index.index[acc.edge_index["valuation"] == "CC"][0]
+    agg.f_agg[int(acc.edge_index["edge_id"].iloc[cc])] = np.nan
+    with pytest.raises(ValueError, match="prior must be complete"):
+        flow_node_balance(acc, agg)

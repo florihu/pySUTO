@@ -33,7 +33,7 @@ from .relation.param_relation import expand_edge_index
 
 # Outflow below this fraction of inflow ⇒ the node's priors are contradicted.
 K_CLOSE = 0.5
-# Nodes below this inflow (kt) are noise, not a contradiction worth pricing.
+# Nodes below this inflow (kt CC: the content valuation) are noise, not a contradiction worth pricing.
 MIN_INFLOW_KT = 1.0
 
 
@@ -44,12 +44,22 @@ def flow_node_balance(acc, agg_result, valuation: str | None = None) -> pd.DataF
     ratio`` (``ratio = outflow/inflow``), one row per node with inflow > 0.
     Uses ``f_agg`` — the Stage-2 prior — not the posterior. ``valuation=None``
     means the content valuation (``acc.valuation_roles.content``).
+
+    Raises
+    ------
+    ValueError  if ``f_agg`` is NaN on any edge of the valuation: a not-covered edge
+                would read as 0 and make a node look contradicted.  The flat prior
+                fills every edge before Stage 2 ends.
     """
     if valuation is None:
         valuation = acc.valuation_roles.content
     ei = expand_edge_index(acc.edge_index, acc.node_index)
-    f = np.nan_to_num(np.asarray(agg_result.f_agg, dtype=float))
+    f = np.asarray(agg_result.f_agg, dtype=float)
     ei = ei[ei["valuation"].eq(valuation)].copy()
+    n_nan = int(np.isnan(f[ei["edge_id"].to_numpy()]).sum())
+    if n_nan:
+        raise ValueError(f"flow_node_balance: f_agg is NaN on {n_nan} {valuation!r} "
+                         "edge(s); the prior must be complete")
     ei["f"] = f[ei["edge_id"].to_numpy()]
 
     inflow = (ei[ei["entity_from"].eq("Process") & ei["entity_to"].eq("Flow")]

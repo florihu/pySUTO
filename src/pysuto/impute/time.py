@@ -45,10 +45,18 @@ class TimeImputer(BaseImputer):
                     "locf"    — last observation carried forward.
                     "nocb"    — next observation carried backward.
                     "mean"    — unweighted mean within window.
-    min_obs         Minimum non-NaN observations required within window.
-    gap_inflation   σ multiplier per time-step gap (default 1.0 = none).
+    min_obs         Minimum non-NaN observations required within window; read by
+                    "mean" only (the other methods need one or two observations
+                    by construction).
+    gap_inflation   σ multiplier per time-step gap (default 1.0 = none); applied by
+                    "linear", "locf" and "nocb", not by "mean" (its σ is the Lp
+                    combination of the window's σ).
     window_before   Override backward window (default = window).
     window_after    Override forward window (default = window).
+
+    "linear" with an observation on one side only carries the nearest observation
+    (LOCF / NOCB) and logs it as ``time_linear``; ``interpolate_only`` forbids that
+    carry, so a leading or trailing gap stays unfilled.
     """
 
     def __init__(
@@ -123,7 +131,7 @@ class TimeImputer(BaseImputer):
         mask = self._resolve_scope_mask(ei)
         if mask is not None:
             scope &= mask
-        eid = ei["edge_id"].to_numpy(dtype=int)
+        eid = ei["edge_id"].to_numpy(dtype=np.int64)
         if self._scope_valuations is not None:
             ok = np.isin(ei["valuation"].to_numpy(dtype=str), list(self._scope_valuations))
             scope[eid[~ok]] = False
@@ -135,10 +143,10 @@ class TimeImputer(BaseImputer):
     def _resolve_scope_mask(self, ei) -> Optional[np.ndarray]:
         """The per-edge mask of ``scope_edges`` / ``scope_feed_id``; None when neither
         is set. Caches the ``scope_edges`` id-list form as a bool mask."""
-        fid_arr = ei["from_id"].to_numpy(dtype=int)
-        tid_arr = ei["to_id"].to_numpy(dtype=int)
+        fid_arr = ei["from_id"].to_numpy(dtype=np.int64)
+        tid_arr = ei["to_id"].to_numpy(dtype=np.int64)
         val_arr = ei["valuation"].to_numpy(dtype=str)
-        eid_arr = ei["edge_id"].to_numpy(dtype=int)
+        eid_arr = ei["edge_id"].to_numpy(dtype=np.int64)
 
         # Resolve scope_edges-as-int-list lazily (N_edges now known).
         if (
@@ -148,7 +156,7 @@ class TimeImputer(BaseImputer):
         ):
             n_edges = int(eid_arr.max()) + 1 if eid_arr.size else 0
             mask = np.zeros(n_edges, dtype=bool)
-            mask[np.asarray(self._scope_edges_raw, dtype=int)] = True
+            mask[np.asarray(self._scope_edges_raw, dtype=np.int64)] = True
             self._scope_mask = mask
 
         # Resolve scope_feed_id lazily — expand per-edge feed-observation
@@ -182,11 +190,11 @@ class TimeImputer(BaseImputer):
         t_to_idx  = {t: i for i, t in enumerate(all_times)}
 
         # Group edges by series key → {time_idx: edge_id}
-        fid_arr = ei["from_id"].to_numpy(dtype=int)
-        tid_arr = ei["to_id"].to_numpy(dtype=int)
+        fid_arr = ei["from_id"].to_numpy(dtype=np.int64)
+        tid_arr = ei["to_id"].to_numpy(dtype=np.int64)
         val_arr = ei["valuation"].to_numpy(dtype=str)
         tim_arr = ei["time"].values
-        eid_arr = ei["edge_id"].to_numpy(dtype=int)
+        eid_arr = ei["edge_id"].to_numpy(dtype=np.int64)
 
         self._resolve_scope_mask(ei)
 
@@ -312,10 +320,6 @@ class TimeImputer(BaseImputer):
 
         ledger.write(e_id, f_val, s_val, step, meth, src, wts)
 
-
-# ---------------------------------------------------------------------------
-# FlatPriorImputer
-# ---------------------------------------------------------------------------
 
 # -----------------------------------------------------------------------------
 # Edge scope of a TimeImputer

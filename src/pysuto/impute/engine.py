@@ -64,9 +64,6 @@ class ImputationLog:
     def as_dataframe(self) -> pd.DataFrame:
         return pd.DataFrame(self._entries, columns=self._COLS)
 
-    def for_edge(self, edge_id: int) -> pd.DataFrame:
-        return self.as_dataframe().query("edge_id == @edge_id").reset_index(drop=True)
-
     def __len__(self) -> int:
         return len(self._entries)
 
@@ -265,6 +262,11 @@ class ImputationEngine:
                         stacklevel=2,
                     )
                     f[e_id] = clipped_val
+                    # the log row records the value the prior holds (σ is untouched,
+                    # #238)
+                    for entry in entries:
+                        if entry["edge_id"] == int(e_id):
+                            entry["f_after"] = clipped_val
 
         n_missing_after = int(np.isnan(f).sum())
         n_filled = n_missing_before - n_missing_after

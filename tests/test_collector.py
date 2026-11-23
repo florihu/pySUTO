@@ -39,7 +39,7 @@ class _MockRegistry:
     def __contains__(self, fid):
         return fid in self._feeds
 
-    def ids(self):
+    def input_feed_ids(self):
         return list(self._feeds.keys())
 
     def resolve(self, fid):
@@ -102,11 +102,11 @@ class TestFeedCollectorSelect:
 
     def test_select_single_valid_feed(self, collector):
         collector.select(["feed_a"])
-        assert collector._feed_ids == ["feed_a"]
+        assert collector.feed_ids == ["feed_a"]
 
     def test_select_multiple_valid_feeds(self, collector):
         collector.select(["feed_a", "feed_b"])
-        assert collector._feed_ids == ["feed_a", "feed_b"]
+        assert collector.feed_ids == ["feed_a", "feed_b"]
 
     def test_select_unknown_feed_raises_key_error(self, collector):
         with pytest.raises(KeyError, match="not found"):
@@ -115,7 +115,7 @@ class TestFeedCollectorSelect:
     def test_select_with_run_id_tuple_resolves_to_feed_id(self, collector):
         # When the run-id is None (no pinning) the bare feed_id is used.
         collector.select([("feed_a", None)])
-        assert collector._feed_ids == ["feed_a"]
+        assert collector.feed_ids == ["feed_a"]
 
     def test_select_returns_self_for_chaining(self, collector):
         result = collector.select(["feed_a"])
@@ -123,13 +123,25 @@ class TestFeedCollectorSelect:
 
     def test_select_mixed_str_and_tuple(self, collector):
         collector.select([("feed_a", None), "feed_b"])
-        assert collector._feed_ids == ["feed_a", "feed_b"]
+        assert collector.feed_ids == ["feed_a", "feed_b"]
 
     def test_select_records_each_feeds_run_id(self, collector):
         """Stage 2's lineage is these run ids; a feed without one drops out of
         ``parents.upstream`` (#53)."""
         collector.select(["feed_a", "feed_b"])
         assert [s["feed_run_id"] for s in collector.selected] == ["feed_a_run", "feed_b_run"]
+
+    def test_a_missing_sidecar_warns_and_labels_with_the_requested_key(
+            self, registry, acc, caplog):
+        class _NoSidecar(_MockRegistry):
+            def load_sidecar(self, key):
+                raise FileNotFoundError(key)
+
+        coll = FeedCollector(registry=_NoSidecar(registry._feeds), acc_struct=acc)
+        with caplog.at_level("WARNING"):
+            coll.select(["feed_a"])
+        assert coll.feed_ids == ["feed_a"]
+        assert any("no readable sidecar" in r.getMessage() for r in caplog.records)
 
     def test_a_registry_error_on_resolve_propagates(self, registry, acc):
         """The collector used to swallow TypeError/AttributeError/KeyError here as a
@@ -223,7 +235,7 @@ class TestFeedCollectorCombination:
 
         # Every edge is covered
         assert result.n_covered == N_R
-        assert result.n_missing == 0
+        assert result.n_edges - result.n_covered == 0
 
         # f_agg == F_AB on all covered edges (single feed, weight=1)
         np.testing.assert_allclose(result.f_agg, F_AB, rtol=1e-12)
@@ -281,7 +293,7 @@ class TestFeedCollectorCombination:
 
     def test_n_feeds_in_result_matches_selection(self, collector):
         result = collector.select(["feed_a", "feed_b", "feed_ab"]).aggregate()
-        assert result.n_feeds == 3
+        assert len(result.feed_ids) == 3
 
 # ---------------------------------------------------------------------------
 # Observed zeros (#76)

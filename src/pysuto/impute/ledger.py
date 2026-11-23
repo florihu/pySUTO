@@ -5,10 +5,13 @@ ledger.py
 
 Every imputer reads ``ledger.f`` / ``ledger.sigma`` and writes through
 :meth:`PriorLedger.write` (or :meth:`PriorLedger.write_many`). The ledger enforces,
-at write time, the two rules a prior obeys:
+at write time, the three rules a prior obeys:
 
 * **no overwrite** — an edge that already holds a value is never rewritten, so the
   first writer in cascade order keeps it;
+* **finite and non-negative** — a written value is finite and its σ finite and ≥ 0,
+  or the write raises ``ValueError`` (a NaN value would leave the edge missing yet
+  logged; a NaN or negative σ would enter ``sigma_agg``);
 * **writer scope** — an imputer writes only inside the scope it declares
   (:meth:`BaseImputer.writer_scope`); scopes may overlap, the cascade order decides
   precedence (GLOSSARY.md "Writer scope").
@@ -34,6 +37,18 @@ logger = get_logger(__name__)
 
 class ScopeError(RuntimeError):
     """An imputer wrote an edge outside its declared writer scope."""
+
+
+def _check_written(vals: np.ndarray, sigs: np.ndarray, imputer_id: str) -> None:
+    """Raise ``ValueError`` unless every value is finite and every σ finite and ≥ 0."""
+    bad_v = ~np.isfinite(vals)
+    with np.errstate(invalid="ignore"):
+        bad_s = ~np.isfinite(sigs) | (sigs < 0)
+    if bad_v.any() or bad_s.any():
+        raise ValueError(
+            f"imputer {imputer_id!r} wrote {int(bad_v.sum())} non-finite value(s) and "
+            f"{int(bad_s.sum())} non-finite or negative sigma(s)"
+        )
 
 
 class PriorLedger:
@@ -105,6 +120,7 @@ class PriorLedger:
         if not self._scope[e]:
             self._reject(1, e)
             return False
+        _check_written(np.asarray([val]), np.asarray([sig]), self._imputer_id)
         self.f[e] = val
         self.sigma[e] = sig
         self._append(_log(int(e), step, method, sources, coeffs, val, sig, desc,
@@ -138,6 +154,7 @@ class PriorLedger:
                 sources = [s for s, k in zip(sources, keep) if k]
             if coeffs is not None:
                 coeffs = [c for c, k in zip(coeffs, keep) if k]
+        _check_written(vals, sigs, self._imputer_id)
         self.f[edges] = vals
         self.sigma[edges] = sigs
         for i, (e, v, s) in enumerate(zip(edges, vals, sigs)):
