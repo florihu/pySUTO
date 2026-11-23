@@ -1,8 +1,8 @@
-# #283: the Stage-3 build-time checks that now raise pass on the reference const, and a check chain from Stage 3 is the pending confirmation
+# #283: the Stage-3 build-time checks that now raise pass on the reference const, and the final review's check chain confirms every const-to-psut array identical
 
 **Run:** no pipeline run was made on this branch. The reference const's stored arrays were read once, read-only, against the new check logic (`ConstraintEngine._check`, `RatioConstraintBuilder.from_csv`).
 **Against:** `const_20261119_125651_ff7bfc9c` (the final-review reference, #155).
-**Chain:** reference chain `psut_20261119_133504_4c783a88` / `uncprop_20261119_133344_08dfa15b`. The check chain from Stage 3 (`constraints.py` through `psut.py`, compared with `python -m pysuto compare`) is the maintainer's; its run ids and identical-array count are entered there (#283 closing comment), not here.
+**Chain:** reference chain `psut_20261119_133504_4c783a88` / `uncprop_20261119_133344_08dfa15b`. The check chain is the final review's wave 2 (`analysis_opt_20261123_171426_e335ec99_20261123_final-review-check-chain.md`): from Stage 1 on `b08d860`, which holds this fix; `const_20261123_170806_4991b908` built under the raising checks, and every stored array from the feeds to psut is identical to the reference (const 303, opt 240, uncprop 150, psut 366).
 **Feed+params versions:** `stock_bounds` current at read time (47 rows, all `stock_bound`).
 **Date:** 2026-11-23
 **Branch:** `fix/u3-findings-283`
@@ -10,7 +10,7 @@
 
 **Verdict:**
 - The new raises do not fire on the reference const (static evidence below). They change no stored array: no builder, σ rule, row order or id was touched.
-- Pending: the check chain's `compare` confirms every const-to-psut array identical.
+- Confirmed: the check chain's `compare` finds every const-to-psut array identical (1,059; 1,102 with the feeds and the imp).
 
 ## Evidence on `const_20261119_125651_ff7bfc9c`
 
