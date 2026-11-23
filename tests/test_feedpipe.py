@@ -4,12 +4,12 @@ test_feedpipe.py
 pytest test suite for feedpipe.py
 
 Covers:
-    - Step D  (apply_with_uncertainty via _MockWeightMatrix / UncertaintyMixin)
+    - Step D  (apply_with_uncertainty via a CSR holder of the real UncertaintyMixin)
     - DataFeedMetadata construction and pedigree conversion
     - PropagationResult fields and numerical correctness
     - DataFeedRegistry  register / save / reload round-trip
     - Mass-conservation guard and edge-scope mask
-      (run_feed_pipeline itself — steps A–D + register — has no test here)
+      (run_feed, the driver of a feed build, is covered by test_feed_spec.py)
     - Edge cases: zero flows, single-edge identity matrix, perfect-quality scores
 
 Run with:
@@ -23,6 +23,7 @@ import sys
 
 import numpy as np
 import pytest
+import scipy.sparse as sp
 
 # ---------------------------------------------------------------------------
 # Make sure the project root is importable
@@ -57,17 +58,18 @@ def _make_metadata(**kwargs) -> DataFeedMetadata:
     return DataFeedMetadata(**defaults)
 
 
-class _MockWeightMatrix(UncertaintyMixin):
+class _CsrFeed(UncertaintyMixin):
     """
-    Minimal stand-in for WeightMatrix that exercises UncertaintyMixin
-    without requiring sparse matrices or AccountingStructure.
+    Minimal holder of a CSR weight matrix for the real ``UncertaintyMixin``: it owns
+    what the mixin and the registry read (``weight_matrix``, ``id``, ``save``) and
+    re-implements no propagation, so every test below runs the shipped Eq. S4.
     """
 
     def __init__(self, W_dense: np.ndarray, feed_id: str = "mock", acc_id: str = "acc_test"):
         self.id            = feed_id
         self.acc_used      = acc_id
         self.odir          = ""
-        self.weight_matrix = np.asarray(W_dense, dtype=float)
+        self.weight_matrix = sp.csr_matrix(np.asarray(W_dense, dtype=float))
 
     def save(self, **kwargs):
         import pickle
@@ -75,22 +77,6 @@ class _MockWeightMatrix(UncertaintyMixin):
         os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
         with open(path, "wb") as fh:
             pickle.dump({"id": self.id, "W": self.weight_matrix}, fh)
-
-    def apply_with_uncertainty(self, F_src=None, pedigree=None, p: float = 1.3):
-        F_src = np.asarray(F_src if F_src is not None else self.F_src, dtype=float)
-        pg    = pedigree or self.pedigree
-        cv    = pg.total_cv()
-        W     = self.weight_matrix
-        F_root  = W.T @ F_src
-        # Lp σ propagation: σ_root[j] = CV · ( Σ_i (|W_ij|·|f_i|)^p )^(1/p)
-        Wp      = np.abs(W) ** p
-        sum_p   = Wp.T @ (np.abs(F_src) ** p)
-        sigma   = cv * np.power(np.maximum(sum_p, 0.0), 1.0 / p)
-        with np.errstate(invalid="ignore", divide="ignore"):
-            cv_root = np.where(F_root != 0.0, sigma / np.abs(F_root), np.nan)
-        return PropagationResult(
-            F_root=F_root, sigma_root=sigma, cv_root=cv_root, cv_src=cv
-        )
 
 
 # ---------------------------------------------------------------------------
@@ -121,7 +107,7 @@ def meta_worst():
 
 @pytest.fixture
 def wm_std():
-    return _MockWeightMatrix(W_STD, feed_id="test_feed")
+    return _CsrFeed(W_STD, feed_id="test_feed")
 
 
 # ===========================================================================
@@ -152,7 +138,7 @@ class TestDataFeedMetadata:
 
     def test_cv_total_stored_on_metadata(self, meta_perfect):
         """cv_total is populated by fill_computed(), not by to_pedigree_scores()."""
-        wm = _MockWeightMatrix(W_STD, "cv_check")
+        wm = _CsrFeed(W_STD, "cv_check")
         wm.set_pedigree(meta_perfect.to_pedigree_scores())
         wm.set_F_src(F_SRC_STD)
         result = wm.apply_with_uncertainty()
@@ -162,7 +148,7 @@ class TestDataFeedMetadata:
 
 
 # ===========================================================================
-# 2.  UncertaintyMixin / _MockWeightMatrix  (Step D internals)
+# 2.  UncertaintyMixin  (Step D internals)
 # ===========================================================================
 
 class TestUncertaintyMixin:
@@ -223,8 +209,8 @@ class TestUncertaintyMixin:
 
     def test_worse_pedigree_yields_larger_sigma(self, meta_perfect, meta_worst):
         """Higher pedigree scores → larger sigma_root for the same flows."""
-        wm_good = _MockWeightMatrix(W_STD, "good")
-        wm_bad  = _MockWeightMatrix(W_STD, "bad")
+        wm_good = _CsrFeed(W_STD, "good")
+        wm_bad  = _CsrFeed(W_STD, "bad")
         for wm, meta in [(wm_good, meta_perfect), (wm_bad, meta_worst)]:
             wm.set_pedigree(meta.to_pedigree_scores())
             wm.set_F_src(F_SRC_STD)
@@ -243,7 +229,7 @@ class TestEdgeCases:
         """1×1 identity: F_root should equal F_src exactly."""
         W  = np.array([[1.0]])
         fs = np.array([42.0])
-        wm = _MockWeightMatrix(W, "identity")
+        wm = _CsrFeed(W, "identity")
         wm.set_pedigree(meta_perfect.to_pedigree_scores())
         wm.set_F_src(fs)
         result = wm.apply_with_uncertainty()
@@ -251,7 +237,7 @@ class TestEdgeCases:
 
     def test_zero_flow_vector(self, meta_perfect):
         """All-zero F_src should give zero F_root and zero sigma_root."""
-        wm = _MockWeightMatrix(W_STD, "zero_flow")
+        wm = _CsrFeed(W_STD, "zero_flow")
         wm.set_pedigree(meta_perfect.to_pedigree_scores())
         wm.set_F_src(np.zeros(4))
         result = wm.apply_with_uncertainty()
@@ -262,7 +248,7 @@ class TestEdgeCases:
         """One source split evenly across two root nodes."""
         W  = np.array([[0.6, 0.4]])   # 1 src, 2 root
         fs = np.array([200.0])
-        wm = _MockWeightMatrix(W, "split")
+        wm = _CsrFeed(W, "split")
         wm.set_pedigree(meta_perfect.to_pedigree_scores())
         wm.set_F_src(fs)
         result = wm.apply_with_uncertainty()
@@ -273,7 +259,7 @@ class TestEdgeCases:
         rng = np.random.default_rng(0)
         W   = rng.random((20, 15))
         fs  = rng.random(20) * 1000
-        wm  = _MockWeightMatrix(W, "random")
+        wm  = _CsrFeed(W, "random")
         wm.set_pedigree(meta_perfect.to_pedigree_scores())
         wm.set_F_src(fs)
         result = wm.apply_with_uncertainty()
@@ -326,7 +312,7 @@ class TestDataFeedRegistry:
     def _run_and_register(self, tmpdir, feed_id="test_feed", meta_kwargs=None):
         meta_kwargs = meta_kwargs or {}
         meta   = _make_metadata(feed_name=feed_id, **meta_kwargs)
-        wm     = _MockWeightMatrix(W_STD, feed_id=feed_id)
+        wm     = _CsrFeed(W_STD, feed_id=feed_id)
         wm.set_pedigree(meta.to_pedigree_scores())
         wm.set_F_src(F_SRC_STD)
         result = wm.apply_with_uncertainty()
@@ -381,7 +367,7 @@ class TestDataFeedRegistry:
     def test_re_registering_same_feed_id_creates_new_run(self, tmp_path):
         registry, e1, _, _ = self._run_and_register(str(tmp_path))
         meta2 = _make_metadata(feed_name="test_feed", reliability=2)
-        wm2   = _MockWeightMatrix(W_STD, "test_feed")
+        wm2   = _CsrFeed(W_STD, "test_feed")
         wm2.set_pedigree(meta2.to_pedigree_scores())
         wm2.set_F_src(F_SRC_STD)
         result2 = wm2.apply_with_uncertainty()
@@ -396,7 +382,7 @@ class TestDataFeedRegistry:
         registry = DataFeedRegistry(odir=str(tmp_path))
         for fid in ("feed_a", "feed_b", "feed_c"):
             meta   = _make_metadata(feed_name=fid)
-            wm     = _MockWeightMatrix(W_STD, feed_id=fid)
+            wm     = _CsrFeed(W_STD, feed_id=fid)
             wm.set_pedigree(meta.to_pedigree_scores())
             wm.set_F_src(F_SRC_STD)
             result = wm.apply_with_uncertainty()
@@ -423,12 +409,11 @@ class TestDataFeedRegistry:
 
 class TestStepD:
     """
-    Tests that mirror the smoke-test in feedpipe.__main__ but as proper
-    pytest assertions so failures are visible in CI.
+    ``step_D_apply_and_propagate`` over the real mixin, as pytest assertions.
     """
 
     def test_step_D_result_matches_manual_calculation(self, meta_perfect):
-        wm = _MockWeightMatrix(W_STD, "step_d_test")
+        wm = _CsrFeed(W_STD, "step_d_test")
 
         from pysuto.feedpipe import step_D_apply_and_propagate
         result = step_D_apply_and_propagate(wm, F_SRC_STD, meta_perfect)
@@ -438,7 +423,7 @@ class TestStepD:
 
     def test_step_D_propagation_result_type(self, meta_perfect):
         from pysuto.feedpipe import step_D_apply_and_propagate
-        wm     = _MockWeightMatrix(W_STD, "step_d_type")
+        wm     = _CsrFeed(W_STD, "step_d_type")
         result = step_D_apply_and_propagate(wm, F_SRC_STD, meta_perfect)
         assert isinstance(result, PropagationResult)
 
@@ -453,14 +438,31 @@ class TestStepD:
                                    geographical_correlation=4,
                                    other_correlation=4)
         from pysuto.feedpipe import step_D_apply_and_propagate
-        wm_low  = _MockWeightMatrix(W_STD, "low")
-        wm_high = _MockWeightMatrix(W_STD, "high")
+        wm_low  = _CsrFeed(W_STD, "low")
+        wm_high = _CsrFeed(W_STD, "high")
         r_low  = step_D_apply_and_propagate(wm_low,  F_SRC_STD, meta_low)
         r_high = step_D_apply_and_propagate(wm_high, F_SRC_STD, meta_high)
         # sigma_root is proportional to cv_src; so ratio should be cv_high/cv_low
         ratio_sigma = r_high.sigma_root / r_low.sigma_root
         ratio_cv    = r_high.cv_src     / r_low.cv_src
-        np.testing.assert_allclose(ratio_sigma, ratio_cv, rtol=1e-6)
+        np.testing.assert_allclose(ratio_sigma, ratio_cv, rtol=1e-10)
+
+
+class TestStepDOmegaForm:
+
+    def test_sigma_is_the_cv_invariant_form_where_signs_cancel(self, meta_perfect):
+        """One root edge fed by +1·3 and -1·2: F_root = 1, shares ω = (0.6, 0.4), so
+        σ = CV·|F_root|·(Σω^p)^(1/p), not CV·(Σ|W·f|^p)^(1/p) of the non-ω form."""
+        from pysuto.feedpipe import step_D_apply_and_propagate
+        p = 1.3
+        wm = _CsrFeed(np.array([[1.0], [-1.0]]), "cancel")
+        result = step_D_apply_and_propagate(wm, np.array([3.0, 2.0]), meta_perfect, p=p)
+        omega = np.array([0.6, 0.4])
+        expected = result.cv_src * 1.0 * np.sum(omega ** p) ** (1.0 / p)
+        np.testing.assert_allclose(result.F_root, [1.0], rtol=1e-12)
+        np.testing.assert_allclose(result.sigma_root, [expected], rtol=1e-12)
+        non_omega = result.cv_src * (3.0 ** p + 2.0 ** p) ** (1.0 / p)
+        assert result.sigma_root[0] < non_omega / 4
 
 
 class TestMassConservationGuard:
@@ -507,16 +509,20 @@ class TestEdgeScopeMask:
         from pysuto.acc import AccountingStructure
         from pysuto.feedpipe import _apply_edge_scope_mask
 
-        root = {
-            "nodes": pd.DataFrame({
-                "sector": ["Mining", "Ore", "Mining", "Ore"],
-                "entity": ["P",      "F",   "P",      "F"],
-                "region": ["A",      "A",   "B",      "B"],
-            }),
-            "time_range": [0],
-            "valuation":  ["mass"],
+        spec = {
+            "sectors":    [{"name": "Mining", "entity": "P"},
+                           {"name": "Ore",    "entity": "F"}],
+            "regions":    ["A", "B"],
+            "valuations": [{"name": "mass",     "role": "gross"},
+                           {"name": "copper_c", "role": "content"}],
+            "times":      ["0"],
+            "supply":     {},
+            "use":        {"Mining": ["Mining", "Ore"], "Ore": ["Mining", "Ore"]},
+            "tradable":   ["Mining", "Ore"],
+            "accounting": [{"from": a, "to": b, "same_region": False}
+                           for a in ("P", "F") for b in ("P", "F")],
         }
-        acc = AccountingStructure(id="t", root=root)
+        acc = AccountingStructure.from_spec(spec, "t")
         ei = acc.edge_index
         cr = acc.masks["cross_region"]
         cross = ei[cr].iloc[0]
@@ -538,6 +544,35 @@ class TestEdgeScopeMask:
         assert len(ct.tab) == 1
         kept = ct.tab.iloc[0]
         assert kept["root_region_from"] != kept["root_region_to"]
+
+    def test_a_row_naming_no_root_edge_raises(self):
+        """Regression (#280, U1a-G3-6): an unresolved row used to be dropped silently."""
+        import pandas as pd
+        from types import SimpleNamespace
+        from pysuto.acc import AccountingStructure
+        from pysuto.feedpipe import _apply_edge_scope_mask
+
+        spec = {
+            "sectors":    [{"name": "Mining", "entity": "P"},
+                           {"name": "Ore",    "entity": "F"}],
+            "regions":    ["A", "B"],
+            "valuations": [{"name": "mass",     "role": "gross"},
+                           {"name": "copper_c", "role": "content"}],
+            "times":      ["0"],
+            "supply":     {},
+            "use":        {"Mining": ["Mining", "Ore"], "Ore": ["Mining", "Ore"]},
+            "tradable":   ["Mining", "Ore"],
+            "accounting": [{"from": a, "to": b, "same_region": False}
+                           for a in ("P", "F") for b in ("P", "F")],
+        }
+        acc = AccountingStructure.from_spec(spec, "t")
+        row = {"root_sector_from": "Ore", "root_entity_from": "F",
+               "root_region_from": "A", "root_sector_to": "Mining",
+               "root_entity_to": "P", "root_region_to": "A",
+               "root_time": "7", "root_valuation": "mass"}    # the acc has no year 7
+        ct = SimpleNamespace(tab=pd.DataFrame([row]))
+        with pytest.raises(ValueError, match="name no root edge"):
+            _apply_edge_scope_mask(ct, acc, "cross_region")
 
     def test_empty_mask_name_is_noop(self):
         import pandas as pd

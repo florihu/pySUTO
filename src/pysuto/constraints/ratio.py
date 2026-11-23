@@ -96,7 +96,7 @@ def _relative_sigma(sigma: float, r: float, param_id: str | None) -> float:
 
 class RatioConstraintBuilder(BaseConstraintBuilder):
     """
-    Soft free-cone ratio constraint: a_i − r · a_j = ε_k
+    Soft equality ratio constraint: a_i − r · a_j = ε_k
 
     Loaded from the same params CSV schema as ParamSource.
     The CSV uncertainty modes (sd / min_max / pedigree) state σ in *ratio units*;
@@ -112,8 +112,8 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
     """
 
     def __init__(self, pairs: list[Relation],
-                 sigma_rel_floor: float = 0.02,
-                 scale_abs_floor: float = 1.0,
+                 sigma_rel_floor: float,
+                 scale_abs_floor: float,
                  hard: bool = False):
         """
         pairs : list of ratio :class:`~pysuto.relation.relation.Relation` objects
@@ -124,7 +124,7 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
             ratio violation).
         scale_abs_floor : lower bound on the flow-space scale (tonnage), so
             both-zero-prior pairs keep a finite σ_c.
-        hard : emit zero-cone equalities (``σ_c = 0``) instead of soft rows — for a
+        hard : emit hard equalities (``σ_c = 0``) instead of soft rows — for a
             relation that defines an edge nothing else observes (the stripping
             ratio of the waste-rock satellite, ADR 0038).
         """
@@ -132,6 +132,8 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
         self._hard = bool(hard)
         self._sigma_rel_floor = float(sigma_rel_floor)
         self._scale_abs_floor = float(scale_abs_floor)
+        self._cached_static: ConstraintBlock | None = None
+        self._scale_idx = None   # ratio_scale_index(pairs), built on first build_dynamic
 
     @classmethod
     def from_csv(
@@ -139,8 +141,9 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
         path: str,
         acc_struct,
         mask: str | None = None,
-        sigma_rel_floor: float = 0.02,
-        scale_abs_floor: float = 1.0,
+        *,
+        sigma_rel_floor: float,
+        scale_abs_floor: float,
         hard: bool = False,
         covered: np.ndarray | None = None,
     ) -> "RatioConstraintBuilder":
@@ -172,9 +175,11 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
             scope = None
 
         pairs = []
+        n_no_nominal = 0
         for row in read_params(path, ACCEPTS_EQ):
             nominal = row.value_nominal
             if np.isnan(nominal):
+                n_no_nominal += 1
                 continue
             param_id = row.param_id or None
             # Net-stock bands (param_type=="stock_bound", nominal r=0, centred at 0):
@@ -185,6 +190,11 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
             is_stock = row.param_type == "stock_bound"
             if is_stock:
                 vmax = row.value_max
+                if np.isnan(vmax) and not hard:
+                    raise ValueError(
+                        f"RatioConstraintBuilder: stock_bound param {param_id!r} has no "
+                        f"value_max — its σ_r would be 0 (a stated-exact net stock), "
+                        f"only the sigma_rel_floor.")
                 sigma = abs(vmax) / Z95_STOCK if not np.isnan(vmax) else 0.0
                 scale_mode = "denominator"
             else:
@@ -240,6 +250,12 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
                 # edge b (coeff +1) is the numerator; edge a (coeff −r) the denom.
                 num   = _decode_edge(ei_idx, r.b_edge_id)
                 denom = _decode_edge(ei_idx, r.a_edge_id)
+                if is_stock and num["valuation"] != denom["valuation"]:
+                    raise ValueError(
+                        f"RatioConstraintBuilder: stock_bound param {param_id!r} pairs a "
+                        f"{num['valuation']} numerator with a {denom['valuation']} "
+                        f"denominator — its σ_c (ratio σ × Σ|a₀,denom|) would be in the "
+                        f"denominator's unit while the row is in the numerator's.")
                 pairs.append(ratio_relation(
                     [r.b_edge_id], [r.a_edge_id], nominal,
                     variant      = variant,
@@ -259,13 +275,12 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
                     source       = param_id or "",
                 ))
 
+        if n_no_nominal:
+            _log.info("RatioConstraintBuilder: %d param row(s) without value_nominal "
+                      "skipped", n_no_nominal)
         _log.info("RatioConstraintBuilder: %d pairs from %s", len(pairs), os.path.basename(path))
         return cls(pairs, sigma_rel_floor=sigma_rel_floor, scale_abs_floor=scale_abs_floor,
                    hard=hard)
-
-    @property
-    def source_paths(self) -> list[str]:
-        return []
 
     def build_static(self, acc_struct) -> ConstraintBlock:
         block = emit(self._pairs, acc_struct.n_edges)
@@ -284,7 +299,9 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
         Mirrors :meth:`SumConstraintBuilder.build_dynamic`. ``c`` is left
         unchanged (always 0 for ratio_eq).
         """
-        static = getattr(self, "_cached_static", None) or self.build_static(acc_struct)
+        static = self._cached_static
+        if static is None:
+            static = self.build_static(acc_struct)
         if static.G_rows.shape[0] == 0:
             return _empty_block(acc_struct.n_edges)
         if self._hard:
@@ -292,10 +309,9 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
             # year-local), like the mass balances: no σ scaling, no deactivation.
             return static
 
-        index = getattr(self, "_scale_idx", None)
-        if index is None:
-            index = self._scale_idx = ratio_scale_index(self._pairs)
-        sigma_c = ratio_sigma_c(index, static, f_agg, t,
+        if self._scale_idx is None:
+            self._scale_idx = ratio_scale_index(self._pairs)
+        sigma_c = ratio_sigma_c(self._scale_idx, static, f_agg, t,
                                 self._sigma_rel_floor, self._scale_abs_floor)
         return ConstraintBlock(
             G_rows   = static.G_rows,
@@ -311,7 +327,7 @@ class RatioConstraintBuilder(BaseConstraintBuilder):
 
 class RatioBoundBuilder(BaseConstraintBuilder):
     """
-    Hard non-negative-cone ratio bound constraints from the same params CSV.
+    Hard ratio bound (le) constraints from the same params CSV.
 
     For each row with a finite value_min / value_max (the ratio band; bound_lower and
     bound_upper are read by nobody):
@@ -322,6 +338,7 @@ class RatioBoundBuilder(BaseConstraintBuilder):
     def __init__(self, bound_rows: list[dict], kind: str = "unknown"):
         self._bound_rows = bound_rows
         self._kind = kind
+        self._cached_static: ConstraintBlock | None = None
 
     @classmethod
     def from_csv(
@@ -390,7 +407,6 @@ class RatioBoundBuilder(BaseConstraintBuilder):
                         "region":      bk["region"],
                         "time":        bk["time"],
                         "valuation":   bk["valuation"],
-                        "nominal":     nominal if not np.isnan(nominal) else 1.0,
                         "bl":          bl,
                         "bu":          bu,
                     })
@@ -416,7 +432,6 @@ class RatioBoundBuilder(BaseConstraintBuilder):
                     "edge_j":   r.a_edge_id,
                     "num":      _decode_edge(ei_idx, r.b_edge_id),
                     "denom":    _decode_edge(ei_idx, r.a_edge_id),
-                    "nominal":  nominal if not np.isnan(nominal) else 1.0,
                     "bl":       bl,
                     "bu":       bu,
                 })
@@ -427,10 +442,6 @@ class RatioBoundBuilder(BaseConstraintBuilder):
                   len(bound_rows), os.path.basename(path),
                   n_agg, len(bound_rows) - n_agg, n_signed_skipped)
         return cls(bound_rows, kind=kind)
-
-    @property
-    def source_paths(self) -> list[str]:
-        return []
 
     def build_static(self, acc_struct) -> ConstraintBlock:
         n_edges = acc_struct.n_edges
@@ -521,7 +532,9 @@ class RatioBoundBuilder(BaseConstraintBuilder):
         |A x| ≲ 4e12 ≪ 1e15 given u_max = 1e9 and typical bound ratios).
         σ_c stays 0 for hard rows.
         """
-        static = getattr(self, "_cached_static", None) or self.build_static(acc_struct)
+        static = self._cached_static
+        if static is None:
+            static = self.build_static(acc_struct)
         if static.G_rows.shape[0] == 0:
             return _empty_block(acc_struct.n_edges)
 
@@ -537,9 +550,3 @@ class RatioBoundBuilder(BaseConstraintBuilder):
             sigma_c  = static.sigma_c,
             row_meta = static.row_meta,
         )
-
-
-# =============================================================================
-# FlowBoundsBuilder
-# =============================================================================
-

@@ -29,7 +29,7 @@ row on the reported value — the leg's prior already is that value, so the row 
 Measured 2026-10-21 (`opt_20261021_121332_acc68135` vs `opt_20261021_111957_5c6d13bc`): the PSC rows'
 Σz² 348.9 → 0.0 with no row above |z| 3; all 223 reported legs move toward their reported values
 (Iran 2016 −40.3 → −49.2 kt CC against −63.0); the world Σ|post − ICSG| 128.4 → 101.6 kt CC
-(−20.9 %, the rest is territories ICSG does not report); common-set z² +0.005 %, Round-E unchanged.
+(−20.9 %, the rest is territories ICSG does not report); common-set z² +0.005 %, Round-E unchanged. *(Pruned: `imp_20261021_100015_ea05007a`, `opt_20260831_121315_645bbff1` are absent from `data/proc` on 2026-11-23; no per-run pruning date is recorded.)*
 
 The three stock-change legs are the only signed edges of the account, so whatever σ they carry is
 the price of routing a contradiction of the cathode balance into a stock instead of surfacing it

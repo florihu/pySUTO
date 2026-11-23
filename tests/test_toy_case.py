@@ -21,7 +21,9 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pysuto.acc import ALL_SPEC_KEYS, AccountingStructure, check_built_acc
+from pysuto import acc_store
+from pysuto.acc import ALL_SPEC_KEYS
+from pysuto.acc_store import check_built_acc
 from pysuto.tutorial import toy
 from pysuto.diag import FeedDiagnostics, SankeySpec, TruthDiag, sankey_tables
 from pysuto.registry import (ConstraintRunRegistry, DataFeedRegistry,
@@ -46,7 +48,7 @@ def chain(tmp_path_factory):
     # fake the figure; the tutorial job draws the real one)
     ids["psut"]    = toy.run_stage6(root, ids["opt"], png=False)
     return {"root": root, "ids": ids, "seconds": time.perf_counter() - t0,
-            "acc": AccountingStructure.load(toy.ACC_ID,
+            "acc": acc_store.load(toy.ACC_ID,
                                             storage_dir=str(root / "proc" / "acc"))}
 
 
@@ -82,7 +84,7 @@ def test_the_acc_spec_builds_through_from_spec_and_survives_a_reload(tmp_path):
     assert np.all(acc.bounds.l[stock] < 0.0) and np.all(acc.bounds.l[~stock] == 0.0)
     # #53's record; the same version needs no registry to be compared
     check_built_acc(str(tmp_path), toy.ACC_REF, None, ALL_SPEC_KEYS, require_record=True)
-    loaded = AccountingStructure.load(toy.ACC_ID, storage_dir=str(tmp_path))
+    loaded = acc_store.load(toy.ACC_ID, storage_dir=str(tmp_path))
     pd.testing.assert_frame_equal(loaded.edge_index, acc.edge_index)
     np.testing.assert_array_equal(loaded.masks["massbal_scope"],
                                   acc.masks["massbal_scope"])
@@ -287,6 +289,21 @@ def test_the_planted_leg_is_the_top_soft_residual(chain):
     assert abs(top["z"]) > 1.5 * abs(soft["z"].iloc[2])   # the leg and its twin lead
 
 
+def test_the_planted_leg_is_recovered_inside_its_interval(chain):
+    """The x1000 leg's posterior mean lands near its truth (seed 59, a* 23.63 kt vs truth
+    22.73 kt on ``opt_20261123_134417_2ad7561c``), inside its (1 − alpha) interval."""
+    root, ids, acc = chain["root"], chain["ids"], chain["acc"]
+    leg   = toy._edge_id(acc, *(toy.reveal()[k] for k in PLANTED_KEY))
+    truth = toy.truth_vector(toy.truth(), acc)[leg]
+    a_star = toy._global(OptimRunRegistry(str(root / "proc" / "opt")).load(ids["opt"]),
+                         "F_opt", acc.n_edges)[leg]
+    post   = UncPropRunRegistry(str(root / "proc" / "uncprop")).load(ids["uncprop"])
+    (ts,)  = [t for t in post.per_timestep.values() if leg in set(np.asarray(t.cols_t))]
+    k      = int(np.flatnonzero(np.asarray(ts.cols_t) == leg)[0])
+    assert ts.lower[k] <= truth <= ts.upper[k]
+    assert abs(a_star - truth) < 0.10 * truth
+
+
 def test_stage5_coverage_of_the_420_edges_lies_in_its_recorded_band(chain):
     root, ids, acc = chain["root"], chain["ids"], chain["acc"]
     truth   = toy.truth_vector(toy.truth(), acc)
@@ -300,7 +317,7 @@ def test_stage5_coverage_of_the_420_edges_lies_in_its_recorded_band(chain):
     # 393 of 420 edges inside their 95 % interval. Never loosen it. With copper's
     # cascade order (review of 9c797e3): 0.933, 392 of 420. After #60's hooks (the
     # inert sum rows removed, one edge observed by two feeds): 0.943, 396 of 420.
-    assert 0.90 <= coverage <= 0.97, coverage
+    assert coverage == pytest.approx(0.943, abs=0.003), coverage   # 396 of 420, ±1 edge
     assert toy.scoreboard(root, ids).coverage() == pytest.approx(coverage)
 
 
@@ -312,6 +329,29 @@ def test_the_psut_supply_and_use_blocks_balance_per_node(chain):
     nodes  = _node_balance(scoped.rename(columns={"period": "time"}), "val")
     assert len(nodes) == 180
     np.testing.assert_allclose(nodes["inflow"], nodes["outflow"], rtol=0.0, atol=1e-8)
+
+
+def test_the_solved_footprints_track_the_planted_truth(chain):
+    """Stage 6 scored against the truth: the PIOT footprint of the solved chain and of the
+    planted flows, world total of the nature extraction per period and valuation. Band
+    fixed on the first run of this test (2026-11-23, seed 59): the largest relative gap
+    is 0.065 (2001, Content) over the five years and both valuations. Never loosen it."""
+    from types import SimpleNamespace
+    from pysuto.psut import PSUT
+    root, ids, acc = chain["root"], chain["ids"], chain["acc"]
+    solved = PsutRunRegistry(str(root / "proc" / "psut")).load(ids["psut"])
+    truth  = toy.truth_vector(toy.truth(), acc)
+    planted = PSUT.from_results(
+        {t: SimpleNamespace(timestep=t, F_opt=truth, cols_t=None) for t in solved.periods()},
+        acc)
+    a, b = solved.to_piot(level="L"), planted.to_piot(level="L")
+    gaps = []
+    for period in solved.periods():
+        for valuation in solved.valuations:
+            fa = a.footprint("E", period, valuation, by=None)
+            fb = b.footprint("E", period, valuation, by=None)
+            gaps.append(abs(fa / fb - 1.0))
+    assert len(gaps) == 10 and max(gaps) < 0.08, gaps
 
 
 def test_the_sankey_tables_sum_to_the_psut_totals(chain, caplog):
@@ -529,3 +569,27 @@ def test_a_const_run_on_an_imp_run_without_flag_or_log_raises_naming_it(chain):
     os.remove(root / "proc" / "imp" / old / "imputation_log.parquet")
     with pytest.raises(ValueError, match=old):
         toy.run_stage3(root, old)
+
+
+def test_the_imputed_prior_lies_within_three_sigma_of_the_truth_on_the_filled_edges(chain):
+    """U2-S1-3: Stage 2 against ``toy.truth()``. Measured on this chain, max |f − truth|/σ_agg
+    is 1.96 (conc), 1.68 (network) and 1.54 (time_interp); the trade seeds are left out, as
+    one of them is the planted ×1000 customs row."""
+    root, ids, acc = chain["root"], chain["ids"], chain["acc"]
+    res = ImputationRunRegistry(str(root / "proc" / "imp")).load(ids["imp"])
+    log = res.imputation_log.as_dataframe()
+    truth = toy.truth_vector(toy.truth(), acc)
+    for imputer_id in ("conc", "network", "time_interp"):
+        e = log.loc[log["imputer_id"] == imputer_id, "edge_id"].astype(int).to_numpy()
+        assert e.size > 0, imputer_id
+        miss = np.abs(res.f_agg[e] - truth[e])
+        assert np.all(miss <= 3.0 * res.sigma_agg[e]), (imputer_id, float(miss.max()))
+
+
+def test_stage_5_conditions_the_same_prior_vector_as_stage_4(chain):
+    """Stage 5 conditions ``const.a0``, Stage 4 ``const.a_prior_global``: on the block
+    path the two are one vector (the sigma floor is relative to |a0|), #285."""
+    root, ids = chain["root"], chain["ids"]
+    const = ConstraintRunRegistry(str(root / "proc" / "const")).load(ids["const"])
+    assert const.G_blocks
+    np.testing.assert_array_equal(const.a_prior_global, np.asarray(const.a0, dtype=float))

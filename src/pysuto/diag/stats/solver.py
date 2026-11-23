@@ -43,7 +43,13 @@ import os
 import numpy as np
 import pandas as pd
 
+from pysuto._conditioning import DEFAULT_CONDITIONING, condition_prior, condition_sigma_c
+from pysuto.logging import get_logger
+
 from ._core import constraint_table
+from .objective import FAMILIES, family_frame, rank_identities, share_by_region
+
+_log = get_logger("pysuto.diag.stats.solver")
 
 # CSV schema of the edge table (present columns only, in this order).
 _EDGE_META_COLS = ["edge_id", "from_sector", "from_region", "from_entity",
@@ -115,14 +121,22 @@ class SolverStatsDiagnostic:
         The years :meth:`write` emits both deliverables for (default: the first
         result year).
         The frames always cover every result year.
+    conditioning : dict, optional
+        The σ floors the solver used (the opt sidecar's ``stage_config``:
+        ``sigma_a_floor_abs`` / ``sigma_a_floor_rel`` / ``sigma_a_ceiling_factor`` /
+        ``sigma_c_floor``); missing keys take the library defaults. ``z`` divides by
+        the conditioned σ_a and (soft rows) σ_c, the σ the QP weighted, so the
+        frames' ``Σz²`` is the QP objective also where a floor binds.
     """
 
-    def __init__(self, results, constraint_run, acc_struct=None, years=None) -> None:
+    def __init__(self, results, constraint_run, acc_struct=None, years=None,
+                 conditioning=None) -> None:
         if years is None:
             years = (next(iter(results)),)
         self._res = results
         self._cr = constraint_run
         self._acc = acc_struct
+        self._cond = {**DEFAULT_CONDITIONING, **(conditioning or {})}
         self.years = resolve_years(years, results)
         self._all_years = [str(k) for k in results]
         self._lhs_prior = None            # cached G·a0 (year-independent)
@@ -203,7 +217,12 @@ class SolverStatsDiagnostic:
             res = self._result_for_year(y)
             a_post[m]  = np.asarray(res.F_opt, dtype=float)[m]
             a_prior[m] = self._prior_vector(y)[m]
-        sigma_a = np.asarray(self._cr.sigma_a, dtype=float)
+        _, sigma_a = condition_prior(
+            self._cold_prior(), self._cr.sigma_a,
+            floor_abs      = float(self._cond["sigma_a_floor_abs"]),
+            floor_rel      = float(self._cond["sigma_a_floor_rel"]),
+            ceiling_factor = float(self._cond["sigma_a_ceiling_factor"]),
+        )
         defect = a_post - a_prior
         with np.errstate(divide="ignore", invalid="ignore"):
             z = np.where(sigma_a > 0, defect / sigma_a, np.nan)
@@ -268,6 +287,7 @@ class SolverStatsDiagnostic:
         lhs_t   = np.full(M, np.nan)
         resid   = np.full(M, np.nan)
         G = self._cr.G
+        soft_all = ~rm["is_hard"].to_numpy().astype(bool)
         for y in self._all_years:
             m = time == y
             if not m.any():
@@ -275,7 +295,10 @@ class SolverStatsDiagnostic:
             td  = self._timestep_data_for_year(y)
             res = self._result_for_year(y)
             c_full[m]  = np.asarray(td["c"], dtype=float)[m]
-            sc_full[m] = np.asarray(td["sigma_c"], dtype=float)[m]
+            sc = np.asarray(td["sigma_c"], dtype=float)[m]
+            soft = soft_all[m]
+            sc[soft] = condition_sigma_c(sc[soft], floor=float(self._cond["sigma_c_floor"]))
+            sc_full[m] = sc
             cs_full[m] = np.asarray(res.c_star, dtype=float)[m]
             lhs_t[m]   = np.asarray(G.dot(self._prior_vector(y))).ravel()[m]
             r = getattr(res, "residuals", None)
@@ -388,15 +411,14 @@ class SolverStatsDiagnostic:
             p_const = os.path.join(odir, f"constraints_{year}.csv")
             self.edge_table(year).to_csv(p_edges, index=False)
             self.constraint_table(year).to_csv(p_const, index=False)
-            print(f"   Edges       ({year}) → {p_edges}  ✓")
-            print(f"   Constraints ({year}) → {p_const}  ✓")
+            _log.info("   Edges       (%s) → %s  ✓", year, p_edges)
+            _log.info("   Constraints (%s) → %s  ✓", year, p_const)
             paths += [p_edges, p_const]
         return paths
 
     def region_shares(self) -> pd.DataFrame:
         """:func:`~.objective.share_by_region` of every family whose frame exists,
         stacked (columns ``family, region, year, zsq, share, n_rows``)."""
-        from .objective import FAMILIES, family_frame, share_by_region
 
         ef, cf = self.edge_frame(), self.constraint_frame()
         parts = [share_by_region(family_frame(ef, cf, fam))
@@ -414,13 +436,12 @@ class SolverStatsDiagnostic:
         os.makedirs(odir, exist_ok=True)
         p = os.path.join(odir, "objective_share_by_region.csv")
         shares.to_csv(p, index=False)
-        print(f"   objective share by region → {p}  ✓")
+        _log.info("   objective share by region → %s  ✓", p)
         return p
 
     def write_rankings(self, odir: str, regions=None, suffix: str = "") -> list[str]:
         """Write ``ranking_<family>{suffix}.csv`` — the full identity ranking by
         objective share — for every family whose frame exists."""
-        from .objective import FAMILIES, family_frame, rank_identities
 
         os.makedirs(odir, exist_ok=True)
         paths: list[str] = []
@@ -432,6 +453,6 @@ class SolverStatsDiagnostic:
             ranked = rank_identities(frame)
             p = os.path.join(odir, f"ranking_{fam}{suffix}.csv")
             ranked.to_csv(p, index=False)
-            print(f"   ranking ({fam}) → {p}  ✓")
+            _log.info("   ranking (%s) → %s  ✓", fam, p)
             paths.append(p)
         return paths

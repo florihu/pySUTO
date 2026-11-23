@@ -57,8 +57,10 @@ from typing import Mapping, Optional, Protocol, Sequence
 import numpy as np
 import pandas as pd
 
+from . import acc_store
 from .acc import (EDGE_UNIVERSE_ROLE_KEYS, AccountingStructure, BoundaryRole,
-                  boundary_role_values, check_built_acc)
+                  boundary_role_values)
+from .acc_store import check_built_acc
 from .input_registry import InputRegistry
 from .logging import get_logger
 from .registry import ConstraintRunRegistry, OptimRunRegistry
@@ -164,8 +166,16 @@ def _unclassified_report(edge_meta: pd.DataFrame, block: pd.Series, roles: dict)
 
 def _period_values(res: OptimResultsLike, positions: np.ndarray,
                    n_edges: int) -> np.ndarray:
-    """Solved values of the edges at global ``positions`` for one result."""
+    """Solved values of the edges at global ``positions`` for one result.
+
+    A non-finite ``F_opt`` raises: every downstream pivot and ``groupby`` sum reads
+    a NaN as 0, but NaN means "not covered", never 0."""
     F = np.asarray(res.F_opt, dtype=float)
+    if not np.isfinite(F).all():
+        raise ValueError(
+            f"timestep {res.timestep!r}: F_opt has {int((~np.isfinite(F)).sum())} "
+            f"non-finite entries"
+        )
     if res.cols_t is None:                       # legacy: full-length vector
         if F.shape[0] != n_edges:
             raise ValueError(
@@ -192,11 +202,19 @@ class _TidyView:
     """What :class:`PSUT` and :class:`~pysuto.piot.PIOT` share: a tidy
     ``table`` with ``period`` and ``valuation`` columns, the ``valuations``
     present, the ``primary`` one, period selection, and a Sankey drawn by
-    :mod:`pysuto.diag.psut`."""
+    :mod:`pysuto.diag.psut`.
+
+    The renderer (:func:`pysuto.diag.psut.sankey_tables`, ``sankey_figure``)
+    reads ``table``, ``nodes``, ``valuations``, ``primary`` and ``resolve`` of
+    every view, ``unit_of`` (the hover unit, from ``valuation_units``) and, by
+    ``getattr`` with a default, ``aggregation``, ``acc_id``, ``opt_run_id`` and
+    ``_figure_name`` (the title's provenance and the figure's name); a view that
+    lacks one of those draws without it."""
 
     table:      pd.DataFrame
     valuations: list
     primary:    str
+    valuation_units: dict
     _figure_name = "Sankey"
 
     def periods(self) -> list:
@@ -211,7 +229,8 @@ class _TidyView:
         the primary valuation — and both validated against the table."""
         period = self.latest() if period is None else str(period)
         if period not in self.periods():
-            raise KeyError(f"period {period!r} not in {type(self).__name__}: {self.periods()}")
+            raise KeyError(
+                f"period {period!r} not in {type(self).__name__}: {self.periods()}")
         valuation = self.primary if valuation is None else valuation
         if valuation not in self.valuations:
             raise KeyError(f"valuation {valuation!r} not in {type(self).__name__}: {self.valuations}")
@@ -231,6 +250,12 @@ class _TidyView:
         from .diag.psut import SankeySpec, sankey_figure   # lazy: consumer layer
         return sankey_figure(self, SankeySpec(period=period, valuation=valuation, **spec))
 
+    def unit_of(self, valuation: str) -> str:
+        """The unit label of ``valuation``'s values — ``kt`` for the gross valuation,
+        ``kt <label>`` for the content one (CLAUDE.md "Documentation & units");
+        ``kt`` for a view built without the accounting structure's roles."""
+        return self.valuation_units.get(valuation, "kt")
+
 
 class PSUT(_TidyView):
     """Tidy physical supply-use table over one or more periods, every valuation.
@@ -242,19 +267,26 @@ class PSUT(_TidyView):
         from_region, from_sector, from_entity, to_region, to_sector, to_entity,
         val``. ``edge_id`` is the global edge id of the accounting structure.
     nodes : DataFrame
-        The node universe (``sector, entity, region, entity_sub``) the block
-        views are labelled from.
+        The node universe (``sector, entity, region, entity_sub, role``) the
+        block views are labelled from.
     valuations, primary
         Every valuation in the table, and the one the views default to.
     acc_id, acc_ref, opt_run_id, const_run_id
         Provenance; ``acc_ref`` is the acc input entry the const run names
-        (``{id, version, ...}``), empty and the run ids ``None`` for an in-memory
-        handoff.
+        (``{id, version, ...}``; restored by :meth:`PsutRunRegistry.load` from the
+        sidecar's ``parents.inputs.acc``), empty and the run ids ``None`` for an
+        in-memory handoff.
+    valuation_units : dict
+        ``{valuation: unit label}`` of the valuations whose roles the accounting
+        structure bound (``kt`` for gross, ``kt <label>`` for content); the Sankey
+        hover reads it.
     aggregation : list
         The :meth:`aggregate` calls applied so far, oldest first; empty for
         the structure's own resolution. After an aggregation the table has no
         ``edge_id`` and may carry ``region_crossed``.
     """
+
+    _figure_name = "supply-use Sankey"
 
     def __init__(
         self,
@@ -268,6 +300,7 @@ class PSUT(_TidyView):
         opt_run_id:   Optional[str] = None,
         const_run_id: Optional[str] = None,
         aggregation:  Optional[list] = None,
+        valuation_units: Optional[dict] = None,
     ) -> None:
         if primary not in valuations:
             raise ValueError(f"primary {primary!r} is not one of {list(valuations)}")
@@ -280,6 +313,7 @@ class PSUT(_TidyView):
         self.opt_run_id   = opt_run_id
         self.const_run_id = const_run_id
         self.aggregation  = list(aggregation or [])
+        self.valuation_units = dict(valuation_units or {})
 
     # ------------------------------------------------------------------
     # Construction
@@ -298,9 +332,16 @@ class PSUT(_TidyView):
         Each result's ``F_opt`` is placed on global edge ids — through
         ``cols_t`` on the block path, positionally on the legacy path — and
         every edge of that timestep, in every valuation, becomes one row
-        carrying its block. An edge no block rule matches raises.
-        ``primary=None`` means the content valuation (``acc.valuation_roles.content``).
+        carrying its block. An edge no block rule matches raises, and so does a
+        non-finite ``F_opt`` or a procedural (mode B) accounting structure, which
+        binds no roles. ``primary=None`` means the content valuation
+        (``acc.valuation_roles.content``).
         """
+        if acc.boundary_roles is None or acc.valuation_roles is None:
+            raise ValueError(
+                f"a PSUT needs a role-bound accounting structure; {acc.id!r} is "
+                f"procedural (mode B) and binds no boundary or valuation roles"
+            )
         if primary is None:
             primary = acc.valuation_roles.content
         if primary not in acc.valuation:
@@ -353,8 +394,10 @@ class PSUT(_TidyView):
             acc.id, len(frames), list(acc.valuation), len(table), primary,
             ", ".join(f"{b}={n // len(frames)}" for b, n in counts.items()),
         )
+        roles = acc.valuation_roles
+        units = {roles.gross: "kt", roles.content: f"kt {roles.content}"}
         return cls(table, nodes, valuations=list(acc.valuation), primary=primary,
-                   acc_id=acc.id)
+                   acc_id=acc.id, valuation_units=units)
 
     @classmethod
     def from_opt_run(
@@ -399,7 +442,7 @@ class PSUT(_TidyView):
                     opt_run_id, const_run_id, acc_id)
         check_built_acc(acc_dir, acc_ref, InputRegistry("acc", root=input_dir),
                         EDGE_UNIVERSE_ROLE_KEYS)
-        acc     = AccountingStructure.load(acc_id, storage_dir=acc_dir)
+        acc     = acc_store.load(acc_id, storage_dir=acc_dir)
         results = opt_reg.load(opt_run_id)
         if timesteps is not None:
             wanted  = [str(t) for t in timesteps]
@@ -416,8 +459,6 @@ class PSUT(_TidyView):
         psut.opt_run_id   = opt_run_id
         psut.const_run_id = const_run_id
         return psut
-
-    _figure_name = "supply-use Sankey"
 
     # ------------------------------------------------------------------
     # Time selection — period is carried, never aggregated
@@ -440,6 +481,7 @@ class PSUT(_TidyView):
             opt_run_id   = self.opt_run_id,
             const_run_id = self.const_run_id,
             aggregation  = self.aggregation,
+            valuation_units = self.valuation_units,
         )
 
     # ------------------------------------------------------------------
@@ -504,7 +546,8 @@ class PSUT(_TidyView):
                   .reset_index()
                   .sort_values(key, ignore_index=True))
         step = {
-            "region":         region if (region is None or isinstance(region, str)) else dict(region),
+            "region":         (region if (region is None or isinstance(region, str))
+                               else dict(region)),
             "sector":         None if sector is None else dict(sector),
             "keep_crossings": bool(keep_crossings),
         }
@@ -517,6 +560,7 @@ class PSUT(_TidyView):
             opt_run_id   = self.opt_run_id,
             const_run_id = self.const_run_id,
             aggregation  = self.aggregation + [step],
+            valuation_units = self.valuation_units,
         )
 
     @staticmethod

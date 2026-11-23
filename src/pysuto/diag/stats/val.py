@@ -37,6 +37,9 @@ import pandas as pd
 
 from ._core import grouped_stats
 from .coverage import CoverageDiagnostic
+from pysuto.logging import get_logger
+
+_log = get_logger("pysuto.diag.stats.val")
 
 
 class StatsDiagnostic:
@@ -90,6 +93,6 @@ class StatsDiagnostic:
         p2 = os.path.join(odir, f"stats_to_{self.year}.csv")
         self.stats_from_table().to_csv(p1)
         self.stats_to_table().to_csv(p2)
-        print(f"   Stats from (sector,region) → {p1}  ✓")
-        print(f"   Stats to   (sector,region) → {p2}  ✓")
+        _log.info(f"Stats from (sector,region) → {p1}")
+        _log.info(f"Stats to   (sector,region) → {p2}")
         return [p1, p2]

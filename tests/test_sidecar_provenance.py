@@ -77,7 +77,7 @@ def _survey_spec(feed, knobs):
 
 
 def test_a_feed_run_sidecar_records_p_the_hooks_and_the_knobs(tmp_path):
-    tree = toy._tree(tmp_path)
+    tree = toy.run_tree(tmp_path)
     entry = toy.write_inputs(tmp_path).acc.entry(toy.ACC_ID)
     toy.build_acc(tree["acc"], entry)
     feed = toy.make_feeds(toy.truth(), toy.SEED)["survey"]

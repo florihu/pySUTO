@@ -23,7 +23,7 @@ import pandas as pd
 import pytest
 
 import test_toy_case as toy_checks
-from pysuto.acc import AccountingStructure
+from pysuto import acc_store
 from pysuto.tutorial import toy
 from pysuto.pipeline import ALL_STEPS, Chain, Pipeline
 from pysuto.registry import (ConstraintRunRegistry, ImputationRunRegistry,
@@ -48,7 +48,7 @@ def chain(tmp_path_factory):
     ids = {"feed": dict(zip(toy.FEED_IDS, printed["feed"]))}
     ids.update({s: printed[s][0] for s in ("imp", "const", "opt", "uncprop", "psut")})
     return {"root": root, "cwd": cwd, "ids": ids, "stdout": proc.stdout,
-            "acc": AccountingStructure.load(toy.ACC_ID,
+            "acc": acc_store.load(toy.ACC_ID,
                                             storage_dir=str(root / "proc" / "acc"))}
 
 
@@ -242,3 +242,100 @@ def test_uncprop_and_psut_take_no_knobs():
                     data_dir="d")
     with pytest.raises(KeyError, match="uncprop step takes no knobs"):
         pipe.check_overrides({"uncprop.ALPHA": 0.1})
+
+
+# =============================================================================
+# Review fixes U8 (#279): the entry past Stage 1, the real-child --config, the stage
+# guards
+# =============================================================================
+
+
+def _printed(proc) -> dict:
+    """The command's result lines (stage name, run ids); log lines share its stdout."""
+    return {l.split()[0]: l.split()[1:] for l in proc.stdout.splitlines()
+            if l.split() and l.split()[0] in ALL_STEPS}
+
+
+def _copy_data(chain, tmp_path) -> Path:
+    import shutil
+    dest = tmp_path / "data"
+    shutil.copytree(chain["root"], dest)
+    return dest
+
+
+def test_run_from_imp_with_a_base_runs_only_the_later_stages_and_prints_only_them(
+        chain, tmp_path):
+    """U8-G6-2 and G4-4: the main entry past Stage 1 reads its upstream from ``--base``
+    and prints one line per stage it ran, none for the base chain's feed or imp."""
+    data = _copy_data(chain, tmp_path)
+    proc = _run(tmp_path, "--case", "toy", "--from", "const", "--to", "opt",
+                "--base", chain["ids"]["opt"], "--data-dir", str(data))
+    assert proc.returncode == 0, f"{proc.stdout[-1500:]}\n{proc.stderr[-3000:]}"
+    printed = _printed(proc)
+    assert set(printed) == {"const", "opt"}
+    assert printed["const"][0] != chain["ids"]["const"]
+    assert printed["opt"][0] != chain["ids"]["opt"]
+    side = json.loads((data / "proc" / "const" / printed["const"][0]
+                       / "metadata.json").read_text())
+    assert side["parents"]["upstream"]["imp_run_id"] == chain["ids"]["imp"]
+
+
+def test_a_case_without_a_stage_1_hook_ends_a_feed_start_with_exit_2(tmp_path):
+    """U8-G6-2: the exit is the real command's, not a monkeypatched constructor."""
+    (tmp_path / "hookless.py").write_text(
+        "from dataclasses import replace\n"
+        "from pysuto.tutorial.toy import CASE as _TOY\n"
+        "CASE = replace(_TOY, stage1=None)\n")
+    proc = _run(tmp_path, "--case", "./hookless.py", "--from", "feed", "--to", "feed",
+                "--data-dir", str(tmp_path / "d"))
+    assert proc.returncode == 2 and "declares none" in proc.stderr
+
+
+def test_a_config_names_the_acc_id_a_real_child_runs_on(chain, tmp_path):
+    """U8-G6-3: ``--config`` reaches the child, which replaces the case's acc id by the
+    config's; an acc nobody built fails the imp step by name."""
+    data = _copy_data(chain, tmp_path)
+    cfg = tmp_path / "other.yaml"
+    cfg.write_text("pipeline:\n  acc_id: no_such_acc\n")
+    proc = _run(tmp_path, "--case", "toy", "--from", "imp", "--to", "imp",
+                "--base", chain["ids"]["opt"], "--data-dir", str(data),
+                "--config", str(cfg))
+    assert proc.returncode != 0 and "no_such_acc" in proc.stderr + proc.stdout
+
+
+def test_a_const_step_refuses_an_imp_run_built_on_another_acc_version(chain, tmp_path):
+    """U8-G6-4: the imp/const acc-mismatch guard, a provenance guard of Stage 3."""
+    data = _copy_data(chain, tmp_path)
+    path = data / "proc" / "imp" / chain["ids"]["imp"] / "metadata.json"
+    side = json.loads(path.read_text())
+    side["parents"]["inputs"]["acc"]["version"] = 999
+    path.write_text(json.dumps(side))
+    proc = _run(tmp_path, "--case", "toy", "--from", "const", "--to", "const",
+                "--base", chain["ids"]["opt"], "--data-dir", str(data))
+    assert proc.returncode != 0 and "acc mismatch" in proc.stderr + proc.stdout
+
+
+def test_a_case_screens_reports_are_written_as_csv_under_the_imp_runs_diag(
+        chain, tmp_path):
+    """U8-G6-4: ``ctx.reports`` goes to ``<imp run>/diag/<name>.csv``."""
+    data = _copy_data(chain, tmp_path)
+    (tmp_path / "screened.py").write_text(
+        "from dataclasses import replace\n"
+        "import pandas as pd\n"
+        "from pysuto.tutorial.toy import CASE as _TOY\n"
+        "def _screen(ctx):\n"
+        "    ctx.reports['demo_screen'] = pd.DataFrame({'a': [1, 2]})\n"
+        "CASE = replace(_TOY, imp=replace(_TOY.imp, pre_impute=_screen))\n")
+    proc = _run(tmp_path, "--case", "./screened.py", "--from", "imp", "--to", "imp",
+                "--base", chain["ids"]["opt"], "--data-dir", str(data))
+    assert proc.returncode == 0, f"{proc.stdout[-1500:]}\n{proc.stderr[-3000:]}"
+    imp_id = _printed(proc)["imp"][0]
+    out = pd.read_csv(data / "proc" / "imp" / imp_id / "diag" / "demo_screen.csv")
+    assert out["a"].tolist() == [1, 2]
+
+
+def test_the_imp_sidecar_records_the_feed_collectors_coverage_threshold(chain):
+    """U8-G3-1: ``MIN_FLOW_KT`` is a Stage 2 knob, recorded with the case's others."""
+    side = json.loads((chain["root"] / "proc" / "imp" / chain["ids"]["imp"]
+                       / "metadata.json").read_text())
+    assert side["stage_config"]["case"]["imp"]["MIN_FLOW_KT"] == 0.01

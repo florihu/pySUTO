@@ -30,10 +30,13 @@ Groups the stats-table diagnostics and their shared builders:
                                                     active set per row, a region's
                                                     standard-form slice) behind the
                                                     Results' problem figure.
+* :class:`SweepStatsDiagnostic`  (``sweep.py``)  — sweeps: the points' outcomes, the
+                                                    criteria scored and the sensitivity
+                                                    tables behind ``SweepDiag``.
 
 The shared, stateless builders (:func:`grouped_stats`, :func:`constraint_table`,
 :func:`sector_totals`, :func:`boundary_edges`, :func:`filter_regions`) live in
-``_core.py`` and are the DRY seam across all three. ``StatsDiagnostic`` also
+``_core.py`` and are the DRY seam across the diagnostics. ``StatsDiagnostic`` also
 composes :class:`CoverageDiagnostic` (reuses its per-edge frame + ``has_val``).
 """
 

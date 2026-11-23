@@ -14,7 +14,8 @@ import numpy as np
 import pandas as pd
 import pytest
 
-from pysuto.masks import MaskRuleSet, coerce_mask, load_masks_csv, read_masks_csv
+from pysuto.masks import (MaskRuleSet, coerce_mask, load_masks_csv, match_selector,
+                          read_masks_csv)
 
 
 # ---------------------------------------------------------------------------
@@ -226,3 +227,44 @@ def test_apply_mask_overlay_overrides(tmp_path):
     acc.apply_mask_overlay(str(csv))
     expected = np.array([False, False, False, True, True, True])
     assert np.array_equal(acc.masks["row"], expected)
+
+
+# ---------------------------------------------------------------------------
+# One wildcard matcher (masks and bounds), NA labels, empty selections
+# ---------------------------------------------------------------------------
+
+def test_match_selector_wildcards_are_star_empty_and_nan_only():
+    arr = np.array(["A", "none", "any", "B"])
+    for wildcard in ("*", "", "nan", " NaN ", None):
+        assert match_selector(arr, wildcard).all()
+    assert match_selector(arr, "none").tolist() == [False, True, False, False]
+    assert match_selector(arr, "any").tolist() == [False, False, True, False]
+    assert match_selector(arr, "A").tolist() == [True, False, False, False]
+
+
+def test_a_region_cell_NA_is_a_label_not_a_wildcard(tmp_path):
+    """Namibia's ISO code is not a missing value."""
+    csv = tmp_path / "masks.csv"
+    csv.write_text("mask_name,logic,region_from\nnam,include,NA\n")
+    (record,) = read_masks_csv(csv)
+    assert record["region_from"] == "NA"
+
+
+def test_a_blank_mask_name_declares_no_mask():
+    rules = MaskRuleSet.from_records([{"mask_name": " ", "logic": "include"}])
+    assert rules.names == []
+
+
+def test_a_rule_selecting_no_edge_warns_naming_it(caplog):
+    node_index, edge_index = _make_toy_indices()
+    rules = MaskRuleSet.from_records(
+        [{"mask_name": "typo", "logic": "include", "sector_from": "Mnig"}])
+    with caplog.at_level(logging.WARNING):
+        masks = rules.resolve(edge_index, node_index)
+    assert not masks["typo"].any()
+    assert "selects no edge" in caplog.text and "Mnig" in caplog.text
+
+
+def test_the_empty_rule_set_resolves_to_no_mask():
+    node_index, edge_index = _make_toy_indices()
+    assert MaskRuleSet.from_records([]).resolve(edge_index, node_index) == {}

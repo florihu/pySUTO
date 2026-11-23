@@ -10,12 +10,16 @@ evolution, TimeImputer timeseries.
 from __future__ import annotations
 
 import os
-from typing import Optional
 
 import numpy as np
 import pandas as pd
 
+from pysuto.registry import ImputationRunRegistry
+
 from ._plot import _C, _grouped_box_grid, _hist_bins, _savefig
+from pysuto.logging import get_logger
+
+_log = get_logger("pysuto.diag.imp")
 
 
 class ImpDiagnostic:
@@ -26,7 +30,7 @@ class ImpDiagnostic:
 
     Figure 1 — 2×2 panel  (<label>_imputation_steps.png)
         [0,0]  F_root distribution per step (log scale, overlapping histograms)
-        [0,1]  Coverage count per step (# finite edges at each pipeline step)
+        [0,1]  Coverage count per step (# finite edges at each imputation step)
         [1,0]  CV (σ/|f|) distribution per step (log scale)
         [1,1]  Count of edges imputed per step
 
@@ -62,9 +66,7 @@ class ImpDiagnostic:
         "parametric":             "blue",
         "parametric_capped":      "red",
         "formula":                "green",
-        "formula_clipped":        "orange",
         "formula_capped":         "red",
-        "formula_clipped_capped": "red",
         "time_linear":            "purple",
         "time_mean":              "purple",
         "locf":                   "navy",
@@ -133,7 +135,6 @@ class ImpDiagnostic:
         Load an imputation run from ImputationRunRegistry and construct
         ImpDiagnostic. ``run_id`` must be a registered run in ``storage_dir``.
         """
-        from pysuto.registry import ImputationRunRegistry
         registry = ImputationRunRegistry(storage_dir=storage_dir)
         agg      = registry.load(run_id)
         return cls(agg, acc_struct=acc_struct, label=label or run_id)
@@ -158,7 +159,7 @@ class ImpDiagnostic:
         if odir is not None:
             p = _savefig(fig1, os.path.join(odir, "imputation_steps.png"), dpi=dpi)
             paths.append(p)
-            print(f"   Imputation step diagnostics → {p}  ✓")
+            _log.info(f"Imputation step diagnostics → {p}")
         if show:
             plt.show()
         plt.close(fig1)
@@ -169,7 +170,7 @@ class ImpDiagnostic:
             if odir is not None:
                 p = _savefig(fig2, os.path.join(odir, "imputation_sigma_box.png"), dpi=dpi)
                 paths.append(p)
-                print(f"   Imputation σ boxplot       → {p}  ✓")
+                _log.info(f"Imputation σ boxplot       → {p}")
             if show:
                 plt.show()
             plt.close(fig2)
@@ -180,7 +181,7 @@ class ImpDiagnostic:
             if odir is not None:
                 p = _savefig(fig_cv, os.path.join(odir, "imputation_cv_box.png"), dpi=dpi)
                 paths.append(p)
-                print(f"   Imputation CV boxplot      → {p}  ✓")
+                _log.info(f"Imputation CV boxplot      → {p}")
             if show:
                 plt.show()
             plt.close(fig_cv)
@@ -199,7 +200,7 @@ class ImpDiagnostic:
             if odir is not None:
                 p = _savefig(figb, os.path.join(odir, fname), dpi=dpi)
                 paths.append(p)
-                print(f"   Imputation |f| boxplot     → {p}  ✓")
+                _log.info(f"Imputation |f| boxplot     → {p}")
             if show:
                 plt.show()
             plt.close(figb)
@@ -211,7 +212,7 @@ class ImpDiagnostic:
                 if odir is not None:
                     p = _savefig(fig3, os.path.join(odir, "imputation_timeseries.png"), dpi=dpi)
                     paths.append(p)
-                    print(f"   Imputation timeseries      → {p}  ✓")
+                    _log.info(f"Imputation timeseries      → {p}")
                 if show:
                     plt.show()
                 plt.close(fig3)
@@ -269,16 +270,18 @@ class ImpDiagnostic:
         if odir is not None:
             p = os.path.join(odir, "cross_valuation_check.csv")
             out.to_csv(p, index=False)
-            print(f"   Cross-valuation check      → {p}  "
+            _log.info(f"Cross-valuation check      → {p}  "
                   f"({'CLEAN' if out.empty else f'{len(out)} VIOLATIONS'})")
         if not out.empty:
-            print(f"   ⚠  cross-valuation check: {len(out)} covered CC/Mass "
-                  f"pair(s) with CC > Mass (physically impossible) — worst "
+            vr = self.acc_struct.valuation_roles
+            _log.warning(f"cross-valuation check: {len(out)} covered "
+                  f"{vr.content}/{vr.gross} "
+                  f"pair(s) with {vr.content} > {vr.gross} (physically impossible) — worst "
                   f"implied conc {out['implied_conc'].max():.1f}×")
         return out
 
     def summary(self) -> str:
-        """Print and return a text summary of the imputation pipeline."""
+        """Print and return a text summary of the imputation cascade."""
         log_df  = self._log_df
         agg     = self.agg_result
         n_edges = len(agg.f_agg)
@@ -291,7 +294,7 @@ class ImpDiagnostic:
             f"  IMPUTATION DIAGNOSTICS{' — ' + self.label if self.label else ''}",
             f"{'─'*60}",
             f"  Root edges total       : {n_edges:>8,}",
-            f"  Covered after pipeline : {n_final:>8,}  ({n_final/n_edges*100:.1f} %)",
+            f"  Covered after cascade  : {n_final:>8,}  ({n_final/n_edges*100:.1f} %)",
             f"  Filled by imputers     : {n_imp:>8,}  ({n_imp/n_edges*100:.1f} %)",
             f"  Still missing          : {n_miss:>8,}  ({n_miss/n_edges*100:.1f} %)",
         ]
@@ -372,7 +375,7 @@ class ImpDiagnostic:
         return self._step_ids.get(int(step), f"s{int(step)}")
 
     def _step_dominant_method(self, step: int) -> str:
-        """Most-common method label across all fills for one pipeline step."""
+        """Most-common method label across all fills for one imputation step."""
         if self._log_df.empty:
             return "covered"
         sub = self._log_df[self._log_df["step"] == step]
@@ -402,7 +405,7 @@ class ImpDiagnostic:
         fig, axes = plt.subplots(2, 2, figsize=(14, 9))
         suffix = f" — {self.label}" if self.label else ""
         fig.suptitle(
-            f"Imputation pipeline — per-step diagnostics{suffix}{self._year_suffix}",
+            f"Imputation cascade — per-step diagnostics{suffix}{self._year_suffix}",
             fontsize=13, fontweight="bold",
         )
         self._panel_f_dist(axes[0, 0])
@@ -428,7 +431,7 @@ class ImpDiagnostic:
         if m is None:
             self._overlay_year_reference(ax, what="f", year="1995")
         ax.set_title("F_root distribution per step", fontweight="bold")
-        ax.set_xlabel("log₁₀(f)  [log kt]")
+        ax.set_xlabel("log₁₀(f)  [kt Mass, kt CC pooled]")
         ax.set_ylabel("density")
         ax.legend(fontsize=7, framealpha=0.6)
         ax.grid(axis="y", alpha=0.3)
@@ -547,7 +550,7 @@ class ImpDiagnostic:
             )
         ax.set_yscale("log")
         ax.set_title("Edges imputed per step", fontweight="bold")
-        ax.set_xlabel("pipeline step")
+        ax.set_xlabel("imputation step")
         ax.set_ylabel("# edges filled  (log₁₀)")
         ax.tick_params(axis="x", labelrotation=30)
         ax.grid(axis="y", alpha=0.3)
@@ -558,7 +561,7 @@ class ImpDiagnostic:
 
     def _fig2_sigma_box(self):
         """
-        Single-panel σ boxplot grouped by pipeline step from the imputation
+        Single-panel σ boxplot grouped by imputation step from the imputation
         log, with a leftmost "covered" baseline box (Stage 2a observed σ before
         any imputation). Outliers shown as red dots. Logarithmic y-axis.
         """
@@ -576,7 +579,7 @@ class ImpDiagnostic:
             if len(covered):
                 groups.append(("covered", covered))
 
-        # 2. One box per pipeline step in the log (skip empty-σ rows)
+        # 2. One box per imputation step in the log (skip empty-σ rows)
         if not log_df.empty:
             for step in sorted(log_df["step"].unique()):
                 sub  = log_df[log_df["step"] == step]
@@ -591,7 +594,7 @@ class ImpDiagnostic:
         fig, ax = plt.subplots(figsize=(max(8, 1.4 * len(groups)), 6))
         suffix = f" — {self.label}" if self.label else ""
         fig.suptitle(
-            f"σ by pipeline step{suffix}{self._year_suffix}",
+            f"σ by imputation step{suffix}{self._year_suffix}",
             fontsize=13, fontweight="bold",
         )
 
@@ -627,8 +630,8 @@ class ImpDiagnostic:
             ax.text(i + 1, ymax + 0.2, f"n={n:,}",
                     ha="center", va="bottom", fontsize=8)
 
-        ax.set_ylabel("log₁₀(σ)  [log kt]")
-        ax.set_xlabel("pipeline step")
+        ax.set_ylabel("log₁₀(σ)  [kt Mass, kt CC pooled]")
+        ax.set_xlabel("imputation step")
         ax.tick_params(axis="x", labelrotation=25)
         ax.grid(axis="y", alpha=0.3)
 
@@ -641,7 +644,7 @@ class ImpDiagnostic:
 
     def _fig_cv_box(self):
         """
-        Single-panel CV boxplot grouped by pipeline step from the imputation
+        Single-panel CV boxplot grouped by imputation step from the imputation
         log, with a leftmost "covered" baseline box (Stage 2a observed CV before
         any imputation). Linear y-axis.
         """
@@ -661,7 +664,7 @@ class ImpDiagnostic:
             if len(covered):
                 groups.append(("covered", covered))
 
-        # 2. One box per pipeline step in the log.
+        # 2. One box per imputation step in the log.
         if not log_df.empty:
             for step in sorted(log_df["step"].unique()):
                 sub    = log_df[log_df["step"] == step]
@@ -679,7 +682,7 @@ class ImpDiagnostic:
         fig, ax = plt.subplots(figsize=(max(8, 1.4 * len(groups)), 6))
         suffix = f" — {self.label}" if self.label else ""
         fig.suptitle(
-            f"CV by pipeline step{suffix}{self._year_suffix}",
+            f"CV by imputation step{suffix}{self._year_suffix}",
             fontsize=13, fontweight="bold",
         )
 
@@ -715,7 +718,7 @@ class ImpDiagnostic:
                     ha="center", va="bottom", fontsize=8)
 
         ax.set_ylabel("CV (σ/|f|)")
-        ax.set_xlabel("pipeline step")
+        ax.set_xlabel("imputation step")
         ax.tick_params(axis="x", labelrotation=25)
         ax.grid(axis="y", alpha=0.3)
 
@@ -926,7 +929,7 @@ class ImpDiagnostic:
                 fontsize=8, fontweight="bold",
             )
             ax.set_xlabel("time")
-            ax.set_ylabel("f (kt)")
+            ax.set_ylabel("f (kt Mass, kt CC content: see title)")
             ax.legend(fontsize=7)
             ax.grid(alpha=0.3)
 
@@ -935,77 +938,3 @@ class ImpDiagnostic:
 
         plt.tight_layout()
         return fig
-
-
-# =============================================================================
-# Relaxed-close exposure (#150)
-# =============================================================================
-
-def relaxed_close_exposure(log_df: pd.DataFrame,
-                           edge_valuation: Optional[np.ndarray] = None) -> pd.DataFrame:
-    """
-    Relaxed recipe closes whose assumed-absent primaries were filled afterwards.
-
-    A relaxed close (ADR 0010) counts a missing primary as 0 once the network has
-    converged; a later imputer may still derive that primary, and no-overwrite keeps
-    the close. Read-only: the log is not changed.
-
-    Parameters
-    ----------
-    log_df : DataFrame
-        ``ImputationLog.as_dataframe()`` (or the stored parquet) carrying the
-        ``relaxed`` and ``assumed_absent`` columns; row order is the fill order.
-    edge_valuation : (E,) array, optional
-        Valuation label per edge id (``acc.edge_index["valuation"]``); without it
-        every row is labelled ``""``.
-
-    Returns
-    -------
-    DataFrame
-        One row per exposed relaxed fill: ``edge_id``, ``valuation``, ``f_after``
-        (kt in the valuation's unit), ``imputer_id``, ``pass``, ``step`` and
-        ``later_edges`` (the assumed-absent edges that received a later fill).
-    """
-    pos = {}
-    for i, e in enumerate(log_df["edge_id"].to_numpy(dtype=np.int64)):
-        pos.setdefault(int(e), i)
-    rows = []
-    for i in np.flatnonzero(log_df["relaxed"].to_numpy(dtype=bool)):
-        later = [int(e) for e in log_df["assumed_absent"].iat[i]
-                 if pos.get(int(e), -1) > i]
-        if later:
-            e = int(log_df["edge_id"].iat[i])
-            rows.append({
-                "edge_id": e,
-                "valuation": "" if edge_valuation is None else str(edge_valuation[e]),
-                "f_after": float(log_df["f_after"].iat[i]),
-                "imputer_id": log_df["imputer_id"].iat[i],
-                "pass": log_df["pass"].iat[i],
-                "step": int(log_df["step"].iat[i]),
-                "later_edges": later,
-            })
-    return pd.DataFrame(rows, columns=["edge_id", "valuation", "f_after", "imputer_id",
-                                       "pass", "step", "later_edges"])
-
-
-def relaxed_close_exposure_summary(log_df: pd.DataFrame,
-                                   edge_valuation: Optional[np.ndarray] = None
-                                   ) -> pd.DataFrame:
-    """Count and kt of the exposed relaxed fills per valuation, beside all relaxed."""
-    exp = relaxed_close_exposure(log_df, edge_valuation)
-    rel = log_df[log_df["relaxed"].astype(bool)]
-    if edge_valuation is None:
-        rel_val = pd.Series([""] * len(rel), index=rel.index, dtype=object)
-    else:
-        rel_val = rel["edge_id"].map(lambda e: str(edge_valuation[int(e)]))
-    out = []
-    for v in sorted(set(rel_val) | set(exp["valuation"])):
-        out.append({
-            "valuation":  v,
-            "n_relaxed":  int((rel_val == v).sum()),
-            "kt_relaxed": float(rel.loc[rel_val == v, "f_after"].sum()),
-            "n_exposed":  int((exp["valuation"] == v).sum()),
-            "kt_exposed": float(exp.loc[exp["valuation"] == v, "f_after"].sum()),
-        })
-    return pd.DataFrame(out, columns=["valuation", "n_relaxed", "kt_relaxed",
-                                      "n_exposed", "kt_exposed"])

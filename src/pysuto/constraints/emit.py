@@ -80,8 +80,8 @@ def ratio_scale_index(relations: list[Relation]):
         rd += [row_id] * len(den_cols); cd += list(den_cols)
         rabs.append(abs(rel.coefficients[rel.n_num]))
         den_mode.append(rel.scale_mode == "denominator")
-    return (np.asarray(rn, dtype=int), np.asarray(cn, dtype=int),
-            np.asarray(rd, dtype=int), np.asarray(cd, dtype=int),
+    return (np.asarray(rn, dtype=np.int64), np.asarray(cn, dtype=np.int64),
+            np.asarray(rd, dtype=np.int64), np.asarray(cd, dtype=np.int64),
             np.asarray(rabs), np.asarray(den_mode, dtype=bool))
 
 

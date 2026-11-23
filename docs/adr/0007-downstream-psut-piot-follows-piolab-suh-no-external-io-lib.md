@@ -1,6 +1,8 @@
 # Downstream PSUT/PIOT construction follows PIOLab + Suh, with no external IO-library dependency
 
-**Status:** proposed — introduces **Stage 6** (materialise `a*` → PSUT → PIOT + IO analytics).
+**Status:** accepted — introduces **Stage 6** (materialise `a*` → PSUT → PIOT + IO analytics). Shipped
+as Slices 1–6, merged 2026-09-24 (`da80fae`); the reference chain's `psut_20261119_133504_4c783a88`
+(on `opt_20261119_130302_b20f0dba`) is its latest run. The Suh squaring `A = B·D` stays #20.
 
 After the Stage-4 solve, pySUTO holds the solved edge vector `a*` (`OptimResult.F_opt`). To answer
 *downstream-dependency* questions we add **Stage 6**: per period and per **valuation** (`CC`, `Mass`),
@@ -34,7 +36,7 @@ linear-algebra lines, so we implement it directly (`piot.py`) rather than take o
 
 ## Consequences
 
-- **New modules** `src/pysuto/psut.py`, `piot.py`, `psut_indicators.py`, `registry/psut.py`, `scripts/psut.py`;
+- **New modules** `src/pysuto/psut.py`, `piot.py`, `registry/psut.py`, `scripts/psut.py` (the indicators live in `piot.py`; no `psut_indicators.py` was created). The market-share industry-by-industry construct ships; the Suh squaring `B = U·x̂_new⁻¹`, `D = S·q̂⁻¹`, `A = B·D` is #20;
   artifacts under `data/proc/psut/<run_id>/` with `parents.upstream = opt_run_id`.
 - **Point estimate first (the deliberate no-).** v1 builds from `a*` only; Stage-5 posterior σ is **not**
   propagated yet — the API is shaped so a later Monte-Carlo layer (sample edges → rebuild `L` per draw) can add it.

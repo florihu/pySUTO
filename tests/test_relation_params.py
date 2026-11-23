@@ -170,17 +170,17 @@ class TestSoftRowWithoutSigmaRule:
 
     def test_soft_builder_raises(self, tmp_path):
         with pytest.raises(ValueError, match="no σ rule"):
-            RatioConstraintBuilder.from_csv(str(self._csv(tmp_path)), _Acc())
+            RatioConstraintBuilder.from_csv(str(self._csv(tmp_path)), _Acc(), sigma_rel_floor=0.02, scale_abs_floor=1.0)
 
     def test_hard_builder_does_not_need_one(self, tmp_path):
-        b = RatioConstraintBuilder.from_csv(str(self._csv(tmp_path)), _Acc(), hard=True)
+        b = RatioConstraintBuilder.from_csv(str(self._csv(tmp_path)), _Acc(), hard=True, sigma_rel_floor=0.02, scale_abs_floor=1.0)
         assert len(b._pairs) == 1
 
     def test_stock_bound_row_reads_its_band_not_a_sigma_rule(self, tmp_path):
         p = _write(tmp_path / "sb.csv", [_rec(
             param_id="netstockbound", param_type="stock_bound", unc_type="", value_sd="",
-            value_nominal="0", value_max="0.1", a_valuation="Mass", b_valuation="CC")], ",")
-        b = RatioConstraintBuilder.from_csv(str(p), _Acc())
+            value_nominal="0", value_max="0.1", a_valuation="Mass", b_valuation="Mass")], ",")
+        b = RatioConstraintBuilder.from_csv(str(p), _Acc(), sigma_rel_floor=0.02, scale_abs_floor=1.0)
         assert b._pairs[0].sigma == pytest.approx(0.1 / 1.645)
 
     def test_the_params_source_raises_on_a_row_without_one(self, tmp_path):

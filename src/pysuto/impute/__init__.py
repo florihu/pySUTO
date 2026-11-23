@@ -1,5 +1,7 @@
 """
-impute — Stage 2c imputation pipeline.
+__init__.py
+===========
+impute: the Stage 2c imputation cascade.
 
 Public surface (re-exported here so call sites can keep using
 ``from pysuto.impute import X``):
@@ -19,7 +21,9 @@ Imputers (run order is up to the engine's registration sequence):
 * :class:`FlatPriorImputer`    — final fallback (f=0, large σ)
 """
 
-from .base       import BaseImputer, _reg_sensitivity
+from __future__ import annotations
+
+from .base       import BaseImputer
 from .engine     import ImputationEngine, ImputationLog, ImputationMetadata
 from .ledger     import PriorLedger, ScopeError, run_imputer
 from .network    import NetworkImputer
@@ -47,5 +51,4 @@ __all__ = [
     "damp_leg_sigma",
     "screen_outlier_trade_legs",
     "screen_contradicted_nodes",
-    "_reg_sensitivity",
 ]

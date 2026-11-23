@@ -39,7 +39,7 @@ combination of the axes' listed values::
     Sweep(pipeline, [Axis.interval(("imp.P_PROP", "const.P_PROP"), 1.1, 1.5),
                      Axis.interval("const.ANCHOR_CV", 0.005, 0.02, log=True),
                      Axis("imp.TIME_WINDOW", [2, 3, 5])],
-          n_points=30, seed=20261021).run(label="knob study")
+          n_points=30, seed=20261021).run(label="knob sweep")
 """
 
 from __future__ import annotations
@@ -63,10 +63,12 @@ import scipy
 from scipy.stats import loguniform, qmc, uniform
 
 import pysuto
+from pysuto._provenance import now_iso
 from pysuto._step import StepSpec
 from pysuto.case import case_reference, resolve_case
 from pysuto.logging import get_logger
 from pysuto.registry import SweepRunRegistry, stage_lock
+from pysuto.registry.lock import HOLDER_ENV
 
 _log = get_logger("pysuto.pipeline")
 
@@ -186,7 +188,6 @@ class Pipeline:
         self.steps       = steps
         self.base        = base
         self.case        = case
-        self.case_id     = spec.id
         self.data_dir    = None if data_dir is None else str(data_dir)
         self.cwd         = str(cwd or os.getcwd())
         self.config      = None if config is None else self._under_cwd(config)
@@ -283,6 +284,7 @@ class Pipeline:
         the child wrote. Its stdout and stderr go to ``spec.log_path``. A child that
         exits non-zero, or exits 0 without a run id, raises :class:`StepFailed`."""
         env = _child_env()
+        env[HOLDER_ENV] = str(os.getpid())          # run_step holds the stage lock here
         with tempfile.TemporaryDirectory() as tmp:
             spec = replace(spec, run_id_file=os.path.join(tmp, "run_id"))
             spec_path = os.path.join(tmp, "spec.json")
@@ -632,7 +634,7 @@ class Sweep:
     def _run_point(self, sid, pt, memo, reg, manifest, runner) -> None:
         i = pt["index"]
         by_stage = self.pipeline.check_overrides(self._points[i])
-        pt.update(status="running", started_at=_now(), error=None, log=None, reused=[],
+        pt.update(status="running", started_at=now_iso(), error=None, log=None, reused=[],
                   runs={s: None for s in self.pipeline.steps})
         reg.update(sid, manifest=manifest)
         chain = self.pipeline.base
@@ -653,7 +655,7 @@ class Sweep:
             pt.update(status="failed", error=exc.tail, log=exc.log_path)
             _log.warning("sweep %s point %d failed in step %s (log %s)",
                          sid, i, exc.step, exc.log_path)
-        pt["finished_at"] = _now()
+        pt["finished_at"] = now_iso()
         reg.update(sid, manifest=manifest)
 
     def _memo_from(self, manifest, runner) -> dict:
@@ -726,6 +728,3 @@ def _git_state(cwd: str) -> tuple:
                             cwd=cwd, capture_output=True, text=True, env=env)
     return head.stdout.strip(), bool(status.stdout.strip())
 
-
-def _now() -> str:
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())

@@ -13,18 +13,13 @@ edge × timestep, using the closed-form GLS expression
 with ``S(t) = G · diag(σ²_a) · Gᵀ + diag(σ²_c(t)) = L(t) · L(t)ᵀ`` and
 ``g_i = col_i(G)``.
 
-On the block path (``G_blocks`` present, every current run) ``S(t)`` is never
-formed: ``σ²_{a,i} · g_iᵀ S⁻¹ g_i`` is the leverage of edge i in the whitened
+Stage 5 runs on the per-year block path only (a const run without ``G_blocks``
+raises), where ``S(t)`` is never formed: ``σ²_{a,i} · g_iᵀ S⁻¹ g_i`` is the leverage of edge i in the whitened
 system ``M = [G_t · diag(σ_a), diag(σ_c)]`` (``S = M Mᵀ``), read off a dense QR
 of ``Mᵀ`` (:meth:`KalmanUncProp._whitened_qr`), so it lies in [0, 1]. Forming
 ``S`` squares ``M``'s condition number; with σ_a spanning 1e-8 … 1e6 kt on
 copper, an LU of ``S`` put the contraction outside [0, 1] on 331 edges of 1995
-and 368 of 2016 in ``uncprop_20261014_140949_fcf53674`` (#27). Only the full-G
-path factors ``S``: it analyses the symbolic Cholesky pattern once (G is
-time-invariant there) and refreshes the numeric factor per timestep via
-CHOLMOD's ``cholesky_inplace`` because σ_c is time-variant. A scipy ``splu``
-fallback kicks in when scikit-sparse is not installed; it computes
-``gᵀ S⁻¹ g`` directly (same value, no symbolic-pattern reuse, slower).
+and 368 of 2016 in ``uncprop_20261014_140949_fcf53674`` (#27).
 
 σ_a and a₀ are pulled through :func:`_conditioning.condition_prior`
 with the same floor / ceiling rules the solver applied, so the posterior
@@ -32,8 +27,8 @@ is mathematically consistent with the ``a*`` the solver returned.
 σ_c on hard rows is forced to exact zero; soft rows receive a numerical
 floor only.
 
-On the block path the posterior is the QP's linearisation at its active set
-(#27): a hard inequality row (``sense == "le"``) enters ``S(t)`` only where it
+The posterior is the QP's linearisation at its active set at ``a*`` (#27, ADR
+0044), so it depends on ``a*`` through which rows and pins enter ``S(t)``: a hard inequality row (``sense == "le"``) enters ``S(t)`` only where it
 binds at ``a*`` (``G·a* − c ≥ −bind_tol``); a binding ADR 0039 lower bound
 pins its edge (``σ_a² → 0``, ``σ_a* = 0``) instead of adding a row; a binding
 band is an equality; slack rows drop out. Rows left without a live edge and
@@ -48,7 +43,7 @@ level anchors (:data:`SCALE_TOTAL_VARIANTS`) out of ``S(t)``: an ablation that
 measures how much of the contraction comes from the model's own Σ f_agg totals,
 whose information the prior already carries. ``a*`` is untouched.
 
-Aggregates (#81, block path, in memory only). The marginals do not give the σ
+Aggregates (#81, in memory only). The marginals do not give the σ
 of a total ``wᵀa*``: the constraints correlate the edges, so adding their σ_a*
 in quadrature misstates it. With ``u = diag(σ_a)·w`` on the live edges and
 ``v = [u; 0]`` padded over ``Mᵀ``'s soft rows, ``var(wᵀa*) = wᵀΣ_a w −
@@ -62,14 +57,25 @@ function of a* gets its delta-method σ from them by finite differences.
 ``force_pinned`` / ``force_free`` override the slack rule edge by edge, for the
 degenerate bounds #99 found sitting at ``bind_tol``.
 
-See ``docs/rep/plans/stage5_uncprop_integration_plan.md`` for the full
-derivation and architectural decisions.
+Derivation and decisions: ADR 0044.
+
+Opt runs solved with ``prior_mode="warm"`` chain the years (``a_prior(t) =
+a*(t−1)``), which this stage does not model: it linearises each year at its own
+``a*`` with the prior fixed and adds the years without covariance, so on a warm
+run the posterior is conditional on the previous year's optimum. :meth:`KalmanUncProp.compute`
+logs a warning on such a run and the sidecar records ``prior_mode``.
 
 Public API
 ----------
-- :class:`BaseUncProp` — ABC with single :meth:`compute` method
+- :class:`BaseUncProp` — ABC with single :meth:`compute` method (an extension
+  sketch: the one concrete adds keyword-only arguments)
 - :class:`KalmanUncProp` — closed-form GLS concrete subclass
 - :class:`UncPropResult` / :class:`UncPropTimestep` — return dataclasses
+- :class:`AggregateSpec` / :class:`AggregateMoments` — K linear totals of the
+  edges and their posterior covariance (#81)
+- :func:`z_alpha`, :func:`lower_bound_mask`, :func:`lower_bound_values` — the
+  interval half-width factor and the ADR 0039 bound extraction, shared with
+  :mod:`pysuto.diag.stats.uncprop`
 """
 from __future__ import annotations
 
@@ -111,6 +117,35 @@ DEFAULT_EXCLUDE_SCALE_TOTALS   = False
 SCALE_TOTAL_VARIANTS           = ("supplytotout", "usetotout", "smelterscrap",
                                   "directrefscrap")
 
+# Checks that log, never gate: κ is a leverage, in [0, 1] up to rounding, and the
+# hard equalities hold at a* to the solver's tolerance (README Stage 5).
+KAPPA_WARN_ABOVE               = 1.0 + 1e-6
+HARD_RESID_WARN_ABOVE          = 1e-6
+
+
+def z_alpha(alpha: float) -> float:
+    """Half-width factor ``z = Φ⁻¹(1 − α/2)`` of the (1−α) Gaussian interval."""
+    return float(norm.ppf(1.0 - alpha / 2.0))
+
+
+def lower_bound_mask(row_meta) -> np.ndarray:
+    """Rows that are ADR 0039 lower bounds (read from ``type`` / ``variant``)."""
+    if not {"type", "variant"} <= set(row_meta.columns):
+        return np.zeros(len(row_meta), dtype=bool)
+    is_lower = (row_meta["type"] == "bound") & (row_meta["variant"] == "lower")
+    return is_lower.to_numpy()
+
+
+def lower_bound_values(G_t: sp.csr_matrix, c_t: np.ndarray,
+                       lower_bound: np.ndarray) -> np.ndarray:
+    """Each column's lower-bound row ``l`` (NaN without one). An ADR 0039 row
+    reads ``−a ≤ −l``: one nonzero, coefficient −1, so ``l = −c``."""
+    bound_rows = np.flatnonzero(lower_bound)
+    bound_cols = G_t[bound_rows].tocoo()             # one nonzero per bound row
+    lower = np.full(G_t.shape[1], np.nan)
+    lower[bound_cols.col] = -c_t[bound_rows[bound_cols.row]]   # −a ≤ −l
+    return lower
+
 
 # =============================================================================
 # Return dataclasses
@@ -120,16 +155,15 @@ SCALE_TOTAL_VARIANTS           = ("supplytotout", "usetotout", "smelterscrap",
 class UncPropTimestep:
     """Per-timestep posterior summary.
 
-    Block path is year-local: sigma_a_star/lower/upper are the cols_t slice
-    and ``cols_t`` carries the global edge index. Legacy path is full-length
-    (E,) with ``cols_t = None``."""
+    Year-local: sigma_a_star/lower/upper are the cols_t slice and ``cols_t``
+    carries the global edge index."""
     timestep:     str
-    sigma_a_star: np.ndarray            # posterior std (cols_t or E,)
-    lower:        np.ndarray            # a* − z·σ; block path: clipped at the bound's l
-    upper:        np.ndarray            # a* + z·σ; legacy path: clipped to u
-    diagnostics:  dict                  # trace_prior / trace_post / max_resid_hard / psd_min_diag
-    cols_t:       Optional[np.ndarray] = None  # global edge cols (block path)
-    bound_active: Optional[np.ndarray] = None  # pinned by a binding lower bound (block path)
+    sigma_a_star: np.ndarray            # posterior std (cols_t,)
+    lower:        np.ndarray            # a* − z·σ, clipped at the bound's l
+    upper:        np.ndarray            # a* + z·σ; clipped at the bound's u
+    diagnostics:  dict                  # trace_prior / trace_post / max_resid_hard / psd_min_diag / kappa_max / counts
+    cols_t:       Optional[np.ndarray] = None  # global edge cols (the year's partition)
+    bound_active: Optional[np.ndarray] = None  # pinned by a binding lower bound
 
 
 @dataclass
@@ -145,7 +179,12 @@ class _PeriodReduction:
 @dataclass
 class AggregateSpec:
     """K named linear totals ``wᵀa`` of the edges (#81): ``W`` is (n_edges × K),
-    one column per name, over the global edge index; a column may span years."""
+    one column per name, over the global edge index; a column may span years.
+
+    ``W`` carries no valuation: ``value`` and both covariances are in the unit of
+    the edges a column sums, kt for one valuation and a meaningless Mass + CC mix
+    for two. The caller keeps each column to one valuation (the report's Table 3
+    filters ``valuation == "CC"``); nothing here checks it."""
     names: list
     W:     sp.spmatrix
 
@@ -177,7 +216,7 @@ class UncPropResult:
     method:        str
     alpha:         float
     per_timestep:  dict[str, UncPropTimestep] = field(default_factory=dict)
-    aggregates:    Optional[AggregateMoments] = None   # #81, block path
+    aggregates:    Optional[AggregateMoments] = None   # #81
     draws:         dict = field(default_factory=dict)   # year → (k, n_t) posterior deviations
 
 
@@ -190,7 +229,10 @@ class BaseUncProp(ABC):
 
     Every concrete owns its own algorithm (Cholesky / KKT-sensitivity /
     Monte Carlo / bounds-aware) but produces the same data contract:
-    marginal σ and confidence bounds per (edge, timestep).
+    marginal σ and confidence bounds per (edge, timestep). An extension sketch,
+    not a tested seam: the one concrete, :class:`KalmanUncProp`, adds the
+    keyword-only arguments ``aggregates``, ``draws``, ``rng``, ``force_pinned``
+    and ``force_free`` to the abstract ``compute(opt_run_id, alpha)``.
     """
 
     METHOD: str = ""
@@ -206,24 +248,21 @@ class BaseUncProp(ABC):
 # =============================================================================
 
 class KalmanUncProp(BaseUncProp):
-    """Closed-form posterior covariance: a QR of the whitened system per year on
-    the block path, sparse Cholesky on the full-G (legacy) path.
+    """Closed-form posterior covariance: a QR of the whitened system per year.
 
-    Per timestep:
+    Per year, at the QP's active set:
 
-      1. Pull σ_c(t) from the upstream :class:`ConstraintRun`.
-      2. Build ``S(t) = G · diag(σ²_a) · Gᵀ + diag(σ²_c(t))``.
-      3. Refresh numeric Cholesky (symbolic pattern cached from t₀).
-      4. For each column block ``G[:, s:e]``: solve ``L⁻¹ G_blk``;
-         accumulate ``‖·‖²`` column-wise to obtain ``d[s:e]``.
-      5. ``σ²_{a*}(t) = σ²_a · (1 − σ²_a · d)``, clipped to ≥ 0.
-      6. ``lower / upper = a*(t) ± z_{1-α/2} · σ_{a*}(t)``, clipped to
-         ``[l, u]``.
-      7. Diagnostics: ``trace_prior``, ``trace_post``, ``max_resid_hard``,
-         ``psd_min_diag``.
-
-    The block path replaces steps 2–5 by ``σ²_{a*} = σ²_a · (1 − κ)``, with the
-    contraction ``κ`` read off a QR of the whitened system (:meth:`_whitened_qr`).
+      1. Pull σ_c(t) from the upstream :class:`ConstraintRun` and σ_a conditioned
+         as the solver did.
+      2. Reduce the year at the QP's active set at ``a*``
+         (:meth:`_reduce_at_active_set`); ``σ²_{a*} = σ²_a · (1 − κ)``, with the
+         contraction ``κ`` read off a QR of the whitened system
+         (:meth:`_whitened_qr`).
+      3. ``lower / upper = a*(t) ± z_{1-α/2} · σ_{a*}(t)``, clipped at the
+         structural zero.
+      4. Diagnostics: ``trace_prior``, ``trace_post``, ``max_resid_hard``,
+         ``psd_min_diag`` (``min σ_a*``, not a PSD check), ``kappa_max`` and the
+         active-set counts.
 
     σ_a is conditioned with the same rules the solver used (shared
     helper in :mod:`pysuto._conditioning`). σ_c on hard rows is forced
@@ -238,7 +277,6 @@ class KalmanUncProp(BaseUncProp):
         opt_dir:     str = "data/proc/opt",
         const_dir:   str = "data/proc/const",
         uncprop_dir: str = "data/proc/uncprop",
-        block_size:  int = 1024,
         sigma_a_floor_abs:      Optional[float] = None,
         sigma_a_floor_rel:      Optional[float] = None,
         sigma_a_ceiling_factor: Optional[float] = None,
@@ -250,7 +288,6 @@ class KalmanUncProp(BaseUncProp):
         self.opt_dir      = opt_dir
         self.const_dir    = const_dir
         self.uncprop_dir  = uncprop_dir
-        self.block_size   = int(block_size)
         # The σ conditioning floors: an explicit value overrides, None takes the
         # opt run's recorded one (compute); the attributes hold the effective values.
         self._floor_override = {k: v for k, v in (
@@ -263,6 +300,10 @@ class KalmanUncProp(BaseUncProp):
         self.bind_tol               = bind_tol
         self.rank_tol               = rank_tol
         self.exclude_scale_totals   = bool(exclude_scale_totals)
+        # Set by compute(): until then the floor attributes are the defaults, not the
+        # opt run's recorded ones, and persist() would store the wrong ones.
+        self._computed   = False
+        self._prior_mode: Optional[str] = None
 
         self._opt_registry     = OptimRunRegistry(opt_dir)
         self._const_registry   = ConstraintRunRegistry(const_dir)
@@ -283,10 +324,9 @@ class KalmanUncProp(BaseUncProp):
         force_pinned: Optional[np.ndarray] = None,
         force_free:   Optional[np.ndarray] = None,
     ) -> UncPropResult:
-        """Posterior σ and interval of every edge × year (block path: at the QP's
-        active set).
+        """Posterior σ and interval of every edge × year, at the QP's active set.
 
-        Block path only (#81): ``aggregates`` adds the covariance of K linear
+        ``aggregates`` (#81) adds the covariance of K linear
         totals (:class:`AggregateMoments`); ``draws`` maps a year to a number of
         posterior deviation draws over its ``cols_t``, taken with ``rng``;
         ``force_pinned`` / ``force_free`` are boolean masks over every edge that
@@ -311,6 +351,13 @@ class KalmanUncProp(BaseUncProp):
                                              opt_run_id),
                      **self._floor_override}.items():
             setattr(self, k, v)
+        self._prior_mode = opt_sidecar.get("stage_config", {}).get("prior_mode")
+        if self._prior_mode == "warm":
+            logger.warning(
+                "OptimRun '%s' was solved with prior_mode='warm': its years are chained "
+                "(a_prior(t) = a*(t-1)) and Stage 5 treats each year's prior as fixed, so "
+                "the posterior ignores the cross-year covariance", opt_run_id)
+        self._computed = True
 
         logger.info("Loading OptimRun '%s' (→ ConstraintRun '%s')",
                     opt_run_id, const_run_id)
@@ -342,93 +389,9 @@ class KalmanUncProp(BaseUncProp):
                 const_run, opt_results, alpha, aggregates=aggregates, draws=draws or {},
                 rng=rng, force_pinned=force_pinned, force_free=force_free,
             )
-        if (aggregates is not None or draws or force_pinned is not None
-                or force_free is not None):
-            raise ValueError("aggregates, draws and the force masks need the block path (a "
-                             "ConstraintRun with G_blocks); the full-G path has no active set")
-        if self.exclude_scale_totals:
-            raise ValueError("exclude_scale_totals needs the block path (a ConstraintRun "
-                             "with G_blocks); the full-G path has no active set")
-
-        # 2) Condition σ_a once (time-invariant; same rules as solver).
-        _, sigma_a = condition_prior(
-            const_run.a0, const_run.sigma_a,
-            floor_abs      = self.sigma_a_floor_abs,
-            floor_rel      = self.sigma_a_floor_rel,
-            ceiling_factor = self.sigma_a_ceiling_factor,
-        )
-        sigma_a2 = sigma_a ** 2
-
-        G = const_run.G.tocsc()
-        hard_mask = const_run.row_meta["is_hard"].to_numpy().astype(bool)
-        if (hard_mask & (const_run.row_meta["sense"].to_numpy() == SENSE_LE)).any():
-            logger.warning(
-                "uncprop: the full-G path treats hard inequality rows as binding "
-                "equalities (no active set, #27) — rebuild the ConstraintRun with a "
-                "per-period partition to get the active-set posterior."
-            )
-        # ``equality_mask`` is the subset of hard rows that are exact
-        # equalities. Hard ``le`` rows are inequalities and a non-binding
-        # one has a negative — *feasible* — ``G·a − c``; only hard ``eq``
-        # rows are valid for an exact-residual diagnostic.
-        equality_mask = hard_mask & (const_run.row_meta["sense"].to_numpy() == SENSE_EQ)
-
-        # 3) Cholesky backend handle. Symbolic factor is analyzed from
-        #    S at t₀; per-t refreshes reuse the pattern (CHOLMOD path).
-        handle = self._init_factor(G, sigma_a2, const_run, hard_mask)
-
-        z = float(norm.ppf(1.0 - alpha / 2.0))
-
-        # 4) Per-timestep loop.
-        per_timestep: dict[str, UncPropTimestep] = {}
-        for t_label, opt_t in opt_results.items():
-            t_start = time.perf_counter()
-
-            sigma_c2_t = self._build_sigma_c2(const_run, t_label, hard_mask)
-            self._refresh_factor(handle, G, sigma_a2, sigma_c2_t)
-
-            d = self._marginal_diagonal(handle, G, n_edges)
-            var_post = sigma_a2 * (1.0 - sigma_a2 * d)
-            np.clip(var_post, 0.0, None, out=var_post)
-            sigma_a_star = np.sqrt(var_post)
-
-            half_width = z * sigma_a_star
-            lower = np.maximum(opt_t.F_opt - half_width, const_run.l)
-            upper = np.minimum(opt_t.F_opt + half_width, const_run.u)
-
-            diagnostics = self._diagnostics(
-                sigma_a2      = sigma_a2,
-                sigma_a_star  = sigma_a_star,
-                G             = G,
-                a_star        = opt_t.F_opt,
-                c_t           = np.asarray(const_run.timestep_data[t_label]["c"]),
-                equality_mask = equality_mask,
-            )
-
-            per_timestep[t_label] = UncPropTimestep(
-                timestep     = t_label,
-                sigma_a_star = sigma_a_star,
-                lower        = lower,
-                upper        = upper,
-                diagnostics  = diagnostics,
-            )
-
-            trace_contraction = (1.0 - diagnostics["trace_post"] / diagnostics["trace_prior"]
-                                 if diagnostics["trace_prior"] > 0.0 else 0.0)
-            logger.info(
-                "t=%s  σ_post: min=%.3e med=%.3e max=%.3e  trace_contraction=%.3f  time=%.2fs",
-                t_label,
-                float(sigma_a_star.min()),
-                float(np.median(sigma_a_star)),
-                float(sigma_a_star.max()),
-                trace_contraction,
-                time.perf_counter() - t_start,
-            )
-
-        return UncPropResult(
-            method       = self.METHOD,
-            alpha        = float(alpha),
-            per_timestep = per_timestep,
+        raise ValueError(
+            f"ConstraintRun '{const_run_id}' has no G_blocks: Stage 5 runs on the block "
+            f"path only, and Stage 4 solves no run without it (ADR 0042)"
         )
 
     def _compute_via_blocks(
@@ -443,14 +406,11 @@ class KalmanUncProp(BaseUncProp):
         force_pinned: Optional[np.ndarray] = None,
         force_free:   Optional[np.ndarray] = None,
     ) -> UncPropResult:
-        """Per-t posterior using ``run.G_blocks[t]`` — replaces the ``(M × M)``
-        global ``S`` with one year's rows per timestep. Mathematically identical: the
-        legacy global ``S`` is exactly block-diagonal by time when no
-        cross-time constraint coupling exists (verified by the partition
-        invariant in :func:`pysuto.constraints.engine._partition_G_by_time`).
-        Non-``t`` entries of ``sigma_a_star`` inherit the prior σ_a — same
-        as the legacy "deactivated row" outcome where ``σ_c=SIGMA_C_INACTIVE``
-        makes d≈0 and the contraction vanishes.
+        """Per-t posterior from ``run.G_blocks[t]``: one year's rows and columns
+        per timestep (the partition invariant of
+        :func:`pysuto.constraints.engine._partition_G_by_time` makes ``G`` block
+        diagonal by year). Results are year-local over ``cols_t``: a year's
+        arrays hold that year's edges only, and the years add without covarying.
 
         Each period is first reduced to the QP's active set at ``a*(t)``
         (:meth:`_reduce_at_active_set`, #27), so the whitened system of
@@ -468,12 +428,12 @@ class KalmanUncProp(BaseUncProp):
         hard_mask     = rm["is_hard"].to_numpy().astype(bool)
         sense         = rm["sense"].to_numpy()
         equality_mask = hard_mask & (sense == SENSE_EQ)
-        lower_bound   = self._lower_bound_mask(rm)
+        lower_bound   = lower_bound_mask(rm)
         left_out      = (self._scale_total_mask(rm) if self.exclude_scale_totals
                          else np.zeros(len(rm), dtype=bool))
         row_time      = rm["time"].astype(str).to_numpy()
 
-        z = float(norm.ppf(1.0 - alpha / 2.0))
+        z = z_alpha(alpha)
 
         if aggregates is not None:
             W   = sp.csr_matrix(aggregates.W, dtype=np.float64)
@@ -520,6 +480,11 @@ class KalmanUncProp(BaseUncProp):
                 qr_t = self._whitened_qr(G_k[:, live], sigma_live, sc_t[red.keep])
                 kappa_t[live] = self._leverage(qr_t)[:live.size]
 
+            kappa_max = float(kappa_t.max(initial=0.0))
+            if kappa_max > KAPPA_WARN_ABOVE:
+                logger.warning("t=%s: kappa reaches %.9g > 1; sigma_a*^2 is clipped at 0 "
+                               "(the #27 failure: an ill-conditioned whitened system)",
+                               t_label, kappa_max)
             var_post_t = sigma_a2_eff_t * (1.0 - kappa_t)
             np.clip(var_post_t, 0.0, None, out=var_post_t)
             sigma_a_star_t = np.sqrt(var_post_t)
@@ -565,6 +530,9 @@ class KalmanUncProp(BaseUncProp):
                 max_resid_hard = float(np.abs(resid_t[em_t]).max())
             else:
                 max_resid_hard = 0.0
+            if max_resid_hard > HARD_RESID_WARN_ABOVE:
+                logger.warning("t=%s: a hard equality row is violated by %.3e kt at a* "
+                               "(> %.0e)", t_label, max_resid_hard, HARD_RESID_WARN_ABOVE)
             # Traces over this year's own edges (cols_t): adding the other
             # years' untouched σ² would dilute the trace contraction ~n_t-fold.
             diagnostics = {
@@ -572,6 +540,7 @@ class KalmanUncProp(BaseUncProp):
                 "trace_post":     float(np.square(sigma_a_star_t).sum()),
                 "max_resid_hard": max_resid_hard,
                 "psd_min_diag":   float(sigma_a_star_t.min()),
+                "kappa_max":      kappa_max,
                 **red.counts,
             }
 
@@ -623,14 +592,6 @@ class KalmanUncProp(BaseUncProp):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _lower_bound_mask(row_meta) -> np.ndarray:
-        """Rows that are ADR 0039 lower bounds (read from ``type`` / ``variant``)."""
-        if not {"type", "variant"} <= set(row_meta.columns):
-            return np.zeros(len(row_meta), dtype=bool)
-        is_lower = (row_meta["type"] == "bound") & (row_meta["variant"] == "lower")
-        return is_lower.to_numpy()
-
-    @staticmethod
     def _scale_total_mask(row_meta) -> np.ndarray:
         """Rows that are scale totals or scrap level anchors
         (:data:`SCALE_TOTAL_VARIANTS`, read from ``type`` / ``variant``). A
@@ -642,17 +603,6 @@ class KalmanUncProp(BaseUncProp):
         is_scale = ((row_meta["type"] == "sum")
                     & row_meta["variant"].isin(SCALE_TOTAL_VARIANTS))
         return is_scale.to_numpy()
-
-    @staticmethod
-    def _lower_bound_values(G_t: sp.csr_matrix, c_t: np.ndarray,
-                            lower_bound: np.ndarray) -> np.ndarray:
-        """Each column's lower-bound row ``l`` (NaN without one). An ADR 0039 row
-        reads ``−a ≤ −l``: one nonzero, coefficient −1, so ``l = −c``."""
-        bound_rows = np.flatnonzero(lower_bound)
-        bound_cols = G_t[bound_rows].tocoo()             # one nonzero per bound row
-        lower = np.full(G_t.shape[1], np.nan)
-        lower[bound_cols.col] = -c_t[bound_rows[bound_cols.row]]   # −a ≤ −l
-        return lower
 
     @staticmethod
     def _check_partition(t_label: str, cols_t: np.ndarray, rows_t: np.ndarray,
@@ -684,7 +634,7 @@ class KalmanUncProp(BaseUncProp):
         force_pinned: Optional[np.ndarray] = None,
         force_free:   Optional[np.ndarray] = None,
     ) -> _PeriodReduction:
-        """Reduce one period at the QP's active set at ``a*``.
+        """Reduce one period at the QP's active set at ``a*`` (ADR 0044).
 
         Kept rows: hard equalities, soft rows and binding bands, minus rows left
         without a live edge and hard rows linearly dependent on the others. A
@@ -699,7 +649,7 @@ class KalmanUncProp(BaseUncProp):
         nonneg  = hard & (sense == SENSE_LE)
         binding = nonneg & (resid >= -self.bind_tol)
 
-        lower = self._lower_bound_values(G_t, c_t, lower_bound)
+        lower = lower_bound_values(G_t, c_t, lower_bound)
         bound_active = np.zeros(G_t.shape[1], dtype=bool)
         bound_active[G_t[np.flatnonzero(binding & lower_bound)].tocoo().col] = True
         n_pinned = n_freed = 0
@@ -823,6 +773,10 @@ class KalmanUncProp(BaseUncProp):
         stamped into ``parents.upstream`` so downstream readers don't
         have to re-hop through the opt sidecar.
         """
+        if not self._computed:
+            raise RuntimeError("persist() before compute(): the sigma conditioning floors "
+                               "are the recorded ones only once compute() has read the "
+                               "opt run's sidecar")
         opt_sidecar = self._opt_registry.load_sidecar(opt_run_id)
         const_run_id = (opt_sidecar.get("parents", {})
                                     .get("upstream", {})
@@ -837,7 +791,6 @@ class KalmanUncProp(BaseUncProp):
         stage_config = {
             "method":                 result.method,
             "alpha":                  result.alpha,
-            "block_size":             self.block_size,
             "sigma_a_floor_abs":      self.sigma_a_floor_abs,
             "sigma_a_floor_rel":      self.sigma_a_floor_rel,
             "sigma_a_ceiling_factor": self.sigma_a_ceiling_factor,
@@ -845,6 +798,7 @@ class KalmanUncProp(BaseUncProp):
             "bind_tol":               self.bind_tol,
             "rank_tol":               self.rank_tol,
             "exclude_scale_totals":   self.exclude_scale_totals,
+            "prior_mode":             self._prior_mode,
         }
         if case is not None:
             stage_config["case"] = dict(case)
@@ -857,98 +811,3 @@ class KalmanUncProp(BaseUncProp):
         logger.info("UncPropRun '%s' persisted to %s",
                     run_id, self._uncprop_registry.storage_dir)
         return run_id
-
-    # ------------------------------------------------------------------
-    # Backend internals
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _build_S(G: sp.csc_matrix, sigma_a2: np.ndarray,
-                 sigma_c2_t: np.ndarray) -> sp.csc_matrix:
-        """Assemble ``S = G · diag(σ²_a) · Gᵀ + diag(σ²_c)`` as CSC."""
-        Da = sp.diags(sigma_a2)
-        Dc = sp.diags(sigma_c2_t)
-        return (G @ Da @ G.T + Dc).tocsc()
-
-    def _build_sigma_c2(self, const_run, t_label: str,
-                        hard_mask: np.ndarray) -> np.ndarray:
-        raw = np.asarray(const_run.timestep_data[t_label]["sigma_c"], dtype=float)
-        s = condition_sigma_c(raw, floor=self.sigma_c_floor, hard_mask=hard_mask)
-        return s ** 2
-
-    def _init_factor(self, G: sp.csc_matrix, sigma_a2: np.ndarray,
-                     const_run, hard_mask: np.ndarray) -> dict:
-        """Analyze symbolic factor at t₀; return a backend handle."""
-        first_t = next(iter(const_run.timestep_data.keys()))
-        sigma_c2_0 = self._build_sigma_c2(const_run, first_t, hard_mask)
-        S0 = self._build_S(G, sigma_a2, sigma_c2_0)
-
-        try:
-            from sksparse.cholmod import cholesky as cholmod_cholesky
-            factor = cholmod_cholesky(S0)
-            logger.info("uncprop: CHOLMOD symbolic factor analyzed "
-                        "(nnz(S)=%d, m=%d)", S0.nnz, S0.shape[0])
-            return {"backend": "cholmod", "factor": factor}
-        except ImportError:
-            logger.warning(
-                "uncprop: scikit-sparse not installed; falling back to "
-                "scipy.sparse.linalg.splu. No symbolic-pattern reuse — "
-                "expect noticeable per-timestep overhead on large G."
-            )
-            return {"backend": "scipy", "factor": None}
-
-    def _refresh_factor(self, handle: dict, G: sp.csc_matrix,
-                        sigma_a2: np.ndarray, sigma_c2_t: np.ndarray) -> None:
-        """Refresh numeric factor for new σ_c(t); reuses symbolic pattern."""
-        S = self._build_S(G, sigma_a2, sigma_c2_t)
-        if handle["backend"] == "cholmod":
-            handle["factor"].cholesky_inplace(S)
-        else:
-            from scipy.sparse.linalg import splu
-            handle["factor"] = splu(S.tocsc())
-
-    def _marginal_diagonal(self, handle: dict, G: sp.csc_matrix,
-                           n_edges: int) -> np.ndarray:
-        """Return ``d_i = ‖L⁻¹ g_i‖² = g_iᵀ S⁻¹ g_i`` for every column g_i."""
-        d = np.zeros(n_edges, dtype=np.float64)
-        backend = handle["backend"]
-
-        if backend == "cholmod":
-            factor = handle["factor"]
-            for s in range(0, n_edges, self.block_size):
-                e = min(s + self.block_size, n_edges)
-                G_blk = G[:, s:e].toarray()                       # m × B
-                V = factor.solve_L(G_blk, use_LDLt_decomposition=False)
-                d[s:e] = np.einsum("mb,mb->b", V, V)
-        else:
-            # scipy fallback: g_iᵀ S⁻¹ g_i directly (= ‖L⁻¹ g_i‖² for
-            # symmetric PSD S). One full system solve per column block
-            # instead of one triangular solve — ~2× the work.
-            lu = handle["factor"]
-            for s in range(0, n_edges, self.block_size):
-                e = min(s + self.block_size, n_edges)
-                G_blk = G[:, s:e].toarray()
-                X = lu.solve(G_blk)
-                d[s:e] = np.einsum("mb,mb->b", G_blk, X)
-
-        return d
-
-    @staticmethod
-    def _diagnostics(*, sigma_a2: np.ndarray, sigma_a_star: np.ndarray,
-                     G: sp.csc_matrix, a_star: np.ndarray,
-                     c_t: np.ndarray, equality_mask: np.ndarray) -> dict:
-        trace_prior = float(sigma_a2.sum())
-        trace_post  = float(np.square(sigma_a_star).sum())
-        if equality_mask.any():
-            resid = G @ a_star - c_t
-            max_resid_hard = float(np.abs(resid[equality_mask]).max())
-        else:
-            max_resid_hard = 0.0
-        return {
-            "trace_prior":    trace_prior,
-            "trace_post":     trace_post,
-            "max_resid_hard": max_resid_hard,
-            "psd_min_diag":   float(sigma_a_star.min()),
-        }
-
-

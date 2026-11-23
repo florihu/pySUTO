@@ -8,7 +8,8 @@ Every number is read from the all-years frames of
 so the figures and the per-year ``edges_<year>.csv`` / ``constraints_<year>.csv``
 agree by construction. Vocabulary follows GLOSSARY.md: **defect** = ``a*−a_prior``
 per edge; **residual** = ``G·a−c`` per row; **objective share** = an item's ``z²``
-over its family's ``Σz²`` (the QP objective *is* ``Σz²``); **identity** = the
+over its family's ``Σz²`` (the QP objective *is* ``Σz²``: ``z`` divides by the σ the QP
+weighted, conditioned with the floors the opt sidecar recorded); **identity** = the
 cross-year key of an edge (template) or a row (``row_meta`` columns);
 **retention** = ``Σa*/Σa_prior`` over a set of edges.
 
@@ -57,7 +58,19 @@ from typing import NamedTuple, Optional
 import numpy as np
 import pandas as pd
 
-from pysuto.acc import BoundaryRole, boundary_role_values
+from pysuto._conditioning import (
+    DEFAULT_CONDITIONING, condition_sigma_c, recorded_conditioning,
+)
+from pysuto import acc_store
+from pysuto.acc import AccountingStructure, BoundaryRole, boundary_role_values
+from pysuto.constraints.naming import (
+    SENSE_EQ, SENSE_LE, TYPE_MASSBAL, TYPE_RATIO, TYPE_SUM,
+)
+from pysuto.logging import get_logger
+from pysuto.registry import (
+    ConstraintRunRegistry, DataFeedRegistry, ImputationRunRegistry, OptimRunRegistry,
+)
+from pysuto.registry.optim import warn_if_prefix_block_run
 
 from ._plot import _CAT8, _CAT_EXT, _INK, _STATUS, _savefig, _seq_cmap
 from .stats._core import boundary_edges, filter_regions, sector_totals
@@ -66,6 +79,8 @@ from .stats.objective import (
     rank_identities, share_by_key,
 )
 from .stats.solver import SolverStatsDiagnostic
+
+_log = get_logger("pysuto.diag.solver")
 
 # Hue palette for SolverDiag.compare(). Order matters: first run gets blue.
 _HUE_PALETTE = _CAT8
@@ -151,6 +166,8 @@ class SolverDiag:
 
     # ---- Plot registry — single source of truth (insertion order = render order) ----
     # Add an entry here whenever a new _fig_* method is implemented.
+    # Hand-aligned data: the registry is exempt from the ~90-column rule, its ``desc``
+    # strings are the figure titles and stay on one line each.
     PLOTS: "dict[str, PlotSpec]" = {
         "SD-R-01":  PlotSpec("_fig_solver_health",           "sd_r_01_solver_health",            "Solver health: status strip, iterations, solve time, final KKT residuals per year", hueable=True),
         "SD-R-08":  PlotSpec("_fig_useful_output",           "sd_r_08_useful_output",            "Useful output (Process→Flow) by process sector: Σa*(t) vs Σa_prior(t) + retention, cols = valuation"),
@@ -159,15 +176,17 @@ class SolverDiag:
         "SD-R-11":  PlotSpec("_fig_objective_decomposition", "sd_r_11_objective_decomposition",  "Objective decomposition per year: Σz² edge defects / sum-row residuals / soft-ratio residuals, max hard mass-balance |G·a*−c|, share |z|>3", hueable=True),
         "SD-R-12":  PlotSpec("_fig_convergence_traces",      "sd_r_12_convergence_traces",       "Backend per-iteration traces (res_primal, res_dual, gap_abs, step_length), one line per year"),
         "SD-R-13":  PlotSpec("_fig_objective_share_by_sector", "sd_r_13_objective_share_by_sector", "Objective share per sector key, per family (edges: from→to sector; sum rows: sector; soft ratios: numerator from→to sector)", hueable=True),
-        "SD-R-14":  PlotSpec("_fig_top_identities",          "sd_r_14_top_identities",           "Top-25 identities per family ranked by Σ_t z², annotated with Σ_t|Δ| in kt"),
+        "SD-R-14":  PlotSpec("_fig_top_identities",          "sd_r_14_top_identities",           "Top-25 identities per family ranked by Σ_t z², annotated with Σ_t|Δ| in kt (kt CC for content-valued identities)"),
         "SD-R-15a": PlotSpec("_fig_profiles_edges",          "sd_r_15a_profiles_edges",          "z_t over years for the top-12 edge identities (cross-year template)"),
         "SD-R-15b": PlotSpec("_fig_profiles_sum_rows",       "sd_r_15b_profiles_sum_rows",       "z_t over years for the top-12 sum-row identities"),
         "SD-R-15c": PlotSpec("_fig_profiles_soft_ratios",    "sd_r_15c_profiles_soft_ratios",    "z_t over years for the top-12 soft-ratio identities"),
         "SD-T-07":  PlotSpec("_fig_rocket",                  "sd_t_07_rocket",                   "Rocket: c-space (G·a_prior(t) vs c*, sum rows) and a-space (a_prior(t) vs a*) at first / worst-Σz² / last year, colour |z|"),
     }
 
-    def __init__(self, results, constraint_run, label: str = "", acc=None) -> None:
+    def __init__(self, results, constraint_run, label: str = "", acc=None,
+                 conditioning=None) -> None:
         self.label      = label
+        self._conditioning = conditioning
         self._results   = self._reassemble_if_year_local(dict(results), constraint_run)
         self._timesteps = list(self._results.keys())      # original keys (str on disk)
         self._years     = [str(t) for t in self._timesteps]
@@ -190,17 +209,36 @@ class SolverDiag:
         self._feed_entries:    Optional[list] = None
 
         # Row classification (mass-balance rows for summary()) and the ε-norm
-        # fallback for the worst year when no frames are available.
+        # fallback for the worst year when no frames are available. ε is in each soft
+        # row's own unit (kt, kt CC, a ratio), so the norm is of ε/σ_c, which is
+        # dimensionless and whose square is the rows' share of the objective.
         self._row_info = self._classify_rows(constraint_run)
-        self._eps_norms = {
-            t: float(np.linalg.norm(np.asarray(self._results[t].eps_opt, dtype=float)))
-            for t in self._timesteps
-        }
+        self._eps_norms = {t: self._eps_norm(t) for t in self._timesteps}
+
+    def _eps_norm(self, t) -> float:
+        """``‖ε/σ_c‖₂`` of period ``t``: the slack of each soft equality row over its
+        σ_c, conditioned with the floors the solver used."""
+        rm   = self._const_run.row_meta
+        rows = np.flatnonzero(rm["time"].astype(str).to_numpy() == str(t))
+        rm_t = rm.iloc[rows]
+        soft = ((rm_t["sense"].to_numpy() == SENSE_EQ)
+                & ~rm_t["is_hard"].to_numpy().astype(bool))
+        sc = np.asarray(self._const_run.timestep_data[t]["sigma_c"], dtype=float)[rows][soft]
+        cond = {**DEFAULT_CONDITIONING, **(self._conditioning or {})}
+        eps = np.asarray(self._results[t].eps_opt, dtype=float)
+        return float(np.linalg.norm(
+            eps / condition_sigma_c(sc, floor=float(cond["sigma_c_floor"]))))
 
     @property
     def results(self) -> dict:
         """The (reassembled) per-timestep ``OptimResult`` dict."""
         return self._results
+
+    @property
+    def conditioning(self):
+        """The σ floors the frames condition with (the opt sidecar's record, or
+        ``None`` for the library defaults)."""
+        return self._conditioning
 
     @property
     def constraint_run(self):
@@ -214,9 +252,11 @@ class SolverDiag:
         if not self._acc_resolved:
             self._acc_resolved = True
             try:
-                from pysuto.acc import AccountingStructure
-                self._acc = AccountingStructure.load(self._const_run.acc_id)
-            except Exception:
+                self._acc = acc_store.load(self._const_run.acc_id)
+            except (AssertionError, KeyError, OSError) as exc:
+                # a diag built from toy objects has no acc on disk: no sector labels
+                _log.warning("acc %r could not be loaded (%s: %s); the figures go "
+                             "without it", self._const_run.acc_id, type(exc).__name__, exc)
                 self._acc = None
         return self._acc
 
@@ -226,6 +266,7 @@ class SolverDiag:
         if self._stats_obj is None:
             self._stats_obj = SolverStatsDiagnostic(
                 self._results, self._const_run, self.acc, years="all",
+                conditioning=self._conditioning,
             )
         return self._stats_obj
 
@@ -274,16 +315,12 @@ class SolverDiag:
         output_dir: str = "data/proc/opt",
         const_dir:  str = "data/proc/const",
         imp_dir:    str = "data/proc/imp",
-        feed_dir:   str = "data/proc/feeds",
+        feed_dir:   str = "data/proc/feed/registry",
         label:      str = "",
         acc=None,
     ) -> "SolverDiag":
-        """Reconstruct results + ConstraintRun from disk."""
-        # Local import to keep diag.py at the leaf of the import graph for
-        # CI environments without the full Stage-3 stack installed.
-        from pysuto.registry import ConstraintRunRegistry, OptimRunRegistry
-        from pysuto.registry.optim import warn_if_prefix_block_run
-
+        """Reconstruct results + ConstraintRun from disk; the frames' ``z`` divides by
+        the σ conditioned with the floors the opt sidecar recorded."""
         opt_reg = OptimRunRegistry(output_dir)
         if opt_run_id not in opt_reg._index:
             raise KeyError(
@@ -299,7 +336,9 @@ class SolverDiag:
         const_run = ConstraintRunRegistry(const_dir).load(const_run_id)
         warn_if_prefix_block_run(results, const_run)
 
-        instance = cls(results, const_run, label=label or opt_run_id, acc=acc)
+        instance = cls(results, const_run, label=label or opt_run_id, acc=acc,
+                       conditioning=recorded_conditioning(
+                           sidecar.get("stage_config"), opt_run_id))
         instance._default_odir = os.path.join(output_dir, opt_run_id, "diag")
 
         # Populate provenance chain
@@ -309,7 +348,6 @@ class SolverDiag:
         agg_id = const_run.agg_id
         if agg_id:
             try:
-                from pysuto.registry import ImputationRunRegistry, DataFeedRegistry
                 imp_reg = ImputationRunRegistry(imp_dir)
                 if agg_id in imp_reg._index:
                     imp_sidecar = imp_reg.load_sidecar(agg_id)
@@ -330,9 +368,13 @@ class SolverDiag:
                                 "label":      "(not registered)",
                                 "created_at": "—",
                                 "stage":      "feed",
+                                "registered": False,
                             })
-            except Exception:
-                pass  # best-effort; missing registries are silently skipped
+            except (KeyError, OSError, ValueError) as exc:
+                # best-effort: the figures do not need the chain, provenance.md does
+                _log.warning("provenance chain of %r incomplete (%s: %s); "
+                             "provenance.md lists what was found",
+                             opt_run_id, type(exc).__name__, exc)
 
         return instance
 
@@ -358,23 +400,23 @@ class SolverDiag:
         sense   = rm["sense"].to_numpy() if "sense" in rm.columns else np.array([], dtype=str)
         is_hard = (rm["is_hard"].to_numpy().astype(bool) if "is_hard" in rm.columns
                    else np.zeros(len(rm), dtype=bool))
-        soft_eq = (sense == "eq") & ~is_hard
+        soft_eq = (sense == SENSE_EQ) & ~is_hard
 
         if "type" in rm.columns:
             fam = rm["type"].astype(str).to_numpy()
             tp = fam.astype(object).copy()
-            tp[fam == "massbal"] = "mass_balance"
-            tp[fam == "sum"]     = "sum_eq"
-            ratio_mask = (fam == "ratio")
+            tp[fam == TYPE_MASSBAL] = "mass_balance"
+            tp[fam == TYPE_SUM]     = "sum_eq"
+            ratio_mask = (fam == TYPE_RATIO)
             tp[ratio_mask & soft_eq]        = "ratio_eq"
-            tp[ratio_mask & (sense == "le")] = "ratio_bound"
+            tp[ratio_mask & (sense == SENSE_LE)] = "ratio_bound"
             tp = tp.astype(str)
         else:
             # Toy fixtures: synthesise type from (sense, is_hard)
             tp = np.full(len(rm), "unknown", dtype=object)
-            tp[(sense == "eq") & is_hard] = "mass_balance"
+            tp[(sense == SENSE_EQ) & is_hard] = "mass_balance"
             tp[soft_eq]                   = "sum_eq"
-            tp[(sense == "le") & is_hard] = "ratio_bound"
+            tp[(sense == SENSE_LE) & is_hard] = "ratio_bound"
             tp = tp.astype(str)
 
         return {
@@ -431,7 +473,7 @@ class SolverDiag:
 
     def _t_worst(self, regions=None):
         """Year with the largest total Σz² (objective decomposition); falls back
-        to the largest ‖ε‖₂ when no frame is available."""
+        to the largest ‖ε/σ_c‖₂ when no frame is available."""
         dec = self._decomposition(regions)
         if dec is not None and dec["zsq_total"].notna().any():
             y = dec.set_index("year")["zsq_total"].idxmax()
@@ -501,8 +543,9 @@ class SolverDiag:
                     lines.append(f"  region Σz² : {fam}  " + "  ".join(
                         f"{r}={s:.1%}" for r, s in zip(top["region"], top["share"])))
         worst_eps = max(self._eps_norms, key=self._eps_norms.get)
-        lines.append(f"  worst ε   : t={worst_eps}  ‖ε‖₂={self._eps_norms[worst_eps]:.3e}")
-        lines.append(f"  max |Gx-c| on mass-balance rows: {mb_max:.3e}")
+        lines.append(f"  worst ε   : t={worst_eps}  ‖ε/σ_c‖₂={self._eps_norms[worst_eps]:.3e}")
+        lines.append(f"  max |Gx-c| on mass-balance rows: {mb_max:.3e}  (kt; kt CC on "
+                     f"content rows)")
         text = "\n".join(lines)
         print(text)
         return text
@@ -561,7 +604,7 @@ class SolverDiag:
                 continue
             fig = getattr(self, spec.method)(hue=None, timesteps=ts_triple, regions=regions)
             p = _savefig(fig, os.path.join(odir, f"{spec.filename}{suffix}.png"), dpi=dpi)
-            print(f"   {pid}  → {p}  ✓")
+            _log.info("   %s  → %s  ✓", pid, p)
             paths.append(p)
             if not show:
                 import matplotlib.pyplot as plt; plt.close(fig)
@@ -584,7 +627,7 @@ class SolverDiag:
     # ------------------------------------------------------------------
 
     def _write_provenance(self, odir: str) -> Optional[str]:
-        """Write provenance.md to *odir* and print a compact tree to stdout."""
+        """Write provenance.md to *odir* and log a compact tree."""
         from datetime import datetime as _dt
 
         out_path  = os.path.join(odir, "provenance.md")
@@ -648,30 +691,31 @@ class SolverDiag:
             lines += [
                 "",
                 "### Feeds",
-                "| feed_id | feed_run_id | label | created | path |",
-                "|---|---|---|---|---|",
+                "| feed_run_id | label | created |",
+                "|---|---|---|",
             ]
             for fe in feeds:
-                fid     = fe.get("feed_id", "—")
-                frun    = fe.get("feed_run_id", "—")
+                frun    = fe["run_id"]
                 flabel  = fe.get("label", "") or "—"
+                if not fe.get("registered", True):
+                    flabel = "(not registered)"
                 fdate   = (fe.get("created_at", "—") or "—")[:10]
-                fpath   = fe.get("odir", "—")
-                lines.append(f"| {fid} | `{frun}` | {flabel} | {fdate} | {fpath} |")
+                lines.append(f"| `{frun}` | {flabel} | {fdate} |")
 
         os.makedirs(odir, exist_ok=True)
         with open(out_path, "w", encoding="utf-8") as fh:
             fh.write("\n".join(lines) + "\n")
 
-        # ── Compact stdout tree ────────────────────────────────────────
-        feed_ids_display = [fe.get("feed_run_id", fe.get("feed_id", "?")) for fe in feeds]
-        print(f"   provenance  {opt_id}")
-        print(f"               └── {const_id}")
-        print(f"               │   └── {agg_id}")
+        # ── Compact tree in the log ────────────────────────────────────────
+        feed_ids_display = [fe["run_id"] + ("" if fe.get("registered", True)
+                                            else "  (not registered)") for fe in feeds]
+        _log.info("   provenance  %s", opt_id)
+        _log.info("               └── %s", const_id)
+        _log.info("               │   └── %s", agg_id)
         for i, fid in enumerate(feed_ids_display):
             connector = "└──" if i == len(feed_ids_display) - 1 else "├──"
-            print(f"               │       {connector} {fid}")
-        print(f"               → {out_path}  ✓")
+            _log.info("               │       %s %s", connector, fid)
+        _log.info("               → %s  ✓", out_path)
 
         return out_path
 
@@ -691,6 +735,9 @@ class SolverDiag:
     ) -> list[str]:
         """
         Overlay run-scope diagnostics from multiple SolverDiag instances.
+
+        Library API: no script drives it (the tests and ad-hoc comparisons of two opt
+        runs do), kept with the ``hue=`` plumbing of the hueable figures.
 
         Parameters
         ----------
@@ -731,7 +778,7 @@ class SolverDiag:
             spec = cls.PLOTS[pid]
             fig = getattr(host, spec.method)(hue=hue, timesteps=None, regions=regions)
             p = _savefig(fig, os.path.join(odir, f"{label}_{spec.filename}{suffix}.png"), dpi=dpi)
-            print(f"   {pid} (compare) → {p}  ✓")
+            _log.info("   %s (compare) → %s  ✓", pid, p)
             paths.append(p)
             import matplotlib.pyplot as plt; plt.close(fig)
         return paths
@@ -858,9 +905,15 @@ class SolverDiag:
             groups.append("other")
         return vals, tot, groups, colors
 
-    def _draw_totals_rows(self, ax_top, ax_bot, vals, tot, groups, colors, unit="kt") -> None:
+    def _unit(self, valuation) -> str:
+        """``kt CC`` for the acc's content valuation, ``kt`` otherwise (gross mass; the
+        unit when no acc is loaded, CLAUDE.md "Documentation & units")."""
+        roles = getattr(self.acc, "valuation_roles", None)
+        return "kt CC" if roles is not None and valuation == roles.content else "kt"
+
+    def _draw_totals_rows(self, ax_top, ax_bot, vals, tot, groups, colors) -> None:
         """Fill one (totals, retention) row pair: ``ax_top[c]`` / ``ax_bot[c]``
-        per valuation ``vals[c]``."""
+        per valuation ``vals[c]``, the axis labelled in that valuation's unit."""
         x = self._ts_index()
         for c, V in enumerate(vals):
             at, ab = ax_top[c], ax_bot[c]
@@ -897,7 +950,7 @@ class SolverDiag:
             ab.axhline(1.0, color=_INK["muted"], lw=1.0, ls="--")
             at.set_title(f"valuation = {V}", loc="left", fontsize=10)
             if c == 0:
-                at.set_ylabel(f"Σ a* (solid) · Σ a_prior (dashed) [{unit}]")
+                at.set_ylabel(f"Σ a* (solid) · Σ a_prior (dashed) [{self._unit(V)}]")
                 ab.set_ylabel("retention Σa*/Σa_prior")
             _apply_modern_style(at)
             _apply_modern_style(ab)
@@ -1123,8 +1176,9 @@ class SolverDiag:
 
         axes[0].set_ylabel("Σz² (objective)")
         axes[0].set_title("Σz² per family — edge defects · sum-row residuals · soft-ratio residuals", loc="left", fontsize=10)
-        axes[1].set_ylabel("max |G·a* − c|")
-        axes[1].set_title("Max hard mass-balance residual", loc="left", fontsize=10)
+        axes[1].set_ylabel("max |G·a* − c|  [kt; kt CC on content rows]")
+        axes[1].set_title("Max hard mass-balance residual (one max over both valuations)",
+                          loc="left", fontsize=10)
         axes[1].axhspan(1e-9, 1e-7, color=_INK["muted"], alpha=0.10)
         axes[2].set_ylabel("share of rows with |z| > 3")
         axes[2].set_title("Share |z| > 3 per family (priced disagreement, not violation)", loc="left", fontsize=10)
@@ -1277,14 +1331,18 @@ class SolverDiag:
                 _apply_modern_style(ax)
                 continue
             drew_any = True
+            # Δ is in the identity's own valuation (an edge's, a soft row's numerator's)
+            val_of = (f.drop_duplicates("identity").set_index("identity")["valuation"]
+                      if "valuation" in f.columns else pd.Series(dtype=object))
+            units  = [self._unit(val_of.get(i)) for i in r["identity"]]
             ys = np.arange(len(r))[::-1].astype(float)
             x = np.maximum(r["share"].to_numpy(dtype=float), 1e-12)
             lo = max(float(x.min()) / 3, 1e-6)
             ax.hlines(ys, 1e-12, x, color=_INK["muted"], lw=0.8, alpha=0.6)
             self._dot_rank(ax, ys, x, _FAMILY_COLOR[fam])
-            for yi, xi, row in zip(ys, x, r.itertuples(index=False)):
+            for yi, xi, unit, row in zip(ys, x, units, r.itertuples(index=False)):
                 ax.text(xi * 1.15, yi,
-                        f"{row.sum_abs_delta:,.0f} kt · {row.n_years}y · max|z| {row.z_absmax:.1f} ({row.year_absmax})",
+                        f"{row.sum_abs_delta:,.0f} {unit} · {row.n_years}y · max|z| {row.z_absmax:.1f} ({row.year_absmax})",
                         va="center", fontsize=6.5, color=_INK["muted"])
             ax.set_xscale("log")
             ax.set_xlim(lo, 1.0)

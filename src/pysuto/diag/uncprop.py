@@ -9,7 +9,8 @@ Every number is read from the all-years edge frame of
 are), the standardised **defect** ``z = (a*−a_prior)/σ_a`` (whether they agree
 with the prior), **prior class** and the four κ–z quadrants (prior-carried /
 confirmed / overruled / unexplained move). The weight of an edge-year is
-``max(|a_prior|, |a*|)`` in kt, so deleted and inflated edges both count.
+``max(|a_prior|, |a*|)`` in kt of the edge's valuation (``kt CC``), so deleted and
+inflated edges both count.
 
 Plot catalogue — :attr:`UncPropDiag.PLOTS` is the registry (ids are stable)
 --------------------------------------------------------------------------
@@ -45,6 +46,12 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
+from pysuto import acc_store
+from pysuto.logging import get_logger
+from pysuto.registry import (
+    ConstraintRunRegistry, ImputationRunRegistry, OptimRunRegistry, UncPropRunRegistry,
+)
+
 from ._plot import _CAT8, _INK, _savefig, _seq_cmap
 from .solver import PlotSpec, _apply_modern_style, _short, _slug
 from .stats._core import filter_regions
@@ -52,6 +59,8 @@ from .stats.uncprop import (
     CALIB_EXPECTED_SHARE, CALIB_KAPPA_MIN, CALIB_QUANTILES, KAPPA_CUT, PRIOR_CLASSES,
     QUADRANTS, Z_CUT, UncPropStatsDiagnostic, quantile_column, quantile_label,
 )
+
+logger = get_logger("pysuto.diag.uncprop")
 
 # Why an ablation run (#87) gets no shift calibration and no Birge interval.
 _ABLATION_NOTE  = ("not produced on a scale-total ablation run: z comes from the full "
@@ -69,6 +78,19 @@ def _symlog(z) -> np.ndarray:
     """``sign(z)·log10(1 + |z|)`` — linear-ish near 0, logarithmic in the tails."""
     z = np.asarray(z, dtype=float)
     return np.sign(z) * np.log10(1.0 + np.abs(z))
+
+
+def _unit(valuation: str) -> str:
+    """The unit of a valuation's weights, named after it (``kt CC``); the
+    valuation-less ``"all"`` is plain ``kt``."""
+    return "kt" if valuation == "all" else f"kt {valuation}"
+
+
+def _cells_lines(first: str, cells: list, per: int = 6) -> list[str]:
+    """``cells`` joined ``per`` to a line; ``first`` heads the first line, later
+    lines are indented to its width."""
+    return [(first if k == 0 else " " * len(first)) + "  ".join(cells[k:k + per])
+            for k in range(0, len(cells), per)]
 
 
 def _qq_index(n: int) -> np.ndarray:
@@ -154,11 +176,13 @@ class UncPropDiag:
         it cannot be loaded (toy fixtures)."""
         if not self._acc_resolved:
             self._acc_resolved = True
-            try:
-                from pysuto.acc import AccountingStructure
-                self._acc = AccountingStructure.load(self._cr.acc_id,
+            if os.path.isdir(os.path.join(self._acc_dir, self._cr.acc_id)):
+                self._acc = acc_store.load(self._cr.acc_id,
                                                      storage_dir=self._acc_dir)
-            except Exception:
+            else:
+                logger.warning("acc '%s' not found under %s: every edge is valuation "
+                               "'all' and its own identity", self._cr.acc_id,
+                               self._acc_dir)
                 self._acc = None
         return self._acc
 
@@ -191,16 +215,11 @@ class UncPropDiag:
         """Reconstruct the uncprop result, its opt + const runs and the
         imputation run from disk; ``acc_dir`` is where ``acc`` is loaded from when
         not given."""
-        # Local import to keep diag at the leaf of the import graph (as SolverDiag).
-        from pysuto.registry import (
-            ConstraintRunRegistry, ImputationRunRegistry, OptimRunRegistry,
-            UncPropRunRegistry,
-        )
-
         unc_reg = UncPropRunRegistry(uncprop_dir)
-        if uncprop_run_id not in unc_reg._index:
+        if uncprop_run_id not in unc_reg:
             raise KeyError(
-                f"uncprop_run_id '{uncprop_run_id}' not in {unc_reg._index_path}. "
+                f"uncprop_run_id '{uncprop_run_id}' not in "
+                f"{os.path.join(uncprop_dir, 'registry.json')}. "
                 f"Known: {sorted(unc_reg.run_ids())}"
             )
         sidecar  = unc_reg.load_sidecar(uncprop_run_id)
@@ -219,8 +238,13 @@ class UncPropDiag:
         imp_result = None
         if const_run.agg_id:
             imp_reg = ImputationRunRegistry(imp_dir)
-            if const_run.agg_id in imp_reg._index:
+            if const_run.agg_id in imp_reg:
                 imp_result = imp_reg.load(const_run.agg_id)
+            else:
+                logger.warning(
+                    "imputation run '%s' not in %s: every edge gets prior class 'all', "
+                    "so the calibration's 'flat' exclusion cannot act and flat edges "
+                    "(z ~ 0) enter calibration.csv", const_run.agg_id, imp_dir)
 
         instance = cls(
             result, opt_results, const_run, label=label or uncprop_run_id, acc=acc,
@@ -294,10 +318,7 @@ class UncPropDiag:
                      f"method={getattr(self._unc, 'method', '?')}  "
                      f"alpha={getattr(self._unc, 'alpha', float('nan')):g}"
                      + ("  scale totals left out of S(t) (ablation)" if ablation else ""))
-        cells = [f"{y} {v:.3f}" for y, v in tc.items()]
-        for k in range(0, len(cells), 6):
-            head = "  trace κ   : " if k == 0 else " " * 14
-            lines.append(head + "  ".join(cells[k:k + 6]))
+        lines += _cells_lines("  trace κ   : ", [f"{y} {v:.3f}" for y, v in tc.items()])
         n_ba = int(f["bound_active"].sum())
         lines.append(f"  edge-years: {len(f):,}  bound-active={n_ba:,}"
                      + ("" if self._imp is not None
@@ -305,8 +326,8 @@ class UncPropDiag:
         for val in self._valuations(f):
             fv = f[f["valuation"] == val]
             total = float(fv["weight"].sum())
-            lines.append(f"  {val} — share of Σ max(|a_prior|,|a*|) = {total:,.1f} kt, "
-                         "all years")
+            lines.append(f"  {val} — share of Σ max(|a_prior|,|a*|) = {total:,.1f} "
+                         f"{_unit(val)}, all years")
             pv = (fv.groupby(["prior_class", "quadrant"], observed=True)["weight"].sum()
                     .unstack("quadrant").reindex(columns=QUADRANTS).fillna(0.0))
             pv = pv.reindex([c for c in self._classes(fv) if c in pv.index])
@@ -377,10 +398,8 @@ class UncPropDiag:
         lines.append(f"    left out : {run['n_bound_active_at_prior']:,.0f} of "
                      f"{run['n_bound_active']:,.0f} bound-active edge-years have their prior "
                      f"on the bound (a* = l = a_prior): no degree of freedom")
-        cells = [f"{y} {r:.2f}" for y, r in zip(b["year"], b["birge_ratio"]) if y != "all"]
-        for k in range(0, len(cells), 6):
-            head = "    per year : " if k == 0 else " " * 15
-            lines.append(head + "  ".join(cells[k:k + 6]))
+        lines += _cells_lines("    per year : ", [f"{y} {r:.2f}" for y, r in
+                                                  zip(b["year"], b["birge_ratio"]) if y != "all"])
         if not st.ablation:
             alpha = float(getattr(self._unc, "alpha", float("nan")))
             lines.append(f"    {(1.0 - alpha) * 100:g} % interval: raw a* ± "
@@ -517,7 +536,7 @@ class UncPropDiag:
                 ax.set_ylim(-y_lim, y_lim)
                 n_ba = int(d["bound_active"].sum())
                 ax.set_title(f"{cls} · {val}\n{len(d):,} edge-years · "
-                             f"{w.sum():,.0f} kt ({val}) · {n_ba:,} bound-active", fontsize=9)
+                             f"{w.sum():,.0f} {_unit(val)} · {n_ba:,} bound-active", fontsize=9)
                 if i == len(classes) - 1:
                     ax.set_xlabel("posterior contraction κ")
                 if j == 0:
@@ -526,12 +545,12 @@ class UncPropDiag:
             if hexes:
                 vmax = max(float(np.nanmax(h.get_array())) for h in hexes)
                 vmin = min(float(np.nanmin(h.get_array())) for h in hexes)
-                norm = LogNorm(vmin=max(vmin, vmax * 1e-9), vmax=vmax)
+                cnorm = LogNorm(vmin=max(vmin, vmax * 1e-9), vmax=vmax)
                 for h in hexes:
-                    h.set_norm(norm)
+                    h.set_norm(cnorm)
                 cb = fig.colorbar(hexes[0], ax=list(axes[:, j]), location="bottom",
                                   fraction=0.04)
-                cb.set_label(f"Σ max(|a_prior|, |a*|) per cell [kt ({val})]")
+                cb.set_label(f"Σ max(|a_prior|, |a*|) per cell [{_unit(val)}]")
         handles, labels = [], []
         for ax in axes.ravel():
             h, lab = ax.get_legend_handles_labels()
@@ -558,7 +577,7 @@ class UncPropDiag:
         if f.empty:
             return self._placeholder(base + " — no edges", regions)
 
-        z_alpha = float(norm.ppf(1.0 - float(self._unc.alpha) / 2.0))
+        z_alpha = self.stats.z_alpha
         years = sorted(f["year"].unique())
         x_of = {y: i for i, y in enumerate(years)}
         ncols = 3
@@ -597,7 +616,7 @@ class UncPropDiag:
             ax.set_xticks(range(0, len(years), every))
             ax.set_xticklabels(years[::every], fontsize=7)
             ax.set_title(_short(d["label"].iloc[0], 52), fontsize=8)
-            ax.set_ylabel(f"kt ({val})", fontsize=8)
+            ax.set_ylabel(_unit(val), fontsize=8)
             _apply_modern_style(ax)
         for ax in axes.ravel()[len(slots):]:
             ax.set_visible(False)

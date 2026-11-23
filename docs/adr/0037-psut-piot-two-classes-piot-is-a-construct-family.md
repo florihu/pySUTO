@@ -1,6 +1,8 @@
 # PSUT (supply-use) and PIOT (input-output) are two classes; PIOT is a construct family built as a transform
 
-**Status:** proposed — refines [ADR 0007](0007-downstream-psut-piot-follows-piolab-suh-no-external-io-lib.md).
+**Status:** accepted — `PSUT` and `PIOT` ship as two classes (`psut.py`, `piot.py`; Stage 6 Slices 1–6
+merged 2026-09-24, `da80fae`; `psut_20261119_133504_4c783a88` on the reference chain
+`opt_20261119_130302_b20f0dba`). Refines [ADR 0007](0007-downstream-psut-piot-follows-piolab-suh-no-external-io-lib.md).
 
 Stage 6 splits along the glossary's SUT/PIOT line. **`PSUT`** owns the supply-use world: materialise `a*` into a
 tidy edge table (one period, one valuation), expose the `S/U/Y/E/O/P` block views, and aggregate along
@@ -47,9 +49,9 @@ defer to #20.
    with different products (e.g. ER + SXEW) makes `D` non-trivial. Both use one Plotly renderer in
    `diag/psut.py`, reached through thin lazily-importing methods `PSUT.sankey(...)` / `PIOT.sankey(...)`;
    the data classes import no plotting library at module level.
-2. **Boundary blocks are classified by `entity_sub` labels, in one place.** `classify_blocks` reads `Nature`,
-   `SEM` and `FD` to split `E`/`O`/`P`/`Y` (and the empty `W`); it is the single site to switch to `acc.roles`
-   when issue #26 §1 (ADR 0034) lands. The non-copper-label fixture belongs to #26, not to Stage 6.
+2. **Boundary blocks are classified by `entity_sub` labels, in one place.** `classify_blocks` reads each SB
+   node's boundary role (`acc.boundary_roles`, ADR 0034) to split `E`/`O`/`P`/`Y` (and the empty `W`), the single
+   site that does. (It read the `Nature`, `SEM` and `FD` labels until issue #26 §1 landed.)
 3. **One table, every valuation, a recorded primary.** A `PSUT` carries every valuation of its structure;
    `primary` (copper: `CC`, the future `content` role) is what views and plots default to, `valuation=`
    overrides, and `realized_conc()` is the ratio of two valuations from the same table. The structure's

@@ -18,7 +18,7 @@ Public surface (re-exported here so call sites can keep using
 * :func:`stage_timer`             — marks a stage's start for the sidecar's wall time
 * :func:`stage_lock` / :class:`LockHeld` — the advisory lock a stage driver takes
 
-All six output registries share one run-id pattern and one sidecar schema,
+Every output registry shares one run-id pattern and one sidecar schema,
 defined in :class:`BaseOutputRegistry`:
 
 * run-id literal format ``{stage}_{YYYYMMDD_HHMMSS}_{8-char-uuid4-hex}``

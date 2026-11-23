@@ -48,7 +48,7 @@ def _periods(meta: dict) -> pd.DataFrame:
 
 def _log(opt: str) -> Path:
     """The per-run solver log that saved ``opt``."""
-    hits = [p for p in sorted(LOGS.glob("init_run_solver_*.log"))
+    hits = [p for p in sorted(LOGS.glob("*run_solver_*.log"))
             if f"OptimRun saved as '{opt}'" in p.read_text(errors="replace")]
     if len(hits) != 1:
         raise SystemExit(f"{opt}: {len(hits)} solver logs name it, expected 1")

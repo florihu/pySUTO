@@ -1,3 +1,7 @@
+"""icsg_comb.py
+============
+Combine the per-vintage ICSG flow tables into icsg_flows_comb.csv.
+"""
 import pandas as pd
 import os
 
@@ -98,7 +102,7 @@ UNIT_RENAME = {
 
 
 #stored as (Flow, Process)
-# already stored in SXEW internal fuck up by ICSG
+# SX-EW is already stored under its own process; ICSG repeats it under these
 SKIP_PAIRS = [('SX-EW', 'Mining'),
               ('Mine SX-EW', 'Mining'),
               ('SX-EW', 'Refining'),
@@ -117,7 +121,7 @@ REN_TYPE ={('Low-grade', 'Smelting'):'Primary',
              }
 
 
-def type_ren(s, f):
+def rename_types(s, f):
     """Clean types and rename flow types."""
 
     # remove missing types in stocks
@@ -140,7 +144,7 @@ def type_ren(s, f):
 
 
 
-def creg(s, f):
+def rename_regions(s, f):
     """Standardize region names."""
 
     s['Region'] = s['Region'].replace(REG_REN)
@@ -166,7 +170,7 @@ def stock_levels(s):
                          f"{s[dup].to_string()}")
     return s.sort_values(key, kind='mergesort').reset_index(drop=True)
 
-def pcl(p):
+def clean_prices(p):
     """Clean price dataframe."""
 
     p['Type'] = p['Exchange_type'].replace(PRICE_RENAME)
@@ -229,13 +233,14 @@ def latest_vintage(f, f_key):
     return f[f['Value'] != 0].reset_index(drop=True)
 
 
-def main(ys=[2005, 2014, 2023, 2025],
-         of=r'data/proc/feedprep/icsg_clean'):
+def main(vintages=(2005, 2014, 2023, 2025),
+         out_dir=r'data/proc/feedprep/icsg_clean'):
+    """Combine the per-vintage tables under ``out_dir`` and write the combined ones there."""
 
     ps, ss, fs = [], [], []
-    base = r'data/proc/feedprep/icsg_clean'
+    base = out_dir
 
-    for y in ys:
+    for y in vintages:
 
         p = pd.read_csv(os.path.join(base, f'icsg_{y}_prices.csv'))
         p['Year_loaded_from_file'] = y
@@ -255,8 +260,8 @@ def main(ys=[2005, 2014, 2023, 2025],
 
     # ---------------- clean flows + stocks ----------------
 
-    s, f = creg(s, f)
-    s, f = type_ren(s, f)
+    s, f = rename_regions(s, f)
+    s, f = rename_types(s, f)
 
     f = remove_total_if_specific_exists(f)
 
@@ -279,11 +284,12 @@ def main(ys=[2005, 2014, 2023, 2025],
 
     f = latest_vintage(f, f_key)
 
-    assert not f.duplicated(subset=f_key).any()
+    if f.duplicated(subset=f_key).any():
+        raise ValueError("duplicate flow rows after the vintage dedup")
 
     # ---------------- prices ----------------
 
-    p = pcl(p)
+    p = clean_prices(p)
 
     p_key = [c for c in p.columns if c != 'Year_loaded_from_file']
 
@@ -293,13 +299,14 @@ def main(ys=[2005, 2014, 2023, 2025],
         .reset_index(drop=True)
     )
 
-    assert not p.duplicated(subset=p_key).any()
+    if p.duplicated(subset=p_key).any():
+        raise ValueError("duplicate price rows after the vintage dedup")
 
     # ---------------- save ----------------
 
-    s.to_csv(os.path.join(of, 'icsg_stocks.csv'), index=False)
-    f.to_csv(os.path.join(of, 'icsg_flows.csv'), index=False)
-    p.to_csv(os.path.join(of, 'icsg_prices.csv'), index=False)
+    s.to_csv(os.path.join(out_dir, 'icsg_stocks.csv'), index=False)
+    f.to_csv(os.path.join(out_dir, 'icsg_flows.csv'), index=False)
+    p.to_csv(os.path.join(out_dir, 'icsg_prices.csv'), index=False)
 
 if __name__ == "__main__":
     main()

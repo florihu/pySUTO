@@ -10,8 +10,8 @@ nothing here names a sector of any application. Every family is built through
   (ADR 0016 provenance classification, ADR 0019 contradicted nodes, ADR 0025 floor).
 * :func:`scale_total_anchors` — the supply and use total-output scale totals (ADR 0006).
 * :func:`scrap_level_anchors` — the level of an SB feed into a consuming process (ADR 0031).
-* :func:`nodata_anchor_exempt` — the per-edge exemption of the no-data σ anchor
-  (ADR 0013 amendment 3).
+* :func:`nodata_anchor_exempt`, :func:`nodata_exempt_mask` — the per-edge exemption of
+  the no-data σ anchor (ADR 0013 amendment 3).
 
 A scale total is a soft row, not a control total (ADR 0006); the σ floor of the resolver
 applies to feed-backed totals only, never globally (ADR 0025).
@@ -28,7 +28,6 @@ from pysuto.logging import get_logger
 from pysuto.relation.param_relation import CONC_ACCEPTS, expand_edge_index
 from pysuto.relation.params import read_params
 
-from .engine import nodata_exempt_mask
 from .sum import SumConstraintBuilder
 
 _log = get_logger(__name__)
@@ -80,6 +79,8 @@ def scale_total_resolver(acc, agg_result, *, anchor_cv: float, fabricated_cv: fl
     # fabricated (feed-backed share of Σ|f_agg| < feed_share_observed). Uses
     # agg_result.coverage — the pre-imputation "did any feed observe this
     # edge?" flag (GLOSSARY.md §Coverage), so imputations never count.
+    # NaN reads as 0 here (and in from_mask_anchor's nansum); the engine rejects a NaN
+    # f_agg, but only after the builders exist.
     f_agg = agg_result.f_agg
     cov   = np.asarray(agg_result.coverage, dtype=bool)
     f_agg_signed = np.nan_to_num(np.asarray(f_agg, dtype=float))
@@ -99,7 +100,7 @@ def scale_total_resolver(acc, agg_result, *, anchor_cv: float, fabricated_cv: fl
                 and (key_map.get("sector_from"), key_map.get("region_from"),
                      key_map.get("time")) in unclosed):
             return unclosed_anchor_cv
-        ids = np.asarray(edge_ids, dtype=int)
+        ids = np.asarray(edge_ids, dtype=np.int64)
         tot = absf[ids].sum()
         if tot <= 0.0:
             return fabricated_cv
@@ -179,6 +180,24 @@ def scrap_level_anchors(acc, f_agg, coverage, resolver, *, source_sector: str,
                 sigma_cv_resolver = resolver,
                 p             = p,
             ) for prefix, mask in masks.items()]
+
+
+def nodata_exempt_mask(acc, exclude_sectors, data_aware_sectors, region_years) -> np.ndarray:
+    """Per-edge exemption from the no-data σ anchor (ADR 0013 amendment 3).
+
+    An edge touching ``exclude_sectors`` (either endpoint) is spared, except that
+    one touching ``data_aware_sectors`` is spared only where its
+    ``(from_region, time)`` is in ``region_years`` — the region-years in which a
+    relation actually sets its magnitude. Elsewhere a zero prior means "no flow",
+    and the anchor applies. ``region_years`` holds ``(region, time)`` string pairs.
+    """
+    em = acc.edge_meta
+    fs, ts = em["from_sector"].to_numpy(), em["to_sector"].to_numpy()
+    spared = np.isin(fs, list(exclude_sectors)) | np.isin(ts, list(exclude_sectors))
+    aware = np.isin(fs, list(data_aware_sectors)) | np.isin(ts, list(data_aware_sectors))
+    keys = zip(em["from_region"].astype(str), em["time"].astype(str))
+    listed = np.fromiter((k in region_years for k in keys), dtype=bool, count=len(em))
+    return spared & (~aware | listed)
 
 
 def nodata_anchor_exempt(acc, params_csv: str, *, param_prefix: str, exclude: tuple,

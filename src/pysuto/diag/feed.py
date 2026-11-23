@@ -15,7 +15,10 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+from pysuto.logging import get_logger
 from ._plot import _C, _hist_bins, _savefig
+
+_log = get_logger("pysuto.diag.feed")
 
 
 class FeedDiagnostics:
@@ -26,7 +29,7 @@ class FeedDiagnostics:
     ------
     [0,0]  Row coverage          — matched vs unmatched raw rows (bar)
     [0,1]  Unmatched breakdown   — reason for unmatched rows (horizontal bar)
-    [0,2]  Matched value by process — aggregated kt per process category (bar)
+    [0,2]  Matched value by flow sector — aggregated value per ``src_sector_from`` (bar)
     [1,0]  F_src distribution    — histogram of non-zero source-edge values
     [1,1]  CV_root distribution  — histogram of per-root-edge CV (%)
     [1,2]  Value coverage by year — matched vs total flow over time (fill)
@@ -36,9 +39,10 @@ class FeedDiagnostics:
     feed_run_id : full run identifier used for titles and filenames.
     feed_id   : short feed identifier (e.g. "baci").
     acc_id    : accounting structure id for titles.
-    raw_df    : raw input DataFrame (must have columns Value, Year, Process, Region)
-    ct        : ConcordanceTable (must have .unmatched_raw_rows, .n_src_edges,
-                .n_root_edges)
+    raw_df    : raw input DataFrame (must have columns Value, Year, Region)
+    ct        : ConcordanceTable (must have .tab, .unmatched_raw_rows, .n_src_edges,
+                .n_root_edges; ``.unit``, the feed's valuation label, when it has one,
+                else "kt")
     F_src     : source-edge flow vector, shape (n_src_edges,)
     result    : PropagationResult (must have .cv_root, .cv_src, .F_root)
     conc_file : optional path to concordance Excel workbook; enables the
@@ -65,6 +69,8 @@ class FeedDiagnostics:
         self.F_src       = F_src
         self.result      = result
         self.conc_file   = conc_file
+
+        self.unit        = getattr(ct, "unit", "kt")
 
         self._unmatched_idx = set(getattr(ct, "unmatched_raw_rows", []))
         self._matched_mask  = ~raw_df.index.isin(self._unmatched_idx)
@@ -106,7 +112,7 @@ class FeedDiagnostics:
         if show:
             plt.show()
         plt.close(fig)
-        print(f"   Feed diagnostics → {path}  ✓")
+        _log.info("   Feed diagnostics → %s  ✓", path)
         return path
 
     def summary(self) -> str:
@@ -125,8 +131,8 @@ class FeedDiagnostics:
             f"  Raw rows total  : {total:>8,}",
             f"  Rows matched    : {matched_n:>8,}  ({matched_n / total * 100:.1f} %)",
             f"  Rows unmatched  : {unmatch_n:>8,}  ({unmatch_n / total * 100:.1f} %)",
-            f"  Value matched   : {val_match:>10,.1f} kt",
-            f"  Value total     : {val_total:>10,.1f} kt",
+            f"  Value matched   : {val_match:>10,.1f} {self.unit}",
+            f"  Value total     : {val_total:>10,.1f} {self.unit}",
             f"  Value coverage  :   {val_match / val_total * 100:.1f} %",
             f"  Src edges       : {self.ct.n_src_edges:>8,}",
             f"  Root edges      : {self.ct.n_root_edges:>8,}",
@@ -204,8 +210,8 @@ class FeedDiagnostics:
         matched['_sector'] = matched.index.map(sector_of)
         pv = matched.groupby('_sector')['Value'].sum().sort_values()
         ax.barh(pv.index, pv.values, color=_C["blue"], edgecolor="white")
-        ax.set_title("Matched value by flow sector (kt)", fontweight="bold")
-        ax.set_xlabel("kt")
+        ax.set_title(f"Matched value by flow sector ({self.unit})", fontweight="bold")
+        ax.set_xlabel(self.unit)
         ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:,.0f}"))
         ax.grid(axis="x", alpha=0.3)
 
@@ -213,8 +219,9 @@ class FeedDiagnostics:
         nz = self.F_src[self.F_src > 0]
         if len(nz):
             ax.hist(np.log10(nz), bins=40, color=_C["purple"], edgecolor="white", linewidth=0.5)
-        ax.set_title("F_src distribution (log₁₀ kt, non-zero)", fontweight="bold")
-        ax.set_xlabel("log₁₀(kt)")
+        ax.set_title(f"F_src distribution (log₁₀ {self.unit}, non-zero)",
+                     fontweight="bold")
+        ax.set_xlabel(f"log₁₀({self.unit})")
         ax.set_ylabel("# src edges")
         ax.grid(axis="y", alpha=0.3)
 
@@ -242,17 +249,11 @@ class FeedDiagnostics:
                         label="Total (incl. unmatched)")
         ax.fill_between(yrs, yr_match.values, alpha=0.7, color=_C["green"],
                         label="Matched")
-        ax.set_title("Value coverage by year (kt)", fontweight="bold")
+        ax.set_title(f"Value coverage by year ({self.unit})", fontweight="bold")
         ax.set_xlabel("Year")
-        ax.set_ylabel("kt")
+        ax.set_ylabel(self.unit)
         ax.legend(fontsize=8)
         ax.grid(axis="y", alpha=0.3)
         ax.yaxis.set_major_formatter(
             mticker.FuncFormatter(lambda x, _: f"{x:,.0f}")
         )
-
-
-# ===========================================================================
-# B  ImpDiagnostic — Stage 2
-# ===========================================================================
-

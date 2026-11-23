@@ -139,10 +139,27 @@ def test_edge_table_z_uses_sigma_a(diag):
     assert t.loc[6, "z"] == pytest.approx(0.5)               # defect 1 / σ_a 2
 
 
-def test_edge_table_sigma_zero_gives_nan_z(diag):
+def test_edge_table_sigma_zero_is_conditioned_like_the_qp(diag):
+    """σ_a = 0 reaches the QP as the floor (U4-S5-1): z is finite, not NaN or inf."""
     t = diag.edge_table("1995").set_index("edge_id")
     assert t.loc[5, "defect"] == 0.0
-    assert pd.isna(t.loc[5, "z"])                            # σ_a = 0 → NaN, not inf
+    assert t.loc[5, "sigma_a"] == pytest.approx(1e-8, rel=1e-12)
+    assert t.loc[5, "z"] == 0.0
+
+
+def test_the_frames_divide_by_the_floors_the_solver_recorded():
+    """A recorded σ_a floor and σ_c floor reach z, so Σz² is the QP's objective where
+    a floor binds (U4-S5-1). Soft σ_c are 10 (sumA) and 2 (ratioA); hard rows keep theirs."""
+    d = SolverStatsDiagnostic(
+        {"1995": ResStub(), "1996": Res96Stub()}, CRStub(), AccStub(), years=("1995",),
+        conditioning={"sigma_a_floor_abs": 0.5, "sigma_c_floor": 4.0})
+    e = d.edge_table("1995").set_index("edge_id")
+    assert e.loc[5, "sigma_a"] == pytest.approx(0.5, rel=1e-12)
+    assert e.loc[0, "sigma_a"] == pytest.approx(1.0, rel=1e-12)      # above its floor
+    c = d.constraint_table("1995").set_index("constraint_id")
+    assert c.loc["sumA", "sigma_c"] == pytest.approx(10.0, rel=1e-12)
+    assert c.loc["ratioA", "sigma_c"] == pytest.approx(4.0, rel=1e-12)   # 2 lifted to 4
+    assert c.loc["ratioA", "z"] == pytest.approx(1.0 / 4.0, rel=1e-12)   # residual 1
 
 
 def test_edge_table_other_year(diag):

@@ -49,11 +49,13 @@ per node by hard mass balance.
 
 **Supply edge**:
 A `(sector_from, sector_to)` pair in `supply_pairs`; structurally **Process → Flow** (a
-process produces a commodity).
+process produces a commodity) or **Process → SB** (a process books a residual on a
+satellite, e.g. Mining → WR).
 
 **Use edge**:
-A pair in `use_pairs`; structurally **Flow → Process**, and **Flow → final-demand category**.
-Only `Flow` origins can be "used"; the `tradable` mask is what permits a use edge to cross
+A pair in `use_pairs`; structurally **Flow → Process**, **Flow → final-demand category**,
+and **SB → Process** (a satellite stock or scrap input, e.g. Deposit → Mining, Scrap →
+Smelting). The `tradable` mask is what permits a use edge to cross
 regions.
 
 **SB (system boundary)**:
@@ -89,7 +91,7 @@ A Type-2 **soft-sum** constraint (`Σ aᵢ = c + ε`, free cone) whose RHS `c(t)
 published total — here ICSG production + usage, per year — that a defined edge-set must sum to.
 **ROW (Rest-Of-World) totals are not imposed** (ROW-excluded). Internal edge consistency is
 *not* a control total — that is the job of hard mass balance.
-_Avoid_: "anchor", "coherence soft-sum" (both removed mechanisms).
+_Avoid_: "anchor" for an external total (the live term **Anchor** below is the model's own prior), "coherence soft-sum" (removed mechanism).
 
 **Data-category typology** (Pauliuk et al. 2019):
 The four parameter kinds, split **extensive** vs **intensive**. *Extensive* (kt magnitudes):
@@ -197,13 +199,15 @@ orthogonal to `is_hard`; the (`le`, soft) cell is unrealised (`NotImplementedErr
 "relation" (a different term, below), "cone type".
 
 **Cone** (`zero` / `nonneg` / `free`):
-The Clarabel cone a constraint row lands in, derived inside `pysuto.solver` from (`sense`,
-`is_hard`) and not stored in `row_meta` — `zero` (hard `eq`), `nonneg` (hard `le`), `free` (soft
-`eq`, with slack `ε`). Const runs persisted before #11 stored it as `cone_type`; the loader maps
+The Clarabel cone a constraint row lands in, derived inside `pysuto.clarabel_backend` from the
+QP's row groups (`pysuto.solver.row_layout` orders them from `sense` and `is_hard`; ADR 0042)
+and not stored in `row_meta` — `zero` (hard `eq`, and a soft `eq` too: its slack `ε` is a free
+variable of the QP), `nonneg` (hard `le`). The legacy name `free` is the soft `eq`. Const runs persisted before #11 stored it as `cone_type`; the loader maps
 it to `sense`.
 
 **Warm start**:
-Seeding the prior `a₀(t)` for a timestep with the previous year's optimum `a*(t−1)`.
+Seeding the prior `a₀(t)` for a timestep with the previous year's optimum `a*(t−1)`; a second,
+numerical sense (reusing Clarabel's KKT factorisation) is under "Two warm-starts" below.
 
 **Run** / **run-id**:
 One persisted execution of a stage or a sweep, keyed `{kind}_{YYYYMMDD_HHMMSS}_{uuid}`
@@ -442,7 +446,8 @@ rather than adding to it, and which one survives depends on row order
 ([ADR 0036](docs/adr/0036-a-renamed-type-is-a-second-stream-not-a-restatement.md)). _Avoid_ also:
 reading a vintage as a *time* coordinate — it labels the publication, not the year observed; one
 vintage carries many observation years. _Avoid_ also: "edition" for a yearbook's release — say
-vintage.
+vintage. The ICSG flow tables persist a vintage as the column `Year_loaded_from_file` (the
+yearbook's publication year, 2005, 2014, 2023 or 2025); it is the vintage, not a load date.
 
 **Boundary topology** *(referenced by [ADR 0001](docs/adr/0001-replace-coherence-sum-eq-with-bilateral-anchoring.md); to be expanded)* —
 the open System-Boundary (SB) endpoints where flows terminate, so prior disagreement there does
@@ -555,8 +560,8 @@ once wrote the carry-forward into the same disjoint columns it read, so the warm
 silent no-op and every year fell back to `f_agg` — see [ADR 0009](docs/adr/0009-warm-start-prior-chain.md).
 
 **Two warm-starts (not the same thing).** `prior_mode` (warm/cold) is the **modelling** prior
-above. `reuse_factorization` is a purely **numerical** warm-start — reusing Clarabel's KKT
-factorisation across timesteps via `solver.update()`; it exists only in a serial solve, since a
+above. The `reuse` argument of `QPBackend.solve` is a purely **numerical** warm-start —
+`ClarabelBackend` then reuses Clarabel's KKT factorisation across timesteps (its `inst.update`); it exists only in a serial solve, since a
 **parallel solve** factorises each period on its own. _Avoid_: conflating the two; the local
 that selects KKT reuse was historically also called `warm_start`.
 
@@ -572,7 +577,7 @@ mass-balance maximum per year is the middle panel of SD-R-11). Its feasible rang
 row's cone: **≈ 0 on hard *equalities*** (`zero` cone — mass balance); **`≤ 0` on hard *bounds***
 (`nonneg` cone — ratio/flow bounds, since feasibility is `G·a ≤ c`), where a *negative* residual
 is healthy **slack** (distance below the limit), not a violation, and only a *positive* residual
-is a breach; **`= ε`, the slack, on a soft (free) row** (see README §"Cone order": `Gx − ε = c`).
+is a breach; **`= ε`, the slack, on a soft (free) row** (see README Stage 4, "Standard form" → Cone order: `Gx − ε = c`).
 _Avoid_: (1) reading a large-negative residual on a `nonneg` bound as a violation — it is slack
 (a misread that once produced a phantom "inverted bound" diagnosis); (2) conflating with
 **defect** — residual is per-constraint, defect is per-edge.
@@ -684,7 +689,8 @@ the yearly ratios); a pooled retention on a signed category.
 
 **Posterior contraction (`κ`)** — the share of an edge's prior variance the constraints remove in
 one year, `κ = 1 − σ_a*² / σ_a²`: `0` leaves the prior uncertainty untouched, `1` pins the edge. It
-depends on `G`, `σ_a` and `σ_c` only, never on `c` or `a*`, so it measures how informative the
+depends on `G`, `σ_a` and `σ_c` and, through the QP's active set at `a*` (which rows bind, which
+lower bounds pin their edge), on `a*`; given that active set it does not depend on `c`, so it measures how informative the
 constraints are, not whether they agree with the prior — that is the **defect**'s `z`.
 _Avoid_: "shrinkage" (in statistics, the pull of an estimate toward the prior mean — our defect),
 "variance reduction", "information gain".
@@ -1145,6 +1151,13 @@ _Avoid_: reading a downstream export as an outlet for the node — anode exports
 CFR *from* matte, so they raise the matte requirement rather than relieving it. See
 [ADR 0019](docs/adr/0019-contradicted-flow-nodes-lose-anchor-authority.md).
 
+**Anchor** — a Type-2 **soft-sum** row built by `SumConstraintBuilder.from_mask_anchor` that pins the group-sum
+of a masked edge family to the model's **own** Stage-2 prior: the supply / use **scale totals** and the
+**scrap level anchors**. Also the **no-data σ anchor** (ADR 0013), a σ rule on flat-prior edges. Neither
+imports an external total, so neither is a **Control total** (removed): the word "anchor" is live in both
+uses and the *Avoid* on **Control total** concerns only the external-total reading.
+_Avoid_: "control total", "coherence soft-sum" for either.
+
 **Anchor placement** — *which edge* a source series is attached to, as distinct from its value.
 A production series measures throughput at one point of the chain; converting it into an edge
 prior by dividing through efficiencies moves it to a *different* point, and each stage crossed
@@ -1161,10 +1174,10 @@ second side, and double anchoring is the over-constraint
 
 ## Downstream PSUT / PIOT vocabulary
 
-**PSUT (physical supply-use table)** — the **materialised numeric** supply-use flows for *one period and
-one valuation*, derived from the solved edge vector `a*`. **Shape-agnostic**: its canonical form is a **tidy
+**PSUT (physical supply-use table)** — the **materialised numeric** supply-use flows, derived from the solved edge vector `a*`; one table
+holds every period and every valuation, and a view selects one of each. **Shape-agnostic**: its canonical form is a **tidy
 edge table** (one row per directed edge, carrying its `val`), and the block matrices — supply `S` (useful
-output), use `U`, final use `Y`, plus boundary blocks nature-input `E`, SEM-input `O`, SEM-output `P` — are
+output), use `U`, final use `Y`, plus boundary blocks nature-input `E`, SEM-input `O`, SEM-output `P`, nature-output `W` — are
 **derived pivot views** of that same PSUT. The valueless Process+Flow **SUT** is the *graph* (the
 `AccountingStructure` topology); a PSUT is that graph **carrying solved values**. _Avoid_: calling the
 **valueless** graph a "PSUT" (the bare graph is the **SUT**); "SUT" for a numeric realisation (long or matrix);
@@ -1172,13 +1185,13 @@ reading "PSUT" as *matrices only* (the matrices are one view; the tidy table is 
 
 **Block** — the PSUT quadrant a directed edge belongs to, read off its endpoint entity kinds (and, for
 the boundary blocks, the `SB` node's boundary role): `S` Process→Flow, `U` Flow→Process, `Y` Flow→SB·FD,
-`E` SB·Nature→Process, `O` SB·SEM→Process, `P` Process→SB·SEM. Every admissible edge lands in exactly one
+`E` SB·Nature→Process, `O` SB·SEM→Process, `P` Process→SB·SEM, `W` Process→SB·Nature (empty in copper). Every admissible edge lands in exactly one
 block; the tidy table carries it as the `block` column and each matrix view is one block's pivot. _Avoid_:
 "mask" for a block — the `supply`/`use` **masks** are rule-derived edge selections that straddle blocks (a
 loaded structure's `supply` mask also holds `P`, its `use` mask `E` and `O`).
 
 **Primary valuation** — the valuation a multi-valuation PSUT's views and plots default to (`primary`; copper:
-`CC`, the `content` role once ADR 0034 lands); `valuation=` overrides it. A PSUT carries **every** valuation of
+`CC`, the `content` role, ADR 0034); `valuation=` overrides it. A PSUT carries **every** valuation of
 its structure in one table, and the realized `conc` is the ratio of two of them. _Avoid_: reading the structure's
 first-listed valuation (`Mass`) as the default; one PSUT per valuation.
 
@@ -1200,9 +1213,9 @@ contracted into edge labels. _Avoid_: "process network" for it (that is the PIOT
 reading a node's total as throughput of anything but that (period, valuation).
 
 **PIOT (physical input-output table)** — a **symmetric** (square) physical IO table derived from a PSUT by a
-chosen **construct** (below). The **product-by-product** PIOT (commodity×commodity) is the analytic primary —
-technical coefficients `A`, core flows `Z`, total requirements `L`, for footprints; the **industry-by-industry**
-(process×process) PIOT is the **process network** (below). _Avoid_: conflating with the rectangular **PSUT** (a
+chosen **construct** (below). The shipped one is the **industry-by-industry**
+(process×process) PIOT, the **process network** (below): technical coefficients `A`, core flows `Z`,
+total requirements `L`, for footprints. The **product-by-product** PIOT (commodity×commodity) is #20. _Avoid_: conflating with the rectangular **PSUT** (a
 PIOT is square); reading "PIOT" as *product-by-product only* (it is a construct **family**).
 
 **Construct** — the SUT→PIOT transformation choice, on **two orthogonal axes**. **(1) Table shape**
@@ -1226,7 +1239,8 @@ product-by-product); drawing the supply legs `S` as their own edges (they only a
 **gPIOT** — the full **multi-regional** PIOT over (region × flow), whose `L` traces embodied/indirect flows
 across borders. _Avoid_: "global PIOT" for a single-region table.
 
-**Technical coefficients `A`** (uppercase) — the per-unit input-requirements matrix of the PIOT (`A = B·D`).
+**Technical coefficients `A`** (uppercase) — the per-unit input-requirements matrix of the PIOT (`A = Z·x̂⁻¹` for the shipped industry-by-industry construct; `A = B·D` for the
+product-by-product one, #20).
 _Avoid_: confusing with the lowercase **edge vector `a`** (the decision variable) — case distinguishes them.
 
 **Total requirements / Leontief inverse `L`** — `L = (I − A)⁻¹`, mapping final demand to total (direct +

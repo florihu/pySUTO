@@ -43,7 +43,7 @@ import numpy as np
 import pandas as pd
 from scipy.stats import rankdata, spearmanr
 
-from pysuto.acc import AccountingStructure
+from pysuto import acc_store
 from pysuto.relation.param_relation import expand_edge_index
 from pysuto.registry import OptimRunRegistry, SweepRunRegistry
 from pysuto.clarabel_backend import ClarabelBackend
@@ -199,8 +199,7 @@ def _measure(o: Outcome, idx: np.ndarray, F_p, P_p, F_b, P_b) -> float:
     if o.measure == "retention":
         return float(_ratio(F_p[idx].sum(), P_p[idx].sum())
                      - _ratio(F_b[idx].sum(), P_b[idx].sum()))
-    with np.errstate(divide="ignore", invalid="ignore"):
-        return float(F_p[idx].sum() / F_b[idx].sum() - 1.0)
+    return float(_ratio(F_p[idx].sum(), F_b[idx].sum()) - 1.0)
 
 
 # =============================================================================
@@ -270,7 +269,7 @@ def sensitivity_table(frame: pd.DataFrame, axes: Sequence[dict],
     """
     rows = []
     for out in outcomes:
-        y_all = pd.to_numeric(frame[out], errors="coerce").to_numpy(dtype=float)
+        y_all = pd.to_numeric(frame[out])     # a non-numeric outcome raises.to_numpy(dtype=float)
         ok = np.isfinite(y_all)
         sub, y = frame[ok], y_all[ok]
         n = int(ok.sum())
@@ -450,7 +449,7 @@ class SweepStatsDiagnostic:
 
     def _edge_table(self, const_run) -> pd.DataFrame:
         if self._edges is None:
-            acc = AccountingStructure.load(const_run.acc_id,
+            acc = acc_store.load(const_run.acc_id,
                                            storage_dir=os.path.join(self.root, "acc"))
             ei = expand_edge_index(acc.edge_index, acc.node_index).sort_values("edge_id")
             cols = ["sector_from", "sector_to", "region_from", "region_to", "valuation",

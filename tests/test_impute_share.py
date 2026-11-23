@@ -59,6 +59,7 @@ def test_share_transfer_seeds_1995_and_seed_is_zero_mean():
     imp = ShareImputer(
         p95={("PSC", "A"): 0.05, ("MESC", "A"): 0.10}, legs=_LEGS,
         scale_abs_floor=1.0,
+        seed_cv=0.01, seed_abs_floor=0.3
     )
     run_imputer(imp, f, sigma, 0, acc)
 
@@ -80,7 +81,8 @@ def test_share_transfer_skips_when_no_base_or_no_observed_share():
     # No observed PSC anywhere, base present → transfer has no share to carry → skip
     f[2] = 50.0; f[3] = 50.0; f[7] = 200.0
     imp = ShareImputer(p95={("PSC", "A"): 0.05, ("MESC", "A"): 0.10}, legs=_LEGS,
-                       scale_abs_floor=1.0)
+                       scale_abs_floor=1.0,
+                       seed_cv=0.01, seed_abs_floor=0.3)
     run_imputer(imp, f, sigma, 0, acc)
     assert np.isnan(f[0]) and np.isnan(f[1])     # PSC left for flat-prior
     assert f[6] == 0.0                            # MESC seed still fires (base present)
@@ -93,7 +95,8 @@ def test_seed_skipped_when_base_missing():
     f[1] = 3.0; f[4] = 60.0; f[5] = 40.0; f[2] = 50.0; f[3] = 50.0
     # e7 (MESC base) left NaN → MESC seed must skip (leave for flat-prior)
     imp = ShareImputer(p95={("PSC", "A"): 0.05, ("MESC", "A"): 0.10}, legs=_LEGS,
-                       scale_abs_floor=1.0)
+                       scale_abs_floor=1.0,
+                       seed_cv=0.01, seed_abs_floor=0.3)
     run_imputer(imp, f, sigma, 0, acc)
     assert np.isnan(f[6])                          # no base → not seeded
     assert f[0] == pytest.approx(0.03 * 100.0)     # PSC transfer still works
@@ -130,7 +133,7 @@ def test_seed_sigma_is_one_percent_of_the_fu_leg_floored_at_0_3_kt():
 
 
 def test_seed_knobs_are_persisted_in_config():
-    imp = ShareImputer(p95={}, legs=_LEGS, seed_cv=0.02, seed_abs_floor=0.5)
+    imp = ShareImputer(p95={}, legs=_LEGS, seed_cv=0.02, seed_abs_floor=0.5, scale_abs_floor=100.0)
     cfg = imp.config()
     assert cfg["seed_cv"] == 0.02 and cfg["seed_abs_floor"] == 0.5
 
@@ -164,7 +167,7 @@ def _toy_f():
 def test_relabelled_legs_give_the_same_fills_and_tags():
     f_c, s_c = _toy_f(), np.full(8, np.nan)
     f_t, s_t = _toy_f(), np.full(8, np.nan)
-    kw = dict(scale_abs_floor=1.0)
+    kw = dict(scale_abs_floor=1.0, seed_cv=0.01, seed_abs_floor=0.3)
     run_imputer(ShareImputer({("PSC", "A"): 0.05}, _LEGS, **kw), f_c, s_c, 0, _Acc())
     e_t = run_imputer(ShareImputer({("Hoard", "A"): 0.05}, _TOY_LEGS, **kw), f_t, s_t, 0,
                       _ToyAcc())
@@ -176,7 +179,7 @@ def test_relabelled_legs_give_the_same_fills_and_tags():
 
 
 def test_writer_scope_is_the_declared_net_edges():
-    imp = ShareImputer({}, _TOY_LEGS)
+    imp = ShareImputer({}, _TOY_LEGS, scale_abs_floor=100.0, seed_cv=0.01, seed_abs_floor=0.3)
     scope = imp.writer_scope(_ToyAcc())
     assert np.flatnonzero(scope).tolist() == [0, 1, 6]
 
@@ -193,7 +196,7 @@ def test_p95_is_keyed_by_the_row_sector_not_the_param_id(monkeypatch):
             row("netstockboundpscy", "Elsewhere", "A", 0.2),
             row("netstockboundhoard", "Hoard", "*", 0.3)]
     monkeypatch.setattr("pysuto.impute.share.read_params", lambda path, accepts: rows)
-    imp = ShareImputer.from_stock_bounds_csv("unused.csv", _TOY_LEGS)
+    imp = ShareImputer.from_stock_bounds_csv("unused.csv", _TOY_LEGS, scale_abs_floor=100.0, seed_cv=0.01, seed_abs_floor=0.3)
     assert imp._p95 == {("Hoard", "A"): 0.07}
 
 

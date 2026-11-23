@@ -20,10 +20,13 @@ in the main checkout.
    python - <<'EOF'
    import sys; sys.path.insert(0, "scripts")
    import uncertainty_propagation as U
+   import pysuto.stages as S
+   from pysuto.case import resolve_case
    from pysuto.registry import stage_lock
-   U.EXCLUDE_SCALE_TOTALS = True
-   with stage_lock("uncertainty_propagation"):
-       U.main("<opt_run_id>", "<label>")
+   S.EXCLUDE_SCALE_TOTALS = True       # the stage body reads it from pysuto.stages
+   with stage_lock("uncertainty_propagation", root="data/proc"):
+       U.main("<opt_run_id>", "<label>", data_dir="data",
+              case=resolve_case("scripts/copper.py"))
    EOF
    ```
 

@@ -1,48 +1,32 @@
-"""
-init_icsg_feed.py
-=================
-Initialise the ICSG copper-flow DataFeed end-to-end.
+"""icsg_feed.py
+============
+Build the ICSG copper-flow feed: a thin driver over ``pysuto.feedpipe.run_feed``.
 
-This script is a thin driver.  All pipeline logic lives in feedpipe.py.
+The feed's policy (loaders, concordance tables, the BACI-trade-share weights, which #53
+refuses when stale, and the observed zeros) is the copper case's ``ICSG_SPEC`` in
+``scripts/copper_feed.py``; the acc id is ``config/config.yaml``'s ``pipeline.acc_id``.
+Run it from the repo root, once the inputs it reads are registered (README *Workflow*, the
+build order of Stage 1).
 
-Steps (mirroring feedpipe.py)
-------------------------------
-A  Read metadata sidecar → DataFeedMetadata
-B  Load raw data + concordance tables
-C  Build ConcordanceTable → WeightMatrix          (via feedpipe step_B/C)
-D  Build F_src vector + propagate uncertainty     (via feedpipe step_D)
-E  Register + persist everything                  (via feedpipe.register_feed)
-F  Diagnostics
+Reads
+-----
+``data/input/feed/icsg/v<N>/`` at the registered version in force: ``values.csv`` (the
+cleaned yearbook flows of icsg_clean.py), ``conc.xlsx`` (the concordance workbook) and
+``meta.xlsx`` (the pedigree sidecar); ``data/proc/acc/<acc_id>/`` (the accounting
+structure).
 
-═══════════════════════════════════════════════════════════
-USER CONFIGURATION  ←  only section you ever edit
-═══════════════════════════════════════════════════════════
-
-INPUT (you provide these files):
-
-  data/input/feed/<FEED_ID>/v<VERSION>/
-      values.csv          ← raw flow data
-      conc.xlsx           ← concordance mapping workbook
-      meta.xlsx           ← pedigree / provenance sidecar
-
-  data/proc/acc/<ACC_ID>/  ← accounting structure built by init_acc.py
-
-OUTPUT (written automatically via DataFeedRegistry):
-
-  data/proc/
-    registry/
-      registry.json          ← master index across all feeds × versions
-    feed/
-      icsg/
-        metadata.json        ← DataFeedMetadata (human-readable)
-        icsg.pkl             ← WeightMatrix pickle
-        result.npz           ← F_root, sigma_root, cv_root, cv_src, observed_zero (#76)
-    diagnostics/
-      icsg_v<VERSION>_diagnostics.png
+Writes
+------
+``data/proc/feed/registry/<run_id>/`` with ``feed.pkl`` (the weight matrix and the
+concordance), ``result.npz`` (F_root, sigma_root, cv_root, cv_src and observed_zero) and
+``metadata.json`` (the sidecar, whose ``parents`` record the input versions);
+``data/proc/feed/registry/registry.json`` indexes the runs. Its log is
+``data/logs/icsg_<timestamp>.log``. Takes ``data/proc/.stage.lock`` (#101).
 """
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 
@@ -72,5 +56,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Build the ICSG copper-flow feed (one feed run in data/proc/feed/registry/); it is "
+                    "the last Stage 1 feed build, after build_trade_shares.py (ADR 0024, 0027, 0030 am.; build order: BACI parse, register gross baci vN, icsg_clean.py --to-feed, build_baci_reexport.py, baci_feed.py, build_trade_shares.py, icsg_feed.py). Reads config/config.yaml relative to the working "
+                    "directory, so run it from the repo root; takes no other options.")
+    parser.parse_args()          # before the stage lock: --help builds and writes nothing
     with stage_lock("icsg_feed"):   # registries have no locking (#101)
         main()

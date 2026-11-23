@@ -286,7 +286,7 @@ class TestPersist:
 
         acc = _make_toy_acc()
         agg = _make_toy_agg_result(acc)
-        engine = ConstraintEngine(acc, storage_dir=str(tmp_path / "const"))
+        engine = ConstraintEngine(acc, storage_dir=str(tmp_path / "const"), sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
         engine.register(MassBalanceBuilder())
         cr = engine.run(agg, timesteps=["2020", "2021"], persist=False)
 
@@ -382,7 +382,7 @@ class TestLowerBoundsEnforced:
             flat_prior = np.zeros(3, dtype=bool)
 
         storage_dir = str(tmp_path / "const")
-        engine = ConstraintEngine(acc, storage_dir=storage_dir)
+        engine = ConstraintEngine(acc, storage_dir=storage_dir, sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
         engine.register(MassBalanceBuilder())
         engine.register(FlowBoundsBuilder(enforce_lower=enforce))
         cr = engine.run(_Agg(), timesteps=["2020"], persist=False)
@@ -422,7 +422,7 @@ class TestEngineToSolverIntegration:
         acc = _make_toy_acc()
         agg = _make_toy_agg_result(acc)
         storage_dir = str(tmp_path / "const")
-        engine = ConstraintEngine(acc, storage_dir=storage_dir)
+        engine = ConstraintEngine(acc, storage_dir=storage_dir, sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
         engine.register(MassBalanceBuilder())
         cr = engine.run(agg, timesteps=["2020", "2021"], persist=False)
         return acc, cr, storage_dir
@@ -476,7 +476,7 @@ class TestEngineToSolverIntegration:
         for t, r in results.items():
             block_resid = cr.G_blocks[t] @ r.F_opt
             assert np.allclose(block_resid, 0.0, atol=1e-6), (t, block_resid)
-            assert np.allclose(r.residuals, block_resid, atol=1e-9), t
+            assert np.allclose(r.residuals, block_resid, rtol=1e-12, atol=1e-9), t
 
     def test_warm_start_reuses_solver_instance_when_G_blocks_identical(
         self, tmp_path, monkeypatch,
@@ -484,7 +484,6 @@ class TestEngineToSolverIntegration:
         """When every G_blocks[t] is numerically identical (typical: no
         time-varying ratios), the per-t loop creates one DefaultSolver and
         reuses it via update(P, q, b)."""
-        import pysuto.clarabel_backend as solver_mod
         acc, cr, storage_dir = self._build_real_run(tmp_path)
 
         # Sanity: G_blocks identical (toy_acc + MassBalance: ±1 coefficients,
@@ -493,28 +492,17 @@ class TestEngineToSolverIntegration:
         b2 = cr.G_blocks["2021"].toarray()
         assert np.array_equal(b1, b2), "Test premise: G_blocks must match"
 
-        init_count = [0]
-        original_cls = solver_mod.clarabel.DefaultSolver
-        def counting_factory(*args, **kwargs):
-            init_count[0] += 1
-            return original_cls(*args, **kwargs)
-        monkeypatch.setattr(
-            solver_mod.clarabel, "DefaultSolver", counting_factory,
-        )
-
         solver = self._solver_with_inmem_run(storage_dir, cr, monkeypatch)
-        solver.solve_all(cr.run_id)
+        results = solver.solve_all(cr.run_id)
 
-        # 2 feasibility probes (one per period) + 1 solve instance (reused across 2 periods)
-        assert init_count[0] == 3, \
-            f"Expected 3 Clarabel inits (2 probes + 1 reused); got {init_count[0]}"
+        # the first period builds the instance, the second continues its factorisation
+        assert [results[t].convergence["reused"] for t in ("2020", "2021")] == [False, True]
 
     def test_no_warm_start_when_G_blocks_differ(self, tmp_path, monkeypatch):
         """Time-varying ratio (different r per year) → G_blocks differ across t
         → solver falls back to fresh Clarabel instance per timestep.
         Numerical results still satisfy the per-year ratio."""
         import csv
-        import pysuto.clarabel_backend as solver_mod
         from pysuto.constraints import (
             ConstraintEngine, MassBalanceBuilder, RatioConstraintBuilder,
         )
@@ -556,9 +544,9 @@ class TestEngineToSolverIntegration:
         acc = _make_toy_acc()
         agg = _make_toy_agg_result(acc)
         storage_dir = str(tmp_path / "const")
-        engine = ConstraintEngine(acc, storage_dir=storage_dir)
+        engine = ConstraintEngine(acc, storage_dir=storage_dir, sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
         engine.register(MassBalanceBuilder())
-        engine.register(RatioConstraintBuilder.from_csv(csv_path, acc))
+        engine.register(RatioConstraintBuilder.from_csv(csv_path, acc, sigma_rel_floor=0.02, scale_abs_floor=1.0))
         cr = engine.run(agg, timesteps=["2020", "2021"], persist=False)
 
         # Sanity: blocks really do differ (different r values).
@@ -566,25 +554,13 @@ class TestEngineToSolverIntegration:
                                   cr.G_blocks["2021"].toarray()), \
             "Test premise: G_blocks must differ"
 
-        init_count = [0]
-        original_cls = solver_mod.clarabel.DefaultSolver
-        def counting_factory(*args, **kwargs):
-            init_count[0] += 1
-            return original_cls(*args, **kwargs)
-        # Note: counting_factory is set up BEFORE the solver_with_inmem_run
-        # call so DefaultSolver is patched at the point the probe runs.
-        monkeypatch.setattr(
-            solver_mod.clarabel, "DefaultSolver", counting_factory,
-        )
         solver = self._solver_with_inmem_run(storage_dir, cr, monkeypatch)
         results = solver.solve_all(cr.run_id)
 
-        # 2 probe inits + 2 fresh per-t inits (the backend finds no matching structure)
-        assert init_count[0] == 4, \
-            f"Expected 4 Clarabel inits (2 probes + 2 fresh); got {init_count[0]}"
-        # All timesteps solved
+        # the backend finds no matching structure: each period gets a fresh instance
         for r in results.values():
             assert r.solver_status == "solved"
+            assert r.convergence["reused"] is False
 
     def test_block_path_warm_start_chains_posterior(self, tmp_path, monkeypatch):
         """Block-path warm start (the default) stores the per-period prior on
@@ -638,14 +614,14 @@ class TestWarmPriorAcc:
 
     @staticmethod
     def _patch_acc_load(monkeypatch, acc):
-        from pysuto.acc import AccountingStructure
+        from pysuto import acc_store
         calls = []
 
-        def fake_load(cls, id, **kwargs):
+        def fake_load(id, **kwargs):
             calls.append((id, kwargs.get("storage_dir")))
             return acc
 
-        monkeypatch.setattr(AccountingStructure, "load", classmethod(fake_load))
+        monkeypatch.setattr(acc_store, "load", fake_load)
         return calls
 
     def test_an_acc_that_cannot_be_loaded_raises_naming_the_acc_dir(self, tmp_path,
@@ -740,12 +716,11 @@ class TestParallelSolve:
         """Serial reuses one instance across identical periods (see
         test_warm_start_reuses_solver_instance_when_G_blocks_identical); a
         parallel solve builds one per period."""
-        built = self._record_clarabel_inits(monkeypatch)
         cr, s = self._cold_solver(tmp_path, monkeypatch, n_workers=2)
         res = s.solve_all(cr.run_id)
 
-        assert len(built) == 4, f"2 probes + 2 periods expected; got {len(built)}"
         assert all(r.solver_status == "solved" for r in res.values())
+        assert all(r.convergence["reused"] is False for r in res.values())
 
     @pytest.mark.parametrize("n_workers", [1, 2])
     def test_period_solves_use_one_linear_solver_thread(
@@ -1204,7 +1179,8 @@ class TestFeasibilityCheckMode:
         with pytest.raises(RuntimeError) as exc:
             s.solve_all("half_bad", feasibility_check="all")
         msg = str(exc.value)
-        assert "Top hard-row offenders" in msg and "cid='r0_2021'" in msg
+        assert "Hard rows with the largest" in msg and "cid='r0_2021'" in msg
+        assert "ADR 0019" in msg and "remove" not in msg
         assert "r0_2020" not in msg                     # the feasible year is not blamed
 
     def test_the_probe_runs_through_the_period_pool(self, monkeypatch):
@@ -1348,6 +1324,12 @@ class TestQPBackendContract:
     def test_a_failed_status_raises_naming_the_raw_status(self):
         with pytest.raises(RuntimeError, match=r"stub status=MaxIterations.*no fallback"):
             self._solve(_StubBackend("failed", "MaxIterations"), _parity_run())
+
+    def test_a_status_outside_the_neutral_pair_raises(self):
+        """The orchestrator accepts ``solved`` and ``solved_inaccurate`` only: a
+        backend's own status string is not taken for success."""
+        with pytest.raises(RuntimeError, match=r"stub status=weird.*no fallback"):
+            self._solve(_StubBackend("weird", "weird"), _parity_run())
 
     def test_solved_inaccurate_is_accepted(self):
         _, res = self._solve(_SlsqpBackend(status="solved_inaccurate"), _parity_run())
@@ -1495,9 +1477,10 @@ class TestClarabelBackend:
         from pysuto.clarabel_backend import ClarabelBackend
         built = self._count_inits(monkeypatch)
         be = ClarabelBackend()
-        be.solve(self._problem())
-        be.solve(self._problem(shift=0.5), reuse=True)               # same A: update()
-        assert len(built) == 1
+        assert be.solve(self._problem()).info["reused"] is False
+        res = be.solve(self._problem(shift=0.5), reuse=True)         # same A: update()
+        assert len(built) == 1 and res.info["reused"] is True
+        assert res.info["cold_restart"] is False
         be.solve(self._problem(shift=0.7), reuse=False)              # asked afresh
         assert len(built) == 2
         be.solve(self._problem(n=4), reuse=True)                     # other structure
@@ -1511,6 +1494,7 @@ class TestClarabelBackend:
         built[0][0].stall = True
         res = be.solve(self._problem(shift=0.5), reuse=True)
         assert len(built) == 2 and res.status == "solved"            # the fresh one won
+        assert res.info["cold_restart"] is True and res.info["reused"] is False
 
     def test_a_failure_on_a_fresh_instance_is_not_retried(self, monkeypatch):
         from pysuto.clarabel_backend import ClarabelBackend
@@ -1572,3 +1556,40 @@ class TestRowLayout:
         lay = row_layout(sense, is_hard)
         np.testing.assert_array_equal(lay.perm, [2, 4, 1, 5, 0, 3])
         assert (lay.n_slack, lay.n_eq, lay.n_le) == (2, 2, 2)
+
+
+# ---------------------------------------------------------------------------
+# Refusals: what the Solver will not condition or solve (#284)
+# ---------------------------------------------------------------------------
+
+class TestRefusals:
+
+    def test_an_invalid_prior_mode_raises(self):
+        with pytest.raises(ValueError, match="prior_mode must be 'warm' or 'cold'"):
+            make_solver(prior_mode="tepid")
+
+    def test_a_run_without_a_period_partition_raises(self, toy_solver, toy_run):
+        toy_run.G_blocks = {}
+        with pytest.raises(ValueError, match="no per-period partition"):
+            toy_solver.solve_all(toy_run.run_id)
+
+    @pytest.mark.parametrize("bad", [0.0, 1e-9, np.nan])
+    def test_a_soft_row_without_a_usable_sigma_c_raises(self, toy_solver, toy_run, bad):
+        """Hard ⇔ σ_c = 0: a soft row at or below the floor, or NaN, is refused,
+        never floored into a near-hard row."""
+        toy_run.timestep_data["2020"]["sigma_c"][1] = bad
+        with pytest.raises(ValueError, match="sigma_c"):
+            toy_solver.solve_all(toy_run.run_id, feasibility_check="none")
+
+    def test_objective_at_refuses_the_same_soft_row(self):
+        run = _make_wide_sigma_run()
+        run.timestep_data["2020"]["sigma_c"][1] = 0.0
+        with pytest.raises(ValueError, match="soft row"):
+            make_solver().objective_at(run, "2020", np.ones(5))
+
+    @pytest.mark.parametrize("what", ["a_prior", "sigma_a"])
+    def test_a_nan_in_the_prior_raises(self, toy_solver, toy_run, what):
+        target = toy_run.timestep_data["2020"] if what == "a_prior" else toy_run.__dict__
+        target[what][0] = np.nan
+        with pytest.raises(ValueError, match="NaN"):
+            toy_solver.solve_all(toy_run.run_id, feasibility_check="none")

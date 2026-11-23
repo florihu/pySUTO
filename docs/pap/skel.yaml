@@ -10,7 +10,7 @@
     constrained optimisation — each with a defined input/output contract
     and its own persistence layer; a single Lp σ algebra spans Stages 1–3.
   sources:
-    - {key: code:run_feed_pipeline, hint: "src/pysuto/feedpipe.py"}
+    - {key: code:run_feed,          hint: "src/pysuto/feedpipe.py"}
     - {key: code:FeedCollector,    hint: "src/pysuto/collector.py"}
     - {key: code:ConstraintEngine, hint: "src/pysuto/constraints.py"}
     - {key: code:ClarabelSolver,   hint: "src/pysuto/solver.py"}

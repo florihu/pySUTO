@@ -9,7 +9,7 @@ The constraint run is resolved from the opt run's sidecar
 
 Usage::
 
-    python scripts/solver_stats.py                          # default run, 1995
+    python scripts/solver_stats.py <opt_run_id>             # 1995 only
     python scripts/solver_stats.py <opt_run_id> --years 1995 2000
     python scripts/solver_stats.py <opt_run_id> --years all
 
@@ -28,7 +28,6 @@ import sys
 
 OUTPUT_DIR = os.path.join("data", "proc", "opt")
 CONST_DIR  = os.path.join("data", "proc", "const")
-DEFAULT_OPT_RUN_ID = "opt_20260611_075036_6d2e540f"
 
 # ---------------------------------------------------------------------------
 # END USER CONFIGURATION
@@ -56,7 +55,8 @@ def main(opt_run_id: str, years) -> None:
     acc = diag.acc   # loaded once, lazily, from the const run's acc_id
 
     diag_dir = os.path.join(OUTPUT_DIR, opt_run_id, "diag")
-    stats = SolverStatsDiagnostic(diag.results, diag.constraint_run, acc, years=years)
+    stats = SolverStatsDiagnostic(diag.results, diag.constraint_run, acc, years=years,
+                                  conditioning=diag.conditioning)
     paths = stats.write(diag_dir)
 
     _log.info("Wrote %d CSVs to %s", len(paths), diag_dir)
@@ -68,9 +68,9 @@ if __name__ == "__main__":
         description="Write row-level edge + constraint stats CSVs for a persisted opt run.",
     )
     parser.add_argument(
-        "opt_run_id", nargs="?", default=DEFAULT_OPT_RUN_ID,
+        "opt_run_id",
         help="Opt run ID under data/proc/opt/. The const run is resolved "
-             f"from this run's sidecar. Default: {DEFAULT_OPT_RUN_ID}",
+             "from this run's sidecar.",
     )
     parser.add_argument(
         "--years", nargs="+", default=["1995"],

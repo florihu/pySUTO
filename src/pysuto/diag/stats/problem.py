@@ -10,7 +10,7 @@ One chain (opt → const → imp) and one year. Vocabulary follows GLOSSARY.md:
   edge) or the ``imputer_id`` that wrote it; an edge with neither, or with two,
   raises;
 * **chain profile**   — kt per domestic ``(from_sector, to_sector)`` pair in
-  :data:`CHAIN_ORDER` and per traded commodity (cross-region legs by supplying
+  the case's ``chain_order`` and per traded commodity (cross-region legs by supplying
   sector), stacked by provenance; zero-flow bars and the signed stock-change
   edges (``l < 0``) are dropped;
 * ``family``          — the constraint family, read from the ``row_meta``
@@ -37,12 +37,12 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
+from pysuto import acc_store
+from pysuto.constraints.naming import (
+    SENSE_LE, TYPE_BOUND, TYPE_MASSBAL, TYPE_RATIO, TYPE_SUM,
+)
+from pysuto.registry import ConstraintRunRegistry, ImputationRunRegistry, OptimRunRegistry
 from pysuto.uncprop import DEFAULT_BIND_TOL as BIND_TOL_KT
-
-# Supply-chain order of the sectors; sinks (FU, Tailings, Slag, WR, stock legs)
-# sort after every chain sector.
-CHAIN_ORDER = ["CO", "Mining", "Ore", "MF", "SXEW", "Concentrate", "Smelting",
-               "Matte", "CFR", "Anode", "ER", "CER", "CSXEW", "CP", "Cathode", "Scrap"]
 
 # Provenance categories in display order; an imputer outside the list is
 # appended after them.
@@ -73,10 +73,10 @@ def row_family(row_meta: pd.DataFrame) -> np.ndarray:
     kind = row_meta["ratio_kind"].astype(object).to_numpy()
 
     out = np.full(len(row_meta), "", dtype=object)
-    out[typ == "massbal"] = "mass balance"
-    out[typ == "bound"]   = "lower bound"
-    out[typ == "sum"]     = "scale total & scrap anchor"
-    ratio = typ == "ratio"
+    out[typ == TYPE_MASSBAL] = "mass balance"
+    out[typ == TYPE_BOUND]   = "lower bound"
+    out[typ == TYPE_SUM]     = "scale total & scrap anchor"
+    ratio = typ == TYPE_RATIO
     strip = var == "strippingratio"
     out[ratio & strip]          = "stripping"
     out[ratio & ~hard & ~strip] = "soft ratio"
@@ -134,14 +134,18 @@ class ProblemStatsDiagnostic:
         ``edge_meta`` (endpoints, time, valuation) for every global edge.
     year : str
         The period, a time label.
+    chain_order : sequence of str
+        The case's supply-chain order of the sectors; sinks and any sector outside
+        it sort after every listed one.
     """
 
     def __init__(self, opt_result, constraint_run, imp_result, acc_struct,
-                 year: str) -> None:
+                 year: str, chain_order) -> None:
         if not isinstance(year, str):
             raise TypeError(f"year is a time label (str), got "
                             f"{type(year).__name__} {year!r}")
         self.year = year
+        self._chain_order = list(chain_order)
         self._opt = opt_result
         self._cr  = constraint_run
         self._imp = imp_result
@@ -158,6 +162,7 @@ class ProblemStatsDiagnostic:
         cls,
         opt_run_id: str,
         year:       str,
+        chain_order,
         opt_dir:    str = "data/proc/opt",
         const_dir:  str = "data/proc/const",
         imp_dir:    str = "data/proc/imp",
@@ -165,12 +170,6 @@ class ProblemStatsDiagnostic:
     ) -> "ProblemStatsDiagnostic":
         """Follow the opt run's ``parents.upstream`` to its const and imp runs
         and load the year from disk."""
-        # Local import to keep diag at the leaf of the import graph (as SolverDiag).
-        from pysuto.acc import AccountingStructure
-        from pysuto.registry import (
-            ConstraintRunRegistry, ImputationRunRegistry, OptimRunRegistry,
-        )
-
         opt_reg  = OptimRunRegistry(opt_dir)
         upstream = opt_reg.load_sidecar(opt_run_id).get("parents", {}).get("upstream", {})
         const_run_id = upstream.get("const_run_id")
@@ -182,11 +181,11 @@ class ProblemStatsDiagnostic:
             raise KeyError(f"const run '{const_run_id}' records no imp run "
                            "(parents.upstream)")
         imp_result = ImputationRunRegistry(imp_dir).load(const_run.agg_id)
-        acc = AccountingStructure.load(id=const_run.acc_id, storage_dir=acc_dir)
+        acc = acc_store.load(id=const_run.acc_id, storage_dir=acc_dir)
         results = opt_reg.load(opt_run_id)
         if year not in results:
             raise KeyError(f"opt run '{opt_run_id}' has no period {year!r}")
-        return cls(results[year], const_run, imp_result, acc, year)
+        return cls(results[year], const_run, imp_result, acc, year, chain_order)
 
     # ------------------------------------------------------------------
     # Edges
@@ -286,8 +285,8 @@ class ProblemStatsDiagnostic:
                                e["from_sector"] + "→" + e["to_sector"])
         e["kind"]   = np.where(leg, "legs", "domestic")
         e["k_kind"] = leg.astype(np.int64)
-        e["k_from"] = _position(e["from_sector"], CHAIN_ORDER)
-        e["k_to"]   = np.where(leg, 0, _position(e["to_sector"], CHAIN_ORDER))
+        e["k_from"] = _position(e["from_sector"], self._chain_order)
+        e["k_to"]   = np.where(leg, 0, _position(e["to_sector"], self._chain_order))
         e["to_key"] = np.where(leg, "", e["to_sector"])
         p = e.pivot_table(index="bar", columns="provenance", values="f", aggfunc="sum",
                           fill_value=0.0)
@@ -332,7 +331,7 @@ class ProblemStatsDiagnostic:
         # This diagnostic describes the standard-form block, so it labels rows by
         # the group the orchestrator realises them in (``row_layout``: soft, hard =, hard ≤).
         sense, hard = rm["sense"].astype(str).to_numpy(), rm["is_hard"].to_numpy(dtype=bool)
-        group = np.where(sense == "le", "le", np.where(hard, "eq", "soft"))
+        group = np.where(sense == SENSE_LE, "le", np.where(hard, "eq", "soft"))
         eq, le = group == "eq", group == "le"
         flowing = (np.abs(F) > BIND_TOL_KT).astype(np.int64)
         on_flow = (self._pattern() @ flowing) > 0
@@ -405,10 +404,10 @@ class ProblemStatsDiagnostic:
         leg = k["leg"].to_numpy()
         k["k_val"]  = _position(k["valuation"], self._valuation_order)
         k["k_leg"]  = leg.astype(np.int64)
-        k["k_from"] = _position(k["from_sector"], CHAIN_ORDER)
+        k["k_from"] = _position(k["from_sector"], self._chain_order)
         # legs: imports, then exports
         k["k_to"]   = np.where(leg, out_leg.astype(np.int64),
-                               _position(k["to_sector"], CHAIN_ORDER))
+                               _position(k["to_sector"], self._chain_order))
         k["k_name"] = np.where(leg, np.where(out_leg, k["to_region"], k["from_region"]),
                                k["to_sector"])
         k = k.sort_values(["k_val", "k_leg", "k_from", "k_to", "k_name", "edge_id"],

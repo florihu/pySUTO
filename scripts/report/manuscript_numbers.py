@@ -50,7 +50,7 @@ Groups, after the 2026-10-19 inventories of method/results and SI:
  11  limitations (discussion.md §5.5.2, method.md §3.2.8 until 2026-11-12): the mine chains kept where ICSG reports no
      mine output, stock legs beyond |z| 5, the world producer stock change
      against ICSG, the regions that carry the scale-total objective
- 12  knob study (#108): A6 and Round-E (c) on the latest sweep whose base is the opt
+ 12  knob sweep (#108): A6 and Round-E (c) on the latest sweep whose base is the opt
      run, read from the tables ``scripts/sweep_diag.py`` writes to its ``diag/``
 
 Historical measurements (REP/ADR figures) and the tables ``results_figs.py``
@@ -74,7 +74,7 @@ from scipy.stats import norm
 
 sys.path.insert(0, "src")
 
-from pysuto.acc import AccountingStructure              # noqa: E402
+from pysuto import acc_store              # noqa: E402
 from pysuto.constraints.naming import upgrade_legacy_row_meta  # noqa: E402
 from pysuto.diag.stats.sweep import influential, rank_statistic, top_axis  # noqa: E402
 from pysuto.diag.uncprop import UncPropDiag             # noqa: E402
@@ -83,10 +83,9 @@ from pysuto.relation.param_relation import expand_edge_index     # noqa: E402
 # =============================================================================
 # USER CONFIGURATION
 # =============================================================================
-# The base run of the measurement series and its re-solve at the ADR 0039
-# tolerance (SI S13.1): fixed by choice, not by the chain.
-BASE_RUN       = "opt_20260916_124721_c4d1d944"
-BASE_RETOL_RUN = "opt_20260930_093914_523d57d7"
+# The base run of the measurement series and its re-solve at the ADR 0039 tolerance
+# (SI S13.1) are the two runs of ``numbers.json["tolerance_pair"]`` (results_figs.py
+# --tol-pair): ``--base`` / ``--base-retol`` override them.
 NUMBERS_JSON   = "docs/manuscript/figs/numbers.json"
 NUMBERS_OUT    = "docs/manuscript/figs/manuscript_numbers.json"   # committed: the refresh's diff base
 Z_BIG          = 5.0                         # a stock leg beyond |z| 5 is a limitation (Discussion §5.5.2)
@@ -94,6 +93,8 @@ PSC_FIRST_YEAR = 1996                        # ICSG reports no producer stock ch
 EXCESS_MIN_KT  = 5.0                         # BACI exports above ICSG production (Discussion §5.5.2, #111)
 FRINGE_KT      = 1e-4                        # #99's fringe: a* this close to its bound is ambiguous
 INTERVALS_CSV  = "docs/manuscript/figs/table3_intervals.csv"   # scripts/report/table3_intervals.py
+INTERVALS_RUN_SUFFIX = ".run.json"           # beside the CSV: the opt and uncprop run it was computed for
+REPO           = Path(__file__).resolve().parents[2]
 PARAM_TABLES   = ["conc", "eff", "stripping_ratio", "ore_grade", "stock_bounds",
                   "scrap_share"]
 SUM_VARIANTS   = {"supplytotout": "sum_supply", "usetotout": "sum_use",
@@ -1268,8 +1269,37 @@ def interval_shift(t: pd.DataFrame, z: float) -> dict:
     return {"max": float(z * alt[i]), "quantity": str(t.quantity[i])}
 
 
+def check_intervals_run(csv: Path, opt: str, uncprop_runs: list) -> None:
+    """Raise unless ``table3_intervals.py`` wrote ``csv`` for ``opt`` and a Stage-5 run
+    built from it (#221): the CSV names no run itself, so a stale one reads silently."""
+    rec = csv.with_name(csv.stem + INTERVALS_RUN_SUFFIX)
+    if not rec.is_file():
+        raise ValueError(f"{csv} has no {rec.name}: it was written before table3_intervals.py "
+                         f"recorded its runs; re-run it for {opt}")
+    with open(rec, encoding="utf-8") as f:
+        got = json.load(f)
+    if got.get("opt_run_id") != opt or got.get("uncprop_run_id") not in uncprop_runs:
+        raise ValueError(f"{csv} was computed for {got.get('opt_run_id')} / "
+                         f"{got.get('uncprop_run_id')}, not {opt} (Stage-5 runs {uncprop_runs}); "
+                         f"re-run table3_intervals.py")
+
+
+def resolve_base_runs(base, retol, numbers_path: Path) -> tuple:
+    """``(base, retol)``: the runs given, else numbers.json's ``tolerance_pair`` (#221)."""
+    if base and retol:
+        return base, retol
+    pair = None
+    if numbers_path.is_file():
+        with open(numbers_path, encoding="utf-8") as f:
+            pair = json.load(f).get("tolerance_pair")
+    if not pair or len(pair) != 2:
+        raise ValueError(f"no base runs: pass --base and --base-retol, or give a --numbers "
+                         f"file with a two-run tolerance_pair ({numbers_path})")
+    return base or pair[0], retol or pair[1]
+
+
 def limitation_numbers(N: Numbers, inp: Path, ch: Chain, e: pd.DataFrame, s: pd.DataFrame,
-                       sigma_a: np.ndarray) -> None:
+                       sigma_a: np.ndarray, intervals_csv: Path = None) -> None:
     """Group 11: the numbers of discussion.md §5.5.2 (method.md §3.2.8 until 2026-11-12)."""
     ic = _icsg(inp, ch.versions["icsg"])
     p = phantom_mine_chain(e, mine_region_years(ic))
@@ -1332,14 +1362,16 @@ def limitation_numbers(N: Numbers, inp: Path, ch: Chain, e: pd.DataFrame, s: pd.
     N.add("method:L353.degenerate_family", "#99's degenerate legs: edge-years and the per-year "
           "range (#81)", degenerate_family_counts(e))
     shift = None
-    if Path(INTERVALS_CSV).is_file():
-        shift = interval_shift(pd.read_csv(INTERVALS_CSV), z=float(norm.ppf(0.975)))
+    csv = Path(intervals_csv) if intervals_csv else REPO / INTERVALS_CSV
+    if csv.is_file():
+        check_intervals_run(csv, ch.opt, ch.uncprop)
+        shift = interval_shift(pd.read_csv(csv), z=float(norm.ppf(0.975)))
     N.add("method:L353.degenerate_interval_shift", "largest interval-bound move with the "
           f"family pinned or freed, Birge-scaled (#81, {INTERVALS_CSV})", shift)
 
 
 # =============================================================================
-# 12  knob study (#108)
+# 12  knob sweep (#108)
 # =============================================================================
 
 def _criterion_row(sens: pd.DataFrame, pts: pd.DataFrame, out: str, limit: float) -> dict:
@@ -1498,11 +1530,12 @@ def render(N: Numbers, ch: Chain) -> str:
 
 
 def main(opt: str, out_json, data_dir: str, base: str, retol: str, numbers: str,
-         sweep_base: str = None) -> None:
+         sweep_base: str = None, intervals: str = None) -> None:
+    base, retol = resolve_base_runs(base, retol, Path(numbers))
     proc, inp = Path(data_dir) / "proc", Path(data_dir) / "input"
     ch = walk_chain(proc, opt, sweep_base)
     acc_id = ch.meta["const"]["parents"]["inputs"]["acc"]["id"]
-    acc = AccountingStructure.load(id=acc_id, storage_dir=str(proc / "acc"))
+    acc = acc_store.load(id=acc_id, storage_dir=str(proc / "acc"))
     ei = expand_edge_index(acc.edge_index, acc.node_index)
     ei["time"] = ei.time.astype(str)
     P = {pid: _params(inp, pid, ch.versions[pid]) for pid in PARAM_TABLES}
@@ -1537,7 +1570,7 @@ def main(opt: str, out_json, data_dir: str, base: str, retol: str, numbers: str,
     feed_input_numbers(N, inp, ch)
     results_numbers(N, e, s, Path(numbers), opt)
     stage5_numbers(N, proc, ch, acc)
-    limitation_numbers(N, inp, ch, e, s, sigma_a)
+    limitation_numbers(N, inp, ch, e, s, sigma_a, intervals)
     knob_numbers(N, proc, ch)
 
     print(render(N, ch))
@@ -1562,13 +1595,17 @@ if __name__ == "__main__":
     ap.add_argument("--json", default=NUMBERS_OUT,
                     help="write the numbers to this JSON file (default: the committed diff base)")
     ap.add_argument("--data-dir", default="data", help="the checkout's data/ directory")
-    ap.add_argument("--base", default=BASE_RUN, help="base run of the common set")
-    ap.add_argument("--base-retol", default=BASE_RETOL_RUN,
-                    help="the base re-solved at the reference tolerance")
+    ap.add_argument("--base", default=None,
+                    help="base run of the common set (default: numbers.json tolerance_pair[0])")
+    ap.add_argument("--base-retol", default=None,
+                    help="the base re-solved at the reference tolerance "
+                         "(default: numbers.json tolerance_pair[1])")
+    ap.add_argument("--intervals", default=None, metavar="CSV",
+                    help=f"table3_intervals.py's CSV (default: {INTERVALS_CSV} in the repository)")
     ap.add_argument("--numbers", default=NUMBERS_JSON,
                     help="results_figs numbers.json to take ratios from, if it is this run's")
     ap.add_argument("--sweep-base", default=None, metavar="OPT",
                     help="read group 12 from the sweep built on this opt run, an earlier chain a "
                          "REP shows equal to this one (#152); default: the opt run itself")
     a = ap.parse_args()
-    main(a.opt_run_id, a.json, a.data_dir, a.base, a.base_retol, a.numbers, a.sweep_base)
+    main(a.opt_run_id, a.json, a.data_dir, a.base, a.base_retol, a.numbers, a.sweep_base, a.intervals)

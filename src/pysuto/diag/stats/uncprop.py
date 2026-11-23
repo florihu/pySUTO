@@ -49,9 +49,14 @@ import numpy as np
 import pandas as pd
 from scipy.stats import norm
 
-from pysuto._conditioning import condition_sigma_c
+from pysuto._conditioning import condition_prior, condition_sigma_c
 from pysuto.constraints.naming import soft_row_mask
-from pysuto.uncprop import DEFAULT_BIND_TOL, KalmanUncProp
+from pysuto.logging import get_logger
+from pysuto.uncprop import (
+    DEFAULT_BIND_TOL, lower_bound_mask, lower_bound_values, z_alpha,
+)
+
+logger = get_logger("pysuto.diag.stats.uncprop")
 
 # Quadrant cuts (GLOSSARY.md "Prior-carried / confirmed / overruled / unexplained move").
 KAPPA_CUT   = 0.5
@@ -172,15 +177,13 @@ class UncPropStatsDiagnostic:
         self._frame_cache = None
         self._birge_cache = None
         self.ablation = bool(self._cond.get("exclude_scale_totals", False))
-        self._z_alpha = float(norm.ppf(1.0 - float(uncprop_result.alpha) / 2.0))
+        self.z_alpha = z_alpha(float(uncprop_result.alpha))
 
     # ------------------------------------------------------------------
     # Edge frame
     # ------------------------------------------------------------------
 
     def _sigma_a(self) -> np.ndarray:
-        # Local import to keep diag at the leaf of the import graph (as SolverDiag).
-        from pysuto._conditioning import condition_prior
         kw = {"floor_abs":      self._cond.get("sigma_a_floor_abs"),
               "floor_rel":      self._cond.get("sigma_a_floor_rel"),
               "ceiling_factor": self._cond.get("sigma_a_ceiling_factor")}
@@ -221,6 +224,12 @@ class UncPropStatsDiagnostic:
             a_post = F if year_local else F[cols]
             ap = getattr(res, "a_prior", None)
             if ap is None:
+                if self._cond.get("prior_mode") == "warm":
+                    raise ValueError(
+                        f"year {y}: the opt result carries no a_prior, but the run was "
+                        "solved with prior_mode='warm', whose prior is the previous "
+                        "year's optimum, not a0: the prior cannot be rebuilt"
+                    )
                 a_prior = a0[cols]
             else:
                 ap = np.asarray(ap, dtype=float)
@@ -354,6 +363,11 @@ class UncPropStatsDiagnostic:
             return self._birge_cache
         f = self.edge_frame()
         lb = self._lower_bounds()[f["edge_id"].to_numpy()]
+        if self._cond:
+            absent = [k for k in ("bind_tol", "sigma_c_floor") if k not in self._cond]
+            if absent:
+                logger.warning("the uncprop stage_config records no %s: the Birge ratio "
+                               "takes the library default(s)", ", ".join(absent))
         bind_tol = float(self._cond.get("bind_tol", DEFAULT_BIND_TOL))
         with np.errstate(invalid="ignore"):
             at_prior = (f["bound_active"].to_numpy()
@@ -395,10 +409,14 @@ class UncPropStatsDiagnostic:
         b["zsq_total"]     = b["zsq_edges"] + b["zsq_soft_rows"]
         b["dof"]           = (b["n_rows_kept"] + b["n_scale_totals_left_out"]
                               + b["n_bound_active"] - b["n_bound_active_at_prior"])
+        dof_run = float(b.loc[b["year"] == "all", "dof"].iloc[0])
+        if dof_run <= 0.0:                 # NaN (no active-set counts) passes
+            raise ValueError(f"the run's degrees of freedom are {dof_run:g}: the Birge "
+                             "ratio Σz²/dof is undefined")
         b["birge_ratio"]   = b["zsq_total"] / b["dof"]
-        b["z_alpha"]       = self._z_alpha
+        b["z_alpha"]       = self.z_alpha
         b["z_alpha_birge"] = (np.nan if self.ablation
-                              else self._z_alpha * np.sqrt(b["birge_ratio"]))
+                              else self.z_alpha * np.sqrt(b["birge_ratio"]))
         for col in ("n_edges", "n_soft_rows", "n_rows_kept", "n_scale_totals_left_out",
                     "n_bound_active", "n_bound_active_at_prior", "dof"):
             if b[col].notna().all():
@@ -428,7 +446,7 @@ class UncPropStatsDiagnostic:
                              "comes from the reduced S(t), its a* from the full fit")
         R    = self.birge_ratio() if birge_ratio is None else float(birge_ratio)
         a    = frame["a_post"].to_numpy(dtype=float)
-        half = self._z_alpha * np.sqrt(R) * frame["sigma_a_star"].to_numpy(dtype=float)
+        half = self.z_alpha * np.sqrt(R) * frame["sigma_a_star"].to_numpy(dtype=float)
         lower, upper = a - half, a + half
         lb  = self._lower_bounds()[frame["edge_id"].to_numpy(dtype=np.int64)]
         has = ~np.isnan(lb)
@@ -437,13 +455,13 @@ class UncPropStatsDiagnostic:
 
     def _lower_bounds(self) -> np.ndarray:
         """Each edge's lower-bound row ``l`` (NaN without one), by Stage 5's own
-        extraction (:meth:`KalmanUncProp._lower_bound_values`) over each year's
-        block of the partition; all NaN on the full-G path."""
+        extraction (:func:`pysuto.uncprop.lower_bound_values`) over each year's
+        block of the partition; all NaN for a const run without ``G_blocks``."""
         out = np.full(int(self._cr.G.shape[1]), np.nan)
         blocks = {str(k): v for k, v in (getattr(self._cr, "G_blocks", None) or {}).items()}
         if not blocks:
             return out
-        is_lower = KalmanUncProp._lower_bound_mask(self._cr.row_meta)
+        is_lower = lower_bound_mask(self._cr.row_meta)
         tdata = {str(k): v for k, v in self._cr.timestep_data.items()}
         for y in self.years:
             res = self._opt[y]
@@ -452,7 +470,7 @@ class UncPropStatsDiagnostic:
                 continue
             rows_t = np.asarray(rows_t, dtype=np.int64)
             c_t = np.asarray(tdata[y]["c"], dtype=float)[rows_t]
-            out[np.asarray(cols_t, dtype=np.int64)] = KalmanUncProp._lower_bound_values(
+            out[np.asarray(cols_t, dtype=np.int64)] = lower_bound_values(
                 blocks[y].tocsr(), c_t, is_lower[rows_t])
         return out
 

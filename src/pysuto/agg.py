@@ -7,7 +7,7 @@ AggregationResult  –  dataclass holding the output of Stage 2 collection
 AggregationMath    –  inverse-variance weighted aggregation of N_f feeds
                        onto the N_r root-edge axis.
 
-Mathematical summary (see README § Stage 2a)
+Mathematical summary (see README § Stage 2 — Aggregation & Imputation)
 --------------------------------------------
     P[k, j]     = 1 / sigma[k, j]²        (precision; 0 where not covered)
     Omega[k, j] = P[k, j] / sum_k P[k, j] (normalised weight; 0 where not covered)
@@ -17,8 +17,9 @@ Mathematical summary (see README § Stage 2a)
 Invariants
 ----------
   • Every covered column of Omega sums to 1.
-  • For p ∈ (1, 2]: sigma_agg[j] ≤ min_k sigma[k, j] (single-cover passthrough);
-    when feeds overlap, σ_agg ≤ Lp({Ω·σ}) ≤ max_k σ_k.
+  • sigma_agg[j] ≤ max_k sigma[k, j] for every p ∈ (1, 2]; a single covering feed
+    passes through unchanged.  sigma_agg[j] ≤ min_k sigma[k, j] holds exactly at
+    p = 2 only: at p = 1.3, σ = (1, 100) gives σ_agg = 1.0018 > min σ.
   • Uncovered edges (no feed contributes): f_agg = NaN, sigma_agg = NaN.
 """
 
@@ -30,6 +31,7 @@ from typing import Optional, List
 import numpy as np
 
 from pysuto.logging import get_logger
+from pysuto.lp import P_DEFAULT, lp_combine_axis
 
 logger = get_logger("agg")
 
@@ -72,20 +74,12 @@ class AggregationResult:
     _imp_run_id:         Optional[str]    = field(default=None)
 
     @property
-    def n_feeds(self) -> int:
-        return len(self.feed_ids)
-
-    @property
     def n_edges(self) -> int:
         return self.f_agg.shape[0]
 
     @property
     def n_covered(self) -> int:
         return int(self.coverage.sum())
-
-    @property
-    def n_missing(self) -> int:
-        return self.n_edges - self.n_covered
 
 
 # =============================================================================
@@ -103,7 +97,7 @@ class AggregationMath:
         F:        np.ndarray,
         Sigma:    np.ndarray,
         feed_ids: List[str],
-        p:        float = 1.3,
+        p:        float = P_DEFAULT,
     ) -> AggregationResult:
         """
         Compute inverse-variance weighted aggregation with Lp σ propagation.
@@ -113,14 +107,27 @@ class AggregationMath:
         F        : [N_f × N_r]  observations; NaN where feed does not cover edge
         Sigma    : [N_f × N_r]  standard deviations; NaN where feed does not cover
         feed_ids : length-N_f list of feed ID strings
-        p        : power-mean exponent for σ_agg (default 1.3). p=2 recovers
+        p        : power-mean exponent for σ_agg (default ``P_DEFAULT``). p=2 recovers
                    Gaussian quadrature σ_agg = 1/sqrt(Σ 1/σ_k²).
 
         Returns
         -------
         AggregationResult
+
+        Raises
+        ------
+        ValueError  if a feed has a finite sigma > 0 where F is NaN (the cell
+                    would enter the mean as 0), or a negative sigma
         """
         N_f, N_r = F.shape
+        with np.errstate(invalid="ignore"):
+            nan_obs = np.isnan(F) & np.isfinite(Sigma) & (Sigma > 0)
+            neg_sig = Sigma < 0
+        if nan_obs.any() or neg_sig.any():
+            raise ValueError(
+                f"inconsistent feed cells: {int(nan_obs.sum())} with a NaN observation "
+                f"under a finite sigma > 0, {int(neg_sig.sum())} with a negative sigma"
+            )
         logger.info("aggregating %d feed(s) over %d root edges (p=%.2f)", N_f, N_r, p)
         for k, fid in enumerate(feed_ids):
             n_cov = int(np.isfinite(Sigma[k]).sum())
@@ -138,7 +145,7 @@ class AggregationMath:
             Omega = np.where(coverage, P / P_sum[np.newaxis, :], 0.0)
 
         # f_agg = 1ᵀ(Omega ⊙ F):  replace NaN in F with 0 before dot product
-        # Safe because Omega[k,j]=0 everywhere F[k,j]=NaN.
+        # Safe because Omega[k,j]=0 everywhere F[k,j]=NaN (enforced above).
         F_filled = np.where(np.isnan(F), 0.0, F)
         f_agg    = np.sum(Omega * F_filled, axis=0)
         f_agg    = np.where(coverage, f_agg, np.nan)
@@ -146,12 +153,10 @@ class AggregationMath:
         # σ_agg[j] = ( Σ_k |Ω_kj · σ_k[j]|^p )^(1/p); NaN where uncovered.
         # Mask out feed/edge pairs that are not covered (NaN σ → contribute 0).
         Sigma_safe = np.where(np.isfinite(Sigma), Sigma, 0.0)
-        terms = np.abs(Omega * Sigma_safe) ** p          # [N_f × N_r]
-        sum_p = terms.sum(axis=0)                         # [N_r]
         with np.errstate(divide="ignore", invalid="ignore"):
             sigma_agg = np.where(
                 coverage,
-                np.power(np.maximum(sum_p, 0.0), 1.0 / p),
+                lp_combine_axis(Omega * Sigma_safe, p, axis=0),   # [N_r]
                 np.nan,
             )
 

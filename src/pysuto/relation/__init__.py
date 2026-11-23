@@ -1,7 +1,7 @@
 """
-relation
-========
-Params-driven relations between edge sets (ADR 0011).
+__init__.py
+===========
+relation: params-driven relations between edge sets (ADR 0011).
 
 * :mod:`pysuto.relation.params`         — the one params reader: typed :class:`ParamRow`
                                           records, each consumer's declared ``param_type`` set.
@@ -13,3 +13,8 @@ Params-driven relations between edge sets (ADR 0011).
 
 Import direction: ``acc → relation → impute → constraints``.
 """
+
+from __future__ import annotations
+
+__all__ = ["balance", "param_relation", "params", "prior", "ratio_relation", "relation",
+           "sources", "structure"]

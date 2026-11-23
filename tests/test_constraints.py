@@ -292,8 +292,8 @@ class TestSumConstraintBuilder:
         s   = np.zeros(n)
         b20 = builder.build_dynamic(toy_acc, f, s, "2020")
         is2021 = (rm["time"].astype(str) == "2021").to_numpy()
-        assert np.allclose(b20.sigma_c[is2021], SIGMA_C_INACTIVE)
-        assert np.allclose(b20.sigma_c[~is2021], block.sigma_c[~is2021])
+        assert np.allclose(b20.sigma_c[is2021], SIGMA_C_INACTIVE, rtol=1e-12)
+        assert np.allclose(b20.sigma_c[~is2021], block.sigma_c[~is2021], rtol=1e-12)
 
     def test_from_mask_anchor_sigma_cv_resolver(self, toy_acc):
         """sigma_cv_resolver overrides the scalar cv per group; returning
@@ -319,8 +319,8 @@ class TestSumConstraintBuilder:
         ).build_static(toy_acc)
         rm = block.row_meta
         is_b = (rm["region"].astype(str) == "B").to_numpy()
-        assert np.allclose(block.sigma_c[is_b], 0.15 * np.abs(block.c[is_b]))
-        assert np.allclose(block.sigma_c[~is_b], 0.01 * np.abs(block.c[~is_b]))
+        assert np.allclose(block.sigma_c[is_b], 0.15 * np.abs(block.c[is_b]), rtol=1e-12)
+        assert np.allclose(block.sigma_c[~is_b], 0.01 * np.abs(block.c[~is_b]), rtol=1e-12)
 
     def test_sum_row_meta_has_time(self, toy_acc):
         """SumConstraintBuilder row_meta has a `time` column; constraint_id
@@ -362,9 +362,9 @@ class TestSumConstraintBuilder:
         active_t0 = (rm["time"].astype(str) == str(times[0])).to_numpy()
         active_t1 = (rm["time"].astype(str) == str(times[1])).to_numpy()
         if active_t0.any():
-            assert np.allclose(b_t1.sigma_c[active_t0], SIGMA_C_INACTIVE)
+            assert np.allclose(b_t1.sigma_c[active_t0], SIGMA_C_INACTIVE, rtol=1e-12)
         if active_t1.any():
-            assert np.allclose(b_t0.sigma_c[active_t1], SIGMA_C_INACTIVE)
+            assert np.allclose(b_t0.sigma_c[active_t1], SIGMA_C_INACTIVE, rtol=1e-12)
 
     def test_sum_sigma_c_scales_with_magnitude(self, toy_acc):
         """sigma_c from fraction_of_flow doubles when f_agg doubles, for
@@ -394,13 +394,13 @@ class TestSumConstraintBuilder:
         assert active.any(), "Expected at least one row active at t=2020"
 
         ratio_active = b2.sigma_c[active] / b1.sigma_c[active]
-        assert np.allclose(ratio_active, 2.0, rtol=0.01), \
+        assert np.allclose(ratio_active, 2.0, rtol=1e-12), \
             "σ_c on active rows should double when f_agg doubles"
 
         # Deactivated rows (spec time != 2020) stay pinned at the sentinel.
         if (~active).any():
-            assert np.allclose(b1.sigma_c[~active], SIGMA_C_INACTIVE)
-            assert np.allclose(b2.sigma_c[~active], SIGMA_C_INACTIVE)
+            assert np.allclose(b1.sigma_c[~active], SIGMA_C_INACTIVE, rtol=1e-12)
+            assert np.allclose(b2.sigma_c[~active], SIGMA_C_INACTIVE, rtol=1e-12)
 
     def test_sum_from_csv_three_terms(self, toy_acc, toy_agg_result, tmp_path):
         """CSV with 3 terms produces correct G row."""
@@ -445,7 +445,7 @@ class TestSumConstraintBuilder:
     def test_sum_sense(self, toy_acc):
         """All sum constraint rows have sense='eq' and is_hard=False."""
         from pysuto.constraints import SumConstraintBuilder
-        builder = SumConstraintBuilder.from_acc_struct(toy_acc)
+        builder = SumConstraintBuilder.from_acc_struct(toy_acc, sigma_fraction=0.05)
         block   = builder.build_static(toy_acc)
         if block.G_rows.shape[0] > 0:
             assert (block.row_meta["sense"] == "eq").all()
@@ -562,6 +562,7 @@ class TestPerValuationSplit:
             entity_filter={"Process"},
             rhs_out_entity={"Flow"},
             lhs_neg_out_entity_sub={"Nature"},
+            sigma_fraction=0.05
         ).build_static(toy_acc_2val)
         # Process nodes: Mining/A, Mining/B at 2 times × 2 valuations = 8.
         assert block.G_rows.shape[0] == 8
@@ -622,6 +623,7 @@ class TestUnitMixingCheck:
             sigma_a_abs_floor=0.0,
             sigma_c_cv_min=0.0,
             sigma_c_abs_floor=0.0,
+            nodata_anchor_cv=0.3
         )
         engine.register(MassBalanceBuilder())
 
@@ -670,6 +672,7 @@ class TestUnitMixingCheck:
             sigma_a_abs_floor=0.0,
             sigma_c_cv_min=0.0,
             sigma_c_abs_floor=0.0,
+            nodata_anchor_cv=0.3
         )
         engine.register(MassBalanceBuilder())
         cr = engine.run(
@@ -749,7 +752,7 @@ class TestRatioConstraintBuilder:
         """G row has +1 at edge_i and −r at edge_j; c=0."""
         from pysuto.constraints import RatioConstraintBuilder
         path    = self._write_params_csv(tmp_path, nominal=0.5, unc_type="sd", value_sd=0.05)
-        builder = RatioConstraintBuilder.from_csv(path, toy_acc)
+        builder = RatioConstraintBuilder.from_csv(path, toy_acc, sigma_rel_floor=0.02, scale_abs_floor=1.0)
         block   = builder.build_static(toy_acc)
 
         assert block.G_rows.shape[0] > 0, "Should produce at least 1 row"
@@ -764,7 +767,7 @@ class TestRatioConstraintBuilder:
         """sigma_c == value_sd/r for unc_type='sd' (r = 1 here)."""
         from pysuto.constraints import RatioConstraintBuilder
         path    = self._write_params_csv(tmp_path, nominal=1.0, unc_type="sd", value_sd=0.123)
-        builder = RatioConstraintBuilder.from_csv(path, toy_acc)
+        builder = RatioConstraintBuilder.from_csv(path, toy_acc, sigma_rel_floor=0.02, scale_abs_floor=1.0)
         block   = builder.build_static(toy_acc)
         assert block.G_rows.shape[0] > 0
         assert block.sigma_c[0] == pytest.approx(0.123)
@@ -806,7 +809,7 @@ class TestRatioConstraintBuilder:
                 "bound_upper":    "",
             })
 
-        builder = RatioConstraintBuilder.from_csv(path, toy_acc)
+        builder = RatioConstraintBuilder.from_csv(path, toy_acc, sigma_rel_floor=0.02, scale_abs_floor=1.0)
         block   = builder.build_static(toy_acc)
         assert block.G_rows.shape[0] > 0
         expected = (1.2 - 0.8) / 4.0
@@ -816,7 +819,7 @@ class TestRatioConstraintBuilder:
         """Ratio constraint rows have sense='eq' and is_hard=False."""
         from pysuto.constraints import RatioConstraintBuilder
         path    = self._write_params_csv(tmp_path)
-        builder = RatioConstraintBuilder.from_csv(path, toy_acc)
+        builder = RatioConstraintBuilder.from_csv(path, toy_acc, sigma_rel_floor=0.02, scale_abs_floor=1.0)
         block   = builder.build_static(toy_acc)
         if block.G_rows.shape[0] > 0:
             assert (block.row_meta["sense"] == "eq").all()
@@ -855,7 +858,7 @@ class TestRatioConstraintBuilder:
         """An agg row emits one set-scoped soft row per (region_to, time, valuation):
         Σb − r·Σa = 0. toy_acc has Mining in regions A,B over 2 years → 4 rows."""
         from pysuto.constraints import RatioConstraintBuilder
-        builder = RatioConstraintBuilder.from_csv(self._write_agg_csv(tmp_path), toy_acc)
+        builder = RatioConstraintBuilder.from_csv(self._write_agg_csv(tmp_path), toy_acc, sigma_rel_floor=0.02, scale_abs_floor=1.0)
         block   = builder.build_static(toy_acc)
         rm = block.row_meta
         assert block.G_rows.shape[0] == 4                      # 2 regions × 2 years
@@ -1029,7 +1032,7 @@ class TestRatioConstraintBuilder:
                 "b_time": "same", "b_valuation": "same",
                 "value_nominal": "2.0", "unc_type": "sd", "value_sd": "0.5",
             })
-        builder = RatioConstraintBuilder.from_csv(path, toy_acc)
+        builder = RatioConstraintBuilder.from_csv(path, toy_acc, sigma_rel_floor=0.02, scale_abs_floor=1.0)
         block   = builder.build_static(toy_acc)
         assert block.G_rows.shape[0] >= 1
         G = block.G_rows.toarray()
@@ -1058,7 +1061,7 @@ class TestRatioConstraintBuilder:
                 "Mining", "Process", "A", "Ore", "Flow", "A", "*", "Mass",
                 "Mining", "Process", "same", "Waste", "SB", "same", "same", "same",
                 "2.0", "sd", "0.5"])))
-        builder = RatioConstraintBuilder.from_csv(path, toy_acc, hard=True)
+        builder = RatioConstraintBuilder.from_csv(path, toy_acc, hard=True, sigma_rel_floor=0.02, scale_abs_floor=1.0)
         static  = builder.build_static(toy_acc)
         assert (static.row_meta["sense"] == "eq").all() and static.row_meta["is_hard"].all()
         assert static.row_meta["is_hard"].all()
@@ -1167,7 +1170,7 @@ class TestRatioConstraintBuilder:
         from pysuto.constraints import RatioConstraintBuilder
         path = self._write_params_csv(tmp_path, nominal=0.0, unc_type="sd", value_sd=0.01)
         with pytest.raises(ValueError, match="testratio"):
-            RatioConstraintBuilder.from_csv(path, toy_acc)
+            RatioConstraintBuilder.from_csv(path, toy_acc, sigma_rel_floor=0.02, scale_abs_floor=1.0)
 
     def test_ratio_sigma_c_scaled_agg(self, toy_acc, tmp_path):
         """Agg (pooled) rows scale by the pooled sums Σ|f| over each side."""
@@ -1467,7 +1470,7 @@ class TestRatioBoundBuilder:
         assert s["b_sector_to"].isin(["PSC", "USC", "MESC"]).all(), "stock edge must be the b-side numerator"
         assert s["a_sector_to"].isin(["Cathode", "FU"]).all(), "denominator must be the a-side"
         vmin = pd.to_numeric(s["value_min"]); vmax = pd.to_numeric(s["value_max"])
-        assert (vmin < 0).all() and (vmax > 0).all() and np.allclose(vmin, -vmax), \
+        assert (vmin < 0).all() and (vmax > 0).all() and np.allclose(vmin, -vmax, rtol=1e-12), \
             "value_min/value_max must be a symmetric ±p95 band"
 
     def test_scrap_share_band_num_in_pooled_denom(self, toy_acc, tmp_path):
@@ -1610,7 +1613,7 @@ class TestFlowBoundsBuilder:
     def test_flow_bounds_carried_in_run(self, toy_acc, toy_agg_result):
         """ConstraintEngine.run() carries non-default bounds in cr.u / cr.l."""
         from pysuto.constraints import ConstraintEngine, FlowBoundsBuilder
-        engine = ConstraintEngine(toy_acc, storage_dir="/tmp/test_fbb_run")
+        engine = ConstraintEngine(toy_acc, storage_dir="/tmp/test_fbb_run", sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
         engine.register(FlowBoundsBuilder())
         run = engine.run(toy_agg_result, timesteps=["2020"], persist=False)
         # toy_acc has edge 0 with upper=100
@@ -1627,7 +1630,7 @@ class TestConstraintEngine:
         """G.shape=(M, E), c.shape=(M,), sigma_c.shape=(M,); u/l.shape=(E,)."""
         from pysuto.constraints import ConstraintEngine, MassBalanceBuilder
 
-        engine = ConstraintEngine(toy_acc, storage_dir="/tmp/test_const_engine")
+        engine = ConstraintEngine(toy_acc, storage_dir="/tmp/test_const_engine", sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
         engine.register(MassBalanceBuilder())
         run = engine.run(toy_agg_result, timesteps=["2020"], persist=False)
 
@@ -1642,11 +1645,30 @@ class TestConstraintEngine:
         assert run.u.shape == (toy_acc.n_edges,)
         assert run.l.shape == (toy_acc.n_edges,)
 
+    def test_sigma_a_is_lp_combined_with_its_cv_and_absolute_floors(self, toy_acc,
+                                                                    toy_agg_result):
+        """Eq. S7 (SI S4.2): σ_a' = L_p(σ_a, CV_min·|a₀|, floor) with CV_min > 0,
+        against the scalar ``lp_combine`` edge by edge (every other engine test here
+        sets the CV floor to 0 or only checks shapes)."""
+        from pysuto.constraints import ConstraintEngine, MassBalanceBuilder
+        from pysuto.lp import lp_combine
+
+        cv_min, floor, p = 0.05, 1e-6, 1.3
+        engine = ConstraintEngine(toy_acc, storage_dir="/tmp/test_const_eq_s7", sigma_a_cv_min=cv_min, sigma_a_abs_floor=floor, sigma_c_cv_min=0.0, sigma_c_abs_floor=0.0, nodata_anchor_cv=0.0, p=p)
+        engine.register(MassBalanceBuilder())
+        run = engine.run(toy_agg_result, timesteps=["2020"], persist=False)
+
+        f, s = toy_agg_result.f_agg, toy_agg_result.sigma_agg
+        expected = np.array([lp_combine([s[i], cv_min * abs(f[i]), floor], p)
+                             for i in range(len(f))])
+        np.testing.assert_allclose(run.sigma_a, expected, rtol=1e-12)
+        assert (run.sigma_a > s).any()      # the CV term lifts the tight edges
+
     def test_g_is_time_invariant(self, toy_acc, toy_agg_result):
         """G matrix is identical for two different timesteps."""
         from pysuto.constraints import ConstraintEngine, MassBalanceBuilder
 
-        engine = ConstraintEngine(toy_acc, storage_dir="/tmp/test_const_tiv")
+        engine = ConstraintEngine(toy_acc, storage_dir="/tmp/test_const_tiv", sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
         engine.register(MassBalanceBuilder())
         run = engine.run(toy_agg_result, timesteps=["2020", "2021"], persist=False)
 
@@ -1660,7 +1682,7 @@ class TestConstraintEngine:
         """row_meta has one row per G row; required columns present."""
         from pysuto.constraints import ConstraintEngine, MassBalanceBuilder
 
-        engine = ConstraintEngine(toy_acc, storage_dir="/tmp/test_const_meta")
+        engine = ConstraintEngine(toy_acc, storage_dir="/tmp/test_const_meta", sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
         engine.register(MassBalanceBuilder())
         run = engine.run(toy_agg_result, timesteps=["2020"], persist=False)
 
@@ -1672,7 +1694,7 @@ class TestConstraintEngine:
         """Engine with no builders produces an empty G but valid ConstraintRun."""
         from pysuto.constraints import ConstraintEngine
 
-        engine = ConstraintEngine(toy_acc, storage_dir="/tmp/test_const_empty")
+        engine = ConstraintEngine(toy_acc, storage_dir="/tmp/test_const_empty", sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
         run    = engine.run(toy_agg_result, timesteps=["2020"], persist=False)
         assert run.G.shape == (0, toy_acc.n_edges)
 
@@ -1708,7 +1730,7 @@ class TestConstraintEngine:
                 "value_min": "0.5", "value_max": "2.0", "bound_lower": "", "bound_upper": "",
             })
 
-        engine = ConstraintEngine(toy_acc, storage_dir="/tmp/test_const_multi")
+        engine = ConstraintEngine(toy_acc, storage_dir="/tmp/test_const_multi", sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
         engine.register(MassBalanceBuilder())
         engine.register(RatioBoundBuilder.from_csv(csv_path, toy_acc))
         run = engine.run(toy_agg_result, timesteps=["2020"], persist=False)
@@ -1732,7 +1754,7 @@ class TestConstraintRunRegistry:
         from pysuto.constraints import ConstraintEngine, MassBalanceBuilder
         from pysuto.registry import ConstraintRunRegistry
         storage = str(tmp_path / "const")
-        engine  = ConstraintEngine(toy_acc, storage_dir=storage)
+        engine  = ConstraintEngine(toy_acc, storage_dir=storage, sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
         engine.register(MassBalanceBuilder())
         run = engine.run(toy_agg_result, timesteps=["2020"], persist=True)
 
@@ -1741,14 +1763,14 @@ class TestConstraintRunRegistry:
 
         assert run2.G.shape       == run.G.shape
         assert len(run2.row_meta) == len(run.row_meta)
-        assert np.allclose(run2.a0,      run.a0)
-        assert np.allclose(run2.sigma_a, run.sigma_a)
-        assert np.allclose(run2.u,       run.u)
-        assert np.allclose(run2.l,       run.l)
+        assert np.allclose(run2.a0,      run.a0, rtol=1e-12)
+        assert np.allclose(run2.sigma_a, run.sigma_a, rtol=1e-12)
+        assert np.allclose(run2.u,       run.u, rtol=1e-12)
+        assert np.allclose(run2.l,       run.l, rtol=1e-12)
         td1 = run.timestep_data["2020"]
         td2 = run2.timestep_data["2020"]
-        assert np.allclose(td1["c"],       td2["c"])
-        assert np.allclose(td1["sigma_c"], td2["sigma_c"])
+        assert np.allclose(td1["c"],       td2["c"], rtol=1e-12)
+        assert np.allclose(td1["sigma_c"], td2["sigma_c"], rtol=1e-12)
 
     def test_registry_summary_df(self, toy_acc, toy_agg_result, tmp_path):
         """summary_df() returns DataFrame with one row per registered run."""
@@ -1756,7 +1778,7 @@ class TestConstraintRunRegistry:
         from pysuto.registry import ConstraintRunRegistry
         storage = str(tmp_path / "const2")
         for _ in range(2):
-            engine = ConstraintEngine(toy_acc, storage_dir=storage)
+            engine = ConstraintEngine(toy_acc, storage_dir=storage, sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
             engine.register(MassBalanceBuilder())
             engine.run(toy_agg_result, timesteps=["2020"], persist=True)
 
@@ -1822,7 +1844,7 @@ class TestRatioPerTimestepDeactivation:
         """build_dynamic at t=2020 sets σ_c=SIGMA_C_INACTIVE for 2021 rows."""
         from pysuto.constraints import RatioConstraintBuilder, SIGMA_C_INACTIVE
         path    = self._write_wildcard_params_csv(tmp_path)
-        builder = RatioConstraintBuilder.from_csv(path, toy_acc)
+        builder = RatioConstraintBuilder.from_csv(path, toy_acc, sigma_rel_floor=0.02, scale_abs_floor=1.0)
         static  = builder.build_static(toy_acc)
         # Sanity: wildcard expands to 2 rows (2020, 2021).
         assert static.G_rows.shape[0] == 2
@@ -1884,10 +1906,11 @@ class TestRatioPerTimestepDeactivation:
             RatioConstraintBuilder, RatioBoundBuilder,
             SIGMA_C_INACTIVE, BOUND_C_INACTIVE,
         )
-        engine = ConstraintEngine(toy_acc, storage_dir=str(tmp_path / "const"))
+        engine = ConstraintEngine(toy_acc, storage_dir=str(tmp_path / "const"), sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
         engine.register(MassBalanceBuilder())
         engine.register(RatioConstraintBuilder.from_csv(
             self._write_wildcard_params_csv(tmp_path, name="re.csv"), toy_acc,
+            sigma_rel_floor=0.02, scale_abs_floor=1.0
         ))
         engine.register(RatioBoundBuilder.from_csv(
             self._write_wildcard_params_csv(tmp_path, name="rb.csv", bl=0.1, bu=2.0),
@@ -1935,9 +1958,9 @@ class TestRatioPerTimestepDeactivation:
         path_str = TestRatioConstraintBuilder()._write_params_csv(
             tmp_path, nominal=0.5,
         )
-        engine = ConstraintEngine(toy_acc, storage_dir=str(tmp_path / "const"))
+        engine = ConstraintEngine(toy_acc, storage_dir=str(tmp_path / "const"), sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
         engine.register(MassBalanceBuilder())
-        engine.register(RatioConstraintBuilder.from_csv(path_str, toy_acc))
+        engine.register(RatioConstraintBuilder.from_csv(path_str, toy_acc, sigma_rel_floor=0.02, scale_abs_floor=1.0))
         with caplog.at_level(logging.WARNING):
             engine.run(
                 toy_agg_result, timesteps=["2020", "2021"], persist=False,
@@ -1961,7 +1984,7 @@ class TestEnginePerTPartition:
         """For each t, G_blocks[t] @ x[edge_cols_by_t[t]] equals the slice of
         legacy_G @ x at rows tagged with t. Partition is lossless."""
         from pysuto.constraints import ConstraintEngine, MassBalanceBuilder
-        engine = ConstraintEngine(toy_acc, storage_dir=str(tmp_path / "const"))
+        engine = ConstraintEngine(toy_acc, storage_dir=str(tmp_path / "const"), sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
         engine.register(MassBalanceBuilder())
         cr = engine.run(toy_agg_result, timesteps=["2020", "2021"], persist=False)
 
@@ -1976,7 +1999,7 @@ class TestEnginePerTPartition:
             cols_t        = cr.edge_cols_by_t[t]
             block_action  = G_t @ x[cols_t]
             legacy_action = legacy_full[times == t]
-            assert np.allclose(block_action, legacy_action), \
+            assert np.allclose(block_action, legacy_action, rtol=1e-12), \
                 f"Mismatch at t={t}: per-block action != legacy slice"
 
     def test_g_blocks_survive_registry_roundtrip(self, toy_acc, toy_agg_result, tmp_path):
@@ -1984,7 +2007,7 @@ class TestEnginePerTPartition:
         from pysuto.constraints import ConstraintEngine, MassBalanceBuilder
         from pysuto.registry   import ConstraintRunRegistry
         storage = str(tmp_path / "const")
-        engine = ConstraintEngine(toy_acc, storage_dir=storage)
+        engine = ConstraintEngine(toy_acc, storage_dir=storage, sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
         engine.register(MassBalanceBuilder())
         run = engine.run(toy_agg_result, timesteps=["2020", "2021"], persist=True)
 
@@ -2012,9 +2035,9 @@ class TestEnginePerTPartition:
         params_csv = TestRatioPerTimestepDeactivation()._write_wildcard_params_csv(
             tmp_path, nominal=0.5, bl=0.1, bu=2.0,
         )
-        engine = ConstraintEngine(toy_acc, storage_dir=str(tmp_path / "const"))
+        engine = ConstraintEngine(toy_acc, storage_dir=str(tmp_path / "const"), sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
         engine.register(MassBalanceBuilder())
-        engine.register(RatioConstraintBuilder.from_csv(params_csv, toy_acc))
+        engine.register(RatioConstraintBuilder.from_csv(params_csv, toy_acc, sigma_rel_floor=0.02, scale_abs_floor=1.0))
         engine.register(RatioBoundBuilder.from_csv(params_csv, toy_acc))
         cr = engine.run(toy_agg_result, timesteps=["2020", "2021"], persist=False)
 
@@ -2026,7 +2049,7 @@ class TestEnginePerTPartition:
         for t, G_t in cr.G_blocks.items():
             block_action  = G_t @ x[cr.edge_cols_by_t[t]]
             legacy_action = legacy_full[times == t]
-            assert np.allclose(block_action, legacy_action), \
+            assert np.allclose(block_action, legacy_action, rtol=1e-12), \
                 f"Mismatch at t={t} (mixed builders)"
 
         # Rows of every family/kind survive the partition: massbal (hard eq),
@@ -2069,7 +2092,7 @@ class TestEnginePerTPartition:
         builder = SumConstraintBuilder.from_csv(str(csv_path), toy_acc)
         assert builder.build_static(toy_acc).row_meta["time"].isna().all()
 
-        engine = ConstraintEngine(toy_acc, storage_dir=str(tmp_path / "const"))
+        engine = ConstraintEngine(toy_acc, storage_dir=str(tmp_path / "const"), sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
         engine.register(builder)
         with pytest.raises(ValueError, match="no year of the accounting structure") as ei:
             engine.run(toy_agg_result, timesteps=["2020", "2021"], persist=False)
@@ -2114,8 +2137,8 @@ class TestPriorBox:
         l = np.array([0.0, 0.0])
         u = np.array([1e9, 1e9])
         ln, un = e._apply_prior_box(l.copy(), u.copy(), a0, sa)
-        assert np.allclose(ln, [86.0, 900.0])
-        assert np.allclose(un, [114.0, 1100.0])
+        assert np.allclose(ln, [86.0, 900.0], rtol=1e-12)
+        assert np.allclose(un, [114.0, 1100.0], rtol=1e-12)
 
     def test_flat_prior_untouched(self):
         # a0 == 0 (FlatPrior) keeps its original [l, u] — not pinned to zero.
@@ -2160,10 +2183,10 @@ class TestConstraintIdGrammar:
         params = TestRatioPerTimestepDeactivation()._write_wildcard_params_csv(
             tmp_path, nominal=0.5, bl=0.1, bu=2.0,
         )
-        engine = ConstraintEngine(toy_acc, storage_dir=str(tmp_path / "const"))
+        engine = ConstraintEngine(toy_acc, storage_dir=str(tmp_path / "const"), sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
         engine.register(MassBalanceBuilder())
         engine.register(SumConstraintBuilder.from_acc_struct(toy_acc, sigma_fraction=0.05))
-        engine.register(RatioConstraintBuilder.from_csv(params, toy_acc))
+        engine.register(RatioConstraintBuilder.from_csv(params, toy_acc, sigma_rel_floor=0.02, scale_abs_floor=1.0))
         engine.register(RatioBoundBuilder.from_csv(params, toy_acc))
         return engine.run(toy_agg_result, timesteps=["2020", "2021"], persist=False)
 
@@ -2297,7 +2320,7 @@ class TestSupplyUseScaleTotal:
         G = block.G_rows.toarray()
         for i, c in enumerate(block.c):
             eids = np.flatnonzero(G[i] != 0.0)
-            assert np.allclose(G[i, eids], 1.0)
+            assert np.allclose(G[i, eids], 1.0, rtol=1e-12)
             assert np.isclose(c, f_agg[eids].sum())
 
     def test_use_scale_total_sums_destinations_incl_final_demand(self):
@@ -2319,7 +2342,7 @@ class TestSupplyUseScaleTotal:
         G = block.G_rows.toarray()
         eids = np.flatnonzero(G[0] != 0.0)
         assert set(eids.tolist()) == {1, 2}        # use AND final demand included
-        assert np.allclose(G[0, eids], 1.0)
+        assert np.allclose(G[0, eids], 1.0, rtol=1e-12)
         assert np.isclose(block.c[0], f_agg[1] + f_agg[2])   # 6 + 4 = 10
         assert np.isclose(block.sigma_c[0], self.CV * abs(block.c[0]))
         assert block.row_meta["sector"].iloc[0] == "Cathode"
@@ -2354,8 +2377,8 @@ class TestSupplyUseScaleTotal:
         zeros = np.zeros(toy_acc.n_edges)
         b20   = builder.build_dynamic(toy_acc, zeros, zeros, "2020")
         is2021 = (rm["time"].astype(str) == "2021").to_numpy()
-        assert np.allclose(b20.sigma_c[is2021], SIGMA_C_INACTIVE)
-        assert np.allclose(b20.sigma_c[~is2021], block.sigma_c[~is2021])
+        assert np.allclose(b20.sigma_c[is2021], SIGMA_C_INACTIVE, rtol=1e-12)
+        assert np.allclose(b20.sigma_c[~is2021], block.sigma_c[~is2021], rtol=1e-12)
 
     def test_scale_total_both_valuations(self, toy_acc_2val):
         """Both valuations yield unit-coherent rows, one per (process, region,
@@ -2492,7 +2515,7 @@ class TestScrapLevelAnchor:
         assert touched & self._edges(acc, 3, 1) == set()
         for i, c in enumerate(block.c):
             eids = np.flatnonzero(G[i] != 0.0)
-            assert np.allclose(G[i, eids], 1.0)
+            assert np.allclose(G[i, eids], 1.0, rtol=1e-12)
             assert np.isclose(c, f[eids].sum())
 
     def test_directref_scrap_row_per_region_year_valuation(self):
@@ -2507,7 +2530,7 @@ class TestScrapLevelAnchor:
         assert (rm["variant"] == "directrefscrap").all()
         assert (rm["sector"] == "CFR").all()
         assert set(rm["region"]) == {"A"}
-        assert np.allclose(block.c, 12.0)
+        assert np.allclose(block.c, 12.0, rtol=1e-12)
 
     def test_routes_do_not_collapse_into_one_row(self):
         """Two registrations, not one: a single mask grouped on the scrap side
@@ -2632,8 +2655,8 @@ class TestScrapLevelAnchor:
         zeros = np.zeros(acc.n_edges)
         b20   = builder.build_dynamic(acc, zeros, zeros, "2020")
         is2021 = (block.row_meta["time"].astype(str) == "2021").to_numpy()
-        assert np.allclose(b20.sigma_c[is2021], SIGMA_C_INACTIVE)
-        assert np.allclose(b20.sigma_c[~is2021], block.sigma_c[~is2021])
+        assert np.allclose(b20.sigma_c[is2021], SIGMA_C_INACTIVE, rtol=1e-12)
+        assert np.allclose(b20.sigma_c[~is2021], block.sigma_c[~is2021], rtol=1e-12)
 
     def test_constraint_id_grammar(self):
         acc = _make_scrap_acc()
@@ -2685,7 +2708,8 @@ class TestNodataSigmaAnchor:
         from pysuto.constraints import ConstraintEngine
         acc = _make_anchor_acc()
         eng = ConstraintEngine(acc_struct=acc,            # cv default 0.3
-                               nodata_anchor_exclude_sectors=("Mining",))
+                               nodata_anchor_exclude_sectors=("Mining",),
+                               sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
         a0      = np.array([100.0, 0.0,  0.0])
         sigma_a = np.array([  5.0, 1e6,  1e6])
         out = eng._anchor_nodata_sigma(a0, sigma_a, acc, self.FLAT)
@@ -2698,7 +2722,7 @@ class TestNodataSigmaAnchor:
         """nodata_anchor_cv=0 leaves every σ_a untouched."""
         from pysuto.constraints import ConstraintEngine
         acc = _make_anchor_acc()
-        eng = ConstraintEngine(acc_struct=acc, nodata_anchor_cv=0.0)
+        eng = ConstraintEngine(acc_struct=acc, nodata_anchor_cv=0.0, sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3)
         a0      = np.array([100.0, 0.0, 0.0])
         sigma_a = np.array([  5.0, 1e6, 1e6])
         out = eng._anchor_nodata_sigma(a0, sigma_a, acc, self.FLAT)
@@ -2710,7 +2734,7 @@ class TestNodataSigmaAnchor:
         retargeted."""
         from pysuto.constraints import ConstraintEngine
         acc = _make_anchor_acc()
-        eng = ConstraintEngine(acc_struct=acc)
+        eng = ConstraintEngine(acc_struct=acc, sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
         a0      = np.array([100.0, 0.0, 0.0])
         sigma_a = np.array([  5.0, 1e6, 1e6])              # e1 at the flat σ, unflagged
         out = eng._anchor_nodata_sigma(a0, sigma_a, acc, np.array([False, False, True]))
@@ -2725,9 +2749,11 @@ class TestNodataSigmaAnchor:
         a0      = np.array([100.0, 0.0, 0.0])
         sigma_a = np.array([  5.0, 1e6, 1e6])
         spare  = ConstraintEngine(acc_struct=acc,
-                                  nodata_anchor_exempt_mask=np.array([False, False, True]))
+                                  nodata_anchor_exempt_mask=np.array([False, False, True]),
+                                  sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
         anchor = ConstraintEngine(acc_struct=acc,
-                                  nodata_anchor_exempt_mask=np.zeros(3, dtype=bool))
+                                  nodata_anchor_exempt_mask=np.zeros(3, dtype=bool),
+                                  sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
         assert spare._anchor_nodata_sigma(a0, sigma_a, acc, self.FLAT)[2] == 1e6
         # no anchored Mining sibling → the global anchored median (100) sets the scale
         out = anchor._anchor_nodata_sigma(a0, sigma_a, acc, self.FLAT)
@@ -2736,7 +2762,7 @@ class TestNodataSigmaAnchor:
     def test_exempt_mask_of_wrong_length_raises(self):
         from pysuto.constraints import ConstraintEngine
         acc = _make_anchor_acc()
-        eng = ConstraintEngine(acc_struct=acc, nodata_anchor_exempt_mask=np.zeros(2, dtype=bool))
+        eng = ConstraintEngine(acc_struct=acc, nodata_anchor_exempt_mask=np.zeros(2, dtype=bool), sigma_a_cv_min=0.05, sigma_a_abs_floor=1e-6, sigma_c_cv_min=0.05, sigma_c_abs_floor=1e-3, nodata_anchor_cv=0.3)
         with pytest.raises(ValueError, match="exempt"):
             eng._anchor_nodata_sigma(np.array([100.0, 0.0, 0.0]),
                                      np.array([5.0, 1e6, 1e6]), acc, self.FLAT)
@@ -2764,7 +2790,7 @@ class TestNodataExemptMask:
         return acc
 
     def test_data_aware_sectors_follow_the_region_years(self):
-        from pysuto.constraints.engine import nodata_exempt_mask
+        from pysuto.constraints.anchors import nodata_exempt_mask
         m = nodata_exempt_mask(self._acc(), exclude_sectors=("CO", "Mining", "Slag"),
                                data_aware_sectors=("CO", "Mining"),
                                region_years={("A", "2020")})
@@ -2801,6 +2827,7 @@ class TestSigmaCAbsFloor:
             acc_struct=toy_acc, storage_dir="/tmp/test_const_runs", p=p,
             sigma_a_cv_min=0.0, sigma_a_abs_floor=0.0,
             sigma_c_cv_min=cv, sigma_c_abs_floor=floor,
+            nodata_anchor_cv=0.3
         )
         engine.register(MassBalanceBuilder())
         engine.register(builder)

@@ -7,6 +7,7 @@ constraint.py
 from __future__ import annotations
 
 import os
+import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
@@ -43,22 +44,17 @@ class ConstraintRunRegistry(BaseOutputRegistry):
                 └── t_{label}.npz
 
     Lives in :mod:`pysuto.registry` (not :mod:`pysuto.constraints`) so all
-    four output registries share one home; the cycle with ``ConstraintRun``
+    output registries share one home; the cycle with ``ConstraintRun``
     (defined in :mod:`pysuto.constraints`) is broken via ``TYPE_CHECKING``
     + a lazy import inside :meth:`load`.
     """
 
     STAGE = "const"
 
-    def __init__(
-        self,
-        storage_dir: str = "data/proc/const",
-        label: str = "ConstraintRunRegistry",
-    ):
+    def __init__(self, storage_dir: str = "data/proc/const"):
         super().__init__(storage_dir=storage_dir)
         Path(storage_dir).mkdir(parents=True, exist_ok=True)
         self.load_index()
-        self.label = label
 
     def register(
         self,
@@ -155,6 +151,9 @@ class ConstraintRunRegistry(BaseOutputRegistry):
         acc_ref  = parents.get("inputs", {}).get("acc", {})
         acc_id   = acc_ref.get("id") or ""
         agg_id   = (parents.get("upstream", {}).get("imp_run_id")) or ""
+        if "p" not in config:
+            raise KeyError(f"const run {run_id}: sidecar stage_config records no p; "
+                           f"the Lp exponent has no silent fallback")
 
         ts_data: dict[str, dict] = {}
         for ts_label in summary.get("timesteps", []):
@@ -189,16 +188,11 @@ class ConstraintRunRegistry(BaseOutputRegistry):
             agg_id         = agg_id,
             created_at     = sidecar.get("created_at", ""),
             label          = sidecar.get("label", ""),
-            _p             = float(config.get("p", 1.3)),
+            _p             = float(config["p"]),
             G_blocks       = G_blocks,
             edge_cols_by_t = edge_cols_by_t,
             acc_ref        = dict(acc_ref),
         )
-
-    def load_sidecar(self, run_id: str) -> dict:
-        if run_id not in self._index:
-            raise KeyError(f"Run '{run_id}' not in registry")
-        return self._read_sidecar(run_id)
 
     def summary_df(self) -> pd.DataFrame:
         if not self._index:
@@ -221,7 +215,7 @@ class ConstraintRunRegistry(BaseOutputRegistry):
                     "timesteps":  sc.get("stage_summary", {}).get("timesteps", []),
                     "p":          sc.get("stage_config", {}).get("p"),
                 })
-            except Exception:
-                pass
+            except Exception as exc:
+                warnings.warn(f"Could not load sidecar for '{run_id}': {exc}")
             rows.append(row)
         return pd.DataFrame(rows)

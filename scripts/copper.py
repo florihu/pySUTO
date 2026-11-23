@@ -51,13 +51,18 @@ from pysuto.impute import (
     screen_outlier_trade_legs,
     time_interp_scope,
 )
-from pysuto.flow_node_balance import K_CLOSE as UNCLOSED_K
+from pysuto.flow_node_balance import K_CLOSE
 from pysuto.relation.param_relation import expand_edge_index
 from pysuto.relation.sources import trade_scope
 from pysuto.unc import PedigreeScores
 from pysuto.logging import get_logger
 
 _log = get_logger(__name__)
+
+# Supply-chain order of the sectors for the problem panel (``ProblemStatsDiagnostic``);
+# sinks (FU, Tailings, Slag, WR, stock legs) sort after every chain sector.
+CHAIN_ORDER = ["CO", "Mining", "Ore", "MF", "SXEW", "Concentrate", "Smelting",
+               "Matte", "CFR", "Anode", "ER", "CER", "CSXEW", "CP", "Cathode", "Scrap"]
 
 
 # =============================================================================
@@ -84,6 +89,7 @@ class CopperImp(ImpSection):
     P_PROP:        float = 1.3      # Lp/power-mean exponent
     Q_REG:         float = 3.0      # parametric fill's backward-branch knee sharpness
     ALPHA_MIN_REG: float = 0.05     # inverse-multiplier effective-sensitivity floor
+    NETWORK_CV_CAP: float = 1.5     # NetworkImputer's cap on a derived edge's CV
 
     # Imputation cascade — trade/network/conc/ore_grade iterate to a fixpoint (re-run until a
     # full sweep fills no new edges). Safety cap on passes (chain depth ≈ 8).
@@ -92,7 +98,7 @@ class CopperImp(ImpSection):
     # the earlier imputer writes the edge (GLOSSARY "Writer scope"). A knob, so a sweep
     # can run named alternative orders; it must stay a permutation of the CASCADE ids. The
     # terminal pass (time → share → flat) is fixed: flat must be last and only share may
-    # write the stock legs (ADR 0040).
+    # write the stock-change legs (ADR 0040).
     # (No `eff` entry: the per-pair efficiency ParametricImputer wrote 0 edges in every
     # run — imp_20261022_111102_1b49a2b3, imp_20261102_095209_86454f46,
     # imp_20261112_154659_f4ec08ae — the network's pooled recipe owns the eff rows.)
@@ -133,7 +139,7 @@ class CopperImp(ImpSection):
     # Net-stock seed σ for MESC/USC (ShareImputer seed mode), in kt: the seed is
     # priced like a feed-backed level — ADR 0025's scale-total rule, 1 % of the
     # co-located Cathode(i)→FU(j) flow, floored at the feeds' 0.3 kt resolution — so
-    # a stock leg stays at its prior with small wiggle room. The former band
+    # a stock-change leg stays at its prior with small wiggle room. The former band
     # (p95/1.645 × max(FU, 100 kt)) gave the exchange-location legs σ ≈ 553 kt.
     STOCK_SEED_CV:           float = 0.01
     # icsg_feed's OBSERVED_ZERO_* mirror this floor (#76)
@@ -146,9 +152,12 @@ class CopperImp(ImpSection):
     # rejected 1 % of CP→Cathode (#36, ADR 0041 am.). 0.0 restores the pin.
     # Rejected on measurement (2026-10-21, opt_20261021_115215_653c8677 vs
     # opt_20261021_111957_5c6d13bc): at 0.3 kt the freed legs become a sink again — the
-    # near-pin PSC rows' Σz² 0.04 → 1,437 (Slovakia 2016 z +37.8), 18 stock legs newly
-    # above |z| 5 — so the pin stays.
+    # near-pin PSC rows' Σz² 0.04 → 1,437 (Slovakia 2016 z +37.8), 18 stock-change legs
+    # newly above |z| 5 — so the pin stays.
     EFFLESS_STOCK_SIGMA_KT:  float = 0.0
+    # Scale floor of the net-stock ShareImputer (kt): the σ of a leg whose base is below
+    # it is read off this value, not off the base.
+    STOCK_SHARE_SCALE_ABS_FLOOR: float = 100.0
 
     # FlatPriorImputer mode
     #   "magnitude_aware" (legacy) — σ = CV(j) · scale(j) via cv_by_mask + 3-level cascade
@@ -190,7 +199,7 @@ class CopperImp(ImpSection):
     # less trustworthy one (Russia Matte 1995: inflow 545 kt CC from ICSG
     # concentrate use vs outflow 50.8 from an under-reported ICSG refining series
     # → the smelting chain collapsed). Where the outflow prior falls below
-    # UNCLOSED_K × the inflow prior, its covered edges get σ = UNCLOSED_CV·|f| —
+    # K_CLOSE × the inflow prior, its covered edges get σ = UNCLOSED_CV·|f| —
     # data kept, false authority removed, mirroring the outlier screen — and
     # Stage 3 (CopperConst.UNCLOSED_ANCHOR_CV) loosens the matching usetotout anchor
     # to match.
@@ -251,8 +260,8 @@ class CopperImp(ImpSection):
 # The cathode final-demand split (cathode_fu/usc/mesc_domestic) is RETIRED too.
 # USC/MESC in Round X (ADR 0040): a stock change is a reported value or the
 # ShareImputer's zero-mean seed, never a cathode-balance residual (once the
-# balance was barred from the stock legs they booked 7,290 kt of one-signed
-# stock change). FU with it: the stock legs are no longer writable, so the
+# balance was barred from the stock-change legs they booked 7,290 kt of one-signed
+# stock change). FU with it: the stock-change legs are no longer writable, so the
 # domestic Cathode→FU leg is the Cathode node's lone same-region gap and the
 # balance closes it first (production − exports − reported stock change) —
 # the FU relation fired 0× on X.0. Its export term carried the same
@@ -297,10 +306,10 @@ def imp_stage_config(ctx) -> dict:
         "flat_mode":       spec.FLAT_MODE,
         "outlier_leg_k":   spec.OUTLIER_LEG_K,
         "outlier_leg_cv":  spec.OUTLIER_LEG_CV,
-        "outlier_ref":     "production+imports",
+        "outlier_ref":     "production+imports",   # a label, not read back
         "unclosed_sectors": list(spec.UNCLOSED_SECTORS),
         "unclosed_cv":     spec.UNCLOSED_CV,
-        "unclosed_k":      UNCLOSED_K,
+        "unclosed_k":      K_CLOSE,
         "leg_sigma_a_ref":  spec.LEG_SIGMA_AREF,
         "leg_sigma_gamma":  spec.LEG_SIGMA_GAMMA,
         "leg_sigma_cv_cap": spec.LEG_SIGMA_CV_CAP,
@@ -320,6 +329,7 @@ def imp_stage_config(ctx) -> dict:
         "stock_seed_cv":      spec.STOCK_SEED_CV,
         "stock_seed_abs_floor": spec.STOCK_SEED_ABS_FLOOR_KT,
         "effless_stock_sigma": spec.EFFLESS_STOCK_SIGMA_KT,
+        "stock_share_scale_abs_floor": spec.STOCK_SHARE_SCALE_ABS_FLOOR,
     }
 
 
@@ -337,7 +347,8 @@ def build_network(ctx) -> NetworkImputer:
         ore_grade_csv = ctx.use_params("ore_grade"),
         stripping_ratio_csv = ctx.use_params("stripping_ratio"),
         stripping_sigma     = spec.FLAT_SIGMA_HIGH,
-        p=spec.P_PROP, q=spec.Q_REG, alpha_min=spec.ALPHA_MIN_REG, cv_cap=1.5,
+        p=spec.P_PROP, q=spec.Q_REG, alpha_min=spec.ALPHA_MIN_REG,
+        cv_cap=spec.NETWORK_CV_CAP,
         id="network",
         stock_sectors=spec.stock_sectors,
         effless_stock_sigma=spec.EFFLESS_STOCK_SIGMA_KT,
@@ -364,12 +375,20 @@ CASCADE = (
 )
 
 
+def _check_mode(knob: str, value: str, allowed: tuple) -> None:
+    """Raise ``ValueError`` unless the mode knob *value* is one of *allowed*: a mistyped
+    ``--set`` value must not select a branch (or drop a constraint family) silently."""
+    if value not in allowed:
+        raise ValueError(f"{knob} = {value!r} is not one of {list(allowed)}")
+
+
 def terminal(ctx) -> list:
     """The copper terminal imputers, in order: the time interpolator, the net-stock
     share imputer and the flat prior. Appends the params entries it reads to
     ``ctx.param_refs``."""
     spec, inputs, acc, logger = ctx.case.imp, ctx.inputs, ctx.acc, ctx.logger
     param_refs = ctx.param_refs
+    _check_mode("FLAT_MODE", spec.FLAT_MODE, ("noisy_zero", "magnitude_aware"))
 
     # 5. Temporal interpolation, no extrapolation (terminal).
     #    Scoped to same-region edges (ADR 0026) — see TIME_SCOPE_SAME_REGION.
@@ -413,7 +432,7 @@ def terminal(ctx) -> list:
             StockLeg("seed", ("Cathode", "Flow", "USC", "SB"),
                      (("Cathode", "Flow", "FU", "SB"),)),
         ],
-        scale_abs_floor = 100.0,
+        scale_abs_floor = spec.STOCK_SHARE_SCALE_ABS_FLOOR,
         p               = spec.P_PROP,
         id              = "net_stock_share",
         seed_cv         = spec.STOCK_SEED_CV,
@@ -607,7 +626,7 @@ class CopperConst(ConstSection):
     STOCK_BOUNDS_SCALE_ABS_FLOOR: float = 0.1
     # Net-stock ("stock_bound") mode. "soft" routes the PSC net-stock-change bounds
     # (stock_bounds v5 carries PSC rows only; MESC/USC are held by their prior σ,
-    # ADR 0040) to the free-cone soft-ratio path (minimized quadratic slack, σ_c scaled
+    # ADR 0040) to the free-cone soft-ratio path (minimised quadratic defect, σ_c scaled
     # off the throughput denominator — see RatioConstraintBuilder scale_mode); "hard"
     # keeps the legacy nonneg-cone RatioBoundBuilder. Soft guarantees feasibility (no
     # stock row can break) and secures too-high AND too-low symmetrically. The hard
@@ -766,10 +785,13 @@ def builders(ctx) -> list:
                                   not report gets no row and keeps its freedom.
                                   SCRAP_LEVEL_ANCHOR, ADR 0031.
     3  Soft ratio — concentration  — RatioConstraintBuilder (conc/params.csv)
+    4  Soft ratio — efficiency     — RatioConstraintBuilder (copper_efficiency_params.csv)
+    4a Stripping ratio             — RatioConstraintBuilder (stripping_ratio/params.csv,
+                                     WR_Mass = k·Ore_Mass, hard by default,
+                                     STRIPPING_RATIO_HARD; ADR 0038)
     3b Soft ratio — ore grade      — RatioConstraintBuilder (ore_grade/params.csv,
                                      region×year in-situ CO/Ore grades; owns the
                                      CO/Ore Mass↔CC coupling — ADR 0015)
-    4  Soft ratio — efficiency     — RatioConstraintBuilder (copper_efficiency_params.csv)
     5  Hard ratio bounds — conc    — RatioBoundBuilder (conc/params.csv)
     5b Hard ratio bounds — ore grade — RatioBoundBuilder (ore_grade/params.csv,
                                      per-region series band)
@@ -795,6 +817,8 @@ def builders(ctx) -> list:
     """
     spec, inputs, acc, agg_result = ctx.case.const, ctx.inputs, ctx.acc, ctx.agg_result
     _log = ctx.logger
+    _check_mode("STOCK_BOUNDS_MODE", spec.STOCK_BOUNDS_MODE, ("soft", "hard"))
+    _check_mode("SCRAP_SHARE_MODE", spec.SCRAP_SHARE_MODE, ("hard", "soft", "off"))
     _scale_total_cv = scale_total_resolver(ctx)
     out: list = []
 
@@ -923,7 +947,7 @@ def builders(ctx) -> list:
     _register_builder(RatioBoundBuilder, "ore_grade", kind="conc")
     # 6. Hard ratio bounds — efficiency
     _register_builder(RatioBoundBuilder, "eff", kind="eff")
-    # 7. Net stock bounds — soft (free cone, minimized slack) or hard (nonneg cone)
+    # 7. Net stock bounds — soft (free cone, minimised defect) or hard (nonneg cone)
     if spec.STOCK_BOUNDS_MODE == "soft":
         _register_builder(RatioConstraintBuilder, "stock_bounds",
                           sigma_rel_floor=spec.RATIO_SIGMA_REL_FLOOR,

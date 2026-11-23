@@ -13,7 +13,6 @@ import copy
 import io
 import json
 import logging
-import pickle
 import re
 import tokenize
 from pathlib import Path
@@ -22,6 +21,7 @@ import numpy as np
 import pandas as pd
 import pytest
 
+from pysuto import acc_store
 from pysuto.acc import (
     ALL_SPEC_KEYS, EDGE_UNIVERSE_KEYS, EDGE_UNIVERSE_ROLE_KEYS, AccountingStructure,
     BoundaryRole, ValuationRole, ValuationRoles, _read_ods, acc_spec_differences,
@@ -124,8 +124,8 @@ def test_a_spec_binds_its_labels_to_roles():
 
 def test_own_labels_round_trip_through_save_and_load(tmp_path):
     acc = AccountingStructure.from_spec(OWN_LABELS, "own", storage_dir=str(tmp_path))
-    acc.save()
-    loaded = AccountingStructure.load("own", storage_dir=str(tmp_path))
+    acc_store.save(acc)
+    loaded = acc_store.load("own", storage_dir=str(tmp_path))
     _assert_same(loaded, acc)
     # tradable was all-false after load() until the rule tables were persisted (#119)
     assert int(loaded.masks["tradable"].sum()) == int(acc.masks["tradable"].sum()) > 0
@@ -231,23 +231,22 @@ def test_a_valuation_given_as_a_bare_label_raises():
 
 
 def _saved(tmp_path) -> Path:
-    AccountingStructure.from_spec(COPPER_LABELS, "cu", storage_dir=str(tmp_path)).save()
-    return tmp_path / "cu" / "metadata.pkl"
+    acc_store.save(AccountingStructure.from_spec(COPPER_LABELS, "cu",
+                                                 storage_dir=str(tmp_path)))
+    return tmp_path / "cu" / "metadata.json"
 
 
 def _rewrite(path: Path, edit) -> None:
-    with open(path, "rb") as f:
-        meta = pickle.load(f)
+    meta = json.loads(path.read_text(encoding="utf-8"))
     edit(meta)
-    with open(path, "wb") as f:
-        pickle.dump(meta, f)
+    path.write_text(json.dumps(meta), encoding="utf-8")
 
 
 def test_load_validates_the_persisted_roles(tmp_path):
     path = _saved(tmp_path)
     _rewrite(path, lambda meta: meta["boundary_roles"].pop("Slag"))
     with pytest.raises(ValueError, match="SB sector 'Slag' has no boundary role"):
-        AccountingStructure.load("cu", storage_dir=str(tmp_path))
+        acc_store.load("cu", storage_dir=str(tmp_path))
 
 
 def test_load_refuses_a_structure_saved_before_roles(tmp_path):
@@ -258,20 +257,7 @@ def test_load_refuses_a_structure_saved_before_roles(tmp_path):
 
     _rewrite(_saved(tmp_path), drop_the_119_keys)
     with pytest.raises(ValueError, match="saved before roles.*scripts/acc.py --id cu"):
-        AccountingStructure.load("cu", storage_dir=str(tmp_path))
-
-
-def test_the_procedural_constructor_binds_no_roles_and_refuses_an_sb_node():
-    nodes = pd.DataFrame({"sector": ["Mining", "Ore"], "entity": ["P", "F"],
-                          "region": ["A", "A"]})
-    acc = AccountingStructure(id="t", root={"nodes": nodes, "time_range": [0],
-                                            "valuation": ["mass"]})
-    assert acc.boundary_roles is None and acc.valuation_roles is None
-    sb = pd.DataFrame({"sector": ["Mining", "Waste"], "entity": ["Process", "SB"],
-                       "region": ["A", "A"]})
-    with pytest.raises(ValueError, match=r"binds no roles.*\['Waste'\]"):
-        AccountingStructure(id="t", root={"nodes": sb, "time_range": [0],
-                                          "valuation": ["mass"]})
+        acc_store.load("cu", storage_dir=str(tmp_path))
 
 
 # =============================================================================
@@ -279,20 +265,38 @@ def test_the_procedural_constructor_binds_no_roles_and_refuses_an_sb_node():
 # =============================================================================
 
 # A string literal whose whole value is one of these labels (any quote or prefix); a
-# docstring or comment that mentions one is not a literal of it.
+# docstring or comment that mentions one is not a literal of it. The first six are the
+# valuation and boundary labels (roles); the rest are copper's sector and region names
+# (#220): the library compares no case's sector or region either.
 _LABELS  = ("CC", "Mass", "SEM", "FD", "Nature", "ROW")
-_LITERAL = re.compile(r"""^[rRuUfFbB]{0,2}(['"])(%s)\1$""" % "|".join(_LABELS))
-# The one file besides acc.py and cases/ that names copper labels: it binds the roles of a
-# PSUT run persisted before roles existed, and cannot import acc (README §5).
-_LEGACY_BINDING = "registry/psut.py"
+_SECTORS = ("CO", "Mining", "WR", "Ore", "MF", "Concentrate", "Smelting", "Matte",
+            "Scrap", "Tailings", "Slag", "CFR", "SXEW", "Anode", "ER", "CER", "CSXEW",
+            "CP", "Cathode", "FU", "USC", "PSC", "MESC")
+_REGIONS = ("Chile", "China", "Zambia", "Peru", "India", "Australia", "Germany", "Japan",
+            "Russia", "Congo")
+_LITERAL = re.compile(r"""^[rRuUfFbB]{0,2}(['"])(%s)\1$"""
+                      % "|".join(_LABELS + _SECTORS + _REGIONS))
+# The files and directories that may name case labels, each for a reason:
+# acc.py and registry/psut.py bind the roles of a structure or a PSUT run persisted
+# before roles existed (the latter cannot import acc, README §5); feedprep/ holds the
+# copper feed builders' vocabulary (triaged in #229); tutorial/ is the bundled toy case,
+# a case module that ships inside the package (``pysuto.case`` resolves it by alias).
+_ALLOWED_FILES = ("acc.py", "registry/psut.py")
+_ALLOWED_DIRS  = ("feedprep/", "tutorial/")
 
 
-def test_no_role_or_valuation_label_literal_in_the_library():
+def test_the_gate_allow_list_names_what_exists():
+    root = REPO / "src" / "pysuto"
+    assert all((root / f).is_file() for f in _ALLOWED_FILES)
+    assert all((root / d).is_dir() for d in _ALLOWED_DIRS)
+
+
+def test_no_case_label_literal_in_the_library():
     root = REPO / "src" / "pysuto"
     hits = []
     for path in sorted(root.rglob("*.py")):
         rel = path.relative_to(root).as_posix()
-        if rel in ("acc.py", _LEGACY_BINDING) or rel.startswith("cases/"):
+        if rel in _ALLOWED_FILES or rel.startswith(_ALLOWED_DIRS):
             continue
         source = path.read_text(encoding="utf-8")
         for tok in tokenize.generate_tokens(io.StringIO(source).readline):
@@ -304,6 +308,8 @@ def test_no_role_or_valuation_label_literal_in_the_library():
 def test_the_gate_matches_a_label_literal_and_not_prose():
     assert _LITERAL.match('"CC"') and _LITERAL.match("'ROW'") and _LITERAL.match('f"SEM"')
     assert not _LITERAL.match('"kt CC"') and not _LITERAL.match('"""ROW region."""')
+    assert _LITERAL.match('"Matte"') and _LITERAL.match("'Chile'")
+    assert not _LITERAL.match('"Matte flows"') and not _LITERAL.match('"World"')
 
 
 # =============================================================================
@@ -423,3 +429,15 @@ def test_the_copper_root_ods_binds_its_labels_to_the_glossarys_roles():
     val = _read_ods(_COPPER_ROOT, "Valuation")
     assert dict(zip(val["Valuation_name"], val["role"])) == {"Mass": "gross",
                                                              "CC": "content"}
+
+
+def test_edge_labels_name_every_edge_by_nodes_and_valuation():
+    """``edge_labels`` is the one readable name of an edge, indexed by edge id (#203)."""
+    own = AccountingStructure.from_spec(OWN_LABELS, "own")
+    labels, em = own.edge_labels(), own.edge_meta
+    assert labels.index.name == "edge_id" and len(labels) == len(em)
+    assert list(labels.index) == list(em["edge_id"])
+    row = em.iloc[len(em) // 2]
+    assert labels[row["edge_id"]] == (f"{row['from_sector']}|{row['from_region']} → "
+                                      f"{row['to_sector']}|{row['to_region']} "
+                                      f"({row['valuation']})")

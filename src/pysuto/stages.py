@@ -35,8 +35,9 @@ import logging
 import os
 from typing import Optional
 
-from pysuto.acc import (ALL_SPEC_KEYS, EDGE_UNIVERSE_ROLE_KEYS, AccountingStructure,
-                        check_built_acc, check_feed_accs)
+from pysuto import acc_store
+from pysuto.acc import ALL_SPEC_KEYS, EDGE_UNIVERSE_ROLE_KEYS, check_feed_accs
+from pysuto.acc_store import check_built_acc
 from pysuto.case import Cascade, CaseContext, CaseSpec, check_case
 from pysuto.clarabel_backend import ClarabelBackend
 from pysuto.collector import FeedCollector
@@ -99,7 +100,7 @@ def run_imp(case: CaseSpec, feed_ids: list, label: str,
     check_built_acc(acc_dir, acc_entry, inputs.acc, ALL_SPEC_KEYS,
                     require_record=pins is not None)
     logger.info("A  Loading AccountingStructure '%s' from %s", acc_id, acc_dir)
-    acc = AccountingStructure.load(id=acc_id, storage_dir=acc_dir)
+    acc = acc_store.load(id=acc_id, storage_dir=acc_dir)
 
     logger.info("A  Loading DataFeedRegistry from %s", registry_dir)
     registry = DataFeedRegistry(odir=registry_dir)
@@ -107,7 +108,8 @@ def run_imp(case: CaseSpec, feed_ids: list, label: str,
 
     # ── B  Collect and aggregate ──────────────────────────────────────────────
     logger.info("B  Collecting feeds: %s (p=%.2f)", feed_keys, spec.P_PROP)
-    collector  = FeedCollector(registry=registry, acc_struct=acc, min_flow_kt=0.01)
+    collector  = FeedCollector(registry=registry, acc_struct=acc,
+                               min_flow_kt=spec.MIN_FLOW_KT)
     collector.select(feed_keys)
     feed_run_ids = [s["feed_run_id"] for s in collector.selected]
     logger.info("B  Resolved feed_run_ids: %s", feed_run_ids)
@@ -177,7 +179,6 @@ def run_imp(case: CaseSpec, feed_ids: list, label: str,
         agg_result,
         label         = label,
         parents       = parents,
-        imputers      = engine.imputers,
         stage_summary = {"cascade_passes_run": passes_run},
         stage_config  = stage_config,
     )
@@ -232,7 +233,7 @@ def run_const(case: CaseSpec, imp_run_id: str, label: str,
     # Stage 3 reads the built acc's bounds and masks too: every spec key but role.
     check_built_acc(acc_dir, acc_entry, inputs.acc, ALL_SPEC_KEYS)
     _log.info("Loading AccountingStructure '%s' from %s", acc_id, acc_dir)
-    acc = AccountingStructure.load(acc_id, storage_dir=acc_dir)
+    acc = acc_store.load(acc_id, storage_dir=acc_dir)
     _log.info("  nodes=%d  edges=%d  time=%s–%s",
               acc.n_nodes, acc.n_edges, acc.time_range[0], acc.time_range[-1])
 
@@ -336,7 +337,7 @@ def run_const(case: CaseSpec, imp_run_id: str, label: str,
 # some through ``CaseSpec.driver_knobs``. Paths are not knobs: ``data_dir`` and its
 # ``proc/`` subdirectories are arguments.
 
-TIMESTEPS  = None #[1995]           # None → all timesteps in the run
+TIMESTEPS  = None                    # None → all timesteps in the run
 # Feasibility pre-check: which years the probe checks before any solve — "all" (a
 # zero-objective QP per year over its hard rows and bounds, on the same N_WORKERS
 # threads as the solves; ADR 0042 replaced the full-G first-year probe, ≈ 7 of Stage 4's
@@ -348,16 +349,14 @@ FEASIBILITY_CHECK = "all"
 # MaxIterations reported as infeasible). max_iter is a CAP, so easy runs still stop
 # early; raising it only helps the hard pinned scan. 2000 solves 1995 feasibility.
 MAX_ITER = 2000
-# Clarabel termination tolerances (measured in Round W.1, ADR 0039). The former
-# production setting (gap_rel 1e-3 / feas 1e-7, reduced 1e-2 / 1e-5) stopped every
-# run while the cost was still falling by thousands per iteration: re-solving 2015
-# of const_20260929_120611_6ef43f64 at gap_rel 1e-8 lowered the objective by 9,052
-# (8 % of that year's misfit) and lifted Chile's concentrate-export retention from
-# 0.66 to 0.97. The reported gap (~800) bounds nothing: |objective| is dominated by
-# the constant Σ(a0/σ)² (1.17e6 vs a misfit of 1.13e5 in 2015), and the dual cost
-# at the stop sits above the true optimum. With the lower-bound rows the same stop
-# left W.1 48,800 short of its optimum. These tolerances run each year to its
-# numerical floor (InsufficientProgress after ~150–250 iterations, ≈ 30–60 s/year)
+# Clarabel termination tolerances (measured in Round W.1, ADR 0039; the measurement is
+# in the REP roundW1-lower-bounds, "Solver-tolerance re-solve"). The former production
+# setting (gap_rel 1e-3 / feas 1e-7, reduced 1e-2 / 1e-5) stopped every run while the
+# cost was still falling by thousands per iteration (const_20260929_120611_6ef43f64,
+# year 2015), and the reported gap bounds nothing: |objective| is dominated by the
+# constant Σ(a0/σ)², and the dual cost at the stop sits above the true optimum. With
+# the lower-bound rows the same stop left W.1 far short of its optimum. These
+# tolerances run each year to its numerical floor (InsufficientProgress after ~150–250 iterations, ≈ 30–60 s/year)
 # and accept that floor as AlmostSolved through the reduced tolerances (gap_rel
 # 1e-5 is not reached there, 1e-4 is).
 # #33 (ADR 0039 am. 2026-10-21): solved for the defects, every year of the final chain
@@ -410,7 +409,8 @@ OPT_KNOBS = (
     "N_WORKERS", "DIRECT_SOLVE_METHOD", "QP_VARIABLES",
 )
 
-# Stage 5 (no knobs: the uncprop step takes none).
+# Stage 5 (no sweep or case knobs: the step takes no `--set`; the constants below are
+# recorded in the sidecar).
 ALPHA                = 0.05
 BIND_TOL             = 1e-6    # kt — a hard inequality row binds when G·a* − c ≥ −BIND_TOL
                                # (#27)
@@ -538,8 +538,9 @@ def run_opt(case: CaseSpec, const_run_id: str, label: str = "",
 
     # One AccountingStructure for figures and ranking CSVs (loading it is the
     # expensive step); the diag's stats object owns the all-years frames both read from.
-    acc  = AccountingStructure.load(const_run.acc_id, storage_dir=acc_dir)
-    diag = SolverDiag(results, const_run, label=label or optim_run_id, acc=acc)
+    acc  = acc_store.load(const_run.acc_id, storage_dir=acc_dir)
+    diag = SolverDiag(results, const_run, label=label or optim_run_id, acc=acc,
+                      conditioning=solver.conditioning)
     diag.summary()
     diag.plot(odir=diag_dir)
 

@@ -8,7 +8,7 @@ the [ADR 0016](0016-provenance-aware-sigma-on-scale-totals.md) pattern. Evidence
 Amends [ADR 0015](0015-in-situ-ore-grades-on-allocated-ore-basis.md) (how the band's σ is written,
 not its values) and re-affirms [ADR 0012](0012-scrap-one-mixed-grade-commodity.md)'s one-hard-band-
 per-commodity invariant. Baseline `opt_20260915_131115_b8bf05a9`; runs
-`opt_20260916_094322_0c932b8e` (M.1) and `opt_20260916_100802_4264582e` (M.2).
+`opt_20260916_094322_0c932b8e` (M.1) and `opt_20260916_100802_4264582e` (M.2). *(Pruned: `opt_20260916_094322_0c932b8e`, `opt_20260916_100802_4264582e` are absent from `data/proc` on 2026-11-23; no per-run pruning date is recorded.)*
 
 **Amended 2026-10-19 (#29; status: accepted — measured by #94, run `opt_20261019_161937_fd301f58`, ratio-row Σz² 55,213 → 8,146, common-set sum-row z² −0.48 % vs `opt_20261019_155415_a1d7e9a9`):**
 the stated σ is in **ratio units**, and the soft ratio row now applies it **relative to the

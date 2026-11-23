@@ -9,7 +9,7 @@ from __future__ import annotations
 import os
 import warnings
 from pathlib import Path
-from typing import Any, List, Optional
+from typing import Optional
 
 import numpy as np
 import pandas as pd
@@ -51,7 +51,6 @@ class ImputationRunRegistry(BaseOutputRegistry):
         *,
         label:         str,
         parents:       dict,
-        imputers:      Optional[List[Any]] = None,
         stage_config:  Optional[dict] = None,
         stage_summary: Optional[dict] = None,
     ) -> str:
@@ -66,10 +65,6 @@ class ImputationRunRegistry(BaseOutputRegistry):
             Harmonized parents block.  Expects
             ``parents.inputs = {"acc": {...}, "params": [...]}`` and
             ``parents.upstream = {"feed_run_ids": [...]}``.
-        imputers
-            Optional list of imputer instances; their ``.config()`` and
-            the per-step metadata are folded into the sidecar.
-
         Returns
         -------
         str
@@ -113,7 +108,6 @@ class ImputationRunRegistry(BaseOutputRegistry):
         # ImputationEngine stamps imputer_id / pass / config onto each record at
         # run time, so we don't re-derive config by step index here — that broke
         # once the fixpoint cascade produced more steps than imputer objects.
-        # The `imputers` param is retained for signature compatibility.
         meta_records: list[dict] = []
         if agg_result.imputation_metadata is not None:
             meta_records = agg_result.imputation_metadata.as_dataframe().to_dict("records")
@@ -158,6 +152,7 @@ class ImputationRunRegistry(BaseOutputRegistry):
 
     def load(self, run_id: str):
         """Reconstruct an ``AggregationResult`` with attached log."""
+        # lazy: the result classes sit above the registry (README §5, back-edge family)
         from pysuto.agg import AggregationResult
         from pysuto.impute import ImputationLog
 
@@ -195,14 +190,6 @@ class ImputationRunRegistry(BaseOutputRegistry):
         result.imputation_log = log_obj
         result._imp_run_id    = run_id
         return result
-
-    def load_sidecar(self, run_id: str) -> dict:
-        if run_id not in self._index:
-            raise KeyError(f"Imputation run '{run_id}' not in registry")
-        return self._read_sidecar(run_id)
-
-    def ids(self) -> List[str]:
-        return list(self._index.keys())
 
     def summary_df(self) -> pd.DataFrame:
         if not self._index:
