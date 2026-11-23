@@ -14,6 +14,7 @@ from the main checkout, one driver at a time under the stage lock.
 scrap_share v3 — the base's; `input_status.py`: every `current/` at its latest version
 **Date:** 2026-11-16 · **Branch:** `diag/balance-guard-measure` · **Issues:** #154 (measures #153; follow-up of #132,
 #139) · **ADR:** 0010 (the guard), 0025 (stop rule)
+**Diagnostic:** `python scripts/explo/issue154_balance_guard_diag.py opt_20261112_135523_88fa69f3 opt_20261116_134050_b54f65dc` (<opt_base> <opt_new>)
 
 **Verdict: ships on the pre-registered rule (items 2 and 3a–c hold); `opt_20261116_134050_b54f65dc` becomes the reference
 chain.** Predictions P2 and P3 were wrong, and P1 partly. The common-set sum-row Σz² *rises* 5.95 % vs
