@@ -277,8 +277,30 @@ cross-cutting (import nothing from the data layer):
 > that record names another version or none, so a BACI parse change re-runs the ICSG parse before
 > the netting.
 >
-> Check which weights a run used: `data/proc/feed/registry/<feed_id>/metadata.json` →
-> `trade_shares.version`.
+> Check which weights a run used: `data/proc/feed/registry/<run_id>/metadata.json` →
+> `parents.inputs.trade_shares.version`. `build_trade_shares.py` also refuses to build when the
+> newest BACI feed run was built from an older `baci` input than the one in force (rerun
+> `baci_feed.py` first).
+>
+> **One edge of the order is a loop, and the hook does not run it.** `build_ore_grade.py` reads the
+> newest ICSG and crude-ore feed runs' `F_root` (ore mass, mine output) and the ICSG feed reads its
+> `ore_grade` params for the observed zeros, so the grades are built from the *previous* ICSG run.
+> The builder records those runs and the `eff` / `conc` versions in `parents.json` beside
+> `params.csv` (the form of the trade-share record), which makes a stale grade readable in the sidecar; no
+> guard refuses it, because after any hook run the newest ICSG run is by construction newer than the
+> grades. Rebuild it by hand (`python scripts/build_ore_grade.py`) after the feeds when the ICSG or
+> crude-ore feed changed, then rerun `icsg_feed.py`.
+>
+> **Registering the gross BACI version** (the step between the parse and `icsg_clean.py`) is by
+> hand: `baci_parse_feed.py` writes `data/input/feed/baci/v0/`; set aside any
+> `current/reexport_*.csv` (a leftover `reexport_ledger.csv` makes a gross version look netted, and
+> `icsg_clean.py` refuses it), copy `v0/{values,quantity_recon,quantity_cv_scale}.csv` into
+> `current/`, and register (`InputRegistries.initialize`; every build script does it on start).
+>
+> **Hand runs take the stage lock.** `build_baci_reexport.py`, `build_trade_shares.py`,
+> `build_ore_grade.py` and `icsg_clean.py` write registries, which have no locking of their own,
+> so each takes `<data-dir>/proc/.stage.lock` like a stage driver; under the Stage 1 hook, whose
+> caller holds it, the two it runs skip it (`PYSUTO_STAGE_LOCK_HELD`).
 
 #### The parse layer (`scripts/parse/`)
 
@@ -289,8 +311,13 @@ four correctness rounds were defects here rather than in the model.
 
 | | chain | writes |
 |---|---|---|
-| **ICSG** | `icsg_{2005,2014,2023f}.py` (one per yearbook vintage) → `icsg_comb.py` (combine vintages) → `process_icsg.py` (stock levels → NAS per vintage + merge) → `icsg_clean.py --baci-version N --to-feed` (reads the registered gross BACI parse vN for imported anode, #63) | `data/input/feed/icsg/current/values.csv` + `parents.json` |
+| **ICSG** | `icsg_{2005,2014,2023f}.py` (one per yearbook layout; `2023f` loads the 2023 and 2025 yearbooks, so four vintages are combined) → `icsg_comb.py` (combine vintages) → `process_icsg.py` (stock levels → NAS per vintage + merge) → `icsg_clean.py --baci-version N --to-feed` (reads the registered gross BACI parse vN for imported anode, #63) | `data/input/feed/icsg/current/values.csv` + `parents.json` |
 | **BACI** | `baci_parse/baci_parse_feed.py` | `data/input/feed/baci/v0/values.csv` + `quantity_recon.csv`, `quantity_cv_scale.csv` |
+| **Crude ore** | `crude_ore_parse_feed.py` (the Kroiss workbook; the only source of the crude-ore feed) | `data/input/feed/crude_ore/v0/values.csv` |
+| **Ore grade** | `build_ore_grade.py` (not a parse: it reads the finished ICSG and crude-ore feed runs; see the loop above) | `data/input/params/ore_grade/current/params.csv` + `parents.json` |
+
+ICSG values are kt Cu: the parse stamps `Unit = 'kt'` and the ICSG feed's `valuation_map` reads it as
+contained copper (CC), while BACI's and crude ore's `'kt'` is gross mass.
 
 Three behaviours a reader should not have to discover from the code:
 

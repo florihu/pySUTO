@@ -442,7 +442,8 @@ rather than adding to it, and which one survives depends on row order
 ([ADR 0036](docs/adr/0036-a-renamed-type-is-a-second-stream-not-a-restatement.md)). _Avoid_ also:
 reading a vintage as a *time* coordinate — it labels the publication, not the year observed; one
 vintage carries many observation years. _Avoid_ also: "edition" for a yearbook's release — say
-vintage.
+vintage. The ICSG flow tables persist a vintage as the column `Year_loaded_from_file` (the
+yearbook's publication year, 2005, 2014, 2023 or 2025); it is the vintage, not a load date.
 
 **Boundary topology** *(referenced by [ADR 0001](docs/adr/0001-replace-coherence-sum-eq-with-bilateral-anchoring.md); to be expanded)* —
 the open System-Boundary (SB) endpoints where flows terminate, so prior disagreement there does

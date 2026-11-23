@@ -1,9 +1,18 @@
+"""icsg_2014.py
+============
+ICSG 2014 yearbook: sheet-to-flow parser.
+
+Values are kt Cu: the parse stamps ``Unit = 'kt'`` and the icsg feed's ``valuation_map``
+reads it as CC (contained copper), not gross mass.
+"""
 import pandas as pd
 import numpy as np
 import re
 import os
+import sys
 
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
 from pysuto.utils import get_path
 from pysuto.logging import get_logger
 
@@ -200,7 +209,6 @@ def clean_flows(df_init, sheet, process, flow_type, rename_dict):
             f"Max value {df['Value'].max():,.0f} kt looks suspiciously high "
             f"— possible parsing error in sheet '{sheet}'."
         )
-    df.reset_index(drop=True)
 
     return df
 

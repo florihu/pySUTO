@@ -316,6 +316,9 @@ def build_production_frame(acc, icsg_froot, crude_froot,
     ei = _decoded_edges(acc)
 
     def _sum(sector_from, sector_to, valuation, froot):
+        # NaN (an edge the feed does not cover) reads 0 here on purpose: this frame asks
+        # "how much production / ore mass", and a region-year without either has none to
+        # grade. The crude-ore feed carries no zeros, so 0 is never an observation (U1b-S5-2).
         sub = ei[(ei["sector_from"] == sector_from) & (ei["sector_to"] == sector_to)
                  & (ei["valuation"] == valuation)]
         vals = froot[sub["edge_id"].values]
