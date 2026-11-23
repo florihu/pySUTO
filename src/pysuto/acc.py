@@ -1732,6 +1732,16 @@ class AccountingStructure:
         ni_to   = ni_to.add_prefix("to_")
         return pd.concat([ei, ni_from, ni_to], axis=1)
 
+    def edge_labels(self) -> pd.Series:
+        """Readable label of every edge, indexed by ``edge_id``:
+        ``Sector|Region → Sector|Region (Valuation)``. The year is left out, so one
+        label names the edge in every period; read ``time`` from :attr:`edge_meta`."""
+        em = self.edge_meta
+        return pd.Series(
+            (em["from_sector"] + "|" + em["from_region"] + " → " + em["to_sector"]
+             + "|" + em["to_region"] + " (" + em["valuation"] + ")").to_numpy(),
+            index=pd.Index(em["edge_id"].to_numpy(), name="edge_id"), name="edge")
+
     @cached_property
     def edge_template_code(self) -> np.ndarray:
         """Time-invariant template id per global edge — length ``E``, aligned to
