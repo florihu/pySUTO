@@ -12,12 +12,11 @@ QP that was solved and the posterior that is then propagated against it.
 
 Two helpers:
 
-* :func:`condition_prior` — floor / ceiling / NaN handling for σ_a;
-  NaN handling for a_0. Identical to the historical
-  ``Solver._condition_prior`` body.
-* :func:`condition_sigma_c` — soft-row σ_c flooring, with an optional
-  ``hard_mask`` argument that zeroes out hard rows (used by uncprop,
-  not by the solver — see ``stage5_uncprop_integration_plan.md``).
+* :func:`condition_prior` — floor / ceiling rules for σ_a; a NaN in a_0 or
+  σ_a is refused, never filled.
+* :func:`condition_sigma_c` — σ_c flooring, with an optional ``hard_mask``
+  argument that zeroes out hard rows (used by uncprop, not by the solver,
+  which conditions only its soft rows); a NaN σ_c is refused.
 """
 from __future__ import annotations
 
@@ -30,6 +29,22 @@ from .logging import get_logger
 logger = get_logger("pysuto.conditioning")
 
 
+def _refuse_nan(x: np.ndarray, what: str) -> None:
+    """Raise ``ValueError`` naming the first NaN positions of ``x``.
+
+    A Stage-3 run never stores a NaN in σ_a, a_0 or σ_c (the engine refuses NaN
+    ``f_agg`` / ``σ_agg``); a NaN here means the run is corrupt, and a fill would
+    turn "not covered" into a number (CLAUDE.md: validation never fills).
+    """
+    bad = np.flatnonzero(np.isnan(x))
+    if bad.size:
+        raise ValueError(
+            f"condition: {bad.size} NaN entries in {what} (first positions "
+            f"{bad[:5].tolist()}); a NaN is 'not covered' and is never filled — fix "
+            f"the input and rebuild the constraint run."
+        )
+
+
 # The only definition of the default floors and ceiling. The solver (Stage 4)
 # records the values it used in the opt sidecar's ``stage_config``; uncprop
 # (Stage 5) reads them back from there and falls back to these.
@@ -37,6 +52,11 @@ SIGMA_A_FLOOR_ABS      = 1e-8
 SIGMA_A_FLOOR_REL      = 1e-5
 SIGMA_A_CEILING_FACTOR = 1e5
 SIGMA_C_FLOOR          = 1e-9
+
+# σ_a at or above _SIGMA_HUGE counts as "no information" and does not set the
+# ceiling; with no usable σ_a at all the ceiling is _CEILING_EMPTY.
+_SIGMA_HUGE    = 1e30
+_CEILING_EMPTY = 1e12
 
 DEFAULT_CONDITIONING = {
     "sigma_a_floor_abs":      SIGMA_A_FLOOR_ABS,
@@ -83,10 +103,9 @@ def condition_prior(
     floor_rel:      float = SIGMA_A_FLOOR_REL,
     ceiling_factor: float = SIGMA_A_CEILING_FACTOR,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """Apply NaN, floor and ceiling rules to the Stage-3 prior.
+    """Apply the floor and ceiling rules to the Stage-3 prior.
 
-    NaN in ``a_0`` is replaced with 0 (flat prior). NaN in ``sigma_a``
-    is replaced with the ceiling (no-information prior). Then::
+    A NaN in ``a_0`` or ``sigma_a`` raises ``ValueError``. Then::
 
         floor   = max(floor_abs, floor_rel · |a_0|)
         ceiling = ceiling_factor · max(finite, positive σ_a)
@@ -98,26 +117,11 @@ def condition_prior(
     a = np.array(a_0,     dtype=float, copy=True)
     s = np.array(sigma_a, dtype=float, copy=True)
 
-    n_nan_a = int(np.isnan(a).sum())
-    if n_nan_a:
-        a[np.isnan(a)] = 0.0
-        logger.warning(
-            "condition_prior: %d NaN entries in a_0 substituted with 0 "
-            "(prefer registering FlatPriorImputer in Stage 2 to avoid this).",
-            n_nan_a,
-        )
+    _refuse_nan(a, "a_0")
+    _refuse_nan(s, "sigma_a")
 
-    finite = s[np.isfinite(s) & (s < 1e30) & (s > 0)]
-    ceiling = ceiling_factor * float(finite.max()) if finite.size else 1e12
-
-    n_nan_s = int(np.isnan(s).sum())
-    if n_nan_s:
-        s[np.isnan(s)] = ceiling
-        logger.warning(
-            "condition_prior: %d NaN entries in sigma_a substituted with "
-            "ceiling=%.3e (no-information prior).",
-            n_nan_s, ceiling,
-        )
+    finite = s[np.isfinite(s) & (s < _SIGMA_HUGE) & (s > 0)]
+    ceiling = ceiling_factor * float(finite.max()) if finite.size else _CEILING_EMPTY
 
     floor = np.maximum(floor_abs, floor_rel * np.abs(a))
     s = np.maximum(s, floor)
@@ -131,19 +135,19 @@ def condition_sigma_c(
     floor:     float = SIGMA_C_FLOOR,
     hard_mask: Optional[np.ndarray] = None,
 ) -> np.ndarray:
-    """Apply NaN→floor and a numerical floor to ``sigma_c``.
+    """Apply a numerical floor to ``sigma_c``; a NaN raises ``ValueError``.
 
     If ``hard_mask`` is provided, hard rows are forced to exact zero
     *after* flooring — preserves the ``Σ_c^full = blkdiag(0_h, Σ_c_s)``
     block structure that uncprop's posterior derivation relies on.
 
-    The solver omits ``hard_mask`` (its hard rows pick up the floor like
-    everything else, which is fine for QP solving). uncprop passes
-    ``hard_mask`` so that hard rows behave as exact equality constraints
-    when contributing to variance reduction.
+    The solver omits ``hard_mask`` and passes only its soft rows (a hard row
+    has no σ_c in the QP). uncprop passes every row and ``hard_mask``, so that
+    hard rows behave as exact equality constraints when contributing to
+    variance reduction.
     """
     s = np.array(sigma_c, dtype=float, copy=True)
-    s = np.where(np.isnan(s), floor, s)
+    _refuse_nan(s, "sigma_c")
     s = np.maximum(s, floor)
     if hard_mask is not None:
         s = s.copy()

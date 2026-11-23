@@ -197,13 +197,15 @@ orthogonal to `is_hard`; the (`le`, soft) cell is unrealised (`NotImplementedErr
 "relation" (a different term, below), "cone type".
 
 **Cone** (`zero` / `nonneg` / `free`):
-The Clarabel cone a constraint row lands in, derived inside `pysuto.solver` from (`sense`,
-`is_hard`) and not stored in `row_meta` — `zero` (hard `eq`), `nonneg` (hard `le`), `free` (soft
-`eq`, with slack `ε`). Const runs persisted before #11 stored it as `cone_type`; the loader maps
+The Clarabel cone a constraint row lands in, derived inside `pysuto.clarabel_backend` from the
+QP's row groups (`pysuto.solver.row_layout` orders them from `sense` and `is_hard`; ADR 0042)
+and not stored in `row_meta` — `zero` (hard `eq`, and a soft `eq` too: its slack `ε` is a free
+variable of the QP), `nonneg` (hard `le`). The legacy name `free` is the soft `eq`. Const runs persisted before #11 stored it as `cone_type`; the loader maps
 it to `sense`.
 
 **Warm start**:
-Seeding the prior `a₀(t)` for a timestep with the previous year's optimum `a*(t−1)`.
+Seeding the prior `a₀(t)` for a timestep with the previous year's optimum `a*(t−1)`; a second,
+numerical sense (reusing Clarabel's KKT factorisation) is under "Two warm-starts" below.
 
 **Run** / **run-id**:
 One persisted execution of a stage or a sweep, keyed `{kind}_{YYYYMMDD_HHMMSS}_{uuid}`

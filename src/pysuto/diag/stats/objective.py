@@ -2,7 +2,7 @@
 objective.py
 ============
 Stateless builders for the **objective share** view of an opt run (pandas /
-numpy only, no pysuto imports).
+numpy, and the row-type and sense names of ``pysuto.constraints.naming``).
 
 The QP objective is ``Σz²`` over edges (defects, ``z = (a*−a_prior)/σ_a``) plus
 ``Σz²`` over soft rows (residuals, ``z = (G·a*−c)/σ_c``). Every item's ``z²`` is
@@ -13,6 +13,12 @@ over the family's (or the run's) ``Σz²``. Three families:
 * ``sum_rows``    — residuals on ``row_meta.type == "sum"`` rows (all soft; today
                     every one is a scale total or a scrap level anchor);
 * ``soft_ratios`` — residuals on ``type == "ratio"`` rows in the free cone.
+
+The three families partition the soft equality rows of today's builders (every one is a
+``sum`` or a ``ratio`` row); unlike ``Solver.objective_at``, which adds ``other_soft`` for
+a soft row of any other type, the families have no such bucket, so
+:func:`objective_decomposition` raises on a soft row of another type rather than drop it
+from ``zsq_total``.
 
 A large ``|z|`` on a soft row is priced disagreement, not failure (GLOSSARY.md
 §"Constraint table") — nothing here is a "violation".
@@ -27,6 +33,8 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+
+from pysuto.constraints.naming import SENSE_EQ, TYPE_MASSBAL, TYPE_RATIO, TYPE_SUM
 
 from ._core import filter_regions
 
@@ -74,11 +82,11 @@ def family_frame(edge_frame, constraint_frame, family: str, regions=None):
             return None
         typ = _s(constraint_frame["type"])
         if family == "sum_rows":
-            src = constraint_frame[typ == "sum"]
+            src = constraint_frame[typ == TYPE_SUM]
         else:
             sense = _s(constraint_frame["sense"])
             hard  = constraint_frame["is_hard"].astype(bool).to_numpy()
-            src = constraint_frame[(typ == "ratio") & (sense == "eq") & ~hard]
+            src = constraint_frame[(typ == TYPE_RATIO) & (sense == SENSE_EQ) & ~hard]
         src = filter_regions(src, REGION_COLS[family], regions)
         variant = _s(src["variant"]) if "variant" in src.columns else np.full(len(src), "", dtype=str)
         if family == "sum_rows":
@@ -279,7 +287,22 @@ def objective_decomposition(edge_frame, constraint_frame, years=None, regions=No
     Columns: ``year, zsq_edges, zsq_sum_rows, zsq_soft_ratios, zsq_total,
     max_abs_resid_massbal, share_gt3_<family>…, n_<family>…``. A family whose
     frame is missing yields NaN columns rather than an error.
+
+    ``max_abs_resid_massbal`` is one maximum over the mass-balance rows of both
+    valuations, in kt on a gross row and kt CC on a content row: a hard row has no
+    σ_c to standardise it by, so the column stays unnormalised and is labelled so.
+    A soft equality row whose ``type`` is neither ``sum`` nor ``ratio`` raises
+    ``ValueError`` instead of dropping out of ``zsq_total``.
     """
+    if constraint_frame is not None:
+        soft = ((_s(constraint_frame["sense"]) == SENSE_EQ)
+                & ~constraint_frame["is_hard"].astype(bool).to_numpy())
+        other = soft & ~np.isin(_s(constraint_frame["type"]), (TYPE_SUM, TYPE_RATIO))
+        if other.any():
+            raise ValueError(
+                f"{int(other.sum())} soft row(s) of type "
+                f"{sorted(set(_s(constraint_frame['type'])[other]))} belong to no "
+                f"objective family; their z² would be missing from zsq_total")
     fams = {f: family_frame(edge_frame, constraint_frame, f, regions=regions) for f in FAMILIES}
     if years is None:
         seen: set = set()
@@ -307,7 +330,7 @@ def objective_decomposition(edge_frame, constraint_frame, years=None, regions=No
         out[f"n_{f}"]         = g.size().reindex(years)
     out["zsq_total"] = out[[f"zsq_{f}" for f in FAMILIES]].sum(axis=1, min_count=1)
     if constraint_frame is not None and "resid_solver" in constraint_frame.columns:
-        hard = constraint_frame[_s(constraint_frame["type"]) == "massbal"]
+        hard = constraint_frame[_s(constraint_frame["type"]) == TYPE_MASSBAL]
         hard = filter_regions(hard, ("region",), regions)
         a = pd.DataFrame({"year": _s(hard["year"]),
                           "a": np.abs(hard["resid_solver"].to_numpy(dtype=float))})

@@ -538,7 +538,8 @@ def run_opt(case: CaseSpec, const_run_id: str, label: str = "",
     # One AccountingStructure for figures and ranking CSVs (loading it is the
     # expensive step); the diag's stats object owns the all-years frames both read from.
     acc  = AccountingStructure.load(const_run.acc_id, storage_dir=acc_dir)
-    diag = SolverDiag(results, const_run, label=label or optim_run_id, acc=acc)
+    diag = SolverDiag(results, const_run, label=label or optim_run_id, acc=acc,
+                      conditioning=solver.conditioning)
     diag.summary()
     diag.plot(odir=diag_dir)
 

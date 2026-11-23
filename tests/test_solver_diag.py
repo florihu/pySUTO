@@ -16,6 +16,8 @@ The class is purely observational, so the tests focus on:
 
 from __future__ import annotations
 
+import logging
+
 import os
 
 import matplotlib
@@ -170,10 +172,9 @@ class TestFromOptId:
         assert all(p.startswith(expected) for p in paths)
 
     def test_provenance_names_registered_and_unregistered_feed_runs(
-            self, toy_results, tmp_path, monkeypatch, capsys):
-        """The tree and provenance.md print every feed run id; an unregistered one is
+            self, toy_results, tmp_path, monkeypatch, caplog):
+        """The tree (logged) and provenance.md name every feed run id; an unregistered one is
         marked, never '?' (#203)."""
-        import pysuto.registry as reg
         from pysuto.registry import ConstraintRunRegistry
         from pysuto.diag import SolverDiag
 
@@ -206,14 +207,16 @@ class TestFromOptId:
                     "feed_known_20260101_000000_aaaaaaaa",
                     "feed_gone_20260102_000000_bbbbbbbb"]}}}
 
-        monkeypatch.setattr(reg, "DataFeedRegistry", _FeedReg)
-        monkeypatch.setattr(reg, "ImputationRunRegistry", _ImpReg)
+        import pysuto.diag.solver as solver_mod     # the registry names are imported there
+        monkeypatch.setattr(solver_mod, "DataFeedRegistry", _FeedReg)
+        monkeypatch.setattr(solver_mod, "ImputationRunRegistry", _ImpReg)
 
         diag = SolverDiag.from_opt_id(opt_run_id, output_dir=str(tmp_path / "opt"),
                                       const_dir=str(const_dir))
         out = tmp_path / "figs"
-        diag.plot(odir=str(out), plot_ids=["SD-R-11"])
-        tree = capsys.readouterr().out.split("provenance", 1)[-1]
+        with caplog.at_level(logging.INFO, logger="pysuto.diag.solver"):
+            diag.plot(odir=str(out), plot_ids=["SD-R-11"])
+        tree = caplog.text.split("provenance", 1)[-1]
         md = (out / "provenance.md").read_text(encoding="utf-8")
         for text in (tree, md):
             assert "?" not in text
@@ -519,3 +522,179 @@ class TestBoundaryPalette:
             assert all(len(a.get_lines()) > 0 for a in axes[2])
         finally:
             plt.close(fig)
+
+
+# ---------------------------------------------------------------------------
+# 7. #284: the diag's Σz² is the QP's objective, provenance, logging, units
+# ---------------------------------------------------------------------------
+
+class TestObjectiveAgreesWithTheSolver:
+    """U4-S1-2 / S5-1: the all-years frames' ``Σz²`` per year equals
+    ``Solver.objective_at(...)["total"]`` (same conditioned σ, same prior)."""
+
+    @staticmethod
+    def _acc_over(run):
+        """A stub acc: ``edge_meta`` over the run's edges (one sector pair)."""
+        import numpy as np
+        import pandas as pd
+
+        class _Acc:
+            pass
+        e = int(run.G.shape[1])
+        time = np.empty(e, dtype=object)
+        for t, cols in run.edge_cols_by_t.items():
+            time[cols] = t
+        acc = _Acc()
+        acc.edge_meta = pd.DataFrame({
+            "edge_id": np.arange(e), "time": time, "valuation": "Mass",
+            "from_sector": "A", "from_region": "R", "to_sector": "B", "to_region": "R"})
+        return acc
+
+    def test_zsq_total_equals_objective_at_per_year(self, monkeypatch):
+        import numpy as np
+        from pysuto.diag import SolverDiag
+        from pysuto.diag.stats.objective import objective_decomposition
+        from test_solver import _make_wide_sigma_run
+
+        run = _make_wide_sigma_run(periods=("2020", "2021"))
+        s = make_solver(const_dir="unused", verbose_first_solve=False, prior_mode="cold")
+        monkeypatch.setattr(s, "load_run", lambda _rid: run)
+        results = s.solve_all(run.run_id)
+
+        st = SolverDiag(results, run, acc=self._acc_over(run),
+                        conditioning=s.conditioning).stats
+        dec = objective_decomposition(st.edge_frame(), st.constraint_frame())
+        for t, r in results.items():
+            want = s.objective_at(run, t, r.F_opt, a_prior=r.a_prior)["total"]
+            got = float(dec.set_index("year").loc[t, "zsq_total"])
+            assert np.isclose(got, want, rtol=1e-9), (t, got, want)
+
+    def test_a_soft_row_of_another_type_raises(self):
+        import pandas as pd
+        from pysuto.diag.stats.objective import objective_decomposition
+        cf = pd.DataFrame({"type": ["sum", "bound"], "sense": ["eq", "eq"],
+                           "is_hard": [False, False], "year": ["2020", "2020"],
+                           "resid_solver": [0.0, 0.0]})
+        with pytest.raises(ValueError, match="belong to no objective family"):
+            objective_decomposition(None, cf)
+
+
+class TestProvenanceChain:
+    """U4-G6-3 / G3-4: ``from_opt_id`` walks opt → const → imp → feeds, and says so
+    when the walk fails."""
+
+    class _Entry:
+        def __init__(self, fid):
+            self._d = {"run_id": f"feed_{fid}", "stage": "feed", "label": "L",
+                       "created_at": "2026-01-01T00:00:00"}    # the registry's index fields
+
+        def to_index_dict(self):
+            return self._d
+
+    def _persisted(self, toy_results, tmp_path):
+        from pysuto.registry import ConstraintRunRegistry
+        results, run = toy_results
+        run.agg_id = "imp_toy"
+        const_dir = tmp_path / "const"
+        const_dir.mkdir()
+        ConstraintRunRegistry(str(const_dir)).register(run)
+        s = make_solver(const_dir="unused", verbose_first_solve=False, prior_mode="cold")
+        opt_id = s.persist(run_id=run.run_id, results=results,
+                           output_dir=str(tmp_path / "opt"), const_run_id=run.run_id)
+        return opt_id, str(tmp_path / "opt"), str(const_dir)
+
+    def test_the_feeds_table_names_registered_and_unregistered_feeds(
+        self, toy_results, tmp_path, monkeypatch,
+    ):
+        import pysuto.diag.solver as mod
+        entry = self._Entry
+
+        class _Imp:
+            _index = {"imp_toy": {}}
+            def __init__(self, _d): pass
+            def load_sidecar(self, _id):
+                return {"label": "imp", "created_at": "2026-01-02",
+                        "parents": {"upstream": {"feed_run_ids": ["a", "b"]}}}
+
+        class _Feeds:
+            def __init__(self, _d): pass
+            def load_index(self): pass
+            def resolve(self, fid):
+                if fid == "b":
+                    raise KeyError(fid)
+                return entry(fid)
+
+        monkeypatch.setattr(mod, "ImputationRunRegistry", _Imp)
+        monkeypatch.setattr(mod, "DataFeedRegistry", _Feeds)
+        opt_id, opt_dir, const_dir = self._persisted(toy_results, tmp_path)
+        diag = mod.SolverDiag.from_opt_id(opt_id, output_dir=opt_dir, const_dir=const_dir)
+        out = diag._write_provenance(str(tmp_path / "diag"))
+        text = open(out, encoding="utf-8").read()
+        assert "`feed_a`" in text and "(not registered)" in text
+        assert "- **Label**: imp" in text
+
+    def test_a_broken_registry_is_logged_not_swallowed(
+        self, toy_results, tmp_path, monkeypatch, caplog,
+    ):
+        import logging
+        import pysuto.diag.solver as mod
+
+        class _Broken:
+            def __init__(self, _d):
+                raise OSError("registry unreadable")
+
+        monkeypatch.setattr(mod, "ImputationRunRegistry", _Broken)
+        opt_id, opt_dir, const_dir = self._persisted(toy_results, tmp_path)
+        with caplog.at_level(logging.WARNING, logger="pysuto.diag.solver"):
+            diag = mod.SolverDiag.from_opt_id(opt_id, output_dir=opt_dir,
+                                              const_dir=const_dir)
+        assert diag._feed_entries is None
+        assert "provenance chain" in caplog.text and "registry unreadable" in caplog.text
+
+
+class TestDiagSurface:
+
+    def test_plot_prints_nothing(self, toy_results, tmp_path, capsys):
+        """CLAUDE.md: ``print`` only in ``.summary()``; ``plot`` logs its paths."""
+        from pysuto.diag import SolverDiag
+        results, run = toy_results
+        SolverDiag(results, run).plot(odir=str(tmp_path), plot_ids=["SD-R-01"])
+        assert capsys.readouterr().out == ""
+
+    def test_the_slack_norm_is_standardised_by_sigma_c(self, toy_results):
+        """U4-S5-3: ε is in the rows' units, so ‖ε‖ is taken over ε/σ_c."""
+        import numpy as np
+        from pysuto.diag import SolverDiag
+        results, run = toy_results
+        diag = SolverDiag(results, run)
+        for t, r in results.items():
+            sc = run.timestep_data[t]["sigma_c"][np.asarray(r.rows_t)]
+            soft = ~run.row_meta.iloc[r.rows_t]["is_hard"].to_numpy().astype(bool)
+            assert diag._eps_norms[t] == pytest.approx(
+                float(np.linalg.norm(r.eps_opt / sc[soft])), rel=1e-12)
+
+    @pytest.mark.parametrize("val, unit", [("Mass", "kt"), ("CC", "kt CC")])
+    def test_a_valuation_is_labelled_with_its_unit(self, toy_results, val, unit):
+        from types import SimpleNamespace
+        from pysuto.diag import SolverDiag
+        results, run = toy_results
+        acc = SimpleNamespace(valuation_roles=SimpleNamespace(gross="Mass", content="CC"))
+        assert SolverDiag(results, run, acc=acc)._unit(val) == unit
+        assert SolverDiag(results, run, acc=acc)._unit(None) == "kt"
+
+    def test_fold_groups_sums_the_tail_into_other(self):
+        import pandas as pd
+        from pysuto.diag import SolverDiag
+        tot = pd.DataFrame({
+            "group":     ["a", "b", "c", "a", "b", "c"],
+            "valuation": ["Mass"] * 6,
+            "year":      ["2020"] * 3 + ["2021"] * 3,
+            "sum_post":  [1.0, 2.0, 4.0, 1.0, 2.0, 4.0],
+            "sum_prior": [2.0, 2.0, 4.0, 1.0, 1.0, 1.0],
+        })
+        out = SolverDiag._fold_groups(tot, ["a"]).set_index(["group", "year"])
+        assert out.loc[("other", "2020"), "sum_post"] == 6.0
+        assert out.loc[("other", "2020"), "sum_prior"] == 6.0
+        assert out.loc[("other", "2020"), "retention"] == pytest.approx(1.0, rel=1e-12)
+        assert out.loc[("other", "2021"), "retention"] == pytest.approx(3.0, rel=1e-12)
+        assert out.loc[("a", "2020"), "sum_post"] == 1.0

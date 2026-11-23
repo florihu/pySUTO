@@ -37,6 +37,11 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
+from pysuto.acc import AccountingStructure
+from pysuto.constraints.naming import (
+    SENSE_LE, TYPE_BOUND, TYPE_MASSBAL, TYPE_RATIO, TYPE_SUM,
+)
+from pysuto.registry import ConstraintRunRegistry, ImputationRunRegistry, OptimRunRegistry
 from pysuto.uncprop import DEFAULT_BIND_TOL as BIND_TOL_KT
 
 # Provenance categories in display order; an imputer outside the list is
@@ -68,10 +73,10 @@ def row_family(row_meta: pd.DataFrame) -> np.ndarray:
     kind = row_meta["ratio_kind"].astype(object).to_numpy()
 
     out = np.full(len(row_meta), "", dtype=object)
-    out[typ == "massbal"] = "mass balance"
-    out[typ == "bound"]   = "lower bound"
-    out[typ == "sum"]     = "scale total & scrap anchor"
-    ratio = typ == "ratio"
+    out[typ == TYPE_MASSBAL] = "mass balance"
+    out[typ == TYPE_BOUND]   = "lower bound"
+    out[typ == TYPE_SUM]     = "scale total & scrap anchor"
+    ratio = typ == TYPE_RATIO
     strip = var == "strippingratio"
     out[ratio & strip]          = "stripping"
     out[ratio & ~hard & ~strip] = "soft ratio"
@@ -165,12 +170,6 @@ class ProblemStatsDiagnostic:
     ) -> "ProblemStatsDiagnostic":
         """Follow the opt run's ``parents.upstream`` to its const and imp runs
         and load the year from disk."""
-        # Local import to keep diag at the leaf of the import graph (as SolverDiag).
-        from pysuto.acc import AccountingStructure
-        from pysuto.registry import (
-            ConstraintRunRegistry, ImputationRunRegistry, OptimRunRegistry,
-        )
-
         opt_reg  = OptimRunRegistry(opt_dir)
         upstream = opt_reg.load_sidecar(opt_run_id).get("parents", {}).get("upstream", {})
         const_run_id = upstream.get("const_run_id")
@@ -332,7 +331,7 @@ class ProblemStatsDiagnostic:
         # This diagnostic describes the standard-form block, so it labels rows by
         # the group the orchestrator realises them in (``row_layout``: soft, hard =, hard ≤).
         sense, hard = rm["sense"].astype(str).to_numpy(), rm["is_hard"].to_numpy(dtype=bool)
-        group = np.where(sense == "le", "le", np.where(hard, "eq", "soft"))
+        group = np.where(sense == SENSE_LE, "le", np.where(hard, "eq", "soft"))
         eq, le = group == "eq", group == "le"
         flowing = (np.abs(F) > BIND_TOL_KT).astype(np.int64)
         on_flow = (self._pattern() @ flowing) > 0
