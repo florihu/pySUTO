@@ -44,6 +44,7 @@ import numpy as np
 import pandas as pd
 
 from ._core import constraint_table
+from .objective import FAMILIES, family_frame, rank_identities, share_by_region
 
 # CSV schema of the edge table (present columns only, in this order).
 _EDGE_META_COLS = ["edge_id", "from_sector", "from_region", "from_entity",
@@ -396,7 +397,6 @@ class SolverStatsDiagnostic:
     def region_shares(self) -> pd.DataFrame:
         """:func:`~.objective.share_by_region` of every family whose frame exists,
         stacked (columns ``family, region, year, zsq, share, n_rows``)."""
-        from .objective import FAMILIES, family_frame, share_by_region
 
         ef, cf = self.edge_frame(), self.constraint_frame()
         parts = [share_by_region(family_frame(ef, cf, fam))
@@ -420,7 +420,6 @@ class SolverStatsDiagnostic:
     def write_rankings(self, odir: str, regions=None, suffix: str = "") -> list[str]:
         """Write ``ranking_<family>{suffix}.csv`` — the full identity ranking by
         objective share — for every family whose frame exists."""
-        from .objective import FAMILIES, family_frame, rank_identities
 
         os.makedirs(odir, exist_ok=True)
         paths: list[str] = []

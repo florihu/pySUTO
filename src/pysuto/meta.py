@@ -7,6 +7,8 @@ from typing import Dict, Optional, Any
 import numpy as np
 import pandas as pd
 
+from pysuto.unc import PedigreeScores
+
 
 
 @dataclass
@@ -153,7 +155,6 @@ class DataFeedMetadata:
  
     def to_pedigree_scores(self):
         """Return a PedigreeScores object built from the pedigree fields."""
-        from pysuto.unc import PedigreeScores
         return PedigreeScores(
             reliability              = self.reliability,
             completeness             = self.completeness,

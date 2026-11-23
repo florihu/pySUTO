@@ -1328,7 +1328,7 @@ scale-free one.
 
 ```
 pysuto/
-├── __init__.py            (currently empty — modules are imported directly)
+├── __init__.py            __version__ (from the installed distribution)
 │
 ├── acc.py                 AccountingStructure  (scipy.sparse COO/CSR)
 ├── conc.py                ConcordanceTable · WeightMatrix  (scipy.sparse CSR)
@@ -1414,32 +1414,55 @@ pysuto/
         └── uncprop.py      UncPropStatsDiagnostic (Stage 5)                ─┘
 ```
 
-**Import direction is strictly one-way:**
+**Import direction is strictly one-way.** The table below is the layer table: a *unit* is a top-level module or subpackage of `pysuto` (edges inside a unit are free), and a row lists the units it imports at module level, then those it imports only under `if TYPE_CHECKING:`. `tests/test_import_direction.py` reads this table and walks `src/pysuto` with `ast`, so a module-level import that is not in its row fails the suite; change the code or the row, never one without the other (#217).
 
-```
-acc  →  conc  →  feed  →  feedpipe
-input_registry ←  acc, solver, psut        (imports nothing from acc; acc.py holds the version checks)
-unc  ───────────────────────────────  (mixin, no upward imports)
-meta  →  registry
-acc  →  relation  →  impute  →  constraints   (relation: the params reader `read_params` and the A→B resolver; imports only logging and unc)
-collector  →  agg  →  impute  →  constraints  →  solver  →  uncprop
-_conditioning  ←  solver, uncprop          (shared σ-conditioning helper)
-knobs          ←  the stage drivers        (the --set / --run-id-file protocol)
-case           ←  the tutorial, the stage drivers (CaseSpec; imports nothing from pysuto); its `resolve_case` reaches a bundled case only by `importlib.import_module` on a name → module string, at call time: the one sanctioned reference from the library to `pysuto.tutorial`, kept by the runtime layering test (`tests/test_case_resolution.py`)
-stages         ←  case, pipeline, the stage drivers (the Stage 2–6 bodies over a CaseSpec; driver-level code like the scripts, not the data layer, so it imports diag; never imports the tutorial)
-tutorial ──── top, beside the drivers and `python -m pysuto` (`__main__`): the toy cases (`pysuto.tutorial`, #188); never imported by the library
-pipeline       ←  stages, registry, logging (runs each step as a child of pysuto._step; never imports scripts/ or the tutorial)
-psut           ←  acc, registry            (Stage 6 — reads a persisted opt run)
-piot           ←  psut                     (Stage 6 — a derived view of a PSUT)
-diag           ──── consumer; never imported into the data layer
-tutorial ──── top: imports the library (diag included) like a stage driver;
-                    nothing in pysuto but `__main__` imports them
-scripts/copper.py ──── the copper case, outside the package (ADR 0047): imports the library;
-                    `scripts/` drivers import it, `--case scripts/copper.py` resolves it
-utils / logging  ←  imported by any layer, import nothing from pysuto
-```
+| unit | module-level imports | typing only |
+| --- | --- | --- |
+| `acc` | `input_registry`, `logging`, `masks` |  |
+| `agg` | `logging`, `lp` |  |
+| `case` | `impute`, `knobs`, `relation` | `acc`, `agg`, `input_registry` |
+| `clarabel_backend` | `logging`, `qp` |  |
+| `collector` | `agg`, `logging`, `lp`, `registry` |  |
+| `compare` |  |  |
+| `conc` | `feed` |  |
+| `config` |  |  |
+| `constraints` | `acc`, `flow_node_balance`, `logging`, `lp`, `registry`, `relation` |  |
+| `diag` | `_conditioning`, `acc`, `clarabel_backend`, `constraints`, `logging`, `registry`, `relation`, `solver`, `uncprop` | `psut` |
+| `feed` | `unc` |  |
+| `feedpipe` | `acc`, `conc`, `input_registry`, `logging`, `lp`, `meta`, `registry`, `unc` |  |
+| `feedprep` | `acc`, `input_registry`, `registry`, `relation` |  |
+| `flow_node_balance` | `relation` |  |
+| `impute` | `acc`, `agg`, `flow_node_balance`, `logging`, `lp`, `relation` |  |
+| `input_registry` | `logging`, `meta` |  |
+| `knobs` |  |  |
+| `logging` |  |  |
+| `lp` |  |  |
+| `masks` | `logging` |  |
+| `meta` | `unc` |  |
+| `piot` | `psut` |  |
+| `pipeline` | `_step`, `case`, `logging`, `registry` |  |
+| `psut` | `acc`, `input_registry`, `logging`, `registry` |  |
+| `qp` |  |  |
+| `registry` | `logging`, `meta` | `constraints`, `psut`, `solver`, `uncprop` |
+| `relation` | `acc`, `logging`, `unc` |  |
+| `solver` | `_conditioning`, `acc`, `constraints`, `input_registry`, `logging`, `qp`, `registry` |  |
+| `stages` | `acc`, `case`, `clarabel_backend`, `collector`, `constraints`, `diag`, `impute`, `input_registry`, `knobs`, `logging`, `psut`, `registry`, `solver`, `uncprop` |  |
+| `tutorial` | `*` |  |
+| `unc` | `lp` |  |
+| `uncprop` | `_conditioning`, `constraints`, `logging`, `registry` |  |
+| `utils` |  |  |
+| `__main__` | `case`, `compare`, `logging`, `pipeline`, `tutorial` |  |
+| `_conditioning` | `logging` |  |
+| `_step` |  |  |
 
-> The `src/pysuto/` tree also contains legacy subpackages — `obs/`, `opt/`, `const/`, `weight/`, `datafeed/` — that pre-date the canonical flat-module layout above. They are **not** part of the active pipeline and are pending audit/removal.
+How to read it:
+
+- The spine runs `acc → relation → impute → constraints → solver → uncprop` with `collector → agg → impute` beside it; `input_registry`, `masks`, `unc`, `lp`, `qp`, `_conditioning`, `logging` and `utils` lie below. `meta → unc`, `registry → meta`, `input_registry → meta`; `conc → feed → unc`; `flow_node_balance → relation`; `psut → acc, registry` and `piot → psut` (Stage 6, a derived view). `relation` holds the params reader `read_params` and the A→B resolver and imports `acc`, `unc` and `logging`; `acc` imports neither `relation` nor `registry`.
+- `case` (`CaseSpec`) imports `impute`, `knobs` and `relation` at module level and `acc`, `agg` and `input_registry` for typing only; `resolve_case` reaches a bundled case only through `importlib.import_module` on a name → module string, at call time, the one sanctioned reference from the library to `pysuto.tutorial` (`tests/test_case_resolution.py`). `knobs` is the `--set` / `--run-id-file` protocol of the drivers; `stages` holds the Stage 2–6 bodies over a `CaseSpec` and `pipeline` runs each step as a child of `_step`; neither imports the tutorial or `scripts/`.
+- `diag` is a consumer: the data layer does not import it at module level. Four call sites do so inside a function, behind a `diag_plot` flag or on use (`constraints/engine.py`, `feedpipe.py` twice, and `psut.py`'s `sankey`), each carrying a `lazy` comment. This is the current state, not a decision: whether plotting moves to the drivers is open for the Stage 1 and Stage 3 architecture sessions (#174, #177).
+- The run registries sit below the stages whose result classes they rebuild, so each `load` imports its result class (`ConstraintRun`, `OptimResult`, `UncPropResult`, `PSUT`, `AggregationResult` and `ImputationLog`) inside the function and the annotations use `TYPE_CHECKING`: a deliberate back-edge family, `registry → constraints, solver, uncprop, psut, agg, impute`, kept lazy so that importing a registry pulls in no stage.
+- Every other function-local import of `pysuto` names its reason in a comment (`cycle`, `lazy` or `optional`); the test requires it. `masks → relation.param_relation` is a cycle (`relation → acc → masks`), `psut → piot` is one (`piot → psut`), and `_step` imports lazily so that `pipeline` can read `StepSpec` without the stages.
+- `tutorial` is the top: it imports the library like a stage driver, and nothing but `__main__` imports it. `scripts/copper.py` is the copper case outside the package (ADR 0047): it imports the library, and the `scripts/` drivers import it. `__init__.py` defines `__version__` (read from the installed distribution) and imports nothing else.
 
 ---
 

@@ -15,6 +15,7 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+from ..constraints import SIGMA_C_INACTIVE
 from ..constraints.naming import soft_row_mask, upgrade_legacy_row_meta
 from ._plot import _C, _grouped_box_grid, _savefig
 
@@ -483,7 +484,6 @@ class ConstDiagnostic:
         we exclude them so the histogram shows only this year's active
         rows.
         """
-        from ..constraints import SIGMA_C_INACTIVE
 
         cr        = self.cr
         soft_mask = self._soft_mask()

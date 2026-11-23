@@ -173,7 +173,7 @@ class TestFromOptId:
             self, toy_results, tmp_path, monkeypatch, capsys):
         """The tree and provenance.md print every feed run id; an unregistered one is
         marked, never '?' (#203)."""
-        import pysuto.registry as reg
+        import pysuto.diag.solver as reg
         from pysuto.registry import ConstraintRunRegistry
         from pysuto.diag import SolverDiag
 

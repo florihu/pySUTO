@@ -15,6 +15,8 @@ from typing import Optional
 import numpy as np
 import pandas as pd
 
+from pysuto.registry import ImputationRunRegistry
+
 from ._plot import _C, _grouped_box_grid, _hist_bins, _savefig
 
 
@@ -133,7 +135,6 @@ class ImpDiagnostic:
         Load an imputation run from ImputationRunRegistry and construct
         ImpDiagnostic. ``run_id`` must be a registered run in ``storage_dir``.
         """
-        from pysuto.registry import ImputationRunRegistry
         registry = ImputationRunRegistry(storage_dir=storage_dir)
         agg      = registry.load(run_id)
         return cls(agg, acc_struct=acc_struct, label=label or run_id)

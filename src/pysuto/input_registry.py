@@ -57,6 +57,7 @@ from pathlib import Path
 from typing import Optional
 
 from pysuto.logging import get_logger
+from pysuto.meta import DataFeedMetadata
 
 _log = get_logger("input_registry")
 
@@ -358,10 +359,6 @@ class InputRegistry:
 
     @staticmethod
     def _feed_meta_label(current: Path) -> Optional[str]:
-        try:
-            from pysuto.meta import DataFeedMetadata
-        except ImportError:
-            return None
         if not current.is_dir():
             return None
         for p in sorted(current.iterdir()):

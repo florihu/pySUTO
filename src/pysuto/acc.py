@@ -143,7 +143,7 @@ except ImportError:
     def get_logger(name):
         return logging.getLogger(name)
 
-from pysuto.masks import read_masks_csv
+from pysuto.masks import MaskRuleSet, coerce_mask, read_masks_csv
 
 
 # =============================================================================
@@ -1299,8 +1299,6 @@ class AccountingStructure:
         callable receiving the expanded edge index (with ``sector_from``,
         ``region_from``, etc. columns) and returning a boolean array.
         """
-        from pysuto.masks import coerce_mask
-
         arr = coerce_mask(name, mask, self.edge_index, self.node_index, self.n_edges)
         if name in self.masks:
             self.logger.warning("register_mask: overwriting existing mask %r", name)
@@ -1316,8 +1314,6 @@ class AccountingStructure:
         overlay beats acc-local definitions). Used to apply a mask from the
         separate ``mask`` input kind on top of acc-local masks.
         """
-        from pysuto.masks import MaskRuleSet
-
         if not os.path.exists(csv_path):
             raise FileNotFoundError(f"Mask overlay file not found: {csv_path!r}")
         resolved = MaskRuleSet.from_csv(csv_path).resolve(
@@ -1340,8 +1336,6 @@ class AccountingStructure:
         self.user_mask_names: list[str] = []
         if not records:
             return
-        from pysuto.masks import MaskRuleSet
-
         self.logger.info("Loading %d user-mask rule(s)", len(records))
         resolved = MaskRuleSet.from_records(records).resolve(
             self.edge_index, self.node_index

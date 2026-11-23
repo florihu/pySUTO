@@ -828,7 +828,7 @@ class ConstraintEngine:
             self._registry.register(cr, parents=parents, stage_config=stage_config)
 
         if diag_plot:
-            from ..diag import ConstDiagnostic, ConstStatsDiagnostic
+            from ..diag import ConstDiagnostic, ConstStatsDiagnostic   # lazy: diag is a consumer layer (README §5)
             odir = os.path.join(self._registry.storage_dir, cr.run_id, "diag")
             year = str(diag_year if diag_year is not None else timesteps[0])
             ConstDiagnostic(cr, label=cr.run_id, year=year).plot(odir=odir)

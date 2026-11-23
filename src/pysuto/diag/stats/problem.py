@@ -37,6 +37,10 @@ import numpy as np
 import pandas as pd
 import scipy.sparse as sp
 
+from pysuto.acc import AccountingStructure
+from pysuto.registry import (
+    ConstraintRunRegistry, ImputationRunRegistry, OptimRunRegistry,
+)
 from pysuto.uncprop import DEFAULT_BIND_TOL as BIND_TOL_KT
 
 # Supply-chain order of the sectors; sinks (FU, Tailings, Slag, WR, stock legs)
@@ -165,11 +169,6 @@ class ProblemStatsDiagnostic:
     ) -> "ProblemStatsDiagnostic":
         """Follow the opt run's ``parents.upstream`` to its const and imp runs
         and load the year from disk."""
-        # Local import to keep diag at the leaf of the import graph (as SolverDiag).
-        from pysuto.acc import AccountingStructure
-        from pysuto.registry import (
-            ConstraintRunRegistry, ImputationRunRegistry, OptimRunRegistry,
-        )
 
         opt_reg  = OptimRunRegistry(opt_dir)
         upstream = opt_reg.load_sidecar(opt_run_id).get("parents", {}).get("upstream", {})

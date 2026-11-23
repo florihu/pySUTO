@@ -57,7 +57,11 @@ from typing import NamedTuple, Optional
 import numpy as np
 import pandas as pd
 
-from pysuto.acc import BoundaryRole, boundary_role_values
+from pysuto.acc import AccountingStructure, BoundaryRole, boundary_role_values
+from pysuto.registry import (
+    ConstraintRunRegistry, DataFeedRegistry, ImputationRunRegistry, OptimRunRegistry,
+)
+from pysuto.registry.optim import warn_if_prefix_block_run
 
 from ._plot import _CAT8, _CAT_EXT, _INK, _STATUS, _savefig, _seq_cmap
 from .stats._core import boundary_edges, filter_regions, sector_totals
@@ -214,7 +218,6 @@ class SolverDiag:
         if not self._acc_resolved:
             self._acc_resolved = True
             try:
-                from pysuto.acc import AccountingStructure
                 self._acc = AccountingStructure.load(self._const_run.acc_id)
             except Exception:
                 self._acc = None
@@ -279,10 +282,6 @@ class SolverDiag:
         acc=None,
     ) -> "SolverDiag":
         """Reconstruct results + ConstraintRun from disk."""
-        # Local import to keep diag.py at the leaf of the import graph for
-        # CI environments without the full Stage-3 stack installed.
-        from pysuto.registry import ConstraintRunRegistry, OptimRunRegistry
-        from pysuto.registry.optim import warn_if_prefix_block_run
 
         opt_reg = OptimRunRegistry(output_dir)
         if opt_run_id not in opt_reg._index:
@@ -309,7 +308,6 @@ class SolverDiag:
         agg_id = const_run.agg_id
         if agg_id:
             try:
-                from pysuto.registry import ImputationRunRegistry, DataFeedRegistry
                 imp_reg = ImputationRunRegistry(imp_dir)
                 if agg_id in imp_reg._index:
                     imp_sidecar = imp_reg.load_sidecar(agg_id)

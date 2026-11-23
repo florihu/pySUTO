@@ -194,6 +194,7 @@ def coerce_mask(
     Used by :meth:`AccountingStructure.register_mask`.
     """
     if callable(mask):
+        # cycle: relation imports acc, which imports masks
         from pysuto.relation.param_relation import expand_edge_index
 
         ei_exp = expand_edge_index(edge_index, node_index)

@@ -521,7 +521,7 @@ def run_feed_pipeline(
     )
 
     if diag_plot:
-        from pysuto.diag import FeedDiagnostics
+        from pysuto.diag import FeedDiagnostics   # lazy: diag is a consumer layer (README §5)
         acc_id_lab = (parents.get("inputs", {}).get("acc", {}).get("id") or "")
         diag = FeedDiagnostics(
             feed_run_id = entry.run_id,
@@ -849,7 +849,7 @@ def _run_feed(spec, acc_id, data_dir, run_log, diag):
 
     # F — diagnostics
     if diag:
-        from pysuto.diag import FeedDiagnostics   # diag/ is a leaf: imported on use
+        from pysuto.diag import FeedDiagnostics   # lazy: diag is a consumer layer (README §5)
         _log.info("=" * 60)
         _log.info("F  Generating diagnostics")
         d = FeedDiagnostics(

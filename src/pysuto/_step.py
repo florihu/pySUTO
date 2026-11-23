@@ -46,6 +46,7 @@ class StepSpec:
 
 def run_spec(spec: StepSpec) -> str:
     """Run the step ``spec`` describes in this process; return its run id."""
+    # lazy: pipeline imports StepSpec from here without the stages
     from pysuto import stages
     from pysuto.case import resolve_case
     from pysuto.config import load_config
@@ -73,6 +74,7 @@ def run_spec(spec: StepSpec) -> str:
 
 
 def main(argv=None) -> int:
+    # lazy: pipeline imports StepSpec from here without the stages
     from pysuto.knobs import write_run_id
     from pysuto.logging import start_run_log
     argv = sys.argv[1:] if argv is None else argv
