@@ -288,11 +288,11 @@ def test_per_node_mass_balance_from_the_table_alone(psut):
             flow_in  = b["S"].sum(axis=0)
             flow_out = b["U"].sum(axis=1) + b["Y"].sum(axis=1)
             assert flow_in.index.equals(flow_out.index)
-            np.testing.assert_allclose(flow_in.to_numpy(), flow_out.to_numpy(), atol=1e-9)
+            np.testing.assert_allclose(flow_in.to_numpy(), flow_out.to_numpy(), rtol=1e-10, atol=1e-9)
             proc_in  = b["U"].sum(axis=0) + b["E"].sum(axis=0) + b["O"].sum(axis=0)
             proc_out = b["S"].sum(axis=1) + b["P"].sum(axis=1) + b["W"].sum(axis=1)
             assert proc_in.index.equals(proc_out.index)
-            np.testing.assert_allclose(proc_in.to_numpy(), proc_out.to_numpy(), atol=1e-9)
+            np.testing.assert_allclose(proc_in.to_numpy(), proc_out.to_numpy(), rtol=1e-10, atol=1e-9)
             assert proc_in.to_numpy().sum() > 0                 # not vacuous
 
 
@@ -314,10 +314,10 @@ def test_realized_conc_is_the_ratio_of_two_valuations(psut):
     assert len(rc) == N_PER_SLICE * len(PERIODS)
     assert {"val_CC", "val_Mass", "conc"} <= set(rc.columns)
     assert "edge_id" not in rc.columns                        # joined on the edge template
-    np.testing.assert_allclose(rc["conc"].to_numpy(), 1.0 / 3.0)
+    np.testing.assert_allclose(rc["conc"].to_numpy(), 1.0 / 3.0, rtol=1e-10)
     one = psut.realized_conc("2021", numerator="Mass")
     assert len(one) == N_PER_SLICE and set(one["period"]) == {"2021"}
-    np.testing.assert_allclose(one["conc"].to_numpy(), 3.0)
+    np.testing.assert_allclose(one["conc"].to_numpy(), 3.0, rtol=1e-10)
     with pytest.raises(ValueError, match="same valuation"):
         psut.realized_conc(numerator="CC", denominator="CC")
 
@@ -406,7 +406,8 @@ def test_registry_round_trip(tmp_path, psut):
     assert sidecar["parents"]["upstream"]["opt_run_id"] == "opt_x"
     assert sidecar["stage_config"] == {"valuations": ["Mass", "CC"], "primary": "CC",
                                        "blocks": ["E", "O", "P", "S", "U", "Y"],
-                                       "aggregation": []}
+                                       "aggregation": [],
+                                       "valuation_units": {"Mass": "kt", "CC": "kt CC"}}
     assert sidecar["stage_summary"]["timesteps"] == ["2020", "2021"]
     per_t = sidecar["stage_summary"]["per_timestep"]["2020"]
     assert per_t["n_rows"] == 2 * N_PER_SLICE
@@ -418,6 +419,8 @@ def test_registry_round_trip(tmp_path, psut):
     pd.testing.assert_frame_equal(loaded.nodes, psut.nodes)
     assert (loaded.valuations, loaded.primary) == (["Mass", "CC"], "CC")
     assert (loaded.acc_id, loaded.opt_run_id, loaded.const_run_id) == ("toy", "opt_x", "const_x")
+    assert loaded.acc_ref == {"id": "toy"}                     # the sidecar's acc entry (#286)
+    assert loaded.valuation_units == psut.valuation_units
     pd.testing.assert_frame_equal(loaded.O("2021", "Mass"), psut.O("2021", "Mass"))
     pd.testing.assert_frame_equal(loaded.realized_conc(), psut.realized_conc())
 
@@ -742,7 +745,7 @@ def test_aggregated_psut_round_trips_through_registry(tmp_path, psut):
     assert loaded.aggregation == w.aggregation
     rc = loaded.realized_conc("2020")
     assert "region_crossed" in rc.columns and len(rc) == 9
-    np.testing.assert_allclose(rc["conc"].to_numpy(), 1.0 / 3.0)
+    np.testing.assert_allclose(rc["conc"].to_numpy(), 1.0 / 3.0, rtol=1e-10)
 
 
 # ---------------------------------------------------------------------------
@@ -843,6 +846,117 @@ def test_cli_writes_sankey_html(tmp_path, monkeypatch, toy_acc, F, patched_acc_l
         for name in ("supply_use", "process_network"):
             html = figs / f"sankey_{name}_World_{t}_CC.html"
             assert html.exists() and "sankey" in html.read_text()[:200000]
+            assert " kt CC" in html.read_text()          # the content valuation's unit (#286)
     assert not list(figs.glob("*.png"))                                 # png=False
     cli.main(opt_id, data_dir=str(tmp_path), sankey=[], figs_dir=str(figs), png=False)   # flag alone → latest
     assert (figs / "sankey_supply_use_World_2021_CC.html").exists()
+
+
+# ---------------------------------------------------------------------------
+# 11) Review fixes (#286): units on the figure, refused inputs, uncovered guards
+# ---------------------------------------------------------------------------
+
+def test_sankey_hover_unit_follows_the_valuation_role(psut, tmp_path):
+    """The generic path (no ``unit=``) names the content valuation ``kt CC`` and the
+    gross one ``kt``, through aggregation, the PIOT and a persisted run (#286)."""
+    pytest.importorskip("plotly")
+    from pysuto.registry import PsutRunRegistry
+    assert (psut.unit_of("CC"), psut.unit_of("Mass")) == ("kt CC", "kt")
+    world = psut.aggregate(region="World", keep_crossings=True)
+    reg = PsutRunRegistry(str(tmp_path / "psut"))
+    loaded = reg.load(reg.register(world, parents={"inputs": {}, "upstream": {}}))
+    for view in (psut, world, world.to_piot(level="Z"), loaded):
+        cc = view.sankey("2020").to_dict()
+        assert " kt CC · " in cc["data"][0]["link"]["hovertemplate"]
+        assert " kt CC<extra>" in cc["data"][0]["node"]["hovertemplate"]
+        assert "CC [kt CC]" in cc["layout"]["title"]["text"]
+        mass = view.sankey("2020", "Mass").to_dict()
+        assert " kt · " in mass["data"][0]["link"]["hovertemplate"]
+        assert "Mass [kt]" in mass["layout"]["title"]["text"]
+    given = world.sankey("2020", unit="t").to_dict()               # an explicit unit wins
+    assert " t · " in given["data"][0]["link"]["hovertemplate"]
+
+
+def test_a_non_finite_solution_is_refused(toy_acc, F):
+    from pysuto.psut import PSUT
+    for bad in (np.nan, np.inf):
+        results = _legacy_results(toy_acc, F)
+        results["2021"].F_opt[3] = bad
+        with pytest.raises(ValueError, match="2021.*non-finite"):
+            PSUT.from_results(results, toy_acc)
+
+
+def test_a_procedural_accounting_structure_is_refused(toy_acc, F):
+    from pysuto.psut import PSUT
+    toy_acc.boundary_roles = toy_acc.valuation_roles = None       # mode B binds no roles
+    with pytest.raises(ValueError, match="role-bound accounting structure"):
+        PSUT.from_results(_legacy_results(toy_acc, F), toy_acc)
+
+
+def test_constructor_and_result_guards(toy_acc, F, psut):
+    from pysuto.psut import PSUT
+    with pytest.raises(ValueError, match="results is empty"):
+        PSUT.from_results({}, toy_acc)
+    with pytest.raises(ValueError, match="primary 'Gold' is not one of"):
+        PSUT.from_results(_legacy_results(toy_acc, F), toy_acc, primary="Gold")
+    with pytest.raises(ValueError, match="primary 'Gold' is not one of"):
+        PSUT(psut.table, psut.nodes, valuations=VALUATIONS, primary="Gold")
+    results = _block_results(toy_acc, F)
+    results["2020"].cols_t = results["2020"].cols_t[:-1]          # F_opt and cols_t differ
+    with pytest.raises(ValueError, match=r"F_opt \(\d+\) and cols_t \(\d+\) differ"):
+        PSUT.from_results(results, toy_acc)
+
+
+def test_a_node_index_without_entity_sub_still_labels_the_views(toy_acc, F, psut):
+    from pysuto.psut import PSUT
+    toy_acc.node_index = toy_acc.node_index.drop(columns="entity_sub")
+    bare = PSUT.from_results(_legacy_results(toy_acc, F), toy_acc)
+    assert bare.nodes["entity_sub"].isna().all()
+    pd.testing.assert_frame_equal(bare.nodes.drop(columns="entity_sub"),
+                                  psut.nodes.drop(columns="entity_sub"))
+    pd.testing.assert_frame_equal(bare.Y("2020"), psut.Y("2020"))
+
+
+def test_realized_conc_guards(psut):
+    from pysuto.psut import PSUT
+    with pytest.raises(KeyError, match="valuation 'Gold'"):
+        psut.realized_conc(numerator="Gold", denominator="Mass")
+    with pytest.raises(KeyError, match="period '1999'"):
+        psut.realized_conc("1999")
+    odd = PSUT(psut.table, psut.nodes, valuations=["Mass", "CC", "Other"], primary="CC")
+    with pytest.raises(ValueError, match="denominator= is required"):
+        odd.realized_conc()
+
+
+def test_the_longest_path_layout_gives_up_on_a_cycle():
+    from pysuto.diag.psut import _positions
+    nodes = pd.DataFrame({"node": [0, 1], "kind": ["process", "flow"]})
+    links = pd.DataFrame({"source": [0, 1], "target": [1, 0], "value": [1.0, 1.0]})
+    assert _positions(nodes, links) is None
+
+
+def test_registering_a_psut_writes_no_piot(tmp_path, psut):
+    """ADR 0037: the PIOT is a derived view, never persisted."""
+    from pysuto.registry import PsutRunRegistry
+    reg = PsutRunRegistry(str(tmp_path / "psut"))
+    psut.to_piot(level="L")                                      # building one writes nothing
+    run_id = reg.register(psut, parents={"inputs": {}, "upstream": {}})
+    files = sorted(p.name for p in (tmp_path / "psut" / run_id).rglob("*") if p.is_file())
+    assert files == ["metadata.json", "nodes.parquet", "t_2020.parquet", "t_2021.parquet"]
+
+
+def test_the_library_imports_no_supply_use_package():
+    """ADR 0007: pySUT and pymrio are not dependencies."""
+    import pathlib
+    import re
+    import pysuto
+    banned = ("pysut", "pymrio")
+    src = pathlib.Path(pysuto.__file__).parent
+    for path in src.rglob("*.py"):
+        for line in path.read_text().splitlines():
+            head = line.strip().split()
+            if len(head) >= 2 and head[0] in ("import", "from"):
+                assert head[1].split(".")[0].lower() not in banned, (path, line)
+    toml = src.parents[1] / "pyproject.toml"
+    if toml.exists():
+        assert not re.search(r"\b(pysut|pymrio)\b", toml.read_text().lower())

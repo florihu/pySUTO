@@ -314,6 +314,29 @@ def test_the_psut_supply_and_use_blocks_balance_per_node(chain):
     np.testing.assert_allclose(nodes["inflow"], nodes["outflow"], rtol=0.0, atol=1e-8)
 
 
+def test_the_solved_footprints_track_the_planted_truth(chain):
+    """Stage 6 scored against the truth: the PIOT footprint of the solved chain and of the
+    planted flows, world total of the nature extraction per period and valuation. Band
+    fixed on the first run of this test (2026-11-23, seed 59): the largest relative gap
+    is 0.065 (2001, Content) over the five years and both valuations. Never loosen it."""
+    from types import SimpleNamespace
+    from pysuto.psut import PSUT
+    root, ids, acc = chain["root"], chain["ids"], chain["acc"]
+    solved = PsutRunRegistry(str(root / "proc" / "psut")).load(ids["psut"])
+    truth  = toy.truth_vector(toy.truth(), acc)
+    planted = PSUT.from_results(
+        {t: SimpleNamespace(timestep=t, F_opt=truth, cols_t=None) for t in solved.periods()},
+        acc)
+    a, b = solved.to_piot(level="L"), planted.to_piot(level="L")
+    gaps = []
+    for period in solved.periods():
+        for valuation in solved.valuations:
+            fa = a.footprint("E", period, valuation, by=None)
+            fb = b.footprint("E", period, valuation, by=None)
+            gaps.append(abs(fa / fb - 1.0))
+    assert len(gaps) == 10 and max(gaps) < 0.08, gaps
+
+
 def test_the_sankey_tables_sum_to_the_psut_totals(chain, caplog):
     """Per block, the PSUT's total is the Sankey's links plus the links it drops; in the
     planted year the dropped part (negative posteriors, a negative stock change) is not
