@@ -39,13 +39,13 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from pysuto.diag    import SolverDiag
 from pysuto.logging import get_logger, start_run_log
 
-_log = get_logger("init_solve_diag")
+_log = get_logger("solve_diag")
 
 
 def main(opt_run_id: str, label: str = "", regions=None) -> None:
-    start_run_log("data", "init_solve_diag")
+    start_run_log("data", "solve_diag")
 
-    _log.info("=== init_solve_diag START ===")
+    _log.info("=== solve_diag START ===")
     _log.info("Loading SolverDiag from opt_run_id='%s'", opt_run_id)
 
     diag = SolverDiag.from_opt_id(
@@ -60,7 +60,7 @@ def main(opt_run_id: str, label: str = "", regions=None) -> None:
     diag_dir = os.path.join(OUTPUT_DIR, opt_run_id, "diag")
     _log.info("Wrote %d files to %s", len(paths), diag_dir)
 
-    _log.info("=== init_solve_diag DONE ===")
+    _log.info("=== solve_diag DONE ===")
 
 
 if __name__ == "__main__":

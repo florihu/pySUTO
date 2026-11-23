@@ -408,10 +408,12 @@ class Solver:
         raise RuntimeError(
             f"Feasibility check FAILED at timestep {t_label!r}: "
             f"{self.backend.name} status={res.raw_status}. "
-            f"Top hard-row offenders (largest |G·a - c|): {worst_msg}. "
-            f"Widen the offending ratio bounds in the params CSV "
-            f"(e.g. toward [0, 1]) and rebuild the ConstraintRun, "
-            f"or remove the conflicting constraint."
+            f"Hard rows with the largest |G·a - c| at the solver's last point "
+            f"(a hint, not the conflicting set): {worst_msg}. "
+            f"A data contradiction is fixed in the input, never by dropping the row "
+            f"or loosening σ (ADR 0019, 0035): check the inputs behind these rows "
+            f"(the params row of a ratio band, the feed behind a scale total), "
+            f"correct the one that is wrong and rebuild the ConstraintRun."
         )
 
     # ------------------------------------------------------------------

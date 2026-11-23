@@ -1212,6 +1212,19 @@ recording ([knobs.py](src/pysuto/knobs.py), #100):
 python scripts/run_solver.py --const-run-id <id> --set TOL_GAP_REL=1e-6 --set QP_VARIABLES=flows
 ```
 
+The Stage 2–6 drivers share `--case`, `--data-dir` and `--run-id-file`; what differs, and why (#219):
+
+| Option | Stage 2 | 3 | 4 | 5 | 6 |
+|---|---|---|---|---|---|
+| upstream run | `--feed-id` (repeatable) | `--imp-run-id` | `--const-run-id` | positional `opt_run_id` | positional `opt_run_id` |
+| `--set` (knobs) | yes | yes | yes | no: Stage 5 has no knobs (constants of `stages`) | no: its one knob is `--primary` |
+| `--config` | yes | yes | no: Stage 4 reads the acc id from the const sidecar | no | no |
+| `--imp-dir` / `--const-dir` | `--imp-dir` (output) | `--imp-dir` (input), `--const-dir` (output) | `--const-dir` (input) | no | no |
+
+The upstream id is an option where a stage reads an input directory a sweep redirects (`--imp-dir`,
+`--const-dir`, #108) and positional where the stage resolves its parents from the sidecar and
+only one id exists. `scripts/solver_stats.py` takes its `opt_run_id` as a required argument.
+
 [pipeline.py](src/pysuto/pipeline.py) composes the stages as steps (#103). It runs each
 step in a fresh child process (`python -m pysuto._step`) that calls the `pysuto.stages.run_*`
 function with the same overrides (same names, types and precedence as `--set`; the child's memory

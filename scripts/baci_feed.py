@@ -25,6 +25,7 @@ concordance), ``result.npz`` (F_root, sigma_root, cv_root and cv_src) and
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 
@@ -52,5 +53,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Build the BACI trade feed (one feed run in data/proc/feed/registry/); it is "
+                    "after build_baci_reexport.py and before build_trade_shares.py and icsg_feed.py (ADR 0024, 0027, 0030 am.). Reads config/config.yaml relative to the working "
+                    "directory, so run it from the repo root; takes no other options.")
+    parser.parse_args()          # before the stage lock: --help builds and writes nothing
     with stage_lock("baci_feed"):   # registries have no locking (#101)
         main()

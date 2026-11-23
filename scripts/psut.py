@@ -52,9 +52,7 @@ from pysuto.stages import FIGS_DIR, PRIMARY, PSUT_KNOBS as KNOBS, run_psut
 DEFAULT_CASE = str(Path(__file__).resolve().with_name("copper.py"))
 CASE = resolve_case(DEFAULT_CASE)
 
-_log = get_logger("init_psut")
-
-DATA_DIR = "data"          # holds proc/opt, proc/const, proc/acc; output → proc/psut
+_log = get_logger("psut")
 
 
 def main(
@@ -62,13 +60,13 @@ def main(
     label:      str = "",
     primary:    str | None = None,       # None: the case's PRIMARY, else the content valuation
     timesteps:  list | None = None,
-    data_dir:   str = DATA_DIR,
+    data_dir:   str = "data",      # holds proc/opt, proc/const, proc/acc; output → proc/psut
     sankey:     list | None = None,      # periods to draw; [] → the latest
     figs_dir:   str = FIGS_DIR,
     png:        bool = True,             # also a static PNG per figure, when kaleido can render
     case:       CaseSpec = CASE,         # recorded in the sidecar; must have made the opt run
 ) -> str:
-    start_run_log(data_dir, "init_psut")
+    start_run_log(data_dir, "psut")
     return run_psut(case, opt_run_id, label, primary, timesteps, data_dir=data_dir,
                     sankey=sankey, figs_dir=figs_dir, png=png, logger=_log)
 
@@ -85,9 +83,9 @@ if __name__ == "__main__":
     parser.add_argument("--timesteps", nargs="+", default=None,
                         help="Subset of timestep labels (default: every timestep of the run).")
     add_case_arg(parser, default=DEFAULT_CASE)
-    parser.add_argument("--data-dir", default=DATA_DIR,
+    parser.add_argument("--data-dir", default="data",
                         help="Data root holding proc/opt, proc/const, proc/acc "
-                             f"(default {DATA_DIR!r}).")
+                             "(default 'data').")
     parser.add_argument("--sankey", nargs="*", default=None, metavar="PERIOD",
                         help="Write the World supply-use and process-network Sankeys for these "
                              "periods (flag without values: the latest period).")

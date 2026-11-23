@@ -26,6 +26,7 @@ concordance), ``result.npz`` (F_root, sigma_root, cv_root, cv_src and observed_z
 
 from __future__ import annotations
 
+import argparse
 import os
 import sys
 
@@ -55,5 +56,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(
+        description="Build the ICSG copper-flow feed (one feed run in data/proc/feed/registry/); it is "
+                    "the last Stage 1 feed build, after build_trade_shares.py (ADR 0024, 0027, 0030 am.; build order: BACI parse, register gross baci vN, icsg_clean.py --to-feed, build_baci_reexport.py, baci_feed.py, build_trade_shares.py, icsg_feed.py). Reads config/config.yaml relative to the working "
+                    "directory, so run it from the repo root; takes no other options.")
+    parser.parse_args()          # before the stage lock: --help builds and writes nothing
     with stage_lock("icsg_feed"):   # registries have no locking (#101)
         main()
