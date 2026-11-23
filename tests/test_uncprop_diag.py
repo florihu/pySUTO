@@ -24,6 +24,7 @@ matplotlib.use("Agg")  # headless backend before any pyplot import
 import numpy as np
 import pytest
 from test_solver import make_solver  # type: ignore
+from test_uncprop import _stub_runs  # type: ignore
 
 
 STEMS = ["ud_r_01_contraction_shift", "ud_r_02_prior_posterior_bands",
@@ -83,10 +84,7 @@ def _propagate(results, cr, tmp_path, monkeypatch):
     from pysuto.uncprop import KalmanUncProp
     prop = KalmanUncProp(opt_dir=str(tmp_path / "opt"), const_dir=str(tmp_path / "const"),
                          uncprop_dir=str(tmp_path / "uncprop"))
-    monkeypatch.setattr(prop._opt_registry, "load_sidecar",
-                        lambda _rid: {"parents": {"upstream": {"const_run_id": cr.run_id}}})
-    monkeypatch.setattr(prop._opt_registry, "load", lambda _rid: results)
-    monkeypatch.setattr(prop._const_registry, "load", lambda _rid: cr)
+    _stub_runs(prop, cr, results)
     return prop.compute("opt_fake", alpha=0.05)
 
 
@@ -327,3 +325,103 @@ class TestRegistry:
         assert set(diag._frame(timesteps=["2021"])["year"]) == {"2021"}
         with pytest.raises(KeyError, match="1999"):
             diag._frame(timesteps=["1999"])
+
+
+# ---------------------------------------------------------------------------
+# 5. The review's U5 findings (#285): run resolution, thinning, placeholders, driver
+# ---------------------------------------------------------------------------
+
+def _persisted_chain(proc, tmp_path, monkeypatch, agg_id=""):
+    """The toy chain persisted under ``proc/{const,opt,uncprop,imp}`` → (uncprop run id, acc)."""
+    from pysuto.registry import ConstraintRunRegistry
+    from pysuto.uncprop import KalmanUncProp
+
+    results, cr, acc = _block_run(tmp_path, monkeypatch, agg_id=agg_id)
+    dirs = {k: str(proc / k) for k in ("const", "opt", "uncprop", "imp")}
+    ConstraintRunRegistry(dirs["const"]).register(cr)
+    opt_run_id = make_solver(const_dir=dirs["const"], verbose_first_solve=False).persist(
+        run_id=cr.run_id, results=results, output_dir=dirs["opt"], const_run_id=cr.run_id)
+    prop = KalmanUncProp(opt_dir=dirs["opt"], const_dir=dirs["const"],
+                         uncprop_dir=dirs["uncprop"])
+    return prop.persist(prop.compute(opt_run_id), opt_run_id), dirs, acc
+
+
+class TestRunResolutionAndHelpers:
+
+    def test_qq_index_keeps_both_tails_whole_and_thins_the_bulk(self):
+        from pysuto.diag.uncprop import _QQ_BULK, _QQ_TAIL, _qq_index
+        np.testing.assert_array_equal(_qq_index(100), np.arange(100))
+        k = _qq_index(5000)
+        assert np.all(np.diff(k) > 0) and k.size <= _QQ_BULK + 2 * _QQ_TAIL
+        assert set(range(_QQ_TAIL)) <= set(k) and set(range(5000 - _QQ_TAIL, 5000)) <= set(k)
+
+    def test_cells_are_chunked_six_to_a_line_under_their_head(self):
+        from pysuto.diag.uncprop import _cells_lines
+        lines = _cells_lines("  head : ", [str(i) for i in range(8)])
+        assert lines == ["  head : 0  1  2  3  4  5", " " * 9 + "6  7"]
+
+    def test_the_unit_is_named_after_the_valuation(self):
+        from pysuto.diag.uncprop import _unit
+        assert (_unit("CC"), _unit("Mass"), _unit("all")) == ("kt CC", "kt Mass", "kt")
+
+    def test_a_sidecar_without_its_parents_raises(self, tmp_path, monkeypatch):
+        from pysuto.diag import UncPropDiag
+        from pysuto.registry import UncPropRunRegistry
+        results, cr, _ = _block_run(tmp_path, monkeypatch)
+        unc = _propagate(results, cr, tmp_path, monkeypatch)
+        rid = UncPropRunRegistry(str(tmp_path / "u")).register(
+            unc, parents={"inputs": {}, "upstream": {}})
+        with pytest.raises(KeyError, match="lacks parents.upstream"):
+            UncPropDiag.from_uncprop_id(rid, uncprop_dir=str(tmp_path / "u"))
+
+    def test_the_unknown_run_error_names_the_index_file(self, tmp_path):
+        from pysuto.diag import UncPropDiag
+        with pytest.raises(KeyError, match="registry.json"):
+            UncPropDiag.from_uncprop_id("uncprop_nope", uncprop_dir=str(tmp_path / "u"))
+
+    def test_a_missing_imputation_run_is_logged(self, tmp_path, monkeypatch, caplog):
+        from pysuto.diag import UncPropDiag
+        rid, dirs, acc = _persisted_chain(tmp_path, tmp_path, monkeypatch,
+                                          agg_id="imp_missing")
+        with caplog.at_level("WARNING"):
+            diag = UncPropDiag.from_uncprop_id(
+                rid, uncprop_dir=dirs["uncprop"], opt_dir=dirs["opt"],
+                const_dir=dirs["const"], imp_dir=dirs["imp"], acc=acc)
+        assert "imp_missing" in caplog.text and "prior class 'all'" in caplog.text
+        assert set(diag.stats.edge_frame()["prior_class"]) == {"all"}
+
+    def test_a_missing_acc_is_logged_but_a_broken_one_raises(self, tmp_path, monkeypatch,
+                                                              caplog):
+        from pysuto.diag import UncPropDiag
+        rid, dirs, _ = _persisted_chain(tmp_path, tmp_path, monkeypatch)
+        kw = dict(uncprop_dir=dirs["uncprop"], opt_dir=dirs["opt"], const_dir=dirs["const"],
+                  imp_dir=dirs["imp"], acc_dir=str(tmp_path / "acc"))
+        with caplog.at_level("WARNING"):
+            assert UncPropDiag.from_uncprop_id(rid, **kw).acc is None
+        assert "not found" in caplog.text
+        acc_id = UncPropDiag.from_uncprop_id(rid, **kw).constraint_run.acc_id
+        (tmp_path / "acc" / acc_id).mkdir(parents=True)             # present, but empty
+        with pytest.raises(Exception):
+            UncPropDiag.from_uncprop_id(rid, **kw).acc
+
+    def test_an_empty_selection_draws_placeholders(self, diag):
+        import matplotlib.pyplot as plt
+        for method in ("_fig_contraction_shift", "_fig_bands", "_fig_calibration"):
+            fig = getattr(diag, method)(timesteps=None, regions=["Nowhere"])
+            assert "no " in fig._suptitle.get_text()
+            plt.close(fig)
+
+    def test_the_diag_driver_renders_a_run_under_another_data_dir(self, tmp_path,
+                                                                    monkeypatch):
+        import importlib.util
+        from pathlib import Path
+        data = tmp_path / "other_data"
+        rid, dirs, _ = _persisted_chain(data / "proc", tmp_path, monkeypatch)
+        path = Path(__file__).resolve().parents[1] / "scripts" / "uncprop_diag.py"
+        spec = importlib.util.spec_from_file_location("uncprop_diag_driver", path)
+        driver = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(driver)
+        driver.main(rid, data_dir=str(data))
+        out = data / "proc" / "uncprop" / rid / "diag"
+        assert sorted(p.name for p in out.glob("*.csv")) == sorted(CSVS)
+        assert len(list(out.glob("*.png"))) == len(STEMS)

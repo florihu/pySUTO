@@ -64,7 +64,6 @@ INPUT_ROOT  = _REPO_ROOT / "data" / "input"
 PROC_ROOT   = _REPO_ROOT / "data" / "proc"
 
 OUTPUT_KINDS = ("feed", "imp", "const", "opt")
-INPUT_KINDS  = ("feed", "acc", "params")
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(message)s")
 log = logging.getLogger("migrate_registries")

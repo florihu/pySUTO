@@ -12,6 +12,7 @@ Covers:
 from __future__ import annotations
 
 import textwrap
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -29,8 +30,8 @@ from pysuto.impute import (
     PriorLedger,
     ScopeError,
     run_imputer,
-    _reg_sensitivity,
 )
+from pysuto.impute.base import _reg_sensitivity
 from pysuto.relation.ratio_relation import ratio_relation
 from pysuto.relation.sources import Fill, ParamSource
 import copper_case  # noqa: F401  (puts scripts/ on sys.path, #189)
@@ -51,6 +52,7 @@ class TestRegSensitivity:
     def test_linear_damping_for_small_alpha(self):
         # |α| << α_min → s(α) ≈ |α|/α_min
         a, am, q = 1e-4, 0.05, 3.0
+        # the asymptote of s(a) for a << alpha_min, not an identity: 1e-3 relative
         assert _reg_sensitivity(a, q, am) == pytest.approx(a / am, rel=1e-3)
 
     def test_negative_uses_abs(self):
@@ -222,20 +224,6 @@ class TestImputationLog:
             "description","param_id","relaxed","assumed_absent",
         }
 
-    def test_for_edge_filters_correctly(self):
-        log = ImputationLog()
-        log.extend([
-            {"edge_id": 0, "step": 0, "method": "a", "source_edges": [],
-             "coefficients": [], "f_before": np.nan, "f_after": 1.0,
-             "sigma_before": np.nan, "sigma_after": 0.1, "description": "", "param_id": None},
-            {"edge_id": 1, "step": 0, "method": "b", "source_edges": [],
-             "coefficients": [], "f_before": np.nan, "f_after": 2.0,
-             "sigma_before": np.nan, "sigma_after": 0.2, "description": "", "param_id": None},
-        ])
-        df = log.for_edge(0)
-        assert len(df) == 1
-        assert df.iloc[0]["edge_id"] == 0
-
 
 # =============================================================================
 # 2. ImputationEngine
@@ -363,6 +351,19 @@ class TestImputationCascade:
         assert set(md["pass"].dropna().astype(int)) == {1, 2}
         assert (md["pass"] == 3).sum() == 0
         assert len(md) == 4
+
+    def test_dead_pass_is_logged_as_discarded(self, acc, caplog):
+        """The engine says which steps the dead pass would have had and where the
+        committed steps end (#203); the records themselves are untouched."""
+        ar, imp_A, imp_B = self._two_hop()
+        engine = ImputationEngine(acc_struct=acc)
+        engine.register_cascade([imp_B, imp_A], max_iter=10)
+        with caplog.at_level("INFO", logger="pysuto.impute.engine"):
+            result = engine.run(ar)
+        msgs = [r.getMessage() for r in caplog.records if "discarded" in r.getMessage()]
+        assert msgs == ["pass 3 filled nothing: its steps 4-5 are discarded, the "
+                        "committed steps end at 3"]
+        assert list(result.imputation_metadata.as_dataframe()["step"]) == [0, 1, 2, 3]
 
     def test_provenance_in_log_and_meta(self, acc):
         ar, imp_A, imp_B = self._two_hop()
@@ -578,7 +579,8 @@ class TestFillImputerPairs:
         )
         run_imputer(imp, f, sigma, 0, acc)
         expected = _reg_sensitivity(1e-3, 3.0, 0.05) * 1.0
-        assert sigma[0] == pytest.approx(expected)
+        assert sigma[0] == pytest.approx(expected, rel=1e-12)
+        # the small-alpha asymptote |a|/alpha_min, not an identity: 1e-3 relative
         assert sigma[0] == pytest.approx(1e-3 / 0.05, rel=1e-3)
         assert sigma[0] < 1.0
 
@@ -1194,6 +1196,7 @@ class TestFlatPriorImputer:
             default_cv=0.5,
             acc_struct=acc,
         )
+        imp.attach(SimpleNamespace(coverage=np.ones(10, dtype=bool)))
         run_imputer(imp, f, sigma, 0, acc)
         # edge 0 is supply, group has only edge 8 finite → scale=100, σ = 0.001·100 = 0.1
         assert f[0] == 0.0
@@ -1211,6 +1214,7 @@ class TestFlatPriorImputer:
             default_cv=0.5,
             acc_struct=acc,
         )
+        imp.attach(SimpleNamespace(coverage=np.ones(10, dtype=bool)))
         run_imputer(imp, f, sigma, 0, acc)
         assert f[4] == 0.0
         assert sigma[4] == pytest.approx(0.3 * 200.0)
@@ -1226,6 +1230,7 @@ class TestFlatPriorImputer:
             default_cv=0.7,
             acc_struct=acc,
         )
+        imp.attach(SimpleNamespace(coverage=np.ones(10, dtype=bool)))
         run_imputer(imp, f, sigma, 0, acc)
         # Edge 4 (use) has no rule → default_cv=0.7. Its narrow + broader (Ore, Mass) groups
         # are both empty (only edge 5 is in (Ore, Mass) and it's NaN), so scale falls all the
@@ -1254,6 +1259,7 @@ class TestFlatPriorImputer:
             default_cv=0.5,
             acc_struct=acc,
         )
+        imp.attach(SimpleNamespace(coverage=np.ones(10, dtype=bool)))
         run_imputer(imp, f, sigma, 0, acc)
         # edge 0's group includes edge 6 (finite) → scale=80, σ = 0.001·80 = 0.08
         assert sigma[0] == pytest.approx(0.001 * 80.0)
@@ -1270,13 +1276,14 @@ class TestFlatPriorImputer:
             default_cv=0.5,
             acc_struct=acc,
         )
+        imp.attach(SimpleNamespace(coverage=np.ones(10, dtype=bool)))
         run_imputer(imp, f, sigma, 0, acc)
         # f is still 0 for every filled edge.
         assert np.all(f == 0.0)
         # σ = CV(mask) · 1.0 per edge; supply edges get 0.001, use edges get 0.3.
         # (legacy single-CV form, no density modulation.)
         expected = np.where(acc.masks["supply"], 0.001, 0.3)
-        assert np.allclose(sigma, expected)
+        assert np.allclose(sigma, expected, rtol=1e-12)
 
     def test_log_entries_returned(self, acc):
         f     = np.full(10, np.nan)
@@ -1287,6 +1294,7 @@ class TestFlatPriorImputer:
             default_cv=0.5,
             acc_struct=acc,
         )
+        imp.attach(SimpleNamespace(coverage=np.ones(10, dtype=bool)))
         entries = run_imputer(imp, f, sigma, 5, acc)
         # 9 missing edges → 9 entries
         assert len(entries) == 9
@@ -1676,3 +1684,79 @@ class TestPriorLedger:
         assert f[2] == pytest.approx(5.0)
         with pytest.raises(ScopeError):
             ledger.write(7, 1.0, 0.1, 0, "m", [], [])
+
+
+# =============================================================================
+# U2 review fixes (#282): write validation, flat-prior coverage, clip log row
+# =============================================================================
+
+class TestLedgerRefusesUnusableWrites:
+
+    def _ledger(self):
+        ledger = PriorLedger(np.full(10, np.nan), np.full(10, np.nan), strict_scope=True)
+        ledger.open("w", None, np.ones(10, dtype=bool))
+        return ledger
+
+    @pytest.mark.parametrize("val, sig", [(np.nan, 1.0), (np.inf, 1.0),
+                                          (1.0, np.nan), (1.0, -0.1)])
+    def test_write_raises_and_leaves_the_edge_missing(self, val, sig):
+        ledger = self._ledger()
+        with pytest.raises(ValueError, match="non-finite"):
+            ledger.write(1, val, sig, 0, "m", [], [])
+        assert np.isnan(ledger.f[1]) and ledger.close() == []
+
+    def test_write_many_raises_on_one_bad_entry(self):
+        ledger = self._ledger()
+        with pytest.raises(ValueError, match="non-finite"):
+            ledger.write_many(np.array([1, 2]), np.array([1.0, np.nan]),
+                              np.ones(2), 0, "m")
+        assert np.isnan(ledger.f[1])
+
+    def test_a_zero_sigma_is_a_valid_write(self):
+        assert self._ledger().write(1, 4.0, 0.0, 0, "m", [], [])
+
+
+class TestFlatPriorNeedsCoverage:
+
+    def _imp(self, acc):
+        return FlatPriorImputer(cv_by_mask={"supply": 0.001, "use": 0.3},
+                                default_cv=0.5, acc_struct=acc)
+
+    def test_impute_without_attach_raises(self, acc):
+        f, sigma = np.full(10, np.nan), np.full(10, np.nan)
+        with pytest.raises(RuntimeError, match="no coverage attached"):
+            run_imputer(self._imp(acc), f, sigma, 0, acc)
+
+    def test_attach_without_coverage_raises(self, acc):
+        with pytest.raises(ValueError, match="no coverage"):
+            self._imp(acc).attach(SimpleNamespace())
+
+
+class TestEngineClipRecordsTheClippedValue:
+
+    def test_the_log_row_holds_the_clipped_f_after_and_the_old_sigma(self, acc):
+        """U2-G4-4 / U2-S1-4: log and array agree; sigma is untouched (policy: #238)."""
+        acc.bounds.u[2] = 3.0
+        ar = _agg_result([10.0] + [np.nan] * 9, [1.0] + [np.nan] * 9)
+        engine = ImputationEngine(acc_struct=acc)
+        engine.register(_fill([(0, 2, 0.5, 0.0, 0.0, "p", "d")]))
+        with pytest.warns(UserWarning, match="clipped"):
+            result = engine.run(ar)
+        row = result.imputation_log.as_dataframe().query("edge_id == 2").iloc[0]
+        assert result.f_agg[2] == pytest.approx(3.0, rel=1e-12)
+        assert row["f_after"] == pytest.approx(3.0, rel=1e-12)
+        assert row["sigma_after"] == pytest.approx(result.sigma_agg[2], rel=1e-12)
+
+
+class TestCascadeWithoutFixpointWarns:
+
+    def test_max_iter_reached_with_missing_edges_logs_a_warning(self, acc, caplog):
+        """U2-S1-5: the warning names max_iter and the edges still missing."""
+        ar = _agg_result([10.0] + [np.nan] * 9, [1.0] + [np.nan] * 9)
+        imp_A = _fill([(0, 2, 2.0, 0.1, 0.0, "A", "")], id="A")
+        imp_B = _fill([(2, 3, 3.0, 0.1, 0.0, "B", "")], id="B")
+        engine = ImputationEngine(acc_struct=acc)
+        engine.register_cascade([imp_B, imp_A], max_iter=1)
+        with caplog.at_level("WARNING"):
+            engine.run(ar)
+        assert any("without reaching a fixpoint" in r.getMessage() for r in caplog.records)

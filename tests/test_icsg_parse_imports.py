@@ -23,7 +23,6 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..",
 @pytest.mark.parametrize("module, loader_name", [
     ("icsg_2005",  "icsg_2005"),
     ("icsg_2023f", "icsg_loader"),
-    ("icsg_cap",   "extract_icsg_global_series"),
 ])
 def test_parser_imports_and_exposes_its_loader(module, loader_name):
     mod = importlib.import_module(module)

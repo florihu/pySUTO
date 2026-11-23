@@ -72,6 +72,8 @@ Commitments of pySUTO that a second case cannot change through data or parameter
 
 Copper's modelling choices, each measured against a rejected alternative, are in Table 2 of the manuscript ([docs/manuscript/method.md](docs/manuscript/method.md) §3.2.7), not here.
 
+The SI ([docs/manuscript/si.md](docs/manuscript/si.md)) states the equations of the pipeline's structure and σ propagation, S1–S8; it is not a complete list of the code's σ rules. The parametric-fill, recipe, time-interpolation, flat-prior, ratio, scale-total and net-stock-seed σ rules, `_reg_sensitivity` and `Solver.objective_at` carry their equations in this README and the ADRs only.
+
 ---
 
 ## Architecture
@@ -277,8 +279,30 @@ cross-cutting (import nothing from the data layer):
 > that record names another version or none, so a BACI parse change re-runs the ICSG parse before
 > the netting.
 >
-> Check which weights a run used: `data/proc/feed/registry/<feed_id>/metadata.json` →
-> `trade_shares.version`.
+> Check which weights a run used: `data/proc/feed/registry/<run_id>/metadata.json` →
+> `parents.inputs.trade_shares.version`. `build_trade_shares.py` also refuses to build when the
+> newest BACI feed run was built from an older `baci` input than the one in force (rerun
+> `baci_feed.py` first).
+>
+> **One edge of the order is a loop, and the hook does not run it.** `build_ore_grade.py` reads the
+> newest ICSG and crude-ore feed runs' `F_root` (ore mass, mine output) and the ICSG feed reads its
+> `ore_grade` params for the observed zeros, so the grades are built from the *previous* ICSG run.
+> The builder records those runs and the `eff` / `conc` versions in `parents.json` beside
+> `params.csv` (the form of the trade-share record), which makes a stale grade readable in the sidecar; no
+> guard refuses it, because after any hook run the newest ICSG run is by construction newer than the
+> grades. Rebuild it by hand (`python scripts/build_ore_grade.py`) after the feeds when the ICSG or
+> crude-ore feed changed, then rerun `icsg_feed.py`.
+>
+> **Registering the gross BACI version** (the step between the parse and `icsg_clean.py`) is by
+> hand: `baci_parse_feed.py` writes `data/input/feed/baci/v0/`; set aside any
+> `current/reexport_*.csv` (a leftover `reexport_ledger.csv` makes a gross version look netted, and
+> `icsg_clean.py` refuses it), copy `v0/{values,quantity_recon,quantity_cv_scale}.csv` into
+> `current/`, and register (`InputRegistries.initialize`; every build script does it on start).
+>
+> **Hand runs take the stage lock.** `build_baci_reexport.py`, `build_trade_shares.py`,
+> `build_ore_grade.py` and `icsg_clean.py` write registries, which have no locking of their own,
+> so each takes `<data-dir>/proc/.stage.lock` like a stage driver; under the Stage 1 hook, whose
+> caller holds it, the two it runs skip it (`PYSUTO_STAGE_LOCK_HELD`).
 
 #### The parse layer (`scripts/parse/`)
 
@@ -289,8 +313,13 @@ four correctness rounds were defects here rather than in the model.
 
 | | chain | writes |
 |---|---|---|
-| **ICSG** | `icsg_{2005,2014,2023f}.py` (one per yearbook vintage) → `icsg_comb.py` (combine vintages) → `process_icsg.py` (stock levels → NAS per vintage + merge) → `icsg_clean.py --baci-version N --to-feed` (reads the registered gross BACI parse vN for imported anode, #63) | `data/input/feed/icsg/current/values.csv` + `parents.json` |
+| **ICSG** | `icsg_{2005,2014,2023f}.py` (one per yearbook layout; `2023f` loads the 2023 and 2025 yearbooks, so four vintages are combined) → `icsg_comb.py` (combine vintages) → `process_icsg.py` (stock levels → NAS per vintage + merge) → `icsg_clean.py --baci-version N --to-feed` (reads the registered gross BACI parse vN for imported anode, #63) | `data/input/feed/icsg/current/values.csv` + `parents.json` |
 | **BACI** | `baci_parse/baci_parse_feed.py` | `data/input/feed/baci/v0/values.csv` + `quantity_recon.csv`, `quantity_cv_scale.csv` |
+| **Crude ore** | `crude_ore_parse_feed.py` (the Kroiss workbook; the only source of the crude-ore feed) | `data/input/feed/crude_ore/v0/values.csv` |
+| **Ore grade** | `build_ore_grade.py` (not a parse: it reads the finished ICSG and crude-ore feed runs; see the loop above) | `data/input/params/ore_grade/current/params.csv` + `parents.json` |
+
+ICSG values are kt Cu: the parse stamps `Unit = 'kt'` and the ICSG feed's `valuation_map` reads it as
+contained copper (CC), while BACI's and crude ore's `'kt'` is gross mass.
 
 Three behaviours a reader should not have to discover from the code:
 
@@ -421,7 +450,7 @@ For each root edge $j$ this reduces to $f_\mathrm{agg}[j] = \sum_k \Omega_{kj} F
 
 $$\sigma_\mathrm{agg}[j] \;=\; \left( \sum_k |\Omega_{kj}\, \sigma_k[j]|^p \right)^{1/p}.$$
 
-At $p = 2$ this reduces to $1/\sqrt{\sum_k 1/\sigma_k^2[j]}$. For $p \in [1, 2]$, $\sigma_\mathrm{agg}[j] \leq \max_k \sigma_k[j]$ always holds; the $\sigma_\mathrm{agg} \leq \min_k \sigma_k$ invariant is exact at $p = 2$ and held tightly for $p \approx 1.3$ in practice. Edges covered by no feed remain NaN and are passed to the imputation step.
+At $p = 2$ this reduces to $1/\sqrt{\sum_k 1/\sigma_k^2[j]}$. For $p \in [1, 2]$, $\sigma_\mathrm{agg}[j] \leq \max_k \sigma_k[j]$ always holds; the $\sigma_\mathrm{agg} \leq \min_k \sigma_k$ bound is exact at $p = 2$ only; at $p = 1.3$ it can be exceeded slightly ($\sigma = 1, 100$ gives $\sigma_\mathrm{agg} = 1.0018$). Edges covered by no feed remain NaN and are passed to the imputation step.
 
 ##### Imputation — parametric
 
@@ -429,11 +458,13 @@ A parametric `Fill` fills target edge $j$ from a source relation (a pair `Relati
 
 $$f_j = \sum_{l=1}^{m} \alpha_l \cdot f_{i_l}$$
 
-$$\sigma_j \;=\; \left( \sum_{l=1}^{m} |\alpha_l \cdot \sigma_{i_l}|^p \;+\; |\sigma_\mathrm{param}|^p \;+\; |\varepsilon \cdot f_j|^p \right)^{1/p}$$
+The fill always uses bare $\alpha_l$ in the value. For a pair relation $b = r\,a$ (σ_param in ratio units, $\varepsilon$ the relative structural term), the σ of the filled edge is, since #148:
 
-The fill always uses bare $\alpha_l$. σ propagation uses bare $\alpha_l$ in the **forward branch (A→B)**. The **backward branch (B→A)** is the only place where $1/\alpha$ is replaced by the [regularized sensitivity](#regularized-sensitivity) below — this caps σ amplification when $1/\alpha \gg 1$ (the ore-grade-inverse case).
+- **forward** (A→B, $f_b = r f_a$): $\sigma_b = \bigl( |r\,\sigma_a|^p + |f_a\,\sigma_\mathrm{param}|^p + |\varepsilon f_b|^p \bigr)^{1/p}$;
+- **backward** (B→A, $f_a = f_b / r$): $\sigma_a = \bigl( |s(1/r)\,\sigma_b|^p + |f_a\,\sigma_\mathrm{param} / r|^p + |\varepsilon f_a|^p \bigr)^{1/p}$, with $s$ the [regularized sensitivity](#regularized-sensitivity) below, which caps σ amplification when $1/r \gg 1$ (the ore-grade-inverse case);
+- **trade** seed (conc forward, Mass→CC, $r$ = conc): $\sigma_b = \bigl( |r\,\sigma_a|^p + |f_b\,\sigma_\mathrm{param} / r|^p \bigr)^{1/p}$, with no $\varepsilon$ term.
 
-The $\varepsilon$ (`epsilon`) term encodes structural uncertainty in the relation itself. $\sigma_\mathrm{param}$ is the per-row σ from the CSV.
+The parameter term $|f\,\sigma_\mathrm{param}|$ is the first-order image of the ratio's σ in flow units (a ratio-unit σ added to flow-unit terms would be dimensionally wrong). $\sigma_\mathrm{param}$ is the per-row σ from the params file (`meta["sigma_param"]`; the relation's own `sigma` is the relative $\sigma_\mathrm{param}/|r|$ that Stage 3 uses); $\varepsilon$ encodes structural uncertainty in the relation itself.
 
 ##### Regularized sensitivity
 
@@ -445,13 +476,15 @@ Defaults: $q = 3$, $\alpha_{\min} = 0.05$. Behaviour:
 - $|\beta| \gg \alpha_{\min}$: $s(\beta) \to 1$, so $s(\beta)\cdot\sigma_b$ cannot grow beyond $\sigma_b$.
 - $|\beta| \ll \alpha_{\min}$: $s(\beta) \to |\beta|/\alpha_{\min}$ — a relative floor on the effective sensitivity.
 
-##### Imputation — formula
+##### Imputation — network recipe
 
-For a `FormulaRelation` with directed terms $(\alpha_i, f_i, \sigma_i)$:
+The `NetworkImputer` closes a Process node's content (CC) balance with efficiency $\eta$ (σ_η, relative structural term $\varepsilon$): products $= \eta\,S$, waste $= (1-\eta)\,S$, $S$ the total input. $S$ and $\sigma_S$ come from the first branch that applies:
 
-$$f_\mathrm{target} = \sum_i \alpha_i \cdot f_i, \qquad \sigma_\mathrm{target} = \left( \sum_i |\alpha_i \cdot \sigma_i|^p + |\varepsilon \cdot f_\mathrm{target}|^p \right)^{1/p}$$
+- **inputs** (every primary known, or the relaxed close of [ADR 0010](docs/adr/0010-trade-first-seeding-of-bilateral-flow-process-inputs.md)): $S = \sum$ known primary + secondary + import legs, $\sigma_S = \mathrm{Lp}(\sigma_i)$;
+- **product** (a product known): $S = f_P/\eta$, $\sigma_S = \bigl( |s(1/\eta)\,\sigma_P|^p + |S\,\sigma_\eta/\eta|^p \bigr)^{1/p}$;
+- **waste** (the lone waste leg known): $S = f_W/(1-\eta)$, $\sigma_S = \bigl( |s(\tfrac{1}{1-\eta})\,\sigma_W|^p + |S\,\sigma_\eta/(1-\eta)|^p \bigr)^{1/p}$.
 
-If a pre-clip value lies outside `[clip_lower, clip_upper]`, the fill is logged with `method="formula_clipped"` and `sigma_after` carries the pre-clip σ as a conservative estimate.
+A missing product is then $f_P = \eta S$ with $\sigma_P = \bigl( |\eta\,\sigma_S|^p + |\sigma_\eta S|^p + |\varepsilon f_P|^p \bigr)^{1/p}$ (the $\sigma_\eta$ term only on the inputs branch); the waste leg is the same with $1-\eta$; a lone missing primary is the remainder $f_i = S - \sum_{j \ne i} f_j$ with $\sigma_i = \mathrm{Lp}(\sigma_S, \sigma_j, \varepsilon f_i)$. An eff-less stock-change leg gets $\sigma \ge$ `effless_stock_sigma`. A fill outside the structural bounds is clipped, and the network widens σ to the clip gap; the engine's own post-step clip (every other imputer) writes the clipped value to the log row and array but leaves σ unchanged (the σ policy is open, #238).
 
 ##### Imputation — time
 
@@ -459,7 +492,7 @@ Linear interpolation between observations at $(t_a, f_a, \sigma_a)$ and $(t_b, f
 
 $$f_j = (1-\lambda)\,f_a + \lambda\,f_b, \qquad \sigma_j = \bigl( |(1-\lambda)\sigma_a|^p + |\lambda\sigma_b|^p \bigr)^{1/p} \cdot \gamma_0^{\,g}$$
 
-LOCF/NOCB at gap $g$: $f_j = f_a$, $\sigma_j = \sigma_a \cdot \gamma_0^{\,g}$. The multiplicative `gap_inflation` factor $\gamma_0$ grows σ with extrapolation distance.
+LOCF/NOCB at gap $g$: $f_j = f_a$, $\sigma_j = \sigma_a \cdot \gamma_0^{\,g}$. The multiplicative `gap_inflation` factor $\gamma_0$ grows σ with extrapolation distance. With an observation on one side only, `linear` carries the nearest one (logged as `time_linear`); `interpolate_only` forbids that carry. `method="mean"` is the unweighted mean of the window, $\sigma_j = \mathrm{Lp}(\sigma_i / n)$, with no `gap_inflation`; `min_obs` (the least observations the window must hold) is read by `mean` only.
 
 ##### Imputation — flat prior (final fallback)
 
@@ -479,9 +512,14 @@ Data-rich neighbourhoods (ρ ≈ 1) get the tight $\mathrm{cv}_\text{lo}$; data-
 
 Only finite, non-zero values count at every level, so upstream-imputed zeros never pull the scale to zero. The previous single-level rule collapsed σ to 0 on ~40 k copper edges, which then pinned them at $\sigma_a = 10^{-6}$ via the constraints-side floor (see [analysis_optim_const_copper_…_20260513_112419.md](docs/rep/analysis_optim_const_copper_20260513_091054_65b9133e_20260513_112419.md)).
 
+##### Stage 2 σ screens
+
+Three functions of [impute/screens.py](src/pysuto/impute/screens.py) run in the case's hooks around the cascade and mutate `sigma_agg` in place; the case supplies the sectors and thresholds. **Size damping** ([ADR 0017](docs/adr/0017-size-damped-sigma-on-bilateral-trade-legs.md)): on covered bilateral Flow-origin Mass legs, $\sigma_e = \mathrm{cv}_e\, a_\mathrm{ref}^{1-\gamma}\, a_e^{\gamma}$ with $a_\mathrm{ref}$ the sector's median leg $|f|$ and the resulting cv capped at `cv_cap`. **Outlier-leg screen**: per (flow sector, exporter region, year), implied CC exports over covered production plus implied imports; a ratio above $k$ sets $\sigma = \mathrm{cv}\,|f|$ on the group's bilateral legs. **Contradicted-node screen** ([ADR 0019](docs/adr/0019-contradicted-flow-nodes-lose-anchor-authority.md), after imputation): a Flow node whose outflow prior is below `K_CLOSE` $\times$ its inflow prior (`flow_node_balance.py`, shared with Stage 3's anchors) gets $\sigma = \mathrm{cv}\,|f|$ on its outflow edges.
+
 #### Classes
 
 - **`FeedCollector`** ([collector.py](src/pysuto/collector.py)) — `.select([feed_id, ...])`, `.aggregate(p=…)`; aligns each feed onto the common edge index and returns an `AggregationResult`.
+  The collector treats an edge with $0 < |F_\mathrm{root}| <$ `min_flow_kt` as not covered, except an observed zero (#76); the driver passes `min_flow_kt = 0.01` for both valuations, read in the edge's own unit (kt for Mass, kt CC for content).
 - **`AggregationMath`** ([agg.py](src/pysuto/agg.py)) — vectorised $\Omega$, `f_agg`, `σ_agg` over the full `[N_f × N_r]` matrices.
 - **`ImputationEngine`** ([impute/](src/pysuto/impute/)) — orders an `.register()`-list of imputers; each imputer's `.prepare(acc_struct)` is called at registration so shared lookup structures only build once.
 - **`BaseImputer`** ([impute/](src/pysuto/impute/)) — ABC; subclass and implement `.writer_scope(acc)` (the edges it may write) and `.impute(ledger, step, acc)` to add a new fill method; `.prepare(acc)` and `.attach(agg_result)` are optional hooks.
@@ -492,8 +530,8 @@ Only finite, non-zero values count at every level, so upstream-imputed zeros nev
 - **`TimeImputer`** — sliding-window temporal interpolation/extrapolation; `method ∈ {"linear","locf","nocb","mean"}`. Scoped to **same-region** edges in the copper driver: a bilateral trade leg absent in a year is a recorded zero, not a gap ([ADR 0026](docs/adr/0026-bilateral-trade-legs-are-not-time-interpolated.md)); never a stock-change leg.
 - **`ShareImputer`** ([impute/share.py](src/pysuto/impute/share.py)) — the net-stock seed: a `Cathode→MESC` / `Cathode→USC` leg no feed reports is held at 0 with `σ = max(0.01·|co-located Cathode→FU flow|, 0.3 kt)`; terminal, before the flat prior ([ADR 0040](docs/adr/0040-stock-change-legs-are-held-at-their-prior.md)). Its PSC share-transfer mode is pre-empted by the recipe and fires 0×; a PSC seed at 1 % of `CP→Cathode` was rejected on measurement ([ADR 0041](docs/adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md)).
 - **`FlatPriorImputer`** — final-fallback flat prior keyed by `AccountingStructure` edge masks; register **last**.
-- **`ImputationLog`** — per-edge provenance table: `edge_id`, `step`, `method`, `source_edges`, `coefficients`, `f_before/after`, `sigma_before/after`, `description`, `param_id`.
-- **`AggregationResult`** ([agg.py](src/pysuto/agg.py)) — dataclass holding `f_agg`, `sigma_agg`, `Omega`, `F`, `Sigma`, `feed_ids`, `coverage`, plus `imputation_log` and `imputation_metadata` once imputation has run.
+- **`ImputationLog`** — per-edge provenance table: `edge_id`, `step`, `imputer_id`, `pass`, `method`, `source_edges`, `coefficients`, `f_before/after`, `sigma_before/after`, `description`, `param_id`, `relaxed`, `assumed_absent` (`f_before` / `sigma_before` are always NaN: a write only fills a NaN cell).
+- **`AggregationResult`** ([agg.py](src/pysuto/agg.py)) — dataclass holding `f_agg`, `sigma_agg`, `Omega`, `F`, `Sigma`, `feed_ids`, `coverage`, plus `imputation_log`, `imputation_metadata` and `flat_prior` (the edges the last-resort imputer filled) once imputation has run.
 
 #### Key parameters
 
@@ -514,7 +552,7 @@ Run Stage 2 on the toy case in [tutorial/02_aggregate_impute.ipynb](src/pysuto/t
 
 #### Diagnostics
 
-`AggDiagnostic` (post-aggregation, pre-imputation) and `ImpDiagnostic` (post-imputation per-step trajectories) live in [diag/](src/pysuto/diag/). Both expose `.summary()` and `.plot(odir=...)`. `AggDiagnostic` must be constructed *before* `engine.run(...)` because imputation mutates `f_agg`/`sigma_agg` in place.
+`AggDiagnostic` (post-aggregation, pre-imputation) and `ImpDiagnostic` (post-imputation per-step trajectories) live in [diag/](src/pysuto/diag/). Both expose `.summary()` and `.plot(odir=...)`. `AggDiagnostic` snapshots copies of the aggregation at construction, so build it *before* `engine.run(...)` (imputation mutates `f_agg`/`sigma_agg` in place); one built afterwards would report the imputed arrays.
 
 Both accept an optional `acc_struct=` argument so that diag panels can stratify per-edge quantities by year:
 
@@ -548,9 +586,13 @@ Five built-in constraint types populate rows of `G`:
 
 **Type 1 (mass balance).** One row per balanced `(Flow|Process)` node × time pair, with `SB` (open-boundary) nodes excluded. Derived automatically from the four boolean edge masks on `AccountingStructure`.
 
-**Type 2 (soft sum).** σ_c modes: `sd` (absolute), `fraction_of_flow` (fraction of node-flow magnitude from `f_agg`), `p_mean` (Lp combine over `_rhs_ids` σ_agg using the global Lp exponent).
+**Type 2 (soft sum).** σ_c modes: `sd` (absolute), `pedigree` (the caller's pre-computed value, static like `sd`), `fraction_of_flow` (fraction of node-flow magnitude from `f_agg`), `p_mean` (Lp combine over `_rhs_ids` σ_agg using the global Lp exponent). An unknown mode, or `p_mean` on a spec without `_rhs_ids`, raises. A case builds Type 2 through `SumConstraintBuilder.from_mask_anchor` only (mode `sd`; see below); `from_acc_struct`, `from_acc_struct_subentity` and `from_csv` are tests-only API, and `p_mean` / `fraction_of_flow` / `pedigree` are reachable only through them.
 
-**Type 3 (soft ratio).** $r$ is `value_nominal` from the params CSV; σ_c follows the three uncertainty modes (`sd`, `min_max`, `pedigree`) shared with the parametric fill. The same CSV file thus serves both stages. A row with `agg=true` is **set-scoped**: `RatioConstraintBuilder` pools every matched a-side edge against every matched b-side edge per `(region_to, time, valuation)` bucket into one soft row $\sum b - r\sum a = \varepsilon$ — used for the pooled recovery recipe `product = eff·(Concentrate/Matte + Scrap)` at Smelting/CFR (see [ADR 0005](docs/adr/0005-pool-scrap-into-eff-constraint-and-stripping-ratio.md)).
+**Scale totals, anchors and the no-data σ anchor.** Copper's Type 2 rows are *anchors*: soft sums that pin the group-sum of a masked edge family to the model's own Stage-2 prior (`c = Σ f_agg`), built by `from_mask_anchor` with `σ_c = cv·|c|` and the families of [constraints/anchors.py](src/pysuto/constraints/anchors.py): the supply and use **scale totals** per process / flow ([ADR 0006](docs/adr/0006-scale-total-supersedes-external-control-total.md); cv by provenance, [ADR 0016](docs/adr/0016-provenance-aware-sigma-on-scale-totals.md), loosened on contradicted nodes, [ADR 0019](docs/adr/0019-contradicted-flow-nodes-lose-anchor-authority.md), with a reporting-resolution σ floor on feed-backed totals only, [ADR 0025](docs/adr/0025-scale-totals-carry-the-feeds-reporting-resolution-as-a-sigma-floor.md)) and the **scrap level anchors** ([ADR 0031](docs/adr/0031-icsg-scrap-series-anchor-their-level-not-only-their-share.md)). Two further Stage 3 mechanisms act on the edges, not on rows: the **no-data σ anchor** replaces the global-median σ_a of flat-prior edges by a sibling-median scale, sparing the structurally determined sectors ([ADR 0013](docs/adr/0013-no-data-flat-prior-anchor.md)), and the **flat-prior pin** (`pin_flat_prior_zeros`) sets `l = u = 0` on `ConstraintRun` for the feasibility probe; an optional prior box (`prior_box_k`, off in copper) tightens bounds to `a₀ ± kσ_a`. Their knobs are the UPPER_CASE fields of the case's Stage 3 section (copper: `scripts/copper.py`; values live there, not here).
+
+**Type 3 (soft ratio).** $r$ is `value_nominal` from the params CSV; σ_c follows the three uncertainty modes (`sd`, `min_max`, `pedigree`) shared with the parametric fill. The same CSV file thus serves both stages. The mode states σ in ratio units; the builder carries it as the relative `σ_r = σ/|r|`, floors it at `sigma_rel_floor` and scales it to flow space by `max(Σ|a₀,num|, |r|·Σ|a₀,denom|, scale_abs_floor)` (a net-stock row, `stock_bound`, reads its half-band `value_max` as p95 ≈ 1.645 σ and scales by the throughput `Σ|a₀,denom|` alone; it needs a `value_max` and one valuation on both sides, else it raises) — see [GLOSSARY.md](GLOSSARY.md) "Relative ratio σ". A row with `agg=true` is **set-scoped**: `RatioConstraintBuilder` pools every matched a-side edge against every matched b-side edge per `(region_to, time, valuation)` bucket into one soft row $\sum b - r\sum a = \varepsilon$ — used for the pooled recovery recipe `product = eff·(Concentrate/Matte + Scrap)` at Smelting/CFR (see [ADR 0005](docs/adr/0005-pool-scrap-into-eff-constraint-and-stripping-ratio.md)).
+
+**Build-time checks.** After assembly the engine raises `ValueError` on an impossible state: a `G` whose width is not the edge count or that references a column outside it, a hard row with σ_c ≠ 0 or a soft row with σ_c ≤ 0 (or non-finite) in any year, a flow with `u < l`, a builder whose per-year block has another row count than its static block; and `ConstraintUnitMixingError` on a row of a non-ratio type that mixes valuations. The mass-balance row count and the per-year uniformity of the ratio rows only log (`CHECK WARN`): a ratio template legitimately expands to a different row count in a year whose feed covers fewer edges. `FlowBoundsBuilder` raises on a structural `l > 0`, which no row would enforce.
 
 **Type 4 / Type 5.** Hard inequalities, σ_c = 0. When a ratio-bound row sets `agg=true`, `RatioBoundBuilder` sums every matched a-side edge into one G row and every matched b-side edge into another, scoped per `(region_to, time, valuation)` bucket — used both for stock-change bounds (numerator/denominator summed over source regions per destination region; see [data/input/params/stock_bounds/current/params.csv](data/input/params/stock_bounds/current/params.csv)) and for the pooled eff bounds at Smelting/CFR. Bucketing on `region_to` keeps each process region's recipe separate. Since Round X the stock-change rows cover the producer stock change (`CP→PSC`) only: the user and exchange stock-change legs (`Cathode→USC`, `Cathode→MESC`) carry no row and are held at their prior by the Stage-2 net-stock seed σ, `max(0.01·|co-located FU flow|, 0.3 kt)`, because a signed leg with a loose σ is a sink for every contradiction of the cathode balance and a zero-centred row pulled the reported stock changes toward zero ([ADR 0040](docs/adr/0040-stock-change-legs-are-held-at-their-prior.md)). Since Round Y the producer stock change is tied to its Mass twin by the cathode concentration row, and `RatioBoundBuilder` emits no one-signed hard band on any signed edge — such a band is satisfiable for a negative pair only at zero, which had kept every USC/MESC leg non-negative; seeding PSC like USC/MESC was measured and rejected ([ADR 0041](docs/adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md)).
 
@@ -562,7 +604,7 @@ $$\sigma_c'[k] = \left( |\sigma_c[k]|^p + |\mathrm{CV}_c^\mathrm{min} \cdot c[k]
 
 The four σ arguments (`sigma_a_cv_min`, `sigma_a_abs_floor`, `sigma_c_cv_min`, `sigma_c_abs_floor`) and `nodata_anchor_cv` are required of `ConstraintEngine`: the case owns them (copper's `SIGMA_*` and `NODATA_ANCHOR_CV` in `scripts/copper.py`); only $p$ has a library default, `pysuto.lp.P_DEFAULT`. Hard rows keep σ_c = 0 unchanged. The $\mathrm{CV}^\mathrm{min}$ term *is* the relative floor (a misreading of an earlier REP claimed it was missing); the absolute floor is the numerical safety net.
 
-**Ordering.** σ_a regularisation runs *before* `build_dynamic` propagates σ_a → σ_c via the Lp combine over `_rhs_ids`, so the regularised σ_a flows into σ_c. This is deliberate: the relative term $\mathrm{CV}_a^\mathrm{min} \cdot |a_0|$ is a modelling claim about how tightly we believe σ_a, not a numerical guard, so it *should* propagate to σ_c. The absolute floor $\sigma_a^\mathrm{floor}$ is the actual safety net — once the FlatPriorImputer's 3-level scale cascade is in place (see Stage 2) it should essentially never fire on imputer-filled edges, so its presence does not distort downstream uncertainty propagation.
+**Ordering.** σ_a regularisation runs *before* `build_dynamic` propagates σ_a → σ_c via the Lp combine over `_rhs_ids` (the `p_mean` mode, tests-only API; `tests/test_constraint_checks.py` pins the order), so the regularised σ_a flows into σ_c. This is deliberate: the relative term $\mathrm{CV}_a^\mathrm{min} \cdot |a_0|$ is a modelling claim about how tightly we believe σ_a, not a numerical guard, so it *should* propagate to σ_c. The absolute floor $\sigma_a^\mathrm{floor}$ is the actual safety net — once the FlatPriorImputer's 3-level scale cascade is in place (see Stage 2) it should essentially never fire on imputer-filled edges, so its presence does not distort downstream uncertainty propagation.
 
 **Per-timestep deactivation of soft sum rows.** Each `SumConstraintBuilder` spec carries a `time` field (the year baked into `constraint_id`); `from_csv` specs with wildcard or mixed `time` are stored as `time=None` and **rejected** when the engine partitions `G` by year (`_partition_G_by_time` raises `ValueError`): such a row would sum edges across years and couple the per-year QPs. When `ConstraintEngine.run` calls `build_dynamic(t)` for a given timestep, rows whose `spec["time"]` does not match `t` are *deactivated* by setting `c=0` and `σ_c = SIGMA_C_INACTIVE` (default `1e10`). Mass-balance and flow-bound rows are active in every timestep; `RatioBoundBuilder.build_dynamic` deactivates hard band rows of other years by setting `c = BOUND_C_INACTIVE`, which makes the inequality trivially satisfied. The σ_c sentinel makes the row's objective contribution $(1/\sigma_c)^2 \approx 10^{-20}$ — effectively unenforced — without touching `G` or the cone structure. `Solver.solve_all` rebuilds the QP Hessian `P` per timestep so the per-t σ_c entries actually take effect (Clarabel's `solver.update(P=…, q=…, b=…)`).
 
@@ -571,7 +613,7 @@ The four σ arguments (`sigma_a_cv_min`, `sigma_a_abs_floor`, `sigma_c_cv_min`, 
 - **`ConstraintEngine`** ([constraints/](src/pysuto/constraints/)) — `.register(builder)` then `.run(agg_result, timesteps=…)`; persists to a `ConstraintRunRegistry`.
 - **`BaseConstraintBuilder`** — ABC; subclass and implement `build_static(...)` / `build_dynamic(...)`.
 - **`MassBalanceBuilder`** — type 1 (auto-derived from `acc_struct`).
-- **`SumConstraintBuilder`** — type 2; `.from_acc_struct(acc, sigma_fraction=…)` for auto-derived or `.from_csv(...)` for hand-written rows.
+- **`SumConstraintBuilder`** — type 2; `.from_mask_anchor(...)` is what a case builds with; `.from_acc_struct(acc, sigma_fraction=…)` (auto-derived), `.from_acc_struct_subentity(...)` and `.from_csv(...)` (hand-written rows) are tests-only API.
 - **`RatioConstraintBuilder`** — type 3 (`.from_csv(...)`).
 - **`RatioBoundBuilder`** — type 4 (`.from_csv(...)`).
 - **`FlowBoundsBuilder`** — type 5: one row `−a_i ≤ 0` per edge whose structural lower bound `acc.bounds.l` is 0 — every edge but the signed stock edges ([ADR 0039](docs/adr/0039-flow-lower-bounds-are-enforced-in-the-qp.md)). Upper bounds and the Stage-3 zero pin produce no rows; they stay on `ConstraintRun.u/.l` for the feasibility pre-check.
@@ -692,10 +734,12 @@ Run Stage 4 on the toy case in [tutorial/04_solver.ipynb](src/pysuto/tutorial/04
 
 ### Stage 5 — Posterior uncertainty propagation
 
-**What this stage does.** Loads a persisted Stage-4 `OptimRun` plus its upstream `ConstraintRun`, then computes the marginal posterior standard deviation `σ_a*(t)` and a Gaussian `(1-α)` confidence interval per edge × timestep. When the `ConstraintRun` carries a per-period partition (`G_blocks`, every current run), each year is reduced to the QP's active set and the contraction is read off a QR of that year's whitened system (`_compute_via_blocks`, `_leverage`; [Marginal diagonal](#marginal-diagonal)). Only the full-G path, taken when `G_blocks` is empty, factors `S = G·diag(σ²_a)·Gᵀ + diag(σ²_c(t))`: it analyses the Cholesky pattern once and refreshes the numeric factor per timestep.
+**What this stage does.** Loads a persisted Stage-4 `OptimRun` plus its upstream `ConstraintRun`, then computes the marginal posterior standard deviation `σ_a*(t)` and a Gaussian `(1-α)` confidence interval per edge × timestep. Each year of the `ConstraintRun`'s per-period partition (`G_blocks`; a run without it raises) is reduced to the QP's active set at `a*` and the contraction is read off a QR of that year's whitened system (`_compute_via_blocks`, `_leverage`; [Marginal diagonal](#marginal-diagonal)); `S = G·diag(σ²_a)·Gᵀ + diag(σ²_c(t))` is never formed.
+
+**Cold opt runs only.** The years are separate QPs and their posteriors add without covarying. An opt run solved with `prior_mode = warm` chains them (`a_prior(t) = a*(t−1)`), which Stage 5 does not model: it linearises each year with the prior fixed. It logs a warning on such a run and records `prior_mode` in the sidecar's `stage_config`; the reference chain is cold.
 
 **Inputs:** `opt_run_id` (Stage 4 output; the upstream `const_run_id` is discovered from its sidecar).
-**Outputs:** `UncPropResult` with `per_timestep[t] = {sigma_a_star, lower, upper, diagnostics}`. On the block path these arrays are **year-local** (over `cols_t`, matching the Stage-4 `OptimResult`) and carry `cols_t`; the legacy path keeps full-length `[E]` arrays with `cols_t = None`.
+**Outputs:** `UncPropResult` with `per_timestep[t] = {sigma_a_star, lower, upper, diagnostics}`. These arrays are **year-local** (over `cols_t`, matching the Stage-4 `OptimResult`) and carry `cols_t`.
 
 > Uses the same σ-conditioning rules the solver applied (see [`_conditioning.py`](src/pysuto/_conditioning.py)) so that the posterior is mathematically consistent with the `a*` returned by Stage 4.
 
@@ -717,7 +761,7 @@ For diagonal $\Sigma_a = \mathrm{diag}(\sigma^2_a)$, the per-edge variance reduc
 
 $$\boxed{\;\sigma^2_{a^*,i}(t) = \sigma^2_{a,i}\,\big(1 - \sigma^2_{a,i}\,\|L(t)^{-1} g_i\|_2^2\big), \quad S(t) = L(t)L(t)^\top, \quad g_i = \text{col}_i(G).\;}$$
 
-On the block path (every current run) $S(t)$ is never formed. With $M = [\,G_t\,\mathrm{diag}(\sigma_a),\ \mathrm{diag}(\sigma_c)\,]$, $S = MM^\top$, and the contraction $\kappa_i = \sigma^2_{a,i}\, g_i^\top S^{-1} g_i$ is the leverage of edge $i$: the squared norm of row $i$ of $Q$ in $M^\top = QR$ (dense Householder QR, rows sorted by norm). So $\sigma^2_{a^*,i} = \sigma^2_{a,i}(1 - \kappa_i)$ with $\kappa_i \in [0, 1]$ to rounding. Forming $S$ squares $M$'s condition number: with σ_a spanning 1e-8 … 1e6 kt, two independent hard rows that differ only on low-σ edges are parallel in $S$ to working precision, and an LU of $S$ put κ outside [0, 1] on 331 edges of 1995 and 368 of 2016 in `uncprop_20261014_140949_fcf53674` (#27). The QR is dense, (live edges + soft rows) × kept rows per year: on copper 2007, the largest year (21,131 live edges, 18,480 rows), it takes ≈ 2 min on 8 cores and ≈ 7 GB on top of the loaded runs (`const_20261013_114216_1ad3239e`). $\sigma^2_{a^*} = \sigma^2_a(1-\kappa)$ resolves a posterior variance only down to ≈ $\sigma^2_a\,\varepsilon$, so a nearly determined edge reads $\sigma_{a^*} \approx 0$ to within ≈ $10^{-8}\,\sigma_a$. The full-G (legacy) path still factors $S$: the CHOLMOD backend computes $\|L^{-1} g_i\|^2$ column-block at a time; the scipy fallback computes the equivalent quadratic form $g_i^\top S^{-1} g_i$ via `splu` (≈ 2× the work, no symbolic-pattern reuse).
+$S(t)$ is never formed. With $M = [\,G_t\,\mathrm{diag}(\sigma_a),\ \mathrm{diag}(\sigma_c)\,]$, $S = MM^\top$, and the contraction $\kappa_i = \sigma^2_{a,i}\, g_i^\top S^{-1} g_i$ is the leverage of edge $i$: the squared norm of row $i$ of $Q$ in $M^\top = QR$ (dense Householder QR, rows sorted by norm). So $\sigma^2_{a^*,i} = \sigma^2_{a,i}(1 - \kappa_i)$ with $\kappa_i \in [0, 1]$ to rounding. Forming $S$ squares $M$'s condition number: with σ_a spanning 1e-8 … 1e6 kt, two independent hard rows that differ only on low-σ edges are parallel in $S$ to working precision, and an LU of $S$ put κ outside [0, 1] on 331 edges of 1995 and 368 of 2016 in `uncprop_20261014_140949_fcf53674` (#27). The QR is dense, (live edges + soft rows) × kept rows per year: on copper 2007, the largest year (21,131 live edges, 18,480 rows), it takes ≈ 2 min on 8 cores and ≈ 7 GB on top of the loaded runs (`const_20261013_114216_1ad3239e`). $\sigma^2_{a^*} = \sigma^2_a(1-\kappa)$ resolves a posterior variance only down to ≈ $\sigma^2_a\,\varepsilon$, so a nearly determined edge reads $\sigma_{a^*} \approx 0$ to within ≈ $10^{-8}\,\sigma_a$.
 
 Posterior std and confidence interval:
 
@@ -746,7 +790,7 @@ The marginals do not give the σ of a total: the constraints correlate the edges
 
 $$\mathrm{var}(w^\top a^*) = w^\top\Sigma_a w - (G\Sigma_a w)^\top S^{-1} (G\Sigma_a w) = \lVert u\rVert^2 - \lVert Q^\top v\rVert^2 .$$
 
-`compute(..., aggregates=AggregateSpec(names, W))` returns the K×K prior and posterior covariance of K totals, their value at `a*` and the quadrature σ, in memory. The years are separate QPs, so a total over several years sums the years' contributions, and totals of different years never covary. A ratio or index of totals gets its σ by the delta method on that covariance. `draws={year: k}` returns posterior deviations $\mathrm{diag}(\sigma_a)\,(I - QQ^\top)\,\xi$ from the caller's generator. They satisfy every kept hard row and pin exactly, so a function through the Leontief inverse gets its delta-method σ by finite differences along them. `force_pinned` / `force_free` override the slack rule edge by edge, for the degenerate bounds #99 found at `bind_tol`. [`scripts/report/table3_intervals.py`](scripts/report/table3_intervals.py) puts Birge-scaled intervals beside Table 3 and SI S18b.
+`compute(..., aggregates=AggregateSpec(names, W))` returns the K×K prior and posterior covariance of K totals, their value at `a*` and the quadrature σ, in memory. `W` carries no valuation: each column keeps to one valuation, and its value and σ are in that valuation's unit (kt CC for `CC`); a column that mixes Mass and CC edges returns a σ in no unit, and nothing checks it. The years are separate QPs, so a total over several years sums the years' contributions, and totals of different years never covary. A ratio or index of totals gets its σ by the delta method on that covariance. `draws={year: k}` returns posterior deviations $\mathrm{diag}(\sigma_a)\,(I - QQ^\top)\,\xi$ from the caller's generator. They satisfy every kept hard row and pin exactly, so a function through the Leontief inverse gets its delta-method σ by finite differences along them. `force_pinned` / `force_free` override the slack rule edge by edge, for the degenerate bounds #99 found at `bind_tol`. [`scripts/report/table3_intervals.py`](scripts/report/table3_intervals.py) puts Birge-scaled intervals beside Table 3 and SI S18b.
 
 ##### Sanity invariants (checked in tests)
 
@@ -772,7 +816,7 @@ $$\mathrm{var}(w^\top a^*) = w^\top\Sigma_a w - (G\Sigma_a w)^\top S^{-1} (G\Sig
 | `sigma_a_floor_rel` | `1e-5` | Same as `Solver` |
 | `sigma_a_ceiling_factor` | `1e5` | Same as `Solver` |
 | `sigma_c_floor` | `1e-9` | Floor on soft-row σ_c; hard rows are forced to exact zero regardless |
-| `bind_tol` | `1e-6` | kt — a hard inequality row binds at `a*` when `G·a* − c ≥ −bind_tol` (driver knob `BIND_TOL`) |
+| `bind_tol` | `1e-6` | kt — a hard inequality row binds at `a*` when `G·a* − c ≥ −bind_tol` (`stages.BIND_TOL`; Stage 5 has no `--set` or case knobs) |
 | `rank_tol` | `1e-10` | Pivot tolerance of the scaled hard-block pivoted Cholesky that drops dependent hard rows (driver knob `RANK_TOL`) |
 | `exclude_scale_totals` | `False` | Ablation (#87): leaves the scale totals and scrap level anchors (`row_meta.type == "sum"`, `variant` in `SCALE_TOTAL_VARIANTS`) out of `S(t)`; `a*` is untouched and the count lands in `n_scale_totals_left_out` (driver knob `EXCLUDE_SCALE_TOTALS`, recorded in `stage_config`) |
 
@@ -782,7 +826,7 @@ Run Stage 5 on the toy case in [tutorial/05_posterior.ipynb](src/pysuto/tutorial
 
 #### Diagnostics
 
-`UncPropDiag` ([diag/uncprop.py](src/pysuto/diag/uncprop.py)) renders the Stage-5 portfolio from the all-years edge frame of `UncPropStatsDiagnostic`. It is built live (`UncPropDiag(result, opt_results, const_run, acc=…, imp_result=…)`) or from disk (`UncPropDiag.from_uncprop_id(uncprop_run_id)`, which follows the sidecar to the opt, const and imputation runs). The driver renders it after `persist()`; `scripts/uncprop_diag.py <uncprop_run_id> [--regions …]` re-renders a persisted run into `data/proc/uncprop/<id>/diag/`. Vocabulary is GLOSSARY.md's: **posterior contraction** `κ`, **prior class**, and the κ–z quadrants.
+`UncPropDiag` ([diag/uncprop.py](src/pysuto/diag/uncprop.py)) renders the Stage-5 portfolio from the all-years edge frame of `UncPropStatsDiagnostic`. It is built live (`UncPropDiag(result, opt_results, const_run, acc=…, imp_result=…)`) or from disk (`UncPropDiag.from_uncprop_id(uncprop_run_id)`, which follows the sidecar to the opt, const and imputation runs). The driver renders it after `persist()`; `scripts/uncprop_diag.py <uncprop_run_id> [--regions …]` re-renders a persisted run (`--data-dir`, default `data`) into `<data-dir>/proc/uncprop/<id>/diag/`. Vocabulary is GLOSSARY.md's: **posterior contraction** `κ`, **prior class**, and the κ–z quadrants.
 
 - **UD-R-01** — κ against the signed defect `z`, hexbin weighted by `max(|a_prior|, |a*|)` (kt), one panel per prior class × valuation, bound-active edges circled.
 - **UD-R-02** — prior `a_prior ± z_α·σ_a` against the posterior `[lower, upper]` over the years, for the top-12 identities per valuation.
@@ -838,7 +882,7 @@ Run Stage 6 on the toy case in [tutorial/06_psut_piot.ipynb](src/pysuto/tutorial
 | [stages.py](src/pysuto/stages.py) | `run_imp`, `run_const`, `run_opt`, `run_uncprop`, `run_psut`, `OPT_KNOBS`, `PSUT_KNOBS` | The bodies of the Stage 2–6 drivers as library functions over a `CaseSpec`, a data dir and the upstream run id (#124, #186); the toy's `run_stage2` / `run_stage3` call the first two, and `python -m pysuto run` all five. The Stage 4–6 tuning constants (solver tolerances, `N_WORKERS`, `QP_VARIABLES`, `ALPHA`, `PRIMARY`) sit in its `# USER CONFIGURATION` block. `pysuto.case.check_case` refuses a run made by another case. |
 | [compare.py](src/pysuto/compare.py) | `compare_chains`, `lineage`, `first_difference`, `format_report`, `CompareError` | `python -m pysuto compare` (#157): two chains by their leaf run ids, paired stage by stage and compared array by array; imports nothing from `pysuto`, writes nothing. |
 | [pipeline.py](src/pysuto/pipeline.py), [\_\_main\_\_.py](src/pysuto/__main__.py) | `Pipeline`, `Chain`, `StepFailed`, `Axis`, `Sweep`, `STEPS`, `ALL_STEPS`, `TIED`, `STEP_GB`, `split_key` | The stages composed as steps, each in a child process, Stage 1 (a case's hook) to Stage 6 (`python -m pysuto run`, #125); one chain per `run(overrides, label)` with `<stage>.<KNOB>` overrides (#103); random (Latin hypercube) or grid sweeps of chains, resumable, recorded via `SweepRunRegistry` (#105); a sweep may keep only its last step's runs, the others passing through a scratch store (#108). |
-| [utils.py](src/pysuto/utils.py) | `_NpEncoder`, io helpers | JSON serialisation, numpy-safe dump/load. |
+| [utils.py](src/pysuto/utils.py) | `get_path` | Path lookup under `data/input/raw`, used by the ICSG yearbook parsers. |
 | [logging.py](src/pysuto/logging.py) | `get_logger`, `add_run_handler` | Structured run logging; one file per run. |
 | [config.py](src/pysuto/config.py) | `load_config`, `Config`, `PipelineConfig` | Typed loader for `config/config.yaml` (`pipeline.acc_id` only). |
 | [lp.py](src/pysuto/lp.py) | `lp_combine` | The Lp / power-mean σ combiner `(Σ \|x_i\|^p)^(1/p)`, one source of truth for Stages 1–3. |
@@ -976,7 +1020,8 @@ const_engine = ConstraintEngine(
     sigma_c_cv_min=SIGMA_C_CV_MIN, sigma_c_abs_floor=SIGMA_C_ABS_FLOOR,
     nodata_anchor_cv=NODATA_ANCHOR_CV)
 const_engine.register(MassBalanceBuilder())
-const_engine.register(SumConstraintBuilder.from_acc_struct(acc, sigma_fraction=0.05))
+const_engine.register(SumConstraintBuilder.from_mask_anchor(
+    acc, mask="supply", anchor_values=agg_result.f_agg, sigma_cv=0.05, p=P_PROP))
 
 # Two builders consume the same param_id ("conc", "eff").
 RATIO = dict(sigma_rel_floor=RATIO_SIGMA_REL_FLOOR, scale_abs_floor=RATIO_SCALE_ABS_FLOOR)
@@ -1310,7 +1355,7 @@ pysuto/
 │                          structure.py (ProcessRecipe · node_balances)     │
 │                          sources.py (ParamSource · Fill)                  │
 ├── flow_node_balance.py   contradicted_flow_nodes  (St2–St3 check)         │
-├── utils.py               _NpEncoder · io helpers                          │
+├── utils.py               get_path (ICSG parsers)                          │
 ├── logging.py             structured run logging                          ─┘
 │
 ├── collector.py           FeedCollector                                   ─┐

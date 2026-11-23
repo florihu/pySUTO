@@ -15,6 +15,9 @@ the QP's active set (ADR 0044). Read-only — it writes nothing.
 7  for LU_YEARS, κ recomputed as Stage 5 had it before the QR (an LU of S,
    d9dbc0a) against the run's persisted κ, and the kt of the edges they split on.
 
+Ran last at 30a0932 (2026-10-20), before #214 removed ``KalmanUncProp._build_S`` and #285 moved
+``_lower_bound_mask`` to ``pysuto.uncprop.lower_bound_mask``; it fails if re-run on today's code.
+
 Usage (from the main checkout, which holds data/proc)::
 
     python scripts/explo/issue27_uncprop_active_set.py <uncprop_run_id>

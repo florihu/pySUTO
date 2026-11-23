@@ -1,7 +1,9 @@
 # No-data (flat-prior) σ anchor, and the structurally-determined carve-out
 
-**Status:** accepted (soft σ anchor, `NODATA_ANCHOR_CV=0.05` — the default since the
-2026-09-03 merge to main); the hard flat-prior-zero *pin* is retained only for
+**Status:** accepted (soft σ anchor, `NODATA_ANCHOR_CV=0.05` — the copper case's value since the
+2026-09-03 merge to main; `ConstraintEngine` has no default of its own and takes
+`nodata_anchor_cv` as a required argument, which `scripts/copper.py` sets from
+`NODATA_ANCHOR_CV`; corrected by #223); the hard flat-prior-zero *pin* is retained only for
 feasibility-pre-check strictness (it is inert in the QP — see amendment 1 below).
 
 **Amended 2026-09-01:**
@@ -23,7 +25,7 @@ feasibility-pre-check strictness (it is inert in the QP — see amendment 1 belo
    use edge) — exactly the sector the anchor exists to discipline. Only
    supply-side edges into SEM SB nodes (the residual outputs) qualify; see
    GLOSSARY.md §"System-boundary category" for the residual-output vs
-   secondary-input distinction.
+   secondary-input distinction. *(Pruned: `opt_20260901_080337_99aa122f` is absent from `data/proc` on 2026-11-23; no per-run pruning date is recorded.)*
 
 **Amended 2026-09-29 (Round W.3, issue #28):**
 3. **The extraction carve-out is data-aware.** `{CO, Mining, Ore, WR, Tailings}` are
@@ -33,7 +35,7 @@ feasibility-pre-check strictness (it is inert in the QP — see amendment 1 belo
    more edges); before, the free chain acted as signed slack (817 Mass edges > 1 kt
    below zero → 149). Slag and PSC keep the sector rule. Knob
    `NODATA_ANCHOR_DATA_AWARE` in `scripts/constraints.py`; mask from
-   `nodata_exempt_mask` in `src/pysuto/constraints/engine.py`. The anchor does not
+   `nodata_exempt_mask` in `src/pysuto/constraints/anchors.py`. The anchor does not
    stop phantom concentrate that smelter demand pulls (Japan, Korea) — that is a
    data contradiction, not free slack. Evidence: `opt_20260929_121937_e5f000b5`
    (REP [`…roundW3-anchor-mining-regions`](../rep/analysis_opt_20260929_121937_e5f000b5_20260929_roundW3-anchor-mining-regions.md)).

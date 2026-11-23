@@ -510,16 +510,20 @@ class TestEdgeScopeMask:
         from pysuto.acc import AccountingStructure
         from pysuto.feedpipe import _apply_edge_scope_mask
 
-        root = {
-            "nodes": pd.DataFrame({
-                "sector": ["Mining", "Ore", "Mining", "Ore"],
-                "entity": ["P",      "F",   "P",      "F"],
-                "region": ["A",      "A",   "B",      "B"],
-            }),
-            "time_range": [0],
-            "valuation":  ["mass"],
+        spec = {
+            "sectors":    [{"name": "Mining", "entity": "P"},
+                           {"name": "Ore",    "entity": "F"}],
+            "regions":    ["A", "B"],
+            "valuations": [{"name": "mass",     "role": "gross"},
+                           {"name": "copper_c", "role": "content"}],
+            "times":      ["0"],
+            "supply":     {},
+            "use":        {"Mining": ["Mining", "Ore"], "Ore": ["Mining", "Ore"]},
+            "tradable":   ["Mining", "Ore"],
+            "accounting": [{"from": a, "to": b, "same_region": False}
+                           for a in ("P", "F") for b in ("P", "F")],
         }
-        acc = AccountingStructure(id="t", root=root)
+        acc = AccountingStructure.from_spec(spec, "t")
         ei = acc.edge_index
         cr = acc.masks["cross_region"]
         cross = ei[cr].iloc[0]

@@ -292,8 +292,8 @@ class TestSumConstraintBuilder:
         s   = np.zeros(n)
         b20 = builder.build_dynamic(toy_acc, f, s, "2020")
         is2021 = (rm["time"].astype(str) == "2021").to_numpy()
-        assert np.allclose(b20.sigma_c[is2021], SIGMA_C_INACTIVE)
-        assert np.allclose(b20.sigma_c[~is2021], block.sigma_c[~is2021])
+        assert np.allclose(b20.sigma_c[is2021], SIGMA_C_INACTIVE, rtol=1e-12)
+        assert np.allclose(b20.sigma_c[~is2021], block.sigma_c[~is2021], rtol=1e-12)
 
     def test_from_mask_anchor_sigma_cv_resolver(self, toy_acc):
         """sigma_cv_resolver overrides the scalar cv per group; returning
@@ -319,8 +319,8 @@ class TestSumConstraintBuilder:
         ).build_static(toy_acc)
         rm = block.row_meta
         is_b = (rm["region"].astype(str) == "B").to_numpy()
-        assert np.allclose(block.sigma_c[is_b], 0.15 * np.abs(block.c[is_b]))
-        assert np.allclose(block.sigma_c[~is_b], 0.01 * np.abs(block.c[~is_b]))
+        assert np.allclose(block.sigma_c[is_b], 0.15 * np.abs(block.c[is_b]), rtol=1e-12)
+        assert np.allclose(block.sigma_c[~is_b], 0.01 * np.abs(block.c[~is_b]), rtol=1e-12)
 
     def test_sum_row_meta_has_time(self, toy_acc):
         """SumConstraintBuilder row_meta has a `time` column; constraint_id
@@ -362,9 +362,9 @@ class TestSumConstraintBuilder:
         active_t0 = (rm["time"].astype(str) == str(times[0])).to_numpy()
         active_t1 = (rm["time"].astype(str) == str(times[1])).to_numpy()
         if active_t0.any():
-            assert np.allclose(b_t1.sigma_c[active_t0], SIGMA_C_INACTIVE)
+            assert np.allclose(b_t1.sigma_c[active_t0], SIGMA_C_INACTIVE, rtol=1e-12)
         if active_t1.any():
-            assert np.allclose(b_t0.sigma_c[active_t1], SIGMA_C_INACTIVE)
+            assert np.allclose(b_t0.sigma_c[active_t1], SIGMA_C_INACTIVE, rtol=1e-12)
 
     def test_sum_sigma_c_scales_with_magnitude(self, toy_acc):
         """sigma_c from fraction_of_flow doubles when f_agg doubles, for
@@ -394,13 +394,13 @@ class TestSumConstraintBuilder:
         assert active.any(), "Expected at least one row active at t=2020"
 
         ratio_active = b2.sigma_c[active] / b1.sigma_c[active]
-        assert np.allclose(ratio_active, 2.0, rtol=0.01), \
+        assert np.allclose(ratio_active, 2.0, rtol=1e-12), \
             "σ_c on active rows should double when f_agg doubles"
 
         # Deactivated rows (spec time != 2020) stay pinned at the sentinel.
         if (~active).any():
-            assert np.allclose(b1.sigma_c[~active], SIGMA_C_INACTIVE)
-            assert np.allclose(b2.sigma_c[~active], SIGMA_C_INACTIVE)
+            assert np.allclose(b1.sigma_c[~active], SIGMA_C_INACTIVE, rtol=1e-12)
+            assert np.allclose(b2.sigma_c[~active], SIGMA_C_INACTIVE, rtol=1e-12)
 
     def test_sum_from_csv_three_terms(self, toy_acc, toy_agg_result, tmp_path):
         """CSV with 3 terms produces correct G row."""
@@ -1470,7 +1470,7 @@ class TestRatioBoundBuilder:
         assert s["b_sector_to"].isin(["PSC", "USC", "MESC"]).all(), "stock edge must be the b-side numerator"
         assert s["a_sector_to"].isin(["Cathode", "FU"]).all(), "denominator must be the a-side"
         vmin = pd.to_numeric(s["value_min"]); vmax = pd.to_numeric(s["value_max"])
-        assert (vmin < 0).all() and (vmax > 0).all() and np.allclose(vmin, -vmax), \
+        assert (vmin < 0).all() and (vmax > 0).all() and np.allclose(vmin, -vmax, rtol=1e-12), \
             "value_min/value_max must be a symmetric ±p95 band"
 
     def test_scrap_share_band_num_in_pooled_denom(self, toy_acc, tmp_path):
@@ -1744,14 +1744,14 @@ class TestConstraintRunRegistry:
 
         assert run2.G.shape       == run.G.shape
         assert len(run2.row_meta) == len(run.row_meta)
-        assert np.allclose(run2.a0,      run.a0)
-        assert np.allclose(run2.sigma_a, run.sigma_a)
-        assert np.allclose(run2.u,       run.u)
-        assert np.allclose(run2.l,       run.l)
+        assert np.allclose(run2.a0,      run.a0, rtol=1e-12)
+        assert np.allclose(run2.sigma_a, run.sigma_a, rtol=1e-12)
+        assert np.allclose(run2.u,       run.u, rtol=1e-12)
+        assert np.allclose(run2.l,       run.l, rtol=1e-12)
         td1 = run.timestep_data["2020"]
         td2 = run2.timestep_data["2020"]
-        assert np.allclose(td1["c"],       td2["c"])
-        assert np.allclose(td1["sigma_c"], td2["sigma_c"])
+        assert np.allclose(td1["c"],       td2["c"], rtol=1e-12)
+        assert np.allclose(td1["sigma_c"], td2["sigma_c"], rtol=1e-12)
 
     def test_registry_summary_df(self, toy_acc, toy_agg_result, tmp_path):
         """summary_df() returns DataFrame with one row per registered run."""
@@ -1980,7 +1980,7 @@ class TestEnginePerTPartition:
             cols_t        = cr.edge_cols_by_t[t]
             block_action  = G_t @ x[cols_t]
             legacy_action = legacy_full[times == t]
-            assert np.allclose(block_action, legacy_action), \
+            assert np.allclose(block_action, legacy_action, rtol=1e-12), \
                 f"Mismatch at t={t}: per-block action != legacy slice"
 
     def test_g_blocks_survive_registry_roundtrip(self, toy_acc, toy_agg_result, tmp_path):
@@ -2030,7 +2030,7 @@ class TestEnginePerTPartition:
         for t, G_t in cr.G_blocks.items():
             block_action  = G_t @ x[cr.edge_cols_by_t[t]]
             legacy_action = legacy_full[times == t]
-            assert np.allclose(block_action, legacy_action), \
+            assert np.allclose(block_action, legacy_action, rtol=1e-12), \
                 f"Mismatch at t={t} (mixed builders)"
 
         # Rows of every family/kind survive the partition: massbal (hard eq),
@@ -2118,8 +2118,8 @@ class TestPriorBox:
         l = np.array([0.0, 0.0])
         u = np.array([1e9, 1e9])
         ln, un = e._apply_prior_box(l.copy(), u.copy(), a0, sa)
-        assert np.allclose(ln, [86.0, 900.0])
-        assert np.allclose(un, [114.0, 1100.0])
+        assert np.allclose(ln, [86.0, 900.0], rtol=1e-12)
+        assert np.allclose(un, [114.0, 1100.0], rtol=1e-12)
 
     def test_flat_prior_untouched(self):
         # a0 == 0 (FlatPrior) keeps its original [l, u] — not pinned to zero.
@@ -2301,7 +2301,7 @@ class TestSupplyUseScaleTotal:
         G = block.G_rows.toarray()
         for i, c in enumerate(block.c):
             eids = np.flatnonzero(G[i] != 0.0)
-            assert np.allclose(G[i, eids], 1.0)
+            assert np.allclose(G[i, eids], 1.0, rtol=1e-12)
             assert np.isclose(c, f_agg[eids].sum())
 
     def test_use_scale_total_sums_destinations_incl_final_demand(self):
@@ -2323,7 +2323,7 @@ class TestSupplyUseScaleTotal:
         G = block.G_rows.toarray()
         eids = np.flatnonzero(G[0] != 0.0)
         assert set(eids.tolist()) == {1, 2}        # use AND final demand included
-        assert np.allclose(G[0, eids], 1.0)
+        assert np.allclose(G[0, eids], 1.0, rtol=1e-12)
         assert np.isclose(block.c[0], f_agg[1] + f_agg[2])   # 6 + 4 = 10
         assert np.isclose(block.sigma_c[0], self.CV * abs(block.c[0]))
         assert block.row_meta["sector"].iloc[0] == "Cathode"
@@ -2358,8 +2358,8 @@ class TestSupplyUseScaleTotal:
         zeros = np.zeros(toy_acc.n_edges)
         b20   = builder.build_dynamic(toy_acc, zeros, zeros, "2020")
         is2021 = (rm["time"].astype(str) == "2021").to_numpy()
-        assert np.allclose(b20.sigma_c[is2021], SIGMA_C_INACTIVE)
-        assert np.allclose(b20.sigma_c[~is2021], block.sigma_c[~is2021])
+        assert np.allclose(b20.sigma_c[is2021], SIGMA_C_INACTIVE, rtol=1e-12)
+        assert np.allclose(b20.sigma_c[~is2021], block.sigma_c[~is2021], rtol=1e-12)
 
     def test_scale_total_both_valuations(self, toy_acc_2val):
         """Both valuations yield unit-coherent rows, one per (process, region,
@@ -2496,7 +2496,7 @@ class TestScrapLevelAnchor:
         assert touched & self._edges(acc, 3, 1) == set()
         for i, c in enumerate(block.c):
             eids = np.flatnonzero(G[i] != 0.0)
-            assert np.allclose(G[i, eids], 1.0)
+            assert np.allclose(G[i, eids], 1.0, rtol=1e-12)
             assert np.isclose(c, f[eids].sum())
 
     def test_directref_scrap_row_per_region_year_valuation(self):
@@ -2511,7 +2511,7 @@ class TestScrapLevelAnchor:
         assert (rm["variant"] == "directrefscrap").all()
         assert (rm["sector"] == "CFR").all()
         assert set(rm["region"]) == {"A"}
-        assert np.allclose(block.c, 12.0)
+        assert np.allclose(block.c, 12.0, rtol=1e-12)
 
     def test_routes_do_not_collapse_into_one_row(self):
         """Two registrations, not one: a single mask grouped on the scrap side
@@ -2636,8 +2636,8 @@ class TestScrapLevelAnchor:
         zeros = np.zeros(acc.n_edges)
         b20   = builder.build_dynamic(acc, zeros, zeros, "2020")
         is2021 = (block.row_meta["time"].astype(str) == "2021").to_numpy()
-        assert np.allclose(b20.sigma_c[is2021], SIGMA_C_INACTIVE)
-        assert np.allclose(b20.sigma_c[~is2021], block.sigma_c[~is2021])
+        assert np.allclose(b20.sigma_c[is2021], SIGMA_C_INACTIVE, rtol=1e-12)
+        assert np.allclose(b20.sigma_c[~is2021], block.sigma_c[~is2021], rtol=1e-12)
 
     def test_constraint_id_grammar(self):
         acc = _make_scrap_acc()
@@ -2771,7 +2771,7 @@ class TestNodataExemptMask:
         return acc
 
     def test_data_aware_sectors_follow_the_region_years(self):
-        from pysuto.constraints.engine import nodata_exempt_mask
+        from pysuto.constraints.anchors import nodata_exempt_mask
         m = nodata_exempt_mask(self._acc(), exclude_sectors=("CO", "Mining", "Slag"),
                                data_aware_sectors=("CO", "Mining"),
                                region_years={("A", "2020")})

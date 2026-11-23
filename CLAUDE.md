@@ -75,7 +75,7 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 - Six stages, one driver each: `scripts/*_feed.py` (1) → `collect_aggregate_impute.py` (2) → `constraints.py` (3) → `run_solver.py` (4) → `uncertainty_propagation.py` (5) → `psut.py` (6).
 - Run ids are `{feed|imp|const|opt|uncprop|psut|sweep}_{YYYYMMDD_HHMMSS}_{8hex}`; feed runs embed the feed name (`feed_<feed_id>_…`).
 - Per-stage `registry.json` is a trimmed index. Lineage lives in each run's `metadata.json` (`parents.inputs` = input versions, `parents.upstream` = parent run ids) — read the sidecar for provenance.
-- Feed build order is load-bearing (ADR 0024, 0027, 0030 am.): BACI parse → register gross baci vN → `icsg_clean.py --baci-version N --to-feed` → `build_baci_reexport.py --source-version N` → `baci_feed.py` → `build_trade_shares.py` → `icsg_feed.py`. The netting refuses an ICSG input parsed against another N (#63); `icsg_feed.py` refuses trade-share weights whose `parents.json` names another BACI feed run or input version (#53; stale ones once cost 6.2 pp of z²).
+- Feed build order is load-bearing (ADR 0024, 0027, 0030 am.): BACI parse → register gross baci vN → `icsg_clean.py --baci-version N --to-feed` → `build_baci_reexport.py --source-version N` → `baci_feed.py` → `build_trade_shares.py` → `icsg_feed.py`; `build_ore_grade.py` (hand, after the feeds) feeds back into `icsg_feed.py`'s observed zeros and records its parents (README Stage 1). Hand runs of the builders and `icsg_clean.py` take the stage lock. The netting refuses an ICSG input parsed against another N (#63); `icsg_feed.py` refuses trade-share weights whose `parents.json` names another BACI feed run or input version (#53; stale ones once cost 6.2 pp of z²).
 - `run_solver.py --prior-mode` and `stages.run_opt` default to `cold`; `run_solver.main(prior_mode=)` and the `Solver` class default to `warm`. Trust the sidecar's `prior_mode`.
 
 ## Environment & commands
@@ -96,7 +96,7 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 ## Numerical & performance conventions
 
 - Stack: numpy + scipy.sparse + clarabel + pandas/pyarrow. No numba, cython, cvxpy or networkx in `src/`; matplotlib only under `diag/`; Plotly is imported inside functions, never at module level.
-- dtypes: values `float64`, indices `int64`, masks `bool`, no `float32`. Time labels are strings, never ints.
+- dtypes: values `float64`, indices `int64` (scipy's CSR index arrays, `G`'s among them, are `int32`), masks `bool`, no `float32`. Time labels are strings, never ints.
 - Stage 2 arrays are dense `float64` of shape `N_f × N_r` (≈ 850k edges); NaN means "not covered", never 0. Vectorise — no Python loops over edges.
 - Sparse: assemble COO triplets → `csr_matrix((v, (r, c)))`; keep `G` CSR; convert to CSC only at the Clarabel boundary. `_partition_G_by_time` raises on any cross-year nonzero — keep it strict.
 - Solver: one Clarabel QP per year (block path), ≈ 37–63 s each at the ADR 0039 tolerances; cold years are solved concurrently on `N_WORKERS = os.cpu_count()` threads (#70), so Stage 4 takes ≈ 3 min on copper with 8 cores (#56, `opt_20261112_144603_1256b16b`; per-year times and `solve_wall_s` are in the run sidecar) — run it in the background. `Solver` builds a neutral QP per year and the injected `ClarabelBackend` solves it (ADR 0042); any status outside `{solved, solved_inaccurate}` raises `RuntimeError` — never add a silent fallback. The feasibility pre-check probes every year in parallel (`FEASIBILITY_CHECK = "all"`, ≈ 15 s); `"none"` skips it (sweep points, #104).
@@ -113,7 +113,7 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 - Formatting is hand-aligned (`=` and kwargs in columns, `# ====` banners): never run black or ruff-format.
 - Records are `@dataclass`; no pydantic. Asserts are rare — validate explicitly and raise.
 - Params CSVs mix `,` and `;`: read with `sep=None, engine="python", dtype=str`; wildcards are `*` and `same`.
-- Logging: `get_logger(name)` per module; `print` only inside diag `.summary()`.
+- Logging: `get_logger(name)` per module; `print` only inside diag `.summary()`, and in the Stage 1 builders and `icsg_clean.py`, whose stdout the hook captures as their log (`copper_feed._run_script`).
 - Diagnostics contract: construct with data → `.plot(odir, show=False)` returns paths → `.summary()`. `diag/` is a leaf: the data layer never imports it at module level (driver-level code — the scripts, `pysuto.stages` — may).
 - Module-level imports flow one way (README §5 "Import direction is strictly one-way"); `utils`/`logging` import nothing from `pysuto`. A function-local import is allowed only to break a cycle and carries a comment saying so.
 

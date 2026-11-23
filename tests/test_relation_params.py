@@ -179,7 +179,7 @@ class TestSoftRowWithoutSigmaRule:
     def test_stock_bound_row_reads_its_band_not_a_sigma_rule(self, tmp_path):
         p = _write(tmp_path / "sb.csv", [_rec(
             param_id="netstockbound", param_type="stock_bound", unc_type="", value_sd="",
-            value_nominal="0", value_max="0.1", a_valuation="Mass", b_valuation="CC")], ",")
+            value_nominal="0", value_max="0.1", a_valuation="Mass", b_valuation="Mass")], ",")
         b = RatioConstraintBuilder.from_csv(str(p), _Acc(), sigma_rel_floor=0.02, scale_abs_floor=1.0)
         assert b._pairs[0].sigma == pytest.approx(0.1 / 1.645)
 

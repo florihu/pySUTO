@@ -130,7 +130,8 @@ def pooled_input_sets(row, acc_struct, valuation: str) -> dict:
     """``{(region, time): frozenset of input edge ids}`` of an ``agg=true`` row.
 
     The a-side (input) edges the row pools in each bucket of ``valuation`` — the set a
-    process recipe's inputs must equal for the row to declare that recipe's pooling.
+    process recipe's inputs must equal for the row to declare that recipe's pooling
+    (ER pools its anode input over all source regions: ADR 0022).
     """
     out = {}
     for bk in agg_buckets(row, acc_struct, None)[0]:

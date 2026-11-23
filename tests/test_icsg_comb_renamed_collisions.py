@@ -15,7 +15,7 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..",
                                 "scripts", "parse", "icsg_parse"))
-from icsg_comb import REN_TYPE, sum_renamed_collisions, type_ren  # noqa: E402
+from icsg_comb import REN_TYPE, sum_renamed_collisions, rename_types  # noqa: E402
 
 _COLS = ["Region", "Type", "Year", "Value", "Process", "Supply_Use", "Unit",
          "Year_loaded_from_file"]
@@ -43,7 +43,7 @@ def test_low_grade_is_renamed_onto_primary():
 def test_the_two_streams_add():
     f = pd.DataFrame([_row("Primary", 280.1), _row("Low-grade", 20.0)],
                      columns=_COLS)
-    _, f = type_ren(pd.DataFrame({"Type": [], "Region": []}), f)
+    _, f = rename_types(pd.DataFrame({"Type": [], "Region": []}), f)
     out = sum_renamed_collisions(f, _KEY)
     assert len(out) == 1
     assert _only(out, Type="Primary") == pytest.approx(300.1)
@@ -53,7 +53,7 @@ def test_neither_stream_is_silently_dropped():
     """Regression: keep='last' kept 20.0 and discarded 280.1."""
     f = pd.DataFrame([_row("Primary", 280.1), _row("Low-grade", 20.0)],
                      columns=_COLS)
-    _, f = type_ren(pd.DataFrame({"Type": [], "Region": []}), f)
+    _, f = rename_types(pd.DataFrame({"Type": [], "Region": []}), f)
     out = sum_renamed_collisions(f, _KEY)
     assert out["Value"].iloc[0] not in (pytest.approx(280.1),
                                         pytest.approx(20.0))
@@ -81,5 +81,5 @@ def test_rows_that_do_not_collide_are_untouched():
 def test_the_column_set_and_order_survive():
     f = pd.DataFrame([_row("Primary", 280.1), _row("Low-grade", 20.0)],
                      columns=_COLS)
-    _, f = type_ren(pd.DataFrame({"Type": [], "Region": []}), f)
+    _, f = rename_types(pd.DataFrame({"Type": [], "Region": []}), f)
     assert list(sum_renamed_collisions(f, _KEY).columns) == _COLS

@@ -30,8 +30,9 @@ expected answer is a finding, explained in 5.2.
 
 Limitations: 5.5 holds the limitations of the method (new) and those of the copper
 application, moved here from method.md §3.2.8 on 2026-11-12 with their wording and
-numbers unchanged (numbers: manuscript_numbers.py group 11 and the REPs cited in the
-method.md header).
+numbers unchanged (numbers: manuscript_numbers.py group 11, `python scripts/explo/final_limitations_diag.py
+<opt_run_id> [region ...]` for the mine-chain, stock-leg, PSC and region-share items, and the REPs
+cited in the method.md header).
 
 Word budget of the later prose: <= 1,500 words (5.1 200 / 5.2 400 / 5.3 300 / 5.4 250 /
 5.5 250 / 5.6 150), headings excluded.

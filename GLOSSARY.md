@@ -89,7 +89,7 @@ A Type-2 **soft-sum** constraint (`Σ aᵢ = c + ε`, free cone) whose RHS `c(t)
 published total — here ICSG production + usage, per year — that a defined edge-set must sum to.
 **ROW (Rest-Of-World) totals are not imposed** (ROW-excluded). Internal edge consistency is
 *not* a control total — that is the job of hard mass balance.
-_Avoid_: "anchor", "coherence soft-sum" (both removed mechanisms).
+_Avoid_: "anchor" for an external total (the live term **Anchor** below is the model's own prior), "coherence soft-sum" (removed mechanism).
 
 **Data-category typology** (Pauliuk et al. 2019):
 The four parameter kinds, split **extensive** vs **intensive**. *Extensive* (kt magnitudes):
@@ -442,7 +442,8 @@ rather than adding to it, and which one survives depends on row order
 ([ADR 0036](docs/adr/0036-a-renamed-type-is-a-second-stream-not-a-restatement.md)). _Avoid_ also:
 reading a vintage as a *time* coordinate — it labels the publication, not the year observed; one
 vintage carries many observation years. _Avoid_ also: "edition" for a yearbook's release — say
-vintage.
+vintage. The ICSG flow tables persist a vintage as the column `Year_loaded_from_file` (the
+yearbook's publication year, 2005, 2014, 2023 or 2025); it is the vintage, not a load date.
 
 **Boundary topology** *(referenced by [ADR 0001](docs/adr/0001-replace-coherence-sum-eq-with-bilateral-anchoring.md); to be expanded)* —
 the open System-Boundary (SB) endpoints where flows terminate, so prior disagreement there does
@@ -684,7 +685,8 @@ the yearly ratios); a pooled retention on a signed category.
 
 **Posterior contraction (`κ`)** — the share of an edge's prior variance the constraints remove in
 one year, `κ = 1 − σ_a*² / σ_a²`: `0` leaves the prior uncertainty untouched, `1` pins the edge. It
-depends on `G`, `σ_a` and `σ_c` only, never on `c` or `a*`, so it measures how informative the
+depends on `G`, `σ_a` and `σ_c` and, through the QP's active set at `a*` (which rows bind, which
+lower bounds pin their edge), on `a*`; given that active set it does not depend on `c`, so it measures how informative the
 constraints are, not whether they agree with the prior — that is the **defect**'s `z`.
 _Avoid_: "shrinkage" (in statistics, the pull of an estimate toward the prior mean — our defect),
 "variance reduction", "information gain".
@@ -1144,6 +1146,13 @@ remedy is data-side.
 _Avoid_: reading a downstream export as an outlet for the node — anode exports are produced *by*
 CFR *from* matte, so they raise the matte requirement rather than relieving it. See
 [ADR 0019](docs/adr/0019-contradicted-flow-nodes-lose-anchor-authority.md).
+
+**Anchor** — a Type-2 **soft-sum** row built by `SumConstraintBuilder.from_mask_anchor` that pins the group-sum
+of a masked edge family to the model's **own** Stage-2 prior: the supply / use **scale totals** and the
+**scrap level anchors**. Also the **no-data σ anchor** (ADR 0013), a σ rule on flat-prior edges. Neither
+imports an external total, so neither is a **Control total** (removed): the word "anchor" is live in both
+uses and the *Avoid* on **Control total** concerns only the external-total reading.
+_Avoid_: "control total", "coherence soft-sum" for either.
 
 **Anchor placement** — *which edge* a source series is attached to, as distinct from its value.
 A production series measures throughput at one point of the chain; converting it into an edge

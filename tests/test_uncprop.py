@@ -97,6 +97,17 @@ def _make_toy_3edge_2t(run_id: str = "toy_3e"):
     )
 
 
+def _stub_runs(prop, cr, opt_results, opt_stage_config=None):
+    """Make ``prop`` read ``cr`` and ``opt_results`` from memory: its two registries
+    return them whatever the run id (the one place that reaches their loaders)."""
+    sidecar = {"parents": {"upstream": {"const_run_id": cr.run_id}}}
+    if opt_stage_config is not None:
+        sidecar["stage_config"] = opt_stage_config
+    prop._opt_registry.load_sidecar   = lambda _rid: sidecar
+    prop._opt_registry.load           = lambda _rid: opt_results
+    prop._const_registry.load         = lambda _rid: cr
+
+
 def _compute_block_toy(tmp_path, monkeypatch, **compute_kw):
     """2 years × 3 edges, one hard mass balance (a0 = a1) per year, σ_a = 1, on
     the block (year-local) path. Returns (const_run, opt_results, UncPropResult)."""
@@ -146,10 +157,7 @@ def _compute_block_toy(tmp_path, monkeypatch, **compute_kw):
         opt_dir=str(tmp_path / "opt"), const_dir=str(tmp_path / "const"),
         uncprop_dir=str(tmp_path / "uncprop"),
     )
-    monkeypatch.setattr(prop._opt_registry, "load_sidecar",
-                        lambda _rid: {"parents": {"upstream": {"const_run_id": cr.run_id}}})
-    monkeypatch.setattr(prop._opt_registry, "load", lambda _rid: opt_results)
-    monkeypatch.setattr(prop._const_registry, "load", lambda _rid: cr)
+    _stub_runs(prop, cr, opt_results)
     return cr, opt_results, prop.compute("opt_fake", alpha=0.05, **compute_kw)
 
 
@@ -478,11 +486,9 @@ def _one_year_result(rows, sigma_a2, a_star, monkeypatch, tmp_path, **compute_kw
     )}
     prop = KalmanUncProp(opt_dir=str(tmp_path / "opt"), const_dir=str(tmp_path / "const"),
                          uncprop_dir=str(tmp_path / "uncprop"))
-    monkeypatch.setattr(prop._opt_registry, "load_sidecar",
-                        lambda _rid: {"parents": {"upstream": {"const_run_id": "as"}}})
-    monkeypatch.setattr(prop._opt_registry, "load", lambda _rid: opt)
-    monkeypatch.setattr(prop._const_registry, "load", lambda _rid: cr)
-    return prop.compute("opt_fake", alpha=0.05, **compute_kw)
+    _stub_runs(prop, cr, opt, opt_stage_config=compute_kw.pop("opt_stage_config", None))
+    compute_kw.setdefault("alpha", 0.05)
+    return prop.compute("opt_fake", **compute_kw)
 
 
 def _four_edge_posterior(a_star, monkeypatch, tmp_path, extra_rows=()):
@@ -753,10 +759,7 @@ class TestAggregates:
         )}
         prop = KalmanUncProp(opt_dir=str(tmp_path / "opt"), const_dir=str(tmp_path / "const"),
                              uncprop_dir=str(tmp_path / "uncprop"))
-        monkeypatch.setattr(prop._opt_registry, "load_sidecar",
-                            lambda _rid: {"parents": {"upstream": {"const_run_id": cr.run_id}}})
-        monkeypatch.setattr(prop._opt_registry, "load", lambda _rid: opt)
-        monkeypatch.setattr(prop._const_registry, "load", lambda _rid: cr)
+        _stub_runs(prop, cr, opt)
         with pytest.raises(ValueError, match="no G_blocks"):
             prop.compute("opt_fake")
         with pytest.raises(ValueError, match="no G_blocks"):
@@ -775,3 +778,110 @@ class TestAggregates:
         with pytest.raises(ValueError, match="boolean"):
             _one_year_result(_FOUR_EDGE_ROWS, _FOUR_EDGE_SIGMA_A2, [5, 3, 2, 4], monkeypatch,
                              tmp_path, force_pinned=mask.astype(int))
+
+
+# ---------------------------------------------------------------------------
+# 11) The review's U5 findings (#285): guards, the interval's alpha, diagnostics
+# ---------------------------------------------------------------------------
+
+_SLACK_ONLY_ROWS = [([1, 0, 0, 0], "ratio", "band", True, "nonneg", 100.0, 0.0)]  # slack at a*
+
+
+class TestGuardsAndDiagnostics:
+
+    def test_the_interval_half_width_follows_alpha(self, tmp_path, monkeypatch):
+        from scipy.stats import norm
+        a_star = [5, 3, 2, 4]
+        for alpha in (0.05, 0.2):
+            r = _one_year_result(_FOUR_EDGE_ROWS, _FOUR_EDGE_SIGMA_A2, a_star, monkeypatch,
+                                 tmp_path, alpha=alpha)
+            ts = r.per_timestep["2020"]
+            half = norm.ppf(1.0 - alpha / 2.0) * ts.sigma_a_star
+            free = ts.sigma_a_star > 0
+            np.testing.assert_allclose((ts.upper - np.asarray(a_star, float))[free],
+                                       half[free], rtol=1e-12)
+            assert r.alpha == alpha
+
+    @pytest.mark.parametrize("alpha", [0.0, 1.0, -0.1, 1.5])
+    def test_alpha_outside_the_open_unit_interval_raises(self, tmp_path, monkeypatch, alpha):
+        with pytest.raises(ValueError, match="alpha"):
+            _one_year_result(_FOUR_EDGE_ROWS, _FOUR_EDGE_SIGMA_A2, [5, 3, 2, 4], monkeypatch,
+                             tmp_path, alpha=alpha)
+
+    def test_a_year_without_kept_rows_keeps_its_prior_sigma(self, tmp_path, monkeypatch):
+        r = _one_year_result(_SLACK_ONLY_ROWS, _FOUR_EDGE_SIGMA_A2, [1, 3, 2, 4], monkeypatch,
+                             tmp_path, aggregates=_agg_spec(),
+                             draws={"2020": 4000}, rng=np.random.default_rng(285))
+        ts = r.per_timestep["2020"]
+        assert ts.diagnostics["n_rows_kept"] == 0
+        np.testing.assert_allclose(ts.sigma_a_star, np.sqrt(_FOUR_EDGE_SIGMA_A2), rtol=1e-12)
+        np.testing.assert_allclose(r.aggregates.cov_post, r.aggregates.cov_prior, rtol=1e-12)
+        d = r.draws["2020"]
+        assert d.shape == (4000, 4)
+        np.testing.assert_allclose(d.std(axis=0), np.sqrt(_FOUR_EDGE_SIGMA_A2), rtol=0.1)
+
+    def test_an_opt_result_without_its_partition_is_refused(self, tmp_path):
+        from pysuto.constraints import ConstraintRun
+        from pysuto.solver import OptimResult
+        from pysuto.uncprop import KalmanUncProp
+        G = sp.csr_matrix(np.array([[1.0, -1.0]]))
+        cr = ConstraintRun(
+            G=G, row_meta=pd.DataFrame({"constraint_id": ["b"], "is_hard": [True],
+                                        "sense": ["eq"], "time": ["2020"]}),
+            a0=np.ones(2), sigma_a=np.ones(2), u=np.full(2, 10.0), l=np.zeros(2),
+            timestep_data={"2020": {"c": np.zeros(1), "sigma_c": np.zeros(1)}},
+            run_id="np", acc_id="a", agg_id="g", created_at="2026-11-23T00:00:00",
+            G_blocks={"2020": G}, edge_cols_by_t={"2020": np.arange(2)})
+        opt = {"2020": OptimResult(
+            timestep="2020", F_opt=np.ones(2), eps_opt=np.zeros(0), c_star=np.zeros(1),
+            residuals=np.zeros(1), objective=0.0, iterations=0, solve_time_s=0.0,
+            solver_status="Solved", convergence={})}
+        prop = KalmanUncProp(opt_dir=str(tmp_path / "o"), const_dir=str(tmp_path / "c"),
+                             uncprop_dir=str(tmp_path / "u"))
+        _stub_runs(prop, cr, opt)
+        with pytest.raises(ValueError, match="no cols_t / rows_t"):
+            prop.compute("opt_fake")
+
+    def test_dependent_kept_rows_are_refused_by_the_whitened_qr(self):
+        from pysuto.uncprop import KalmanUncProp
+        G_k = sp.csr_matrix(np.array([[1.0], [2.0]]))     # two hard rows on one live edge
+        with pytest.raises(ValueError, match="dependent"):
+            KalmanUncProp._whitened_qr(G_k, np.ones(1), np.zeros(2))
+
+    def test_kappa_max_is_recorded_and_in_the_unit_interval(self, tmp_path, monkeypatch):
+        r = _one_year_result(_FOUR_EDGE_ROWS, _FOUR_EDGE_SIGMA_A2, [5, 3, 2, 4], monkeypatch,
+                             tmp_path)
+        d = r.per_timestep["2020"].diagnostics
+        assert 0.0 < d["kappa_max"] <= 1.0 + 1e-12
+        assert d["max_resid_hard"] < 1e-6
+
+    def test_a_violated_hard_equality_is_logged(self, tmp_path, monkeypatch, caplog):
+        with caplog.at_level("WARNING"):
+            r = _one_year_result(_FOUR_EDGE_ROWS, _FOUR_EDGE_SIGMA_A2, [5, 3, 1, 4],
+                                 monkeypatch, tmp_path)     # e0 - e1 - e2 = 1, not 0
+        assert r.per_timestep["2020"].diagnostics["max_resid_hard"] == pytest.approx(1.0)
+        assert "hard equality row is violated" in caplog.text
+
+    def test_persist_before_compute_is_refused(self, tmp_path):
+        from pysuto.uncprop import KalmanUncProp, UncPropResult
+        prop = KalmanUncProp(opt_dir=str(tmp_path / "o"), const_dir=str(tmp_path / "c"),
+                             uncprop_dir=str(tmp_path / "u"))
+        with pytest.raises(RuntimeError, match="before compute"):
+            prop.persist(UncPropResult(method="kalman", alpha=0.05), "opt_x")
+
+    @pytest.mark.parametrize("mode", ["cold", "warm"])
+    def test_the_opt_runs_prior_mode_is_recorded_and_a_warm_one_warns(
+            self, tmp_path, caplog, mode):
+        from pysuto.registry import UncPropRunRegistry
+        from pysuto.uncprop import KalmanUncProp
+        run = _make_toy_3edge_2t()
+        opt_run_id, dirs = _solve_and_persist(run, tmp_path,
+                                              stage_config={"prior_mode": mode})
+        prop = KalmanUncProp(opt_dir=dirs["opt"], const_dir=dirs["const"],
+                             uncprop_dir=dirs["uncprop"])
+        with caplog.at_level("WARNING"):
+            result = prop.compute(opt_run_id)
+        assert ("prior_mode='warm'" in caplog.text) == (mode == "warm")
+        run_id = prop.persist(result, opt_run_id)
+        sidecar = UncPropRunRegistry(dirs["uncprop"]).load_sidecar(run_id)
+        assert sidecar["stage_config"]["prior_mode"] == mode

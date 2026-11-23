@@ -1,9 +1,18 @@
+"""icsg_2014.py
+============
+ICSG 2014 yearbook: sheet-to-flow parser.
+
+Values are kt Cu: the parse stamps ``Unit = 'kt'`` and the icsg feed's ``valuation_map``
+reads it as CC (contained copper), not gross mass.
+"""
 import pandas as pd
 import numpy as np
 import re
 import os
+import sys
 
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
 from pysuto.utils import get_path
 from pysuto.logging import get_logger
 
@@ -56,7 +65,7 @@ def clean_flows(df_init, sheet, process, flow_type, rename_dict):
     #     (blank)     Total          854.1
     # so bfill reaches the right label from the Concentrates row but carries the
     # Total row onto the NEXT country.  A Total row closes its own block, so it
-    # takes the label at or above it instead.
+    # takes the label at or above it instead (ADR 0035).
     #
     # This must run BEFORE the aggregate rows are dropped: the sheet's own
     # WORLD / TOTALS block is shaped the same way, and with its labels already
@@ -200,7 +209,6 @@ def clean_flows(df_init, sheet, process, flow_type, rename_dict):
             f"Max value {df['Value'].max():,.0f} kt looks suspiciously high "
             f"— possible parsing error in sheet '{sheet}'."
         )
-    df.reset_index(drop=True)
 
     return df
 
@@ -291,25 +299,6 @@ def main(id=2014):
 
     pass
 
-
-def check_flows(df):
-
-    # per Region, Type Year Process is only one value
-    duplicates = df[df.duplicated(subset=['Region', 'Type', 'Year', 'Process'], keep=False)]
-    if not duplicates.empty:
-        logger.warning(f"Duplicate entries found for the same Region, Type, Year, Process combination:\n{duplicates}")
-    # there are NaN anywhere
-    if df.isnull().any().any():
-        logger.warning("NaN values found in the DataFrame")
-
-    # Year col is int and there are no negative values in Value column
-    if not pd.api.types.is_integer_dtype(df['Year']):
-        logger.warning("Year column is not of integer type")
-    if (df['Value'] < 0).any():
-        logger.warning("Negative values found in Value column")
-
-
-    pass
 
 def checks_stocks(df):
     #1 there is per Type Region Stock_type Year a unique value
