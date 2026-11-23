@@ -4,7 +4,7 @@ build_ore_grade.py
 Build region×year **in-situ** ore-grade concentration params for the CO/Ore
 edges and emit them as the ``ore_grade`` params artifact (ADR 0015). These
 rows replace the conc family's global CO/Ore placeholders (nominal 1 %, band
-[0.3, 1.7] %) — `copper_params_parse.convert_conc` skips CO/Ore accordingly.
+[0.3, 1.7] %); the hand-authored conc table carries no CO/Ore row.
 
 Basis (ADR 0015)
 ----------------
@@ -21,7 +21,7 @@ with productions and ore mass read from the registered **icsg** and
 pattern) and the eff nominals read from the eff params file (never
 hard-coded). Fallback where ICSG production is absent: ``(1/factor)/eff_MF``
 from the S&P factor file via ore_grade_map.xlsx (ROW = arithmetic mean of its
-member countries, as in the superseded scripts/parse/ore_grade_parse.py).
+member countries).
 
 Output rows mirror the conc family's three roles, region/time-resolved:
     oregradecosupply{region}{year}   a: CO/SB from      (CO→Mining)
@@ -60,13 +60,18 @@ carried years are computed from the carried grade and the year's own
 production, not carried themselves. Forward only, from the last observed year.
 
 Output: data/input/params/ore_grade/current/params.csv (registry-versioned;
-the raw S&P factor file and ore_grade_map.xlsx stay alongside). NOTE data/ is
+the raw S&P factor file and ore_grade_map.xlsx stay alongside) and parents.json beside
+it, which names the ICSG and crude-ore feed runs it was built from and the eff and conc
+versions (the ICSG feed reads these params, and the ore mass reads the runs: the order
+loop of README *Workflow*). NOTE data/ is
 gitignored — regenerate on a fresh checkout.
 """
 
 from __future__ import annotations
 
+import argparse
 import glob
+import json
 import os
 import sys
 
@@ -76,13 +81,14 @@ import pandas as pd
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from pysuto.acc import AccountingStructure
-from copper_feed import ORE_GRADE_LABELS
+from copper_feed import ORE_GRADE_LABELS, latest_feed_run
 from pysuto.config import load_config
+from pysuto.feedprep.builder_lock import builder_lock
 from pysuto.feedprep.ore_grade import (
     MARGIN_REL_CARRY, build_param_rows, build_production_frame, build_tailings_rows,
     carry_grades_forward, compute_insitu_grades, compute_tailings_grades, region_bands,
     tailings_bands)
-from pysuto.input_registry import InputRegistries
+from pysuto.input_registry import PARAMS_PARENTS, InputRegistries
 from pysuto.relation.params import read_params
 
 # ---------------------------------------------------------------------------
@@ -98,17 +104,37 @@ OG_DIR      = os.path.join(_INPUT_ROOT, "params", "ore_grade", "current")
 OUT_CSV     = os.path.join(OG_DIR, "params.csv")
 
 
+def set_data_dir(data_dir: str) -> None:
+    """Point the script at ``data_dir`` instead of ``data`` (as the other builders do)."""
+    global _INPUT_ROOT, ACC_DIR, FEED_REG, OG_DIR, OUT_CSV
+    _INPUT_ROOT = os.path.join(data_dir, "input")
+    ACC_DIR     = os.path.join(data_dir, "proc", "acc")
+    FEED_REG    = os.path.join(data_dir, "proc", "feed", "registry")
+    OG_DIR      = os.path.join(_INPUT_ROOT, "params", "ore_grade", "current")
+    OUT_CSV     = os.path.join(OG_DIR, "params.csv")
+
+
 # ---------------------------------------------------------------------------
 # I/O helpers (build_trade_shares pattern)
 # ---------------------------------------------------------------------------
 
-def _latest_feed_froot(label: str) -> np.ndarray:
-    dirs = sorted(glob.glob(os.path.join(FEED_REG, f"feed_{label}_*")))
-    if not dirs:
-        raise FileNotFoundError(f"no feed_{label}_* run under {FEED_REG}")
-    run = dirs[-1]
+def _latest_feed_froot(label: str) -> tuple[str, np.ndarray]:
+    """``(run id, F_root)`` of the newest ``feed_<label>_*`` run."""
+    run = latest_feed_run(FEED_REG, label)
     print(f"   {label:10s} ← {os.path.basename(run)}")
-    return np.load(os.path.join(run, "result.npz"))["F_root"]
+    return os.path.basename(run), np.load(os.path.join(run, "result.npz"))["F_root"]
+
+
+def write_parents(out_dir: str, feed_run_ids: list) -> dict:
+    """Record the params' parents beside their params.csv, where the params registry hashes
+    it: the ICSG and crude-ore feed runs they were built from and the eff and conc versions
+    in force, in a sidecar's vocabulary (the ``trade_shares`` record's form, #53)."""
+    reg = InputRegistries.load(root=_INPUT_ROOT).params
+    built_from = {"upstream": {"feed_run_ids": list(feed_run_ids)},
+                  "inputs": {"params": {i: reg.entry(i)["version"] for i in ("conc", "eff")}}}
+    with open(os.path.join(out_dir, PARAMS_PARENTS), "w", encoding="utf-8") as f:
+        json.dump(built_from, f, indent=2, sort_keys=True)
+    return built_from
 
 
 def _eff_nominals() -> tuple[float, float]:
@@ -149,8 +175,8 @@ def main() -> None:
     acc = AccountingStructure.load(id=acc_id, storage_dir=ACC_DIR)
     eff_mf, eff_sxew = _eff_nominals()
     print(f"   eff_MF={eff_mf}  eff_SXEW={eff_sxew}  (from eff params)")
-    icsg  = _latest_feed_froot("icsg")
-    crude = _latest_feed_froot("crude_ore")
+    icsg_run,  icsg  = _latest_feed_froot("icsg")
+    crude_run, crude = _latest_feed_froot("crude_ore")
 
     conc_concentrate, conc_csxew = _conc_nominals()
     print(f"   conc_Concentrate={conc_concentrate}  conc_CSXEW={conc_csxew}  (from conc params)")
@@ -194,6 +220,8 @@ def main() -> None:
     os.makedirs(OG_DIR, exist_ok=True)
     params.to_csv(OUT_CSV, index=False)
     print(f"   wrote {len(params):,} param rows → {OUT_CSV}")
+    built_from = write_parents(OG_DIR, [icsg_run, crude_run])
+    print(f"   built from : {built_from['upstream']['feed_run_ids']}, {built_from['inputs']}")
 
     inputs = InputRegistries.initialize(root=_INPUT_ROOT)
     entry = inputs.params.entry("ore_grade")
@@ -201,4 +229,10 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
+    ap.add_argument("--data-dir", default="data",
+                    help="data root holding input/ and proc/ (default: %(default)s)")
+    args = ap.parse_args()
+    set_data_dir(args.data_dir)
+    with builder_lock("build_ore_grade", args.data_dir):
+        main()

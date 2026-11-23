@@ -1,7 +1,5 @@
 """Unit tests for the in-situ ore-grade triangle, ``pysuto.feedprep.ore_grade`` (ADR 0015),
 with copper's labels bound as the case binds them."""
-import os
-import sys
 from functools import partial
 from types import SimpleNamespace
 
@@ -246,7 +244,6 @@ def test_tailings_for_carried_year_use_that_years_production():
 def test_eff_lookup_does_not_version_an_edited_current(tmp_path, monkeypatch):
     """The params lookups are importable helpers; a diagnostic calling one must
     not register what current/ holds mid-edit (#93)."""
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
     import build_ore_grade as O
     from pysuto.input_registry import InputRegistries
 

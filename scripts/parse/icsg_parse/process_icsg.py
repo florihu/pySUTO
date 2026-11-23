@@ -19,15 +19,21 @@ Steps:
 """
 from __future__ import annotations
 
+import os
+import sys
+
 import pandas as pd
 import numpy as np
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
 from pysuto.logging import get_logger
 
 
 logger = get_logger(__name__)
 
 CLEAN_DIR = "data/proc/feedprep/icsg_clean"
+# One flow row: the vintage dedup keeps the newest of any rows sharing it
+FLOW_KEY = ["Region", "Type", "Year", "Process", "Supply_Use", "Unit"]
 
 # A printed total and the sum of its types differ by rounding (at most 0.15 kt
 # in the 2005-2025 yearbooks) or by a defect (1.5 kt and more: Japan's 0.000
@@ -174,12 +180,12 @@ def main():
     # take always the most recent version
     combined = combined.sort_values("Year_loaded_from_file",
                                     kind="mergesort").drop_duplicates(
-        subset=["Region", "Type", "Year", "Process", "Supply_Use", "Unit"],
+        subset=FLOW_KEY,
         keep="last"
     ).reset_index(drop=True)
 
-    assert not combined.duplicated(subset=["Region", "Type", "Year", "Process", "Supply_Use", "Unit"]).any(), \
-        "Duplicate rows found after concatenation and deduplication!"
+    if combined.duplicated(subset=FLOW_KEY).any():
+        raise ValueError("Duplicate rows found after concatenation and deduplication!")
 
     # -- 4. Enforce consistent dtypes ------------------------------------------
     str_cols = ["Region", "Type", "Process", "Supply_Use", "Unit"]
