@@ -11,7 +11,7 @@ together.)* Amends
 (removes a second anchor from the Matte node), resolves the population
 [ADR 0019](0019-contradicted-flow-nodes-lose-anchor-authority.md) detected and
 [ADR 0020](0020-withhold-restored-totals-that-contradict-their-own-chain.md) deferred, and
-disables ADR 0020's gate. Evidence: REP [`…roundG-anode-anchor`](../rep/analysis_opt_20260909_084958_2742afa3_20260909_roundG-anode-anchor.md).
+disables ADR 0020's gate. Evidence: REP [`…roundG-anode-anchor`](../rep/analysis_opt_20260909_084958_2742afa3_20260909_roundG-anode-anchor.md). *(Pruned: `opt_20260909_084958_2742afa3` is absent from `data/proc` on 2026-11-23; no per-run pruning date is recorded.)*
 
 ## Context
 

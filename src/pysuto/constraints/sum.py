@@ -46,6 +46,7 @@ class SumConstraintBuilder(BaseConstraintBuilder):
     Two construction modes:
       from_acc_struct() — auto-derives "useful supply" balance from acc_struct topology
       from_csv()        — loads user-defined sum constraints from a CSV file
+                          (the bilateral anchoring rows of ADR 0001)
 
     G rows are static (built once).  c and sigma_c are dynamic when
     sigma_ck_mode == "fraction_of_flow" (depends on f_agg per timestep).

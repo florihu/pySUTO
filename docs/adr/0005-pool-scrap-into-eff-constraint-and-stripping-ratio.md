@@ -1,5 +1,7 @@
 # Pool Scrap into the eff constraint; store the stripping ratio as a process I/O ratio
 
+**Status:** accepted — *proposed by the #223 review, the maintainer confirms.* Amended by [ADR 0038](0038-waste-rock-is-a-satellite-mass-flow.md) (the stripping ratio has its own params family). Evidence: the `agg=true` pooling ships in `relation/ratio_relation.py` and [ADR 0022](0022-er-pools-its-anode-input-over-all-source-regions.md) builds on it; the reference chain `opt_20261119_130302_b20f0dba` solves 30 of 30 years with it.
+
 *Amended 2026-09-29 by [ADR 0038](0038-waste-rock-is-a-satellite-mass-flow.md): the stripping
 ratio moved out of the eff file into its own params family `stripping_ratio`; the imputer uses it
 again (`WR_Mass = k·Ore_Mass`), and waste rock sits outside the Mining mass balance.*
