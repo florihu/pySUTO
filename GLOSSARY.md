@@ -556,8 +556,8 @@ once wrote the carry-forward into the same disjoint columns it read, so the warm
 silent no-op and every year fell back to `f_agg` — see [ADR 0009](docs/adr/0009-warm-start-prior-chain.md).
 
 **Two warm-starts (not the same thing).** `prior_mode` (warm/cold) is the **modelling** prior
-above. `reuse_factorization` is a purely **numerical** warm-start — reusing Clarabel's KKT
-factorisation across timesteps via `solver.update()`; it exists only in a serial solve, since a
+above. The `reuse` argument of `QPBackend.solve` is a purely **numerical** warm-start —
+`ClarabelBackend` then reuses Clarabel's KKT factorisation across timesteps (its `inst.update`); it exists only in a serial solve, since a
 **parallel solve** factorises each period on its own. _Avoid_: conflating the two; the local
 that selects KKT reuse was historically also called `warm_start`.
 
@@ -573,7 +573,7 @@ mass-balance maximum per year is the middle panel of SD-R-11). Its feasible rang
 row's cone: **≈ 0 on hard *equalities*** (`zero` cone — mass balance); **`≤ 0` on hard *bounds***
 (`nonneg` cone — ratio/flow bounds, since feasibility is `G·a ≤ c`), where a *negative* residual
 is healthy **slack** (distance below the limit), not a violation, and only a *positive* residual
-is a breach; **`= ε`, the slack, on a soft (free) row** (see README §"Cone order": `Gx − ε = c`).
+is a breach; **`= ε`, the slack, on a soft (free) row** (see README Stage 4, "Standard form" → Cone order: `Gx − ε = c`).
 _Avoid_: (1) reading a large-negative residual on a `nonneg` bound as a violation — it is slack
 (a misread that once produced a phantom "inverted bound" diagnosis); (2) conflating with
 **defect** — residual is per-constraint, defect is per-edge.

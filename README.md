@@ -155,8 +155,8 @@ Registry     │   feed   │   imp    │  const   │   opt    │ uncprop  �
 Provenance   │ sidecar metadata.json · parents.inputs (versioned) ¹            │
 (lineage)    │ + parents.upstream  (run_id chain, re-discovered)               │
              ├─────────────────────────────────────────────────────────────────┤
-Logging      │ get_logger(name) per module + add_run_handler() —               │
-             │ one file per run; all named loggers funnel to root ²            │
+Logging      │ get_logger(name) per module; a driver calls start_run_log() —   │
+             │ one file per module + one per run; loggers funnel to root ²     │
              ├────────────────────────────────┬────────────────────────────────┤
 Config /     │ load_config(config.yaml) ·     │ no registry read: the inputs   │
 inputs       │ InputRegistries.initialize()   │ come with the upstream run id; │
@@ -166,7 +166,10 @@ inputs       │ InputRegistries.initialize()   │ come with the upstream run i
 ¹ Stages 1–3 fill parents.inputs; Stage 4 records the const run's acc ref there only
   when warm (the warm prior reads the acc), Stage 5 parents.upstream alone, and
   Stage 6 the const run's acc ref (id and version).
-² scripts/icsg_feed.py attaches no run handler.
+² A driver calls start_run_log(data_dir, name) (#190); importing pysuto writes nothing.
+  A Stage 2–6 sidecar's stage_config.case names its case: case_sha256 is the
+  identity (sha256 of the case module), case_source is informative (`path:<abspath>`
+  by design, so it may be an ephemeral path) (#187).
 ³ scripts/acc.py writes build_record.json ({id, version, code} of the acc input version
   it built from) beside the built acc. The drivers of Stages 2, 3, 4 and 6 check it
   against their acc ref before they load the acc (#53), and Stage 2 checks each feed
@@ -658,7 +661,7 @@ $$\text{s.t.} \quad \mathbf{G}\,\mathbf{a} - \boldsymbol{\varepsilon} = \mathbf{
 | Symbol | Meaning |
 |---|---|
 | $\mathbf{a}$ | All flow values (one per root edge × time slice) |
-| $\mathbf{a}_0$ | Prior — `f_agg` from Stage 2 at $t=0$; `F_opt(t-1)` for $t > 0$ |
+| $\mathbf{a}_0$ | Prior — the conditioned `f_agg` slice of year $t$ (`prior_mode="cold"`, the driver default); under `"warm"` (the `Solver` class default) `f_agg` at $t=0$ and `F_opt(t-1)` for $t > 0$ |
 | $\Sigma_a$ | Diagonal of σ_a² (regularised in Stage 3) |
 | $\boldsymbol{\varepsilon}$ | Slack on free-cone rows; zero by construction on hard rows |
 | $\Sigma_c(t)$ | Diagonal of σ_c²(t) on free rows; **may vary per timestep** (e.g. `SumConstraintBuilder` per-year row activation via `SIGMA_C_INACTIVE`; `fraction_of_flow` mode) |
@@ -1125,7 +1128,7 @@ All six stages mint run-ids using one harmonized pattern:
 {stage}_{YYYYMMDD_HHMMSS}_{8-char-uuid4-hex}
 ```
 
-`stage ∈ {feed, imp, const, opt, uncprop, psut}`; a feed run embeds its feed id
+`stage ∈ {feed, imp, const, opt, uncprop, psut, sweep}`; a feed run embeds its feed id
 (`feed_<feed_id>_…`, e.g. `feed_baci_20260915_105105_187857d6`).  No label, acc-id,
 or parent run-id is embedded — the label lives only in the registry, and parent
 references live in the per-run sidecar `metadata.json`.
@@ -1535,7 +1538,7 @@ python -m pytest tests/
 
 **Reproduce the reference environment.** Bit-identity of the stored arrays is claimed in the environment pinned by [environment-reference.yml](environment-reference.yml) (linux-64, every build): `conda env create -f environment-reference.yml && conda activate pysuto-ref`. [environment.yml](environment.yml) builds a development environment on any platform.
 
-**Core dependencies (from `pyproject.toml`):** `numpy`, `pandas`, `scipy`, `pyarrow`, `clarabel`, `pyyaml`, `matplotlib` (the last is used only by [diag/](src/pysuto/diag/) for plotting).
+**Core dependencies (from `pyproject.toml`):** `numpy`, `pandas`, `scipy`, `pyarrow`, `clarabel`, `pyyaml`, `openpyxl`, `matplotlib` (the last is used only by [diag/](src/pysuto/diag/) for plotting).
 
 **Licence and citation.** The code is licensed under the MIT License ([LICENSE](LICENSE)). The hand-authored tables `data/input/acc/`, `data/input/params/{conc,eff}/` and `data/input/mask/` are licensed under CC BY 4.0 ([LICENSE-DATA](LICENSE-DATA)). The other tracked tables (the feed concordances and metadata, and the derived parameter tables such as `scrap_share`, `stock_bounds` and `ore_grade`) carry no licence until their licence check is recorded; the original source data are not in the repository and stay under their owners' terms. To cite pySUTO, use [CITATION.cff](CITATION.cff). The optional `uncprop` extra pulls in `scikit-sparse`, whose CHOLMOD backend is LGPL/GPL; pySUTO does not need it.
 
