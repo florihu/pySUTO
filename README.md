@@ -867,7 +867,7 @@ Run Stage 6 on the toy case in [tutorial/06_psut_piot.ipynb](src/pysuto/tutorial
 | [stages.py](src/pysuto/stages.py) | `run_imp`, `run_const`, `run_opt`, `run_uncprop`, `run_psut`, `OPT_KNOBS`, `PSUT_KNOBS` | The bodies of the Stage 2–6 drivers as library functions over a `CaseSpec`, a data dir and the upstream run id (#124, #186); the toy's `run_stage2` / `run_stage3` call the first two, and `python -m pysuto run` all five. The Stage 4–6 tuning constants (solver tolerances, `N_WORKERS`, `QP_VARIABLES`, `ALPHA`, `PRIMARY`) sit in its `# USER CONFIGURATION` block. `pysuto.case.check_case` refuses a run made by another case. |
 | [compare.py](src/pysuto/compare.py) | `compare_chains`, `lineage`, `first_difference`, `format_report`, `CompareError` | `python -m pysuto compare` (#157): two chains by their leaf run ids, paired stage by stage and compared array by array; imports nothing from `pysuto`, writes nothing. |
 | [pipeline.py](src/pysuto/pipeline.py), [\_\_main\_\_.py](src/pysuto/__main__.py) | `Pipeline`, `Chain`, `StepFailed`, `Axis`, `Sweep`, `STEPS`, `ALL_STEPS`, `TIED`, `STEP_GB`, `split_key` | The stages composed as steps, each in a child process, Stage 1 (a case's hook) to Stage 6 (`python -m pysuto run`, #125); one chain per `run(overrides, label)` with `<stage>.<KNOB>` overrides (#103); random (Latin hypercube) or grid sweeps of chains, resumable, recorded via `SweepRunRegistry` (#105); a sweep may keep only its last step's runs, the others passing through a scratch store (#108). |
-| [utils.py](src/pysuto/utils.py) | `_NpEncoder`, io helpers | JSON serialisation, numpy-safe dump/load. |
+| [utils.py](src/pysuto/utils.py) | `get_path` | Path lookup under `data/input/raw`, used by the ICSG yearbook parsers. |
 | [logging.py](src/pysuto/logging.py) | `get_logger`, `add_run_handler` | Structured run logging; one file per run. |
 | [config.py](src/pysuto/config.py) | `load_config`, `Config`, `PipelineConfig` | Typed loader for `config/config.yaml` (`pipeline.acc_id` only). |
 | [lp.py](src/pysuto/lp.py) | `lp_combine` | The Lp / power-mean σ combiner `(Σ \|x_i\|^p)^(1/p)`, one source of truth for Stages 1–3. |
@@ -1355,7 +1355,7 @@ pysuto/
 │                          structure.py (ProcessRecipe · node_balances)     │
 │                          sources.py (ParamSource · Fill)                  │
 ├── flow_node_balance.py   contradicted_flow_nodes  (St2–St3 check)         │
-├── utils.py               _NpEncoder · io helpers                          │
+├── utils.py               get_path (ICSG parsers)                          │
 ├── logging.py             structured run logging                          ─┘
 │
 ├── collector.py           FeedCollector                                   ─┐
