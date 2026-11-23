@@ -442,7 +442,8 @@ rather than adding to it, and which one survives depends on row order
 ([ADR 0036](docs/adr/0036-a-renamed-type-is-a-second-stream-not-a-restatement.md)). _Avoid_ also:
 reading a vintage as a *time* coordinate — it labels the publication, not the year observed; one
 vintage carries many observation years. _Avoid_ also: "edition" for a yearbook's release — say
-vintage.
+vintage. The ICSG flow tables persist a vintage as the column `Year_loaded_from_file` (the
+yearbook's publication year, 2005, 2014, 2023 or 2025); it is the vintage, not a load date.
 
 **Boundary topology** *(referenced by [ADR 0001](docs/adr/0001-replace-coherence-sum-eq-with-bilateral-anchoring.md); to be expanded)* —
 the open System-Boundary (SB) endpoints where flows terminate, so prior disagreement there does
@@ -684,7 +685,8 @@ the yearly ratios); a pooled retention on a signed category.
 
 **Posterior contraction (`κ`)** — the share of an edge's prior variance the constraints remove in
 one year, `κ = 1 − σ_a*² / σ_a²`: `0` leaves the prior uncertainty untouched, `1` pins the edge. It
-depends on `G`, `σ_a` and `σ_c` only, never on `c` or `a*`, so it measures how informative the
+depends on `G`, `σ_a` and `σ_c` and, through the QP's active set at `a*` (which rows bind, which
+lower bounds pin their edge), on `a*`; given that active set it does not depend on `c`, so it measures how informative the
 constraints are, not whether they agree with the prior — that is the **defect**'s `z`.
 _Avoid_: "shrinkage" (in statistics, the pull of an estimate toward the prior mean — our defect),
 "variance reduction", "information gain".
@@ -1161,10 +1163,10 @@ second side, and double anchoring is the over-constraint
 
 ## Downstream PSUT / PIOT vocabulary
 
-**PSUT (physical supply-use table)** — the **materialised numeric** supply-use flows for *one period and
-one valuation*, derived from the solved edge vector `a*`. **Shape-agnostic**: its canonical form is a **tidy
+**PSUT (physical supply-use table)** — the **materialised numeric** supply-use flows, derived from the solved edge vector `a*`; one table
+holds every period and every valuation, and a view selects one of each. **Shape-agnostic**: its canonical form is a **tidy
 edge table** (one row per directed edge, carrying its `val`), and the block matrices — supply `S` (useful
-output), use `U`, final use `Y`, plus boundary blocks nature-input `E`, SEM-input `O`, SEM-output `P` — are
+output), use `U`, final use `Y`, plus boundary blocks nature-input `E`, SEM-input `O`, SEM-output `P`, nature-output `W` — are
 **derived pivot views** of that same PSUT. The valueless Process+Flow **SUT** is the *graph* (the
 `AccountingStructure` topology); a PSUT is that graph **carrying solved values**. _Avoid_: calling the
 **valueless** graph a "PSUT" (the bare graph is the **SUT**); "SUT" for a numeric realisation (long or matrix);
@@ -1172,13 +1174,13 @@ reading "PSUT" as *matrices only* (the matrices are one view; the tidy table is 
 
 **Block** — the PSUT quadrant a directed edge belongs to, read off its endpoint entity kinds (and, for
 the boundary blocks, the `SB` node's boundary role): `S` Process→Flow, `U` Flow→Process, `Y` Flow→SB·FD,
-`E` SB·Nature→Process, `O` SB·SEM→Process, `P` Process→SB·SEM. Every admissible edge lands in exactly one
+`E` SB·Nature→Process, `O` SB·SEM→Process, `P` Process→SB·SEM, `W` Process→SB·Nature (empty in copper). Every admissible edge lands in exactly one
 block; the tidy table carries it as the `block` column and each matrix view is one block's pivot. _Avoid_:
 "mask" for a block — the `supply`/`use` **masks** are rule-derived edge selections that straddle blocks (a
 loaded structure's `supply` mask also holds `P`, its `use` mask `E` and `O`).
 
 **Primary valuation** — the valuation a multi-valuation PSUT's views and plots default to (`primary`; copper:
-`CC`, the `content` role once ADR 0034 lands); `valuation=` overrides it. A PSUT carries **every** valuation of
+`CC`, the `content` role, ADR 0034); `valuation=` overrides it. A PSUT carries **every** valuation of
 its structure in one table, and the realized `conc` is the ratio of two of them. _Avoid_: reading the structure's
 first-listed valuation (`Mass`) as the default; one PSUT per valuation.
 
@@ -1200,9 +1202,9 @@ contracted into edge labels. _Avoid_: "process network" for it (that is the PIOT
 reading a node's total as throughput of anything but that (period, valuation).
 
 **PIOT (physical input-output table)** — a **symmetric** (square) physical IO table derived from a PSUT by a
-chosen **construct** (below). The **product-by-product** PIOT (commodity×commodity) is the analytic primary —
-technical coefficients `A`, core flows `Z`, total requirements `L`, for footprints; the **industry-by-industry**
-(process×process) PIOT is the **process network** (below). _Avoid_: conflating with the rectangular **PSUT** (a
+chosen **construct** (below). The shipped one is the **industry-by-industry**
+(process×process) PIOT, the **process network** (below): technical coefficients `A`, core flows `Z`,
+total requirements `L`, for footprints. The **product-by-product** PIOT (commodity×commodity) is #20. _Avoid_: conflating with the rectangular **PSUT** (a
 PIOT is square); reading "PIOT" as *product-by-product only* (it is a construct **family**).
 
 **Construct** — the SUT→PIOT transformation choice, on **two orthogonal axes**. **(1) Table shape**
@@ -1226,7 +1228,8 @@ product-by-product); drawing the supply legs `S` as their own edges (they only a
 **gPIOT** — the full **multi-regional** PIOT over (region × flow), whose `L` traces embodied/indirect flows
 across borders. _Avoid_: "global PIOT" for a single-region table.
 
-**Technical coefficients `A`** (uppercase) — the per-unit input-requirements matrix of the PIOT (`A = B·D`).
+**Technical coefficients `A`** (uppercase) — the per-unit input-requirements matrix of the PIOT (`A = Z·x̂⁻¹` for the shipped industry-by-industry construct; `A = B·D` for the
+product-by-product one, #20).
 _Avoid_: confusing with the lowercase **edge vector `a`** (the decision variable) — case distinguishes them.
 
 **Total requirements / Leontief inverse `L`** — `L = (I − A)⁻¹`, mapping final demand to total (direct +

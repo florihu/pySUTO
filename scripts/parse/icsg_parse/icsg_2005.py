@@ -1,9 +1,18 @@
+"""icsg_2005.py
+============
+ICSG 2005 yearbook: sheet-to-flow parser (one `icsg_<vintage>.py` per yearbook layout).
+
+Values are kt Cu: the parse stamps ``Unit = 'kt'`` and the icsg feed's ``valuation_map``
+reads it as CC (contained copper), not gross mass.
+"""
 import pandas as pd
 import numpy as np
 import re
 import os
+import sys
 
 
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
 from pysuto.utils import get_path
 from pysuto.logging import get_logger
 
@@ -160,31 +169,11 @@ def icsg_2005(id=2005):
 
     return df_flow, df_stock, df_price
 
-def check_flows(df):
-
-    # per Region, Type Year Process is only one value
-    duplicates = df[df.duplicated(subset=['Region', 'Type', 'Year', 'Process'], keep=False)]
-    if not duplicates.empty:
-        logger.warning(f"Duplicate entries found for the same Region, Type, Year, Process combination:\n{duplicates}")
-    # there are NaN anywhere
-    if df.isnull().any().any():
-        logger.warning("NaN values found in the DataFrame")
-
-    # Year col is int and there are no negative values in Value column
-    if not pd.api.types.is_integer_dtype(df['Year']):
-        logger.warning("Year column is not of integer type")
-    if (df['Value'] < 0).any():
-        logger.warning("Negative values found in Value column")
-
-
-    pass
-
 def checks_stocks(df):
     #1 there is per Type Region Stock_type Year a unique value
     duplicates = df[df.duplicated(subset=['Type', 'Region', 'Stock_type', 'Year'], keep=False)]
     if not duplicates.empty:
         logger.warning(f"Duplicate entries found for the same Type, Region, Stock_type, Year combination:\n{duplicates}")
-        pass
 
     # there are NaN anywhere
     if df.isnull().any().any():
@@ -195,8 +184,6 @@ def checks_stocks(df):
 
     if (df['Value'] < 0).any():
         logger.warning("Negative values found in Value column")
-    
-    pass
 
 def clean_exchange_stocks(df_raw, id, start =3):
 

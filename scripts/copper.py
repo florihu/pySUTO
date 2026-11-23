@@ -51,7 +51,7 @@ from pysuto.impute import (
     screen_outlier_trade_legs,
     time_interp_scope,
 )
-from pysuto.flow_node_balance import K_CLOSE as UNCLOSED_K
+from pysuto.flow_node_balance import K_CLOSE
 from pysuto.relation.param_relation import expand_edge_index
 from pysuto.relation.sources import trade_scope
 from pysuto.unc import PedigreeScores
@@ -84,6 +84,7 @@ class CopperImp(ImpSection):
     P_PROP:        float = 1.3      # Lp/power-mean exponent
     Q_REG:         float = 3.0      # parametric fill's backward-branch knee sharpness
     ALPHA_MIN_REG: float = 0.05     # inverse-multiplier effective-sensitivity floor
+    NETWORK_CV_CAP: float = 1.5     # NetworkImputer's cap on a derived edge's CV
 
     # Imputation cascade — trade/network/conc/ore_grade iterate to a fixpoint (re-run until a
     # full sweep fills no new edges). Safety cap on passes (chain depth ≈ 8).
@@ -190,7 +191,7 @@ class CopperImp(ImpSection):
     # less trustworthy one (Russia Matte 1995: inflow 545 kt CC from ICSG
     # concentrate use vs outflow 50.8 from an under-reported ICSG refining series
     # → the smelting chain collapsed). Where the outflow prior falls below
-    # UNCLOSED_K × the inflow prior, its covered edges get σ = UNCLOSED_CV·|f| —
+    # K_CLOSE × the inflow prior, its covered edges get σ = UNCLOSED_CV·|f| —
     # data kept, false authority removed, mirroring the outlier screen — and
     # Stage 3 (CopperConst.UNCLOSED_ANCHOR_CV) loosens the matching usetotout anchor
     # to match.
@@ -300,7 +301,7 @@ def imp_stage_config(ctx) -> dict:
         "outlier_ref":     "production+imports",
         "unclosed_sectors": list(spec.UNCLOSED_SECTORS),
         "unclosed_cv":     spec.UNCLOSED_CV,
-        "unclosed_k":      UNCLOSED_K,
+        "unclosed_k":      K_CLOSE,
         "leg_sigma_a_ref":  spec.LEG_SIGMA_AREF,
         "leg_sigma_gamma":  spec.LEG_SIGMA_GAMMA,
         "leg_sigma_cv_cap": spec.LEG_SIGMA_CV_CAP,
@@ -337,7 +338,8 @@ def build_network(ctx) -> NetworkImputer:
         ore_grade_csv = ctx.use_params("ore_grade"),
         stripping_ratio_csv = ctx.use_params("stripping_ratio"),
         stripping_sigma     = spec.FLAT_SIGMA_HIGH,
-        p=spec.P_PROP, q=spec.Q_REG, alpha_min=spec.ALPHA_MIN_REG, cv_cap=1.5,
+        p=spec.P_PROP, q=spec.Q_REG, alpha_min=spec.ALPHA_MIN_REG,
+        cv_cap=spec.NETWORK_CV_CAP,
         id="network",
         stock_sectors=spec.stock_sectors,
         effless_stock_sigma=spec.EFFLESS_STOCK_SIGMA_KT,

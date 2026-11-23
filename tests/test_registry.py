@@ -797,6 +797,19 @@ class TestConstraintRunRegistry:
         assert loaded.agg_id == run.agg_id
         assert loaded._p     == pytest.approx(1.3)
 
+    def test_a_sidecar_without_p_raises_instead_of_assuming_the_default(
+            self, const_registry):
+        run = _toy_constraint_run()
+        const_registry.register(run)
+        path = os.path.join(const_registry.storage_dir, run.run_id, "metadata.json")
+        with open(path) as f:
+            sidecar = json.load(f)
+        del sidecar["stage_config"]["p"]
+        with open(path, "w") as f:
+            json.dump(sidecar, f)
+        with pytest.raises(KeyError, match="records no p"):
+            ConstraintRunRegistry(storage_dir=const_registry.storage_dir).load(run.run_id)
+
     def test_index_has_only_four_fields(self, const_registry):
         const_registry.register(_toy_constraint_run())
         with open(os.path.join(const_registry.storage_dir, "registry.json")) as f:

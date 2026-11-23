@@ -16,6 +16,7 @@ checkout's `data/` (the main checkout was on another session's branch); one driv
 scrap_share v3 — the base's; `input_status.py`: every `current/` at its latest version
 **Date:** 2026-11-12 · **Branch:** `diag/parametric-sigma-units-measure` · **Issues:** #149 (measures #148; parent #140)
 · **ADR:** 0025 (stop rule), 0044 (Stage 5 linearisation)
+**Diagnostic:** `python scripts/explo/issue149_parametric_sigma_units_diag.py opt_20261022_112855_928da10c opt_20261112_135523_88fa69f3` (<opt_base> <opt_new>)
 
 **Verdict: ships. Every pre-registered ship item holds (1, 2, 3a–c); `opt_20261112_135523_88fa69f3` becomes the reference
 chain.** The fix corrects a dimension error — a ratio's σ in ratio units was added to flow σ in kt — and changes the

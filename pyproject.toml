@@ -44,11 +44,6 @@ Repository = "https://github.com/florihu/pySUTO"
 Issues = "https://github.com/florihu/pySUTO/issues"
 
 [project.optional-dependencies]
-# Stage 5 — posterior uncertainty propagation uses CHOLMOD via scikit-sparse
-# for sparse Cholesky with symbolic-pattern reuse across timesteps. A scipy
-# splu fallback exists in pysuto.uncprop, but it does ~2× the work per
-# timestep and gives up the symbolic-pattern caching win.
-uncprop = ["scikit-sparse"]
 # Plotly Sankeys (psut.sankey); kaleido writes them to PNG.
 sankey = ["plotly>=6.3.0", "kaleido>=1.4.0"]
 tutorial = ["jupyter", "plotly>=6.3.0", "kaleido>=1.4.0"]

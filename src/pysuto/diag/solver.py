@@ -274,7 +274,7 @@ class SolverDiag:
         output_dir: str = "data/proc/opt",
         const_dir:  str = "data/proc/const",
         imp_dir:    str = "data/proc/imp",
-        feed_dir:   str = "data/proc/feeds",
+        feed_dir:   str = "data/proc/feed/registry",
         label:      str = "",
         acc=None,
     ) -> "SolverDiag":
@@ -330,6 +330,7 @@ class SolverDiag:
                                 "label":      "(not registered)",
                                 "created_at": "—",
                                 "stage":      "feed",
+                                "registered": False,
                             })
             except Exception:
                 pass  # best-effort; missing registries are silently skipped
@@ -648,23 +649,24 @@ class SolverDiag:
             lines += [
                 "",
                 "### Feeds",
-                "| feed_id | feed_run_id | label | created | path |",
-                "|---|---|---|---|---|",
+                "| feed_run_id | label | created |",
+                "|---|---|---|",
             ]
             for fe in feeds:
-                fid     = fe.get("feed_id", "—")
-                frun    = fe.get("feed_run_id", "—")
+                frun    = fe["run_id"]
                 flabel  = fe.get("label", "") or "—"
+                if not fe.get("registered", True):
+                    flabel = "(not registered)"
                 fdate   = (fe.get("created_at", "—") or "—")[:10]
-                fpath   = fe.get("odir", "—")
-                lines.append(f"| {fid} | `{frun}` | {flabel} | {fdate} | {fpath} |")
+                lines.append(f"| `{frun}` | {flabel} | {fdate} |")
 
         os.makedirs(odir, exist_ok=True)
         with open(out_path, "w", encoding="utf-8") as fh:
             fh.write("\n".join(lines) + "\n")
 
         # ── Compact stdout tree ────────────────────────────────────────
-        feed_ids_display = [fe.get("feed_run_id", fe.get("feed_id", "?")) for fe in feeds]
+        feed_ids_display = [fe["run_id"] + ("" if fe.get("registered", True)
+                                            else "  (not registered)") for fe in feeds]
         print(f"   provenance  {opt_id}")
         print(f"               └── {const_id}")
         print(f"               │   └── {agg_id}")

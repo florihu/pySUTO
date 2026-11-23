@@ -314,6 +314,29 @@ def test_the_psut_supply_and_use_blocks_balance_per_node(chain):
     np.testing.assert_allclose(nodes["inflow"], nodes["outflow"], rtol=0.0, atol=1e-8)
 
 
+def test_the_solved_footprints_track_the_planted_truth(chain):
+    """Stage 6 scored against the truth: the PIOT footprint of the solved chain and of the
+    planted flows, world total of the nature extraction per period and valuation. Band
+    fixed on the first run of this test (2026-11-23, seed 59): the largest relative gap
+    is 0.065 (2001, Content) over the five years and both valuations. Never loosen it."""
+    from types import SimpleNamespace
+    from pysuto.psut import PSUT
+    root, ids, acc = chain["root"], chain["ids"], chain["acc"]
+    solved = PsutRunRegistry(str(root / "proc" / "psut")).load(ids["psut"])
+    truth  = toy.truth_vector(toy.truth(), acc)
+    planted = PSUT.from_results(
+        {t: SimpleNamespace(timestep=t, F_opt=truth, cols_t=None) for t in solved.periods()},
+        acc)
+    a, b = solved.to_piot(level="L"), planted.to_piot(level="L")
+    gaps = []
+    for period in solved.periods():
+        for valuation in solved.valuations:
+            fa = a.footprint("E", period, valuation, by=None)
+            fb = b.footprint("E", period, valuation, by=None)
+            gaps.append(abs(fa / fb - 1.0))
+    assert len(gaps) == 10 and max(gaps) < 0.08, gaps
+
+
 def test_the_sankey_tables_sum_to_the_psut_totals(chain, caplog):
     """Per block, the PSUT's total is the Sankey's links plus the links it drops; in the
     planted year the dropped part (negative posteriors, a negative stock change) is not
@@ -529,3 +552,27 @@ def test_a_const_run_on_an_imp_run_without_flag_or_log_raises_naming_it(chain):
     os.remove(root / "proc" / "imp" / old / "imputation_log.parquet")
     with pytest.raises(ValueError, match=old):
         toy.run_stage3(root, old)
+
+
+def test_the_imputed_prior_lies_within_three_sigma_of_the_truth_on_the_filled_edges(chain):
+    """U2-S1-3: Stage 2 against ``toy.truth()``. Measured on this chain, max |f − truth|/σ_agg
+    is 1.96 (conc), 1.68 (network) and 1.54 (time_interp); the trade seeds are left out, as
+    one of them is the planted ×1000 customs row."""
+    root, ids, acc = chain["root"], chain["ids"], chain["acc"]
+    res = ImputationRunRegistry(str(root / "proc" / "imp")).load(ids["imp"])
+    log = res.imputation_log.as_dataframe()
+    truth = toy.truth_vector(toy.truth(), acc)
+    for imputer_id in ("conc", "network", "time_interp"):
+        e = log.loc[log["imputer_id"] == imputer_id, "edge_id"].astype(int).to_numpy()
+        assert e.size > 0, imputer_id
+        miss = np.abs(res.f_agg[e] - truth[e])
+        assert np.all(miss <= 3.0 * res.sigma_agg[e]), (imputer_id, float(miss.max()))
+
+
+def test_stage_5_conditions_the_same_prior_vector_as_stage_4(chain):
+    """Stage 5 conditions ``const.a0``, Stage 4 ``const.a_prior_global``: on the block
+    path the two are one vector (the sigma floor is relative to |a0|), #285."""
+    root, ids = chain["root"], chain["ids"]
+    const = ConstraintRunRegistry(str(root / "proc" / "const")).load(ids["const"])
+    assert const.G_blocks
+    np.testing.assert_array_equal(const.a_prior_global, np.asarray(const.a0, dtype=float))

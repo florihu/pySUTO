@@ -79,7 +79,8 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from pysuto.acc import AccountingStructure
 from copper_feed import (
-    BOUND_DOMESTIC_SECTORS, CATHODE_CARRIER_SECTOR_TO, SIGNED_SECTORS_TO, TRADED_SECTORS,
+    BACI_ID, BOUND_DOMESTIC_SECTORS, CATHODE_CARRIER_SECTOR_TO, SIGNED_SECTORS_TO,
+    TRADED_SECTORS,
     WITHHOLD_CHAIN_INCONSISTENT,
     chain_inconsistent_refining, icsg_raw_production, icsg_raw_usage, latest_feed_run,
     trade_share_parents)
@@ -132,6 +133,21 @@ def write_parents(out_dir: str, inputs: InputRegistries) -> dict:
     return built_from
 
 
+def check_baci_feed_current(inputs: InputRegistries, registry_dir: str) -> None:
+    """Raise unless the newest BACI feed run was built from the BACI input in force.
+
+    ``trade_share_parents`` names that run, but a BACI input registered after it ran would
+    leave the weights consistent with a run that read the older matrix (#53's class).
+    """
+    run = latest_feed_run(registry_dir, BACI_ID)
+    with open(os.path.join(run, "metadata.json"), encoding="utf-8") as f:
+        built = json.load(f)["parents"]["inputs"]["feed"]["version"]
+    now = inputs.feed.entry(BACI_ID)["version"]
+    if built != now:
+        raise ValueError(f"{os.path.basename(run)} was built from {BACI_ID} v{built}, but "
+                         f"v{now} is in force — rerun baci_feed first")
+
+
 def _input_registries():
     """Read-only: a lookup never versions a ``current/`` (#93)."""
     return InputRegistries.load(root=_INPUT_ROOT)
@@ -139,8 +155,7 @@ def _input_registries():
 
 def _register_inputs():
     """Version every edited ``current/`` — ``main``'s call, as a pipeline step's."""
-    with stage_lock("build_trade_shares", root=os.path.join(os.path.dirname(_INPUT_ROOT), "proc")):
-        return InputRegistries.initialize(root=_INPUT_ROOT)
+    return InputRegistries.initialize(root=_INPUT_ROOT)
 
 
 def main() -> None:
@@ -149,6 +164,7 @@ def main() -> None:
     print(f"   sectors: {SECTORS}  (Scrap excluded — not traded)")
     _register_inputs()
     inputs = _input_registries()
+    check_baci_feed_current(inputs, FEED_REG)
 
     acc_id = load_config().pipeline.acc_id
     acc = AccountingStructure.load(id=acc_id, storage_dir=ACC_DIR)
@@ -233,5 +249,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[1])
     ap.add_argument("--data-dir", default="data",
                     help="data root holding input/ and proc/ (default: %(default)s)")
-    set_data_dir(ap.parse_args().data_dir)
-    main()
+    args = ap.parse_args()
+    set_data_dir(args.data_dir)
+    with stage_lock("build_trade_shares", root=os.path.join(args.data_dir, "proc")):
+        main()

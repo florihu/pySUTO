@@ -140,7 +140,7 @@ class TestOneObject:
         df["param_id"] = df["param_id"].str.replace("_", "")   # ids are underscore-free
         df = df[df["value_nominal"].astype(float) > 0]         # no copperless-WR row
         df.to_csv(conc, sep=";", index=False)
-        block = RatioConstraintBuilder.from_csv(str(conc), acc).build_static(acc)
+        block = RatioConstraintBuilder.from_csv(str(conc), acc, sigma_rel_floor=0.02, scale_abs_floor=1.0).build_static(acc)
         cc, mass = acc.eid("Smelting", "Matte", "CC"), acc.eid("Smelting", "Matte", "Mass")
         G = block.G_rows.tocsr()
         rows = [i for i in range(G.shape[0]) if G[i, cc] != 0 and G[i, mass] != 0]
@@ -162,7 +162,7 @@ def _network(tmp_path, acc, eff_rows=None):
         pd.DataFrame(eff_rows, columns=_COLS + ["agg"]).to_csv(eff, sep=";", index=False)
     write_conc_csv(conc)
     write_ore_grade_csv(og)
-    imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=float("inf"))
+    imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=float("inf"), q=3.0, alpha_min=0.05)
     imp.prepare(acc)
     return imp
 
@@ -189,7 +189,7 @@ class TestPooledEff:
         assert rec.relation.agg and rec.eff == 0.965
         # the recipe's relation is the row Stage 3 emits for the same agg eff row
         eff = tmp_path / "eff.csv"
-        block = RatioConstraintBuilder.from_csv(str(eff), acc).build_static(acc)
+        block = RatioConstraintBuilder.from_csv(str(eff), acc, sigma_rel_floor=0.02, scale_abs_floor=1.0).build_static(acc)
         mine = emit([rec.relation], acc.n_edges).G_rows.toarray()[0]
         theirs = block.G_rows.toarray()
         assert any(np.array_equal(mine, row) for row in theirs)

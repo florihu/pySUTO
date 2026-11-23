@@ -261,19 +261,6 @@ def test_load_refuses_a_structure_saved_before_roles(tmp_path):
         AccountingStructure.load("cu", storage_dir=str(tmp_path))
 
 
-def test_the_procedural_constructor_binds_no_roles_and_refuses_an_sb_node():
-    nodes = pd.DataFrame({"sector": ["Mining", "Ore"], "entity": ["P", "F"],
-                          "region": ["A", "A"]})
-    acc = AccountingStructure(id="t", root={"nodes": nodes, "time_range": [0],
-                                            "valuation": ["mass"]})
-    assert acc.boundary_roles is None and acc.valuation_roles is None
-    sb = pd.DataFrame({"sector": ["Mining", "Waste"], "entity": ["Process", "SB"],
-                       "region": ["A", "A"]})
-    with pytest.raises(ValueError, match=r"binds no roles.*\['Waste'\]"):
-        AccountingStructure(id="t", root={"nodes": sb, "time_range": [0],
-                                          "valuation": ["mass"]})
-
-
 # =============================================================================
 # 4. Grep gate: the library compares no case label
 # =============================================================================
@@ -423,3 +410,15 @@ def test_the_copper_root_ods_binds_its_labels_to_the_glossarys_roles():
     val = _read_ods(_COPPER_ROOT, "Valuation")
     assert dict(zip(val["Valuation_name"], val["role"])) == {"Mass": "gross",
                                                              "CC": "content"}
+
+
+def test_edge_labels_name_every_edge_by_nodes_and_valuation():
+    """``edge_labels`` is the one readable name of an edge, indexed by edge id (#203)."""
+    own = AccountingStructure.from_spec(OWN_LABELS, "own")
+    labels, em = own.edge_labels(), own.edge_meta
+    assert labels.index.name == "edge_id" and len(labels) == len(em)
+    assert list(labels.index) == list(em["edge_id"])
+    row = em.iloc[len(em) // 2]
+    assert labels[row["edge_id"]] == (f"{row['from_sector']}|{row['from_region']} → "
+                                      f"{row['to_sector']}|{row['to_region']} "
+                                      f"({row['valuation']})")

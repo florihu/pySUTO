@@ -224,6 +224,25 @@ def _outcome_label(o: str) -> str:
     return f"{inner} exports 2010–19" if o.startswith("d_export_retention") else inner
 
 
+# An opt sidecar written before ADR 0039 records no ``tol_gap_rel``: it ran at the former
+# production setting (ADR 0039).
+LEGACY_TOL_GAP_REL = 1e-3
+
+
+def _gap(v: float) -> str:
+    return f"{v:.0e}".replace("e-0", "e-")
+
+
+def tolerance_pair_label(tol_pair, proc: str = "data/proc/opt") -> str:
+    """``gap 1e-3 → 1e-6``: the two runs' ``tol_gap_rel`` as their sidecars record it."""
+    gaps = []
+    for run in tol_pair:
+        with open(Path(proc) / run / "metadata.json", encoding="utf-8") as f:
+            cfg = json.load(f)["stage_config"]
+        gaps.append(float(cfg.get("tol_gap_rel", LEGACY_TOL_GAP_REL)))
+    return "gap " + " → ".join(_gap(g) for g in gaps)
+
+
 def sweep_frames(sweep_id: str, opt: str) -> dict:
     """The knob sweep built on ``opt`` (``--sweep-base``), from the tables
     ``scripts/sweep_diag.py`` wrote: the points' criterion outcomes (Fig. 5d) and, over the knobs influential on at
@@ -977,10 +996,12 @@ def fig5(U: dict, S: dict, A: dict, cats: pd.DataFrame, out: Path) -> Path:
     ax.set_xticks([-0.2, -0.05, -0.02, 0, 0.02, 0.05, 0.1])
     ax.set_xticklabels(["−0.2", "−0.05", "", "0", "", "0.05", ""], fontsize=6.5)
     ax.set_xlabel("Δ pooled retention, 1995–2024 (linear within ±0.02)")
-    ax.legend(handles=[Patch(facecolor=PALETTE[0], edgecolor=INK2, label="64 knob points (box IQR, whiskers min–max)"),
-                       Line2D([], [], marker="D", ls="", color=PALETTE[1], label="termination pair, gap 1e-3 → 1e-6 (A5)"),
-                       Patch(facecolor=PALETTE[2], alpha=0.12, label="±0.02 limit of A5 and A6")],
-              frameon=False, loc="upper center", bbox_to_anchor=(0.5, -0.17), fontsize=5.8, ncol=1)
+    handles = [Patch(facecolor=PALETTE[0], edgecolor=INK2, label=f"{len(pts)} knob points (box IQR, whiskers min–max)")]
+    if A.get("pair_label"):
+        handles.append(Line2D([], [], marker="D", ls="", color=PALETTE[1], label=f"termination pair, {A['pair_label']} (A5)"))
+    handles.append(Patch(facecolor=PALETTE[2], alpha=0.12, label="±0.02 limit of A5 and A6"))
+    ax.legend(handles=handles, frameon=False, loc="upper center", bbox_to_anchor=(0.5, -0.17),
+              fontsize=5.8, ncol=1)
     _style(ax, grid_axis="x")
     _tag(ax, "d", "Termination and knob sweep")
 
@@ -1255,6 +1276,7 @@ def main(opt: str, psut_id: str, tol_pair=None, uncprop_id=None, sweep_id=None,
         pair = pd.DataFrame({"old": old.retention, "new": new.retention})
         pair["delta"] = pair.new - pair.old; pair["abs_delta"] = pair.delta.abs()
         pair.index.name = "stage"; A["pair"] = pair.reset_index()
+        A["pair_label"] = tolerance_pair_label(tol_pair)
         A["pair_chile"] = tuple(chile_export_retention(CMI.load_run(r)) for r in tol_pair)
 
     # ---- Part B -------------------------------------------------------------------

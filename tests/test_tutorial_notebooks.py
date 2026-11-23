@@ -24,6 +24,10 @@ ANSWER_HOOKS = ("truth", "reveal")                 # the answer key, from chapte
 # false-positive on prose; ``scripts/refresh_tutorial.py`` rewrites temp paths.
 HOME_OR_TEMP = re.compile(r"/home/|/Users/|/tmp/|/var/folders/|[A-Za-z]:\\+Users")
 EXERCISE = re.compile(r"\*\*Exercise \d+\.\d+\*\*")
+LOG_LINE = re.compile(r"\| (?:INFO|DEBUG) \|")            # a library log line in an output
+LABEL_CONCAT = re.compile(r'\+ "\|"|"\|" \+|\}\|\{')       # a hand-built edge label
+PLOT_ID = re.compile(r"[\"']([A-Z]{2}-[A-Z]-\d+[a-z]?)[\"']")
+PLOTLY_MIME = "application/vnd.plotly.v1+json"
 
 
 def _source(cell: dict) -> str:
@@ -63,6 +67,8 @@ def violations(path: Path, chapter: int | None = None) -> list:
         blobs = [text] + [json.dumps(o) for o in cell.get("outputs", [])]
         if any(HOME_OR_TEMP.search(b) for b in blobs):
             found.append(f"cell {i}: a home or temp path in the source or an output")
+        if any(LOG_LINE.search(b) for b in blobs[1:]):
+            found.append(f"cell {i}: a library log line in an output")
         for out in cell.get("outputs", []):
             if out.get("output_type") == "error":
                 found.append(f"cell {i}: an error output ({out.get('ename')})")
@@ -85,8 +91,18 @@ def violations(path: Path, chapter: int | None = None) -> list:
                     n = body[-1].end_lineno - body[0].lineno + 1
                     if n > MAX_BODY:
                         found.append(f"cell {i}: {node.name} has a {n}-line body")
+        if PLOTLY_MIME in _source(cell):
+            found.append(f"cell {i}: a raw Plotly mime dict; show the figure itself")
+        if 2 <= chapter <= 5 and LABEL_CONCAT.search(_source(cell)):
+            found.append(f"cell {i}: a hand-built edge label; use acc.edge_labels()")
         if chapter < 7 and any(c in ANSWER_HOOKS for c in _calls(tree)):
             found.append(f"cell {i}: calls the answer key before chapter 07")
+    prose = " ".join(_source(c) for c in cells if c["cell_type"] == "markdown")
+    for i, cell in enumerate(cells):
+        if cell["cell_type"] == "code" and "plot_ids" in _source(cell):
+            for pid in PLOT_ID.findall(_source(cell)):
+                if pid not in prose:
+                    found.append(f"cell {i}: plot id {pid} is not named in the prose")
     for i, cell in enumerate(cells):
         if cell["cell_type"] == "markdown" and EXERCISE.search(_source(cell)):
             run = []                        # the code cells up to the next markdown cell
@@ -188,3 +204,55 @@ def test_an_exercise_that_ends_in_no_check_call_fails(tmp_path):
 
     found = violations(_edited(tmp_path, "03_constraints.ipynb", edit))
     assert any("no check_*" in v for v in found)
+
+
+def test_a_log_line_a_label_concatenation_and_a_plotly_dict_fail(tmp_path):
+    def log(nb):
+        cell = next(c for c in nb["cells"] if c["cell_type"] == "code")
+        cell["outputs"] = [{"output_type": "stream", "name": "stdout",
+                            "text": "2026-11-18 10:06:45,921 | pysuto.x | INFO | hello\n"}]
+
+    found = violations(_edited(tmp_path, "00_world.ipynb", log))
+    assert any("library log line" in v for v in found), found
+    path = _planted(tmp_path, "03_constraints.ipynb",
+                    'em["edge"] = em["from_sector"] + "|" + em["from_region"]',
+                    "03_planted.ipynb")
+    assert any("edge label" in v for v in violations(path))
+    path = _planted(tmp_path, "06_psut_piot.ipynb",
+                    'display({"application/vnd.plotly.v1+json": {}}, raw=True)',
+                    "06_planted.ipynb")
+    assert any("Plotly" in v for v in violations(path))
+
+
+def test_a_plot_id_the_prose_never_names_fails(tmp_path):
+    path = _planted(tmp_path, "04_solver.ipynb", 'diag.plot(plot_ids=["SD-R-99"])',
+                    "04_planted.ipynb")
+    assert any("SD-R-99" in v for v in violations(path))
+
+
+# Numbers the prose states that nothing else guards: (notebook, the prose that states
+# it, a pattern its executed outputs must match). The prose is checked too, so a
+# reworded sentence cannot leave a stale row here.
+PROSE_NUMBERS = [
+    ("01_datafeed", "13 fan-in edges", r"bureau\s+73\s+13\b"),
+    ("01_datafeed", "All 86 rows matched", r"Rows matched\s+:\s+86\b"),
+    ("08_break_it", "about 590 times smaller", r"÷587\b"),
+]
+
+
+def _out(cell: dict) -> str:
+    parts = []
+    for o in cell.get("outputs", []):
+        text = o.get("text") or o.get("data", {}).get("text/plain", "")
+        parts.append(text if isinstance(text, str) else "".join(text))
+    return "\n".join(parts)
+
+
+@pytest.mark.parametrize("name, phrase, pattern", PROSE_NUMBERS,
+                         ids=[f"{n[:2]} {p}" for n, p, _ in PROSE_NUMBERS])
+def test_a_prose_number_is_found_in_the_outputs_of_its_notebook(name, phrase, pattern):
+    nb = json.loads((TUTORIAL / f"{name}.ipynb").read_text(encoding="utf-8"))
+    prose = " ".join(_source(c) for c in nb["cells"] if c["cell_type"] == "markdown")
+    outputs = "\n".join(_out(c) for c in nb["cells"] if c["cell_type"] == "code")
+    assert phrase in prose
+    assert re.search(pattern, outputs), (name, pattern)

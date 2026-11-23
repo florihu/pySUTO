@@ -215,8 +215,8 @@ def test_leontief_identities_on_the_world_toy(world):
     assert A.loc[("World", "Mining"), ("World", "Smelting")] == pytest.approx(160.0 / 151.0)
     assert A.to_numpy().sum() == pytest.approx(160.0 / 151.0)     # the only non-zero coefficient
     L = piot.L("2020")
-    np.testing.assert_allclose((np.eye(2) - A.to_numpy()) @ L.to_numpy(), np.eye(2), atol=1e-12)
-    np.testing.assert_allclose(L.to_numpy() @ y.to_numpy(), x.to_numpy(), atol=1e-9)
+    np.testing.assert_allclose((np.eye(2) - A.to_numpy()) @ L.to_numpy(), np.eye(2), rtol=1e-10, atol=1e-12)
+    np.testing.assert_allclose(L.to_numpy() @ y.to_numpy(), x.to_numpy(), rtol=1e-10, atol=1e-9)
     assert piot.y("2020", by="fd").shape == (2, 1) and piot.y("2020", by="fd").columns.names == ["region", "final_demand"]
     assert piot.L("2020") is piot.L("2020")                       # cached
 
@@ -227,8 +227,8 @@ def test_leontief_identities_on_the_three_region_toy(psut):
         for valuation in VALUATIONS:
             A, L = piot.A(period, valuation), piot.L(period, valuation)
             x, y = piot.x(period, valuation), piot.y(period, valuation)
-            np.testing.assert_allclose(L.to_numpy() @ y.to_numpy(), x.to_numpy(), atol=1e-9)
-            np.testing.assert_allclose(A.to_numpy() @ x.to_numpy() + y.to_numpy(), x.to_numpy(), atol=1e-9)
+            np.testing.assert_allclose(L.to_numpy() @ y.to_numpy(), x.to_numpy(), rtol=1e-10, atol=1e-9)
+            np.testing.assert_allclose(A.to_numpy() @ x.to_numpy() + y.to_numpy(), x.to_numpy(), rtol=1e-10, atol=1e-9)
             assert (A.loc[:, "C"] == 0).all().all()               # no output → zero column
             assert L.loc[("C", "Mining"), ("C", "Mining")] == 1.0
     A = piot.A("2020")
@@ -296,7 +296,73 @@ def test_multipliers_and_sda(psut):
     assert mult[("A", "Smelting")] == pytest.approx(1.0 + 100.0 / 115.0 + 20.0 / 115.0)
     assert mult[("A", "Mining")] == 1.0 and mult[("C", "Mining")] == 1.0
     d = piot.sda("2020", "2021")                                  # 2021 = 1.1 × 2020: same technology
-    np.testing.assert_allclose(d["technology"].to_numpy(), 0.0, atol=1e-9)
-    np.testing.assert_allclose(d["final_demand"].to_numpy(), d["dx"].to_numpy(), atol=1e-9)
-    np.testing.assert_allclose(d["dx"].to_numpy(), 0.1 * piot.x("2020").to_numpy(), atol=1e-9)
+    np.testing.assert_allclose(d["technology"].to_numpy(), 0.0, rtol=1e-10, atol=1e-9)
+    np.testing.assert_allclose(d["final_demand"].to_numpy(), d["dx"].to_numpy(), rtol=1e-10, atol=1e-9)
+    np.testing.assert_allclose(d["dx"].to_numpy(), 0.1 * piot.x("2020").to_numpy(), rtol=1e-10, atol=1e-9)
     assert d.loc[("A", "Smelting"), "x_b"] == pytest.approx(115.0 * 1.1)
+
+
+# ---------------------------------------------------------------------------
+# 9) Review fixes (#286): the singular network, bad arguments, an SDA with technology
+# ---------------------------------------------------------------------------
+
+_TWO_PROCESS_NODES = [("P", "Process", "A", None), ("Q", "Process", "A", None),
+                      ("f", "Flow", "A", None), ("g", "Flow", "A", None),
+                      ("FD", "SB", "A", "FD")]
+
+
+def _cycle_rows(period, p_to_q, fd):
+    """P → f → Q → g → P (a closed cycle when ``fd == 0``), plus ``fd`` of g to final use."""
+    rows = [(period, "CC", "S", 0, "A", "P", "Process", "A", "f", "Flow", p_to_q),
+            (period, "CC", "S", 1, "A", "Q", "Process", "A", "g", "Flow", p_to_q + fd),
+            (period, "CC", "U", 2, "A", "f", "Flow", "A", "Q", "Process", p_to_q),
+            (period, "CC", "U", 3, "A", "g", "Flow", "A", "P", "Process", p_to_q)]
+    if fd:
+        rows.append((period, "CC", "Y", 4, "A", "g", "Flow", "A", "FD", "SB", fd))
+    return rows
+
+
+def test_a_closed_cycle_without_leakage_has_no_total_requirements():
+    piot = _hand_psut(_cycle_rows("2020", 10.0, 0.0), _TWO_PROCESS_NODES).to_piot(level="L")
+    assert piot.A("2020").to_numpy().tolist() == [[0.0, 1.0], [1.0, 0.0]]
+    with pytest.raises(ValueError, match="I − A is singular in 2020/CC"):
+        piot.L("2020")
+
+
+def test_the_empty_slices_are_zero_frames_and_bad_arguments_raise():
+    nodes = [("N", "SB", "A", "Nature"), ("P", "Process", "A", None),
+             ("FD", "SB", "A", "FD")]
+    rows = [("2020", "CC", "E", 0, "A", "N", "SB", "A", "P", "Process", 5.0)]
+    piot = _hand_psut(rows, nodes).to_piot(level="L")           # extraction only
+    assert piot.Z("2020").to_numpy().tolist() == [[0.0]]
+    assert piot.D("2020").shape == (1, 0)
+    assert piot.y("2020", by="fd").to_numpy().tolist() == [[0.0]]
+    assert piot.y("2020").to_numpy().tolist() == [0.0]
+    with pytest.raises(ValueError, match="by must be None or 'fd'"):
+        piot.y("2020", by="region")
+    with pytest.raises(ValueError, match="by must be 'fd', 'region' or None"):
+        piot.footprint("E", "2020", by="bogus")
+    with pytest.raises(ValueError, match="extension must be 'E' or 'O'"):
+        piot.intensity("P", "2020")
+
+
+def test_sda_with_a_changed_technology_sums_to_the_change_in_Ly():
+    """Technology moves between the periods (``A[P,Q]`` 1 → 2), so both terms are non-zero
+    and they add up to ``L_b y_b − L_a y_a``, which is ``x_b − x_a`` where ``L y = x``."""
+    rows = _cycle_rows("2020", 10.0, 10.0)
+    rows += [("2021", "CC", "S", 0, "A", "P", "Process", "A", "f", "Flow", 20.0),
+             ("2021", "CC", "S", 1, "A", "Q", "Process", "A", "g", "Flow", 10.0),
+             ("2021", "CC", "U", 2, "A", "f", "Flow", "A", "Q", "Process", 20.0),
+             ("2021", "CC", "Y", 3, "A", "g", "Flow", "A", "FD", "SB", 10.0)]
+    piot = _hand_psut(rows, _TWO_PROCESS_NODES).to_piot(level="L")
+    d = piot.sda("2020", "2021")
+    assert np.abs(d["technology"].to_numpy()).max() > 1.0
+    np.testing.assert_allclose(d["technology"] + d["final_demand"], d["dx"],
+                               rtol=1e-10, atol=1e-12)
+    L, y = piot.L("2021").to_numpy(), piot.y("2021").to_numpy()
+    np.testing.assert_allclose(d["x_b"].to_numpy(), L @ y, rtol=1e-10)
+
+
+def test_values_are_in_the_unit_of_their_valuation(psut):
+    piot = psut.to_piot(level="L")
+    assert (piot.unit_of("CC"), piot.unit_of("Mass")) == ("kt CC", "kt")

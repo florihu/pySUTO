@@ -151,6 +151,9 @@ class ConstraintRunRegistry(BaseOutputRegistry):
         acc_ref  = parents.get("inputs", {}).get("acc", {})
         acc_id   = acc_ref.get("id") or ""
         agg_id   = (parents.get("upstream", {}).get("imp_run_id")) or ""
+        if "p" not in config:
+            raise KeyError(f"const run {run_id}: sidecar stage_config records no p; "
+                           f"the Lp exponent has no silent fallback")
 
         ts_data: dict[str, dict] = {}
         for ts_label in summary.get("timesteps", []):

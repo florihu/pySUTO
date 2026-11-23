@@ -283,7 +283,7 @@ def imputer(tmp_path, acc):
     write_eff_csv(eff)
     write_conc_csv(conc)
     write_ore_grade_csv(og)
-    imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=float("inf"))
+    imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=float("inf"), q=3.0, alpha_min=0.05)
     imp.prepare(acc)
     return imp
 
@@ -408,7 +408,8 @@ def _stripping_imputer(tmp_path, acc, k_by_region):
     write_ore_grade_csv(og)
     write_stripping_csv(sr, k_by_region)
     imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=1.5,
-                         stripping_ratio_csv=str(sr), stripping_sigma=1.0e6)
+                         stripping_ratio_csv=str(sr), stripping_sigma=1.0e6,
+                         q=3.0, alpha_min=0.05)
     imp.prepare(acc)
     return imp
 
@@ -459,7 +460,7 @@ def test_effless_cp_psc_zero_carries_the_resolution_sigma(tmp_path, acc):
     _write(conc, rows + [_conc_pair("psc_use", "PSC", "SB", "use", 0.9975)])
 
     def run(**kw):
-        imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=float("inf"), **kw)
+        imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=float("inf"), **kw, q=3.0, alpha_min=0.05)
         imp.prepare(acc)
         return _run(imp, acc, {("CSXEW", "CP", "CC"): 30.0, ("CER", "CP", "CC"): 70.0,
                                ("CO", "Mining", "CC"): 100.0})
@@ -579,7 +580,7 @@ def imputer2(tmp_path, acc2):
     write_eff_csv(eff)
     write_conc_csv(conc)
     write_ore_grade_csv(og)
-    imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=float("inf"))
+    imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=float("inf"), q=3.0, alpha_min=0.05)
     imp.prepare(acc2)
     return imp
 
@@ -666,7 +667,7 @@ sys.path.insert(0, sys.argv[1])
 from test_network_imputer import MockAcc
 from pysuto.impute import NetworkImputer
 acc = MockAcc(times=("2020", "2021", "2022", "2023"))
-imp = NetworkImputer(*sys.argv[2:5], p=1.3, cv_cap=float("inf"))
+imp = NetworkImputer(*sys.argv[2:5], p=1.3, cv_cap=float("inf"), q=3.0, alpha_min=0.05)
 imp.prepare(acc)
 print([(r.edges.tolist(), r.coefficients.tolist()) for r, _ in imp._flow_nodes])
 """
@@ -804,7 +805,7 @@ def bi_imputer(tmp_path):
     conc = tmp_path / "bi_conc.csv"
     _write_bi_eff(eff)
     _write_bi_conc(conc)
-    imp = NetworkImputer(str(eff), str(conc), p=1.3, cv_cap=float("inf"))
+    imp = NetworkImputer(str(eff), str(conc), p=1.3, cv_cap=float("inf"), q=3.0, alpha_min=0.05)
     imp.prepare(acc)
     return imp, acc
 
@@ -934,7 +935,8 @@ def _stock_imputer(tmp_path, acc, stock_sectors):
     eff = tmp_path / "eff.csv"; conc = tmp_path / "conc.csv"; og = tmp_path / "ore_grade.csv"
     write_eff_csv(eff); write_conc_csv(conc); write_ore_grade_csv(og)
     imp = NetworkImputer(str(eff), str(conc), str(og), p=1.3, cv_cap=float("inf"),
-                         stock_sectors=stock_sectors)
+                         stock_sectors=stock_sectors,
+                         q=3.0, alpha_min=0.05)
     imp.prepare(acc)
     return imp
 
@@ -1067,7 +1069,7 @@ def _matte_to_cp_imputer(tmp_path):
     eff, conc = tmp_path / "eff.csv", tmp_path / "conc.csv"
     write_eff_csv(eff, stripping_ratio=None)
     write_conc_csv(conc)
-    imp = NetworkImputer(str(eff), str(conc), p=1.3, cv_cap=float("inf"))
+    imp = NetworkImputer(str(eff), str(conc), p=1.3, cv_cap=float("inf"), q=3.0, alpha_min=0.05)
     imp.prepare(acc)
     return imp, acc
 
@@ -1116,7 +1118,7 @@ def _log_with_later_fill(imputer, acc, fill_later: bool):
 
 
 def test_exposure_counts_a_close_whose_absent_primary_is_filled_later(imputer, acc):
-    from pysuto.diag.imp import relaxed_close_exposure, relaxed_close_exposure_summary
+    from pysuto.diag.relaxed_close import relaxed_close_exposure
     df = _log_with_later_fill(imputer, acc, fill_later=True)
     assert df["assumed_absent"].map(type).eq(list).all()
     val = acc.edge_index["valuation"].to_numpy()
@@ -1124,13 +1126,12 @@ def test_exposure_counts_a_close_whose_absent_primary_is_filled_later(imputer, a
     cp = acc.eid("CP", "Cathode", "CC")
     assert set(exp["edge_id"]) == {cp, acc.eid("CP", "PSC", "CC")}   # product + waste leg
     assert exp["later_edges"].iloc[0] == [acc.eid("CSXEW", "CP", "CC")]
-    s = relaxed_close_exposure_summary(df, val).set_index("valuation")
-    assert s.loc["CC", "n_exposed"] == 2
-    assert s.loc["CC", "kt_exposed"] == pytest.approx(70.0)
+    assert len(exp) == 2
+    assert exp["f_after"].sum() == pytest.approx(70.0)
 
 
 def test_exposure_is_empty_when_the_absent_primary_stays_a_gap(imputer, acc):
-    from pysuto.diag.imp import relaxed_close_exposure
+    from pysuto.diag.relaxed_close import relaxed_close_exposure
     df = _log_with_later_fill(imputer, acc, fill_later=False)
     assert (df["relaxed"]).any()
     assert relaxed_close_exposure(df).empty
@@ -1171,7 +1172,7 @@ def _coproduct_imputer(tmp_path):
                                         ).to_dict("records")
                  if r["param_id"] != "eff_smelting"] + rows)
     write_conc_csv(conc)
-    imp = NetworkImputer(str(eff), str(conc), p=1.3, cv_cap=float("inf"))
+    imp = NetworkImputer(str(eff), str(conc), p=1.3, cv_cap=float("inf"), q=3.0, alpha_min=0.05)
     imp.prepare(acc)
     return imp, acc
 
@@ -1202,3 +1203,22 @@ def test_all_co_products_known_close_a_missing_input_backward(tmp_path):
                            ("Smelting", "Dust", "CC"): 46.15})
     assert f[acc.eid("Concentrate", "Smelting", "CC")] == pytest.approx(
         (60.0 + 46.15) / 0.965 - 10.0, rel=1e-12)
+
+
+def test_waste_only_recipe_recovers_the_input_and_prices_it_by_the_closed_form(imputer, acc):
+    """Only the Slag (waste) leg of Smelting is known: S = f_W/(1-eff) (ADR 0004, U2-G6-3).
+
+    σ_S = Lp(s(1/(1-eff))·σ_W, |S|·σ_eff/(1-eff)); the product is eff·S at eff·σ_S.
+    """
+    from pysuto.impute.base import _reg_sensitivity
+    from pysuto.lp import lp_combine
+    eff, sd_eff, p = 0.965, 0.001, 1.3
+    f, sigma = _run(imputer, acc, {("Smelting", "Slag", "CC"): 3.5})
+    S = 3.5 / (1.0 - eff)
+    sig_w = 0.01 * 3.5
+    sig_S = lp_combine(
+        [_reg_sensitivity(1.0 / (1.0 - eff), imputer.q, imputer.alpha_min) * sig_w,
+         abs(S) / (1.0 - eff) * sd_eff], p)
+    m = acc.eid("Smelting", "Matte", "CC")
+    assert f[m] == pytest.approx(eff * S, rel=1e-12)
+    assert sigma[m] == pytest.approx(eff * sig_S, rel=1e-12)
