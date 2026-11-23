@@ -57,7 +57,7 @@ class TestSection:
 
     def test_the_knobs_are_the_upper_case_fields_in_declaration_order(self):
         assert _toy().imp.knobs() == {"CASCADE_ORDER": (), "CASCADE_MAX_ITER": 10,
-                                      "P_PROP": 1.3, "TIME_WINDOW": 3, "AREF": None}
+                                      "MIN_FLOW_KT": 0.01, "P_PROP": 1.3, "TIME_WINDOW": 3, "AREF": None}
         assert _toy().const.knobs() == {"ANCHOR_CV": 0.01, "MODE": "soft"}
 
     def test_with_knobs_replaces_the_fields_and_leaves_the_case_alone(self):
@@ -92,7 +92,7 @@ class TestSection:
         assert desc == {"id": "toy", "acc_id": "toy", "imp": {
             "cascade": [], "terminal": f"{__name__}._toy_terminal", "pre_impute": None,
             "post_impute": None, "stage_config": None, "diag_year": None,
-            "CASCADE_ORDER": (), "CASCADE_MAX_ITER": 10,
+            "CASCADE_ORDER": (), "CASCADE_MAX_ITER": 10, "MIN_FLOW_KT": 0.01,
             "P_PROP": 1.3, "TIME_WINDOW": 3, "AREF": None,
             "stock_sectors": ("Stock",)}}
         assert set(_toy().describe("const")) == {"id", "acc_id", "const"}

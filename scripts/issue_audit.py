@@ -5,7 +5,8 @@ Read-only audit of the issue tracker against the conventions of ``docs/agents/``
 round opens and before it closes; it changes nothing and exits 1 when it finds anything.
 
     R  rounds: open issues in a closed milestone — every issue of a closed round was closed,
-       moved to the next round or moved out, each with a comment (issue-tracker.md "Rounds")
+       moved to the next round or moved out, each with a comment (issue-tracker.md "Rounds");
+       the audit checks only that none is open, never the comment
     T  triage: open issues without exactly one triage-state label (triage-labels.md)
     A  ADR paragraphs still "to be measured" (or "not yet measured") whose issues have all
        closed — the measure commit replaces the phrase with the outcome (measure-tickets.md)

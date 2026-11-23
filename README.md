@@ -238,7 +238,7 @@ cross-cutting (import nothing from the data layer):
 | 6 — PSUT/PIOT builder | `psut.py`, `piot.py`, `diag/psut.py` | `OptimRun` (+ `ConstraintRun` → `acc` through provenance) | `PsutRun`: tidy PSUT, one parquet per period; `PIOT` views and Sankeys derived on demand, never persisted |
 | Sweep (no stage) | `pipeline.py`, `diag/sweep.py` | base chain + axes | `sweep` run: per point its overrides, status and run ids; scored by `scripts/sweep_diag.py` |
 
-**One command runs the chain (#125).** `python -m pysuto run --case <id> [--from <stage>] [--to <stage>] [--data-dir D] [--base <opt_run_id>] [--label L] [--config C]` runs the six stages one after another, each in a fresh child process (#186, `python -m pysuto._step`), `--from`/`--to` any of `feed, imp, const, opt, uncprop, psut` (default the whole chain): each child resolves the `--case` reference, calls its `pysuto.stages.run_*` function with `--data-dir`, and `--config` reaches Stages 2–3 only (the only stages that read one); the `scripts/` drivers are thin argparse wrappers over the same functions and the command needs no `scripts/` directory. Each step's stdout goes to `<data-dir>/logs/pipeline/<label>_<step>.log` under the stage lock. `--from feed` is the case's Stage 1 hook (`CaseSpec.stage1`): the toy writes its synthetic feeds; copper's (#109, `scripts/copper_feed.py` `run_stage1`) runs `build_baci_reexport.py --source-version N` (the registered gross BACI snapshot, never the raw data) → `baci_feed` → `build_trade_shares.py` → `icsg_feed` → `crude_ore_feed` in that load-bearing order and returns their three feed run ids; the BACI parse, the gross registration, `icsg_clean --to-feed` and `build_ore_grade.py` stay manual. A file-path case may import the modules beside it, as a script run by Python does: `resolve_case` puts the file's folder first on `sys.path` (if absent) before it executes the file. Any later `--from` takes its upstream from `--base <opt_run_id>`, the base chain's parents as `Chain.from_opt_run` resolves them. `--data-dir` is required and the command runs from any directory, its file logs under `<data-dir>/logs` (copper's Stage 1 hook still runs its two feed-prep scripts from `scripts/`); the toy's six stages take about 25 s under their own labels (`python -m pysuto run --case toy --data-dir /tmp/toy`).
+**One command runs the chain (#125).** `python -m pysuto run --case <id> [--from <stage>] [--to <stage>] [--data-dir D] [--base <opt_run_id>] [--label L] [--config C]` runs the six stages one after another, each in a fresh child process (#186, `python -m pysuto._step`), `--from`/`--to` any of `feed, imp, const, opt, uncprop, psut` (default the whole chain): each child resolves the `--case` reference, calls its `pysuto.stages.run_*` function with `--data-dir`, and `--config` reaches Stages 2–3 only (the only stages that read one); the `scripts/` drivers are thin argparse wrappers over the same functions and the command needs no `scripts/` directory. Each step's stdout goes to `<data-dir>/logs/pipeline/<slug>_<step>.log` (the slugified label) under the stage lock. `--from feed` is the case's Stage 1 hook (`CaseSpec.stage1`): the toy writes its synthetic feeds; copper's (#109, `scripts/copper_feed.py` `run_stage1`) runs `build_baci_reexport.py --source-version N` (the registered gross BACI snapshot, never the raw data) → `baci_feed` → `build_trade_shares.py` → `icsg_feed` → `crude_ore_feed` in that load-bearing order and returns their three feed run ids; the BACI parse, the gross registration, `icsg_clean --to-feed` and `build_ore_grade.py` stay manual. A file-path case may import the modules beside it, as a script run by Python does: `resolve_case` puts the file's folder first on `sys.path` (if absent) before it executes the file. Any later `--from` takes its upstream from `--base <opt_run_id>`, the base chain's parents as `Chain.from_opt_run` resolves them. `--data-dir` is required and the command runs from any directory, its file logs under `<data-dir>/logs` (copper's Stage 1 hook still runs its two feed-prep scripts from `scripts/`); the toy's six stages take about 25 s under their own labels (`python -m pysuto run --case toy --data-dir /tmp/toy`).
 
 ---
 
@@ -302,7 +302,7 @@ cross-cutting (import nothing from the data layer):
 > **Hand runs take the stage lock.** `build_baci_reexport.py`, `build_trade_shares.py`,
 > `build_ore_grade.py` and `icsg_clean.py` write registries, which have no locking of their own,
 > so each takes `<data-dir>/proc/.stage.lock` like a stage driver; under the Stage 1 hook, whose
-> caller holds it, the two it runs skip it (`PYSUTO_STAGE_LOCK_HELD`).
+> caller holds it, the two it runs join that hold (the pipeline names itself the holder in the child's `PYSUTO_STAGE_LOCK_PID`).
 
 #### The parse layer (`scripts/parse/`)
 
@@ -883,7 +883,7 @@ Run Stage 6 on the toy case in [tutorial/06_psut_piot.ipynb](src/pysuto/tutorial
 | [compare.py](src/pysuto/compare.py) | `compare_chains`, `lineage`, `first_difference`, `format_report`, `CompareError` | `python -m pysuto compare` (#157): two chains by their leaf run ids, paired stage by stage and compared array by array; imports nothing from `pysuto`, writes nothing. |
 | [pipeline.py](src/pysuto/pipeline.py), [\_\_main\_\_.py](src/pysuto/__main__.py) | `Pipeline`, `Chain`, `StepFailed`, `Axis`, `Sweep`, `STEPS`, `ALL_STEPS`, `TIED`, `STEP_GB`, `split_key` | The stages composed as steps, each in a child process, Stage 1 (a case's hook) to Stage 6 (`python -m pysuto run`, #125); one chain per `run(overrides, label)` with `<stage>.<KNOB>` overrides (#103); random (Latin hypercube) or grid sweeps of chains, resumable, recorded via `SweepRunRegistry` (#105); a sweep may keep only its last step's runs, the others passing through a scratch store (#108). |
 | [utils.py](src/pysuto/utils.py) | `get_path` | Path lookup under `data/input/raw`, used by the ICSG yearbook parsers. |
-| [logging.py](src/pysuto/logging.py) | `get_logger`, `add_run_handler` | Structured run logging; one file per run. |
+| [logging.py](src/pysuto/logging.py) | `get_logger`, `configure_file_logs`, `start_run_log`, `add_run_handler` | Named loggers; a driver turns on one file per module under `<data-dir>/logs/` plus one timestamped file per run. |
 | [config.py](src/pysuto/config.py) | `load_config`, `Config`, `PipelineConfig` | Typed loader for `config/config.yaml` (`pipeline.acc_id` only). |
 | [lp.py](src/pysuto/lp.py) | `lp_combine` | The Lp / power-mean σ combiner `(Σ \|x_i\|^p)^(1/p)`, one source of truth for Stages 1–3. |
 | [masks.py](src/pysuto/masks.py) | `MaskRuleSet`, `coerce_mask`, `load_masks_csv` | Named boolean edge masks over an `AccountingStructure` (flat-prior CV ranges, builder scope, feed `edge_scope_mask`). |
@@ -1187,7 +1187,7 @@ data/input/<kind>/
 ├── registry.json
 └── <id>/
     ├── current/      ← live working copy; user edits here
-    ├── v1/           ← snapshot; unchanged files = hardlinks back
+    ├── v1/           ← snapshot; unchanged files = hardlinks to the prior snapshot
     └── v2/
 ```
 
@@ -1244,7 +1244,7 @@ chain = Pipeline(steps=("imp", "const", "opt"), base=base, case="scripts/copper.
 `steps` is any contiguous slice of `ALL_STEPS` (`feed, imp, const, opt, uncprop, psut`; a sweep varies the knobs of `STEPS`, `imp, const, opt`); the first step reads its
 upstream from `base`. Knobs listed in `pipeline.TIED` (the cross-stage `P_PROP`) must be
 set together and to one value. A driver exiting non-zero raises `StepFailed` with the tail
-of its output (`<data-dir>/logs/pipeline/<label>_<step>.log`). Every registry-writing driver takes
+of its output (`<data-dir>/logs/pipeline/<slug>_<step>.log`, the label with every run of characters outside `[\w.-]` replaced by `_`). Every registry-writing driver takes
 `data/proc/.stage.lock` (#101), so a pipeline and a hand-run driver cannot interleave.
 
 A **sweep** runs a set of chains that differ only in knob values and records them as one
@@ -1257,14 +1257,14 @@ same share of points; a **grid** sweep runs every combination of list values:
 ```python
 from pysuto.pipeline import Axis, Sweep
 
-sweep = Sweep(Pipeline(base=base), [
+sweep = Sweep(Pipeline(base=base, case="scripts/copper.py"), [
     Axis.interval(("imp.P_PROP", "const.P_PROP"), 1.1, 1.5),           # tied
     Axis.interval("const.SIGMA_C_ABS_FLOOR", 1e-6, 1e-3, log=True),
     Axis("imp.CASCADE_ORDER", [("trade", "network", "conc", "ore_grade"),
                                ("network", "trade", "conc", "ore_grade")]),
 ], n_points=30, seed=20261021)
 sweep.plan()       # distinct runs per step: a sweep over solver knobs runs imp and const once
-sweep_id = sweep.run(label="knob study")
+sweep_id = sweep.run(label="knob sweep")
 ```
 
 Points are drawn at declaration and run one after another; within a sweep a step whose
@@ -1277,7 +1277,7 @@ exceed the free disk; it records the git commit and refuses to `resume` at anoth
 `--resume <sweep_id>`).
 
 With `keep_intermediate=False` (`KEEP_INTERMEDIATE` in `scripts/sweep.py`, #108) only the
-last step's runs reach `data/proc`. The pipeline passes `--imp-dir` / `--const-dir` so each
+last step's runs reach `data/proc`. The pipeline writes `imp_dir` / `const_dir` into each step's spec, so each
 point's imp and const runs (≈ 0.93 GB) land in `<scratch_dir>/<sweep_id>/`, a RAM-backed
 tmpfs (`/dev/shm/pysuto-sweep`), and deletes a run as soon as no remaining point reuses
 it. A point then costs the opt run's 0.08 GB of disk, and the manifest still names its imp

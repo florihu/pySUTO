@@ -1,13 +1,19 @@
-"""Typed loader for ``config/config.yaml``.
+"""
+config.py
+=========
+Typed loader for ``config/config.yaml``.
 
 Init scripts call :func:`load_config` once and read ``cfg.pipeline.acc_id``
 to wire the AccountingStructure they should be running against. All other
 stage knobs (propagation exponent, imputer windows, σ floors, builder
 bindings, …) live inline in the driver scripts themselves.
+
+No ``from __future__ import annotations`` here: :func:`_build_field` inspects
+``f.type`` at run time, which the future import would turn into a string.
 """
 from dataclasses import dataclass, fields
 from pathlib import Path
-from typing import Union, get_args, get_origin
+from typing import Union
 
 import yaml
 
@@ -25,10 +31,6 @@ class Config:
 def _build_field(typ, value):
     if hasattr(typ, "__dataclass_fields__"):
         return _build(typ, value)
-    if get_origin(typ) is list:
-        (item_type,) = get_args(typ)
-        if hasattr(item_type, "__dataclass_fields__"):
-            return [_build(item_type, v) for v in value]
     return value
 
 

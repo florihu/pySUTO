@@ -85,11 +85,11 @@ from copper_feed import (
     chain_inconsistent_refining, icsg_raw_production, icsg_raw_usage, latest_feed_run,
     trade_share_parents)
 from pysuto.config import load_config
-from pysuto.feedprep.builder_lock import builder_lock
 from pysuto.feedprep.trade_shares import (
     baci_observed_regions, build_edges_frame, compute_trade_share_weights,
     imports_exhausted_groups, traded_conc_lookup)
 from pysuto.input_registry import PARAMS_PARENTS, InputRegistries
+from pysuto.registry import stage_lock
 
 # ---------------------------------------------------------------------------
 # USER CONFIGURATION
@@ -251,5 +251,5 @@ if __name__ == "__main__":
                     help="data root holding input/ and proc/ (default: %(default)s)")
     args = ap.parse_args()
     set_data_dir(args.data_dir)
-    with builder_lock("build_trade_shares", args.data_dir):
+    with stage_lock("build_trade_shares", root=os.path.join(args.data_dir, "proc")):
         main()

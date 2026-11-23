@@ -26,6 +26,12 @@ _log = get_logger("pysuto.registry.lock")
 
 LOCK_NAME = ".stage.lock"
 
+# A pipeline step's child, and every process it starts (the feed hook's builder scripts),
+# inherits this variable holding the pid of the pipeline process that took the lock for
+# the step; a :func:`stage_lock` there finds that pid in the lock file and joins the hold
+# instead of refusing it (#279).
+HOLDER_ENV = "PYSUTO_STAGE_LOCK_PID"
+
 
 class LockHeld(RuntimeError):
     """Another live stage driver holds the lock on this ``data/proc``."""
@@ -59,6 +65,34 @@ def _holder(path: str) -> dict:
         return {}
 
 
+def _take_over(path: str, dead_pid: int, driver: str) -> None:
+    """Replace the stale lock of *dead_pid* by this driver's, for exactly one taker.
+
+    Takers serialise on a guard file created with ``O_EXCL``; the one that holds it
+    re-reads the lock and, only if it still names *dead_pid*, removes it and creates its
+    own. A taker that lost the guard, or finds another holder in the lock, raises
+    :class:`LockHeld` and removes nothing, so a fresh lock is never deleted (#279). A
+    guard left by a crash inside these few lines has to be removed by hand."""
+    guard = path + ".takeover"
+    try:
+        os.close(os.open(guard, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644))
+    except FileExistsError:
+        raise LockHeld(f"{path} is being taken over by another driver (guard {guard}; "
+                       f"if none is running, remove it by hand)") from None
+    try:
+        held = _holder(path)
+        if os.path.exists(path) and held.get("pid") != dead_pid:
+            raise LockHeld(f"{path} was taken by {held.get('driver', '?')} (pid "
+                           f"{held.get('pid', '?')}) while {driver} replaced a stale lock")
+        with contextlib.suppress(FileNotFoundError):
+            os.remove(path)
+        if not _create(path, driver):
+            raise LockHeld(f"{path} was taken by {_holder(path).get('driver', '?')} "
+                           f"while {driver} replaced a stale lock")
+    finally:
+        os.remove(guard)
+
+
 @contextlib.contextmanager
 def stage_lock(driver: str, root: str = os.path.join("data", "proc")) -> Iterator[str]:
     """Hold ``<root>/.stage.lock`` for the duration of the block.
@@ -66,6 +100,8 @@ def stage_lock(driver: str, root: str = os.path.join("data", "proc")) -> Iterato
     Parameters
     ----------
     driver : the driver's name, written into the lock for the refusal message.
+        A process started by a pipeline step that holds this lock (:data:`HOLDER_ENV`)
+        joins that hold: it neither takes nor removes the lock.
     root : the ``data/proc`` directory the driver writes (created if missing).
 
     Raises
@@ -75,6 +111,10 @@ def stage_lock(driver: str, root: str = os.path.join("data", "proc")) -> Iterato
     """
     os.makedirs(root, exist_ok=True)
     path = os.path.join(root, LOCK_NAME)
+    inherited = os.environ.get(HOLDER_ENV, "")
+    if inherited.isdigit() and _holder(path).get("pid") == int(inherited):
+        yield path                          # the pipeline that started us holds it
+        return
     if not _create(path, driver):
         held = _holder(path)
         pid = held.get("pid")
@@ -88,11 +128,7 @@ def stage_lock(driver: str, root: str = os.path.join("data", "proc")) -> Iterato
                 f"drivers run one at a time in a checkout")
         _log.warning("stale stage lock of %s (pid %s, since %s) taken over by %s",
                      held.get("driver", "?"), pid, held.get("started_at", "?"), driver)
-        with contextlib.suppress(FileNotFoundError):
-            os.remove(path)
-        if not _create(path, driver):
-            raise LockHeld(f"{path} was taken by {_holder(path).get('driver', '?')} "
-                           f"while {driver} replaced a stale lock")
+        _take_over(path, pid, driver)
     try:
         yield path
     finally:

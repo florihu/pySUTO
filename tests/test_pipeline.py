@@ -669,3 +669,87 @@ def test_an_installed_package_stays_off_the_childs_pythonpath_through_a_symlink(
     monkeypatch.setattr(site, "getsitepackages", lambda: [str(link)])
     monkeypatch.delenv("PYTHONPATH", raising=False)
     assert "PYTHONPATH" not in pipeline._child_env()
+
+
+class TestPipelineHoldsTheStageLock:
+    """CLAUDE.md "Data, registries & artefacts": every step of a pipeline takes
+    ``<data-dir>/proc/.stage.lock`` (#101); dropping the ``with`` must fail a test (#279)."""
+
+    def test_a_step_is_refused_while_another_driver_holds_the_lock(self, repo):
+        from pysuto.registry import LockHeld, stage_lock
+        proc = repo.root / "data" / "proc"
+        pipe = Pipeline(steps=("imp",), base=repo.base, cwd=str(repo.root),
+                        log_dir=str(repo.root / "logs"), case="stub")
+        with stage_lock("run_solver", root=str(proc)):
+            with pytest.raises(LockHeld, match="run_solver"):
+                pipe.run({}, label="locked")
+        assert pipe.run({}, label="free").imp          # released: the step runs
+
+    def test_the_child_inherits_the_holders_pid_so_a_builder_script_joins_the_hold(
+            self, repo, monkeypatch):
+        """``_launch`` marks the pipeline process as the lock's holder in the child's
+        environment; a ``stage_lock`` there neither refuses nor removes it (#279)."""
+        import pysuto.pipeline as pl
+        from pysuto.registry import stage_lock
+        from pysuto.registry.lock import HOLDER_ENV
+        monkeypatch.undo()
+        monkeypatch.setattr(pl, "resolve_case", resolve)
+        seen = {}
+
+        def run(cmd, **kw):
+            seen["env"] = kw["env"]
+            with open(cmd[-1]) as f:
+                open(json.load(f)["run_id_file"], "w").write("opt_x\n")
+            return subprocess.CompletedProcess(cmd, 0)
+
+        monkeypatch.setattr(pl.subprocess, "run", run)
+        _pipeline(repo, steps=("opt",)).run({}, label="env")
+        assert seen["env"][HOLDER_ENV] == str(os.getpid())
+        proc = repo.root / "data" / "proc"
+        with stage_lock("pipeline_opt", root=str(proc)):         # the parent's hold
+            monkeypatch.setenv(HOLDER_ENV, str(os.getpid()))
+            with stage_lock("build_trade_shares", root=str(proc)) as path:
+                assert os.path.exists(path)
+            assert os.path.exists(path)              # the builder left the lock in place
+
+
+class TestPipelineAndSweepRefusals:
+    """The build-time raises of ``Pipeline``, ``Axis`` and ``Sweep`` and the disk guards
+    that no other test reaches (#279)."""
+
+    def test_a_pipeline_without_a_base_or_a_data_dir_for_feed_is_refused(
+            self, repo, monkeypatch):
+        with pytest.raises(ValueError, match="needs a base chain"):
+            Pipeline(steps=("imp",), cwd=str(repo.root), case="stub")
+        stage1 = SimpleNamespace(id="stub", acc_id="stub", stage1=lambda d: {})
+        monkeypatch.setattr("pysuto.pipeline.resolve_case", lambda ref: stage1)
+        with pytest.raises(ValueError, match="pass data_dir"):
+            Pipeline(steps=("feed",), cwd=str(repo.root), case="stub")
+
+    @pytest.mark.parametrize("axes, kw, err", [
+        ([], {"mode": "grid"}, "at least one axis"),
+        ([Axis("imp.Q_REG", [1, 2])], {"n_points": 0, "seed": 1}, "positive int"),
+        ([Axis("imp.Q_REG", [1, 2])], {"n_points": 2.5, "seed": 1}, "positive int"),
+    ])
+    def test_a_sweep_with_no_axis_or_a_bad_point_count_is_refused(
+            self, repo, axes, kw, err):
+        with pytest.raises(ValueError, match=err):
+            Sweep(_pipeline(repo), axes, **kw)
+
+    def test_an_axis_without_keys_and_an_empty_interval_are_refused(self):
+        with pytest.raises(ValueError, match="at least one key"):
+            Axis((), [1])
+        with pytest.raises(ValueError, match="lo < hi"):
+            Axis.interval("imp.Q_REG", 2.0, 1.0)
+
+    def test_the_scratch_store_is_checked_for_one_points_dropped_runs(
+            self, repo, monkeypatch, tmp_path_factory):
+        import pysuto.pipeline as pl
+        shm = tmp_path_factory.mktemp("shm")
+        sweep = Sweep(_pipeline(repo), [Axis("const.ANCHOR_CV", [0.01, 0.02])], mode="grid",
+                      keep_intermediate=False, scratch_dir=str(shm))
+        free = {str(repo.root): 100.0, str(shm): 0.1}
+        monkeypatch.setattr(pl.shutil, "disk_usage", lambda p: SimpleNamespace(
+            total=0, used=0, free=free[str(p)] * 1024 ** 3))
+        with pytest.raises(RuntimeError, match="scratch store"):
+            sweep.run("scratch")

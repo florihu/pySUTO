@@ -1,7 +1,7 @@
 """
 _sidecar.py
 ===========
-Shared private helpers behind the four output registries:
+Shared private helpers behind the output registries:
 
 * JSON IO (numpy-aware encoder, dump/load).
 * Wall-clock helpers (UTC ISO timestamp, compact stamp, short code).
@@ -23,6 +23,7 @@ import os
 import platform
 import subprocess
 import sys
+import threading
 import time
 import uuid
 from contextlib import contextmanager
@@ -33,6 +34,8 @@ from importlib import metadata as importlib_metadata
 from typing import Any, Iterator, Optional
 
 import numpy as np
+
+from pysuto._provenance import now_iso
 
 try:
     import resource
@@ -60,9 +63,17 @@ class _NpEncoder(json.JSONEncoder):
 
 
 def _json_dump(obj: Any, path: str) -> None:
+    """Write *obj* as JSON through a temp file and ``os.replace``, so a crash mid-write
+    leaves the previous file whole (#279)."""
     Path(path).parent.mkdir(parents=True, exist_ok=True)
-    with open(path, "w", encoding="utf-8") as f:
-        json.dump(obj, f, indent=2, cls=_NpEncoder)
+    tmp = f"{path}.tmp-{os.getpid()}-{threading.get_ident()}"
+    try:
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(obj, f, indent=2, cls=_NpEncoder)
+        os.replace(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
 
 
 def _json_load(path: str) -> Any:
@@ -70,9 +81,7 @@ def _json_load(path: str) -> Any:
         return json.load(f)
 
 
-def _now_iso() -> str:
-    """Current UTC time as ISO-8601 with trailing ``Z`` (seconds resolution)."""
-    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+_now_iso = now_iso          # the name the registries import
 
 
 def _ts_compact() -> str:

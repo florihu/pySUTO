@@ -137,11 +137,7 @@ class UncPropRunRegistry(BaseOutputRegistry):
 
         return UncPropResult(
             method       = str(config.get("method", "")),
-            alpha        = float(config.get("alpha", 0.0)),
+            alpha        = float(config["alpha"]),
             per_timestep = per_timestep,
         )
 
-    def load_sidecar(self, run_id: str) -> dict:
-        if run_id not in self._index:
-            raise KeyError(f"UncProp run '{run_id}' not in registry")
-        return self._read_sidecar(run_id)

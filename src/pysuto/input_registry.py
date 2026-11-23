@@ -2,7 +2,7 @@
 input_registry.py
 =================
 Per-kind versioned snapshot store for pySUTO inputs (``feed`` raw sources,
-``acc`` definitions, ``params`` CSVs).
+``acc`` definitions, ``params`` CSVs, ``mask`` overlays).
 
 On-disk layout per kind::
 
@@ -10,7 +10,7 @@ On-disk layout per kind::
     ├── registry.json
     └── <id>/
         ├── current/       ← live working copy (user edits here)
-        ├── v1/            ← snapshot; unchanged files = hardlinks back
+        ├── v1/            ← snapshot; unchanged files = hardlinks to the prior snapshot
         └── v2/
 
 When :meth:`InputRegistry.initialize` runs, the registry hashes the
@@ -46,17 +46,17 @@ Load-bearing files (changes trigger a version bump):
 
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 import shutil
 import uuid
 from dataclasses import dataclass
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+from pysuto._provenance import now_iso as _now_iso, sha256_file as _sha256_file
 from pysuto.logging import get_logger
+from pysuto.meta import DataFeedMetadata
 
 _log = get_logger("input_registry")
 
@@ -90,24 +90,12 @@ PARAMS_PARENTS = "parents.json"
 ACC_SPEC = "acc.json"
 
 
-def _sha256_file(path: Path) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(1 << 16), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
 def _hash_files(root: Path, names: list[str]) -> dict[str, str]:
     out: dict[str, str] = {}
     for name in names:
         p = root / name
         out[name] = _sha256_file(p) if p.is_file() else ""
     return out
-
-
-def _now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat(timespec="seconds").replace("+00:00", "Z")
 
 
 def _short_code() -> str:
@@ -124,7 +112,7 @@ class InputRegistry:
     Parameters
     ----------
     kind
-        ``"feed"``, ``"acc"`` or ``"params"``.
+        ``"feed"``, ``"acc"``, ``"params"`` or ``"mask"``.
     root
         Directory holding ``<kind>/`` subtree (default ``data/input``).
     feed_load_bearing
@@ -256,8 +244,17 @@ class InputRegistry:
 
         new_version = prior_versions[-1]["version"] + 1 if prior_versions else 1
         v_dir = self.root / id / f"v{new_version}"
-        v_dir.mkdir(parents=True, exist_ok=False)
-        self._snapshot(current, v_dir, self._latest_v_dir(id, prior_versions))
+        if v_dir.exists():
+            raise FileExistsError(f"input/{self.kind}/{id}: {v_dir} exists but the index "
+                                  f"does not register v{new_version}")
+        # Snapshot beside the final name and rename: a failure (disk full) leaves only
+        # ``vN.tmp``, which the next run replaces, never a partial ``vN/`` (#279).
+        tmp_dir = v_dir.with_name(v_dir.name + ".tmp")
+        if tmp_dir.exists():
+            shutil.rmtree(tmp_dir)
+        tmp_dir.mkdir(parents=True)
+        self._snapshot(current, tmp_dir, self._latest_v_dir(id, prior_versions))
+        os.rename(tmp_dir, v_dir)
 
         label = self._resolve_label(id, current, label_override, rec.get("label", ""))
         rec["label"] = label
@@ -268,6 +265,7 @@ class InputRegistry:
             "hashes":  new_hashes,
         })
         self._index[id] = rec
+        self._save_index()          # the vN/ is renamed into place: register it at once
         _log.info("input/%s/%s: bumped to v%d (label=%r)", self.kind, id, new_version, label)
 
     def _current_hashes(self, id: str) -> dict[str, str]:
@@ -358,10 +356,6 @@ class InputRegistry:
 
     @staticmethod
     def _feed_meta_label(current: Path) -> Optional[str]:
-        try:
-            from pysuto.meta import DataFeedMetadata
-        except ImportError:
-            return None
         if not current.is_dir():
             return None
         for p in sorted(current.iterdir()):
@@ -370,7 +364,9 @@ class InputRegistry:
                     meta = DataFeedMetadata.from_excel(str(p))
                     name = getattr(meta, "feed_name", "") or ""
                     return name.strip() or None
-                except Exception:
+                except Exception as exc:
+                    _log.warning("input/feed: no label from %s (%s: %s)", p,
+                                 type(exc).__name__, exc)
                     return None
         return None
 
@@ -383,8 +379,10 @@ class InputRegistry:
 
     def _save_index(self) -> None:
         self._index_path.parent.mkdir(parents=True, exist_ok=True)
-        with open(self._index_path, "w", encoding="utf-8") as f:
+        tmp = self._index_path.with_name(self._index_path.name + ".tmp")
+        with open(tmp, "w", encoding="utf-8") as f:
             json.dump(self._index, f, indent=2, sort_keys=True)
+        os.replace(tmp, self._index_path)       # a crash mid-write keeps the old index
 
     def _require_entry(self, id: str) -> dict:
         if id not in self._index:
@@ -439,7 +437,7 @@ def input_pins(imp_sidecar: dict, acc_id: str) -> dict[str, dict[str, int]]:
 
 
 # ──────────────────────────────────────────────────────────────────────
-# Convenience wrapper across the three kinds
+# Convenience wrapper across the kinds
 # ──────────────────────────────────────────────────────────────────────
 
 @dataclass

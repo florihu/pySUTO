@@ -489,3 +489,91 @@ def test_a_pin_to_a_version_whose_snapshot_is_gone_raises_on_initialize(tmp_path
     shutil.rmtree(tmp_path / "params" / "conc" / "v1")
     with pytest.raises(FileNotFoundError, match="v1"):
         InputRegistry("params", root=tmp_path).initialize(pins={"conc": 1})
+
+
+# =============================================================================
+# Failure atomicity (#279, U8-S1-4)
+# =============================================================================
+
+
+def test_a_snapshot_that_fails_midway_leaves_no_partial_version_and_a_retry_works(
+        tmp_path: Path, monkeypatch) -> None:
+    """A disk-full ``OSError`` inside the snapshot used to leave a partial ``v1/`` and an
+    unsaved index, so every later ``initialize`` raised ``FileExistsError``."""
+    _params_id(tmp_path, "conc", "param_id;value\nx;1\n")
+    real = InputRegistry._snapshot
+
+    def failing(self, src, dst, prior):
+        real(self, src, dst, prior)
+        raise OSError(28, "No space left on device")
+
+    monkeypatch.setattr(InputRegistry, "_snapshot", failing)
+    with pytest.raises(OSError):
+        InputRegistry("params", root=tmp_path).initialize()
+    assert not (tmp_path / "params" / "conc" / "v1").exists()
+
+    monkeypatch.setattr(InputRegistry, "_snapshot", real)
+    reg = InputRegistry("params", root=tmp_path).initialize()
+    assert reg.latest_version("conc") == 1
+    assert (tmp_path / "params" / "conc" / "v1" / "params.csv").is_file()
+    assert not list((tmp_path / "params" / "conc").glob("*.tmp"))
+
+
+def test_a_version_dir_that_the_index_does_not_know_is_refused_not_overwritten(
+        tmp_path: Path) -> None:
+    _params_id(tmp_path, "conc", "param_id;value\nx;1\n")
+    _write(tmp_path / "params" / "conc" / "v1" / "params.csv", "something else")
+    with pytest.raises(FileExistsError, match="does not register v1"):
+        InputRegistry("params", root=tmp_path).initialize()
+
+
+def test_an_id_bumped_before_a_later_failure_is_already_in_the_saved_index(
+        tmp_path: Path, monkeypatch) -> None:
+    """The index is saved after each bump: a later id failing must not orphan the
+    ``vN/`` of an earlier one."""
+    _params_id(tmp_path, "aaa", "param_id;value\nx;1\n")
+    _params_id(tmp_path, "bbb", "param_id;value\nx;1\n")
+    real = InputRegistry._snapshot
+
+    def failing(self, src, dst, prior):
+        if "bbb" in str(src):
+            raise OSError(28, "No space left on device")
+        real(self, src, dst, prior)
+
+    monkeypatch.setattr(InputRegistry, "_snapshot", failing)
+    with pytest.raises(OSError):
+        InputRegistry("params", root=tmp_path).initialize()
+    saved = json.loads((tmp_path / "params" / "registry.json").read_text())
+    assert list(saved) == ["aaa"]
+    monkeypatch.setattr(InputRegistry, "_snapshot", real)
+    reg = InputRegistry("params", root=tmp_path).initialize()
+    assert (reg.latest_version("aaa"), reg.latest_version("bbb")) == (1, 1)
+
+
+def test_the_index_is_written_through_a_temp_file(tmp_path: Path, monkeypatch) -> None:
+    _params_id(tmp_path, "conc", "param_id;value\nx;1\n")
+    InputRegistry("params", root=tmp_path).initialize()
+    index = tmp_path / "params" / "registry.json"
+    before = index.read_text()
+    reg = InputRegistry("params", root=tmp_path)
+
+    def boom(obj, f, **kw):
+        f.write("{")
+        raise RuntimeError("crash mid-write")
+
+    monkeypatch.setattr("pysuto.input_registry.json.dump", boom)
+    with pytest.raises(RuntimeError):
+        reg._save_index()
+    assert index.read_text() == before
+
+
+def test_an_unreadable_feed_label_source_warns_and_falls_back(
+        tmp_path: Path, caplog) -> None:
+    import logging
+    _feed_id(tmp_path, "src", {"data.csv": "a\n1\n"})
+    _write(tmp_path / "feed" / "src" / "current" / "meta.xlsx", "not a workbook")
+    with caplog.at_level(logging.WARNING, logger="pysuto.input_registry"):
+        reg = InputRegistry("feed", root=tmp_path,
+                            feed_load_bearing={"src": ["data.csv"]}).initialize()
+    assert reg.entry("src")["label"] == "src"
+    assert "no label from" in caplog.text

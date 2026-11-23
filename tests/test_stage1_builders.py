@@ -8,6 +8,7 @@ sidecar and ``main`` (ADR 0033), and the crude-ore parse. No script's ``__main__
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -21,7 +22,8 @@ import copper_feed
 import build_baci_reexport as R
 import build_ore_grade as O
 import build_trade_shares as T
-from pysuto.feedprep.builder_lock import LOCK_HELD_ENV, builder_lock
+from pysuto.registry import stage_lock
+from pysuto.registry.lock import HOLDER_ENV
 from pysuto.input_registry import InputRegistries
 from pysuto.registry import LockHeld
 
@@ -55,27 +57,34 @@ def _feed_run(proc, label, stamp, baci_version=None):
 # ---------------------------------------------------------------------------
 
 def test_a_hand_run_holds_the_stage_lock_and_a_second_one_is_refused(tmp_path):
-    with builder_lock("build_trade_shares", str(tmp_path)):
+    with stage_lock("build_trade_shares", root=str(tmp_path / "proc")):
         assert (tmp_path / "proc" / ".stage.lock").is_file()
         with pytest.raises(LockHeld, match="build_trade_shares"):
-            with builder_lock("build_ore_grade", str(tmp_path)):
+            with stage_lock("build_ore_grade", root=str(tmp_path / "proc")):
                 pass
     assert not (tmp_path / "proc" / ".stage.lock").exists()
 
 
-def test_a_build_the_hook_runs_does_not_take_the_lock_its_caller_holds(tmp_path, monkeypatch):
-    monkeypatch.setenv(LOCK_HELD_ENV, "1")
-    with builder_lock("build_trade_shares", str(tmp_path)):
-        assert not (tmp_path / "proc" / ".stage.lock").exists()
+def test_a_build_the_hook_runs_joins_the_lock_its_pipeline_holds(tmp_path, monkeypatch):
+    """The pipeline holds the lock for its feed step and names itself as holder in the
+    child's environment (``HOLDER_ENV``); a builder started there neither refuses nor
+    removes the lock (#279 keeps this one mechanism for U1b-G4-6)."""
+    proc = str(tmp_path / "proc")
+    with stage_lock("pipeline_feed", root=proc):
+        monkeypatch.setenv(HOLDER_ENV, str(os.getpid()))
+        with stage_lock("build_trade_shares", root=proc):
+            pass
+        assert (tmp_path / "proc" / ".stage.lock").is_file()
 
 
-def test_the_hook_marks_the_scripts_it_runs_as_run_under_its_lock(tmp_path, monkeypatch):
+def test_the_hook_s_script_children_inherit_the_holder_marker(tmp_path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(copper_feed, "_SCRIPTS_DIR", tmp_path)
+    monkeypatch.setenv(HOLDER_ENV, "4242")
     (tmp_path / "probe.py").write_text(
-        f"import os\nprint('held=' + os.environ.get({LOCK_HELD_ENV!r}, 'no'))\n")
+        f"import os\nprint('holder=' + os.environ.get({HOLDER_ENV!r}, 'no'))\n")
     copper_feed._run_script("probe.py", data_dir=str(tmp_path))
-    assert "held=1" in (tmp_path / "logs" / "probe.log").read_text()
+    assert "holder=4242" in (tmp_path / "logs" / "probe.log").read_text()
 
 
 # ---------------------------------------------------------------------------

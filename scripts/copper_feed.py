@@ -41,7 +41,6 @@ import pandas as pd
 
 from pysuto.conc import ConcordanceTable
 from pysuto.feedpipe import FeedSpec, check_file, run_feed
-from pysuto.feedprep.builder_lock import LOCK_HELD_ENV
 from pysuto.feedprep.ore_grade import OreGradeLabels
 from pysuto.feedprep.trade_shares import (check_parents_record, decoded_edges,
                                           trade_share_parents as _trade_share_parents)
@@ -942,9 +941,8 @@ def _run_script(script: str, *args: str, data_dir: str) -> None:
     os.makedirs(os.path.join(data_dir, "logs"), exist_ok=True)
     log_path = os.path.join(data_dir, "logs", f"{Path(script).stem}.log")
     _log.info("stage 1: %s", " ".join(cmd[1:]))
-    env = {**os.environ, LOCK_HELD_ENV: "1"}      # the caller holds the stage lock
     with open(log_path, "a", encoding="utf-8") as log:
-        rc = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT, env=env).returncode
+        rc = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT).returncode
     if rc != 0:
         with open(log_path, encoding="utf-8", errors="replace") as f:
             tail = "".join(f.readlines()[-30:])
