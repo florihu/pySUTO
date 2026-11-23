@@ -21,6 +21,12 @@ difference. Per paired run the command compares
   values, exactly (no tolerance); a file only one run has is a difference;
 * ``parents.inputs`` of the two sidecars, as stored.
 
+Stage 2 stores its per-feed rows (``F``, ``Sigma``, ``Omega``) in the order of its
+``--feed-id`` arguments, recorded in ``feed_ids``. When two files hold the same feeds in
+another order, the new file's rows are aligned to the base's ``feed_ids`` before they are
+compared, and the run carries the note "feed order differs" (#211): a reordering alone is
+no difference.
+
 Not compared: the sidecars' run ids, timestamps and ``stage_config``, ``diag/`` and the
 feed's ``feed.pkl`` (a pickle, whose bytes are no array). The command reads and writes
 nothing under the data directory (no log file, no lock, no registry).
@@ -45,6 +51,9 @@ _UPSTREAM_STAGE = {"feed_run_ids": "feed", "imp_run_id": "imp", "const_run_id": 
                    "opt_run_id": "opt"}
 _SKIP_DIRS  = ("diag",)
 _SKIP_FILES = ("metadata.json", "feed.pkl")
+# Stage 2's per-feed rows, stored in --feed-id order and aligned by feed_ids (#211)
+_FEED_IDS   = "feed_ids"
+_PER_FEED   = ("F", "Sigma", "Omega", _FEED_IDS)
 
 
 class CompareError(ValueError):
@@ -60,6 +69,7 @@ class RunDiff:
     new:         str
     n_arrays:    int  = 0
     differences: list = field(default_factory=list)   # one line each
+    notes:       list = field(default_factory=list)   # one line each, no difference
 
 
 @dataclass
@@ -209,6 +219,27 @@ def first_difference(a: np.ndarray, b: np.ndarray):
             f"{_short(b.ravel()[flat])} ({int(mask.sum())} of {a.size} differ)")
 
 
+def _feed_ids(path: str):
+    """The ``feed_ids`` of an ``.npz`` file as a list, or ``None`` if it has none."""
+    if not path.lower().endswith(".npz"):
+        return None
+    with np.load(path, allow_pickle=True) as z:
+        return [str(f) for f in z[_FEED_IDS]] if _FEED_IDS in z.files else None
+
+
+def feed_permutation(base_ids, new_ids):
+    """Row indices that put the new file's per-feed rows in the base's feed order.
+
+    ``None`` when the orders agree, or when the two files do not hold the same distinct
+    feeds (their ``feed_ids`` then differ as an array).
+    """
+    if base_ids is None or new_ids is None or base_ids == new_ids:
+        return None
+    if sorted(base_ids) != sorted(new_ids) or len(set(base_ids)) != len(base_ids):
+        return None
+    return np.array([new_ids.index(f) for f in base_ids], dtype=np.int64)
+
+
 def _label(rel: str, name: str) -> str:
     return f"{rel}::{name}" if name else rel
 
@@ -233,8 +264,13 @@ def compare_runs(stage: str, base_dir: str, new_dir: str, base_id: str,
         if rel not in base_files:
             out.differences.append(f"{rel}: only in new")
             continue
-        base_it, new_it = _arrays(os.path.join(base_dir, rel)), \
-                          _arrays(os.path.join(new_dir, rel))
+        base_path, new_path = os.path.join(base_dir, rel), os.path.join(new_dir, rel)
+        base_ids, new_ids = _feed_ids(base_path), _feed_ids(new_path)
+        perm = feed_permutation(base_ids, new_ids)
+        if perm is not None:
+            out.notes.append(f"{rel}: feed order differs: base {base_ids} vs new "
+                             f"{new_ids}; per-feed rows aligned by {_FEED_IDS}")
+        base_it, new_it = _arrays(base_path), _arrays(new_path)
         seen_base = {}
         for name, arr in base_it:
             seen_base[name] = arr
@@ -244,6 +280,9 @@ def compare_runs(stage: str, base_dir: str, new_dir: str, base_id: str,
             if name not in seen_base:
                 out.differences.append(f"{_label(rel, name)}: only in new")
                 continue
+            if (perm is not None and name in _PER_FEED and arr.ndim
+                    and len(arr) == len(perm)):
+                arr = arr[perm]
             out.n_arrays += 1
             why = first_difference(seen_base.pop(name), arr)
             if why:
@@ -309,6 +348,7 @@ def format_report(report: Report) -> str:
         verdict = "DIFFERENT" if r.differences else "identical"
         lines.append(f"{r.stage:8s}{verdict:10s}{r.n_arrays:5d} arrays  "
                      f"{r.base}  {r.new}")
+        lines.extend(f"    note: {n}" for n in r.notes)
         lines.extend(f"    {d}" for d in r.differences)
     for stage, run_id, why in report.skipped:
         lines.append(f"{stage:8s}skipped   {run_id}: {why}")
