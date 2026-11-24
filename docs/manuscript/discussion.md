@@ -96,7 +96,7 @@ used in 5.2 and 5.3.
 **Termination moves the loosely weighted flows** (A5).
 
 - The relative duality gap of the flow formulation is measured against the prior-only constant, an order of magnitude larger than the misfit; a loose gap leaves the flows with the widest $\sigma$ furthest from the optimum (§3.1.6). → N4
-- Scrap is such a flow: in the sweep the no-data anchor's coefficient of variation, not a feed's, is the top-ranked knob on both scrap legs (§4.2), and Scrap→Smelting CC moves 0.223 between the two gaps. <!-- check: the A5 pair is the base chain of 2026-09-16, which still booked the secondary double count (ADR 0030); part of the 0.223 may be the tight solve deleting that phantom scrap, not loose weighting alone -->
+- Scrap is such a flow: in the sweep the no-data anchor's coefficient of variation, not a feed's, is the top-ranked knob on both scrap legs (§4.2), and Scrap→Smelting CC moves 0.137 between the two gaps on the reference constraint run (0.223 on the base chain of 2026-09-16, which still booked the secondary double count). Crude ore into mining, whose legs carry by far the widest $\sigma$ (median 2,477 kt against at most 16 kt on the other eight stages), moves most: 0.184. <!-- keys: issue #315 REP, opt_20261124_152425_856f440b vs opt_20261124_152923_0bbd377c on const_20261124_141044_e73c5952; refresh with #320 -->
 
 **The judgement values move what the data constrain least** (A6).
 
@@ -179,7 +179,7 @@ Section 5.5.1 bounds the method's conclusions; Section 5.5.2 lists the limitatio
 
 **Robustness tests.**
 
-- The termination pair (A5) is on the base chain of 2026-09-16, not on the reference chain; it shows the size of the effect, not the reference run's own termination error. A $10^{-6}$ against $10^{-8}$ pair on the reference chain would put Figure 5d's diamonds and boxes on one QP.
+- The termination pair (A5) solves the reference constraint run, so Figure 5d's diamonds and boxes sit on one QP. Its tightened member (flows, gap $10^{-6}$) is itself not converged: against the reference run (defects, gap $10^{-8}$) it is within 0.008 on eight stages and 0.135 below it on crude ore, at an objective 2.9% higher. The reference run's own termination error is below what a pair can show; the defects form at $10^{-8}$ is the solve the paper reports.
 - The knob sweep is local: a factor two either side of the shipped value, around one chain (SI S15.4). All five A6 breaches sit at 1.6–1.9 times the shipped no-data anchor coefficient of variation, inside a range capped at two; a wider range would find more.
 - The structural modes, the calibrated values and the solver's settings are compared in their decision records, not swept.
 
