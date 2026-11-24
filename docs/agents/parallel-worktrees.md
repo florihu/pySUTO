@@ -1,8 +1,24 @@
 # Parallel worktrees
 
-Rules for an agent that works in its own git worktree (`.claude/worktrees/<name>`, a `feat/`, `fix/`
-or `diag/` branch) while other agents or the maintainer use the main checkout. `<wt>` is the
-worktree's absolute path, `<main>` the main checkout's.
+When to split work into lanes, and the rules for an agent that works in its own git worktree
+(`.claude/worktrees/<name>`, a `feat/`, `fix/` or `diag/` branch) while other agents or the
+maintainer use the main checkout. `<wt>` is the worktree's absolute path, `<main>` the main
+checkout's.
+
+## When to start lanes
+
+A **lane** is one stream of work that runs beside the others: a background agent, in its own
+worktree when it edits code. With two or more tickets, or a read across three or more modules,
+sessions or documents, write the lane plan before the first edit and send the independent lanes
+in one message. Each brief names the goal, the files, the completion criterion and the *Report*
+below.
+
+- **A lane of its own**: each code-only ticket (no stage-driver run), each review, each read or
+  audit of a separate area.
+- **One serial lane in `<main>`**: every stage-driver run and measure ticket, one at a time, in
+  blocker order (*Pipeline runs* below).
+- **The same lane**: tickets that edit the same file, or where one needs another's output.
+- While one lane waits on a solve or the suite, work on another; run the wait in the background.
 
 ## Environment
 
