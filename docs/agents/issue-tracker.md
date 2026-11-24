@@ -29,7 +29,7 @@ A **round** is a GitHub milestone with its due date on the target Thursday, the 
 
 Before you give a due date or a time estimate, run `python scripts/milestone_rates.py`. It prints the issues that each round closed per working day (Monday to Thursday). Give two numbers:
 
-- **Agent time**: the issues of the longest lane, divided by the rate of a similar past round.
+- **Agent time**: the round's issues, divided by the rate of a similar past round. It is at least the longest chain of blocked tickets at the rate of a serial round.
 - **Maintainer time**: the days for reviews, decisions and pushes.
 
 Put the due date on the Thursday after the sum of the two numbers. Estimates from intuition assume one serial worker at human pace, and they were up to 15× too long (retro of 2026-11-24).
