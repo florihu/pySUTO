@@ -481,6 +481,8 @@ $$
 
 $A = Z$ is a re-import and is dropped. Safeguards, each measured before adoption: ROW is never a hub; an origin whose exports of the product-year exceed $3\,(P + I)$ with $P > 0$ keeps its inbound legs gross; years with an ICSG reporting gap are skipped; a new leg is created only at or above 1 kt CC; the sweep repeats until nothing moves, at most three passes (hub-to-hub chains). Adjusted legs carry $\sigma_{\mathrm{new}} = \mathrm{CV}\sqrt{v_{\mathrm{obs}}^2 + 2\Delta^2}$, with the ratio to the original $\sigma$ capped at 5 so that a leg netted to a rounding remainder does not acquire an absurd $\sigma$. Tonnage that arrives at a hub without a recorded outbound leg cannot be re-attributed from trade data alone; it stays, labelled in the residual ledger, for the reconciliation to judge.
 
+**Re-export anchors.** Where ICSG records no production behind a hub's exports, the netting re-attributes what the hub's imports can cover and leaves the rest as the hub's own export. Four regions book BACI exports with $P = 0$ in every year: the Netherlands (anode 516 kt CC, concentrate 75 kt CC over 1995–2024), Malaysia (102, 477), Taiwan (142, 708) and the United Arab Emirates (68, 166); together 829 kt CC of anode and 1,426 kt CC of concentrate. Their scale totals carry 2.6%, 1.9%, 1.9% and 4.3% of the scale-total $\sum z^2$ of the reference run, 10.8% in all (`manuscript_numbers.py`, `method:L352.reexport_anchors`; issue #183).
+
 ### S9.2 Ore grade
 
 The in-situ grade of region $r$ in year $t$ is
@@ -533,11 +535,11 @@ Parameters are CSV rows selecting an edge pair by sector, entity, region, year a
 
 ## S11 Decision records
 
-Every modelling decision is an architecture decision record in the repository (`docs/adr/`), one paragraph with a status line naming the evidence runs. Table [S13](#tab-si-adr) lists all 44; “F” marks a framework rule, “C” a copper-application rule.
+Every modelling decision is an architecture decision record in the repository (`docs/adr/`), one paragraph with a status line naming the evidence runs. Table [S13](#tab-si-adr) lists all 47; “F” marks a framework rule, “C” a copper-application rule.
 
 <a id="tab-si-adr"></a>
 
-**Table S13.** Decision records 0001–0044 (status as of 2026-10-22; 0034 as of 2026-11-12).
+**Table S13.** Decision records 0001–0047 (status as of 2026-10-22; 0034 as of 2026-11-12; 0045–0047 as of 2026-11-24).
 
 | ADR | Decision | Status | F/C | Rejected alternative |
 | --- | --- | --- | --- | --- |
@@ -585,6 +587,9 @@ Every modelling decision is an architecture decision record in the repository (`
 | 0042 | Stage 4 owns the model; a QP backend solves a standard-form QP | proposed | F | a backend handed the semantic problem; Clarabel's conic form as the contract |
 | 0043 | A stock change is drawn from its region's cathode supply; BACI's cathode trade carries no stock prior | accepted, over a failed pre-registered item | C | imports first with an unconditional production bound; keeping the 98/1/1 BACI fan |
 | 0044 | The posterior is the QP's linearisation at its active set: a binding lower bound pins its edge, dependent hard rows are dropped | accepted; calibrated against the model's residuals (#87): Birge ratio 5.21 on `opt_20261021_131744_58504ad3` (4.83 on the reference chain), intervals quoted Birge-scaled | F | dropping the bounds altogether; a relative $\sigma_c$ on hard rows |
+| 0045 | A knob is overridden at the driver boundary (`--set KNOB=VALUE`, recorded in `stage_config`); the pipeline runs each driver as a subprocess | accepted 2026-10-21; its condition holds: a run with every knob explicit at its default reproduces the chain in every stored array (#106) | F | one config dataclass per stage passed to an importable `main()` |
+| 0046 | An accounting structure is declared by a spec; ODS and JSON are two formats of it, each with a reader | accepted 2026-11-11: the copper account built from the files before and after is byte-identical (854,460 admissible edges) | F | a procedural schema of callable rules beside the files |
+| 0047 | pySUTO ships no study case: a case is caller code that `--case` resolves, and copper lives in `scripts/` | accepted 2026-11-18: the move reproduces `opt_20261116_134050_b54f65dc` in every stored array | F | a `studies/` layer inside the package |
 
 <a id="si-coverage"></a>
 
@@ -807,7 +812,7 @@ The sweep's portfolio (`data/proc/sweep/<run>/diag/`, figures SW-R-01, 02 and 04
 | `RATIO_SIGMA_REL_FLOOR`, soft-ratio relative $\sigma$ floor | 3 | 0.02 | log [0.01, 0.04] |
 | `RATIO_SCALE_ABS_FLOOR`, soft-ratio scale floor (kt) | 3 | 100 | log [50, 200] |
 
-**Table S22b.** The 15 knobs of the sweep, their shipped values and the ranges sampled (A6; issue #108). "log" is log-uniform.
+**Table S22b.** The 15 knobs of the sweep, their shipped values and the ranges sampled (A6; issue #108). "log" is log-uniform. The sweep varies $p$ of Stages 2–3 (tied) only; the Stage 1 combiner, which also uses $p$, stays at 1.3 (issue #234).
 
 <a id="tab-si-knob-outcomes"></a>
 

@@ -224,6 +224,15 @@ Section 5.5.1 bounds the method's conclusions; Section 5.5.2 lists the limitatio
 - 1,320 kt CC of ICSG usage in 64 product-region-years that recorded production and imports cannot supply; 360 kt CC of it is South Africa's, its 2017–2018 smelter intake among it, against BACI concentrate exports equal to its whole mine output.
 - Releasing the 867 kt CC of it whose recorded imports lie below the feeds' 0.3 kt resolution raised the scale-total objective by 2.4% against the reference run.
 
+**Re-export anchors** (issue #183; ADR 0026, 0027).
+
+- BACI books anode and concentrate exports of the Netherlands, Malaysia, Taiwan and the United Arab Emirates with no ICSG production behind them (829 kt CC of anode, 1,426 kt CC of concentrate over 1995–2024); their scale totals carry 10.8% of the scale-total objective, and a redesign of the netting is left out (SI S9.1).
+
+**Choices that no measurement fixes.**
+
+- The 0.3 kt and 100 kt $\sigma$ floors apply in kt to Mass rows and to kt CC rows alike, because ADR 0025 names no valuation (issue #241).
+- The concentrate relation is priced by three $\sigma$ rules (trade, network twin, parametric); a measurement (issue #149) found the items of the stop rule (SI S13.1) equal to three decimals against `opt_20261022_112855_928da10c`, so copper's result does not depend on the choice (issue #140).
+
 **Stocks.**
 
 - Kazakhstan's refined exports exceed the refinery output of ICSG's 2025 yearbook and are booked as stock draws beyond $5\sigma$, $-348.3$ kt CC over 1995–2024 (issue #95).

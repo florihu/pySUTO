@@ -201,7 +201,7 @@ $$
 - At $p = 2$, Eq. (1) is the Gaussian quadrature of independent errors.
 - pySUTO uses $p = 1.3$ throughout: less diversification credit, because the contributions that meet on one edge — parallel sources, fanned-in sub-flows, chained imputations — rarely err independently.
 - For $p \ge 1$, relative uncertainty never grows under mass-preserving aggregation or disaggregation (SI S2).
-- $p$ is a judgement value; the knob sweep varies it over $[1.1, 1.5]$ (Section [3.3](#sec-evaluation); SI Table S22b).
+- $p$ is a judgement value; the knob sweep varies $p$ of Stages 2–3 over $[1.1, 1.5]$ and leaves the Stage 1 combiner at 1.3 (Section [3.3](#sec-evaluation); SI Table S22b).
 
 **Why one rule.** The modeller states one dependence assumption, $p$, instead of a separate $\sigma$ rule for each operation, and every $\sigma$ in the account is traceable to it.
 
@@ -430,7 +430,7 @@ $$
 ### 3.2 Application to the global copper supply chain
 
 - The framework is parametrised for copper by an accounting structure, three data feeds with their pre-processing, six parameter tables and a set of modelling decisions.
-- Each decision is an architecture decision record (ADR) in the repository, with the measurement that motivated it; SI Table S13 lists all 44 (0001–0044). → N6 <!-- check: ADRs 0045 (knob overrides at the driver boundary) and 0046 (accounting structure declared by a spec), both 2026-11, are not in Table S13; add them or say the table stops at 0044 -->
+- Each decision is an architecture decision record (ADR) in the repository, with the measurement that motivated it; SI Table S13 lists all 47 (0001–0047). → N6
 
 <a id="sec-system"></a>
 
@@ -688,7 +688,7 @@ Six parameter tables carry the physics (SI S10).
 | $\sigma$ never loosened to repair a contradiction; defects fixed at the input | the yearbook and trade defects above are corrected before the feeds enter | loosening fabricated totals: world ore retention 0.66 $\to$ 0.41; loosening contradicted nodes: 0.46% of mass moved, collapses untouched | 0016, 0019, 0030, 0032, 0033, 0035, 0036 |
 | PIOT as a derived view under the market-share construct | the input–output table is computed from the reconciled PSUT on demand and never persisted | an external IO-library dependency; persisting a second table class | 0007, 0037 |
 
-**Table 2.** Critical modelling choices of the copper application, in pipeline order, with the alternative that was measured and rejected. Objective figures are scale-total $\sum z^2$ over 30 years unless stated; retention is $\sum a^*/\sum a_{\mathrm{prior}}$ of the named category (Section [3.3](#sec-evaluation)). The full list of 44 decisions with their evidence runs is SI Table S13.
+**Table 2.** Critical modelling choices of the copper application, in pipeline order, with the alternative that was measured and rejected. Objective figures are scale-total $\sum z^2$ over 30 years unless stated; retention is $\sum a^*/\sum a_{\mathrm{prior}}$ of the named category (Section [3.3](#sec-evaluation)). The full list of 47 decisions with their evidence runs is SI Table S13.
 
 <a id="sec-evaluation"></a>
 

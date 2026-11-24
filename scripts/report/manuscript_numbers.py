@@ -91,6 +91,7 @@ NUMBERS_OUT    = "docs/manuscript/figs/manuscript_numbers.json"   # committed: t
 Z_BIG          = 5.0                         # a stock leg beyond |z| 5 is a limitation (Discussion §5.5.2)
 PSC_FIRST_YEAR = 1996                        # ICSG reports no producer stock change for 1995
 EXCESS_MIN_KT  = 5.0                         # BACI exports above ICSG production (Discussion §5.5.2, #111)
+REEXPORT_ANCHORS = ["Netherlands", "Malaysia", "Taiwan", "United Arab Emirates"]  # #183 §3
 FRINGE_KT      = 1e-4                        # #99's fringe: a* this close to its bound is ambiguous
 INTERVALS_CSV  = "docs/manuscript/figs/table3_intervals.csv"   # scripts/report/table3_intervals.py
 INTERVALS_RUN_SUFFIX = ".run.json"           # beside the CSV: the opt and uncprop run it was computed for
@@ -1249,6 +1250,19 @@ def withheld_usage(led: pd.DataFrame) -> dict:
             "by_region": {r: float(v) for r, v in by.items()}}
 
 
+def reexport_anchor_numbers(led: pd.DataFrame, sh: dict, regions: list) -> dict:
+    """#183 §3: the re-export anchors — regions BACI books anode and concentrate exports
+    from with no ICSG production behind them. Each region's share of the scale-total Σz²
+    (``sh``), their sum, and over all years the netting ledger's BACI exports ``X`` and ICSG
+    production ``P`` (kt CC) of both products."""
+    rows = led[led.region.isin(regions) & led.sector.isin(["Anode", "Concentrate"])]
+    by = rows.groupby("sector")[["X", "P"]].sum().fillna(0.0)
+    return {"share_by_region": {r: float(sh.get(r, 0.0)) for r in regions},
+            "share_total":     float(sum(sh.get(r, 0.0) for r in regions)),
+            "exports_kt":      {k: float(by.X[k]) for k in by.index},
+            "production_kt":   {k: float(by.P[k]) for k in by.index}}
+
+
 def degenerate_family_counts(e: pd.DataFrame) -> dict:
     """#99's degenerate family: cross-region Cathode→FU legs, either valuation, whose prior
     is 0 and whose a* lies within ``FRINGE_KT`` of it — the legs Stage 5's slack threshold
@@ -1359,6 +1373,10 @@ def limitation_numbers(N: Numbers, inp: Path, ch: Chain, e: pd.DataFrame, s: pd.
     N.add("method:L352.withheld_icsg_usage", "ICSG usage the netting's imports_exhausted withhold "
           "leaves undistributed: groups (product × region × year), kt CC, by region (ADR 0027 am., "
           "#111)", withheld_usage(led), "kt CC")
+    N.add("method:L352.reexport_anchors", "the re-export anchors (Netherlands, Malaysia, Taiwan, "
+          "United Arab Emirates): shares of the scale-total Σz², their sum, and BACI anode and "
+          "concentrate exports X against ICSG production P over 30 years (#183 §3)",
+          reexport_anchor_numbers(led, sh, REEXPORT_ANCHORS), "kt CC")
     N.add("method:L353.degenerate_family", "#99's degenerate legs: edge-years and the per-year "
           "range (#81)", degenerate_family_counts(e))
     shift = None
