@@ -1476,3 +1476,9 @@ _Avoid_: "axis" (the skill's own word, which collides with a sweep's **Axis**).
 A chain rerun on unchanged inputs to show that a code change leaves every stored array identical
 to the reference chain's.
 _Avoid_: "regression run", "validation run".
+
+**Reference chain**:
+The chain of stage runs whose arrays the manuscript reads, and against which every check chain
+and measure ticket is compared. A change that moves one of its numbers makes a new reference
+chain; after the manuscript's number freeze, no such change lands before submission.
+_Avoid_: "final chain" (older REPs), "base" (the base of one comparison only).
