@@ -25,6 +25,15 @@ A **round** is a GitHub milestone with its due date on the target Thursday, the 
 - **Open**: `gh api -X POST repos/{owner}/{repo}/milestones -f title="<round>" -f due_on="<YYYY-MM-DD>T23:59:59Z"`, then `gh issue edit <n> --milestone "<round>"` and one comment per issue giving its rank and why it is in.
 - **Close**: every open issue of the round ends one of three ways, each with a comment: closed with its REP, moved to the next round (`--milestone`), or moved out (`--remove-milestone`). When `gh issue list --milestone "<round>" --state open` returns nothing, `gh api -X PATCH repos/{owner}/{repo}/milestones/<number> -f state=closed`; from then on the audit's R check guards the round.
 
+### Due dates
+
+Before you give a due date or a time estimate, run `python scripts/milestone_rates.py`. It prints the issues that each round closed per working day (Monday to Thursday). Give two numbers:
+
+- **Agent time**: the issues of the longest lane, divided by the rate of a similar past round.
+- **Maintainer time**: the days for reviews, decisions and pushes.
+
+Put the due date on the Thursday after the sum of the two numbers. Estimates from intuition assume one serial worker at human pace, and they were up to 15× too long (retro of 2026-11-24).
+
 `python scripts/issue_audit.py` checks this file, [triage-labels.md](triage-labels.md) and [measure-tickets.md](measure-tickets.md) against the tracker; run it when a round opens and before it closes.
 
 ## Pull requests as a triage surface
