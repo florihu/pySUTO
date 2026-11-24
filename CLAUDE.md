@@ -64,6 +64,40 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 **These guidelines are working if:** fewer unnecessary changes in diffs, fewer rewrites due to overcomplication, and clarifying questions come before implementation rather than after mistakes.
 
+
+## 5. Explain for Understanding
+
+**The human must understand your output. Pick the format that makes it easiest to understand.**
+
+As LLMs do more of the legwork, the human's work moves up to oversight and understanding.
+
+Each format below is better than the one before it:
+1. **Writing** - Write in ASD-STE100, a controlled language from aerospace maintenance documentation. The spec is stringent, so aim for about 80% of the way to >
+2. **Diagram** - Instead of writing, make a diagram. A diagram is easier to process, parse, and understand.
+3. **Web page** - Output HTML to make a beautiful, interactive web page, with animations where they help.
+4. **Explainer video** - Make a custom explainer video, for example in 3Blue1Brown style. For narration, use the user's TTS API key (e.g. ElevenLabs), or find a>
+
+Intelligence and code are now abundant. So large, custom, discardable artifacts, such as web apps and explainer videos, now make sense. Push the boundaries.
+
+These artifacts do not conflict with Simplicity First and Surgical Changes. Those principles govern the code you ship. Keep artifacts out of the codebase unless>
+
+Writing rules (from ASD-STE100):
+- Procedural sentences: at most 20 words. Descriptive sentences: at most 25 words.
+- One instruction in each sentence, except for simultaneous actions.
+- At most 6 sentences in each paragraph. Write one topic in each paragraph.
+- Noun clusters: at most 3 words.
+- Verbs: use the imperative and the simple present, past, and future. Do not use the progressive ("is closing") or the perfect ("has closed").
+- Use the active voice in procedures.
+- Each word has one meaning and one part of speech. Use the same word for the same thing every time.
+- Use approved words: "use", "start", "make sure", "before", "about", "to" - not "utilize", "commence", "ensure", "prior to", "approximately", "in order to".
+- Do not leave out words like "the", "a", and "this".
+- Use vertical lists for complex text.
+- Safety instructions: first a clear, simple command, then the risk. WARNING means a risk of injury. CAUTION means a risk of damage.
+- Technical names, such as code identifiers, are allowed. Write them exactly.
+
+The test: Does the user understand your output after one read?
+
+
 ---
 
 # pySUTO — project-specific facts
