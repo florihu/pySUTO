@@ -71,6 +71,17 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
 Branch `diag/qp-backend-measure`, REP `docs/rep/analysis_opt_20261112_144603_1256b16b_20261112_issue56-qp-backend-measure.md`.
 - **Run:** `opt_20261112_144603_1256b16b` on `const_20261022_111531_df61bf5c`: 240/240 arrays bit-identical to
   `opt_20261022_112855_928da10c`, 30/30 solved; per-period probe of all 30 years 14.8 s; Stage 4 3 min 9 s (was ≈ 12 min).
+## #314 MEASURED 2026-11-24 — a later imputer writes no assumed-absent primary (#312) and ships; candidate reference chain opt_20261124_141714_e2892160
+
+Branch `diag/stage2-bundle-measure`, REP
+`docs/rep/analysis_opt_20261124_141714_e2892160_20261124_issue314-stage2-bundle.md`.
+- **Runs:** feeds of #313 → `imp_20261124_140720_ad766e00` → `const_20261124_141044_e73c5952` → `opt_20261124_141714_e2892160`
+  (30/30, cold) → `uncprop_20261124_144415_13fea7bf`, ablation `uncprop_20261124_150634_1ebdc2db`, `psut_20261124_150658_8f727db2`.
+- **Result:** 1 prior edge changes (Slovakia CER→CP 2000 CC, 5.80 → 0 kt CC; #154's chain had 7 edges, 32.97 kt CC). Free-sink guard
+  holds (a* 5.25 vs base prior 5.80). Common-set Σz² +0.004 % vs `opt_20261124_134920_b45bf2d4`, +0.050 % vs
+  `opt_20261119_130302_b20f0dba`; Round-E unchanged. Table 3 screen: 8 of 8 outcomes as committed, no flip.
+- **Next:** the maintainer decides whether this chain becomes the reference chain; then `results_figs.py` and the prose numbers re-render.
+
 ## #313 MEASURED 2026-11-24 — the Stage 1 bundle (#233, #240, ore_grade rebuild) moves 842 BACI σ entries and Σz² by +0.047 %; chain opt_20261124_134920_b45bf2d4
 
 Branch `diag/stage1-bundle-measure`, REP
