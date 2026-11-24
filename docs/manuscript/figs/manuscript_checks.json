@@ -1,0 +1,537 @@
+{
+ "checks.runs": {
+  "label": "runs read",
+  "value": {
+   "opt": "opt_20261124_141714_e2892160",
+   "uncprop": "uncprop_20261124_144415_13fea7bf",
+   "uncprop_ablation": "uncprop_20261124_150634_1ebdc2db",
+   "old_opt": "opt_20260930_092111_e3e0677d"
+  },
+  "unit": ""
+ },
+ "checks.birge_ratio": {
+  "label": "the Stage-5 run's Birge ratio R",
+  "value": 4.864837823526961,
+  "unit": ""
+ },
+ "discussion:L81.objective_regions": {
+  "label": "regions with the largest shares of the scale-total Σz² and their shares",
+  "value": {
+   "Italy": 0.16156264090740258,
+   "South Africa": 0.07459721284172988,
+   "Congo, D.R.": 0.06841084672544712,
+   "Uzbekistan": 0.05721105515169929,
+   "Zambia": 0.051685423599377764
+  },
+  "unit": ""
+ },
+ "discussion:L81.objective_regions_share": {
+  "label": "their summed share",
+  "value": 0.4134671792256566,
+  "unit": ""
+ },
+ "discussion:L81.tail_edge_years": {
+  "label": "feed-observed CC edge-years in the QQ sample, and those beyond 3 Birge-scaled units",
+  "value": [
+   19371,
+   997
+  ],
+  "unit": ""
+ },
+ "discussion:L81.tail_share": {
+  "label": "their share (§4.2)",
+  "value": 0.0514686903102576,
+  "unit": ""
+ },
+ "discussion:L81.tail_in_five_either": {
+  "label": "tail edge-years with the either in the five regions ['Italy', 'South Africa', 'Congo, D.R.', 'Uzbekistan', 'Zambia']: count, share of the tail, share of all sample edge-years, ratio of the two",
+  "value": [
+   195,
+   0.19558676028084251,
+   0.15982654483506273,
+   1.2237439061370157
+  ],
+  "unit": ""
+ },
+ "discussion:L81.tail_in_five_origin": {
+  "label": "tail edge-years with the origin in the five regions ['Italy', 'South Africa', 'Congo, D.R.', 'Uzbekistan', 'Zambia']: count, share of the tail, share of all sample edge-years, ratio of the two",
+  "value": [
+   185,
+   0.1855566700100301,
+   0.12776831345826234,
+   1.452290203945169
+  ],
+  "unit": ""
+ },
+ "discussion:L81.tail_in_five_destination": {
+  "label": "tail edge-years with the destination in the five regions ['Italy', 'South Africa', 'Congo, D.R.', 'Uzbekistan', 'Zambia']: count, share of the tail, share of all sample edge-years, ratio of the two",
+  "value": [
+   63,
+   0.06318956870611836,
+   0.07449279851324145,
+   0.8482641271006366
+  ],
+  "unit": ""
+ },
+ "discussion:L81.tail_in_four_either": {
+  "label": "tail edge-years with the either in the four regions ['South Africa', 'Congo, D.R.', 'Uzbekistan', 'Zambia']: count, share of the tail, share of all sample edge-years, ratio of the two",
+  "value": [
+   173,
+   0.17352056168505517,
+   0.11434618760002065,
+   1.5175019414903854
+  ],
+  "unit": ""
+ },
+ "discussion:L81.tail_in_four_origin": {
+  "label": "tail edge-years with the origin in the four regions ['South Africa', 'Congo, D.R.', 'Uzbekistan', 'Zambia']: count, share of the tail, share of all sample edge-years, ratio of the two",
+  "value": [
+   165,
+   0.16549648946840523,
+   0.10980331423261576,
+   1.507208508459087
+  ],
+  "unit": ""
+ },
+ "discussion:L81.tail_in_four_destination": {
+  "label": "tail edge-years with the destination in the four regions ['South Africa', 'Congo, D.R.', 'Uzbekistan', 'Zambia']: count, share of the tail, share of all sample edge-years, ratio of the two",
+  "value": [
+   48,
+   0.048144433299899696,
+   0.035413762841360795,
+   1.3594836989101415
+  ],
+  "unit": ""
+ },
+ "discussion:L81.tail_in_italy_either": {
+  "label": "tail edge-years with the either in the italy regions ['Italy']: count, share of the tail, share of all sample edge-years, ratio of the two",
+  "value": [
+   22,
+   0.022066198595787363,
+   0.05053946621237933,
+   0.4366132104177702
+  ],
+  "unit": ""
+ },
+ "discussion:L81.tail_in_italy_origin": {
+  "label": "tail edge-years with the origin in the italy regions ['Italy']: count, share of the tail, share of all sample edge-years, ratio of the two",
+  "value": [
+   20,
+   0.020060180541624874,
+   0.017964999225646584,
+   1.116625739286826
+  ],
+  "unit": ""
+ },
+ "discussion:L81.tail_in_italy_destination": {
+  "label": "tail edge-years with the destination in the italy regions ['Italy']: count, share of the tail, share of all sample edge-years, ratio of the two",
+  "value": [
+   15,
+   0.015045135406218655,
+   0.039079035671880646,
+   0.3849924939945331
+  ],
+  "unit": ""
+ },
+ "discussion:L81.tail_by_origin_top": {
+  "label": "tail edge-years by origin region, top 8",
+  "value": {
+   "Philippines": 85,
+   "South Africa": 62,
+   "United Kingdom": 58,
+   "Spain": 55,
+   "Chile": 53,
+   "Zambia": 52,
+   "Kazakhstan": 47,
+   "Russia": 43
+  },
+  "unit": ""
+ },
+ "discussion:L83.a2_share_by_year_old": {
+  "label": "share of scale totals with |z| > 3 by year, opt_20260930_092111_e3e0677d",
+  "value": {
+   "1995": 0.2813,
+   "1996": 0.3001,
+   "1997": 0.2581,
+   "1998": 0.236,
+   "1999": 0.2297,
+   "2000": 0.1911,
+   "2001": 0.2418,
+   "2002": 0.2315,
+   "2003": 0.2226,
+   "2004": 0.2236,
+   "2005": 0.1971,
+   "2006": 0.2366,
+   "2007": 0.1941,
+   "2008": 0.2379,
+   "2009": 0.2071,
+   "2010": 0.2217,
+   "2011": 0.2519,
+   "2012": 0.2494,
+   "2013": 0.2118,
+   "2014": 0.2461,
+   "2015": 0.22,
+   "2016": 0.262,
+   "2017": 0.2419,
+   "2018": 0.247,
+   "2019": 0.295,
+   "2020": 0.2893,
+   "2021": 0.3026,
+   "2022": 0.3128,
+   "2023": 0.2722,
+   "2024": 0.3176
+  },
+  "unit": ""
+ },
+ "discussion:L83.a2_mean_to_2018_old": {
+  "label": "mean 1995–2018, opt_20260930_092111_e3e0677d",
+  "value": 0.23502113284559437,
+  "unit": ""
+ },
+ "discussion:L83.a2_mean_from_2019_old": {
+  "label": "mean 2019–2024, opt_20260930_092111_e3e0677d",
+  "value": 0.29827641680613787,
+  "unit": ""
+ },
+ "discussion:L83.a2_range_old": {
+  "label": "smallest and largest yearly share, opt_20260930_092111_e3e0677d",
+  "value": [
+   0.19112627986348124,
+   0.31756756756756754
+  ],
+  "unit": ""
+ },
+ "discussion:L83.a2_years_above_old": {
+  "label": "years with a share above 0.2 (A2 needs the share above it), opt_20260930_092111_e3e0677d",
+  "value": 27,
+  "unit": ""
+ },
+ "discussion:L83.a2_share_by_year_new": {
+  "label": "share of scale totals with |z| > 3 by year, opt_20261124_141714_e2892160",
+  "value": {
+   "1995": 0.175,
+   "1996": 0.2052,
+   "1997": 0.2002,
+   "1998": 0.162,
+   "1999": 0.1841,
+   "2000": 0.1444,
+   "2001": 0.1573,
+   "2002": 0.1287,
+   "2003": 0.1385,
+   "2004": 0.1793,
+   "2005": 0.1874,
+   "2006": 0.1869,
+   "2007": 0.1623,
+   "2008": 0.2285,
+   "2009": 0.1975,
+   "2010": 0.1694,
+   "2011": 0.2101,
+   "2012": 0.1832,
+   "2013": 0.168,
+   "2014": 0.2227,
+   "2015": 0.2022,
+   "2016": 0.1746,
+   "2017": 0.2039,
+   "2018": 0.2053,
+   "2019": 0.2397,
+   "2020": 0.2105,
+   "2021": 0.2126,
+   "2022": 0.2404,
+   "2023": 0.2297,
+   "2024": 0.2437
+  },
+  "unit": ""
+ },
+ "discussion:L83.a2_mean_to_2018_new": {
+  "label": "mean 1995–2018, opt_20261124_141714_e2892160",
+  "value": 0.18236088612709966,
+  "unit": ""
+ },
+ "discussion:L83.a2_mean_from_2019_new": {
+  "label": "mean 2019–2024, opt_20261124_141714_e2892160",
+  "value": 0.2294394356957308,
+  "unit": ""
+ },
+ "discussion:L83.a2_range_new": {
+  "label": "smallest and largest yearly share, opt_20261124_141714_e2892160",
+  "value": [
+   0.12874251497005987,
+   0.24372384937238495
+  ],
+  "unit": ""
+ },
+ "discussion:L83.a2_years_above_new": {
+  "label": "years with a share above 0.2 (A2 needs the share above it), opt_20261124_141714_e2892160",
+  "value": 14,
+  "unit": ""
+ },
+ "discussion:L83.a2_years_to_2018_old_above": {
+  "label": "years 1995–2018 above the threshold, old chain",
+  "value": [
+   1995,
+   1996,
+   1997,
+   1998,
+   1999,
+   2001,
+   2002,
+   2003,
+   2004,
+   2006,
+   2008,
+   2009,
+   2010,
+   2011,
+   2012,
+   2013,
+   2014,
+   2015,
+   2016,
+   2017,
+   2018
+  ],
+  "unit": ""
+ },
+ "discussion:L88.hub_regions": {
+  "label": "the non-processing regions (no ICSG smelter, refinery or SX-EW row in any year)",
+  "value": [
+   "France",
+   "Greece",
+   "Luxembourg",
+   "Malaysia",
+   "Mauritania",
+   "Netherlands",
+   "Panama",
+   "Papua New Guinea",
+   "Portugal",
+   "Singapore",
+   "Switzerland",
+   "Taiwan",
+   "United Arab Emirates"
+  ],
+  "unit": ""
+ },
+ "discussion:L88.hub_share": {
+  "label": "share of the edge Σz² on cross-region legs into them (A3's 70%)",
+  "value": 0.6955048104949322,
+  "unit": ""
+ },
+ "discussion:L88.hub_share_by_good": {
+  "label": "the same, by the leg's origin sector (the traded good) and valuation, as a share of the whole edge Σz²",
+  "value": {
+   "anode": {
+    "CC": 0.004789037217749858,
+    "Mass": 0.015296929645819381
+   },
+   "cathode": {
+    "CC": 0.03426512303700212,
+    "Mass": 0.635744832413822
+   },
+   "concentrate": {
+    "CC": 0.0005398716642707375,
+    "Mass": 0.00047569842243667357
+   },
+   "matte": {
+    "CC": 0.0028135232399482293,
+    "Mass": 0.001579794853883393
+   }
+  },
+  "unit": ""
+ },
+ "discussion:L88.hub_share_by_good_total": {
+  "label": "by good, both valuations",
+  "value": {
+   "anode": 0.02008596686356924,
+   "cathode": 0.6700099554508241,
+   "concentrate": 0.0010155700867074111,
+   "matte": 0.004393318093831622
+  },
+  "unit": ""
+ },
+ "discussion:L88.hub_share_conc_matte_anode_of_hub": {
+  "label": "concentrate, matte and anode together, as a share of the hub legs' Σz²",
+  "value": 0.036656619277680824,
+  "unit": ""
+ },
+ "discussion:L88.hub_share_cathode_of_hub": {
+  "label": "cathode, as a share of the hub legs' Σz²",
+  "value": 0.9633433807223195,
+  "unit": ""
+ },
+ "discussion:L88.hub_top_pairs": {
+  "label": "the six largest sector pairs into the hubs, share of the whole edge Σz²",
+  "value": {
+   "Cathode FU Mass": 0.6345562160383498,
+   "Cathode FU CC": 0.03299454251889779,
+   "Anode ER Mass": 0.015296929645819381,
+   "Anode ER CC": 0.004789037217749858,
+   "Matte CFR CC": 0.002813523239948229,
+   "Matte CFR Mass": 0.0015797948538833926
+  },
+  "unit": ""
+ },
+ "discussion:L88.hub_cc_prior_post_kt": {
+  "label": "CC on the hub legs by good, 30 years: prior, posterior, retention",
+  "value": {
+   "anode": [
+    5123.88451718982,
+    4683.119522790693,
+    0.9139783512059199
+   ],
+   "cathode": [
+    41299.954763731155,
+    40325.522796697944,
+    0.9764059797980956
+   ],
+   "concentrate": [
+    2074.114652464042,
+    2129.870374987252,
+    1.0268816974302613
+   ],
+   "matte": [
+    89.42176478716118,
+    122.05047093941116,
+    1.3648855089128669
+   ]
+  },
+  "unit": "kt CC"
+ },
+ "discussion:L104.scrap_cfr_kappa_default": {
+  "label": "Scrap→CFR CC contraction by prior class, Stage-5 run with the scale totals and the ICSG scrap level anchors",
+  "value": {
+   "from a feed": {
+    "edge_years": 488,
+    "weight_kt": 21920.15436501545,
+    "weight_share": 0.9625782430907914,
+    "kappa_weighted": 0.9387248532835564,
+    "kappa_median": 0.9056458419046542
+   },
+   "imputed": {
+    "edge_years": 39,
+    "weight_kt": 108.76885085439258,
+    "weight_share": 0.0047763591266275175,
+    "kappa_weighted": 0.031028682901427018,
+    "kappa_median": 0.0007719152131446805
+   },
+   "zero-pinned": {
+    "edge_years": 883,
+    "weight_kt": 743.4119395881803,
+    "weight_share": 0.032645397782580986,
+    "kappa_weighted": 0.6155293948277218,
+    "kappa_median": 0.9998683532546755
+   },
+   "all": {
+    "edge_years": 1410,
+    "weight_kt": 22772.335155458022,
+    "weight_share": 1.0,
+    "kappa_weighted": 0.9238385260931324,
+    "kappa_median": 0.9611854016143326
+   }
+  },
+  "unit": ""
+ },
+ "discussion:L104.scrap_cfr_kappa_ablation": {
+  "label": "Scrap→CFR CC contraction by prior class, Stage-5 run without the scale totals and the ICSG scrap level anchors",
+  "value": {
+   "from a feed": {
+    "edge_years": 488,
+    "weight_kt": 21920.15436501545,
+    "weight_share": 0.9625782430907914,
+    "kappa_weighted": 0.17177828843991863,
+    "kappa_median": 0.019437466923529045
+   },
+   "imputed": {
+    "edge_years": 39,
+    "weight_kt": 108.76885085439258,
+    "weight_share": 0.0047763591266275175,
+    "kappa_weighted": 0.01430417814247446,
+    "kappa_median": 0.00019050405809073467
+   },
+   "zero-pinned": {
+    "edge_years": 883,
+    "weight_kt": 743.4119395881803,
+    "weight_share": 0.032645397782580986,
+    "kappa_weighted": 0.46236677043176594,
+    "kappa_median": 0.999836116092921
+   },
+   "all": {
+    "edge_years": 1410,
+    "weight_kt": 22772.335155458022,
+    "weight_share": 1.0,
+    "kappa_weighted": 0.18051251212165212,
+    "kappa_median": 0.5434939077747779
+   }
+  },
+  "unit": ""
+ },
+ "discussion:L104.scrap_cfr_rows_touching": {
+  "label": "constraint rows (30 years) with a nonzero entry on a Scrap→CFR CC edge, by type, variant and hardness",
+  "value": {
+   "ratio concscrapsupply True": 2820,
+   "ratio effcfr True": 2820,
+   "ratio scrapshare* True": 2820,
+   "bound lower True": 1410,
+   "ratio concscrapsupply False": 1410,
+   "massbal massbal True": 1410,
+   "ratio effcfr False": 1410,
+   "sum directrefscrap False": 488
+  },
+  "unit": ""
+ },
+ "discussion:L110.qq_pinned_flat": {
+  "label": "Figure 5b's sample (CC, calibrated: not bound-active, κ ≥ 0.01, classes from a feed / imputed), per prior class: size, median |z/√κ|, and for each kind of edge (a* equals the prior, a* within 1e-4 kt of 0, prior 0) its share of the sample, its share of the core (|z/√κ| below the N(0, 1) median 0.674) and the class median without those edges",
+  "value": {
+   "from a feed": {
+    "n": 19371,
+    "median_abs": 0.4870994625564688,
+    "share_in_core": 0.5602705074596046,
+    "a_star_equals_prior": {
+     "share_of_sample": 0.0,
+     "share_of_core": 0.0,
+     "median_abs_without": 0.4870994625564688
+    },
+    "a_star_near_zero": {
+     "share_of_sample": 0.0014970832688038821,
+     "share_of_core": 0.0025799318160877175,
+     "median_abs_without": 0.48915030359885225
+    },
+    "zero_prior": {
+     "share_of_sample": 0.04475762738113675,
+     "share_of_core": 0.0646825762461992,
+     "median_abs_without": 0.5202200874473322
+    },
+    "pinned_or_flat": {
+     "share_of_sample": 0.0014970832688038821,
+     "share_of_core": 0.0025799318160877175,
+     "median_abs_without": 0.48915030359885225
+    }
+   },
+   "imputed": {
+    "n": 46435,
+    "median_abs": 0.16790802331654736,
+    "share_in_core": 0.7350705286960267,
+    "a_star_equals_prior": {
+     "share_of_sample": 0.00019381931732529342,
+     "share_of_core": 0.0002636744499458003,
+     "median_abs_without": 0.16806957640372197
+    },
+    "a_star_near_zero": {
+     "share_of_sample": 0.04255410789275331,
+     "share_of_core": 0.0578911903436557,
+     "median_abs_without": 0.1833412180963927
+    },
+    "zero_prior": {
+     "share_of_sample": 0.6221169376547863,
+     "share_of_core": 0.6519790232326488,
+     "median_abs_without": 0.2748144338560204
+    },
+    "pinned_or_flat": {
+     "share_of_sample": 0.04255410789275331,
+     "share_of_core": 0.0578911903436557,
+     "median_abs_without": 0.1833412180963927
+    }
+   }
+  },
+  "unit": ""
+ }
+}
