@@ -71,6 +71,19 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
 Branch `diag/qp-backend-measure`, REP `docs/rep/analysis_opt_20261112_144603_1256b16b_20261112_issue56-qp-backend-measure.md`.
 - **Run:** `opt_20261112_144603_1256b16b` on `const_20261022_111531_df61bf5c`: 240/240 arrays bit-identical to
   `opt_20261022_112855_928da10c`, 30/30 solved; per-period probe of all 30 years 14.8 s; Stage 4 3 min 9 s (was ≈ 12 min).
+## #313 MEASURED 2026-11-24 — the Stage 1 bundle (#233, #240, ore_grade rebuild) moves 842 BACI σ entries and Σz² by +0.047 %; chain opt_20261124_134920_b45bf2d4
+
+Branch `diag/stage1-bundle-measure`, REP
+`docs/rep/analysis_opt_20261124_134920_b45bf2d4_20261124_issue313-stage1-bundle.md`.
+- **Runs:** baci v34 (gross) → v35 (netted), icsg v19, trade_shares v45, ore_grade v9; `feed_baci_20261124_133656_107b0feb`,
+  `feed_icsg_20261124_133729_9d114cf6`, `feed_crude_ore_20261124_133710_d59a325d` → `imp_20261124_133941_619d23b2` →
+  `const_20261124_134305_8726d7f3` → `opt_20261124_134920_b45bf2d4` (30/30 solved, cold).
+- **Result:** BACI `F_root` identical; `sigma_root` differs on 842 edges (116 on #240's legs, new/old ≤ 1, median 0.904). The ore
+  grade v9 has the same `params.csv` as v8, and the ICSG feed is identical to the base's. Common-set Σz² +0.047 % vs
+  `opt_20261119_130302_b20f0dba`; Round-E unchanged to three decimals.
+- **Open:** Stage 5/6 not rerun, so Table 3 is unmeasured; the maintainer decides. The reference chain stays
+  `opt_20261119_130302_b20f0dba` until then. #314 measures on top of this chain.
+
 ## #201 MEASURED 2026-11-19 — a covered region-year with no ICSG mine says zero on its mine output (#200) and ships; reference chain opt_20261119_130302_b20f0dba
 
 Branch `diag/mine-zeros-measure`, REP
