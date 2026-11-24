@@ -160,7 +160,7 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 
 ## Data, registries & artefacts
 
-- `data/` is gitignored. Hand-authored inputs under `data/input/**/current/` are tracked via `git add -f`; registries, `vN/` snapshots and script-written `current/` files are untracked but load-bearing — never delete them as clean-up. `data/input/raw` (17 GB) is not reproducible: read-only.
+- `data/` is gitignored. Only LICENSE-DATA's CC BY 4.0 tables (`acc/copper`, `params/{conc,eff}`, `mask/row` under `data/input/**/current/`) are tracked, via `git add -f`; the feed concordances and the other params tables have no licence and live only on disk (untracked 2026-11-24, #297); registries, `vN/` snapshots and script-written `current/` files are untracked but load-bearing — never delete them as clean-up. `data/input/raw` (17 GB) is not reproducible: read-only.
 - Input registries (`feed|acc|params|mask`) are sha256-bumped and hardlinked: edit only `current/`, never a `vN/` directory (ADR 0023).
 - A parameter's value and its provenance live in its row of `data/input/params/<id>/current/params.csv` (`value_*`, `source`, `comment`), and the user edits it between turns. Read the row before quoting it, cite it as `<id> vN`, and keep values out of GLOSSARY.md and code comments; `python scripts/input_status.py` lists `current/` edits not yet registered.
 - Registries have no locking of their own: never run two stage drivers concurrently in one checkout — index entries get lost. Every stage driver, and every step of `python -m pysuto run`, takes `data/proc/.stage.lock` and refuses to start while a live driver holds it (#101); a lock of a dead process is taken over with a warning. `scripts/sweep.py` does not take it: its steps do, one after another.
@@ -192,7 +192,7 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 
 - Branches `feat/…`, `fix/…`, `diag/…`; merge with `--no-ff`, titled `Merge branch '<b>': <result> (ADR N, Round X)`.
 - Commits: `type(scope): finding as a sentence`; types feat/fix/docs/measure/chore/test/refactor; scope is a module or artefact (`feed`, `impute`, `constraints`, `diag`, `psut`, `piot`, `rep`, `adr`, `glossary`, `params`); issues bare as `(#NN)`. Pass long messages with `-F <file>` written to the scratchpad; `git merge -F -` reads no stdin.
-- Commit only when asked. Never stage `data/` (except `current/` inputs via `git add -f`), `logs/` or `leg/`.
+- Commit only when asked. Never stage `data/` (except the CC BY tables' `current/` files via `git add -f`), `logs/` or `leg/`.
 
 ## Agent skills
 

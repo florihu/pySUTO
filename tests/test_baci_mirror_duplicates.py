@@ -169,6 +169,8 @@ def test_a_transit_pair_matching_no_rows_raises(transit, match):
 
 def test_the_parse_reads_every_code_the_tracked_sector_map_maps():
     """The parse's code list and the concordance's sector map are one scope (#91)."""
+    if not os.path.exists(CURRENT_CONC):  # git does not hold it (no licence, #297)
+        pytest.skip("data/input/feed/baci/current/conc.xlsx absent (untracked, #297)")
     smap = pd.read_excel(CURRENT_CONC, sheet_name="sector_map")
     assert HS_CODES == set(smap["src_sector"].astype(int))
     assert REFINED_HS <= HS_CODES

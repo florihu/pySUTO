@@ -592,10 +592,17 @@ CURRENT_CONC = os.path.join(os.path.dirname(__file__), "..", "data", "input", "f
                             "current", "conc.xlsx")
 
 
+def _current_conc():
+    """The BACI concordance on disk; git does not hold it (no licence, #297)."""
+    if not os.path.exists(CURRENT_CONC):
+        pytest.skip("data/input/feed/baci/current/conc.xlsx absent (untracked, #297)")
+    return CURRENT_CONC
+
+
 def test_a_490_row_lands_on_taiwan_under_the_registered_region_map(tmp_path):
     """The tracked BACI region map, not a toy one: BACI 490 "Other Asia, nes" is
     Taiwan's trade (#77), so a Chile → 490 cathode row is a Chile → Taiwan leg."""
-    shutil.copyfile(CURRENT_CONC, tmp_path / "conc.xlsx")
+    shutil.copyfile(_current_conc(), tmp_path / "conc.xlsx")
     pd.DataFrame({"Year": [2004], "Sector": [740311], "Region_from": [152],
                   "Region_to": [490], "Value": [10.0], "Unit": ["kt"]}) \
       .to_csv(tmp_path / "values.csv", index=False)
@@ -608,7 +615,7 @@ def test_178_and_711_rows_land_on_dr_congo_and_south_africa_under_the_tracked_ma
         tmp_path):
     """BACI 178 "Congo" carries DR Congo's cathode and 711 "Southern African
     Customs Union" is South Africa's trade until BACI splits it in 2000 (#84)."""
-    shutil.copyfile(CURRENT_CONC, tmp_path / "conc.xlsx")
+    shutil.copyfile(_current_conc(), tmp_path / "conc.xlsx")
     pd.DataFrame({"Year": [2020, 1997], "Sector": [740311, 740311],
                   "Region_from": [178, 711], "Region_to": [784, 380],
                   "Value": [10.0, 5.0], "Unit": ["kt", "kt"]}) \
@@ -623,7 +630,7 @@ def test_every_refined_copper_code_lands_on_cathode_under_the_tracked_map(tmp_pa
     """HS 740312 wire bars, 740313 billets and 740319 other refined copper are refined
     copper like 740311; reading 740311 alone left Austria's cathode node without 77.7 %
     of its refined exports in 2003, the values below (#91)."""
-    shutil.copyfile(CURRENT_CONC, tmp_path / "conc.xlsx")
+    shutil.copyfile(_current_conc(), tmp_path / "conc.xlsx")
     codes = [740311, 740312, 740313, 740319]
     pd.DataFrame({"Year": [2003] * 4, "Sector": codes, "Region_from": [40] * 4,
                   "Region_to": [380] * 4, "Value": [17.7, 0.1, 43.6, 18.1],

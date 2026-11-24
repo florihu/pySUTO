@@ -13,9 +13,10 @@ These tables of this repository are licensed under CC BY 4.0
 You may share and adapt them for any purpose, provided you give appropriate credit, link
 to the licence and indicate whether changes were made.
 
-No licence is granted yet for the other tables under data/input/: the feed concordances,
-metadata and weights (data/input/feed/) and the parameter tables icsg_aggregates,
-ore_grade, scrap_share, stock_bounds and stripping_ratio (data/input/params/). Several are
-statistics derived from licensed sources (ICSG, S&P), and their release waits for a
-recorded licence check. The original source data are not part of this repository and
-remain under their owners' terms. The code is licensed under the MIT License (LICENSE).
+No licence is granted yet for the other tables under data/input/, and they are not part
+of this repository from 2026-11-24 on: the feed concordances, metadata and weights
+(data/input/feed/) and the parameter tables icsg_aggregates, ore_grade, scrap_share,
+stock_bounds and stripping_ratio (data/input/params/). Several are statistics derived from
+licensed sources (ICSG, S&P), and their release waits for a recorded licence check. The
+original source data are not part of this repository and remain under their owners'
+terms. The code is licensed under the MIT License (LICENSE).

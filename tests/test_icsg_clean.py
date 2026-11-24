@@ -385,6 +385,8 @@ def test_row_members_are_never_merged():
 
 
 def test_territory_aliases_reads_the_concordance_and_excludes_row():
+    if not os.path.exists("data/input/feed/icsg/current/conc.xlsx"):  # untracked, #297
+        pytest.skip("data/input/feed/icsg/current/conc.xlsx absent (untracked, #297)")
     a = territory_aliases()
     assert a == {"Belgium-Luxembourg": "Belgium", "Taiwan, China": "Taiwan"}
 

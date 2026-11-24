@@ -4,6 +4,15 @@ All notable changes to pySUTO are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Removed
+- The 14 input tables with no licence leave git: the feed concordances, metadata and
+  weights under `data/input/feed/`, and the `params` tables `icsg_aggregates`,
+  `ore_grade`, `scrap_share`, `stock_bounds` and `stripping_ratio`. Only the CC BY 4.0
+  tables of `LICENSE-DATA` stay tracked. Older commits, `v0.1.0` among them, still hold
+  the 14 tables (#297).
+
 ## [0.1.0] - 2026-11-24
 
 The reviewed release. The final review (#155) audited the code at `v0.1.0rc1` on 17 review
