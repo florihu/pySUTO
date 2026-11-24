@@ -1,6 +1,6 @@
 {
  "opt_run_id": "opt_20261119_130302_b20f0dba",
- "generated": "2026-11-23",
+ "generated": "2026-11-24",
  "chain": {
   "const": "const_20261119_125651_ff7bfc9c",
   "imp": "imp_20261119_125259_f2b11cd5",
@@ -3010,6 +3010,27 @@
      "Singapore": 13.025,
      "Portugal": 1.8,
      "Argentina": 0.0693924050632576
+    }
+   },
+   "unit": "kt CC"
+  },
+  "method:L352.reexport_anchors": {
+   "label": "the re-export anchors (Netherlands, Malaysia, Taiwan, United Arab Emirates): shares of the scale-total Σz², their sum, and BACI anode and concentrate exports X against ICSG production P over 30 years (#183 §3)",
+   "value": {
+    "share_by_region": {
+     "Netherlands": 0.026150026122824164,
+     "Malaysia": 0.019200402762355875,
+     "Taiwan": 0.019171659392867777,
+     "United Arab Emirates": 0.04343569711444591
+    },
+    "share_total": 0.10795778539249373,
+    "exports_kt": {
+     "Anode": 829.18894882,
+     "Concentrate": 1425.834775424093
+    },
+    "production_kt": {
+     "Anode": 0.0,
+     "Concentrate": 0.0
     }
    },
    "unit": "kt CC"
