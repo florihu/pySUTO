@@ -71,6 +71,18 @@ Results still read the W.1 chain, as they have since Round X.t:** pending.
 Branch `diag/qp-backend-measure`, REP `docs/rep/analysis_opt_20261112_144603_1256b16b_20261112_issue56-qp-backend-measure.md`.
 - **Run:** `opt_20261112_144603_1256b16b` on `const_20261022_111531_df61bf5c`: 240/240 arrays bit-identical to
   `opt_20261022_112855_928da10c`, 30/30 solved; per-period probe of all 30 years 14.8 s; Stage 4 3 min 9 s (was ≈ 12 min).
+## #315 MEASURED 2026-11-24 — A5 on the reference const run: 0/9 stages within 0.02 (max 0.184, CO→Mining Mass), FAIL as before
+
+Branch `diag/a5-tolerance-315`, REP
+`docs/rep/analysis_opt_20261124_152923_0bbd377c_20261124_issue315-a5-tolerance.md`.
+- **Runs:** `const_20261124_141044_e73c5952` solved for the flows at gap 1e-3 → `opt_20261124_152425_856f440b` and at 1e-6 →
+  `opt_20261124_152923_0bbd377c`, with the former pair's settings; the reference `opt_20261124_141714_e2892160` is the third.
+- **Result:** A5 FAIL (was 4/9 within, max 0.223 on the 2026-09-16 base). Committee Q1: the 1e-6 flows solve is within 0.008 of the
+  reference on eight stages and 0.135 below it on CO→Mining Mass; Σ_t J +2.91 %, common-set Σz² +6.59 % vs the reference.
+- **Code:** `manuscript_numbers.py` names the measurement series' base (`BASE_RUN`, `BASE_RETOL_RUN`) instead of reading numbers.json's
+  tolerance pair, which no longer is that base.
+- **Next:** #320 re-renders Table 3, Table S19 and Figure 5d with the new `--tol-pair`.
+
 ## #314 MEASURED 2026-11-24 — a later imputer writes no assumed-absent primary (#312) and ships; candidate reference chain opt_20261124_141714_e2892160
 
 Branch `diag/stage2-bundle-measure`, REP

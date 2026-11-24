@@ -1,8 +1,9 @@
 """The report scripts read their runs from sidecars, not from typed constants (#221).
 
 ``table3_intervals.csv`` names its opt and uncprop runs beside it and ``manuscript_numbers.py``
-refuses a stale one; its base runs default to ``numbers.json``'s ``tolerance_pair``; the
-Fig. 5d legend takes its tolerances from the pair's sidecars. Toy inputs in ``tmp_path``.
+refuses a stale one; its base runs default to the measurement series' fixed base, not to
+``numbers.json``'s ``tolerance_pair`` (#315); the Fig. 5d legend takes its tolerances from
+the pair's sidecars. Toy inputs in ``tmp_path``.
 """
 from __future__ import annotations
 
@@ -59,17 +60,10 @@ def test_the_intervals_csv_resolves_from_the_repository_not_the_working_director
     assert (M.REPO / M.INTERVALS_CSV).parent.is_dir()
 
 
-def test_the_base_runs_default_to_the_tolerance_pair_of_numbers_json(tmp_path):
-    nj = tmp_path / "numbers.json"
-    nj.write_text(json.dumps({"tolerance_pair": ["opt_old", "opt_new"]}))
-    assert M.resolve_base_runs(None, None, nj) == ("opt_old", "opt_new")
-    assert M.resolve_base_runs("opt_x", None, nj) == ("opt_x", "opt_new")
-    assert M.resolve_base_runs("opt_x", "opt_y", tmp_path / "absent.json") == ("opt_x", "opt_y")
-
-
-def test_no_base_runs_without_a_tolerance_pair_is_refused(tmp_path):
-    with pytest.raises(ValueError, match="tolerance_pair"):
-        M.resolve_base_runs(None, None, tmp_path / "absent.json")
+def test_the_base_runs_default_to_the_measurement_series_base_not_the_tolerance_pair():
+    assert M.resolve_base_runs(None, None) == (M.BASE_RUN, M.BASE_RETOL_RUN)
+    assert M.resolve_base_runs("opt_x", None) == ("opt_x", M.BASE_RETOL_RUN)
+    assert M.resolve_base_runs("opt_x", "opt_y") == ("opt_x", "opt_y")
 
 
 def _opt_sidecar(proc, run, cfg):

@@ -84,8 +84,11 @@ from pysuto.relation.param_relation import expand_edge_index     # noqa: E402
 # USER CONFIGURATION
 # =============================================================================
 # The base run of the measurement series and its re-solve at the ADR 0039 tolerance
-# (SI S13.1) are the two runs of ``numbers.json["tolerance_pair"]`` (results_figs.py
-# --tol-pair): ``--base`` / ``--base-retol`` override them.
+# (SI S13.1, Table S17), the base of group 7's common set. They are not the A5 tolerance
+# pair (results_figs.py --tol-pair), which solves the reference const run since #315:
+# ``--base`` / ``--base-retol`` override them.
+BASE_RUN       = "opt_20260916_124721_c4d1d944"
+BASE_RETOL_RUN = "opt_20260930_093914_523d57d7"
 NUMBERS_JSON   = "docs/manuscript/figs/numbers.json"
 NUMBERS_OUT    = "docs/manuscript/figs/manuscript_numbers.json"   # committed: the refresh's diff base
 Z_BIG          = 5.0                         # a stock leg beyond |z| 5 is a limitation (Discussion §5.5.2)
@@ -1298,18 +1301,11 @@ def check_intervals_run(csv: Path, opt: str, uncprop_runs: list) -> None:
                          f"re-run table3_intervals.py")
 
 
-def resolve_base_runs(base, retol, numbers_path: Path) -> tuple:
-    """``(base, retol)``: the runs given, else numbers.json's ``tolerance_pair`` (#221)."""
-    if base and retol:
-        return base, retol
-    pair = None
-    if numbers_path.is_file():
-        with open(numbers_path, encoding="utf-8") as f:
-            pair = json.load(f).get("tolerance_pair")
-    if not pair or len(pair) != 2:
-        raise ValueError(f"no base runs: pass --base and --base-retol, or give a --numbers "
-                         f"file with a two-run tolerance_pair ({numbers_path})")
-    return base or pair[0], retol or pair[1]
+def resolve_base_runs(base, retol) -> tuple:
+    """``(base, retol)``: the runs given, else the measurement series' base (SI S13.1).
+    Not numbers.json's ``tolerance_pair`` (#221): since #315 the A5 pair solves the
+    reference const run, so it is no longer the measurement series' base."""
+    return base or BASE_RUN, retol or BASE_RETOL_RUN
 
 
 def limitation_numbers(N: Numbers, inp: Path, ch: Chain, e: pd.DataFrame, s: pd.DataFrame,
@@ -1549,7 +1545,7 @@ def render(N: Numbers, ch: Chain) -> str:
 
 def main(opt: str, out_json, data_dir: str, base: str, retol: str, numbers: str,
          sweep_base: str = None, intervals: str = None) -> None:
-    base, retol = resolve_base_runs(base, retol, Path(numbers))
+    base, retol = resolve_base_runs(base, retol)
     proc, inp = Path(data_dir) / "proc", Path(data_dir) / "input"
     ch = walk_chain(proc, opt, sweep_base)
     acc_id = ch.meta["const"]["parents"]["inputs"]["acc"]["id"]
@@ -1614,10 +1610,10 @@ if __name__ == "__main__":
                     help="write the numbers to this JSON file (default: the committed diff base)")
     ap.add_argument("--data-dir", default="data", help="the checkout's data/ directory")
     ap.add_argument("--base", default=None,
-                    help="base run of the common set (default: numbers.json tolerance_pair[0])")
+                    help=f"base run of the common set (default: {BASE_RUN})")
     ap.add_argument("--base-retol", default=None,
                     help="the base re-solved at the reference tolerance "
-                         "(default: numbers.json tolerance_pair[1])")
+                         f"(default: {BASE_RETOL_RUN})")
     ap.add_argument("--intervals", default=None, metavar="CSV",
                     help=f"table3_intervals.py's CSV (default: {INTERVALS_CSV} in the repository)")
     ap.add_argument("--numbers", default=NUMBERS_JSON,
