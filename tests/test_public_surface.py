@@ -22,10 +22,8 @@ import json
 import re
 from pathlib import Path
 
-import pysuto
-
-SRC = Path(pysuto.__file__).resolve().parent
-ROOT = SRC.parents[1]
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src" / "pysuto"
 README = ROOT / "README.md"
 
 CASE_FILES = [ROOT / "scripts" / "copper.py", ROOT / "scripts" / "copper_feed.py"]

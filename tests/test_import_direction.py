@@ -21,10 +21,9 @@ import ast
 import re
 from pathlib import Path
 
-import pysuto
-
-SRC = Path(pysuto.__file__).resolve().parent
-README = SRC.parents[1] / "README.md"
+ROOT = Path(__file__).resolve().parents[1]
+SRC = ROOT / "src" / "pysuto"
+README = ROOT / "README.md"
 REASONS = ("cycle", "lazy", "optional")
 
 
