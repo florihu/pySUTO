@@ -291,3 +291,23 @@ ore_grade v7, and the refresh alone moves z² −0.07 % against `opt_20261007_13
   This is the ambiguous leg (real ore lot or unit error), rebuilt by the rule like any other.
 - **ADR 0027's netting:** Concentrate T falls 5,590 → 5,149 kt CC, mostly at the Philippines hub
   (2019–2022: 285 → 94).
+
+## Amendment (2026-11-24, issues #233 and #240): the cv and the root-leg aggregation
+
+**The cv has one source (#233).** The `cv_scale` formula above divides by the BACI feed's total
+pedigree cv. The parse no longer holds that number as a literal. `pedigree_cv()` of
+`baci_parse_feed.py` reads `PedigreeScores.total_cv()` from the feed's own `meta.xlsx`, the same
+number Stage 1 prices the base σ with. `MAX_CV_SCALE` keeps its one definition in
+`pysuto.feedprep.reexport`; the parse and `copper_feed.py` import it.
+
+**The root leg averages all its codes (#240, maintainer decision (b), 2026-11-24).** Several BACI
+codes fold onto one root leg, most of them onto ROW. The leg's `cv_scale` is the mass-weighted
+mean, with the weight `q_new`, over **all** the BACI codes that fold onto it. An unflagged code
+enters at scale 1.0. The legs' σ then adds linearly, the same way the base σ adds their masses.
+Before, the mean ran over the flagged codes only and was applied to the whole root leg, so it
+widened the σ of measured, unflagged mass. A root leg with no flagged code stays at 1.0 and has no
+row. `quantity_cv_scale.csv` keeps its schema; its `q_obs` and `q_new` now sum over all folded
+codes. On the current parse 178 of 931 root legs mix flagged and unflagged codes. The cap and the
+compose-by-product rule are unchanged.
+
+**Status:** to be measured (#313).
