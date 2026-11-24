@@ -4,7 +4,7 @@ All notable changes to pySUTO are recorded here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project uses
 [semantic versioning](https://semver.org/).
 
-## [0.1.0] - 2026-11-26
+## [0.1.0] - 2026-11-24
 
 The reviewed release. The final review (#155) audited the code at `v0.1.0rc1` on 17 review
 dimensions in 9 review units, then fixed what it found under one rule: every fix leaves the

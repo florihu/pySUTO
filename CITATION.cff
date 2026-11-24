@@ -15,7 +15,7 @@ authors:
     orcid: "https://orcid.org/0009-0000-4927-3104"
 license: MIT
 version: "0.1.0"
-date-released: "2026-11-26"
+date-released: "2026-11-24"
 repository-code: "https://github.com/florihu/pySUTO"
 keywords:
   - material flow analysis
