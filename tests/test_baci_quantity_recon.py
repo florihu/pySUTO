@@ -22,10 +22,11 @@ import copper_case  # noqa: F401  (puts scripts/ on sys.path, #189)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..",
                                 "scripts", "parse", "baci_parse"))
 from baci_parse_feed import (  # noqa: E402
-    BAND_HI, CV_GRADE_DECL, CV_PED, MAX_CV_SCALE, MIN_LEG_T,
-    reconstruct_quantity, reference_fractions, value_implied_cu_fraction)
+    BAND_HI, CV_GRADE_DECL, MAX_CV_SCALE, MIN_LEG_T, _write_sidecars,
+    pedigree_cv, reconstruct_quantity, reference_fractions, value_implied_cu_fraction)
 
 CONC = 260300
+CV_PED = 0.209      # a test value; the parse reads the pedigree's cv (#233)
 
 
 def _legs(rows):
@@ -66,7 +67,7 @@ def test_g_ref_is_the_median_of_the_regions_own_in_band_YEARS():
                   (2019, 152, 156, 2400.0, 1000.0),        # 0.300 in band
                   (2020, 152, 156, 2200.0, 1000.0),        # 0.275 in band
                   (2021, 152, 156, 5200.0, 1000.0)])       # 0.650 EXCLUDED
-    r = reference_fractions(legs, _price([2018, 2019, 2020, 2021]))
+    r = reference_fractions(legs, _price([2018, 2019, 2020, 2021]), CV_PED)
     assert r.loc[152, "g_ref"] == pytest.approx(0.275)     # median of the three
     assert r.loc[152, "n_in_band"] == 3                    # years, not legs
 
@@ -75,7 +76,7 @@ def test_a_tight_in_band_history_earns_the_declared_grade_sigma():
     """Chile-shaped: the model must never claim to know a grade better than
     the conc row it already declares."""
     legs = _legs([(y, 152, 156, 2200.0, 1000.0) for y in range(2010, 2020)])
-    r = reference_fractions(legs, _price(range(2010, 2020)))
+    r = reference_fractions(legs, _price(range(2010, 2020)), CV_PED)
     assert r.loc[152, "cv_gref"] == pytest.approx(CV_GRADE_DECL)
     assert r.loc[152, "cv_scale"] == pytest.approx(
         np.sqrt(1.0 + (CV_GRADE_DECL / CV_PED) ** 2))
@@ -85,7 +86,7 @@ def test_a_scattered_history_earns_a_looser_sigma():
     """A re-exporter whose fraction wanders gets genuinely more doubt."""
     vals = [1600.0, 2400.0, 1700.0, 2700.0, 2000.0, 2800.0]     # 0.20-0.35
     legs = _legs([(2010 + n, 40, 156, v, 1000.0) for n, v in enumerate(vals)])
-    r = reference_fractions(legs, _price(range(2010, 2016)))
+    r = reference_fractions(legs, _price(range(2010, 2016)), CV_PED)
     assert r.loc[40, "cv_gref"] > CV_GRADE_DECL
     assert r.loc[40, "cv_scale"] > np.sqrt(1.0 + (CV_GRADE_DECL / CV_PED) ** 2)
 
@@ -95,14 +96,14 @@ def test_too_few_in_band_years_means_more_doubt_not_less():
     must widen σ rather than fall back to the tight declared floor."""
     legs = _legs([(2020, 76, 156, 2200.0, 1000.0),         # the only in-band one
                   (2021, 76, 156, 5200.0, 1000.0)])
-    r = reference_fractions(legs, _price([2020, 2021]))
+    r = reference_fractions(legs, _price([2020, 2021]), CV_PED)
     assert r.loc[76, "cv_scale"] == pytest.approx(MAX_CV_SCALE)
 
 
 def test_cv_scale_is_capped():
     vals = [1600.0, 2800.0] * 6                             # maximal spread
     legs = _legs([(2005 + n, 40, 156, v, 1000.0) for n, v in enumerate(vals)])
-    r = reference_fractions(legs, _price(range(2005, 2017)))
+    r = reference_fractions(legs, _price(range(2005, 2017)), CV_PED)
     assert r.loc[40, "cv_scale"] <= MAX_CV_SCALE
 
 
@@ -115,7 +116,7 @@ def test_reconstruction_restores_the_regions_own_fraction():
     legs = _legs([(2018, 152, 156, 2200.0, 1000.0),        # 0.275 in band
                   (2021, 152, 156, 5200.0, 1000.0)])       # 0.650 impossible
     px = _price([2018, 2021])
-    rec = reconstruct_quantity(legs, reference_fractions(legs, px), px)
+    rec = reconstruct_quantity(legs, reference_fractions(legs, px, CV_PED), px)
     bad = rec[rec.Year == 2021].iloc[0]
     assert bad.q_new == pytest.approx(5200.0 * 1000 / (8000.0 * 0.275))
     # and the reconstructed leg now sits exactly at g_ref
@@ -126,7 +127,7 @@ def test_in_band_legs_are_left_alone():
     legs = _legs([(2018, 152, 156, 2200.0, 1000.0),
                   (2021, 152, 156, 5200.0, 1000.0)])
     px = _price([2018, 2021])
-    rec = reconstruct_quantity(legs, reference_fractions(legs, px), px)
+    rec = reconstruct_quantity(legs, reference_fractions(legs, px, CV_PED), px)
     ok = rec[rec.Year == 2018].iloc[0]
     assert ok.q_new == pytest.approx(ok.q_obs)
     assert not ok.flagged
@@ -146,7 +147,7 @@ def test_reconstruction_moves_each_side_in_its_own_direction():
     below it too much; a leg in neither keeps exactly its recorded mass."""
     legs = _three_sides()
     px = _price(range(2015, 2022))
-    rec = reconstruct_quantity(legs, reference_fractions(legs, px), px)
+    rec = reconstruct_quantity(legs, reference_fractions(legs, px, CV_PED), px)
     up, down, none = (rec[rec.side == s] for s in ("above", "below", "none"))
     assert len(up) == 2 and len(down) == 2 and len(none) == 5
     assert (up.q_new >= up.q_obs).all()
@@ -157,7 +158,7 @@ def test_reconstruction_moves_each_side_in_its_own_direction():
 def test_side_takes_three_values_and_flagged_is_not_none():
     legs = _three_sides()
     px = _price(range(2015, 2022))
-    rec = reconstruct_quantity(legs, reference_fractions(legs, px), px)
+    rec = reconstruct_quantity(legs, reference_fractions(legs, px, CV_PED), px)
     assert set(rec.side) == {"above", "below", "none"}
     assert_array_equal(rec.flagged.to_numpy(), (rec.side != "none").to_numpy())
 
@@ -168,7 +169,7 @@ def test_tiny_legs_are_not_flagged():
     legs = _legs([(2018, 152, 156, 2200.0, 1000.0),
                   (2021, 152, 826, 80.0, MIN_LEG_T / 10.0)])
     px = _price([2018, 2021])
-    rec = reconstruct_quantity(legs, reference_fractions(legs, px), px)
+    rec = reconstruct_quantity(legs, reference_fractions(legs, px, CV_PED), px)
     dust = rec[rec.Region_to == 826].iloc[0]
     assert not dust.flagged and dust.q_new == pytest.approx(dust.q_obs)
 
@@ -177,7 +178,7 @@ def test_sidecar_carries_every_column_the_gate_needs():
     legs = _legs([(2018, 152, 156, 2200.0, 1000.0),
                   (2021, 152, 156, 5200.0, 1000.0)])
     px = _price([2018, 2021])
-    rec = reconstruct_quantity(legs, reference_fractions(legs, px), px)
+    rec = reconstruct_quantity(legs, reference_fractions(legs, px, CV_PED), px)
     for c in ("Year", "Sector", "Region_from", "Region_to",
               "q_obs", "q_new", "cu_frac", "g_ref", "cv_scale", "flagged"):
         assert c in rec.columns, c
@@ -270,7 +271,7 @@ def test_a_leg_in_a_clean_year_is_left_alone():
                   (2019, 152, 392, 500.0, 100.0)])         # 0.625 but tiny
     px = _price([2019])
     # aggregate: 2500 kUSD / 1100 t = 2273 USD/t -> 0.284, in band
-    rec = reconstruct_quantity(legs, reference_fractions(legs, px), px)
+    rec = reconstruct_quantity(legs, reference_fractions(legs, px, CV_PED), px)
     assert not rec.flagged.any()
     assert (rec.q_new == rec.q_obs).all()
 
@@ -280,7 +281,7 @@ def test_a_leg_in_a_flagged_year_is_reconstructed():
                   (2021, 152, 76, 2000.0, 1000.0),         # 0.250 in band
                   (2018, 152, 156, 2200.0, 1000.0)])       # clean year
     px = _price([2018, 2021])
-    rec = reconstruct_quantity(legs, reference_fractions(legs, px), px)
+    rec = reconstruct_quantity(legs, reference_fractions(legs, px, CV_PED), px)
     f = rec.set_index(["Year", "Region_to"]).flagged
     assert f[(2021, 156)] and not f[(2021, 76)] and not f[(2018, 156)]
 
@@ -305,7 +306,7 @@ def _png():
 def test_kg_as_t_legs_are_rebuilt_from_their_value():
     legs = _png()
     px = _price(range(2015, 2021))
-    rec = reconstruct_quantity(legs, reference_fractions(legs, px), px)
+    rec = reconstruct_quantity(legs, reference_fractions(legs, px, CV_PED), px)
     bad = rec[rec.Year == 2020].set_index("Region_to")
     assert bad.q_new[PHL] == pytest.approx(37_500.0)       # 96 MUSD / (8000 · 0.32)
     assert bad.q_new[PRK] == pytest.approx(28_125.0)
@@ -323,7 +324,7 @@ def test_a_payables_discounted_leg_is_not_flagged():
                   (2020, 180, 894, 80.0, 2_000.0)])        # 0.005 broken
     px = _price([2020])
     # aggregate: 12,080 kUSD / 12,000 t -> 0.126, below the floor
-    rec = reconstruct_quantity(legs, reference_fractions(legs, px), px)
+    rec = reconstruct_quantity(legs, reference_fractions(legs, px, CV_PED), px)
     f = rec.set_index("Region_to")
     assert not f.flagged[156] and f.q_new[156] == f.q_obs[156]
     assert f.side[894] == "below"
@@ -336,7 +337,7 @@ def test_a_low_leg_in_a_clean_year_is_left_alone():
                   (2020, 152, 894, 80.0, 2_000.0)])        # 0.005
     px = _price([2020])
     # aggregate: 216,080 kUSD / 102,000 t -> 0.265, in band
-    rec = reconstruct_quantity(legs, reference_fractions(legs, px), px)
+    rec = reconstruct_quantity(legs, reference_fractions(legs, px, CV_PED), px)
     assert not rec.flagged.any()
     assert_array_equal(rec.q_new.to_numpy(), rec.q_obs.to_numpy())
 
@@ -350,7 +351,7 @@ def test_one_leg_dragging_the_year_down_is_the_only_one_rebuilt():
                           (2020, 180, 710, 400_000.0, 200_000.0)])   # 0.250
     px = _price(range(2015, 2021))
     # aggregate: 880,000 kUSD / 2,400,000 t -> 0.046
-    rec = reconstruct_quantity(legs, reference_fractions(legs, px), px)
+    rec = reconstruct_quantity(legs, reference_fractions(legs, px, CV_PED), px)
     f = rec[rec.Year == 2020].set_index("Region_to")
     assert f.q_new[894] == pytest.approx(40_000.0)         # 80 MUSD / (8000 · 0.25)
     assert_array_equal(f.side.to_numpy(), ["below", "none", "none"])
@@ -360,7 +361,7 @@ def test_one_leg_dragging_the_year_down_is_the_only_one_rebuilt():
 def test_tiny_low_legs_are_not_flagged():
     legs = pd.concat([_png(), _legs([(2020, PNG, 702, 2.4, MIN_LEG_T / 2.0)])])
     px = _price(range(2015, 2021))
-    rec = reconstruct_quantity(legs, reference_fractions(legs, px), px)
+    rec = reconstruct_quantity(legs, reference_fractions(legs, px, CV_PED), px)
     dust = rec[rec.Region_to == 702].iloc[0]
     assert not dust.flagged and dust.q_new == dust.q_obs
     assert rec[rec.Region_to == PHL].iloc[0].flagged
@@ -373,10 +374,78 @@ def test_a_low_leg_carries_its_exporters_sigma_scale():
     legs = _legs([(2010 + n, 40, 156, v, 1000.0) for n, v in enumerate(vals)]
                  + [(2016, 40, 703, 24_000.0, 5_000_000.0)])    # 0.0006
     px = _price(range(2010, 2017))
-    refs = reference_fractions(legs, px)
+    refs = reference_fractions(legs, px, CV_PED)
     rec = reconstruct_quantity(legs, refs, px)
     low = rec[rec.side == "below"]
     assert len(low) == 1
     assert low.cv_scale.iloc[0] == pytest.approx(refs.loc[40, "cv_scale"])
     assert low.cv_scale.iloc[0] > np.sqrt(1.0 + (CV_GRADE_DECL / CV_PED) ** 2)
     assert (rec[rec.side == "none"].cv_scale == 1.0).all()
+
+
+# ---------------------------------------------------------------------------
+# #233: the pedigree cv is read from the feed's meta.xlsx, never a literal
+# ---------------------------------------------------------------------------
+
+def _meta_xlsx(path, **scores):
+    rows = [("Feed_name", "baci"), ("IEDC_type", "1_F_"), ("Reliability", 3),
+            ("Completeness", 2), ("Temporal_correlation", 1),
+            ("Geographical_correlation", 1), ("Other_correlation", 2)]
+    rows = [(k, scores.get(k, v)) for k, v in rows]
+    pd.DataFrame({"Grouping": "x", "Meta_name": [k for k, _ in rows],
+                  "Value": [v for _, v in rows], "Required": True}
+                 ).to_excel(path, index=False)
+    return str(path)
+
+
+def test_pedigree_cv_is_the_total_cv_of_the_sidecar(tmp_path):
+    from pysuto.meta import DataFeedMetadata
+    lo = _meta_xlsx(tmp_path / "lo.xlsx")
+    hi = _meta_xlsx(tmp_path / "hi.xlsx", Reliability=4, Completeness=4)
+    want = DataFeedMetadata.from_excel(lo).to_pedigree_scores().total_cv()
+    assert pedigree_cv(lo) == pytest.approx(want, rel=1e-12)
+    assert pedigree_cv(hi) > pedigree_cv(lo)
+
+
+def test_reference_scale_follows_the_pedigree_cv(tmp_path):
+    vals = [1600.0, 2400.0, 1700.0, 2700.0, 2000.0, 2800.0]
+    legs = _legs([(2010 + n, 40, 156, v, 1000.0) for n, v in enumerate(vals)])
+    px = _price(range(2010, 2016))
+    cv = pedigree_cv(_meta_xlsx(tmp_path / "m.xlsx"))
+    r = reference_fractions(legs, px, cv)
+    assert r.loc[40, "cv_scale"] == pytest.approx(
+        np.sqrt(1.0 + (r.loc[40, "cv_gref"] / cv) ** 2))
+    assert reference_fractions(legs, px, 2 * cv).loc[40, "cv_scale"] < r.loc[40, "cv_scale"]
+
+
+# ---------------------------------------------------------------------------
+# #240: a root leg's scale is the mass-weighted mean over ALL folded codes
+# ---------------------------------------------------------------------------
+
+def test_root_leg_scale_averages_flagged_and_unflagged_codes(tmp_path, monkeypatch):
+    import baci_parse_feed as bf
+    conc = tmp_path / "feed" / "baci" / "current"
+    conc.mkdir(parents=True)
+    with pd.ExcelWriter(conc / "conc.xlsx") as xw:
+        pd.DataFrame({"src_sector": [CONC], "root_sector": ["Concentrate"]}
+                     ).to_excel(xw, sheet_name="sector_map", index=False)
+        pd.DataFrame({"src_region": [901, 902, 156], "root_region": ["ROW", "ROW", "China"]}
+                     ).to_excel(xw, sheet_name="region_map", index=False)
+    monkeypatch.setattr(bf, "_INPUT_ROOT", str(tmp_path))
+    monkeypatch.setattr(bf, "RECON_PATH", str(tmp_path / "recon.csv"))
+    monkeypatch.setattr(bf, "CV_SCALE_PATH", str(tmp_path / "scale.csv"))
+
+    def leg(src, q_obs, q_new, flagged, cv_scale):
+        return dict(Year=2020, Sector=CONC, Region_from=src, Region_to=156, v=1.0,
+                    q_obs=q_obs, q_new=q_new, flagged=flagged,
+                    side="above" if flagged else "none", cu_frac=0.3, year_frac=0.3,
+                    g_ref=0.275, cv_scale=cv_scale)
+    rec = pd.DataFrame([leg(901, 100.0, 300.0, True, 3.0),     # flagged, rebuilt
+                        leg(902, 700.0, 700.0, False, 1.0)])   # measured, unflagged
+    bf._write_sidecars(rec, None)
+    out = pd.read_csv(tmp_path / "scale.csv")
+    assert len(out) == 1
+    # (3.0 * 300 + 1.0 * 700) / 1000 = 1.6; the flagged-only mean was 3.0
+    assert out["cv_scale"].iloc[0] == pytest.approx(1.6, rel=1e-12)
+    assert out["q_new"].iloc[0] == pytest.approx(1000.0)
+    assert out["q_obs"].iloc[0] == pytest.approx(800.0)

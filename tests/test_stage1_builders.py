@@ -253,6 +253,11 @@ def _baci_concordance(root):
                       "root_region": ["Chile", "Peru", "China", "Germany", "Austria",
                                       "ROW", "ROW"]}
                      ).to_excel(w, sheet_name="region_map", index=False)
+    # the pedigree sidecar the parse reads its cv from (#233)
+    rows = {"Feed_name": "baci", "IEDC_type": "1_F_", "Reliability": 3, "Completeness": 2,
+            "Temporal_correlation": 1, "Geographical_correlation": 1, "Other_correlation": 2}
+    pd.DataFrame({"Grouping": "x", "Meta_name": list(rows), "Value": list(rows.values()),
+                  "Required": True}).to_excel(conc.parent / "meta.xlsx", index=False)
 
 
 def _baci_paths(tmp_path, monkeypatch):

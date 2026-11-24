@@ -81,6 +81,7 @@ import pandas as pd
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
 from pysuto.feedprep.reexport import MAX_CV_SCALE
 from pysuto.logging import get_logger
+from pysuto.meta import DataFeedMetadata
 
 logger = get_logger(__name__)
 
@@ -107,7 +108,6 @@ LO_LEG_GATE      = BAND_LO / 10.0   # low side (Round Z): an order of magnitude
 LO_YEAR_GATE     = BAND_LO          # ...in an exporter-year itself below the cone
 G_NOM            = 0.275            # the conc row's nominal
 CV_GRADE_DECL    = 0.0375 / 0.275   # ...and its declared σ, as a cv: 0.1364
-CV_PED           = 0.209            # BACI Mass pedigree cv (ADR 0017)
 MIN_LEG_T        = 1_000.0          # tonnes. Below this a leg's unit value is
                                     # rounding dust (Chile 2021 carries partners
                                     # at an implied fraction of 8.6).
@@ -147,6 +147,17 @@ CV_SCALE_PATH = os.path.join(OUT_DIR, "quantity_cv_scale.csv")
 # ---------------------------------------------------------------------------
 # #88, #95 — declarations that repeat copper declared elsewhere
 # ---------------------------------------------------------------------------
+
+def pedigree_cv(meta_path: str | None = None) -> float:
+    """The BACI feed's total pedigree cv (ADR 0017), read from its ``meta.xlsx``.
+
+    It is ``PedigreeScores.total_cv()`` of the feed's own pedigree sidecar, the
+    number Stage 1 prices the base σ with — never a literal copied here (#233).
+    """
+    if meta_path is None:
+        meta_path = os.path.join(_INPUT_ROOT, "feed", "baci", "current", "meta.xlsx")
+    return DataFeedMetadata.from_excel(meta_path).to_pedigree_scores().total_cv()
+
 
 def drop_transit_declarations(agg, transit) -> pd.DataFrame:
     """``agg`` without the refined-copper rows (HS 7403.1x) that a declared exporter sends
@@ -235,7 +246,7 @@ def value_implied_cu_fraction(legs, p_cu) -> pd.Series:
     return unit / legs["Year"].map(p_cu)
 
 
-def reference_fractions(legs, p_cu) -> pd.DataFrame:
+def reference_fractions(legs, p_cu, cv_ped: float) -> pd.DataFrame:
     """Per exporter: ``g_ref`` and the σ multiplier its reconstruction earns.
 
     ``g_ref`` is the median of that region's **in-band** legs — measured, never
@@ -262,7 +273,7 @@ def reference_fractions(legs, p_cu) -> pd.DataFrame:
     cv = (out["sd"] / out["g_ref"]).clip(lower=CV_GRADE_DECL)
     cv[out["n_in_band"] < MIN_IN_BAND] = np.inf          # ignorance, not precision
     out["cv_gref"] = cv
-    out["cv_scale"] = np.sqrt(1.0 + (cv / CV_PED) ** 2).clip(1.0, MAX_CV_SCALE)
+    out["cv_scale"] = np.sqrt(1.0 + (cv / cv_ped) ** 2).clip(1.0, MAX_CV_SCALE)
     return out
 
 
@@ -345,22 +356,26 @@ def _write_sidecars(rec, refs) -> None:
        .sort_values(["Year", "Region_from", "Region_to"]) \
        .to_csv(RECON_PATH, index=False)
 
-    f = rec[rec["flagged"]].copy()
+    # several BACI codes fold onto one root region (most of them onto ROW), so a
+    # root leg can gather more than one source leg. Its scale is the mass-weighted
+    # mean over ALL the codes folded onto it, an unflagged code at 1.0 (#240,
+    # ADR 0033 am.): the legs' σ then adds linearly, as their masses do, and a
+    # measured unflagged code is no longer widened by a flagged neighbour. A root
+    # leg with no flagged code stays at 1.0 and gets no row.
+    f = rec.copy()
     f["sector"] = f["Sector"].map(sec)
     f["region_from"] = f["Region_from"].map(reg)
     f["region_to"] = f["Region_to"].map(reg)
     f["time"] = f["Year"]
-    # several BACI codes fold onto one root region (most of them onto ROW), so a
-    # root leg can gather more than one source leg; weight by the mass each
-    # carries rather than letting an arbitrary one win.
     key = ["sector", "region_from", "region_to", "time"]
     f["_w"] = f["cv_scale"] * f["q_new"]
     out = f.groupby(key).agg(q_obs=("q_obs", "sum"), q_new=("q_new", "sum"),
-                             _w=("_w", "sum")).reset_index()
+                             _w=("_w", "sum"), _n=("flagged", "sum")).reset_index()
+    out = out[out["_n"] > 0].copy()
     out["cv_scale"] = out["_w"] / out["q_new"]
-    out = out.drop(columns="_w")
+    out = out.drop(columns=["_w", "_n"])
     out.to_csv(CV_SCALE_PATH, index=False)
-    logger.info("  sidecars: %d flagged legs → %s", len(f), RECON_PATH)
+    logger.info("  sidecars: %d flagged legs → %s", int(rec["flagged"].sum()), RECON_PATH)
     logger.info("            %d root legs    → %s (cv_scale %.2f–%.2f)",
                 len(out), CV_SCALE_PATH, out["cv_scale"].min(), out["cv_scale"].max())
 
@@ -416,7 +431,7 @@ def main() -> None:
     # --- ADR 0033: rebuild the quantity of legs whose value contradicts it ---
     p_cu = copper_price(agg)
     conc = agg[agg["Sector"].isin(RECON_HS)]
-    refs = reference_fractions(conc, p_cu)
+    refs = reference_fractions(conc, p_cu, pedigree_cv())
     rec = reconstruct_quantity(agg, refs, p_cu)
     for side in ("above", "below"):
         s = rec[rec["side"] == side]
