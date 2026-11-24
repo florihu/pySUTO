@@ -39,4 +39,4 @@ def test_a_round_rate_is_its_closed_issues_per_working_day_of_its_close_span():
     assert [r.title for r in rows] == ["a", "b"]
     assert (rows[0].closed, rows[0].work_days, rows[0].due) == (3, 4, "2026-11-26")
     assert rows[0].rate == pytest.approx(0.75)
-    assert (rows[1].state, rows[1].open, rows[1].due) == ("open", 2, "")
+    assert (rows[1].state, rows[1].open_issues, rows[1].due) == ("open", 2, "")

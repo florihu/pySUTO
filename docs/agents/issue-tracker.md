@@ -27,7 +27,12 @@ A **round** is a GitHub milestone with its due date on the target Thursday, the 
 
 ### Due dates
 
-Run `python scripts/milestone_rates.py` before any due date or time estimate. It prints each round's issues closed per working day (Monday to Thursday, first to last close). Give two numbers: agent time, the issues of the longest lane divided by the rate of a comparable past round, and the maintainer's time for reviews, decisions and pushes. The due date is the Thursday after their sum. Estimates made from intuition before 2026-11-24 were a median of about 3× and up to 15× too long (`metal-agnostic 2`: due 2027-01-28, closed 2026-11-16), because they assumed one serial worker at human pace.
+Before you give a due date or a time estimate, run `python scripts/milestone_rates.py`. It prints the issues that each round closed per working day (Monday to Thursday). Give two numbers:
+
+- **Agent time**: the issues of the longest lane, divided by the rate of a similar past round.
+- **Maintainer time**: the days for reviews, decisions and pushes.
+
+Put the due date on the Thursday after the sum of the two numbers. Estimates from intuition assume one serial worker at human pace, and they were up to 15× too long (retro of 2026-11-24).
 
 `python scripts/issue_audit.py` checks this file, [triage-labels.md](triage-labels.md) and [measure-tickets.md](measure-tickets.md) against the tracker; run it when a round opens and before it closes.
 

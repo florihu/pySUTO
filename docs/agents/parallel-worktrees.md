@@ -8,10 +8,10 @@ checkout's.
 ## When to start lanes
 
 A **lane** is one stream of work that runs beside the others: a background agent, in its own
-worktree when it edits code. With two or more tickets, or a read across three or more modules,
-sessions or documents, write the lane plan before the first edit and send the independent lanes
-in one message. Each brief names the goal, the files, the completion criterion and the *Report*
-below.
+worktree when it edits code. Write the lane plan before the first edit when the work has two or
+more tickets. Also write one for a read across three or more modules, sessions or documents.
+Send the independent lanes in one message. Each brief names the goal, the files, the completion
+criterion and the *Report* below.
 
 - **A lane of its own**: each code-only ticket (no stage-driver run), each review, each read or
   audit of a separate area.

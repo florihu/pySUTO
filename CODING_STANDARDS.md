@@ -16,8 +16,9 @@ changes what a README section describes updates that section in the same branch:
 | a module's role, its public names, or a module added, moved or removed | *Module reference*, *File structure* |
 | a modelling choice or an assumption | the section that states it, with its ADR link |
 
-Knob values live in the code (README *Stage 3*: "values live there, not here"): a new value of an
-existing knob needs no README edit, but a new knob family or a new meaning does.
-`tests/test_readme_names.py` catches a name that README keeps after the code drops it. This rule
-catches the meaning: a sentence that names live code but no longer says what the code does. Flag
+Knob values live in the code (README *Stage 3*: "values live there, not here"). A new value of
+an existing knob needs no README edit. A new knob family or a new meaning does.
+
+`tests/test_readme_names.py` finds a name that README keeps after the code drops it. This rule
+finds the meaning: a sentence that names live code but no longer says what the code does. Flag
 each such sentence with its section and the hunk that made it stale.

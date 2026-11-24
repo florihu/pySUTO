@@ -21,13 +21,15 @@ TICK = re.compile(r"`([^`\n]+)`")
 RUN_ID = re.compile(r"(feed|imp|const|opt|uncprop|psut|sweep)_\w*\d{8}_\d{6}_[0-9a-f]{8}")
 UPPER = re.compile(r"[A-Z][A-Z0-9_]{3,}")
 SNAKE = re.compile(r"[a-z_][a-z0-9_]*_[a-z0-9_]*")
+CAMEL = re.compile(r"[A-Z][a-z0-9]+[A-Z][A-Za-z0-9]*")
 DOTTED = re.compile(r"pysuto(\.[A-Za-z_][A-Za-z0-9_]*)+")
 PYFILE = re.compile(r"[\w/.-]+\.py")
 
 # Names that README names on purpose and the code lacks.
 EXEMPT = {
-    "./my_case.py",     # the example file name of a user's case in the README walk-through
-    "conftest.py",      # README says the repo has none, on purpose (CLAUDE.md, Testing)
+    "./my_case.py",          # the file name of a user's case in the README walk-through
+    "conftest.py",           # README says the repo has none, on purpose (CLAUDE.md, Testing)
+    "BoundedKalmanUncProp",  # a future Stage 5 concrete README names beside BaseUncProp
 }
 
 
@@ -52,7 +54,7 @@ def _stale_names(readme: str, root: Path) -> list:
     for tick in sorted(set(TICK.findall(readme))):
         if tick in EXEMPT or RUN_ID.fullmatch(tick):
             continue
-        if UPPER.fullmatch(tick) or SNAKE.fullmatch(tick):
+        if UPPER.fullmatch(tick) or SNAKE.fullmatch(tick) or CAMEL.fullmatch(tick):
             if tick not in words:
                 stale.append(tick)
         elif DOTTED.fullmatch(tick):
@@ -79,13 +81,14 @@ def _stale_names(readme: str, root: Path) -> list:
 def _undocumented_modules(readme: str, root: Path) -> list:
     """Return the modules of ``src/pysuto`` whose file name ``readme`` lacks.
 
-    A dotted path alone does not count: ``pysuto._step`` in prose leaves the file unnamed.
+    A dotted path alone does not count: ``pysuto._step`` in prose leaves the file unnamed. The
+    file name must stand alone, so ``data.py`` does not name ``a.py``.
     """
     missing = []
     for path in sorted((root / "src" / "pysuto").rglob("*.py")):
         if path.name == "__init__.py":
             continue
-        if path.name not in readme:
+        if not re.search(r"(?<![\w-])%s(?!\w)" % re.escape(path.name), readme):
             missing.append(str(path.relative_to(root)))
     return missing
 
@@ -137,10 +140,11 @@ def test_the_name_finder_flags_only_missing_code_names(tmp_path):
     for d in ("scripts", "tests", "config"):
         (tmp_path / d).mkdir()
     (tmp_path / "pyproject.toml").write_text("")
+    (tmp_path / "src" / "pysuto" / "a.py").write_text("class LiveClass:\n    pass\n")
     readme = ("`KEEP_ME` `GONE_ONE` `live_name` `dead_name` `pysuto.real` "
               "`pysuto.real.live_name` `pysuto.gone` `real.py` `gone.py` `plain` `ABC` "
-              "`opt_20261119_130302_b20f0dba` `conftest.py`")
+              "`LiveClass` `GoneClass` `opt_20261119_130302_b20f0dba` `conftest.py`")
     assert _stale_names(readme, tmp_path) == [
-        "GONE_ONE", "dead_name", "gone.py", "pysuto.gone"]
-    assert _undocumented_modules("`real.py`", tmp_path) == []
-    assert _undocumented_modules("nothing", tmp_path) == ["src/pysuto/real.py"]
+        "GONE_ONE", "GoneClass", "dead_name", "gone.py", "pysuto.gone"]
+    assert _undocumented_modules("`real.py` [a.py](src/pysuto/a.py)", tmp_path) == []
+    assert _undocumented_modules("`real.py` `data.py`", tmp_path) == ["src/pysuto/a.py"]

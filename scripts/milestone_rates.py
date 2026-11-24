@@ -3,8 +3,9 @@ milestone_rates.py
 ==================
 Read-only base rate for a due date or a time estimate (issue-tracker.md "Due dates"): for each
 round (GitHub milestone), the issues closed, the maintainer's working days (Monday to Thursday)
-from its first to its last close, and the issues closed per working day. An open round shows
-its rate so far beside its due date.
+from its first to its last close, and the issues closed per working day. The span starts at
+the first close and misses the work before it, so the rate is an upper bound. An open round
+shows its rate so far beside its due date.
 
     python scripts/milestone_rates.py
 """
@@ -22,11 +23,11 @@ WORK_DAYS = (0, 1, 2, 3)  # Monday to Thursday
 
 @dataclass
 class RoundRate:
-    title     : str
-    state     : str
-    closed    : int
-    open      : int
-    first     : dt.date
+    title       : str
+    state       : str
+    closed      : int
+    open_issues : int
+    first       : dt.date
     last      : dt.date
     work_days : int
     due       : str
@@ -81,8 +82,8 @@ def main() -> int:
     print(f"{'round':24s} {'state':6s} {'closed':>6s} {'open':>4s} {'first':>10s} "
           f"{'last':>10s} {'wd':>3s} {'per wd':>6s} {'due':>10s}")
     for r in round_rates(issues, milestones):
-        print(f"{r.title[:24]:24s} {r.state:6s} {r.closed:6d} {r.open:4d} {r.first!s:>10s} "
-              f"{r.last!s:>10s} {r.work_days:3d} {r.rate:6.1f} {r.due:>10s}")
+        print(f"{r.title[:24]:24s} {r.state:6s} {r.closed:6d} {r.open_issues:4d} "
+              f"{r.first!s:>10s} {r.last!s:>10s} {r.work_days:3d} {r.rate:6.1f} {r.due:>10s}")
     return 0
 
 
