@@ -1222,3 +1222,41 @@ def test_waste_only_recipe_recovers_the_input_and_prices_it_by_the_closed_form(i
     m = acc.eid("Smelting", "Matte", "CC")
     assert f[m] == pytest.approx(eff * S, rel=1e-12)
     assert sigma[m] == pytest.approx(eff * sig_S, rel=1e-12)
+
+
+def test_time_interp_never_fills_a_primary_a_relaxed_close_counted_absent(
+        imputer2, acc2):
+    """#312: CSXEW->CP is known in 2020 and underivable in 2021, where CER->CP 70 closes
+    CP relaxed with CSXEW->CP counted as 0. A later ``TimeImputer`` carried 2020's 30
+    into it, so the prior held both the 0 (inside Cathode) and 30. The ledger refuses
+    that write: the edge stays NaN for the last-resort prior, 2020 is not touched."""
+    from pysuto.impute import PriorLedger, TimeImputer
+    f = np.full(acc2.n_edges, np.nan)
+    sigma = np.full(acc2.n_edges, np.nan)
+    for (fs, ts, v, t), val in {("CSXEW", "CP", "CC", "2020"): 30.0,
+                                ("CER", "CP", "CC", "2021"): 70.0}.items():
+        f[acc2.eid(fs, ts, v, t)] = val
+        sigma[acc2.eid(fs, ts, v, t)] = 0.01 * val
+    ledger = PriorLedger(f, sigma, strict_scope=True)
+    ledger.open("net", None, imputer2.writer_scope(acc2))
+    imputer2.impute(ledger, 0, acc2)
+    entries = ledger.close()
+    e21 = acc2.eid("CSXEW", "CP", "CC", "2021")
+    cp = next(e for e in entries
+              if e["edge_id"] == acc2.eid("CP", "Cathode", "CC", "2021"))
+    assert cp["relaxed"] and e21 in cp["assumed_absent"] and np.isnan(f[e21])
+
+    time_imp = TimeImputer(window=5, method="linear", id="time_interp")
+    ledger.open(time_imp.id, None, time_imp.writer_scope(acc2))
+    time_imp.impute(ledger, 1, acc2)
+    time_entries = ledger.close()
+    assert np.isnan(f[e21])
+    assert e21 not in {e["edge_id"] for e in time_entries}
+    assert f[acc2.eid("CSXEW", "CP", "CC", "2020")] == 30.0
+    # 2020 is the mirror case: CER->CP is assumed absent there and 2021's 70 stays out
+    assert np.isnan(f[acc2.eid("CER", "CP", "CC", "2020")])
+    # the last-resort prior still leaves no edge missing: the 0 the close assumed
+    ledger.open("flat", None, np.ones(acc2.n_edges, dtype=bool), last_resort=True)
+    ledger.write(e21, 0.0, 1.0, 2, "flat_prior", [], [])
+    ledger.close()
+    assert f[e21] == 0.0

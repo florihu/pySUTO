@@ -14,7 +14,11 @@ at write time, the three rules a prior obeys:
   logged; a NaN or negative σ would enter ``sigma_agg``);
 * **writer scope** — an imputer writes only inside the scope it declares
   (:meth:`BaseImputer.writer_scope`); scopes may overlap, the cascade order decides
-  precedence (GLOSSARY.md "Writer scope").
+  precedence (GLOSSARY.md "Writer scope");
+* **assumed absent stays unwritten** — a primary a relaxed recipe close counted as 0
+  (ADR 0010) is refused to every later imputer except the last-resort one
+  (``open(..., last_resort=True)``): the prior would hold both the close's 0 and the
+  later value (#312). The refusal is silent, as for no-overwrite.
 
 A write outside scope raises :class:`ScopeError` under ``strict_scope=True`` (tests)
 and is logged at WARNING and dropped otherwise (production). The check is at write
@@ -74,11 +78,17 @@ class PriorLedger:
         self._imputer_id = ""
         self._pass: int | None = None
         self._entries: list[dict] = []
+        self._absent: set[int] = set()    # primaries a relaxed close counted as 0
+        self._last_resort = False
 
     # -- writer lifecycle ---------------------------------------------------
 
-    def open(self, imputer_id: str, pass_no: int | None, scope: np.ndarray) -> None:
-        """Start a step: subsequent writes belong to ``imputer_id`` inside ``scope``."""
+    def open(self, imputer_id: str, pass_no: int | None, scope: np.ndarray,
+             last_resort: bool = False) -> None:
+        """Start a step: subsequent writes belong to ``imputer_id`` inside ``scope``.
+
+        ``last_resort`` lets the step write edges a relaxed close counted as absent
+        (the flat prior, which must leave no edge missing)."""
         scope = np.asarray(scope)
         if scope.dtype != bool or scope.shape != self.f.shape:
             raise ValueError(
@@ -88,6 +98,7 @@ class PriorLedger:
         self._scope = scope
         self._imputer_id = imputer_id
         self._pass = pass_no
+        self._last_resort = bool(last_resort)
         self._entries = []
 
     def close(self) -> list[dict]:
@@ -116,12 +127,15 @@ class PriorLedger:
         """
         if not np.isnan(self.f[e]):
             return False
+        if e in self._absent and not self._last_resort:
+            return False
         if not self._scope[e]:
             self._reject(1, e)
             return False
         _check_written(np.asarray([val]), np.asarray([sig]), self._imputer_id)
         self.f[e] = val
         self.sigma[e] = sig
+        self._absent.update(int(i) for i in assumed_absent)
         self._append(_log(int(e), step, method, sources, coeffs, val, sig, desc,
                           param_id, relaxed, list(assumed_absent)))
         return True
@@ -142,6 +156,8 @@ class PriorLedger:
         vals = np.asarray(vals, dtype=np.float64)
         sigs = np.asarray(sigs, dtype=np.float64)
         free = np.isnan(self.f[edges])
+        if self._absent and not self._last_resort:
+            free &= ~np.isin(edges, list(self._absent))
         ok = self._scope[edges]
         if not (ok | ~free).all():
             bad = free & ~ok

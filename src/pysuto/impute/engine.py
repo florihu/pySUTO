@@ -229,7 +229,8 @@ class ImputationEngine:
         # uses it to read per-edge coverage for density-aware CV, TimeImputer to
         # resolve its feed scope. The scope is read after attach for that reason.
         imputer.attach(agg_result)
-        ledger.open(imputer.id, pass_no, imputer.writer_scope(self._acc_struct))
+        ledger.open(imputer.id, pass_no, imputer.writer_scope(self._acc_struct),
+                    last_resort=isinstance(imputer, FlatPriorImputer))
 
         t0 = time.perf_counter()
         imputer.impute(ledger, step, self._acc_struct)
