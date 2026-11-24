@@ -22,7 +22,7 @@ import copper_case  # noqa: F401  (puts scripts/ on sys.path, #189)
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..",
                                 "scripts", "parse", "baci_parse"))
 from baci_parse_feed import (  # noqa: E402
-    BAND_HI, CV_GRADE_DECL, MAX_CV_SCALE, MIN_LEG_T, _write_sidecars,
+    BAND_HI, CV_GRADE_DECL, MAX_CV_SCALE, MIN_LEG_T,
     pedigree_cv, reconstruct_quantity, reference_fractions, value_implied_cu_fraction)
 
 CONC = 260300
