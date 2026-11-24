@@ -24,7 +24,7 @@ its all-years edge frame, its contraction per category, Birge table and shift
 calibration; SI S6) and the knob sweep built on it (the tables ``scripts/sweep_diag.py`` writes to the sweep's
 ``diag/``: ``points.csv``, ``sensitivity.csv``, ``outcomes.csv``,
 ``verdicts.csv``; SI S15.4). Panel (d) sets the A5 tolerance pair beside the
-sweep's spread per stage; the pair is the base constraint run solved twice, the
+sweep's spread per stage; the pair is the reference constraint run solved twice (#315), the
 sweep the reference chain re-run 64 times, both as Δ pooled retention.
 
 Fig. 3 is the problem one Stage-4 period is handed (``PROBLEM_YEAR``): edge
@@ -891,6 +891,17 @@ def _symlog(z) -> np.ndarray:
     return np.sign(z) * np.log10(1.0 + np.abs(z))
 
 
+def retention_delta_xlim(deltas) -> tuple:
+    """x-limits of Fig. 5d: (-0.3, 0.12), widened by a quarter beyond the largest |Δ| it
+    draws, so no termination diamond or knob point falls off the panel (#320)."""
+    lo, hi = -0.3, 0.12
+    d = np.asarray(deltas, dtype=float)
+    d = d[np.isfinite(d)]
+    if d.size:
+        lo, hi = min(lo, 1.25 * d.min()), max(hi, 1.25 * d.max())
+    return lo, hi
+
+
 def _qq_index(n: int) -> np.ndarray:
     """Ranks of a sorted sample to draw: both tails in full, the bulk thinned."""
     if n <= QQ_BULK + 2 * QQ_TAIL:
@@ -991,19 +1002,21 @@ def fig5(U: dict, S: dict, A: dict, cats: pd.DataFrame, out: Path) -> Path:
                boxprops=dict(facecolor=PALETTE[0], edgecolor=INK2, lw=0.6),
                medianprops=dict(color=INK, lw=0.8), whiskerprops=dict(color=INK2, lw=0.6),
                capprops=dict(color=INK2, lw=0.6))
+    drawn = [pts[o].to_numpy(dtype=float) for o in stages]
     if A.get("pair") is not None:
         pair = A["pair"].set_index("stage")
         for yi, o in zip(ys, stages):
             lab = S["outcome_label"][o]
             if lab in pair.index:
                 ax.scatter([pair.loc[lab, "delta"]], [yi], marker="D", s=20, color=PALETTE[1], zorder=4)
+                drawn.append(np.array([pair.loc[lab, "delta"]], dtype=float))
     ax.axvline(0, color=INK2, lw=0.6)
     ax.set_yticks(ys); ax.set_yticklabels([S["outcome_label"][o] for o in stages], fontsize=6.5)
     ax.set_ylim(-0.7, len(stages) - 0.3)
     ax.set_xscale("symlog", linthresh=A6_BAND, linscale=0.9)
-    ax.set_xlim(-0.3, 0.12)
-    ax.set_xticks([-0.2, -0.05, -0.02, 0, 0.02, 0.05, 0.1])
-    ax.set_xticklabels(["−0.2", "−0.05", "", "0", "", "0.05", ""], fontsize=6.5)
+    ax.set_xlim(*retention_delta_xlim(np.concatenate(drawn)))
+    ax.set_xticks([-0.2, -0.1, -0.05, -0.02, 0, 0.02, 0.05, 0.1, 0.2])
+    ax.set_xticklabels(["−0.2", "", "", "", "0", "", "", "", "0.2"], fontsize=6.5)
     ax.set_xlabel("Δ pooled retention, 1995–2024 (linear within ±0.02)")
     handles = [Patch(facecolor=PALETTE[0], edgecolor=INK2, label=f"{len(pts)} knob points (box IQR, whiskers min–max)")]
     if A.get("pair_label"):
