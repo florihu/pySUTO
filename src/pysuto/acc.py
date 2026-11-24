@@ -1241,7 +1241,6 @@ class AccountingStructure:
         ni = self.node_index.loc[ei["from_id"].values]
         nj = self.node_index.loc[ei["to_id"].values]
         sf = ni["sector"].values
-        ef = ni["entity"].values
         st = nj["sector"].values
         et = nj["entity"].values
 

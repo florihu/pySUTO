@@ -62,7 +62,7 @@ from pysuto._conditioning import (
     DEFAULT_CONDITIONING, condition_sigma_c, recorded_conditioning,
 )
 from pysuto import acc_store
-from pysuto.acc import AccountingStructure, BoundaryRole, boundary_role_values
+from pysuto.acc import BoundaryRole, boundary_role_values
 from pysuto.constraints.naming import (
     SENSE_EQ, SENSE_LE, TYPE_MASSBAL, TYPE_RATIO, TYPE_SUM,
 )

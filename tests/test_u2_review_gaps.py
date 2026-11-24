@@ -21,7 +21,7 @@ import pysuto.relation.param_relation as pr
 from pysuto.impute import (FlatPriorImputer, ImputationEngine, ShareImputer,
                            StockLeg, TimeImputer, run_imputer)
 from pysuto.relation.param_relation import ParamRelationResolver
-from pysuto.relation.params import SELECTOR_KEYS, ParamRow, read_params
+from pysuto.relation.params import SELECTOR_KEYS, read_params
 
 from test_imputation import MockAcc, _agg_result, _fill
 from test_param_relation import MockAcc as ResolverAcc, _row

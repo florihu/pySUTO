@@ -282,7 +282,6 @@ class TestPedigreeScoresConstruction:
 class TestCvReliability:
 
     def test_score_1_matches_formula(self):
-        pg = PedigreeScores(reliability=1)
         assert _pedigree_cv_rel(1) == pytest.approx(_cv_rel(1), rel=RTOL)
 
     def test_score_2_matches_formula(self):

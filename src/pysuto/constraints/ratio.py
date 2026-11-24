@@ -367,7 +367,6 @@ class RatioBoundBuilder(BaseConstraintBuilder):
         signed           = np.asarray(acc_struct.bounds.l, dtype=float) < 0.0
         n_signed_skipped = 0
         for row in read_params(path, ACCEPTS_BOUND):
-            nominal = row.value_nominal
             bl      = row.value_min
             bu      = row.value_max
             if np.isnan(bl) and np.isnan(bu):
