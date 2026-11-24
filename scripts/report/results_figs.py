@@ -13,7 +13,8 @@ number the prose cites, so that a later run swaps in by re-running this script.
 Reads persisted run artifacts and the registered feeds only; nothing upstream is
 modified. Writes ``fig3_problem.png``, ``fig4_reconciliation.png``,
 ``fig5_uncertainty.png`` (only with both ``--uncprop-run-id`` and ``--sweep-id``),
-``fig6_copper_system.png``, ``table3_ledger.csv``, ``numbers.json`` and the SI
+``fig6_copper_system.png`` (each with a vector ``.pdf`` of the same base name beside it),
+``table3_ledger.csv``, ``numbers.json`` and the SI
 tables (``si_*.csv`` and one ``si_tables.md`` with the same tables rendered) to
 ``--out``. The thresholds of the ledger are frozen in the USER CONFIGURATION
 block (SI S15) and reported whichever way they fall.
@@ -164,7 +165,8 @@ plt.rcParams.update({"font.family": "sans-serif", "font.size": 7.5,
                      "xtick.color": INK2, "ytick.color": INK2, "axes.titlecolor": INK,
                      "figure.facecolor": SURFACE, "axes.facecolor": SURFACE,
                      "savefig.facecolor": SURFACE, "axes.titlesize": 8,
-                     "legend.fontsize": 6.5, "axes.labelsize": 7.5})
+                     "legend.fontsize": 6.5, "axes.labelsize": 7.5,
+                     "pdf.fonttype": 42})        # TrueType fonts embedded in the PDFs
 # ---------------------------------------------------------------------------
 # END USER CONFIGURATION
 # ---------------------------------------------------------------------------
@@ -561,6 +563,12 @@ def build_ledger(A: dict, B: dict) -> pd.DataFrame:
 # figures
 # ---------------------------------------------------------------------------
 
+def _save(fig, path: Path) -> None:
+    """Write ``path`` (PNG, 300 dpi) and the vector PDF with the same base name beside it."""
+    fig.savefig(path, dpi=300)
+    fig.savefig(path.with_suffix(".pdf"))
+
+
 def _style(ax, grid_axis="y"):
     for s in ("top", "right"):
         ax.spines[s].set_visible(False)
@@ -773,7 +781,7 @@ def fig3(P, out: Path) -> Path:
     ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.axis("off")
 
     path = out / "fig3_problem.png"
-    fig.savefig(path, dpi=300)
+    _save(fig, path)
     plt.close(fig)
     return path
 
@@ -873,7 +881,7 @@ def fig4(A: dict, out: Path) -> Path:
     cb.set_label("|z|"); cb.outline.set_visible(False)
 
     path = out / "fig4_reconciliation.png"
-    fig.savefig(path, dpi=300)
+    _save(fig, path)
     plt.close(fig)
     return path
 
@@ -1032,7 +1040,7 @@ def fig5(U: dict, S: dict, A: dict, cats: pd.DataFrame, out: Path) -> Path:
     _tag(ax, "e", "Knob SRRC and swing")
 
     path = out / "fig5_uncertainty.png"
-    fig.savefig(path, dpi=300)
+    _save(fig, path)
     plt.close(fig)
     return path
 
@@ -1117,7 +1125,7 @@ def fig6(B: dict, out: Path) -> Path:
     _tag(ax, "d", f"Embodied extraction by region of final use, {B['embodied_period']}")
 
     path = out / "fig6_copper_system.png"
-    fig.savefig(path, dpi=300)
+    _save(fig, path)
     plt.close(fig)
     return path
 

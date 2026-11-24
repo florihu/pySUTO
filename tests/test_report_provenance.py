@@ -83,3 +83,19 @@ def test_the_tolerance_pair_label_reads_each_runs_recorded_gap(tmp_path):
     assert RF.tolerance_pair_label(["opt_old", "opt_new"], str(tmp_path)) == "gap 1e-3 → 1e-6"
     _opt_sidecar(tmp_path, "opt_mid", {"tol_gap_rel": 1e-8})
     assert RF.tolerance_pair_label(["opt_new", "opt_mid"], str(tmp_path)) == "gap 1e-6 → 1e-8"
+
+
+def test_a_figure_is_saved_as_png_and_as_a_pdf_with_embedded_truetype_fonts(tmp_path):
+    import matplotlib.pyplot as plt
+
+    fig, ax = plt.subplots()
+    ax.plot([0, 1], [0, 1])
+    ax.set_title("toy")
+    png = tmp_path / "fig_toy.png"
+    RF._save(fig, png)
+    plt.close(fig)
+    pdf = tmp_path / "fig_toy.pdf"
+    assert png.stat().st_size > 0
+    raw = pdf.read_bytes()
+    assert raw.startswith(b"%PDF")
+    assert b"/FontFile2" in raw          # Type 42 (TrueType) is embedded, not Type 3
