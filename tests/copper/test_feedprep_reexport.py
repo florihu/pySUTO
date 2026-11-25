@@ -1,0 +1,704 @@
+"""Unit tests for the feed-time re-export re-attribution (ADR 0027), ``feedprep.reexport``,
+and the copper ICSG readers it is fed by, ``scripts/copper_feed.py``."""
+import json
+import os
+import shutil
+
+import numpy as np
+import pandas as pd
+import pytest
+
+import copper_case  # noqa: F401  (puts scripts/ on sys.path, #189)
+from copper_feed import HS_OF, production_recipes
+from feedprep.reexport import (
+    rebuild_values,
+    check_icsg_baci_version,
+    check_region_map,
+    cv_scale,
+    icsg_aggregate_members,
+    label_row,
+    load_root_trade,
+    net_one_hub,
+    net_reexports,
+    reexport_volumes,
+    screened_origins,
+    waterfill,
+)
+
+T2015 = "2015"
+
+
+def _leg(sector, a, z, cc, t=T2015):
+    return {"sector": sector, "region_from": a, "region_to": z,
+            "time": t, "cc": float(cc)}
+
+
+def _trade(rows):
+    return pd.DataFrame(rows)
+
+
+def _vol(trade, intake=None, production=None, reported=None, aggregate_of=None):
+    v = reexport_volumes(trade, intake or {}, production or {}, reported or set(),
+                         aggregate_of or {}, {"ROW"})
+    v["label"] = [label_row(r) for r in v.itertuples(index=False)]
+    return v
+
+
+def _row(vol, sector, region, t=T2015):
+    m = vol[(vol.sector == sector) & (vol.region == region) & (vol.time == t)]
+    assert len(m) == 1, f"expected one {sector}/{region} row, got {len(m)}"
+    return m.iloc[0]
+
+
+# ---------------------------------------------------------------------------
+# The rule: T = min(X, I, max(R, E))
+# ---------------------------------------------------------------------------
+
+class TestReexportVolumes:
+
+    def test_physical_hub_exports_fully_explained_by_imports(self):
+        """Netherlands cathode 2015 shape: I 386, X 47, U 5, P 0 → T = X."""
+        trade = _trade([_leg("Cathode", "Russia", "NL", 286.3),
+                        _leg("Cathode", "Chile", "NL", 87.9),
+                        _leg("Cathode", "NL", "Germany", 37.3),
+                        _leg("Cathode", "NL", "Belgium", 10.0)])
+        v = _row(_vol(trade, intake={("Cathode", "NL", T2015): 5.0},
+                      production={("Cathode", "NL", T2015): 0.0},
+                      reported={("Cathode", "NL")}), "Cathode", "NL")
+        assert v.I == pytest.approx(374.2)
+        assert v.X == pytest.approx(47.3)
+        assert v.R == pytest.approx(369.2)
+        assert v.E == pytest.approx(47.3)
+        assert v["T"] == pytest.approx(47.3)          # capped by X
+        assert v.label == "pass-through"
+
+    def test_ceiling_term_catches_the_phantom_mine_case(self):
+        """Korea concentrate: U > I so R = 0, but P = 0 so every export is a
+        re-export. The surplus rule alone is blind to this."""
+        trade = _trade([_leg("Concentrate", "Chile", "Korea", 491.9),
+                        _leg("Concentrate", "Korea", "Japan", 16.2)])
+        v = _row(_vol(trade, intake={("Concentrate", "Korea", T2015): 529.8},
+                      production={("Concentrate", "Korea", T2015): 0.0},
+                      reported={("Concentrate", "Korea")}),
+                 "Concentrate", "Korea")
+        assert v.R == 0.0
+        assert v.E == pytest.approx(16.2)
+        assert v.T_surplus == 0.0
+        assert v["T"] == pytest.approx(16.2)
+
+    def test_producer_with_a_thin_icsg_row_is_never_netted(self):
+        """Kazakhstan cathode: E = 113 but I = 0, so the import cap gives T = 0.
+        Its export/production gap is a coverage question, not a re-export."""
+        trade = _trade([_leg("Cathode", "Kazakhstan", "China", 411.6)])
+        v = _row(_vol(trade, intake={("Cathode", "Kazakhstan", T2015): 56.5},
+                      production={("Cathode", "Kazakhstan", T2015): 298.5},
+                      reported={("Cathode", "Kazakhstan")}),
+                 "Cathode", "Kazakhstan")
+        assert v.I == 0.0
+        assert v.E == pytest.approx(113.1)
+        assert v["T"] == 0.0
+        assert v.label == "producer"
+
+    def test_inbound_only_merchanting_moves_almost_nothing(self):
+        """Zambia→Switzerland anode: X ≈ 0, so T ≈ 0 and the inbound tonnage
+        stays where the QP already refuses it."""
+        trade = _trade([_leg("Anode", "Zambia", "CH", 315.9),
+                        _leg("Anode", "CH", "China", 0.005)])
+        v = _row(_vol(trade, reported=set()), "Anode", "CH")
+        assert v.R == pytest.approx(315.9)
+        assert v["T"] == pytest.approx(0.005)
+        assert v.resid == pytest.approx(315.895)
+        assert v.label == "inbound-only/no-process"
+
+    def test_row_is_never_a_hub(self):
+        trade = _trade([_leg("Concentrate", "PNG", "ROW", 11223.0),
+                        _leg("Concentrate", "ROW", "China", 500.0)])
+        v = _row(_vol(trade, reported=set()), "Concentrate", "ROW")
+        assert v.R > 0 and v.X > 0
+        assert v["T"] == 0.0
+        assert v.excluded_aggregate
+        assert v.label == "excluded-aggregate"
+
+    def test_icsg_gap_year_is_not_a_zero(self):
+        """A region reporting the product in other years but not this one has a
+        reporting gap; treating it as U = P = 0 would net real exports."""
+        trade = _trade([_leg("Cathode", "Chile", "Sweden", 60.0),
+                        _leg("Cathode", "Sweden", "Germany", 50.0)])
+        gap = _row(_vol(trade, reported={("Cathode", "Sweden")}),
+                   "Cathode", "Sweden")
+        assert gap.icsg_gap and gap["T"] == 0.0 and gap.label == "icsg-gap"
+
+        never = _row(_vol(trade, reported=set()), "Cathode", "Sweden")
+        assert not never.icsg_gap and never["T"] == pytest.approx(50.0)
+
+    def test_imports_exhausted_is_flagged(self):
+        """T = I while the region still has use to cover: the fan must not read
+        the resulting zero as observed domestic sourcing (ADR 0018)."""
+        trade = _trade([_leg("Cathode", "Chile", "ZA", 23.4),
+                        _leg("Cathode", "ZA", "China", 28.7)])
+        v = _row(_vol(trade, intake={("Cathode", "ZA", T2015): 30.1},
+                      production={("Cathode", "ZA", T2015): 0.0},
+                      reported={("Cathode", "ZA")}), "Cathode", "ZA")
+        assert v["T"] == pytest.approx(23.4) == pytest.approx(v.I)
+        assert v.imports_exhausted
+
+    def test_a_hub_needs_both_an_inflow_and_an_outflow(self):
+        trade = _trade([_leg("Cathode", "Chile", "China", 100.0)])
+        v = _vol(trade, reported=set())
+        assert (v["T"] == 0.0).all()
+
+
+# ---------------------------------------------------------------------------
+# Screened origins
+# ---------------------------------------------------------------------------
+
+class TestScreenedOrigins:
+
+    def test_flags_exports_no_production_plus_imports_explains(self):
+        trade = _trade([_leg("Concentrate", "PNG", "Philippines", 11223.0),
+                        _leg("Concentrate", "Chile", "Philippines", 100.0)])
+        scr = screened_origins(trade, {("Concentrate", "PNG", T2015): 82.5,
+                                       ("Concentrate", "Chile", T2015): 4000.0})
+        assert ("Concentrate", "PNG", T2015) in scr
+        assert ("Concentrate", "Chile", T2015) not in scr
+
+    def test_groups_without_production_stay_unjudged(self):
+        """Matches the Stage-2 screen: no covered production ⇒ no verdict."""
+        trade = _trade([_leg("Concentrate", "PNG", "Philippines", 11223.0)])
+        assert screened_origins(trade, {}) == set()
+
+    def test_screened_origin_keeps_its_gross_leg(self):
+        mat = {("PNG", "PH"): 1000.0, ("Chile", "PH"): 100.0,
+               ("PH", "China"): 200.0}
+        applied, _, _ = net_one_hub(mat, "PH", 200.0, screened_from={"PNG"})
+        assert mat[("PNG", "PH")] == pytest.approx(1000.0)   # untouched
+        assert applied == pytest.approx(100.0)               # capped by Chile
+        assert mat[("Chile", "PH")] == pytest.approx(0.0)
+        assert mat[("Chile", "China")] == pytest.approx(100.0)
+
+
+# ---------------------------------------------------------------------------
+# The re-allocation and its invariants
+# ---------------------------------------------------------------------------
+
+def _totals(mat):
+    x, i = {}, {}
+    for (a, z), c in mat.items():
+        x[a] = x.get(a, 0.0) + c
+        i[z] = i.get(z, 0.0) + c
+    return x, i
+
+
+class TestNetOneHub:
+
+    def test_shares_split_by_origin_and_destination(self):
+        mat = {("Russia", "NL"): 300.0, ("Chile", "NL"): 100.0,
+               ("NL", "Germany"): 80.0, ("NL", "Belgium"): 20.0}
+        applied, _, n_new = net_one_hub(mat, "NL", 100.0, set())
+        assert applied == pytest.approx(100.0)
+        # 100 × 0.75 (Russia) × 0.8 (Germany) = 60, etc.
+        assert mat[("Russia", "Germany")] == pytest.approx(60.0)
+        assert mat[("Russia", "Belgium")] == pytest.approx(15.0)
+        assert mat[("Chile", "Germany")] == pytest.approx(20.0)
+        assert mat[("Chile", "Belgium")] == pytest.approx(5.0)
+        assert mat[("Russia", "NL")] == pytest.approx(225.0)
+        assert mat[("NL", "Germany")] == pytest.approx(0.0)
+        assert n_new == 4
+
+    def test_invariants_hold(self):
+        mat = {("Russia", "NL"): 300.0, ("Chile", "NL"): 100.0,
+               ("NL", "Germany"): 80.0, ("NL", "Belgium"): 20.0}
+        x0, i0 = _totals(dict(mat))
+        applied, self_amt, _ = net_one_hub(mat, "NL", 100.0, set())
+        x1, i1 = _totals(mat)
+        assert self_amt == 0.0
+        for a in ("Russia", "Chile"):
+            assert x1[a] == pytest.approx(x0[a]), "origin exports unchanged"
+        for z in ("Germany", "Belgium"):
+            assert i1[z] == pytest.approx(i0[z]), "destination imports unchanged"
+        assert x1["NL"] == pytest.approx(x0["NL"] - applied)
+        assert i1["NL"] == pytest.approx(i0["NL"] - applied)
+        assert sum(mat.values()) == pytest.approx(sum(x0.values()) - applied)
+
+    def test_re_import_is_dropped_not_booked_as_domestic(self):
+        """A→h→A is a returned good; it leaves both legs and creates nothing."""
+        mat = {("Germany", "LU"): 100.0, ("LU", "Germany"): 100.0}
+        applied, self_amt, n_new = net_one_hub(mat, "LU", 100.0, set())
+        assert self_amt == pytest.approx(100.0)
+        assert n_new == 0
+        assert mat[("Germany", "LU")] == pytest.approx(0.0)
+        assert mat[("LU", "Germany")] == pytest.approx(0.0)
+        assert ("Germany", "Germany") not in mat
+        assert applied == pytest.approx(100.0)
+
+    def test_crumbs_fold_into_the_origins_kept_destinations(self):
+        mat = {("Chile", "SG"): 100.0,
+               ("SG", "China"): 99.0, ("SG", "Tiny"): 1.0}
+        applied, _, n_new = net_one_hub(mat, "SG", 100.0, set(), min_new_leg=5.0)
+        assert n_new == 1, "only the China pair clears the threshold"
+        assert ("Chile", "Tiny") not in mat
+        assert mat[("Chile", "China")] == pytest.approx(100.0), "crumb folded in"
+        assert applied == pytest.approx(100.0)
+
+    def test_existing_small_leg_counts_as_kept(self):
+        mat = {("Chile", "SG"): 100.0, ("SG", "China"): 99.0,
+               ("SG", "Tiny"): 1.0, ("Chile", "Tiny"): 0.5}
+        net_one_hub(mat, "SG", 100.0, set(), min_new_leg=5.0)
+        assert mat[("Chile", "Tiny")] > 0.5, "an observed route still receives"
+
+    def test_origin_with_no_kept_destination_does_not_participate(self):
+        mat = {("Chile", "SG"): 100.0, ("Tiny", "SG"): 0.2,
+               ("SG", "China"): 100.0}
+        applied, _, _ = net_one_hub(mat, "SG", 100.2, set(), min_new_leg=5.0)
+        assert mat[("Tiny", "SG")] == pytest.approx(0.2), "left un-netted"
+        # Tiny's 0.2 kt share cannot be placed, so the hub nets only Chile's
+        # share and keeps the rest gross — conservative by design.
+        assert applied == pytest.approx(100.0 * 100.0 / 100.2)
+        assert mat[("SG", "China")] == pytest.approx(100.0 - applied)
+
+    def test_no_leg_can_go_negative(self):
+        mat = {("A", "H"): 10.0, ("B", "H"): 90.0,
+               ("H", "X"): 5.0, ("H", "Y"): 95.0}
+        net_one_hub(mat, "H", 100.0, set(), min_new_leg=0.0)
+        assert min(mat.values()) >= -1e-9
+
+    def test_a_hub_with_no_usable_inflow_moves_nothing(self):
+        mat = {("PNG", "PH"): 500.0, ("PH", "China"): 100.0}
+        applied, _, _ = net_one_hub(mat, "PH", 100.0, screened_from={"PNG"})
+        assert applied == 0.0
+        assert mat[("PH", "China")] == pytest.approx(100.0)
+
+
+class TestNetReexports:
+
+    def test_hub_to_hub_chain_lands_at_the_final_destination(self):
+        """Chile → NL → Germany with Germany itself a hub onward to Poland."""
+        trade = _trade([_leg("Cathode", "Chile", "NL", 100.0),
+                        _leg("Cathode", "NL", "DE", 100.0),
+                        _leg("Cathode", "DE", "PL", 100.0)])
+        vol = _vol(trade, reported=set())
+        new, ev = net_reexports(trade, vol, set())
+        got = {(r.region_from, r.region_to): r.cc
+               for r in new.itertuples(index=False) if r.cc > 1e-9}
+        assert got == pytest.approx({("Chile", "PL"): 100.0})
+        assert ev["T_applied"].sum() == pytest.approx(200.0)  # both hubs netted
+
+    def test_idempotent(self):
+        trade = _trade([_leg("Cathode", "Russia", "NL", 300.0),
+                        _leg("Cathode", "Chile", "NL", 100.0),
+                        _leg("Cathode", "NL", "DE", 80.0),
+                        _leg("Cathode", "NL", "BE", 20.0)])
+        new, _ = net_reexports(trade, _vol(trade, reported=set()), set())
+        new = new[new.cc > 1e-9].reset_index(drop=True)
+        again, ev2 = net_reexports(new, _vol(new, reported=set()), set())
+        again = again[again.cc > 1e-9].reset_index(drop=True)
+        # a second pass finds nothing to net: no event, or events that move no mass
+        applied = float(ev2["T_applied"].sum()) if len(ev2) else 0.0
+        assert applied == pytest.approx(0.0, abs=0.01)
+        key = ["sector", "region_from", "region_to", "time"]
+        pd.testing.assert_frame_equal(
+            new.sort_values(key).reset_index(drop=True),
+            again.sort_values(key).reset_index(drop=True), atol=1e-6)
+
+    def test_years_are_independent(self):
+        trade = _trade([_leg("Cathode", "Chile", "NL", 100.0, "2015"),
+                        _leg("Cathode", "NL", "DE", 100.0, "2015"),
+                        _leg("Cathode", "Chile", "NL", 50.0, "2016")])
+        new, _ = net_reexports(trade, _vol(trade, reported=set()), set())
+        y16 = new[(new.time == "2016") & (new.cc > 1e-9)]
+        assert len(y16) == 1 and y16.iloc[0].region_to == "NL"
+
+
+# ---------------------------------------------------------------------------
+# σ of the inference
+# ---------------------------------------------------------------------------
+
+class TestCvScale:
+
+    def test_new_leg_carries_root_two_times_the_pedigree(self):
+        old = _trade([_leg("Cathode", "Chile", "NL", 100.0)])
+        new = _trade([_leg("Cathode", "Chile", "NL", 0.0),
+                      _leg("Cathode", "Chile", "DE", 100.0)])
+        s = cv_scale(old, new).set_index("region_to")["cv_scale"]
+        assert s["DE"] == pytest.approx(np.sqrt(2.0))
+
+    def test_scale_is_floored_at_one_on_legs_that_grew(self):
+        """Plain quadrature would make a leg that gained tonnage *more*
+        certain than its pedigree — never allowed."""
+        old = _trade([_leg("Cathode", "Chile", "DE", 100.0)])
+        new = _trade([_leg("Cathode", "Chile", "DE", 150.0)])
+        assert cv_scale(old, new)["cv_scale"].iloc[0] == 1.0
+
+    def test_a_partly_netted_leg_is_less_certain(self):
+        old = _trade([_leg("Cathode", "Chile", "NL", 100.0)])
+        new = _trade([_leg("Cathode", "Chile", "NL", 70.0)])
+        got = cv_scale(old, new)["cv_scale"].iloc[0]
+        assert got == pytest.approx(np.sqrt(100.0 ** 2 + 2 * 30.0 ** 2) / 70.0)
+        assert 1.0 < got < 2.0
+
+    def test_untouched_legs_are_absent(self):
+        old = _trade([_leg("Cathode", "Chile", "DE", 100.0)])
+        assert len(cv_scale(old, old.copy())) == 0
+
+
+if __name__ == "__main__":
+    pytest.main([__file__, "-v"])
+
+
+class TestCvScaleBounds:
+    """A netted-to-nothing leg must not carry an astronomical σ (measured at
+    1e48 before the cap: v_new → 0 makes the ratio explode)."""
+
+    def test_scale_is_capped(self):
+        from feedprep.reexport import MAX_CV_SCALE
+        old = _trade([_leg("Cathode", "Chile", "NL", 100.0)])
+        new = _trade([_leg("Cathode", "Chile", "NL", 0.001)])
+        assert cv_scale(old, new)["cv_scale"].iloc[0] == pytest.approx(MAX_CV_SCALE)
+
+    def test_legs_netted_to_dust_are_excluded(self):
+        old = _trade([_leg("Cathode", "Chile", "NL", 100.0)])
+        new = _trade([_leg("Cathode", "Chile", "NL", 1e-12)])
+        assert len(cv_scale(old, new)) == 0
+
+
+# ---- ADR 0029 plumbing: born legs are sized at their ORIGIN's grade ----
+
+
+
+def _raw(rows):
+    """Raw BACI rows carrying the decoded root columns rebuild_values expects."""
+    return pd.DataFrame([{
+        "Year": int(r["time"]), "Sector": 260300,
+        "Region_from": r.pop("code_from", 152), "Region_to": r.pop("code_to", 392),
+        "Value": r["mass"], "Unit": "kt",
+        "sector": r["sector"], "region_from": r["region_from"],
+        "region_to": r["region_to"], "time": r["time"],
+    } for r in rows])
+
+
+def test_born_leg_mass_uses_the_origin_grade_not_the_hub():
+    """A re-attributed leg's Mass is its CC at the ORIGIN's grade.
+
+    The netting moves tonnage from a hub back to the region that mined it, so
+    the divisor must be that region's own grade — the grade the model will read
+    the leg back with. With one scalar per sector this distinction did not
+    exist; with region grades, using the hub's would fabricate mass.
+    """
+    conc = {("Concentrate", "*"): 0.275, ("Concentrate", "Chile"): 0.32}
+    # Japan must already appear as a destination, or canonical_codes has no
+    # src code for it and the born leg is skipped.
+    raw = _raw([{"sector": "Concentrate", "region_from": "Chile",
+                 "region_to": "Spain", "time": T2015, "mass": 100.0,
+                 "code_from": 152, "code_to": 724},
+                {"sector": "Concentrate", "region_from": "Peru",
+                 "region_to": "Japan", "time": T2015, "mass": 10.0,
+                 "code_from": 604, "code_to": 392}])
+    legs_old = _trade([_leg("Concentrate", "Chile", "Spain", 32.0),
+                       _leg("Concentrate", "Peru", "Japan", 2.75)])
+    legs_new = _trade([_leg("Concentrate", "Chile", "Spain", 32.0),
+                       _leg("Concentrate", "Peru", "Japan", 2.75),
+                       _leg("Concentrate", "Chile", "Japan", 16.0)])   # born
+    out = rebuild_values(raw, legs_old, legs_new, conc, HS_OF)
+    japan = out[np.isclose(out["Value"], 16.0 / 0.32)]
+    assert len(japan) == 1, f"expected a leg at 16/0.32 = 50 kt, got:\n{out}"
+    # and emphatically NOT 16/0.275 = 58.2 kt
+    assert not np.isclose(out["Value"], 16.0 / 0.275).any()
+
+
+def test_existing_leg_scaling_stays_grade_invariant():
+    """The `grew` branch is a ratio of two same-keyed CC values, so the grade
+    cancels exactly — region grades must not perturb it."""
+    raw = _raw([{"sector": "Concentrate", "region_from": "Chile",
+                 "region_to": "Spain", "time": T2015, "mass": 100.0,
+                 "code_from": 152, "code_to": 724}])
+    legs_old = _trade([_leg("Concentrate", "Chile", "Spain", 32.0)])
+    legs_new = _trade([_leg("Concentrate", "Chile", "Spain", 16.0)])    # halved
+    a = rebuild_values(raw, legs_old, legs_new, {("Concentrate", "*"): 0.275}, HS_OF)
+    b = rebuild_values(raw, legs_old, legs_new,
+                       {("Concentrate", "*"): 0.275, ("Concentrate", "Chile"): 0.32}, HS_OF)
+    pd.testing.assert_frame_equal(a, b)
+    assert a["Value"].iloc[0] == pytest.approx(50.0)
+
+
+# ---------------------------------------------------------------------------
+# production_recipes — the ICSG arithmetic behind P and U (ADR 0021 / 0030)
+# ---------------------------------------------------------------------------
+
+_EFF = {"Smelting": 0.965, "CFR": 0.9875, "ER": 0.997}
+
+
+def _ser(kv):
+    """{(region, year): value} → the (reg, yr)-indexed Series the reader builds."""
+    idx = pd.MultiIndex.from_tuples(list(kv.keys()), names=["reg", "yr"])
+    return pd.Series(list(kv.values()), index=idx, dtype=float)
+
+
+def _recipes(P=1000.0, S=200.0, sxew=50.0, scrap_sm=100.0, conc=800.0, mining=900.0):
+    """A home refiner: total refined P+S, anode_in = (P+S)/eff_ER, direct
+    refinery scrap S/(eff_CFR·eff_ER) — the feed's own conventions."""
+    k = _EFF["CFR"] * _EFF["ER"]
+    return production_recipes(
+        mining=_ser({("Germany", "2020"): mining}),
+        conc_in=_ser({("Germany", "2020"): conc}),
+        scrap_sm=_ser({("Germany", "2020"): scrap_sm}),
+        anode_in=_ser({("Germany", "2020"): (P + S) / _EFF["ER"]}),
+        scrap_cfr=_ser({("Germany", "2020"): S / k}),
+        sxew=_ser({("Germany", "2020"): sxew}),
+        cathode_use=_ser({("Germany", "2020"): 1300.0}),
+        eff=_EFF)
+
+
+class TestProductionRecipes:
+
+    def test_cathode_production_counts_secondary_refined_once(self):
+        """anode_in is TOTAL refined ÷ eff_ER, so cathode P = P + S + SX-EW —
+        not P + 2S as the old `+ Refining/Scrap·k` term made it."""
+        prod, _ = _recipes(P=1000.0, S=200.0, sxew=50.0)
+        assert prod["Cathode"].iloc[0] == pytest.approx(1000.0 + 200.0 + 50.0)
+
+    def test_anode_production_pools_matte_and_direct_scrap(self):
+        prod, _ = _recipes(scrap_sm=100.0, conc=800.0, S=200.0)
+        k = _EFF["CFR"] * _EFF["ER"]
+        matte = (800.0 + 100.0) * _EFF["Smelting"]
+        assert prod["Matte"].iloc[0] == pytest.approx(matte)
+        assert prod["Anode"].iloc[0] == pytest.approx((matte + 200.0 / k) * _EFF["CFR"])
+
+    def test_matte_use_floor_carries_the_smelter_route(self):
+        """The converter must take at least what its anode output needs beyond
+        the direct scrap: (P+S)/(eff_CFR·eff_ER) − S/(eff_CFR·eff_ER) = P/k —
+        and at least its own smelter's matte."""
+        prod, use = _recipes(P=1000.0, S=200.0, scrap_sm=100.0, conc=800.0)
+        k = _EFF["CFR"] * _EFF["ER"]
+        assert use["Matte"].iloc[0] == pytest.approx(max(prod["Matte"].iloc[0], 1000.0 / k))
+        assert use["Concentrate"].iloc[0] == pytest.approx(800.0)
+        assert use["Cathode"].iloc[0] == pytest.approx(1300.0)
+
+    def test_sxew_cathode_production_is_the_sxew_supply_alone(self):
+        """The ICSG feed's non-producer test reads a region's SX-EW output here
+        (#97): the SXEW/Cathode supply row, without the refined cathode around it."""
+        prod, use = _recipes(P=1000.0, S=200.0, sxew=50.0)
+        assert prod["CSXEW"].iloc[0] == pytest.approx(50.0)
+        assert "CSXEW" not in use, "ICSG reports no intake of SX-EW cathode"
+
+
+# ---------------------------------------------------------------------------
+# #67: a region-year inside a declared ICSG aggregate is a reporting gap
+# ---------------------------------------------------------------------------
+
+SCANDINAVIA = {("Sweden", T2015): "Scandinavia"}
+
+
+def _sweden_hub():
+    """Sweden's shape in 2001, set in the fixture year: cathode imports 60, exports
+    50, and ICSG's only Swedish cathode row its LME stock change, 21.8 kt CC."""
+    return _trade([_leg("Cathode", "Chile", "Sweden", 60.0),
+                   _leg("Cathode", "Sweden", "Germany", 50.0)])
+
+
+class TestIcsgAggregateGap:
+
+    def test_a_hub_inside_an_aggregate_with_only_a_stock_row_is_a_gap(self):
+        """Regression (#67): U includes the MESC/USC rows, so a lone stock change
+        defeated the gap guard.  Sweden's smelting, refining and semis sit under
+        ICSG's "Scandinavia" until 2003, yet its cathode was netted as a
+        pass-through hub in every year 1996-2003, 220.9 kt CC in all."""
+        v = _row(_vol(_sweden_hub(), intake={("Cathode", "Sweden", T2015): 21.8},
+                      reported={("Cathode", "Sweden")}, aggregate_of=SCANDINAVIA),
+                 "Cathode", "Sweden")
+        assert v.icsg_gap and v["T"] == 0.0 and v.label == "icsg-gap"
+        assert v.icsg_aggregate == "Scandinavia"
+        assert v.U == pytest.approx(21.8), "the stock row is still on the ledger"
+
+    def test_the_same_hub_outside_any_aggregate_is_netted_as_before(self):
+        intake = {("Cathode", "Sweden", T2015): 21.8}
+        undeclared = _row(_vol(_sweden_hub(), intake=intake,
+                               reported={("Cathode", "Sweden")}), "Cathode", "Sweden")
+        other_year = _row(_vol(_sweden_hub(), intake=intake,
+                               reported={("Cathode", "Sweden")},
+                               aggregate_of={("Sweden", "2004"): "Scandinavia"}),
+                          "Cathode", "Sweden")
+        for v in (undeclared, other_year):
+            assert not v.icsg_gap and v["T"] == pytest.approx(50.0)
+            assert v.label == "pass-through"
+            assert pd.isna(v.icsg_aggregate)
+
+    def test_a_region_that_never_reports_the_product_keeps_u_and_p_at_zero(self):
+        """The declaration names Sweden; a hub ICSG never reports is netted on
+        U = P = 0 exactly as before (ADR 0027)."""
+        trade = _trade([_leg("Cathode", "Chile", "UAE", 60.0),
+                        _leg("Cathode", "UAE", "India", 50.0)])
+        v = _row(_vol(trade, reported=set(), aggregate_of=SCANDINAVIA), "Cathode", "UAE")
+        assert not v.icsg_gap and v.U_missing and v.P_missing
+        assert v["T"] == pytest.approx(50.0)
+
+
+class TestIcsgAggregateMembers:
+
+    def _csv(self, tmp_path, body):
+        path = tmp_path / "params.csv"
+        path.write_text("src_region;root_region;year_from;year_to;source;comment\n" + body)
+        return path
+
+    def test_each_member_year_is_keyed_with_a_string_year(self, tmp_path):
+        got = icsg_aggregate_members(self._csv(
+            tmp_path, "Scandinavia;Sweden;1995;1997;ICSG 2005 yearbook;\n"),
+            "icsg_aggregates")
+        assert got == {("Sweden", "1995"): "Scandinavia",
+                       ("Sweden", "1996"): "Scandinavia",
+                       ("Sweden", "1997"): "Scandinavia"}
+
+    def test_a_reversed_year_range_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="year_from"):
+            icsg_aggregate_members(self._csv(
+                tmp_path, "Scandinavia;Sweden;2003;1995;ICSG 2005 yearbook;\n"),
+                "icsg_aggregates")
+
+    def test_a_region_year_claimed_by_two_aggregates_raises(self, tmp_path):
+        with pytest.raises(ValueError, match="Sweden"):
+            icsg_aggregate_members(self._csv(
+                tmp_path, "Scandinavia;Sweden;1995;2003;a;\nNordic;Sweden;2003;2004;b;\n"),
+                "icsg_aggregates")
+
+
+class TestCheckRegionMap:
+
+    def _region_map_xlsx(self, path, rows):
+        path.mkdir()
+        pd.DataFrame(rows, columns=["src_region", "root_region", "mapping_type",
+                                    "mapping_confidence", "notes"]) \
+          .to_excel(path / "conc.xlsx", sheet_name="region_map", index=False)
+        return str(path)
+
+    def test_the_same_map_in_the_source_and_current_passes(self, tmp_path):
+        rows = [(490, "Taiwan", "alias", "high", None), (152, "Chile", "direct", "high", None)]
+        check_region_map(self._region_map_xlsx(tmp_path / "v19", rows),
+                         self._region_map_xlsx(tmp_path / "current", rows[::-1]))
+
+    def test_a_code_the_current_map_sends_elsewhere_raises(self, tmp_path):
+        src = self._region_map_xlsx(tmp_path / "v13", [(490, "ROW", "aggregate", "high", None)])
+        cur = self._region_map_xlsx(tmp_path / "current", [(490, "Taiwan", "alias", "high", None)])
+        with pytest.raises(ValueError, match="490: ROW → Taiwan"):
+            check_region_map(src, cur)
+
+    def test_a_code_only_one_map_has_raises(self, tmp_path):
+        src = self._region_map_xlsx(tmp_path / "v13", [(152, "Chile", "direct", "high", None)])
+        cur = self._region_map_xlsx(tmp_path / "current", [(152, "Chile", "direct", "high", None),
+                                                (490, "Taiwan", "alias", "high", None)])
+        with pytest.raises(ValueError, match="490: None → Taiwan"):
+            check_region_map(src, cur)
+
+
+CURRENT_CONC = os.path.join(os.path.dirname(__file__), "..", "..", "data", "input", "feed", "baci",
+                            "current", "conc.xlsx")
+
+
+def _current_conc():
+    """The BACI concordance on disk; git does not hold it (no licence, #297)."""
+    if not os.path.exists(CURRENT_CONC):
+        pytest.skip("data/input/feed/baci/current/conc.xlsx absent (untracked, #297)")
+    return CURRENT_CONC
+
+
+def test_a_490_row_lands_on_taiwan_under_the_registered_region_map(tmp_path):
+    """The tracked BACI region map, not a toy one: BACI 490 "Other Asia, nes" is
+    Taiwan's trade (#77), so a Chile → 490 cathode row is a Chile → Taiwan leg."""
+    shutil.copyfile(_current_conc(), tmp_path / "conc.xlsx")
+    pd.DataFrame({"Year": [2004], "Sector": [740311], "Region_from": [152],
+                  "Region_to": [490], "Value": [10.0], "Unit": ["kt"]}) \
+      .to_csv(tmp_path / "values.csv", index=False)
+    _, legs, _, r_of = load_root_trade(str(tmp_path), {("Cathode", "*"): 1.0})
+    assert r_of[490] == "Taiwan"
+    assert legs[["region_from", "region_to", "cc"]].values.tolist() == [["Chile", "Taiwan", 10.0]]
+
+
+def test_178_and_711_rows_land_on_dr_congo_and_south_africa_under_the_tracked_map(
+        tmp_path):
+    """BACI 178 "Congo" carries DR Congo's cathode and 711 "Southern African
+    Customs Union" is South Africa's trade until BACI splits it in 2000 (#84)."""
+    shutil.copyfile(_current_conc(), tmp_path / "conc.xlsx")
+    pd.DataFrame({"Year": [2020, 1997], "Sector": [740311, 740311],
+                  "Region_from": [178, 711], "Region_to": [784, 380],
+                  "Value": [10.0, 5.0], "Unit": ["kt", "kt"]}) \
+      .to_csv(tmp_path / "values.csv", index=False)
+    _, legs, _, r_of = load_root_trade(str(tmp_path), {("Cathode", "*"): 1.0})
+    assert (r_of[178], r_of[711]) == ("Congo, D.R.", "South Africa")
+    assert sorted(legs[["region_from", "region_to", "cc"]].values.tolist()) == \
+        [["Congo, D.R.", "United Arab Emirates", 10.0], ["South Africa", "Italy", 5.0]]
+
+
+def test_every_refined_copper_code_lands_on_cathode_under_the_tracked_map(tmp_path):
+    """HS 740312 wire bars, 740313 billets and 740319 other refined copper are refined
+    copper like 740311; reading 740311 alone left Austria's cathode node without 77.7 %
+    of its refined exports in 2003, the values below (#91)."""
+    shutil.copyfile(_current_conc(), tmp_path / "conc.xlsx")
+    codes = [740311, 740312, 740313, 740319]
+    pd.DataFrame({"Year": [2003] * 4, "Sector": codes, "Region_from": [40] * 4,
+                  "Region_to": [380] * 4, "Value": [17.7, 0.1, 43.6, 18.1],
+                  "Unit": ["kt"] * 4}) \
+      .to_csv(tmp_path / "values.csv", index=False)
+    _, legs, s_of, _ = load_root_trade(str(tmp_path), {("Cathode", "*"): 1.0})
+    assert {s_of[c] for c in codes} == {"Cathode"}
+    assert legs[["sector", "region_from", "region_to"]].values.tolist() == \
+        [["Cathode", "Austria", "Italy"]]
+    assert legs.cc.sum() == pytest.approx(79.5)
+
+
+# ---- #93: a lookup reads the registered version and registers nothing ------
+
+def test_eff_lookup_does_not_version_an_edited_current(tmp_path):
+    """A read-only diagnostic called `_eff_nominals` seconds after a branch switch
+    had edited an input's current/, and the lookup registered baci v25, a version
+    no run uses (#93). A lookup reads the latest registered version."""
+    from copper_feed import eff_nominals
+    from pysuto.input_registry import InputRegistries
+
+    csv = tmp_path / "params" / "eff" / "current" / "params.csv"
+    csv.parent.mkdir(parents=True)
+    csv.write_text("param_id;param_type;a_sector_to;value_nominal\n"
+                   "effsmelting;efficiency;Smelting;0.98\n")
+    InputRegistries.initialize(root=tmp_path)
+    csv.write_text("param_id;param_type;a_sector_to;value_nominal\n"
+                   "effsmelting;efficiency;Smelting;0.95\n")
+
+    assert eff_nominals(InputRegistries.load(root=tmp_path)) == {"Smelting": 0.98}
+    assert not (tmp_path / "params" / "eff" / "v2").exists()
+
+
+# ---- #63: the netting and the ICSG parse read the same gross BACI version ---
+
+def _icsg_parents(d, baci):
+    (d / "parents.json").write_text(json.dumps(
+        {"inputs": {"feed": {"baci": baci}, "params": {"conc": 10}}}))
+    return d
+
+
+def test_an_icsg_input_parsed_against_the_netted_version_passes(tmp_path):
+    check_icsg_baci_version(_icsg_parents(tmp_path, 28), 28, "baci")
+
+
+def test_an_icsg_input_parsed_against_another_baci_version_is_refused(tmp_path):
+    """Its imported-anode subtraction would carry another release's anode trade."""
+    with pytest.raises(ValueError, match=r"baci v26.*nets baci v28.*--baci-version 28"):
+        check_icsg_baci_version(_icsg_parents(tmp_path, 26), 28, "baci")
+
+
+def test_an_icsg_input_recording_no_baci_version_is_refused(tmp_path):
+    with pytest.raises(ValueError, match=r"records no baci version.*--baci-version 28"):
+        check_icsg_baci_version(tmp_path, 28, "baci")
+
+
+# ---------------------------------------------------------------------------
+# waterfill (#147)
+# ---------------------------------------------------------------------------
+
+class TestWaterfill:
+
+    def test_an_allocation_within_its_caps_is_unchanged(self):
+        assert waterfill({"a": 3.0, "b": 2.0}, {"a": 5.0, "b": 5.0}) == {"a": 3.0, "b": 2.0}
+
+    def test_the_excess_over_a_cap_goes_to_the_others_in_proportion_to_their_want(self):
+        got = waterfill({"a": 8.0, "b": 1.0, "c": 3.0}, {"a": 4.0, "b": 10.0, "c": 10.0})
+        assert got["a"] == 4.0
+        assert got["b"] == pytest.approx(1.0 + 4.0 * 1.0 / 4.0)
+        assert got["c"] == pytest.approx(3.0 + 4.0 * 3.0 / 4.0)
+        assert sum(got.values()) == pytest.approx(12.0)
