@@ -7,7 +7,7 @@ from its first to its last close, and the issues closed per working day. The spa
 the first close and misses the work before it, so the rate is an upper bound. An open round
 shows its rate so far beside its due date.
 
-    python scripts/milestone_rates.py
+    python tools/milestone_rates.py
 """
 from __future__ import annotations
 

@@ -2,7 +2,7 @@
 ===========================
 The shipped tutorial notebooks (``src/pysuto/tutorial/00..10``) obey the style sheet's
 hard rules (#60, #191). The check is static: it reads each notebook's JSON and executes
-nothing; the executed outputs are the business of ``scripts/refresh_tutorial.py`` (#188).
+nothing; the executed outputs are the business of ``tools/refresh_tutorial.py`` (#188).
 """
 
 from __future__ import annotations
@@ -21,7 +21,7 @@ NOTEBOOKS = sorted(TUTORIAL.glob("[0-9][0-9]_*.ipynb"))
 MAX_BODY = 5                                       # lines of a function body
 ANSWER_HOOKS = ("truth", "reveal")                 # the answer key, from chapter 07 on
 # No shipped cell source or output holds "/tmp/" (checked on 2026-11-18), so it cannot
-# false-positive on prose; ``scripts/refresh_tutorial.py`` rewrites temp paths.
+# false-positive on prose; ``tools/refresh_tutorial.py`` rewrites temp paths.
 HOME_OR_TEMP = re.compile(r"/home/|/Users/|/tmp/|/var/folders/|[A-Za-z]:\\+Users")
 EXERCISE = re.compile(r"\*\*Exercise \d+\.\d+\*\*")
 LOG_LINE = re.compile(r"\| (?:INFO|DEBUG) \|")            # a library log line in an output

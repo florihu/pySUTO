@@ -40,7 +40,7 @@ in the main checkout.
    prediction is scored and every number names its run.
 5. **ADR.** The amendment that says "to be measured (#N)" now states the outcome: shipped or
    rejected on measurement, with the run id and the headline number. *Done when*
-   `python scripts/issue_audit.py` lists no ADR line for #N.
+   `python tools/issue_audit.py` lists no ADR line for #N.
 6. **Commit and merge.** `measure(<scope>): <finding> (ADR …, #N)`, the round's bookkeeping in
    the milestone's issues, then `git merge --no-ff`. A miss at the numerical floor ships only by the
    maintainer's decision, which the REP states. *Done when* the merge is on main.

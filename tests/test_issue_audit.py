@@ -6,7 +6,7 @@ from __future__ import annotations
 import os
 import sys
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 import issue_audit as A  # noqa: E402
 
 TRIAGE_MD = """

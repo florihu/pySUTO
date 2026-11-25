@@ -9,7 +9,7 @@ import sys
 
 import pytest
 
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "scripts"))
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "tools"))
 import milestone_rates as M  # noqa: E402
 
 MON = dt.date(2026, 11, 16)
