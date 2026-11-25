@@ -49,6 +49,6 @@ def _build(cls, payload):
 
 
 def load_config(path: Union[str, Path] = "config/config.yaml") -> Config:
-    with open(path) as fh:
+    with open(path, encoding="utf-8") as fh:
         raw = yaml.safe_load(fh)
     return _build(Config, {"pipeline": raw["pipeline"]})

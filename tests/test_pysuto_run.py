@@ -34,7 +34,7 @@ REPO = Path(__file__).resolve().parents[1]
 
 def _run(cwd: Path, *args: str) -> subprocess.CompletedProcess:
     return subprocess.run([sys.executable, "-m", "pysuto", "run", *args], cwd=str(cwd),
-                          capture_output=True, text=True,
+                          capture_output=True, text=True, encoding="utf-8",
                           env={**os.environ, "PYTHONPATH": str(REPO / "src")})
 
 
@@ -339,3 +339,20 @@ def test_the_imp_sidecar_records_the_feed_collectors_coverage_threshold(chain):
     side = json.loads((chain["root"] / "proc" / "imp" / chain["ids"]["imp"]
                        / "metadata.json").read_text())
     assert side["stage_config"]["case"]["imp"]["MIN_FLOW_KT"] == 0.01
+
+
+def test_the_steps_write_utf8_when_the_locale_encodes_stdout_as_cp1252(tmp_path):
+    """#293: a pipe on Windows encodes with cp1252, which lacks the ``σ`` of the diag
+    summary the imp body prints; the step child writes UTF-8 whatever the parent's
+    ``PYTHONIOENCODING`` says, and its log files are UTF-8."""
+    root = tmp_path / "data"
+    proc = subprocess.run(
+        [sys.executable, "-m", "pysuto", "run", "--case", "toy", "--to", "imp",
+         "--data-dir", str(root)], cwd=str(tmp_path), capture_output=True, text=True,
+        encoding="utf-8",
+        env={**os.environ, "PYTHONPATH": str(REPO / "src"), "PYTHONIOENCODING": "cp1252"})
+    assert proc.returncode == 0, f"{proc.stdout[-1500:]}\n{proc.stderr[-3000:]}"
+    step_log = (root / "logs" / "pipeline" / "toy_imp.log").read_text(encoding="utf-8")
+    assert "σ" in step_log
+    for log in (root / "logs").glob("*.log"):
+        log.read_text(encoding="utf-8")                  # raises on a non-UTF-8 byte

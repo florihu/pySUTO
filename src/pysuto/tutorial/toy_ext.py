@@ -599,7 +599,8 @@ def run_case(case: str, data_dir, *args: str) -> "dict[str, str]":
     """
     cmd = [sys.executable, "-m", "pysuto", "run", "--case", str(case),
            "--data-dir", str(data_dir), *args]
-    done = subprocess.run(cmd, capture_output=True, text=True)
+    done = subprocess.run(cmd, capture_output=True, text=True,
+                          encoding="utf-8")
     if done.returncode:
         tail = "\n".join(done.stderr.strip().splitlines()[-12:])
         raise RuntimeError(f"`python -m pysuto run --case {case}` exited "

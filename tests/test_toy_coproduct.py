@@ -35,7 +35,7 @@ def chain(tmp_path_factory):
     proc = subprocess.run(
         [sys.executable, "-m", "pysuto", "run", "--case", "toy_coproduct", "--from",
          "feed", "--to", "psut", "--data-dir", str(root)],
-        cwd=str(cwd), capture_output=True, text=True,
+        cwd=str(cwd), capture_output=True, text=True, encoding="utf-8",
         env={**os.environ, "PYTHONPATH": str(REPO / "src")})
     assert proc.returncode == 0, f"{proc.stdout[-1500:]}\n{proc.stderr[-3000:]}"
     printed = {line.split()[0]: line.split()[1:] for line in proc.stdout.splitlines()}

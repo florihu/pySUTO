@@ -46,7 +46,7 @@ from feedprep.trade_shares import (check_parents_record, decoded_edges,
                                           trade_share_parents as _trade_share_parents)
 from feedprep.reexport import MAX_CV_SCALE, icsg_aggregate_members
 from pysuto.input_registry import InputRegistries
-from pysuto.logging import get_logger
+from pysuto.logging import get_logger, utf8_stdio_env
 from pysuto.relation.param_relation import expand_edge_index
 from pysuto.relation.params import read_params
 
@@ -950,7 +950,8 @@ def _run_script(script: str, *args: str, data_dir: str) -> None:
     log_path = os.path.join(data_dir, "logs", f"{Path(script).stem}.log")
     _log.info("stage 1: %s", " ".join(cmd[1:]))
     with open(log_path, "a", encoding="utf-8") as log:
-        rc = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT).returncode
+        rc = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT,
+                            env=utf8_stdio_env()).returncode
     if rc != 0:
         with open(log_path, encoding="utf-8", errors="replace") as f:
             tail = "".join(f.readlines()[-30:])

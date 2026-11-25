@@ -33,6 +33,27 @@ class _ConsoleHandler(logging.StreamHandler):
         return text.encode(enc, "replace").decode(enc) if enc else text
 
 
+def utf8_stdio_env(env=None) -> dict:
+    """A copy of ``env`` (default: this process's) in which a child Python writes its
+    stdout and stderr as UTF-8, whatever the locale.
+
+    ``PYTHONIOENCODING`` sets the streams only; ``PYTHONUTF8`` would also change the
+    default encoding of every ``open()`` of the child, which the pipeline does not want.
+    """
+    out = dict(os.environ if env is None else env)
+    out["PYTHONIOENCODING"] = "utf-8"
+    return out
+
+
+def use_utf8_stdio() -> None:
+    """Make this process's stdout and stderr UTF-8, for a driver run directly with
+    redirected output: a pipe or file on Windows encodes with cp1252, which lacks the
+    ``σ`` and ``→`` of the diag summaries. A stream without ``reconfigure`` is left."""
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure") and getattr(stream, "encoding", "") != "utf-8":
+            stream.reconfigure(encoding="utf-8")
+
+
 def get_logger(name="system"):
     """
     Return a named logger with a console handler and no file handler.
@@ -84,10 +105,12 @@ def start_run_log(data_dir, name: str) -> str:
     """
     Start the logs of one driver run under ``<data_dir>/logs`` and return that directory.
 
-    Calls :func:`configure_file_logs` for the per-module files and attaches the
-    timestamped run handler ``<data_dir>/logs/<name>_<YYYYmmdd_HHMMSS>.log`` to the
-    root logger (:func:`add_run_handler`).
+    Makes stdout and stderr UTF-8 (:func:`use_utf8_stdio`), calls
+    :func:`configure_file_logs` for the per-module files and attaches the timestamped run
+    handler ``<data_dir>/logs/<name>_<YYYYmmdd_HHMMSS>.log`` to the root logger
+    (:func:`add_run_handler`).
     """
+    use_utf8_stdio()
     log_dir = os.path.join(os.fspath(data_dir), "logs")
     configure_file_logs(log_dir)
     add_run_handler(os.path.join(log_dir, f"{name}_{datetime.now():%Y%m%d_%H%M%S}.log"))
@@ -95,7 +118,7 @@ def start_run_log(data_dir, name: str) -> str:
 
 
 def _add_file_handler(logger: logging.Logger, name: str) -> None:
-    fh = logging.FileHandler(os.path.join(_LOG_DIR, f"{name}.log"))
+    fh = logging.FileHandler(os.path.join(_LOG_DIR, f"{name}.log"), encoding="utf-8")
     fh.setFormatter(_formatter())
     logger.addHandler(fh)
 
@@ -116,7 +139,7 @@ def add_run_handler(log_path: str) -> logging.FileHandler:
         add_run_handler(f"{data_dir}/logs/baci_v0_{datetime.now():%Y%m%d_%H%M%S}.log")
     """
     os.makedirs(os.path.dirname(os.path.abspath(log_path)), exist_ok=True)
-    fh = logging.FileHandler(log_path)
+    fh = logging.FileHandler(log_path, encoding="utf-8")
     fh.setFormatter(_formatter())
     root = logging.getLogger()
     root.setLevel(logging.DEBUG)
