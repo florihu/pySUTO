@@ -81,7 +81,21 @@ Branch `diag/manuscript-refresh-320`; `docs/manuscript/handover.md` lists every 
 - **Stale numbers found:** Stage 4 "535 s" (98 s on the run log, probe included), Discussion A3 95 % / 79 % (92 % / 70 %),
   A2 "21 years before 2019" (16 of the 22 before 2017), √R "about 2.3" (2.21), Scrap→CFR κ 0.93 (0.92).
 - **Code:** Figure 5d's x-limits follow the plotted values (`retention_delta_xlim`): the fixed (−0.3, 0.12) cut off the
-  new pair's +0.184.
+  new pair's +0.184. Its tick labels are now 0 and ±0.2 only (−0.2 and −0.05 overlapped).
+- **Sweep (#316, 2026-11-25):** A6, Figure 5d–e, SI S15.2/S15.4/S18b, Tables S22b/S22c and Figure S3 read
+  `sweep_20261124_153029_a4bb2afb`; the "earlier chain" caveats are gone. Discussion take-home 2: termination moves one
+  stage "nearly four times" the sweep's largest change (0.184 / 0.050), was "six times" (0.030).
+
+## #316 MEASURED 2026-11-25 — the knob sweep around the reference run: A6 fails as before, 49/64 (Scrap→CFR CC 0.050)
+
+REP `docs/rep/analysis_sweep_20261124_153029_a4bb2afb_20261125_knob-study.md`; design of #108, cascade axis over four
+imputers; 64/64 points in 8.7 h.
+- **A6:** 49/64 within 0.02 (was 59/64 around `opt_20261022_112855_928da10c`); max 0.0496 at p015, Scrap→CFR CC; the
+  other eight stages ≤ 0.0101. 14 breaches at no-data anchor cv 0.059–0.096, one at 0.026 (−0.021).
+- **Ranking:** three σ knobs first on all twelve outcomes (scale-total cv 7, no-data anchor cv 2, leg-σ exponent 3);
+  nine of 15 knobs influential on none. Round-E (c): Peru 64, Chile 60, Indonesia 16.
+- **Open:** why the scrap legs move about twice as much as around the earlier chain is not measured (REP §4); it
+  changes no Table 3 outcome.
 
 ## #315 MEASURED 2026-11-24 — A5 on the reference const run: 0/9 stages within 0.02 (max 0.184, CO→Mining Mass), FAIL as before
 
