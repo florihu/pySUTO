@@ -60,7 +60,7 @@ python -m pysuto run --case toy --data-dir toy-data
 
 `--case` takes a bundled alias (`toy`, `toy_coproduct`), a dotted module on `sys.path` or a file path (`./my_case.py`); each names a module that declares a `CASE`. `--from` and `--to` select a slice of the chain (`feed`, `imp`, `const`, `opt`, `uncprop`, `psut`). The run trees appear under `toy-data/proc/<stage>/<run_id>/`; the logs are in `toy-data/logs/`. pySUTO ships no study case (ADR 0047).
 
-**3. The copper chain.** This runs only from a checkout with the licensed source data under `data/input/raw` and the input tables that carry no licence yet (see *Licence and citation*). The repository holds neither.
+**3. The copper chain.** This runs only from a checkout that holds the licensed source data under `data/input/raw`. It also needs the input tables that carry no licence yet (see *How to cite*). The repository holds neither.
 
 ```bash
 python scripts/acc.py --id copper
@@ -96,7 +96,7 @@ Every artefact carries a value and its σ. Hard rows hold exactly; soft rows are
 | Library | [src/pysuto/](src/pysuto/): the six stages, the registries, the solver, [diag/](src/pysuto/diag/) (diagnostics). It knows no study case. |
 | Application (copper) | [scripts/](scripts/): the case, the feeds and builders, the stage drivers, the sweeps, the reports. See [scripts/README.md](scripts/README.md). |
 | Tooling | [tools/](tools/): input status, issue audit, run pruning, tutorial refresh. |
-| Tests | [tests/](tests/); `tests/copper/` holds the tests that need the copper application. Run them with `python -m pytest tests/` (never bare `pytest`). |
+| Tests | [tests/](tests/); `tests/copper/` (from #304 on) holds the tests that need the copper application. Run them with `python -m pytest tests/` (never bare `pytest`). |
 | Tutorial | [src/pysuto/tutorial/](src/pysuto/tutorial/): the toy case and the eleven notebooks. |
 | Architecture and modules | [docs/architecture.md](docs/architecture.md): the stages, their mathematics, the module reference, the import direction. |
 | Workflow | [docs/workflow.md](docs/workflow.md): the driver walk-through, run ids, sidecars, input registries, knobs, sweeps. |
@@ -111,7 +111,7 @@ Every artefact carries a value and its σ. Hard rows hold exactly; soft rows are
 
 To cite pySUTO, use [CITATION.cff](CITATION.cff). GitHub shows it under "Cite this repository".
 
-**Licence.** The code is licensed under the MIT License ([LICENSE](LICENSE)). The hand-authored tables `data/input/acc/`, `data/input/params/{conc,eff}/` and `data/input/mask/` are licensed under CC BY 4.0 ([LICENSE-DATA](LICENSE-DATA)). The other input tables (the feed concordances, metadata and weights, and the parameter tables `icsg_aggregates`, `ore_grade`, `scrap_share`, `stock_bounds` and `stripping_ratio`) carry no licence until their licence check is recorded (#297), so the repository does not hold them; the original source data are not in the repository and stay under their owners' terms. The optional `uncprop` extra pulls in `scikit-sparse`, whose CHOLMOD backend is LGPL/GPL; pySUTO does not need it.
+**Licence.** The code is licensed under the MIT License ([LICENSE](LICENSE)). The hand-authored tables `data/input/acc/`, `data/input/params/{conc,eff}/` and `data/input/mask/` are licensed under CC BY 4.0 ([LICENSE-DATA](LICENSE-DATA)). The other input tables (the feed concordances, metadata and weights, and the parameter tables `icsg_aggregates`, `ore_grade`, `scrap_share`, `stock_bounds` and `stripping_ratio`) carry no licence until their licence check is recorded (#297), so the repository does not hold them; the original source data are not in the repository and stay under their owners' terms.
 
 ---
 
