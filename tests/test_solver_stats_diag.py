@@ -12,6 +12,8 @@ small dense ``G`` so ``lhs_prior = G·a0`` is checkable by eye) and a stub
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -218,7 +220,7 @@ def test_write_emits_pair_per_year(tmp_path):
         {"1995": ResStub(), "1996": Res96Stub()}, CRStub(), AccStub(), years="all",
     )
     paths = d.write(str(tmp_path))
-    names = [p.split("/")[-1] for p in paths]
+    names = [os.path.basename(p) for p in paths]
     assert names == ["edges_1995.csv", "constraints_1995.csv",
                      "edges_1996.csv", "constraints_1996.csv"]
     for p in paths:
@@ -332,7 +334,7 @@ def test_acc_none_disables_only_the_edge_side():
 
 def test_write_rankings_emits_one_csv_per_family(frames_diag, tmp_path):
     paths = frames_diag.write_rankings(str(tmp_path))
-    names = sorted(p.split("/")[-1] for p in paths)
+    names = sorted(os.path.basename(p) for p in paths)
     assert names == ["ranking_edges.csv", "ranking_soft_ratios.csv", "ranking_sum_rows.csv"]
     r = pd.read_csv(tmp_path / "ranking_sum_rows.csv")
     assert list(r.columns)[:6] == ["rank", "identity", "label", "sector_key", "zsq", "share"]

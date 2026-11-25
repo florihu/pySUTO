@@ -953,10 +953,10 @@ def test_the_library_imports_no_supply_use_package():
     banned = ("pysut", "pymrio")
     src = pathlib.Path(pysuto.__file__).parent
     for path in src.rglob("*.py"):
-        for line in path.read_text().splitlines():
+        for line in path.read_text(encoding="utf-8").splitlines():
             head = line.strip().split()
             if len(head) >= 2 and head[0] in ("import", "from"):
                 assert head[1].split(".")[0].lower() not in banned, (path, line)
     toml = src.parents[1] / "pyproject.toml"
     if toml.exists():
-        assert not re.search(r"\b(pysut|pymrio)\b", toml.read_text().lower())
+        assert not re.search(r"\b(pysut|pymrio)\b", toml.read_text(encoding="utf-8").lower())

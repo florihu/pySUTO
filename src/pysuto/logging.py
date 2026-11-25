@@ -20,6 +20,19 @@ _NAMES: list = []        # every logger get_logger returned, in first-call order
 _LOCK = threading.Lock() # guards _LOG_DIR, _NAMES and the file-handler swap (threads)
 
 
+class _ConsoleHandler(logging.StreamHandler):
+    """A stream handler that replaces a character its stream cannot encode.
+
+    A pipe on Windows encodes with the ANSI code page (cp1252), which lacks ``≈`` and ``→``;
+    the plain handler then drops the whole record with a "Logging error".
+    """
+
+    def format(self, record):
+        text = super().format(record)
+        enc = getattr(self.stream, "encoding", None)
+        return text.encode(enc, "replace").decode(enc) if enc else text
+
+
 def get_logger(name="system"):
     """
     Return a named logger with a console handler and no file handler.
@@ -33,7 +46,7 @@ def get_logger(name="system"):
     with _LOCK:
         if not logger.handlers:  # no duplicate handlers; own ones only
             logger.setLevel(logging.DEBUG)
-            ch = logging.StreamHandler(sys.stdout)
+            ch = _ConsoleHandler(sys.stdout)
             ch.setFormatter(_formatter())
             logger.addHandler(ch)
             _NAMES.append(name)

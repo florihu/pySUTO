@@ -9,6 +9,8 @@ Reuses the ``CovAcc`` topology of ``tests/test_coverage_diag.py`` so the val rul
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -196,7 +198,7 @@ def test_year_filter_drops_1996(diag):
 def test_write_emits_both_csvs(diag, tmp_path):
     paths = diag.write(str(tmp_path))
     assert len(paths) == 2
-    names = {p.split("/")[-1] for p in paths}
+    names = {os.path.basename(p) for p in paths}
     assert names == {"stats_from_1995.csv", "stats_to_1995.csv"}
     for p in paths:
         assert pd.read_csv(p).shape[0] > 0
