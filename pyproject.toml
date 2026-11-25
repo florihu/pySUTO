@@ -67,7 +67,8 @@ packages = ["src/pysuto"]
 exclude = ["src/pysuto/tutorial/runs", "**/.ipynb_checkpoints"]
 
 [tool.hatch.build.targets.sdist]
-# Project history and working material stay in the repository; tests/ ships.
+# Project history and working material stay in the repository; tests/ ships, and so
+# does tools/, which the shipped tests load.
 exclude = [
     "/scripts/explo",
     "/docs/rep",

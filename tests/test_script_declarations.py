@@ -1,4 +1,4 @@
-"""test_script_declarations.py — the pure parts of two scripts that no test reached (#279).
+"""test_script_declarations.py — the pure parts of a script and a tool that no test reached (#279).
 
 ``scripts/sweep_diag.py`` declares #108's pre-registered outcomes and criteria; its
 ``declarations()`` is data and is checked without a sweep. ``tools/refresh_tutorial.py``
