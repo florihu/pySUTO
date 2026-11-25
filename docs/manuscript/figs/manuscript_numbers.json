@@ -1,6 +1,6 @@
 {
  "opt_run_id": "opt_20261124_141714_e2892160",
- "generated": "2026-11-24",
+ "generated": "2026-11-25",
  "chain": {
   "const": "const_20261124_141044_e73c5952",
   "imp": "imp_20261124_140720_ad766e00",
@@ -17,9 +17,9 @@
    "uncprop_20261124_150634_1ebdc2db"
   ],
   "sweep": [
-   "sweep_20261102_145601_8413cace"
+   "sweep_20261124_153029_a4bb2afb"
   ],
-  "sweep_base": "opt_20261022_112855_928da10c",
+  "sweep_base": "opt_20261124_141714_e2892160",
   "versions": {
    "acc": 5,
    "conc": 10,
@@ -3056,7 +3056,7 @@
   },
   "si:S15.4.sweep_run_id": {
    "label": "the knob sweep built on this run (latest)",
-   "value": "sweep_20261102_145601_8413cace",
+   "value": "sweep_20261124_153029_a4bb2afb",
    "unit": ""
   },
   "results:L73.a6_n_points": {
@@ -3071,20 +3071,20 @@
   },
   "results:L73.a6_other_stages_max": {
    "label": "largest |Δ pooled retention| on the stages other than d_retention[Scrap→CFR CC]",
-   "value": 0.0047678412788201,
+   "value": 0.0100721390342357,
    "unit": ""
   },
   "results:L73.a6_breach_driver_range": {
    "label": "const.NODATA_ANCHOR_CV at the points breaking A6 (min, max)",
    "value": [
-    0.0803426627590833,
-    0.0933442999303971
+    0.0257209476587893,
+    0.0962558960703048
    ],
    "unit": ""
   },
   "results:L73.a6_never_influential": {
    "label": "knobs influential on none of the criterion outcomes (|SRRC| ≥ 0.2 with R² ≥ 0.5)",
-   "value": 10,
+   "value": 9,
    "unit": ""
   },
   "si:S15.4.a6_n_points": {
@@ -3099,25 +3099,25 @@
   },
   "si:S15.4.a6_other_stages_max": {
    "label": "largest |Δ pooled retention| on the stages other than d_retention[Scrap→CFR CC]",
-   "value": 0.0047678412788201,
+   "value": 0.0100721390342357,
    "unit": ""
   },
   "si:S15.4.a6_breach_driver_range": {
    "label": "const.NODATA_ANCHOR_CV at the points breaking A6 (min, max)",
    "value": [
-    0.0803426627590833,
-    0.0933442999303971
+    0.0257209476587893,
+    0.0962558960703048
    ],
    "unit": ""
   },
   "si:S15.4.a6_never_influential": {
    "label": "knobs influential on none of the criterion outcomes (|SRRC| ≥ 0.2 with R² ≥ 0.5)",
-   "value": 10,
+   "value": 9,
    "unit": ""
   },
   "results:L90.A6.points_meeting": {
    "label": "points meeting A6",
-   "value": 59,
+   "value": 49,
    "unit": ""
   },
   "results:L90.A6.points_done": {
@@ -3126,18 +3126,18 @@
    "unit": ""
   },
   "results:L90.A6.worst": {
-   "label": "largest |Δ pooled retention| (d_retention[Scrap→CFR CC], point 47)",
-   "value": 0.0297788905746085,
+   "label": "largest |Δ pooled retention| (d_retention[Scrap→CFR CC], point 15)",
+   "value": 0.049597874927298,
    "unit": ""
   },
   "results:L90.A6.others_max": {
    "label": "largest |Δ| on the other eight stages",
-   "value": 0.0047678412788201,
+   "value": 0.0100721390342357,
    "unit": ""
   },
   "si:S15.T_S18b.A6.points_meeting": {
    "label": "points meeting A6",
-   "value": 59,
+   "value": 49,
    "unit": ""
   },
   "si:S15.T_S18b.A6.points_done": {
@@ -3146,18 +3146,18 @@
    "unit": ""
   },
   "si:S15.T_S18b.A6.worst": {
-   "label": "largest |Δ pooled retention| (d_retention[Scrap→CFR CC], point 47)",
-   "value": 0.0297788905746085,
+   "label": "largest |Δ pooled retention| (d_retention[Scrap→CFR CC], point 15)",
+   "value": 0.049597874927298,
    "unit": ""
   },
   "si:S15.T_S18b.A6.others_max": {
    "label": "largest |Δ| on the other eight stages",
-   "value": 0.0047678412788201,
+   "value": 0.0100721390342357,
    "unit": ""
   },
   "results:L73.outside[d_export_retention[Chile]]": {
    "label": "points with |Δ| ≥ 0.01",
-   "value": 2,
+   "value": 4,
    "unit": ""
   },
   "results:L73.outside[d_export_retention[Peru]]": {
@@ -3167,12 +3167,12 @@
   },
   "results:L73.outside[d_export_retention[Indonesia]]": {
    "label": "points with |Δ| ≥ 0.01",
-   "value": 46,
+   "value": 48,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[CO→Mining Mass].max_abs": {
    "label": "max_abs of d_retention[CO→Mining Mass]",
-   "value": 0.0010234396797687,
+   "value": 0.0003296380075602,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[CO→Mining Mass].within": {
@@ -3182,7 +3182,7 @@
   },
   "si:S15.T_S22c.d_retention[CO→Mining Mass].top_knob": {
    "label": "top_knob of d_retention[CO→Mining Mass]",
-   "value": "imp.CASCADE_ORDER",
+   "value": "imp.LEG_SIGMA_GAMMA",
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[CO→Mining Mass].statistic": {
@@ -3192,22 +3192,22 @@
   },
   "si:S15.T_S22c.d_retention[CO→Mining Mass].value": {
    "label": "value of d_retention[CO→Mining Mass]",
-   "value": 0.8143729331435249,
+   "value": 0.7333997953831574,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[CO→Mining Mass].r2": {
    "label": "r2 of d_retention[CO→Mining Mass]",
-   "value": 0.8547272248731896,
+   "value": 0.797773679555925,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[CO→Mining Mass].swing": {
    "label": "swing of d_retention[CO→Mining Mass]",
-   "value": 0.0010209024063432,
+   "value": 0.000239590039187,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[MF→Concentrate CC].max_abs": {
    "label": "max_abs of d_retention[MF→Concentrate CC]",
-   "value": 0.0025860792312399,
+   "value": 0.0034776863158438,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[MF→Concentrate CC].within": {
@@ -3217,7 +3217,7 @@
   },
   "si:S15.T_S22c.d_retention[MF→Concentrate CC].top_knob": {
    "label": "top_knob of d_retention[MF→Concentrate CC]",
-   "value": "imp.LEG_SIGMA_GAMMA",
+   "value": "const.ANCHOR_CV=const.FABRICATED_ANCHOR_CV=const.SIGMA_C_CV_MIN",
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[MF→Concentrate CC].statistic": {
@@ -3227,22 +3227,22 @@
   },
   "si:S15.T_S22c.d_retention[MF→Concentrate CC].value": {
    "label": "value of d_retention[MF→Concentrate CC]",
-   "value": 0.5470281812867122,
+   "value": 0.8611020284924779,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[MF→Concentrate CC].r2": {
    "label": "r2 of d_retention[MF→Concentrate CC]",
-   "value": 0.6056382786701955,
+   "value": 0.9789334636520846,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[MF→Concentrate CC].swing": {
    "label": "swing of d_retention[MF→Concentrate CC]",
-   "value": 0.0011206018635882,
+   "value": 0.0035303007158178,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[Concentrate→Smelting CC].max_abs": {
    "label": "max_abs of d_retention[Concentrate→Smelting CC]",
-   "value": 0.0024667630293206,
+   "value": 0.0033124600798004,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[Concentrate→Smelting CC].within": {
@@ -3252,7 +3252,7 @@
   },
   "si:S15.T_S22c.d_retention[Concentrate→Smelting CC].top_knob": {
    "label": "top_knob of d_retention[Concentrate→Smelting CC]",
-   "value": "imp.LEG_SIGMA_GAMMA",
+   "value": "const.ANCHOR_CV=const.FABRICATED_ANCHOR_CV=const.SIGMA_C_CV_MIN",
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[Concentrate→Smelting CC].statistic": {
@@ -3262,22 +3262,22 @@
   },
   "si:S15.T_S22c.d_retention[Concentrate→Smelting CC].value": {
    "label": "value of d_retention[Concentrate→Smelting CC]",
-   "value": 0.5470281812867122,
+   "value": 0.8611020284924779,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[Concentrate→Smelting CC].r2": {
    "label": "r2 of d_retention[Concentrate→Smelting CC]",
-   "value": 0.6056382786701955,
+   "value": 0.9789334636520846,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[Concentrate→Smelting CC].swing": {
    "label": "swing of d_retention[Concentrate→Smelting CC]",
-   "value": 0.0010688875700748,
+   "value": 0.0033632789567135,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[Anode→ER CC].max_abs": {
    "label": "max_abs of d_retention[Anode→ER CC]",
-   "value": 0.0031276167536904,
+   "value": 0.0021493568330974,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[Anode→ER CC].within": {
@@ -3297,22 +3297,22 @@
   },
   "si:S15.T_S22c.d_retention[Anode→ER CC].value": {
    "label": "value of d_retention[Anode→ER CC]",
-   "value": -0.9041597359490052,
+   "value": -0.8408297756038128,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[Anode→ER CC].r2": {
    "label": "r2 of d_retention[Anode→ER CC]",
-   "value": 0.9048306768465236,
+   "value": 0.95845832058137,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[Anode→ER CC].swing": {
    "label": "swing of d_retention[Anode→ER CC]",
-   "value": -0.0023723388979862,
+   "value": -0.0016387597683112,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[CP→Cathode CC].max_abs": {
    "label": "max_abs of d_retention[CP→Cathode CC]",
-   "value": 0.003399054797911,
+   "value": 0.0022876696597815,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[CP→Cathode CC].within": {
@@ -3332,22 +3332,22 @@
   },
   "si:S15.T_S22c.d_retention[CP→Cathode CC].value": {
    "label": "value of d_retention[CP→Cathode CC]",
-   "value": -0.9361580955682384,
+   "value": -0.9042879235091285,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[CP→Cathode CC].r2": {
    "label": "r2 of d_retention[CP→Cathode CC]",
-   "value": 0.8951455663317521,
+   "value": 0.9402191016619376,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[CP→Cathode CC].swing": {
    "label": "swing of d_retention[CP→Cathode CC]",
-   "value": -0.0026724547710477,
+   "value": -0.0021160210740687,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[Cathode→FU CC].max_abs": {
    "label": "max_abs of d_retention[Cathode→FU CC]",
-   "value": 0.0028371547739134,
+   "value": 0.0032571825538972,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[Cathode→FU CC].within": {
@@ -3357,7 +3357,7 @@
   },
   "si:S15.T_S22c.d_retention[Cathode→FU CC].top_knob": {
    "label": "top_knob of d_retention[Cathode→FU CC]",
-   "value": "const.ANCHOR_CV=const.FABRICATED_ANCHOR_CV=const.SIGMA_C_CV_MIN",
+   "value": "imp.LEG_SIGMA_GAMMA",
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[Cathode→FU CC].statistic": {
@@ -3367,22 +3367,22 @@
   },
   "si:S15.T_S22c.d_retention[Cathode→FU CC].value": {
    "label": "value of d_retention[Cathode→FU CC]",
-   "value": -0.8954813717078238,
+   "value": -0.7529539276671356,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[Cathode→FU CC].r2": {
    "label": "r2 of d_retention[Cathode→FU CC]",
-   "value": 0.8715055026010665,
+   "value": 0.8986122372962756,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[Cathode→FU CC].swing": {
    "label": "swing of d_retention[Cathode→FU CC]",
-   "value": -0.0020226702508302,
+   "value": -0.0019255356948007,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[Scrap→Smelting CC].max_abs": {
    "label": "max_abs of d_retention[Scrap→Smelting CC]",
-   "value": 0.0047678412788201,
+   "value": 0.0100721390342357,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[Scrap→Smelting CC].within": {
@@ -3402,22 +3402,22 @@
   },
   "si:S15.T_S22c.d_retention[Scrap→Smelting CC].value": {
    "label": "value of d_retention[Scrap→Smelting CC]",
-   "value": 0.7485934468028592,
+   "value": 0.921822757267951,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[Scrap→Smelting CC].r2": {
    "label": "r2 of d_retention[Scrap→Smelting CC]",
-   "value": 0.94298432124167,
+   "value": 0.986353867167326,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[Scrap→Smelting CC].swing": {
    "label": "swing of d_retention[Scrap→Smelting CC]",
-   "value": 0.0036648888786212,
+   "value": 0.0072364834701308,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[Smelting→Matte CC].max_abs": {
    "label": "max_abs of d_retention[Smelting→Matte CC]",
-   "value": 0.0027646058041749,
+   "value": 0.0015856203583133,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[Smelting→Matte CC].within": {
@@ -3437,27 +3437,27 @@
   },
   "si:S15.T_S22c.d_retention[Smelting→Matte CC].value": {
    "label": "value of d_retention[Smelting→Matte CC]",
-   "value": -0.9538182443897468,
+   "value": -0.655290501582771,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[Smelting→Matte CC].r2": {
    "label": "r2 of d_retention[Smelting→Matte CC]",
-   "value": 0.9132666920116136,
+   "value": 0.9039397649425548,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[Smelting→Matte CC].swing": {
    "label": "swing of d_retention[Smelting→Matte CC]",
-   "value": -0.0023676205656648,
+   "value": -0.0006878170077274,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[Scrap→CFR CC].max_abs": {
    "label": "max_abs of d_retention[Scrap→CFR CC]",
-   "value": 0.0297788905746085,
+   "value": 0.049597874927298,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[Scrap→CFR CC].within": {
    "label": "within of d_retention[Scrap→CFR CC]",
-   "value": 59,
+   "value": 49,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[Scrap→CFR CC].top_knob": {
@@ -3472,27 +3472,27 @@
   },
   "si:S15.T_S22c.d_retention[Scrap→CFR CC].value": {
    "label": "value of d_retention[Scrap→CFR CC]",
-   "value": 0.8353426027688774,
+   "value": 0.8418947780751915,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[Scrap→CFR CC].r2": {
    "label": "r2 of d_retention[Scrap→CFR CC]",
-   "value": 0.9870946375204857,
+   "value": 0.9884445686056476,
    "unit": ""
   },
   "si:S15.T_S22c.d_retention[Scrap→CFR CC].swing": {
    "label": "swing of d_retention[Scrap→CFR CC]",
-   "value": 0.0235190167011747,
+   "value": 0.0343694160325828,
    "unit": ""
   },
   "si:S15.T_S22c.d_export_retention[Chile].max_abs": {
    "label": "max_abs of d_export_retention[Chile]",
-   "value": 0.010264091459625,
+   "value": 0.0118975278054547,
    "unit": ""
   },
   "si:S15.T_S22c.d_export_retention[Chile].within": {
    "label": "within of d_export_retention[Chile]",
-   "value": 62,
+   "value": 60,
    "unit": ""
   },
   "si:S15.T_S22c.d_export_retention[Chile].top_knob": {
@@ -3507,22 +3507,22 @@
   },
   "si:S15.T_S22c.d_export_retention[Chile].value": {
    "label": "value of d_export_retention[Chile]",
-   "value": -0.9457909697840088,
+   "value": -0.862818831465538,
    "unit": ""
   },
   "si:S15.T_S22c.d_export_retention[Chile].r2": {
    "label": "r2 of d_export_retention[Chile]",
-   "value": 0.9670109478206972,
+   "value": 0.9598711048455988,
    "unit": ""
   },
   "si:S15.T_S22c.d_export_retention[Chile].swing": {
    "label": "swing of d_export_retention[Chile]",
-   "value": -0.008235015431188,
+   "value": -0.0102466215587422,
    "unit": ""
   },
   "si:S15.T_S22c.d_export_retention[Peru].max_abs": {
    "label": "max_abs of d_export_retention[Peru]",
-   "value": 0.002297466871814,
+   "value": 0.0017557988571417,
    "unit": ""
   },
   "si:S15.T_S22c.d_export_retention[Peru].within": {
@@ -3532,7 +3532,7 @@
   },
   "si:S15.T_S22c.d_export_retention[Peru].top_knob": {
    "label": "top_knob of d_export_retention[Peru]",
-   "value": "const.ANCHOR_CV=const.FABRICATED_ANCHOR_CV=const.SIGMA_C_CV_MIN",
+   "value": "imp.LEG_SIGMA_GAMMA",
    "unit": ""
   },
   "si:S15.T_S22c.d_export_retention[Peru].statistic": {
@@ -3542,27 +3542,27 @@
   },
   "si:S15.T_S22c.d_export_retention[Peru].value": {
    "label": "value of d_export_retention[Peru]",
-   "value": -0.8282020255120818,
+   "value": 0.8884626287589776,
    "unit": ""
   },
   "si:S15.T_S22c.d_export_retention[Peru].r2": {
    "label": "r2 of d_export_retention[Peru]",
-   "value": 0.9143512350143598,
+   "value": 0.9010858209950924,
    "unit": ""
   },
   "si:S15.T_S22c.d_export_retention[Peru].swing": {
    "label": "swing of d_export_retention[Peru]",
-   "value": -0.00177232575005,
+   "value": 0.0015495202089966,
    "unit": ""
   },
   "si:S15.T_S22c.d_export_retention[Indonesia].max_abs": {
    "label": "max_abs of d_export_retention[Indonesia]",
-   "value": 0.0329205569751268,
+   "value": 0.032470960866697,
    "unit": ""
   },
   "si:S15.T_S22c.d_export_retention[Indonesia].within": {
    "label": "within of d_export_retention[Indonesia]",
-   "value": 18,
+   "value": 16,
    "unit": ""
   },
   "si:S15.T_S22c.d_export_retention[Indonesia].top_knob": {
@@ -3577,29 +3577,29 @@
   },
   "si:S15.T_S22c.d_export_retention[Indonesia].value": {
    "label": "value of d_export_retention[Indonesia]",
-   "value": 0.8589268271833664,
+   "value": 0.9877058063115384,
    "unit": ""
   },
   "si:S15.T_S22c.d_export_retention[Indonesia].r2": {
    "label": "r2 of d_export_retention[Indonesia]",
-   "value": 0.9784550943471114,
+   "value": 0.979292528160296,
    "unit": ""
   },
   "si:S15.T_S22c.d_export_retention[Indonesia].swing": {
    "label": "swing of d_export_retention[Indonesia]",
-   "value": 0.0385696452708694,
+   "value": 0.0401941882342593,
    "unit": ""
   },
   "si:S15.4.a6_breach_driver_points": {
    "label": "points with const.NODATA_ANCHOR_CV in the breaches' range",
-   "value": 8,
+   "value": 62,
    "unit": ""
   },
   "si:S15.4.a6_breach_years": {
    "label": "years with |Δ| ≥ 0.02 on d_retention[Scrap→CFR CC] at a breaking point (min, max)",
    "value": [
-    12,
-    24
+    13,
+    26
    ],
    "unit": ""
   },
@@ -3608,9 +3608,12 @@
    "value": {
     "d_retention[Scrap→Smelting CC]": {
      "years": [
-      "1995"
+      "1995",
+      "2016",
+      "2017",
+      "2018"
      ],
-     "max": 0.0429353250010271
+     "max": 0.0305926977155608
     }
    },
    "unit": ""
@@ -3623,12 +3626,12 @@
   "si:S15.4.lead_knob_outcomes": {
    "label": "its outcomes",
    "value": [
+    "d_retention[MF→Concentrate CC]",
+    "d_retention[Concentrate→Smelting CC]",
     "d_retention[Anode→ER CC]",
     "d_retention[CP→Cathode CC]",
-    "d_retention[Cathode→FU CC]",
     "d_retention[Smelting→Matte CC]",
     "d_export_retention[Chile]",
-    "d_export_retention[Peru]",
     "d_export_retention[Indonesia]"
    ],
    "unit": ""
@@ -3636,37 +3639,37 @@
   "si:S15.4.lead_knob_abs_range": {
    "label": "its |statistic| on them (min, max)",
    "value": [
-    0.8282020255120818,
-    0.9538182443897468
+    0.655290501582771,
+    0.9877058063115384
    ],
    "unit": ""
   },
   "si:S15.4.lead_knob_r2_min": {
    "label": "the smallest R² among them",
-   "value": 0.8715055026010665,
+   "value": 0.9039397649425548,
    "unit": ""
   },
   "si:S15.4.widest_free_categories": {
    "label": "the three CC categories outside the criteria with the widest Δ (min, max)",
    "value": {
-    "d_retention[CFR→Slag CC]": [
-     -0.0523481286295819,
-     0.0389888582093957
+    "d_retention[ER→Slag CC]": [
+     -0.1101606344298543,
+     0.0396552508519855
     ],
     "d_retention[Smelting→Slag CC]": [
-     -0.0355394950485872,
-     0.0458761813186462
+     -0.0680306551461256,
+     0.0727683195470713
     ],
-    "d_retention[ER→Slag CC]": [
-     -0.0453662049928073,
-     0.0323728756159091
+    "d_retention[CFR→Slag CC]": [
+     -0.0573270418244449,
+     0.0289038154587675
     ]
    },
    "unit": ""
   },
   "si:S15.4.max_hard_violation": {
    "label": "largest hard-row miss of a point under the reference's rows",
-   "value": 1.308139429745769e-06,
+   "value": 2.6339216030769885e-06,
    "unit": "kt"
   }
  }
