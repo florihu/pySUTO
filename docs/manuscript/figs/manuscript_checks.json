@@ -396,6 +396,99 @@
   },
   "unit": "kt CC"
  },
+ "discussion:L88.hub_mass_imports_by_region": {
+  "label": "gross-mass imports on the cross-region legs into each non-processing region, all goods, 30 years: prior, posterior, retention, years with retention below 0.8",
+  "value": {
+   "France": [
+    9683.964226759814,
+    9726.597675060199,
+    1.0044024789127757,
+    0
+   ],
+   "Greece": [
+    2632.4061803598224,
+    2624.2700085255155,
+    0.9969092262831587,
+    0
+   ],
+   "Luxembourg": [
+    294.6069498020811,
+    137.88009218335156,
+    0.46801371208649467,
+    4
+   ],
+   "Malaysia": [
+    7286.609193328121,
+    7151.42161278362,
+    0.9814471207446828,
+    0
+   ],
+   "Mauritania": [
+    0.0159031731352407,
+    15.634657252061778,
+    983.1155781996799,
+    0
+   ],
+   "Netherlands": [
+    8498.51472186699,
+    2702.7179694904858,
+    0.31802239072861677,
+    30
+   ],
+   "Panama": [
+    51.03442383676134,
+    61.16314604426034,
+    1.1984684345589305,
+    1
+   ],
+   "Papua New Guinea": [
+    3.554209847531309,
+    28.61891073597083,
+    8.052116212510361,
+    1
+   ],
+   "Portugal": [
+    107.33773014338709,
+    53.23116156998556,
+    0.49592218410876326,
+    14
+   ],
+   "Singapore": [
+    2921.4548748331017,
+    2386.3306948201607,
+    0.8168295582373108,
+    8
+   ],
+   "Switzerland": [
+    14567.20400326469,
+    6485.174486099958,
+    0.4451900642461347,
+    26
+   ],
+   "Taiwan": [
+    17341.446739466755,
+    17247.4579244518,
+    0.9945801053149129,
+    0
+   ],
+   "United Arab Emirates": [
+    4299.662631844984,
+    4293.741694021123,
+    0.9986229296735962,
+    0
+   ]
+  },
+  "unit": "kt"
+ },
+ "discussion:L88.hub_cathode_mass_trade_hubs": {
+  "label": "gross-mass cathode imports into Switzerland and Netherlands, 30 years: prior, posterior, retention",
+  "value": [
+   15610.49051478215,
+   2175.215091583139,
+   0.13934316090345447
+  ],
+  "unit": "kt"
+ },
  "discussion:L104.scrap_cfr_kappa_default": {
   "label": "Scrap→CFR CC contraction by prior class, Stage-5 run with the scale totals and the ICSG scrap level anchors",
   "value": {
