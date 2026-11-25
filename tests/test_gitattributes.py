@@ -7,6 +7,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[1]
 ATTRS = ROOT / ".gitattributes"
 
@@ -22,15 +24,15 @@ def _rules() -> dict:
 
 
 def test_text_is_lf_whatever_autocrlf():
-    if not ATTRS.exists():  # a wheel or sdist install ships no .gitattributes
-        return
+    if not ATTRS.exists():
+        pytest.skip("a wheel or sdist install ships no .gitattributes")
     rules = _rules()
     assert rules["*"] == ["text=auto", "eol=lf"]
 
 
 def test_binary_types_never_converted():
     if not ATTRS.exists():
-        return
+        pytest.skip("a wheel or sdist install ships no .gitattributes")
     rules = _rules()
     for ext in ("docx", "ods", "pdf", "png", "ttf"):
         assert rules["*." + ext] == ["binary"]
@@ -38,7 +40,7 @@ def test_binary_types_never_converted():
 
 def test_crlf_files_keep_committed_bytes():
     if not ATTRS.exists():
-        return
+        pytest.skip("a wheel or sdist install ships no .gitattributes")
     rules = _rules()
     for rel in ("scripts/parse/icsg_parse/icsg_2023f.py",):
         assert rules[rel] == ["-text"]
