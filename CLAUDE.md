@@ -102,7 +102,7 @@ The test: Does the user understand your output after one read?
 
 # pySUTO — project-specific facts
 
-Supply–use-table reconciliation (copper application): a σ-weighted QP solved in Clarabel at the end of a six-stage pipeline (numpy · scipy.sparse · pandas). Architecture and module map are in [README.md](README.md) §2–§6 (an architecture document in `docs/` once #305 moves them), vocabulary in [GLOSSARY.md](GLOSSARY.md), decisions in `docs/adr/`, open work in GitHub issues and milestones. The code is of three kinds: the **library** `src/pysuto` holds the method, generic for every case; the **application** `scripts/` holds everything that carries copper's name (GLOSSARY.md "Application"); repo tooling goes in `tools/`. Re-measure, do not assume (ADR 0028): a claim about a run is backed by a run id and a number.
+Supply–use-table reconciliation (copper application): a σ-weighted QP solved in Clarabel at the end of a six-stage pipeline (numpy · scipy.sparse · pandas). Architecture and module map are in [README.md](README.md) §2–§6, vocabulary in [GLOSSARY.md](GLOSSARY.md), decisions in `docs/adr/`, open work in GitHub issues and milestones. The code is of three kinds: the **library** `src/pysuto` holds the method, generic for every case; the **application** `scripts/` holds everything that carries copper's name (GLOSSARY.md "Application"); repo tooling goes in `tools/` (from #303 on). Re-measure, do not assume (ADR 0028): a claim about a run is backed by a run id and a number.
 
 ## Pipeline
 
@@ -147,11 +147,11 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 - Logging: `get_logger(name)` per module; `print` only inside diag `.summary()`, and in the Stage 1 builders and `icsg_clean.py`, whose stdout the hook captures as their log (`copper_feed._run_script`).
 - Diagnostics contract: construct with data → `.plot(odir, show=False)` returns paths → `.summary()`. `diag/` is a leaf: the data layer never imports it at module level (driver-level code — the scripts, `pysuto.stages` — may).
 - Module-level imports flow one way (README §5 "Import direction is strictly one-way"); `utils`/`logging` import nothing from `pysuto`. A function-local import is allowed only to break a cycle and carries a comment saying so.
-- Comments and docstrings state the invariant or the reason, in the present tense, and may cite an ADR; `git blame` leads to the history. Issue numbers, round letters and run ids go in commit messages, REPs and issue comments, measured results in the REP that measured them; a workaround for an open issue cites that issue. The rule covers the library and the application; the frozen `scripts/explo/` is exempt.
+- Comments and docstrings state the invariant or the reason, in the present tense, and may cite an ADR; `git blame` leads to the history. Issue numbers, round letters and run ids go in commit messages, REPs and issue comments. Measured results go in the REP that measured them. A workaround for an open issue cites that issue. The rule covers the library and the application; the frozen `scripts/explo/` is exempt.
 
 ## Testing
 
-- `tests/` holds the library's tests, `tests/copper/` every test that needs the application folder present; both flat, no `conftest.py`, no markers, no golden files. Fixtures are toy objects built in the test module; use `tmp_path` and `monkeypatch`, never `mocker`.
+- `tests/` holds the library's tests, `tests/copper/` (from #304 on) every test that needs the application folder present; both flat, no `conftest.py`, no markers, no golden files. Fixtures are toy objects built in the test module; use `tmp_path` and `monkeypatch`, never `mocker`.
 - Tolerances: `np.allclose` with `rtol=1e-12`/`1e-10` for exact algebraic identities, `1e-6`/`1e-7` for solver outputs; `pytest.approx` (default or `rel=1e-6`) for scalars; `assert_array_equal` for indices and masks. Never loosen a tolerance to make a test pass.
 - A suite run writes no `logs/` (#190): `get_logger` has no file handler and `run_feed` attaches its root DEBUG handler only when given `run_log`. `tests/test_import_no_writes.py` imports every module from an empty directory.
 - A bug fix ships with the test that reproduces it; a change to a σ rule, builder, imputer or feed ships with a REP measuring it.
