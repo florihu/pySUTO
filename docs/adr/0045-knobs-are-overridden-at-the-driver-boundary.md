@@ -1,6 +1,6 @@
 # Knobs are overridden at the driver boundary; the pipeline composes drivers as subprocesses
 
-**Status:** accepted — (2026-10-21; #100, #103); its condition is measured and holds (2026-10-22, #106).
+**Status:** accepted (2026-10-21; #100, #103); its condition is measured and holds (2026-10-22, #106).
 `opt_20261022_091224_7ce11edb` (no overrides) and `opt_20261022_093350_82d7c31d` (all 66 knobs explicit at their
 defaults) reproduce `opt_20261021_131744_58504ad3` in every stored array, `F_opt` in 30/30 years, except one. The
 imputation log holds the same rows in another order. That order is drawn per process by a NetworkImputer set
