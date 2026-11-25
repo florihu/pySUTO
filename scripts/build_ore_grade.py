@@ -94,7 +94,8 @@ from pysuto.relation.params import read_params
 # ---------------------------------------------------------------------------
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
-# The margins (MARGIN_REL, MARGIN_REL_CARRY) are ``feedprep.ore_grade``'s; the sector labels the case's, ``copper_feed``.
+# The margins (MARGIN_REL, MARGIN_REL_CARRY) are ``feedprep.ore_grade``'s; the sector
+# labels the case's, ``copper_feed``.
 
 _INPUT_ROOT = os.path.join("data", "input")
 ACC_DIR     = os.path.join("data", "proc", "acc")

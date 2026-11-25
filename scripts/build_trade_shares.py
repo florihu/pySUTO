@@ -95,7 +95,8 @@ from pysuto.registry import stage_lock
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
 # The labels (traded sectors, signed stock legs, the bound's sectors, ADR 0020's gate) are
-# the copper case's, ``copper_feed``; the algorithm is ``feedprep.trade_shares``. Sectors actually emitted this run:
+# the copper case's, ``copper_feed``; the algorithm is ``feedprep.trade_shares``. Sectors
+# actually emitted this run:
 SECTORS = list(TRADED_SECTORS)
 
 _INPUT_ROOT = os.path.join("data", "input")

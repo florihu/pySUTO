@@ -1,4 +1,5 @@
-"""Unit tests for the feed-time re-export re-attribution (ADR 0027), ``feedprep.reexport``, and the copper ICSG readers it is fed by, ``scripts/copper_feed.py``."""
+"""Unit tests for the feed-time re-export re-attribution (ADR 0027), ``feedprep.reexport``,
+and the copper ICSG readers it is fed by, ``scripts/copper_feed.py``."""
 import json
 import os
 import shutil
