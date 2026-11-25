@@ -26,7 +26,7 @@ from types import SimpleNamespace
 import pytest
 
 from pysuto.pipeline import (GIT_LOCATION_VARS, STEPS, Axis, Chain, Pipeline, StepFailed,
-                             Sweep)
+                             Sweep, default_scratch_dir)
 from pysuto.registry import SweepRunRegistry
 
 
@@ -621,6 +621,33 @@ class TestSweepKeepsOnlyItsLastStep:
               mode="grid").run("k4")
         assert len(list((shm / "imp").iterdir())) == 1
         assert len(list((shm / "const").iterdir())) == 2
+
+    def test_no_scratch_run_remains_after_the_sweep(self, repo, shm):
+        self._sweep(repo, shm).run("k5")
+        assert list(shm.iterdir()) == []
+
+    def test_a_scratch_run_that_survives_its_deletion_raises(self, repo, shm, monkeypatch):
+        """A deletion that leaves a run behind (Windows, open files) is not silent (#295)."""
+        monkeypatch.setattr("pysuto.pipeline.shutil.rmtree", lambda path: None)
+        with pytest.raises(RuntimeError, match="still there"):
+            self._sweep(repo, shm).run("k6")
+
+    def test_a_scratch_run_that_cannot_be_deleted_raises(self, repo, shm, monkeypatch):
+        def refuse(path):
+            raise PermissionError("in use")
+        monkeypatch.setattr("pysuto.pipeline.shutil.rmtree", refuse)
+        with pytest.raises(RuntimeError, match="could not delete"):
+            self._sweep(repo, shm).run("k7")
+
+    def test_the_default_store_is_dev_shm_where_it_exists(self, monkeypatch):
+        monkeypatch.setattr("pysuto.pipeline.os.path.isdir", lambda p: p == "/dev/shm")
+        assert default_scratch_dir() == "/dev/shm/pysuto-sweep"
+
+    def test_the_default_store_is_under_the_temp_dir_without_dev_shm(
+            self, tmp_path, monkeypatch):
+        monkeypatch.setattr("pysuto.pipeline.os.path.isdir", lambda p: False)
+        monkeypatch.setattr("pysuto.pipeline.tempfile.gettempdir", lambda: str(tmp_path))
+        assert default_scratch_dir() == os.path.join(str(tmp_path), "pysuto-sweep")
 
     def test_keeping_only_the_last_step_needs_a_scratch_dir(self, repo):
         with pytest.raises(ValueError, match="scratch_dir"):
