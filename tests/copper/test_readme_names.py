@@ -32,6 +32,7 @@ EXEMPT = {
     "./my_case.py",          # the file name of a user's case in the README walk-through
     "conftest.py",           # README says the repo has none, on purpose (CLAUDE.md, Testing)
     "BoundedKalmanUncProp",  # a future Stage 5 concrete README names beside BaseUncProp
+    "utf8_stdio_env",        # drop once #293 merges: logging.py gains it there
 }
 
 
