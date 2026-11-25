@@ -10,6 +10,8 @@ the "no val" rule is driven by the imputation-log *method*, not by ``f == 0``.
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -203,7 +205,7 @@ def test_file2_empty_buckets_are_zero_int(diag):
 def test_write_emits_both_csvs(diag, tmp_path):
     paths = diag.write(str(tmp_path))
     assert len(paths) == 2
-    names = {p.split("/")[-1] for p in paths}
+    names = {os.path.basename(p) for p in paths}
     assert names == {
         "coverage_supply_use_1995.csv",
         "coverage_system_boundary_1995.csv",

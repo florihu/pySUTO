@@ -7,6 +7,8 @@ the exact twin of the solver-stage table minus ``lhs_post``.
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 import pandas as pd
 import pytest
@@ -92,7 +94,7 @@ def test_years_all_resolves_to_timestep_keys():
 def test_write_emits_prior_csv_per_year(tmp_path):
     d = ConstStatsDiagnostic(CRStub(), years="all")
     paths = d.write(str(tmp_path))
-    names = [p.split("/")[-1] for p in paths]
+    names = [os.path.basename(p) for p in paths]
     assert names == ["constraints_prior_1995.csv", "constraints_prior_1996.csv"]
     assert pd.read_csv(paths[0]).shape[0] == 3
     assert "constraint_id" in pd.read_csv(paths[0]).columns   # index=False
