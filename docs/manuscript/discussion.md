@@ -54,18 +54,18 @@ used in 5.2 and 5.3.
 
 **RQ1: the account is consistent, and its adjustment is small and falls on trade.**
 
-- The reconciliation closes every hard balance to the solver's numerical floor ($1.1\times10^{-6}$ kt, narrowly above the expected $10^{-6}$ kt; A1) and moves the sources little: all nine stages retain 0.972–1.037 of their prior over 1995–2024, and the adjustment does not grow upstream, contrary to the expectation (A4 not met; §4.1).
-- It adjusts the trade legs, not production: 95% of the edge objective lies on cross-region legs, 79% on legs into the 13 non-processing regions, as expected (A3).
-- Single flows are compatible with their stated $\sigma$; scale totals are not: between one in eight and one in four lie beyond $3\sigma$ in any year, but fewer than the expected one in five in the 21 years before 2019 (A2 not met).
+- The reconciliation closes every hard balance to the solver's numerical floor ($1.1\times10^{-6}$ kt, narrowly above the expected $10^{-6}$ kt; A1) and moves the sources little: all nine stages retain 0.973–1.037 of their prior over 1995–2024, and the adjustment does not grow upstream, contrary to the expectation (A4 not met; §4.1).
+- It adjusts the trade legs, not production: 92% of the edge objective lies on cross-region legs, 70% on legs into the 13 non-processing regions, as expected (A3).
+- Single flows are compatible with their stated $\sigma$; scale totals are not: between one in eight and one in four lie beyond $3\sigma$ in any year, but fewer than the expected one in five in 16 of the 22 years before 2017 (A2 not met).
 
 **RQ2: the account is certain where the sources agree, and depends on its termination far more than on its judgement values.**
 
-- The constraints contract the stated uncertainty most from ore to cathode and least on the slag legs; the stated $\sigma$ are too small on aggregate (Birge ratio 4.83) and the misfit is concentrated in a heavy tail (§4.2; exploratory).
-- The termination rule alone moves one stage by 0.223, the whole knob sweep moves one stage by at most 0.030; neither stays within the expected 0.02 (A5, A6). → N4
+- The constraints contract the stated uncertainty most from ore to cathode and least on the slag legs; the stated $\sigma$ are too small on aggregate (Birge ratio 4.86) and the misfit is concentrated in a heavy tail (§4.2; exploratory).
+- The termination rule alone moves one stage by 0.184, the whole knob sweep moves one stage by at most 0.050; neither stays within the expected 0.02 (A5, A6). → N4
 
 **RQ3: the account shows heterogeneity and indirect trade that no single source shows.**
 
-- The world secondary share is a mean over regions that range from 0 to 0.374 (B1, met).
+- The world secondary share is a mean over regions that range from 0 to 0.375 (B1, met).
 - Concentration rises downstream, and the reconciliation leaves it unchanged within 0.004 at the point estimates (the final-use interval reaches −0.011); refining's 0.223 stays below the expected 0.25 (B2, not met).
 - China's final use embodies 1.49 times the Chilean and Peruvian copper it imports directly as concentrate; 1,327 kt CC of it reaches China by no direct import from the two countries (B3, met).
 
@@ -101,12 +101,12 @@ used in 5.2 and 5.3.
 **The judgement values move what the data constrain least** (A6).
 
 - Across the 23 contained-copper categories the sweep's largest change and the lack of posterior contraction rank together (Spearman $\rho = 0.49$): the slag legs, least constrained, move most (§4.2).
-- Scrap→CFR CC breaks A6 despite a contraction of 0.93. The contraction does not come from the no-data edges: feed-observed edges carry 96% of the category's weight, and their contraction falls from 0.94 to 0.17 when the scale totals and the ICSG scrap level anchors are left out of the posterior (the Stage-5 ablation); the no-data (zero-pinned) edges carry 3%. The rows that contract it are the ICSG scrap level anchors on the feed-observed edges. The no-data anchor's coefficient of variation moves the retention by another route, which the contraction does not show. <!-- keys: discussion:L104.scrap_cfr_kappa_default, discussion:L104.scrap_cfr_kappa_ablation, discussion:L104.scrap_cfr_rows_touching; uncprop_20261124_144415_13fea7bf and its ablation uncprop_20261124_150634_1ebdc2db; the route of the knob is untested; SI Table S22d; refresh with #320 -->
-- The two influential $\sigma$ knobs are the two that price contradictions: the scale totals' coefficient of variation decides how much of a disagreement the totals absorb, and it moves Chile and Indonesia in opposite directions (SRRC −0.95 against +0.86).
+- Scrap→CFR CC breaks A6 despite a contraction of 0.92. The contraction does not come from the no-data edges: feed-observed edges carry 96% of the category's weight, and their contraction falls from 0.94 to 0.17 when the scale totals and the ICSG scrap level anchors are left out of the posterior (the Stage-5 ablation); the no-data (zero-pinned) edges carry 3%. The rows that contract it are the ICSG scrap level anchors on the feed-observed edges. The no-data anchor's coefficient of variation moves the retention by another route, which the contraction does not show. <!-- keys: discussion:L104.scrap_cfr_kappa_default, discussion:L104.scrap_cfr_kappa_ablation, discussion:L104.scrap_cfr_rows_touching; uncprop_20261124_144415_13fea7bf and its ablation uncprop_20261124_150634_1ebdc2db; the route of the knob is untested; SI Table S22d; refresh with #320 -->
+- The two $\sigma$ knobs that rank first on most outcomes (nine of twelve) are the two that price contradictions: the scale totals' coefficient of variation decides how much of a disagreement the totals absorb, and it moves Chile and Indonesia in opposite directions (SRRC −0.86 against +0.99).
 
 **The stated $\sigma$ are too small on average and too wide at the core** (§4.2).
 
-- A Birge ratio of 4.83 says the residuals are $\sqrt{R} = 2.20$ times larger than the stated $\sigma$ predict.
+- A Birge ratio of 4.86 says the residuals are $\sqrt{R} = 2.21$ times larger than the stated $\sigma$ predict.
 - The narrower core (median 0.16 for imputed edges against 0.67 under $N(0,1)$) and the heavier tail say the misfit is not spread evenly: most edges are over-covered, a few contradictions carry the excess. Pinned and flat edges do not make the core: edges whose $a^*$ lies within $10^{-4}$ kt of zero are 0.1% of the feed-observed and 4.3% of the imputed sample, and the imputed median is 0.18 without them. Zero-seed edges ($a_{\mathrm{prior}} = 0$) are 62% of the imputed sample, and the median without them is 0.27: the imputed core is narrow in part because of them. A uniform Birge scale widens both. <!-- keys: discussion:L110.qq_pinned_flat; uncprop_20261124_144415_13fea7bf; SI Table S22d; refresh with #320 -->
 
 **What the reconciliation leaves alone** (B1, B2).
@@ -127,13 +127,13 @@ used in 5.2 and 5.3.
 
 **Method.**
 
-- *Compare:* constrained balancing at the scale of a multi-regional account — what pySUTO adds and what it lacks against AISHA and the PIOLab (`geschke2011aisha`, `geschke2019parallel`, `lenzen2009matrix`, `wieland2022piolab`): per-source $\sigma$ carried from pedigree to posterior (N1), inequality bands in the reconciliation (N2), two valuations in one account (N3). Our numbers: 854,460 edges, 1,687,614 rows, 535 s wall-clock (§3.1.6).
-- *Compare:* data reconciliation with error propagation in MFA (`cencic2008stan`, `laner2016`): our posterior is the equality-constrained GLS posterior of `byron1978` / `vanderploeg1982` linearised at the active set (ADR 0044); our calibration result ($R = 4.83$, heavy tail) against what MFA studies report about stated versus realised uncertainty.
-- *Compare:* whether published balancing studies report their solver's termination criterion, and whether any tests it (A5: 0.223; N4). verify: candidate sources.
+- *Compare:* constrained balancing at the scale of a multi-regional account — what pySUTO adds and what it lacks against AISHA and the PIOLab (`geschke2011aisha`, `geschke2019parallel`, `lenzen2009matrix`, `wieland2022piolab`): per-source $\sigma$ carried from pedigree to posterior (N1), inequality bands in the reconciliation (N2), two valuations in one account (N3). Our numbers: 854,460 edges, 1,687,613 rows, 98 s wall-clock (§3.1.6).
+- *Compare:* data reconciliation with error propagation in MFA (`cencic2008stan`, `laner2016`): our posterior is the equality-constrained GLS posterior of `byron1978` / `vanderploeg1982` linearised at the active set (ADR 0044); our calibration result ($R = 4.86$, heavy tail) against what MFA studies report about stated versus realised uncertainty.
+- *Compare:* whether published balancing studies report their solver's termination criterion, and whether any tests it (A5: 0.184; N4). verify: candidate sources.
 
 **Insight 1: secondary share** (B1).
 
-- *Compare:* world 0.171 (input side, 2020–2024) and the regional range 0–0.374 against the ICSG secondary-refined share (`icsg2023yearbook`, `icsg2025yearbook`; 0.158–0.176 on the output basis, SI Table S18) and against dynamic copper-cycle estimates. verify: Glöser, Soulier and Espinoza 2013; Soulier et al. 2018 (China's copper cycle).
+- *Compare:* world 0.171 (input side, 2020–2024) and the regional range 0–0.375 against the ICSG secondary-refined share (`icsg2023yearbook`, `icsg2025yearbook`; 0.158–0.176 on the output basis, SI Table S18) and against dynamic copper-cycle estimates. verify: Glöser, Soulier and Espinoza 2013; Soulier et al. 2018 (China's copper cycle).
 - State the basis difference before the numbers: input-side share of refinery intake versus end-of-life recycling rate versus recycled-content share.
 
 **Insight 2: concentration** (B2).
@@ -154,12 +154,12 @@ used in 5.2 and 5.3.
 
 - **Report and test the termination.** An interior-point solve stopped at a gap of $10^{-3}$ read Chile's concentrate export retention as 0.66 instead of 0.97 (N4). Any reconciliation that reports a balanced table without its gap, and without a tighter re-solve, carries an error of unknown size in exactly the flows it weights least. → N4
 - **A residual is a finding about a source.** The defects found in copper were in the inputs, and the fix belongs there, not in a looser $\sigma$ (N5; Table 2). For the data providers this is a list of specific, located errors (§3.2.3–3.2.4; Section [5.5](#sec-disc-limits)). → N5
-- **The posterior $\sigma$ is a sensitivity, not an interval.** With $R = 4.83$, unscaled Stage-5 intervals would be too narrow by a factor of 2.20 on average; Birge-scaled ones still understate the tail where sources contradict (§3.1.7). Users of the account should read the intervals as lower bounds there.
-- **Robustness to judgement values is cheap to show and should be shown.** A 64-point sweep over 15 knobs bounds the judgement's effect on the nine stages' retention at 0.030; single exporters and the slag legs move more (up to 0.033 and 0.052; §4.2). That bound is a stronger statement than one reference run. → N6
+- **The posterior $\sigma$ is a sensitivity, not an interval.** With $R = 4.86$, unscaled Stage-5 intervals would be too narrow by a factor of 2.21 on average; Birge-scaled ones still understate the tail where sources contradict (§3.1.7). Users of the account should read the intervals as lower bounds there.
+- **Robustness to judgement values is cheap to show and should be shown.** A 64-point sweep over 15 knobs bounds the judgement's effect on the nine stages' retention at 0.050, and at 0.010 on all stages but scrap into refineries; a single exporter moves by up to 0.032 and the slag legs by up to 0.110 (§4.2). That bound is a stronger statement than one reference run. → N6
 
 **For copper.**
 
-- **A world secondary share hides the regions.** At 0.171 it averages EU-14 at 0.374 and the United States at 0.046, a value the missing direct melt partly explains (B1; §4.3, Section [5.5.1](#sec-disc-limits)); a recycling indicator for a region has to come from that region's account.
+- **A world secondary share hides the regions.** At 0.171 it averages EU-14 at 0.375 and the United States at 0.046, a value the missing direct melt partly explains (B1; §4.3, Section [5.5.1](#sec-disc-limits)); a recycling indicator for a region has to come from that region's account.
 - **The trade legs are the least certain part of the account.** They absorb the sources' disagreements (A3; Section [5.5](#sec-disc-limits)); bilateral flows from the account should be quoted with their intervals, production totals can be quoted near their yearbook values.
 - **Attribution through processing changes who consumes the mined copper.** Chile's and Peru's extraction attributed to China's final use exceeds China's direct concentrate imports from them by half (B3); consumption-based accounts of mine-site impacts depend on this step.
 
@@ -180,7 +180,7 @@ Section 5.5.1 bounds the method's conclusions; Section 5.5.2 lists the limitatio
 **Robustness tests.**
 
 - The termination pair (A5) solves the reference constraint run, so Figure 5d's diamonds and boxes sit on one QP. Its tightened member (flows, gap $10^{-6}$) is itself not converged: against the reference run (defects, gap $10^{-8}$) it is within 0.008 on eight stages and 0.135 below it on crude ore, at an objective 2.9% higher. The reference run's own termination error is below what a pair can show; the defects form at $10^{-8}$ is the solve the paper reports.
-- The knob sweep is local: a factor two either side of the shipped value, around one chain (SI S15.4). All five A6 breaches sit at 1.6–1.9 times the shipped no-data anchor coefficient of variation, inside a range capped at two; a wider range would find more.
+- The knob sweep is local: a factor two either side of the shipped value, around one chain (SI S15.4). Fourteen of the 15 A6 breaches sit at 1.2–1.9 times the shipped no-data anchor coefficient of variation, inside a range capped at two; a wider range would find more.
 - The structural modes, the calibrated values and the solver's settings are compared in their decision records, not swept.
 
 **System boundary and constructs.**
@@ -253,9 +253,9 @@ Section 5.5.1 bounds the method's conclusions; Section 5.5.2 lists the limitatio
 **Take-home messages.**
 
 1. A $\sigma$-weighted reconciliation of a global, two-valuation copper account over 30 years solves on a workstation in minutes and closes every balance to the solver's floor; it moves the sources little and puts its adjustment on trade.
-2. The solver's termination is part of the estimate: on the base chain it moved one stage by 0.223, seven times the largest change the whole knob sweep made to the nine stages on the reference chain (0.030).
+2. The solver's termination is part of the estimate: on the reference constraint run it moved one stage by 0.184, nearly four times the largest change the whole knob sweep made to the nine stages (0.050).
 3. The large residuals were source defects, fixed at the input; the residuals that remain point at four named contradictions.
-4. Stated $\sigma$ understate the realised disagreement by a factor of about 2.3 on average and much more in the tail; intervals must say so.
+4. Stated $\sigma$ understate the realised disagreement by a factor of about 2.2 on average and much more in the tail; intervals must say so.
 5. The reconciled account adds what the sources cannot show alone: regional secondary shares, concentration with intervals, and attribution of mined copper through processing.
 
 **Research directions.**

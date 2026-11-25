@@ -93,3 +93,11 @@ def test_a_figure_is_saved_as_png_and_as_a_pdf_with_embedded_truetype_fonts(tmp_
     raw = pdf.read_bytes()
     assert raw.startswith(b"%PDF")
     assert b"/FontFile2" in raw          # Type 42 (TrueType) is embedded, not Type 3
+
+
+def test_figure_5d_spans_every_termination_diamond_and_knob_point():
+    # The A5 pair on the reference const run reaches +0.184 (#315); the hard-coded
+    # (-0.3, 0.12) cut it off the panel (#320).
+    lo, hi = RF.retention_delta_xlim([0.184204, -0.136534, 0.089471, 0.0298])
+    assert lo <= -0.136534 and hi > 0.184204
+    assert RF.retention_delta_xlim([0.01, -0.02]) == (-0.3, 0.12)   # the default span stays
