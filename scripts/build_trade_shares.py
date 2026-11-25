@@ -85,7 +85,7 @@ from copper_feed import (
     chain_inconsistent_refining, icsg_raw_production, icsg_raw_usage, latest_feed_run,
     trade_share_parents)
 from pysuto.config import load_config
-from pysuto.feedprep.trade_shares import (
+from feedprep.trade_shares import (
     baci_observed_regions, build_edges_frame, compute_trade_share_weights,
     imports_exhausted_groups, traded_conc_lookup)
 from pysuto.input_registry import PARAMS_PARENTS, InputRegistries
@@ -95,8 +95,8 @@ from pysuto.registry import stage_lock
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
 # The labels (traded sectors, signed stock legs, the bound's sectors, ADR 0020's gate) are
-# the copper case's, ``copper_feed``; the algorithm is ``pysuto.feedprep.
-# trade_shares``. Sectors actually emitted this run:
+# the copper case's, ``copper_feed``; the algorithm is ``feedprep.trade_shares``. Sectors
+# actually emitted this run:
 SECTORS = list(TRADED_SECTORS)
 
 _INPUT_ROOT = os.path.join("data", "input")

@@ -146,7 +146,7 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 - Params CSVs mix `,` and `;`: read with `sep=None, engine="python", dtype=str`; wildcards are `*` and `same`.
 - Logging: `get_logger(name)` per module; `print` only inside diag `.summary()`, and in the Stage 1 builders and `icsg_clean.py`, whose stdout the hook captures as their log (`copper_feed._run_script`).
 - Diagnostics contract: construct with data → `.plot(odir, show=False)` returns paths → `.summary()`. `diag/` is a leaf: the data layer never imports it at module level (driver-level code — the scripts, `pysuto.stages` — may).
-- Module-level imports flow one way (README §5 "Import direction is strictly one-way"); `utils`/`logging` import nothing from `pysuto`. A function-local import is allowed only to break a cycle and carries a comment saying so.
+- Module-level imports flow one way (README §5 "Import direction is strictly one-way"); `logging` imports nothing from `pysuto`. A function-local import is allowed only to break a cycle and carries a comment saying so.
 - Comments and docstrings state the invariant or the reason, in the present tense, and may cite an ADR; `git blame` leads to the history. Issue numbers, round letters and run ids go in commit messages, REPs and issue comments. Measured results go in the REP that measured them. A workaround for an open issue cites that issue. The rule covers the library and the application; the frozen `scripts/explo/` is exempt.
 
 ## Testing

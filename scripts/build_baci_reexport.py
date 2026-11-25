@@ -108,11 +108,11 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 from copper_feed import (
     AGGREGATES_ID, BACI_ID, GROSS_VALUATION, HS_OF, HUB_EXCLUDE, ICSG_ID, NETTED_SECTORS,
     TRADED_SECTORS, icsg_intake_production)
-from pysuto.feedprep.reexport import (
+from feedprep.reexport import (
     MAX_CV_SCALE, OUTLIER_K, check_icsg_baci_version, check_region_map, cv_scale,
     icsg_aggregate_members, label_row, load_root_trade, net_reexports, rebuild_values,
     reexport_volumes, screened_origins)
-from pysuto.feedprep.trade_shares import traded_conc_lookup
+from feedprep.trade_shares import traded_conc_lookup
 from pysuto.input_registry import InputRegistries
 from pysuto.registry import stage_lock
 
@@ -126,8 +126,7 @@ from pysuto.registry import stage_lock
 # matrix a run was built from.
 
 # The sectors, the HS codes of a new row, the hub exclusion and the knobs of the netting
-# are the copper case's (``copper_feed``) and the library's
-# (``pysuto.feedprep.reexport``).
+# are the copper case's (``copper_feed``) and ``feedprep.reexport``'s.
 SECTORS = NETTED_SECTORS
 
 _INPUT_ROOT   = os.path.join("data", "input")

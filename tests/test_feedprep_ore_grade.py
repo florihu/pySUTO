@@ -1,4 +1,4 @@
-"""Unit tests for the in-situ ore-grade triangle, ``pysuto.feedprep.ore_grade`` (ADR 0015),
+"""Unit tests for the in-situ ore-grade triangle, ``feedprep.ore_grade`` (ADR 0015),
 with copper's labels bound as the case binds them."""
 from functools import partial
 from types import SimpleNamespace
@@ -9,8 +9,8 @@ import pytest
 
 import copper_case  # noqa: F401  (puts scripts/ on sys.path, #189)
 from copper_feed import ORE_GRADE_LABELS
-from pysuto.feedprep import ore_grade as OG
-from pysuto.feedprep.ore_grade import (
+from feedprep import ore_grade as OG
+from feedprep.ore_grade import (
     MARGIN_REL_CARRY,
     build_production_frame,
     carry_grades_forward,

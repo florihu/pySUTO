@@ -7,6 +7,10 @@ All notable changes to pySUTO are recorded here. The format follows
 ## [Unreleased]
 
 ### Removed
+- Two modules leave the library (#302, ADR 0047): `pysuto.feedprep` (re-export netting, trade
+  shares, ore-grade carry) is now `scripts/feedprep/`, copper's application code, imported as
+  `feedprep`; `pysuto.utils` (`get_path`) is now `scripts/parse/icsg_parse/icsg_paths.py`,
+  beside the only parsers that call it.
 - The 14 input tables with no licence leave git: the feed concordances, metadata and
   weights under `data/input/feed/`, and the `params` tables `icsg_aggregates`,
   `ore_grade`, `scrap_share`, `stock_bounds` and `stripping_ratio`. Only the CC BY 4.0

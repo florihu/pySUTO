@@ -1,5 +1,5 @@
-"""Unit tests for the feed-time re-export re-attribution (ADR 0027), ``pysuto.feedprep.
-reexport``, and the copper ICSG readers it is fed by, ``scripts/copper_feed.py``."""
+"""Unit tests for the feed-time re-export re-attribution (ADR 0027), ``feedprep.reexport``,
+and the copper ICSG readers it is fed by, ``scripts/copper_feed.py``."""
 import json
 import os
 import shutil
@@ -10,7 +10,7 @@ import pytest
 
 import copper_case  # noqa: F401  (puts scripts/ on sys.path, #189)
 from copper_feed import HS_OF, production_recipes
-from pysuto.feedprep.reexport import (
+from feedprep.reexport import (
     rebuild_values,
     check_icsg_baci_version,
     check_region_map,
@@ -350,7 +350,7 @@ class TestCvScaleBounds:
     1e48 before the cap: v_new → 0 makes the ratio explode)."""
 
     def test_scale_is_capped(self):
-        from pysuto.feedprep.reexport import MAX_CV_SCALE
+        from feedprep.reexport import MAX_CV_SCALE
         old = _trade([_leg("Cathode", "Chile", "NL", 100.0)])
         new = _trade([_leg("Cathode", "Chile", "NL", 0.001)])
         assert cv_scale(old, new)["cv_scale"].iloc[0] == pytest.approx(MAX_CV_SCALE)

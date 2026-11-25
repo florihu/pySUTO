@@ -79,7 +79,8 @@ import numpy as np
 import pandas as pd
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
-from pysuto.feedprep.reexport import MAX_CV_SCALE
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))   # scripts/: feedprep
+from feedprep.reexport import MAX_CV_SCALE
 from pysuto.logging import get_logger
 from pysuto.meta import DataFeedMetadata
 

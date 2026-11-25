@@ -151,9 +151,9 @@ class ImpSection(Section):
     of the acc's time range). The knob ``P_PROP`` (the Lp exponent of the aggregation) is
     read by the stage body, and ``Q_REG`` and ``ALPHA_MIN_REG`` by a parametric fill, so
     every case's section declares them. ``MIN_FLOW_KT`` is the coverage threshold of the
-    feed collector (kt): a feed leg below it is not aggregated (``feedprep/reexport.py``
-    documents its coupling to the feed weights); the imp sidecar records it with the
-    case's other knobs (#279).
+    feed collector (kt): a feed leg below it is not aggregated (the case documents
+    its coupling to the feed weights); the imp sidecar records it with the case's other
+    knobs (#279).
     """
     cascade:      tuple
     terminal:     Callable

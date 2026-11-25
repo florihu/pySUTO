@@ -88,9 +88,9 @@ def _row(check, number, run, verdict, note=""):
 def check1(data_dir: str, opt_id: str, imp_id: str) -> list:
     from copper_feed import GROSS_VALUATION, HS_OF, ORE_GRADE_LABELS, TRADED_SECTORS
     from pysuto import acc_store
-    from pysuto.feedprep.ore_grade import _decoded_edges
-    from pysuto.feedprep.reexport import canonical_codes, load_root_trade, rebuild_values
-    from pysuto.feedprep.trade_shares import traded_conc_lookup
+    from feedprep.ore_grade import _decoded_edges
+    from feedprep.reexport import canonical_codes, load_root_trade, rebuild_values
+    from feedprep.trade_shares import traded_conc_lookup
 
     imp = _sidecar(data_dir, "imp", imp_id)
     baci_run = _feed_run(imp, "baci")
@@ -134,7 +134,7 @@ def check1(data_dir: str, opt_id: str, imp_id: str) -> list:
 
     # (c) the .get("src", "icsg") fill: build_tailings_rows reads it for a comment only,
     # and compute_tailings_grades always returns a src column (checked on a toy frame).
-    from pysuto.feedprep.ore_grade import compute_tailings_grades
+    from feedprep.ore_grade import compute_tailings_grades
     toy = pd.DataFrame({"region": ["A"], "time": ["2000"], "conc_cc": [1.0], "sxew_cc": [1.0],
                         "ore_mass": [100.0]})
     toy_g = pd.DataFrame({"region": ["A"], "time": ["2000"], "g": [0.01], "src": ["icsg"]})

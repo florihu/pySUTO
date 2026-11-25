@@ -22,3 +22,5 @@ checkout of the repository (or its release archive), not only the wheel.
 `opt_20261118_091818_403319a5`, `uncprop_20261118_095441_3322e9e3`, `psut_20261118_095601_3b3c6f5b`
 (`case_sha256` `2a6861ee…`, the committed `scripts/copper.py`). The drivers' default chain reproduced it as
 well; those verification runs were pruned.
+
+**Amended 2026-11-25 (#302):** feed preparation (`feedprep/`: re-export netting, trade shares, ore-grade carry) is application code from this ticket on, `scripts/feedprep/`, and comes back into the library with a second metal as its test.
