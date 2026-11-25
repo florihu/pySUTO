@@ -17,7 +17,7 @@ A driver (``scripts/collect_aggregate_impute.py`` … ``scripts/psut.py``) keeps
 argument parsing, the stage lock, the log handler and the knob protocol, and passes the
 case object it resolved; each step of ``python -m pysuto run`` calls the same functions
 in a child process of its own (:mod:`pysuto._step`, :mod:`pysuto.pipeline`, #186). The
-library never imports ``pysuto.tutorial`` (README §5). A case
+library never imports ``pysuto.tutorial`` (architecture.md). A case
 declares every value Stages 2 and 3 read as a field of its section
 (:class:`pysuto.case.ImpSection`, :class:`pysuto.case.ConstSection`);
 Stages 4–6 read the constants of the block below, and a case replaces them through
@@ -25,7 +25,7 @@ Stages 4–6 read the constants of the block below, and a case replaces them thr
 ``--set`` or by the ``overrides`` argument, which wins over the case).
 
 The module is driver-level code, like the scripts: it imports ``diag`` at module level,
-which the data layer never does (README §5). The guard Stages 4–6 apply to the run they
+which the data layer never does (architecture.md). The guard Stages 4–6 apply to the run they
 read, ``check_case``, lives in :mod:`pysuto.case`.
 """
 

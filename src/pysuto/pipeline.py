@@ -12,7 +12,7 @@ protocol (:mod:`pysuto.knobs`), with the same names, types and precedence as the
 ``--set``. A child frees its memory when it exits, which ADR 0045 measured one process
 does not do across points. A step's stdout and stderr go to
 ``<log_dir>/<label>_<step>.log``; the parent holds the stage lock of the data dir around
-each child (#101). The module never imports ``scripts/`` or the cases (README §5, import
+each child (#101). The module never imports ``scripts/`` or the cases (architecture.md, import
 direction): the parent and the child resolve the case reference with the one resolver of
 :mod:`pysuto.case` (#187).
 

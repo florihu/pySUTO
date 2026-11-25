@@ -1,6 +1,7 @@
 """test_readme_links.py
 =====================
-Every relative link of README.md points at a file or directory of the repository (#191).
+Every relative link of the documentation set points at a file or directory of the repository
+(#191): README.md, docs/architecture.md, docs/workflow.md and scripts/README.md (#305).
 """
 
 from __future__ import annotations
@@ -19,13 +20,17 @@ def _relative_targets(readme: str) -> list:
     return sorted({t for t in targets if t and not t.startswith(("http", "mailto:"))})
 
 
-def test_every_relative_link_of_the_readme_resolves():
-    readme = REPO / "README.md"
-    if not readme.is_file():
-        pytest.skip("README.md is not part of this tree")
-    targets = _relative_targets(readme.read_text(encoding="utf-8"))
+DOCUMENTS = ("README.md", "docs/architecture.md", "docs/workflow.md", "scripts/README.md")
+
+
+@pytest.mark.parametrize("name", DOCUMENTS)
+def test_every_relative_link_of_the_document_resolves(name):
+    document = REPO / name
+    if not document.is_file():
+        pytest.skip(name + " is not part of this tree")
+    targets = _relative_targets(document.read_text(encoding="utf-8"))
     assert targets
-    assert [t for t in targets if not (REPO / t).exists()] == []
+    assert [t for t in targets if not (document.parent / t).exists()] == []
 
 
 def test_the_link_finder_ignores_urls_and_anchors():
