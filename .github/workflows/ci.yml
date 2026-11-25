@@ -1,4 +1,5 @@
-# ci.yml: the suite on 3.9/3.12/3.13, ruff (pyflakes rules), the build, the tutorial
+# ci.yml: the suite on 3.9/3.12/3.13, the library alone without the copper application
+# (#304), ruff (pyflakes rules), the build, the tutorial
 # executed from a fresh install (#188), PyPI trusted publishing on a pushed v* tag (#196),
 # and a manual run (workflow_dispatch) that rehearses the release on TestPyPI (#195).
 # No token: PyPI and TestPyPI trust this workflow through the `pypi` and `testpypi`
@@ -48,6 +49,25 @@ jobs:
         run: python -m pip install ".[dev]"
       - name: Show the resolved versions
         run: python -m pip list
+      - name: Test
+        run: python -m pytest tests/
+
+  library:
+    # The split between method and application as a property (#304, ADR 0047): a fresh
+    # checkout without the application (scripts/) and without the tests that need it
+    # (tests/copper/) must pass the rest of the suite.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7.0.1
+        with:
+          fetch-depth: 0              # hatch-vcs reads the version from the tags
+      - uses: actions/setup-python@v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Delete the application and its tests
+        run: rm -r scripts tests/copper
+      - name: Install
+        run: python -m pip install ".[dev]"
       - name: Test
         run: python -m pytest tests/
 
@@ -175,7 +195,7 @@ jobs:
 
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [test, lint, build, tutorial]
+    needs: [test, library, lint, build, tutorial]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -189,7 +209,7 @@ jobs:
 
   testpypi:
     if: github.event_name == 'workflow_dispatch'
-    needs: [test, lint, build, tutorial]
+    needs: [test, library, lint, build, tutorial]
     runs-on: ubuntu-latest
     environment: testpypi
     permissions:

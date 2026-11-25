@@ -2,9 +2,10 @@
 =====================
 The public surface a second case uses is declared (#218).
 
-A case is ``scripts/copper.py`` (with its feed half ``scripts/copper_feed.py``) and the
-toy (``pysuto.tutorial.toy*``); the tutorial's notebooks, chapter 10 among them, build an
-own case. Every name any of them imports from ``pysuto`` must
+A case is the toy (``pysuto.tutorial.toy*``); the tutorial's notebooks, chapter 10 among
+them, build an own case. The copper application's half of the check is
+``tests/copper/test_application_surface.py`` (#304), which needs ``scripts/``. Every name
+any of them imports from ``pysuto`` must
 
 * resolve: ``import_module(module)`` has the attribute or the submodule;
 * be named in README's module reference (the *Public API* column of the row of its
@@ -26,8 +27,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src" / "pysuto"
 README = ROOT / "README.md"
 
-CASE_FILES = [ROOT / "scripts" / "copper.py", ROOT / "scripts" / "copper_feed.py"]
-CASE_FILES += sorted((SRC / "tutorial").glob("*.py"))
+CASE_FILES = sorted((SRC / "tutorial").glob("*.py"))
 NOTEBOOKS = sorted((SRC / "tutorial").glob("*.ipynb"))
 
 # The tutorial's declared reach into the library's private σ conditioning (README

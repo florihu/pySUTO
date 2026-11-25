@@ -37,11 +37,3 @@ def test_binary_types_never_converted():
     for ext in ("docx", "ods", "pdf", "png", "ttf"):
         assert rules["*." + ext] == ["binary"]
 
-
-def test_crlf_files_keep_committed_bytes():
-    if not ATTRS.exists():
-        pytest.skip("a wheel or sdist install ships no .gitattributes")
-    rules = _rules()
-    for rel in ("scripts/parse/icsg_parse/icsg_2023f.py",):
-        assert rules[rel] == ["-text"]
-        assert b"\r\n" in (ROOT / rel).read_bytes()

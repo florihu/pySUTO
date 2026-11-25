@@ -1521,15 +1521,15 @@ Each layer has a dedicated test file in `tests/`. There is no `conftest.py`: fix
 |---|---|
 | [test_accounting_structure.py](tests/test_accounting_structure.py) | `AccountingStructure` index, masks, bounds |
 | [test_acc_spec.py](tests/test_acc_spec.py) | The acc spec: dict, `acc.json` and ODS routes build one structure; reader, `RuleSet.from_tables` and validation seams; `scripts/acc.py` reader choice |
-| [test_case.py](tests/test_case.py) | The `CaseSpec`: a section's knobs are its UPPER_CASE fields, `--set` replaces them through `pysuto.knobs`' checks, a section serialises with functions by qualified name; the library never imports `pysuto.tutorial` (#120) |
+| [test_case.py](tests/copper/test_case.py) | The `CaseSpec`: a section's knobs are its UPPER_CASE fields, `--set` replaces them through `pysuto.knobs`' checks, a section serialises with functions by qualified name; the library never imports `pysuto.tutorial` (#120) |
 | [test_acc_roles.py](tests/test_acc_roles.py) | Roles, not labels (#119): own-label save/load round-trip, role validation on build and load, the label-literal grep gate, acc compatibility by spec comparison, the copper `root.ods` role column |
 | [test_conc.py](tests/test_conc.py) | Concordance and `WeightMatrix` construction / sparse round-trip |
 | [test_unc.py](tests/test_unc.py) | Pedigree → CV formulas; CV-invariant Lp propagation invariants |
-| [test_feedpipe.py](tests/test_feedpipe.py) | Stage 1 pieces: step D propagation, `DataFeedMetadata` pedigree → CV, `DataFeedRegistry` round-trip, mass-conservation guard, edge-scope mask (`run_feed` is tested in [test_feed_spec.py](tests/test_feed_spec.py)) |
+| [test_feedpipe.py](tests/test_feedpipe.py) | Stage 1 pieces: step D propagation, `DataFeedMetadata` pedigree → CV, `DataFeedRegistry` round-trip, mass-conservation guard, edge-scope mask (`run_feed` is tested in [test_feed_spec.py](tests/copper/test_feed_spec.py)) |
 | [test_registry.py](tests/test_registry.py) | `DataFeedRegistry` save/load/round-trip |
 | [test_collector.py](tests/test_collector.py) | Feed alignment, NaN coverage mask, `Ω` column sums |
 | [test_agg.py](tests/test_agg.py) | `Ω` construction, `f_agg = 1ᵀ(Ω⊙F)`, σ_agg invariants |
-| [test_imputation.py](tests/test_imputation.py) | FillImputer pairs, ParamSource, TimeImputer, FlatPriorImputer; log completeness; σ propagation; pipeline chaining |
+| [test_imputation.py](tests/copper/test_imputation.py) | FillImputer pairs, ParamSource, TimeImputer, FlatPriorImputer; log completeness; σ propagation; pipeline chaining |
 | [test_network_imputer.py](tests/test_network_imputer.py) | NetworkImputer recipe closure, flow-balance, Ore split, stripping ratio, conc-by-construction twins; bilateral_import gate + flow-balance cross-region-as-0 ([ADR 0010](docs/adr/0010-trade-first-seeding-of-bilateral-flow-process-inputs.md)) |
 | [test_param_fill.py](tests/test_param_fill.py) | The trade fill (cross-region CC trade-seed), the params relation source and the parametric σ rule + trade→network handoff reviving ER→CER→CP; the trade and network writer scopes partition the edges |
 | [test_relation_params.py](tests/test_relation_params.py) | The one params reader (#128): `;` and `,` files parse equal, comment rows skipped, foreign `param_type` filtered by declaration, malformed value raises, a soft row without a σ rule raises |
@@ -1551,14 +1551,14 @@ indistinguishable from real data once it reaches the model:
 
 | Test file | Scope |
 |---|---|
-| [test_icsg_clean.py](tests/test_icsg_clean.py) | ADR 0021 anode placement, secondary-excess clipping, input divisors; `territory_aliases` / `merge_territories` ([ADR 0032](docs/adr/0032-one-territory-one-label.md)); imported anode off the direct route and BACI net anode imports (ADR 0030 am., #63) |
-| [test_icsg_2014_region_fill.py](tests/test_icsg_2014_region_fill.py) | Which country a row belongs to when the yearbook's label sits on the middle row of its block, and the sheet's own WORLD/TOTALS block ([ADR 0035](docs/adr/0035-the-yearbooks-label-is-not-on-the-row-it-owns.md)) |
-| [test_icsg_comb_renamed_collisions.py](tests/test_icsg_comb_renamed_collisions.py) | Rows a rename folds onto one key sum *within* a vintage; a cross-vintage restatement is left to the dedup ([ADR 0036](docs/adr/0036-a-renamed-type-is-a-second-stream-not-a-restatement.md)) |
-| [test_baci_quantity_recon.py](tests/test_baci_quantity_recon.py) | Value-implied Cu fraction detector, its two gates on each side of the band (above: raise; below: lower, the PNG kg-as-t regression), `g_ref` calibration, σ scale composition across sidecar files ([ADR 0033](docs/adr/0033-baci-quantity-contradicts-its-own-value.md)) |
-| [test_feedprep_reexport.py](tests/test_feedprep_reexport.py) | Re-export netting and its residual ledger ([ADR 0027](docs/adr/0027-re-exports-are-re-attributed-at-feed-time.md)) |
-| [test_icsg_stock_levels.py](tests/test_icsg_stock_levels.py) | Every stock level the yearbooks print survives the parse: the 2014 exchange sheet, lone totals, reported zeros (a blank is not one), the U.S. producers row, the 2025 sheet's last year, whole region names, Korea's merged cell (#35) |
-| [test_icsg_nas.py](tests/test_icsg_nas.py) | Net addition to stock: one year's change within one vintage, newest vintage wins, `USC` / `MESC` sum their series, a lone or contradicted total is producer stock, no change in a total's takeover year, a reporting gap warns (#35) |
-| [test_feedprep_trade_shares.py](tests/test_feedprep_trade_shares.py) | Fan weights and the ADR 0024 domestic bound |
+| [test_icsg_clean.py](tests/copper/test_icsg_clean.py) | ADR 0021 anode placement, secondary-excess clipping, input divisors; `territory_aliases` / `merge_territories` ([ADR 0032](docs/adr/0032-one-territory-one-label.md)); imported anode off the direct route and BACI net anode imports (ADR 0030 am., #63) |
+| [test_icsg_2014_region_fill.py](tests/copper/test_icsg_2014_region_fill.py) | Which country a row belongs to when the yearbook's label sits on the middle row of its block, and the sheet's own WORLD/TOTALS block ([ADR 0035](docs/adr/0035-the-yearbooks-label-is-not-on-the-row-it-owns.md)) |
+| [test_icsg_comb_renamed_collisions.py](tests/copper/test_icsg_comb_renamed_collisions.py) | Rows a rename folds onto one key sum *within* a vintage; a cross-vintage restatement is left to the dedup ([ADR 0036](docs/adr/0036-a-renamed-type-is-a-second-stream-not-a-restatement.md)) |
+| [test_baci_quantity_recon.py](tests/copper/test_baci_quantity_recon.py) | Value-implied Cu fraction detector, its two gates on each side of the band (above: raise; below: lower, the PNG kg-as-t regression), `g_ref` calibration, σ scale composition across sidecar files ([ADR 0033](docs/adr/0033-baci-quantity-contradicts-its-own-value.md)) |
+| [test_feedprep_reexport.py](tests/copper/test_feedprep_reexport.py) | Re-export netting and its residual ledger ([ADR 0027](docs/adr/0027-re-exports-are-re-attributed-at-feed-time.md)) |
+| [test_icsg_stock_levels.py](tests/copper/test_icsg_stock_levels.py) | Every stock level the yearbooks print survives the parse: the 2014 exchange sheet, lone totals, reported zeros (a blank is not one), the U.S. producers row, the 2025 sheet's last year, whole region names, Korea's merged cell (#35) |
+| [test_icsg_nas.py](tests/copper/test_icsg_nas.py) | Net addition to stock: one year's change within one vintage, newest vintage wins, `USC` / `MESC` sum their series, a lone or contradicted total is producer stock, no change in a total's takeover year, a reporting gap warns (#35) |
+| [test_feedprep_trade_shares.py](tests/copper/test_feedprep_trade_shares.py) | Fan weights and the ADR 0024 domestic bound |
 
 The two tables above cover the core layers and the parse stage; `tests/` holds further modules for
 diagnostics, params and helpers not itemised here.

@@ -151,7 +151,7 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 
 ## Testing
 
-- `tests/` holds the library's tests, `tests/copper/` (from #304 on) every test that needs the application folder present; both flat, no `conftest.py`, no markers, no golden files. Fixtures are toy objects built in the test module; use `tmp_path` and `monkeypatch`, never `mocker`.
+- `tests/` holds the library's tests and those of `tools/`; `tests/copper/` holds every test that imports or runs `scripts/`, reads its files or checks docs that link into it (the tests of the generic drivers too, until #244). CI job `library` deletes `scripts/` and `tests/copper/` and runs `tests/`. Both flat, no `conftest.py`, no markers, no golden files; a copper test imports its helpers from `tests/` by a `sys.path` line, a library test imports nothing from `tests/copper/`. Fixtures are toy objects built in the test module; use `tmp_path` and `monkeypatch`, never `mocker`.
 - Tolerances: `np.allclose` with `rtol=1e-12`/`1e-10` for exact algebraic identities, `1e-6`/`1e-7` for solver outputs; `pytest.approx` (default or `rel=1e-6`) for scalars; `assert_array_equal` for indices and masks. Never loosen a tolerance to make a test pass.
 - A suite run writes no `logs/` (#190): `get_logger` has no file handler and `run_feed` attaches its root DEBUG handler only when given `run_log`. `tests/test_import_no_writes.py` imports every module from an empty directory.
 - A bug fix ships with the test that reproduces it; a change to a σ rule, builder, imputer or feed ships with a REP measuring it.

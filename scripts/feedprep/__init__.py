@@ -9,4 +9,4 @@ feedprep: the feed-side algorithms of a case, labels as parameters (#147).
 The case binds the labels and reads the registered inputs: ``scripts/copper_feed.py``.
 """
 
-__all__ = ["builder_lock", "ore_grade", "reexport", "trade_shares"]
+__all__ = ["ore_grade", "reexport", "trade_shares"]
