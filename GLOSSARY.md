@@ -240,8 +240,11 @@ _Avoid_: "chaining" (that is plugin order inside an engine); "the run" for a who
 A tuning constant of a stage driver (`P_PROP`, `ANCHOR_CV`, `TOL_GAP_REL`, the cascade order):
 an UPPER_CASE field of the case's section for Stages 2 and 3 (#120), a driver constant for
 Stage 4; its value is recorded in the run's sidecar. Changing a knob is a measured change.
+In reader-facing text (manuscript, abstracts) the knobs a **sweep** varies are **judgement
+values**; the solver's stopping rule (`TOL_GAP_REL`) is a knob but is reported as
+*termination*, apart from them.
 _Avoid_: "hyperparameter"; "parameter" / "param" (those are the `params` input tables);
-"setting", "config".
+"setting", "config"; "judgement parameter".
 
 **Sweep**:
 A set of chains that share their inputs and differ only in knob values, run and recorded as one
@@ -289,6 +292,15 @@ questions RQ1–RQ3, with its metric and threshold written before the reference 
 outcome is **met** or **not met**. A question without one is *exploratory*.
 _Avoid_: "hypothesis" (the rows answer questions; they were called hypotheses until 2026-11-12),
 "pass" / "fail" (a not-met answer is a finding, not a failure of the reconciliation).
+
+**Key result**:
+What a reader of the paper takes away: a property of the reconciled account on the **reference
+chain**, or of its sources as the account reveals them, that answers a sub-question of RQ1–RQ3.
+It passes three tests: reference chain, bug-free, research question
+([docs/agents/key-results.md](docs/agents/key-results.md)). A size, runtime or coverage is a
+*stage fact* (Methods); a fixed defect, a solver-setting artefact, a delta against an earlier chain
+or the ledger tally is *debugging* (Methods, SI, ADRs, REPs).
+_Avoid_: "result" for debugging; "finding" for a stage fact; "headline" for anything large.
 
 **Year profile**:
 An outcome evaluated once per year of its window instead of pooled, so that the axes can be

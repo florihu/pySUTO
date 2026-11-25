@@ -1,0 +1,96 @@
+% ISIE2027_abstract.tex
+
+% ====================
+% ISIE 2027 (NTNU Trondheim) abstract, v27 (2026-11-25), rebuilt from the manuscript
+% (introduction.md, method.md, results.md, discussion.md) on the reference chain
+% opt_20261124_141714_e2892160 (uncprop_20261124_144415_13fea7bf,
+% psut_20261124_150658_8f727db2, sweep_20261124_153029_a4bb2afb).
+% Supersedes v20 (ISIE2027_abstract.docx, chain opt_20261022_112855_928da10c).
+% Claim -> evidence: ISIE2027_abstract_reviews.md, section "Claim -> evidence (v27)".
+% Abstract body: 490 words (whitespace count; 496 with the four headings; limit 500 for oral).
+
+\documentclass[11pt,a4paper]{article}
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage[english]{babel}
+\usepackage{lmodern}
+\usepackage[margin=2.5cm]{geometry}
+\usepackage{microtype}
+
+\setlength{\parindent}{0pt}
+\setlength{\parskip}{0.6em}
+\pagestyle{empty}
+
+\begin{document}
+
+{\Large\bfseries When the gauges of Spaceship Earth disagree: Introducing pySUTO, an open,
+traceable framework for reconciling global physical supply--use tables\par}
+
+\medskip
+\textbf{Presentation format:} oral
+
+\textbf{Main topic:} Cross-Cutting Methods and Emerging Topics
+
+\textbf{Keywords:} Material flow analysis (MFA); Input-output analysis (IO/EE-MRIO); Supply
+chains; Footprinting; Energy transition
+
+\textbf{Authors:} Florian Huber (presenting author), Global Resource Use Group, Vienna
+University of Economics and Business, Austria; further co-authors and their order [to be
+confirmed by the author before submission]
+
+% ==========================================================================================
+\section*{Objective}
+
+Fuller's Spaceship Earth ``must be comprehended and serviced in total'', yet its gauges
+disagree. Copper, an EU strategic raw material, crosses borders as concentrate, matte,
+anode and cathode; its yearbooks, customs records and extraction accounts disagree. ODYM
+(Open Dynamic Material Systems Model) structures such biophysical data; AISHA (An Automated
+Integration System for Harmonised Accounts) and the Industrial Ecology Virtual Laboratory
+reconcile it by source reliability. Our goal is to distil advances in the data model and in
+the formulation of the reconciliation problem into one open-source (MIT), modular
+framework, pySUTO (Python-based Supply--Use Table Optimiser). For copper, we ask how
+consistent and certain the account is and what it adds to its sources.
+
+% ==========================================================================================
+\section*{Material and Methods}
+
+pySUTO runs six stages: data feeds, aggregation and imputation, constraint building,
+reconciliation, posterior uncertainty, and supply--use and input--output views. Its data
+model carries every flow in gross mass and contained copper, with a pedigree-based
+standard deviation, so trade and industry statistics constrain the same flows. The
+reconciliation is one uncertainty-weighted least-squares problem per year, with exact
+balances and bounds; every flow then gets a posterior standard deviation. Stage components
+are plug-ins, copper's specifics sit in a case definition, and every number traces to its
+run and inputs. For copper (47 regions, 23 sectors, 1995--2024), about 850,000 flows meet
+1.7 million constraints and solve in under two minutes on a workstation.
+
+% ==========================================================================================
+\section*{Results}
+
+The account closes every exact balance to 1.1 kg and moves none of nine main chain steps
+more than 4\% from the gap-filled sources over 30 years. The sources disagree mostly on
+totals, which trade absorbs: cathode to users and anode to refineries carry 87\% of the flow
+adjustment, and the totals of matte, cathode and concentrate carry the largest residuals.
+Production totals can thus be quoted near the yearbooks; bilateral flows need intervals.
+Customs records chronically book far more gross mass into two trade hubs than the account
+can place: over 1995--2024 it keeps 45\% of Switzerland's recorded imports, net of
+re-exports, and 32\% of the Netherlands', against 99--100\% for Taiwan and France.
+Customs-based footprints should check hub imports against production and use. Stated
+uncertainties are on average 2.2-fold smaller than the realised disagreement, so intervals
+must be widened. A single 2020--24 world scrap share in smelter and refinery feed hides
+region groups from none to over a third; regional recycling indicators need regional
+accounts. The chain concentrated on China: since 1995 the Herfindahl index of refining more
+than doubled and that of cathode use nearly quadrupled, while mining stayed dispersed; in
+2024 China refined 45\% of world cathode and its fabricators took 57\%. Supply-risk
+assessment must look past mining.
+
+% ==========================================================================================
+\section*{Conclusion}
+
+By design, other metals and substances, such as iron in steel or carbon, enter as new
+cases, as a synthetic one does. Fuller proposed to ``account wealth'' as the forward days
+we are physically prepared to sustain people at a ``liberating level of metabolic and
+metaphysical regeneration''; semi-automated physical accounts are the basis for such
+metabolic planning.
+
+\end{document}

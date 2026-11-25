@@ -20,7 +20,8 @@ so a refresh onto a new reference chain re-reads the file and diffs it key by ke
        the scale-total objective, the four #111 regions without Italy (#201)
   L83  per-year A2 share: scale totals with |z| > 3, on the old and the new chain
   L88  A3: the share of the objective on cross-region legs into the non-processing
-       regions, by traded good
+       regions, by traded good; their gross-mass imports kept by region, and the
+       cathode imports kept for the trade hubs (ISIE 2027 abstract)
   L104 Scrap→CFR CC: contraction by prior class, with and without the scale totals
        and the ICSG scrap level anchors (Stage-5 ablation), and the rows that touch it
   L110 the QQ sample's pinned, flat and zero-seed edges
@@ -52,6 +53,8 @@ FRINGE_KT           = 1e-4         # an edge whose a* is this close to 0 is near
 FLAT_Z              = 1e-9         # |z| below this: a* equals the prior
 A2_SUMS             = 0.20         # the A2 threshold (results_figs THRESH["A2_sums"])
 CFR_PAIR            = ("Scrap", "CFR", "CC")
+HUB_LOW_RET         = 0.8          # L88: a year whose import retention lies below this
+TRADE_HUBS          = ("Switzerland", "Netherlands")   # L88: the trade hubs of the ISIE abstract
 # =============================================================================
 
 
@@ -194,6 +197,20 @@ def a3_numbers(out: dict, ef: pd.DataFrame) -> None:
          "prior, posterior, retention", {k: [float(x.a_prior.sum()), float(x.a_post.sum()),
                                              float(x.a_post.sum() / x.a_prior.sum())]
                                          for k, x in d if x.a_prior.sum() > 0}, "kt CC")
+    ms  = ef[hub & (ef.valuation == "Mass")]
+    yr  = ms.groupby(["to_region", "year"])[["a_prior", "a_post"]].sum()
+    low = (yr.a_post < HUB_LOW_RET * yr.a_prior).groupby(level="to_region").sum()
+    tot_r = ms.groupby("to_region")[["a_prior", "a_post"]].sum()
+    _add(out, "discussion:L88.hub_mass_imports_by_region", "gross-mass imports on the "
+         "cross-region legs into each non-processing region, all goods, 30 years: prior, "
+         f"posterior, retention, years with retention below {HUB_LOW_RET}",
+         {r: [float(x.a_prior), float(x.a_post), float(x.a_post / x.a_prior), int(low[r])]
+          for r, x in tot_r.iterrows() if x.a_prior > 0}, "kt")
+    cath = ms[(ms.from_sector == "Cathode") & ms.to_region.isin(TRADE_HUBS)]
+    _add(out, "discussion:L88.hub_cathode_mass_trade_hubs", "gross-mass cathode imports "
+         f"into {' and '.join(TRADE_HUBS)}, 30 years: prior, posterior, retention",
+         [float(cath.a_prior.sum()), float(cath.a_post.sum()),
+          float(cath.a_post.sum() / cath.a_prior.sum())], "kt")
 
 
 # =============================================================================
