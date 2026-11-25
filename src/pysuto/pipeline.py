@@ -430,8 +430,9 @@ class Sweep:
         step writes to ``<scratch_dir>/<sweep id>/<stage>`` and its run is deleted as soon
         as no remaining point reuses it; the manifest still names it, so a point can be
         rebuilt from its overrides. Default ``True`` keeps every run in ``data/proc``.
-    scratch_dir : where the dropped runs live meanwhile, a RAM-backed tmpfs such as
-        ``default_scratch_dir()``'s; a run that survives its deletion raises; needed when ``keep_intermediate`` is ``False``.
+    scratch_dir : where the dropped runs live meanwhile, such as ``default_scratch_dir()``
+        (RAM-backed where the platform has ``/dev/shm``); needed when ``keep_intermediate``
+        is ``False``. A run that survives its deletion raises.
     """
 
     def __init__(self, pipeline: Pipeline, axes: Sequence[Axis], mode: str = "random",
@@ -601,12 +602,10 @@ class Sweep:
             self._run_point(sid, pt, memo, reg, manifest, runner)
             self._release(pt, [q["index"] for q in points[pos + 1:]
                                if q["status"] != "done"], memo, runner)
-        if self._scratch_steps():
-            sweep_scratch = os.path.join(self.scratch_dir, sid)
         reg.update(sid, manifest=manifest,
                    stage_summary=_summary(manifest, time.perf_counter() - t0))
-        if self._scratch_steps():
-            _remove_scratch(sweep_scratch)
+        if self._scratch_steps():          # after the save, so --resume finds the manifest
+            _remove_scratch(os.path.join(self.scratch_dir, sid))
         return sid
 
     def _runner(self, sid: str) -> Pipeline:
@@ -703,7 +702,7 @@ def default_scratch_dir() -> str:
 
 def _remove_scratch(path: str) -> None:
     """Delete a scratch directory; raise when anything of it is still there (Windows
-    refuses to delete open files), never leave it behind silently (#295)."""
+    refuses to delete open files), never leave it behind silently."""
     if not os.path.exists(path):
         return
     try:
