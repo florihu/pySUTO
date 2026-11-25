@@ -431,7 +431,7 @@ class Sweep:
         as no remaining point reuses it; the manifest still names it, so a point can be
         rebuilt from its overrides. Default ``True`` keeps every run in ``data/proc``.
     scratch_dir : where the dropped runs live meanwhile, a RAM-backed tmpfs such as
-        ``/dev/shm/pysuto-sweep``; needed when ``keep_intermediate`` is ``False``.
+        ``default_scratch_dir()``'s; a run that survives its deletion raises; needed when ``keep_intermediate`` is ``False``.
     """
 
     def __init__(self, pipeline: Pipeline, axes: Sequence[Axis], mode: str = "random",
@@ -602,9 +602,11 @@ class Sweep:
             self._release(pt, [q["index"] for q in points[pos + 1:]
                                if q["status"] != "done"], memo, runner)
         if self._scratch_steps():
-            shutil.rmtree(os.path.join(self.scratch_dir, sid), ignore_errors=True)
+            sweep_scratch = os.path.join(self.scratch_dir, sid)
         reg.update(sid, manifest=manifest,
                    stage_summary=_summary(manifest, time.perf_counter() - t0))
+        if self._scratch_steps():
+            _remove_scratch(sweep_scratch)
         return sid
 
     def _runner(self, sid: str) -> Pipeline:
@@ -627,7 +629,7 @@ class Sweep:
                 continue
             if any(pre[j][k] == pre[pt["index"]][k] for j in remaining):
                 continue
-            shutil.rmtree(os.path.join(runner.run_dirs[step], rid), ignore_errors=True)
+            _remove_scratch(os.path.join(runner.run_dirs[step], rid))
             for key in [m for m, v in memo.items() if v == rid]:
                 del memo[key]
 
@@ -689,6 +691,29 @@ class Sweep:
                 raise RuntimeError(f"the scratch store {self.scratch_dir} needs ≈ "
                                    f"{need:.2f} GB for one point's dropped runs; "
                                    f"{free:.2f} GB are free")
+
+
+def default_scratch_dir() -> str:
+    """A scratch store that exists on this platform: ``/dev/shm/pysuto-sweep`` (RAM-backed)
+    where ``/dev/shm`` exists, else ``pysuto-sweep`` under ``tempfile.gettempdir()``."""
+    if os.path.isdir("/dev/shm"):
+        return "/dev/shm/pysuto-sweep"
+    return os.path.join(tempfile.gettempdir(), "pysuto-sweep")
+
+
+def _remove_scratch(path: str) -> None:
+    """Delete a scratch directory; raise when anything of it is still there (Windows
+    refuses to delete open files), never leave it behind silently (#295)."""
+    if not os.path.exists(path):
+        return
+    try:
+        shutil.rmtree(path)
+    except OSError as exc:
+        raise RuntimeError(f"the sweep could not delete its scratch run {path}: "
+                           f"{exc}") from exc
+    if os.path.exists(path):
+        raise RuntimeError(f"the sweep's scratch run {path} is still there after its "
+                           f"deletion")
 
 
 def _canonical(obj) -> str:

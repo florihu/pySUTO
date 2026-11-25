@@ -27,7 +27,8 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
 from pysuto.logging  import get_logger, start_run_log
-from pysuto.pipeline import RESERVE_GB, Axis, Chain, Pipeline, Sweep
+from pysuto.pipeline import (RESERVE_GB, Axis, Chain, Pipeline, Sweep,
+                              default_scratch_dir)
 
 # ---------------------------------------------------------------------------
 # USER CONFIGURATION
@@ -47,7 +48,7 @@ LABEL           = "knob sweep (#108)"
 # Keep only the opt runs: each point's imp and const runs (≈ 0.93 GB) go to a RAM-backed
 # scratch store and are deleted once no remaining point reuses them (#108).
 KEEP_INTERMEDIATE = False
-SCRATCH_DIR       = "/dev/shm/pysuto-sweep"
+SCRATCH_DIR       = default_scratch_dir()   # /dev/shm/pysuto-sweep, else under the temp dir
 
 # Overrides set on every point. A sweep through opt passes opt.FEASIBILITY_CHECK =
 # "none" unless this or an axis sets it (#104). The const runs are deleted, so their
