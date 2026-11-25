@@ -159,7 +159,8 @@ def _walk(path: str) -> list:
         dirs[:] = [d for d in dirs if d not in _SKIP_DIRS]
         for name in files:
             if name not in _SKIP_FILES:
-                found.append(os.path.relpath(os.path.join(top, name), path))
+                rel = os.path.relpath(os.path.join(top, name), path)
+                found.append(rel.replace(os.sep, "/"))    # one key on every platform
     return sorted(found)
 
 

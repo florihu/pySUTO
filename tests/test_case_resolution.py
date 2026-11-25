@@ -97,7 +97,8 @@ class TestForms:
             tmp_path / "a" / "zinc.py")
         assert case_reference("toy", str(tmp_path)) == "toy"
         assert case_reference("mylab.zinc", str(tmp_path)) == "mylab.zinc"
-        assert case_reference("/abs/zinc.py", str(tmp_path)) == "/abs/zinc.py"
+        absolute = os.path.abspath("/abs/zinc.py")      # drive-qualified on Windows
+        assert case_reference(absolute, str(tmp_path)) == absolute
 
 
 class TestErrors:

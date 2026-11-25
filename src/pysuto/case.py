@@ -318,7 +318,7 @@ def case_reference(reference: str, cwd: Optional[str] = None) -> str:
 
 def _load_file(path: str):
     if not os.path.isfile(path):
-        raise ValueError(f"unknown case {path!r}: read as a file path (it ends in .py or "
+        raise ValueError(f"unknown case '{path}': read as a file path (it ends in .py or "
                          f"holds a path separator), and no such file exists")
     folder = os.path.dirname(path)
     if folder not in sys.path:      # as a script run by Python: siblings are importable

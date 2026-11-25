@@ -17,7 +17,7 @@ import pandas as pd
 import pytest
 
 from pysuto.__main__ import main
-from pysuto.compare import CompareError, feed_permutation, first_difference, lineage
+from pysuto.compare import CompareError, _walk, feed_permutation, first_difference, lineage
 from pysuto.tutorial import toy
 
 
@@ -47,6 +47,12 @@ def _run(root, base, new, capsys):
 def _tree(root) -> dict:
     return {os.path.join(top, f): os.path.getmtime(os.path.join(top, f))
             for top, _, files in os.walk(root) for f in files}
+
+
+def test_a_stored_file_is_keyed_with_posix_separators(tmp_path):
+    (tmp_path / "timesteps").mkdir()
+    (tmp_path / "timesteps" / "t_2003.npz").write_bytes(b"")
+    assert _walk(str(tmp_path)) == ["timesteps/t_2003.npz"]
 
 
 def test_a_chain_compared_with_itself_is_identical_and_the_command_writes_nothing(
