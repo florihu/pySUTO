@@ -180,6 +180,7 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 
 ## Documentation & units
 
+- Results for an abstract, talk, REP verdict or the manuscript are **key results**: read [docs/agents/key-results.md](docs/agents/key-results.md) before choosing them, and paste its relevance check into every reviewer brief.
 - Analyses of `opt`/`const`/`imp` runs are REPs at `docs/rep/analysis_<run_id>_<YYYYMMDD>_<slug>.md`, opening with Run / Against / Chain / Feed+params versions / Date / Branch / ADR / Verdict.
 - Masses are `kt` — the code's unit in logs, axis labels and the Sankey default. Name the valuation when both exist: `kt` (gross mass) vs `kt CC` (contained copper); `Mt` for world-scale totals; never an unlabelled `t`.
 - Every relative number names its base and the run it is relative to: `Σz² −9.6 % vs opt_<id>`, never `−9.6 %` alone. A difference of two percentages is in `pp`.
