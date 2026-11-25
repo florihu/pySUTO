@@ -1,1 +1,16 @@
+# Input versions and case_sha256 hash file bytes (ADR 0023), so a file must have
+# the same bytes in every clone. Text is LF in the working tree whatever the
+# core.autocrlf of the clone says; binary files are never converted.
+* text=auto eol=lf
+*.docx binary
+*.ods binary
+*.pdf binary
+*.png binary
+*.ttf binary
+*.npz binary
+*.xlsx binary
+
+# Committed with CRLF; its bytes stay as committed.
+scripts/parse/icsg_parse/icsg_2023f.py -text
+
 .git_archival.txt export-subst
