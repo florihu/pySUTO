@@ -9,13 +9,88 @@ import sys
 
 import pytest
 
-from pysuto.registry import LockHeld, stage_lock
+from pysuto.registry import LockHeld, lock as lock_mod, stage_lock
 
 
 def _dead_pid() -> int:
     p = subprocess.Popen([sys.executable, "-c", "pass"])
     p.wait()
     return p.pid
+
+
+class _FakeKernel32:
+    """The three kernel32 calls ``_alive_windows`` makes, answering from fixed values."""
+
+    def __init__(self, handle=1, exit_code=259):
+        self.handle, self.exit_code, self.closed = handle, exit_code, []
+
+    def OpenProcess(self, access, inherit, pid):
+        self.opened = (access, inherit, pid)
+        return self.handle
+
+    def GetExitCodeProcess(self, handle, ref):
+        ref._obj.value = self.exit_code
+        return 1
+
+    def CloseHandle(self, handle):
+        self.closed.append(handle)
+        return 1
+
+
+class TestAliveWindows:
+    """The Windows branch of the liveness check, run on any platform through its seams."""
+
+    @pytest.fixture
+    def win(self, monkeypatch):
+        def install(**kw):
+            fake = _FakeKernel32(**kw)
+            monkeypatch.setattr(lock_mod, "_WINDOWS", True)
+            monkeypatch.setattr(lock_mod, "_kernel32", lambda: fake)
+            return fake
+        return install
+
+    @pytest.fixture(autouse=True)
+    def no_signal(self, monkeypatch):
+        def boom(*a):
+            raise AssertionError("os.kill must not be called on the Windows branch")
+        monkeypatch.setattr(lock_mod.os, "kill", boom)
+
+    def test_a_running_process_is_alive_and_its_handle_is_closed(self, win):
+        fake = win(exit_code=259)
+        assert lock_mod._alive(4321) is True
+        assert fake.opened == (0x1000, False, 4321) and fake.closed == [1]
+
+    def test_an_exited_process_is_dead_and_its_handle_is_closed(self, win):
+        fake = win(exit_code=0)
+        assert lock_mod._alive(4321) is False
+        assert fake.closed == [1]
+
+    def test_access_denied_is_a_live_process_of_another_user(self, win, monkeypatch):
+        win(handle=None)
+        monkeypatch.setattr(lock_mod.ctypes, "get_last_error", lambda: 5,
+                            raising=False)
+        assert lock_mod._alive(4321) is True
+
+    def test_a_pid_the_os_does_not_know_is_dead(self, win, monkeypatch):
+        win(handle=None)
+        monkeypatch.setattr(lock_mod.ctypes, "get_last_error", lambda: 87,
+                            raising=False)
+        assert lock_mod._alive(4321) is False
+
+    def test_posix_still_probes_with_signal_zero(self, monkeypatch):
+        calls = []
+
+        def kill(pid, sig):
+            calls.append((pid, sig))
+            if pid == 1:
+                raise ProcessLookupError
+            if pid == 2:
+                raise PermissionError
+
+        monkeypatch.setattr(lock_mod, "_WINDOWS", False)
+        monkeypatch.setattr(lock_mod.os, "kill", kill)
+        assert [lock_mod._alive(p) for p in (77, 1, 2)] == [True, False, True]
+        assert calls == [(77, 0), (1, 0), (2, 0)]
 
 
 class TestStageLock:

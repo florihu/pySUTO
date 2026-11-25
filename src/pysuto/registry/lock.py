@@ -15,6 +15,7 @@ empty by a crash in that instant has to be removed by hand.
 from __future__ import annotations
 
 import contextlib
+import ctypes
 import json
 import os
 from typing import Iterator
@@ -37,7 +38,44 @@ class LockHeld(RuntimeError):
     """Another live stage driver holds the lock on this ``data/proc``."""
 
 
+_WINDOWS = os.name == "nt"
+_PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+_STILL_ACTIVE = 259
+_ERROR_ACCESS_DENIED = 5
+
+
+def _kernel32():
+    """The kernel32 handle with typed signatures (a test replaces this seam)."""
+    from ctypes import wintypes
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+    k32.OpenProcess.restype = wintypes.HANDLE
+    k32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    k32.GetExitCodeProcess.restype = wintypes.BOOL
+    k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    k32.CloseHandle.restype = wintypes.BOOL
+    return k32
+
+
+def _alive_windows(pid: int) -> bool:
+    """Ask the OS whether *pid* runs, sending nothing: on Windows ``os.kill(pid, 0)``
+    is a ``CTRL_C_EVENT``, a real signal to the holder's console group."""
+    k32 = _kernel32()
+    handle = k32.OpenProcess(_PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+    if not handle:
+        return ctypes.get_last_error() == _ERROR_ACCESS_DENIED   # another user's process
+    try:
+        code = ctypes.c_ulong()
+        if not k32.GetExitCodeProcess(handle, ctypes.byref(code)):
+            return True                      # a process we opened but cannot query: live
+        return code.value == _STILL_ACTIVE
+    finally:
+        k32.CloseHandle(handle)
+
+
 def _alive(pid: int) -> bool:
+    if _WINDOWS:
+        return _alive_windows(pid)
     try:
         os.kill(pid, 0)
     except ProcessLookupError:
