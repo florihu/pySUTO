@@ -196,7 +196,7 @@ piot = psut.aggregate(region="World", keep_crossings=True).to_piot("market_share
 # piot.footprint("E", "2020"), piot.ew_mfa("2020") → derived views, never persisted
 ```
 
-### Output run-id format
+## Output run-id format
 
 All six stages mint run-ids using one harmonized pattern:
 
@@ -209,7 +209,7 @@ All six stages mint run-ids using one harmonized pattern:
 or parent run-id is embedded — the label lives only in the registry, and parent
 references live in the per-run sidecar `metadata.json`.
 
-### Per-run sidecar `metadata.json`
+## Per-run sidecar `metadata.json`
 
 Every run writes a self-contained sidecar at `<run_dir>/metadata.json`:
 
@@ -256,7 +256,7 @@ The top-level `registry.json` per stage is a trimmed index:
 `{run_id, stage, label, created_at}` per entry.  Everything richer is in
 the sidecar.
 
-### Input registry (`data/input/`)
+## Input registry (`data/input/`)
 
 Four kinds (`feed`, `acc`, `params`, `mask`), each with its own per-kind
 `registry.json`:
@@ -292,7 +292,7 @@ Downstream runs record `(id, version)` in their sidecar
 `parents.inputs.*` so any output run-id can be traced back to the exact
 input-bytes that produced it.
 
-### Pipeline and knobs
+## Pipeline and knobs
 
 A **knob** is an UPPER_CASE name that a driver lists in its `KNOBS` tuple: for Stages 2
 and 3 a field of the case spec's section, which `--set` replaces
