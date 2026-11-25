@@ -184,7 +184,7 @@ Supply–use-table reconciliation (copper application): a σ-weighted QP solved 
 - Every relative number names its base and the run it is relative to: `Σz² −9.6 % vs opt_<id>`, never `−9.6 %` alone. A difference of two percentages is in `pp`. A retention (`Σa*/Σa_prior`, GLOSSARY.md "Retention") is always quoted with its category and year.
 - ADRs: `docs/adr/NNNN-slug.md`, one paragraph plus a bold `**Status:**` line citing evidence run ids; write one only if hard to reverse AND surprising AND a real trade-off (`domain-modeling` skill, `ADR-FORMAT.md`). "Rejected on measurement" is a valid status.
 - `GLOSSARY.md` is a glossary only: bold term, tight definition, `_Avoid_` aliases, flagged ambiguities (`domain-modeling` skill, `GLOSSARY-FORMAT.md`). Add a term whenever vocabulary had to be pinned down mid-task.
-- Modelling choices and architecture go in the architecture document in `docs/` (README.md §2–§6 until #305 moves them), in the same branch as the code they describe (`CODING_STANDARDS.md`; `tests/test_readme_names.py`). Open work and round bookkeeping live only in GitHub issues and milestones, measurements in closing comments and REPs; `TODO.md` is a frozen history. No third place.
+- Modelling choices and architecture go in the architecture document in `docs/` (README.md §2–§6 until #305 moves them), in the same branch as the code they describe (`CODING_STANDARDS.md`; `tests/test_readme_names.py`). Open work and round bookkeeping live only in GitHub issues and milestones, measurements in closing comments and REPs; `docs/history/TODO.md` is a frozen history. No third place.
 
 ## Git workflow
 
