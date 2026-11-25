@@ -16,7 +16,7 @@ records in `stage_config` carry the module name `copper` (or the path-loaded nam
 arrays, `row_meta`, the imputation log and `parents.inputs` do not depend on it, and a copper run now needs a
 checkout of the repository (or its release archive), not only the wheel.
 
-**Status:** accepted (2026-11-18; #185, #189). The move to `scripts/` reproduces the chain of
+**Status:** accepted — (2026-11-18; #185, #189). The move to `scripts/` reproduces the chain of
 `opt_20261116_134050_b54f65dc` in every stored array and in `parents.inputs`, Stages 2–6, through
 `python -m pysuto run --case scripts/copper.py`: `imp_20261118_090806_71969db4`, `const_20261118_091159_576e7b1f`,
 `opt_20261118_091818_403319a5`, `uncprop_20261118_095441_3322e9e3`, `psut_20261118_095601_3b3c6f5b`

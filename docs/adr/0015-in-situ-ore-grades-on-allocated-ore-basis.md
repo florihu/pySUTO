@@ -1,6 +1,6 @@
 # Ore grades are in-situ, on the price-allocated ore basis, region×year-resolved
 
-**Status:** accepted.
+**Status:** accepted —
 Amended 2026-09-29 by [ADR 0038](0038-waste-rock-is-a-satellite-mass-flow.md): the Consequences'
 "under the allocated basis there is no separate waste-rock mass" is withdrawn. The crude-ore feed
 measures ore (used extraction), so CO = Ore in mass is a property of the data, not a statement

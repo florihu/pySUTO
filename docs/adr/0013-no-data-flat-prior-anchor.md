@@ -1,6 +1,6 @@
 # No-data (flat-prior) σ anchor, and the structurally-determined carve-out
 
-**Status:** accepted (soft σ anchor, `NODATA_ANCHOR_CV=0.05` — the copper case's value since the
+**Status:** accepted — (soft σ anchor, `NODATA_ANCHOR_CV=0.05` — the copper case's value since the
 2026-09-03 merge to main; `ConstraintEngine` has no default of its own and takes
 `nodata_anchor_cv` as a required argument, which `scripts/copper.py` sets from
 `NODATA_ANCHOR_CV`; corrected by #223); the hard flat-prior-zero *pin* is retained only for

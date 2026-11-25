@@ -1,6 +1,6 @@
 # An accounting structure is declared by a spec; ODS and JSON are two formats of it, each with a reader
 
-**Status:** accepted (2026-11-11; #57, groundwork for #26 §1). The copper account built from the
+**Status:** accepted — (2026-11-11; #57, groundwork for #26 §1). The copper account built from the
 files of `acc/copper` v4 by the code before (`afef59c`) and after the change (`feat/acc-spec`)
 is byte-identical in `edge_index.csv`, `edge_index_all.csv`, `node_index.csv`,
 `root_nodes.csv`, `bounds_l.npy`, `bounds_u.npy` and `masks_user.npz` (854,460 admissible

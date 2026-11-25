@@ -1,6 +1,6 @@
 # Provenance-aware σ on scale totals: mechanism retained, loosening rejected
 
-**Status:** rejected as a default (mechanism kept, inert). Evidence: REPs
+**Status:** rejected as a default — (mechanism kept, inert). Evidence: REPs
 `analysis_opt_20260903_084528_45fdd041_20260903_masscc-tension-root-causes.md` (motivation) and
 the Round-A REP (rejection runs `opt_20260903_101715_821a620b` cv=0.15,
 `opt_20260903_103441_42cf1331` cv=0.05, isolation `opt_20260903_105145_fa7049e3`). *(Pruned: `opt_20260903_084528_45fdd041`, `opt_20260903_101715_821a620b`, `opt_20260903_103441_42cf1331`, `opt_20260903_105145_fa7049e3` are absent from `data/proc` on 2026-11-23; no per-run pruning date is recorded.)*

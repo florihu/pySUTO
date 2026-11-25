@@ -1,6 +1,6 @@
 # ICSG refined production anchors the anode entering ER, not the matte entering CFR
 
-**Status:** **accepted.** *(Was "proposed — z² rises 4.8 %". That cost was an artefact of the
+**Status:** accepted — *(Was "proposed — z² rises 4.8 %". That cost was an artefact of the
 baseline: measured against a model whose anode trade was structurally deleted, this change
 appeared to regress. On top of [ADR 0022](0022-er-pools-its-anode-input-over-all-source-regions.md)
 it costs essentially nothing — sum-row z² −26.4 % → −26.6 % — and adds Conc-CC +4.6 pp, Smelt-CC

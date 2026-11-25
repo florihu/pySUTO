@@ -1,6 +1,6 @@
 # Stage 4 owns the model; a QP backend solves a standard-form QP
 
-**Status:** accepted 2026-11-12 (#55, measured in #56). The copper re-solve of the final chain's
+**Status:** accepted — 2026-11-12 (#55, measured in #56). The copper re-solve of the final chain's
 `const_20261022_111531_df61bf5c` through `Solver` + `ClarabelBackend`, `opt_20261112_144603_1256b16b`, is bit-identical to
 `opt_20261022_112855_928da10c`: all 240 stored arrays, every year's objective and iteration count, 30/30 solved. The
 per-period feasibility probe checks all 30 years in 14.8 s (the old full-G probe checked the first year in 430–471 s),
