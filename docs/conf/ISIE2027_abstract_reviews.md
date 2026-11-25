@@ -1,11 +1,15 @@
 # ISIE 2027 abstract: reviews, responses and evidence
 
-Abstract: `docs/conf/ISIE2027_abstract.docx`, rewritten from `ISIESEM_abstract_finis.docx` (ISIE-SEM, Cambridge).
+**Current version: v27, `docs/conf/ISIE2027_abstract.tex` (2026-11-25), on the manuscript's reference chain `opt_20261124_141714_e2892160`; see Round 7 and "Claim → evidence (v27)" below. The .docx (v20) and everything from here to Round 7 describe the earlier chain `opt_20261022_112855_928da10c` and are history.**
+
+Abstract (v1–v20): `docs/conf/ISIE2027_abstract.docx`, rewritten from `ISIESEM_abstract_finis.docx` (ISIE-SEM, Cambridge).
 Call: https://www.ntnu.edu/isie2027/call-for-abstracts. Deadline 30 November 2026 (extended from 15 November).
 Reference chain: `opt_20261022_112855_928da10c` (manuscript-ready-3). Stage 5: `uncprop_20261029_090754_0446e784`. Knob sweep: `sweep_20261102_145601_8413cace`.
 Drafted and reviewed 2026-11-09. Two review rounds, each with two independent reviewer agents that had not seen earlier drafts or reviews: round 1 on draft v2 — (A) committee and positioning, (B) evidence and model fidelity; round 2 on draft v5, after the author's re-brief (methods in the foreground, modularity, traceability, open source, AISHA and Pauliuk 2024 references, Spaceship Earth reduced to one sentence at each end) — (C) content and positioning, (D) a scorer of AI-typical prose. v6 closed round 2. Round 3 (2026-11-10, no reviewer agents): the author asked for a Results section about the reconciled copper system — scale, distribution, uncertainty and sensitivity — instead of the diagnostics after the hub sentence (v10), then that every indicator in the Results be briefly explained (v13). Round 4 (2026-11-10): a readability and flow pass (v15), then two fresh reviewers that had seen no earlier draft or review — (E) peer review with repository access, verifying every number and gloss; (F) readability, flow and AI-prose markers, text only. v17 closed round 4. Round 5 (2026-11-10): the author removed the inline citations; the lineage is named instead (AISHA, IELab) and the freed words went to the clarity items of round 4 that budget had refused. v18 closed round 5. Round 6 (2026-11-10): the author asked for a two-sentence insight on the secondary share, contrasting China, the EU and Japan/South Korea, as temporal development; it replaced the Herfindahl sentence, the four-country output-total sentence, the Chile–Peru embodied ratio and the unnamed gap sentence. v20 is the final version.
 
 ## Before submitting (the author's decisions)
+
+**Status for v24 (2026-11-25):** item 1 (co-authors) is still open; item 2 is resolved (MIT `LICENSE`, `pyproject.toml`); item 3: oral, 478 words (484 with the headings); item 6 is moot (termination left the text on the author's request); item 7 stands ("Stage components are plug-ins" names no solver). New: the call says titles have "a maximum of 20 words (no abbreviations)"; the author keeps "pySUTO" in the title (19 words) as a software name, defined at first use in the body. The keyword line's MFA and IO/EE-MRIO are the official keyword list's own labels.
 
 1. **Authors.** The call requires every co-author in order, with the presenting author marked. The .docx has a placeholder.
 2. **Licence.** The repository has no LICENSE file, `pyproject.toml` declares none, and GitHub reports none, so "open-source" and the title's "open" are not yet true. Add a licence before 30 November or change the wording. method.md §3.4 still reads "[DOI and licence to be inserted]".
@@ -141,6 +145,76 @@ Flow ratings on v15: Objective 2/5, Methods 3/5, Results 3/5, Conclusion 3/5. AI
 | Stacked appositives in the embodied sentence | Accepted: semicolon and "comes from". The participle stays. |
 | Conclusion: drop "consistent", add "and"; replace the closing sentence with "reconcile the gauges of Spaceship Earth into one reading" | First accepted. Replacement declined: the closing sentence is the author's narrative ("trace the distribution and scale"); "let us trace" → "trace". |
 | Content note: the Chile–Peru sentence could give way to a sentence on what traceability buys | Not applied; recorded with item 6 above for the author. |
+
+## Round 7 — rebuilt from the manuscript (v21–v24, 2026-11-25, `.tex`)
+
+Grilled with the author (grill-with-docs, Q1–Q18). Decisions: the abstract becomes a 500-word version of the paper (Introduction's gap, Method's contributions, Results' answers); Fuller kept at both ends; numbers only from the manuscript's number files on the reference chain (the text.md trajectories of v20 dropped); Results as a story with few headline numbers; four support rules (each claim maps to a manuscript sentence and, for a number, to a JSON key; no claim of absence about the literature; nothing marked `verify:`/`check:`; interpretations only where the Discussion makes them, the closing Fuller sentence excepted as the author's vision); output as `.tex`; pySUTO in the title (the author's title, a comma added). Later in the round the author swapped content: the termination result out (not interesting to the author), then the source defects, China's embodied Chile/Peru copper (B3) and the ledger tally out (the author's own debugging), and in their place the trade hubs (the surprise), the objective by sector pair and node, and China's rising concentration in refining and cathode use. The closing sentence became the author's case for metabolic planning, with Fuller's definition of wealth.
+
+**Reviewers.** v21: (G) committee and evidence, with repository access; (H) readability and AI-prose, text only. v22: (I) a fresh evidence check. All three had seen no earlier draft or review.
+
+| Finding | Response |
+| --- | --- |
+| G: AISHA expansion wrong; the title of the paper is "A tool to construct a series of contingency tables" | Declined: footnote 19, p. 27 of the IIOA 19th-conference PDF reads "The AISHA-acronym stands for An Automated Integration System for Harmonised Accounts." The author's citation says 2015; the PDF sits in the 2011 (19th conference) folder — matters only for `refs.bib`. |
+| G: "Two tasks remain hard" is a claim of absence (Intro marks the gap `verify:`); I: "addresses two tasks" set against AISHA implies the same | Accepted: "pySUTO … carries each source's uncertainty to every reconciled flow." |
+| G: copper as an EU strategic raw material is not in the repo | Kept, external source: the Commission's critical-raw-materials page and Regulation (EU) 2024/1252 list copper as strategic (not critical). |
+| G, H: "stage" means pipeline stage and chain step at once | Accepted: "nine main chain steps"; "stage" only for the pipeline. |
+| G, I: "closes every mass balance" conflicts with A1 "not met" | Accepted: "every exact balance to 1.1 kg". |
+| G, I: "4 % from its sources": retention is against the prior, which holds imputations, pooled over 30 years | Accepted: "from the gap-filled sources over 30 years". |
+| G: "only the joined account shows" is a claim of absence | Accepted, then moot (B3 left the text). |
+| G: "In 2020–24 … region groups" | Accepted. |
+| H: "termination" and "stopping rule" used as synonyms; "2.2-fold too small" has no base; "bands" | Accepted: one term; "2.2-fold smaller than the realised disagreement"; "bounds". |
+| H: "preregistered hypotheses", "settings" | Declined: "expected answers" is the author's word (2026-11-12; GLOSSARY *Expected answer*); "setting" is an _Avoid_ term (GLOSSARY *Knob*). Moot after the tally left. |
+| H: replace the closing Fuller sentence | Declined at the time (the author's sentence); the author later replaced it. |
+| I: hub sentence says "copper" and "trade hubs"; the evidence is gross mass on two regions, and in contained copper the Netherlands ends above its prior | Accepted: "far more copper by gross mass into two trade hubs"; "net of re-exports" (the prior is BACI after the re-export netting); Taiwan and France 99–100 % (Malaysia, 0.981, made it 98). |
+| I: "Stages are plug-ins": the six stages are fixed | Accepted: "Stage components are plug-ins". |
+| I: "a second metal enters as data": a case is a Python module | Accepted: "enters as a new case". |
+| I: Fuller wrote "we are physically prepared to sustain" | Accepted. |
+| I: "IELab … by source reliability" is half supported (IELab names KRAS, not reliability weighting) | Declined: introduction.md:71 places the IELab in the reliability-weighted lineage; the author chose the name in round 5. |
+
+**New measurement for the hub sentence.** `scripts/report/manuscript_checks.py` gained two keys (`discussion:L88.hub_mass_imports_by_region`, `discussion:L88.hub_cathode_mass_trade_hubs`), regenerated read-only on the reference chain (39 old keys identical), and `discussion.md` §5.2 A3 gained one bullet citing them.
+
+**v25 (2026-11-25).** The author asked the Objective to state the goal — distilling advances in the data model and in the reconciliation problem formulation into an open-source, modular framework — and to name ODYM. ODYM is named for the data-model line (it structures biophysical data; the Introduction says such frameworks do not reconcile), AISHA and the IELab for the reconciliation line; Methods is regrouped into data model, reconciliation and framework. Paid for by the licence moving into the Objective and by dropping two glosses (interval widening, Herfindahl definition).
+
+**v26 (2026-11-25).** The author asked whether the abstract says pySUTO serves other metals (steel) and substances (carbon); it did not. Q19 (b): the claim went into introduction.md:90 first, then into the Conclusion as a design target next to the synthetic case. "Most surprising" became "Surprisingly" to pay for it.
+
+**v27 (2026-11-25).** The author's rule: every key result carries its implication (`docs/agents/key-results.md` step 4). v26 paired two of six results with one, both in the Conclusion. Q20 (a): discussion.md §5.4 "For copper" gained two implications by the author's decision, for the hubs (check hub imports against production and use before they enter footprints) and for concentration (it sits downstream of the mine, so supply-risk assessment must look past mining); the Results now give each of the six results its §5.4 implication, and the Conclusion keeps the transfer and Fuller sentences. Paid for by dropping "The result is one traceable physical account …" (Objective and Methods say it), "Surprisingly", "in open software", "(IELab)" (not used again), "year after year" (now "chronically", the author's word) and "already". Body 490 words, 496 with the headings.
+
+**Found along the way (not changed).** discussion.md take-home 5 lists "regional secondary shares" among what the sources cannot show alone, but the ICSG feed's own rows give them (the reconciliation moves no group by more than 0.015). method.md "Practical significance" says four regions carry a third of the scale-total objective, discussion.md §5.5.2 says five carry two fifths.
+
+## Claim → evidence (v27)
+
+Reference run `opt_20261124_141714_e2892160`; N = `docs/manuscript/figs/numbers.json`, C = `manuscript_checks.json`.
+
+| Claim in v27 | Value | Source |
+| --- | --- | --- |
+| "must be comprehended and serviced in total" | verbatim | Fuller (1969), archive.org OCR full text, §4 |
+| copper, an EU strategic raw material | strategic, not critical | Regulation (EU) 2024/1252; Commission CRM page |
+| four traded goods; yearbooks, customs records and extraction accounts disagree | — | introduction.md §1; discussion.md §5.2 (A2) |
+| AISHA = An Automated Integration System for Harmonised Accounts; constrained balancing by source reliability | footnote 19, p. 27 | Geschke et al., IIOA 19th conference PDF; introduction.md:71 |
+| ODYM = Open Dynamic Material Systems Model; structures biophysical data | — | Pauliuk and Heeren (2020), JIE 24(3); github.com/IndEcol/ODYM ("modeling biophysical stock-flow relations"); introduction.md:68 (structures data, does not reconcile — so ODYM is named for the data model, not for reconciliation) |
+| goal: distil advances in the data model and the formulation of the reconciliation problem into one open-source (MIT), modular framework | — | method.md N1–N3 ("What is new"), N7, §3.1.9; `LICENSE`. "advances", not "new": N3 carries a `verify:` on novelty |
+| data model: every flow in gross mass and contained copper, with a pedigree-based σ; reconciliation: one σ-weighted least-squares problem per year with exact balances and bounds; posterior σ per flow (Stage 5) | — | method.md §3.1.1 (Rule), N1–N3, §3.1.6–3.1.7 |
+| six stages; exact balances and bounds; pedigree σ → posterior σ per flow; two valuations | — | method.md §3.1.1, N1–N3 |
+| stage components are plug-ins; case definition; traceable runs | — | method.md §3.1.4–3.1.5, N7, §3.1.9; `LICENSE`, `pyproject.toml` |
+| 47 regions, 23 sectors, 1995–2024; about 850,000 flows; 1.7 million constraints; under two minutes | 854,460 edges; 1,687,613 rows; 95.4 s solve, 98 s with probe | method.md §3.1.1, N2, §3.1.6; opt sidecar `solve_wall_s` |
+| every exact balance to 1.1 kg | 1.15 × 10⁻⁶ kt | N `max_hard_residual_kt`; Table 3 A1 |
+| none of nine main chain steps more than 4 % from the gap-filled sources over 30 years | 0.973–1.037 | N `retention_30y`; Table S19 |
+| the sources disagree mostly on totals, which trade absorbs | edges 0.4–1.5 % beyond 3σ, scale totals 12.9–24.4 %; cross-region legs 92 % of the edge objective | N `share_gt3`, `hub_share.cross_region`; discussion.md §5.2 |
+| cathode to users and anode to refineries carry 87 % of the flow adjustment; matte, cathode, concentrate totals the largest residuals | 0.746 + 0.126; 0.238, 0.210, 0.175 | N `edge_share_top`, `sum_share_top`; results.md §4.1 |
+| customs records chronically book far more gross mass into two trade hubs than the account can place | retention below 0.8 in 26 (CH) and 30 (NL) of 30 years | C `discussion:L88.hub_mass_imports_by_region`; discussion.md:89 |
+| keeps 45 % (CH) and 32 % (NL) of recorded imports net of re-exports, 1995–2024; Taiwan and France 99–100 % | 6,485/14,567; 2,703/8,499 kt; 0.995, 1.004 | C same key; the prior on these legs is BACI after the re-export netting (method.md §3.2.4, ADR 0027) |
+| stated uncertainties on average 2.2-fold smaller than the realised disagreement | R = 4.86, √R = 2.21 | N `stage5.birge_ratio`; method.md §3.1.7; Table 3 caption |
+| a single 2020–24 world scrap share hides region groups from none to over a third | world 0.171; EU-14 0.375; Chile+Peru 0.000 | N `secondary_pooled_2020_24`; results.md §4.3 (B1) |
+| since 1995 the Herfindahl index of refining more than doubled, of cathode use nearly quadrupled, mining stayed dispersed; 2024 China 45 % of refining, its fabricators 57 % of cathode use | 0.085 → 0.223; 0.091 → 0.341; mining 0.117 → 0.111; 0.447; 0.574 | N `hhi_1995_post`, `hhi_2024`; results.md §4.3 (B2) |
+| *Implications (Q20; one per result):* | | |
+| production totals can be quoted near the yearbooks; bilateral flows need intervals | — | discussion.md §5.4 "For copper", "The trade legs are the least certain part" |
+| customs-based footprints should check hub imports against production and use | — | discussion.md §5.4 "For copper", "Hub imports need checking" (added 2026-11-25, the author's decision) |
+| intervals must be widened | factor 2.21 | discussion.md §5.4 "For reconciliation practice", "The posterior σ is a sensitivity" |
+| regional recycling indicators need regional accounts | — | discussion.md §5.4 "For copper", "A world secondary share hides the regions" |
+| supply-risk assessment must look past mining | — | discussion.md §5.4 "For copper", "Concentration sits downstream of the mine" (added 2026-11-25, the author's decision) |
+| by design, other metals and substances, such as iron in steel or carbon, enter as new cases, as a synthetic one does | — | introduction.md:90 (added 2026-11-25: content role, ADR 0034; "holds by design; besides copper, only a synthetic case runs"); method.md N7, §3.2 "Transfer to other materials"; untested for carbon, whose gross-mass balance needs oxygen and CO2 booked at the nature boundary |
+| "account wealth" … "liberating level of metabolic and metaphysical regeneration" | verbatim | Fuller (1969), §6 "Synergy"; page number not visible in the OCR copy (the author cites p. 93) |
+| semi-automated physical accounts are the basis for such metabolic planning | — | the author's vision (rule 4 exception) |
 
 ## Claim → evidence (v20)
 
