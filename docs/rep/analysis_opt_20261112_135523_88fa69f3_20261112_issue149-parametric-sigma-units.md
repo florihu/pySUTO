@@ -71,7 +71,7 @@ P5 (all Solved) right.
 ## 4. Consequences
 
 - **Reference chain:** `opt_20261112_135523_88fa69f3` (`uncprop_20261112_144236_f79da518`,
-  `psut_20261112_144358_449d34b5`), recorded in `TODO.md`. The manuscript still reads `opt_20261022_112855_928da10c`;
+  `psut_20261112_144358_449d34b5`), recorded in `docs/history/TODO.md`. The manuscript still reads `opt_20261022_112855_928da10c`;
   a follow-up re-points `manuscript_numbers.py`, `results_figs.py` and `table3_intervals.py` and checks that no keyed
   number changes at its quoted precision.
 - **#140** (one σ rule per Relation): the measured sensitivity of copper to the conc fills' σ is nil at the level of

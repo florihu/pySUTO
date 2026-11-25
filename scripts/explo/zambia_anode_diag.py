@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit c3744c2; rerun by checking out that commit (see README.md).
 """Zambia's phantom anode exports — raw-data forensics (no model state).
 
 Reproduces every figure in

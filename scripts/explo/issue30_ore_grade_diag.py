@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit 0830ddf; rerun by checking out that commit (see README.md).
 """
 issue30_ore_grade_diag.py
 =========================

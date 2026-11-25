@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit 5ab1679; rerun by checking out that commit (see README.md).
 """
 wr_prior_crosseval.py
 =====================

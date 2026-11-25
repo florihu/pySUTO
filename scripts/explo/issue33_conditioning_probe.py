@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit 1b67999; rerun by checking out that commit (see README.md).
 """
 issue33_conditioning_probe.py
 =============================

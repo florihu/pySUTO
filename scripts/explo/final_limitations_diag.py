@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit 7125d72; rerun by checking out that commit (see README.md).
 """
 final_limitations_diag.py
 =========================

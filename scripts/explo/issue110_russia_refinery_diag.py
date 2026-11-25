@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit 201461e; rerun by checking out that commit (see README.md).
 """
 issue110_russia_refinery_diag.py
 ================================

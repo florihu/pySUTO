@@ -115,7 +115,7 @@ acceptance criteria fail, two of them physical. The round converts **deletion in
   figures is paid for by deleting the trade and the ore that connect them rather than by the
   anchors that disagree. Chile's export legs carry cv 0.069 after ADR 0017 damping; its scale-total
   anchors carry cv 0.017. That ratio decides who pays. Related open item: the `a_ref` pin
-  (`docs/TODO.md`), which is the same family.
+  (`docs/history/TODO.md`), which is the same family.
 - **A rejected policy with a working implementation** is recorded here and in commit `f6bd5c9`; it
   is not carried as dead configuration. Re-measure, do not assume, if it is revisited after the
   discharge path is fixed.

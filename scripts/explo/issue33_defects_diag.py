@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit 8200d5b; rerun by checking out that commit (see README.md).
 """
 issue33_defects_diag.py
 =======================

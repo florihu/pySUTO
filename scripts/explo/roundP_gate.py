@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit 14c22ef; rerun by checking out that commit (see README.md).
 """Round P.0 pre-solver gate (ADR 0031) — run on the const artifacts, before Stage 4.
 
 The Round O `--feed-only` discipline: everything checkable without a solve is

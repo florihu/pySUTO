@@ -72,7 +72,7 @@ exclude = [
     "/scripts/explo",
     "/docs/rep",
     "/figs",
-    "/TODO.md",
+    "/docs/history/TODO.md",
     "/CLAUDE.md",
     "/.claude",
     "/.scratch",

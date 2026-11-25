@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit 28d40bc; rerun by checking out that commit (see README.md).
 """
 issue111_f1f2_measure.py
 ========================

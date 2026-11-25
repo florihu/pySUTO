@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit 14c22ef; rerun by checking out that commit (see README.md).
 """
 issue37_stock_bounds_v6_diag.py
 ===============================

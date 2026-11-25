@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit f7efc7b; rerun by checking out that commit (see README.md).
 """
 issue113_flow_balance_order_diag.py
 ===================================

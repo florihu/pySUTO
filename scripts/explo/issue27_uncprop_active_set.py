@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit 95dadf4; rerun by checking out that commit (see README.md).
 """
 issue27_uncprop_active_set.py
 =============================

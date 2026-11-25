@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit 49d8f16; rerun by checking out that commit (see README.md).
 """
 issue87_calibration_diag.py
 ===========================

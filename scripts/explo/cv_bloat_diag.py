@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit 967ec44; rerun by checking out that commit (see README.md).
 """
 Throwaway diagnostic: locate where high CV_root comes from in Stage 1 + Stage 2.
 

@@ -85,7 +85,7 @@ jobs:
 
           sdist = tarfile.open(glob.glob("dist/*.tar.gz")[0]).getnames()
           banned = ("scripts/explo/", "docs/rep/", "figs/", ".claude/", ".scratch/",
-                    "build/", "data/", "TODO.md", "CLAUDE.md")
+                    "build/", "data/", "docs/history/", "CLAUDE.md")
           bad = [n for n in sdist if n.split("/", 1)[-1].startswith(banned)]
           if bad:
               raise SystemExit(f"sdist holds excluded files: {bad[:10]}")

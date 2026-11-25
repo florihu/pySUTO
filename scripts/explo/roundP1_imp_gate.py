@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit 14c22ef; rerun by checking out that commit (see README.md).
 """Round P.1 Stage-2 gate — what did the pure-secondary recipe change move?
 
 The imputer amendment (ADR 0010 amendment, `network.py:_do_recipe`) should

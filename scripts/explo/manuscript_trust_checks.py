@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit b86b48f; rerun by checking out that commit (see README.md).
 """manuscript_trust_checks.py
 ==========================
 Eight read-only checks on the copper reference chain (#311, round `manuscript final`).

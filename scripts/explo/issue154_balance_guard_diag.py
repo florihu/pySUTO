@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit fd58e9a; rerun by checking out that commit (see README.md).
 """
 issue154_balance_guard_diag.py
 ==============================

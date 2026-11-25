@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit 14c22ef; rerun by checking out that commit (see README.md).
 """
 Round C transit/re-export diagnosis (read-only; REP feeder).
 

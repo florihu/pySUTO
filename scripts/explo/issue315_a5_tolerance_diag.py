@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit 3125a69; rerun by checking out that commit (see README.md).
 """
 issue315_a5_tolerance_diag.py
 =============================

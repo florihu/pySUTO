@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit fb36cee; rerun by checking out that commit (see README.md).
 """
 issue149_parametric_sigma_units_diag.py
 =======================================

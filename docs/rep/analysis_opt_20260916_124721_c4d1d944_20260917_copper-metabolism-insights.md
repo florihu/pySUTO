@@ -335,7 +335,7 @@ recycling unable to supply more than half of it (RCR 2023 above).
 - **ROW** is an aggregate whose internal trade ADR 0014 folds away; its 92.6 % forced shortfall
   (ADR 0029) and its share of MESC additions should be read as artefacts of aggregation.
 - **The BACI concentrate matrix has holes** (Chile 2021-22, 2024; Australia→China 2021) that no
-  model choice can repair; the export-mass gap round (docs/TODO.md) owns them.
+  model choice can repair; the export-mass gap round (docs/history/TODO.md) owns them.
 
 ## What this sends next
 
@@ -358,7 +358,7 @@ gap → ≈ −0.46 Mt; `P_Cathode` = refined + SX-EW. Then, on the chain: the m
 and Chile's mine retention up *without* any change to the grade cones. Own ADR, own plan,
 full-chain measurement; ADR 0021's "not a double count" sentence to be amended.
 
-**Then the export-mass gap** (docs/TODO.md), now understood as the routing of Round O's surplus —
+**Then the export-mass gap** (docs/history/TODO.md), now understood as the routing of Round O's surplus —
 re-measure it after O, since half of it may disappear with the surplus.
 
 **Scrap trade as a feed** (HS 7404, gross weight × a grade band) is the structural gap behind
