@@ -1,6 +1,6 @@
 # Secondary-smelter copper enters the chain once
 
-**Status:** **accepted** — Round O, measured 2026-09-21; **merged** with Rounds N–P as `683ab31`
+**Status:** accepted — Round O, measured 2026-09-21; **merged** with Rounds N–P as `683ab31`
 once [ADR 0031](0031-icsg-scrap-series-anchor-their-level-not-only-their-share.md) anchored the
 smelter-scrap *level* and the ADR 0010 amendment closed the pure-secondary recipe (common-set z²
 +10.9 % → +7.4 %). Amends [ADR 0021](0021-icsg-refined-production-anchors-anode-into-er.md).

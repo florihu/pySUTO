@@ -1,6 +1,6 @@
 # Contradicted flow nodes: detector retained, σ remedy rejected
 
-**Status:** **rejected as a remedy, detector kept** (the same shape as ADR 0016, and for a
+**Status:** rejected as a remedy, detector kept (the same shape as ADR 0016, and for a
 related reason). σ-loosening the contradicted side reprices the contradiction without
 resolving it: measured on `opt_20260908_101628_420a30dc` it returned total sum-row z² to
 3.789M (from Round D's 3.944M, baseline 3.782M) while **0.46 % of the model's mass moved**

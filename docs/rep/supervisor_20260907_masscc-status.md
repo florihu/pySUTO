@@ -83,4 +83,4 @@ transit-hub signature below.*
 ---
 
 *Run underlying all figures: `opt_20260903_124655_4b23df2f` (shipped γ=0.5 chain, merged to
-main 2026-09-03). Figure script: `scripts/report/supervisor_figs_20260907.py`.*
+main 2026-09-03). Figure script: `scripts/report/supervisor_figs_20260907.py`, which left the tree at the commit that removed it (#300); it lives in git history, and its Sankey helpers moved into `scripts/report/copper_metabolism_insights.py`.*

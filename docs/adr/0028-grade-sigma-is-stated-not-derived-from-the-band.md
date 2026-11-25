@@ -1,6 +1,6 @@
 # Grade σ is stated explicitly, not derived from the band — and year-local bands are rejected
 
-**Status:** **mechanism accepted, policy rejected** — Round M, measured 2026-09-16. The σ split
+**Status:** mechanism accepted, policy rejected — Round M, measured 2026-09-16. The σ split
 ships (it is inert by construction and is what made the measurement attributable); the **year-local
 ore-grade band and the narrowed concentrate band are rejected on measurement** and reverted. This is
 the [ADR 0016](0016-provenance-aware-sigma-on-scale-totals.md) pattern. Evidence: REP

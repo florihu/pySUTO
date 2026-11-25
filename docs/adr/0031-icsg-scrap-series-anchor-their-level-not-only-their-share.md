@@ -1,6 +1,6 @@
 # The ICSG scrap series anchor their level, not only their share
 
-**Status:** **accepted** — Round P.0, measured 2026-09-21; completed by P.1 the same day. The family
+**Status:** accepted — Round P.0, measured 2026-09-21; completed by P.1 the same day. The family
 is correct and the world honours it (posterior ÷ reported scrap 1.191 → **1.032**). P.0 alone left the
 common-set z² at +12.4 % because Slovakia's chain was strangled upstream in Stage 2; with the
 [ADR 0010 amendment](0010-trade-first-seeding-of-bilateral-flow-process-inputs.md) that closes

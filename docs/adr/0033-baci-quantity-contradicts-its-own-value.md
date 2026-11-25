@@ -310,4 +310,4 @@ row. `quantity_cv_scale.csv` keeps its schema; its `q_obs` and `q_new` now sum o
 codes. On the current parse 178 of 931 root legs mix flagged and unflagged codes. The cap and the
 compose-by-product rule are unchanged.
 
-**Status:** accepted, measured (#313): on `opt_20261124_134920_b45bf2d4` against `opt_20261119_130302_b20f0dba` the BACI feed `F_root` does not move, `sigma_root` moves on 842 edges (116 on the 145 legs #240 lowers, new/old ≤ 1, median 0.904), and common-set sum-row Σz² rises +0.047 % (959,575 → 960,023); the Round-E items are unchanged to three decimals. REP `docs/rep/analysis_opt_20261124_134920_b45bf2d4_20261124_issue313-stage1-bundle.md`.
+**Amendment status:** accepted — measured (#313): on `opt_20261124_134920_b45bf2d4` against `opt_20261119_130302_b20f0dba` the BACI feed `F_root` does not move, `sigma_root` moves on 842 edges (116 on the 145 legs #240 lowers, new/old ≤ 1, median 0.904), and common-set sum-row Σz² rises +0.047 % (959,575 → 960,023); the Round-E items are unchanged to three decimals. REP `docs/rep/analysis_opt_20261124_134920_b45bf2d4_20261124_issue313-stage1-bundle.md`.

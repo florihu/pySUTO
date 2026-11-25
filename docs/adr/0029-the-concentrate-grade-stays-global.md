@@ -1,6 +1,6 @@
 # The concentrate grade stays global — the variance is in the export mass
 
-**Status:** **rejected on measurement** — Round N, 2026-09-17. A region×year `concentrate_grade`
+**Status:** rejected on measurement — Round N, 2026-09-17. A region×year `concentrate_grade`
 params family was designed, its estimator was built and run, and the proposal is **withdrawn**: the
 between-region signal is a third of the σ the single global row already carries, and half of the
 deletion it was meant to relieve is arithmetically forced by missing export **mass**, which no grade
