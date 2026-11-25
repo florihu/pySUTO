@@ -49,7 +49,7 @@ import issue69_aggregate_gap_diag as P69                  # noqa: E402
 import issue75_scandinavia_split_diag as P75              # noqa: E402
 import roundL_reexport_diag as L                          # noqa: E402
 import roundZ_png_kg_diag as Z                            # noqa: E402
-from pysuto.feedprep.trade_shares import baci_observed_regions   # noqa: E402
+from feedprep.trade_shares import baci_observed_regions   # noqa: E402
 from pysuto.acc import AccountingStructure                # noqa: E402
 from pysuto.config import load_config                     # noqa: E402
 

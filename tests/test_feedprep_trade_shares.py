@@ -15,8 +15,8 @@ import copper_case  # noqa: F401  (puts scripts/ on sys.path, #189)
 import copper_feed
 from copper_feed import (check_trade_share_parents, eff_smelting,
                                       icsg_raw_production, trade_share_parents)
-from pysuto.feedprep import trade_shares as T
-from pysuto.feedprep.trade_shares import imports_exhausted_groups
+from feedprep import trade_shares as T
+from feedprep.trade_shares import imports_exhausted_groups
 
 # copper's labels, bound as the case binds them
 compute_trade_share_weights = partial(T.compute_trade_share_weights,

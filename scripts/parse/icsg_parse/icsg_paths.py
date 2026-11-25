@@ -1,7 +1,6 @@
-"""utils.py
-=========
-One helper, ``get_path``, used by the ICSG yearbook parsers under
-``scripts/parse/icsg_parse/``.
+"""icsg_paths.py
+=============
+One helper, ``get_path``, used by the ICSG yearbook parsers beside this file.
 """
 
 from __future__ import annotations

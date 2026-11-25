@@ -40,7 +40,7 @@ sys.path.insert(0, "src")
 sys.path.insert(0, "scripts")
 sys.path.insert(0, "scripts/explo")
 import copper_feed as CF                  # noqa: E402
-from pysuto.feedprep import trade_shares as T               # noqa: E402
+from feedprep import trade_shares as T               # noqa: E402
 from pysuto.input_registry import InputRegistries           # noqa: E402
 
 INPUTS = InputRegistries.load(root="data/input")            # read-only (#93)

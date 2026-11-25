@@ -37,8 +37,8 @@ import copper_feed as CF                                    # noqa: E402
 from pysuto.acc import AccountingStructure                  # noqa: E402
 from pysuto.config import load_config                       # noqa: E402
 from pysuto.diag import SolverDiag, SolverStatsDiagnostic   # noqa: E402
-from pysuto.feedprep.reexport import icsg_aggregate_members  # noqa: E402
-from pysuto.feedprep.trade_shares import decoded_edges      # noqa: E402
+from feedprep.reexport import icsg_aggregate_members  # noqa: E402
+from feedprep.trade_shares import decoded_edges      # noqa: E402
 from pysuto.input_registry import InputRegistries           # noqa: E402
 import issue65_icsg_stock_parse_diag as P65                 # noqa: E402
 import issue69_aggregate_gap_diag as P69                    # noqa: E402

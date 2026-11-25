@@ -2,7 +2,7 @@
 ===============
 Copper's Stage 1: the three feeds as FeedSpecs (``ICSG_FEED``, ``BACI_FEED``,
 ``CRUDE_ORE_FEED``, #143) with their loaders, the labels and registered
-inputs the feed-side algorithms of ``pysuto.feedprep`` are bound to, the raw-ICSG readers
+inputs the feed-side algorithms of ``feedprep`` are bound to, the raw-ICSG readers
 (usage, intake, production), the observed-zero stamping of the ICSG feed (#76–#97), and the
 **complete ICSG FeedSpec**, ``ICSG_SPEC`` (#147): ``ICSG_FEED`` plus the BACI-trade-share
 weights (ADR 0002 option D; #53's refusal of stale weights) and the observed-zero hook.
@@ -41,10 +41,10 @@ import pandas as pd
 
 from pysuto.conc import ConcordanceTable
 from pysuto.feedpipe import FeedSpec, check_file, run_feed
-from pysuto.feedprep.ore_grade import OreGradeLabels
-from pysuto.feedprep.trade_shares import (check_parents_record, decoded_edges,
+from feedprep.ore_grade import OreGradeLabels
+from feedprep.trade_shares import (check_parents_record, decoded_edges,
                                           trade_share_parents as _trade_share_parents)
-from pysuto.feedprep.reexport import MAX_CV_SCALE, icsg_aggregate_members
+from feedprep.reexport import MAX_CV_SCALE, icsg_aggregate_members
 from pysuto.input_registry import InputRegistries
 from pysuto.logging import get_logger
 from pysuto.relation.param_relation import expand_edge_index

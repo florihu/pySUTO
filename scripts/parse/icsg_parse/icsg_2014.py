@@ -13,7 +13,7 @@ import sys
 
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "..", "src"))
-from pysuto.utils import get_path
+from icsg_paths import get_path
 from pysuto.logging import get_logger
 
 

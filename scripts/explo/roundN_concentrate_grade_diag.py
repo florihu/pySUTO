@@ -46,8 +46,8 @@ from pysuto.input_registry import InputRegistries               # noqa: E402
 from pysuto.relation.param_relation import expand_edge_index             # noqa: E402
 from copper_feed import (GROSS_VALUATION, HUB_EXCLUDE,      # noqa: E402
                                       TRADED_SECTORS, icsg_intake_production)
-from pysuto.feedprep.reexport import load_root_trade, screened_origins   # noqa: E402
-from pysuto.feedprep.trade_shares import traded_conc_lookup             # noqa: E402
+from feedprep.reexport import load_root_trade, screened_origins   # noqa: E402
+from feedprep.trade_shares import traded_conc_lookup             # noqa: E402
 from pysuto.input_registry import InputRegistries                       # noqa: E402
 
 

@@ -278,11 +278,10 @@ _LITERAL = re.compile(r"""^[rRuUfFbB]{0,2}(['"])(%s)\1$"""
                       % "|".join(_LABELS + _SECTORS + _REGIONS))
 # The files and directories that may name case labels, each for a reason:
 # acc.py and registry/psut.py bind the roles of a structure or a PSUT run persisted
-# before roles existed (the latter cannot import acc, README §5); feedprep/ holds the
-# copper feed builders' vocabulary (triaged in #229); tutorial/ is the bundled toy case,
-# a case module that ships inside the package (``pysuto.case`` resolves it by alias).
+# before roles existed (the latter cannot import acc, README §5); tutorial/ is the bundled toy case, a
+# case module that ships inside the package (``pysuto.case`` resolves it by alias).
 _ALLOWED_FILES = ("acc.py", "registry/psut.py")
-_ALLOWED_DIRS  = ("feedprep/", "tutorial/")
+_ALLOWED_DIRS  = ("tutorial/",)
 
 
 def test_the_gate_allow_list_names_what_exists():

@@ -37,7 +37,7 @@ sys.path.insert(0, "scripts/explo")
 from pysuto import acc_store                                # noqa: E402
 from pysuto.acc import AccountingStructure                  # noqa: E402
 from pysuto.config import load_config                       # noqa: E402
-from pysuto.feedprep.trade_shares import decoded_edges      # noqa: E402
+from feedprep.trade_shares import decoded_edges      # noqa: E402
 import issue69_aggregate_gap_diag as P69                    # noqa: E402
 
 ROOT     = Path("data/proc")

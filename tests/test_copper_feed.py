@@ -450,7 +450,7 @@ def test_the_aggregate_and_hub_labels_follow_the_row_region():
 
 
 def test_the_cv_scale_cap_is_the_re_export_netting_s():
-    from pysuto.feedprep import reexport
+    from feedprep import reexport
     assert copper_feed.MAX_CV_SCALE is reexport.MAX_CV_SCALE
 
 
