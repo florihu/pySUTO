@@ -42,7 +42,6 @@ from pysuto.input_registry import InputRegistries               # noqa: E402
 from pysuto.relation.param_relation import expand_edge_index             # noqa: E402
 import india_concentrate_diag as D                              # noqa: E402
 import roundN_concentrate_grade_diag as N                       # noqa: E402
-import supervisor_figs_20260907 as SF                           # noqa: E402
 
 ROOT = Path("data/proc")
 DEFAULT_RUN = "opt_20260916_124721_c4d1d944"
@@ -77,11 +76,76 @@ POP_2024 = {"China": 1419, "United States": 345, "Japan": 124, "Germany": 84,
             "Korea, Rep.": 52, "Italy": 59, "Russia": 145, "India": 1451,
             "Mexico": 131, "Brazil": 212, "Spain": 48}
 
-# dataviz reference palette (light mode, fixed order); slots 1-7 are SF.PALETTE
-PALETTE = SF.PALETTE + ["#e34948"]
-GREY, INK, INK2, GRID = "#b3b2a9", SF.INK, SF.INK2, "#e1e0d9"
+# dataviz reference palette (light mode, fixed order)
+PALETTE = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7",
+           "#e34948"]
+GREY, INK, INK2, GRID = "#b3b2a9", "#0b0b0b", "#52514e", "#e1e0d9"
 SURFACE = "#fcfcfb"
 GROUP_COLOR = dict(zip(GROUPS, PALETTE[:6] + [GREY]))
+
+# Display contraction: commodity (Flow) nodes become the bands between process
+# nodes -- the classic MFA depiction; every band value equals the flow-sector
+# total, splits proportional where a commodity has several destinations.
+CONTRACT = ["Ore", "Concentrate", "Matte", "Anode", "CER", "CSXEW", "Cathode"]
+SANKEY_LABEL = {
+    "CO": "Crude ore", "Mining": "Mining", "MF": "Milling & flotation",
+    "SXEW": "SX-EW", "Smelting": "Smelting", "CFR": "Converting",
+    "ER": "El. refining", "CP": "Cathode prod.",
+    "Scrap": "Scrap", "Tailings": "Tailings", "Slag": "Slag",
+    "FU": "Final use", "MESC": "Exchange stocks", "USC": "User stocks",
+}
+NODE_X = {"CO": 0.001, "Mining": 0.13, "MF": 0.26, "SXEW": 0.26,
+          "Tailings": 0.38, "Scrap": 0.32, "Smelting": 0.42, "CFR": 0.545,
+          "ER": 0.69, "Slag": 0.77, "CP": 0.81, "FU": 0.999, "MESC": 0.999,
+          "USC": 0.999}
+NODE_Y = {"CO": 0.30, "Mining": 0.30, "MF": 0.25, "SXEW": 0.72, "Tailings": 0.88,
+          "Scrap": 0.01, "Smelting": 0.20, "CFR": 0.20, "ER": 0.20, "Slag": 0.92,
+          "CP": 0.25, "FU": 0.20, "MESC": 0.68, "USC": 0.85}
+LOSS = {"Tailings", "Slag"}
+# system-boundary sources/sinks (SB entity): drawn recessive + offset from the
+# process chain so boundary crossings read as leaving/entering the system
+SB_NODES = {"CO", "Scrap", "Tailings", "Slag", "FU", "MESC", "USC"}
+
+
+def _contract_flows(links: pd.DataFrame) -> pd.DataFrame:
+    for f in CONTRACT:
+        ins, outs = links[links.dst == f], links[links.src == f]
+        keep = links[(links.src != f) & (links.dst != f)]
+        new = [{"src": i.src, "dst": o.dst,
+                "a_post": i.a_post * o.a_post / outs.a_post.sum()}
+               for i in ins.itertuples() for o in outs.itertuples()]
+        links = pd.concat([keep, pd.DataFrame(new)], ignore_index=True)
+    return links.groupby(["src", "dst"], as_index=False).a_post.sum()
+
+
+def _sankey_trace(links: pd.DataFrame, domain_y: tuple[float, float],
+                  min_label_share: float = 0.0) -> go.Sankey:
+    links = _contract_flows(links)
+    nodes = [n for n in NODE_X if n in set(links.src) | set(links.dst)]
+    idx = {n: i for i, n in enumerate(nodes)}
+    lcol = ["rgba(0,0,0,0.13)" if d in LOSS
+            else "rgba(235,104,52,0.45)" if s == "Scrap"
+            else "rgba(42,120,214,0.30)" for s, d in zip(links.src, links.dst)]
+    # hide labels of hairline nodes (Mass panel: the refining chain is <1% of the
+    # ore band; the CC panel right below names the same columns)
+    size = {n: max(links[links.src == n].a_post.sum(),
+                   links[links.dst == n].a_post.sum()) for n in nodes}
+    cut = max(size.values()) * min_label_share
+    labels = [SANKEY_LABEL[n] if size[n] >= cut and n != "CP" else ""
+              for n in nodes]  # CP label collides with the left-drawn FU label
+    return go.Sankey(
+        domain=dict(y=domain_y),
+        arrangement="snap",
+        textfont=dict(size=13, color=INK),
+        node=dict(label=labels,
+                  x=[NODE_X[n] for n in nodes], y=[NODE_Y[n] for n in nodes],
+                  color=["#b3b2a9" if n in SB_NODES else "#363636" for n in nodes],
+                  pad=10, thickness=8,
+                  line=dict(width=0)),
+        link=dict(source=[idx[s] for s in links.src],
+                  target=[idx[d] for d in links.dst],
+                  value=links.a_post, color=lcol),
+    )
 
 plt.rcParams.update({"font.family": "sans-serif", "axes.edgecolor": INK2,
                      "axes.labelcolor": INK2, "xtick.color": INK2, "ytick.color": INK2,
@@ -435,13 +499,13 @@ def fig0_sankey(cc: pd.DataFrame, out: Path) -> None:
     for col in ("prior", "post"):
         li = (e.groupby(["sector_from", "sector_to"])[col].sum().reset_index()
               .rename(columns={"sector_from": "src", "sector_to": "dst", col: "a_post"}))
-        keep = set(SF.NODE_X) | set(SF.CONTRACT)      # commodity nodes become the bands
+        keep = set(NODE_X) | set(CONTRACT)      # commodity nodes become the bands
         li = li[(li.a_post > 1.0) & li.src.isin(keep) & li.dst.isin(keep)]
         parts.append(li)
     prior, post = parts
-    fig = go.Figure([SF._sankey_trace(prior, (0.58, 0.97)),
-                     SF._sankey_trace(post, (0.0, 0.42))])
-    prior, post = SF._contract_flows(prior), SF._contract_flows(post)
+    fig = go.Figure([_sankey_trace(prior, (0.58, 0.97)),
+                     _sankey_trace(post, (0.0, 0.42))])
+    prior, post = _contract_flows(prior), _contract_flows(post)
 
     def line(li, s, d):
         return li[(li.src == s) & (li.dst == d)].a_post.sum() / 1e3
@@ -721,8 +785,8 @@ def write_page_data(out: Path, cc: pd.DataFrame, tables: dict) -> None:
     for col in ("prior", "post"):
         li = (cc[cc.year == 2024].groupby(["sector_from", "sector_to"])[col].sum().reset_index()
               .rename(columns={"sector_from": "src", "sector_to": "dst", col: "a_post"}))
-        keep = set(SF.NODE_X) | set(SF.CONTRACT)
-        li = SF._contract_flows(li[(li.a_post > 1.0) & li.src.isin(keep) & li.dst.isin(keep)])
+        keep = set(NODE_X) | set(CONTRACT)
+        li = _contract_flows(li[(li.a_post > 1.0) & li.src.isin(keep) & li.dst.isin(keep)])
         sk[col] = [dict(src=r.src, dst=r.dst, v=round(float(r.a_post), 1)) for r in li.itertuples()]
     keep1a = ("Year", "P_primary_refined", "sxew", "sec_via_smelters", "sec_direct_to_refinery",
               "refined_plus_sxew", "share_nested", "share_both_booked", "model_share_prior",
@@ -730,7 +794,7 @@ def write_page_data(out: Path, cc: pd.DataFrame, tables: dict) -> None:
     keep0 = ("year", "conc_to_smelting_prior", "conc_to_smelting_post", "sxew_prior", "sxew_post",
              "scrap_to_smelting_prior", "scrap_to_smelting_post", "scrap_to_cfr_prior", "scrap_to_cfr_post")
     page = {
-        "sankey": sk, "sankey_label": SF.SANKEY_LABEL, "node_x": SF.NODE_X, "node_y": SF.NODE_Y,
+        "sankey": sk, "sankey_label": SANKEY_LABEL, "node_x": NODE_X, "node_y": NODE_Y,
         "t1a": [{k: r[k] for k in keep1a} for r in d["t1a_secondary_world"]],
         "t0": [{k: r[k] for k in keep0} for r in d["t0_world_accounts"]],
         "t1b": d["t1b_nesting_test"], "t1c": d["t1c_deletion_vs_double_count"],
