@@ -369,8 +369,8 @@ def rank_statistic(sens: pd.DataFrame, outcome: str) -> tuple:
 
 
 def influential(sens: pd.DataFrame, outcome: str) -> set:
-    """The axes the influence rule calls influential on ``outcome``: |SRRC| ≥ SRRC_MIN with the
-    rank regression's R² ≥ R2_MIN."""
+    """The axes the influence rule calls influential on ``outcome``: |SRRC| ≥ SRRC_MIN
+    with the rank regression's R² ≥ R2_MIN."""
     if rank_statistic(sens, outcome)[0] != "srrc":
         return set()
     t = sens[(sens["outcome"] == outcome) & (sens["statistic"] == "srrc")]

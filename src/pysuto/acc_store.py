@@ -87,7 +87,7 @@ def save(acc: AccountingStructure) -> str:
     # masks (supply, use, tradable) are rebuilt from the same tables.
     with open(os.path.join(path, HEADER), "w", encoding="utf-8") as f:
         json.dump(_header(acc), f, indent=1)
-    for name in _LEGACY_FILES:      # a rebuilt directory keeps no stale file of the older layout
+    for name in _LEGACY_FILES:      # a rebuilt directory keeps no older-layout file
         if os.path.exists(os.path.join(path, name)):
             os.remove(os.path.join(path, name))
     acc.logger.info(f"Structure saved to {path}")

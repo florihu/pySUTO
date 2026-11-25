@@ -48,7 +48,7 @@ class FlatPriorImputer(BaseImputer):
     ``mode='magnitude_aware'`` (default)
         Fills any residual-NaN edges with a flat prior sized by an
         accounting-mask CV × group scale (two refinements introduced
-        after the optim-chain REP of 2026-05-13)::
+        after ``docs/rep/analysis_optim_const_copper_20260513_091054_65b9133e_20260513_112419.md``)::
 
             f_j     = 0
             σ_j     = CV(j) · scale(j)
