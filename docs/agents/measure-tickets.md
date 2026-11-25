@@ -42,7 +42,7 @@ in the main checkout.
    rejected on measurement, with the run id and the headline number. *Done when*
    `python scripts/issue_audit.py` lists no ADR line for #N.
 6. **Commit and merge.** `measure(<scope>): <finding> (ADR …, #N)`, the round's bookkeeping in
-   `TODO.md`, then `git merge --no-ff`. A miss at the numerical floor ships only by the
+   the milestone's issues, then `git merge --no-ff`. A miss at the numerical floor ships only by the
    maintainer's decision, which the REP states. *Done when* the merge is on main.
 7. **Close** with `gh issue close <N> --comment` naming the REP, the verdict and the new reference
    chain. *Done when* the issue is closed and the comment links the REP.

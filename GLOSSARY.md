@@ -1360,6 +1360,16 @@ first, `scripts/copper.py` (ADR 0047). A case also sets the Stage 4 and 6 driver
 identity in a run is `CaseSpec.id`. _Avoid_: "model" (the QP, the PIOT), "study" (a REP analysis),
 "scenario".
 
+**Application** — everything outside the library that one case needs to run end to end and to
+report on: its case declaration, its feed specs, source parsers and feed builders, its sweeps, and
+its report and exploration scripts. The library holds the method, generic for every case; an
+application holds what carries its metal's name. Copper's application is the repository's
+`scripts/` ([ADR 0047](docs/adr/0047-pysuto-ships-no-study-case.md)). _Avoid_: "study" (a REP
+analysis), "project", "scripts" (a folder, not the concept).
+
+**Flagged ambiguity — "case-specific code".** In conversation it usually means the
+**application**, not the `CaseSpec`.
+
 **Acc spec** — the declaration of one accounting structure: its sectors (each with an entity, and
 a boundary role on an SB sector), regions, valuations (each with a valuation role) and times, its
 supply and use adjacency, tradable flows and entity-pair accounting rows, and optionally its bound
