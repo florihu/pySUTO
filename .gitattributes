@@ -10,8 +10,7 @@
 *.npz binary
 *.xlsx binary
 
-# Committed with CRLF; their bytes stay as committed.
+# Committed with CRLF; its bytes stay as committed.
 scripts/parse/icsg_parse/icsg_2023f.py -text
-scripts/explo/baci.py -text
 
 .git_archival.txt export-subst
