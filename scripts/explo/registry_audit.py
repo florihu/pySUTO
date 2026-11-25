@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit 10acc5a; rerun by checking out that commit (see README.md).
 """
 registry_audit.py
 =================

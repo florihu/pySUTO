@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit f2465cd; rerun by checking out that commit (see README.md).
 """Empirical p95 bounds on |stock_change| / cathode_consumption for MESC/USC/PSC.
 
 Reads the ICSG feed values, computes the ratio of absolute stock change to
@@ -138,7 +139,7 @@ def to_root_regions(df: pd.DataFrame, feed_dir: Path = FEED_DIR) -> pd.DataFrame
     """Map the feed's SOURCE region labels onto the model's root regions
     (``conc.xlsx`` sheet ``region_map``), as ``feedpipe`` does downstream; the
     acc enumerates root names, so grouping on source labels matched nothing for
-    any renamed or aggregated region (ADR 0032; TODO.md "Carried out of Round Q")."""
+    any renamed or aggregated region (ADR 0032; docs/history/TODO.md "Carried out of Round Q")."""
     rm = pd.read_excel(feed_dir / "conc.xlsx", sheet_name="region_map")
     m = dict(zip(rm["src_region"], rm["root_region"]))
     missing = sorted(set(df["Region"]) - set(m))

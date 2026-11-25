@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit 4d64ab7; rerun by checking out that commit (see README.md).
 """
 issue92_refined_scope_diag.py
 =============================

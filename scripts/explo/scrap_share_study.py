@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit 7c5289c; rerun by checking out that commit (see README.md).
 """Per-region scrap-share bands for Smelting and CFR inputs (CC).
 
 Reads the ICSG feed values and computes, per (region, year), the share of

@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit 3349d8e; rerun by checking out that commit (see README.md).
 """
 issue79_baci490_taiwan_diag.py
 ==============================

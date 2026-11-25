@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit 643815f; rerun by checking out that commit (see README.md).
 """
 issue75_scandinavia_split_diag.py
 =================================

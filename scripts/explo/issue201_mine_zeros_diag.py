@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit 7b13e32; rerun by checking out that commit (see README.md).
 """
 issue201_mine_zeros_diag.py
 ===========================

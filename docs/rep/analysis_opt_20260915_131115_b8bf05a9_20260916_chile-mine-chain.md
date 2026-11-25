@@ -205,7 +205,7 @@ is cheap and removes half the symptom without touching the physics argument.
    grades, or per-region derivation from the ICSG/BACI consistency condition in §4.
 3. **Then re-read the amplification.** If Chile's node closes and the mine still deletes, the fault
    is in the discharge path (leg cv 0.069 versus anchor cv 0.017), an ADR 0016/0017/0025 question —
-   related to the open `a_ref` item in [TODO](../TODO.md).
+   related to the open `a_ref` item in [TODO](../history/TODO.md).
 
 Throughout: do **not** read an exporter-retention change as a verdict on any round until this is
 fixed; it is 36 % deleted at baseline and moves with anything that touches trade.

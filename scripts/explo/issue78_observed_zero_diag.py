@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit eefa6f0; rerun by checking out that commit (see README.md).
 """
 issue78_observed_zero_diag.py
 =============================

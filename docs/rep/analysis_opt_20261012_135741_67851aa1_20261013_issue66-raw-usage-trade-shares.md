@@ -96,7 +96,7 @@ The fix restricts the sum to flow legs and changes a printed line only. It is no
   which the reference feed run consumed, within 1.6e-11 relative.
 - **One pass is exact from #66 on.** After an ICSG change, run `build_trade_shares.py`, then
   `icsg_feed.py` (ADR 0018 amendment).
-- **Still open:** nothing detects a skipped pass. TODO.md's Round T entry "nothing enforces the
+- **Still open:** nothing detects a skipped pass. docs/history/TODO.md's Round T entry "nothing enforces the
   documented build order" stands.
 
 ## Reproduce

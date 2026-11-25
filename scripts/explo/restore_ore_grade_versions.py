@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit 8b11edd; rerun by checking out that commit (see README.md).
 """
 restore_ore_grade_versions.py
 =============================

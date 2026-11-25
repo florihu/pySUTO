@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit 723c526; rerun by checking out that commit (see README.md).
 """
 issue314_stage2_bundle_diag.py
 ==============================

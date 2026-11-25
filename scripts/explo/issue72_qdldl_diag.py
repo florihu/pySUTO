@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit cb93412; rerun by checking out that commit (see README.md).
 """
 issue72_qdldl_diag.py
 =====================

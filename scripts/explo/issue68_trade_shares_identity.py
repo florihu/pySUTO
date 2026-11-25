@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit eefa6f0; rerun by checking out that commit (see README.md).
 """
 issue68_trade_shares_identity.py
 ================================

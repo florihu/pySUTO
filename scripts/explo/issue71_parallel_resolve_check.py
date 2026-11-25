@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit c8b9dc6; rerun by checking out that commit (see README.md).
 """
 issue71_parallel_resolve_check.py
 =================================

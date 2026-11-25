@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit 611d1e3; rerun by checking out that commit (see README.md).
 """World copper end use by IWCC category, 2012-2024 (IWCC 2025 release).
 
 Reads the 2025-release workbook only,

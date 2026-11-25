@@ -3,7 +3,7 @@
 **Status:** accepted — Round Q, 2026-09-21. Completes
 [ADR 0030](0030-secondary-smelter-copper-enters-the-chain-once.md), whose nesting subtraction was
 silently skipped for 19 of Belgium's 30 years. Corrects the Round P.2 scope recorded in
-[TODO](../TODO.md). **Amended 2026-10-13 (#73, #74):** an ICSG aggregate row is split to its declared
+[TODO](../history/TODO.md). **Amended 2026-10-13 (#73, #74):** an ICSG aggregate row is split to its declared
 member by the handover year's shares, and its handover-year duplicate is dropped; see the amendment
 at the end. Measured by #75 and shipped (`opt_20261013_122432_24e811b7`: Sweden's phantom
 SX-EW route 307.8 → 0.0 kt CC over 1996–2003). **Amended 2026-10-15 (#85):** a vintage that publishes a

@@ -1,3 +1,4 @@
+# Frozen record: last ran against commit 3349d8e; rerun by checking out that commit (see README.md).
 """
 roundZ_png_kg_diag.py
 =====================
