@@ -11,7 +11,7 @@ Public surface (re-exported here so call sites can keep using
 * :class:`OptimRunRegistry`       — Stage 4
 * :class:`UncPropRunRegistry`     — Stage 5
 * :class:`PsutRunRegistry`        — Stage 6
-* :class:`SweepRunRegistry`       — sweeps of chains (#105)
+* :class:`SweepRunRegistry`       — sweeps of chains
 * :class:`_RegistryEntry`         — trimmed index row
 * :func:`make_run_id`             — ``{stage}_{ts}_{code}`` minter
 * :func:`build_sidecar`           — per-run ``metadata.json`` payload builder

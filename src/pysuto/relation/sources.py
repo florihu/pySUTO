@@ -1,7 +1,7 @@
 """
 sources.py
 ==========
-The params relation source and its fill rules (ADR 0011, #26 §2 item 6): a params file read
+The params relation source and its fill rules (ADR 0011): a params file read
 as :class:`~pysuto.relation.relation.Relation` objects, and the rule that says which
 direction of each relation a Stage 2 imputer may fill and where.
 

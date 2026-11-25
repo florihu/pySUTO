@@ -95,9 +95,8 @@ class ClarabelBackend:
         Iteration cap.
     direct_solve_method, max_threads:
         Clarabel's linear solver and the threads it uses per solve. One thread:
-        measured on const_20261012_113828_12c562c7 against opt_20261012_122124_40b1b370
-        (#70), the 1995 period solved in 48.0 s on all cores and 34.9 s on one,
-        bit-identical objective; the cores go to the orchestrator's parallel solve.
+        one thread solves a period faster than all cores, with a bit-identical
+        objective; the cores go to the orchestrator's parallel solve.
     capture_iter_history:
         Keep the per-iteration history (:data:`ITER_DTYPE`) of every solve.
 

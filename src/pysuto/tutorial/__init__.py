@@ -1,18 +1,18 @@
 """
 tutorial
 ========
-The tutorial of pySUTO (#188): the toy case and the eleven notebooks that run it through
+The tutorial of pySUTO: the toy case and the eleven notebooks that run it through
 the six stages and then run a case of your own. ``python -m pysuto tutorial [DEST]``
 copies the notebooks out of the installed package.
 
-* :mod:`pysuto.tutorial.toy` — the **toy case** (#59): a synthetic three-region orium
+* :mod:`pysuto.tutorial.toy` — the **toy case**: a synthetic three-region orium
   case generated from a planted ground truth; the alias ``toy``.
 * :mod:`pysuto.tutorial.toy_coproduct` — the toy whose smelter has a second Flow product
-  (``Dust``), the co-product case (#130); the alias ``toy_coproduct``.
+  (``Dust``), the co-product case; the alias ``toy_coproduct``.
 * :mod:`pysuto.tutorial.toy_ext` — the extras of chapters ``08_break_it`` and
-  ``09_bridge`` (#61) and the helpers of ``10_your_case`` (#197).
-* ``params_template.csv`` — the schema and two worked examples of a params family
-  (#197), copied out beside the notebooks.
+  ``09_bridge`` and the helpers of ``10_your_case``.
+* ``params_template.csv`` — the schema and two worked examples of a params family,
+  copied out beside the notebooks.
 
 Import direction: ``tutorial`` sits at the top of the stack, beside the
 stage drivers and the ``python -m pysuto`` entry point. It imports the library; the

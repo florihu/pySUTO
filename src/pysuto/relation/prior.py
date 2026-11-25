@@ -2,7 +2,7 @@
 prior.py
 ========
 The solve-for-prior adapter: a :class:`~pysuto.relation.relation.Relation` with exactly
-one unknown edge yields that edge's value from the others (ADR 0011, #26 §2 item 4).
+one unknown edge yields that edge's value from the others (ADR 0011).
 
 The relation is the same object Stage 3 emits into ``G`` (``constraints.emit``), so a
 fill's coefficients are read off the emitted row: ``c_x = −G_x / G_e`` for every known

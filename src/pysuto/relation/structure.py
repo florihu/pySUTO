@@ -13,7 +13,7 @@ constraint builders). ``pysuto.acc`` imports nothing from here or from ``impute`
 A recipe references its Process node's balance: its ``inputs`` are the node's incoming
 use edges (any region), its ``products`` and ``wastes`` a subset of the outgoing supply
 edges. Several Flow ``products`` are listed in full; whether a consumer can handle them
-is the consumer's call (the NetworkImputer raises, #129).
+is the consumer's call (the NetworkImputer raises).
 
 Public API
 ----------
@@ -126,7 +126,7 @@ def node_balances(acc, valuation: str) -> tuple[NodeBalance, ...]:
     outgoing edge appear. Keyed by ``(node_id, time)``: ``node_index`` has no time axis,
     so grouping on the bare node id would pool all years onto one node. Sorted by
     ``(node_id, time)`` — a set iterates in string-hash order, which changes with every
-    process (#113). Cached per acc and valuation.
+    process. Cached per acc and valuation.
     """
     cache = _per_acc(acc)
     key = ("balances", valuation)

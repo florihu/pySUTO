@@ -32,7 +32,7 @@ Public surface (re-exported here so call sites can keep using
 * :class:`SweepDiag`         — sweeps: each point scored against the base chain
                                 (mass moved, pooled retention, the cross-evaluated
                                 objective), the axes ranked and sized, the
-                                declared criteria judged (#107, #117).
+                                declared criteria judged.
 * :class:`SweepStatsDiagnostic`— the tables behind it (points, categories,
                                 retention by year, sensitivity, year profiles,
                                 verdicts).
@@ -41,7 +41,7 @@ Public surface (re-exported here so call sites can keep using
                                 PSUT (Plotly, imported lazily).
 * :class:`TruthDiag`         — a synthetic case's stage estimates scored against
                                 its ground truth: error by stage, calibration,
-                                residual rank (the toy case, #59).
+                                residual rank (the toy case).
 
 Design conventions
 ------------------

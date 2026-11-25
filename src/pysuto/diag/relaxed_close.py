@@ -1,7 +1,7 @@
 """
 relaxed_close.py
 ================
-Read-only analysis of the relaxed recipe closes of an imputation log (ADR 0010, #150).
+Read-only analysis of the relaxed recipe closes of an imputation log (ADR 0010).
 
 Not a diagnostic panel: a function over ``ImputationLog.as_dataframe()`` (or the stored
 parquet) that counts the relaxed closes whose assumed-absent primaries a later imputer
