@@ -1663,7 +1663,7 @@ class TestPriorLedger:
         import pathlib
         import pysuto.impute as pkg
         for path in pathlib.Path(pkg.__file__).parent.glob("*.py"):
-            assert "hasattr(" not in path.read_text(), path.name
+            assert "hasattr(" not in path.read_text(encoding="utf-8"), path.name
 
     def test_flat_prior_scope_is_every_edge(self, acc):
         imp = FlatPriorImputer(acc, mode="noisy_zero", sigma_high=1e3)

@@ -25,6 +25,7 @@ the balance row exactly satisfied, and the ratio bound non-binding.
 from __future__ import annotations
 
 import json
+import re
 
 import numpy as np
 import pandas as pd
@@ -627,7 +628,7 @@ class TestWarmPriorAcc:
     def test_an_acc_that_cannot_be_loaded_raises_naming_the_acc_dir(self, tmp_path,
                                                                     monkeypatch):
         s, cr, _, acc_dir = self._solver(tmp_path, monkeypatch)
-        with pytest.raises(RuntimeError, match=rf"{acc_dir}"):
+        with pytest.raises(RuntimeError, match=re.escape(str(acc_dir))):
             s.solve_all(cr.run_id)
 
     def test_the_acc_comes_from_acc_dir_and_the_opt_sidecar_records_its_ref(
@@ -1348,7 +1349,7 @@ class TestQPBackendContract:
         import pysuto.solver
         import pysuto.registry.optim
         for mod in (pysuto.qp, pysuto.solver, pysuto.registry.optim):
-            tree = ast.parse(open(mod.__file__).read())
+            tree = ast.parse(open(mod.__file__, encoding="utf-8").read())
             imported = []
             for node in ast.walk(tree):
                 if isinstance(node, ast.Import):

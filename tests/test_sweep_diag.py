@@ -140,7 +140,7 @@ class TestOutcomes:
 
     def test_write_produces_the_tables(self, sweep, tmp_path):
         paths = sweep.write(str(tmp_path / "out"))
-        names = {p.split("/")[-1] for p in paths}
+        names = {os.path.basename(p) for p in paths}
         assert names == {"points.csv", "outcomes.csv", "categories.csv",
                          "retention_by_year.csv",
                          "sensitivity.csv", "year_profiles.csv",

@@ -39,6 +39,7 @@ def test_the_copy_writes_the_notebooks_the_readme_and_the_template_into_a_new_fo
     assert all(os.access(p, os.W_OK) for p in written)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="Windows has no POSIX file modes: a file is 0o666 or 0o444")
 def test_the_copies_are_mode_0644_whatever_the_installed_files_are(tmp_path):
     copy_tutorial(tmp_path / "tut")
     modes = {stat.S_IMODE(p.stat().st_mode) for p in (tmp_path / "tut").iterdir()}

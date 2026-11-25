@@ -89,7 +89,7 @@ def _undocumented_modules(readme: str, root: Path) -> list:
         if path.name == "__init__.py":
             continue
         if not re.search(r"(?<![\w-])%s(?!\w)" % re.escape(path.name), readme):
-            missing.append(str(path.relative_to(root)))
+            missing.append(path.relative_to(root).as_posix())
     return missing
 
 

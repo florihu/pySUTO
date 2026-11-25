@@ -8,17 +8,35 @@ merge message once closed #98 before its measurement, and a sentence about
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
+from pathlib import Path
 
 import pytest
 
-HOOK = os.path.join(os.path.dirname(__file__), "..", ".githooks", "commit-msg")
+HOOK = (Path(__file__).resolve().parents[1] / ".githooks" / "commit-msg").as_posix()
+
+
+def _bash():
+    """Return a bash that runs the hook: on Windows Git's, never WSL's ``bash.exe``."""
+    if os.name != "nt":
+        return "bash"
+    git = shutil.which("git")
+    if git:                       # <git root>/cmd/git.exe or <git root>/bin/git.exe
+        here = os.path.dirname(os.path.abspath(git))
+        for root in (os.path.dirname(here), here):
+            for rel in (("bin", "bash.exe"), ("usr", "bin", "bash.exe")):
+                cand = os.path.join(root, *rel)
+                if os.path.isfile(cand):
+                    return cand
+    pytest.skip("Git's bash is not installed; PATH's bash.exe may be WSL's, which cannot "
+                "run the hook")
 
 
 def _run(tmp_path, message):
     f = tmp_path / "COMMIT_EDITMSG"
     f.write_text(message, encoding="utf-8")
-    return subprocess.run(["bash", HOOK, str(f)], capture_output=True, text=True)
+    return subprocess.run([_bash(), HOOK, f.as_posix()], capture_output=True, text=True)
 
 
 @pytest.mark.parametrize("message", [

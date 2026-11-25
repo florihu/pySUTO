@@ -415,9 +415,9 @@ def test_stage6_raises_with_the_cause_when_the_requested_png_cannot_be_written(
 def test_truth_diag_draws_its_three_figures_and_summarises(chain, tmp_path, capsys):
     board = toy.scoreboard(chain["root"], chain["ids"])
     paths = board.plot(str(tmp_path))
-    assert [p.rsplit("/", 1)[-1] for p in paths] == [
+    assert [os.path.basename(p) for p in paths] == [
         "truth_error_by_stage.png", "truth_calibration.png", "truth_residual_rank.png"]
-    assert all((tmp_path / p.rsplit("/", 1)[-1]).stat().st_size > 0 for p in paths)
+    assert all((tmp_path / os.path.basename(p)).stat().st_size > 0 for p in paths)
     assert board.residual_rank()["planted"].iloc[0]
     errors = board.error_by_stage()
     assert list(errors.index) == ["feed", "aggregate", "prior", "reconciled"]

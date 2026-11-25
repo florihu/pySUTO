@@ -89,7 +89,7 @@ def test_a_recipe_references_its_process_node_balance(toy):
 
 
 def test_acc_imports_nothing_from_impute():
-    tree = ast.parse((REPO / "src" / "pysuto" / "acc.py").read_text())
+    tree = ast.parse((REPO / "src" / "pysuto" / "acc.py").read_text(encoding="utf-8"))
     for node in ast.walk(tree):
         if isinstance(node, ast.ImportFrom):
             mod = ("." * node.level) + (node.module or "")
