@@ -87,7 +87,7 @@ the Introduction keeps the motivation, the gaps and the aim. Decide with Section
 - It runs on a workstation, on an open stack (NumPy, SciPy, pandas and the open-source solver Clarabel; `goulart2024clarabel`), not on laboratory infrastructure (Section [3.1.9](#sec-software)).
 - One reconciled account yields many views: the physical input–output table, footprints, embodied trade and economy-wide MFA indicators are derived from it on demand (Section [3.1.8](#sec-stage6)).
 - It is re-run when its sources update — the industry yearbook and the trade database are published every year — and every number traces to a run identifier and its exact input versions.
-- It transfers to the other metals the Critical Raw Materials Act lists, such as nickel, cobalt and lithium, through their feeds, accounting structure and parameter tables. → N7
+- It transfers to the other metals the Critical Raw Materials Act lists, such as nickel, cobalt and lithium, through their feeds, accounting structure and parameter tables, and, because a case binds its content valuation to the framework's content role (ADR 0034), to other metals and substances such as iron in steel or carbon. This holds by design; besides copper, only a synthetic case runs. → N7 <!-- added 2026-11-25 for the ISIE 2027 abstract. Carbon changes chemical form: its gross-mass balance closes only if the oxygen taken in and the CO2 released are booked at the nature boundary; untested. -->
 - The code is open; licensed inputs such as the industry yearbooks are not redistributed, and what is shared is the code and the derived, attributed results (Section [3.4](#sec-availability)). <!-- verify: the outcome of the ICSG licence request -->
 
 **Aim.**
