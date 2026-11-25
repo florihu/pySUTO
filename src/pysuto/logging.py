@@ -35,7 +35,7 @@ class _ConsoleHandler(logging.StreamHandler):
 
 def utf8_stdio_env(env=None) -> dict:
     """A copy of ``env`` (default: this process's) in which a child Python writes its
-    stdout and stderr as UTF-8, whatever the locale (#293).
+    stdout and stderr as UTF-8, whatever the locale.
 
     ``PYTHONIOENCODING`` sets the streams only; ``PYTHONUTF8`` would also change the
     default encoding of every ``open()`` of the child, which the pipeline does not want.
@@ -46,7 +46,7 @@ def utf8_stdio_env(env=None) -> dict:
 
 
 def use_utf8_stdio() -> None:
-    """Make this process's stdout and stderr UTF-8 (#293), for a driver run directly with
+    """Make this process's stdout and stderr UTF-8, for a driver run directly with
     redirected output: a pipe or file on Windows encodes with cp1252, which lacks the
     ``σ`` and ``→`` of the diag summaries. A stream without ``reconfigure`` is left."""
     for stream in (sys.stdout, sys.stderr):
@@ -105,9 +105,10 @@ def start_run_log(data_dir, name: str) -> str:
     """
     Start the logs of one driver run under ``<data_dir>/logs`` and return that directory.
 
-    Makes stdout and stderr UTF-8 (:func:`use_utf8_stdio`), calls :func:`configure_file_logs` for the per-module files and attaches the
-    timestamped run handler ``<data_dir>/logs/<name>_<YYYYmmdd_HHMMSS>.log`` to the
-    root logger (:func:`add_run_handler`).
+    Makes stdout and stderr UTF-8 (:func:`use_utf8_stdio`), calls
+    :func:`configure_file_logs` for the per-module files and attaches the timestamped run
+    handler ``<data_dir>/logs/<name>_<YYYYmmdd_HHMMSS>.log`` to the root logger
+    (:func:`add_run_handler`).
     """
     use_utf8_stdio()
     log_dir = os.path.join(os.fspath(data_dir), "logs")
