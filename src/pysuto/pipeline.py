@@ -66,7 +66,7 @@ import pysuto
 from pysuto._provenance import now_iso
 from pysuto._step import StepSpec
 from pysuto.case import case_reference, resolve_case
-from pysuto.logging import get_logger
+from pysuto.logging import get_logger, utf8_stdio_env
 from pysuto.registry import SweepRunRegistry, stage_lock
 from pysuto.registry.lock import HOLDER_ENV
 
@@ -315,7 +315,7 @@ def _child_env() -> dict:
     compared resolved, since site-packages is often reached through a symlink."""
     src = Path(pysuto.__file__).resolve().parents[1]
     sites = {Path(p).resolve() for p in (*site.getsitepackages(), site.getusersitepackages())}
-    env = dict(os.environ)
+    env = utf8_stdio_env()
     if src not in sites:
         env["PYTHONPATH"] = os.pathsep.join(
             [str(src)] + ([env["PYTHONPATH"]] if env.get("PYTHONPATH") else []))

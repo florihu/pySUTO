@@ -29,7 +29,7 @@ REPO = Path(__file__).resolve().parents[1]
 
 def _run(cwd: Path, script: str, *args: str) -> subprocess.CompletedProcess:
     proc = subprocess.run([sys.executable, str(REPO / "scripts" / script), *args],
-                          cwd=str(cwd), capture_output=True, text=True,
+                          cwd=str(cwd), capture_output=True, text=True, encoding="utf-8",
                           env={**os.environ, "PYTHONPATH": str(REPO / "src")})
     assert proc.returncode == 0, (f"{script} failed:\n{proc.stdout[-1500:]}\n"
                                   f"{proc.stderr[-3000:]}")
@@ -164,7 +164,7 @@ def test_a_driver_refuses_an_unknown_case_with_a_usage_error(tmp_path):
     proc = subprocess.run(
         [sys.executable, str(REPO / "scripts" / "run_solver.py"), "--case", "nope",
          "--const-run-id", "const_x", "--data-dir", str(tmp_path)],
-        cwd=str(tmp_path), capture_output=True, text=True,
+        cwd=str(tmp_path), capture_output=True, text=True, encoding="utf-8",
         env={**os.environ, "PYTHONPATH": str(REPO / "src")})
     assert proc.returncode == 2 and "unknown case 'nope'" in proc.stderr
 
@@ -280,7 +280,7 @@ def test_stage_3_refuses_a_p_prop_that_differs_from_the_one_its_imp_run_recorded
         [sys.executable, str(REPO / "scripts" / "constraints.py"), "--case", "toy",
          "--data-dir", str(chain["root"]), "--imp-run-id", chain["ids"]["imp"],
          "--set", "P_PROP=1.5", "toy"],
-        cwd=str(chain["cwd"]), capture_output=True, text=True,
+        cwd=str(chain["cwd"]), capture_output=True, text=True, encoding="utf-8",
         env={**os.environ, "PYTHONPATH": str(REPO / "src")})
     assert proc.returncode != 0
     assert "P_PROP" in proc.stderr and "1.5" in proc.stderr and "1.3" in proc.stderr
