@@ -5,7 +5,7 @@ Read-only: list the inputs whose ``data/input/<kind>/<id>/current/`` differs fro
 latest registered snapshot — edits the next stage driver will register as a new version.
 Writes nothing (``InputRegistry.initialize`` is what bumps).
 
-    python scripts/input_status.py
+    python tools/input_status.py
 
 Exit status 1 when anything is unregistered, 0 otherwise.
 """

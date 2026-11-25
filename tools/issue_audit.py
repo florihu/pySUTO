@@ -11,7 +11,7 @@ round opens and before it closes; it changes nothing and exits 1 when it finds a
     A  ADR paragraphs still "to be measured" (or "not yet measured") whose issues have all
        closed — the measure commit replaces the phrase with the outcome (measure-tickets.md)
 
-    python scripts/issue_audit.py
+    python tools/issue_audit.py
 """
 from __future__ import annotations
 

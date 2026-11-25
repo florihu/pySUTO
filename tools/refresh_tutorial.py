@@ -10,7 +10,7 @@ if a ``/home/``, the temporary folder or the home directory survives in any note
 
 Needs ``pip install -e ".[tutorial]"`` (nbclient comes with jupyter). Not shipped.
 
-    python scripts/refresh_tutorial.py [--keep-tmp]
+    python tools/refresh_tutorial.py [--keep-tmp]
 """
 
 from __future__ import annotations

@@ -3,9 +3,9 @@
 Keeps the runs Round P needs simultaneously (base, Round O and their parents) and
 every run a shipped round is measured on. Prints what it will do, then does it.
 
-    python scripts/explo/prune_runs.py --dry-run
-    python scripts/explo/prune_runs.py
-    python scripts/explo/prune_runs.py --keep-recent 5 opt_20260921_084333_d12ba597
+    python tools/prune_runs.py --dry-run
+    python tools/prune_runs.py
+    python tools/prune_runs.py --keep-recent 5 opt_20260921_084333_d12ba597
 
 The newest `--keep-recent` (default 3) opt runs are ALWAYS kept, whatever the
 allowlist says: the allowlist is static and so is always stale with respect to

@@ -7,5 +7,4 @@ This folder holds a frozen record. Each script produced numbers for one REP, ADR
 - To rerun a script, check out the commit named in its header. Run it there, from the repository root. Its docstring gives the arguments.
 - Do not port a script to `main`. A ported script does not reproduce the numbers of its REP, because those numbers came from the old code.
 - The folder is exempt from the comment rule and from lint (`ruff check` skips it).
-- `scripts/explo/prune_runs.py` is tooling, not a record. It has no header, and issue #303 moves it to `tools/`.
 - `manuscript_trust_checks.py` holds the eight read-only trust checks of issue #311. The closing comments of #311 give their results.

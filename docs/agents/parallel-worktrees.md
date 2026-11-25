@@ -44,7 +44,7 @@ criterion and the *Report* below.
 
 ## Tutorial notebooks
 
-- Notebook outputs change only through `scripts/refresh_tutorial.py`, which executes them and writes
+- Notebook outputs change only through `tools/refresh_tutorial.py`, which executes them and writes
   them free of home and temp paths. The kernel inherits the absolute `PYTHONPATH=<wt>/src`.
 - `tests/test_tutorial_notebooks.py` checks the shipped notebooks statically; run it after any edit.
 

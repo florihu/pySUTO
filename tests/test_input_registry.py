@@ -260,7 +260,7 @@ def test_input_status_lists_an_edited_acc_json(tmp_path: Path, monkeypatch,
     _acc_id(tmp_path, "toy", {"acc.json": b"{}"})
     InputRegistry("acc", root=tmp_path).initialize()
     (tmp_path / "acc" / "toy" / "current" / "acc.json").write_bytes(b'{"times": ["2001"]}')
-    script = Path(__file__).resolve().parents[1] / "scripts" / "input_status.py"
+    script = Path(__file__).resolve().parents[1] / "tools" / "input_status.py"
     spec = importlib.util.spec_from_file_location("_input_status", script)
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)

@@ -27,14 +27,14 @@ A **round** is a GitHub milestone with its due date on the target Thursday, the 
 
 ### Due dates
 
-Before you give a due date or a time estimate, run `python scripts/milestone_rates.py`. It prints the issues that each round closed per working day (Monday to Thursday). A rate is elapsed time: it includes that round's reviews, waits and the rounds that ran beside it. Give two numbers:
+Before you give a due date or a time estimate, run `python tools/milestone_rates.py`. It prints the issues that each round closed per working day (Monday to Thursday). A rate is elapsed time: it includes that round's reviews, waits and the rounds that ran beside it. Give two numbers:
 
 - **Elapsed time**: the round's issues, divided by the rate of a similar past round. It is at least the longest chain of blocked tickets at the rate of a serial round.
 - **Maintainer time**: the hours the maintainer gives inside that span. Add days only for work the similar round did not have, for example a decision issue or a holiday.
 
 Put the due date on the Thursday after the elapsed time. Estimates from intuition assume one serial worker at human pace, and they were up to 15× too long (retro of 2026-11-24).
 
-`python scripts/issue_audit.py` checks this file, [triage-labels.md](triage-labels.md) and [measure-tickets.md](measure-tickets.md) against the tracker; run it when a round opens and before it closes.
+`python tools/issue_audit.py` checks this file, [triage-labels.md](triage-labels.md) and [measure-tickets.md](measure-tickets.md) against the tracker; run it when a round opens and before it closes.
 
 ## Pull requests as a triage surface
 

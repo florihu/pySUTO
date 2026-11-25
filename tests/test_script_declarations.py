@@ -1,7 +1,7 @@
-"""test_script_declarations.py — the pure parts of two scripts that no test reached (#279).
+"""test_script_declarations.py — the pure parts of a script and a tool that no test reached (#279).
 
 ``scripts/sweep_diag.py`` declares #108's pre-registered outcomes and criteria; its
-``declarations()`` is data and is checked without a sweep. ``scripts/refresh_tutorial.py``
+``declarations()`` is data and is checked without a sweep. ``tools/refresh_tutorial.py``
 rewrites machine paths out of the executed notebooks and fails on any ``/home/`` left
 (CLAUDE.md "Environment & commands"); ``normalise`` and ``leaks`` are that rule.
 """
@@ -17,8 +17,11 @@ import pytest
 SCRIPTS = Path(__file__).resolve().parents[1] / "scripts"
 
 
-def _load(name: str, monkeypatch):
-    spec = importlib.util.spec_from_file_location(f"_script_{name}", SCRIPTS / f"{name}.py")
+TOOLS = Path(__file__).resolve().parents[1] / "tools"
+
+
+def _load(name: str, monkeypatch, folder: Path = SCRIPTS):
+    spec = importlib.util.spec_from_file_location(f"_script_{name}", folder / f"{name}.py")
     module = importlib.util.module_from_spec(spec)
     monkeypatch.setitem(sys.modules, spec.name, module)
     spec.loader.exec_module(module)
@@ -73,7 +76,7 @@ class TestRefreshTutorialPathRule:
         for mod in ("nbformat", "nbclient"):          # the tutorial extras, not needed here
             monkeypatch.setitem(sys.modules, mod, types.ModuleType(mod))
         sys.modules["nbclient"].NotebookClient = object
-        return _load("refresh_tutorial", monkeypatch)
+        return _load("refresh_tutorial", monkeypatch, TOOLS)
 
     def test_the_temp_folder_the_package_and_the_home_are_rewritten(self, rt, tmp_path):
         tmp = tmp_path / "pysuto-tutorial-x"
