@@ -1,10 +1,10 @@
 """test_readme_names.py
 =====================
-The code names of the documentation set match the code (#225, #305, #339): every backticked
-code name of README.md, docs/architecture.md, docs/workflow.md, scripts/README.md and
-CONTRIBUTING.md exists in the repository, every module file of ``src/pysuto/`` and every
-``python -m pysuto`` subcommand and flag is named in one of them. A rename or a new module that leaves the documents behind
-turns this test red.
+The code names of the documentation set match the code (#225, #305, #339): every
+backticked code name of README.md, docs/architecture.md, docs/workflow.md,
+scripts/README.md and CONTRIBUTING.md exists in the repository, every module file of
+``src/pysuto/`` and every ``python -m pysuto`` subcommand and flag is named in one of
+them. A rename or a new module that leaves the documents behind turns this test red.
 """
 
 from __future__ import annotations

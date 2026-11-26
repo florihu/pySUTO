@@ -1,8 +1,8 @@
 """test_readme_links.py
 =====================
-Every relative link of the documentation set points at a file or directory of the repository
-(#191): README.md, docs/architecture.md, docs/workflow.md, scripts/README.md (#305) and
-CONTRIBUTING.md (#339). A commit that touches only one of them runs these tests.
+Every relative link of the documentation set points at a file or directory of the
+repository (#191): README.md, docs/architecture.md, docs/workflow.md, scripts/README.md
+(#305) and CONTRIBUTING.md (#339). A commit that touches only one of them runs these tests.
 """
 
 from __future__ import annotations

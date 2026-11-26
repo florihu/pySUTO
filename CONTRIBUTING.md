@@ -1,9 +1,8 @@
 # Contributing to pySUTO
 
-This guide is for a researcher who models their own material, a user who finds a bug or needs
-a library feature, and a reviewer of the paper. It tells you how to report, set up, change,
-test and submit. It gives only the rules that a newcomer is likely to break;
-[CLAUDE.md](CLAUDE.md) holds all of them.
+This guide is for researchers who model their own material, users with a bug or a feature
+request, and paper reviewers. It tells you how to report, set up, change, test and submit. It
+gives only the rules that a newcomer is likely to break; [CLAUDE.md](CLAUDE.md) holds all.
 
 ## 1. Ask or report
 
@@ -21,7 +20,7 @@ A bug report gives:
 
 ## 2. Before a pull request
 
-Open an issue first, and wait until the maintainer triages it. The issue is the request; the
+Open an issue first. Wait until the maintainer triages it. The issue is the request; the
 pull request is the work for it. A typo fix can skip the issue. The project asks for bug
 fixes, documentation, and library features in `src/pysuto/` that are generic for every case.
 
@@ -32,7 +31,7 @@ Copper's input data take no changes from outside.
 
 ## 3. Set up
 
-Fork the repository on GitHub, then clone your fork:
+Fork the repository on GitHub. Then clone your fork:
 
 ```bash
 git clone https://github.com/<your-account>/pySUTO.git
@@ -46,10 +45,11 @@ pip install -e ".[dev]"
 ```
 
 With conda, `conda env create -f environment.yml` makes the same install in the environment
-`pysuto`; then run `conda activate pysuto`. Python 3.9 or newer is necessary.
+`pysuto`. Then run `conda activate pysuto`. Use Python 3.9 or newer.
 
-The git hooks are optional, because CI runs the same checks. They run the tests and
-`ruff check` before a commit, and refuse an issue-closing keyword:
+The git hooks are optional, because CI runs the same checks. Before a commit, they run the
+tests and `ruff check`, and they refuse an issue-closing keyword. They need the environment
+with pysuto to be active:
 
 ```bash
 git config core.hooksPath .githooks
@@ -63,7 +63,8 @@ git config core.hooksPath .githooks
 - Do not run black or `ruff format`. The code is aligned by hand.
 - Write numpy-style docstrings.
 - A comment in `src/` or `scripts/` states the reason or the invariant, in the present tense.
-  Put the issue number in the commit message; only a workaround for an open issue cites it.
+  Put issue numbers in the commit message, not in a comment. Only a workaround for an open
+  issue cites its issue in a comment.
 - Library code in `src/pysuto/` compares no case label (a metal, sector or region name). A test,
   `tests/test_acc_roles.py`, refuses such a label as a string literal.
 - Update the documentation in the same branch as the code. The table in
@@ -82,25 +83,25 @@ python -m pytest tests/      # about 5 min
 ruff check
 ```
 
-If the change can alter the method's numbers, also run the toy chain, once on `main` and once
-on your branch. Each run takes about 25 s and prints the run id of every stage:
+If the change can alter the method's numbers, run the toy chain on `main` and on your branch.
+Each run takes about 25 s and prints the run id of every stage:
 
 ```bash
 python -m pysuto run --case toy --data-dir toy-data
 ```
 
-Then compare the two chains by their psut and uncprop run ids, and give the result in the pull
-request:
+Compare the two chains by their psut and uncprop run ids:
 
 ```bash
 python -m pysuto compare --data-dir toy-data --base <psut_id> <uncprop_id> --new <psut_id> <uncprop_id>
 ```
 
-The stored arrays are bit-identical only in the reference environment,
-[environment-reference.yml](environment-reference.yml) (linux-64), so compare your own two
-chains, not your chain against the reference. CI runs the suite, the lint and the toy chain
-again on the pull request. Before the merge, the maintainer runs the copper check chain and
-writes the analysis report (REP).
+Give the result in the pull request. The stored arrays are bit-identical only in the
+reference environment, [environment-reference.yml](environment-reference.yml) (linux-64).
+Thus compare your two chains with each other, not with the reference.
+
+CI runs the suite and the lint again on the pull request, and the toy chain on Windows.
+Before the merge, the maintainer runs the copper check chain and writes its report (REP).
 
 ## 6. Commit and pull request
 
@@ -115,5 +116,5 @@ writes the analysis report (REP).
 
 ## 7. Licence
 
-You agree that your contribution is licensed as the project is: code under the
+You agree that your contribution has the same licence as the project: code under the
 [MIT License](LICENSE), and a change to a CC BY table under [CC BY 4.0](LICENSE-DATA).
