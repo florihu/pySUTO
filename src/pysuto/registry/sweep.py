@@ -1,7 +1,7 @@
 """
 sweep.py
 ========
-:class:`SweepRunRegistry` — the output registry of sweeps (GLOSSARY.md "Sweep", #105).
+:class:`SweepRunRegistry` — the output registry of sweeps (GLOSSARY.md "Sweep").
 
 A sweep run records a set of chains that share their inputs and differ only in knob
 values. Its run directory holds the usual sidecar and a ``manifest.json`` listing every

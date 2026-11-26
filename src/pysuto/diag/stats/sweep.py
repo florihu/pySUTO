@@ -1,8 +1,7 @@
 """
 sweep.py
 ========
-:class:`SweepStatsDiagnostic` — the tables behind :class:`pysuto.diag.SweepDiag` (#107,
-#117).
+:class:`SweepStatsDiagnostic` — the tables behind :class:`pysuto.diag.SweepDiag`.
 
 A sweep's points are scored against its **base chain** (GLOSSARY.md "Sweep",
 "Point", "Outcome"). Every point gets
@@ -22,7 +21,7 @@ A sweep's points are scored against its **base chain** (GLOSSARY.md "Sweep",
 * every declared :class:`Criterion` judged: a **verdict** per criterion.
 
 Only the base's const run and the points' opt runs are read, so a sweep that kept only
-Stage 4 (#108) is scored like any other.
+Stage 4 is scored like any other.
 
 :func:`sensitivity_table` ranks the axes per outcome and sizes their effect: in a random
 sweep the standardised rank regression coefficient (SRRC) and Spearman's ρ of each
@@ -52,9 +51,9 @@ from pysuto.solver import Solver
 FAMILIES = ("edges", "sum_rows", "soft_ratios", "other_soft")
 MEASURES = ("mass_moved", "retention", "total")
 # Below this R² the rank regression does not explain the ranks additively, and the
-# ranking is read off Spearman's ρ instead of the SRRC (#108's reporting rule).
+# ranking is read off Spearman's ρ instead of the SRRC (the reporting rule).
 R2_MIN = 0.5
-# #108's registered influence rule: an axis is influential on an outcome when |SRRC|
+# The registered influence rule: an axis is influential on an outcome when |SRRC|
 # reaches this and the rank regression's R² reaches R2_MIN.
 SRRC_MIN = 0.2
 
@@ -370,8 +369,8 @@ def rank_statistic(sens: pd.DataFrame, outcome: str) -> tuple:
 
 
 def influential(sens: pd.DataFrame, outcome: str) -> set:
-    """The axes #108's rule calls influential on ``outcome``: |SRRC| ≥ SRRC_MIN with the
-    rank regression's R² ≥ R2_MIN."""
+    """The axes the influence rule calls influential on ``outcome``: |SRRC| ≥ SRRC_MIN
+    with the rank regression's R² ≥ R2_MIN."""
     if rank_statistic(sens, outcome)[0] != "srrc":
         return set()
     t = sens[(sens["outcome"] == outcome) & (sens["statistic"] == "srrc")]

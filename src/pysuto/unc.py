@@ -185,7 +185,7 @@ class PropagationResult:
         when no penalty was applied. Set by the caller, not by propagation.
     observed_zero : np.ndarray, shape (N_root,), optional
         Boolean mask of the edges the feed reports at exactly 0 with a σ > 0
-        (#76): covered at 0, never treated as a gap. ``None`` when the feed
+        covered at 0, never treated as a gap. ``None`` when the feed
         has none. Set by the caller, not by propagation.
     """
     F_root:    np.ndarray

@@ -1,7 +1,7 @@
 """
 sweep.py
 ========
-``SweepDiag`` — the figure portfolio of a sweep run (#107, #117).
+``SweepDiag`` — the figure portfolio of a sweep run.
 
 Every number is read from :class:`pysuto.diag.stats.SweepStatsDiagnostic`: each done
 point scored against the base chain, the axes ranked (SRRC, or Spearman's ρ where the
@@ -18,7 +18,7 @@ Plot catalogue — :attr:`SweepDiag.PLOTS` (ids are stable; SW-R-03 is retired)
   criterion outcomes first, then chain order.
 * **SW-R-02** ``sw_r_02_criterion_vs_top_axis`` — each criterion outcome against its
   top axis (log-scaled for a log-uniform axis), the criterion's limit as a band.
-* **SW-R-03** retired (#117), never reused: ``J_base_at_point`` by family, whose
+* **SW-R-03** retired, never reused: ``J_base_at_point`` by family, whose
   clusters were the two cascade orders. The column stays in points.csv as a check.
 * **SW-R-04** ``sw_r_04_retention_boxes`` — Δ pooled retention per category of the
   valuation across the points: box = IQR, whiskers = min–max, the base's retention in
@@ -49,7 +49,7 @@ from .stats.sweep import (R2_MIN, SRRC_MIN, SweepStatsDiagnostic, axis_label, in
                           rank_statistic, top_axis)
 
 # A point breaks the base's hard rows when it misses one by more than this (kt). The base
-# itself sits at its equality floor, ≈ 1.6e-6 kt on opt_20261020_112726_2f451f31 (#33).
+# itself sits at its equality floor.
 HARD_BREACH_TOL_KT = 1e-3
 _NCOLS       = 6                                   # panels per row of SW-R-06 and 07
 _LOG         = ("loguniform", "reciprocal")

@@ -39,7 +39,7 @@ TYPE_BOUND   = "bound"
 # pre-flipped so every inequality reads ``G·a ≤ c`` (``bound_dir`` keeps the
 # original direction for audit); hardness is the separate ``is_hard`` column.
 # (``SENSE_EQ`` / ``SENSE_LE`` are defined with :class:`~pysuto.relation.relation.Relation`.)
-# Const runs persisted before #11 carry Clarabel's cone name as ``cone_type``.
+# Older const runs carry Clarabel's cone name as ``cone_type``.
 _LEGACY_CONE_TYPE_TO_SENSE = {"zero": SENSE_EQ, "free": SENSE_EQ, "nonneg": SENSE_LE}
 
 
@@ -123,7 +123,7 @@ def soft_row_mask(row_meta) -> np.ndarray:
 def upgrade_legacy_row_meta(row_meta):
     """Return ``row_meta`` in the ``sense`` schema.
 
-    A frame that already has ``sense`` is returned unchanged. A pre-#11 frame
+    A frame that already has ``sense`` is returned unchanged. An older frame
     (``cone_type`` ∈ {zero, free, nonneg}, no ``sense``) gets ``sense`` in the
     old column's place — ``zero`` / ``free`` → ``eq``, ``nonneg`` → ``le`` —
     and loses ``cone_type``; ``is_hard`` was already persisted. Any other

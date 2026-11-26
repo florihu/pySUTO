@@ -4,7 +4,7 @@ _provenance.py
 The two provenance helpers every registry and the pipeline write with: the UTC ISO-8601
 timestamp (``2026-11-23T10:15:00Z``, seconds resolution) and the sha256 of a file. A leaf
 module: it imports nothing from pysuto, so ``registry``, ``input_registry``, ``pipeline``
-and ``case`` share one copy (#279).
+and ``case`` share one copy.
 """
 
 from __future__ import annotations

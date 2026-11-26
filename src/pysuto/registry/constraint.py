@@ -137,7 +137,7 @@ class ConstraintRunRegistry(BaseOutputRegistry):
         ts_dir  = os.path.join(run_dir, "timesteps")
 
         G        = sp.load_npz(os.path.join(run_dir, "G.npz"))
-        row_meta = upgrade_legacy_row_meta(      # pre-#11 runs persist cone_type
+        row_meta = upgrade_legacy_row_meta(      # older runs persist cone_type
             pd.read_parquet(os.path.join(run_dir, "row_meta.parquet")))
         a0       = np.load(os.path.join(run_dir, "a0.npy"))
         sigma_a  = np.load(os.path.join(run_dir, "sigma_a.npy"))

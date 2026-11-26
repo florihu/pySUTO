@@ -1,7 +1,7 @@
 """
 compare.py
 ==========
-``python -m pysuto compare`` (#157): compare two chains of runs, array by array, and say
+``python -m pysuto compare``: compare two chains of runs, array by array, and say
 where they first differ. A chain is named by its leaf run id(s); its lineage is walked
 through ``parents.upstream`` in each run's ``metadata.json``::
 
@@ -24,7 +24,7 @@ difference. Per paired run the command compares
 Stage 2 stores its per-feed rows (``F``, ``Sigma``, ``Omega``) in the order of its
 ``--feed-id`` arguments, recorded in ``feed_ids``. When two files hold the same feeds in
 another order, the new file's rows are aligned to the base's ``feed_ids`` before they are
-compared, and the run carries the note "feed order differs" (#211): a reordering alone is
+compared, and the run carries the note "feed order differs": a reordering alone is
 no difference.
 
 Not compared: the sidecars' run ids, timestamps and ``stage_config``, ``diag/`` and the
@@ -51,7 +51,7 @@ _UPSTREAM_STAGE = {"feed_run_ids": "feed", "imp_run_id": "imp", "const_run_id": 
                    "opt_run_id": "opt"}
 _SKIP_DIRS  = ("diag",)
 _SKIP_FILES = ("metadata.json", "feed.pkl")
-# Stage 2's per-feed rows, stored in --feed-id order and aligned by feed_ids (#211)
+# Stage 2's per-feed rows, stored in --feed-id order and aligned by feed_ids
 _FEED_IDS   = "feed_ids"
 _PER_FEED   = ("F", "Sigma", "Omega", _FEED_IDS)
 

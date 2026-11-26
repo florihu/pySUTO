@@ -2,8 +2,8 @@
 ==============
 The persisted form of an :class:`~pysuto.acc.AccountingStructure`: ``save`` writes it
 under ``<storage_dir>/<id>/``, ``load`` reads it back, and the build record beside it
-names the acc input version it was made from (#53). ``AccountingStructure`` itself only
-builds; this module is the one place that knows the file layout (#243).
+names the acc input version it was made from. ``AccountingStructure`` itself only
+builds; this module is the one place that knows the file layout.
 
 Layout of ``<storage_dir>/<id>/``::
 
@@ -14,7 +14,7 @@ Layout of ``<storage_dir>/<id>/``::
                                                        roles, rule tables
     build_record.json                                  written by write_build_record
 
-A directory written before #243 holds ``metadata.pkl`` (a pickle of the same header)
+An older directory holds ``metadata.pkl`` (a pickle of the same header)
 in place of ``metadata.json`` and four files nothing reads (``A.npz``, ``A_nodes.npz``,
 ``edge_index_all.csv``): ``load`` reads the pickle when there is no JSON header and
 never opens the other three; ``save`` removes them.
@@ -36,7 +36,7 @@ from .logging import get_logger
 
 HEADER        = "metadata.json"
 LEGACY_HEADER = "metadata.pkl"
-# Files of the pre-#243 layout: no consumer reads them; ``save`` deletes stale copies.
+# Files of the older layout: no consumer reads them; ``save`` deletes stale copies.
 _LEGACY_FILES = (LEGACY_HEADER, "A.npz", "A_nodes.npz", "edge_index_all.csv")
 
 # =============================================================================
@@ -84,10 +84,10 @@ def save(acc: AccountingStructure) -> str:
         os.remove(masks_path)  # a stale file would resurrect removed masks
 
     # Roles and rule tables, so load() returns what the build made: the rule-derived
-    # masks (supply, use, tradable) are rebuilt from the same tables (#119).
+    # masks (supply, use, tradable) are rebuilt from the same tables.
     with open(os.path.join(path, HEADER), "w", encoding="utf-8") as f:
         json.dump(_header(acc), f, indent=1)
-    for name in _LEGACY_FILES:      # a rebuilt directory keeps no stale pre-#243 file
+    for name in _LEGACY_FILES:      # a rebuilt directory keeps no older-layout file
         if os.path.exists(os.path.join(path, name)):
             os.remove(os.path.join(path, name))
     acc.logger.info(f"Structure saved to {path}")
@@ -101,7 +101,7 @@ def save(acc: AccountingStructure) -> str:
 
 def _read_header(path: str) -> dict:
     """The header as ``save`` writes it: from ``metadata.json``, or from the
-    pre-#243 ``metadata.pkl`` converted to the same shape."""
+    older ``metadata.pkl`` converted to the same shape."""
     json_path = os.path.join(path, HEADER)
     if os.path.exists(json_path):
         with open(json_path, encoding="utf-8") as f:
@@ -124,7 +124,7 @@ def load(id: str, storage_dir: str = DEFAULT_STORAGE_DIR) -> AccountingStructure
     FileNotFoundError
         The directory does not exist.
     ValueError
-        The header records no roles or rule tables (saved before #119), a persisted
+        The header records no roles or rule tables (saved by an older version), a persisted
         role fails the build's validation, or a user mask's shape does not match the
         edge index.
     """
@@ -224,7 +224,7 @@ def load(id: str, storage_dir: str = DEFAULT_STORAGE_DIR) -> AccountingStructure
 
 
 # =============================================================================
-# Build record — which acc input version a built structure was made from (#53)
+# Build record — which acc input version a built structure was made from
 # =============================================================================
 
 # Written by scripts/acc.py beside the saved structure, in <storage_dir>/<id>/.
@@ -248,7 +248,7 @@ def check_built_acc(storage_dir: str, acc_ref: dict, acc_registry, keys,
     A record naming another version of the same acc passes when the two versions' specs
     agree on ``keys`` (:func:`require_compatible_acc`, read from ``acc_registry``):
     :data:`ALL_SPEC_KEYS` for Stages 2 and 3, :data:`EDGE_UNIVERSE_ROLE_KEYS` for
-    Stages 4 (warm) and 6 (#119). A structure built before
+    Stages 4 (warm) and 6. A structure built before
     the record existed has none: unless ``require_record``, that is logged as a warning
     and the caller goes on, so the runs made from it still load. Reads the record and
     the two specs only, so a caller checks before the (multi-GB) load.

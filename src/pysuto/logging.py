@@ -3,7 +3,7 @@ logging.py
 ==========
 Named loggers with a console handler, and the per-module and per-run log files a driver
 turns on (:func:`configure_file_logs`, :func:`start_run_log`, :func:`add_run_handler`).
-Importing this module writes nothing (#190). Imports nothing from pysuto.
+Importing this module writes nothing. Imports nothing from pysuto.
 """
 
 from __future__ import annotations
@@ -58,7 +58,7 @@ def get_logger(name="system"):
     """
     Return a named logger with a console handler and no file handler.
 
-    Importing pySUTO writes nothing to disk (#190); the per-module file
+    Importing pySUTO writes nothing to disk; the per-module file
     ``<log_dir>/<name>.log`` appears only after :func:`configure_file_logs` names a
     directory. Calling get_logger with the same name twice is idempotent
     (handlers are not duplicated).

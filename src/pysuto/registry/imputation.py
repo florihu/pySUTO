@@ -17,7 +17,7 @@ import pandas as pd
 from ._sidecar import _now_iso, build_sidecar
 from .base import BaseOutputRegistry
 
-# The imputer id the last-resort filler carried in every run written before #137 stored
+# The imputer id the last-resort filler carried in every run written before runs stored
 # the flat_prior flag; ``load`` derives the flag from those log rows.
 LEGACY_FLAT_PRIOR_ID = "flat_prior"
 
@@ -32,7 +32,7 @@ class ImputationRunRegistry(BaseOutputRegistry):
         └── imp_<ts>_<code>/
             ├── metadata.json          ← harmonized sidecar
             ├── agg_result.npz         ← f_agg, sigma_agg, Omega, F, Σ, coverage,
-            │                            feed_ids, flat_prior (bool; absent before #137)
+            │                            feed_ids, flat_prior (bool; absent in older runs)
             └── imputation_log.parquet
     """
 
@@ -180,7 +180,7 @@ class ImputationRunRegistry(BaseOutputRegistry):
         if "flat_prior" in data.files:
             result.flat_prior = data["flat_prior"].astype(bool)
         elif os.path.exists(log_path) and LEGACY_FLAT_PRIOR_ID in set(df["imputer_id"]):
-            # A run written before #137 stores no flag; its log records which edges the
+            # An older run stores no flag; its log records which edges the
             # last-resort filler wrote, which is exactly what the flag means. Every such
             # run (copper, toy) gave that filler the id "flat_prior".
             flat = np.zeros(len(result.f_agg), dtype=bool)
