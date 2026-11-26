@@ -85,10 +85,23 @@ def _alive(pid: int) -> bool:
     return True
 
 
-def _create(path: str, driver: str) -> bool:
+def _open_new(path: str) -> int | None:
+    """Create *path* exclusively and return its descriptor, or None if the name is taken.
+    On Windows a file that another process is deleting refuses the create with
+    ``PermissionError`` instead of ``FileExistsError``; its name is still taken."""
     try:
-        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
+        return os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644)
     except FileExistsError:
+        return None
+    except PermissionError:
+        if _WINDOWS:
+            return None
+        raise
+
+
+def _create(path: str, driver: str) -> bool:
+    fd = _open_new(path)
+    if fd is None:
         return False
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump({"pid": os.getpid(), "driver": driver, "started_at": _now_iso()}, f)
@@ -112,11 +125,11 @@ def _take_over(path: str, dead_pid: int, driver: str) -> None:
     :class:`LockHeld` and removes nothing, so a fresh lock is never deleted (#279). A
     guard left by a crash inside these few lines has to be removed by hand."""
     guard = path + ".takeover"
-    try:
-        os.close(os.open(guard, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o644))
-    except FileExistsError:
+    fd = _open_new(guard)
+    if fd is None:
         raise LockHeld(f"{path} is being taken over by another driver (guard {guard}; "
-                       f"if none is running, remove it by hand)") from None
+                       f"if none is running, remove it by hand)")
+    os.close(fd)
     try:
         held = _holder(path)
         if os.path.exists(path) and held.get("pid") != dead_pid:
