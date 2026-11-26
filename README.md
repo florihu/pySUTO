@@ -74,7 +74,13 @@ The by-hand steps and their order are in [docs/architecture.md](docs/architectur
 
 ## How it works
 
-Six stages, each with its own driver, its own run ids and its own persisted output. The mathematics of each stage is in [docs/architecture.md](docs/architecture.md).
+Supply–use tables and material flow accounts are assembled from multiple data sources that differ in classification, temporal resolution, regional scope, and data quality. pySUTO addresses three interrelated problems:
+
+- **Heterogeneous classifications** — raw data uses different sector taxonomies, regional aggregations, and time resolutions. A concordance layer maps every source edge onto a common root accounting structure via a sparse weight matrix.
+- **Multi-source uncertainty** — each data source carries a pedigree quality score (Laner et al. 2016) that translates into a coefficient of variation. Uncertainty is propagated through every transformation step using Lp / power-mean error propagation.
+- **Physical consistency** — supply must equal use for every node and every material-parameter efficiency must be respected. A linear-equality / inequality QP enforces these constraints while staying as close as possible to the aggregated data, with full uncertainty quantification on the optimised values.
+
+The package is organised into **six sequential stages**: datafeed assembly (per source), aggregation + imputation (across sources), constraint building, constrained optimisation, posterior uncertainty propagation, and PSUT/PIOT construction. Each stage has a clear input, a clear output, and its own persistence layer. A **sweep** re-runs Stages 2–4 once per knob point and records the points as one run (see [Pipeline and knobs](docs/workflow.md#pipeline-and-knobs)).
 
 | Stage | Does | Persists |
 |---|---|---|
@@ -85,7 +91,88 @@ Six stages, each with its own driver, its own run ids and its own persisted outp
 | 5 Uncertainty | Propagates the posterior σ of every flow (closed form). | `uncprop_…` |
 | 6 PSUT | Writes the solved flows as a tidy supply-use table; Sankeys and a derived input-output view. | `psut_…` |
 
-Every artefact carries a value and its σ. Hard rows hold exactly; soft rows are priced by σ. A sweep re-runs Stages 2–4 once per knob point. The twelve commitments that no case can change are listed in [docs/architecture.md](docs/architecture.md#what-the-framework-assumes).
+**Workflow** — data flow through the six stages, with the sweep beside the Stages 2–4 it re-runs:
+
+```
+┌────────────────────────────────────────────────────────────────────────┐
+│  Raw inputs (per source)                                               │
+│  flow data · classification maps · Excel pedigree sidecar              │
+│  AccountingStructure (root index · edge masks · bounds)                │
+└──────┬─────────────────────────────────────────────────────────────────┘
+       │
+       ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│  STAGE 1 — Datafeed   ·   scripts/*_feed.py                            │
+│  run_feed(FeedSpec)  (step_A → B → C → D → register)                   │
+│  in  : raw flows + pedigree + concordance                              │
+│  out : W · F_root · σ_root   →   DataFeedRegistry                      │
+└──────┬─────────────────────────────────────────────────────────────────┘
+       │  feed_ids                                                          ┌────────────┐
+       ▼                                                                    │ SWEEP      │
+┌────────────────────────────────────────────────────────────────────────┐  │ scripts/   │
+│  STAGE 2 — Aggregation & Imputation   ·   collect_aggregate_impute.py  │◄─┤  sweep.py  │
+│  FeedCollector → AggregationMath → ImputationEngine                    │  │ Pipeline · │
+│  cascade→fixpoint : Trade → Network → Parametric(conc,ore_grade)       │  │  Sweep     │
+│  then terminal    : Time → Share (net stock) → FlatPrior               │  │            │
+│  in  : feed_ids                                                        │  │ in : base  │
+│  out : AggregationResult (f_agg · σ_agg · Ω · coverage · imp_log)      │  │  chain (its│
+└──────┬─────────────────────────────────────────────────────────────────┘  │  feed runs │
+       │  agg_result                                                        │  pinned) · │
+       ▼                                                                    │  axes      │
+┌────────────────────────────────────────────────────────────────────────┐  │            │
+│  STAGE 3 — Constraint building   ·   scripts/constraints.py            │◄─┤ per point: │
+│  ConstraintEngine.register(builders).run()                             │  │  chain 2–4 │
+│  builders : MassBalance(hard) · ScaleTotal(soft)                       │  │  with knob │
+│           · Ratio conc,eff (soft ratioeq)                              │  │  overrides;│
+│           · RatioBound conc,eff,stock (hard) · FlowBounds(hard)        │  │  reuses the│
+│  in  : AggregationResult                                               │  │  runs it   │
+│  out : ConstraintRun (G · row_meta · a0 · σ_a · l,u · c(t),σ_c(t))     │  │  shares    │
+└──────┬─────────────────────────────────────────────────────────────────┘  │            │
+       │  const_run_id                                                      │ out: sweep │
+       ▼                                                                    │  run ·     │
+┌────────────────────────────────────────────────────────────────────────┐  │  manifest  │
+│  STAGE 4 — Solver   ·   scripts/run_solver.py                          │◄─┤ → sweep_   │
+│  Solver.solve_all()  (one QP per timestep; warm or cold prior)         │  │   diag.py  │
+│  in  : ConstraintRun                                                   │  │            │
+│  out : OptimResult per t (F_opt · ε · residuals · telemetry)           │  │            │
+└──────┬─────────────────────────────────────────────────────────────────┘  └────────────┘
+       │  opt_run_id   (Stages 5 and 6 each read it, never each other)
+       ├──────────────────────────────────────┐
+       ▼                                      ▼
+┌──────────────────────────────────┐  ┌──────────────────────────────────┐
+│ STAGE 5 — Posterior uncertainty  │  │ STAGE 6 — PSUT/PIOT builder      │
+│ uncertainty_propagation.py       │  │ scripts/psut.py                  │
+│ KalmanUncProp.compute()          │  │ PSUT: blocks · aggregate         │
+│ (closed-form GLS · sparse Chol.) │  │       · sankey · to_piot         │
+│ in : OptimRun (+ ConstraintRun)  │  │ in : OptimRun (a* = F_opt)       │
+│ out: UncPropResult per t         │  │      + acc via provenance chain  │
+│      σ_a* · lower · upper · diag │  │ out: PsutRun (parquet/period) ·  │
+│                                  │  │      PIOT · footprints · ew-MFA  │
+└──────────────────────────────────┘  └──────────────────────────────────┘
+```
+
+Every artefact carries a value and its σ. Hard rows hold exactly; soft rows are priced by σ. The mathematics of each stage is in [docs/architecture.md](docs/architecture.md).
+
+### What the framework assumes
+
+Commitments of pySUTO that a second case cannot change through data or parameters, each with its source (`method.md` is [docs/manuscript/method.md](docs/manuscript/method.md)).
+
+1. The prior is Gaussian with a diagonal Σ_a: no covariance between edges (`method.md` §3.1.6, Eq. 2).
+2. Feeds combine by inverse variance, and every σ composition is one power-mean rule, default p = 1.3 in every consumer (`method.md` §3.1.2, Eq. 1).
+3. Hard rows hold exactly; soft rows are priced by σ_c⁻² (`method.md` §3.1.6, Eq. 2).
+4. One QP per period; no row couples two periods, enforced at build time (GLOSSARY "No cross-time coupling").
+5. No stage before Stage 6 drops σ: every inter-stage artefact carries value and σ together (`method.md` §3.1.1).
+6. A source edge's outgoing weights in W sum to one (a guard rejects a projection more than 1 % off the matched raw total); fan-in diversifies, fan-out leaves the CV unchanged (`method.md` §3.1.3).
+7. Pedigree scores map to a CV by the Laner (2016) exponential model, the five indicators summed in quadrature ([docs/architecture.md](docs/architecture.md), *Pedigree → coefficient of variation*).
+8. An edge no feed or imputer covers is a flat prior at value 0 with a large σ (σ = 1e6 in copper and the toy), a noisy zero; the framework never guesses a value (`method.md` §3.1.4).
+9. Imputation fills are write-once and logged with method, source edges and coefficients (`method.md` §3.1.4).
+10. A satellite flow carries a value but sits outside its node's balance (GLOSSARY "Satellite flow").
+11. Stage 6 propagates point estimates only; Stage-5 σ is not carried into the tables in v1 (ADR 0007).
+12. Results are year-local: a period slice is `[E_t]`, scattered through `cols_t` before any `G @ F` (GLOSSARY "Period slice").
+
+Copper's modelling choices, each measured against a rejected alternative, are in Table 2 of the manuscript ([docs/manuscript/method.md](docs/manuscript/method.md) §3.2.7), not here.
+
+The SI ([docs/manuscript/si.md](docs/manuscript/si.md)) states the equations of the pipeline's structure and σ propagation, S1–S8; it is not a complete list of the code's σ rules. The parametric-fill, recipe, time-interpolation, flat-prior, ratio, scale-total and net-stock-seed σ rules, `_reg_sensitivity` and `Solver.objective_at` carry their equations in [docs/architecture.md](docs/architecture.md) and the ADRs only.
 
 ---
 
