@@ -5,6 +5,10 @@
   </picture>
 </p>
 
+<p align="center">
+  <a href="https://pypi.org/project/pysuto/"><img src="https://img.shields.io/pypi/v/pysuto" alt="PyPI version"></a>
+</p>
+
 > ⭐ If pySUTO is useful to your work, please leave a star on [GitHub](https://github.com/florihu/pySUTO) — it helps others find the project.
 >
 > 🏷️ Filing an [issue](https://github.com/florihu/pySUTO/issues/new)? Please give it a label — `bug`, `enhancement`, `documentation` or `question` — so it lands in the right queue; the maintainer then sets its triage state (`needs-triage`, `ready-for-agent`, …).
