@@ -41,6 +41,8 @@ python -m pytest tests/            # about 5 min; in a git worktree, prefix PYTH
 
 Bit-identity of the stored arrays is claimed in the environment pinned by [environment-reference.yml](environment-reference.yml) (linux-64): `conda env create -f environment-reference.yml && conda activate pysuto-ref`. [environment.yml](environment.yml) builds a development environment on any platform.
 
+**On Windows**, install with pip or from [environment.yml](environment.yml); CI runs the suite and the toy chain on `windows-latest`. `environment-reference.yml` is linux-64 only, so a Windows chain is not expected to be bit-identical to the Linux reference. Read a `python -m pysuto compare` against it as a list of differences, not as a verdict. All six stages, Stage 5 included, run on Windows. The repository's `.gitattributes` keeps the hashed inputs byte-identical in every clone, so no Git setting is needed.
+
 ---
 
 ## Quickstarts

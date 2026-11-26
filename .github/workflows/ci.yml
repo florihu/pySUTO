@@ -1,5 +1,5 @@
-# ci.yml: the suite on 3.9/3.12/3.13, the library alone without the copper application
-# (#304), ruff (pyflakes rules), the build, the tutorial
+# ci.yml: the suite on 3.9/3.12/3.13 and on Windows with the toy chain, the library alone
+# without the copper application (#304), ruff (pyflakes rules), the build, the tutorial
 # executed from a fresh install (#188), PyPI trusted publishing on a pushed v* tag (#196),
 # and a manual run (workflow_dispatch) that rehearses the release on TestPyPI (#195).
 # No token: PyPI and TestPyPI trust this workflow through the `pypi` and `testpypi`
@@ -168,12 +168,11 @@ jobs:
           done
 
   windows:
-    # A measurement, not a gate: it may fail and `publish` does not need it. It sets no
-    # PYTHONUTF8 or encoding variable, so it shows the defects a Windows user meets with
-    # the default console and locale. The toy chain runs even when the suite fails, so
-    # one run measures both.
+    # A gate like the Ubuntu matrix: a Windows failure fails the workflow and blocks
+    # `publish`. It sets no PYTHONUTF8 or encoding variable, so it tests what a Windows
+    # user meets with the default console and locale. The toy chain runs even when the
+    # suite fails, so one run measures both.
     runs-on: windows-latest
-    continue-on-error: true
     timeout-minutes: 60
     steps:
       - uses: actions/checkout@v7.0.1
@@ -195,7 +194,7 @@ jobs:
 
   publish:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [test, library, lint, build, tutorial]
+    needs: [test, library, windows, lint, build, tutorial]
     runs-on: ubuntu-latest
     environment: pypi
     permissions:
@@ -209,7 +208,7 @@ jobs:
 
   testpypi:
     if: github.event_name == 'workflow_dispatch'
-    needs: [test, library, lint, build, tutorial]
+    needs: [test, library, windows, lint, build, tutorial]
     runs-on: ubuntu-latest
     environment: testpypi
     permissions:
