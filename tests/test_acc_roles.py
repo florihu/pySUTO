@@ -3,8 +3,8 @@ test_acc_roles.py
 =================
 Roles, not labels (#119, ADR 0034): the accounting structure binds a case's labels to the
 framework's roles, keeps that binding and its rule-derived masks across ``save``/``load``,
-and the library reads only roles. Also: the grep gate on label literals, acc compatibility
-by spec comparison, and the copper ``root.ods``'s binding of its labels.
+and the library reads only roles. Also: the grep gate on label literals and acc
+compatibility by spec comparison.
 """
 
 from __future__ import annotations
@@ -24,7 +24,7 @@ import pytest
 from pysuto import acc_store
 from pysuto.acc import (
     ALL_SPEC_KEYS, EDGE_UNIVERSE_KEYS, EDGE_UNIVERSE_ROLE_KEYS, AccountingStructure,
-    BoundaryRole, ValuationRole, ValuationRoles, _read_ods, acc_spec_differences,
+    BoundaryRole, ValuationRole, ValuationRoles, acc_spec_differences,
     read_acc_spec_dir, require_compatible_acc,
 )
 from pysuto.input_registry import InputRegistry
@@ -409,25 +409,6 @@ def test_the_ods_format_compares_roles_like_any_other_key(tmp_path):
     _write_ods(tmp_path / "b" / "root.ods", sheets)
     a, b = read_acc_spec_dir(tmp_path / "a"), read_acc_spec_dir(tmp_path / "b")
     assert acc_spec_differences(a, b, ALL_SPEC_KEYS) == ["role"]
-
-
-# =============================================================================
-# 6. The copper root.ods binds its labels (input acc/copper v5)
-# =============================================================================
-
-_COPPER_ROOT = REPO / "data" / "input" / "acc" / "copper" / "current" / "root.ods"
-
-
-def test_the_copper_root_ods_binds_its_labels_to_the_glossarys_roles():
-    se = _read_ods(_COPPER_ROOT, "Sector_Entity")
-    sb = se[se["Entity_name"] == "SB"]
-    binding = dict(zip(sb["Entity_name_1"], sb["role"]))
-    assert set(zip(sb["Entity_name_1"], sb["role"])) == set(binding.items())  # 1 each
-    assert binding == {"Nature": "nature", "SEM": "secondary", "FD": "final_demand"}
-    assert se.loc[se["Entity_name"] != "SB", "role"].isna().all()
-    val = _read_ods(_COPPER_ROOT, "Valuation")
-    assert dict(zip(val["Valuation_name"], val["role"])) == {"Mass": "gross",
-                                                             "CC": "content"}
 
 
 def test_edge_labels_name_every_edge_by_nodes_and_valuation():

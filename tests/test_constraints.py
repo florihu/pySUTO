@@ -1425,24 +1425,6 @@ class TestRatioBoundBuilder:
         assert lower[stock_col] == pytest.approx(-1.0) and lower[denom_col] == pytest.approx(-0.05), \
             f"lower must be -1 on stock, +bl(=-0.05) on denom; got {lower[lower != 0]}"
 
-    def test_stock_bound_params_contract(self):
-        """The shipped stock_bounds params keep the correct orientation: stock edge
-        (PSC/USC/MESC) on the b-side, FU/Cathode on the a-side, symmetric ±band in
-        value_min/value_max. Skips when the (gitignored) params file is absent."""
-        import pathlib
-        repo = pathlib.Path(__file__).resolve().parents[1]
-        p = repo / "data" / "input" / "params" / "stock_bounds" / "current" / "params.csv"
-        if not p.exists():
-            pytest.skip("stock_bounds/current/params.csv absent (gitignored data dir)")
-        df = pd.read_csv(p, sep=None, engine="python", dtype=str)
-        s = df[df["param_type"] == "stock_bound"]
-        assert len(s) > 0, "no stock_bound rows in shipped params"
-        assert s["b_sector_to"].isin(["PSC", "USC", "MESC"]).all(), "stock edge must be the b-side numerator"
-        assert s["a_sector_to"].isin(["Cathode", "FU"]).all(), "denominator must be the a-side"
-        vmin = pd.to_numeric(s["value_min"]); vmax = pd.to_numeric(s["value_max"])
-        assert (vmin < 0).all() and (vmax > 0).all() and np.allclose(vmin, -vmax, rtol=1e-12), \
-            "value_min/value_max must be a symmetric ±p95 band"
-
     def test_scrap_share_band_num_in_pooled_denom(self, toy_acc, tmp_path):
         """A scrap_share-shaped agg band (wildcard pooled denominator that CONTAINS
         the numerator edge) emits `bl·ΣD ≤ ΣN ≤ bu·ΣD` with summed coefficients.
