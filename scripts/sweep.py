@@ -1,7 +1,7 @@
 """
 sweep.py
 ========
-Sweep driver (#105): run a set of chains that differ only in knob values, recorded as
+Sweep driver: run a set of chains that differ only in knob values, recorded as
 one ``sweep`` run under ``data/proc/sweep/`` (GLOSSARY.md "Sweep", "Point", "Axis").
 
 Declare the sweep in the USER CONFIGURATION block — base chain, steps, axes, mode —
@@ -12,9 +12,9 @@ then look before you run::
     python scripts/sweep.py --resume <sweep_id>    # continue an interrupted sweep
 
 Run it from the main checkout's root, never beside another stage driver: each point's
-steps take the stage lock (#101). The declaration is copied into the sweep's sidecar,
+steps take the stage lock. The declaration is copied into the sweep's sidecar,
 which, not this file's history, is the record. Score the points with the sweep diag
-(#107).
+(scripts/sweep_diag.py).
 """
 
 from __future__ import annotations
@@ -34,10 +34,10 @@ from pysuto.pipeline import (RESERVE_GB, Axis, Chain, Pipeline, Sweep,
 # USER CONFIGURATION
 # ---------------------------------------------------------------------------
 
-# The knob sweep of #108; its decisions are recorded on the issue (2026-10-22). This block
-# is #108's frozen declaration: another sweep names its own --base chain here.
+# The declaration of the shipped knob sweep, whose REP records its decisions: another
+# sweep names its own --base chain here.
 # The chain every point starts from: its feed runs feed the imp step, and every point
-# is compared with it. The final reference chain (#111, 2026-10-22).
+# is compared with it.
 BASE_OPT_RUN_ID = "opt_20261022_112855_928da10c"
 STEPS           = ("imp", "const", "opt")
 MODE            = "random"          # "random" (seeded Latin hypercube) | "grid"
@@ -46,20 +46,18 @@ SEED            = 20261022          # random mode only
 LABEL           = "knob sweep (#108)"
 
 # Keep only the opt runs: each point's imp and const runs (≈ 0.93 GB) go to a RAM-backed
-# scratch store and are deleted once no remaining point reuses them (#108).
+# scratch store and are deleted once no remaining point reuses them.
 KEEP_INTERMEDIATE = False
 SCRATCH_DIR       = default_scratch_dir()   # /dev/shm/pysuto-sweep, else under the temp dir
 
 # Overrides set on every point. A sweep through opt passes opt.FEASIBILITY_CHECK =
-# "none" unless this or an axis sets it (#104). The const runs are deleted, so their
+# "none" unless this or an axis sets it. The const runs are deleted, so their
 # diagnostics are not drawn.
 FIXED: dict = {"const.DIAG_PLOT": False}
 
-# Minutes per step run on the final chain, process start included: imp 2.8
-# (imp_20261102_094925_95744204); const 4.4 with DIAG_PLOT off (2026-11-02, 8.6 with
-# its diagnostics); opt 2.7 once the probe is skipped (#106 gate, opt_20261022_093350_
-# 82d7c31d: solve and save 1.3, reloading the const run and SolverDiag 1.1).
-# Re-measure on the first sweep (its manifest timestamps).
+# Minutes per step run on the base chain, process start included: const with DIAG_PLOT
+# off, opt once the feasibility probe is skipped. Re-measure on the first sweep (its
+# manifest timestamps).
 STEP_MINUTES = {"imp": 2.8, "const": 4.4, "opt": 2.7}
 
 # The copper case's cascade ids (scripts/copper.py CASCADE); reversed, every pairwise
@@ -67,7 +65,7 @@ STEP_MINUTES = {"imp": 2.8, "const": 4.4, "opt": 2.7}
 CASCADE_SHIPPED  = ("trade", "network", "conc", "ore_grade")
 CASCADE_REVERSED = tuple(reversed(CASCADE_SHIPPED))
 
-# The varied knobs (#108): σ-scale knobs log-uniform over a factor 2 either side of the
+# The varied knobs: σ-scale knobs log-uniform over a factor 2 either side of the
 # shipped value, shape knobs uniform over a stated interval around it.
 AXES = [
     Axis.interval(("imp.P_PROP", "const.P_PROP"), 1.1, 1.5),          # lp.py's range

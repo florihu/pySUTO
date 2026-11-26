@@ -4,7 +4,7 @@ constraints.py
 Stage 3a driver: build and persist the constraint matrix for the copper model.
 
 The constraint builders and their registration order are the case's
-(scripts/copper.py builders, #120; its docstring lists the constraint types):
+(scripts/copper.py builders; its docstring lists the constraint types):
 hard mass balance, the supply/use scale totals and the scrap level anchors, the
 CSV-fed soft ratios and hard ratio bounds, the net-stock and scrap-share bands, and
 the hard lower bounds.
@@ -51,7 +51,7 @@ from pysuto.stages import run_const
 DEFAULT_CASE = str(Path(__file__).resolve().with_name("copper.py"))
 CASE = resolve_case(DEFAULT_CASE)
 
-# The knobs a pipeline step may override with --set (#100, pysuto.knobs): the UPPER_CASE
+# The knobs a pipeline step may override with --set (pysuto.knobs): the UPPER_CASE
 # fields of the case's Stage 3 section. Paths and the acc id are not knobs.
 KNOBS = tuple(CASE.const.knobs())
 
@@ -103,7 +103,7 @@ if __name__ == "__main__":
     overrides = overrides_from_cli(parser, args, tuple(case.const.knobs()),
                                    case.const.knobs())
     case = case.with_knobs("const", overrides)
-    # registries have no locking (#101)
+    # registries have no locking: the stage lock serialises the drivers
     with stage_lock("constraints", root=os.path.join(args.data_dir, "proc")):
         write_run_id(args.run_id_file,
                      main(args.imp_run_id, args.label, overrides, case=case,

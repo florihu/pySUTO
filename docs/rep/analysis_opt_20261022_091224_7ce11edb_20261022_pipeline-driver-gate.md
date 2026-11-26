@@ -88,3 +88,5 @@ whether some input could make the order change a value, for instance two balance
   - Chain 3 wrote its 74 MB opt run to `data/proc`. Its imp and const runs stayed in the scratch store.
   - 11 GB were free after the gate.
 - **Next for the pipeline work:** the #108 sweep (64 points, ≈ 11 h), which waits for the maintainer.
+
+- **Moved here from `scripts/sweep.py`'s comment (2026-11-26, #307):** the opt step took 2.7 min once the feasibility probe was skipped (`opt_20261022_093350_82d7c31d`): solve and save 1.3 min, reloading the const run and `SolverDiag` 1.1 min. The sweep's time plan (`STEP_MINUTES`) uses the 2.7 min.

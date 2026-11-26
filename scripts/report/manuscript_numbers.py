@@ -44,13 +44,13 @@ Groups, after the 2026-10-19 inventories of method/results and SI:
   9  Results numbers that ``results_figs.py`` does not write to numbers.json:
      |z| > 3 shares by year, China's secondary share by year, the ROW band in
      HHI, and ratios of numbers.json keys when that file belongs to this run
- 10  Stage 5: the default posterior built from the opt run (the #87 scale-total
+ 10  Stage 5: the default posterior built from the opt run (the scale-total
      ablation beside it): active set per year, Birge ratio, calibration of the
      shifts, contraction by prior class with and without the scale totals
  11  limitations (discussion.md §5.5.2, method.md §3.2.8 until 2026-11-12): the mine chains kept where ICSG reports no
      mine output, stock legs beyond |z| 5, the world producer stock change
      against ICSG, the regions that carry the scale-total objective
- 12  knob sweep (#108): A6 and Round-E (c) on the latest sweep whose base is the opt
+ 12  knob sweep: A6 and the exporter-retention criterion (ADR 0025) on the latest sweep whose base is the opt
      run, read from the tables ``scripts/sweep_diag.py`` writes to its ``diag/``
 
 Historical measurements (REP/ADR figures) and the tables ``results_figs.py``
@@ -85,7 +85,7 @@ from pysuto.relation.param_relation import expand_edge_index     # noqa: E402
 # =============================================================================
 # The base run of the measurement series and its re-solve at the ADR 0039 tolerance
 # (SI S13.1, Table S17), the base of group 7's common set. They are not the A5 tolerance
-# pair (results_figs.py --tol-pair), which solves the reference const run since #315:
+# pair (results_figs.py --tol-pair), which solves the reference const run:
 # ``--base`` / ``--base-retol`` override them.
 BASE_RUN       = "opt_20260916_124721_c4d1d944"
 BASE_RETOL_RUN = "opt_20260930_093914_523d57d7"
@@ -93,9 +93,9 @@ NUMBERS_JSON   = "docs/manuscript/figs/numbers.json"
 NUMBERS_OUT    = "docs/manuscript/figs/manuscript_numbers.json"   # committed: the refresh's diff base
 Z_BIG          = 5.0                         # a stock leg beyond |z| 5 is a limitation (Discussion §5.5.2)
 PSC_FIRST_YEAR = 1996                        # ICSG reports no producer stock change for 1995
-EXCESS_MIN_KT  = 5.0                         # BACI exports above ICSG production (Discussion §5.5.2, #111)
-REEXPORT_ANCHORS = ["Netherlands", "Malaysia", "Taiwan", "United Arab Emirates"]  # #183 §3
-FRINGE_KT      = 1e-4                        # #99's fringe: a* this close to its bound is ambiguous
+EXCESS_MIN_KT  = 5.0                         # BACI exports above ICSG production (Discussion §5.5.2)
+REEXPORT_ANCHORS = ["Netherlands", "Malaysia", "Taiwan", "United Arab Emirates"]  # the re-export anchors
+FRINGE_KT      = 1e-4                        # the fringe: a* this close to its bound is ambiguous
 INTERVALS_CSV  = "docs/manuscript/figs/table3_intervals.csv"   # scripts/report/table3_intervals.py
 INTERVALS_RUN_SUFFIX = ".run.json"           # beside the CSV: the opt and uncprop run it was computed for
 REPO           = Path(__file__).resolve().parents[2]
@@ -1122,7 +1122,7 @@ def _kappa(proc: Path, run: str, acc) -> pd.DataFrame:
 
 
 def stage5_numbers(N: Numbers, proc: Path, ch: Chain, acc) -> None:
-    """Group 10: the default posterior's active set, Birge ratio and calibration (#87),
+    """Group 10: the default posterior's active set, Birge ratio and calibration,
     and the contraction with and without the scale totals."""
     runs = {r: _sidecar(proc / "uncprop" / r) for r in ch.uncprop}
     run, ablation = stage5_runs(runs)
@@ -1234,7 +1234,7 @@ def sum_shares_by_region(s: pd.DataFrame) -> dict:
 def exports_beyond_production(led: pd.DataFrame, sector: str, regions: list) -> dict:
     """Per region and year, the netting ledger's BACI exports ``X`` and ICSG production
     ``P`` (``None`` where ICSG has no row) of ``sector`` as ``[X, P]`` where
-    ``X − P > EXCESS_MIN_KT`` — #111's contradictions between the two sources (kt CC)."""
+    ``X − P > EXCESS_MIN_KT`` — the contradictions between the two sources (kt CC)."""
     rows = led[(led.sector == sector) & led.region.isin(regions)]
     rows = rows[rows.X - rows.P.fillna(0.0) > EXCESS_MIN_KT]
     out: dict = {}
@@ -1254,7 +1254,7 @@ def withheld_usage(led: pd.DataFrame) -> dict:
 
 
 def reexport_anchor_numbers(led: pd.DataFrame, sh: dict, regions: list) -> dict:
-    """#183 §3: the re-export anchors — regions BACI books anode and concentrate exports
+    """The re-export anchors — regions BACI books anode and concentrate exports
     from with no ICSG production behind them. Each region's share of the scale-total Σz²
     (``sh``), their sum, and over all years the netting ledger's BACI exports ``X`` and ICSG
     production ``P`` (kt CC) of both products."""
@@ -1267,7 +1267,7 @@ def reexport_anchor_numbers(led: pd.DataFrame, sh: dict, regions: list) -> dict:
 
 
 def degenerate_family_counts(e: pd.DataFrame) -> dict:
-    """#99's degenerate family: cross-region Cathode→FU legs, either valuation, whose prior
+    """The degenerate family: cross-region Cathode→FU legs, either valuation, whose prior
     is 0 and whose a* lies within ``FRINGE_KT`` of it — the legs Stage 5's slack threshold
     sorts by rounding. Their edge-years in all and the fewest and most in one year. The
     family ``table3_intervals.degenerate_family`` pins and frees also needs a lower-bound
@@ -1280,7 +1280,7 @@ def degenerate_family_counts(e: pd.DataFrame) -> dict:
 
 def interval_shift(t: pd.DataFrame, z: float) -> dict:
     """The largest move of an interval bound, ``z·|σ_alt − σ|`` over the Birge-scaled σ of
-    every quantity of ``table3_intervals.csv``, with the family pinned or freed (#81, #99)."""
+    every quantity of ``table3_intervals.csv``, with the family pinned or freed."""
     alt = t[["sigma_birge_pinned", "sigma_birge_free"]].sub(t.sigma_birge, axis=0).abs().max(axis=1)
     i = alt.idxmax()
     return {"max": float(z * alt[i]), "quantity": str(t.quantity[i])}
@@ -1288,7 +1288,7 @@ def interval_shift(t: pd.DataFrame, z: float) -> dict:
 
 def check_intervals_run(csv: Path, opt: str, uncprop_runs: list) -> None:
     """Raise unless ``table3_intervals.py`` wrote ``csv`` for ``opt`` and a Stage-5 run
-    built from it (#221): the CSV names no run itself, so a stale one reads silently."""
+    built from it: the CSV names no run itself, so a stale one reads silently."""
     rec = csv.with_name(csv.stem + INTERVALS_RUN_SUFFIX)
     if not rec.is_file():
         raise ValueError(f"{csv} has no {rec.name}: it was written before table3_intervals.py "
@@ -1303,8 +1303,8 @@ def check_intervals_run(csv: Path, opt: str, uncprop_runs: list) -> None:
 
 def resolve_base_runs(base, retol) -> tuple:
     """``(base, retol)``: the runs given, else the measurement series' base (SI S13.1).
-    Not numbers.json's ``tolerance_pair`` (#221): since #315 the A5 pair solves the
-    reference const run, so it is no longer the measurement series' base."""
+    Not numbers.json's ``tolerance_pair``: the A5 pair solves the
+    reference const run, so it is not the measurement series' base."""
     return base or BASE_RUN, retol or BASE_RETOL_RUN
 
 
@@ -1385,7 +1385,7 @@ def limitation_numbers(N: Numbers, inp: Path, ch: Chain, e: pd.DataFrame, s: pd.
 
 
 # =============================================================================
-# 12  knob sweep (#108)
+# 12  knob sweep
 # =============================================================================
 
 def _criterion_row(sens: pd.DataFrame, pts: pd.DataFrame, out: str, limit: float) -> dict:
@@ -1400,8 +1400,8 @@ def _criterion_row(sens: pd.DataFrame, pts: pd.DataFrame, out: str, limit: float
 
 
 def knob_numbers(N: Numbers, proc: Path, ch: Chain) -> None:
-    """Group 12: A6 and Round-E (c) on the latest sweep built on the opt run, read from the
-    tables ``scripts/sweep_diag.py`` writes to its ``diag/`` (#117); nothing without one."""
+    """Group 12: A6 and the exporter-retention criterion (ADR 0025) on the latest sweep built on the opt run, read from the
+    tables ``scripts/sweep_diag.py`` writes to its ``diag/``; nothing without one."""
     if not ch.sweep:
         print("group 12: no sweep is built on this run; A6 keeps its numbers")
         return
@@ -1560,7 +1560,7 @@ def main(opt: str, out_json, data_dir: str, base: str, retol: str, numbers: str,
     coverage_numbers(N, proc, ch, ei)
 
     cdir = proc / "const" / ch.const
-    # a const run persisted before #11 stores cone_type; the loader maps it to sense
+    # a const run persisted before the cone_type → sense rename stores cone_type; the loader maps it to sense
     rm = upgrade_legacy_row_meta(pd.read_parquet(cdir / "row_meta.parquet"))[
         ["constraint_id", "type", "variant", "is_hard", "sense",
          "time", "sector", "region", "valuation"]]

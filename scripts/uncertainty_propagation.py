@@ -9,7 +9,7 @@ Pipeline
 --------
 1  Instantiate KalmanUncProp (σ conditioning floors come from the opt sidecar)
 2  compute(opt_run_id, alpha=0.05) — cross-discovers const_run_id via the
-   opt sidecar, reduces each period at the QP's active set at a* (#27), and
+   opt sidecar, reduces each period at the QP's active set at a*, and
    reads the posterior contraction κ off a QR of the whitened system
    M = [G·diag(σ_a), diag(σ_c)] (S = M·Mᵀ is never formed)
 3  persist(result, opt_run_id, label) — writes per-t .npz arrays and a
@@ -32,7 +32,7 @@ import os
 import sys
 
 # ---------------------------------------------------------------------------
-# The body is pysuto.stages.run_uncprop (#186), with its constants (ALPHA, BIND_TOL,
+# The body is pysuto.stages.run_uncprop, with its constants (ALPHA, BIND_TOL,
 # RANK_TOL, EXCLUDE_SCALE_TOTALS); main() derives every path from `--data-dir`
 # (default data): proc/opt, proc/const, proc/imp, proc/acc, proc/uncprop.
 # ---------------------------------------------------------------------------
@@ -79,7 +79,7 @@ if __name__ == "__main__":
                         help="Write the persisted run id to PATH (pysuto.pipeline).")
     args = parser.parse_args()
     case = case_from_args(parser, args)
-    # registries have no locking (#101)
+    # registries have no locking: the stage lock serialises the drivers
     with stage_lock("uncertainty_propagation", root=os.path.join(args.data_dir, "proc")):
         write_run_id(args.run_id_file,
                      main(args.opt_run_id, args.label, data_dir=args.data_dir, case=case))

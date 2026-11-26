@@ -13,15 +13,15 @@ What this script does
        740120  Cement copper                  → Matte
        740200  Unrefined copper / anodes      → Anode
        740311  Copper cathodes                → Cathode
-       740312  Copper wire-bars               → Cathode   (#91: refined copper;
-       740313  Copper billets                 → Cathode    cross-region trade 4.5–15.1 %
-       740319  Other refined copper           → Cathode    of 740311's a year, 1995–2024)
+       740312  Copper wire-bars               → Cathode   (refined copper, ADR 0014 am.)
+       740313  Copper billets                 → Cathode
+       740319  Other refined copper           → Cathode
 3. Drops rows with missing or zero quantity.
 4. Aggregates by (Year, Sector, Region_from, Region_to) — sum quantity *and value*.
-4b. Drops refined copper declared into a country it only passes through (#95,
-    ``TRANSIT_DECLARATIONS``); then, in the years one code repeats another's
+4b. Drops refined copper declared into a country it only passes through
+    (``TRANSIT_DECLARATIONS``); then, in the years one code repeats another's
     declarations, keeps the larger refined-copper export per partner and drops
-    the code's other rows (#88, #95, ``MIRROR_DUPLICATES``).
+    the code's other rows (``MIRROR_DUPLICATES``).
 5. Reconstructs the quantity of legs whose value contradicts it, on either side
    of the band (ADR 0033, below).
 6. Converts quantity from tonnes (BACI native) to kt  (÷ 1000).
@@ -42,7 +42,7 @@ and BACI's *value* agrees with ICSG production in every year (0.92-1.09) while
 its *quantity* is 60 % out in exactly those years.  The quantity is the broken
 field, so it is rebuilt from the value at the region's own measured fraction.
 
-The reconstruction is two-sided (Round Z).  Both sides need a concentrate leg
+The reconstruction is two-sided.  Both sides need a concentrate leg
 of at least ``MIN_LEG_T`` and rebuild it by the same ``q = v / (P_cu · g_ref)``:
 
 above  leg and exporter-year fraction > ``BAND_HI`` (the ceiling): too little
@@ -97,13 +97,13 @@ OUT_PATH     = os.path.join("data", "input", "feed", "baci", "v0", "values.csv")
 HS_CODES = {260300, 740110, 740120, 740200, 740311, 740312, 740313, 740319}
 
 CATHODE_HS = 740311          # ~99.99 % Cu — its unit value is the copper price
-REFINED_HS = {740311, 740312, 740313, 740319}   # HS 7403.1x, one Cathode sector (#91)
+REFINED_HS = {740311, 740312, 740313, 740319}   # HS 7403.1x, one Cathode sector
 RECON_HS   = {260300}        # ADR 0033 scope: only concentrate mass enters
                              # ADR 0029's cap = 0.35·X + U, so reconstructing
                              # matte/anode/cathode cannot move the forced term.
 
 BAND_LO, BAND_HI = 0.20, 0.35       # ADR 0028's hard concentrate cone
-LO_LEG_GATE      = BAND_LO / 10.0   # low side (Round Z): an order of magnitude
+LO_LEG_GATE      = BAND_LO / 10.0   # low side: an order of magnitude
                                     # below the floor, clear of 0.15-0.20, which
                                     # is real concentrate net of payables
 LO_YEAR_GATE     = BAND_LO          # ...in an exporter-year itself below the cone
@@ -117,26 +117,20 @@ MIN_IN_BAND      = 2                # fewer than this and the spread is not
                                     # precision, so σ goes to the cap.
 
 # A code whose rows repeat copper another code already declares: code → (the code it
-# mirrors, first, last such year) (#88, #95).  BACI 178 "Congo" carries DR Congo's
-# refined copper as its partners declare it (#84).  DR Congo's own declarations (180,
-# all of HS 7403.1x, #91) fall 5–323 kt short of ICSG production in every year through
-# 2014 and 476 kt in 2024, which 178 fills.  In 2015–2023 they lie within −74 … +422 kt
-# of it, and 178 (226–465 kt a year) on top would count the copper twice — but not to
-# every partner: 178 → UAE is 80–252 kt a year against 180 → UAE 53–142 kt, and dropping
-# 178 outright (#88) left the UAE re-exporting cathode it no longer imported (common-set
-# Δz² +25,625 vs opt_20261015_093646_ddd9d3d9, on opt_20261019_142026_83bfe843).  So per
-# partner the larger refined-copper export is kept (#95); every other row of 178 in the
-# window is still dropped (#88), since no evidence covers it.
+# mirrors, first, last such year).  BACI 178 "Congo" carries DR Congo's refined copper as
+# its partners declare it, and DR Congo's own declarations (180, all of HS 7403.1x) lie
+# within ICSG production in 2015–2023, so 178 on top would count the copper twice.  Dropping
+# 178 outright leaves a partner re-exporting cathode it no longer imports, so per partner
+# the larger refined-copper export is kept and every other row of 178 in the window is
+# dropped, since no evidence covers it (ADR 0014 am.; the figures are in the REP
+# analysis_opt_20261021_094942_d1ac7a81_20261021_issue95-congo-reconciliation.md).
 MIRROR_DUPLICATES = {178: (180, 2015, 2023)}
 
 # Exporter code → countries its refined copper only passes through, dropped in every
-# year (#95).  DR Congo's refined copper leaves through Dar es Salaam and Beira, and the
-# final buyer declares DR Congo as origin too, so the leg into the port country counts it
-# twice.  180 → Tanzania is 302.3, 130.5, 35.6, 98.0, 264.9, 247.4, 196.3, 134.7, 143.2 kt
-# in 2015–2023 (0.1 kt in 2024); 180 → Mozambique 15.8, 61.1, 28.3, 47.2, 103.0, 126.0 kt in
-# 2018–2023 (0.1 kt in 2015); none before 2015, and 178 sends neither anything.  Tanzania
-# exported 213 kt of refined copper in 2015–2023, Mozambique 16 kt; neither refines copper
-# (ICSG production 0).  Only HS 7403.1x: concentrate into them was not analysed.
+# year.  DR Congo's refined copper leaves through Dar es Salaam and Beira, and the final
+# buyer declares DR Congo as origin too, so the leg into the port country counts it twice;
+# neither port country refines copper.  Only HS 7403.1x: concentrate into them was not
+# analysed.  The volumes are in the same REP (ADR 0014 am.).
 TRANSIT_DECLARATIONS = {180: (834,    # Tanzania (Dar es Salaam)
                               508)}   # Mozambique (Beira)
 
@@ -146,14 +140,14 @@ CV_SCALE_PATH = os.path.join(OUT_DIR, "quantity_cv_scale.csv")
 
 
 # ---------------------------------------------------------------------------
-# #88, #95 — declarations that repeat copper declared elsewhere
+# Declarations that repeat copper declared elsewhere
 # ---------------------------------------------------------------------------
 
 def pedigree_cv(meta_path: str | None = None) -> float:
     """The BACI feed's total pedigree cv (ADR 0017), read from its ``meta.xlsx``.
 
     It is ``PedigreeScores.total_cv()`` of the feed's own pedigree sidecar, the
-    number Stage 1 prices the base σ with — never a literal copied here (#233).
+    number Stage 1 prices the base σ with — never a literal copied here.
     """
     if meta_path is None:
         meta_path = os.path.join(_INPUT_ROOT, "feed", "baci", "current", "meta.xlsx")
@@ -185,9 +179,9 @@ def reconcile_mirror_duplicates(agg, duplicates) -> pd.DataFrame:
 
     Refined-copper exports (HS 7403.1x, the two codes as exporter) keep, per year and
     partner, the code whose declaration is larger, its rows under their own HS and region
-    codes; the mirrored code wins a tie (#95).  Every other row of the code, either side,
-    is dropped (#88): the evidence covers only refined exports.  The comparison pools the
-    refined codes per partner because the Cathode sector reads them as one (#91) and the
+    codes; the mirrored code wins a tie.  Every other row of the code, either side,
+    is dropped: the evidence covers only refined exports.  The comparison pools the
+    refined codes per partner because the Cathode sector reads them as one and the
     two sides of one shipment need not declare the same code: in 2015–2017 DR Congo (180)
     declares 52–71 kt a year to the UAE as 740319 that the UAE declares 740311 under 178,
     so a per-code max would keep that copper twice.  A declaration raises as stale when
@@ -359,8 +353,8 @@ def _write_sidecars(rec, refs) -> None:
 
     # several BACI codes fold onto one root region (most of them onto ROW), so a
     # root leg can gather more than one source leg. Its scale is the mass-weighted
-    # mean over ALL the codes folded onto it, an unflagged code at 1.0 (#240,
-    # ADR 0033 am.): the legs' σ then adds linearly, as their masses do, and a
+    # mean over ALL the codes folded onto it, an unflagged code at 1.0
+    # (ADR 0033 am.): the legs' σ then adds linearly, as their masses do, and a
     # measured unflagged code is no longer widened by a flagged neighbour. A root
     # leg with no flagged code stays at 1.0 and gets no row.
     f = rec.copy()

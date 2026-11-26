@@ -1,7 +1,7 @@
 """
 table3_intervals.py
 ===================
-#81: posterior intervals beside Table 3 and SI S18b. Stage 5, run in memory with the
+Posterior intervals beside Table 3 and SI S18b. Stage 5, run in memory with the
 persisted run's knobs, gives the exact posterior covariance of the linear totals
 behind each row (:class:`pysuto.uncprop.AggregateSpec`):
 
@@ -15,10 +15,10 @@ behind each row (:class:`pysuto.uncprop.AggregateSpec`):
 The delta method carries that covariance to the ratios, shares, HHIs and their
 differences; B3's embodied ratio runs through the Leontief inverse of the market-share
 PIOT, so its delta-method σ comes from posterior draws by finite differences. Every σ
-is Birge-scaled by √R of the persisted Stage-5 run (#87). A1–A3 and A5 get none: they
+is Birge-scaled by √R of the persisted Stage-5 run. A1–A3 and A5 get none: they
 are residuals, z-shares and a tolerance pair, not totals of a*.
 
-With SENSITIVITY, #99's degenerate family is pinned, then freed: cross-region
+With SENSITIVITY, the degenerate family is pinned, then freed: cross-region
 Cathode→FU legs whose prior is 0 and whose a* lies within the FRINGE_KT of their
 lower bound, where the slack rule sorts them by noise. The two Birge-scaled σ bracket
 its split. The totals encode results_figs.py's own definitions: the script raises
@@ -68,8 +68,8 @@ CHILE_YEARS  = (1995, 2024)  # B3's export share to China
 N_DRAWS      = 200           # draws for B3's embodied ratio (σ to ≈ 1/√(2N) = 5 %)
 SEED         = 81
 FD_STEP      = 1e-6          # a draw enters at a* + FD_STEP·δ: the linear regime
-SENSITIVITY  = True          # #99's degenerate family pinned and freed
-FRINGE_KT    = 1e-4          # #99's fringe: a* this close to its bound is ambiguous
+SENSITIVITY  = True          # the degenerate family pinned and freed
+FRINGE_KT    = 1e-4          # the fringe: a* this close to its bound is ambiguous
 STAGE5_KNOBS = ("sigma_a_floor_abs", "sigma_a_floor_rel", "sigma_a_ceiling_factor",
                 "sigma_c_floor", "bind_tol", "rank_tol")
 Z_ALPHA      = float(norm.ppf(1.0 - ALPHA / 2.0))
@@ -334,7 +334,7 @@ def check_definitions(edges: pd.DataFrame, cols: list, qs: list) -> None:
 
 
 def degenerate_family(edges: pd.DataFrame, const_run, n_edges: int) -> np.ndarray:
-    """#99's family: cross-region Cathode→FU legs, either valuation, with a lower-bound
+    """The degenerate family: cross-region Cathode→FU legs, either valuation, with a lower-bound
     row, a prior of 0 and a* within ``FRINGE_KT`` of it: the slack rule pins those
     below ``bind_tol`` and frees the rest, by noise."""
     rm  = const_run.row_meta
@@ -354,7 +354,7 @@ def degenerate_family(edges: pd.DataFrame, const_run, n_edges: int) -> np.ndarra
 # =============================================================================
 
 def write_run_record(out: Path, opt: str, uncprop_id: str) -> Path:
-    """Name the runs ``out`` was computed for, beside it (#221)."""
+    """Name the runs ``out`` was computed for, beside it."""
     rec = out.with_name(out.stem + RUN_SUFFIX)
     rec.write_text(json.dumps({"opt_run_id": opt, "uncprop_run_id": uncprop_id}, indent=1)
                    + "\n", encoding="utf-8")

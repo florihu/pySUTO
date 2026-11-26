@@ -30,7 +30,7 @@ import os
 import sys
 
 # ---------------------------------------------------------------------------
-# The body is pysuto.stages.run_opt (#186) and so are the tuning constants (TIMESTEPS,
+# The body is pysuto.stages.run_opt and so are the tuning constants (TIMESTEPS,
 # FEASIBILITY_CHECK, the Clarabel tolerances, N_WORKERS, QP_VARIABLES, with their
 # measurement notes): this driver keeps the argument parsing, the stage lock, the log
 # handler and the --set knob protocol over pysuto.stages.OPT_KNOBS.
@@ -100,7 +100,7 @@ if __name__ == "__main__":
     except (KeyError, TypeError) as exc:
         parser.error(exc.args[0] if exc.args else str(exc))
     overrides = overrides_from_cli(parser, args, KNOBS, opt_defaults())
-    # registries have no locking (#101)
+    # registries have no locking: the stage lock serialises the drivers
     with stage_lock("run_solver", root=os.path.join(args.data_dir, "proc")):
         write_run_id(args.run_id_file,
                      main(args.const_run_id, args.label, args.prior_mode, overrides,

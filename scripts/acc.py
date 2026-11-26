@@ -1,6 +1,6 @@
 """
-init_acc.py
-===========
+acc.py
+======
 Initialise, report, and save the accounting structure.
 
 Reads the acc spec from the **input registry** (``data/input/acc/<id>/current/``):
@@ -12,12 +12,12 @@ under ``data/input/acc/<id>/`` and the version is recorded in
 ``data/input/acc/registry.json``.
 
 Outputs to ``data/proc/acc/<id>/`` (unchanged — acc is auxiliary to the
-4-stage pipeline so its output side does not use the harmonized
+pipeline so its output side does not use the harmonized
 ``{stage}_{ts}_{code}`` run-id pattern).
 
 Usage::
 
-    python scripts/init_acc.py --id copper
+    python scripts/acc.py --id copper
 """
 
 from __future__ import annotations
@@ -203,7 +203,7 @@ def main() -> AccountingStructure:
     print()
     logger.info("Saving structure …")
     acc_store.save(acc)
-    write_build_record(args.out, acc_entry)     # the input entry it was built from (#53)
+    write_build_record(args.out, acc_entry)     # the input entry it was built from
     out_dir = os.path.join(args.out, args.id)
     edge_summary.to_csv(os.path.join(out_dir, "edge_summary.csv"), index=False)
     pair_counts .to_csv(os.path.join(out_dir, "sector_pair_counts.csv"), index=False)

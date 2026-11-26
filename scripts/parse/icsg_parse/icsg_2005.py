@@ -196,12 +196,6 @@ def clean_exchange_stocks(df_raw, id, start =3):
 
   
 
-    # --------------------------------------------------
-    # 1️⃣ Set correct header (row 1)
-    # --------------------------------------------------
-    #df.columns = df.iloc[1]
-    
-
     df = df.rename(columns={df.columns[0]: "Region"})
 
     # --------------------------------------------------
