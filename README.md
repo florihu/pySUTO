@@ -7,6 +7,7 @@
 
 <p align="center">
   <a href="https://pypi.org/project/pysuto/"><img src="https://img.shields.io/pypi/v/pysuto" alt="PyPI version"></a>
+  <a href="https://github.com/florihu/pySUTO/actions/workflows/ci.yml?query=branch%3Amain"><img src="https://img.shields.io/github/actions/workflow/status/florihu/pySUTO/ci.yml?branch=main&label=CI" alt="CI status"></a>
 </p>
 
 > ⭐ If pySUTO is useful to your work, please leave a star on [GitHub](https://github.com/florihu/pySUTO) — it helps others find the project.
