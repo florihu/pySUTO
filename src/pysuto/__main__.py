@@ -45,7 +45,7 @@ import sys
 
 from pysuto.case import add_case_arg, case_from_args
 from pysuto.compare import CompareError, compare_chains, format_report
-from pysuto.logging import configure_file_logs
+from pysuto.logging import configure_file_logs, use_utf8_stdio
 from pysuto.pipeline import ALL_STEPS, Chain, Pipeline
 from pysuto.tutorial import copy_tutorial
 
@@ -86,6 +86,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def main(argv=None) -> int:
+    use_utf8_stdio()            # its own errors and run ids, like the steps it starts
     parser = _parser()
     args = parser.parse_args(argv)
     if args.command == "tutorial":

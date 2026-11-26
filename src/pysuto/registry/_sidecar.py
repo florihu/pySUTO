@@ -149,7 +149,7 @@ def stage_timer() -> Iterator[None]:
 
     Usable as a context manager or, with the call parentheses, as a decorator
     (``@stage_timer()``). Nested timers restore the outer start on exit."""
-    token = _stage_start.set(time.monotonic())
+    token = _stage_start.set(time.perf_counter())
     try:
         yield
     finally:
@@ -203,7 +203,7 @@ def _footprint() -> dict:
     if resource is not None:
         rss  = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
         peak = rss / 2**20 if sys.platform == "darwin" else rss / 2**10   # bytes / KB
-    return {"wall_s":      None if start is None else time.monotonic() - start,
+    return {"wall_s":      None if start is None else time.perf_counter() - start,
             "peak_rss_mb": peak}
 
 
