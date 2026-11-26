@@ -350,8 +350,10 @@ period order. _Avoid_: "multi-threaded solve" — that is the solver's threading
 be 1:1, fan-in, or fan-out. The fan-in/fan-out terms below name the **second** level only.
 
 - **Mapping 1 — raw rows → source edges.** Defined by the concordance **variable map** (`variable_map`
-  sheet).
-- **Mapping 2 — source edges → root edges.** The WeightMatrix.
+  sheet), it projects raw variables onto the source 8-tuple slots. Cardinality: **1:1** or **many:1**
+  (several raw rows on one source edge are **summed**).
+- **Mapping 2 — source edges → root edges.** The WeightMatrix. Mass-preserving iff each source edge's
+  outgoing weights sum to 1.
 
 **Fan-out** — *one* source edge distributed across several root edges, arising when a raw row
 classifies **only one endpoint** (the other endpoint is left open as `"<any>"` and resolved by
@@ -386,9 +388,9 @@ self-trade row as a domestic observation.
 **Mirror duplicate** — a BACI flow under one code that repeats copper another code already declares, so
 mapping both to one region counts it twice. The test is the balance, not the customs record: in the years
 the true exporter's own declarations already reach about its production, so that the second code would
-push them past it, the two codes' flows are duplicates and only one declaration survives ([ADR
-0014](docs/adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)). _Avoid_: "mis-coded flow" for
-every year of such a code — it is a duplicate only where the balance says so.
+push them past it, the two codes' flows are duplicates and only one declaration survives; in the years
+they fall clearly short, the second code fills the gap and is kept. _Avoid_: "mis-coded flow" for every
+year of such a code — it is a duplicate only where the balance says so.
 
 **Transit declaration** — a BACI flow of refined copper (HS 7403.1x) into a country it only passes
 through, whose final buyer declares the true exporter as origin too, so the same copper is exported
@@ -422,10 +424,13 @@ not create feasibility conflicts.
 0002](docs/adr/0002-single-endpoint-rows-fan-out-not-replicate.md).
 
 **System-boundary category (`entity_sub` on SB nodes)** — the sub-classification carried by every `SB`
-node, naming *what kind* of boundary crossing it is. `entity_sub` is meaningful only on `SB` nodes
-(`Flow` / `Process` nodes leave it empty). It is the case's **label**; the library reads the boundary
-**role** bound to it (see Role). _Avoid_: conflating `entity_sub` with **entity** (only `Process` |
-`Flow` | `SB`); and avoid "boundary type" as a loose synonym for it.
+node, naming *what kind* of boundary crossing it is. In the copper model: `Nature` (primary extraction
+entering the system — crude ore, `CO`), `FD` (final demand leaving the system — the final-demand
+categories `FU` / `MESC` / `USC`), `SEM` (secondary / residual material — `Scrap` recycling inputs, the
+`Slag` / `Tailings` / `WR` residual outputs, and `PSC`, the producer stock-change leg). `entity_sub` is
+meaningful only on `SB` nodes (`Flow` / `Process` nodes leave it empty). It is the case's **label**; the
+library reads the boundary **role** bound to it (see Role). _Avoid_: conflating `entity_sub` with
+**entity** (only `Process` | `Flow` | `SB`); and avoid "boundary type" as a loose synonym for it.
 
 **Satellite flow** — an edge of the accounting structure that carries a calculated value but is excluded
 from its source node's mass balance by the `massbal_scope` mask. See [ADR
@@ -496,10 +501,11 @@ share** in SD-R-13 / SD-R-14 / SD-R-15a (the edge-defect family), and tabulated 
 
 **Residual** — the per-**constraint-row** delta `G·a − c` (`OptimResult.residuals`). Its feasible range
 depends on the row's cone: **≈ 0 on hard *equalities*** (`zero` cone — mass balance); **`≤ 0` on hard
-*bounds***, where a *negative* residual is healthy **slack** (distance below the limit), not a violation,
-and only a *positive* residual is a breach; **`= ε`, the slack, on a soft (free) row**. _Avoid_: (1)
-reading a large-negative residual on a `nonneg` bound as a violation — it is slack; (2) conflating with
-**defect** — residual is per-constraint, defect is per-edge.
+*bounds*** (`nonneg` cone — ratio/flow bounds, since feasibility is `G·a ≤ c`), where a *negative*
+residual is healthy **slack** (distance below the limit), not a violation, and only a *positive* residual
+is a breach; **`= ε`, the slack, on a soft (free) row**. _Avoid_: (1) reading a large-negative residual
+on a `nonneg` bound as a violation — it is slack; (2) conflating with **defect** — residual is
+per-constraint, defect is per-edge.
 
 **Prior breach** — a hard row the prior does not satisfy: `|G·a_prior − c|` above the bind
 tolerance on a `zero` row, `G·a_prior − c` above it on a `nonneg` row. The solver has to move
@@ -522,7 +528,10 @@ that spans zero (`bl < 0`, the stock bands) is sign-safe and stays hard
 _Avoid_: "positive band", "non-negative band".
 
 **Forced vs discretionary deletion** — the split of a node's prior-to-posterior mass loss into the part
-no optimiser could have avoided and the part it chose. The remainder is **discretionary**. The
+no optimiser could have avoided and the part it chose. Copper leaves a mine node only as domestic smelter
+intake `U` or as export mass `X` times a grade the hard cone caps, so `cap = g·X + U` (`g` the grade cap)
+bounds its discharge and `Σ max(0, P − cap)` is **forced** — arithmetic, not optimisation. The remainder
+is **discretionary**: the solver could have kept it and priced the disagreement elsewhere. The
 distinction says which lever can move a number: σ, anchor placement and pricing reach only the
 discretionary part, while the forced part moves only when `X`, `U` or `P` themselves change ([ADR
 0029](docs/adr/0029-the-concentrate-grade-stays-global.md)). _Avoid_: reading a forced term as a defect
@@ -530,9 +539,10 @@ to be relieved.
 
 **Constraint table (prior/post)** — the harmonised **row-level, all-rows** per-`constraint_id` table pair
 (hard + soft rows; `type` / `sense` columns carry the family for filtering). **`lhs_prior` = G·a0** means
-the same thing in *both* files; **`lhs_post` = c_star = G·a*** exists only post-solve. _Avoid_: reading
-the solver-stage `residual` on a **hard** row as the **residual** above — `c_star = c` there by
-construction, so the column is identically 0.
+the same thing in *both* files; **`lhs_post` = c_star = G·a*** exists only post-solve. `residual` /
+`z = residual/σ_c` are the *stage's achieved* residual. _Avoid_: reading the solver-stage `residual` on a
+**hard** row as the **residual** above — `c_star = c` there by construction, so the column is identically
+0.
 
 **Objective share** — one item's `z²` (an edge's defect or a soft row's residual, standardised) divided
 by the `Σz²` of its family or of the whole run. The QP objective *is* `Σz²` over edges plus soft rows, so
@@ -695,8 +705,8 @@ and Mass sides of an edge disagree.
 enters: **smelter scrap** feeds `Smelting` with the primary concentrate and leaves as matte;
 **direct-to-refinery scrap** feeds `CFR` with the matte and leaves as anode. ICSG reports two *output*
 classifications — **secondary smelter production** and **secondary refined production** — and the second
-contains the first. _Avoid_: booking secondary refined production as a second inflow beside smelter
-scrap.
+contains the first. Direct-to-refinery scrap is therefore secondary refined *minus* the smelter route.
+_Avoid_: booking secondary refined production as a second inflow beside smelter scrap.
 
 **Recovery efficiency (`eff`).** The copper-recovery fraction of a Process, in **`CC`** (from the `eff`
 param) — the sibling coefficient to `conc`. A process's recovered Flow product is
@@ -881,8 +891,9 @@ See [ADR 0021](docs/adr/0021-icsg-refined-production-anchors-anode-into-er.md).
 **PSUT (physical supply-use table)** — the **materialised numeric** supply-use flows, derived from the
 solved edge vector `a*`; one table holds every period and every valuation, and a view selects one of
 each. **Shape-agnostic**: its canonical form is a **tidy edge table** (one row per directed edge,
-carrying its `val`). _Avoid_: calling the **valueless** graph a "PSUT" (the bare graph is the **SUT**);
-"SUT" for a numeric realisation.
+carrying its `val`). The valueless Process+Flow **SUT** is the *graph* (the `AccountingStructure`
+topology); a PSUT is that graph **carrying solved values**. _Avoid_: calling the **valueless** graph a
+"PSUT" (the bare graph is the **SUT**); "SUT" for a numeric realisation.
 
 **Block** — the PSUT quadrant a directed edge belongs to, read off its endpoint entity kinds. `S`
 Process→Flow, `U` Flow→Process, `Y` Flow→SB·FD, `E` SB·Nature→Process, `O` SB·SEM→Process, `P`
