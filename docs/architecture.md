@@ -14,6 +14,7 @@ How pySUTO is built: the six stages, their mathematics, the modules and the impo
    - [Stage 4 — Solver](#stage-4--solver)
    - [Stage 5 — Posterior uncertainty propagation](#stage-5--posterior-uncertainty-propagation)
    - [Stage 6 — PSUT/PIOT builder](#stage-6--psutpiot-builder)
+   - [Glossary detail — framework and cross-stage](#glossary-detail--framework-and-cross-stage)
 3. [Module reference](#module-reference)
 4. [Import direction](#import-direction)
 5. [References](#references)
@@ -310,6 +311,290 @@ When a feed sets `Row_penalty: TRUE` in its metadata sidecar, every **ROW-touchi
 
 Run Stage 1 on the toy case in [tutorial/01_datafeed.ipynb](../src/pysuto/tutorial/01_datafeed.ipynb).
 
+#### Glossary detail, Stage 1
+
+The glossary entries below keep their definition and their aliases to avoid. This section holds the detail they leave out; each block names its entry.
+
+**Two mapping levels** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The concordance **variable map** (`variable_map` sheet) is *auxiliary-conditional* (e.g. on
+  `Supply_Use`).
+- It projects raw variables onto the source 8-tuple slots (`src_sector_from/to`, `src_entity_*`,
+  `src_region_*`, `src_time`, `src_valuation`), so the *same* raw variable lands in a *different*
+  endpoint depending on the auxiliary category (`Process` → producer/`from` for Supply rows, →
+  consumer/`to` for Use rows). This is what **imposes directed supply-use structure** onto raw data
+  that may be **production-based** (ICSG) rather than already supply-use shaped (BACI).
+- Under Mapping 1, *raw-row aggregation* means that several raw rows resolving to the same source
+  edge have their values **summed**. A single raw row resolving to *many* full-value source edges is
+  **replication** (the anti-pattern below), not a valid shape.
+- **Fan-out** and **fan-in** (below) live under Mapping 2.
+
+**Unweighted fan** ([GLOSSARY.md](../GLOSSARY.md))
+
+- A fan that degenerates to a single leg is an exact match, not an unweighted fan.
+- Do not read "no imports" as "no weighting information": a fan weighted **all-domestic** because
+  BACI observed the region and recorded no imports carries weights and is not an unweighted fan
+  ([ADR 0018](adr/0018-import-free-fans-distribute-domestically.md)); the doctrine bites only where
+  the split is genuinely uninformed.
+
+**Qualifier fan** ([GLOSSARY.md](../GLOSSARY.md))
+
+Other incoming edges of the consumer node are out-of-scope legs that the open (`"<any>"`) endpoint
+would otherwise wrongly absorb — and onto which route-keyed weights of *other* products can bleed.
+
+**Mapped self-trade** ([GLOSSARY.md](../GLOSSARY.md))
+
+- Examples of a mapped self-trade: Hong Kong→mainland once both map to "China"; any small-country
+  pair inside ROW.
+- The edge scope of a bilateral feed drops rows resolving to domestic addresses ([ADR
+  0014](adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)).
+- Do not read a mapped self-trade row as a domestic observation: the china-matte case put 0.028 kt
+  of gross mass next to 5,678 kt of copper content on one edge.
+
+**Mirror duplicate** ([GLOSSARY.md](../GLOSSARY.md))
+
+The decision rule is stated in [ADR 0014](adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md).
+
+**Reporting territory** ([GLOSSARY.md](../GLOSSARY.md))
+
+- A feed may rename a territory mid-series (ICSG's `Taiwan` → `Taiwan, China` from 2013) or publish
+  historical joint reporting under a joint label (`Belgium-Luxembourg` to 2013), so one territory
+  wears two labels across the series and, in the handover year, two labels on the same cell.
+- `ROW` is excluded from the same-territory test, being a bucket of 48 territories rather than one.
+- The region map cannot express a label that means another territory in one **vintage** only: the
+  2005 yearbook's `Congo` (parsed as `Congo Rep.`, Brazzaville in every later vintage) is DR Congo,
+  so the ICSG clean step relabels it per vintage before the map applies ([ADR
+  0032](adr/0032-one-territory-one-label.md), #85).
+- A parse rule or a param study reading `values.csv` is computed before the region map is applied.
+- A handover-year pair is one measurement republished, so adding the two doubles the cell, and a
+  rule keyed on the label silently skips the territory whose two series are labelled differently
+  ([ADR 0032](adr/0032-one-territory-one-label.md)).
+
+**Vintage** ([GLOSSARY.md](../GLOSSARY.md))
+
+- ICSG's vintages are the 1995, 2005, 2014, 2023 and 2025 yearbooks; BACI's are its annual releases.
+- Two rows of one vintage sharing a key are two different streams of the same quantity: a source
+  category folded onto another by a rename, such as ICSG's `Low-grade` smelter feed folded into
+  `Primary`.
+- Resolving a same-vintage collision as a restatement is wrong: one stream then silently replaces
+  the other rather than adding to it, and which one survives depends on row order ([ADR
+  0036](adr/0036-a-renamed-type-is-a-second-stream-not-a-restatement.md)).
+- A vintage is not a time coordinate: it labels the publication, not the year observed; one vintage
+  carries many observation years.
+- The ICSG flow tables persist a vintage as the column `Year_loaded_from_file` (the yearbook's
+  publication year, 2005, 2014, 2023 or 2025); it is the vintage, not a load date.
+
+**Sector → entity is 1:1** ([GLOSSARY.md](../GLOSSARY.md))
+
+- An open (`"<any>"`) sector does not determine an entity because an unclassified endpoint can match
+  producers across several entities (e.g. a real `Flow` source *and* the `SB` system-boundary/import
+  source).
+- Concordance code must therefore make the entity `"<any>"` whenever its sector is `"<any>"`, not
+  pin it to a concrete edge entity.
+
+**System-boundary category (`entity_sub` on SB nodes)** ([GLOSSARY.md](../GLOSSARY.md))
+
+- _Note:_ `FD` is structurally an SB-*output* (`entity_to == "SB"`) yet semantically belongs to the
+  **use** side — a commodity consumed by final demand, with a real `Flow` commodity on its origin
+  endpoint; only `Nature` and `SEM` are pure raw/secondary boundary crossings with no `Flow`
+  endpoint.
+- The phrase "boundary type" is ambiguous between this `entity_sub` class (Nature/SEM/FD) and the
+  **sector** of the SB node (`CO`, `Slag`, `FU`, …, the finer per-commodity grain), so name the
+  grain you mean.
+
+**Observed zero** ([GLOSSARY.md](../GLOSSARY.md))
+
+The ICSG feed gives one to a **non-producer**'s domestic concentrate leg at
+trade-share weight 0, priced like the **net-stock seed** on the usage its fans distribute, and to
+its own SX-EW output where ICSG reports none and no other input reports SX-EW there, priced at
+ICSG's reporting resolution
+([ADR 0024](adr/0024-fan-domestic-leg-bounded-by-own-production.md) amendments). A zero weight
+in a producer, where imports exceed usage, is a residual, not an observation, and stays imputable.
+
+**Concentration coefficient (`conc`).** ([GLOSSARY.md](../GLOSSARY.md))
+
+- Examples of the Cu mass fraction of a sector's commodity, from the `conc` param: Cathode 0.9975,
+  Anode 0.94, Matte 0.525, Concentrate 0.275.
+- The `conc_<sector>_supply` relation enforces `CC = conc · Mass` on each node pair, so the two
+  valuations of one edge are not independent.
+- `Scrap` is one mixed-grade commodity with a single wide band `[0.40, 0.98]`, nominal 0.70, *not*
+  two grade classes: two simultaneous hard bands on the one `Scrap/SB` node intersected to ∅ and
+  collapsed all scrap ([ADR 0012](adr/0012-scrap-one-mixed-grade-commodity.md)).
+
+**Smelter scrap · direct-to-refinery scrap.** ([GLOSSARY.md](../GLOSSARY.md))
+
+- **Secondary smelter production** is blister/anode made from scrap; **secondary refined
+  production** is refined copper made from scrap by *either* route.
+- In fifteen countries the two published figures are identical and the direct route is nil.
+  Direct-to-refinery scrap is also minus any imported anode the region refines beyond its primary
+  output, which enters as anode trade (Austria, #63). **Direct melt** — scrap fabricators use
+  without refining — is a third quantity, outside this model's boundary ([ADR
+  0030](adr/0030-secondary-smelter-copper-enters-the-chain-once.md)).
+- Since [ADR 0031](adr/0031-icsg-scrap-series-anchor-their-level-not-only-their-share.md) both
+  inflows are stated to the model **twice**: as a **level** (a scrap level anchor, where ICSG
+  reports one) and as a **share** (the `scrap_share` band, every region). Before it only the share
+  existed.
+- Booking secondary refined production as a second inflow beside smelter scrap enters the copper
+  twice, and the anode anchor discharges the surplus by deleting concentrate. "Secondary" is not the
+  model's SEM input class when ICSG means an output classification.
+
+**Recovered vs in-situ grade.** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The recovered grade is `1/factor`, the raw S&P number.
+- The model's `CO`/`Ore` **CC edges are in-situ** because they are production ÷ eff, matching the
+  recipe's `(1−eff)` Tailings copper.
+- The grade rows are region×year-resolved and owned by the `ore_grade` params, not the global `conc`
+  family ([ADR 0015](adr/0015-in-situ-ore-grades-on-allocated-ore-basis.md)). The same artifact also
+  owns the region×year×route **tailings** conc (`(1−eff)` recipe copper over the process
+  Mass-balance residual, per MF/SXEW route — ADR 0015 amendment); the global `conctailingsuse` row
+  is retired. On the allocated basis these are *not* physical mill-head grades (Australia ~2–3 % vs
+  ~0.8 % head grade).
+- Applying a recovered-basis grade to an in-situ edge is a systematic 1/eff error; so is citing
+  these grades against literature head grades without converting.
+
+**Concentrate grade.** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The one **global** row is 0.275, band [0.20, 0.35]. As a direct assay it may be read against
+  industry figures (20–35 % Cu) as it stands.
+- The grade is not region-resolved because, measured over the region-years whose books are
+  physically possible, the between-region spread is 0.0117 against the 0.0375 σ the single row
+  already declares, and the residual that looks like a regional grade is a gap in the recorded
+  export **mass** ([ADR 0029](adr/0029-the-concentrate-grade-stays-global.md)).
+- Where export mass is under-recorded, a region's implied `(P−U)/X` absorbs the missing tonnage and
+  returns values (0.6–0.9, and negatives elsewhere) that are not grades at all.
+
+**Grade band vs grade σ.** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The `ore_grade` grade rows therefore carry `unc_type = "sd"` with an explicit `value_sd` (ADR
+  0028); tailings rows still use `min_max`. The other `unc_type` mode is `pedigree` (σ = nominal ·
+  Laner total CV).
+- Narrowing a `min_max` band when you only meant to move the wall is a mistake to avoid.
+
+**Grade carried past the ore feed.** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The `crude_ore` feed ends in 2022; ICSG production ends in 2024.
+- The carried grade has `src=carry` and a band of ±20 % instead of ±10 %; the NetworkImputer then
+  derives the whole `CO→Mining→Ore→…` Mass chain from that year's production through the grade, and
+  the scale totals and grade rows follow on their own.
+- Running any Mass extrapolator *after* the network cascade is also to avoid: it fills the boundary
+  leg only, leaves the chain behind it at flat-prior zero and drops its anchor rows.
+
+**⚠ The grades in use are internal, not external.** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The external S&P factor series
+  (`data/input/params/ore_grade/current/all_integrated_est_fac_2024-07-04.csv`) is the basis of
+  `ore_grade` **v1** from 2026-05.
+- It enters only as a fallback where ICSG production is absent (129 rows) — even though it carries
+  real 2023 values for every region the carry-forward touches. Measured 2026-09-10: its *level*
+  differs from the internal grade by up to ±8 % at the 2022/2023 seam (Mexico +7.6 %, Russia +6.0 %,
+  Chile −2.7 %), its year-on-year *trend* by < 0.5 %. Using that trend for carried years
+  (`g(t) = g(t−1)·factor(t−1)/factor(t)`) is an open, sub-percent option recorded in ADR 0023.
+- Comparing the ore-grade series to the S&P factor without converting bases is wrong: `1/factor` is
+  recovered-basis, the model is in-situ.
+
+**Feed semantics — ICSG vs BACI.** ([GLOSSARY.md](../GLOSSARY.md))
+
+- BACI trade is fully classified X→Y; it has no self-trade rows *at source* — but region folding
+  creates **mapped self-trade** at root, so the feed is scoped to cross-region edges and never
+  informs a domestic leg ([ADR 0014](adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)).
+- A re-attributed leg is part observation, part inference, and carries the compounded σ ADR 0027
+  defines.
+- A per-edge ICSG-CC trade value is not a measurement: it is the national usage split across
+  producers by the fan weights.
+
+**Trade-share fan weighting** ([GLOSSARY.md](../GLOSSARY.md))
+
+- A group whose imports the netting exhausted is **withheld** (left undistributed) rather than
+  fanned all-domestic: its `Σ imports = 0` is constructed, not observed, so ADR 0018's condition
+  does not hold.
+- The split is computed in copper content via `conc`. The weighting applies only to the four
+  **traded** ICSG-fanned sectors — Cathode, Concentrate, Anode, Matte. The residual also governs the
+  **import-free** case: where BACI *observes* the consumer region (records any cross-region import
+  into it; BACI 490 "Other Asia, nes" counts as Taiwan, [ADR
+  0014](adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)), `Σ imports = 0` is a real
+  observation of domestic sourcing and the residual `usage − 0 = usage` gives an all-domestic fan
+  ([ADR 0018](adr/0018-import-free-fans-distribute-domestically.md)); where BACI is blind, zero
+  imports carries no information and the fan stays undistributed. **The domestic leg is bounded by
+  the region's own production** of the product for the sectors in `BOUND_DOMESTIC_SECTORS`
+  (Concentrate; [ADR 0024](adr/0024-fan-domestic-leg-bounded-by-own-production.md)): where the
+  residual exceeds what the region produced, the excess is spread over the import legs in BACI
+  proportion (usage conserved) — a region cannot supply itself more than it makes, and the hard
+  Flow-node balance enforces exactly that on the posterior. The bound applies only where the
+  recorded imports can carry the remainder (`Σ imports ≥ residual − production`, legs at most
+  doubled); import-free fans keep the ADR 0018 form and near-self-sufficient smelters (US 1997–2003)
+  keep the residual, because their gap is ICSG-internal and spreading it fabricates imports instead.
+- Do not read a large domestic leg as evidence of domestic mining: before ADR 0024 it was the
+  BACI-vs-ICSG shortfall.
+
+**Re-export (re-attributed leg)** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The two gross border crossings would be read by the accounting structure as two statements about
+  *supply origin* — the second one false, since `h` produced nothing.
+- The re-attributed volume is `T = min(X, I, max(R, E))` per (product, region, year) in `CC`, where
+  `R = max(0, I−U)` is the use-side reading (imports above ICSG intake) and `E = max(0, X−P)` the
+  supply-side one (exports above ICSG production).
+- The two caps `T ≤ X` and `T ≤ I` are the safety property: a **producer** with thin ICSG coverage
+  (Kazakhstan cathode — no imports) has `T = 0` however large `E` is and is never netted. See [ADR
+  0027](adr/0027-re-exports-are-re-attributed-at-feed-time.md).
+
+**Merchanting** ([GLOSSARY.md](../GLOSSARY.md))
+
+- Both legs recorded: Switzerland concentrate, `I ≈ X`, no process.
+- Inbound only: Zambia→Switzerland/Singapore/Luxembourg anode, `X ≈ 0`.
+- Inbound-only legs stay gross and the QP keeps refusing them at the exporter's capacity
+  ([`zambia-anode-phantom-trade`](rep/analysis_20260910_zambia-anode-phantom-trade.md)).
+
+**Transit residual ledger** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The ledger is `reexport_ledger.csv`; its label is one of `pass-through`, `partial`,
+  `ceiling-relabel`, `inbound-only[/no-process]`, `producer`, `icsg-gap`, `excluded-aggregate` (ROW
+  is never a hub — an aggregate of 186 economies has no warehouse), `untouched`.
+- The silent clip of the fan was `max(0, Σ imports − usage)`.
+- The Rotterdam effect (imports a hub never re-exports on the record) genuinely cannot be
+  re-attributed from BACI alone.
+
+**Value-implied Cu fraction** ([GLOSSARY.md](../GLOSSARY.md))
+
+- Refined cathode is ~99.99 % Cu, so its unit value *is* the copper price on that feed's own terms,
+  and the ratio is what the product's recorded value implies about its recorded mass.
+- The *quantity* is the field in doubt where the fraction leaves the physical band, because the
+  value can be checked independently against production statistics.
+- The fraction is not a grade — the same warning the **Concentrate grade** entry carries for
+  `(P−U)/X`, and for the same reason. A fraction of 0.6–0.9 is not a 60–90 % concentrate; it is a
+  statement that the recorded mass is two to three times too small ([ADR
+  0033](adr/0033-baci-quantity-contradicts-its-own-value.md)).
+- Do not flag a single leg inside a year whose *aggregate* fraction is in band: the aggregate is the
+  level at which production statistics can license the claim, and lifting a leg below it fabricates
+  mass. A leg an order of magnitude **below** the floor, in an exporter-year itself below the floor,
+  is the opposite statement: the recorded mass is far more than the value buys, because the quantity
+  is in the wrong unit or the leg is not concentrate (ADR 0033, Round Z amendment).
+- Do not read 0.15–0.20 as a defect: a value is net of payables and treatment charges, so real
+  concentrate sits there. Do not read a fraction ≪ 0.20 as a low grade.
+
+**Exchange location** ([GLOSSARY.md](../GLOSSARY.md))
+
+The feed has 16 exchange-location regions.
+
+**Re-import** ([GLOSSARY.md](../GLOSSARY.md))
+
+The dropped re-import volume is 467 kt CC over 1995–2024.
+
+**ICSG aggregate row** ([GLOSSARY.md](../GLOSSARY.md))
+
+An example is "Scandinavia" for Sweden, Finland and Norway until 2003.
+
+**Handover year** ([GLOSSARY.md](../GLOSSARY.md))
+
+For Scandinavia the handover year is 2004.
+
+**`row` mask** ([GLOSSARY.md](../GLOSSARY.md))
+
+The registered input mask is `data/input/mask/row/`.
+
+**Lp / power-mean combine** ([GLOSSARY.md](../GLOSSARY.md))
+
+The project default is `p = 1.3`; it damps fan-in σ inflation.
+
 ---
 
 ### Stage 2 — Aggregation & Imputation
@@ -456,6 +741,83 @@ Both accept an optional `acc_struct=` argument so that diag panels can stratify 
 
 Diag output filenames are plain plot names (`imputation_steps.png`, `agg_distributions.png`, …); the run id is already encoded in the parent folder (`data/proc/imp/<run_id>/diag/`).
 
+#### Glossary detail, Stage 2
+
+The glossary entries below keep their definition and their aliases to avoid. This section holds the detail they leave out; each block names its entry.
+
+**val-coverage** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The `val_pct` column of the stats/coverage diagnostics reports val-coverage.
+- A flat-prior fill is `0`, so is a real observed zero and a clipped-to-0 network fill, and the
+  three are distinguished by the log method, not the magnitude.
+
+**Bounds-clip (in-imputer) — `network_*_clipped` fill.** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The floor to the bounds keeps a negative residual (e.g. `Ore→SXEW = Mining→Ore − Ore→MF` in a
+  region with little/no SXEW) from cascading and dragging downstream sums below their true values.
+- A clipped network fill counts as real val-coverage because it is a network inference, and its low
+  confidence lives in the widened σ, not in coverage.
+- _Distinct from_: (1) the engine's **post-return bounds clip**
+  ([impute/engine.py](../src/pysuto/impute/engine.py)) which warns + clips *any* imputer's
+  out-of-bounds fill — the in-imputer clip makes it a no-op for network fills; (2) the **σ-cap**
+  (`_capped`, the `cv_cap` ceiling on σ — caps the *uncertainty*, not the value).
+
+**Recovery efficiency (`eff`).** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The `(1 − eff)` complement is the residual that leaves as the **SEM** residual output.
+- Smelting/CFR consume Scrap, so `product = eff·(primary + scrap)`. Both the imputer prior and the
+  `eff` **ratio constraint** now pool that *same* set, so there is no longer an `eff·Scrap` gap
+  between them — see [ADR 0005](adr/0005-pool-scrap-into-eff-constraint-and-stripping-ratio.md). The
+  pooling is **declared explicitly in the eff params file** by the `agg` flag on the row (a reader
+  sees it in the CSV), never inferred from code. The input-tier distinction is retained only for
+  **NaN-propagation** in the imputer, *not* for what gets summed. There are **three** tiers (all
+  pooled into `Σin`): **primary** (same-region Flow / SB-Nature inputs — a missing one *blocks* the
+  forward fill while derivation is still possible; once the traversal has converged, a missing
+  primary counts as 0 *provided ≥1 primary is known* — parallel technology routes such as CP's
+  CER+CSXEW, where an underivable leg means the region lacks that route; a recipe with **no** known
+  primary stays blocked, [ADR 0010
+  amendment](adr/0010-trade-first-seeding-of-bilateral-flow-process-inputs.md)); **SEM-secondary**
+  (`Scrap` — missing counts as 0); and **bilateral-import** (cross-region `Flow→Process` legs —
+  missing counts as 0, non-blocking, [ADR
+  0010](adr/0010-trade-first-seeding-of-bilateral-flow-process-inputs.md)). The same
+  cross-region-as-0 rule applies to the Flow-node balance (a missing cross-region leg is counted as
+  0, never written).
+
+**Process recipe.** ([GLOSSARY.md](../GLOSSARY.md))
+
+- **Mining and `CP` are the exceptions**: Mining has *no* `eff` row (eff defaults to 1.0, so CC is
+  conserved CO→Ore) and its `WR` satellite output follows the **stripping ratio** (below) on Mass
+  (`WR_Mass = stripping_ratio·Ore_Mass`), not the generic `(1−eff)·Σin` SEM-residual rule; `CP` has
+  no `eff` row either, so the recipe writes its SEM output `PSC` — a **stock-change leg**, not a
+  residual — as `0` on every unreported region-year, at `σ 0.3 kt` rather than the hidden hard pin
+  `0 ± 0` it was until #36 (to be measured; [ADR
+  0041](adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md)).
+- The recipe's **SEM residual-output** (Slag / Tailings / WR) is reached via a *supply* edge; `PSC`
+  shares the `entity_sub` but is a stock-change leg. A **SEM secondary input** (Scrap) is reached
+  via a *use* edge. Both carry `entity_sub == "SEM"`, and only the edge direction distinguishes the
+  two roles.
+
+**Trade-seed** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The trade seed is a forward fill of the conc relation source in the cross-region `Flow→Process`
+  content scope; its method is `trade_seed`.
+- The seeded value is `f_CC = conc·f_Mass`, through the source's twin reading.
+- The trade-share fan distributes ICSG-CC by BACI geography at *feed* time, whereas trade-seed reads
+  the BACI-Mass observation directly at *imputation* time so the network recipe gate can pool the
+  covered import legs. Trade-seed's **writer scope** (below) is the cross-region `Flow→Process` CC
+  edges; the `NetworkImputer`'s is the same-region edges.
+- A trade-seed CC is not a new measurement: it is the conc twin of the BACI Mass observation.
+- **A bilateral leg is never interpolated in time** ([ADR
+  0026](adr/0026-bilateral-trade-legs-are-not-time-interpolated.md)): BACI is a *complete* matrix,
+  so a route carrying no row in a year carried no trade, and the `TimeImputer` is scoped to
+  same-region edges — a cross-region leg is neither a fill target nor an interpolation anchor. An
+  absent bilateral cell is not a gap; before ADR 0026 the unscoped interpolator invented 9,215 Mass
+  legs / 20,252 kt of trade, 75 % of which survived into the posterior.
+
+**Prior σ (`σ_a`)** ([GLOSSARY.md](../GLOSSARY.md))
+
+A **flat** σ is 10⁶ kt.
+
 ---
 
 ### Stage 3 — Constraint building
@@ -532,6 +894,125 @@ The four σ arguments (`sigma_a_cv_min`, `sigma_a_abs_floor`, `sigma_c_cv_min`, 
 Run Stage 3 on the toy case in [tutorial/03_constraints.ipynb](../src/pysuto/tutorial/03_constraints.ipynb).
 
 A `ConstDiagnostic` plot suite (in [diag/](../src/pysuto/diag/)) can be triggered via `ConstraintEngine.run(..., diag_plot=True)`.
+
+#### Glossary detail, Stage 3
+
+The glossary entries below keep their definition and their aliases to avoid. This section holds the detail they leave out; each block names its entry.
+
+**Satellite flow** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The `massbal_scope` mask is the acc `masks.csv`.
+- In copper the satellite flow is `Mining → WR` (waste rock), mass `k·Ore` from the stripping ratio,
+  copper content zero; its mass enters Mining from nature without an input edge (unused extraction
+  lies outside the crude-ore feed), so the reported PSUT does not balance Mining in gross mass by
+  exactly the waste rock.
+
+**Structural lower bound** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The lower bound of the signed stock-change edges is −1e6.
+- Each `l = 0` row has type `bound` and variant `lower`.
+- `ConstraintRun.l` is not the structural bound: Stage 3 overwrites it with the prior box and the
+  **zero pin** (`l = u = 0` on no-data edges, [ADR 0013](adr/0013-no-data-flat-prior-anchor.md)),
+  and those boxes, like every upper bound `u`, reach only the feasibility pre-check. Before ADR 0039
+  no bound reached the QP, so `l ≤ a ≤ u` in older REPs and the README describes the probe, not the
+  solve.
+
+**Stock-change leg** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The structural lower bound of a stock-change leg is −1e6.
+- For `PSC` an unreported year is priced at `± 0.3 kt` since #36 (to be measured; a seed at 1 % of
+  `CP→Cathode` was rejected on measurement, [ADR
+  0041](adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md)).
+
+**Net-stock seed** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The seed is held with `σ = max(0.01·|co-located Cathode(i)→FU(j) flow|, 0.3 kt)` — the same
+  pricing as a feed-backed level ([ADR
+  0040](adr/0040-stock-change-legs-are-held-at-their-prior.md)).
+- The same seed on `PSC`, priced at 1 % of the region's `CP→Cathode`, was a sink (272 kt/yr
+  absorbed) and is rejected on measurement ([ADR
+  0041](adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md)).
+- The "throughput-scaled band" is the retired p95 pricing.
+
+**Relative ratio σ (`σ_r`).** ([GLOSSARY.md](../GLOSSARY.md))
+
+The row's σ is `σ_c = max(σ_r, floor)·max(Σ|a₀,num|, |r|·Σ|a₀,denom|, RATIO_SCALE_ABS_FLOOR)`, which
+at a prior on the ratio is `σ·Σ|a₀,denom|`. The imputers read `σ` itself, and net-stock rows
+(`r = 0`) scale `σ` off the throughput alone.
+
+**Scale total** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The total is "kind-of-external" because the warm-start solve (`a₀ = f_agg` at t₀, `a_post(t−1)`
+  after) never sees this fixed Stage-2 total.
+- The **supply total output** is per process — its process→flow useful output; the **use total
+  output** is per flow — Σ over all destinations incl. final demand.
+- On a **degenerate (one-leg) fan** the prior group-sum coincides with the feed's own published
+  number, and such a row then *does* add information — this is a consequence of the fan, not the ADR
+  0006 mechanism (an external totals file reconciled in a separate pass). Groups are classified
+  **fabricated vs feed-backed** (per `agg_result.coverage`) — but both keep the same tight cv:
+  loosening fabricated groups was tried and rejected, because these rows double as the counterweight
+  to the nodata zero anchors and loosening them collapses the interior chain ([ADR
+  0016](adr/0016-provenance-aware-sigma-on-scale-totals.md)). σ_c carries an **absolute floor at the
+  feeds' reporting resolution** (0.3 kt, the rounding σ of integer-kt ICSG/crude_ore values,
+  Lp-combined with the cv term — [ADR
+  0025](adr/0025-scale-totals-carry-the-feeds-reporting-resolution-as-a-sigma-floor.md)); it reaches
+  totals below ~18 kt only, so a sub-kilotonne total is never priced to tens of tonnes.
+- A **control total** has an *external* published number as its RHS — see README; that mechanism was
+  removed by [ADR 0006](adr/0006-scale-total-supersedes-external-control-total.md).
+- **Anchor** and **coherence soft-sum** are deprecated terms — see the **Control total** _Avoid_
+  line. Do not read a scale total as only a prior-preservation device: on no-data subgraphs it is
+  also what holds scale against the zero anchors (ADR 0016).
+
+**Scrap level anchor** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The row exists only where a feed observed the level, which is what makes ADR 0025's σ floor
+  unconditional for it. The anchor is needed because `Scrap` is an `SB` node: `Scrap→Process` edges
+  are in neither output-total family, so before [ADR
+  0031](adr/0031-icsg-scrap-series-anchor-their-level-not-only-their-share.md) the only statement
+  about them was the `scrap_share` **band**, and a share band over a node with no throughput is
+  satisfied trivially.
+- An absent scrap-level row is an *unstated* level, and the edge keeps exactly the freedom it had.
+
+**Contradicted flow node** ([GLOSSARY.md](../GLOSSARY.md))
+
+- Because `σ_c = ANCHOR_CV·|c|` scales with the total, the *smaller* side is the cheaper anchor to
+  satisfy, so the solver collapses the node to the smaller prior even when that side is the worse
+  evidenced one (Russia Matte 1995: inflow 545 kt CC from ICSG concentrate use vs outflow 50.8 from
+  an under-reported ICSG refining series ⇒ the smelting chain collapsed).
+- The detection is outflow < `K_CLOSE`·inflow. Treating the node by stripping the **outflow** side's
+  authority — σ on its covered edges and on its `usetotout` anchor — was tried and **rejected**: σ
+  reprices a data contradiction without resolving it (ADR 0019).
+- Anode exports are not an outlet for the node: they are produced *by* CFR *from* matte, so they
+  raise the matte requirement rather than relieving it. See [ADR
+  0019](adr/0019-contradicted-flow-nodes-lose-anchor-authority.md).
+
+**Anchor placement** ([GLOSSARY.md](../GLOSSARY.md))
+
+- ICSG smelter production ÷ `eff_Smelting` is the concentrate entering `Smelting` (one stage); ICSG
+  refined production ÷ `eff_ER` is the anode entering `ER` (one stage). Dividing that same refined
+  series by `eff_CFR·eff_ER` instead placed it two stages back, on the matte entering `CFR` — and
+  thereby assumed every anode a region makes is refined at home, which is false for anode/blister
+  exporters.
+- Anchoring both sides of a hard-balanced node is the over-constraint [ADR
+  0006](adr/0006-scale-total-supersedes-external-control-total.md) rejected: the balance already
+  determines the second side, and double anchoring is the over-constraint. See [ADR
+  0021](adr/0021-icsg-refined-production-anchors-anode-into-er.md).
+
+**Node-scoped vs set-scoped constraint** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The collapse of a node to sector_region is sound because constraint rows are emitted over
+  **concrete** nodes only (the `sector→entity` 1:1 invariant holds; open `<any>` sectors never reach
+  a row).
+- A **pair-scoped** `ratio` row renders each edge as full `from→to`, numerator over denominator,
+  with `num_*`/`denom_*` populated.
+- A **set-scoped** `ratio` row pools its edges per `(region_to, time, valuation)` bucket
+  (`Σb − r·Σa`).
+- A set-scoped row's identity rests on the `variant` plus `region`/`valuation` group-key specs
+  (`num_*`/`denom_*` are null, exactly like a set-`sum`). A set-`sum` (a csv constraint grouped
+  across nodes) spans **many** edges with no single node — its identity rests on the `variant` plus
+  group-key specs; by contrast the `supplytotout` / `usetotout` **scale totals** — and the
+  `smelterscrap` / `directrefscrap` **scrap level anchors**, which carry the *consuming* node — are
+  node-`sum` rows and so carry populated `sector`/`region`.
 
 ---
 
@@ -627,6 +1108,99 @@ Solver diagnostics live in [diag/](../src/pysuto/diag/) (`SolverDiag`, 12 figure
 #### Use case
 
 Run Stage 4 on the toy case in [tutorial/04_solver.ipynb](../src/pysuto/tutorial/04_solver.ipynb).
+
+#### Glossary detail, Stage 4
+
+The glossary entries below keep their definition and their aliases to avoid. This section holds the detail they leave out; each block names its entry.
+
+**Parallel solve** ([GLOSSARY.md](../GLOSSARY.md))
+
+*Example.* "Why does the 1995 file's mass balance look enormous?" — "That's a
+pre-fix block run: the file holds 1995's **period slice** plus **cross-year
+placeholders** for every other year, and the residual was taken over the full
+`G`. Re-solve and it stores only the period slice; the **complete `a***`** is
+reassembled by the diag when it needs the whole picture."
+
+**a_prior (warm-start prior)** ([GLOSSARY.md](../GLOSSARY.md))
+
+- Under `prior_mode='warm'` the prior is aligned by **edge template** `(from_id, to_id, valuation)`
+  since each year occupies disjoint global columns.
+- The prior is stored as the per-period cold seed on `ConstraintRun.timestep_data[t]["a_prior"]` and
+  as the *actually-used* prior on `OptimResult.a_prior`; `ConstraintRun.a_prior_global` reconstructs
+  the global cold prior.
+- _Historical bug_: the block path once wrote the carry-forward into the same disjoint columns it
+  read, so the warm chain was a silent no-op and every year fell back to `f_agg` — see [ADR
+  0009](adr/0009-warm-start-prior-chain.md).
+
+**Residual** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The hard mass-balance maximum of the residual per year is the middle panel of SD-R-11.
+- On a soft (free) row the residual is `= ε`, the slack — see `docs/architecture.md` Stage 4,
+  "Standard form" → Cone order: `Gx − ε = c`.
+- Reading a large-negative residual on a `nonneg` bound as a violation was a misread that once
+  produced a phantom "inverted bound" diagnosis.
+
+**Forced vs discretionary deletion** ([GLOSSARY.md](../GLOSSARY.md))
+
+- Copper leaves a mine node only as domestic smelter intake `U` or as export mass `X` times a grade
+  the hard cone caps at 0.35, so `cap = 0.35·X + U` bounds its discharge and `Σ max(0, P − cap)` is
+  **forced** — arithmetic, not optimisation.
+- Where `P` is phantom — production the source never had — deleting it is the *correct* answer, and
+  the repair is to remove the input rather than loosen the constraint ([ADR
+  0035](adr/0035-the-yearbooks-label-is-not-on-the-row-it-owns.md)).
+- Do not read a forced term larger than the realised deletion as a contradiction: `cap` is evaluated
+  at prior-level intake, and a region that substitutes scrap or imported anode escapes a ceiling the
+  formula cannot see.
+
+**Constraint table (prior/post)** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The files are `constraints_prior_<year>.csv` at the constraint stage (`ConstStatsDiagnostic`) and
+  `constraints_<year>.csv` at the solver stage (`SolverStatsDiagnostic`).
+- `residual` and `z = residual/σ_c` (ranked by **objective share** in SD-R-13 / 14 / 15b-c) are the
+  *stage's achieved* residual — `lhs_prior − c` at the constraint stage, `lhs_post − c` (= the slack
+  `eps` on a soft row) at the solver stage; `z` is NaN on hard rows (`σ_c = 0`). A large `|z|` is
+  not a failure on its own: a soft row is *meant* to absorb disagreement; `|z|` just measures it in
+  units of the row's tolerance `σ_c`.
+- The hard residual lives in `OptimResult.residuals` (frame column `resid_solver`). Do not use an
+  unqualified `lhs` column: the files qualify every LHS as `lhs_prior` / `lhs_post` so no column
+  changes meaning between stages. _Note_: `ConstDiagnostic` plots the same prior quantity under the
+  opposite sign (`eps0 = c − G·a0`); the table follows the reserved `G·a − c` sign.
+
+**Objective share** ([GLOSSARY.md](../GLOSSARY.md))
+
+- `SolverDiag` ranks the shares per identity over all years: SD-R-13 by sector key, SD-R-14 top
+  identities, SD-R-15 z profiles, tabulated in `ranking_<family>.csv`; there are three families:
+  edge defects, sum-row residuals (`type = sum`, all soft), soft-ratio residuals (`type = ratio`,
+  free cone).
+- _Region share_: a region's share of one family's `Σz²`, tabulated per region and per region-year
+  in `objective_share_by_region.csv`; an edge belongs to its region when both ends sit in it, a sum
+  row to its `region`, a pair-scoped soft ratio to its numerator's region, and anything spanning
+  regions (bilateral legs) or naming none (world totals) to the bucket `multi`.
+
+**Identity (cross-year)** ([GLOSSARY.md](../GLOSSARY.md))
+
+The identity of a row is `(variant, sector, region, valuation, …)` node-scoped, the
+`num_*`/`denom_*` endpoints pair-scoped, `(variant, region, valuation)` set-scoped, with
+`sense`/`bound_dir` telling a pair's soft row from its two band rows.
+
+**Retention** ([GLOSSARY.md](../GLOSSARY.md))
+
+- Name the category: a sector, a node, a region or an SB class.
+- The per-sector, per-year retention is the second row of SD-R-08, SD-R-09 and SD-R-10.
+- On a signed category whose prior sum is near zero (`MESC`, `USC`, `PSC`) the ratio is undefined,
+  so quote the mass moved `Σ|a* − a_prior|` beside it.
+
+**Cone** ([GLOSSARY.md](../GLOSSARY.md))
+
+Const runs persisted before #11 stored the cone as `cone_type`; the loader maps it to `sense`.
+
+**Sink** ([GLOSSARY.md](../GLOSSARY.md))
+
+The exchange-location `MESC` legs at σ ≈ 553 kt were a sink (Round X).
+
+**Defect** ([GLOSSARY.md](../GLOSSARY.md))
+
+The row-level table is `edges_<year>.csv`, with the columns `defect` / `defect_abs` / `z`.
 
 ---
 
@@ -740,6 +1314,25 @@ Before the active set (#27) no copper chain could run Stage 5: every hard inequa
 
 The closed form is the **Laplace approximation** of the true posterior — acceptable for tightly-distributed flows but increasingly approximate for wide log-normal pedigree tails.
 
+#### Glossary detail, Stage 5
+
+The glossary entries below keep their definition and their aliases to avoid. This section holds the detail they leave out; each block names its entry.
+
+**Posterior contraction (`κ`)** ([GLOSSARY.md](../GLOSSARY.md))
+
+"Shrinkage" is a statistics term for the pull of an estimate toward the prior mean — our defect.
+
+**Prior-carried / confirmed / overruled / unexplained move** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The quadrants are cut at `κ = 0.5` and `|z| = 3`.
+- Prior-carried is `κ < 0.5`, `|z| ≤ 3`; confirmed is `κ ≥ 0.5`, `|z| ≤ 3`; overruled is `κ ≥ 0.5`,
+  `|z| > 3`; unexplained move is `κ < 0.5`, `|z| > 3`.
+
+**Standardised shift (`z/√κ`)** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The shift is read only on edge-years with `κ ≥ 0.01`.
+- Its **tail share** is the share beyond `|z/√κ| = 3` (0.27 % under N(0, 1)).
+
 ### Stage 6 — PSUT/PIOT builder
 
 Downstream of the solver: **materialise** the solved edge vector `a*` (`OptimResult.F_opt`) as numeric **physical supply-use tables (PSUT)** — supply `S`, use `U`, final use `Y`, plus boundary blocks `E`/`O`/`P` — per period and per valuation (`CC`, `Mass`), reusing the existing supply/use masks and the SB nodes' boundary roles. From each PSUT it builds the symmetric **physical input-output table (PIOT)**: the market-share (industry-by-industry) construct, with `Z`, `A = Z·x̂⁻¹` and `L = (I−A)⁻¹` over the region × process network (with one producer per commodity, as in copper, it coincides with the product-by-product one); the PIOLab / Suh (2004) product-by-product construct, by-products endogenised as negative inputs with `A = B·D`, is #20. It ships the classical analytics: footprints / embodied flows, embodied bilateral trade, ew-MFA headline indicators, and multipliers / SDA. v1 is point-estimate only (Stage-5 σ propagation deferred). Rationale and the deliberate *no pySUT / pymrio dependency* are recorded in [ADR 0007](adr/0007-downstream-psut-piot-follows-piolab-suh-no-external-io-lib.md).
@@ -757,6 +1350,126 @@ Downstream of the solver: **materialise** the solved edge vector `a*` (`OptimRes
 
 Run Stage 6 on the toy case in [tutorial/06_psut_piot.ipynb](../src/pysuto/tutorial/06_psut_piot.ipynb); [tutorial/07_scoreboard.ipynb](../src/pysuto/tutorial/07_scoreboard.ipynb) scores the whole chain.
 
+#### Glossary detail, Stage 6
+
+The glossary entries below keep their definition and their aliases to avoid. This section holds the detail they leave out; each block names its entry.
+
+**Traded (realized) vs tradable; `region_crossed`.** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The boolean `region_crossed` is stamped before a region collapse (`keep_crossings`) so it survives
+  aggregation.
+- Supply edges are always same-region; **Use** edges *and* **final-use (`Y`) edges** can be
+  `region_crossed` — in copper 6,486 of 6,627 `Y` edges cross regions in 2020 (cathode into foreign
+  final use), as many as the `U` edges do.
+
+**PSUT (physical supply-use table)** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The block matrices — supply `S` (useful output), use `U`, final use `Y`, plus boundary blocks
+  nature-input `E`, SEM-input `O`, SEM-output `P`, nature-output `W` — are **derived pivot views**
+  of that same PSUT.
+- Do not use "SUT" for a numeric realisation (long or matrix), and do not read "PSUT" as *matrices
+  only*: the matrices are one view; the tidy table is the canonical other.
+
+**Block** ([GLOSSARY.md](../GLOSSARY.md))
+
+- For the boundary blocks, the block is read off the `SB` node's boundary role. `W` is empty in
+  copper.
+- The tidy table carries the block as the `block` column and each matrix view is one block's pivot.
+- A loaded structure's `supply` mask also holds `P`, its `use` mask `E` and `O`.
+
+**Aggregation (pushforward)** ([GLOSSARY.md](../GLOSSARY.md))
+
+- `region_crossed` is stamped **before** the relabel, at the finest resolution ever seen (a two-step
+  collapse keeps the country-level stamp), so the realized traded share survives a World collapse.
+  `edge_id` does not survive.
+- `region_crossed` read at the aggregated resolution is not the realized crossing: it is the
+  root-resolution crossing.
+
+**Supply-use Sankey** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The boundary inputs `E`/`O` sit on the left, the outputs `P`/`W`/`Y` on the right.
+- A border-crossing `U`/`Y` flow is a traded link by `region_crossed`, or by distinct regions.
+- In copper it carries the same numbers as the process-network Sankey — `D` is the identity (ADR
+  0037 §1) — with the commodity nodes shown rather than contracted into edge labels.
+- A node's total is the throughput of that (period, valuation) and of nothing else.
+
+**Construct** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The table-shape axis follows Miller & Blair ch. 5 / Eurostat; the market-share rule is
+  `D = S·q̂⁻¹`, fixed-product-sales.
+- The by-product axis follows Altimiras-Martin 2014. **Suh** *alters* `A`/`L` (the PIOLab/Wieland
+  choice, project primary).
+
+**Process network** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The boundary pseudo-nodes are `Nature`, `FD`, SEM-in and SEM-out.
+- Allocation does not apply to disposals-to-nature (Altimiras-Martin 2014, fn. 3).
+- The process network is built by `PSUT.to_piot('market_share', level='Z')` as a tidy edge table
+  (`block ∈ {Z, Y, E, O, P, W}`, `Z` = inter-process; each edge names its `commodity`;
+  `region_crossed` travels with the row it came from), with `Z()` the process-by-process pivot and
+  `D()` the shares.
+- Do not draw the supply legs `S` as their own edges: they only attribute producers.
+
+**ew-MFA headline indicators** ([GLOSSARY.md](../GLOSSARY.md))
+
+`region_crossed` rows of a collapsed table count as both imports and exports.
+
+**PIOT (physical input-output table)** ([GLOSSARY.md](../GLOSSARY.md))
+
+The **product-by-product** PIOT (commodity×commodity) is #20.
+
+**Technical coefficients `A`** ([GLOSSARY.md](../GLOSSARY.md))
+
+- For the product-by-product construct `A = B·D` (#20).
+- Do not confuse `A` with the lowercase **edge vector `a`** (the decision variable) — case
+  distinguishes them.
+
+### Glossary detail — framework and cross-stage
+
+The glossary entries below keep their definition and their aliases to avoid. This section holds the detail they leave out; each block names its entry.
+
+**Control total** ([GLOSSARY.md](../GLOSSARY.md))
+
+**ROW (Rest-Of-World) totals are not imposed** (ROW-excluded).
+
+**Knob** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The case's section carries the Stage 2 and 3 knobs (#120).
+- The solver's stopping rule (`TOL_GAP_REL`) is a knob but is reported as *termination*, apart from
+  the judgement values.
+
+**Key result** ([GLOSSARY.md](../GLOSSARY.md))
+
+The three tests are set out in [docs/agents/key-results.md](agents/key-results.md).
+
+**Role** ([GLOSSARY.md](../GLOSSARY.md))
+
+- The boundary roles are the three system-boundary categories above; a `secondary` node is an input
+  when reached by a use edge and a residual output when reached by a supply edge.
+- Labels are the case's, roles are the framework's; "entity kind" is not a word for a role.
+
+**Relation** ([GLOSSARY.md](../GLOSSARY.md))
+
+- A constraint row is emitted by `pysuto.constraints.emit`.
+- A **process recipe**, a Flow-node balance and a `conc`/`eff` params row are **relation sources**
+  (below), not relations: a recipe references its Process node's balance and carries the pooled
+  `eff` ratio; the Mass twin is the per-edge `conc` ratio.
+
+**Case** ([GLOSSARY.md](../GLOSSARY.md))
+
+`--case` resolves a path, a dotted module or a bundled alias (#120, #187); the copper case is the
+first, `scripts/copper.py` (ADR 0047).
+
+**Acc spec** ([GLOSSARY.md](../GLOSSARY.md))
+
+An `acc.json` and the copper case's four ODS/CSV files are two formats of it, each with its reader
+(`read_acc_spec_json`, `read_acc_spec_ods`; [ADR
+0046](adr/0046-an-accounting-structure-is-declared-by-a-spec.md)).
+
+**Application** ([GLOSSARY.md](../GLOSSARY.md))
+
+Copper's application is the repository's `scripts/` ([ADR
+0047](adr/0047-pysuto-ships-no-study-case.md)).
 
 ---
 

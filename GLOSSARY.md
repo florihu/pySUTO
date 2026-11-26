@@ -3,6 +3,8 @@
 The project's single glossary. Glossary only — no implementation details.
 
 Pick the bold term; the listed `_Avoid_` aliases are ambiguous and should not be used.
+Detail that does not fit an entry is in [docs/architecture.md](docs/architecture.md), under each stage's
+"Glossary detail" and in its framework section.
 Definitions are code-verified against [acc.py](src/pysuto/acc.py),
 [conc.py](src/pysuto/conc.py), [relation/](src/pysuto/relation/), and
 [constraints/](src/pysuto/constraints/).
@@ -13,12 +15,11 @@ Definitions are code-verified against [acc.py](src/pysuto/acc.py),
 A `(sector, entity, region)` triple — one point in the accounting structure.
 
 **Edge** ≡ **flow**:
-"Edge" and "flow" are **synonyms** throughout pySUTO — one atomic directed quantity between two
-nodes, addressed by the 8-tuple
-`(time, valuation, region_from, entity_from, sector_from, region_to, entity_to, sector_to)`.
-Its value `a` is the magnitude in a single valuation.
-_Note:_ lowercase "flow" (= edge) is distinct from the capitalised **`Flow` entity** (a
-commodity node — see Entity); disambiguate by capitalisation.
+"Edge" and "flow" are **synonyms** throughout pySUTO — one atomic directed quantity between two nodes,
+addressed by the 8-tuple
+`(time, valuation, region_from, entity_from, sector_from, region_to, entity_to, sector_to)`. Its value
+`a` is the magnitude in a single valuation. _Note:_ lowercase "flow" (= edge) is distinct from the
+capitalised **`Flow` entity** (a commodity node — see Entity); disambiguate by capitalisation.
 
 **Entity** (`entity_from` / `entity_to`):
 The structural *kind* of a node — a class, one of `Process | Flow | SB`. `Process` + `Flow`
@@ -87,11 +88,11 @@ concordance maps it onto root via `W` (`f_root = Wᵀ f_src`).
 _Avoid_: "common structure" (ambiguous about which side is canonical).
 
 **Control total** *(removed — superseded by **Scale total**, see [ADR 0006](docs/adr/0006-scale-total-supersedes-external-control-total.md))*:
-A Type-2 **soft-sum** constraint (`Σ aᵢ = c + ε`, free cone) whose RHS `c(t)` is an externally
-published total — here ICSG production + usage, per year — that a defined edge-set must sum to.
-**ROW (Rest-Of-World) totals are not imposed** (ROW-excluded). Internal edge consistency is
-*not* a control total — that is the job of hard mass balance.
-_Avoid_: "anchor" for an external total (the live term **Anchor** below is the model's own prior), "coherence soft-sum" (removed mechanism).
+A Type-2 **soft-sum** constraint (`Σ aᵢ = c + ε`, free cone) whose RHS `c(t)` is an externally published
+total — here ICSG production + usage, per year — that a defined edge-set must sum to. Internal edge
+consistency is *not* a control total — that is the job of hard mass balance. _Avoid_: "anchor" for an
+external total (the live term **Anchor** below is the model's own prior), "coherence soft-sum" (removed
+mechanism).
 
 **Data-category typology** (Pauliuk et al. 2019):
 The four parameter kinds, split **extensive** vs **intensive**. *Extensive* (kt magnitudes):
@@ -104,9 +105,9 @@ The best-estimate flow vector the QP stays close to: the year's conditioned `f_a
 (`prior_mode="cold"`, the driver default) or, under `"warm"`, the previous year's optimum.
 
 **Prior σ (`σ_a`)**:
-The standard deviation of an edge's prior: how far the QP may move the edge from `a₀` at unit
-cost. A **flat** σ (10⁶ kt) states that the edge carries no information of its own.
-_Avoid_: "σ init", "initial σ" — nothing iterates it.
+The standard deviation of an edge's prior: how far the QP may move the edge from `a₀` at unit cost. A
+**flat** σ states that the edge carries no information of its own. _Avoid_: "σ init", "initial σ" —
+nothing iterates it.
 
 ## Pipeline & process vocabulary
 
@@ -122,11 +123,10 @@ encoded as the sparse weight matrix `W` (`f_root = Wᵀ f_src`).
 
 **Fan-in / fan-out**:
 The two concordance shapes. *Fan-in* = many source edges combine into one root edge — the σ
-**diversification invariant** `CV_root ≤ CV_src` lives here. *Fan-out* = one source edge is
-distributed across several root edges (a mapping that classifies only one endpoint).
-These are the **source → root** (Mapping 2) shapes; the upstream **raw → source** projection
-(Mapping 1, where raw-row *aggregation* and *replication* live) is a separate level — see
-*"Two mapping levels"* (Concordance vocabulary, below).
+**diversification invariant** `CV_root ≤ CV_src` lives here. *Fan-out* = one source edge is distributed
+across several root edges (a mapping that classifies only one endpoint). These are the **source → root**
+(Mapping 2) shapes; the upstream **raw → source** projection (Mapping 1, where raw-row *aggregation* and
+*replication* live) is a separate level — see *"Two mapping levels"* (Concordance vocabulary, below).
 
 **Aggregation**:
 Stage 2 — combining multiple feeds' observations of the *same* root edge by inverse-variance
@@ -154,13 +154,12 @@ Stage 4 — the σ-weighted QP, built per timestep by the orchestrator `Solver` 
 slack of the soft rows) and solved by an injected **QP backend** (`ClarabelBackend`), producing
 the optimised flow vector `a*`.
 
-**QP backend**:
-The numerical solver of one period's standard-form QP (variables `[a; ε]`, equality and `≤`
-rows), reporting a neutral status (`solved`, `solved_inaccurate`, `failed`) beside its own raw
-one (`OptimResult.backend_status`); it knows nothing of edges, rows, σ or periods. It owns its
-settings, its telemetry (`convergence`, `iter_history`) and the reuse of its factorisation.
-Clarabel (`ClarabelBackend`) is the production backend.
-_Avoid_: "the solver" (that is Stage 4 as a whole), "solver backend".
+**QP backend**: The numerical solver of one period's standard-form QP (variables `[a; ε]`, equality and
+`≤` rows), reporting a neutral status (`solved`, `solved_inaccurate`, `failed`) beside its own raw one
+(`OptimResult.backend_status`); it knows nothing of edges, rows, σ or periods. It owns its settings, its
+telemetry (`convergence`, `iter_history`) and the reuse of its factorisation. Clarabel
+(`ClarabelBackend`) is the production backend. _Avoid_: "the solver" (that is Stage 4 as a whole),
+"solver backend".
 
 **Posterior uncertainty propagation**:
 Stage 5 — the closed-form posterior standard deviation `σ_a*` and confidence intervals; its
@@ -181,8 +180,8 @@ mutate `f` / `σ` **in place**, so order matters — e.g. `FlatPrior` is registe
 the final fallback.
 
 **Lp / power-mean combine**:
-The single σ combiner used by every stage — `lp_combine({xᵢ}, p) = (Σ|xᵢ|ᵖ)^(1/p)`. `p = 2`
-recovers Gaussian quadrature; the project default `p = 1.3` damps fan-in σ inflation.
+The single σ combiner used by every stage — `lp_combine({xᵢ}, p) = (Σ|xᵢ|ᵖ)^(1/p)`. `p = 2` recovers
+Gaussian quadrature; the project's `P_PROP` damps fan-in σ inflation.
 
 **Pedigree → CV**:
 The Laner et al. (2016) map from five 1–4 quality scores to a coefficient of variation — the
@@ -199,11 +198,10 @@ orthogonal to `is_hard`; the (`le`, soft) cell is unrealised (`NotImplementedErr
 "relation" (a different term, below), "cone type".
 
 **Cone** (`zero` / `nonneg` / `free`):
-The Clarabel cone a constraint row lands in, derived inside `pysuto.clarabel_backend` from the
-QP's row groups (`pysuto.solver.row_layout` orders them from `sense` and `is_hard`; ADR 0042)
-and not stored in `row_meta` — `zero` (hard `eq`, and a soft `eq` too: its slack `ε` is a free
-variable of the QP), `nonneg` (hard `le`). The legacy name `free` is the soft `eq`. Const runs persisted before #11 stored it as `cone_type`; the loader maps
-it to `sense`.
+The Clarabel cone a constraint row lands in, derived inside `pysuto.clarabel_backend` from the QP's row
+groups (`pysuto.solver.row_layout` orders them from `sense` and `is_hard`; ADR 0042) and not stored in
+`row_meta` — `zero` (hard `eq`, and a soft `eq` too: its slack `ε` is a free variable of the QP),
+`nonneg` (hard `le`). The legacy name `free` is the soft `eq`.
 
 **Warm start**:
 Seeding the prior `a₀(t)` for a timestep with the previous year's optimum `a*(t−1)`; a second,
@@ -237,14 +235,11 @@ chain** is the feed, imp, const and opt runs the manuscript cites.
 _Avoid_: "chaining" (that is plugin order inside an engine); "the run" for a whole lineage.
 
 **Knob**:
-A tuning constant of a stage driver (`P_PROP`, `ANCHOR_CV`, `TOL_GAP_REL`, the cascade order):
-an UPPER_CASE field of the case's section for Stages 2 and 3 (#120), a driver constant for
-Stage 4; its value is recorded in the run's sidecar. Changing a knob is a measured change.
-In reader-facing text (manuscript, abstracts) the knobs a **sweep** varies are **judgement
-values**; the solver's stopping rule (`TOL_GAP_REL`) is a knob but is reported as
-*termination*, apart from them.
-_Avoid_: "hyperparameter"; "parameter" / "param" (those are the `params` input tables);
-"setting", "config"; "judgement parameter".
+A tuning constant of a stage driver (`P_PROP`, `ANCHOR_CV`, `TOL_GAP_REL`, the cascade order): an
+UPPER_CASE field of the case's section for Stages 2 and 3, a driver constant for Stage 4; its value is
+recorded in the run's sidecar. Changing a knob is a measured change. In reader-facing text (manuscript,
+abstracts) the knobs a **sweep** varies are **judgement values**. _Avoid_: "hyperparameter"; "parameter"
+/ "param" (those are the `params` input tables); "setting", "config"; "judgement parameter".
 
 **Sweep**:
 A set of chains that share their inputs and differ only in knob values, run and recorded as one
@@ -278,13 +273,12 @@ spread of the means per value; of two values, the second's mean minus the first'
 effect that SRRC and Spearman's ρ only rank.
 _Avoid_: "effect size", "sensitivity" (the ranking), "main-effect range".
 
-**Criterion**:
-A limit on one or more of a sweep's outcomes, named by its item (A6) and fixed before the sweep
-is read; its **verdict** is how many points meet it and which point and outcome come nearest to
-the limit or exceed it. A pre-registered item of the manuscript is a criterion.
-_Avoid_: "threshold", "test", "stop rule" (the Round-E rule that judges a σ or repricing change).
-⚠ Round-E (c), an item of that stop rule, is also declared as a sweep criterion: there it is
-judged at every point against the base chain, not once for a proposed change.
+**Criterion**: A limit on one or more of a sweep's outcomes, named by its item (A6) and fixed before the
+sweep is read; its **verdict** is how many points meet it and which point and outcome come nearest to the
+limit or exceed it. A pre-registered item of the manuscript is a criterion. _Avoid_: "threshold", "test",
+"stop rule" (the Round-E rule that judges a σ or repricing change). ⚠ Round-E (c), an item of that stop
+rule, is also declared as a sweep criterion: there it is judged at every point against the base chain,
+not once for a proposed change.
 
 **Expected answer**:
 A row of the manuscript's ledger (A1–B3, Table 3): the answer to one sub-question of the research
@@ -293,14 +287,12 @@ outcome is **met** or **not met**. A question without one is *exploratory*.
 _Avoid_: "hypothesis" (the rows answer questions; they were called hypotheses until 2026-11-12),
 "pass" / "fail" (a not-met answer is a finding, not a failure of the reconciliation).
 
-**Key result**:
-What a reader of the paper takes away: a property of the reconciled account on the **reference
-chain**, or of its sources as the account reveals them, that answers a sub-question of RQ1–RQ3.
-It passes three tests: reference chain, bug-free, research question
-([docs/agents/key-results.md](docs/agents/key-results.md)). A size, runtime or coverage is a
-*stage fact* (Methods); a fixed defect, a solver-setting artefact, a delta against an earlier chain
-or the ledger tally is *debugging* (Methods, SI, ADRs, REPs).
-_Avoid_: "result" for debugging; "finding" for a stage fact; "headline" for anything large.
+**Key result**: What a reader of the paper takes away: a property of the reconciled account on the
+**reference chain**, or of its sources as the account reveals them, that answers a sub-question of
+RQ1–RQ3. It passes three tests: reference chain, bug-free, research question. A size, runtime or coverage
+is a *stage fact* (Methods); a fixed defect, a solver-setting artefact, a delta against an earlier chain
+or the ledger tally is *debugging* (Methods, SI, ADRs, REPs). _Avoid_: "result" for debugging; "finding"
+for a stage fact; "headline" for anything large.
 
 **Year profile**:
 An outcome evaluated once per year of its window instead of pooled, so that the axes can be
@@ -347,84 +339,58 @@ if this is violated.
 _Avoid_: "time independence".
 
 **Parallel solve**:
-Solving the periods of a cold-prior run concurrently, each period its own QP; possible only
-because a cold period's prior does not depend on another period's optimum. A warm run is a
-chain and is solved in period order.
-_Avoid_: "multi-threaded solve" — that is the solver's threading *inside* one period's QP (its
-linear algebra), which a parallel solve pins to one thread.
-
-*Example.* "Why does the 1995 file's mass balance look enormous?" — "That's a
-pre-fix block run: the file holds 1995's **period slice** plus **cross-year
-placeholders** for every other year, and the residual was taken over the full
-`G`. Re-solve and it stores only the period slice; the **complete `a***`** is
-reassembled by the diag when it needs the whole picture."
+Solving the periods of a cold-prior run concurrently, each period its own QP; possible only because a
+cold period's prior does not depend on another period's optimum. A warm run is a chain and is solved in
+period order. _Avoid_: "multi-threaded solve" — that is the solver's threading *inside* one period's QP
+(its linear algebra), which a parallel solve pins to one thread.
 
 ## Concordance vocabulary
 
-**Two mapping levels** — the feed stage composes *two* independent raw→root mappings, each of
-which can be 1:1, fan-in, or fan-out. The fan-in/fan-out terms below name the **second** level only.
+**Two mapping levels** — the feed stage composes *two* independent raw→root mappings, each of which can
+be 1:1, fan-in, or fan-out. The fan-in/fan-out terms below name the **second** level only.
 
-- **Mapping 1 — raw rows → source edges.** Defined by the concordance **variable map**
-  (`variable_map` sheet), which is *auxiliary-conditional* (e.g. on `Supply_Use`): it projects raw
-  variables onto the source 8-tuple slots (`src_sector_from/to`, `src_entity_*`, `src_region_*`,
-  `src_time`, `src_valuation`), so the *same* raw variable lands in a *different* endpoint depending
-  on the auxiliary category (`Process` → producer/`from` for Supply rows, → consumer/`to` for Use
-  rows). This is what **imposes directed supply-use structure** onto raw data that may be
-  **production-based** (ICSG) rather than already supply-use shaped (BACI). Cardinality: **1:1** or
-  **many:1** (*raw-row aggregation* — several raw rows resolving to the same source edge have their
-  values **summed**). A single raw row resolving to *many* full-value source edges is **replication**
-  (the anti-pattern below), not a valid shape.
-- **Mapping 2 — source edges → root edges.** The WeightMatrix. **Fan-out** and **fan-in** (below)
-  live here. Mass-preserving iff each source edge's outgoing weights sum to 1.
+- **Mapping 1 — raw rows → source edges.** Defined by the concordance **variable map** (`variable_map`
+  sheet), it projects raw variables onto the source 8-tuple slots. Cardinality: **1:1** or **many:1**
+  (several raw rows on one source edge are **summed**).
+- **Mapping 2 — source edges → root edges.** The WeightMatrix. Mass-preserving iff each source edge's
+  outgoing weights sum to 1.
 
 **Fan-out** — *one* source edge distributed across several root edges, arising when a raw row
 classifies **only one endpoint** (the other endpoint is left open as `"<any>"` and resolved by
 normalised weights). Mass-preserving: the source value is *split* across the fan, weights sum to 1.
 
-**Replication (anti-pattern, not a concordance shape)** — the failure mode where a single raw
-row that classifies only one endpoint is materialised into *many distinct source edges* (one per
-matching value of the open endpoint), each carrying the **full** raw value. This is **not**
-fan-out; it inflates total mass by the fan cardinality. Distinguished from fan-out by counting
-*distinct src edges per raw row*: fan-out = 1 (→ many roots); replication = many. See
-[ADR 0002](docs/adr/0002-single-endpoint-rows-fan-out-not-replicate.md).
+**Replication (anti-pattern, not a concordance shape)** — the failure mode where a single raw row that
+classifies only one endpoint is materialised into *many distinct source edges* (one per matching value of
+the open endpoint), each carrying the **full** raw value. This is **not** fan-out; it inflates total mass
+by the fan cardinality. Distinguished from fan-out by counting *distinct src edges per raw row*: fan-out
+= 1 (→ many roots); replication = many. See [ADR
+0002](docs/adr/0002-single-endpoint-rows-fan-out-not-replicate.md).
 
-**Unweighted fan** — a fan-out whose legs carry no weighting information (no trade shares, no
-user weights — every leg still at the uniform default). Such a fan is **not distributed**: an
-even 1/N split asserts a fabricated partner pattern at the observation's confidence, whereas the
-honest state of knowledge is "total known, split unknown". The raw value stays undistributed
-(excluded from the feed's projected mass). A fan that degenerates to a single leg is an exact
-match, not an unweighted fan. _Avoid_: reading "no imports" as "no weighting information" — a
-fan weighted **all-domestic** because BACI observed the region and recorded no imports carries
-weights and is not an unweighted fan ([ADR 0018](docs/adr/0018-import-free-fans-distribute-domestically.md));
-the doctrine bites only where the split is genuinely uninformed. See
-[ADR 0008](docs/adr/0008-unweighted-fans-are-not-distributed.md).
+**Unweighted fan** — a fan-out whose legs carry no weighting information (no trade shares, no user
+weights — every leg still at the uniform default). Such a fan is **not distributed**: an even 1/N split
+asserts a fabricated partner pattern at the observation's confidence, whereas the honest state of
+knowledge is "total known, split unknown". The raw value stays undistributed (excluded from the feed's
+projected mass). See [ADR 0008](docs/adr/0008-unweighted-fans-are-not-distributed.md).
 
-**Qualifier fan** — a Use fan whose source variable names its **input product** (e.g. smelter
-production *from scrap*, refinery production *from matte*). Only root legs whose supplier sector
-matches the named product belong to the fan; other incoming edges of the consumer node are
-out-of-scope legs that the open (`"<any>"`) endpoint would otherwise wrongly absorb — and onto
-which route-keyed weights of *other* products can bleed. A qualifier fan with **zero** matching
-legs marks a structurally impossible mapping (the named product does not feed that consumer in
-the accounting structure) and is a hard error, never a silent fan. See
-[ADR 0008](docs/adr/0008-unweighted-fans-are-not-distributed.md).
+**Qualifier fan** — a Use fan whose source variable names its **input product** (e.g. smelter production
+*from scrap*, refinery production *from matte*). Only root legs whose supplier sector matches the named
+product belong to the fan. A qualifier fan with **zero** matching legs marks a structurally impossible
+mapping (the named product does not feed that consumer in the accounting structure) and is a hard error,
+never a silent fan. See [ADR 0008](docs/adr/0008-unweighted-fans-are-not-distributed.md).
 
-**Mapped self-trade** — a bilateral src row whose two endpoints fold onto the **same root region**
-under the region map (Hong Kong→mainland once both map to "China"; any small-country pair inside
-ROW). Its root address is indistinguishable from the **domestic** edge, yet its value is a tiny,
-customs-precise subsample of a production-scale transfer — an inconsistent observation, not a
-measurement of that edge. Bilateral feeds are therefore **scoped to cross-region edges** (their
-edge scope drops rows resolving to domestic addresses), see
-[ADR 0014](docs/adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md). _Avoid_: reading a
-mapped self-trade row as a domestic observation — the china-matte case put 0.028 kt of gross mass
-next to 5,678 kt of copper content on one edge.
+**Mapped self-trade** — a bilateral src row whose two endpoints fold onto the **same root region** under
+the region map. Its root address is indistinguishable from the **domestic** edge, yet its value is a
+tiny, customs-precise subsample of a production-scale transfer — an inconsistent observation, not a
+measurement of that edge. Bilateral feeds are therefore **scoped to cross-region edges** ([ADR
+0014](docs/adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)). _Avoid_: reading a mapped
+self-trade row as a domestic observation.
 
-**Mirror duplicate** — a BACI flow under one code that repeats copper another code already declares,
-so mapping both to one region counts it twice. The test is the balance, not the customs record: in
-the years the true exporter's own declarations already reach about its production, so that the
-second code would push them past it, the two codes' flows are duplicates and only one declaration
-survives; in the years they fall clearly short, the second code fills the gap and is kept
-([ADR 0014](docs/adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)). _Avoid_:
-"mis-coded flow" for every year of such a code — it is a duplicate only where the balance says so.
+**Mirror duplicate** — a BACI flow under one code that repeats copper another code already declares, so
+mapping both to one region counts it twice. The test is the balance, not the customs record: in the years
+the true exporter's own declarations already reach about its production, so that the second code would
+push them past it, the two codes' flows are duplicates and only one declaration survives; in the years
+they fall clearly short, the second code fills the gap and is kept. _Avoid_: "mis-coded flow" for every
+year of such a code — it is a duplicate only where the balance says so.
 
 **Transit declaration** — a BACI flow of refined copper (HS 7403.1x) into a country it only passes
 through, whose final buyer declares the true exporter as origin too, so the same copper is exported
@@ -432,34 +398,18 @@ twice ([ADR 0014](docs/adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)
 **re-export**, which the record shows leaving the hub again. _Avoid_: "transit" alone, which the
 **transit residual ledger** uses for what the re-export netting leaves behind.
 
-**Reporting territory** — the real-world territory a feed's rows describe, which is *not* the same
-as the **source region label** those rows carry. A feed may rename a territory mid-series (ICSG's
-`Taiwan` → `Taiwan, China` from 2013) or publish historical joint reporting under a joint label
-(`Belgium-Luxembourg` to 2013), so one territory wears two labels across the series and, in the
-handover year, two labels on the same cell. Two source labels denote one territory exactly when the
-region map assigns them to the same **real-country root**; `ROW` is excluded, being a bucket of 48
-territories rather than one. The region map cannot express a label that means another territory in
-one **vintage** only: the 2005 yearbook's `Congo` (parsed as `Congo Rep.`, Brazzaville in every later
-vintage) is DR Congo, so the ICSG clean step relabels it per vintage before the map applies
-([ADR 0032](docs/adr/0032-one-territory-one-label.md), #85). Anything computed *before* the region map is applied — a parse rule, a
-param study reading `values.csv` — must therefore group by territory, not by label. _Avoid_: reading
-a handover-year pair as two measurements. It is one measurement republished, so adding the two
-doubles the cell, and a rule keyed on the label silently skips the territory whose two series are
-labelled differently ([ADR 0032](docs/adr/0032-one-territory-one-label.md)).
+**Reporting territory** — the real-world territory a feed's rows describe, which is *not* the same as the
+**source region label** those rows carry. Two source labels denote one territory exactly when the region
+map assigns them to the same **real-country root**. Anything computed *before* the region map is applied
+must therefore group by territory, not by label ([ADR 0032](docs/adr/0032-one-territory-one-label.md)).
+_Avoid_: reading a handover-year pair as two measurements.
 
-**Vintage** — the release a feed row came from, when a source publishes the same series
-repeatedly (ICSG's 1995, 2005, 2014, 2023 and 2025 yearbooks; BACI's annual releases). A later
-vintage **restates** an earlier one, so rows sharing a key are resolved by keeping the newest.
-That rule is only sound *between* vintages: two rows of **one** vintage sharing a key are two
-different **streams** of the same quantity — a source category folded onto another by a rename,
-such as ICSG's `Low-grade` smelter feed folded into `Primary` — and they **sum**. _Avoid_:
-resolving a same-vintage collision as a restatement. One stream then silently replaces the other
-rather than adding to it, and which one survives depends on row order
-([ADR 0036](docs/adr/0036-a-renamed-type-is-a-second-stream-not-a-restatement.md)). _Avoid_ also:
-reading a vintage as a *time* coordinate — it labels the publication, not the year observed; one
-vintage carries many observation years. _Avoid_ also: "edition" for a yearbook's release — say
-vintage. The ICSG flow tables persist a vintage as the column `Year_loaded_from_file` (the
-yearbook's publication year, 2005, 2014, 2023 or 2025); it is the vintage, not a load date.
+**Vintage** — the release a feed row came from, when a source publishes the same series repeatedly. A
+later vintage **restates** an earlier one, so rows sharing a key are resolved by keeping the newest. That
+rule is only sound *between* vintages: two rows of **one** vintage sharing a key are two different
+**streams** of the same quantity and they **sum**. _Avoid_: resolving a same-vintage collision as a
+restatement ([ADR 0036](docs/adr/0036-a-renamed-type-is-a-second-stream-not-a-restatement.md)); reading a
+vintage as a *time* coordinate; "edition" for a yearbook's release — say vintage.
 
 **Boundary topology** *(referenced by [ADR 0001](docs/adr/0001-replace-coherence-sum-eq-with-bilateral-anchoring.md); to be expanded)* —
 the open System-Boundary (SB) endpoints where flows terminate, so prior disagreement there does
@@ -467,37 +417,25 @@ not create feasibility conflicts.
 
 ## Accounting-structure invariants
 
-**Sector → entity is 1:1** — every *concrete* root sector maps to exactly one entity kind
-(`Flow` | `Process` | `SB`), so entity is functionally determined once the sector is known.
-**Caveat:** an **open (`"<any>"`) sector does not determine an entity** — an unclassified endpoint
-can match producers across several entities (e.g. a real `Flow` source *and* the `SB`
-system-boundary/import source). Concordance code must therefore make the entity `"<any>"` whenever
-its sector is `"<any>"`, not pin it to a concrete edge entity. See
-[ADR 0002](docs/adr/0002-single-endpoint-rows-fan-out-not-replicate.md).
+**Sector → entity is 1:1** — every *concrete* root sector maps to exactly one entity kind (`Flow` |
+`Process` | `SB`), so entity is functionally determined once the sector is known. **Caveat:** an **open
+(`"<any>"`) sector does not determine an entity**. Concordance code must therefore make the entity
+`"<any>"` whenever its sector is `"<any>"`. See [ADR
+0002](docs/adr/0002-single-endpoint-rows-fan-out-not-replicate.md).
 
-**System-boundary category (`entity_sub` on SB nodes)** — the sub-classification carried by every
-`SB` node, naming *what kind* of boundary crossing it is. In the copper model: `Nature` (primary
-extraction entering the system — crude ore, `CO`), `FD` (final demand leaving the system — the
-final-demand categories `FU` / `MESC` / `USC`), `SEM` (secondary / residual material — `Scrap`
-recycling inputs, the `Slag` / `Tailings` / `WR` residual outputs, and `PSC`, the producer
-stock-change leg). `entity_sub` is
-meaningful only on `SB` nodes (`Flow` / `Process` nodes leave it empty). It is the case's
-**label**; the library reads the boundary **role** bound to it (see Role). _Note:_ `FD` is
-structurally an SB-*output* (`entity_to == "SB"`) yet semantically belongs to the **use** side — a
-commodity consumed by final demand, with a real `Flow` commodity on its origin endpoint; only
-`Nature` and `SEM` are pure raw/secondary boundary crossings with no `Flow` endpoint.
-_Avoid_: conflating `entity_sub` with **entity** (only `Process` | `Flow` | `SB`); and avoid
-"boundary type" as a loose synonym for it — that phrase is ambiguous between this `entity_sub` class
-(Nature/SEM/FD) and the **sector** of the SB node (`CO`, `Slag`, `FU`, …, the finer per-commodity
-grain), so name the grain you mean.
+**System-boundary category (`entity_sub` on SB nodes)** — the sub-classification carried by every `SB`
+node, naming *what kind* of boundary crossing it is. In the copper model: `Nature` (primary extraction
+entering the system — crude ore, `CO`), `FD` (final demand leaving the system — the final-demand
+categories `FU` / `MESC` / `USC`), `SEM` (secondary / residual material — `Scrap` recycling inputs, the
+`Slag` / `Tailings` / `WR` residual outputs, and `PSC`, the producer stock-change leg). `entity_sub` is
+meaningful only on `SB` nodes (`Flow` / `Process` nodes leave it empty). It is the case's **label**; the
+library reads the boundary **role** bound to it (see Role). _Avoid_: conflating `entity_sub` with
+**entity** (only `Process` | `Flow` | `SB`); and avoid "boundary type" as a loose synonym for it.
 
-**Satellite flow** — an edge of the accounting structure that carries a calculated value but is
-excluded from its source node's mass balance by the `massbal_scope` mask (acc `masks.csv`). In
-copper: `Mining → WR` (waste rock), mass `k·Ore` from the stripping ratio, copper content zero; its
-mass enters Mining from nature without an input edge (unused extraction lies outside the crude-ore
-feed), so the reported PSUT does not balance Mining in gross mass by exactly the waste rock. See
-[ADR 0038](docs/adr/0038-waste-rock-is-a-satellite-mass-flow.md). _Avoid_: "residual output" (a
-residual output closes its node's balance; a satellite never does) and "slack".
+**Satellite flow** — an edge of the accounting structure that carries a calculated value but is excluded
+from its source node's mass balance by the `massbal_scope` mask. See [ADR
+0038](docs/adr/0038-waste-rock-is-a-satellite-mass-flow.md). _Avoid_: "residual output" (a residual
+output closes its node's balance; a satellite never does) and "slack".
 
 ## Coverage & val vocabulary
 
@@ -505,26 +443,16 @@ residual output closes its node's balance; a satellite never does) and "slack".
 Every root edge has one (imputation fills all NaN), so "having a val" alone says nothing
 about data quality — see **val-coverage**.
 
-**val-coverage** (reported as the `val_pct` column of the stats/coverage diagnostics) —
-the relative number of edges in a subset that carry a **real** val, where "real" follows
-the imputation-log *method* rule (`has_val`): flat-prior / `flat_prior_noisy_zero` default
-fills are **not** real; observed values — *including a genuine `0.0`* — and
-fan / time / parametric / formula / **network** (including a bounds-**clipped** fill, below)
-imputations **are**. _Avoid_: deciding val-coverage from `f == 0` — a flat-prior fill is `0`
-but so is a real observed zero (and a clipped-to-0 network fill), and the three are
-distinguished by the log method, not the magnitude.
+**val-coverage** — the relative number of edges in a subset that carry a **real** val, where "real"
+follows the imputation-log *method* rule (`has_val`): flat-prior / `flat_prior_noisy_zero` default fills
+are **not** real; observed values — *including a genuine `0.0`* — and fan / time / parametric / formula /
+**network** (including a bounds-**clipped** fill, below) imputations **are**. _Avoid_: deciding
+val-coverage from `f == 0` — a flat-prior fill is `0` but so is a real observed zero.
 
-**Bounds-clip (in-imputer) — `network_*_clipped` fill.** The NetworkImputer floors every
-fill to the edge's `[lower, upper]` bounds **before** it propagates through the recipe/
-balance fixpoint, so a negative residual (e.g. `Ore→SXEW = Mining→Ore − Ore→MF` in a region
-with little/no SXEW) cannot cascade and drag downstream sums below their true values. The
-clipped value is a **saturated estimate**, not a precise bound: σ is widened to the clip gap
-and the fill is tagged `network_*_clipped`. A clipped network fill still **counts as real
-val-coverage** — it is a network inference, and its low confidence lives in the widened σ,
-not in coverage. _Distinct from_: (1) the engine's **post-return bounds clip**
-([impute/engine.py](src/pysuto/impute/engine.py)) which warns + clips *any* imputer's
-out-of-bounds fill — the in-imputer clip makes it a no-op for network fills; (2) the **σ-cap**
-(`_capped`, the `cv_cap` ceiling on σ — caps the *uncertainty*, not the value).
+**Bounds-clip (in-imputer) — `network_*_clipped` fill.** The NetworkImputer floors every fill to the
+edge's `[lower, upper]` bounds **before** it propagates through the recipe/balance fixpoint. The clipped
+value is a **saturated estimate**, not a precise bound: σ is widened to the clip gap and the fill is
+tagged `network_*_clipped`. A clipped network fill still **counts as real val-coverage**.
 
 **Coverage** (glossary, the `agg_result.coverage` boolean) — *did any feed observe this
 edge?* — a **pre-imputation** notion, strictly **narrower** than val-coverage: it credits
@@ -532,17 +460,11 @@ edge?* — a **pre-imputation** notion, strictly **narrower** than val-coverage:
 column is `val_pct` (not `coverage_pct`) precisely because val-coverage also credits
 non-flat-prior imputations that feed-`Coverage` excludes.
 
-**Observed zero** — an edge a feed reports at exactly 0 with a σ > 0 (the feed result's
-`observed_zero` mask): covered, so no imputer fills it, and any flow the solver puts on it is
-priced. The ICSG feed gives one to a **non-producer**'s domestic concentrate leg at
-trade-share weight 0, priced like the **net-stock seed** on the usage its fans distribute, and to
-its own SX-EW output where ICSG reports none and no other input reports SX-EW there, priced at
-ICSG's reporting resolution
-([ADR 0024](docs/adr/0024-fan-domestic-leg-bounded-by-own-production.md) amendments). A zero weight
-in a producer, where imports exceed usage, is a residual, not an observation, and stays imputable. Distinct from
-an uncovered edge (no feed observed it; NaN in Stage 2) and from the net-stock seed (a prior no
-feed reports). _Avoid_: "fed zero"; "zero pin" (the `l = u = 0` bound on no-data edges,
-[ADR 0013](docs/adr/0013-no-data-flat-prior-anchor.md)).
+**Observed zero** — an edge a feed reports at exactly 0 with a σ > 0 (the feed result's `observed_zero`
+mask): covered, so no imputer fills it, and any flow the solver puts on it is priced. Distinct from an
+uncovered edge (no feed observed it; NaN in Stage 2) and from the net-stock seed (a prior no feed
+reports). _Avoid_: "fed zero"; "zero pin" (the `l = u = 0` bound on no-data edges, [ADR
+0013](docs/adr/0013-no-data-flat-prior-anchor.md)).
 
 **Non-producer** — a region-year ICSG covers whose own ICSG production of a product is 0: ICSG
 lists the region in some table, in some year, but reports none of that product for it that
@@ -559,17 +481,11 @@ set (a hub is a region whose trade the re-export netting re-attributes); "transi
 
 ## Defect, residual & violation vocabulary
 
-**a_prior (warm-start prior)** — the per-**period** prior mean the optimiser uses for year `t`.
-Under `prior_mode='warm'` (the `Solver` class default) it is genuinely the *previous* year's
-posterior, aligned by **edge template** `(from_id, to_id, valuation)` since each year occupies
-disjoint global columns: `a_prior(t0) = f_agg` (the cold seed), `a_prior(t) = a_post(t-1)` for
-`t > 0`. Under `prior_mode='cold'` every year uses its own cold seed `f_agg(t)`. Stored as the
-per-period cold seed on `ConstraintRun.timestep_data[t]["a_prior"]` and as the *actually-used*
-prior on `OptimResult.a_prior`; `ConstraintRun.a_prior_global` reconstructs the global cold
-prior. _Avoid_: reading `ConstraintRun.a0` as the per-year prior — `a0` is the legacy global
-(time-replicated) cold vector; the year's prior is `a_prior`. _Historical bug_: the block path
-once wrote the carry-forward into the same disjoint columns it read, so the warm chain was a
-silent no-op and every year fell back to `f_agg` — see [ADR 0009](docs/adr/0009-warm-start-prior-chain.md).
+**a_prior (warm-start prior)** — the per-**period** prior mean the optimiser uses for year `t`. Under
+`prior_mode='warm'` (the `Solver` class default) it is genuinely the *previous* year's posterior:
+`a_prior(t0) = f_agg` (the cold seed), `a_prior(t) = a_post(t-1)` for `t > 0`. Under `prior_mode='cold'`
+every year uses its own cold seed `f_agg(t)`. _Avoid_: reading `ConstraintRun.a0` as the per-year prior —
+`a0` is the legacy global (time-replicated) cold vector; the year's prior is `a_prior`.
 
 **Two warm-starts (not the same thing).** `prior_mode` (warm/cold) is the **modelling** prior
 above. The `reuse` argument of `QPBackend.solve` is a purely **numerical** warm-start —
@@ -577,22 +493,19 @@ above. The `reuse` argument of `QPBackend.solve` is a purely **numerical** warm-
 **parallel solve** factorises each period on its own. _Avoid_: conflating the two; the local
 that selects KKT reuse was historically also called `warm_start`.
 
-**Defect** — the per-**edge** prior departure `a* − a_prior` (solved value minus the warm-start
-prior, `a_prior` above). Plotted by SD-T-07 (the a-space rocket, `a_prior(t)` vs `a*`), ranked
-by **objective share** in SD-R-13 / SD-R-14 / SD-R-15a (the edge-defect family), and tabulated
-row-level by `SolverStatsDiagnostic` (`edges_<year>.csv`, columns `defect` / `defect_abs` / `z`).
-Its standardised form is `z = (a*−a_prior)/σ_a`. _Avoid_: calling the defect a "residual" — that
-term is reserved (below).
+**Defect** — the per-**edge** prior departure `a* − a_prior` (solved value minus the warm-start prior,
+`a_prior` above). Plotted by SD-T-07 (the a-space rocket, `a_prior(t)` vs `a*`), ranked by **objective
+share** in SD-R-13 / SD-R-14 / SD-R-15a (the edge-defect family), and tabulated row-level by
+`SolverStatsDiagnostic` (columns `defect` / `defect_abs` / `z`). Its standardised form is
+`z = (a*−a_prior)/σ_a`. _Avoid_: calling the defect a "residual" — that term is reserved (below).
 
-**Residual** — the per-**constraint-row** delta `G·a − c` (`OptimResult.residuals`; its hard
-mass-balance maximum per year is the middle panel of SD-R-11). Its feasible range depends on the
-row's cone: **≈ 0 on hard *equalities*** (`zero` cone — mass balance); **`≤ 0` on hard *bounds***
-(`nonneg` cone — ratio/flow bounds, since feasibility is `G·a ≤ c`), where a *negative* residual
-is healthy **slack** (distance below the limit), not a violation, and only a *positive* residual
-is a breach; **`= ε`, the slack, on a soft (free) row** (see `docs/architecture.md` Stage 4, "Standard form" → Cone order: `Gx − ε = c`).
-_Avoid_: (1) reading a large-negative residual on a `nonneg` bound as a violation — it is slack
-(a misread that once produced a phantom "inverted bound" diagnosis); (2) conflating with
-**defect** — residual is per-constraint, defect is per-edge.
+**Residual** — the per-**constraint-row** delta `G·a − c` (`OptimResult.residuals`). Its feasible range
+depends on the row's cone: **≈ 0 on hard *equalities*** (`zero` cone — mass balance); **`≤ 0` on hard
+*bounds*** (`nonneg` cone — ratio/flow bounds, since feasibility is `G·a ≤ c`), where a *negative*
+residual is healthy **slack** (distance below the limit), not a violation, and only a *positive* residual
+is a breach; **`= ε`, the slack, on a soft (free) row**. _Avoid_: (1) reading a large-negative residual
+on a `nonneg` bound as a violation — it is slack; (2) conflating with **defect** — residual is
+per-constraint, defect is per-edge.
 
 **Prior breach** — a hard row the prior does not satisfy: `|G·a_prior − c|` above the bind
 tolerance on a `zero` row, `G·a_prior − c` above it on a `nonneg` row. The solver has to move
@@ -600,17 +513,12 @@ flows to close it. A soft row has no breach — its disagreement with the prior 
 _Avoid_: "prior violation"; "infeasible prior" — the prior as a whole is never feasible, a breach is
 one row's.
 
-**Structural lower bound** — the per-edge `l` of the accounting structure (`acc.bounds.l`): 0 on
-every edge except the signed stock-change edges (`Cathode→USC`, `Cathode→MESC`, `CP→PSC`), whose
-`l` is −1e6. Since [ADR 0039](docs/adr/0039-flow-lower-bounds-are-enforced-in-the-qp.md) each
-`l = 0` enters the QP as one hard `nonneg` row `−a ≤ 0` (type `bound`, variant `lower`). A signed
-edge (`l < 0`) carries no **one-signed band**
+**Structural lower bound** — the per-edge `l` of the accounting structure (`acc.bounds.l`): 0 on every
+edge except the signed stock-change edges (`Cathode→USC`, `Cathode→MESC`, `CP→PSC`), which carry a
+negative `l`. Since [ADR 0039](docs/adr/0039-flow-lower-bounds-are-enforced-in-the-qp.md) each `l = 0`
+enters the QP as one hard `nonneg` row `−a ≤ 0`. A signed edge (`l < 0`) carries no **one-signed band**
 ([ADR 0041](docs/adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md)). _Avoid_:
-reading `ConstraintRun.l` as the structural bound — Stage 3 overwrites it with the prior box and the
-**zero pin** (`l = u = 0` on no-data edges, [ADR 0013](docs/adr/0013-no-data-flat-prior-anchor.md)),
-and those boxes, like every upper bound `u`, reach only the feasibility pre-check. Before ADR 0039
-no bound reached the QP, so `l ≤ a ≤ u` in older REPs and the README describes the probe, not the
-solve.
+reading `ConstraintRun.l` as the structural bound.
 
 **One-signed band** — a hard ratio band `bl·denom ≤ num ≤ bu·denom` whose lower ratio bound is
 ≥ 0 (or that has an upper bound alone): satisfiable for a negative pair only at zero, so on a
@@ -619,72 +527,44 @@ that spans zero (`bl < 0`, the stock bands) is sign-safe and stays hard
 ([ADR 0041](docs/adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md)).
 _Avoid_: "positive band", "non-negative band".
 
-**Forced vs discretionary deletion** — the split of a node's prior-to-posterior mass loss into the
-part no optimiser could have avoided and the part it chose. Copper leaves a mine node only as
-domestic smelter intake `U` or as export mass `X` times a grade the hard cone caps at 0.35, so
-`cap = 0.35·X + U` bounds its discharge and `Σ max(0, P − cap)` is **forced** — arithmetic, not
-optimisation. The remainder is **discretionary**: the solver could have kept it and priced the
-disagreement elsewhere. The distinction says which lever can move a number: σ, anchor placement
-and pricing reach only the discretionary part, while the forced part moves only when `X`, `U` or
-`P` themselves change ([ADR 0029](docs/adr/0029-the-concentrate-grade-stays-global.md)). _Avoid_:
-reading a forced term as a defect to be relieved. Where `P` is phantom — production the source
-never had — deleting it is the *correct* answer, and the repair is to remove the input rather than
-loosen the constraint
-([ADR 0035](docs/adr/0035-the-yearbooks-label-is-not-on-the-row-it-owns.md)). _Avoid_ also: reading
-a forced term larger than the realised deletion as a contradiction — `cap` is evaluated at
-prior-level intake, and a region that substitutes scrap or imported anode escapes a ceiling the
-formula cannot see.
+**Forced vs discretionary deletion** — the split of a node's prior-to-posterior mass loss into the part
+no optimiser could have avoided and the part it chose. Copper leaves a mine node only as domestic smelter
+intake `U` or as export mass `X` times a grade the hard cone caps, so `cap = g·X + U` (`g` the grade cap)
+bounds its discharge and `Σ max(0, P − cap)` is **forced** — arithmetic, not optimisation. The remainder
+is **discretionary**: the solver could have kept it and priced the disagreement elsewhere. The
+distinction says which lever can move a number: σ, anchor placement and pricing reach only the
+discretionary part, while the forced part moves only when `X`, `U` or `P` themselves change ([ADR
+0029](docs/adr/0029-the-concentrate-grade-stays-global.md)). _Avoid_: reading a forced term as a defect
+to be relieved.
 
-**Constraint table (prior/post)** — the harmonised **row-level, all-rows** per-`constraint_id`
-table pair (hard + soft rows; `type` / `sense` columns carry the family for filtering):
-`constraints_prior_<year>.csv` at the constraint stage (`ConstStatsDiagnostic`) and
-`constraints_<year>.csv` at the solver stage (`SolverStatsDiagnostic`). **`lhs_prior` = G·a0**
-means the same thing in *both* files; **`lhs_post` = c_star = G·a*** exists only post-solve.
-`residual` / `z = residual/σ_c` (ranked by **objective share** in SD-R-13 / 14 / 15b-c) are the
-*stage's achieved* residual — `lhs_prior − c` at the constraint stage, `lhs_post − c` (= the slack
-`eps` on a soft row) at the solver stage; `z` is NaN on hard rows (`σ_c = 0`). _Avoid_: reading a
-large `|z|` as a failure on its own — a soft row is *meant* to absorb disagreement; `|z|` just
-measures it in units of the row's tolerance `σ_c`. _Avoid_: reading the solver-stage `residual`
-on a **hard** row as the **residual** above — `c_star = c` there by construction, so the column
-is identically 0; the hard residual lives in `OptimResult.residuals` (frame column
-`resid_solver`). _Avoid_: an unqualified `lhs` column — the files qualify every LHS as
-`lhs_prior` / `lhs_post` so no column changes meaning between stages. _Note_: `ConstDiagnostic`
-plots the same prior quantity under the opposite sign (`eps0 = c − G·a0`); the table follows
-the reserved `G·a − c` sign.
+**Constraint table (prior/post)** — the harmonised **row-level, all-rows** per-`constraint_id` table pair
+(hard + soft rows; `type` / `sense` columns carry the family for filtering). **`lhs_prior` = G·a0** means
+the same thing in *both* files; **`lhs_post` = c_star = G·a*** exists only post-solve. `residual` /
+`z = residual/σ_c` are the *stage's achieved* residual. _Avoid_: reading the solver-stage `residual` on a
+**hard** row as the **residual** above — `c_star = c` there by construction, so the column is identically
+0.
 
-**Objective share** — one item's `z²` (an edge's defect or a soft row's residual, standardised)
-divided by the `Σz²` of its family or of the whole run. The QP objective *is* `Σz²` over edges plus
-soft rows, so the share is what that item cost the optimiser. Ranked per **identity** over all
-years by `SolverDiag` (SD-R-13 by sector key, SD-R-14 top identities, SD-R-15 z profiles) and
-tabulated in `ranking_<family>.csv`; three families: edge defects, sum-row residuals (`type =
-sum`, all soft), soft-ratio residuals (`type = ratio`, free cone). _Avoid_: "deviation" (say defect
-or residual), "violation" (a soft row is meant to absorb disagreement — see Constraint table),
-"fit". _Region share_: a region's share of one family's `Σz²`, tabulated per region and per
-region-year in `objective_share_by_region.csv`; an edge belongs to its region when both ends sit
-in it, a sum row to its `region`, a pair-scoped soft ratio to its numerator's region, and
-anything spanning regions (bilateral legs) or naming none (world totals) to the bucket `multi`.
+**Objective share** — one item's `z²` (an edge's defect or a soft row's residual, standardised) divided
+by the `Σz²` of its family or of the whole run. The QP objective *is* `Σz²` over edges plus soft rows, so
+the share is what that item cost the optimiser. Ranked per **identity** over all years by `SolverDiag`.
+_Avoid_: "deviation" (say defect or residual), "violation" (a soft row is meant to absorb disagreement —
+see Constraint table), "fit".
 
 **Objective decomposition** — the per-year split of `Σz²` into the three families, drawn with the
 max hard mass-balance `|G·a* − c|` (SD-R-11). _Avoid_: reading the Clarabel `objective` in the opt
 sidecar as this quantity — it is `½xᵀPx + qᵀx` without the constant term and is negative.
 
-**Identity (cross-year)** — the key under which one edge or one constraint row recurs across
-years. For an edge: the **edge template** `(from_id, to_id, valuation)`. For a row: the tuple of
-its `row_meta` columns other than `constraint_id` and `time` — `(variant, sector, region,
-valuation, …)` node-scoped, the `num_*`/`denom_*` endpoints pair-scoped, `(variant, region,
-valuation)` set-scoped, with `sense`/`bound_dir` telling a pair's soft row from its two band
-rows. Always read from columns; a row whose columns do not single it out within its year has no
-identity (it still counts in every total). _Avoid_: stripping the year off a `constraint_id` (see
-`constraint_id`: a key for reading, never parsing).
+**Identity (cross-year)** — the key under which one edge or one constraint row recurs across years. For
+an edge: the **edge template** `(from_id, to_id, valuation)`. For a row: the tuple of its `row_meta`
+columns other than `constraint_id` and `time`. Always read from columns; a row whose columns do not
+single it out within its year has no identity (it still counts in every total). _Avoid_: stripping the
+year off a `constraint_id` (see `constraint_id`: a key for reading, never parsing).
 
-**Retention** — the share `Σa* / Σa_prior` computed **by category**: the posterior sum over the
-edges of one category in one year (a sector, a node, a region, an SB class — always name the
-category) divided by the prior sum over the same edges. It is a dimensionless share of the prior
-mass: `1` keeps the prior scale, `< 1` is deletion, `> 1` inflation (second row of SD-R-08 / 09 /
-10, per sector and year). The complement of the deletion in **forced vs discretionary deletion**.
-_Avoid_: "adaptation", "recovery", "survival"; a retention quoted without its category and year;
-a retention on a signed category whose prior sum is near zero (`MESC` / `USC` / `PSC`) — the ratio
-is undefined there, so quote the mass moved `Σ|a* − a_prior|` beside it.
+**Retention** — the share `Σa* / Σa_prior` computed **by category**: the posterior sum over the edges of
+one category in one year divided by the prior sum over the same edges. It is a dimensionless share of the
+prior mass: `1` keeps the prior scale, `< 1` is deletion, `> 1` inflation. The complement of the deletion
+in **forced vs discretionary deletion**. _Avoid_: "adaptation", "recovery", "survival"; a retention
+quoted without its category and year; a retention on a signed category whose prior sum is near zero.
 
 **Category** — the pooling set of a per-category table: one sector pair in one valuation,
 labelled `sector_from→sector_to valuation` (`Scrap→CFR CC`), as the sweep's category tables, the
@@ -699,13 +579,12 @@ category and window (e.g. Scrap→CFR CC, 1995–2024).
 _Avoid_: a pooled retention quoted without its window; "average retention" (it is not a mean of
 the yearly ratios); a pooled retention on a signed category.
 
-**Posterior contraction (`κ`)** — the share of an edge's prior variance the constraints remove in
-one year, `κ = 1 − σ_a*² / σ_a²`: `0` leaves the prior uncertainty untouched, `1` pins the edge. It
-depends on `G`, `σ_a` and `σ_c` and, through the QP's active set at `a*` (which rows bind, which
-lower bounds pin their edge), on `a*`; given that active set it does not depend on `c`, so it measures how informative the
-constraints are, not whether they agree with the prior — that is the **defect**'s `z`.
-_Avoid_: "shrinkage" (in statistics, the pull of an estimate toward the prior mean — our defect),
-"variance reduction", "information gain".
+**Posterior contraction (`κ`)** — the share of an edge's prior variance the constraints remove in one
+year, `κ = 1 − σ_a*² / σ_a²`: `0` leaves the prior uncertainty untouched, `1` pins the edge. It depends
+on `G`, `σ_a` and `σ_c` and, through the QP's active set at `a*` (which rows bind, which lower bounds pin
+their edge), on `a*`; given that active set it does not depend on `c`, so it measures how informative the
+constraints are, not whether they agree with the prior — that is the **defect**'s `z`. _Avoid_:
+"shrinkage", "variance reduction", "information gain".
 
 **Trace contraction** — the run-level contraction of one year, `1 − Σσ_a*² / Σσ_a²` over that
 year's edges: a variance-weighted mean of `κ`, so a few flat-σ edges dominate it.
@@ -732,17 +611,16 @@ _Avoid_: "observed" vs "modelled" — an imputed prior also derives from data.
 _Avoid_: "raw" for the feed-covered share — a network fill also carries feed totals; "provenance"
 for a run's lineage — that is the **Sidecar**'s record.
 
-**Prior-carried / confirmed / overruled / unexplained move** — the four quadrants of an edge-year
-in posterior contraction `κ` and standardised defect `z`, cut at `κ = 0.5` and `|z| = 3`:
-prior-carried (`κ < 0.5`, `|z| ≤ 3`), confirmed (`κ ≥ 0.5`, `|z| ≤ 3`), overruled (`κ ≥ 0.5`,
-`|z| > 3`, a prior–data conflict) and unexplained move (`κ < 0.5`, `|z| > 3`, moved uninformed).
-_Avoid_: "unidentified" for prior-carried — the edge has a value, only no new information.
+**Prior-carried / confirmed / overruled / unexplained move** — the four quadrants of an edge-year in
+posterior contraction `κ` and standardised defect `z`, cut at `KAPPA_CUT` and `Z_CUT`: prior-carried
+(`κ < KAPPA_CUT`, `|z| ≤ Z_CUT`), confirmed (`κ ≥ KAPPA_CUT`, `|z| ≤ Z_CUT`), overruled (`κ ≥ KAPPA_CUT`,
+`|z| > Z_CUT`, a prior–data conflict) and unexplained move (`κ < KAPPA_CUT`, `|z| > Z_CUT`, moved
+uninformed). _Avoid_: "unidentified" for prior-carried — the edge has a value, only no new information.
 
-**Standardised shift (`z/√κ`)** — an edge-year's defect `z` over `√κ`: N(0, 1) under the
-active-set linearisation when σ is right, read only on edge-years that are not bound-active, have
-`κ ≥ 0.01` and are not flat. Its **tail share** is the share beyond `|z/√κ| = 3` (0.27 % under
-N(0, 1)).
-_Avoid_: "pull", "normalised residual".
+**Standardised shift (`z/√κ`)** — an edge-year's defect `z` over `√κ`: N(0, 1) under the active-set
+linearisation when σ is right, read only on edge-years that are not bound-active, have
+`κ ≥ CALIB_KAPPA_MIN` and are not flat. Its **tail share** is the share beyond `|z/√κ| = Z_CUT`
+(`CALIB_EXPECTED_SHARE` under N(0, 1)). _Avoid_: "pull", "normalised residual".
 
 **Flagged ambiguity — "standardised".** The **standardised defect** `z = (a* − a_prior)/σ_a` is
 scaled by the prior σ and shrinks toward 0 as `κ → 0`; the **standardised shift** `z/√κ` is scaled
@@ -770,28 +648,22 @@ intervals.
 
 ## Stock-change vocabulary
 
-**Stock-change leg** — one of the three signed edges of the account: `Cathode→USC`,
-`Cathode→MESC` and `CP→PSC`, each a net addition to a stock (negative = a draw-down), structural
-lower bound −1e6. No one-signed hard band sits on it. For `USC` / `MESC` the prior is a reported
-value or the **net-stock seed** and no imputer writes it; for `PSC` an unreported year is still the
-recipe's eff-less `0`, priced at `± 0.3 kt` since #36 (to be measured; a seed at 1 % of `CP→Cathode`
-was rejected on measurement,
-[ADR 0041](docs/adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md)).
-_Avoid_: "stock leg", "stock edge", "Δstock edge".
+**Stock-change leg** — one of the three signed edges of the account: `Cathode→USC`, `Cathode→MESC` and
+`CP→PSC`, each a net addition to a stock (negative = a draw-down). No one-signed hard band sits on it.
+For `USC` / `MESC` the prior is a reported value or the **net-stock seed** and no imputer writes it; for
+`PSC` an unreported year is still the recipe's eff-less `0` ([ADR
+0041](docs/adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md)). _Avoid_: "stock leg",
+"stock edge", "Δstock edge".
 
-**Exchange location** — a region in which ICSG reports exchange stocks: the LME warehouse
-countries by location, COMEX as the United States, SHFE as China (16 regions in the feed). It is
-the destination of a `Cathode(i)→MESC(j)` leg, not a property of the origin. _Avoid_: "hub"
-(reserved for the merchant / re-export hubs of [ADR 0027](docs/adr/0027-re-exports-are-re-attributed-at-feed-time.md)),
-"warehouse region".
+**Exchange location** — a region in which ICSG reports exchange stocks: the LME warehouse countries by
+location, COMEX as the United States, SHFE as China. It is the destination of a `Cathode(i)→MESC(j)` leg,
+not a property of the origin. _Avoid_: "hub" (reserved for the merchant / re-export hubs of [ADR
+0027](docs/adr/0027-re-exports-are-re-attributed-at-feed-time.md)), "warehouse region".
 
-**Net-stock seed** — the prior of a `MESC` / `USC` leg that no feed reports: value 0, held there
-with `σ = max(0.01·|co-located Cathode(i)→FU(j) flow|, 0.3 kt)` — the same pricing as a
-feed-backed level ([ADR 0040](docs/adr/0040-stock-change-legs-are-held-at-their-prior.md)). A
-`MESC` / `USC` leg's prior is a reported value or this seed; no imputer manufactures one. The same
-seed on `PSC`, priced at 1 % of the region's `CP→Cathode`, was a sink (272 kt/yr absorbed) and is
-rejected on measurement ([ADR 0041](docs/adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md)).
-_Avoid_: reading a seeded 0 as a reported zero; "throughput-scaled band" (the retired p95 pricing).
+**Net-stock seed** — the prior of a `MESC` / `USC` leg that no feed reports: value 0, held there (priced
+as a feed-backed level, [ADR 0040](docs/adr/0040-stock-change-legs-are-held-at-their-prior.md)). A `MESC`
+/ `USC` leg's prior is a reported value or this seed; no imputer manufactures one. _Avoid_: reading a
+seeded 0 as a reported zero.
 
 **Supply-mix fan** — the split of a region's reported stock change over the origins of its
 stock-change legs, in proportion to the region's cathode supply: own production on the domestic
@@ -799,12 +671,11 @@ leg, each partner's cathode exports to it on the import legs
 ([ADR 0043](docs/adr/0043-a-stock-change-is-drawn-from-its-regions-cathode-supply.md)). _Avoid_:
 "domestic residual" (the flow fan's rule, ADR 0024), "imports first".
 
-**Sink** — an edge family whose σ makes its penalty negligible against the mass it can absorb, so
-a contradiction elsewhere discharges into it instead of surfacing as `z` where it belongs. The
-signed stock legs are the structural candidates (they alone may be negative, ADR 0039); the
-exchange-location `MESC` legs at σ ≈ 553 kt were one (Round X). Relates to **forced vs
-discretionary deletion**: a sink converts a forced contradiction into a discretionary move.
-_Avoid_: "slack" (the soft-row residual), "buffer".
+**Sink** — an edge family whose σ makes its penalty negligible against the mass it can absorb, so a
+contradiction elsewhere discharges into it instead of surfacing as `z` where it belongs. The signed stock
+legs are the structural candidates (they alone may be negative, ADR 0039). Relates to **forced vs
+discretionary deletion**: a sink converts a forced contradiction into a discretionary move. _Avoid_:
+"slack" (the soft-row residual), "buffer".
 
 **Stock level** — the end-of-period quantity ICSG reports for a region and one stock type
 (producers, consumers, merchants, government, or an exchange). It never enters the account
@@ -823,70 +694,32 @@ change" for the quantity (ambiguous with the leg), a difference across vintages 
 mass (tonnes of the commodity as traded/handled). **`CC`** (*copper content*) is the contained-copper
 mass (tonnes Cu). They are linked per sector by the **concentration coefficient**.
 
-**Concentration coefficient (`conc`).** The Cu mass fraction of a sector's commodity (e.g. Cathode
-0.9975, Anode 0.94, Matte 0.525, Concentrate 0.275; from the `conc` param). The `conc_<sector>_supply`
-relation enforces `CC = conc · Mass` on each node pair, so the two valuations of one edge are not
-independent. The param's `value_nominal` drives the **soft** `CC = conc·Mass` ratio row; its
-`[value_min, value_max]` drives a **hard grade band** `value_min ≤ CC/Mass ≤ value_max`
-(`ratio`/`nonneg`). **Invariant: each commodity carries exactly one such band** — `Scrap` is one
-mixed-grade commodity with a single wide band `[0.40, 0.98]`, nominal 0.70, *not* two grade classes
-(two simultaneous hard bands on the one `Scrap/SB` node intersected to ∅ and collapsed all scrap;
-[ADR 0012](docs/adr/0012-scrap-one-mixed-grade-commodity.md)). _Avoid_: reading the `conc_*_supply`
-z-violation as a "bug" — it fires whenever the two feeds populating the CC and Mass sides of an edge
-disagree.
+**Concentration coefficient (`conc`).** The Cu mass fraction of a sector's commodity. The param's
+`value_nominal` drives the **soft** `CC = conc·Mass` ratio row; its `[value_min, value_max]` drives a
+**hard grade band** `value_min ≤ CC/Mass ≤ value_max` (`ratio`/`nonneg`). **Invariant: each commodity
+carries exactly one such band** ([ADR 0012](docs/adr/0012-scrap-one-mixed-grade-commodity.md)). _Avoid_:
+reading the `conc_*_supply` z-violation as a "bug" — it fires whenever the two feeds populating the CC
+and Mass sides of an edge disagree.
 
-**Smelter scrap · direct-to-refinery scrap.** The model's two `Scrap` inflows, named by where the
-scrap enters: **smelter scrap** feeds `Smelting` with the primary concentrate and leaves as matte;
-**direct-to-refinery scrap** feeds `CFR` with the matte and leaves as anode. ICSG reports two
-*output* classifications — **secondary smelter production** (blister/anode made from scrap) and
-**secondary refined production** (refined copper made from scrap by *either* route) — and the
-second contains the first. Direct-to-refinery scrap is therefore secondary refined *minus* the
-smelter route; in fifteen countries the two published figures are identical and the direct route
-is nil. It is also minus any imported anode the region refines beyond its primary output, which
-enters as anode trade (Austria, #63). **Direct melt** — scrap fabricators use without refining — is a third quantity, outside
-this model's boundary ([ADR 0030](docs/adr/0030-secondary-smelter-copper-enters-the-chain-once.md)).
-Since [ADR 0031](docs/adr/0031-icsg-scrap-series-anchor-their-level-not-only-their-share.md) both
-inflows are stated to the model **twice**: as a **level** (a scrap level anchor, where ICSG reports
-one) and as a **share** (the `scrap_share` band, every region). Before it only the share existed.
-_Avoid_: booking secondary refined production as a second inflow beside smelter scrap (the copper
-enters twice, and the anode anchor discharges the surplus by deleting concentrate); reading
-"secondary" as the model's SEM input class when ICSG means an output classification.
+**Smelter scrap · direct-to-refinery scrap.** The model's two `Scrap` inflows, named by where the scrap
+enters: **smelter scrap** feeds `Smelting` with the primary concentrate and leaves as matte;
+**direct-to-refinery scrap** feeds `CFR` with the matte and leaves as anode. ICSG reports two *output*
+classifications — **secondary smelter production** and **secondary refined production** — and the second
+contains the first. Direct-to-refinery scrap is therefore secondary refined *minus* the smelter route.
+_Avoid_: booking secondary refined production as a second inflow beside smelter scrap.
 
 **Recovery efficiency (`eff`).** The copper-recovery fraction of a Process, in **`CC`** (from the `eff`
-param) — the sibling coefficient to `conc`. A process's recovered Flow product is `eff · Σ(all CC
-inputs)` in CC; the `(1 − eff)` complement is the residual that leaves as the **SEM** residual output.
-`eff` acts on the **sum of all CC inputs — primary plus the `Scrap` SEM-secondary** (Smelting/CFR
-consume Scrap, so `product = eff·(primary + scrap)`). Both the imputer prior and the `eff` **ratio
-constraint** now pool that *same* set, so there is no longer an `eff·Scrap` gap between them — see
-[ADR 0005](docs/adr/0005-pool-scrap-into-eff-constraint-and-stripping-ratio.md). The pooling is
-**declared explicitly in the eff params file** by the `agg` flag on the row (a reader sees it in the
-CSV), never inferred from code. The input-tier distinction is retained only for
-**NaN-propagation** in the imputer, *not* for what gets summed. There are **three** tiers (all pooled
-into `Σin`): **primary** (same-region Flow / SB-Nature inputs — a missing one *blocks* the forward
-fill while derivation is still possible; once the traversal has converged, a missing primary counts
-as 0 *provided ≥1 primary is known* — parallel technology routes such as CP's CER+CSXEW, where an
-underivable leg means the region lacks that route; a recipe with **no** known primary stays blocked,
-[ADR 0010 amendment](docs/adr/0010-trade-first-seeding-of-bilateral-flow-process-inputs.md));
-**SEM-secondary** (`Scrap` — missing counts as 0); and **bilateral-import** (cross-region
-`Flow→Process` legs — missing counts as 0, non-blocking, [ADR 0010](docs/adr/0010-trade-first-seeding-of-bilateral-flow-process-inputs.md)).
-The same cross-region-as-0 rule applies to the Flow-node balance (a missing cross-region leg is
-counted as 0, never written). _Avoid_: conflating `eff` (a CC recovery fraction) with `conc` (a
-Mass→CC fraction) — they are different coefficient families.
+param) — the sibling coefficient to `conc`. A process's recovered Flow product is
+`eff · Σ(all CC inputs)` in CC; the `(1 − eff)` complement is the residual that leaves as the **SEM**
+residual output. `eff` acts on the **sum of all CC inputs — primary plus the `Scrap` SEM-secondary**.
+_Avoid_: conflating `eff` (a CC recovery fraction) with `conc` (a Mass→CC fraction) — they are different
+coefficient families.
 
 **Process recipe.** A Process node viewed as a mass-closing transformation in CC: its **pooled inputs**
 (primary + `Scrap` secondary) → one **Flow product** (`eff·Σin`) + a **SEM residual output**
-(`(1−eff)·Σin`). The unit of reasoning for the network-traversal imputer
-([ADR 0004](docs/adr/0004-process-recipe-traversal-imputer.md)). **Mining and `CP` are the
-exceptions**: Mining has *no* `eff` row (eff defaults to 1.0, so CC is conserved CO→Ore) and its
-`WR` satellite output follows the **stripping ratio** (below) on Mass
-(`WR_Mass = stripping_ratio·Ore_Mass`), not the generic `(1−eff)·Σin` SEM-residual rule; `CP` has no `eff` row either, so the recipe writes
-its SEM output `PSC` — a **stock-change leg**, not a residual — as `0` on every unreported
-region-year, at `σ 0.3 kt` rather than the hidden hard pin `0 ± 0` it was until #36 (to be measured;
-[ADR 0041](docs/adr/0041-signed-edges-carry-no-one-signed-hard-band-and-are-seeded.md)).
-_Avoid_: confusing the recipe's **SEM residual-output** (Slag / Tailings / WR, reached via a
-*supply* edge; `PSC` shares the `entity_sub` but is a stock-change leg) with a **SEM secondary
-input** (Scrap, reached via a *use* edge) — both carry `entity_sub == "SEM"`, and only the edge
-direction distinguishes the two roles.
+(`(1−eff)·Σin`). The unit of reasoning for the network-traversal imputer ([ADR
+0004](docs/adr/0004-process-recipe-traversal-imputer.md)). _Avoid_: confusing the recipe's **SEM
+residual-output** with a **SEM secondary input**.
 
 **Stripping ratio (`stripping_ratio`).** The mass of waste rock (`WR`) stripped per unit of `Ore`
 extracted at a Mining process — `WR_Mass = stripping_ratio · Ore_Mass`, a **Mass→Mass** ratio between
@@ -901,153 +734,85 @@ attributed mass is *smaller than the physical ore mined*. `Ore`/`CO` Mass edges 
 allocated mass, and everything derived per unit of it (grade, waste rock) inherits the basis.
 _Avoid_: comparing it to physically mined/milled tonnages.
 
-**Recovered vs in-situ grade.** Two grade notions per region-year: **recovered grade** = metal
-produced ÷ allocated ore (`1/factor`, the raw S&P number); **in-situ grade** = copper contained in
-the mill feed ÷ allocated ore = recovered ÷ recovery-`eff`. The model's `CO`/`Ore` **CC edges are
-in-situ** (production ÷ eff, matching the recipe's `(1−eff)` Tailings copper), so their grade
-rows use the **in-situ** value — region×year-resolved, owned by the `ore_grade` params, not the
-global `conc` family
-([ADR 0015](docs/adr/0015-in-situ-ore-grades-on-allocated-ore-basis.md)). The same artifact also
-owns the region×year×route **tailings** conc (`(1−eff)` recipe copper over the process
-Mass-balance residual, per MF/SXEW route — ADR 0015 amendment); the global `conctailingsuse`
-row is retired. On the allocated basis
-these are *not* physical mill-head grades (Australia ~2–3 % vs ~0.8 % head grade). _Avoid_:
-applying a recovered-basis grade to an in-situ edge (a systematic 1/eff error), or citing these
-grades against literature head grades without converting.
+**Recovered vs in-situ grade.** Two grade notions per region-year: **recovered grade** = metal produced ÷
+allocated ore; **in-situ grade** = copper contained in the mill feed ÷ allocated ore = recovered ÷
+recovery-`eff`. The model's `CO`/`Ore` **CC edges are in-situ**, so their grade rows use the **in-situ**
+value ([ADR 0015](docs/adr/0015-in-situ-ore-grades-on-allocated-ore-basis.md)). _Avoid_: applying a
+recovered-basis grade to an in-situ edge.
 
 **Concentrate grade.** The Cu mass fraction of copper concentrate — the `Concentrate` case of the
-concentration coefficient, one **global** row (0.275, band [0.20, 0.35]). Unlike an **in-situ ore
-grade** it is a *direct assay*: no allocation basis, no `eff` division, so it may be read against
-industry figures (20–35 % Cu) as it stands. It is deliberately **not** region-resolved the way ore
-grades are: measured over the region-years whose books are physically possible, the between-region
-spread is 0.0117 against the 0.0375 σ the single row already declares, and the residual that looks
-like a regional grade is a gap in the recorded export **mass**
-([ADR 0029](docs/adr/0029-the-concentrate-grade-stays-global.md)). _Avoid_: reading a region's
-implied `(P−U)/X` as its grade — where export mass is under-recorded that ratio absorbs the missing
-tonnage and returns values (0.6–0.9, and negatives elsewhere) that are not grades at all.
+concentration coefficient, one **global** row. Unlike an **in-situ ore grade** it is a *direct assay*: no
+allocation basis, no `eff` division, so it may be read against industry figures as it stands. It is
+deliberately **not** region-resolved the way ore grades are ([ADR
+0029](docs/adr/0029-the-concentrate-grade-stays-global.md)). _Avoid_: reading a region's implied
+`(P−U)/X` as its grade.
 
 **Grade band vs grade σ.** A `conc`-family params row's `value_min`/`value_max` are read **twice**:
-as a **hard cone** by `RatioBoundBuilder` (`value_min·Mass ≤ CC ≤ value_max·Mass`, per edge per
-year — a physical plausibility limit, no slack) and, when `unc_type = "min_max"`, as the **σ** of the
-*soft* ratio row via `ParamRow.sigma` — which also sets the parametric fill's prior and the
-`NetworkImputer` twin-map σ. Those are two different statements, and conflating them means changing
-a limit silently re-prices three things. The `ore_grade` grade rows therefore carry
-`unc_type = "sd"` with an explicit `value_sd` (ADR 0028); tailings rows still use `min_max`. The
-other `unc_type` mode is `pedigree` (σ = nominal · Laner total CV). _Avoid_: calling the band "the
-σ" — a band is the wall, σ is the price of approaching it; and narrowing a `min_max` band when you
-only meant to move the wall.
+as a **hard cone** by `RatioBoundBuilder` (`value_min·Mass ≤ CC ≤ value_max·Mass`, per edge per year — a
+physical plausibility limit, no slack) and, when `unc_type = "min_max"`, as the **σ** of the *soft* ratio
+row via `ParamRow.sigma` — which also sets the parametric fill's prior and the `NetworkImputer` twin-map
+σ. Those are two different statements, and conflating them means changing a limit silently re-prices
+three things. _Avoid_: calling the band "the σ" — a band is the wall, σ is the price of approaching it.
 
-**Relative ratio σ (`σ_r`).** The σ of a soft ratio row as a fraction of its ratio, `σ_r = σ/|r|`,
-where `σ` is the params row's stated σ in **ratio units** (`value_sd`, or `(value_max − value_min)/4`)
-and `r` its `value_nominal`. `RATIO_SIGMA_REL_FLOOR` floors it and the row's flow scale multiplies
-it, `σ_c = max(σ_r, floor)·max(Σ|a₀,num|, |r|·Σ|a₀,denom|, RATIO_SCALE_ABS_FLOOR)`, which at a prior
-on the ratio is `σ·Σ|a₀,denom|`. The imputers read `σ` itself, and net-stock rows (`r = 0`) scale
-`σ` off the throughput alone. _Avoid_: calling `value_sd` a CV; quoting a ratio row's σ without
-saying which of the two it is.
+**Relative ratio σ (`σ_r`).** The σ of a soft ratio row as a fraction of its ratio, `σ_r = σ/|r|`, where
+`σ` is the params row's stated σ in **ratio units** (`value_sd`, or `(value_max − value_min)/4`) and `r`
+its `value_nominal`. `RATIO_SIGMA_REL_FLOOR` floors it and the row's flow scale multiplies it. _Avoid_:
+calling `value_sd` a CV; quoting a ratio row's σ without saying which of the two it is.
 
-**Grade carried past the ore feed.** The `crude_ore` feed ends before ICSG production does
-(2022 vs 2024). For a region-year with production but no ore mass the `ore_grade` generator
-carries the region's **last observed in-situ grade** forward (`src=carry`, band ±20 % instead
-of ±10 %); the NetworkImputer then derives the whole `CO→Mining→Ore→…` Mass chain from that
-year's production through the grade, and the scale totals and grade rows follow on their own.
-**The assumption is on the grade, never on the mass**: ore mass tracks production
-([ADR 0023](docs/adr/0023-ore-grade-carried-past-the-crude-ore-feed.md)). _Avoid_: carrying
-the ore Mass itself (holds tonnage flat whatever was produced, and disagrees with the grade), or
-running any Mass extrapolator *after* the network cascade (fills the boundary leg only, leaves
-the chain behind it at flat-prior zero and drops its anchor rows).
+**Grade carried past the ore feed.** The `crude_ore` feed ends before ICSG production does. For a
+region-year with production but no ore mass the `ore_grade` generator carries the region's **last
+observed in-situ grade** forward. **The assumption is on the grade, never on the mass**: ore mass tracks
+production ([ADR 0023](docs/adr/0023-ore-grade-carried-past-the-crude-ore-feed.md)). _Avoid_: carrying
+the ore Mass itself (holds tonnage flat whatever was produced, and disagrees with the grade).
 
-**⚠ The grades in use are internal, not external.** Every `ore_grade` row the model consumes is
-*derived* from ICSG production and crude_ore allocated mass (ADR 0015). The **external** S&P
-factor series (`data/input/params/ore_grade/current/all_integrated_est_fac_2024-07-04.csv`, the
-basis of `ore_grade` **v1** from 2026-05) enters only as a fallback where ICSG production is
-absent (129 rows) — even though it carries real 2023 values for every region the carry-forward
-touches. Measured 2026-09-10: its *level* differs from the internal grade by up to ±8 % at the
-2022/2023 seam (Mexico +7.6 %, Russia +6.0 %, Chile −2.7 %), its year-on-year *trend* by
-< 0.5 %. Using that trend for carried years (`g(t) = g(t−1)·factor(t−1)/factor(t)`) is an open,
-sub-percent option recorded in ADR 0023; using its level would reintroduce the basis jump
-ADR 0015 removed. _Avoid_: describing the ore-grade series as external data, or comparing it to
-the S&P factor without converting bases (`1/factor` is recovered-basis, the model is in-situ).
+**⚠ The grades in use are internal, not external.** Every `ore_grade` row the model consumes is *derived*
+from ICSG production and crude_ore allocated mass (ADR 0015). The **external** S&P factor series enters
+only as a fallback where ICSG production is absent; using its level would reintroduce the basis jump ADR
+0015 removed. _Avoid_: describing the ore-grade series as external data.
 
 **Feed semantics — ICSG vs BACI.** **ICSG** publishes production/usage statistics in **copper content
 (`CC`)**; its `Use` rows are **single-endpoint** (consumer known, producer open) ⇒ producer **fan-out**.
-**BACI** publishes **bilateral gross trade** in **`Mass`** (fully classified X→Y; no self-trade rows *at
-source* — but region folding creates **mapped self-trade** at root, so the feed is scoped to
-cross-region edges and never informs a domestic leg,
-[ADR 0014](docs/adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)). On a trade edge the ICSG-CC
-value is therefore a *fan artifact* and the BACI-Mass value is the real observation — for a leg the
-**re-export** netting did not change; a re-attributed leg is part observation, part inference, and carries
-the compounded σ ADR 0027 defines. _Avoid_: treating a
-per-edge ICSG-CC trade value as a measurement — it is the national usage split across producers by the
-fan weights.
+**BACI** publishes **bilateral gross trade** in **`Mass`**. On a trade edge the ICSG-CC value is
+therefore a *fan artifact* and the BACI-Mass value is the real observation — for a leg the **re-export**
+netting did not change. _Avoid_: treating a per-edge ICSG-CC trade value as a measurement.
 
 **Trade-share fan weighting** ([ADR 0002](docs/adr/0002-single-endpoint-rows-fan-out-not-replicate.md)
-option D) — weighting ICSG's producer fan by BACI bilateral import shares instead of uniformly, so ICSG-CC
-inherits BACI's geography. Since [ADR 0027](docs/adr/0027-re-exports-are-re-attributed-at-feed-time.md)
-those shares are read from the **netted** BACI version, and a group whose imports the netting exhausted is
-**withheld** (left undistributed) rather than fanned all-domestic: its `Σ imports = 0` is constructed, not
-observed, so ADR 0018's condition does not hold. The domestic leg (X==Y) carries the residual `usage − Σ imports` (in CC units);
-the split is computed in copper content via `conc`. Applies only to the four **traded** ICSG-fanned
-sectors — Cathode, Concentrate, Anode, Matte. The residual also governs the **import-free** case: where
-BACI *observes* the consumer region (records any cross-region import into it; BACI 490 "Other Asia, nes"
-counts as Taiwan, [ADR 0014](docs/adr/0014-bilateral-feeds-scoped-to-cross-region-edges.md)),
-`Σ imports = 0` is a real observation of domestic sourcing and the residual `usage − 0 = usage` gives an
-all-domestic fan ([ADR 0018](docs/adr/0018-import-free-fans-distribute-domestically.md)); where BACI is
-blind, zero imports carries no information and the fan stays undistributed. **The domestic leg is
-bounded by the region's own production** of the product for the sectors in
-`BOUND_DOMESTIC_SECTORS` (Concentrate; [ADR 0024](docs/adr/0024-fan-domestic-leg-bounded-by-own-production.md)):
-where the residual exceeds what the region produced, the excess is spread over the import legs in
-BACI proportion (usage conserved) — a region cannot supply itself more than it makes, and the hard
-Flow-node balance enforces exactly that on the posterior. Bounded only where the recorded imports
-can carry the remainder (`Σ imports ≥ residual − production`, legs at most doubled); import-free
-fans keep the ADR 0018 form and near-self-sufficient smelters (US 1997–2003) keep the residual,
-because their gap is ICSG-internal and spreading it fabricates imports instead.
-_Avoid_: including **Scrap** — it is an ICSG `Use` type but is **not traded**; and reading a large
-domestic leg as evidence of domestic mining — before ADR 0024 it was the BACI-vs-ICSG shortfall.
+option D) — weighting ICSG's producer fan by BACI bilateral import shares instead of uniformly, so
+ICSG-CC inherits BACI's geography. Since [ADR
+0027](docs/adr/0027-re-exports-are-re-attributed-at-feed-time.md) those shares are read from the
+**netted** BACI version. The domestic leg (X==Y) carries the residual `usage − Σ imports` (in CC units).
+_Avoid_: including **Scrap** — it is an ICSG `Use` type but is **not traded**.
 
-**Re-export (re-attributed leg)** — tonnage a region imported and shipped on unchanged. BACI records
-it as **two** gross border crossings (`A→h`, `h→Z`), which the accounting structure would read as two
-statements about *supply origin* — the second one false, since `h` produced nothing. ADR 0027 moves it
-at feed time: `T = min(X, I, max(R, E))` per (product, region, year) in `CC`, where `R = max(0, I−U)` is
-the use-side reading (imports above ICSG intake) and `E = max(0, X−P)` the supply-side one (exports above
-ICSG production); the volume is split by the hub's own observed origin and destination shares onto direct
-`A→Z` legs. The two caps `T ≤ X` and `T ≤ I` are the safety property: a **producer** with thin ICSG
-coverage (Kazakhstan cathode — no imports) has `T = 0` however large `E` is and is never netted. See
-[ADR 0027](docs/adr/0027-re-exports-are-re-attributed-at-feed-time.md). _Avoid_: calling every hub leg a
-re-export — only the part the caps admit is one, and the rest stays in the **transit residual ledger**.
+**Re-export (re-attributed leg)** — tonnage a region imported and shipped on unchanged. BACI records it
+as **two** gross border crossings (`A→h`, `h→Z`). ADR 0027 moves it at feed time: the volume is split by
+the hub's own observed origin and destination shares onto direct `A→Z` legs. The two caps `T ≤ X` and
+`T ≤ I` are the safety property. _Avoid_: calling every hub leg a re-export — only the part the caps
+admit is one, and the rest stays in the **transit residual ledger**.
 
 **Re-import** — the `A→h→A` branch of a re-attribution: goods that left `A`, reached the hub and came
 back. It is dropped rather than booked, for the same reason **mapped self-trade** is: its root address is
 the domestic edge, which it is not a measurement of. Where `A` is `ROW` the same branch is third-country
-trade folded onto one aggregate, and is dropped identically. 467 kt CC over 1995–2024.
+trade folded onto one aggregate, and is dropped identically.
 
 **Merchanting** — a title trade in a third country while the cargo sails elsewhere (BPM6 §10.41). Two
-shapes, and only one is netted: **both legs recorded** (Switzerland concentrate: `I ≈ X`, no process) is
-an ordinary re-export and re-attributes in full; **inbound only** (Zambia→Switzerland/Singapore/
-Luxembourg anode: `X ≈ 0`) cannot be, because nothing leaves the hub to carry it — those legs stay gross
-and the QP keeps refusing them at the exporter's capacity ([`zambia-anode-phantom-trade`](docs/rep/analysis_20260910_zambia-anode-phantom-trade.md)).
-_Avoid_: reading a small `T` at a merchanting hub as a failure of the rule — it is the rule declining to
-invent a destination.
+shapes, and only one is netted: **both legs recorded** is an ordinary re-export and re-attributes in
+full; **inbound only** cannot be, because nothing leaves the hub to carry it. _Avoid_: reading a small
+`T` at a merchanting hub as a failure of the rule — it is the rule declining to invent a destination.
 
 **Transit residual ledger** — what the netting deliberately leaves behind, written per (product, region,
-year) beside the feed (`reexport_ledger.csv`) with a label: `pass-through`, `partial`, `ceiling-relabel`,
-`inbound-only[/no-process]`, `producer`, `icsg-gap`, `excluded-aggregate` (ROW is never a hub — an
-aggregate of 186 economies has no warehouse), `untouched`. Before ADR 0027 this tonnage was the fan's
-silent **clip** (`max(0, Σ imports − usage)`); it is the same material, now named. _Distinct from_:
-the **Bounds-clip** above, which is an imputer's saturated fill. _Avoid_: reading the residual as an
-error — the Rotterdam effect (imports a hub never re-exports on the record) genuinely cannot be
-re-attributed from BACI alone.
+year) beside the feed with a label. Before ADR 0027 this tonnage was the fan's silent **clip**; it is the
+same material, now named. _Distinct from_: the **Bounds-clip** above, which is an imputer's saturated
+fill. _Avoid_: reading the residual as an error.
 
-**ICSG aggregate row** — an ICSG source row that reports several countries together, such as
-"Scandinavia" for Sweden, Finland and Norway until 2003. Its members and their years are declared in
-the `icsg_aggregates` params input, never inferred from names; the ICSG clean step splits it to its
-member ([ADR 0032](docs/adr/0032-one-territory-one-label.md)).
-_Distinct from_: `excluded-aggregate`, the ledger label for ROW, a *root* region; and from `agg=true`
-pooling and Stage-2 aggregation, which are unrelated. _Avoid_: "aggregate" alone.
+**ICSG aggregate row** — an ICSG source row that reports several countries together. Its members and
+their years are declared in the `icsg_aggregates` params input, never inferred from names; the ICSG clean
+step splits it to its member ([ADR 0032](docs/adr/0032-one-territory-one-label.md)). _Distinct from_:
+`excluded-aggregate`, the ledger label for ROW, a *root* region; and from `agg=true` pooling and Stage-2
+aggregation, which are unrelated. _Avoid_: "aggregate" alone.
 
-**Handover year** — the first year ICSG publishes both an aggregate row and the members it contains,
-the year after the declared member years (2004 for Scandinavia). It states each member's share of the
-aggregate's series, and the aggregate row in it is a republication of its members.
-_Avoid_: summing the two forms in that year.
+**Handover year** — the first year ICSG publishes both an aggregate row and the members it contains, the
+year after the declared member years. It states each member's share of the aggregate's series, and the
+aggregate row in it is a republication of its members. _Avoid_: summing the two forms in that year.
 
 **BACI-observed region** — a consumer region for which the BACI feed records at least one cross-region
 import (any traded sector, any year). The flag is what makes `Σ imports = 0` *informative*: for an
@@ -1056,49 +821,23 @@ in `feedprep.trade_shares.baci_observed_regions()` from the BACI `F_root`. _Avoi
 sum as evidence without checking observability — that is how a 100 %-domestic pattern gets fabricated at
 the observation's confidence.
 
-**Trade-seed** — the trade `Fill` (a forward fill of the conc relation source in the cross-region
-`Flow→Process` content scope; method `trade_seed`) that sets the **CC** value of a
-*cross-region* import leg from its already-aggregated BACI **Mass** twin
-(`f_CC = conc·f_Mass`), through the source's twin reading. It is the imputation-time complement of the
-trade-share fan: the fan distributes ICSG-CC by BACI geography at *feed* time, whereas trade-seed reads
-the BACI-Mass observation directly at *imputation* time so the network recipe gate can pool the covered
-import legs. Trade-seed's **writer scope** (below) is the cross-region `Flow→Process` CC edges; the
-`NetworkImputer`'s is the same-region edges. A route with no BACI
-Mass observation is left NaN (an honest flat-prior gap), never seeded to 0. See
-[ADR 0010](docs/adr/0010-trade-first-seeding-of-bilateral-flow-process-inputs.md). _Avoid_: reading a
-trade-seed CC as a new measurement — it is the conc twin of the BACI Mass observation.
-**A bilateral leg is never interpolated in time** ([ADR 0026](docs/adr/0026-bilateral-trade-legs-are-not-time-interpolated.md)):
-BACI is a *complete* matrix, so a route carrying no row in a year carried no trade, and the
-`TimeImputer` is scoped to same-region edges — a cross-region leg is neither a fill target nor an
-interpolation anchor. _Avoid_: reading an absent bilateral cell as a gap; before ADR 0026 the
-unscoped interpolator invented 9,215 Mass legs / 20,252 kt of trade, 75 % of which survived into
-the posterior.
+**Trade-seed** — the trade `Fill` that sets the **CC** value of a *cross-region* import leg from its
+already-aggregated BACI **Mass** twin. It is the imputation-time complement of the trade-share fan. A
+route with no BACI Mass observation is left NaN (an honest flat-prior gap), never seeded to 0. See [ADR
+0010](docs/adr/0010-trade-first-seeding-of-bilateral-flow-process-inputs.md). _Avoid_: reading a
+trade-seed CC as a new measurement.
 
-**Value-implied Cu fraction** — `unit_value(product) / unit_value(cathode)` within one trade
-feed, one year. Refined cathode is ~99.99 % Cu, so its unit value *is* the copper price on that
-feed's own terms, and the ratio is what the product's recorded value implies about its recorded
-mass. It is a **consistency check between a feed's two fields**, not a property of the material:
-where it leaves the physical band the *quantity* is the field in doubt, because the value can be
-checked independently against production statistics. _Avoid_: reading it as a grade — the same
-_Avoid_ the **Concentrate grade** entry already carries for `(P−U)/X`, and for the same reason. A
-fraction of 0.6–0.9 is not a 60–90 % concentrate; it is a statement that the recorded mass is two to
-three times too small ([ADR 0033](docs/adr/0033-baci-quantity-contradicts-its-own-value.md)).
-_Avoid_ also: flagging a single leg inside a year whose *aggregate* fraction is in band — the
-aggregate is the level at which production statistics can license the claim, and lifting a leg
-below it fabricates mass. A leg an order of magnitude **below** the floor, in an exporter-year
-itself below the floor, is the opposite statement: the recorded mass is far more than the value
-buys, because the quantity is in the wrong unit or the leg is not concentrate (ADR 0033, Round Z
-amendment). _Avoid_: reading 0.15–0.20 as a defect. A value is net of payables and treatment
-charges, so real concentrate sits there. _Avoid_ also: reading a fraction ≪ 0.20 as a low grade.
+**Value-implied Cu fraction** — `unit_value(product) / unit_value(cathode)` within one trade feed, one
+year. It is a **consistency check between a feed's two fields**, not a property of the material: where it
+leaves the physical band the *quantity* is the field in doubt ([ADR
+0033](docs/adr/0033-baci-quantity-contradicts-its-own-value.md)). _Avoid_: reading it as a grade.
 
-**Traded (realized) vs tradable; `region_crossed`.** **Tradable** is a *sector capacity* — the four ICSG-fanned
-sectors (Cathode, Concentrate, Anode, Matte) whose Use edges *may* cross regions (above). **Traded / inter-regional**
-is a *realized* per-edge property — the Use edge actually crossed a border (`region_from != region_to`) — captured
-as the boolean **`region_crossed`**, stamped before a region collapse (`keep_crossings`) so it survives aggregation.
-Supply edges are always same-region; **Use** edges *and* **final-use (`Y`) edges** can be `region_crossed` — in
-copper 6,486 of 6,627 `Y` edges cross regions in 2020 (cathode into foreign final use), as many as the `U`
-edges do. A Sankey's **traded-flow share** is this *realized* split. _Avoid_: reading "traded share" as the
-*tradable-sector* fraction — it is the realized inter-regional fraction.
+**Traded (realized) vs tradable; `region_crossed`.** **Tradable** is a *sector capacity* — the four
+ICSG-fanned sectors (Cathode, Concentrate, Anode, Matte) whose Use edges *may* cross regions (above).
+**Traded / inter-regional** is a *realized* per-edge property — the Use edge actually crossed a border
+(`region_from != region_to`) — captured as the boolean **`region_crossed`**. A Sankey's **traded-flow
+share** is this *realized* split. _Avoid_: reading "traded share" as the *tradable-sector* fraction — it
+is the realized inter-regional fraction.
 
 ## Total-output / scale-total vocabulary
 
@@ -1113,55 +852,25 @@ nature inputs) ≙ PIOLab `x′ = i·U + k·O + m·E`.
 residuals); i.e. its process→flow edges only ≙ PIOLab *useful output* (supply table `S`,
 `x_new = S·j = x − P·l − W·n`). _Avoid_: "total output" — useful output is net of waste.
 
-**Scale total** — a Type-2 **soft-sum** (`Σ aᵢ = c + ε`, free cone) whose RHS `c` is the model's
-**own prior** group-sum (`c = Σ f_agg`), used for **scale-preservation** against the homogeneous
-collapse — not to add information. "Kind-of-external" because the warm-start solve (`a₀ = f_agg` at
-t₀, `a_post(t−1)` after) never sees this fixed Stage-2 total. Three families: **supply total output**
-(per process — its process→flow useful output), **use total output** (per flow — Σ over all
-destinations incl. final demand), and the **scrap level anchor** below. On a **degenerate (one-leg)
-fan** the prior group-sum coincides with the feed's own published number, and such a row then *does*
-add information — this is a consequence of the fan, not the ADR 0006 mechanism (an external totals
-file reconciled in a separate pass). Groups are classified **fabricated vs feed-backed** (per
-`agg_result.coverage`) — but both keep the same tight cv: loosening fabricated groups was tried
-and rejected, because these rows double as the counterweight to the nodata zero anchors and
-loosening them collapses the interior chain
-([ADR 0016](docs/adr/0016-provenance-aware-sigma-on-scale-totals.md)). σ_c carries an
-**absolute floor at the feeds' reporting resolution** (0.3 kt, the rounding σ of integer-kt
-ICSG/crude_ore values, Lp-combined with the cv term — [ADR 0025](docs/adr/0025-scale-totals-carry-the-feeds-reporting-resolution-as-a-sigma-floor.md));
-it reaches totals below ~18 kt only, so a sub-kilotonne total is never priced to tens of tonnes.
-_Avoid_: **control total** (its RHS is an *external* published
-number — see README; that mechanism was removed by
-[ADR 0006](docs/adr/0006-scale-total-supersedes-external-control-total.md)); **anchor** /
-**coherence soft-sum** (deprecated terms — see **Control total** _Avoid_ above);
-reading a scale total as only a prior-preservation device — on no-data subgraphs it is also
-what holds scale against the zero anchors (ADR 0016).
+**Scale total** — a Type-2 **soft-sum** (`Σ aᵢ = c + ε`, free cone) whose RHS `c` is the model's **own
+prior** group-sum (`c = Σ f_agg`), used for **scale-preservation** against the homogeneous collapse — not
+to add information. Three families: **supply total output**, **use total output**, and the **scrap level
+anchor** below. _Avoid_: **control total** ([ADR
+0006](docs/adr/0006-scale-total-supersedes-external-control-total.md)); **anchor** / **coherence
+soft-sum**.
 
-**Scrap level anchor** — the third **scale total** family (`smelterscrap`, `directrefscrap`): a
-soft-sum stating the **level** of *one input class* of a node — the scrap ICSG reports entering
-`Smelting` and entering `CFR` — per region-year, **CC only**, and **only where a feed observed it**.
-It is the one `sum` family whose *row existence is data-gated*, which is what makes ADR 0025's σ
-floor unconditional for it. Needed because `Scrap` is an `SB` node: `Scrap→Process` edges are in
-neither output-total family, so before [ADR 0031](docs/adr/0031-icsg-scrap-series-anchor-their-level-not-only-their-share.md)
-the only statement about them was the `scrap_share` **band**, and a share band over a node with no
-throughput is satisfied trivially. _Avoid_: calling it a **total input** (that is *all* incoming
-edges — this is one class of them); reading the **absence** of a scrap-level row as a prohibition —
-an absent row is an *unstated* level, and the edge keeps exactly the freedom it had.
+**Scrap level anchor** — the third **scale total** family (`smelterscrap`, `directrefscrap`): a soft-sum
+stating the **level** of *one input class* of a node — the scrap ICSG reports entering `Smelting` and
+entering `CFR` — per region-year, **CC only**, and **only where a feed observed it**. It is the one `sum`
+family whose *row existence is data-gated*. _Avoid_: calling it a **total input** (that is *all* incoming
+edges — this is one class of them); reading the **absence** of a scrap-level row as a prohibition.
 
-**Contradicted flow node** — a Flow node whose **inflow** prior (`Process→Flow`) and **outflow**
-prior (`Flow→Process` + `Flow→SB`) cannot both hold under its own **hard** mass balance. Because
-`σ_c = ANCHOR_CV·|c|` scales with the total, the *smaller* side is the cheaper anchor to satisfy,
-so the solver collapses the node to the smaller prior even when that side is the worse evidenced
-one (Russia Matte 1995: inflow 545 kt CC from ICSG concentrate use vs outflow 50.8 from an
-under-reported ICSG refining series ⇒ the smelting chain collapsed). Detected by
-`pysuto.flow_node_balance.contradicted_flow_nodes` (outflow < `K_CLOSE`·inflow) and treated by
-stripping the **outflow** side's authority — σ on its covered edges and on its `usetotout` anchor
-— was tried and **rejected**: σ reprices a data contradiction without resolving it (ADR 0019).
-The term survives as a **diagnostic**: a flag is a statement about the *input data* (the
-source's two series disagree for that region-year), not about the reconciliation, and the
-remedy is data-side.
-_Avoid_: reading a downstream export as an outlet for the node — anode exports are produced *by*
-CFR *from* matte, so they raise the matte requirement rather than relieving it. See
-[ADR 0019](docs/adr/0019-contradicted-flow-nodes-lose-anchor-authority.md).
+**Contradicted flow node** — a Flow node whose **inflow** prior (`Process→Flow`) and **outflow** prior
+(`Flow→Process` + `Flow→SB`) cannot both hold under its own **hard** mass balance. Detected by
+`pysuto.flow_node_balance.contradicted_flow_nodes`. The term survives as a **diagnostic**: a flag is a
+statement about the *input data* (the source's two series disagree for that region-year), not about the
+reconciliation, and the remedy is data-side. _Avoid_: reading a downstream export as an outlet for the
+node ([ADR 0019](docs/adr/0019-contradicted-flow-nodes-lose-anchor-authority.md)).
 
 **Anchor** — a Type-2 **soft-sum** row built by `SumConstraintBuilder.from_mask_anchor` that pins the group-sum
 of a masked edge family to the model's **own** Stage-2 prior: the supply / use **scale totals** and the
@@ -1170,90 +879,69 @@ imports an external total, so neither is a **Control total** (removed): the word
 uses and the *Avoid* on **Control total** concerns only the external-total reading.
 _Avoid_: "control total", "coherence soft-sum" for either.
 
-**Anchor placement** — *which edge* a source series is attached to, as distinct from its value.
-A production series measures throughput at one point of the chain; converting it into an edge
-prior by dividing through efficiencies moves it to a *different* point, and each stage crossed
-adds an assumption. ICSG smelter production ÷ `eff_Smelting` is the concentrate entering
-`Smelting` (one stage); ICSG refined production ÷ `eff_ER` is the anode entering `ER` (one
-stage). Dividing that same refined series by `eff_CFR·eff_ER` instead placed it two stages back,
-on the matte entering `CFR` — and thereby assumed every anode a region makes is refined at home,
-which is false for anode/blister exporters. A misplaced anchor is not a σ problem and not a
-value problem: the number is right and the edge is wrong.
-_Avoid_: anchoring both sides of a hard-balanced node — the balance already determines the
-second side, and double anchoring is the over-constraint
-[ADR 0006](docs/adr/0006-scale-total-supersedes-external-control-total.md) rejected. See
-[ADR 0021](docs/adr/0021-icsg-refined-production-anchors-anode-into-er.md).
+**Anchor placement** — *which edge* a source series is attached to, as distinct from its value. A
+production series measures throughput at one point of the chain; converting it into an edge prior by
+dividing through efficiencies moves it to a *different* point, and each stage crossed adds an assumption.
+A misplaced anchor is not a σ problem and not a value problem: the number is right and the edge is wrong.
+_Avoid_: anchoring both sides of a hard-balanced node — the balance already determines the second side.
+See [ADR 0021](docs/adr/0021-icsg-refined-production-anchors-anode-into-er.md).
 
 ## Downstream PSUT / PIOT vocabulary
 
-**PSUT (physical supply-use table)** — the **materialised numeric** supply-use flows, derived from the solved edge vector `a*`; one table
-holds every period and every valuation, and a view selects one of each. **Shape-agnostic**: its canonical form is a **tidy
-edge table** (one row per directed edge, carrying its `val`), and the block matrices — supply `S` (useful
-output), use `U`, final use `Y`, plus boundary blocks nature-input `E`, SEM-input `O`, SEM-output `P`, nature-output `W` — are
-**derived pivot views** of that same PSUT. The valueless Process+Flow **SUT** is the *graph* (the
-`AccountingStructure` topology); a PSUT is that graph **carrying solved values**. _Avoid_: calling the
-**valueless** graph a "PSUT" (the bare graph is the **SUT**); "SUT" for a numeric realisation (long or matrix);
-reading "PSUT" as *matrices only* (the matrices are one view; the tidy table is the canonical other).
+**PSUT (physical supply-use table)** — the **materialised numeric** supply-use flows, derived from the
+solved edge vector `a*`; one table holds every period and every valuation, and a view selects one of
+each. **Shape-agnostic**: its canonical form is a **tidy edge table** (one row per directed edge,
+carrying its `val`). The valueless Process+Flow **SUT** is the *graph* (the `AccountingStructure`
+topology); a PSUT is that graph **carrying solved values**. _Avoid_: calling the **valueless** graph a
+"PSUT" (the bare graph is the **SUT**); "SUT" for a numeric realisation.
 
-**Block** — the PSUT quadrant a directed edge belongs to, read off its endpoint entity kinds (and, for
-the boundary blocks, the `SB` node's boundary role): `S` Process→Flow, `U` Flow→Process, `Y` Flow→SB·FD,
-`E` SB·Nature→Process, `O` SB·SEM→Process, `P` Process→SB·SEM, `W` Process→SB·Nature (empty in copper). Every admissible edge lands in exactly one
-block; the tidy table carries it as the `block` column and each matrix view is one block's pivot. _Avoid_:
-"mask" for a block — the `supply`/`use` **masks** are rule-derived edge selections that straddle blocks (a
-loaded structure's `supply` mask also holds `P`, its `use` mask `E` and `O`).
+**Block** — the PSUT quadrant a directed edge belongs to, read off its endpoint entity kinds. `S`
+Process→Flow, `U` Flow→Process, `Y` Flow→SB·FD, `E` SB·Nature→Process, `O` SB·SEM→Process, `P`
+Process→SB·SEM, `W` Process→SB·Nature. Every admissible edge lands in exactly one block. _Avoid_: "mask"
+for a block — the `supply`/`use` **masks** are rule-derived edge selections that straddle blocks.
 
 **Primary valuation** — the valuation a multi-valuation PSUT's views and plots default to (`primary`; copper:
 `CC`, the `content` role, ADR 0034); `valuation=` overrides it. A PSUT carries **every** valuation of
 its structure in one table, and the realized `conc` is the ratio of two of them. _Avoid_: reading the structure's
 first-listed valuation (`Mass`) as the default; one PSUT per valuation.
 
-**Aggregation (pushforward)** — region/sector aggregation of a PSUT as a *pushforward* of the tidy table: one
-concordance map per dimension (`region`, `sector`) applied **symmetrically to both facets** (`from_`, `to_`),
-then a sum over every key column — `period`, `valuation`, `block` and the entity kinds stay in the key, so
-nothing merges across them and **time is never summed**; a sector map may only merge sectors of one entity kind.
-`region_crossed` is stamped **before** the relabel, at the finest resolution ever seen (a two-step collapse keeps
-the country-level stamp), so the realized traded share survives a World collapse. `edge_id` does not survive.
-_Avoid_: summing `period`; reading `region_crossed` at the aggregated resolution (it is the root-resolution
-crossing); a one-label `sector` collapse (it would merge Process with Flow).
+**Aggregation (pushforward)** — region/sector aggregation of a PSUT as a *pushforward* of the tidy table:
+one concordance map per dimension (`region`, `sector`) applied **symmetrically to both facets** (`from_`,
+`to_`), then a sum over every key column — `period`, `valuation`, `block` and the entity kinds stay in
+the key, so nothing merges across them and **time is never summed**; a sector map may only merge sectors
+of one entity kind. _Avoid_: summing `period`; a one-label `sector` collapse (it would merge Process with
+Flow).
 
-**Supply-use Sankey** — the bipartite Sankey drawn *directly* from a PSUT: processes **and** commodities are
-nodes, the `S`/`U` rows are links, the boundary blocks attach as links to their own `SB` nodes (inputs `E`/`O`
-on the left, outputs `P`/`W`/`Y` on the right), and a border-crossing `U`/`Y` flow is its own **traded** link
-(from `region_crossed`, or from distinct regions). Needs no construct. In copper it carries the same numbers as
-the process-network Sankey — `D` is the identity (ADR 0037 §1) — with the commodity nodes shown rather than
-contracted into edge labels. _Avoid_: "process network" for it (that is the PIOT's contracted view);
-reading a node's total as throughput of anything but that (period, valuation).
+**Supply-use Sankey** — the bipartite Sankey drawn *directly* from a PSUT: processes **and** commodities
+are nodes, the `S`/`U` rows are links, the boundary blocks attach as links to their own `SB` nodes, and a
+border-crossing `U`/`Y` flow is its own **traded** link. Needs no construct. _Avoid_: "process network"
+for it (that is the PIOT's contracted view).
 
-**PIOT (physical input-output table)** — a **symmetric** (square) physical IO table derived from a PSUT by a
-chosen **construct** (below). The shipped one is the **industry-by-industry**
-(process×process) PIOT, the **process network** (below): technical coefficients `A`, core flows `Z`,
-total requirements `L`, for footprints. The **product-by-product** PIOT (commodity×commodity) is #20. _Avoid_: conflating with the rectangular **PSUT** (a
-PIOT is square); reading "PIOT" as *product-by-product only* (it is a construct **family**).
+**PIOT (physical input-output table)** — a **symmetric** (square) physical IO table derived from a PSUT
+by a chosen **construct** (below). The shipped one is the **industry-by-industry** (process×process)
+PIOT, the **process network** (below): technical coefficients `A`, core flows `Z`, total requirements
+`L`, for footprints. _Avoid_: conflating with the rectangular **PSUT** (a PIOT is square); reading "PIOT"
+as *product-by-product only* (it is a construct **family**).
 
-**Construct** — the SUT→PIOT transformation choice, on **two orthogonal axes**. **(1) Table shape**
-(Miller & Blair ch. 5 / Eurostat): **product-by-product** (commodity×commodity) vs **industry-by-industry**
-(process×process), the latter via the **market-share** rule (`D = S·q̂⁻¹`, fixed-product-sales). **(2) By-product
-method** — meaningful *only* on the analytic product-by-product PIOT (Altimiras-Martin 2014): **Suh** (2004)
-endogenises disposals-to-nature as **negative input coefficients**, *altering* `A`/`L` (the PIOLab/Wieland choice,
-project primary); **Xu–Zhang** (2009) leaves the table intact via a modified multiplier. _Avoid_: conflating the
-axes — **market-share** is a *shape*, **Suh** is a *by-product method*.
+**Construct** — the SUT→PIOT transformation choice, on **two orthogonal axes**. **(1) Table shape**:
+**product-by-product** (commodity×commodity) vs **industry-by-industry** (process×process), the latter
+via the **market-share** rule. **(2) By-product method** — meaningful *only* on the analytic
+product-by-product PIOT: **Suh** (2004) endogenises disposals-to-nature as **negative input
+coefficients**; **Xu–Zhang** (2009) leaves the table intact via a modified multiplier. _Avoid_:
+conflating the axes — **market-share** is a *shape*, **Suh** is a *by-product method*.
 
-**Process network** — the **industry-by-industry** PIOT in tidy/graph form: **processes are nodes, commodity
-flows are edges**; each edge `p→q` carries commodity `f` at value `D[p,f]·U[f,q]` (market-share allocation of
-`q`'s use of `f` back to its producers `p`). Boundary blocks attach as edges to boundary pseudo-nodes (`Nature`,
-`FD`, SEM-in, SEM-out); **disposals-to-nature** (`P` residual outputs) are **final outputs, never inter-process
-edges** — allocation does not apply to them (Altimiras-Martin 2014, fn. 3). The substrate of the production-network
-**Sankey**. Built by `PSUT.to_piot('market_share', level='Z')` as a tidy edge table (`block ∈ {Z, Y, E, O, P, W}`,
-`Z` = inter-process; each edge names its `commodity`; `region_crossed` travels with the row it came from), with
-`Z()` the process-by-process pivot and `D()` the shares. _Avoid_: calling it a "PIOT" unqualified (defaults to
-product-by-product); drawing the supply legs `S` as their own edges (they only attribute producers).
+**Process network** — the **industry-by-industry** PIOT in tidy/graph form: **processes are nodes,
+commodity flows are edges**; each edge `p→q` carries commodity `f` at value `D[p,f]·U[f,q]` (market-share
+allocation of `q`'s use of `f` back to its producers `p`). Boundary blocks attach as edges to boundary
+pseudo-nodes; **disposals-to-nature** (`P` residual outputs) are **final outputs, never inter-process
+edges**. The substrate of the production-network **Sankey**. _Avoid_: calling it a "PIOT" unqualified
+(defaults to product-by-product).
 
 **gPIOT** — the full **multi-regional** PIOT over (region × flow), whose `L` traces embodied/indirect flows
 across borders. _Avoid_: "global PIOT" for a single-region table.
 
-**Technical coefficients `A`** (uppercase) — the per-unit input-requirements matrix of the PIOT (`A = Z·x̂⁻¹` for the shipped industry-by-industry construct; `A = B·D` for the
-product-by-product one, #20).
-_Avoid_: confusing with the lowercase **edge vector `a`** (the decision variable) — case distinguishes them.
+**Technical coefficients `A`** (uppercase) — the per-unit input-requirements matrix of the PIOT
+(`A = Z·x̂⁻¹` for the shipped industry-by-industry construct).
 
 **Total requirements / Leontief inverse `L`** — `L = (I − A)⁻¹`, mapping final demand to total (direct +
 indirect) output. _Avoid_: "multiplier" (a multiplier is a row/column sum of `L`, not `L` itself).
@@ -1266,11 +954,11 @@ enters (extraction), columns the region whose final demand embodies it (`Σ_{p�
 are each region's extraction, column sums its **RMC**. _Avoid_: reading it as physical trade (that is the `Z`/`Y`
 edges crossing a border).
 
-**ew-MFA headline indicators** — per region and period, in the table's unit: **DE** (domestic extraction, the `E`
-block into the region's processes), **imports** / **exports** (network edges crossing into / out of the region;
-`region_crossed` rows of a collapsed table count as both), **PTB** `= imports − exports`, **DMI** `= DE + imports`,
-**DMC** `= DMI − exports`, **RMC** (raw-material consumption, the extraction footprint of the region's final demand).
-Over a closed world `Σ RMC = Σ DE`. _Avoid_: comparing DMC (territorial, gross trade) with RMC (consumption-based,
+**ew-MFA headline indicators** — per region and period, in the table's unit: **DE** (domestic extraction,
+the `E` block into the region's processes), **imports** / **exports** (network edges crossing into / out
+of the region), **PTB** `= imports − exports`, **DMI** `= DE + imports`, **DMC** `= DMI − exports`,
+**RMC** (raw-material consumption, the extraction footprint of the region's final demand). Over a closed
+world `Σ RMC = Σ DE`. _Avoid_: comparing DMC (territorial, gross trade) with RMC (consumption-based,
 embodied) as if they measured the same thing.
 
 **Realized `conc`** — the *ex-post* concentration `CC/Mass` of an edge in the materialised PSUT, versus the
@@ -1295,20 +983,11 @@ _Avoid_: using `type` for an entity kind (that is **entity**: `Process` | `Flow`
 `ratioeq` / `bound` for `ratio`). _Avoid_: "name" (collides with **Sector**, "the named instance").
 
 **Node-scoped vs set-scoped constraint** — a `massbal` or node-`sum` row balances **one node**, so its
-specs render that node as `sector_region_valuation`; the collapse of a node to `sector_region` is
-sound because constraint rows are emitted over **concrete** nodes only (the `sector→entity` 1:1
-invariant holds; open `<any>` sectors never reach a row). A `ratio` row is either **pair-scoped** —
-relating **two edges**, each rendered full `from→to`, numerator over denominator, with `num_*`/`denom_*`
-populated — or **set-scoped** when its row carries `agg=true`: it pools **many** a-side edges against
-many b-side edges per `(region_to, time, valuation)` bucket (`Σb − r·Σa`), so it has no single
-numerator/denominator edge and its identity rests on the `variant` plus `region`/`valuation` group-key
-specs (`num_*`/`denom_*` are null, exactly like a set-`sum`). A set-`sum` (a csv constraint grouped
-across nodes) spans **many** edges with no single node — its identity rests on the `variant` plus
-group-key specs; by contrast the `supplytotout` / `usetotout` **scale totals** — and the
-`smelterscrap` / `directrefscrap` **scrap level anchors**, which carry the *consuming* node — are
-node-`sum` rows and so carry populated `sector`/`region`. _Avoid_:
-expecting a single `sector`/`region`, or populated `num_*`/`denom_*`, on a set-sum or **set-scoped
-(agg) ratio** row (they are null there).
+specs render that node as `sector_region_valuation`. A `ratio` row is either **pair-scoped** — relating
+**two edges** — or **set-scoped** when its row carries `agg=true`: it pools **many** a-side edges against
+many b-side edges, so it has no single numerator/denominator edge. _Avoid_: expecting a single
+`sector`/`region`, or populated `num_*`/`denom_*`, on a set-sum or **set-scoped (agg) ratio** row (they
+are null there).
 
 **Cross-valuation row** — `ratio` is the **only** constraint family whose two sides may differ in
 **valuation** (a `conc` ratio pins `CC = conc·Mass`, so `num_valuation = CC`, `denom_valuation =
@@ -1317,25 +996,18 @@ whitelisted for mixed-valuation rows. _Avoid_: reading a ratio's two valuations 
 
 ## Framework meta-model vocabulary
 
-**Role** — a framework-owned kind that a case's label is bound to. Two families: the **boundary
-role** of an `SB` node, `nature | secondary | final_demand` (the three system-boundary categories
-above; a `secondary` node is an input when reached by a use edge and a residual output when reached
-by a supply edge), and the **valuation role**, `content | gross` (contained-metal mass vs gross
-product mass). The entity kinds `Process | Flow | SB` are reserved framework words, not roles.
-A case binds its labels to roles in its acc spec
-([ADR 0034](docs/adr/0034-roles-are-the-frameworks-labels-are-the-cases.md)).
-_Avoid_: reading a label (`SEM`, `CC`) as the concept — labels are the case's, roles are the
-framework's; "entity kind" for a role.
+**Role** — a framework-owned kind that a case's label is bound to. Two families: the **boundary role** of
+an `SB` node, `nature | secondary | final_demand`, and the **valuation role**, `content | gross`
+(contained-metal mass vs gross product mass). The entity kinds `Process | Flow | SB` are reserved
+framework words, not roles. A case binds its labels to roles in its acc spec ([ADR
+0034](docs/adr/0034-roles-are-the-frameworks-labels-are-the-cases.md)). _Avoid_: reading a label (`SEM`,
+`CC`) as the concept.
 
-**Relation** — one linear relation over edges with a σ (`Σ αᵢ aᵢ  sense  c ± σ`) that exists
-before either stage consumes it, one object (`pysuto.relation.relation.Relation`) carrying its
-`sense` (`eq` / `le`, see **Sense**): a **constraint row** is a relation *emitted* into `G`
-(`pysuto.constraints.emit`); an imputation fill is a relation *solved* for its lone unknown. A
-**process recipe**, a Flow-node balance and a `conc`/`eff` params row are **relation sources**
-(below), not relations (a recipe references its Process node's balance and carries the pooled
-`eff` ratio; the Mass twin is the per-edge `conc` ratio). **Scale totals** and hard bounds are *emit-only*
-relations — never solved for a prior. _Avoid_: "constraint row" for the pre-stage object;
-"recipe" for a single relation.
+**Relation** — one linear relation over edges with a σ (`Σ αᵢ aᵢ sense c ± σ`) that exists before either
+stage consumes it, one object (`pysuto.relation.relation.Relation`) carrying its `sense` (`eq` / `le`,
+see **Sense**): a **constraint row** is a relation *emitted* into `G`; an imputation fill is a relation
+*solved* for its lone unknown. **Scale totals** and hard bounds are *emit-only* relations — never solved
+for a prior. _Avoid_: "constraint row" for the pre-stage object; "recipe" for a single relation.
 
 **Writer scope** — the set of edges a relation source is *permitted* to write. Scopes may overlap;
 **cascade order** decides precedence among sources whose scope contains an edge; a write outside
@@ -1352,32 +1024,28 @@ once and consumed by both stages. _Avoid_: "relation" for the source; "parameter
 A case declares it as data, a `FillEntry`; copper's are `trade`, `conc` and `ore_grade`. _Avoid_:
 "imputer" for the entry (the imputer is what runs it).
 
-**Case** — one metal's complete declaration: an accounting structure (referenced by registry id),
-its feeds, param families, relation sources and cascade, anchor families and σ policies, run by the
-generic stage drivers. Declared as a `CaseSpec` named `CASE` in a Python module or file that
-`--case` resolves: a path, a dotted module, or a bundled alias (#120, #187); the copper case is the
-first, `scripts/copper.py` (ADR 0047). A case also sets the Stage 4 and 6 driver constants it departs from (`driver_knobs`). Its
-identity in a run is `CaseSpec.id`. _Avoid_: "model" (the QP, the PIOT), "study" (a REP analysis),
-"scenario".
+**Case** — one metal's complete declaration: an accounting structure (referenced by registry id), its
+feeds, param families, relation sources and cascade, anchor families and σ policies, run by the generic
+stage drivers. Declared as a `CaseSpec` named `CASE` in a Python module or file that `--case` resolves: a
+path, a dotted module, or a bundled alias. A case also sets the Stage 4 and 6 driver constants it departs
+from (`driver_knobs`). Its identity in a run is `CaseSpec.id`. _Avoid_: "model" (the QP, the PIOT),
+"study" (a REP analysis), "scenario".
 
-**Application** — everything outside the library that one case needs to run end to end and to
-report on: its case declaration, its feed specs, source parsers and feed builders, its sweeps, and
-its report and exploration scripts. The library holds the method, generic for every case; an
-application holds what carries its metal's name. Copper's application is the repository's
-`scripts/` ([ADR 0047](docs/adr/0047-pysuto-ships-no-study-case.md)). _Avoid_: "study" (a REP
-analysis), "project", "scripts" (a folder, not the concept).
+**Application** — everything outside the library that one case needs to run end to end and to report on:
+its case declaration, its feed specs, source parsers and feed builders, its sweeps, and its report and
+exploration scripts. The library holds the method, generic for every case; an application holds what
+carries its metal's name. _Avoid_: "study" (a REP analysis), "project", "scripts" (a folder, not the
+concept). See [ADR 0047](docs/adr/0047-pysuto-ships-no-study-case.md).
 
 **Flagged ambiguity — "case-specific code".** In conversation it usually means the
 **application**, not the `CaseSpec`.
 
-**Acc spec** — the declaration of one accounting structure: its sectors (each with an entity, and
-a boundary role on an SB sector), regions, valuations (each with a valuation role) and times, its
-supply and use adjacency, tradable flows and entity-pair accounting rows, and optionally its bound
-and mask records. An `acc.json` and the copper case's four ODS/CSV files are two formats of it, each
-with its reader (`read_acc_spec_json`, `read_acc_spec_ods`;
-[ADR 0046](docs/adr/0046-an-accounting-structure-is-declared-by-a-spec.md)).
-_Avoid_: "case spec" (#26's typed `CaseSpec`, which references an acc by registry id), "root
-file" (one of the files a reader reads).
+**Acc spec** — the declaration of one accounting structure: its sectors (each with an entity, and a
+boundary role on an SB sector), regions, valuations (each with a valuation role) and times, its supply
+and use adjacency, tradable flows and entity-pair accounting rows, and optionally its bound and mask
+records ([ADR 0046](docs/adr/0046-an-accounting-structure-is-declared-by-a-spec.md)). _Avoid_: "case
+spec" (the typed `CaseSpec`, which references an acc by registry id), "root file" (one of the files a
+reader reads).
 
 **Build record** (`build_record.json`) — the file beside a built accounting structure that names
 the acc input version (id, version, code) it was built from. _Avoid_: "source record" (collides
@@ -1387,11 +1055,10 @@ sidecar" (a built structure is not a run).
 **Acc ref** — `{id, version}` naming one acc input version, as a sidecar's `parents.inputs.acc`
 records it.
 
-**Toy case** — the synthetic **Case** of the fictional metal orium (`pysuto.tutorial.toy`, #59),
-declared in code with its own labels (`Gross`/`Content` valuations, `Raw`/`Sec`/`Demand`
-boundary subs, bound to roles), generated from a **ground truth** and observed through
-**synthetic feeds**.
-_Avoid_: "toy fixture" (the per-test structures built in `tests/`), "test case", "demo".
+**Toy case** — the synthetic **Case** of the fictional metal orium (`pysuto.tutorial.toy`), declared in
+code with its own labels (`Gross`/`Content` valuations, `Raw`/`Sec`/`Demand` boundary subs, bound to
+roles), generated from a **ground truth** and observed through **synthetic feeds**. _Avoid_: "toy
+fixture" (the per-test structures built in the tests), "test case", "demo".
 
 **Ground truth** — the balanced per-edge values a synthetic case is generated from, in every
 valuation and year; every `Process` and `Flow` node closes. Never a property of a real case: a
@@ -1415,8 +1082,7 @@ _Avoid_: "RoW" (normalise to upper-case), "rest-of-world"; "Other regions", a fi
 the regions it does not name, which holds ROW together with the named regions left out.
 
 **`row` mask** — the named edge mask selecting edges that touch ROW on **either** endpoint
-(`region_from == "ROW"` **or** `region_to == "ROW"`). A registered input mask
-(`data/input/mask/row/`).
+(`region_from == "ROW"` **or** `region_to == "ROW"`). A registered input mask.
 
 **row_penalty** — a per-feed boolean (on `DataFeedMetadata`) opting a feed's ROW-touching edges
 into the geographic pedigree penalty.
@@ -1472,7 +1138,7 @@ port (a port is not a node of the account).
 
 ## Review vocabulary
 
-The final review of the codebase (#155): what one audit reads, what it checks and what it records.
+The final review of the codebase: what one audit reads, what it checks and what it records.
 
 **Review dimension**:
 One quality aspect a code review checks, with its check and its pass rule: nine general (G1–G9)
