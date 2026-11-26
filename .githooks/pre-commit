@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # pre-commit: run ruff check (when installed) and the test suite when a commit touches Python under src/, scripts/, tools/ or tests/;
-# a commit that touches README.md, docs/architecture.md, docs/workflow.md or scripts/README.md and no Python
-# runs the README tests alone.
+# a commit that touches README.md, docs/architecture.md, docs/workflow.md, scripts/README.md or
+# CONTRIBUTING.md and no Python runs the README tests alone.
 # Enable once per clone:  git config core.hooksPath .githooks
 # Tests import this checkout's src/ (PYTHONPATH), so a worktree tests its own code.
 set -euo pipefail
@@ -9,7 +9,7 @@ set -euo pipefail
 STAGED=$(git diff --cached --name-only --diff-filter=ACMRD)
 TESTS="tests/"
 if ! grep -qE '^(src|scripts|tools|tests)/.*\.py$' <<<"$STAGED"; then
-    grep -qxE 'README\.md|docs/architecture\.md|docs/workflow\.md|scripts/README\.md' <<<"$STAGED" || exit 0
+    grep -qxE 'README\.md|docs/architecture\.md|docs/workflow\.md|scripts/README\.md|CONTRIBUTING\.md' <<<"$STAGED" || exit 0
     TESTS="tests/copper/test_readme_names.py tests/copper/test_readme_links.py tests/test_public_surface.py tests/test_import_direction.py"
 fi
 
