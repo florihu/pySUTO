@@ -7,7 +7,7 @@ Steps
 -----
 A  Load accounting structure and feed registry
 B  Collect and aggregate feeds (baci, crude_ore, icsg)
-C  Run the case's imputation cascade (copper: scripts/copper.py CASCADE, #120, #136):
+C  Run the case's imputation cascade (copper: scripts/copper.py CASCADE):
      1  trade seeds, network closure, concentration, ore-grade and efficiency
         ratios, iterated to a fixpoint in CASCADE_ORDER (the Fill entries of the case)
      2  temporal interpolation (interpolation-only)
@@ -56,14 +56,14 @@ DEFAULT_CASE = str(Path(__file__).resolve().with_name("copper.py"))
 CASE = resolve_case(DEFAULT_CASE)
 
 # ─────────────────────────────────────────────────────────────────────────────
-# USER CONFIGURATION — the copper case (scripts/copper.py, #120) declares every
+# USER CONFIGURATION — the copper case (scripts/copper.py) declares every
 # Stage 2 knob, its value and the imputer cascade; the stage body is
-# pysuto.stages.run_imp (#124), which builds from the case this driver passes.
+# pysuto.stages.run_imp, which builds from the case this driver passes.
 # ─────────────────────────────────────────────────────────────────────────────
 
-# The knobs a pipeline step may override with --set (#100, pysuto.knobs): the UPPER_CASE
+# The knobs a pipeline step may override with --set (pysuto.knobs): the UPPER_CASE
 # fields of the case's Stage 2 section. Paths, the acc id, CV_GEO4 (a pedigree constant)
-# and stock_sectors (ADR 0040 membership, kept in four places, #39) are not knobs.
+# and stock_sectors (ADR 0040 membership, kept in four places) are not knobs.
 KNOBS = tuple(CASE.imp.knobs())
 
 def main(feed_ids: list[str], label: str, overrides: dict | None = None, *,
@@ -78,7 +78,7 @@ def main(feed_ids: list[str], label: str, overrides: dict | None = None, *,
     replaces the case's acc id (default: the case's). ``data_dir`` holds ``proc/`` and
     ``input/``; the run is written to ``imp_dir`` (default ``<data_dir>/proc/imp``).
     ``pin_inputs_from`` names an imp run in ``<data_dir>/proc/imp`` whose recorded input
-    versions this run uses (#53).
+    versions this run uses.
     """
     start_run_log(data_dir, "collect_aggregate_impute")
     logger = get_logger("collect_aggregate_impute")
@@ -120,7 +120,7 @@ if __name__ == "__main__":
         case.imp.validate()
     except ValueError as exc:
         parser.error(str(exc))
-    # registries have no locking (#101)
+    # registries have no locking: the stage lock serialises the drivers
     with stage_lock("collect_aggregate_impute", root=os.path.join(args.data_dir, "proc")):
         write_run_id(args.run_id_file,
                      main(args.feed_ids, args.label, overrides, case=case,

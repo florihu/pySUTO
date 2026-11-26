@@ -25,7 +25,10 @@ Evidence and rule in ADR 0014's amendment (#95); read-only on BACI HS92 V202601 
 - **178 vs 180.** In 2015–2023 the parse keeps, per year and partner, the larger of 178's ("Congo", partners'
   declarations) and 180's (DR Congo's own) refined-copper exports, pooled over HS 7403.1x, instead of dropping 178
   (#88). The smaller declaration dropped: 391.5 kt of 178's, 1,331.1 kt of 180's. 178's other rows in the window
-  stay dropped as under #88 (concentrate 37.1, anode 23.1, matte 2.2 kt).
+  stay dropped as under #88 (concentrate 37.1, anode 23.1, matte 2.2 kt). The evidence for the window: 180's
+  declarations fall 5–323 kt short of ICSG production in every year through 2014 and 476 kt in 2024, which 178
+  fills; in 2015–2023 178 adds 226–465 kt a year on top. Not to every partner: 178 → UAE is 80–252 kt a year against
+  180 → UAE 53–142 kt, so dropping 178 outright left the UAE re-exporting cathode it no longer imported.
 - **Transit declarations.** DR Congo's (180) refined copper into Tanzania and Mozambique is dropped: 1,553 kt and
   382 kt in 2015–2023, against 213 kt and 16 kt of those countries' own exports and no refinery. The parse logged
   302.3, 130.5, 35.6, 98.0, 264.9, 247.4, 196.3, 134.7, 143.2 kt into Tanzania (2015–2023, 0.1 in 2024) and 15.8,

@@ -34,7 +34,7 @@ import os
 import sys
 
 # ---------------------------------------------------------------------------
-# The body is pysuto.stages.run_psut (#186) and so are the constants it reads (PRIMARY,
+# The body is pysuto.stages.run_psut and so are the constants it reads (PRIMARY,
 # FIGS_DIR): this driver keeps the argument parsing, the stage lock and the log handler.
 # ---------------------------------------------------------------------------
 
@@ -102,7 +102,7 @@ if __name__ == "__main__":
         case.driver_knobs_for("psut", KNOBS, {"PRIMARY": PRIMARY})     # a bad case value is a usage error
     except (KeyError, TypeError) as exc:
         parser.error(exc.args[0] if exc.args else str(exc))
-    with stage_lock("psut", root=os.path.join(args.data_dir, "proc")):   # #101
+    with stage_lock("psut", root=os.path.join(args.data_dir, "proc")):   # registries have no locking
         write_run_id(args.run_id_file,
                      main(args.opt_run_id, args.label, args.primary, args.timesteps,
                           args.data_dir, args.sankey, args.figs_dir, not args.no_png, case))

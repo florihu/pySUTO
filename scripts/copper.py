@@ -94,14 +94,12 @@ class CopperImp(ImpSection):
     # Imputation cascade — trade/network/conc/ore_grade iterate to a fixpoint (re-run until a
     # full sweep fills no new edges). Safety cap on passes (chain depth ≈ 8).
     CASCADE_MAX_ITER: int = 10
-    # Cascade order (#104): imputers are write-once, so where two writer scopes overlap
+    # Cascade order: imputers are write-once, so where two writer scopes overlap
     # the earlier imputer writes the edge (GLOSSARY "Writer scope"). A knob, so a sweep
     # can run named alternative orders; it must stay a permutation of the CASCADE ids. The
     # terminal pass (time → share → flat) is fixed: flat must be last and only share may
     # write the stock-change legs (ADR 0040).
-    # (No `eff` entry: the per-pair efficiency ParametricImputer wrote 0 edges in every
-    # run — imp_20261022_111102_1b49a2b3, imp_20261102_095209_86454f46,
-    # imp_20261112_154659_f4ec08ae — the network's pooled recipe owns the eff rows.)
+    # (No `eff` entry: the network's pooled recipe owns the eff rows.)
     CASCADE_ORDER: tuple = ("trade", "network", "conc", "ore_grade")
 
     # NetworkImputer — waste rock is a satellite mass flow outside the Mining balance
@@ -121,39 +119,29 @@ class CopperImp(ImpSection):
     # ADR 0026: the interpolator is scoped to same-region edges. BACI is a *complete*
     # bilateral matrix — a route absent in a year is a recorded zero, not a gap — so
     # interpolating a cross-region leg from its neighbouring years invents trade the
-    # source never reported (9,215 Mass legs / 20,252 kt on the pre-ADR-0026 chain,
-    # of which 15,266 kt survived into the posterior: Papua New Guinea concentrate,
-    # Zambia cathode/matte, Peru). ADR 0010 and GLOSSARY "Trade-seed" already state
-    # the intent ("a route with no BACI Mass observation is left NaN, an honest
-    # flat-prior gap, never seeded to 0"); the unscoped imputer silently overrode it.
-    # Set False to restore the pre-ADR-0026 behaviour.
+    # source never reported. ADR 0010 and GLOSSARY "Trade-seed" state the intent ("a
+    # route with no BACI Mass observation is left NaN, an honest flat-prior gap, never
+    # seeded to 0"). Set False to interpolate cross-region legs too.
     TIME_SCOPE_SAME_REGION: bool = True
 
     # Signed stock-change legs (Cathode→MESC / Cathode→USC). A stock change is a
     # reported value or the zero-centred net-stock seed, nothing else: the time
     # interpolator and the NetworkImputer's Flow-node balance closure are barred from
-    # writing these legs (Round X, ADR 0040). Before: 51 balance residuals (Σ|f|
-    # 2,780 kt) and 96 interpolated stock changes (3,034 kt) sat in the prior, the
-    # sink pre-baked. Not a knob (ADR 0040 membership, kept in four places, #39).
+    # writing these legs (ADR 0040). Not a knob (ADR 0040 membership, kept in four
+    # places).
     stock_sectors: tuple = ("MESC", "USC")
     # Net-stock seed σ for MESC/USC (ShareImputer seed mode), in kt: the seed is
     # priced like a feed-backed level — ADR 0025's scale-total rule, 1 % of the
     # co-located Cathode(i)→FU(j) flow, floored at the feeds' 0.3 kt resolution — so
-    # a stock-change leg stays at its prior with small wiggle room. The former band
-    # (p95/1.645 × max(FU, 100 kt)) gave the exchange-location legs σ ≈ 553 kt.
+    # a stock-change leg stays at its prior with small wiggle room.
     STOCK_SEED_CV:           float = 0.01
-    # icsg_feed's OBSERVED_ZERO_* mirror this floor (#76)
+    # icsg_feed's OBSERVED_ZERO_* mirror this floor
     STOCK_SEED_ABS_FLOOR_KT: float = 0.3
     # CP has no `eff` row, so the NetworkImputer's recipe writes CC PSC = (1 − 1.0)·Σin
-    # = 0 at σ 0 wherever ICSG does not report it and CP has an input (854 region-years
-    # on imp_20261021_100015_ea05007a, 857 with three time-interpolated copies), and
-    # Stage 3 floors that to σ 1e-6: a hidden pin of a stock change. The zero stays; it is
-    # priced at the seed's floor alone, the feeds' resolution (ADR 0025), not at the
-    # rejected 1 % of CP→Cathode (#36, ADR 0041 am.). 0.0 restores the pin.
-    # Rejected on measurement (2026-10-21, opt_20261021_115215_653c8677 vs
-    # opt_20261021_111957_5c6d13bc): at 0.3 kt the freed legs become a sink again — the
-    # near-pin PSC rows' Σz² 0.04 → 1,437 (Slovakia 2016 z +37.8), 18 stock-change legs
-    # newly above |z| 5 — so the pin stays.
+    # = 0 at σ 0 wherever ICSG does not report it and CP has an input, and Stage 3 floors
+    # that to σ 1e-6: a hidden pin of a stock change. The pin stays (0.0): a σ above it,
+    # at the seed's floor or at 1 % of CP→Cathode, makes the freed legs a sink again
+    # (ADR 0041 am.).
     EFFLESS_STOCK_SIGMA_KT:  float = 0.0
     # Scale floor of the net-stock ShareImputer (kt): the σ of a leg whose base is below
     # it is read off this value, not off the base.
@@ -186,10 +174,9 @@ class CopperImp(ImpSection):
     # bilateral Mass legs get σ inflated to OUTLIER_LEG_CV·|f|; the data stays
     # (trace + report CSV), only its false authority goes, mirroring the
     # pedigree-penalty style (ADR 0003). Exporters with no covered production are
-    # still skipped (P=0 groups are the transit-hub population — Round C measures
-    # them, Round D treats them structurally; σ-nuking ~1100 such groups here
-    # would be a hub policy in disguise). See REP
-    # analysis_opt_20260903_084528_45fdd041_masscc-tension-root-causes §4.
+    # still skipped (P=0 groups are the transit-hub population; σ-nuking ~1100 such
+    # groups here would be a hub policy in disguise). See REP
+    # analysis_opt_20260903_084528_45fdd041_20260903_masscc-tension-root-causes §4.
     OUTLIER_LEG_K:  float = 3.0
     OUTLIER_LEG_CV: float = 5.0
 
@@ -205,12 +192,9 @@ class CopperImp(ImpSection):
     # to match.
     # cv 1.0 (not 0.15): flipping the solver's preference needs
     # cv > ANCHOR_CV·c_inflow/c_outflow, which is 0.52 at Iran 1996.
-    # MEASURED AND REJECTED as a remedy (ADR 0019): loosening σ repriced the
-    # contradiction without resolving it — z² fell to ~baseline while only 0.46 %
-    # of the model's mass moved and the collapses were untouched, because the
-    # binding limit is missing downstream capacity, not σ. The DETECTION ships
-    # (the report CSV localises where ICSG's own series disagree); set
-    # UNCLOSED_CV to a value to re-enable the inflation.
+    # The remedy is rejected (ADR 0019): the binding limit is missing downstream
+    # capacity, not σ. The DETECTION ships (the report CSV localises where ICSG's own
+    # series disagree); set UNCLOSED_CV to a value to re-enable the inflation.
     # ADR 0021 widens the *report* to Anode: moving the refined-production anchor
     # from Matte→CFR to Anode→ER removes the Matte contradiction at source, and the
     # question that replaces it is whether it reappears one node downstream. The
@@ -224,10 +208,8 @@ class CopperImp(ImpSection):
     # hub-side legs — shifts it (+22 % to +58 % per sector when measured), which
     # re-prices every trade leg in the sector. Across a measurement series that is
     # a σ change confounded with a structural one: the metric moves without mass.
-    # Pin it to the values the predecessor run logged, and report the unpinned
-    # variant as a sensitivity line. None = derive from this run (the default).
-    # Pinned to the Round L.0 run `imp_20260915_095200_64dfaa88` (BACI v5, the
-    # un-netted leg population), so the L.1 metric is not confounded by σ.
+    # Pin it to the values logged for the un-netted leg population (BACI v5), and
+    # report the unpinned variant as a sensitivity line. None = derive from this run.
     LEG_SIGMA_AREF: Optional[dict] = field(default_factory=lambda: {
         "Anode": 0.213367, "Cathode": 0.26827266,
         "Concentrate": 10.26, "Matte": 0.2225045})
@@ -246,28 +228,15 @@ class CopperImp(ImpSection):
 
 
 # ---------------------------------------------------------------------------
-# Domestic-use FormulaRelations — all RETIRED; the NetworkImputer closes these legs
+# Domestic-use FormulaRelations — none; the NetworkImputer closes these legs
 # ---------------------------------------------------------------------------
 
-# concentrate_domestic / matte_domestic / anode_domestic RETIRED (ADR 0010 §C).
-# The deepened NetworkImputer now closes these domestic chain legs structurally
-# (CC flow-balance → Mass twin), and more correctly than the hand-written
-# formulas did: their export term selected entity_to=="Flow" and so missed the
-# bilateral Anode(Flow)→ER(Process) trade legs, over-attributing the domestic
-# leg. Verified on the reference feeds — once the recipe gate opens these three
-# relations fired 0× (the network's network_mass_twin fills the domestic Mass
-# legs first).
-# The cathode final-demand split (cathode_fu/usc/mesc_domestic) is RETIRED too.
-# USC/MESC in Round X (ADR 0040): a stock change is a reported value or the
-# ShareImputer's zero-mean seed, never a cathode-balance residual (once the
-# balance was barred from the stock-change legs they booked 7,290 kt of one-signed
-# stock change). FU with it: the stock-change legs are no longer writable, so the
-# domestic Cathode→FU leg is the Cathode node's lone same-region gap and the
-# balance closes it first (production − exports − reported stock change) —
-# the FU relation fired 0× on X.0. Its export term carried the same
-# entity_to=="Flow" defect (every Cathode export leg ends at an FU SB node), so
-# where it did fire (W.1: 226 legs, 28,740 kt) it booked production/conc with
-# no export subtracted; the network writes those legs at 8,845 kt.
+# concentrate_domestic / matte_domestic / anode_domestic: the NetworkImputer closes these
+# domestic chain legs structurally (CC flow-balance → Mass twin), including the bilateral
+# Anode(Flow)→ER(Process) trade legs that a hand-written export term misses (ADR 0010 §C).
+# cathode_fu/usc/mesc_domestic: a stock change is a reported value or the ShareImputer's
+# zero-mean seed, never a cathode-balance residual (ADR 0040), and the Cathode node's
+# balance closes the domestic Cathode→FU leg as its lone same-region gap.
 
 
 def pre_impute(ctx) -> None:
@@ -358,10 +327,10 @@ def build_network(ctx) -> NetworkImputer:
 # The conc/network imputers form a metallurgical cascade: a value derived at one stage
 # (e.g. Smelting→Matte CC via eff) only feeds the next stage's fill (Matte→CFR Mass via
 # conc) on a *subsequent* pass. The entries are re-run together until a full sweep fills
-# no new edges (see docs/rep/analysis_imp_…_conc-after-eff-mass-gap.md); the time, share
-# and flat-prior imputers run once afterwards (:func:`terminal`). Trade seeds → network
-# closure → concentration ratios → ore-grade ratios. (The domestic-use FormulaImputer is
-# retired — see the note above.)
+# no new edges (see docs/rep/
+# analysis_imp_20260602_085156_c231bcfb_20260602_conc-after-eff-mass-gap.md); the time,
+# share and flat-prior imputers run once afterwards (:func:`terminal`). Trade seeds → network
+# closure → concentration ratios → ore-grade ratios.
 # The trade fill runs FIRST: it seeds cross-region Flow→Process import CC legs from the
 # BACI Mass twin (f_CC = conc·f_Mass), so the NetworkImputer recipe gate can pool them
 # and the flow-balance can close the lone domestic leg (ADR 0010). Its scope is the
@@ -408,10 +377,9 @@ def terminal(ctx) -> list:
         id               = "time_interp",
     )
 
-    # (The scoped crude_ore end-of-series extrapolator that used to sit here
-    # is retired — ADR 0023: past the crude_ore feed's last year the ore Mass
-    # chain is derived by the NetworkImputer from ICSG production through the
-    # carried-forward in-situ grade, so nothing is left for it to fill.)
+    # No crude_ore end-of-series extrapolator (ADR 0023): past the crude_ore feed's last
+    # year the ore Mass chain is derived by the NetworkImputer from ICSG production
+    # through the carried-forward in-situ grade, so nothing is left for it to fill.
 
     # 6.5 Net-stock share imputation. Give Δstock (PSC/USC/MESC) edges informative,
     # cold-smooth priors BEFORE flat_prior would fill them with noisy_zero: PSC by
@@ -519,20 +487,17 @@ class CopperConst(ConstSection):
     # prior is FABRICATED (twin/recipe/flat imputations, no feed observation behind
     # the group) a tight ANCHOR_CV over-preserves it — it fights the observed
     # valuation of the same sectors and inverts the data hierarchy (REP
-    # analysis_opt_20260903_084528_45fdd041_masscc-tension: 3.0M z² on fabricated
-    # totals; observed totals moved MORE than fabricated ones). Groups whose
+    # analysis_opt_20260903_084528_45fdd041_20260903_masscc-tension-root-causes: 3.0M z²
+    # on fabricated totals; observed totals moved MORE than fabricated ones). Groups whose
     # feed-backed share of Σ|f_agg| (agg_result.coverage — feed observations only)
     # falls below FEED_SHARE_OBSERVED keep their row but at the loose
     # FABRICATED_ANCHOR_CV; feed-backed groups keep ANCHOR_CV.
-    # NEGATIVE RESULT (Round A, 2026-09-03): loosening was tried at 0.15 and 0.05
-    # and both collapsed the world chain (CO Mass retention 0.66→0.41/0.45, observed
-    # China cathode dragged to z≈−20/−16) — the fabricated totals do DOUBLE DUTY:
-    # besides over-preserving fabricated priors they are the counterweight to the
-    # NODATA_ANCHOR zero pulls (ADR 0013) on the same interior subgraphs, and
-    # loosening them hands the interior to the zero anchors. Default therefore
-    # keeps FABRICATED_ANCHOR_CV = ANCHOR_CV (policy inert); the resolver mechanism
-    # stays for a future σ design that decouples the two roles (e.g. propagated
-    # edge σ). See ADR 0016 and the Round-A REP.
+    # Loosening them is rejected (ADR 0016): the fabricated totals do DOUBLE DUTY — besides
+    # over-preserving fabricated priors they are the counterweight to the NODATA_ANCHOR
+    # zero pulls (ADR 0013) on the same interior subgraphs, and loosening them hands the
+    # interior to the zero anchors. The default therefore keeps FABRICATED_ANCHOR_CV =
+    # ANCHOR_CV (policy inert); the resolver mechanism stays for a σ design that decouples
+    # the two roles (e.g. propagated edge σ).
     FABRICATED_ANCHOR_CV: float = 0.01
     FEED_SHARE_OBSERVED:  float = 0.5
 
@@ -548,8 +513,8 @@ class CopperConst(ConstSection):
     # fabricated groups — do not act on them. FABRICATED_ANCHOR_CV stays inert.
     # cv 1.0 (not 0.15): the flip needs cv > ANCHOR_CV·c_inflow/c_outflow = 0.52
     # at Iran 1996.
-    # MEASURED AND REJECTED as a remedy (ADR 0019) — see the Stage-2 note. The
-    # detection is still run and logged; set a cv to re-enable the loosening.
+    # The remedy is rejected (ADR 0019) — see the Stage-2 note. The detection is still
+    # run and logged; set a cv to re-enable the loosening.
     UNCLOSED_SECTORS:   tuple           = ("Matte",)
     UNCLOSED_ANCHOR_CV: Optional[float] = None
     SIGMA_C_ABS_FLOOR:  float           = 1.0e-3
@@ -558,14 +523,12 @@ class CopperConst(ConstSection):
     # 0.1 kt, 20 % at integer kt; crude_ore 0.1–1 kt); integer-kt rounding alone
     # carries σ = 0.5/√3 = 0.29 kt per reported value. With σ_c = ANCHOR_CV·|c| a
     # 1 kt anchor was priced at ≈ 0.017 kt, so a 1 kt miss cost z ≈ −56 (Portugal
-    # Cathode, the largest cell on the Round-J run, has a 0.3–1.7 kt anchor).
+    # Cathode, the largest such cell, has a 0.3–1.7 kt anchor).
     # Applied through the ADR-0016 resolver, in the direction that ADR asked for:
     # feed-backed groups (feed share ≥ FEED_SHARE_OBSERVED) get
     # σ_c = max(ANCHOR_CV·|c|, SCALE_TOTAL_ABS_FLOOR); FABRICATED groups keep the
     # tight cv — their tightness is the counterweight to the nodata zero anchors,
-    # and a global abs floor (Round K, first variant) let small fabricated chains
-    # grow (small-node posterior/prior p90 1.06 → 2.33, Chile concentrate export
-    # retention −8 pp). See ADR 0025 and the Round-K REP.
+    # and a global abs floor lets small fabricated chains grow (ADR 0025).
     SCALE_TOTAL_ABS_FLOOR: float = 0.3
 
     # Prior box ("tight fitting"): box flow bounds to a₀ ± PRIOR_BOX_K·σ_a on edges
@@ -587,15 +550,14 @@ class CopperConst(ConstSection):
     NODATA_ANCHOR_CV:      float = 0.05
     NODATA_ANCHOR_EXCLUDE: tuple = ("CO", "Mining", "Ore", "WR", "Tailings", "Slag",
                                     "PSC")
-    # Data-aware exemption (ADR 0013 amendment 3, Round W.3). The extraction chain is
+    # Data-aware exemption (ADR 0013 amendment 3). The extraction chain is
     # spared by the anchor only where a relation sets its magnitude: region-years with
     # an ore-grade row (ADR 0015). In countries that mine nothing its noisy zeros get
     # the ordinary sibling-median anchor, so phantom extraction costs z instead of
     # being free. Slag and PSC keep the sector rule. () restores the sector-only rule.
     NODATA_ANCHOR_DATA_AWARE: tuple = ("CO", "Mining", "Ore", "WR", "Tailings")
-    # Cold sensitivity run (branch sensitivity/no-flat-prior-zeros): hard-pin every
-    # genuine no-data ("flat-prior") leaf edge to [0,0] in the flow bounds — "no feed
-    # data ⇒ no flow". NOTE: the pin's l/u boxes only constrain the feasibility
+    # Hard-pin every genuine no-data ("flat-prior") leaf edge to [0,0] in the flow bounds:
+    # "no feed data ⇒ no flow". NOTE: the pin's l/u boxes only constrain the feasibility
     # pre-check probe, NOT the QP (FlowBoundsBuilder enforces only the structural
     # lower bounds, ADR 0039) — the soft NODATA_ANCHOR_CV above is what the solver
     # actually feels. The pin stays on to
@@ -608,20 +570,18 @@ class CopperConst(ConstSection):
     PIN_EXCLUDE_SECTORS: tuple = ("CO", "Mining", "Ore", "WR", "Tailings", "Slag",
                                   "PSC")
     # Soft-ratio σ_c scaling (REP analysis_opt_20260611_075036 §8.2): the CSV σ (ratio
-    # units) is made relative, σ_r = σ/|r| (#29), and rescaled to flow space per row,
+    # units) is made relative, σ_r = σ/|r| and rescaled to flow space per row,
     # σ_c = max(σ_r, REL_FLOOR) · max(Σ|a₀,num|, |r|·Σ|a₀,denom|, ABS_FLOOR).
     # REL_FLOOR caps |z| at 1/floor on a 100 % ratio violation; ABS_FLOOR (in kt — the flow unit) keeps both-zero-prior
     # rows finite AND soft: ~77 % of soft ratio rows are zero-prior parametric ties,
     # and at ABS_FLOOR=1 their σ_c=0.02 kt made the Hessian so stiff Clarabel stalled
     # (InsufficientProgress @2005). 100 kt → σ_c=2 kt on those rows (z=50 per 100 kt).
-    # (The REP and an earlier version of this comment wrote "t"; the value was always
-    # applied in kt.)
     RATIO_SIGMA_REL_FLOOR: float = 0.02
     RATIO_SCALE_ABS_FLOOR: float = 100.0
     # Net-stock rows use their own scale floor. Their σ_c scales off the throughput
     # denominator alone (ratio.py scale_mode="denominator"), so the floor is what a
     # region with no throughput gets: at the generic 100 kt it was σ_r·100 kt on every
-    # such row (Round X: 553 kt on the MESC "hub" rows, a free sink). 0.1 kt is the
+    # such row (a free sink on the MESC "hub" rows, ADR 0040). 0.1 kt is the
     # yearbook's display resolution; the row stays finite and soft (ADR 0040).
     STOCK_BOUNDS_SCALE_ABS_FLOOR: float = 0.1
     # Net-stock ("stock_bound") mode. "soft" routes the PSC net-stock-change bounds
@@ -631,14 +591,13 @@ class CopperConst(ConstSection):
     # keeps the legacy nonneg-cone RatioBoundBuilder. Soft guarantees feasibility (no
     # stock row can break) and secures too-high AND too-low symmetrically. The hard
     # bounds went infeasible under the flat-prior-zero pin (denominator collapse);
-    # see docs/rep/analysis_const_20260625_130524_...flat-prior-zero-pin-cold.md.
+    # see docs/rep/analysis_const_20260625_130524_f7c42959_20260625_flat-prior-zero-pin-cold.md.
     STOCK_BOUNDS_MODE: str = "soft"
     # The soft PSC rows are centred at zero, so on a region-year whose CP→PSC leg ICSG
     # reports, the row pulls the reported stock change toward zero — the pull ADR 0040
-    # retired on MESC/USC (#37, opt_20261019_171746_3272682b: Iran 2016 reported −63.0,
-    # posterior −40.5 kt CC, row z −10.1). True emits a row only where the leg is not
+    # retired on MESC/USC (ADR 0040). True emits a row only where the leg is not
     # feed-covered (agg_result.coverage); the near-pin rows on regions with no refinery
-    # output stay (#98, ADR 0040 am.). False restores a row on every region-year.
+    # output stay (ADR 0040 am.). False restores a row on every region-year.
     STOCK_BOUNDS_SKIP_REPORTED: bool = True
     # Scrap-share bands: per (region, process P∈{Smelting,CFR}) hard nonneg-cone band
     # bl·Σ(CC inputs to P) ≤ Σ(Scrap→P, CC) ≤ bu·Σ(CC inputs to P), bands derived
@@ -651,29 +610,27 @@ class CopperConst(ConstSection):
     # Deliberately hard-only (no soft centre row): a soft pull toward median·inputs
     # would fight the NODATA_ANCHOR_CV zero anchor on no-data regions.
     SCRAP_SHARE_MODE: str = "hard"
-    # Scrap LEVEL anchors (Round P, ADR 0031). The band above states a *share*; a
+    # Scrap LEVEL anchors (ADR 0031). The band above states a *share*; a
     # share band over a node with no throughput is satisfied trivially, so the level
     # ICSG reports was never stated anywhere in Stage 3 (the faucet note above is the
-    # same gap seen from the other side). False restores the Round O configuration
-    # for an A/B. See section 2b of builders().
+    # same gap seen from the other side). False drops the anchors for an A/B. See
+    # section 2b of builders().
     SCRAP_LEVEL_ANCHOR: bool = True
     # Mass-balance scope (ADR 0038). The acc-local mask `massbal_scope` (masks.csv)
     # excludes Mining→WR, so waste rock is a satellite mass flow outside the Mining
     # balance — the gap between crude ore and ore can no longer be booked on it.
     # None balances every edge (the pre-ADR-0038 configuration, for an A/B).
     MASSBAL_MASK: Optional[str] = "massbal_scope"
-    # Enforced lower bounds (ADR 0039, Round W.1). Every edge whose structural lower
+    # Enforced lower bounds (ADR 0039). Every edge whose structural lower
     # bound is 0 gets a hard row −a ≤ 0: non-negativity was part of the documented
     # formulation but never reached the QP (bounds lived only in the feasibility
     # probe), and residual mass edges went negative. False = pre-ADR-0039 behaviour.
     ENFORCE_LOWER_BOUNDS: bool = True
-    # Stripping ratio as a HARD relation (ADR 0038, Round W.2b). As a soft row the
-    # waste-rock edge — copperless, outside every balance — is decided by nothing but
-    # two weak terms, and the interior-point stopping rule never pins it down: W.2a
-    # (opt_20260929_111551_21703f80) ended at WR/Ore 1.04 instead of 2.0, and still
-    # 1.03 when 2019 was re-solved at a 1e-6 gap. A zero-cone row enforces
+    # Stripping ratio as a HARD relation (ADR 0038). As a soft row the waste-rock edge —
+    # copperless, outside every balance — is decided by nothing but two weak terms, and
+    # the interior-point stopping rule never pins it down. A zero-cone row enforces
     # WR = k·Ore to feasibility tolerance; the imputer leaves WR to the flat prior so
-    # the relation, not a second copy of the ore prior, sets it. False = soft (W.2a).
+    # the relation, not a second copy of the ore prior, sets it. False = soft.
     STRIPPING_RATIO_HARD: bool = True
     # Draw the run's ConstDiagnostic figures and 1995 prior table into <run>/diag/, about
     # half the stage's time. A sweep that deletes its const runs turns it off (#108); no
@@ -682,7 +639,7 @@ class CopperConst(ConstSection):
 
 
 # -----------------------------------------------------------------------------
-# Stage 3 algorithms — moved unchanged from scripts/constraints.py (#121)
+# Stage 3 algorithms
 # -----------------------------------------------------------------------------
 
 def scale_total_resolver(ctx):
@@ -802,13 +759,13 @@ def builders(ctx) -> list:
                                      sums every matched a-side edge into one
                                      G row and every matched b-side edge into
                                      another, per (region, time, valuation).
-                                     PSC only since Round X: MESC/USC legs have no
+                                     PSC only: MESC/USC legs have no
                                      row family — they are held at their prior by
                                      the Stage-2 net-stock seed σ (1 % / 0.3 kt,
                                      ADR 0040), and a zero-centred row pulled the
                                      reported stock changes toward zero. For the
                                      same reason a PSC leg a feed reports gets no
-                                     row (STOCK_BOUNDS_SKIP_REPORTED, #98).
+                                     row (STOCK_BOUNDS_SKIP_REPORTED).
     7b Scrap-share bands          — RatioBoundBuilder (scrap_share/params.csv, per
                                      SCRAP_SHARE_MODE); per (region, P∈{Smelting,CFR})
                                      hard band bl·Σ(CC inputs to P) ≤ Σ(Scrap→P) ≤

@@ -24,7 +24,7 @@ its all-years edge frame, its contraction per category, Birge table and shift
 calibration; SI S6) and the knob sweep built on it (the tables ``scripts/sweep_diag.py`` writes to the sweep's
 ``diag/``: ``points.csv``, ``sensitivity.csv``, ``outcomes.csv``,
 ``verdicts.csv``; SI S15.4). Panel (d) sets the A5 tolerance pair beside the
-sweep's spread per stage; the pair is the reference constraint run solved twice (#315), the
+sweep's spread per stage; the pair is the reference constraint run solved twice, the
 sweep the reference chain re-run 64 times, both as Δ pooled retention.
 
 Fig. 3 is the problem one Stage-4 period is handed (``PROBLEM_YEAR``): edge
@@ -893,7 +893,7 @@ def _symlog(z) -> np.ndarray:
 
 def retention_delta_xlim(deltas) -> tuple:
     """x-limits of Fig. 5d: (-0.3, 0.12), widened by a quarter beyond the largest |Δ| it
-    draws, so no termination diamond or knob point falls off the panel (#320)."""
+    draws, so no termination diamond or knob point falls off the panel."""
     lo, hi = -0.3, 0.12
     d = np.asarray(deltas, dtype=float)
     d = d[np.isfinite(d)]

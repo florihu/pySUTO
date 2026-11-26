@@ -565,10 +565,6 @@ def clean_icsg_flows(raw, baci_version, root=INPUT_ROOT, clean_dir=CLEAN_DIR):
         df.loc[m, 'Type'] = new_name
 
 
-    # print duplicated pairs
-    print("Duplicated Region Type  Process Supply_Use combinations:")
-    print(df[df.duplicated(subset=FLOW_KEY, keep=False)][FLOW_KEY])
-
     #1 no dup in Regoin Type  Process Supply_Use
     if df[FLOW_KEY].drop_duplicates().shape[0] != df.shape[0]:
         raise ValueError("Duplicate Region Type  Process Supply_Use combinations found")
@@ -585,10 +581,6 @@ def clean_icsg_flows(raw, baci_version, root=INPUT_ROOT, clean_dir=CLEAN_DIR):
     # transform to three digits after
     df['Value'] = df['Value'].round(3)
 
-
-     # print a sample of vals
-    print("\nSample of values:")
-    print(df['Value'].sample(min(10, len(df))))
 
     stats(df)
 

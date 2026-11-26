@@ -2,7 +2,7 @@
 manuscript_checks.py
 ====================
 The measurements behind the ``check:`` comments of ``docs/manuscript/discussion.md`` and
-the committee's Q3 (issue #317). Read-only: it writes nothing but the ``--json`` file.
+the committee's Q3. Read-only: it writes nothing but the ``--json`` file.
 
     python scripts/report/manuscript_checks.py --opt <opt_run_id> --uncprop <uncprop_run_id>
         --uncprop-ablation <uncprop_run_id> --old-opt <opt_run_id> --json OUT
@@ -17,7 +17,7 @@ of writing, 2026-11-24), a label and a unit, in the layout of ``manuscript_numbe
 so a refresh onto a new reference chain re-reads the file and diffs it key by key.
 
   L81  tail edges (beyond 3 Birge-scaled units) with an endpoint in the five regions of
-       the scale-total objective, the four #111 regions without Italy (#201)
+       the scale-total objective, the four regions whose BACI exports exceed ICSG production, without Italy
   L83  per-year A2 share: scale totals with |z| > 3, on the old and the new chain
   L88  A3: the share of the objective on cross-region legs into the non-processing
        regions, by traded good; their gross-mass imports kept by region, and the
@@ -47,9 +47,9 @@ from pysuto.diag.uncprop import UncPropDiag                  # noqa: E402
 # USER CONFIGURATION
 # =============================================================================
 N_OBJECTIVE_REGIONS = 5            # regions that carry 41.4 % of the scale-total Σz² (§5.2)
-ISSUE_201_REGION    = "Italy"      # the one of them that is not a #111 contradiction
+ISSUE_201_REGION    = "Italy"      # the one of them with no BACI-over-ICSG contradiction
 Z_TAIL              = 3.0          # a tail edge: |z/√κ| beyond Z_TAIL·√R
-FRINGE_KT           = 1e-4         # an edge whose a* is this close to 0 is near-pinned (#99)
+FRINGE_KT           = 1e-4         # an edge whose a* is this close to 0 is near-pinned
 FLAT_Z              = 1e-9         # |z| below this: a* equals the prior
 A2_SUMS             = 0.20         # the A2 threshold (results_figs THRESH["A2_sums"])
 CFR_PAIR            = ("Scrap", "CFR", "CC")

@@ -17,7 +17,7 @@ Three insights into the global copper supply chain, read off the latest run.
 Writes tables (csv), figures (png) and data.json (the tables, for the
 interactive page) to docs/rep/figs/metabolism_<opt>/. Reads persisted run
 artifacts and the registered feeds only; every upstream id comes from the run's
-own sidecar (the Round C hygiene rule). Nothing is modified.
+own sidecar. Nothing is modified.
 """
 from __future__ import annotations
 
@@ -779,7 +779,7 @@ def _records(df: pd.DataFrame) -> list:
 
 
 def write_page_data(out: Path, cc: pd.DataFrame, tables: dict) -> None:
-    """The compact series the interactive page inlines (docs/rep/figs/.../copper_metabolism.html)."""
+    """The compact series the interactive page inlines (docs/rep/figs/metabolism_<opt>/copper_metabolism.html)."""
     d = {k: _records(t) for k, t in tables.items()}
     sk = {}
     for col in ("prior", "post"):

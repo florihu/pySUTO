@@ -2,7 +2,7 @@
 sweep_diag.py
 =============
 Score a sweep run's points against its base chain, rank and size its axes and judge its
-criteria (#107, #108, #117): writes ``points.csv``, ``outcomes.csv``,
+criteria: writes ``points.csv``, ``outcomes.csv``,
 ``categories.csv``, ``retention_by_year.csv``, ``sensitivity.csv``, ``year_profiles.csv``,
 ``sensitivity_by_year.csv``, ``verdicts.csv`` and the SW-R-01, 02 and 04–07 figures
 under ``data/proc/sweep/<id>/diag/``, and prints the verdicts and the ranking.
@@ -16,8 +16,8 @@ mass is dominated by the waste-rock satellite, so ``mass_moved_CC`` is the scale
 one), and the set declared below: the change in pooled retention of every CC category
 (``d_retention[<category> CC]``), per Table S16 stage the change in pooled retention and
 the relative change of the posterior (``d_total[…]``), the largest |change| over the
-nine stages (``…[max stage]``), and the concentrate-export retention of Round-E (c)'s
-exporters over 2010–2019. The criteria are #108's, registered before the sweep was read.
+nine stages (``…[max stage]``), and the concentrate-export retention of the three
+exporters over 2010–2019 (ADR 0025). The criteria are registered before the sweep is read.
 """
 
 from __future__ import annotations
@@ -39,7 +39,7 @@ STAGES = [("CO", "Mining", "Mass"), ("MF", "Concentrate", "CC"),
           ("Concentrate", "Smelting", "CC"), ("Anode", "ER", "CC"),
           ("CP", "Cathode", "CC"), ("Cathode", "FU", "CC"), ("Scrap", "Smelting", "CC"),
           ("Smelting", "Matte", "CC"), ("Scrap", "CFR", "CC")]
-# Round-E (c): concentrate exports of the three exporters, cross-region CC, 2010–2019.
+# Concentrate exports of the three exporters, cross-region CC, 2010–2019 (ADR 0025).
 EXPORTERS     = ("Chile", "Peru", "Indonesia")
 EXPORT_WINDOW = ("2010", "2019")
 
@@ -53,7 +53,7 @@ def _exports(region: str):
 
 
 def declarations() -> tuple:
-    """The outcomes and the criteria of #108."""
+    """The outcomes and the criteria of the shipped knob sweep."""
     # A stage's selector is the one EveryCategory gives its category, so a CC stage is
     # declared and scored once.
     stage = {f"{a}→{b} {v}": {"category": f"{a}→{b}", "valuation": v}
