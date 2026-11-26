@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 
 HOOK = (Path(__file__).resolve().parents[1] / ".githooks" / "commit-msg").as_posix()
+PRE_COMMIT = Path(__file__).resolve().parents[1] / ".githooks" / "pre-commit"
 
 
 def _bash():
@@ -65,3 +66,15 @@ def test_a_closing_keyword_before_an_issue_is_refused(tmp_path, message):
     r = _run(tmp_path, message)
     assert r.returncode == 1
     assert "gh issue close" in r.stderr
+
+
+def test_every_test_file_the_pre_commit_hook_names_exists():
+    """A commit that touches only the README runs the test files the hook names, so a moved
+    test file must be renamed in the hook too."""
+    root  = PRE_COMMIT.parents[1]
+    lines = [ln.strip() for ln in PRE_COMMIT.read_text(encoding="utf-8").splitlines()]
+    named = next(ln for ln in lines if ln.startswith('TESTS="tests/') and ln != 'TESTS="tests/"')
+    for rel in named.split('"')[1].split():
+        if rel.startswith("tests/copper/") and not (root / "tests" / "copper").is_dir():
+            continue                     # the library job runs without the application's tests
+        assert (root / rel).is_file(), rel

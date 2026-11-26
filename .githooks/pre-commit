@@ -9,7 +9,7 @@ STAGED=$(git diff --cached --name-only --diff-filter=ACMRD)
 TESTS="tests/"
 if ! grep -qE '^(src|scripts|tools|tests)/.*\.py$' <<<"$STAGED"; then
     grep -qx 'README.md' <<<"$STAGED" || exit 0
-    TESTS="tests/test_readme_names.py tests/test_readme_links.py tests/test_public_surface.py tests/test_import_direction.py"
+    TESTS="tests/copper/test_readme_names.py tests/copper/test_readme_links.py tests/test_public_surface.py tests/test_import_direction.py"
 fi
 
 PY=${PYSUTO_PYTHON:-python}
