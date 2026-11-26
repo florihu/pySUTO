@@ -1,8 +1,8 @@
 """test_registry_lock.py
 =======================
-The stage lock's exclusive create on Windows: a file that another process is deleting
-refuses an ``O_EXCL`` create with ``PermissionError``, not ``FileExistsError``, and the
-lock reads that as a taken name, so a racing taker is refused, not crashed.
+The stage lock's exclusive create on Windows (#338): a file that another process is
+deleting refuses an ``O_EXCL`` create with ``PermissionError``, not ``FileExistsError``,
+and the lock reads that as a taken name, so a racing taker is refused, not crashed.
 """
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from pysuto.registry import LockHeld, lock as lock_mod, stage_lock
 
 
 def _being_deleted(monkeypatch, name):
-    """``os.open`` of *name* fails as Windows fails it while another process deletes it."""
+    """``os.open`` of *name* fails as Windows fails it while the file is deleted."""
     real_open = os.open
 
     def fake_open(path, flags, *args):
@@ -23,7 +23,7 @@ def _being_deleted(monkeypatch, name):
             raise PermissionError(13, "Permission denied", path)
         return real_open(path, flags, *args)
 
-    monkeypatch.setattr(lock_mod.os, "open", fake_open)
+    monkeypatch.setattr(os, "open", fake_open)
 
 
 def test_a_guard_being_deleted_refuses_the_taker_on_windows(tmp_path, monkeypatch):
