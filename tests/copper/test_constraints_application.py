@@ -1,7 +1,7 @@
 """test_constraints_application.py
 ===============================
-The tests of ``tests/test_constraints.py`` that read the copper application (#304): the
-exploration generators of ``scripts/explo/``, the copper case's scale-total knobs and
+The tests of ``tests/test_constraints.py`` that read the copper application (#304, #337):
+the exploration generators of ``scripts/explo/``, the copper case's scale-total knobs and
 its ``stock_bounds`` params table.
 The methods are moved unchanged (the class helpers they use are borrowed from the library
 test), only the path to the repository follows their new depth.

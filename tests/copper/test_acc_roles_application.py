@@ -1,8 +1,8 @@
 """test_acc_roles_application.py
 ================================
-The test of ``tests/test_acc_roles.py`` that reads the copper application: the copper
-``root.ods`` binds its labels to the glossary's roles (input acc/copper v5). The test is
-moved unchanged, only the path to the repository follows its new depth.
+The test of ``tests/test_acc_roles.py`` that reads the copper application (#337): the
+copper ``root.ods`` binds its labels to the glossary's roles (input acc/copper v5). The
+test is moved unchanged, only the path to the repository follows its new depth.
 """
 from __future__ import annotations
 
