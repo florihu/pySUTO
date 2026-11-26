@@ -1,7 +1,8 @@
 """test_constraints_application.py
 ===============================
-The tests of ``tests/test_constraints.py`` that read the copper application (#304): the
-exploration generators of ``scripts/explo/`` and the copper case's scale-total knobs.
+The tests of ``tests/test_constraints.py`` that read the copper application (#304, #337):
+the exploration generators of ``scripts/explo/``, the copper case's scale-total knobs and
+its ``stock_bounds`` params table.
 The methods are moved unchanged (the class helpers they use are borrowed from the library
 test), only the path to the repository follows their new depth.
 """
@@ -11,6 +12,7 @@ import os
 import sys
 
 import numpy as np
+import pandas as pd
 import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))   # test_constraints
@@ -101,6 +103,24 @@ class TestRatioBoundBuilderApplication:
         assert fr["share"].iloc[0] == pytest.approx(20.0 / (395.0 / 0.9875))
         sm = mod.share_frame(df, "Smelting", eff={"effcfr": 0.9875})
         assert sm["share"].iloc[0] == pytest.approx(0.05)
+
+    def test_stock_bound_params_contract(self):
+        """The shipped stock_bounds params keep the correct orientation: stock edge
+        (PSC/USC/MESC) on the b-side, FU/Cathode on the a-side, symmetric ±band in
+        value_min/value_max. Skips when the (gitignored) params file is absent."""
+        import pathlib
+        repo = pathlib.Path(__file__).resolve().parents[2]
+        p = repo / "data" / "input" / "params" / "stock_bounds" / "current" / "params.csv"
+        if not p.exists():
+            pytest.skip("stock_bounds/current/params.csv absent (gitignored data dir)")
+        df = pd.read_csv(p, sep=None, engine="python", dtype=str)
+        s = df[df["param_type"] == "stock_bound"]
+        assert len(s) > 0, "no stock_bound rows in shipped params"
+        assert s["b_sector_to"].isin(["PSC", "USC", "MESC"]).all(), "stock edge must be the b-side numerator"
+        assert s["a_sector_to"].isin(["Cathode", "FU"]).all(), "denominator must be the a-side"
+        vmin = pd.to_numeric(s["value_min"]); vmax = pd.to_numeric(s["value_max"])
+        assert (vmin < 0).all() and (vmax > 0).all() and np.allclose(vmin, -vmax, rtol=1e-12), \
+            "value_min/value_max must be a symmetric ±p95 band"
 
 
 class TestScrapLevelAnchorApplication:
