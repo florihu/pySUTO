@@ -24,3 +24,6 @@ checkout (`--case scripts/copper.py`) with the licensed original data.
 pySUTO is licensed under the MIT License. Documentation, the method, the citation file and
 the source are in the GitHub repository:
 https://github.com/florihu/pySUTO
+
+To report a bug or to contribute a change, read the contributing guide:
+https://github.com/florihu/pySUTO/blob/main/CONTRIBUTING.md

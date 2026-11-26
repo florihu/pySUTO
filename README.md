@@ -15,7 +15,7 @@
 
 A modular Python framework for constructing, reconciling, and propagating uncertainty through material flow accounts derived from heterogeneous data sources. pySUTO takes raw statistical data feeds, maps them onto a common accounting structure, aggregates across sources with inverse-variance weighting, imputes missing values, builds a constrained linear system, and solves a σ-weighted QP — tracking uncertainty end-to-end from raw pedigree scores to the final optimum.
 
-> Contributors / LLM assistants: see [CLAUDE.md](CLAUDE.md) for behavioural rules.
+> Contributors: see [CONTRIBUTING.md](CONTRIBUTING.md). LLM assistants: see [CLAUDE.md](CLAUDE.md) for behavioural rules.
 
 
 ---
@@ -192,7 +192,7 @@ The SI ([docs/manuscript/si.md](docs/manuscript/si.md)) states the equations of 
 | Vocabulary | [GLOSSARY.md](GLOSSARY.md). |
 | Method and results | [docs/manuscript/](docs/manuscript/): `method.md`, `si.md` and the results. |
 | Records | [docs/adr/](docs/adr/) (decisions), [docs/rep/](docs/rep/) (analyses of runs), [docs/history/](docs/history/) (closed rounds), [scripts/explo/](scripts/explo/) (the scripts behind the records). |
-| Contributors | [CLAUDE.md](CLAUDE.md) (rules), [CODING_STANDARDS.md](CODING_STANDARDS.md), [docs/agents/](docs/agents/), [CHANGELOG.md](CHANGELOG.md). |
+| Contributors | [CONTRIBUTING.md](CONTRIBUTING.md), [CLAUDE.md](CLAUDE.md) (rules), [CODING_STANDARDS.md](CODING_STANDARDS.md), [docs/agents/](docs/agents/), [CHANGELOG.md](CHANGELOG.md). |
 
 ---
 

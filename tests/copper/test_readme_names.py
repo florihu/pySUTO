@@ -1,9 +1,9 @@
 """test_readme_names.py
 =====================
-The code names of the documentation set match the code (#225, #305): every backticked code
-name of README.md, docs/architecture.md, docs/workflow.md and scripts/README.md exists in the
-repository, every module file of ``src/pysuto/`` and every ``python -m pysuto`` subcommand
-and flag is named in one of them. A rename or a new module that leaves the documents behind
+The code names of the documentation set match the code (#225, #305, #339): every backticked
+code name of README.md, docs/architecture.md, docs/workflow.md, scripts/README.md and
+CONTRIBUTING.md exists in the repository, every module file of ``src/pysuto/`` and every
+``python -m pysuto`` subcommand and flag is named in one of them. A rename or a new module that leaves the documents behind
 turns this test red.
 """
 
@@ -16,7 +16,8 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[2]
-DOCUMENTS = ("README.md", "docs/architecture.md", "docs/workflow.md", "scripts/README.md")
+DOCUMENTS = ("README.md", "docs/architecture.md", "docs/workflow.md", "scripts/README.md",
+             "CONTRIBUTING.md")
 CODE_DIRS = ("src", "scripts", "tools", "tests", "config")
 CODE_SUFFIXES = (".py", ".yaml", ".yml", ".toml")
 TICK = re.compile(r"`([^`\n]+)`")
@@ -109,7 +110,7 @@ def _cli_words(parser: argparse.ArgumentParser) -> list:
 
 
 def _readme() -> str:
-    """Return the documentation set as one text: the four documents, joined."""
+    """Return the documentation set as one text: the five documents, joined."""
     paths = [REPO / name for name in DOCUMENTS]
     if not all(p.is_file() for p in paths) or not (REPO / "src" / "pysuto").is_dir():
         pytest.skip("the documents and src/ are not part of this tree")
