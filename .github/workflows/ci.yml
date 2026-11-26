@@ -1,5 +1,5 @@
-# ci.yml: the suite on 3.9/3.12/3.13, the library alone without the copper application
-# (#304), ruff (pyflakes rules), the build, the tutorial
+# ci.yml: the suite on 3.9/3.12/3.13 and on Windows with the toy chain, the library alone
+# without the copper application (#304), ruff (pyflakes rules), the build, the tutorial
 # executed from a fresh install (#188), PyPI trusted publishing on a pushed v* tag (#196),
 # and a manual run (workflow_dispatch) that rehearses the release on TestPyPI (#195).
 # No token: PyPI and TestPyPI trust this workflow through the `pypi` and `testpypi`
