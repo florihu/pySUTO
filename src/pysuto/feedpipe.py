@@ -783,7 +783,7 @@ def _run_feed(spec, acc_id, data_dir, run_log, diag):
 
     # F — diagnostics
     if diag:
-        from pysuto.diag import FeedDiagnostics   # lazy: diag is a consumer layer (README §5)
+        from pysuto.diag import FeedDiagnostics   # lazy: diag is a consumer layer (architecture.md)
         _log.info("=" * 60)
         _log.info("F  Generating diagnostics")
         d = FeedDiagnostics(

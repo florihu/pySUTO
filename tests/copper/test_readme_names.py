@@ -1,9 +1,10 @@
 """test_readme_names.py
 =====================
-The code names of README.md match the code (#225): every backticked code name exists in
-the repository, every module file of ``src/pysuto/`` and every ``python -m pysuto`` subcommand
-and flag is named in README. A rename or a new module that leaves README behind turns
-this test red.
+The code names of the documentation set match the code (#225, #305): every backticked code
+name of README.md, docs/architecture.md, docs/workflow.md and scripts/README.md exists in the
+repository, every module file of ``src/pysuto/`` and every ``python -m pysuto`` subcommand
+and flag is named in one of them. A rename or a new module that leaves the documents behind
+turns this test red.
 """
 
 from __future__ import annotations
@@ -15,7 +16,8 @@ from pathlib import Path
 import pytest
 
 REPO = Path(__file__).resolve().parents[2]
-CODE_DIRS = ("src", "scripts", "tests", "config")
+DOCUMENTS = ("README.md", "docs/architecture.md", "docs/workflow.md", "scripts/README.md")
+CODE_DIRS = ("src", "scripts", "tools", "tests", "config")
 CODE_SUFFIXES = (".py", ".yaml", ".yml", ".toml")
 TICK = re.compile(r"`([^`\n]+)`")
 RUN_ID = re.compile(r"(feed|imp|const|opt|uncprop|psut|sweep)_\w*\d{8}_\d{6}_[0-9a-f]{8}")
@@ -107,10 +109,11 @@ def _cli_words(parser: argparse.ArgumentParser) -> list:
 
 
 def _readme() -> str:
-    readme = REPO / "README.md"
-    if not readme.is_file() or not (REPO / "src" / "pysuto").is_dir():
-        pytest.skip("README.md and src/ are not part of this tree")
-    return readme.read_text(encoding="utf-8")
+    """Return the documentation set as one text: the four documents, joined."""
+    paths = [REPO / name for name in DOCUMENTS]
+    if not all(p.is_file() for p in paths) or not (REPO / "src" / "pysuto").is_dir():
+        pytest.skip("the documents and src/ are not part of this tree")
+    return "\n".join(p.read_text(encoding="utf-8") for p in paths)
 
 
 def test_every_code_name_of_the_readme_exists_in_the_code():

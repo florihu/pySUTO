@@ -589,7 +589,7 @@ mass-balance maximum per year is the middle panel of SD-R-11). Its feasible rang
 row's cone: **≈ 0 on hard *equalities*** (`zero` cone — mass balance); **`≤ 0` on hard *bounds***
 (`nonneg` cone — ratio/flow bounds, since feasibility is `G·a ≤ c`), where a *negative* residual
 is healthy **slack** (distance below the limit), not a violation, and only a *positive* residual
-is a breach; **`= ε`, the slack, on a soft (free) row** (see README Stage 4, "Standard form" → Cone order: `Gx − ε = c`).
+is a breach; **`= ε`, the slack, on a soft (free) row** (see `docs/architecture.md` Stage 4, "Standard form" → Cone order: `Gx − ε = c`).
 _Avoid_: (1) reading a large-negative residual on a `nonneg` bound as a violation — it is slack
 (a misread that once produced a phantom "inverted bound" diagnosis); (2) conflating with
 **defect** — residual is per-constraint, defect is per-edge.

@@ -9,20 +9,24 @@ This repo is **single-context**: one `GLOSSARY.md` at the repo root, one `docs/a
 - **`GLOSSARY.md`** — the project's single glossary (e.g. *period slice* `a*(t)` vs *complete a\**,
   *cross-year placeholder*, *no cross-time coupling*).
 - **`docs/adr/`** — read ADRs that touch the area you're about to work in.
-- **`README.md`** — the architecture and spec doc. Use its §-numbered project map:
-  - §2 — architecture and the six-stage pipeline (feed → agg/imp → const → solver → uncprop → psut)
-  - §3 — module reference (where each class lives)
-  - §5 — file structure and the one-way import direction
-  - §6 — test coverage map
+- **`docs/architecture.md`** — the architecture and spec doc. Use its sections:
+  - *Architecture* — the six-stage pipeline (feed → agg/imp → const → solver → uncprop → psut)
+  - *Module reference* — where each class lives
+  - *Import direction* — the one-way import direction and its layer table
+- **`docs/workflow.md`** — run ids, sidecars, input registries, knobs, sweeps.
+- **`scripts/README.md`** — the copper application folder.
+- **`README.md`** — install, quickstarts and where things are.
 
 ## File structure
 
 ```
 /
 ├── GLOSSARY.md        ← the glossary
-├── README.md          ← architecture and spec
+├── README.md          ← install, quickstarts, where things are
 ├── CLAUDE.md          ← behavioral guidelines + Agent skills config
 ├── docs/
+│   ├── architecture.md ← stages, module reference, import direction
+│   ├── workflow.md    ← run ids, sidecars, registries, knobs
 │   ├── adr/           ← architectural decision records
 │   ├── rep/           ← analysis reports
 │   └── agents/        ← this skill's config

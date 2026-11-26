@@ -820,7 +820,7 @@ class ConstraintEngine:
 
         if diag_plot:
             # function-local: diag.const imports constraints.naming, so a module-level
-            # import here would close a cycle (diag is a leaf, README §5)
+            # import here would close a cycle (diag is a leaf, architecture.md)
             from ..diag import ConstDiagnostic, ConstStatsDiagnostic
             odir = os.path.join(self._registry.storage_dir, cr.run_id, "diag")
             year = str(diag_year if diag_year is not None else timesteps[0])

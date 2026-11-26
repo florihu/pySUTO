@@ -244,7 +244,7 @@ def test_use_params_records_an_entry_once_and_returns_its_csv(tmp_path):
 
 
 def test_the_library_never_imports_the_tutorial():
-    """README §5: ``pysuto.tutorial`` sits at the top of the import direction, beside
+    """architecture.md "Import direction": ``pysuto.tutorial`` sits at the top of the import direction, beside
     ``__main__``."""
     top = ("tutorial",)
     offenders = []

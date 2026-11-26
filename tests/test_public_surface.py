@@ -8,12 +8,12 @@ them, build an own case. The copper application's half of the check is
 any of them imports from ``pysuto`` must
 
 * resolve: ``import_module(module)`` has the attribute or the submodule;
-* be named in README's module reference (the *Public API* column of the row of its
-  module, ``submodule.name`` for a name of a file inside a package row);
+* be named in the module reference of docs/architecture.md (the *Public API* column of the
+  row of its module, ``submodule.name`` for a name of a file inside a package row);
 * be in ``__all__`` of its module, where the module declares one.
 
 The names of ``pysuto._conditioning`` are the one private exception: the tutorial reaches
-for them on purpose (README *Public API*), and the test pins that list.
+for them on purpose (architecture.md *Public API*), and the test pins that list.
 """
 from __future__ import annotations
 
@@ -25,12 +25,12 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src" / "pysuto"
-README = ROOT / "README.md"
+README = ROOT / "docs" / "architecture.md"
 
 CASE_FILES = sorted((SRC / "tutorial").glob("*.py"))
 NOTEBOOKS = sorted((SRC / "tutorial").glob("*.ipynb"))
 
-# The tutorial's declared reach into the library's private σ conditioning (README
+# The tutorial's declared reach into the library's private σ conditioning (architecture.md
 # "Public API"): the toy and chapters 4-5 rebuild the solver's conditioned QP to show it.
 INTERNAL = {"pysuto._conditioning": {"condition_prior", "condition_sigma_c"}}
 
@@ -60,20 +60,20 @@ def case_imports() -> dict:
 
 
 def module_reference() -> dict:
-    """README's module reference: ``{row key: {backticked tokens of its API cell}}``."""
+    """The module reference of architecture.md: ``{row key: {backticked tokens of its API}}``."""
     text = README.read_text(encoding="utf-8")
-    body = text[text.index("## Module reference"):text.index("## Workflow")]
+    body = text[text.index("## Module reference"):text.index("## Import direction")]
     rows: dict = {}
     for line in body.splitlines():
         cells = re.split(r"(?<!\\)\|", line)
-        if len(cells) < 4 or "](src/pysuto/" not in cells[1]:
+        if len(cells) < 4 or "](../src/pysuto/" not in cells[1]:
             continue
         tokens = set()
         for t in re.findall(r"`([^`]+)`", cells[2]):
             m = re.match(r"[\w.]+", t.replace("\\", ""))
             if m:
                 tokens.add(m.group(0))
-        for target in re.findall(r"\]\(src/pysuto/([^)]+)\)", cells[1]):
+        for target in re.findall(r"\]\(\.\./src/pysuto/([^)]+)\)", cells[1]):
             key = target.rstrip("/")
             key = key[:-3] if key.endswith(".py") else key
             rows.setdefault(key.replace("/", "."), set()).update(tokens)
@@ -107,7 +107,7 @@ def test_every_imported_name_is_in_the_module_reference():
         f"{module}.{name} ({', '.join(sorted(files))})"
         for (module, name), files in case_imports().items()
         if name not in INTERNAL.get(module, ()) and not _declared(rows, module, name))
-    assert not missing, "not in README's module reference:\n  " + "\n  ".join(missing)
+    assert not missing, "not in the module reference of architecture.md:\n  " + "\n  ".join(missing)
 
 
 def test_every_imported_name_is_in_all_where_declared():

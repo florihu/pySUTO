@@ -152,7 +152,7 @@ class ImputationRunRegistry(BaseOutputRegistry):
 
     def load(self, run_id: str):
         """Reconstruct an ``AggregationResult`` with attached log."""
-        # lazy: the result classes sit above the registry (README §5, back-edge family)
+        # lazy: the result classes sit above the registry (architecture.md, back-edge family)
         from pysuto.agg import AggregationResult
         from pysuto.impute import ImputationLog
 

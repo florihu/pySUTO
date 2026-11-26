@@ -278,7 +278,7 @@ _LITERAL = re.compile(r"""^[rRuUfFbB]{0,2}(['"])(%s)\1$"""
                       % "|".join(_LABELS + _SECTORS + _REGIONS))
 # The files and directories that may name case labels, each for a reason:
 # acc.py and registry/psut.py bind the roles of a structure or a PSUT run persisted
-# before roles existed (the latter cannot import acc, README §5); tutorial/ is the bundled toy case, a
+# before roles existed (the latter cannot import acc, architecture.md "Import direction"); tutorial/ is the bundled toy case, a
 # case module that ships inside the package (``pysuto.case`` resolves it by alias).
 _ALLOWED_FILES = ("acc.py", "registry/psut.py")
 _ALLOWED_DIRS  = ("tutorial/",)

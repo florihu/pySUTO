@@ -1,8 +1,8 @@
 """test_import_direction.py
 =======================
-The import direction of README §5 is checked, not only drawn (#217).
+The import direction of docs/architecture.md (*Import direction*) is checked, not only drawn (#217).
 
-The layer table of README §5 (``| unit | module-level imports | typing only |``) is the
+The layer table of docs/architecture.md (``| unit | module-level imports | typing only |``) is the
 one source: this module reads it and walks ``src/pysuto`` with ``ast``. A *unit* is a
 top-level module or subpackage of ``pysuto``; edges inside a unit are free. Three rules:
 
@@ -23,7 +23,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src" / "pysuto"
-README = ROOT / "README.md"
+README = ROOT / "docs" / "architecture.md"
 REASONS = ("cycle", "lazy", "optional")
 
 
@@ -34,7 +34,7 @@ def _unit(module: str) -> str | None:
 
 
 def read_table() -> dict:
-    """README §5's layer table: ``{unit: (module-level set, typing-only set)}``."""
+    """The architecture document's layer table: ``{unit: (module-level set, typing-only set)}``."""
     text = README.read_text(encoding="utf-8")
     start = text.index("**Import direction is strictly one-way")
     rows = {}

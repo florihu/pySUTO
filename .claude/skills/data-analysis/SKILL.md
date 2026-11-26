@@ -18,7 +18,7 @@ If the user gave only one of these, ask once for the missing piece — don't gue
 
 ## Project context
 
-pySUTO is a 6-stage pipeline: **feed → agg+imp → const → solver → uncprop → psut**. Architecture, math, and module map are in [`README.md`](../../../README.md) §2–§3. Before drafting hypotheses, skim README §2 for the stage that owns each observation (flow-collapse → Stage 4; coverage → Stage 2; constraint-row weirdness → Stage 3). Re-read these every invocation, because the math evolves and memory of it won't be load-bearing.
+pySUTO is a 6-stage pipeline: **feed → agg+imp → const → solver → uncprop → psut**. Architecture, math, and module map are in [`docs/architecture.md`](../../../docs/architecture.md). Before drafting hypotheses, skim its *Architecture* section for the stage that owns each observation (flow-collapse → Stage 4; coverage → Stage 2; constraint-row weirdness → Stage 3). Re-read these every invocation, because the math evolves and memory of it won't be load-bearing.
 
 ## The 9-step routine
 
