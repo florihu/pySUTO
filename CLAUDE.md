@@ -102,7 +102,7 @@ The test: Does the user understand your output after one read?
 
 # pySUTO — project-specific facts
 
-Supply–use-table reconciliation (copper application): a σ-weighted QP solved in Clarabel at the end of a six-stage pipeline (numpy · scipy.sparse · pandas). Architecture and module map are in [docs/architecture.md](docs/architecture.md), the run workflow in [docs/workflow.md](docs/workflow.md), vocabulary in [GLOSSARY.md](GLOSSARY.md), decisions in `docs/adr/`, open work in GitHub issues and milestones. The code is of three kinds: the **library** `src/pysuto` holds the method, generic for every case; the **application** `scripts/` holds everything that carries copper's name (GLOSSARY.md "Application"); repo tooling goes in `tools/` (from #303 on). Re-measure, do not assume (ADR 0028): a claim about a run is backed by a run id and a number.
+Supply–use-table reconciliation (copper application): a σ-weighted QP solved in Clarabel at the end of a six-stage pipeline (numpy · scipy.sparse · pandas). Architecture and module map are in [docs/architecture.md](docs/architecture.md), the run workflow in [docs/workflow.md](docs/workflow.md), vocabulary in [GLOSSARY.md](GLOSSARY.md), decisions in `docs/adr/`, open work in GitHub issues and milestones. The code is of three kinds: the **library** `src/pysuto` holds the method, generic for every case; the **application** `scripts/` holds everything that carries copper's name (GLOSSARY.md "Application"); repo tooling goes in `tools/`. Re-measure, do not assume (ADR 0028): a claim about a run is backed by a run id and a number.
 
 ## Pipeline
 

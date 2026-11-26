@@ -183,7 +183,7 @@ The SI ([docs/manuscript/si.md](docs/manuscript/si.md)) states the equations of 
 | Library | [src/pysuto/](src/pysuto/): the six stages, the registries, the solver, [diag/](src/pysuto/diag/) (diagnostics). It knows no study case. |
 | Application (copper) | [scripts/](scripts/): the case, the feeds and builders, the stage drivers, the sweeps, the reports. See [scripts/README.md](scripts/README.md). |
 | Tooling | [tools/](tools/): input status, issue audit, run pruning, tutorial refresh. |
-| Tests | [tests/](tests/); `tests/copper/` (from #304 on) holds the tests that need the copper application. Run them with `python -m pytest tests/` (never bare `pytest`). |
+| Tests | [tests/](tests/); [tests/copper/](tests/copper/) holds the tests that need the copper application. Run them with `python -m pytest tests/` (never bare `pytest`). |
 | Tutorial | [src/pysuto/tutorial/](src/pysuto/tutorial/): the toy case and the eleven notebooks. |
 | Architecture and modules | [docs/architecture.md](docs/architecture.md): the stages, their mathematics, the module reference, the import direction. |
 | Workflow | [docs/workflow.md](docs/workflow.md): the driver walk-through, run ids, sidecars, input registries, knobs, sweeps. |
